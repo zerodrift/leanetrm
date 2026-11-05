@@ -373,6 +373,8 @@ BEGIN
   latest=selected.id=(SELECT s.id FROM market_data.market_closes s WHERE(s.catalog_id,s.session_code,s.business_date)=(selected.catalog_id,selected.session_code,selected.business_date)
    ORDER BY s.publication_order DESC LIMIT 1);
   IF latest THEN
+   -- A view never reaches a business day after its own date.
+   IF selected.business_date>temporal.effective_on THEN RETURN false;END IF;
    IF EXISTS(SELECT 1 FROM market_data.market_close_pins p JOIN market_data.observations o ON(o.catalog_id,o.id)=(p.catalog_id,p.observation_id)
     WHERE(p.catalog_id,p.close_id)=(market_close_visible.catalog,market_close_visible.close_id) AND(o.observed_at>selected.at OR NOT EXISTS(SELECT 1 FROM market_data.revision_periods v
      WHERE(v.catalog_id,v.revision_id)=(p.catalog_id,p.definition_revision_id) AND v.effective_from<=temporal.effective_on AND temporal.effective_on<v.effective_to)))

@@ -355,7 +355,8 @@ def run_correction_checks(query, manifest, c, frames):
     assert len(aliases)==2 and seed['id'] not in aliases
     print('PASS certified contexts: the latest correction known at each cutoff resolves both bundles into the context\'s own snapshot, repeatably and read-only',flush=True)
     c.call('profile',{'profile':'approver'})
-    refused=c.call('market/closes/register',{'requestId':str(uuid4()),'snapshotId':daily['frame']['id'],'name':'Selected daily correction'},expected=422)
+    refused=c.call('market/closes/register',{'requestId':str(uuid4()),'snapshotId':daily['frame']['id'],'name':'Selected daily correction',
+        'session':daily['frame'].get('close',{}).get('session','not_a_session'),'businessDate':daily['frame']['at'][:10]},expected=422)
     assert refused['code']=='close_swap_market_pins',refused
     c.call('profile',{'profile':'trader'})
     print('PASS a close cannot be registered from a snapshot whose separate swap-bundle selections it cannot record',flush=True)

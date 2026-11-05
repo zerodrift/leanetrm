@@ -32,7 +32,9 @@ internal static class MarketCalendarDemandChecks
             var references=await new CustomCurvesStore(database).References(connection,definition,metadata,ct);
             // Each candidate is legal: 12 contracts x20 prior dates. Distinct
             // second-of-day sampling gives 70x240=16,800 distinct windows.
-            var frames=Enumerable.Range(1,70).Select(second=>frame with{Id=Guid.NewGuid(),At=frame.At.AddSeconds(second)}).ToImmutableArray();
+            // Calendar candidates are recorded closes of one session (D319); these synthetic ones all close the frame's day.
+            var closeDay=new FrameClose("test_calendar_demand",1,DateOnly.FromDateTime(frame.At.UtcDateTime),null);
+            var frames=Enumerable.Range(1,70).Select(second=>frame with{Id=Guid.NewGuid(),At=frame.At.AddSeconds(second),Close=closeDay}).ToImmutableArray();
             await using(var save=ScheduleStore.Command(connection,"SAVEPOINT calendar_demand"))await save.ExecuteNonQueryAsync(ct);
             try
             {
@@ -70,10 +72,10 @@ internal static class MarketCalendarDemandChecks
                 await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT calendar_demand;RELEASE SAVEPOINT calendar_demand");
                 await restore.ExecuteNonQueryAsync(CancellationToken.None);
             }
-            var one=await MarketDates.Read(database,connection,PinnedContext.Current(),[frames[0]],new(null,"UTC",definition,1),ct);
-            var qualifying=frame with{Id=Guid.NewGuid(),At=frame.At.AddDays(1)};
-            var expected=await MarketDates.Read(database,connection,PinnedContext.Current(),[qualifying],new(null,"UTC",definition,1),ct);
-            var all=await MarketDates.Read(database,connection,PinnedContext.Current(),frames.Add(qualifying),new(null,"UTC",definition),ct);
+            var one=await MarketDates.Read(database,connection,PinnedContext.Current(),[frames[0]],new(null,"UTC","test_calendar_demand",definition,1),ct);
+            var qualifying=frame with{Id=Guid.NewGuid(),At=frame.At.AddDays(1),Close=closeDay with{BusinessDate=closeDay.BusinessDate.AddDays(1)}};
+            var expected=await MarketDates.Read(database,connection,PinnedContext.Current(),[qualifying],new(null,"UTC","test_calendar_demand",definition,1),ct);
+            var all=await MarketDates.Read(database,connection,PinnedContext.Current(),frames.Add(qualifying),new(null,"UTC","test_calendar_demand",definition),ct);
             if(!one.Dates.IsEmpty||one.Unavailable.Single().Reason!="missing_observation"||expected.Dates.Length!=1||
                 JsonSerializer.Serialize(all.Dates)!=JsonSerializer.Serialize(expected.Dates)||!all.Unavailable.SequenceEqual(one.Unavailable))
                 throw new Exception("An aggregate overflow must preserve candidate availability and its explicit missing-sample refusal.");

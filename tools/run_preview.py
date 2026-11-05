@@ -538,6 +538,9 @@ def main():
             # One owned test date deliberately has no admitted demo input frame.
             reference_demo['omittedAt']=max(f['at'] for f in reference_demo['frames'] if not f['at'].startswith('2020-12-18'))
             manifest['swapMarkets'][-1]['frames']=[f for f in reference_demo['frames'] if f['at']!=reference_demo['omittedAt']]
+        # Only recorded closes are closes (D319): the built-in frames are recorded as synthetic session closes.
+        from seed_session_closes import seed as seed_session_closes
+        seed_session_closes(query,manifest)
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         # Freeze assets for this owned instance; a later web build must not change
         # another running preview's presentation while it is being used.

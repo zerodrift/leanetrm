@@ -433,7 +433,9 @@ PinnedContext Pin(PreviewSession session,Guid? frame=null)
     var selected=frame is {} id?Frame(session,id):null;
     return session.MarketContext is {} context?PinnedContext.Retained(context,selected):PinnedContext.Current(selected);
 }
-InputFrame PpaFrame(PreviewSession session,Guid id)=>Pin(session).Require(session.Frames.GetValueOrDefault(id));
+// An identity that could not discover the session's closes holds no market inputs: an unknown frame is then a denial (D319).
+InputFrame PpaFrame(PreviewSession session,Guid id)=>session.Frames.GetValueOrDefault(id) is {} frame||session.HasDiscoveredFrames
+    ?Pin(session).Require(session.Frames.GetValueOrDefault(id)):throw new PreviewDeniedException();
 InputFrame Frame(PreviewSession session,Guid id)
 {
     var frame=PpaFrame(session,id);
@@ -516,7 +518,7 @@ api.MapCustomCurves(database,(c,permission,snapshotId,work)=>Locked(c,session=>
             throw new MarketDataException("custom_curve_historical","Author and publish curves in the current workspace.");
         return await work(connection,pin,ct);
     },c.RequestAborted)));
-api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,session=>
+api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,async session=>
 {
     if(hosted is not null)throw new PreviewDeniedException();
     if (!profiles.Any(p=>p.id==body.Profile) && !session.CustomProfiles.ContainsKey(body.Profile)) throw new PreviewDeniedException();
@@ -527,7 +529,9 @@ api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,session=>
     // (docs/ai-assistant.md §7.2, §8).
     turnStreams.EndSession(session.Digest,left);
     turnWorker.EndSession(session.Digest);
-    return Task.FromResult(Results.Ok(new {profile=session.Profile}));
+    // Closes are the identity's own discovery (D319): one that can read market data holds them at once; one that cannot holds none.
+    try{await RefreshFrames(session,c.RequestAborted);}catch(PreviewDeniedException){}
+    return Results.Ok(new {profile=session.Profile});
 }));
 PreviewSequenceCoverage ScheduleSource(string? code) => (database.Manifest.Schedules ?? []).SingleOrDefault(s=>s.Curve==code)
     ?? throw new MarketDataException("sequence_source","Choose an explicitly configured contract schedule.");
@@ -903,7 +907,9 @@ api.MapPost("/market/context",(HttpContext c,MarketContextRequest body)=>Locked(
 api.MapPost("/market/current",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,async session=>
 {
     await database.WithIdentity(Profile(session),"ReadMarketData",(_,_)=>Task.FromResult(true),c.RequestAborted);
-    session.StopLive();session.ForgetDiscoveredFrames();session.MarketContext=null;return Results.Ok(new {mode="explicit_input_pins"});
+    session.StopLive();session.ForgetDiscoveredFrames();session.MarketContext=null;
+    await RefreshFrames(session,c.RequestAborted);
+    return Results.Ok(new {mode="explicit_input_pins"});
 })));
 api.MapPost("/market/live",(HttpContext c,LiveSelectRequest body)=>Locked(c,async session=>
 {
@@ -936,7 +942,7 @@ object WorkspaceProjection(PreviewSession session,WorkspaceRead read,bool catalo
     });
     return new {referenceSources,unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references=data.References,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
         frames=prior is null?[..session.VisibleFrames.Where(f=>f.Close is not null)]:ImmutableArray.Create(prior),
-        workingSnapshots=prior is null?[..session.VisibleFrames.Where(f=>f.Close is null)]:ImmutableArray<InputFrame>.Empty,frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:context is null?session.InitialFrames:session.ContextAliases(context).Select(f=>f.Id).ToArray()};
+        workingSnapshots=prior is null?[..session.VisibleFrames.Where(f=>f.Close is null)]:ImmutableArray<InputFrame>.Empty,frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:session.InitialFrameIds};
 }
 Task<IResult> Workspace(HttpContext c,bool catalogOnly)=>Locked(c,async session=>
 {
@@ -960,7 +966,7 @@ api.MapGet("/workspace/navigation",(Func<HttpContext,Task<IResult>>)(c=>Locked(c
     session.ApplyFrames(read.plan);var frames=session.VisibleFrames;
     return Results.Ok(new MarketNavigation(Profile(session),session.MarketContext,read.navigation.DefinitionRevision,read.navigation.ReferenceRevision,
         database.Manifest.FuturesConvention,database.Manifest.Example,
-        session.MarketContext is null?[..session.InitialFrames]:[..session.ContextAliases(session.MarketContext).Select(f=>f.Id)],
+        [..session.InitialFrameIds],
         [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.OriginCloseId,f.Close))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog,Live=session.Live?.Summary()});
 })));
 api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
@@ -2132,11 +2138,17 @@ public sealed partial class PreviewSession
     public PreviewShortcutLibrary Shortcuts {get;}=new();
     public DateWorkspace Dates {get;}=new();
     public Guid[] InitialFrames {get;}
+    // The built-in inputs recorded as closes; the session offers them as discovered closes.
+    public ImmutableHashSet<Guid> InitialCloses {get;}
+    // The page's built-in inputs: its remaining built-in working frames (or their aliases under a context) and its built-in closes.
+    public Guid[] InitialFrameIds=>[..(MarketContext is null?InitialFrames:ContextAliases(MarketContext).Select(f=>f.Id))
+        .Concat(VisibleFrames.Where(f=>f.OriginCloseId is {} close&&InitialCloses.Contains(close)).Select(f=>f.Id))];
     public PreviewSession(PreviewManifest manifest,HostedSignIn? signIn=null)
     {
         Ends=signIn?.Ends??Created+Lifetime;
         Digest=signIn?.Digest??Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
-        foreach(var f in manifest.Frames) {
+        InitialCloses=[..manifest.Frames.Select(f=>f.CloseId).OfType<Guid>()];
+        foreach(var f in manifest.Frames.Where(f=>f.CloseId is null)) {
             if(f.CurveContracts is null)throw new MarketDataException("missing_curve_view","Every seed frame requires explicit curve contract selections.");
             var frame=new InputFrame(Guid.NewGuid(),"Initial synthetic inputs",f.At,f.ObservationIds.ToImmutableArray(),
                 f.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()),FrozenObservationIds:(f.FrozenObservationIds??[]).ToImmutableArray()){PpaBundle=f.PpaBundle};Frames.Add(frame.Id,frame);

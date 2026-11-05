@@ -12,6 +12,7 @@ from uuid import uuid4
 from benchmark_ppa_http import HttpFixture, terms, expected_value, midnight
 from exact_values import instant, fraction
 from preview_client import PreviewClient
+from close_session_fixture import record
 
 
 def check_work(work, cells, admission):
@@ -66,7 +67,7 @@ def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, 
         while remaining > 0:
             time.sleep(min(remaining, 30))
             remaining = (instant(manifest['closeRisk']['at']) - datetime.now(timezone.utc)).total_seconds()
-    close = owner.call('market/closes/register', dict(requestId=str(uuid4()), snapshotId=frame['id'], name='Synthetic renewable close'))
+    close = record(owner, frame, 'Synthetic renewable close')
     policy = owner.call('jobs/pilot-close/catalog')['valuationPolicyChoices'][0]['policy']
     now = datetime.now(timezone.utc)
     body = {'schedule': {'requestId': str(uuid4()), 'name': 'Synthetic renewable completion', 'operation': 'close_book_risk_v1',

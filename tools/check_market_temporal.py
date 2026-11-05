@@ -1,6 +1,7 @@
 """One certified cutoff for market definitions, exact references, rates and observations."""
 from decimal import Decimal
 from uuid import uuid4
+from close_session_fixture import record
 
 
 def run_checks(Client, check, after_browser):
@@ -39,11 +40,19 @@ def run_checks(Client, check, after_browser):
     check('interest rates use the identical certified market context', rates['context'] == context)
     c.call('evaluate', {'snapshotId': changed['frame']['id'], 'curve': 'local_power'}, expected=422)
     check('historical view cannot evaluate a different unpinned context')
+    # A recorded close stays exact (D172); the correction reaches a close only when it is recorded as that day's close
+    # (D319), which every view of that session then reads. A test session keeps the built-in closes untouched.
+    approver = Client(); approver.bootstrap(); approver.call('profile', {'profile': 'approver'})
+    original = record(approver, next(f for f in approver.call('workspace')['frames'] if f['id'] == seed['id']), 'Synthetic original close')
+    approver.call('select-observation', {'snapshotId': seed['id'], 'observationId': changed['observationId']})
+    snapshot = next(f for f in approver.call('workspace')['workingSnapshots'] if changed['observationId'] in f['observationIds'])
+    corrected = record(approver, snapshot, 'Synthetic corrected close')
     latest = c.call('market/context', request)
     current = c.call('workspace')
-    newer = next(f for f in current['frames'] if f.get('contextId') == latest['context']['contextId'] and f['at'] == seed['at'])
+    newer = next(f for f in current['frames'] if f.get('originCloseId') == corrected['id'])
+    assert original['id'] not in {f.get('originCloseId') for f in current['frames']}, 'A replaced close is still offered'
     after = c.call('evaluate', {'snapshotId': newer['id'], 'curve': 'local_power'})
-    check('explicit latest-correction policy updates the dependent curve', after['points'][0]['value'] != before['points'][0]['value'])
+    check('a recorded correction replaces the close every view reads', after['points'][0]['value'] != before['points'][0]['value'])
     history = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', 'snapshotId': newer['id'], 'curve': 'local_power', 'contractId': after['points'][0]['contractId']})
     check('contract history stops at the context date', all(p['at'][:10] <= '2020-12-17' for p in history['points']))
     def chart_of(points):
@@ -88,7 +97,7 @@ def run_checks(Client, check, after_browser):
             return [(at, None if i == 0 or value is None or distinct[i-1][1] is None else (Decimal(value) + Decimal(distinct[i-1][1])) / 2)
                     for i, (at, value) in enumerate(distinct)]
         offered=c.call('history',query)['points']
-        c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': seed_frame['id'], 'name': 'Synthetic duplicate sample'})
+        record(c, seed_frame, 'Synthetic duplicate sample')
         check('history retains the offered directory until an explicit refresh',c.call('history',query)['points']==offered)
         c.call('workspace/navigation')
         duplicated = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]})
@@ -99,7 +108,7 @@ def run_checks(Client, check, after_browser):
               and [(v['at'], None if v['value'] is None else Decimal(v['value'])) for v in series] == expected_means(duplicated['points']))
         check('the chart series holds identical samples at one instant once, as the overlays do',
               [p['at'] for p in duplicated['chart']['points']] == list(dict.fromkeys(instants)) and [v['at'] for v in series] == [p['at'] for p in duplicated['chart']['points']])
-        c.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': corrected_frame['id'], 'name': 'Synthetic differing sample'})
+        record(c, corrected_frame, 'Synthetic differing sample')
         c.call('workspace/navigation')
         plain = c.call('history', query)
         conflict = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]})
@@ -118,21 +127,24 @@ def run_checks(Client, check, after_browser):
             return [p for p in history['points'] if p['at'][:10] == '2020-12-17']
         old_ctx = c.call('market/context', {**request, 'mode': 'at', 'knownAt': context['knownAt']})['context']
         old_view = context_history(old_ctx)
-        check('under a cutoff before the correction the original is shown and the cutoff used is echoed',
+        # Always latest (D319): the recorded close in force for the day carries the correction, so even a cutoff before the
+        # correction reads it, and says the sample became known after that cutoff.
+        check('under a cutoff before the correction the close in force is shown, its later knowledge stated, and the cutoff echoed',
               old_view['revisionPolicy'] == asknown and old_view['knowledgeCutoff'] == old_ctx['knownAt']
-              and len(at_seed_day(old_view)) == 1 and Decimal(at_seed_day(old_view)[0]['value']) != Decimal('30.43') and at_seed_day(old_view)[0]['knownAt'] <= old_ctx['knownAt'])
+              and len(at_seed_day(old_view)) == 1 and Decimal(at_seed_day(old_view)[0]['value']) == Decimal('30.43') and at_seed_day(old_view)[0]['knownAt'] > old_ctx['knownAt'])
         later = c.call('market/context', request)['context']
         new_view = context_history(later)
-        check('under a cutoff after the correction the corrected value is shown, with its recorded knowledge instant',
-              len(at_seed_day(new_view)) == 1 and Decimal(at_seed_day(new_view)[0]['value']) != Decimal(at_seed_day(old_view)[0]['value'])
+        check('under a cutoff after the correction the same close in force is shown, with its recorded knowledge instant',
+              len(at_seed_day(new_view)) == 1 and Decimal(at_seed_day(new_view)[0]['value']) == Decimal(at_seed_day(old_view)[0]['value'])
               and new_view['knowledgeCutoff'] == later['knownAt'] and at_seed_day(new_view)[0]['knownAt'] > old_ctx['knownAt'])
         c.call('market/current', {})
         working = c.call('workspace')['frames']
         working_pin = next(f for f in working if f['at'][:10] == '2020-12-16' and not f.get('ppaBundle'))
         base = {'snapshotId': working_pin['id'], 'curve': 'local_power', 'contractId': contract}
         exact_view = c.call('history', {**base, 'revisionPolicy': 'exact_snapshot_pins_v1'})
+        # One close per session day (D319): the built-in session's original and the test session's corrected close.
         check('exact pins keep the original and the corrected sample apart at the seed instant',
-              exact_view['revisionPolicy'] == 'exact_snapshot_pins_v1' and len(at_seed_day(exact_view)) == 3)
+              exact_view['revisionPolicy'] == 'exact_snapshot_pins_v1' and len(at_seed_day(exact_view)) == 2)
         resolved = c.call('history', {**base, 'revisionPolicy': asknown, 'overlays': [sma]})
         check('working data under the cutoff policy shows the corrected value once and states that it used current knowledge',
               [Decimal(p['value']) for p in at_seed_day(resolved)] == [Decimal(at_seed_day(new_view)[0]['value'])]

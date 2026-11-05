@@ -1,6 +1,7 @@
 """Durable risk HTTP checks against the caller's newly owned synthetic preview."""
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
+from close_session_fixture import record
 
 
 def run_checks(Client, check, run_worker):
@@ -94,7 +95,7 @@ def run_checks(Client, check, run_worker):
     # Every close of one date shares a retained context, so a part at another close of the date is refused too: a run is made at one close.
     approver = Client(); approver.bootstrap(); approver.call('profile', {'profile': 'approver'})
     registered = next(f for f in approver.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
-    approver.call('market/closes/register', {'requestId': str(uuid4()), 'snapshotId': registered['id'], 'name': 'Synthetic second close'})
+    record(approver, registered, 'Synthetic second close')
     other_close = next(f for f in risk.call('workspace')['frames'] if f['at'] == frame['at'] and f['id'] != frame['id'])
     # A context captured once the close is registered knows both closes of the date; a job at either close alone is admitted.
     both = {**context, 'contextId': risk.call('portfolio/risk/catalog', {'context': {'snapshotId': frame['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'current'},

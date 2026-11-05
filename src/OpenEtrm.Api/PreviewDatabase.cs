@@ -33,7 +33,8 @@ public sealed record PreviewSwapMarket(Guid RevisionId,PreviewSeedFrame[] Frames
 public sealed record PreviewSequenceCoverage(string Curve, DateTimeOffset From, DateTimeOffset To, DateTimeOffset ExampleAt);
 public sealed record PreviewExample(DateTimeOffset At,string Curve);
 public sealed record PpaBundle(Guid DefinitionRevisionId,Guid ReferenceCatalogId,Guid ReferenceRevisionId);
-public sealed record PreviewSeedFrame(DateTimeOffset At, Guid[] ObservationIds, Dictionary<string,Guid[]> CurveContracts,Guid[]? FrozenObservationIds=null,PpaBundle? PpaBundle=null);
+// CloseId names the recorded close a built-in frame was seeded as (D319); such a frame is that close, not a working snapshot.
+public sealed record PreviewSeedFrame(DateTimeOffset At, Guid[] ObservationIds, Dictionary<string,Guid[]> CurveContracts,Guid[]? FrozenObservationIds=null,PpaBundle? PpaBundle=null,Guid? CloseId=null);
 // RecordedAfterCutoff says, under a historical context, that the close in force was recorded after its knowledge cutoff (D319).
 public sealed record FrameClose(string Session,int SessionVersion,DateOnly BusinessDate,Guid? ReplacedBy,bool? RecordedAfterCutoff=null);
 public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, ImmutableArray<Guid> ObservationIds,
@@ -57,16 +58,16 @@ public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, Immutab
     [System.Text.Json.Serialization.JsonIgnore]
     public bool ResolvesLatestCorrection{get;init;}
     public InputFrame ForSwapMarket(ImmutableArray<Guid> pins,ImmutableDictionary<string,ImmutableArray<Guid>> contracts)=>
-        this with{Name="Selected swap market",ObservationIds=pins,CurveContracts=contracts,OriginCloseId=null,OriginInputId=null,
+        this with{Name="Selected swap market",ObservationIds=pins,CurveContracts=contracts,OriginCloseId=null,Close=null,OriginInputId=null,
             FrozenObservationIds=FrozenObservationIds.IsDefault?[]:FrozenObservationIds.Where(pins.Contains).ToImmutableArray()};
     public InputFrame SelectRevision(Guid previous,Guid selected,string name)=>this with
     {
-        Id=Guid.NewGuid(),Name=name,OriginCloseId=null,OriginInputId=null,ObservationIds=ObservationIds.Replace(previous,selected),
+        Id=Guid.NewGuid(),Name=name,OriginCloseId=null,Close=null,OriginInputId=null,ObservationIds=ObservationIds.Replace(previous,selected),
         FrozenObservationIds=FrozenObservationIds.IsDefault?default:FrozenObservationIds.Contains(previous)?FrozenObservationIds.Replace(previous,selected):FrozenObservationIds
     };
     public InputFrame SelectSwapMarketRevision(Guid market,ImmutableArray<Guid> pins,Guid previous,Guid selected,string name)=>this with
     {
-        Id=Guid.NewGuid(),Name=name,OriginCloseId=null,OriginInputId=null,
+        Id=Guid.NewGuid(),Name=name,OriginCloseId=null,Close=null,OriginInputId=null,
         SwapMarketSelections=(SwapMarketSelections??ImmutableDictionary<Guid,ImmutableArray<Guid>>.Empty).SetItem(market,pins.Replace(previous,selected))
     };
 }

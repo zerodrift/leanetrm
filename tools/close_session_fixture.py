@@ -1,5 +1,7 @@
 """Publish D319 close sessions and grants for owned synthetic checks."""
+import hashlib
 from uuid import uuid4
+from preview_client import PreviewClient
 
 
 def draft(code, calendar, cutoff='17:30', curves=('future',), effective=('2020-12-01', '2021-12-01')):
@@ -35,3 +37,31 @@ def sql_session(query, manifest, code, calendar, cutoff, curves, logins, revisio
     SELECT '{catalog}','{code}',1,'published',2,id,reference_catalog_id,reference_revision_id,'{calendar}','{cutoff}','{effective[0]}','{effective[1]}',
      '{owner}',gen_random_uuid(),'{{}}','{owner}',gen_random_uuid() FROM market_data.revisions WHERE(catalog_id,id)=('{catalog}','{revision}');
     INSERT INTO market_data.close_session_curves VALUES {curve_rows};{grants}""")
+
+
+_published, _granted = set(), set()
+
+
+def record(who, frame, name, login='approver', request_id=None):
+    """Record a close of a frame for its business day in a synthetic UTC session at the frame's time of day and curves,
+    publishing that session and granting the recorder once per preview. Built-in closes keep their own sessions."""
+    curves = sorted(frame['curveContracts'])
+    cutoff = frame['at'][11:16]
+    code = f"test_close_{cutoff.replace(':', '')}_{hashlib.sha256(','.join(curves).encode()).hexdigest()[:8]}"
+    def client(profile):
+        value = PreviewClient(who.url); value.bootstrap(); value.call('profile', {'profile': profile}); return value
+    if (who.url, code) not in _published:
+        publish(client('editor'), client('approver'), draft(code, 'test_utc_every_day', cutoff, curves, ('2020-01-01', '2023-01-01')))
+        _published.add((who.url, code))
+    if (who.url, code, login) not in _granted:
+        grant_member(client('admin'), login, code)
+        _granted.add((who.url, code, login))
+    return who.call('market/closes/register', {'requestId': request_id or str(uuid4()), 'snapshotId': frame['id'], 'name': name,
+                                               'session': code, 'businessDate': frame['at'][:10]})
+
+
+def grant_member(admin, login, session):
+    """Grant a workspace member, found by login in the access directory, a session's recording authority."""
+    member = next(m for m in admin.call('admin')['members'] if m['login'] == login)
+    return admin.call('close-sessions/grants', {'requestId': str(uuid4()), 'principalId': member['id'], 'session': session,
+                                                'grantedFrom': '2020-01-01T00:00:00Z', 'grantedTo': '9999-01-01T00:00:00Z'})
