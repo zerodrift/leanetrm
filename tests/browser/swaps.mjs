@@ -4,6 +4,7 @@ import {setupTradingReplies} from './trading-responses.mjs';
 import {chooseProduct,newTrade,startNewTrade,closeNewTrade} from './new-trade.mjs';
 import {deliveryLabel} from '../../web/dist/market-view.js';
 import {swapPvCard,groupHeadersReadApart} from './desk-cards.mjs';
+import {scrollPositionsToTop} from './positions-scroll.mjs';
 import {deltaInkCheck} from './side-panel-checks.mjs';
 export async function run({command,evaluate,wait,click,set:setValue,submit,persona,check,shot,idle,url}){
  const set=async(selector,value)=>{await setValue(selector,value);await wait(idle);};
@@ -155,7 +156,7 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
  const headerTexts="[...document.querySelectorAll('#desk-positions .tabulator-group')].map(h=>h.textContent)";
  await evaluate('window.__secondCurrency=true');await click('#futures-refresh');await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
  // A new read keeps the trader's place in the rows, beside the swap just booked; the headers read here are drawn from the top.
- await evaluate("(async()=>{document.querySelector('#desk-positions .tabulator-tableholder').scrollTop=0;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));})()");
+ await scrollPositionsToTop(evaluate);
  await check('a group header holding two subtotals reads each apart',groupHeadersReadApart({twoSubtotals:true}),headerTexts);
  await evaluate('window.__secondCurrency=false');await click('#futures-refresh');await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
  await check('swap booking facts are server-owned while memo remains editable',"(()=>{const b=window.__swaps.filter(r=>r.path==='/api/swaps/book').at(-1).body;return !('traderId' in b)&&!('tradeDate' in b)&&!('executedAt' in b)&&b.memo==='Synthetic swap memo <plain text>';})()");
