@@ -33,6 +33,7 @@ public sealed record ReadAccess(string Access,Guid? CatalogId,string Permission)
 sealed record ToolCall(ToolOperation Operation,ToolArguments Arguments);
 abstract record ToolArguments;
 sealed record NoArguments:ToolArguments;
+sealed record DigestArguments:ToolArguments;
 sealed record PrepareCurveArguments(string Code,string Name,string Formula,string Engine):ToolArguments;
 // Save curve draft's request: the curve as it was prepared, and the assistant's own draft it revises, or none for a new curve.
 sealed record SaveCurveArguments(PrepareCurveArguments Curve,Guid? CurveId):ToolArguments;
@@ -62,7 +63,10 @@ public sealed record AgentIdentity(string Principal,Guid Delegation)
 
 // What a turn's reads run with: its pin, its agent, the page report stored at ask, the version's switched-on tools and its
 // time per read (D245).
-public sealed record TurnReads(TurnPin Pin,AgentIdentity Agent,JsonElement PageReport,ImmutableHashSet<string> Tools,Guid TurnId,TimeSpan ReadLimit,ToolOutputLimits OutputLimits);
+public sealed record TurnReads(TurnPin Pin,AgentIdentity Agent,JsonElement PageReport,ImmutableHashSet<string> Tools,Guid TurnId,TimeSpan ReadLimit,ToolOutputLimits OutputLimits)
+{
+    public string Question{get;init;}="";
+}
 
 // How a step ended: with a result or a refusal the model receives, a failure that ends the turn, or a read the worker
 // stopped, whose cause it names.
@@ -76,6 +80,10 @@ public sealed record ToolStep(string Tool,string? Operation,JsonElement? Input,s
     string? Content,ToolStepEnd End)
 {
     public NavigationTarget? Target {get;init;}
+    public JsonObject? Walkthrough {get;init;}
+    public JsonElement? ReadFocus {get;init;}
+    public string? ProposalPage {get;init;}
+    public ImmutableArray<string> ReadPages {get;init;}=[];
     public ImmutableArray<IssuedTarget> Issued {get;init;}=[];
     // The record_tool_step answer of a step recorded in its own write's transaction (D260), which the worker publishes as
     // it is; none for a step the worker records.
@@ -96,10 +104,11 @@ public sealed class TurnWrites
     // Records a step on `connection`, in whatever transaction it holds: its read's operation, instant and accesses, and a
     // Navigate step's target with the turn's pinned context.
     internal Task<JsonElement> Record(NpgsqlConnection connection,ToolStep step,TurnPin pin,CancellationToken ct)=>ModelProviders.Read(connection,
-        "SELECT assistant.record_tool_step($1,$2,$3,$4::text,$5::jsonb,$6::text,$7::timestamptz,$8::jsonb,$9::jsonb)::text",
+        "SELECT assistant.record_tool_step($1,$2,$3,$4::text,$5::jsonb,$6::text,$7::timestamptz,$8::jsonb,$9::jsonb,$10::jsonb)::text",
         [turn,token,step.Tool,(object?)step.Operation??DBNull.Value,step.Input is {} input?input.GetRawText():DBNull.Value,(object?)step.Code??DBNull.Value,
             (object?)step.ReadAt??DBNull.Value,step.ReadAt is null?DBNull.Value:JsonSerializer.Serialize(step.Access,JsonSerializerOptions.Web),
-            step.Target is {} target?NavigationTargets.Json(target,pin).ToJsonString():DBNull.Value],ct);
+            step.Target is {} target?NavigationTargets.Json(target,pin).ToJsonString():DBNull.Value,
+            step.Walkthrough is {} plan?plan.ToJsonString():DBNull.Value],ct);
 
     public override string ToString()=>nameof(TurnWrites);
 }
@@ -210,7 +219,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         new(started.GetProperty("agentPrincipal").GetString()!,started.GetProperty("delegationId").GetGuid()),turn.GetProperty("pageReport").Clone(),
         [..started.GetProperty("tools").EnumerateArray().Select(t=>t.GetString()!)],turn.GetProperty("id").GetGuid(),
         TimeSpan.FromSeconds(started.GetProperty("limits").GetProperty("readSeconds").GetInt32()),
-        ToolOutputLimits.From(started.GetProperty("operatingLimits")));
+        ToolOutputLimits.From(started.GetProperty("operatingLimits"))){Question=turn.GetProperty("question").GetString()!};
 
     // The definitions a version's request offers: its switched-on tools that this release implements, in the fixed order.
     public static ImmutableArray<ModelTool> Offered(IEnumerable<string> switchedOn)
@@ -257,6 +266,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         var members=new ToolInput(input);
         switch(tool)
         {
+            case "present_walkthrough":return ParseWalkthrough(members);
+            case "read_page_digest":members.Exactly();return new(Operations["workspace.digest_v1"],new DigestArguments());
             case "read_workspace_page":
             case "discover_page_operations":
             case "read_page_operation":
@@ -367,6 +378,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         ["reference_catalog"]="The reference catalog is unavailable at the pinned knowledge.",
         ["reference_page"]="Choose a supported reference table and search text of at most 160 characters.",
         ["ambiguous_reference"]="A required exact reference is missing or ambiguous at the pinned knowledge.",
+        ["walkthrough_plan_invalid"]="Read the page first and use only its available presentation steps and issued targets.",
+        ["walkthrough_fill_requires_explicit_terms"]="Ask for the explicit terms. A fill ask contains only Fill unsaved futures ticket on its first line, followed by unique Set ticket.FIELD = \"value\" lines for lots, executionPrice or memo. Other prose, missing terms or duplicate fields refuse.",
         ["market_navigation"]="The curve directory has missing or conflicting classifications.",
         ["revision_conflict"]="An observation has conflicting corrections.",
         ["snapshot_inputs"]="The pinned As of frame does not name each of its inputs exactly once.",
@@ -441,13 +454,14 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         try
         {
             (call,dispatched)=Requested(turn,request);
-            if(turn.Pin.Operational&&call.Operation.Needs!=ToolNeeds.Operational&&call.Arguments is not WorkspaceArguments and not NavigateArguments)
+            if(turn.Pin.Operational&&call.Operation.Needs!=ToolNeeds.Operational&&call.Arguments is not WorkspaceArguments and not NavigateArguments and not DigestArguments and not WalkthroughArguments)
                 throw new ToolRefusal("context_required");
             if(call.Arguments is SaveCurveArguments draft&&DraftRefusal(turn,draft) is {} refusal)throw new ToolRefusal(refusal);
             Require(turn.Pin,call.Operation.Needs);
         }
         catch(ToolRefusal refused){return Before(refused.Code,refused.Code=="tool_arguments_invalid"?null:input);}
         catch(MarketDataException refused){return Before(refused.Code,input);}
+        if(call.Arguments is WalkthroughArguments plan)return await RunWalkthrough(turn,targets,request,plan,ct);
         if(call.Arguments is NavigateArguments navigate)
         {
             if(Target(targets,navigate) is not {} target)return Before("tool_arguments_invalid",input);
@@ -459,6 +473,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         // explicit refusal and must prepare an ordinary command for a separate human approval.
         if(call.Arguments is SaveCurveArguments)return Before("approval_required",input);
         if(call.Arguments is WorkspaceArguments workspace)return await RunWorkspace(turn,targets,tool,input!.Value,call,workspace,ct);
+        if(call.Arguments is DigestArguments)return await RunDigest(turn,targets,request,ct);
         var operation=call.Operation;
         var access=operation.Access(database.Manifest);
         DateTimeOffset? readAt=null;

@@ -1141,8 +1141,19 @@ def main():
                 admin.call('profile',{'profile':'provider_adapters_admin'})
                 check_additional_providers(query,manifest,fake_provider,proxy_trap,admin)
             elif args.assistant_workspace_check:
+                from check_assistant_digest import run_checks as check_assistant_digest
+                check_assistant_digest(dotnet)
                 from check_assistant_workspace import run_checks as check_assistant_workspace
                 check_assistant_workspace(url,query,manifest,fake_provider,proxy_trap,psql,app_env)
+                if args.browser_check:
+                    target=temporary/'assistant-workspace-browser.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'provider':fake_provider.control()}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--assistant-workspace'],cwd=ROOT,env=env,start_new_session=True)
+                    browser_process.wait(timeout=300)
+                    if browser_process.returncode:raise RuntimeError('Assistant workspace browser checks failed')
+                    if evidence:=os.environ.get('OPENETRM_ASSISTANT_BROWSER_EVIDENCE'):
+                        destination=Path(evidence).resolve();destination.mkdir(parents=True,exist_ok=True)
+                        for screenshot in temporary.glob('assistant-*.png'):shutil.copy2(screenshot,destination/screenshot.name)
             elif args.assistant_check or args.assistant_runtime_check or args.assistant_browser_check:
                 if args.assistant_check:
                     # First, while nothing else can be writing to the application log.

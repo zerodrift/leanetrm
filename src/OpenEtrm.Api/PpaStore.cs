@@ -81,11 +81,12 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         var knowledge=await Bind(connection,frame,knownAt.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'",System.Globalization.CultureInfo.InvariantCulture),ct);
         await using var choices=ScheduleStore.Command(connection,"SELECT security.ppa_authoring_directory($1,$2,$3)::text",Catalog,knowledge,frame.At);
         var directory=JsonSerializer.Deserialize<JsonElement>((string)(await choices.ExecuteScalarAsync(ct))!);
+        var touVersions=(await products.Read(connection,ct)).Where(v=>v.State=="published"&&v.Clock.CatalogId==data.ReferenceRevision.CatalogId&&v.Clock.RevisionId==data.ReferenceRevision.RevisionId).ToArray();
         return new{implementation=PpaCapabilities.Version,definitions=data.DefinitionRevision,reference=data.ReferenceRevision,knownAt,
             authoringContext=new{knowledgeContext=knowledge,knownAt,effectiveAt=frame.At},
             references=PpaUiCatalog.References(data,physicalLocations),definitionsMetadata=PpaUiCatalog.Definitions(data),compositionTemplates=PpaUiCatalog.Compositions,authoringPolicies=PpaUiCatalog.Policies,
             unsupportedFeatures=PpaUiCatalog.UnsupportedFeatures,settlementPreview=SettlementPreview.Capabilities,breakEven=PpaBreakEvenStore.Capabilities,
-            touVersions=(await products.Read(connection,ct)).Where(v=>v.State=="published" && v.Clock.CatalogId==data.ReferenceRevision.CatalogId && v.Clock.RevisionId==data.ReferenceRevision.RevisionId).ToArray(),
+            touVersions,contextTouVersions=ContextVersions.Latest(await PpaReads.Tou(connection,data,frame,knowledge,[],ct),v=>v.Id,v=>v.Version),
             limits=new{members=PpaCompiler.MaximumMembers,slotOrdinalMax=PpaCapabilities.MaximumSlotOrdinal,assets=PpaCompiler.MaximumAssets,bindings=PpaCompiler.MaximumBindings,requestRows=PpaCompiler.MaximumRequestRows,preparationCells=PpaCompiler.MaximumPreparationCells,detailRows=PpaCompiler.MaximumDetailRows,responseBytes=PpaCompiler.MaximumResponseBytes,retainedScheduleEntities=RetainedScheduleLimits.MaximumEntities,hourlyMonths=360,quarterHourMonths=120,deadlineSeconds=20},
             compositions=new[]{"fixed_physical","indexed_physical","virtual_fixed_for_floating","basis_cash","capacity_agreement"},
             roles=Enum.GetValues<PpaRole>().Select(PpaCompiler.Role).ToArray(),quantityKinds=new[]{"volume","profile","slots","accredited"},priceKinds=new[]{"flat","escalated","stepped","indexed"},cadences=new[]{15,60},

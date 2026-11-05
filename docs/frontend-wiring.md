@@ -25,6 +25,10 @@ Amendment editors keep Preview changes, explicit confirmation and Save amendment
 
 ## Shared shell and assistant
 
+Looking at announces an enabled `read_page_digest`; Blotter view pointers preserve
+the shown scope/measures alongside docked details. The backend builds the digest
+through shared page reads at the turn pin. See [contract and checks](assistant-walkthroughs.md).
+
 | Controls | Frontend owner | Backend operations | Evidence |
 | --- | --- | --- | --- |
 | Session bootstrap, profile/account switch and hosted sign-out | [app.ts](../web/src/app.ts) | `GET /api/bootstrap`, `GET /api/access`, `POST /api/profile`, `POST /api/logout`; antiforgery/session handling in [Program.cs](../src/OpenEtrm.Api/Program.cs) | [Startup access](../tests/browser/startup-access.mjs), [Profile](../tests/browser/profile-dialog.mjs), [Profile lifetime](../tests/browser/profile-lifecycle.mjs) |
@@ -149,3 +153,29 @@ The control map identifies applicable checks. It is not a claim that every possi
 - Sort/filter presentation, column visibility, chart zoom/drawings, graph/pane layout and temporary maximize state intentionally do not create financial backend writes. Saved account dashboard/table layouts use their own persistence operations.
 - Unsupported capabilities remain explicitly unavailable. The map does not imply support for coming-soon product kinds, unsupported physical settlement/risk profiles, or historical readers that the backend refuses.
 - Assistant integration checks use a controlled HTTP provider. Infrastructure checks cover authorized configuration, queued commands and synthetic observations; external provider accounts and actual container deployments require their own qualification.
+
+D313: `data-grid.ts` owns pointer/keyboard multi-selection and invalidates delayed
+row opens. `assistant-selections.ts` copies only server group identities.
+`futures-view.ts` reports the focus, clears invalid pivot cells and adds selection,
+pivot and docked composer actions. `blotter-channel.ts` validates the same focus
+for popped-out desks; `assistant-pages.ts` carries it unchanged and names it in
+Looking at. The digest re-reads every selected value on the backend.
+
+D314: `WalkthroughPlans.cs` supplies the closed capabilities and validates every
+plan against successful reads, issued handles and exact current-ask literals.
+`TurnTargets` retains successful pivot/proposal provenance in the existing loop;
+0195 publishes `walkthrough` immediately after its step and hides it under D190.
+`assistant-events.ts` strictly parses/deduplicates/masks the event;
+`assistant-panel.ts` starts only eligible live asks and owner-rechecks explicit
+Start/Resume. `assistant-walkthroughs.ts` owns the second cursor, narration,
+Stop/Esc, Continue and cancellation generation. Per-plan progress includes owner,
+conversation, turn, event, page report and local form generation. `app.ts` routes
+known presentation steps; `futures-view.ts` uses native Blotter operations and
+`futures-booking.ts` has three unsaved-state setters without synthetic DOM events.
+`side-panel.ts`/`desk-panel.ts` guard delayed opens with AbortSignal. Review uses
+`assistant-actions.ts`; consent/Authorize have no presentation adapter. D315 has
+no Keep wiring: prose tables lack operation/input source bindings.
+`agent-settings.ts` names both new tools in the administrator's explicit version
+choices. Stop suppresses subsequent automatic plans/navigation for the same
+owner/conversation/turn. Narration persists across presentation steps and pauses;
+ticket setters scroll their native field into view before positioning the cursor.

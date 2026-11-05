@@ -1,11 +1,14 @@
 # Page assistant, phase 1: local-preview core
 
 Current extension: [workspace operations and page guidance](assistant-workspace.md)
-(D284, runtime `turns_v12`, workspace migrations 0162–0164 and D302 settings
+(D284/D312, runtime `turns_v13`, workspace migrations 0162–0164 and D302 settings
 migrations 0181–0183). It supersedes the unsupported-page
 inventory and D260's direct curve-save exception. Business commands require the
 human's separate authorization; configurable page prompts are pinned to questions.
 The phase record below remains the provider/grant/runtime foundation.
+The [page digest, selection and walkthrough extension](assistant-walkthroughs.md)
+adds migrations 0194–0195;
+its bounded local capability and remaining Keep prerequisite are recorded there.
 
 Status: bounded local implementation with hosted-pilot support. The rollout
 sequence is in §12; the checkpoint history below records how the current slice

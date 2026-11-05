@@ -46,7 +46,7 @@ public static partial class CustomCurves
             var calculated=await EvaluateDefinition(connection,database,saved.Definition,data,frame,saved.Sources,saved.Calendars,saved.Schedules,context,ct);
             return Results.Ok(new{activation=plan,interval=segment,recipe=saved,preview=Result(calculated,data,pin,saved.Definition,saved.Id,saved.Version)});
         }));
-        api.MapGet("/custom-curves",(Func<HttpContext,Task<IResult>>)((HttpContext c)=>operation(c,"ReadMarketData",null,async(connection,pin,ct)=>
+        api.MapGet("/custom-curves",(Func<HttpContext,Task<IResult>>)((HttpContext c)=>operation(c,"ReadMarketData",ContextVersions.SnapshotId(c.Request.Query),async(connection,pin,ct)=>
         {
             return Results.Ok((await CatalogRead(connection,database,pin,ct)).Value);
         })));

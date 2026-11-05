@@ -591,6 +591,7 @@ def run_checks(query, psql, manifest, environment, admin, viewer, again):
               'read_schedules': ['ReadMarketData'], 'read_trade_parties': ['ReadMarketData', 'ReadTradeParties'],
               'read_trades': ['ReadMarketData', 'ReadTrades'], 'futures_option_catalog': ['ReadMarketData', 'ReadTrades'], 'read_custom_curves': ['ReadMarketData'], 'prepare_custom_curve': ['ReadMarketData'],
               'read_jobs': ['ReadJobs'], 'save_custom_curve_draft': ['ReadMarketData', 'WriteMarketDefinitions'],
+              'read_page_digest': ['UseAssistantWorkspace'], 'present_walkthrough': ['UseAssistantWorkspace'],
               'read_workspace_page': ['UseAssistantWorkspace'], 'discover_page_operations': ['UseAssistantWorkspace'],
               'read_page_operation': ['UseAssistantWorkspace'], 'propose_page_action': ['UseAssistantWorkspace']})
     check("the directory names every supported vendor and the runtime set's bounds on instructions and grants",

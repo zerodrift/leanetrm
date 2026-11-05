@@ -3,7 +3,7 @@ type Row=Record<string,string|number|null>;
 type Configuration={paths:Row[];groups:Row[];meters:Row[];tariffs:Row[]};
 type Version={id:string;state:string;base_setup_id:string|null;publication_order:number|null;configuration:Configuration};
 type Master={code:string;name?:string;symbol?:string};
-type Catalog={activeSetupId:string|null;configuration:Configuration;versions:Version[];canSave:boolean;canPublish:boolean;locations:Master[];products:Master[];clocks:Master[];quantities:Master[];quotes:Master[];curves:Master[]};
+type Catalog={activeSetupId:string|null;configuration:Configuration;versions:Version[];proposals:Version[];proposal:Version|null;canSave:boolean;canPublish:boolean;locations:Master[];products:Master[];clocks:Master[];quantities:Master[];quotes:Master[];curves:Master[]};
 type Tab=keyof Configuration;
 type Field={key:string;label:string;master?:'locations'|'products'|'clocks'|'quantities'|'quotes'|'curves'|'groups';kind?:'date'|'number';nullable?:boolean};
 const fields:Record<Tab,Field[]>={
@@ -12,11 +12,11 @@ const fields:Record<Tab,Field[]>={
  meters:[{key:'code',label:'Assignment code'},{key:'pipeline',label:'Pipeline',master:'locations'},{key:'zone',label:'Zone',master:'locations'},{key:'point',label:'Delivery point',master:'locations'},{key:'product',label:'Product',master:'products'},{key:'identifier',label:'Pipeline meter identifier'},{key:'quantity',label:'Native quantity specification',master:'quantities'},{key:'validFrom',label:'Valid from · operating day',kind:'date'},{key:'validTo',label:'Valid to · exclusive',kind:'date'}],
  tariffs:[{key:'code',label:'Tariff code'},{key:'pipeline',label:'Pipeline',master:'locations'},{key:'product',label:'Product',master:'products'},{key:'quote',label:'Per-unit rate quote',master:'quotes'},{key:'rate',label:'Rate · quote units'},{key:'validFrom',label:'Valid from · operating day',kind:'date'},{key:'validTo',label:'Valid to · exclusive',kind:'date'}]
 };
-export function setupGasConfiguration(o:{api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;actor:()=>string;historical:()=>boolean}){
+export function setupGasConfiguration(o:{api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;actor:()=>string;historical:()=>boolean;source:()=>string}){
  const root=document.getElementById('gas-setup-page')!;
  root.innerHTML=`<section class="card"><h2>Gas delivery setup</h2><p>Manage delivery-point relationships, shared pricing groups, dated meters and per-unit tariffs using existing master references. Publishing creates an immutable version for new bookings. Saved trades retain their original setup.</p><p id="gs-active" role="status"></p>
- <div class="gas-setup-toolbar"><label>Saved version<select id="gs-version"></select></label><button id="gs-open" type="button" class="secondary">Open version</button><button id="gs-current" type="button" class="secondary">Start from current setup</button></div>
- <label class="gas-setup-category">Category<select id="gs-tab"><option value="paths">Delivery points</option><option value="groups">Shared pricing groups</option><option value="meters">Meter assignments</option><option value="tariffs">Usage tariffs</option></select></label>
+ <div class="gas-setup-toolbar"><input id="gs-version" type="hidden"><span id="gs-version-label"></span><button id="gs-current" type="button" class="secondary">Start from current setup</button></div>
+ <div id="gs-proposals" class="field-help"></div><label class="gas-setup-category">Category<select id="gs-tab"><option value="paths">Delivery points</option><option value="groups">Shared pricing groups</option><option value="meters">Meter assignments</option><option value="tariffs">Usage tariffs</option></select></label>
  <p class="field-help">Price adjustments change physical MTM. Tariffs create separate contractual charges. Meter assignments identify contractual schedules; they do not create measurements or allocations.</p>
  <div class="gas-setup-toolbar"><label>Record<select id="gs-row"></select></label><button id="gs-add" type="button" class="secondary">Add record</button><button id="gs-remove" type="button" class="secondary">Remove record</button></div><form id="gs-fields" class="schedule-fields"></form>
  <div class="schedule-actions"><button id="gs-save" type="button">Save draft version</button><button id="gs-retry" type="button" hidden>Retry original change</button></div><p id="gs-status" role="status"></p></section>
@@ -31,14 +31,14 @@ export function setupGasConfiguration(o:{api:<T>(path:string,body?:unknown)=>Pro
  const tab=()=>value('gs-tab') as Tab;
  const rowIndex=()=>Number(value('gs-row'));
  function sync(){
-  const locked=o.busy()||!!pending||o.historical();
+  const locked=o.busy()||!!pending;const editingLocked=locked||o.historical();
   for(const n of root.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select'))n.disabled=locked;
-  for(const n of get('gs-fields').querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select'))n.disabled=locked||!catalog?.canSave;
-  get<HTMLButtonElement>('gs-save').disabled=locked||!catalog?.canSave||!dirty;
-  for(const id of ['gs-add','gs-remove'])get<HTMLButtonElement>(id).disabled=locked||!catalog?.canSave;
-  get<HTMLButtonElement>('gs-open').disabled=locked||!value('gs-version');get<HTMLButtonElement>('gs-current').disabled=locked;
-  get<HTMLButtonElement>('gs-validate').disabled=locked||!draft||dirty||!(catalog?.canSave||catalog?.canPublish);
-  get<HTMLButtonElement>('gs-publish').disabled=locked||!draft||dirty||!valid||!catalog?.canPublish;
+  for(const n of get('gs-fields').querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select'))n.disabled=editingLocked||!catalog?.canSave;
+  get<HTMLButtonElement>('gs-save').disabled=editingLocked||!catalog?.canSave||!dirty;
+  for(const id of ['gs-add','gs-remove'])get<HTMLButtonElement>(id).disabled=editingLocked||!catalog?.canSave;
+  get<HTMLButtonElement>('gs-current').disabled=locked;
+  get<HTMLButtonElement>('gs-validate').disabled=editingLocked||!draft||dirty||!(catalog?.canSave||catalog?.canPublish);
+  get<HTMLButtonElement>('gs-publish').disabled=editingLocked||!draft||dirty||!valid||!catalog?.canPublish;
   get('gs-retry').hidden=!pending;get<HTMLButtonElement>('gs-retry').disabled=o.busy()||o.historical();
  }
  function invalidate(){dirty=true;valid=false;draft=undefined;get('gs-validation').textContent='Changes need a saved draft and validation.';get('gs-preview').replaceChildren();sync();}
@@ -54,25 +54,24 @@ export function setupGasConfiguration(o:{api:<T>(path:string,body?:unknown)=>Pro
   sync();
  }
  function drawRows(selected=0){const rows=configuration[tab()];get<HTMLSelectElement>('gs-row').replaceChildren(...rows.map((r,n)=>new Option(tab()==='paths'?`${r.pipeline??'Pipeline'} / ${r.zone??'Zone'} / ${r.point??'Point'} · ${r.product??'Product'}`:String(r.code??'New record'),String(n))));get<HTMLSelectElement>('gs-row').value=rows.length?String(Math.min(selected,rows.length-1)):'';drawFields();}
- function openConfiguration(c:Configuration,b:string|null,id?:string){configuration=structuredClone(c);base=b;draft=id;dirty=false;valid=false;get('gs-validation').textContent='';get('gs-preview').replaceChildren();drawRows();}
+ function openConfiguration(c:Configuration,b:string|null,id?:string){get<HTMLInputElement>('gs-version').value=id??b??'';get('gs-version-label').textContent=id?'Saved proposal · exact retained outcome':'Published setup · resolved from context';configuration=structuredClone(c);base=b;draft=id;dirty=false;valid=false;get('gs-validation').textContent='';get('gs-preview').replaceChildren();drawRows();}
  function reset(){catalog=undefined;pending=undefined;dirty=false;valid=false;draft=undefined;epoch++;restore();get('gs-fields').replaceChildren();get('gs-preview').replaceChildren();get('gs-validation').textContent='';get('gs-status').textContent=pending?'A previous change awaits confirmation. Retry its original request.':'';sync();}
- async function refresh(){const e=epoch,c=await o.api<Catalog>('gas-setup/catalog');if(e!==epoch)return;catalog=c;const named=setupVersionLabels(c.versions);get('gs-active').dataset.setupId=c.activeSetupId??'';get('gs-active').textContent=c.activeSetupId?`Current setup: ${named.get(c.activeSetupId)??'a published setup not listed here'}`:'Current setup: imported definitions';get<HTMLSelectElement>('gs-version').replaceChildren(new Option('Choose a saved version…',''),...c.versions.map(v=>new Option(named.get(v.id)!,v.id)));openConfiguration(c.configuration,c.activeSetupId);}
- async function load(){reset();if(o.historical())throw Error('Return to working data to configure gas delivery setup.');await refresh();}
+ async function refresh(id?:string){const query=new URLSearchParams();if(o.source())query.set('snapshotId',o.source());if(id)query.set('proposalId',id);const e=epoch,c=await o.api<Catalog>('gas-setup/catalog'+(query.size?'?'+query:''));if(e!==epoch)return;catalog=c;const named=setupVersionLabels(c.versions);get('gs-active').dataset.setupId=c.activeSetupId??'';get('gs-active').textContent=c.activeSetupId?`Current setup: ${named.get(c.activeSetupId)??'a published setup not listed here'}`:'Current setup: imported definitions';get('gs-proposals').replaceChildren();for(const v of c.proposals.filter(v=>v.state==='draft'&&v.base_setup_id===c.activeSetupId)){const button=document.createElement('button');button.type='button';button.className='text-button';button.textContent='Review unpublished proposal';button.dataset.gasDraft=v.id;button.onclick=()=>void leave().then(go=>{if(go)openConfiguration(v.configuration,v.base_setup_id,v.id);});get('gs-proposals').append(button);}openConfiguration(c.configuration,c.activeSetupId);}
+ async function load(){reset();await refresh();}
  async function send(){
   if(!pending)return;const command=pending,actor=o.actor(),e=epoch,uncertain=command.uncertain;command.uncertain=true;retain();
   try{
    const result=await o.api<{setupId:string;state:string}>(command.path,command.body);const expected=command.path==='gas-setup/save'?command.body.operationId:command.body.setupId;
    if(result.setupId!==expected||result.state!==(command.path==='gas-setup/save'?'draft':'published'))throw Error('The original change has an unconfirmed response. Retry it.');
-   if(actor!==o.actor()||e!==epoch)return;pending=undefined;retain();dirty=false;await refresh();
-   if(command.path==='gas-setup/save'){const saved=catalog?.versions.find(v=>v.id===result.setupId);if(saved){get<HTMLSelectElement>('gs-version').value=saved.id;openConfiguration(saved.configuration,saved.base_setup_id,saved.id);}get('gs-status').textContent='Draft saved. Validate its contents and delivery-period coverage before publication.';}
+   if(actor!==o.actor()||e!==epoch)return;pending=undefined;retain();dirty=false;await refresh(result.setupId);
+   if(command.path==='gas-setup/save'){const saved=catalog?.proposal?.id===result.setupId?catalog.proposal:undefined;if(saved){get<HTMLSelectElement>('gs-version').value=saved.id;openConfiguration(saved.configuration,saved.base_setup_id,saved.id);}get('gs-status').textContent='Draft saved. Validate its contents and delivery-period coverage before publication.';}
    else get('gs-status').textContent='Version published. New gas tickets use this setup; saved trades keep their pinned version.';
   }catch(error){if(actor===o.actor()&&e===epoch){const code=(error as {code?:string}).code;if(!uncertain&&code&&(code==='access_denied'||code.startsWith('gas_setup_')||code==='historical_read_only')){pending=undefined;retain();}}throw error;}finally{sync();}
  }
  async function mutate(path:string,body:Record<string,unknown>){if(pending)throw Error('Retry the original change before starting another.');pending={path,body:{...body,operationId:crypto.randomUUID()},uncertain:false};retain();await send();}
- get('gs-version').onchange=()=>sync();get('gs-tab').onchange=()=>drawRows();get('gs-row').onchange=drawFields;
+ get('gs-tab').onchange=()=>drawRows();get('gs-row').onchange=drawFields;
  get('gs-add').onclick=()=>{configuration[tab()].push(Object.fromEntries(fields[tab()].map(f=>[f.key,f.nullable?null:''])));invalidate();drawRows(configuration[tab()].length-1);};
  get('gs-remove').onclick=()=>{configuration[tab()].splice(rowIndex(),1);invalidate();drawRows();};
- get('gs-open').onclick=()=>void leave().then(go=>{if(!go)return;const v=catalog?.versions.find(v=>v.id===value('gs-version'));if(v)openConfiguration(v.configuration,v.base_setup_id,v.id);});
  get('gs-current').onclick=()=>void leave().then(go=>{if(go&&catalog)openConfiguration(catalog.configuration,catalog.activeSetupId);});
  get('gs-save').onclick=()=>void o.act(()=>mutate('gas-setup/save',{baseSetupId:base,configuration}));get('gs-retry').onclick=()=>void o.act(send);
  get('gs-validate').onclick=()=>void o.act(async()=>{

@@ -109,12 +109,14 @@ export function setupDeskPanel(o:{
      * Opens the position of a row, on a tab when one is named, and answers whether it is shown: false when the person kept edits the panel
      * holds, or the read holds no such row. The row that is already open is only shown again: its tab and its reads stay.
      */
-    async open(index:number,tab?:PositionTab,reveal=true):Promise<boolean>{
+    async open(index:number,tab?:PositionTab,reveal=true,signal?:AbortSignal):Promise<boolean>{
+      signal?.throwIfAborted();
       const h=o.holdings()?.[index];
       if(!h||!o.input(index))return false;
       const mode=positionMode(h),shown=sameMode(o.shell.current(),mode);
       // The person may be asked first, and a newer read may land while they decide: the position is looked up when they have.
-      if(!await o.shell.show(mode))return false;
+      if(!await o.shell.show(mode,signal))return false;
+      signal?.throwIfAborted();
       if(!shown)draw(true,tab,reveal);
       return true;
     },

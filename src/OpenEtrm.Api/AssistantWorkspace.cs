@@ -280,6 +280,21 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
 
     public static ImmutableArray<ReadAccess> Access(AssistantOperation operation)=>[..operation.Permissions.Select(p=>new ReadAccess("workspace_access",null,p))];
 
+    // A bounded projection made inside the page's authorized read transaction, before its transport serializes rows.
+    // The operation remains classified; this application-only delegate cannot be supplied by a tool or browser.
+    internal async Task<(T Value,ImmutableArray<ReadAccess> Access)> Project<T>(TurnReads turn,string operationId,
+        Func<Npgsql.NpgsqlConnection,CancellationToken,Task<T>> read,CancellationToken ct)
+    {
+        var operation=AssistantOperations.RequireRead(operationId);var owner=await Reader(turn,ct);
+        if(turn.Pin.Operational&&!operation.CurrentOnly)throw new ToolRefusal("context_required");
+        if(operation.CurrentOnly&&!turn.Pin.Working)throw new ToolRefusal("historical_read_only");
+        var held=await Permissions(owner,turn.ReadLimit,ct);
+        if(!operation.Permissions.All(held.Contains))throw new PreviewDeniedException();
+        var invocation=new AssistantInvocation(owner.Session){ReadLimit=turn.ReadLimit};
+        var value=await AsOwner(owner,()=>database.WithIdentity(owner.Profile,AssistantOperations.Permission,read,ct),invocation);
+        return(value,[..invocation.Access]);
+    }
+
     // Payloads are retained as ordinary immutable tool-step inputs. The owner recheck in this function is also used
     // for Review, so a guessed turn, another workspace, revoked sources or a refused step never disclose a proposal.
     public Task<JsonElement> Recorded(Npgsql.NpgsqlConnection connection,Guid turn,int step,CancellationToken ct)=>

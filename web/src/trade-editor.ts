@@ -87,7 +87,7 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
  let generation=0,previewGeneration=0;
  const contextKey=()=>JSON.stringify(options.context());
  function invalidate(){previewGeneration++;prepared=undefined;get('trade-preview-result').hidden=true;get<HTMLInputElement>('trade-confirm').checked=false;sync();}
- function reset(){instrument.clear();display.reset();annotations.reset();generation++;shelf.append(root);root.hidden=true;detail=undefined;selection=undefined;amendEdits.clear();invalidate();for(const id of ['trade-revision','trade-book','trade-contract'])field(id).replaceChildren();for(const id of ['trade-preview-values','trade-effective'])text(id,'');get<HTMLFormElement>('trade-amend-form').reset();text('trade-editor-reference','');text('trade-editor-terms','');get('trade-side-fields').replaceChildren();text('trade-editor-mode','');text('trade-error','');get('trade-error').hidden=true;}
+ function reset(){instrument.clear();display.reset();annotations.reset();generation++;shelf.append(root);root.hidden=true;detail=undefined;selection=undefined;amendEdits.clear();invalidate();field('trade-revision').value='';for(const id of ['trade-book','trade-contract'])field(id).replaceChildren();for(const id of ['trade-preview-values','trade-effective'])text(id,'');get<HTMLFormElement>('trade-amend-form').reset();text('trade-editor-reference','');text('trade-editor-terms','');get('trade-side-fields').replaceChildren();text('trade-editor-mode','');text('trade-error','');get('trade-error').hidden=true;}
  async function safe(work:()=>Promise<void>){const started=generation;try{get('trade-error').hidden=true;await work();}catch(error){if(started!==generation)return;text('trade-error',error instanceof Error?error.message:'The trade operation failed.');get('trade-error').hidden=false;get('trade-error').scrollIntoView({block:'nearest'});if((error as {code?:string}).code==='access_denied'){reset();options.onDenied();}throw error;}}
  function sync(){instrument.sync(options.busy()||!detail?.canAmend||!!options.pending());display.sync();
   const confirmed=get<HTMLInputElement>('trade-confirm').checked;
@@ -109,7 +109,7 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
   if(!detail)return;
   const state=detail.state,books=detail.catalog.books;annotations.populate(detail.catalog.bookingActor,detail.catalog,state);
   text('trade-editor-reference',`${state.tradeReference} · ${state.instrumentReference} · Revision ${state.revision}`);
-  field('trade-revision').replaceChildren(...detail.history.map(h=>new Option(`Revision ${h.revision} · ${h.kind==='booked'?'Booked':'Amended'}`,String(h.revision))));field('trade-revision').value=String(state.revision);
+  field('trade-revision').value=String(state.revision);
   field('trade-book').replaceChildren(...books.map(b=>new Option(publicText(`${b.portfolio} · ${b.name}`),b.id)));field('trade-book').value=state.bookId;
   const key=JSON.stringify([state.curve,state.contractId]);instrument.populate(detail.catalog.contracts,key);
   if(!detail.catalog.contracts.some(c=>futuresContractKey(c)===key)){const retained=new Option('Retained dated contract',key);retained.disabled=true;field('trade-contract').append(retained);field('trade-contract').value=key;}
@@ -136,7 +136,7 @@ export function setupTradeEditor(options:{api:Api;act:(work:()=>Promise<void>)=>
   void (async()=>{if(await options.leave())await options.act(()=>open(at,revision()));else field('trade-revision').value=String(detail?.state.revision??'');})();
  }
  get('trade-reload').onclick=()=>replacing(()=>null);
- field('trade-revision').onchange=()=>replacing(()=>Number(field('trade-revision').value));
+
  get<HTMLFormElement>('trade-amend-form').addEventListener('input',invalidate);
  field('trade-contract').onchange=()=>{invalidate();terms();};
  get<HTMLFormElement>('trade-amend-form').onsubmit=event=>{event.preventDefault();void options.act(()=>safe(async()=>{

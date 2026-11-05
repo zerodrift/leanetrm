@@ -143,3 +143,9 @@ test("a request the server cannot read, or one larger than it accepts, wrote not
   // An answer that does not show the request was refused before any write keeps it.
   for(const code of [undefined,'request_failed','response_unknown','model_admin_outcome_unknown'])assert.equal(knownAgentRejection(code),false,String(code));
 });
+
+test('new workspace tools can be reviewed and explicitly enabled in agent settings',()=>{
+  const rows=versionRows(version({tools:['read_page_digest','present_walkthrough']}),directory,instant);
+  assert.ok(JSON.stringify(rows).includes('Read page digest'));
+  assert.ok(JSON.stringify(rows).includes('Present walkthrough'));
+});

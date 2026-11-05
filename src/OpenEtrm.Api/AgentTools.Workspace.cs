@@ -9,6 +9,9 @@ sealed record WorkspaceArguments(string Kind,string? Page,string? Operation,Json
 public sealed partial class AgentTools
 {
     static ImmutableArray<AgentTool> WorkspaceTools=>[
+        WalkthroughTool,
+        Tool("read_page_digest","Read this first on a page question. Returns a bounded server-computed digest of the admitted page and selection at the turn's exact pin, with issued navigation handles. Never uses browser table values. Takes no input. Missing measures or browser-only draft state remain explicitly unavailable.",
+            """{"type":"object","properties":{},"additionalProperties":false}""",[AssistantOperations.Permission]),
         Tool("read_workspace_page","Inspects the page the user is on, including pages for risk, trade entry, delivery prices, interval data, administration and AI settings. Returns its available operations and current directory when there is one. Unsaved terms are not calculated values. Use discover_page_operations to inspect a request contract, read_page_operation for reads and previews, and propose_page_action for every save or other effect.",
             """{"type":"object","properties":{"page":{"type":"string"}},"required":["page"],"additionalProperties":false}""",[AssistantOperations.Permission]),
         Tool("discover_page_operations","Discovers the same authorized operations used by the application pages. Name a page or all; operation null lists its operations, an exact operation id returns its handler's input contract. Inputs are JSON with body and string-valued parameters. Missing financial terms require a question. No arbitrary URLs, credentials, SQL or execution are available.",
@@ -20,6 +23,8 @@ public sealed partial class AgentTools
     ];
     const string OperationSchema="""{"type":"object","properties":{"operation":{"type":"string","minLength":1,"maxLength":128},"inputJson":{"type":"string","minLength":2,"maxLength":6144}},"required":["operation","inputJson"],"additionalProperties":false}""";
     static ImmutableArray<ToolOperation> WorkspaceOperations=>[
+        new("workspace.walkthrough_v1","present_walkthrough",ToolNeeds.View,WorkspaceAccess,[]),
+        new("workspace.digest_v1","read_page_digest",ToolNeeds.View,WorkspaceAccess,[]),
         new("workspace.page_v1","read_workspace_page",ToolNeeds.View,WorkspaceAccess,[]),
         new("workspace.discover_v1","discover_page_operations",ToolNeeds.View,WorkspaceAccess,[]),
         new("workspace.read_v1","read_page_operation",ToolNeeds.View,WorkspaceAccess,[]),
@@ -65,7 +70,7 @@ public sealed partial class AgentTools
                 value=await workspace.Discover(turn,arguments.Page!,arguments.Operation,ct);
                 if(arguments.Kind=="read_workspace_page")
                 {
-                    value["page"]=arguments.Page;
+                    value["page"]=arguments.Page;value["presentation"]=WalkthroughPlans.Capabilities(arguments.Page!);
                     value["selection"]=JsonNode.Parse(turn.PageReport.GetProperty("selection").GetRawText());
                     var selection=turn.PageReport.GetProperty("selection");
                     if(selection.TryGetProperty("operation",out _))
@@ -87,7 +92,7 @@ public sealed partial class AgentTools
                 }
             }
             var content=Bounded(value,CountRows(value),turn.OutputLimits)??throw new ToolRefusal("result_too_large");
-            return new(tool,call.Operation.Id,input,null,at,access,content,ToolStepEnd.Result);
+            return new(tool,call.Operation.Id,input,null,at,access,content,ToolStepEnd.Result){ProposalPage=arguments.Kind=="propose_page_action"?AssistantOperations.Find(arguments.Operation!)!.Page:null,ReadPages=arguments.Kind=="read_workspace_page"?[arguments.Page!]:arguments.Kind=="read_page_operation"?[AssistantOperations.RequireRead(arguments.Operation!).Page]:[]};
         }
         catch(Exception e)
         {

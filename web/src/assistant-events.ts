@@ -1,3 +1,4 @@
+import {readWalkthrough,type Walkthrough} from './assistant-walkthroughs.js';
 // The events of a turn as the panel reads them (docs/ai-assistant.md §8): stored events under their fixed names, each
 // with its sequence, turn, hidden marker and a payload of one closed shape, and the stream's replaced and refused. The
 // panel accepts nothing else: anything it cannot read closes the stream, which then reads the turn again.
@@ -7,13 +8,13 @@ export type Dimension={count:number;unknownCalls:number};
 export type Usage={calls:number;uncachedInput:Dimension;cacheRead:Dimension;cacheWrite:Dimension;output:Dimension;reasoning:Dimension;
   cost:{currency:{catalogId:string;revisionId:string;code:string};amount:string|null;unpricedCalls:number}[]};
 export type StepPayload={ordinal:number;tool:string;code?:string}|{withheld:number};
-export type StoredKind='accepted'|'step'|'navigation'|'text'|'usage'|'completed'|'failed'|'cancelled'|'interrupted';
+export type StoredKind='accepted'|'step'|'navigation'|'walkthrough'|'text'|'usage'|'completed'|'failed'|'cancelled'|'interrupted';
 export type TurnEvent={sequence:number;turnId:string;kind:StoredKind;hidden:string|null;incomplete:boolean|null;payload:Record<string,unknown>};
 export type StreamItem=TurnEvent|{kind:'replaced'}|{kind:'refused';code:string;message:string};
 
-const stored:readonly string[]=['accepted','step','navigation','text','usage','completed','failed','cancelled','interrupted'];
+const stored:readonly string[]=['accepted','step','navigation','walkthrough','text','usage','completed','failed','cancelled','interrupted'];
 const terminal:readonly string[]=['completed','failed','cancelled','interrupted'];
-export const tools:readonly string[]=['read_current_page','read_market_data','read_trades','futures_option_catalog','read_trade_parties','read_schedules','read_reference_data','read_custom_curves','prepare_custom_curve','save_custom_curve_draft','read_jobs','navigate','read_workspace_page','discover_page_operations','read_page_operation','propose_page_action'];
+export const tools:readonly string[]=['present_walkthrough','read_page_digest','read_current_page','read_market_data','read_trades','futures_option_catalog','read_trade_parties','read_schedules','read_reference_data','read_custom_curves','prepare_custom_curve','save_custom_curve_draft','read_jobs','navigate','read_workspace_page','discover_page_operations','read_page_operation','propose_page_action'];
 export const readPages:readonly string[]=['curves','contract_definitions','schedules','power_tous','reference_data','parties','blotter','custom_curves','jobs','risk_jobs','delivery_prices','interval_series','interval_curves','users_access','settings_ai','blotter_risk','blotter_risk_lens','blotter_new_trade','blotter_new_future','blotter_new_swap'];
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,codePattern=/^[a-z][a-z0-9_]{0,63}$/,decimal=/^-?[0-9]+(\.[0-9]+)?$/;
 
@@ -63,6 +64,9 @@ function payload(kind:string,value:unknown):Json{
     case 'text':
       if(names.length===1&&Object.hasOwn(value,'hidden')){require(value.hidden==='access_changed');return value;}
       require(typeof exactly(value,['text']).text==='string');return value;
+    case 'walkthrough':
+      if(names.length===1&&Object.hasOwn(value,'hidden')){require(value.hidden==='access_changed');return value;}
+      readWalkthrough(value,target);return value;
     case 'navigation':
       if(names.length===1&&Object.hasOwn(value,'hidden')){require(value.hidden==='access_changed');return value;}
       {const p=exactly(value,['ordinal','target']);require(positive(p.ordinal));target(p.target);return p;}
@@ -114,10 +118,10 @@ export const streamOrder=(last:number,sequence:number)=>sequence<=last?'repeat':
 export type Step={ordinal:number;tool:string;code:string|null}|{withheld:number};
 export type Ending={state:'completed'|'failed'|'cancelled'|'interrupted';code:string|null;incomplete:boolean};
 export type TurnView={id:string;ordinal:number;question:string;text:string;steps:Step[];targets:{ordinal:number;sequence:number;target:Target}[];
-  usage:Usage|null;ending:Ending|null;hidden:string|null;lastSequence:number};
+  walkthroughs:{sequence:number;value:Walkthrough}[];usage:Usage|null;ending:Ending|null;hidden:string|null;lastSequence:number};
 
 export function newTurnView(turn:{id:string;ordinal:number;question:string}):TurnView{
-  return {id:turn.id,ordinal:turn.ordinal,question:turn.question,text:'',steps:[],targets:[],usage:null,ending:null,hidden:null,lastSequence:0};
+  return {id:turn.id,ordinal:turn.ordinal,question:turn.question,text:'',steps:[],targets:[],walkthroughs:[],usage:null,ending:null,hidden:null,lastSequence:0};
 }
 
 // A turn's view after one more of its events: one already applied, by its sequence, changes nothing. Once an event says
@@ -129,12 +133,13 @@ export function applyEvent(view:TurnView,event:TurnEvent):TurnView{
   const p=event.payload;
   switch(event.kind){
     case 'text':if(!next.hidden&&typeof p.text==='string')next.text=view.text+p.text;break;
+    case 'walkthrough':if(!next.hidden&&isObject(p.plan))next.walkthroughs=[...view.walkthroughs,{sequence:event.sequence,value:p as unknown as Walkthrough}];break;
     case 'navigation':if(!next.hidden&&isObject(p.target))next.targets=[...view.targets,{ordinal:p.ordinal as number,sequence:event.sequence,target:p.target as Target}];break;
     case 'step':next.steps=[...view.steps,Object.hasOwn(p,'withheld')?{withheld:p.withheld as number}:{ordinal:p.ordinal as number,tool:p.tool as string,code:(p.code as string|undefined)??null}];break;
     case 'usage':next.usage=p as unknown as Usage;break;
     case 'accepted':break;
     default:next.ending={state:event.kind,code:(p.code as string|undefined)??null,incomplete:event.incomplete===true};
   }
-  if(next.hidden){next.text='';next.targets=[];}
+  if(next.hidden){next.text='';next.targets=[];next.walkthroughs=[];}
   return next;
 }

@@ -169,3 +169,9 @@ test('a retained context needs a non-empty context id (R2-3)',()=>{
  const ctx={...valid.context.context,knowledgeMode:'retained'};
  assert.throws(()=>readBlotterMessage(msg('context',{context:{...ctx,contextId:''}}),S));
 });
+
+test('the pop-out retains the digest view as pointers and rejects extra evidence',()=>{
+ const digestView={...selection,primaryMeasure:'quantity'};
+ assert.deepEqual(readBlotterMessage(msg('pageReport',{state:{...futures,digestView}}),S).state.digestView,digestView);
+ assert.throws(()=>readBlotterMessage(msg('pageReport',{state:{...futures,digestView:{...digestView,value:'10'}}}),S));
+});

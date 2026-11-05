@@ -6,7 +6,11 @@ namespace OpenEtrm.Api;
 
 // The date schedule library and the shared contract date definitions, read under one pin.
 public sealed record ScheduleLibrary(int KnownThrough,ImmutableArray<ScheduleVersion> Versions,bool CanEdit,bool CanPublish,ImmutableArray<LibraryCalendar> Calendars,
-    ImmutableArray<ContractDateVersion> ContractDefinitions);
+    ImmutableArray<ContractDateVersion> ContractDefinitions)
+{
+    public ImmutableArray<ScheduleVersion> ContextVersions{get;init;}=[];
+    public ImmutableArray<ContractDateVersion> ContextContracts{get;init;}=[];
+}
 // A reference calendar's exact version, coverage and weekend days, with the dates its day rows close or open.
 public sealed record LibraryCalendar(CalendarReference Reference,DateOnly CoverageFrom,DateOnly CoverageTo,ImmutableArray<string> WeekendDays,
     ImmutableArray<DateOnly> ClosedDates,ImmutableArray<DateOnly> OpenDates)
@@ -14,7 +18,10 @@ public sealed record LibraryCalendar(CalendarReference Reference,DateOnly Covera
     public static LibraryCalendar From(ReferenceCalendar calendar)=>new(calendar.Reference,calendar.CoverageFrom,calendar.CoverageTo,[..calendar.WeekendDays],
         [..calendar.Days.Where(d=>!d.Open).Select(d=>d.Date)],[..calendar.Days.Where(d=>d.Open).Select(d=>d.Date)]);
 }
-public sealed record TouProductLibrary(ImmutableArray<TouProductVersion> Versions,ImmutableArray<ClockChoice> Clocks,bool CanEdit,bool CanPublish);
+public sealed record TouProductLibrary(ImmutableArray<TouProductVersion> Versions,ImmutableArray<ClockChoice> Clocks,bool CanEdit,bool CanPublish)
+{
+    public ImmutableArray<TouProductVersion> ContextVersions{get;init;}=[];
+}
 
 // Schedule reads callable without an HTTP request or workspace session, on the same terms as
 // MarketReads. Date schedules and their calendars follow the pin; TOU products and power hours
@@ -44,10 +51,32 @@ public sealed class ScheduleReads
             ?(context.KnownThrough!.Value,await schedules.ReadAt(connection,context,ct))
             :(await schedules.Capture(connection,ct),await schedules.Read(connection,ct));
         var working=pin.Context is null;
+        var definitions=await contracts.Read(connection,ct);
         return new(knownThrough,versions,
             working&&await PreviewDatabase.HasPermission(connection,"WriteMarketDefinitions",ct),
             working&&await PreviewDatabase.HasPermission(connection,"SealMarketDefinitions",ct),
-            [..(await schedules.Calendars(connection,ct)).Select(LibraryCalendar.From)],await contracts.Read(connection,ct));
+            [..(await schedules.Calendars(connection,ct)).Select(LibraryCalendar.From)],definitions)
+            {ContextVersions=ContextVersions.Latest(versions,v=>v.Id,v=>v.Version),ContextContracts=ContextVersions.Latest(definitions,v=>v.Id,v=>v.Version)};
+    }
+
+    // Supplemental UI projection. Exact-version library/resolve operations remain
+    // available; only primary choices are resolved for the header's dated view.
+    public async Task<ScheduleLibrary> ContextLibrary(NpgsqlConnection connection,TradingView view,CancellationToken ct)
+    {
+        var workingVersions=view.Working?await schedules.Read(connection,ct):[];
+        var workingContracts=view.Working?await contracts.Read(connection,ct):[];
+        await view.Bind(connection,database.Manifest.CatalogId,ct);
+        var published=await schedules.ReadAt(connection,view.Context,ct);
+        var definitions=await contracts.Read(connection,ct);
+        var day=DateWorkspace.Date(view.Context.EffectiveOn);
+        return new(view.Context.KnownThrough!.Value,view.Working?workingVersions:published,
+            view.Working&&await PreviewDatabase.HasPermission(connection,"WriteMarketDefinitions",ct),
+            view.Working&&await PreviewDatabase.HasPermission(connection,"SealMarketDefinitions",ct),
+            [..(await schedules.Calendars(connection,ct)).Select(LibraryCalendar.From)],view.Working?workingContracts:definitions)
+        {
+            ContextVersions=ContextVersions.Latest(published.Concat(workingVersions.Where(v=>v.State=="draft"&&v.EffectiveFrom<=day&&day<v.EffectiveTo)),v=>v.Id,v=>v.Version),
+            ContextContracts=ContextVersions.Latest(definitions.Concat(workingContracts.Where(v=>v.State=="draft")),v=>v.Id,v=>v.Version)
+        };
     }
 
     // Row security returns drafts to authors only; readers receive published versions.
@@ -56,7 +85,8 @@ public sealed class ScheduleReads
         RequireCurrent(pin);
         var canEdit=await PreviewDatabase.HasPermission(connection,"WriteMarketDefinitions",ct);
         var canPublish=await PreviewDatabase.HasPermission(connection,"SealMarketDefinitions",ct);
-        return new(await products.Read(connection,ct),await products.Clocks(connection,ct),canEdit,canPublish);
+        var versions=await products.Read(connection,ct);
+        return new(versions,await products.Clocks(connection,ct),canEdit,canPublish){ContextVersions=ContextVersions.Latest(versions,v=>v.Id,v=>v.Version)};
     }
 
     // Each TOU product's latest published version, resolved to its market clock.

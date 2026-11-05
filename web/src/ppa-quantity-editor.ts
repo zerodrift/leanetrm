@@ -12,7 +12,7 @@ export function ppaQuantityEditor(host:HTMLElement,catalog:Catalog,template:Memb
  <label data-mode="profile">Energy specification<select data-q="energy"></select></label>
  <label data-mode="profile">Hours<select data-q="membership"></select></label>
  <label data-mode="profile">Holiday calendar<select data-q="calendar"></select></label>
- <label data-mode="profile" data-tou>Published TOU version<select data-q="tou"></select></label>
+ <label data-mode="profile" data-tou>TOU product · version resolved from context<select data-q="tou"></select></label>
  <label data-mode="accredited">Accredited assets<select data-q="assets" multiple size="3"></select></label>
  <label data-mode="slots">Quantity source sides<select data-q="slot" multiple size="3"></select></label></div>`;
  host.querySelector('.ppa-link')!.after(root);
@@ -24,12 +24,14 @@ export function ppaQuantityEditor(host:HTMLElement,catalog:Catalog,template:Memb
  enums('kind',template.quantityKinds);enums('stage',catalog.authoringPolicies.quantityStages);enums('membership',catalog.authoringPolicies.hourMemberships);
  offer('capacity',quantityChoices(catalog.references.quantityGroups.contract,catalog.references.units));offer('energy',quantityChoices(catalog.references.quantityGroups.energy,catalog.references.units));offer('calendar',rows(catalog.references.calendars));
  let retainedSlots=initial?.slots.map(s=>JSON.stringify(s));
- function refreshChoices(){const d=delivery();
+ function refreshChoices(){const d=delivery(),selectedTou=field('tou').value;
   offer('sources',rows(catalog.definitionsMetadata.volumeSources.filter(r=>r.clock_code===d.clock&&String(r.interval_minutes)===d.cadence)));
   offer('assets',rows(catalog.definitionsMetadata.generationAssets.filter(r=>r.clock_code===d.clock)));
   offer('slot',links().filter(s=>template.linkRoles.includes(s.role)).map(s=>({value:JSON.stringify(s),label:ppaSideLabel(s.role)+' '+s.ordinal})));
   if(retainedSlots?.every(s=>[...field('slot').options].some(o=>o.value===s))){for(const o of field('slot').options)o.selected=retainedSlots.includes(o.value);retainedSlots=undefined;}
-  offer('tou',catalog.touVersions.filter(r=>(r.clock as unknown as {code:string})?.code===d.clock).map(r=>({value:JSON.stringify([r.id,r.version]),label:`${r.code} · version ${r.version}`})));
+  offer('tou',catalog.contextTouVersions.filter(r=>(r.clock as unknown as {code:string})?.code===d.clock).map(r=>({value:JSON.stringify([r.id,r.version]),label:`${r.code} · version ${r.version}`})));
+  const retained=initial?.hours?.touProduct?JSON.stringify([initial.hours.touProduct,initial.hours.touVersion]):'';
+  if(retained&&!Array.from(field('tou').options).some(o=>o.value===retained)&&catalog.touVersions.some(r=>JSON.stringify([r.id,r.version])===retained&&(r.clock as unknown as {code:string})?.code===d.clock)){const option=new Option('Retained TOU binding',retained);option.disabled=true;field('tou').append(option);field('tou').value=selectedTou;}
  }
  function sync(busy=false){refreshChoices();const mode=field('kind').value;for(const n of root.querySelectorAll<HTMLElement>('[data-mode]')){n.hidden=n.dataset.mode!==mode||n.hasAttribute('data-tou')&&field('membership').value==='all';for(const f of n.querySelectorAll<HTMLSelectElement>('select'))f.disabled=busy||n.hidden;}field('kind').disabled=busy;}
  function value(key:string){const v=field(key).value;if(!v)throw Error('Complete '+ppaSideLabel(template.role)+': '+friendly(key)+'.');return v;}

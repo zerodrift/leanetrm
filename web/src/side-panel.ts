@@ -120,13 +120,14 @@ export function clearTabs(list:HTMLElement,panel:HTMLElement){
 /**
  * Takes the page behind a panel that covers it out of reach: every node beside the panel, and beside each of its ancestors, becomes
  * inert, so focus cannot leave the panel for what it hides. A dialog is left alone, being modal by itself, and so is anything that
- * was inert already. Returns what gives the page back.
+ * was inert already. The typed assistant walkthrough controls remain available for Continue/Stop.
+ * Returns what gives the page back.
  */
 export function isolate(host:HTMLElement):()=>void{
   const made:HTMLElement[]=[];
   for(let node:HTMLElement=host;node.parentElement;node=node.parentElement){
     for(const sibling of Array.from(node.parentElement.children) as HTMLElement[]){
-      if(sibling===node||sibling.localName==='dialog'||sibling.inert)continue;
+      if(sibling===node||sibling.localName==='dialog'||sibling.classList.contains('assistant-walkthrough')||sibling.classList.contains('assistant-walkthrough-cursor')||sibling.inert)continue;
       sibling.inert=true;made.push(sibling);
     }
   }
@@ -187,10 +188,12 @@ export function setupSidePanel(host:HTMLElement,o:{unsaved:()=>boolean;confirmLe
     return ask(o.confirmLeave);
   }
   /** Switches the panel to `next`, asking first when it holds unsaved edits: false means the person kept them and the panel is as it was. */
-  async function show(next:PanelMode):Promise<boolean>{
+  async function show(next:PanelMode,signal?:AbortSignal):Promise<boolean>{
+    signal?.throwIfAborted();
     if(question)return false;
     if(sameMode(next,mode)){if(mode)host.focus({preventScroll:true});return true;}
     if(!await leave())return false;
+    signal?.throwIfAborted();
     mode=next;draw();
     if(mode)host.focus({preventScroll:true});
     return true;

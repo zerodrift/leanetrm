@@ -1,5 +1,6 @@
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,url}){
  await persona('editor');await click('#nav-gas-setup');await wait("document.querySelectorAll('#gs-row option').length>0&&"+idle);
+ await check('gas setup resolves its version without a manual picker',"document.querySelector('#gs-version').tagName!=='SELECT'&&!!document.querySelector('#gs-version-label')");
  await check('gas setup uses reference selectors and separate configuration categories',"!document.querySelector('#gas-setup-page').hidden&&document.querySelectorAll('#gs-tab option').length===4&&document.querySelector('#gs-field-pipeline').tagName==='SELECT'");
  await set('#gs-tab','groups');await set('#gs-row',await evaluate("[...document.querySelector('#gs-row').options].find(o=>o.textContent==='synthetic_gas_group_a').value"));
  await set('#gs-field-adjustment','-0.15');await click('#nav-reference');
@@ -9,7 +10,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('saving creates a reviewable draft and leaves publication to the approver',"document.querySelector('#gs-status').textContent.includes('Draft saved')&&document.querySelector('#gs-publish').disabled");
  await set('#gs-from','2021-01-01');await set('#gs-to','2021-02-01');await click('#gs-validate');
  await check('validation previews shared pricing and meter coverage for each point',"document.querySelector('#gs-validation').textContent.includes('passed')&&document.querySelectorAll('#gs-preview tbody tr').length===5&&document.querySelector('#gs-preview').textContent.includes('local_gas')&&document.querySelector('#gs-preview').textContent.includes('-0.15')");
- await persona('approver');await click('#nav-gas-setup');await set('#gs-version',draft);await click('#gs-open');
+ await persona('approver');await click('#nav-gas-setup');await click(`[data-gas-draft="${draft}"]`);
  await set('#gs-from','2021-01-01');await set('#gs-to','2021-02-01');await click('#gs-validate');
  await check('the approver reviews immutable fields and can publish the validated version',"document.querySelector('#gs-field-adjustment').disabled&&!document.querySelector('#gs-publish').disabled");
  await set('#gs-to','2021-01-31');

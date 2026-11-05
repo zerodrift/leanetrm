@@ -14,6 +14,7 @@ export type BlotterMessage=
   |{v:1;session:string;kind:'opened';instance:string}|{v:1;session:string;kind:'closed';instance:string}
   |{v:1;session:string;kind:'ended';reason:EndReason}
   |{v:1;session:string;kind:'pageReport';instance:string;state:PageState;edits:boolean;requests:boolean}
+  |{v:1;session:string;kind:'askInPlace';instance:string;selection:'positions'|'pivot'}
   |{v:1;session:string;kind:'askAbout';instance:string;key:string;bookIds:string[];portfolioIds:string[]};
 
 const refuse=(why:string):never=>{throw Error(`Blotter window message refused: ${why}.`);};
@@ -51,6 +52,20 @@ const pageStates:Record<string,Parse<object>>={
   delivery:shape({}),'interval-series':shape({}),'interval-curves':shape({}),admin:shape({}),ai:shape({})};
 function pageState(state:unknown):PageState{
   if(!isObject(state)||typeof state.page!=='string'||!Object.hasOwn(pageStates,state.page))refuse('the page state is unknown');
+  const reported=state as Record<string,unknown>;
+  if(reported.page==='futures'&&Object.hasOwn(reported,'focus')){
+    const {focus,...base}=reported;
+    const reference=shape({revision:shape({catalogId:str,revisionId:str}),code:str});
+    const identity:Parse<unknown>=x=>x===null||typeof x==='string'?x:reference(x);
+    const field:Parse<string>=x=>['groupId','bookId','portfolioId','market','contractId','commodity','instrumentType','quantitySpecification','currencyReference','definitionRevisionId'].includes(str(x))?x as string:refuse('unknown pivot identity');
+    const read=shape({tradeIds:strings,pivotCell:orNull(shape({keys:record(field,identity),measure:str}))})(focus);
+    return {...pageState(base),focus:read};
+  }
+  if(reported.page==='futures'&&Object.hasOwn(reported,'digestView')){
+    const {digestView,...base}=reported;
+    const read=shape({mode:oneOf('trades','pivot'),bookIds:strings,portfolioIds:strings,groupBy:strings,measures:strings,primaryMeasure:orNull(str)})(digestView);
+    return {...pageState(base),digestView:read};
+  }
   const {page,...fields}=state as Record<string,unknown>;
   return {page,...pageStates[page as string](fields)} as PageState;
 }
@@ -80,7 +95,7 @@ const bodies:Record<string,Parse<Record<string,unknown>>>={
   ended:shape({reason:oneOf<EndReason>('signed_out','account_changed','main_closed','brought_back')}),
   // A report says apart whether the pop-out holds unsaved edits, which a change can give up, and requests whose outcome is unconfirmed, which
   // go with the Blotter and are never given up; a question names the books and portfolios it was asked in.
-  pageReport:shape({instance,state:pageState,edits:bool,requests:bool}),askAbout:shape({instance,key:str,bookIds:strings,portfolioIds:strings})};
+  pageReport:shape({instance,state:pageState,edits:bool,requests:bool}),askInPlace:shape({instance,selection:oneOf('positions','pivot')}),askAbout:shape({instance,key:str,bookIds:strings,portfolioIds:strings})};
 
 /** The message if it is version 1, for this session, of a known kind and exactly shaped; otherwise throws and nothing is applied. The result is a new object. */
 export function readBlotterMessage(value:unknown,session:string):BlotterMessage{

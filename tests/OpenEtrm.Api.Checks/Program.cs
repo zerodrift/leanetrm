@@ -9,7 +9,7 @@ if(args is ["--monte-carlo-risk"]){MonteCarloRiskContractChecks.Run();return;}
 if(args is ["--lng-admission",var lngAdmission]){await LngAdmissionChecks.Run(lngAdmission);return;}
 if(args is ["--tool-output-limits",var toolOutputFile]){ToolOutputLimitChecks.Run(toolOutputFile);return;}
 if(args is ["--reference-presentation"]){ReferencePresentationChecks.Run();return;}
-if(args is ["--assistant-workspace"]){AssistantWorkspaceChecks.Run();return;}
+if(args is ["--assistant-workspace"]){AssistantWorkspaceChecks.Run();AssistantDigestChecks.Run();AssistantSelectionChecks.Run();AssistantWalkthroughChecks.Run();TradingBlotterChecks.Run();return;}
 if(args is ["--market-preparation-reuse"]){MarketPreparationReuseChecks.Run();return;}
 if(args is ["--crude-instants"]){CrudeInstantChecks.Run();return;}
 if(args is ["--crude-lifecycle"]){CrudeLifecycleChecks.Run();return;}
@@ -102,6 +102,10 @@ if (args is ["--schedules"])
     TurnWorkerChecks.Run();
     AgentToolChecks.Run();
     AssistantWorkspaceChecks.Run();
+    AssistantDigestChecks.Run();
+    AssistantSelectionChecks.Run();
+    AssistantWalkthroughChecks.Run();
+    TradingBlotterChecks.Run();
     await TurnStreamChecks.Run();
     await BlotterStreamChecks.Run();
     PowerImportChecks.Run();

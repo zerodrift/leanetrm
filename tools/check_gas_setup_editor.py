@@ -82,6 +82,18 @@ def run_checks(url,query,manifest):
     points=c.call('tickets/choices',{'context':context,'draft':draft_terms,'side':'physical','field':'delivery_point'})['choices']
     assert unconfigured in {p['value'] for p in points}
     print('PASS gas physical choices: unpriced and maintained valued reference paths need no imported convention',flush=True)
+    # A contextual setup read uses the same certified history as booking;
+    # raw exact versions remain available in the ordinary working catalog.
     c.call('profile',{'profile':'viewer'})
+    assert c.call('gas-setup/catalog?snapshotId=invalid',expected=422)['code']=='snapshot_input'
+    selected=c.call('market/context',{'effectiveOn':'2020-12-18','knownAt':catalog['context']['knownAt'],'mode':'at','selection':'latest_correction','snapshotId':frame['id'],'frameSelectionPolicy':'preserve_origin_or_unique_asof_frame_v1'})
+    historical=c.call('gas-setup/catalog?snapshotId='+selected['snapshotId'])
+    assert historical['activeSetupId']==catalog['gasSetupId']
+    assert not historical['canSave'] and not historical['canPublish']
+    assert not any(v['id']==linked['setupId'] for v in historical['versions'])
+    c.call('market/current',{})
+    raw=c.call('gas-setup/catalog')
+    assert raw['activeSetupId']==linked['setupId'] and any(v['id']==new['setupId'] for v in raw['versions'])
+    print('PASS gas contextual setup: earlier certified head, hidden future publications, read-only history, exact raw access and strict snapshot ingress',flush=True)
     c.call('gas-setup/save',save,expected=403)
     print('PASS gas setup editor: immutable drafts, validation, role separation, idempotent publish, conflict refusal and old/new booked price pins',flush=True)

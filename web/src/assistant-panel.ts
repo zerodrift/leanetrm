@@ -9,11 +9,12 @@ import {streamFrame,streamOrder,readEvents,newTurnView,applyEvent,type TurnView,
 import {lookingAt,askKnowledge,changesContext,targetAction,NavigationHistory,stepLine,endingLine,startsOver,usageLine,consentText,grantExpiry,
   lookingKey,agentChoice,preselect,conversationChoice,panelMessage,keptAsk,isUuid,type Place,type Names,type UsableAgent} from './assistant-pages.js';
 import {answerBlocks,renderBlocks} from './assistant-text.js';
+import {setupWalkthrough,type PresentationStep,type Walkthrough} from './assistant-walkthroughs.js';
 import {setupAssistantActions} from './assistant-actions.js';
 import {follow} from './conversation-follow.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
-type Turn={id:string;conversationId:string;ordinal:number;agentId:string;version:number;question:string;state:string;askedAt:string};
+type Turn={id:string;conversationId:string;ordinal:number;agentId:string;version:number;question:string;state:string;askedAt:string;hidden?:string|null};
 type Read={conversation:{id:string;agentId:string;readThrough:number};turns:Turn[];events:unknown[]};
 type Listed={id:string;agentName:string;unread:boolean;latestTurn:Turn};
 // A target's notice: whether the page moved there, the place Back restores, why it waits, and the action the person was
@@ -22,9 +23,9 @@ type Notice={moved:boolean;key?:string;reason?:string;confirm?:{action:'go'|'bac
 export type PanelOptions={launcherHidden?:()=>boolean;launcherMinimized?:()=>boolean;restoreLauncher?:()=>void;api:Api;root:string;identity:()=>string;zone:()=>string;available:()=>boolean;pageBusy:()=>boolean;
   act:(work:()=>Promise<void>)=>Promise<void>;place:()=>Place;names:()=>Names;trade:()=>string|undefined;unsaved:()=>boolean;
   // Moves the page to a target in the context it shows; selects a target's context, then moves; and restores a place.
-  open:(target:Target)=>Promise<void>;go:(target:Target)=>Promise<void>;restore:(place:Place)=>Promise<void>;changed?:()=>Promise<void>};
+  open:(target:Target)=>Promise<void>;go:(target:Target)=>Promise<void>;restore:(place:Place)=>Promise<void>;changed?:()=>Promise<void>;presentationRevision?:()=>string;presentation?:(step:PresentationStep,signal:AbortSignal)=>Promise<HTMLElement>};
 
-const streamed=['accepted','step','navigation','text','usage','completed','failed','cancelled','interrupted','replaced','refused'];
+const streamed=['accepted','step','navigation','walkthrough','text','usage','completed','failed','cancelled','interrupted','replaced','refused'];
 const terminal=['completed','failed','cancelled','interrupted'];
 // Answers that say nothing of whether a command was written; any other refusal proves it was not.
 const uncertain=['response_unknown','request_cancelled','preview_error','grant_outcome_unknown'];
@@ -34,6 +35,7 @@ const backLeavesEdits='Back would leave unsaved changes on this page.';
 const unconfirmedAsk='We could not confirm that your question was received. Retry sends the same question; Discard forgets it.';
 
 // A target the person reviews under the page's own header, never moved to by itself: a proposed curve, or a draft the assistant saved (D260).
+const canonical=(value:unknown):unknown=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,v])=>[key,canonical(v)])):value;
 const reviewed=(target:Target)=>target.kind==='proposal'||target.kind==='draft';
 export function setupAssistant(options:PanelOptions){
   const actions=setupAssistantActions({api:options.api,identity:options.identity,changed:async()=>{await options.changed?.();}});
@@ -66,6 +68,45 @@ export function setupAssistant(options:PanelOptions){
   const chosen=()=>agents.find(a=>`${a.id}:${a.version}`===picker.value);
   const message=(caught:unknown,fallback:string)=>panelMessage((caught as {code?:string}).code)??(caught instanceof Error?caught.message:fallback);
 
+  let presenting:{turnId:string;sequence:number;value:Walkthrough;key:string;autoKey:string}|undefined;
+  const suppressed=new Set<string>();
+  const turnKey=(turnId:string)=>JSON.stringify([options.identity(),conversation?.id,turnId]);
+  const presented=new Set<string>(),progress=new Map<string,number>(),resumeReports=new Map<string,string>(),takenOver=new Set<string>();
+  const planKey=(turnId:string,sequence:number)=>JSON.stringify([options.identity(),conversation?.id,turnId,sequence]);
+  const reportKey=()=>JSON.stringify([canonical(options.place().report),options.presentationRevision?.()??null]);
+  const walkthrough=setupWalkthrough({identity:options.identity,context:()=>JSON.stringify(options.place().context),
+    verify:async()=>{
+      const own=presenting,held=conversation;if(!own||!held)return false;
+      const read=await options.api<Read>(`assistant/conversations/${held.id}?after=0`);
+      const event=readEvents(read).find(e=>e.turnId===own.turnId&&e.sequence===own.sequence);
+      if(event?.hidden){const view=views.find(v=>v.id===own.turnId);if(view){view.hidden=event.hidden;view.text='';view.targets=[];view.walkthroughs=[];update(view);}}
+      return conversation?.id===held.id&&presenting===own&&event?.kind==='walkthrough'&&!event.hidden;
+    },
+    perform:async(step,signal)=>{
+      signal.throwIfAborted();const own=presenting;if(!own)throw Error('The walkthrough ended.');
+      if(step.kind!=='go'){const actual=options.place().report.page,canonical=(page:string)=>page.startsWith('blotter')?'blotter':page;if(canonical(actual)!==canonical(step.page))throw Error('The page changed.');}
+      if(step.kind==='open'&&step.pane==='review'){
+        // A review is an ordinary owner read. It cannot select consent or invoke authorization.
+        const available=()=>presenting===own&&(options.place().report.page.startsWith('blotter')?'blotter':options.place().report.page)===(step.page.startsWith('blotter')?'blotter':step.page)&&!changesContext(own.value.plan.context,options.place().context);
+        while(!views.find(v=>v.id===own.turnId)?.ending){await reread();signal.throwIfAborted();if(!available())throw Error('The page changed before Review opened.');await new Promise(resolve=>setTimeout(resolve,100));}
+        if(views.find(v=>v.id===own.turnId)?.ending?.state!=='completed')throw Error('The proposal turn did not complete.');
+        await actions.review({turnId:own.turnId,step:step.proposalStep!},signal,available);signal.throwIfAborted();
+        return document.querySelector<HTMLElement>('.assistant-action-review')!;
+      }
+      if(!options.presentation)throw Error('This page has no presentation adapter.');
+      return options.presentation(step,signal);
+    },takenOver:()=>{if(presenting)takenOver.add(presenting.key);},progress:(index,status)=>{if(presenting&&status!=='Starting walkthrough'){progress.set(presenting.key,index);try{resumeReports.set(presenting.key,reportKey());}catch{takenOver.add(presenting.key);resumeReports.delete(presenting.key);}if(status.startsWith('Stopped')){suppressed.add(presenting.autoKey);announce(status);}if(status.startsWith('Walkthrough complete'))progress.delete(presenting.key);}}});
+  async function present(turnId:string,item:{sequence:number;value:Walkthrough},resume=false){
+    if(walkthrough.active()||options.pageBusy()||document.querySelector('dialog[open]'))return;
+    const place=options.place();if(changesContext(item.value.plan.context,place.context)){announce('Select the walkthrough context before starting it.');return;}
+    const key=planKey(turnId,item.sequence),from=resume?(progress.get(key)??0):0;
+    if(resume&&(takenOver.has(key)||resumeReports.get(key)!==reportKey())){announce('The page changed after Stop. Ask again from this view.');return;}
+    if(!from&&JSON.stringify(canonical(place.report))!==JSON.stringify(canonical(item.value.plan.pageReport))){announce('The page selection changed. Ask again from this view.');return;}
+    if(options.unsaved()&&!resume){announce('Finish your unsaved changes before starting this walkthrough.');return;}
+    for(const other of progress.keys())if(other!==key)takenOver.add(other);
+    presented.add(key);takenOver.delete(key);presenting={turnId,sequence:item.sequence,value:item.value,key,autoKey:turnKey(turnId)};
+    await walkthrough.start(item.value,from);
+  }
   function persist(){try{sessionStorage.setItem(stored('panel'),JSON.stringify({conversationId:conversation?.id??null,open:opened}));}catch{/* This visit keeps the panel in memory. */}}
   // An ask whose outcome is unconfirmed is kept, through reloads too, until Retry confirms it or Discard forgets it.
   function keep(){
@@ -125,6 +166,9 @@ export function setupAssistant(options:PanelOptions){
     else if(view.text){const answer=el('div','assistant-answer');answer.append(renderBlocks(answerBlocks(publicText(view.text)),document));parts.push(answer);}
     else if(!view.ending)parts.push(el('p','assistant-waiting','Answering…'));
     for(const target of view.targets)parts.push(targetNotice(target));
+    if(!view.hidden)for(const item of view.walkthroughs){const resume=progress.has(planKey(view.id,item.sequence));
+      const control=button(resume?'Resume walkthrough':'Start walkthrough','Present this walkthrough in the page',()=>{void present(view.id,item,resume).catch(error=>announce(message(error,'The walkthrough could not start.')));});control.dataset.assistantWalkthroughControl='true';parts.push(control);}
+
     if(!view.hidden&&view.ending?.state==='completed')for(const step of view.steps)
       if('tool' in step&&step.tool==='propose_page_action'&&step.code===null)
         parts.push(button('Review proposed change','Review the exact proposed change before authorization',()=>{
@@ -184,6 +228,7 @@ export function setupAssistant(options:PanelOptions){
     const started=conversationGeneration;
     moving=moving.then(async()=>{
       if(started!==conversationGeneration||notices.has(item.sequence))return;
+      if(suppressed.has(turnKey(turnId))){notices.set(item.sequence,{moved:false,reason:'You stopped this walkthrough. Choose Go to move yourself.'});refresh(turnId);return;}
       try{
         const place=options.place(),review=reviewed(item.target),context=!review&&changesContext(item.target.context,place.context),unsaved=options.unsaved();
         const shown=opened&&!options.pageBusy()&&!document.querySelector('dialog[open]');
@@ -202,7 +247,9 @@ export function setupAssistant(options:PanelOptions){
     const before=views[index],after=applyEvent(before,event);
     if(after===before)return undefined;
     views[index]=after;
-    if(live&&event.kind==='navigation'&&after.targets.length>before.targets.length&&askedHere.has(after.id))consider(after.id,after.targets.at(-1)!);
+    if(after.hidden&&presenting?.turnId===after.id)walkthrough.stop('Stopped because access changed.');
+    if(live&&event.kind==='walkthrough'&&askedHere.has(after.id)&&!suppressed.has(turnKey(after.id))&&opened&&!presented.has(planKey(after.id,event.sequence))){const item=after.walkthroughs.at(-1);if(item)void present(after.id,item).catch(error=>announce(message(error,'The walkthrough could not start.')));}
+    if(live&&event.kind==='navigation'&&after.targets.length>before.targets.length&&askedHere.has(after.id)&&!suppressed.has(turnKey(after.id)))consider(after.id,after.targets.at(-1)!);
     return after;
   }
   // A read of the conversation: its turns as their owner reads them, with their events after the panel's last.
@@ -210,7 +257,7 @@ export function setupAssistant(options:PanelOptions){
     const latestTurn=read.turns.at(-1);
     conversation={id:read.conversation.id,agentId:read.conversation.agentId,version:latestTurn?.version??conversation?.version??0,
       readThrough:Math.max(read.conversation.readThrough,conversation?.id===read.conversation.id?conversation.readThrough:0)};
-    for(const turn of read.turns)if(!views.some(v=>v.id===turn.id))views.push(newTurnView(turn));
+    for(const turn of read.turns){const prior=views.find(v=>v.id===turn.id);if(!prior)views.push(newTurnView(turn));else if(turn.hidden){prior.hidden=turn.hidden;prior.text='';prior.targets=[];prior.walkthroughs=[];}}
     views.sort((a,b)=>a.ordinal-b.ordinal);
     for(const event of readEvents(read))apply(event,false);
     render();
@@ -379,7 +426,7 @@ export function setupAssistant(options:PanelOptions){
   // Shows a conversation as its owner reads it, following an unfinished turn; `asked` marks the turn as this tab's ask,
   // whose stream is live.
   async function load(id:string,asked:boolean){
-    closeStream();conversationGeneration++;
+    closeStream();conversationGeneration++;walkthrough.stop();
     conversation=undefined;views=[];notices=new Map();note=undefined;error=asking.command?unconfirmedAsk:'';render();sync();
     const started=conversationGeneration;
     try{
@@ -399,13 +446,13 @@ export function setupAssistant(options:PanelOptions){
   async function openConversation(id:string){if(!running()&&!working){hideHistory();await load(id,false);}}
   function startOver(){
     if(running()||working)return;
-    closeStream();conversationGeneration++;conversation=undefined;views=[];notices=new Map();note=undefined;error=asking.command?unconfirmedAsk:'';
+    closeStream();conversationGeneration++;walkthrough.stop();conversation=undefined;views=[];notices=new Map();note=undefined;error=asking.command?unconfirmedAsk:'';
     persist();render();sync();question.focus();
   }
 
   function renderLooking(){
     try{
-      const place=options.place(),seen=lookingAt(place.report,place.context,options.names(),{trade:options.trade()});
+      const place=options.place(),seen=lookingAt(place.report,place.context,options.names(),{trade:options.trade(),digest:chosen()?.tools?.includes('read_page_digest')===true});
       text('assistant-looking-page',seen.page);text('assistant-looking-shows',seen.shows);text('assistant-looking-context',seen.context);
       get('assistant-looking-layout').hidden=seen.layout===undefined;text('assistant-looking-layout',seen.layout??'');
       lookedAt=lookingKey(place);askable=seen.askable;
@@ -531,7 +578,7 @@ export function setupAssistant(options:PanelOptions){
     },
     // An identity starts with nothing of the last one: its own agents, and the conversation and open panel this tab kept.
     reset(){
-      identity++;conversationGeneration++;closeStream();actions.reset();
+      identity++;conversationGeneration++;walkthrough.stop();closeStream();presenting=undefined;actions.reset();
       agents=[];vendors=[];agentsError='';conversation=undefined;views=[];notices=new Map();askedHere=new Set();history.clear();stepsOpen.clear();
       granting.clear();consent=undefined;note=undefined;error='';unread=false;working=false;moving=Promise.resolve();live=undefined;
       opened=false;panel.hidden=true;document.body.classList.remove('assistant-open');hideHistory();render();renderPicker(undefined);question.value='';

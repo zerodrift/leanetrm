@@ -566,6 +566,39 @@ internal static class PreviewDataChecks
             if(session.SelectContextAliases(updated,context).Length!=1||session.PersistentFrames.Length!=2||session.Frames[manual.Id]!=manual)
                 throw new Exception("Historical alias selection adopted or removed a manual current variant.");
         });
+        Check("cutoff changes preserve the initial input identity without adopting another close",()=>
+        {
+            var session=Seeded(fixture.Frame);var previous=session.Frames[session.InitialFrames.Single()];
+            var context=new ScheduleContext("2040-01-10",1,"2040-01-10T00:00:00Z",Guid.NewGuid());
+            var aliases=session.SelectContextAliases(data,context);
+            var plan=session.PlanFrames(new([],126,false),context,aliases);
+            if(session.ContextFrame(previous,plan,context)!=aliases.Single().Id)throw new Exception("The selected initial source did not resolve to its new-context alias.");
+            var other=aliases.Single() with{Id=Guid.NewGuid(),OriginInputId=Guid.NewGuid()};
+            if(session.ContextFrame(previous,plan with{Frames=[other]},context) is not null)throw new Exception("A missing initial source adopted another source at the same instant.");
+            var manual=previous with{Id=Guid.NewGuid()};
+            if(session.ContextFrame(manual,plan,context) is not null)throw new Exception("A manual exact input variant was silently replaced by an initial alias.");
+        });
+        Check("contextual close mapping preserves origins and refuses ambiguity",()=>
+        {
+            var session=Seeded(fixture.Frame);var context=new ScheduleContext("2040-01-10",1,"2040-01-10T00:00:00Z",Guid.NewGuid());
+            var origin=Guid.NewGuid();var first=fixture.Frame with{Id=Guid.NewGuid(),OriginCloseId=origin,ContextId=context.ContextId};
+            var other=first with{Id=Guid.NewGuid(),OriginCloseId=Guid.NewGuid()};
+            var plan=new SessionFramePlan([first,other],new("exact_recorded_close_pins_v1","preserved_session_plus_latest_visible_closes_v1",128,128,false));
+            if(session.ContextFrame(first,plan,context)!=first.Id||session.ContextFrame(null,plan,context) is not null)throw new Exception("The contextual catalog lost its close origin or guessed among alternatives.");
+            if(session.ContextFrame(first,plan with{Frames=[other]},context) is not null)throw new Exception("An unavailable stored close adopted a different close.");
+        });
+        Check("explicit input variants lose automatic close remapping identity",()=>
+        {
+            var session=Seeded(fixture.Frame);var context=new ScheduleContext("2040-01-10",1,"2040-01-10T00:00:00Z",Guid.NewGuid());
+            var alias=session.SelectContextAliases(data,context).Single();
+            var plan=session.PlanFrames(new([],126,false),context,[alias]);
+            var previous=alias.ObservationIds[0];var replacement=Guid.NewGuid();
+            foreach(var variant in new[]{alias.SelectRevision(previous,replacement,"Explicit synthetic inputs"),
+                alias.SelectSwapMarketRevision(Guid.NewGuid(),alias.ObservationIds,previous,replacement,"Explicit synthetic market"),
+                alias.ForSwapMarket([replacement],alias.CurveContracts)})
+                if(variant.OriginInputId is not null||variant.OriginCloseId is not null||session.ContextFrame(variant,plan,context) is not null)
+                    throw new Exception("An explicitly changed input retained an automatic entitlement to another close.");
+        });
         Check("certified initial aliases keep their directory order across authorized refreshes",()=>
         {
             var seed=new PreviewSeedFrame(fixture.Frame.At,fixture.Frame.ObservationIds.ToArray(),fixture.Frame.CurveContracts.ToDictionary(pair=>pair.Key,pair=>pair.Value.ToArray()));

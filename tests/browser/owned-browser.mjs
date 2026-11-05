@@ -126,7 +126,7 @@ async function connect(socket,errors){
   let sequence=0;const pending=new Map();
   socket.onmessage=event=>{
     const message=JSON.parse(event.data);
-    if(message.method==='Runtime.exceptionThrown')errors.push(message.params.exceptionDetails.text);
+    if(message.method==='Runtime.exceptionThrown')errors.push(message.params.exceptionDetails.exception?.description??message.params.exceptionDetails.text);
     if(message.id){const p=pending.get(message.id);if(!p)return;pending.delete(message.id);clearTimeout(p.timeout);message.error?p.reject(Error(JSON.stringify(message.error))):p.accept(message.result);}
   };
   const abandon=(reason='Browser check finished')=>{for(const p of pending.values()){clearTimeout(p.timeout);p.reject(Error(reason));}pending.clear();};

@@ -32,7 +32,7 @@ export async function run({command,evaluate,wait,click,persona,set,check,idle,ur
  await click('#follow-live');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
  const a2=await save('browser_activation_a','Synthetic effective curve A',2,a);await activate(1,2);
  await wait("window.activationReads.filter(r=>r.path==='/api/custom-curves/effective-preview').at(-1)?.data.recipe?.version===2&&document.querySelector('#live-status').dataset.state==='live'&&"+idle);
- await check('Live admits a successor published after this tab loaded into both version controls',`document.querySelector('#custom-curves-library [aria-current=true]')?.dataset.recipe===${JSON.stringify(a2.id+'|2')}&&document.querySelector('.activation-version').value==='2'`);
+ await check('Live displays a successor published after this tab loaded as its resolved version',`document.querySelector('#custom-curves-library [aria-current=true]')?.dataset.recipe===${JSON.stringify(a2.id+'|2')}&&document.querySelector('.activation-version').value==='2'`);
  await click('#custom-curves-preview');const effectiveReads=await evaluate("window.activationReads.filter(r=>r.path==='/api/custom-curves/effective-preview').length");
  const reads=await evaluate("window.activationReads.filter(r=>r.path==='/api/custom-curves/preview').length");
  await activate(2,1);
@@ -41,22 +41,22 @@ export async function run({command,evaluate,wait,click,persona,set,check,idle,ur
  await click('#custom-curves-effective');await activate(3,null);
  await wait("document.querySelector('#live-status').dataset.state==='stale'&&"+idle);
  await check('inactive latest timeline makes an effective live preview visibly stale',"!document.querySelector('#custom-curves-result').hidden&&document.querySelector('#live-status').textContent.includes('last refreshed')&&!document.querySelector('#live-retry').hidden");
- await click('#current-view-context');await openCurve(`#custom-curves-library [data-recipe="${a.id}|1"]`);await click('#curve-activation-load');
+ await click('#current-view-context');await openCurve(`#custom-curves-library [data-recipe="${a.id}|2"]`);await click('#curve-activation-load');
  const origin=await evaluate('performance.timeOrigin');await set('#curve-activation-reason','Synthetic empty timeline reason');await evaluate("document.querySelector('#curve-activation-reason').focus()");
  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
  await check('an empty activation form cannot implicitly navigate on Enter',`performance.timeOrigin===${origin}`);
- await click('#curve-activation-add');await set('.activation-from','2020-12-01');await set('.activation-to','2021-01-01');await set('.activation-version','1');
+ await click('#curve-activation-add');await set('.activation-from','2020-12-01');await set('.activation-to','2021-01-01');await check('new activation intervals use the context version without a picker',"document.querySelector('.activation-version').value==='2'&&document.querySelector('.activation-version').readOnly");
  await evaluate('window.dropActivation=true');await click('#curve-activation-publish');
  await check('lost activation confirmation retains the exact retry request',"!document.querySelector('#custom-curves-pending').hidden");
  const b2=await save('browser_activation_b','Synthetic effective curve B',2,b);
  await actor.call('custom-curves/activation',{requestId:crypto.randomUUID(),curveId:b.id,expectedRevision:0,policy:'complete_effective_timeline_v1',reason:'Synthetic late publication',segments:[{effectiveFrom:'2020-12-01',effectiveTo:'2021-01-01',version:b2.version,outputNode:b2.definition.output}]});
  await openCurve(`#custom-curves-library [data-recipe="${b.id}|1"]`);await click('#curve-activation-load');
- await check('loading a timeline admits its newly published version without changing the selected exact recipe',`document.querySelector('.activation-version').value==='2'&&document.querySelector('#custom-curves-library [aria-current=true]')?.dataset.recipe===${JSON.stringify(b.id+'|1')}`);
+ await check('loading a timeline selects its newly published contextual recipe',`document.querySelector('.activation-version').value==='2'&&document.querySelector('#custom-curves-library [aria-current=true]')?.dataset.recipe===${JSON.stringify(b.id+'|2')}`);
  await click('#custom-curves-retry');
- await check('retrying another curve’s accepted timeline cannot install it into the selected curve',`document.querySelector('#custom-curves-library [aria-current=true]')?.dataset.recipe===${JSON.stringify(b.id+'|1')}&&document.querySelector('#curve-activation-rows').children.length===0&&document.querySelector('#curve-activation-state').textContent.includes('original curve')`);
+ await check('retrying another curve’s accepted timeline cannot install it into the selected curve',`document.querySelector('#custom-curves-library [aria-current=true]')?.dataset.recipe===${JSON.stringify(b.id+'|2')}&&document.querySelector('#curve-activation-rows').children.length===0&&document.querySelector('#curve-activation-state').textContent.includes('original curve')`);
  await click('#curve-activation-load');await click('#curve-activation-add');await set('#curve-activation-reason','Synthetic unpublished draft');
  const prompt="document.querySelector('#custom-curves-page-prompt')",shownClose=await evaluate("document.querySelector('#snapshot').value"),otherClose=await evaluate("[...document.querySelector('#snapshot').options].find(option=>option.value&&option.value!==document.querySelector('#snapshot').value).value");
- const selectedCurve=`document.querySelector('#custom-curves-library [aria-current=true]')?.dataset.recipe===${JSON.stringify(b.id+'|1')}`;
+ const selectedCurve=`document.querySelector('#custom-curves-library [aria-current=true]')?.dataset.recipe===${JSON.stringify(b.id+'|2')}`;
  await set('#snapshot',otherClose);
  await check('changing the close asks before an unpublished timeline draft is given up, and leaves the close as it was',`!${prompt}.hidden&&${prompt}.textContent.includes('timeline')&&document.querySelector('#snapshot').value===${JSON.stringify(shownClose)}`);
  await click('#custom-curves-page-prompt button.secondary');
@@ -67,6 +67,10 @@ export async function run({command,evaluate,wait,click,persona,set,check,idle,ur
  await check('a loaded timeline shows its rows before the account changes',"document.querySelector('#curve-activation-rows').children.length>0&&document.querySelector('#curve-activation-state').textContent!==''");
  await persona('viewer');
  await check('identity changes clear previous activation rows, reason and timeline metadata',"document.querySelector('#curve-activation-rows').children.length===0&&document.querySelector('#curve-activation-reason').value===''&&document.querySelector('#curve-activation-state').textContent===''");
- await click('#nav-custom-curves');await openCurve(`#custom-curves-library [data-recipe="${a.id}|1"]`);await click('#curve-activation-load');
+ await click('#nav-custom-curves');await openCurve(`#custom-curves-library [data-recipe="${a.id}|2"]`);await click('#curve-activation-load');
  await check('readers inspect retained timelines with mutation controls disabled',"document.querySelectorAll('#curve-activation-rows .activation-from').length===1&&document.querySelector('#curve-activation-publish').disabled&&document.querySelector('#curve-activation-add').disabled");
+ await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{const response=await send(input,init);if(String(input).split('?')[0]==='/api/custom-curves'&&response.ok){window.fetch=send;const value=await response.json();for(const key of ['recipes','contextRecipes'])value[key]=value[key].filter(r=>!(r.id===${JSON.stringify(a.id)}&&r.version===2));return new Response(JSON.stringify(value),{status:200,headers:{'Content-Type':'application/json'}});}return response;};})()`);
+ await click('#custom-curves-effective');
+ await check('a fresh catalog withholding the exact preview version clears its output and selection',`document.querySelector('#custom-curves-result').hidden&&!document.querySelector('#custom-curves-library [data-recipe="${a.id}|2"]')&&document.querySelector('#custom-curves-code').value===''&&!document.querySelector('#error').hidden`);
+
 }

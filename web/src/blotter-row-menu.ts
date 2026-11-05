@@ -5,6 +5,11 @@ import type {MenuItem} from './context-menu.js';
 
 /** What Ask the assistant about this position puts in the assistant's composer, for the person to send or change. */
 export const askAboutText=(reference:string)=>`Tell me about position ${reference}: what it holds, what it is worth and its risk.`;
+export const askSelectionText='Tell me about these selected positions: what they hold, their value and risk.';
+export const askPivotText='Explain this selected pivot cell and the positions behind it.';
+export function selectionAskItem(allowed:boolean,run:()=>void):MenuItem{
+  return allowed?{label:'Ask about these positions',run}:{label:'Ask about these positions',disabled:'Your role does not include the page assistant.'};
+}
 /** An item's action: a Blotter operation, or one of the row's own, which the page carries out for the row the menu was opened on. */
 export type RowMenuAction=BlotterOperation|{kind:'openWindow'|'copyId'|'ask'};
 type Refusable='book'|'amend'|'ask';

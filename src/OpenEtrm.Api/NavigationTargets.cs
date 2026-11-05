@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace OpenEtrm.Api;
@@ -98,7 +99,7 @@ static class NavigationTargets
 
     static NavigationTarget Curve(string curve)=>new("curves",Market("curve",curve),"record",$"{PageReports.Name("curves")}: curve {curve}");
 
-    static NavigationTarget Trade(Guid trade,string instrumentType,int revision,string reference)=>new("blotter",new()
+    internal static NavigationTarget Trade(Guid trade,string instrumentType,int revision,string reference)=>new("blotter",new()
     {
         ["view"]="trade",["mode"]=null,["bookIds"]=null,["portfolioIds"]=null,["groupBy"]=null,["measures"]=null,
         ["tradeId"]=trade.ToString(),["instrumentType"]=instrumentType,["revision"]=revision
@@ -143,6 +144,21 @@ static class NavigationTargets
 // call can name one of its handles, issued by the server all the same.
 public sealed class TurnTargets
 {
+    readonly HashSet<string> readPages=new(StringComparer.Ordinal);
+    readonly Dictionary<int,string> proposals=[];
+    readonly List<JsonNode> focusReads=[];
+    public bool ReadFocus(JsonElement focus)=>focusReads.Any(value=>JsonNode.DeepEquals(value,JsonNode.Parse(focus.GetRawText())));
+    public bool Read(string page)=>readPages.Contains(page);
+    public bool Proposed(int step,string page)=>proposals.TryGetValue(step,out var proposed)&&WalkthroughPlans.Page(proposed)==WalkthroughPlans.Page(page);
+    public IEnumerable<NavigationTarget> All=>issued.Values;
+    public void Published(ToolStep step)
+    {
+        Issue(step.Issued);
+        if(step.End!=ToolStepEnd.Result)return;
+        foreach(var page in step.ReadPages.Concat(step.Issued.Select(i=>i.Target.Page)))readPages.Add(page);
+        if(step.ReadFocus is {} focus)focusReads.Add(JsonNode.Parse(focus.GetRawText())!);
+        if(step.Tool=="propose_page_action"&&step.ProposalPage is {} proposed)proposals.Add(Steps,proposed);
+    }
     readonly Dictionary<string,NavigationTarget> issued=new(StringComparer.Ordinal);
 
     // The number the turn's next handle takes.

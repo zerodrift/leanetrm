@@ -1,5 +1,10 @@
 # Architecture and domain contracts
 
+D316 makes displayed versions follow the shared As of date and knowledge cutoff;
+exact backend history and retained financial pins remain available. See
+[contextual version presentation](contextual-versions.md) for implemented consumers
+and historical limits.
+
 D310 defines [UI read demand](ui-read-demand.md): exact navigation metadata,
 selected observations and optional views load separately while financial scope,
 revision policy and native authorization remain explicit.

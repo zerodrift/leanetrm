@@ -69,9 +69,9 @@ export async function run({command,evaluate,wait,set,click,submit,persona,check,
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await click('#knowledge-context-summary');await click('#date-context-latest');await click('#apply-view-context');
  await check('Apply replaces working facts with the exact historical view and disables writes',
-  "!document.querySelector('#facility-editor').hidden&&document.querySelector('#facility-source-fields').disabled&&document.querySelector('#facility-plan-save').disabled&&document.querySelector('#workspace-mode-label').textContent.includes('Historical')&&[...document.querySelectorAll('[data-facility-trade]')].every(n=>n.disabled&&!n.closest('fieldset').disabled)&&document.querySelector('#facility-trade-help').textContent.includes('Choose a market close')");
- // Trade inspection also requires an explicitly selected price close. The
- // facility's historical business/knowledge context itself chooses no close.
+  "!document.querySelector('#facility-editor').hidden&&document.querySelector('#facility-source-fields').disabled&&document.querySelector('#facility-plan-save').disabled&&document.querySelector('#workspace-mode-label').textContent.includes('Historical')&&document.querySelector('#snapshot').value!==''&&[...document.querySelectorAll('[data-facility-trade]')].every(n=>!n.disabled&&!n.closest('fieldset').disabled)");
+ // Historical writes remain disabled. Trade inspection retains its contextual
+ // close; choose the later valuation date for the following read.
  await click('#nav-futures');
  const inspectionFrame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-31T08:')).id;})()");
  await set('#snapshot',inspectionFrame);await wait(idle);await click('#nav-facilities');

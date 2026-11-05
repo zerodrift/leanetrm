@@ -45,7 +45,7 @@ static class PageReports
     internal static bool Operational(string page)=>page is "users_access" or "settings_ai" or "jobs" or "risk_jobs" or "delivery_prices" or "interval_series";
 
     // The pages the Blotter reports, which alone may state its layout.
-    static readonly ImmutableHashSet<string> BlotterPages=["blotter","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","blotter_new_ppa","blotter_new_gas","blotter_new_option"];
+    static readonly ImmutableHashSet<string> BlotterPages=["blotter","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","blotter_new_ppa","blotter_new_gas","blotter_new_option","blotter_new_crude","blotter_new_lng"];
 
     // The pages the assistant reads, those Navigate opens, and those it does not read.
     internal static IEnumerable<string> Supported=>Pages.Where(p=>p.Value.Tool is not null).Select(p=>p.Key);
@@ -76,14 +76,36 @@ static class PageReports
     // does not parse, which ask never stores.
     public static PageRead? Dispatch(JsonElement report)=>Read(report) is {} read&&Pages[read.Page].Tool is not null?read:null;
 
+    internal static BlotterDigestView? DigestView(JsonElement report)
+    {
+        if(report.TryGetProperty("view",out var view))return BlotterDigestView.Parse(view);
+        if(Dispatch(report)?.Call?.Arguments is BlotterArguments blotter)
+            return new(blotter.View.Mode!,blotter.View.BookIds,blotter.View.PortfolioIds,blotter.View.GroupBy,blotter.View.Measures,null);
+        return null;
+    }
+
     static PageRead? Read(JsonElement report)
     {
         if(report.ValueKind!=JsonValueKind.Object)return null;
-        var members=report.EnumerateObject().Select(m=>m.Name).Order(StringComparer.Ordinal).ToArray();
+        var fields=report.EnumerateObject().Select(m=>m.Name).ToArray();
+        if(fields.Distinct().Count()!=fields.Length)return null;
+        var hasView=report.TryGetProperty("view",out var digestView);
+        var hasFocus=report.TryGetProperty("focus",out var focus);
+        var members=fields.Where(f=>f is not("view" or "focus")).Order(StringComparer.Ordinal).ToArray();
         var laid=members.SequenceEqual(["layout","page","selection"]);
         if(!laid&&!members.SequenceEqual(["page","selection"])||report.GetProperty("page") is not {ValueKind:JsonValueKind.String} named||!Pages.TryGetValue(named.GetString()!,out var page))
             return null;
         var id=named.GetString()!;
+        if(hasFocus)
+        {
+            if(!BlotterPages.Contains(id))return null;
+            try{_=PageFocus.Parse(focus);}catch(ToolRefusal){return null;}
+        }
+        if(hasView)
+        {
+            if(!BlotterPages.Contains(id))return null;
+            try{_=BlotterDigestView.Parse(digestView);}catch(Exception e) when(e is ToolRefusal or MarketDataException){return null;}
+        }
         BlotterLayout? layout=null;
         if(laid&&(!BlotterPages.Contains(id)||(layout=Layout(report.GetProperty("layout"))) is null))return null;
         var selection=report.GetProperty("selection");
@@ -104,6 +126,14 @@ static class PageReports
             // Curve builder reports the curve it has open, if any, and whether it holds unsaved edits, and reads its catalog (D260).
             if(id=="custom_curves"){_=OpenCurve(selection);return new(id,AgentTools.Parse(page.Tool,NoInput),layout);}
             var call=AgentTools.Parse(page.Tool,selection);
+            if(hasView&&call.Arguments is BlotterArguments blotter)
+            {
+                var view=BlotterDigestView.Parse(digestView);var selected=blotter.View;
+                if(view.Mode!=selected.Mode||!view.BookIds.ToHashSet().SetEquals(selected.BookIds)||
+                    !view.PortfolioIds.ToHashSet().SetEquals(selected.PortfolioIds)||
+                    view.Mode=="pivot"&&(!view.GroupBy.SequenceEqual(selected.GroupBy)||!view.Measures.SequenceEqual(selected.Measures)))
+                    throw ToolInput.Invalid();
+            }
             return new(id,page.Operations.Contains(call.Operation.Id)&&Shows(id,call)?call:null,layout);
         }
         catch(ToolRefusal){return new(id,null,layout);}

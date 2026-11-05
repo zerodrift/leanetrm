@@ -285,6 +285,14 @@ def run_checks(url, query, manifest):
     assert query("SELECT count(*)||'/'||md5(string_agg(row_to_json(o)::text,',' ORDER BY id)) FROM market_data.observations o;") == original_prices
     c.call('profile', {'profile': 'viewer'})
     c.call('crude-setup/save', body, expected=403)
+    # Contextual history uses certified knowledge, while exact backend reads stay
+    # available. A large history of one code cannot hide another current code.
+    known=query(f"SELECT to_char(known_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog_id}','{before}');")
+    selected_context=c.call('market/context',{'effectiveOn':'2020-12-18','knownAt':known,'mode':'at','selection':'latest_correction','snapshotId':frame['id'],'frameSelectionPolicy':'preserve_origin_or_unique_asof_frame_v1'})
+    historical=c.call('crude-setup/catalog?snapshotId='+selected_context['snapshotId'])
+    assert not historical['canSave'] and not historical['canPublish'] and not historical['contextSetups']
+    c.call('market/current',{})
+    assert c.call('crude-setup/catalog?snapshotId=invalid',expected=422)['code']=='snapshot_input'
     print('PASS crude setup: immutable exact delivery/pricing bindings, semantic replay, role separation and original market valuation', flush=True)
 
 
@@ -477,3 +485,17 @@ def run_booking_checks(url, query, manifest, *, run_worker):
     print('PASS physical reference upgrade: populated observations, trades and retained programs unchanged; completed native retry keeps its original outcome',flush=True)
     print('PASS physical crude resolution: missing refs, delivery coverage, partial overlap, ambiguity, native source-pin bypass refusal and retained replay',flush=True)
     print('PASS mapped crude booking: V2 admission, exact source/setup pins, retained reopen, corrected-source parity, worker risk and stale-head refusal', flush=True)
+    editor=PreviewClient(url);editor.bootstrap();editor.call('profile',{'profile':'editor'})
+    publisher=PreviewClient(url);publisher.bootstrap();publisher.call('profile',{'profile':'approver'})
+    directory=editor.call('crude-setup/catalog')
+    preserved=next(v for v in directory['contextSetups'] if v['configuration']['code']=='synthetic_head_visibility')
+    config=preserved['configuration']
+    pressure=None
+    for i in range(102):
+        pressure=editor.call('crude-setup/save',{'operationId':str(uuid4()),'baseSetupId':None if pressure is None else pressure['setupId'],'configuration':{**config,'code':'synthetic_context_history_pressure','validFrom':'2021-01-01' if i%2==0 else '2021-01-02'}})
+        publisher.call('crude-setup/publish',{'operationId':str(uuid4()),'setupId':pressure['setupId']})
+    directory=editor.call('crude-setup/catalog')
+    assert len(directory['versions'])==100 and preserved['id'] not in {v['id'] for v in directory['versions']}
+    assert preserved['id'] in {v['id'] for v in directory['contextSetups']}
+    assert pressure['setupId'] in {v['id'] for v in directory['contextSetups']}
+    print('PASS crude contextual setup: certified historical read-only view, strict snapshot ingress, separate current codes beyond the bounded raw history',flush=True)

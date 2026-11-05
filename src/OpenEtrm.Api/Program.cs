@@ -767,8 +767,10 @@ Task<IResult> DateOperation(HttpContext c,string permission,Func<PreviewSession,
     },c.RequestAborted));
 api.MapGet("/date-schedules",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
-    var library=await scheduleReads.Library(connection,Pin(session),ct);
-    return Results.Ok(new {library.KnownThrough,library.Versions,library.CanEdit,library.CanPublish,choices=DateWorkspace.Choices,
+    var library=ContextVersions.SnapshotId(c.Request.Query) is {} selectedSnapshot
+        ?await scheduleReads.ContextLibrary(connection,await PartyView(connection,session,selectedSnapshot,ct),ct)
+        :await scheduleReads.Library(connection,Pin(session),ct);
+    return Results.Ok(new {library.KnownThrough,library.Versions,library.ContextVersions,library.ContextContracts,library.CanEdit,library.CanPublish,choices=DateWorkspace.Choices,
         library.ContractDefinitions,library.Calendars,examples=ScheduleExamples.Catalog});
 },c.RequestAborted))));
 api.MapPost("/date-schedules/preview",(HttpContext c,DateSchedulePreviewRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
@@ -851,9 +853,12 @@ api.MapPost("/curve-definitions/preview",(HttpContext c,CurveDefinitionPreviewRe
     return Results.Ok(CurveDefinitions.Preview(definition,CurveReferenceTerms.From(data.References),mapping));
 },c.RequestAborted)));
 // Selects a historical view: binds the context, under the explicit latest-known correction policy, and shows its frames.
-async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? selection,Func<NpgsqlConnection,CancellationToken,Task<KnowledgeSnapshot>> resolve)
+async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? selection,Func<NpgsqlConnection,CancellationToken,Task<KnowledgeSnapshot>> resolve,Guid? selectedSnapshot=null,string? framePolicy=null)
 {
     if(selection!="latest_correction")throw new MarketDataException("selection_policy","Choose the explicit latest-known correction policy.");
+    if(framePolicy is not null&&framePolicy!=PreviewSession.ContextFramePolicy||selectedSnapshot is not null&&framePolicy is null)
+        throw new MarketDataException("selection_policy","Select the installed contextual frame-identity policy explicitly.");
+    var previous=selectedSnapshot is {} selected?Frame(session,selected):null;
     var snapshot=await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
     {
         var captured=await resolve(connection,ct);
@@ -865,10 +870,10 @@ async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? s
     },c.RequestAborted);
     session.StopLive();session.ApplyFrames(snapshot.plan);
     session.MarketContext=snapshot.captured.Context;
-    return Results.Ok(snapshot.captured);
+    return Results.Ok(new{snapshot.captured.Context,snapshot.captured.CoverageFrom,snapshot.captured.CertifiedThrough,frameSelectionPolicy=framePolicy,snapshotId=framePolicy is null?null:session.ContextFrame(previous,snapshot.plan,snapshot.captured.Context)});
 }
 api.MapPost("/market/context",(HttpContext c,MarketContextRequest body)=>Locked(c,session=>
-    SelectContext(c,session,body.Selection,(connection,ct)=>knowledgeStore.Capture(connection,new(body.EffectiveOn,body.KnownAt,body.Mode),ct))));
+    SelectContext(c,session,body.Selection,(connection,ct)=>knowledgeStore.Capture(connection,new(body.EffectiveOn,body.KnownAt,body.Mode),ct),body.SnapshotId,body.FrameSelectionPolicy)));
 api.MapPost("/market/current",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,async session=>
 {
     await database.WithIdentity(Profile(session),"ReadMarketData",(_,_)=>Task.FromResult(true),c.RequestAborted);
@@ -971,8 +976,9 @@ Task<IResult> ReferenceMutation(HttpContext c,string permission,Func<NpgsqlConne
 var crudeSetupEditor=new CrudeSetupEditor(database);
 api.MapGet("/crude-setup/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity<IResult>(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
- if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data to configure crude delivery.");
- return Results.Ok(await crudeSetupEditor.CatalogRead(connection,ct));
+ var view=ContextVersions.SnapshotId(c.Request.Query) is {} snapshotId?await PartyView(connection,session,snapshotId,ct):null;
+ if(view is null&&session.MarketContext is not null)throw new MarketDataException("historical_read_only","Select a dated view to inspect crude setup.");
+ return Results.Ok(await crudeSetupEditor.CatalogRead(connection,ct,view,ContextVersions.OptionalId(c.Request.Query,"proposalId")));
 },c.RequestAborted))));
 api.MapPost("/crude-setup/save",(HttpContext c,CrudeSetupSaveRequest body)=>ReferenceMutation(c,"WriteMarketDefinitions",(connection,ct)=>crudeSetupEditor.Save(connection,body,ct)));
 api.MapPost("/crude-setup/validate",(HttpContext c,CrudeSetupVersionRequest body)=>Locked(c,session=>database.WithIdentity<IResult>(Profile(session),"ReadMarketData",async(connection,ct)=>
@@ -997,8 +1003,9 @@ api.MapPost("/crude-setup/preview",(HttpContext c,CrudeSetupPreviewRequest body)
 var gasSetupEditor=new GasSetupEditor(database);
 api.MapGet("/gas-setup/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity<IResult>(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
- if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data to configure gas setup.");
- return Results.Ok(await gasSetupEditor.Catalog(connection,ct));
+ var view=ContextVersions.SnapshotId(c.Request.Query) is {} snapshotId?await PartyView(connection,session,snapshotId,ct):null;
+ if(view is null&&session.MarketContext is not null)throw new MarketDataException("historical_read_only","Select a dated view to inspect gas setup.");
+ return Results.Ok(await gasSetupEditor.Catalog(connection,ct,view,ContextVersions.OptionalId(c.Request.Query,"proposalId")));
 },c.RequestAborted))));
 api.MapPost("/gas-setup/save",(HttpContext c,GasSetupSaveRequest body)=>ReferenceMutation(c,"WriteMarketDefinitions",(connection,ct)=>gasSetupEditor.Save(connection,body,ct)));
 api.MapPost("/gas-setup/validate",(HttpContext c,GasSetupValidateRequest body)=>ReferenceMutation(c,"ReadMarketData",(connection,ct)=>gasSetupEditor.Validate(connection,body,ct)));

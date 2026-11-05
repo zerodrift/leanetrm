@@ -41,6 +41,8 @@ public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, Immutab
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public Guid? OriginCloseId{get;init;}
+    [System.Text.Json.Serialization.JsonIgnore]
+    public Guid? OriginInputId{get;init;}
     public PpaBundle? PpaBundle{get;init;}
     // Pins explicitly selected in separate swap bundles, by bundle revision (D172).
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
@@ -49,16 +51,16 @@ public sealed record InputFrame(Guid Id, string Name, DateTimeOffset At, Immutab
     [System.Text.Json.Serialization.JsonIgnore]
     public bool ResolvesLatestCorrection{get;init;}
     public InputFrame ForSwapMarket(ImmutableArray<Guid> pins,ImmutableDictionary<string,ImmutableArray<Guid>> contracts)=>
-        this with{Name="Selected swap market",ObservationIds=pins,CurveContracts=contracts,OriginCloseId=null,
+        this with{Name="Selected swap market",ObservationIds=pins,CurveContracts=contracts,OriginCloseId=null,OriginInputId=null,
             FrozenObservationIds=FrozenObservationIds.IsDefault?[]:FrozenObservationIds.Where(pins.Contains).ToImmutableArray()};
     public InputFrame SelectRevision(Guid previous,Guid selected,string name)=>this with
     {
-        Id=Guid.NewGuid(),Name=name,OriginCloseId=null,ObservationIds=ObservationIds.Replace(previous,selected),
+        Id=Guid.NewGuid(),Name=name,OriginCloseId=null,OriginInputId=null,ObservationIds=ObservationIds.Replace(previous,selected),
         FrozenObservationIds=FrozenObservationIds.IsDefault?default:FrozenObservationIds.Contains(previous)?FrozenObservationIds.Replace(previous,selected):FrozenObservationIds
     };
     public InputFrame SelectSwapMarketRevision(Guid market,ImmutableArray<Guid> pins,Guid previous,Guid selected,string name)=>this with
     {
-        Id=Guid.NewGuid(),Name=name,OriginCloseId=null,
+        Id=Guid.NewGuid(),Name=name,OriginCloseId=null,OriginInputId=null,
         SwapMarketSelections=(SwapMarketSelections??ImmutableDictionary<Guid,ImmutableArray<Guid>>.Empty).SetItem(market,pins.Replace(previous,selected))
     };
 }

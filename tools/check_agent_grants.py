@@ -124,6 +124,7 @@ def run_checks(url, query, psql, manifest, environment, admin, viewer):
           offers(trader) == [{'id': guide['id'], 'name': f'Synthetic grant guide {stamp}', 'version': 1, 'draft': False,
                               'model': {'id': usable, 'version': version_of(usable), 'vendor': 'anthropic', 'identifier': identifier,
                                         'displayName': model_name},
+                              'tools': ['read_current_page', 'read_market_data', 'read_trades'],
                               'permissions': ['ReadMarketData', 'ReadTrades'], 'grantDays': 28, 'grant': None}])
     check('a user whose roles the published version does not allow is not offered it', offers(editor) == [])
     refusal(viewer, USABLE, None, 403, 'access_denied')

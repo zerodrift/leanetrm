@@ -1,5 +1,5 @@
 export type GridColumn={getField():string;getWidth():number;setWidth(width:number):void;move(to:string,after:boolean):void;show():void;hide():void};
-export type GridRow={getData():Record<string,string>;getElement():HTMLElement;getCell(field:string):{setValue(value:string):void}|false;scrollTo(position?:'top'|'center'|'bottom'|'nearest',ifVisible?:boolean):Promise<void>;normalizeHeight():void};
+export type GridRow={getData():Record<string,string>;getElement():HTMLElement;getCell(field:string):{setValue(value:string):void;getElement():HTMLElement;getRow():GridRow;getColumn():GridColumn}|false;scrollTo(position?:'top'|'center'|'bottom'|'nearest',ifVisible?:boolean):Promise<void>;normalizeHeight():void};
 export type GridGroup={getKey():string;getElement():HTMLElement|false;isVisible():boolean;toggle():void};
 export class TabulatorFull {
  // Pinned 6.6.1 adapter: redraw/resize re-reads this instance configuration.

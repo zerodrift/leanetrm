@@ -10,7 +10,10 @@ import {readPages,type Step,type Ending,type Usage,type TargetContext} from './a
  * pane in one group, so there only the pane that group shows is open (dock-model openTabs). `poppedOut`: the Blotter is in a window of its own.
  */
 export type BlotterLayoutShown={pane:{details:boolean;charts:boolean};poppedOut:boolean};
-export type PageReport={page:string;selection:Record<string,unknown>;layout?:BlotterLayoutShown};
+export type PivotCellFocus={keys:Record<string,unknown>;measure:string};
+export type PageFocus={tradeIds:string[];pivotCell:PivotCellFocus|null};
+export type PageReport={page:string;selection:Record<string,unknown>;layout?:BlotterLayoutShown;view?:BlotterDigestView;focus?:PageFocus};
+export type BlotterDigestView=BlotterSelection&{primaryMeasure:string|null};
 export type BlotterSelection={mode:'trades'|'pivot';bookIds:string[];portfolioIds:string[];groupBy:string[];measures:string[]};
 export type TradeShown={tradeId:string;instrumentType:'future'|'financial_swap'|'heat_rate'|'ppa'|'physical_gas'|'physical_crude'|'physical_lng'|'futures_option';revision:number;reference:string};
 /** A new trade being entered in the Blotter's panel: of its product, or of none until the person chooses one. */
@@ -24,7 +27,7 @@ export type PageState=(
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
   |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
-  |{page:'facilities'|'risk'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'admin'|'ai'})&{assistant?:WorkspaceSelection};
+  |{page:'facilities'|'risk'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null}
@@ -62,11 +65,12 @@ export function pageReport(state:PageState):PageReport{
     case 'jobs':return {page:'jobs',selection:state.job?{view:'history',job:state.job,page:null,before:null}:{view:'jobs',job:null,page:0,before:null}};
     case 'futures':{
       const layout:BlotterLayoutShown={pane:{...state.pane},poppedOut:state.poppedOut};
-      if(state.risk)return {page:'blotter_risk',selection:state.assistant??{},layout};
-      if(state.entry)return {page:entryPages[state.entry.product??'none'],selection:state.assistant??{},layout};
-      if(!state.trade&&state.lens==='risk')return {page:'blotter_risk_lens',selection:state.assistant??{},layout};
+      const pointers={...(state.digestView?{view:structuredClone(state.digestView)}:{}),...(state.focus?{focus:structuredClone(state.focus)}:{})};
+      if(state.risk)return {page:'blotter_risk',selection:state.assistant??{},layout,...pointers};
+      if(state.entry)return {page:entryPages[state.entry.product??'none'],selection:state.assistant??{},layout,...pointers};
+      if(!state.trade&&state.lens==='risk')return {page:'blotter_risk_lens',selection:state.assistant??{},layout,...pointers};
       const t=state.trade,v=state.view,pivot=v.mode==='pivot';
-      return {page:'blotter',layout,selection:t?{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:t.tradeId,instrumentType:t.instrumentType,revision:t.revision}
+      return {page:'blotter',layout,...pointers,selection:t?{view:'trade',mode:null,bookIds:null,portfolioIds:null,groupBy:null,measures:null,tradeId:t.tradeId,instrumentType:t.instrumentType,revision:t.revision}
         :{view:'blotter',mode:v.mode,bookIds:[...v.bookIds],portfolioIds:[...v.portfolioIds],groupBy:pivot?[...v.groupBy]:[],measures:pivot?[...v.measures]:[],
           tradeId:null,instrumentType:null,revision:null}};
     }
@@ -75,7 +79,7 @@ export function pageReport(state:PageState):PageReport{
 }
 
 // What Looking at showed, kept to compare with the page at send: the report it shows whole, the Blotter's layout too, and its context.
-export const lookingKey=({report,context}:{report:PageReport;context:PageContext})=>JSON.stringify([report.page,report.selection,report.layout??null,context]);
+export const lookingKey=({report,context}:{report:PageReport;context:PageContext})=>JSON.stringify([report.page,report.selection,report.layout??null,report.view??null,report.focus??null,context]);
 
 // The knowledge an ask pins: working data only at a chosen As of frame, the selected historical view with or without one.
 export function askKnowledge(context:PageContext,page?:string){
@@ -136,12 +140,12 @@ const layoutLine=({pane,poppedOut}:BlotterLayoutShown)=>
   [`Details ${pane.details?'open':'closed'}`,`Charts ${pane.charts?'open':'closed'}`,poppedOut?'Pop-out window':'Main window'].join(' · ');
 // Looking at: the page, what it shows, the Blotter's layout where it reports one, and the context the next question will pin, or that the
 // page is not read.
-export function lookingAt(report:PageReport,context:PageContext,names:Names,extra:{trade?:string}={}){
+export function lookingAt(report:PageReport,context:PageContext,names:Names,extra:{trade?:string;digest?:boolean}={}){
   if(!Object.hasOwn(pageNames,report.page))throw inconsistent();
   // A page whose report names no selection yet, Reference data before it shows a table or PPA bookings before it lists a
   // book, has nothing to be asked from.
   const named=!(report.page==='reference_data'&&report.selection.table===''||report.page==='ppa'&&report.selection.view==='ppa_book'&&!(report.selection.bookIds as string[]).length);
-  return {page:pageNames[report.page],shows:shows(report,names,extra.trade),...(report.layout?{layout:layoutLine(report.layout)}:{}),context:contextLine(context),supported:readPages.includes(report.page)||unopened.includes(report.page),
+  return {page:pageNames[report.page],shows:shows(report,names,extra.trade)+(report.focus?.tradeIds.length?` · ${counted(report.focus.tradeIds.length,'selected position')}`:report.focus?.pivotCell?' · Selected pivot cell':'')+(extra.digest?' · The server will read a page digest.':''),...(report.layout?{layout:layoutLine(report.layout)}:{}),context:contextLine(context),supported:readPages.includes(report.page)||unopened.includes(report.page),
     askable:named&&askKnowledge(context,report.page)!==undefined};
 }
 
@@ -173,10 +177,10 @@ export class NavigationHistory{
   clear(){this.#places.clear();}
 }
 
-const toolNames:Record<string,string>={read_current_page:'Read the page',read_market_data:'Read market data',read_trades:'Read trades',futures_option_catalog:'Read the futures option catalog',
+const toolNames:Record<string,string>={present_walkthrough:'Present walkthrough',read_page_digest:'Read page digest',read_current_page:'Read the page',read_market_data:'Read market data',read_trades:'Read trades',futures_option_catalog:'Read the futures option catalog',
   read_trade_parties:'Read trade parties',read_schedules:'Read schedules',read_reference_data:'Read reference data',read_custom_curves:'Read curve ingredients',prepare_custom_curve:'Prepare proposed curve',save_custom_curve_draft:'Prepare curve draft',read_jobs:'Read your jobs',navigate:'Navigate',
   read_workspace_page:'Read workspace page',discover_page_operations:'Inspect available operations',read_page_operation:'Read or preview page data',propose_page_action:'Prepare change for authorization'};
-const reasons:Record<string,string>={tool_arguments_invalid:'the request was not one this tool accepts',result_too_large:'the result was larger than one read returns',
+const reasons:Record<string,string>={walkthrough_plan_invalid:'the plan names an unavailable step, page or target',walkthrough_fill_requires_explicit_terms:'state the exact unsaved ticket terms in a new ask',tool_arguments_invalid:'the request was not one this tool accepts',result_too_large:'the result was larger than one read returns',
   page_not_supported:'the assistant does not read the page you asked from',tool_not_enabled:'this agent does not read the page you asked from',
   page_selection_unavailable:'what the page showed is not available in the pinned context',snapshot_missing:'it needs an As of date, and none was chosen',
   power_historical:'a historical view does not read current definitions',access_denied:'the agent’s access does not cover it',
@@ -227,7 +231,7 @@ export function usageLine(usage:Usage){
 }
 
 export type UsableAgent={id:string;name:string;version:number;draft:boolean;model:{id:string;version:number;vendor:string;identifier:string;displayName:string};
-  permissions:string[];grantDays:number;grant:{id:string;expiresAt:string}|null};
+  permissions:string[];tools?:string[];grantDays:number;grant:{id:string;expiresAt:string}|null};
 const vendorName=(vendors:Vendor[],code:string)=>{const vendor=vendors.find(v=>v.code===code);if(!vendor)throw inconsistent();return vendor.name;};
 // A usable version as the picker lists it.
 export const agentChoice=(agent:UsableAgent,vendors:Vendor[])=>
@@ -281,7 +285,7 @@ export function keptAsk(stored:string|null){
     if(!exact(v,['operationId','path','body'])||!isUuid(v.operationId)||v.path!=='assistant/turns/ask'
       ||!exact(b,['conversationId','agentId','version','question','pageReport','knowledge'])||b.conversationId!==null&&!isUuid(b.conversationId)
       ||!isUuid(b.agentId)||!Number.isSafeInteger(b.version)||b.version<1||typeof b.question!=='string'||!b.question.trim()
-      ||!exact(b.pageReport,['page','selection'])&&!exact(b.pageReport,['page','selection','layout'])||!exact(k,['mode','contextId','frameId']))return undefined;
+      ||!exact(b.pageReport,['page','selection',...['layout','view','focus'].filter(key=>Object.hasOwn(b.pageReport??{},key))])||!exact(k,['mode','contextId','frameId']))return undefined;
     return {operationId:v.operationId as string,path:v.path as string,body:b as Record<string,unknown>,uncertain:true};
   }catch{return undefined;/* Invalid browser state keeps no request. */}
 }

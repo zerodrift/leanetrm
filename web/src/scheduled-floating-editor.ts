@@ -31,7 +31,7 @@ function mountIndexFloatingEditor(options:EditorOptions){
  const settlement=mountPriceSettlement(options.host,prefix,{enabled:()=>options.enabled()&&!unsupported,indices:()=>quote()?.settlementIndices??[],changed:()=>change(()=>{sources();})});
  // Requirements remain visible for an unavailable entered mode; admission uses the qualified response.
  const choice=():SamplingChoice|undefined=>[...(selectedRequirements?[selectedRequirements]:[]),...(qualified?.samplings??[]),...(quote()?.samplings??options.indices().flatMap(i=>i.samplings))].find(s=>s.resetFrequency===reset.value&&s.averagingMethod===average.value);
- const projections=()=>settlement.override()?[]:quote()?.customProjections.filter(p=>p.samplings.some(s=>s.resetFrequency===reset.value&&s.averagingMethod===average.value))??[];
+ const projections=()=>settlement.override()?[]:quote()?.customProjections.filter(p=>p.selectedInContext===true&&p.samplings.some(s=>s.resetFrequency===reset.value&&s.averagingMethod===average.value))??[];
  const selectedProjection=()=>projections().find(p=>JSON.stringify(p.reference)===source.value)?.reference??
   (!settlement.override()&&explicitProjection&&JSON.stringify(explicitProjection)===source.value?explicitProjection:undefined);
  const qualifiedProjections=()=>{const choices=projections(),receipt=qualified?.qualifiedCustomProjection;return receipt&&JSON.stringify(receipt)===source.value&&selectedProjection()&&JSON.stringify(receipt)===JSON.stringify(selectedProjection())&&!choices.some(p=>JSON.stringify(p.reference)===source.value)?[...choices,{label:'Retained published source · qualified for this period',reference:receipt,samplings:[]}]:choices;};
@@ -50,7 +50,7 @@ function mountIndexFloatingEditor(options:EditorOptions){
   }
   field.value=selected;explainUnavailableValue(field);
  };
- function sources(selected=source.value){fill(source,[{value:'ordinary',label:'Selected index curve'},...qualifiedProjections().map(p=>({value:JSON.stringify(p.reference),label:p.label}))],selected);}
+ function sources(selected=source.value){const offered=projections(),retained=qualifiedProjections().find(p=>JSON.stringify(p.reference)===selected&&!offered.some(current=>JSON.stringify(current.reference)===selected));fill(source,[{value:'ordinary',label:'Selected index curve'},...offered.map(p=>({value:JSON.stringify(p.reference),label:p.label}))],retained?'':selected);if(retained){const pin=new Option('Retained published source · qualified for this period',selected);pin.disabled=true;source.append(pin);source.value=selected;explainUnavailableValue(source);}}
  function averaging(selected=average.value){fill(average,[...new Map(samplings().filter(s=>reset.value&&s.resetFrequency===reset.value).map(s=>[s.averagingMethod,{value:s.averagingMethod,label:s.label}])).values()],selected);sources();}
  function frequencies(selected=reset.value){fill(reset,[...new Set(samplings().map(s=>s.resetFrequency))].map(value=>({value,label:value})),selected);averaging();}
  function indices(selected=index.value){fill(index,options.indices().filter(i=>(i.settlementIndices?.length>0&&(!settlement.selected()||key(i)!==index.value))||(qualified?qualified.indices.some(candidate=>key(candidate)===key(i)):i.samplings.some(s=>(!reset.value||s.resetFrequency===reset.value)&&(!average.value||s.averagingMethod===average.value)))).map(i=>({value:key(i),label:`${i.index} · ${i.curve} · ${i.currency}/${i.unit} × ${i.quoteMultiplier}`})),selected);}

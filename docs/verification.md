@@ -1,5 +1,18 @@
 # Local verification and continuous integration
 
+D312–D315 page-digest, selection and walkthrough checks run with
+`python3 tools/run_preview.py --pg-bin /path/to/postgres/bin --dotnet /path/to/dotnet --assistant-workspace-check --browser-check --browser /path/to/chrome`.
+The managed `--assistant-workspace` checks run first; the owned HTTP fixture then
+qualifies consent, exact retained reads, plan publication/refusal and source hiding.
+The owned browser exercises administrator tool choices, selected ids without cells,
+the visible plan, unsaved fills, Stop and later-plan suppression. Web checks cover
+closed events, pending-step cancellation, competing input, deferred Review and the
+separate Authorize click. `--assistant-runtime-check` qualifies the ordinary turn
+loop and rejects legacy runtime admission. The complete command below includes
+this owned browser gate in the assistant partition. Optional
+`OPENETRM_ASSISTANT_BROWSER_EVIDENCE` copies synthetic screenshots outside the tree.
+No complete release verification or publication is implied by targeted local runs.
+
 The native volatility-fit admission regression runs with
 `python3 tools/check_vol_surface_admission_expiry.py --pg-bin /path/to/postgres/bin`.
 It uses an owned stock PostgreSQL cluster and synthetic fixtures. Both request

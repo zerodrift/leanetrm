@@ -66,8 +66,23 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
  // The delivery clocks the crude profile admits: an explicit UTC clock, as PhysicalCrudeStore requires of every booking.
  internal static Task<ImmutableArray<JsonElement>> ProfileClocks(NpgsqlConnection c,ReferenceRevision revision,CancellationToken ct)=>
   PreviewDatabase.Rows(c,"SELECT row_to_json(k)::text FROM ref_data.clock_rules k WHERE(catalog_id,revision_id)=($1,$2) AND kind='fixed_offset' AND fixed_offset_seconds=0 ORDER BY code",[revision.CatalogId,revision.RevisionId],ct);
- public async Task<object> CatalogRead(NpgsqlConnection c,CancellationToken ct)
+ public async Task<object> CatalogRead(NpgsqlConnection c,CancellationToken ct,TradingView? view=null,Guid? proposalId=null)
  {
+  async Task<ImmutableArray<JsonElement>> Versions()=>await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT v.*,r.reference_catalog_id source_reference_catalog_id FROM market_data.crude_setup_versions v JOIN market_data.revisions r ON(r.catalog_id,r.id)=(v.catalog_id,v.definition_revision_id) WHERE v.catalog_id=$1 ORDER BY v.publication_order DESC NULLS LAST,v.id LIMIT 100)x",[Catalog],ct);
+  async Task<JsonElement?> Proposal()
+  {
+   if(proposalId is not {} selected)return null;
+   var rows=await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT v.*,r.reference_catalog_id source_reference_catalog_id FROM market_data.crude_setup_versions v JOIN market_data.revisions r ON(r.catalog_id,r.id)=(v.catalog_id,v.definition_revision_id) WHERE(v.catalog_id,v.id)=($1,$2))x",[Catalog,selected],ct);
+   return rows.Length==1?rows[0]:throw Invalid("The exact saved proposal is unavailable under this context and current access.");
+  }
+  var working=view?.Working??true;var versions=working?await Versions():[];var proposal=working?await Proposal():null;
+  var proposals=working&&proposalId is null?await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT v.*,r.reference_catalog_id source_reference_catalog_id FROM market_data.crude_setup_versions v JOIN market_data.revisions r ON(r.catalog_id,r.id)=(v.catalog_id,v.definition_revision_id) WHERE v.catalog_id=$1 AND v.state='draft' ORDER BY v.id LIMIT 101)x",[Catalog],ct):[];
+  if(proposals.Length>100)throw Invalid("The unpublished proposal review exceeds one hundred entries. Read an exact proposal identity.");
+  if(view is not null)await view.Bind(c,Catalog,ct);
+  if(!working){versions=await Versions();proposal=await Proposal();}
+  var heads=await CurrentSetups(c,Catalog,ct);
+  var contextSetups=await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT v.*,r.reference_catalog_id source_reference_catalog_id FROM market_data.crude_setup_versions v JOIN market_data.revisions r ON(r.catalog_id,r.id)=(v.catalog_id,v.definition_revision_id) WHERE v.catalog_id=$1 AND v.id=ANY($2::uuid[]) ORDER BY v.code)x",[Catalog,heads],ct);
+  if(contextSetups.Length!=heads.Length)throw new PreviewDeniedException();
   var revision=await DeliveryRevision(c,ct);
   var points=await PreviewDatabase.Rows(c,"""
    SELECT row_to_json(x)::text FROM(SELECT p.*,g.name grade_name,f.name facility_name,l.name custody_point_name,g.quantity_code
@@ -87,10 +102,15 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
    WHERE m.catalog_id=$1 AND m.id=ANY($2::uuid[]) AND m.state='sealed' AND q.kind='outright' AND n.dimension_code='volume' AND t.kind='index' AND t.index_b_code IS NULL
    ORDER BY c.name,m.id,c.code
    """,[Catalog,Sources().ToArray()],ct);
-  var versions=await PreviewDatabase.Rows(c,"SELECT row_to_json(v)::text FROM market_data.crude_setup_versions v WHERE catalog_id=$1 ORDER BY publication_order DESC NULLS LAST,id LIMIT 100",[Catalog],ct);
-  return new{deliveryReferences=await CrudeDeliveryReferences.Read(c,revision,ct),deliveryPoints=points,sources,clocks=await ProfileClocks(c,revision,ct),versions,quantityPolicies=new[]{new{code=CrudeQuantityEquivalence.Policy,label="Same standard volume at 60°F · no conversion"}},
-   canSave=await PreviewDatabase.HasPermission(c,"WriteMarketDefinitions",ct),canPublish=await PreviewDatabase.HasPermission(c,"SealMarketDefinitions",ct),
+
+  var response=new{deliveryReferences=await CrudeDeliveryReferences.Read(c,revision,ct),deliveryPoints=points,sources,clocks=await ProfileClocks(c,revision,ct),versions,contextSetups,proposals,proposal,context=view?.Context,quantityPolicies=new[]{new{code=CrudeQuantityEquivalence.Policy,label="Same standard volume at 60°F · no conversion"}},
+   canSave=working&&await PreviewDatabase.HasPermission(c,"WriteMarketDefinitions",ct),canPublish=working&&await PreviewDatabase.HasPermission(c,"SealMarketDefinitions",ct),
    scope="Maintain exact delivery-to-price bindings for pre-delivery crude booking and valuation. Booked contracts retain their exact setup and original pricing source. Delivery-to-cash for separate delivery masters remains unsupported."};
+  var references=versions.Concat(contextSetups).Concat(proposals).Concat(proposal is {} exact?[exact]:[]).SelectMany(v=>new[]{v.Id("delivery_reference_catalog_id"),v.Id("source_reference_catalog_id")})
+   .Concat(sources.Select(v=>v.Id("referenceCatalogId"))).Append(revision.CatalogId).Distinct().ToArray();
+  await using var authority=ScheduleStore.Command(c,"SELECT security.market_access($1,'ReadMarketData') AND NOT EXISTS(SELECT 1 FROM unnest($2::uuid[]) r WHERE NOT security.reference_access(r,'ReadMarketData'))",Catalog,references);
+  if(!Equals(await authority.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+  return response;
  }
  public async Task<JsonElement> Save(NpgsqlConnection c,CrudeSetupSaveRequest body,CancellationToken ct)
  {

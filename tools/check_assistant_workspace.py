@@ -54,19 +54,27 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     fixture.qualify()
     identifier = 'synthetic-workspace-' + stamp
     model = fixture.model(identifier)
-    tools = ['read_current_page', 'read_workspace_page', 'discover_page_operations', 'read_page_operation', 'propose_page_action', 'navigate']
+    tools = ['present_walkthrough', 'read_page_digest', 'read_current_page', 'read_workspace_page', 'discover_page_operations', 'read_page_operation', 'propose_page_action', 'navigate']
     agent = fixture.publish(fixture.save(fixture.create('workspace operations'), model, tools=tools, roles=['trader'], toolSteps=12))
     owner.call('assistant/grants/grant', {'operationId': str(uuid4()), 'agentId': agent['id'], 'version': 1})
+    # Consent for the new tool is tied to an administrator-selected version; an earlier workspace grant cannot widen.
+    legacy = fixture.publish(fixture.save(fixture.create('digest consent'), model, tools=['read_workspace_page'], roles=['trader']))
+    owner.call('assistant/grants/grant', {'operationId': str(uuid4()), 'agentId': legacy['id'], 'version': legacy['publishedVersion']})
+    upgraded = fixture.publish(fixture.save(legacy, model, tools=['read_workspace_page', 'read_page_digest'], roles=['trader']))
+    denied = owner.call('assistant/turns/ask', {'operationId': str(uuid4()), 'conversationId': None, 'agentId': upgraded['id'], 'version': upgraded['publishedVersion'],
+                       'question': 'Read this synthetic page.', 'pageReport': {'page': 'users_access', 'selection': {}},
+                       'knowledge': {'mode': 'current', 'contextId': None, 'frameId': None}}, expected=403)
+    check('adding the digest tool never silently widens an existing workspace grant', denied['code'] == 'grant_required')
     frame = initial_frame(owner.call('workspace/navigation'), '2020-12-18')
 
-    def ask(requests, page='users_access', session=None, state=None, frame_id=None, operational=False):
+    def ask(requests, page='users_access', session=None, state=None, frame_id=None, operational=False, report=None, knowledge=None, question=None):
         session = session or owner
         state = state or agent
         before = len(fake.received)
         fake.respond(stream(tool_use(identifier, [(str(n), tool, data) for n, (tool, data) in enumerate(requests)])), stream(recording(identifier, text='Synthetic reviewed result.')))
         turn = session.call('assistant/turns/ask', {'operationId': str(uuid4()), 'conversationId': None, 'agentId': state['id'], 'version': 1,
-                         'question': 'Inspect the selected page and prepare only the explicitly requested synthetic change.',
-                         'pageReport': {'page': page, 'selection': {}}, 'knowledge': {'mode': 'current', 'contextId': None, 'frameId': None if operational else frame_id or frame['id']}})['turn']
+                         'question': question or 'Inspect the selected page and prepare only the explicitly requested synthetic change.',
+                         'pageReport': report or {'page': page, 'selection': {}}, 'knowledge': knowledge or {'mode': 'current', 'contextId': None, 'frameId': None if operational else frame_id or frame['id']}})['turn']
         deadline = time.monotonic() + 20
         while True:
             conversation = session.call(f"assistant/conversations/{turn['conversationId']}?after=0")
@@ -117,6 +125,39 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     check('a command without a native request id replays its atomic approval outcome', owner.call('assistant/actions/authorize', format_reference) == first and first['revision'] == 1)
     check('the approval outcome commits once with the command', query(f"SELECT count(*) FROM assistant.action_outcomes WHERE turn_id='{format_turn['id']}';") == '1')
 
+    # Digest values come from the ordinary page valuation, and an admitted retained ask never reads later corrections.
+    digest_selection = {'view': 'blotter', 'mode': 'trades', 'bookIds': [offer['books'][0]['id']], 'portfolioIds': [],
+                        'groupBy': [], 'measures': [], 'tradeId': None, 'instrumentType': None, 'revision': None}
+    digest_report = {'page': 'blotter', 'selection': digest_selection,
+                     'view': {**{k: digest_selection[k] for k in ('mode', 'bookIds', 'portfolioIds', 'groupBy')},
+                              'measures': ['executionPnl'], 'primaryMeasure': 'executionPnl'}}
+    digest_turn, digest_results, _ = ask([('read_page_digest', {})], report=digest_report)
+    digest = digest_results[0]
+    check('the Blotter digest has ordered server counts, totals, extrema and issued targets',
+          digest['operation'] == 'workspace.digest_v1' and 'Positions: future=1' in digest['result']['text']
+          and digest['result']['text'].index('Book:') < digest['result']['text'].index('Largest:') < digest['result']['text'].index('Smallest:')
+          and len(digest['result']['targets']) == 2 and len(digest['result']['text'].encode()) <= 4096)
+    plan = [{'kind': 'sort', 'page': 'blotter', 'column': 'presentValue', 'direction': 'desc'},
+            {'kind': 'select', 'page': 'blotter', 'focus': {'tradeIds': [booked['tradeId']], 'pivotCell': None}},
+            {'kind': 'say', 'page': 'blotter', 'message': 'review'}, {'kind': 'pause', 'page': 'blotter'}]
+    shown, shown_results, _ = ask([('read_page_digest', {}), ('present_walkthrough', {'planJson': json.dumps(plan)})], report=digest_report)
+    stored = owner.call(f"assistant/conversations/{shown['conversationId']}?after=0")
+    events = stored['events'];event = next(e for e in events if e['kind'] == 'walkthrough')
+    check('a validated walkthrough is stored immediately after its tool step with no business effect',
+          shown_results[1]['status'] == 'presented' and events[events.index(event)-1]['kind'] == 'step'
+          and event['payload']['ordinal'] == 2 and event['payload']['plan']['steps'][0]['direction'] == 'desc')
+    for label, invalid in [('unknown presentation kind', [{'kind':'book','page':'blotter'}]),
+                           ('unknown navigation handle',[{'kind':'go','target':'n99'}]),
+                           ('unread page',[{'kind':'pause','page':'jobs'}]),
+                           ('oversized plan',[{'kind':'pause','page':'blotter'}]*13)]:
+        invalid_turn, invalid_results, _ = ask([('read_page_digest', {}), ('present_walkthrough', {'planJson':json.dumps(invalid)})], report=digest_report)
+        denied_events=owner.call(f"assistant/conversations/{invalid_turn['conversationId']}?after=0")['events']
+        check('walkthrough refuses '+label+' without publishing a partial plan', 'code' in invalid_results[1] and not any(e['kind']=='walkthrough' for e in denied_events))
+    retained_context = query(f"SELECT context_id FROM assistant.turns WHERE id='{digest_turn['id']}';")
+    pinned_lines = digest['result']['text'].split('Status:', 1)[1]
+    _, curve_digest, _ = ask([('read_page_digest', {})], report={'page': 'curves', 'selection': {'view': 'curves', 'curve': None}})
+    check('curve digest reuses the authorized curve directory', 'Curves: ' in curve_digest[0]['result']['text'])
+
     # Legacy publication-prefix contexts and binder aliases cannot escape the question's exact certificate.
     _, discovery, _ = ask([('discover_page_operations', {'page': 'schedules', 'operation': 'date-schedules.catalog_v1'})])
     certificate = discovery[0]['context']
@@ -134,6 +175,24 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     first_correction = owner.call('assistant/actions/authorize', correction_reference)
     check('retrying a correction replays the observation and frame identities', owner.call('assistant/actions/authorize', correction_reference) == first_correction)
 
+    owner.call('futures/book', {**trading, **trade_booking(), 'operationId': str(uuid4()), 'bookId': offer['books'][0]['id'],
+        'curve': 'future', 'contractId': contract['id'], 'lots': '4', 'executionPrice': '3.2', 'memo': 'Synthetic post-pin fact'})
+    owner.call('market/context/retained', {'contextId': retained_context, 'selection': 'latest_correction'})
+    try:
+        retained_frame = initial_frame(owner.call('workspace/navigation'), '2020-12-18')
+        _, retained_digest, _ = ask([('read_page_digest', {})], report=digest_report,
+            knowledge={'mode': 'retained', 'contextId': retained_context, 'frameId': retained_frame['id']})
+        check('a retained-context digest keeps the pre-correction server values',
+              retained_digest[0]['result']['text'].split('Status:', 1)[1] == pinned_lines)
+        _, refusal_digest, _ = ask([('read_page_digest', {})], report={'page': 'jobs', 'selection': {'view': 'jobs', 'job': None, 'page': 0, 'before': None}},
+            knowledge={'mode': 'retained', 'contextId': retained_context, 'frameId': None})
+        check('digest retains the underlying current-only job refusal', refusal_digest[0]['code'] == 'jobs_current_only')
+    finally:
+        owner.call('market/current', {})
+        frame = initial_frame(owner.call('workspace/navigation'), '2020-12-18')
+    _, current_digest, _ = ask([('read_page_digest', {})], report=digest_report)
+    check('working digest includes later business facts while the retained digest keeps the original values',
+          'Positions: future=2' in current_digest[0]['result']['text'] and current_digest[0]['result']['text'].split('Status:', 1)[1] != pinned_lines)
     # A proposal can expire while its ordinary command waits, without any role or epoch change. Its final guard must
     # roll back both the account mutation and the approval receipt rather than commit under the human's lasting role.
     # The administrative directory names its user records; the exact expected head is read from the owned fixture.
@@ -160,10 +219,13 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
 
     principal = query(f"SELECT principal_id FROM security.identity_bindings WHERE subject='{owner_login}';")
     query(f"INSERT INTO automation.installation_operators VALUES('{principal}','ManageAllJobs',clock_timestamp()+interval '1 hour');")
-    operator_turn, _, _ = ask([('read_current_page', {})])
+    operator_turn, _, _ = ask([('read_current_page', {}), ('present_walkthrough', {'planJson': json.dumps([{'kind':'say','page':'users_access','message':'look_here'}])})])
     query(f"UPDATE automation.installation_operators SET expires_at=clock_timestamp()-interval '1 second' WHERE principal_id='{principal}';")
-    hidden = owner.call(f"assistant/conversations/{operator_turn['conversationId']}?after=0")['turns'][0]
+    hidden_read = owner.call(f"assistant/conversations/{operator_turn['conversationId']}?after=0")
+    hidden = hidden_read['turns'][0]
     check('expired installation authority hides retained generic-page answers', hidden['hidden'] == 'access_changed')
+
+    check('walkthrough replay hides the entire plan after source access changes', all(e['payload'] == {'hidden': 'access_changed'} for e in hidden_read['events'] if e['kind'] == 'walkthrough') and any(e['kind']=='walkthrough' for e in hidden_read['events']))
 
     admin_agent = fixture.publish(fixture.save(fixture.create('administration only'), model, tools=tools, roles=['access_administrator'], toolSteps=12))
     admin.call('assistant/grants/grant', {'operationId': str(uuid4()), 'agentId': admin_agent['id'], 'version': 1})

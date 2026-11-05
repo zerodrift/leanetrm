@@ -223,7 +223,7 @@ static class AgentToolChecks
             "a version's switched-on tools are offered in the fixed order, Navigate after the read tools, a version without tools offers none, "+
             "and Show card is not offered");
         var permissions=AgentTools.Tools.ToDictionary(t=>t.Name,t=>string.Join(",",t.Permissions));
-        Require(permissions.Count==16&&permissions["futures_option_catalog"]=="ReadMarketData,ReadTrades"&&permissions["save_custom_curve_draft"]=="ReadMarketData,WriteMarketDefinitions"&&permissions["read_jobs"]=="ReadJobs"&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
+        Require(permissions.Count==18&&permissions["futures_option_catalog"]=="ReadMarketData,ReadTrades"&&permissions["save_custom_curve_draft"]=="ReadMarketData,WriteMarketDefinitions"&&permissions["read_jobs"]=="ReadJobs"&&permissions["read_current_page"]==""&&permissions["read_market_data"]=="ReadMarketData"
             &&permissions["read_trades"]=="ReadMarketData,ReadTrades"&&permissions["read_trade_parties"]=="ReadMarketData,ReadTradeParties"
             &&permissions["read_schedules"]=="ReadMarketData"&&permissions["read_reference_data"]=="ReadMarketData"&&permissions["navigate"]=="",
             "each tool reads under exactly the permissions the database lists for it (assistant.agent_tools), and Navigate needs none of its own");
@@ -238,10 +238,10 @@ static class AgentToolChecks
             Require(stated.SequenceEqual(required)&&!new[]{"anyOf","oneOf","allOf","if","then","else","not"}.Any(k=>tool.InputSchema.TryGetProperty(k,out _)),
                 $"{tool.Name} requires every member it states, with no top-level composition");
         }
-        Require(RuntimeSet.Turns=="turns_v12"&&RuntimeSet.MaxReadSeconds==30&&PreviewDatabase.AgentCommandSeconds==RuntimeSet.MaxReadSeconds,
+        Require(RuntimeSet.Turns=="turns_v13"&&RuntimeSet.MaxReadSeconds==30&&PreviewDatabase.AgentCommandSeconds==RuntimeSet.MaxReadSeconds,
             "The operating-policy runtime preserves the existing versioned read deadline ceiling.");
         Console.WriteLine("PASS a version's switched-on tools are offered in the fixed order, Navigate after the read tools, with closed schemas that "+
-            "require every member they state, and their permissions; turns_v12 retains admitted operating limits and bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
+            "require every member they state, and their permissions; turns_v13 retains admitted operating limits and bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
     }
 
     const string Book="d1000000-0000-0000-0000-000000000001",Trade="71000000-0000-0000-0000-000000000009";

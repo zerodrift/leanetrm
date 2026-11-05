@@ -140,7 +140,7 @@ const futures=setupFutures({volSurface:null,riskReportUrl:id=>{if(!tied)throw Er
     return {snapshotId:applied.snapshotId,convention:navigation.futuresConvention,...(applied.contextId===null?{}:{context:{contextId:applied.contextId}})};
   },
   reported:report,unsavedChanged:report,
-  assistant:{available:()=>can('UseAgents'),about:({key,bookIds,portfolioIds})=>{try{tie?.ask(key,{bookIds,portfolioIds});window.opener?.focus();}catch(error){failed(error);}}}});
+  assistant:{available:()=>can('UseAgents'),inPlace:kind=>{report();tie?.askInPlace(kind);window.opener?.focus();},about:({key,bookIds,portfolioIds})=>{try{tie?.ask(key,{bookIds,portfolioIds});window.opener?.focus();}catch(error){failed(error);}}}});
 
 // What the Blotter shows here, and whether its details hold unsaved edits, for the main window: its assistant, and the question it asks
 // before a change of its own gives them up.

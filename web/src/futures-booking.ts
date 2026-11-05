@@ -49,6 +49,7 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
  const text=(id:string,value:string)=>{get(id).textContent=publicText(value);};
  // The form is kept on the page's shelf until the panel takes it, and goes back there when it is reset.
  const root=get('futures-new-trade'),shelf=root.parentElement!,form=get<HTMLFormElement>('futures-form'),edits=trackEdits(form,[],options.unsavedChanged);
+ let presentationRevision=0;form.addEventListener('input',()=>presentationRevision++);form.addEventListener('change',()=>presentationRevision++);
  const mounted=()=>root.parentElement!==shelf;
  const priced=()=>{const catalog=options.catalog();return catalog?.kind==='priced_contracts'?catalog:undefined;};
  const chosen=()=>priced()?.contracts.find(c=>futuresContractKey(c)===field('futures-contract').value);
@@ -91,6 +92,7 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
  return {
   /** Fills the form from the catalog of the read on screen, keeping what the person has chosen or typed that it still offers. */
   populate(){
+   presentationRevision++;
    const catalog=options.catalog();
    if(!catalog)return;
    annotations.populate(catalog.bookingActor,catalog,annotations.read());
@@ -99,15 +101,15 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
    if(priced())selected=field('futures-contract').value;
   },
   /** Puts the form in the panel's form part, empty of what an earlier one held. */
-  open(){options.host().append(root);root.hidden=false;edits.clear();sync();},
+  open(){presentationRevision++;options.host().append(root);root.hidden=false;edits.clear();sync();},
   /** Takes the form out of the panel and forgets everything it held: its values, its price and the person's edits. */
-  reset(){shelf.append(root);root.hidden=true;instrument.clear();draft.reset();form.reset();edits.clear();selected='';closeOut.replaceChildren();closeOut.hidden=true;priceSource.clear();text('futures-terms','Select a dated contract to see its terms.');sync();},
+  reset(){presentationRevision++;shelf.append(root);root.hidden=true;instrument.clear();draft.reset();form.reset();edits.clear();selected='';closeOut.replaceChildren();closeOut.hidden=true;priceSource.clear();text('futures-terms','Select a dated contract to see its terms.');sync();},
   /**
    * Fills the open form with a close-out the backend drafted: its book, contract, parties, lots and price, each as drafted, for the person to
    * review and book. A draft the form cannot hold as drafted, such as a contract the priced catalog does not offer, is refused, never altered.
    */
   closeOut(drafted:FuturesCloseOut,shown:CloseOutShown){
-   const catalog=priced(),t=drafted.terms;if(!catalog)throw Error('The priced futures contracts are not read, so the close-out cannot be shown.');
+   presentationRevision++;const catalog=priced(),t=drafted.terms;if(!catalog)throw Error('The priced futures contracts are not read, so the close-out cannot be shown.');
    const key=futuresContractKey({curve:t.curve,id:t.contractId});
    if(!catalog.contracts.some(c=>futuresContractKey(c)===key))throw Error('The drafted contract is not offered for booking at this close.');
    if(!catalog.books.some(b=>b.id===t.bookId))throw Error('The drafted book is not one you can book for.');
@@ -116,11 +118,20 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
    field('futures-lots').value=t.lots;field('futures-execution').value=t.executionPrice;
    renderCloseOut(closeOut,drafted,shown);priceSource.show(drafted.price);draft.reset();edits.clear();sync();
   },
+  // Typed unsaved-state adapter: no change/blur/key/submit event and no request is dispatched.
+  presentationFill(key:'ticket.lots'|'ticket.executionPrice'|'ticket.memo',value:string){
+   if(!mounted()||options.busy()||options.pending())throw Error('The unsaved futures ticket is unavailable.');
+   const target=get<HTMLInputElement|HTMLTextAreaElement>({'ticket.lots':'futures-lots','ticket.executionPrice':'futures-execution','ticket.memo':'futures-memo'}[key]);
+   if(!target||target.disabled||target.closest('fieldset[disabled]'))throw Error('The ticket field is unavailable.');
+   presentationRevision++;target.value=value;edits.mark();draft.reset();priceSource.clear();sync();return target;
+  },
+  presentationBlank(){presentationRevision++;form.reset();for(const id of ['futures-lots','futures-execution','futures-memo'])field(id).value='';selected='';instrument.populate(priced()?.contracts??[],'');field('futures-book').value='';terms();draft.reset();edits.clear();sync();},
   sync,
   /** The time zone changed: the form's times are written again, and its price, which they were written beside, is cleared. */
   refresh(){annotations.refresh();priceSource.refresh();draft.reset();terms();},
   /** Whether the form is in the panel, and has edits that have not been sent. */
   unsaved:()=>mounted()&&edits.edited(),
+  presentationRevision:()=>presentationRevision,
   mounted,
  };
 }

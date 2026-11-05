@@ -10,6 +10,7 @@ public sealed record SessionFramePlan(ImmutableArray<InputFrame> Frames,FrameCat
 public sealed partial class PreviewSession
 {
     public const int MaximumFrames=128;
+    public const string ContextFramePolicy="preserve_origin_or_unique_asof_frame_v1";
     private readonly HashSet<Guid> discoveredFrames=[];
     public bool HasDiscoveredFrames{get;private set;}
     private Guid aliasNamespace=Guid.NewGuid();
@@ -35,8 +36,24 @@ public sealed partial class PreviewSession
         return [..InitialFrames.Select(id=>Frames[id]).Where(frame=>frame.ContextId is null&&frame.PpaBundle is null&&frame.At.UtcDateTime<end&&Eligible(frame)).Select(seed=>
         {
             var selected=MarketContextStore.Select(seed,data,context);
-            return selected with{Id=AliasId("initial",seed.Id,selected)};
+            return selected with{Id=AliasId("initial",seed.Id,selected),OriginInputId=seed.Id};
         })];
+    }
+    public Guid? ContextFrame(InputFrame? previous,SessionFramePlan plan,ScheduleContext context)
+    {
+        var day=DateWorkspace.Date(context.EffectiveOn);
+        var candidates=plan.Frames.Where(f=>DateOnly.FromDateTime(f.At.UtcDateTime)==day).ToArray();
+        if(previous is not null&&DateOnly.FromDateTime(previous.At.UtcDateTime)==day)
+        {
+            if(previous.OriginCloseId is {} close)candidates=candidates.Where(f=>f.OriginCloseId==close).ToArray();
+            else
+            {
+                var source=previous.OriginInputId??(InitialFrames.Contains(previous.Id)?previous.Id:(Guid?)null);
+                if(source is null)return null;
+                candidates=candidates.Where(f=>f.OriginInputId==source).ToArray();
+            }
+        }
+        return candidates.Length==1?candidates[0].Id:null;
     }
     // Session-scoped identity only: no financial values, authority or read
     // results are cached, and different resolved selections get different IDs.

@@ -3,14 +3,14 @@ import {crudeChoices,type CrudeReferenceData} from './crude-selection.js';
 import type {ClockRow} from './market-view.js';
 type Configuration={code:string;deliveryReferenceCatalogId:string;deliveryReferenceRevisionId:string;commodity:string;grade:string;facility:string;custodyPoint:string;clock:string;definitionRevisionId:string;curve:string;validFrom:string;validTo:string;quantityPolicy:string};
 type Version={id:string;state:'draft'|'published';base_setup_id:string|null;publication_order:number|null;configuration:Configuration};
-type Catalog={deliveryReferences:CrudeReferenceData;sources:{definitionRevisionId:string;curve:string;name:string}[];clocks:ClockRow[];quantityPolicies:{code:string;label:string}[];versions:Version[];canSave:boolean;canPublish:boolean};
+type Catalog={deliveryReferences:CrudeReferenceData;sources:{definitionRevisionId:string;curve:string;name:string}[];clocks:ClockRow[];quantityPolicies:{code:string;label:string}[];versions:Version[];proposals:Version[];contextSetups:Version[];proposal:Version|null;canSave:boolean;canPublish:boolean};
 type Pending={path:string;body:Record<string,unknown>;uncertain:boolean};
 
 export function setupCrudeConfiguration(o:{api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;actor:()=>string;historical:()=>boolean;source:()=>{snapshotId:string};marketLabel:()=>string}){
  const root=document.getElementById('crude-setup-page')!;
  root.innerHTML=`<section class="card"><h2>Crude delivery setup</h2><p>Associate an exact grade, facility and custody point with an existing monthly assessment curve. Publication retains the source curve and price inputs.</p>
- <div class="gas-setup-toolbar"><label>Saved version<select id="cs-version"></select></label><button id="cs-open" type="button" class="secondary">Open version</button><button id="cs-new" type="button" class="secondary">New binding</button><button id="cs-revise" type="button" class="secondary">Revise selected publication</button></div>
- <form id="cs-fields" class="schedule-fields"><label>Binding code<input id="cs-code" required pattern="[a-z][a-z0-9_.-]{0,63}"></label><label>Commodity<select id="cs-commodity" required></select></label><label>Grade<select id="cs-grade" required></select></label><label>Facility<select id="cs-facility" required></select></label><label>Custody point<select id="cs-custodyPoint" required></select></label><label>Pricing source<select id="cs-source" required></select></label><label>Delivery clock<select id="cs-clock" required></select></label><label>Quantity relationship<select id="cs-policy" required></select></label><label>Valid from<input id="cs-from" type="date" required></label><label>Valid to · exclusive<input id="cs-to" type="date" required></label></form>
+ <div class="gas-setup-toolbar"><label>Delivery binding<select id="cs-binding"></select></label><input id="cs-version" type="hidden"><button id="cs-new" type="button" class="secondary">New binding</button><button id="cs-revise" type="button" class="secondary">Revise selected publication</button></div>
+ <div id="cs-proposals" class="field-help"></div><form id="cs-fields" class="schedule-fields"><label>Binding code<input id="cs-code" required pattern="[a-z][a-z0-9_.-]{0,63}"></label><label>Commodity<select id="cs-commodity" required></select></label><label>Grade<select id="cs-grade" required></select></label><label>Facility<select id="cs-facility" required></select></label><label>Custody point<select id="cs-custodyPoint" required></select></label><label>Pricing source<select id="cs-source" required></select></label><label>Delivery clock<select id="cs-clock" required></select></label><label>Quantity relationship<select id="cs-policy" required></select></label><label>Valid from<input id="cs-from" type="date" required></label><label>Valid to · exclusive<input id="cs-to" type="date" required></label></form>
  <p id="cs-coverage" class="field-help"></p><p id="cs-version-state" role="status"></p><div class="schedule-actions"><button id="cs-save" type="button">Save draft</button><button id="cs-validate" type="button">Validate saved version</button><button id="cs-publish" type="button">Publish validated version</button><button id="cs-retry" type="button" hidden>Retry original change</button></div><p id="cs-status" role="status"></p></section>
  <section class="card"><h3>Preview selected delivery mark</h3><p>Inspect the undiscounted physical delivery value using this published binding. Cash consideration and fees are separate obligations. Published bindings are also available on new crude tickets. Booking retains the selected version.</p><p id="cs-market"></p><div class="schedule-fields"><label>Delivery from · UTC<input id="cs-preview-from" type="datetime-local" step="1"></label><label>Delivery to · exclusive UTC<input id="cs-preview-to" type="datetime-local" step="1"></label><label>Total standard volume<input id="cs-quantity" inputmode="decimal"></label></div><button id="cs-preview" type="button">Preview delivery value</button><p id="cs-value" role="status"></p></section>`;
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -30,13 +30,14 @@ export function setupCrudeConfiguration(o:{api:<T>(path:string,body?:unknown)=>P
   get<HTMLButtonElement>('cs-validate').disabled=locked||!selected||dirty;
   get<HTMLButtonElement>('cs-publish').disabled=locked||!catalog?.canPublish||selected?.state!=='draft'||dirty||!valid;
   get<HTMLButtonElement>('cs-preview').disabled=locked||selected?.state!=='published'||dirty;
-  get<HTMLButtonElement>('cs-open').disabled=locked||!value('cs-version');
+  get<HTMLSelectElement>('cs-binding').disabled=o.busy()||!!pending;
   get<HTMLButtonElement>('cs-new').disabled=locked||!catalog?.canSave;
   get<HTMLButtonElement>('cs-revise').disabled=locked||!catalog?.canSave||selected?.state!=='published';
   get('cs-retry').hidden=!pending;get<HTMLButtonElement>('cs-retry').disabled=o.busy()||o.historical();
  }
  function edited(){dirty=true;valid=false;get('cs-value').textContent='';get('cs-status').textContent='Save and validate these changes.';sync();}
  function open(version?:Version,revise=false){
+  get<HTMLInputElement>('cs-version').value=version?.id??'';
   selected=revise?undefined:version;base=revise?version!.id:version?.base_setup_id??null;dirty=revise;valid=false;
   const c=version?.configuration;
   const sameReferences=!c||c.deliveryReferenceCatalogId===catalog?.deliveryReferences.catalogId&&c.deliveryReferenceRevisionId===catalog?.deliveryReferences.revisionId;
@@ -45,13 +46,16 @@ export function setupCrudeConfiguration(o:{api:<T>(path:string,body?:unknown)=>P
   get<HTMLSelectElement>('cs-source').value=c?sourceKey(c):'';
   for(const [id,key] of [['cs-clock','clock'],['cs-policy','quantityPolicy'],['cs-from','validFrom'],['cs-to','validTo']] as const)get<HTMLInputElement|HTMLSelectElement>(id).value=c?.[key]??'';
   if(!sameReferences)get<HTMLSelectElement>('cs-clock').value='';
-  get('cs-version-state').textContent=version?`${revise?'Revision of ':''}${setupVersionLabels(catalog?.versions??[]).get(version.id)??'a saved setup not listed here'}`:'New binding · choose every term explicitly.';
+  const visible=catalog?.versions??[],labels=setupVersionLabels(version&&!visible.some(v=>v.id===version.id)?[...visible,version]:visible);
+  get('cs-version-state').textContent=version?`${revise?'Revision of ':''}${labels.get(version.id)??'a saved setup not listed here'}`:'New binding · choose every term explicitly.';
   get('cs-status').textContent=sameReferences?'':`This setup was saved against an earlier delivery reference revision (${c!.commodity}, ${c!.grade}, ${c!.facility}, ${c!.custodyPoint}, ${c!.clock}). Revising it into the current masters requires choosing each physical field again.`;get('cs-value').textContent='';sync();
  }
  async function refresh(id?:string){
-  const e=epoch,actor=o.actor(),c=await o.api<Catalog>('crude-setup/catalog');if(e!==epoch||actor!==o.actor())return;
+  const query=new URLSearchParams();if(o.source().snapshotId)query.set('snapshotId',o.source().snapshotId);if(id)query.set('proposalId',id);
+  const e=epoch,actor=o.actor(),c=await o.api<Catalog>('crude-setup/catalog'+(query.size?'?'+query:''));if(e!==epoch||actor!==o.actor())return;
   catalog=c;
-  const named=setupVersionLabels(c.versions);get<HTMLSelectElement>('cs-version').replaceChildren(new Option('Choose a saved version…',''),...c.versions.map(v=>new Option(`${v.configuration.code} · ${named.get(v.id)}`,v.id)));
+  get<HTMLSelectElement>('cs-binding').replaceChildren(new Option('Choose a binding…',''),...c.contextSetups.map(v=>new Option(v.configuration.code,v.configuration.code)));
+  get('cs-proposals').replaceChildren();for(const v of c.proposals.filter(v=>v.state==='draft'&&(!v.base_setup_id||c.contextSetups.some(h=>h.id===v.base_setup_id)))){const button=document.createElement('button');button.type='button';button.className='text-button';button.textContent='Review proposal · '+v.configuration.code;button.dataset.crudeDraft=v.id;button.onclick=()=>void leave().then(go=>{if(go)open(v);});get('cs-proposals').append(button);}
   const physicalChoices=crudeChoices(c.deliveryReferences,c.clocks);
   for(const key of ['commodity','grade','facility','custodyPoint'] as const)
    get<HTMLSelectElement>('cs-'+key).replaceChildren(new Option('Choose…',''),...physicalChoices[key].map(r=>new Option(r.label,r.value)));
@@ -60,7 +64,7 @@ export function setupCrudeConfiguration(o:{api:<T>(path:string,body?:unknown)=>P
   get<HTMLSelectElement>('cs-policy').replaceChildren(new Option('Choose quantity relationship…',''),...c.quantityPolicies.map(p=>new Option(p.label,p.code)));
   get('cs-coverage').textContent='Choose each physical reference separately. Saving validates the maintained delivery relationship; publication configures the pricing source for new trades.';
   get('cs-market').textContent=o.marketLabel();
-  const v=c.versions.find(v=>v.id===id);get<HTMLSelectElement>('cs-version').value=v?.id??'';open(v);
+  const v=id&&c.proposal?.id===id?c.proposal:undefined;open(v);
  }
  function configuration():Configuration{
   if(!get<HTMLFormElement>('cs-fields').reportValidity())throw Error('Complete every delivery and pricing term.');
@@ -79,10 +83,9 @@ export function setupCrudeConfiguration(o:{api:<T>(path:string,body?:unknown)=>P
  }
  async function mutate(path:string,body:Record<string,unknown>){if(pending)throw Error('Retry the original change first.');pending={path,body:structuredClone({...body,operationId:crypto.randomUUID()}),uncertain:false};retain();await send();}
  function reset(){epoch++;catalog=undefined;selected=undefined;pending=undefined;dirty=false;valid=false;base=null;restore();get('cs-status').textContent=pending?'A previous change awaits confirmation. Retry its original request.':'';sync();}
- async function load(){reset();if(o.historical())throw Error('Return to working data to configure crude delivery.');await refresh();}
+ async function load(){reset();await refresh();}
  for(const input of get('cs-fields').querySelectorAll('input,select'))input.addEventListener('input',edited);
- get('cs-version').onchange=sync;
- get('cs-open').onclick=()=>void leave().then(go=>{if(go)open(catalog?.versions.find(v=>v.id===value('cs-version')));});
+ get('cs-binding').onchange=()=>void leave().then(go=>{if(go)open(catalog?.contextSetups.find(v=>v.configuration.code===value('cs-binding')));else get<HTMLSelectElement>('cs-binding').value=selected?.configuration.code??'';});
  get('cs-new').onclick=()=>void leave().then(go=>{if(go)open();});
  get('cs-revise').onclick=()=>void leave().then(go=>{if(go&&selected?.state==='published')open(selected,true);});
  get('cs-save').onclick=()=>void o.act(()=>mutate('crude-setup/save',{baseSetupId:base,configuration:configuration()}));

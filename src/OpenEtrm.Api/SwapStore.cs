@@ -260,7 +260,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    indices.Add(new{customProjections=customProjections.Where(p=>p.Unit==PriceUnit.FromQuote(quote)&&
     (p.Reference.Selection==CustomCurveProjectionBinding.SupportedSelection?contracts.Length>0:
      daily.Any(g=>g.All(c=>p.Deliveries.Contains(new(c.DeliveryFrom,c.DeliveryTo))))))
-    .Select(p=>new{p.Label,p.Reference,samplings=p.Reference.Selection==CustomCurveProjectionBinding.SupportedSelection?
+    .Select(p=>new{p.Label,p.Reference,p.SelectedInContext,samplings=p.Reference.Selection==CustomCurveProjectionBinding.SupportedSelection?
      new[]{new{resetFrequency="monthly",averagingMethod="none"}}:new[]{new{resetFrequency="daily",averagingMethod="arithmetic"}}}).ToArray(),definitionRevisionId=data.DefinitionRevision.RevisionId,primitiveEntrySupported=!samplings.IsEmpty||settlementIndices.Length>0,curve=curve.Text("code"),index=target.Text("index_a_code"),settlementIndices,commodity=curve.Text("commodity_code"),currencyCode=quote.Currency.Code,currency=currency.Text("display_code"),
     fixingConvention=data.Definitions["index_fixing_observations"].Any(f=>f.Text("index_code")==target.Text("index_a_code"))?IndexFixing.SupportedImplementation:null,
     fixingUnavailableReason=data.Definitions["index_fixing_observations"].Any(f=>f.Text("index_code")==target.Text("index_a_code"))?null:"This index has no qualified fixing schedule for the selected observations.",

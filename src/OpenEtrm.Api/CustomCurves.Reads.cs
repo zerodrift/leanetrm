@@ -19,14 +19,33 @@ public static partial class CustomCurves
         var versions=pin.Context is {} selected?await schedules.ReadAt(connection,selected,ct):await schedules.Read(connection,ct);
         var calendars=await schedules.Calendars(connection,ct);
         var recipes=await store.Read(connection,ct);
+        // Raw exact-version metadata is authorized under its original read pin.
+        // Resolve UI choices afterward without narrowing those retained reads.
+        var referenceCatalogs=await ReferenceCatalogs(connection,data,recipes,versions.Where(v=>v.Calendar is not null).Select(v=>v.Calendar!.CatalogId).Concat(calendars.Select(c=>c.Reference.CatalogId)),ct);
+        var contextRecipes=ContextVersions.Latest(recipes,r=>r.Id,r=>r.Version);
+        var contextSchedules=ContextVersions.Latest(versions.Where(v=>v.State=="published"),v=>v.Id,v=>v.Version);
+        var publishedHeads=new HashSet<(Guid,int)>();
+        var contextSourceStatus=new List<object>();
+        if(pin.Frame is not null)
+        {
+            var contextPin=await PreviewPin(connection,database,pin,ct);
+            var certified=await store.Read(connection,ct);
+            contextRecipes=ContextVersions.Latest(certified.Concat(pin.Context is null?recipes.Where(r=>r.State=="draft"):[]),r=>r.Id,r=>r.Version);
+            contextSchedules=ContextVersions.Latest(await schedules.ReadAt(connection,contextPin.Context!,ct),v=>v.Id,v=>v.Version);
+            foreach(var recipe in ContextVersions.Latest(certified.Where(r=>r.State=="published"),r=>r.Id,r=>r.Version))
+                publishedHeads.Add((recipe.Id,recipe.Version));
+        }
         var publishedSources=new List<object>();
+        var contextSources=new List<object>();
         foreach(var recipe in recipes.Where(r=>r.State=="published"&&r.EngineVersion==RecipeEngine.Version))
         {
             await using var eligible=ScheduleStore.Command(connection,"SELECT security.custom_curve_uses_revision($1,$2,$3,$4)",
                 data.DefinitionRevision.CatalogId,recipe.Id,recipe.Version,data.DefinitionRevision.RevisionId);
-            if(Equals(await eligible.ExecuteScalarAsync(ct),true))publishedSources.Add(new{
+            if(Equals(await eligible.ExecuteScalarAsync(ct),true)){var source=new{
                 label=$"{recipe.Definition.Name} ({recipe.Definition.Code}) · v{recipe.Version} · {recipe.Definition.Output}",kind=CurveKinds.Of(recipe.Definition),
-                reference=new PublishedRecipeReference(data.DefinitionRevision.CatalogId,recipe.Id,recipe.Version,recipe.Definition.Output)});
+                reference=new PublishedRecipeReference(data.DefinitionRevision.CatalogId,recipe.Id,recipe.Version,recipe.Definition.Output)};
+                publishedSources.Add(source);if(publishedHeads.Contains((recipe.Id,recipe.Version)))contextSources.Add(source);}
+            else if(publishedHeads.Contains((recipe.Id,recipe.Version)))contextSourceStatus.Add(new{id=recipe.Id,available=false,reason="The published graph requires a different admitted source bundle."});
         }
         async Task<bool> Can(string permission)
         {
@@ -37,12 +56,14 @@ public static partial class CustomCurves
             sources=data.Definitions["curves"].Select(row=>new{code=row.Text("code"),name=row.Text("name"),kind=PreviewData.CurveKind(row.Text("rule"),row.OptionalText("direct_role")),catalogId=data.DefinitionRevision.CatalogId,revisionId=data.DefinitionRevision.RevisionId,contracts=data.DefinitionRows("curve_members","curve_code",row.Text("code")).OrderBy(m=>m.GetProperty("ordinal").GetInt32()).Select(m=>data.ContractRows(m.Id("contract_id")).Single()).Select(k=>new{id=k.Key.Id,label=k.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),k.DeliveryFrom,k.DeliveryTo})}),
             calendars=calendars.Select(row=>new{code=row.Reference.Code,name=row.Reference.Code,row.Reference.CatalogId,row.Reference.RevisionId}),
             schedules=versions.Where(v=>v.State=="published").Select(v=>new{value=v.Id.ToString("D")+":"+v.Version.ToString(CultureInfo.InvariantCulture),name=v.Definition.Name,v.Id,v.Version}),
-            operators=Operators(),templates=Templates(data),recipes,publishedSources,formulaSupported=true,
+            contextSchedules=contextSchedules.Select(v=>new{value=v.Id.ToString("D")+":"+v.Version.ToString(CultureInfo.InvariantCulture),name=v.Definition.Name,v.Id,v.Version}),
+            operators=Operators(),templates=Templates(data),recipes,publishedSources,contextRecipes,contextSources,contextSourceStatus,formulaSupported=true,
             componentHistory=new{policy=RecipeComponentHistory.Policy,label="Raw prices · contract roll jumps retained",kinds=new[]{"select","weighted_contracts","sample"},selectionModes=new[]{"positions"},sampleSelectionPort="selection",
                 sampling="context_utc_time",corrections="exact_context_frame_history_latest_visible",
                 description="Sample at the selected close's UTC time. Keep the component's contract-binding rule and read historical corrections visible at the selected knowledge cutoff. Every requested observation is required."}};
-        return new(value,recipes.Length+publishedSources.Count+data.Definitions["curves"].Length+versions.Length+calendars.Length,
-            await ReferenceCatalogs(connection,data,recipes,versions.Where(v=>v.Calendar is not null).Select(v=>v.Calendar!.CatalogId).Concat(calendars.Select(c=>c.Reference.CatalogId)),ct));
+        await using var authority=ScheduleStore.Command(connection,"SELECT security.market_access($1,'ReadMarketData') AND NOT EXISTS(SELECT 1 FROM unnest($2::uuid[]) r WHERE NOT security.reference_access(r,'ReadMarketData'))",database.Manifest.CatalogId,referenceCatalogs.ToArray());
+        if(!Equals(await authority.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+        return new(value,recipes.Length+publishedSources.Count+data.Definitions["curves"].Length+versions.Length+calendars.Length,referenceCatalogs);
     }
     internal static async Task<CurveRead> PreviewRead(NpgsqlConnection connection,PreviewDatabase database,PinnedContext pin,CustomCurvePreviewRequest body,CancellationToken ct,ComponentHistoryRequest? history=null)
     {

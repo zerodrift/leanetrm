@@ -1,4 +1,4 @@
-import {TabulatorFull,type GridGroup,type GridRow} from './vendor/tabulator.js';
+import {TabulatorFull,type GridGroup,type GridRow,type GridColumn} from './vendor/tabulator.js';
 import {compareDecimalStrings} from './analytics-model.js';
 import {matchesTableRow,columnValues,validNumericFilter} from './regular-table.js';
 import {publicText} from './market-view.js';
@@ -32,7 +32,7 @@ type Cells=(string|HTMLElement)[][];
 // decorate: a cell's value sources, whether it changed since the last read and whether its row is delivered; null for none.
 // soon: the hover text of each coming-soon column by index, drawn greyed with a Coming soon tag and holding no values.
 type Chosen=void|boolean|Promise<boolean>;
-export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>Chosen;onRowSelect?:(index:number)=>Chosen;onRowEscape?:()=>void;onRowMenu?:(index:number,at:{x:number;y:number})=>void;onRowDoubleOpen?:(index:number)=>void;
+export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>Chosen;onRowSelect?:(index:number)=>Chosen;onRowEscape?:()=>void;onRowMenu?:(index:number,at:{x:number;y:number})=>void;onRowDoubleOpen?:(index:number)=>void;onMultiSelection?:(keys:string[])=>void;onCellPick?:(row:number,column:number)=>void;
   cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:GridGroupOption;rowKeys?:readonly string[];rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;fill?:boolean;giveUp?:readonly number[];
   tree?:{parents:(string|null)[];open:ReadonlySet<string>;onToggle:(key:string,open:boolean)=>void};totals?:string[][];headerGroups?:{title:string;colour:string;columns:number[]}[];
   decorate?:(index:number,column:number)=>{sources:string[];changed:boolean;delivered:boolean}|null;soon?:Readonly<Record<number,string>>};
@@ -137,7 +137,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   };
   for(const key of ordered(options.layout)){
     const i=options.keys.indexOf(key),group=columnGroupOf(key,i),title=publicText(group?.measureTitle??headers[i]);
-    const definition={title,titleFormatter:()=>document.createTextNode(title),field:field(i),visible:shown(i),minWidth:100,width:options.layout.widths[key],resizable:true,headerSort:!options.visual?.includes(i),hozAlign:numeric.includes(i)?'right':'left',cssClass:numeric.includes(i)?'grid-number':'',formatter:(cell:any)=>{const index=Number(cell.getRow().getData().__sourceIndex),rich=options.cells?.(index,i);if(rich)return decorated(rich,index,i);const span=document.createElement('span');span.textContent=publicText(options.displayRows?.[index]?.[i]??cell.getValue());if(numeric.includes(i)&&String(cell.getValue()).startsWith('-'))span.className='grid-negative';if(options.cellTitles?.[index]?.[i]!==undefined)span.title=publicText(options.cellTitles[index][i]);else if(options.displayRows?.[index]?.[i]!==undefined)span.title=String(cell.getValue());return decorated(span,index,i);},headerWordWrap:true,
+    const definition={title,titleFormatter:()=>document.createTextNode(title),field:field(i),visible:shown(i),minWidth:100,width:options.layout.widths[key],resizable:true,headerSort:!options.visual?.includes(i),hozAlign:numeric.includes(i)?'right':'left',cssClass:numeric.includes(i)?'grid-number':'',formatter:(cell:any)=>{const index=Number(cell.getRow().getData().__sourceIndex),rich=options.cells?.(index,i);if(options.onCellPick){const target=cell.getElement() as HTMLElement;target.tabIndex=0;target.onkeydown=event=>{if(event.target!==target||!current())return;if(['Enter',' '].includes(event.key)||menuKey(event)){event.preventDefault();pickCell(cell);if(menuKey(event))options.onRowMenu?.(index,placeOf(target));}};}if(rich)return decorated(rich,index,i);const span=document.createElement('span');span.textContent=publicText(options.displayRows?.[index]?.[i]??cell.getValue());if(numeric.includes(i)&&String(cell.getValue()).startsWith('-'))span.className='grid-negative';if(options.cellTitles?.[index]?.[i]!==undefined)span.title=publicText(options.cellTitles[index][i]);else if(options.displayRows?.[index]?.[i]!==undefined)span.title=String(cell.getValue());return decorated(span,index,i);},headerWordWrap:true,
       sorter:numeric.includes(i)?(a:string,b:string)=>a===''?(b===''?0:-1):b===''?1:compareDecimalStrings(a,b):'string',
       ...(options.totals?{bottomCalc:()=>options.totals!.map(row=>row[i]),bottomCalcFormatter:(cell:any)=>{const lines=el('span');lines.className='grid-total-lines';
         for(const value of cell.getValue() as string[]){const line=el('span',value);line.className=numeric.includes(i)&&value.startsWith('-')?'grid-total-line grid-negative':'grid-total-line';lines.append(line);}
@@ -171,22 +171,24 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   resizing.observe(container);
   // The row the consumer has open, and the row selected, by key: marked whenever their elements are drawn.
   let opened:string|null=null,selected:string|null=null,selectionLost=false,selectionChanged:((key:string|null)=>void)|undefined;
+  let multiSelected=new Set<string>(),multiAnchor:string|undefined,selectionGeneration=0;
   const sourceIndex=(row:GridRow)=>Number(row.getData().__sourceIndex);
   const keyOf=(row:GridRow)=>row.getData().__key;
   const keyAt=(index:number|null)=>index===null?null:requested[index]??null;
   function markRow(row:GridRow){
     const target=row.getElement(),key=keyOf(row),isOpen=key===opened;target.dataset.rowKey=key;
     target.classList.toggle('open-row',isOpen);if(isOpen)target.setAttribute('aria-current','true');else target.removeAttribute('aria-current');
-    target.classList.toggle('selected-row',key===selected);target.setAttribute('aria-selected',String(key===selected));
+    const chosen=options.onMultiSelection?multiSelected.has(key):key===selected;
+    target.classList.toggle('selected-row',chosen);target.setAttribute('aria-selected',String(chosen));
   }
   // Marks again only the rows whose marks changed, the ones that were and are selected or open: a grid of many thousands of rows is not
   // walked for each selection. Rows drawn later are marked as they are drawn.
-  let marked:{selected:string|null;opened:string|null}={selected:null,opened:null};
+  let marked:{selected:string|null;opened:string|null}={selected:null,opened:null},markedMulti=new Set<string>();
   function markRows(){
     if(selected===null)delete container.dataset.selectedRow;else container.dataset.selectedRow=selected;
     if(!ready||!alive)return;
-    for(const key of new Set([marked.selected,marked.opened,selected,opened]))if(key!==null){const row=table.getRow(key);if(row)markRow(row);}
-    marked={selected,opened};
+    for(const key of new Set([marked.selected,marked.opened,selected,opened,...markedMulti,...multiSelected]))if(key!==null){const row=table.getRow(key);if(row)markRow(row);}
+    marked={selected,opened};markedMulti=new Set(multiSelected);
   }
   // Grouped rows start in the order of their groups, which Tabulator keeps as it meets them; a group the filters empty disappears.
   const groupOf=(data:Record<string,string>)=>options.group!.keys[Number(data.__sourceIndex)];
@@ -219,8 +221,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       const target=row.getElement() as HTMLElement;
       if(options.onRowOpen){target.tabIndex=0;target.classList.add('openable-row');target.setAttribute('aria-label','Open row details');target.onkeydown=event=>{
         if(event.target!==target)return;
-        if(['Enter',' '].includes(event.key)){event.preventDefault();openRow(row);}
-        else if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();step(keyOf(row),event.key==='ArrowDown'?1:-1);}
+        if(options.onMultiSelection&&(event.ctrlKey||event.metaKey)&&event.key===' '){event.preventDefault();toggleMulti(keyOf(row));}
+        else if(['Enter',' '].includes(event.key)){event.preventDefault();openRow(row);}
+        else if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();step(keyOf(row),event.key==='ArrowDown'?1:-1,event.shiftKey);}
         else if(event.key==='Escape'&&options.onRowEscape&&current()){event.preventDefault();options.onRowEscape();}
         else if(menuKey(event)&&options.onRowMenu){event.preventDefault();openMenu(target,placeOf(target));}
       };}
@@ -303,6 +306,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     const before={...(from?.()??aimedPlace()),selected},previous=shownKeys();
     updating=true;try{await work();}finally{updating=false;}
     if(!alive)return;
+    if(options.onMultiSelection&&[...multiSelected].some(key=>!keys.includes(key)))setMulti([...multiSelected]);
     const kept=retainPlace(before,previous,shownKeys());
     if(kept.selectionLost){selected=null;selectionLost=true;markRows();report();selectionChanged?.(null);}
     void restore(kept.place);
@@ -337,23 +341,24 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     if(!current()||!options.onRowOpen)return;
     placing++;const index=sourceIndex(row),key=keyOf(row);
     if(!Number.isInteger(index)||index<0||index>=values.length)return;
-    const press=pressY===undefined?undefined:{key,y:pressY};pressedOpen=press;
-    void Promise.resolve(options.onRowOpen(index)).then(chosen=>{if(pressedOpen===press)pressedOpen=undefined;if(chosen!==false&&alive)choose(key);});
+    const action=++selectionGeneration,press=pressY===undefined?undefined:{key,y:pressY};pressedOpen=press;
+    void Promise.resolve(options.onRowOpen(index)).then(chosen=>{if(pressedOpen===press)pressedOpen=undefined;if(chosen!==false&&alive&&action===selectionGeneration)choose(key);});
   }
   // A selection the consumer makes is not reported back to it.
-  function choose(key:string){if(key===selected)return;selected=key;selectionLost=false;markRows();report();selectionChanged?.(key);}
+  function choose(key:string){if(options.onMultiSelection){multiAnchor=key;setMulti([key]);}if(key===selected)return;selected=key;selectionLost=false;markRows();report();selectionChanged?.(key);}
   // The row the filters show after or before a row, in the order on screen: a collapsed group's rows are not on screen.
   function neighbour(key:string,direction:-1|1):GridRow|undefined{
     const rows=table.getRows('display'),at=rows.findIndex(row=>keyOf(row)===key);
     return at<0?undefined:rows[at+direction];
   }
   // ↓ and ↑ select the next or previous row and give it focus, brought into view only when it is not already whole in view.
-  function step(key:string,direction:-1|1){
+  function step(key:string,direction:-1|1,extend=false){
     if(!current())return;
     const next=neighbour(key,direction);if(!next)return;
-    const nextKey=keyOf(next);
+    const action=++selectionGeneration,nextKey=keyOf(next);
+    if(extend&&options.onMultiSelection){multiAnchor??=key;selectRange(nextKey);selected=nextKey;markRows();next.getElement().focus({preventScroll:true});return;}
     void Promise.resolve(options.onRowSelect?.(sourceIndex(next))).then(async chosen=>{
-      if(chosen===false||!alive)return;
+      if(chosen===false||!alive||action!==selectionGeneration)return;
       choose(nextKey);
       const row=table.getRow(nextKey),view=holder();if(!row)return;
       if(view&&!inView(row,view)){placing++;await row.scrollTo('nearest',false).catch(()=>undefined);}
@@ -402,6 +407,28 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     if(options.onRowDoubleOpen&&event.detail===2&&row&&doubleCandidate!==undefined&&keyAtElement(row)===doubleCandidate&&safeRowGesture(event,row))event.preventDefault();
   };
   container.addEventListener('mousedown',secondMouseDown,true);
+  function setMulti(chosen:readonly string[]){
+    selectionGeneration++;multiSelected=new Set(chosen.filter(key=>requested.includes(key)));markRows();
+    options.onMultiSelection?.([...multiSelected]);
+  }
+  function toggleMulti(key:string){multiAnchor=key;const chosen=new Set(multiSelected);if(chosen.has(key))chosen.delete(key);else chosen.add(key);setMulti([...chosen]);}
+  function selectRange(key:string){
+    const shown=table.getRows('display').map(keyOf),a=shown.indexOf(multiAnchor??key),b=shown.indexOf(key);
+    setMulti(a<0||b<0?[key]:shown.slice(Math.min(a,b),Math.max(a,b)+1));
+  }
+  const multipleClick=(event:MouseEvent)=>{
+    if(!options.onMultiSelection||!current()||event.button!==0||event.altKey||!(event.ctrlKey||event.metaKey||event.shiftKey))return;
+    const target=(event.target as Element).closest<HTMLElement>('.tabulator-row[data-row-key]');
+    if(!target||(event.target as Element).closest('a,button,input,select,textarea,[contenteditable=true]'))return;
+    const key=target.dataset.rowKey!;event.preventDefault();event.stopPropagation();
+    if(event.shiftKey)selectRange(key);else toggleMulti(key);
+    selected=key;markRows();target.focus({preventScroll:true});
+  };
+  container.addEventListener('click',multipleClick,true);
+  let pickedCell:HTMLElement|undefined;
+  function pickCell(cell:{getRow():GridRow;getColumn():GridColumn;getElement():HTMLElement}){if(!current()||!options.onCellPick)return;pickedCell?.classList.remove('selected-cell');pickedCell=cell.getElement();pickedCell.classList.add('selected-cell');options.onCellPick(sourceIndex(cell.getRow()),Number(cell.getColumn().getField().slice(1)));}
+  table.on('cellClick',(_event:MouseEvent,cell:any)=>pickCell(cell));
+  table.on('cellContextMenu',(event:MouseEvent,cell:any)=>{if(!current()||!options.onCellPick)return;event.preventDefault();pickCell(cell);options.onRowMenu?.(sourceIndex(cell.getRow()),{x:event.clientX,y:event.clientY});});
   table.on('rowClick',(event:MouseEvent,row:GridRow)=>{
     const target=row.getElement();
     if(!safeRowGesture(event,target)){doubleCandidate=undefined;return;}
@@ -426,8 +453,9 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   container.addEventListener('mouseup',doubleClick,true);
   container.addEventListener('dblclick',doubleClick,true);
   // A row's menu opens where it was asked for: at the pointer, or under the row when the keyboard asked (the context-menu key's own event).
-  function openMenu(target:HTMLElement,at:{x:number;y:number}){const index=keys.indexOf(target.dataset.rowKey??'');if(index>=0)options.onRowMenu?.(index,at);}
+  function openMenu(target:HTMLElement,at:{x:number;y:number}){if(options.onCellPick){options.onCellPick(-1,-1);return;}const index=keys.indexOf(target.dataset.rowKey??'');if(index>=0)options.onRowMenu?.(index,at);}
   const rowMenu=(event:MouseEvent)=>{
+    if(options.onCellPick&&(event.target as Element).closest('.tabulator-cell'))return;
     const target=(event.target as Element).closest<HTMLElement>('.tabulator-row[data-row-key]');
     if(!options.onRowMenu||!target||(event.target as Element).closest('a,input,select,textarea,[contenteditable=true]'))return;
     event.preventDefault();openMenu(target,event.button===2?{x:event.clientX,y:event.clientY}:placeOf(target));
@@ -467,7 +495,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // grid is redrawn for a new size, so a user's resize becomes that width.
   table.on('columnResized',(column:any)=>{column.getDefinition().width=column.getWidth();});
   if(options.tree)for(const [event,open] of [['dataTreeRowExpanded',true],['dataTreeRowCollapsed',false]] as const)table.on(event,(row:GridRow)=>{if(current())options.tree?.onToggle(keyOf(row),open);});
-  table.on('tableBuilt',()=>{if(!alive){table.destroy();return;}ready=true;markBuilt();fit();apply();options.onReady?.();});
+  table.on('tableBuilt',()=>{if(!alive){table.destroy();return;}ready=true;if(options.onMultiSelection)container.setAttribute('aria-multiselectable','true');markBuilt();fit();apply();options.onReady?.();});
   for(const event of ['columnMoved','columnResized','dataSorted'])table.on(event,()=>{if(ready&&!updating&&current())options.onLayout(layout());});
   search.oninput=()=>{if(!current())return;state.query=search.value;apply();};
   toggle.onclick=()=>{if(!current())return;filterPanel.hidden=!filterPanel.hidden;toggle.setAttribute('aria-expanded',String(!filterPanel.hidden));};
@@ -563,8 +591,11 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       });
     },
     /** Selects the row of a key, or none, without reporting it back as the person's selection. */
-    select(key:string|null){selected=key;selectionLost=false;markRows();report();},
+    select(key:string|null){if(options.onMultiSelection)setMulti(key?[key]:[]);selected=key;selectionLost=false;markRows();report();},
+    selectCell(row:number,column:number){if(!current()||!options.onCellPick)throw Error('This grid has no selectable cells.');const key=keyAt(row),record=key===null?false:table.getRow(key),cell=record&&record.getCell(field(column));if(!cell)throw Error('The selected cell is unavailable.');pickCell(cell);return cell.getElement();},
     selected:()=>selected,
+    selectedKeys:()=>options.onMultiSelection?[...multiSelected]:selected?[selected]:[],
+    selectKeys(chosen:string[]){if(chosen.some(key=>!requested.includes(key)))throw Error('A selected row is unavailable.');setMulti(chosen);},
     /** Hears the selection the person makes, and its clearing when an update leaves it without its row. */
     onSelect(handler:(key:string|null)=>void){selectionChanged=handler;},
     markStale,
@@ -590,7 +621,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       // The grid that was pressed is on the page already: only its rows are scrolled.
       whenDrawn(at,()=>undefined,undefined,(_row,view)=>{const top=view.getBoundingClientRect().top;return press>=top&&press<top+view.clientHeight;});
     },
-    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('mouseup',doubleClick,true);container.removeEventListener('contextmenu',rowMenu,true);container.removeEventListener('focusout',rowBlurred,true);document.removeEventListener('pointerdown',pressed,true);document.removeEventListener('keydown',keyed,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
+    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('click',multipleClick,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('mouseup',doubleClick,true);container.removeEventListener('contextmenu',rowMenu,true);container.removeEventListener('focusout',rowBlurred,true);document.removeEventListener('pointerdown',pressed,true);document.removeEventListener('keydown',keyed,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }
 export type GridHandle=ReturnType<typeof renderDataGrid>;

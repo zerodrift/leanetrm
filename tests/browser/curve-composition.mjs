@@ -56,7 +56,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await check('guided composition fits a narrow viewport',fitsWidth);await shot('curve-composition');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await openView('configuration');await set('.curve-blend-weight','9');
- await evaluate(`{const send=window.fetch;window.fetch=async(...args)=>{const response=await send(...args);if(String(args[0])!=='/api/custom-curves'||!window.withoutCombination)return response;const data=await response.clone().json();data.operators=data.operators.filter(op=>op.kind!=='weighted_panels');return new Response(JSON.stringify(data),{status:response.status,headers:response.headers});};window.withoutCombination=true;}`);
+ await evaluate(`{const send=window.fetch;window.fetch=async(...args)=>{const response=await send(...args);if(String(args[0]).split('?')[0]!=='/api/custom-curves'||!window.withoutCombination)return response;const data=await response.clone().json();data.operators=data.operators.filter(op=>op.kind!=='weighted_panels');return new Response(JSON.stringify(data),{status:response.status,headers:response.headers});};window.withoutCombination=true;}`);
  await click('#custom-curves-reload');
  await check('reloading the library asks before the unbuilt ingredients are given up',"!document.querySelector('#custom-curves-page-prompt').hidden");
  await click('#custom-curves-page-prompt button:not(.secondary)');

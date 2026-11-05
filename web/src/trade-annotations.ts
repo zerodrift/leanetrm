@@ -49,7 +49,7 @@ export function tradeAnnotations(prefix:string,zone:()=>string,execution?:HTMLEl
    const booking=state?.booking??state;
    function choices(select:HTMLSelectElement,rows:PartyChoice[],id:string|null|undefined,revision:number|null|undefined,label:string|null|undefined){
     select.replaceChildren(new Option('Choose…',''),...rows.map(p=>new Option(publicText(`${p.name} · ${p.code}`),key(p.id,p.revision))));
-    if(id&&revision){const value=key(id,revision);if(!Array.from(select.options).some(o=>o.value===value))select.append(new Option(publicText(`${label??'Retained party'} · version ${revision}`),value));select.value=value;}
+    if(id&&revision){const value=key(id,revision);if(!Array.from(select.options).some(o=>o.value===value)){const retained=new Option(publicText(`${label??'Retained party'} · retained version ${revision}`),value);retained.disabled=true;select.append(retained);}select.value=value;}
    }
    choices(entity.field,catalog.legalEntities,booking?.legalEntityId,booking?.legalEntityRevision,booking?.legalEntity);
    choices(party.field,catalog.counterparties,booking?.counterpartyId,booking?.counterpartyRevision,booking?.counterparty);

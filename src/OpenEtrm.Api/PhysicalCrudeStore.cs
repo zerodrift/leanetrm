@@ -81,7 +81,7 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
   var sourceRevision=selected.Id("definitionRevisionId");
   _=CrudeSetupEditor.SourceFrame(database.Manifest,frame,sourceRevision);
   var data=await database.Read(c,ct,selectedRevision:sourceRevision,observationIds:[],observationScope:ObservationReadScope.ExactPins);
-  var row=One((await Assignments(c,data,ct)).Where(a=>a.Text("code")==selected.Text("assignmentCode")));
+  var row=One((await Assignments(c,data,ct,assignmentCode:selected.Text("assignmentCode"))).Where(a=>a.Text("code")==selected.Text("assignmentCode")));
   // This validates physical quantity equivalence and monthly coverage without reading a mark.
   var request=new PhysicalCrudeWriteRequest(frame.Id,Convention,"current",Profile,Guid.Empty,Guid.Empty,sourceRevision,
    row.Text("code"),body.DeliveryFrom,body.DeliveryTo,"1","standard_volume_total","0","receive","pay","0",body.DeliveryTo,false,
@@ -95,7 +95,7 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
    physical=body.Physical,curve=curve.Text("code"),curveName=curve.Text("name"),
    quantityUnit=unit,priceUnit=Presentation.PriceUnitLabel.Format(PriceUnit.FromQuote(quote),currency,unit)};
  }
- private async Task<ImmutableArray<JsonElement>> Assignments(NpgsqlConnection c,PreviewData data,CancellationToken ct,bool currentOnly=false)
+ private async Task<ImmutableArray<JsonElement>> Assignments(NpgsqlConnection c,PreviewData data,CancellationToken ct,bool currentOnly=false,string? assignmentCode=null)
  {
   var heads=currentOnly?await CrudeSetupEditor.CurrentSetups(c,Catalog,ct):null;
   return await PreviewDatabase.Rows(c,"""
@@ -107,9 +107,9 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
   JOIN ref_data.commodities k ON(k.catalog_id,k.revision_id,k.code)=(a.delivery_catalog_id,a.delivery_revision_id,a.commodity_code)
   JOIN ref_data.locations f ON(f.catalog_id,f.revision_id,f.code)=(a.delivery_catalog_id,a.delivery_revision_id,a.facility_code)
   JOIN ref_data.locations p ON(p.catalog_id,p.revision_id,p.code)=(a.delivery_catalog_id,a.delivery_revision_id,a.custody_point_code)
-  WHERE(a.catalog_id,a.revision_id)=($1,$2) AND($3::uuid[] IS NULL OR a.setup_id IS NULL OR a.setup_id=ANY($3::uuid[]))
+  WHERE(a.catalog_id,a.revision_id)=($1,$2) AND($3::uuid[] IS NULL OR a.setup_id IS NULL OR a.setup_id=ANY($3::uuid[])) AND($4::text IS NULL OR a.code=$4)
   ORDER BY a.setup_id NULLS FIRST,a.code)x
-  """,[Catalog,data.DefinitionRevision.RevisionId,(object?)heads??DBNull.Value],ct);
+  """,[Catalog,data.DefinitionRevision.RevisionId,(object?)heads??DBNull.Value,(object?)assignmentCode??DBNull.Value],ct);
  }
  private static string Unit(PreviewData data,ReferenceKey quantity)
  {
@@ -134,7 +134,7 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
  {
   if(body.Convention!=Convention||body.KnowledgeMode!="current"||body.Profile!=Profile||body.QuantityBasis!="standard_volume_total"||body.Tolerance is null||ExactDecimal.Parse(body.Tolerance)!=default||body.Discounting!=false||body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
    throw Invalid("Choose the explicit fixed-total 60°F standard-volume, zero-tolerance, undiscounted profile and exact current source revision.");
-  var row=One((await Assignments(c,data,ct)).Where(x=>x.Text("code")==body.AssignmentCode));
+  var row=One((await Assignments(c,data,ct,assignmentCode:body.AssignmentCode)).Where(x=>x.Text("code")==body.AssignmentCode));
   var physical=new CrudePhysicalSelection(row.Id("delivery_catalog_id"),row.Id("delivery_revision_id"),row.Text("commodity_code"),row.Text("grade_code"),
    row.Text("facility_code"),row.Text("custody_point_code"),row.Text("quantity_code"),row.Text("clock_code"));
   if(body.Physical is not null&&body.Physical!=physical)throw Invalid("The resolved pricing pins do not match the selected physical parameters.");

@@ -184,7 +184,7 @@ test('arrow keys move between tabs and wrap, Home and End go to the ends, other 
 
 // A page as plain nodes: each has its parent, its children and what isolating a page reads and sets of them.
 function page(){
- const node=(name,children=[],localName='div')=>{const n={name,children,parentElement:null,localName,inert:false};for(const child of children)child.parentElement=n;return n;};
+ const node=(name,children=[],localName='div')=>{const n={name,children,parentElement:null,localName,inert:false,classList:{contains:()=>false}};for(const child of children)child.parentElement=n;return n;};
  const host=node('panel'),stage=node('stage',[host]),toolbar=node('toolbar'),workspace=node('workspace',[toolbar,stage]),
   banner=node('banner'),editor=node('editor',[],'dialog'),main=node('main',[banner,workspace]),sidebar=node('sidebar'),root=node('body',[sidebar,main,editor]);
  return {host,stage,toolbar,workspace,banner,editor,main,sidebar,root};

@@ -259,7 +259,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('Back opens the trade again in the panel, on its Terms and without the edits that were given up',
     `${q('#position-details-head .side-panel-reference')}.textContent===${JSON.stringify(trade)}&&${q('#position-details-tabs-terms')}.getAttribute('aria-selected')==='true'&&${q('#trade-editing')}.hidden&&JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision ${revision}`]))}`,looking);
   await click('#details-collapse');
-  // The report names the revision the form displays: the position's own, or an earlier one that the form's selector shows.
+  // The report names the context-resolved revision shown by the read-only version evidence.
   await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
   await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("document.querySelector('#position-details')?.hidden===false");
   await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden&&"+idle);
@@ -267,14 +267,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#trade-confirm');await click('#trade-submit');
   await wait(`${q('#position-details-head .side-panel-meta')}?.textContent.startsWith('Revision 2')&&${idle}`);
   await click('#side-panel-amend');await wait("!document.querySelector('#trade-editing').hidden&&"+idle);
-  await set('#trade-revision','1');await wait(idle);
-  await check('Looking at names the revision the form displays, though the Blotter holds a later one',
-    `JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision 1`]))}&&${q('#position-details-head .side-panel-meta')}.textContent.startsWith('Revision 2')`,looking);
-  await script({text:'It shows revision 1. '});
+  await click('#trade-reload');await wait(idle);
+  await check('Looking at names the context-resolved revision without a version picker',
+    `JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision 2 · 1 selected position`]))}&&${q('#position-details-head .side-panel-meta')}.textContent.startsWith('Revision 2')`,looking);
+  await script({text:'It shows revision 2. '});
   await ask('Which revision is this?');await wait(finished);
-  await check('and so does the page report an ask sends',`${asks}.at(-1).body.pageReport.selection.revision===1&&${asks}.at(-1).body.pageReport.selection.view==='trade'`,`JSON.stringify(${asks}.at(-1).body.pageReport)`);
+  await check('and so does the page report an ask sends',`${asks}.at(-1).body.pageReport.selection.revision===2&&${asks}.at(-1).body.pageReport.selection.view==='trade'&&JSON.stringify(${asks}.at(-1).body.pageReport.focus)===JSON.stringify({tradeIds:[${asks}.at(-1).body.pageReport.selection.tradeId],pivotCell:null})`,`JSON.stringify(${asks}.at(-1).body.pageReport)`);
   await click('#trade-reload');
-  await check('which is the Blotter\'s again once the form reloads the latest',`JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision 2`]))}`,looking);
+  await check('which is the Blotter\'s again once the form reloads the latest',`JSON.stringify(${looking}.slice(0,2))===${JSON.stringify(JSON.stringify(['Blotter',`Trade ${trade}, revision 2 · 1 selected position`]))}`,looking);
   await click('#details-collapse');
   // A trade the assistant names opens from the Blotter's trade rows. A pivot's rows are totals, so the move is refused in words that name the
   // view it needs: the person's view stays as it is, and nothing says the trade was shown.
@@ -327,10 +327,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `${looking}[0]==='Blotter'&&${looking}[1]==='A new PPA is being entered. The assistant does not read a trade being entered.'`,looking);
   await script({tools:[['toolu_ppa_panel_unsent','read_current_page',{}]]},{text:'I do not read unsaved trade entry.'});
   await ask('Which PPAs are in this book?');await wait(finished);
-  // The report names only the page and the Blotter's layout as drawn, never a term of the PPA being entered.
+  // The report carries view/selection pointers alongside page/layout, never a term of the PPA being entered.
   await check('reading unsaved PPA entry is refused without including any draft terms',
     `${latest}.querySelector('.assistant-question')?.textContent==='Which PPAs are in this book?'&&[...${latest}.querySelectorAll('.assistant-steps li')].map(l=>l.textContent).join()==='Read the page · the assistant does not read the page you asked from'`
-    +`&&JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'blotter_new_ppa',selection:{},layout:JSON.parse(${drawnLayout})})`,
+    +`&&(()=>{const r=${asks}.at(-1).body.pageReport,v=r.view;return Object.keys(r).sort().join()==='focus,layout,page,selection,view'&&r.page==='blotter_new_ppa'&&JSON.stringify(r.selection)==='{}'&&JSON.stringify(r.layout)===${drawnLayout}&&JSON.stringify(r.focus)===JSON.stringify({tradeIds:[],pivotCell:null})&&Object.keys(v).sort().join()==='bookIds,groupBy,measures,mode,portfolioIds,primaryMeasure'&&v.mode==='trades'&&[...v.bookIds,...v.portfolioIds].every(id=>/^[0-9a-f-]{36}$/.test(id))&&v.groupBy.length===0&&v.measures.every(key=>['tradeCount','lots','quantity','executionPnl','presentValue'].includes(key))&&(v.primaryMeasure===null||v.measures.includes(v.primaryMeasure));})()`,
     `JSON.stringify(${asks}.at(-1).body.pageReport)`);
   await closeNewTrade({click,evaluate,wait});
   await script({tools:[['toolu_ppa_panel_01','read_current_page',{}]]},{text:'These are the trades in the Blotter.'});

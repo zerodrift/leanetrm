@@ -586,7 +586,7 @@
 <div id="swap-editing" class="editing swap-editing" hidden>
  <p id="swap-reference" class="profile-note"></p><p id="swap-mode" class="field-help" role="status"></p><p id="swap-error" role="alert" hidden></p>
  <div class="trade-editor-actions"><p id="swap-action-status" class="field-help" role="status"></p><button id="swap-preview" type="submit" form="swap-form">Preview booking</button><button id="swap-submit" type="button" disabled>Book financial swap</button></div>
- <div id="swap-revisions" hidden><label for="swap-revision">Trade revision</label><select id="swap-revision"></select><button id="swap-latest" type="button" class="secondary">Reload latest revision</button></div>
+ <div id="swap-revisions" hidden><label for="swap-revision">Trade revision · selected by context</label><input id="swap-revision" readonly><button id="swap-latest" type="button" class="secondary">Reload latest revision</button></div>
  <form id="swap-form"><fieldset id="swap-fields">
   <div id="swap-amendment" hidden><label for="swap-reason">Amendment reason</label><input id="swap-reason" maxlength="500"><p id="swap-effective" class="field-help"></p></div>
   <section id="swap-trade-terms" class="trade-booking-terms"></section>
@@ -617,7 +617,7 @@
  <div id="swap-amount-format"></div>
 </div>
 <div id="trade-editing" class="editing" hidden>
-  <div class="schedule-fields"><div><label for="trade-revision">Trade revision</label><select id="trade-revision"></select></div><div><label>View</label><p id="trade-editor-mode" role="status"></p><button id="trade-reload" type="button" class="secondary">Reload latest revision</button></div></div>
+  <div class="schedule-fields"><div><label for="trade-revision">Trade revision · selected by context</label><input id="trade-revision" readonly></div><div><label>View</label><p id="trade-editor-mode" role="status"></p><button id="trade-reload" type="button" class="secondary">Reload latest revision</button></div></div>
   <p id="trade-editor-reference" class="profile-note"></p>
   <p id="trade-error" role="alert" hidden></p>
   <div class="trade-editor-actions"><p id="trade-action-status" class="field-help" role="status">Change the terms, enter an amendment reason, then preview changes.</p><button id="trade-preview" type="submit" form="trade-amend-form">Preview changes</button><button id="trade-submit" type="button" disabled>Save amendment</button></div>

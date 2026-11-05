@@ -15,10 +15,31 @@ public sealed record GasSetupPublishRequest(Guid OperationId,Guid SetupId);
 public sealed class GasSetupEditor(PreviewDatabase database)
 {
  static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
- public async Task<object> Catalog(NpgsqlConnection c,CancellationToken ct)
+ public async Task<object> Catalog(NpgsqlConnection c,CancellationToken ct,TradingView? view=null,Guid? proposalId=null)
  {
+  var catalog=database.Manifest.CatalogId;var revision=database.Manifest.GasMarket?.RevisionId??database.Manifest.RevisionId;
+  async Task<System.Collections.Immutable.ImmutableArray<JsonElement>> Versions()=>await PreviewDatabase.Rows(c,"SELECT row_to_json(v)::text FROM(SELECT id,state,base_setup_id,publication_order,configuration FROM market_data.gas_setup_versions WHERE(catalog_id,definition_revision_id)=($1,$2) ORDER BY publication_order DESC NULLS LAST,id LIMIT 50)v",[catalog,revision],ct);
+  var working=view?.Working??true;
+  var versions=working?await Versions():[];
+  JsonElement? proposal=null;
+  if(working&&proposalId is {} selected)
+  {
+   var rows=await PreviewDatabase.Rows(c,"SELECT row_to_json(v)::text FROM market_data.gas_setup_versions v WHERE(catalog_id,definition_revision_id,id)=($1,$2,$3)",[catalog,revision,selected],ct);
+   proposal=rows.Length==1?rows[0]:throw new MarketDataException("gas_setup_input","The exact saved proposal is unavailable under this context and current access.");
+  }
+  var proposals=working&&proposalId is null?await PreviewDatabase.Rows(c,"SELECT row_to_json(v)::text FROM market_data.gas_setup_versions v WHERE(catalog_id,definition_revision_id)=($1,$2) AND state='draft' ORDER BY id LIMIT 51",[catalog,revision],ct):[];
+  if(proposals.Length>50)throw new MarketDataException("gas_setup_input","The unpublished proposal review exceeds fifty entries. Read an exact proposal identity.");
+  if(view is not null)await view.Bind(c,catalog,ct);
+  if(!working)
+  {
+   versions=await Versions();
+   if(proposalId is {} historical)
+   {
+    var rows=await PreviewDatabase.Rows(c,"SELECT row_to_json(v)::text FROM market_data.gas_setup_versions v WHERE(catalog_id,definition_revision_id,id)=($1,$2,$3)",[catalog,revision,historical],ct);
+    proposal=rows.Length==1?rows[0]:throw new MarketDataException("gas_setup_input","The exact setup is unavailable under this context and current access.");
+   }
+  }
   var data=await database.Read(c,ct,selectedRevision:database.Manifest.GasMarket?.RevisionId,observationIds:[],referenceScope:ReferenceReadScope.AllVisible,observationScope:ObservationReadScope.ExactPins);
-  var catalog=data.DefinitionRevision.CatalogId;var revision=data.DefinitionRevision.RevisionId;
   await using var active=ScheduleStore.Command(c,"SELECT security.current_gas_setup($1,$2)",catalog,revision);
   var current=await active.ExecuteScalarAsync(ct);Guid? setup=current is Guid id?id:null;
   JsonElement configuration;
@@ -44,9 +65,12 @@ public sealed class GasSetupEditor(PreviewDatabase database)
     meters=meters.Select(m=>new{code=m.Text("code"),pipeline=m.Text("pipeline_code"),zone=m.Text("zone_code"),point=m.Text("point_code"),product=m.Text("product_code"),identifier=m.Text("identifier"),quantity=m.Text("quantity_code"),validFrom=m.Text("valid_from"),validTo=m.Text("valid_to")}),
     tariffs=tariffs.Select(t=>new{code=t.Text("code"),pipeline=t.Text("pipeline_code"),product=t.Text("product_code"),quote=t.Text("quote_code"),rate=t.Text("rate"),validFrom=t.Text("valid_from"),validTo=t.Text("valid_to")})},Json);
   }
-  var versions=await PreviewDatabase.Rows(c,"SELECT row_to_json(v)::text FROM(SELECT id,state,base_setup_id,publication_order,configuration FROM market_data.gas_setup_versions WHERE(catalog_id,definition_revision_id)=($1,$2) ORDER BY publication_order DESC NULLS LAST,id LIMIT 50)v",[catalog,revision],ct);
-  return new{activeSetupId=setup,configuration,versions,canSave=await PreviewDatabase.HasPermission(c,"WriteMarketDefinitions",ct),canPublish=await PreviewDatabase.HasPermission(c,"SealMarketDefinitions",ct),
+
+  var response=new{activeSetupId=setup,configuration,versions,proposals,proposal,context=view?.Context,canSave=working&&await PreviewDatabase.HasPermission(c,"WriteMarketDefinitions",ct),canPublish=working&&await PreviewDatabase.HasPermission(c,"SealMarketDefinitions",ct),
    locations=data.References["locations"],products=data.References["commodities"],clocks=data.References["clock_rules"].Where(x=>x.Text("kind")=="fixed_offset"),quantities=data.References["quantity_specifications"],quotes=data.References["quote_specifications"].Where(x=>x.Text("kind")=="outright"),curves=data.Definitions["curves"],data.ReferenceRevision,data.DefinitionRevision};
+  await using var authority=ScheduleStore.Command(c,"SELECT security.market_access($1,'ReadMarketData') AND security.reference_access($2,'ReadMarketData')",catalog,data.ReferenceRevision.CatalogId);
+  if(!Equals(await authority.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+  return response;
  }
  public Task<JsonElement> Save(NpgsqlConnection c,GasSetupSaveRequest body,CancellationToken ct)=>Execute(c,
   "SELECT security.save_gas_setup($1,$2,$3,$4,$5::jsonb)::text",[database.Manifest.CatalogId,database.Manifest.GasMarket?.RevisionId??database.Manifest.RevisionId,body.OperationId,(object?)body.BaseSetupId??DBNull.Value,body.Configuration.GetRawText()],ct);

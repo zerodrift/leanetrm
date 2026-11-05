@@ -53,7 +53,7 @@ export function readBlotterWindowUrl(href:string):{session:string;example:Exampl
  */
 export function tieMainWindow(o:{source:string;example:Example;grace:number;session:()=>string;channel:OpenChannel;
   open:(url:string,target:string,features:string)=>Popup|null;context:()=>BlotterContext|undefined;
-  returned:(view:BlotterView,handedBack:boolean,held:BlotterHeld|undefined)=>void;reported:()=>void;ask:(question:BlotterQuestion)=>void}){
+  returned:(view:BlotterView,handedBack:boolean,held:BlotterHeld|undefined)=>void;reported:()=>void;ask:(question:BlotterQuestion)=>void;askInPlace?:(kind:'positions'|'pivot')=>void}){
   type Tie={session:string;channel:Channel;popup:Popup;handed:BlotterView;instance?:string;sent?:string;shown?:BlotterShown;held?:BlotterHeld;back?:BlotterView;settled:(()=>void)[]};
   let tie:Tie|undefined;
   const send=(t:Tie,m:Record<string,unknown>)=>t.channel.send({v:1,session:t.session,...m} as BlotterMessage);
@@ -68,6 +68,7 @@ export function tieMainWindow(o:{source:string;example:Example;grace:number;sess
       // Only a report of a popped-out Blotter is relayed as the pop-out's.
       case 'pageReport':if(m.state.page==='futures'&&m.state.poppedOut){t.shown=m.state;t.held={edits:m.edits,requests:m.requests};o.reported();}return;
       case 'askAbout':o.ask({key:m.key,bookIds:m.bookIds,portfolioIds:m.portfolioIds});return;
+      case 'askInPlace':o.askInPlace?.(m.selection);return;
     }
   }
   function close(t:Tie){tie=undefined;t.channel.close();}
@@ -145,6 +146,7 @@ export function tiePopoutWindow(o:{session:string;instance:string;channel:OpenCh
   return {
     /** Reports what the pop-out shows, when that has changed. */
     report(state:BlotterShown,held:BlotterHeld){const next=JSON.stringify([state,held]);if(open&&next!==reported){send({kind:'pageReport',state,edits:held.edits,requests:held.requests});reported=next;}},
+    askInPlace(selection:'positions'|'pivot'){send({kind:'askInPlace',selection});},
     ask(key:string,scope:{bookIds:string[];portfolioIds:string[]}){send({kind:'askAbout',key,...scope});},
     /** Hands back the view, when the pop-out holds one, and says it closed. */
     leave(view:BlotterView|undefined){

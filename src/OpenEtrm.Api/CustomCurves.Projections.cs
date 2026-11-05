@@ -9,7 +9,10 @@ namespace OpenEtrm.Api;
 public static partial class CustomCurves
 {
     internal sealed record PublishedProjectionChoice(string Label,CustomCurveProjectionInput Reference,PriceUnit Unit,
-        ImmutableArray<ProjectionDelivery> Deliveries=default);
+        ImmutableArray<ProjectionDelivery> Deliveries=default)
+    {
+        public bool SelectedInContext{get;init;}
+    }
     // Once every contractual fixing is due, the forecast is retained metadata,
     // not a demand for historical forecast samples. Still qualify its exact
     // published shape, quote and mapping under the current authorized context.
@@ -40,6 +43,7 @@ public static partial class CustomCurves
         var versions=await new CustomCurvesStore(database).Read(connection,ct);
         var saved=versions.Where(v=>v.State=="published"&&v.EngineVersion==RecipeEngine.Version&&
             v.Sources.Values.All(s=>s.CatalogId==data.DefinitionRevision.CatalogId&&s.RevisionId==data.DefinitionRevision.RevisionId)).ToArray();
+        var contextHeads=ContextVersions.Latest(saved,v=>v.Id,v=>v.Version).ToDictionary(v=>v.Id,v=>v.Version);
         if(saved.Length==0)return [];
         var sourceData=data;
         var choices=ImmutableArray.CreateBuilder<PublishedProjectionChoice>();
@@ -65,6 +69,6 @@ public static partial class CustomCurves
                     new(data.DefinitionRevision.CatalogId,version.Id,version.Version,version.Definition.Output,null,
                         CustomCurveProjectionBinding.DeliverySelection,CustomCurveProjectionBinding.SupportedImplementation),result.Points[0].Price.Unit,deliveries));
         }
-        return choices.ToImmutable();
+        return [..choices.Select(choice=>choice with{SelectedInContext=contextHeads[choice.Reference.CurveId]==choice.Reference.Version})];
     }
 }

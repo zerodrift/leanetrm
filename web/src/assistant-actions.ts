@@ -7,10 +7,12 @@ type Review={operation:string;page:string;body:unknown;parameters:Record<string,
 export function setupAssistantActions(options:{api:Api;identity:()=>string;changed:()=>Promise<void>}){
   let active:HTMLDialogElement|undefined;
   function close(){active?.close();active?.remove();active=undefined;}
-  async function review(reference:Reference){
+  async function review(reference:Reference,signal?:AbortSignal,available:()=>boolean=()=>true){
+    if(!available())throw Error('The page changed before Review opened.');
     const identity=options.identity();
-    const value=await options.api<Review>('assistant/actions/review',reference);
+    const value=await options.api<Review>('assistant/actions/review',reference);signal?.throwIfAborted();
     if(identity!==options.identity())return;
+    if(!available())throw Error('The page changed before Review opened.');
     close();const dialog=document.createElement('dialog');dialog.className='assistant-action-review';active=dialog;
     const title=document.createElement('h2');title.textContent='Review assistant proposal';
     const summary=document.createElement('p');summary.textContent=`${value.operation.replaceAll('.',' › ').replaceAll('_v1','')} · awaiting your authorization`;
