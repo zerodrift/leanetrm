@@ -26,6 +26,9 @@ native scroll attempts before requiring the viewport at the top. The exact quant
 assertions remain unchanged; this is fixture positioning, not a financial rule.
 The pop-out Keep/Discard check captures its displayed context after the native
 ticket-opening read and immediately before the proposed date change.
+PPA and Dashboard reloads require a new document before checking controls or
+request counters. The Dashboard read-count case leaves a restored Dashboard
+before measuring its next explicit opening.
 
 D312–D315 page-digest, selection and walkthrough checks run with
 `python3 tools/run_preview.py --pg-bin /path/to/postgres/bin --dotnet /path/to/dotnet --assistant-workspace-check --browser-check --browser /path/to/chrome`.
