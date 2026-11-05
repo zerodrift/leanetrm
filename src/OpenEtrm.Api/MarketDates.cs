@@ -54,6 +54,7 @@ public static class MarketDates
         frames=[..sessionCloses.Where(frame=>frame.Close!.ReplacedBy is null)];
         foreach(var frame in frames)_=pin.Require(frame);
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        await SelectedClose.BindSession(connection,database.Manifest.CatalogId,request.Session,ct);
         await RequireAccess(database,connection,ct);
         if(request.MaximumDates is <1 or >128)throw new MarketDataException("market_dates_input","Request from one to 128 dates explicitly.");
         var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);

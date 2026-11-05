@@ -1,8 +1,10 @@
 # Regional closes
 
-Status: proposed design (D319). The owner decided the points listed below;
-calls marked *design call* await owner review. Nothing here is implemented. It refines D162 and D219 where they allow several selectable closes
-on one day. Examples are synthetic.
+Status: D319, implemented locally and verified by the checks under
+[Verification](#verification); not yet published or deployed. The owner decided
+the points listed below; calls marked *design call* await owner review. It
+refines D162 and D219 where they allow several selectable closes on one day.
+Examples are synthetic.
 
 ## Why
 
@@ -256,38 +258,71 @@ decision):
 - The `session` and `business_date` columns are required from the start; there
   is no nullable legacy state and no legacy-close exception in the code.
 
-## Interfaces (proposed names)
+## Implemented interfaces
 
-- `close-sessions/catalog`, `close-sessions/save`, `close-sessions/publish`
-- Per-session close-recording grants, administered with the existing access
-  administration
-- `market/closes/register` gains `session` and `businessDate`
-- `market/dates` gains a required `session`; each day returns its close in force
-  and a `replaced` count; `market/closes/history` lists a day's replaced closes
-- Frames returned to the session carry `session`, `businessDate` and
-  `replaced`
+- Migration `0196_regional_closes.sql`: `market_data.close_sessions`,
+  `close_session_versions` (each pins one definition revision and one reference
+  calendar, whose clock is the session clock) and `close_session_curves`;
+  `security.close_session_grants` (per principal); `presentation.close_session_choices`;
+  required `session_code`, `session_version` and `business_date` on
+  `market_data.market_closes`; and the SQL functions that decide the cutoff
+  instant, the close in force and recording authority. The migration refuses to
+  run while any close or pilot profile exists.
+- `GET /api/close-sessions/catalog`, `POST /api/close-sessions/save` (draft,
+  `WriteMarketDefinitions`), `POST /api/close-sessions/publish`
+  (`SealMarketDefinitions`).
+- `GET /api/close-sessions/grants/list`, `POST /api/close-sessions/grants` and
+  `POST /api/close-sessions/grants/revoke` (`ManageAccess`, exclusive
+  administration admission).
+- `GET`/`POST /api/close-sessions/choice`: the person's remembered session.
+- `POST /api/market/closes/register` takes `session` and `businessDate`;
+  `POST /api/market/dates` requires `session` and returns one close per business
+  day with a `replaced` count; `POST /api/market/closes/history` lists a day's
+  closes, newest first.
+- Workspace and navigation frames carry `close` (session, version, business
+  day, `replacedBy`, and under a historical view `recordedAfterCutoff`);
+  a frame without `close` is a working snapshot.
+- Pilot close definitions name `session`; pilot and close-risk reports carry
+  `close.session`, `close.businessDate`, `close.replaced` and `close.inForce`.
+- The header has a **Close session** choice, offers unrecorded snapshots as
+  "Working snapshot ·" entries, and lists a day's replaced closes under
+  **Earlier closes for this day**.
+- Previews record every built-in frame as a close of a synthetic UTC session per
+  cutoff time (`tools/seed_session_closes.py`), with a new session version
+  wherever the frame's curves change, and record each synthetic member's choice
+  of the session with the most closes.
 
-## Remaining choices for the builder
+Implementation calls, recorded for review:
 
-- Table and column names, and whether the in-force rule is a SQL view or a
-  function, provided it is evaluated on read and indexed on (session, business
-  day, publication order).
-- Layout of the session picker and history list, within the existing header.
+- The session clock is the clock of the session's calendar, so the two cannot
+  disagree.
+- The remembered session is its own record, not a key in the general
+  preferences document, so a fixture or a release can seed it per person.
+- Grants are per principal; role grants remain later work.
+- A generated close joins its profile's session, which must cover exactly the
+  profile's curves; its anchor may belong to another session.
+- An identity that cannot discover closes is refused (403) when it names one.
+
+## Remaining work
+
+- Role-based session grants and a screen for administering grants.
+- Choosing a session's business day for an anchor on the pilot page uses the
+  UTC date of the frame's instant.
+- Portfolio risk job views do not yet report whether their close was replaced.
+- `close_not_visible` has no synthetic scenario: every fixture reader shares one
+  workspace's visibility.
 
 ## Verification
 
-- HTTP checks: record London and New York closes on one day; a second London
-  close replaces only London's; New York's stays in force; a replaced close is
-  refused for new work; an incomplete close and an off-cutoff instant are
-  refused; retries are idempotent; a New York close after midnight UTC keeps its
-  business day.
-- Authority: a London grant records and replaces London's close and is refused
-  for New York's; `PublishMarketData` without a grant is refused; a grant revoked
-  during the write is refused.
-- Historical context: a close recorded after the context's cutoff is the one
-  read, and the response says so; trade reads keep the cutoff.
-- Saved risk results keep their numbers and report `replaced`.
-- Browser checks: session then day selection, the remembered session after a
-  reload and per account, a withdrawn remembered session, history visible but not
-  selectable, Newer close available on replacement.
+- `--regional-closes-check`: sessions, versions and grants; London, New York and
+  a UTC−18h session; a business day across UTC midnight; refused days,
+  instants, curves and grants; idempotent and concurrent recording; the close in
+  force, history and `close_replaced`; historical views reading a close recorded
+  after their cutoff.
+- `--pilot-close-check`: generated closes in their profile's session, refusing
+  `close_exists` and a replaced anchor; reports that keep their numbers and say
+  `replaced`.
+- The standard HTTP suite, rewritten for seeded session closes.
+- Web unit tests for the session offer; the `--market-dates` browser suite for
+  the header.
 - Adversarial review (temporal behavior and authorization) before publication.

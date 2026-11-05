@@ -402,8 +402,21 @@ BEGIN
  OR security.reference_version_visible(selected.reference_catalog_id,selected.reference_revision_id) IS NOT TRUE THEN RETURN false;END IF;
  RETURN true;
 END;$$;
--- The pinned observations of the closes in force for the context's date are visible whatever its knowledge cutoff: the
--- prices "always latest" reads (D319). Every other observation keeps the 0158 rules exactly.
+-- The close session a request reads (D319). "Always latest" releases only the pins of that session's closes in force, so one
+-- region's correction never becomes another region's knowledge. A request binds at most one session.
+ALTER TABLE security.request_contexts ADD COLUMN close_session ref_data.code;
+CREATE FUNCTION security.use_close_session(catalog uuid,session text) RETURNS void
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ IF NOT security.market_access(catalog,'ReadMarketData') OR NOT EXISTS(SELECT 1 FROM market_data.close_sessions s WHERE(s.catalog_id,s.code)=(catalog,session))
+ THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
+ UPDATE security.request_contexts SET close_session=session WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned()
+  AND runtime_login=session_user AND(close_session IS NULL OR close_session=session);
+ IF NOT FOUND THEN RAISE EXCEPTION 'A request reads exactly one close session' USING ERRCODE='42501';END IF;
+END;$$;
+
+-- The pinned observations of the bound session's closes in force for the context's date are visible whatever its knowledge
+-- cutoff: the prices "always latest" reads (D319). Every other observation keeps the 0158 rules exactly.
 CREATE OR REPLACE FUNCTION security.visible_observations() RETURNS TABLE(catalog uuid, revision uuid, observation uuid)
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE cut record;
@@ -432,6 +445,8 @@ BEGIN
   JOIN market_data.observations o ON(o.catalog_id,o.id)=(p.catalog_id,p.observation_id)
   JOIN market_data.revision_periods v ON(v.catalog_id,v.revision_id)=(s.catalog_id,s.definition_revision_id)
   WHERE s.catalog_id=cut.catalog AND s.business_date=cut.effective_on AND o.observed_at<=s.at
+   AND s.session_code=(SELECT c.close_session FROM security.request_contexts c WHERE c.backend_pid=pg_backend_pid()
+    AND c.transaction_id=pg_current_xact_id_if_assigned() AND c.runtime_login=session_user)
    AND v.effective_from<=cut.effective_on AND cut.effective_on<v.effective_to
    AND s.id=(SELECT l.id FROM market_data.market_closes l WHERE(l.catalog_id,l.session_code,l.business_date)=(s.catalog_id,s.session_code,s.business_date)
     ORDER BY l.publication_order DESC LIMIT 1);
@@ -621,7 +636,7 @@ END;$$;
 DO $$DECLARE f record;BEGIN
  FOR f IN SELECT p.oid::regprocedure signature,p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security'
  AND p.proname IN('close_session_instant','close_in_force','can_record_close','close_session_json','close_session_catalog','save_close_session','publish_close_session',
- 'close_grant_json','require_close_administration','grant_close_session','revoke_close_session_grant','close_session_grants','register_market_close','close_history','market_close_visible','close_recorded_after_cutoff','close_session_day','require_session_curves','close_session_choice','choose_close_session') LOOP
+ 'close_grant_json','require_close_administration','grant_close_session','revoke_close_session_grant','close_session_grants','register_market_close','close_history','market_close_visible','close_recorded_after_cutoff','close_session_day','require_session_curves','close_session_choice','choose_close_session','use_close_session') LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f.signature);
   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f.signature);
   IF f.proname NOT IN('close_session_instant','close_session_json','close_grant_json','require_close_administration','close_session_day','require_session_curves') THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;

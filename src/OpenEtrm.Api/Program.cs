@@ -1082,7 +1082,9 @@ api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async sessi
     var pin=Pin(session,body.SnapshotId);
     // Current history includes initial inputs and every offered stored close;
     // unselected manual edits remain separate explicit input choices.
-    var frames=session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)).Where(frame=>frame.PpaBundle is null).Concat(session.VisibleFrames.Where(frame=>frame.OriginCloseId is not null)):session.VisibleFrames;
+    var offered=session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)).Where(frame=>frame.PpaBundle is null).Concat(session.VisibleFrames.Where(frame=>frame.OriginCloseId is not null)):session.VisibleFrames;
+    // A close's history is its own session's closes (D319); other regions' closes at the same instants are not its samples.
+    var frames=pin.Frame?.Close is {} pinned?offered.Where(frame=>frame.Close is null||frame.Close.Session==pinned.Session):offered;
     var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,policy,ct,
         session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null,
         session.Live is not null?[..session.InitialFrames.SelectMany(id=>session.Frames[id].ObservationIds).Distinct()]:null),c.RequestAborted);

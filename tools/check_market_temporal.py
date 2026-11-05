@@ -53,14 +53,16 @@ def run_checks(Client, check, after_browser):
     assert original['id'] not in {f.get('originCloseId') for f in current['frames']}, 'A replaced close is still offered'
     after = c.call('evaluate', {'snapshotId': newer['id'], 'curve': 'local_power'})
     check('a recorded correction replaces the close every view reads', after['points'][0]['value'] != before['points'][0]['value'])
-    history = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', 'snapshotId': newer['id'], 'curve': 'local_power', 'contractId': after['points'][0]['contractId']})
+    # History is a session's own (D319): read it over the built-in session's closes under the latest context.
+    seeded = next(f for f in current['frames'] if f.get('originCloseId') == seed['id'])
+    history = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', 'snapshotId': seeded['id'], 'curve': 'local_power', 'contractId': after['points'][0]['contractId']})
     check('contract history stops at the context date', all(p['at'][:10] <= '2020-12-17' for p in history['points']))
     def chart_of(points):
         return [{'at': p['at'], 'value': p['value'], 'unavailableReason': p['unavailableReason']} for p in points]
     check('the history states its chart series: each returned point, one per instant, with its availability',
           len({p['at'] for p in history['points']}) == len(history['points']) and history['chart'] == {'points': chart_of(history['points'])})
     sma = {'code': 'simple_moving_average_v1', 'parameters': {'window': 2}}
-    with_overlay = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', 'snapshotId': newer['id'], 'curve': 'local_power', 'contractId': after['points'][0]['contractId'], 'overlays': [sma]})
+    with_overlay = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', 'snapshotId': seeded['id'], 'curve': 'local_power', 'contractId': after['points'][0]['contractId'], 'overlays': [sma]})
     points = with_overlay['points']
     series = with_overlay['overlays'][0]['series']['value']
     means = [None if i == 0 or points[i]['value'] is None or points[i-1]['value'] is None
@@ -80,8 +82,7 @@ def run_checks(Client, check, after_browser):
           {o['code'] for o in catalog['overlays']} == {'simple_moving_average_v1', 'exponential_moving_average_v1', 'rolling_range_v1'} and
           all(o['parameters'] == [{'name': 'window', 'label': 'Window', 'minimum': 2, 'maximum': 250}] for o in catalog['overlays']))
     def history_versions():
-        # Registers durable closes at the seed's instant, which later browser suites would show as extra samples; run after them (run_preview.py).
-        # Current-context history: closes of the seed frame and of the corrected frame add samples at the seed's instant.
+        # Registers durable closes at the seed's instant in another session; run after the browser suites (run_preview.py).
         # The deferred run opens its own session: the first one may have expired during the browser phase.
         c = Client(); c.bootstrap(); c.call('profile', {'profile': 'editor'})
         fresh = c.call('workspace')
@@ -92,59 +93,43 @@ def run_checks(Client, check, after_browser):
         pinned = next(f for f in current_frames if f['at'][:10] == '2020-12-16' and not f.get('ppaBundle'))
         contract = after['points'][0]['contractId']
         query = {'revisionPolicy': 'exact_snapshot_pins_v1', 'snapshotId': pinned['id'], 'curve': 'local_power', 'contractId': contract}
-        def expected_means(samples):
-            distinct = list(dict.fromkeys((p['at'], p['value']) for p in samples))
-            return [(at, None if i == 0 or value is None or distinct[i-1][1] is None else (Decimal(value) + Decimal(distinct[i-1][1])) / 2)
-                    for i, (at, value) in enumerate(distinct)]
         offered=c.call('history',query)['points']
-        record(c, seed_frame, 'Synthetic duplicate sample')
-        check('history retains the offered directory until an explicit refresh',c.call('history',query)['points']==offered)
-        c.call('workspace/navigation')
-        duplicated = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]})
-        instants = [p['at'] for p in duplicated['points']]
-        series = duplicated['overlays'][0]['series']['value']
-        check('identical samples at one instant count once: points are unchanged and the overlay is aligned by instant',
-              len(instants) == len(set(instants)) + 1 and duplicated['points'] == c.call('history', query)['points']
-              and [(v['at'], None if v['value'] is None else Decimal(v['value'])) for v in series] == expected_means(duplicated['points']))
-        check('the chart series holds identical samples at one instant once, as the overlays do',
-              [p['at'] for p in duplicated['chart']['points']] == list(dict.fromkeys(instants)) and [v['at'] for v in series] == [p['at'] for p in duplicated['chart']['points']])
-        record(c, corrected_frame, 'Synthetic differing sample')
+        # A close's history is its own session's (D319): closes another session records at the same instants are not its
+        # samples, so one session's chart has one sample per day.
+        record(c, seed_frame, 'Synthetic other-session sample')
+        record(c, corrected_frame, 'Synthetic other-session correction')
         c.call('workspace/navigation')
         plain = c.call('history', query)
-        conflict = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [sma]})
-        check('different samples at one instant are a stated chart conflict naming the instant, with every point kept and no overlays, never a chosen frame',
-              list(conflict['chart']) == ['conflict'] and conflict['chart']['conflict']['at'].startswith('2020-12-17') and '2020-12-17' in conflict['chart']['conflict']['message']
-              and 'overlays' not in conflict and conflict['points'] == plain['points'] and len(plain['points']) > 2 and plain['chart'] == conflict['chart'])
+        check('history keeps only its own session: another session\'s closes at the same instants add no samples',
+              plain['points'] == offered and len({p['at'] for p in plain['points']}) == len(plain['points']) and 'conflict' not in plain['chart'])
         malformed = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', **query, 'overlays': [{'code': 'simple_moving_average_v1', 'parameters': {'window': 1}}]}, expected=422)
-        check('an overlay request is still checked over a conflicting series: a bad window is an overlay_parameter refusal', malformed['code'] == 'overlay_parameter')
+        check('an overlay request with a bad window is an overlay_parameter refusal', malformed['code'] == 'overlay_parameter')
         c.call('profile', {'profile': 'editor'})
         # Revision policy (D237): the correction was recorded after `context['knownAt']`; the closes above record the original and the corrected frame.
         asknown = 'as_known_at_cutoff_v1'
         def context_history(ctx, **extra):
-            frame = next(f for f in c.call('workspace')['frames'] if f.get('contextId') == ctx['contextId'])
+            frame = next(f for f in c.call('workspace')['frames'] if f.get('contextId') == ctx['contextId'] and f.get('originCloseId') == seed['id'])
             return c.call('history', {'revisionPolicy': asknown, 'snapshotId': frame['id'], 'curve': 'local_power', 'contractId': contract, **extra})
         def at_seed_day(history):
             return [p for p in history['points'] if p['at'][:10] == '2020-12-17']
         old_ctx = c.call('market/context', {**request, 'mode': 'at', 'knownAt': context['knownAt']})['context']
         old_view = context_history(old_ctx)
-        # Always latest (D319): the recorded close in force for the day carries the correction, so even a cutoff before the
-        # correction reads it, and says the sample became known after that cutoff.
-        check('under a cutoff before the correction the close in force is shown, its later knowledge stated, and the cutoff echoed',
+        check('under a cutoff before the correction the original is shown and the cutoff used is echoed',
               old_view['revisionPolicy'] == asknown and old_view['knowledgeCutoff'] == old_ctx['knownAt']
-              and len(at_seed_day(old_view)) == 1 and Decimal(at_seed_day(old_view)[0]['value']) == Decimal('30.43') and at_seed_day(old_view)[0]['knownAt'] > old_ctx['knownAt'])
+              and len(at_seed_day(old_view)) == 1 and Decimal(at_seed_day(old_view)[0]['value']) != Decimal('30.43') and at_seed_day(old_view)[0]['knownAt'] <= old_ctx['knownAt'])
         later = c.call('market/context', request)['context']
         new_view = context_history(later)
-        check('under a cutoff after the correction the same close in force is shown, with its recorded knowledge instant',
-              len(at_seed_day(new_view)) == 1 and Decimal(at_seed_day(new_view)[0]['value']) == Decimal(at_seed_day(old_view)[0]['value'])
+        check('under a cutoff after the correction the corrected value is shown, with its recorded knowledge instant',
+              len(at_seed_day(new_view)) == 1 and Decimal(at_seed_day(new_view)[0]['value']) != Decimal(at_seed_day(old_view)[0]['value'])
               and new_view['knowledgeCutoff'] == later['knownAt'] and at_seed_day(new_view)[0]['knownAt'] > old_ctx['knownAt'])
         c.call('market/current', {})
         working = c.call('workspace')['frames']
         working_pin = next(f for f in working if f['at'][:10] == '2020-12-16' and not f.get('ppaBundle'))
         base = {'snapshotId': working_pin['id'], 'curve': 'local_power', 'contractId': contract}
         exact_view = c.call('history', {**base, 'revisionPolicy': 'exact_snapshot_pins_v1'})
-        # One close per session day (D319): the built-in session's original and the test session's corrected close.
-        check('exact pins keep the original and the corrected sample apart at the seed instant',
-              exact_view['revisionPolicy'] == 'exact_snapshot_pins_v1' and len(at_seed_day(exact_view)) == 2)
+        # One close per session day (D319): exact pins read the built-in session's one close at the seed instant.
+        check('exact pins read the session\'s one close at the seed instant',
+              exact_view['revisionPolicy'] == 'exact_snapshot_pins_v1' and len(at_seed_day(exact_view)) == 1)
         resolved = c.call('history', {**base, 'revisionPolicy': asknown, 'overlays': [sma]})
         check('working data under the cutoff policy shows the corrected value once and states that it used current knowledge',
               [Decimal(p['value']) for p in at_seed_day(resolved)] == [Decimal(at_seed_day(new_view)[0]['value'])]

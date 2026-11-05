@@ -23,6 +23,12 @@ public static class SelectedClose
             throw new TemporalException("market_date","Choose a close on the selected effective date.");
         return pin;
     }
+    // The session a request reads: "always latest" releases only that session's pinned prices (D319).
+    public static async Task BindSession(NpgsqlConnection connection,Guid catalog,string session,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT security.use_close_session($1,$2)",catalog,session);
+        await command.ExecuteNonQueryAsync(ct);
+    }
     // New work at a recorded close requires the close in force for its session and business day. A replaced close names the
     // close in force; one this reader cannot see is refused rather than answered with the close it replaced.
     public static async Task RequireInForce(NpgsqlConnection connection,Guid catalog,Guid close,CancellationToken ct)

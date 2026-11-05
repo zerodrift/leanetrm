@@ -122,6 +122,9 @@ header>div:first-child{flex:1 1 280px;min-width:0}
 .date-control{display:flex;align-items:center;gap:8px}
 .date-control label{margin:0;font-size:12px;color:var(--text-3);white-space:nowrap}
 .date-control select{width:230px}
+/* The close session (D319) sits beside the date context and shows only with it; its name is its tooltip and accessible label. */
+.session-control select{width:150px;height:28px;padding:2px 6px;font-size:12px}
+.context-toolbar[hidden]+.session-control{display:none}
 #market-date-calendar{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0;max-width:380px}
 .market-date-trigger{min-width:220px;max-width:100%;text-align:left;white-space:normal;font-size:12px;padding:9px 12px}
 .market-date-trigger::after{content:'▦';float:right;margin-left:14px;color:var(--text-3)}

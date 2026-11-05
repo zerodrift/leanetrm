@@ -32,7 +32,11 @@ public sealed record PinnedContext
     public async Task Bind(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
     {
         if(Context is not null)await BindExact(connection,catalog,Context,ct);
-        if(Frame is {Close:not null,OriginCloseId:{} close})await SelectedClose.RequireInForce(connection,catalog,close,ct);
+        if(Frame is {Close:{} session,OriginCloseId:{} close})
+        {
+            await SelectedClose.RequireInForce(connection,catalog,close,ct);
+            await SelectedClose.BindSession(connection,catalog,session.Session,ct);
+        }
     }
     // A stored context names its id and every coordinate; none is ever filled in later.
     internal static ScheduleContext Exact(ScheduleContext context)=>context is {ContextId:null} or {EffectiveOn:null} or {KnownAt:null} or {KnownThrough:null}

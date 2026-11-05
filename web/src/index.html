@@ -45,8 +45,6 @@
     <div><div id="page-section" class="eyebrow">MARKETS</div><h1 id="page-title">Curves & prices</h1></div>
     <div class="header-actions">
       <div id="context-toolbar" class="context-toolbar" role="group" aria-label="Date context" hidden>
-        <div class="date-control session-control"><label for="close-session">Close session</label><select id="close-session"><option value="">Choose a session…</option></select>
-          <span id="close-session-status" class="field-help" role="status" hidden>Your chosen close session is no longer available. Choose a session to see prices.</span></div>
         <div class="date-control"><label for="market-date-open">As of</label><div id="market-date-calendar"></div><select id="snapshot" hidden aria-hidden="true" tabindex="-1"><option value="">Choose a date…</option></select>
           <details id="close-history" class="close-history" hidden><summary>Earlier closes for this day</summary><ul id="close-history-list"></ul></details></div>
         <div id="date-context" class="context-controls" hidden>
@@ -60,6 +58,8 @@
         </div>
         <span id="live-status" class="live-status" role="status" aria-live="polite" hidden></span><button id="live-retry" type="button" class="secondary" hidden>Retry refresh</button>
       </div>
+      <div class="date-control session-control"><label for="close-session" class="sr-only">Close session</label><select id="close-session" title="Close session"><option value="">Choose a session…</option></select>
+          <span id="close-session-status" class="field-help" role="status" hidden>Your chosen close session is no longer available. Choose a session to see prices.</span></div>
       <button id="profile-open" class="profile-button" aria-haspopup="dialog"><span id="profile-avatar" class="avatar" aria-hidden="true">U</span><span id="profile-label">Profile</span></button></div>
   </header>
   <div id="error" role="alert" hidden></div><div id="notice" role="status" hidden></div>
