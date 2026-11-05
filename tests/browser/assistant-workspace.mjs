@@ -81,7 +81,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const selected=await evaluate('__selectedTradeIds');
   const swapPlan=[{kind:'go',target:'n1'},{kind:'pause',page:'blotter_new_swap'}];
   const openSwap=async(walkthrough,tag)=>{
-    await script([{tools:[['toolu_'+tag+'_read','read_workspace_page',{page:'blotter_new_swap'}]]},
+    await script([...(tag==='navigation'?[{tools:[['toolu_full_catalog','discover_page_operations',{page:'all',operation:null}]]}]:[]),
+      {tools:[['toolu_'+tag+'_read','read_workspace_page',{page:'blotter_new_swap'}]]},
       {tools:[[ 'toolu_'+tag+'_open',walkthrough?'present_walkthrough':'navigate',walkthrough?{planJson:JSON.stringify(swapPlan)}:{page:'blotter_new_swap',target:null}]]},
       {text:'Synthetic swap ticket '+tag+'.'}]);
     await set('#assistant-question','Help me open a swap ticket.');await sendQuestion();
@@ -89,6 +90,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await openSwap(false,'navigation');
   await wait("document.querySelector('#swap-form')?.getBoundingClientRect().height>0");
   await check('the assistant New swap navigation target opens the native swap ticket',"document.querySelector('#assistant-looking-shows').textContent.includes('new swap')&&document.querySelector('#swap-quantity').value===''&&document.querySelector('#swap-price').value===''");
+  await wait("document.querySelector('#assistant-turns').textContent.includes('Synthetic swap ticket navigation.')&&document.querySelector('#assistant-send').textContent==='Send'");
+  await check('full operation discovery completes before native navigation without a timeout',"document.querySelector('#assistant-error').hidden&&[...document.querySelectorAll('#assistant-turns .assistant-steps')].at(-1).textContent.includes('Inspect available operations')");
   await wait("document.querySelector('#assistant-send').textContent==='Send'&&"+idle);await click('#nav-futures');await wait(idle);
   await evaluate('window.__denySwapOpen=true');await openSwap(false,'readonly');
   await wait("!document.querySelector('#error').hidden&&document.querySelector('#error').textContent.includes('Synthetic read-only ticket')");

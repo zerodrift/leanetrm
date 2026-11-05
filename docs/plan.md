@@ -1974,7 +1974,12 @@ remains a later increment; current response paging is not that qualification.
 ### Assistant page catalog and guide follow-up (D325–D326)
 
 Identity-only page asks and dismissible, tracked guide controls are implemented.
-Dashboard widget evidence, crude-setup and volatility reads remain outside the
-assistant until named authorized operation consumers are classified and qualified.
-These pages currently contribute page/context identity only. Arbitrary page
-controls, generated UI and business-effect walkthrough steps remain excluded.
+Dashboard widget evidence and volatility reads remain outside the assistant until
+named authorized operation consumers are classified and qualified. These pages
+currently contribute page/context identity only; D327 adds native physical reads.
+Arbitrary page controls, generated UI and business-effect walkthrough steps remain excluded.
+
+Full operation discovery resolves against one read-local route-metadata snapshot
+(D328), removing repeated grouped-route construction without extending the agent's
+read limit. Other read latency and the security epoch hold described in D245 remain
+separate work; this change is not a general read-performance qualification.

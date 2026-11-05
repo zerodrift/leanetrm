@@ -1,5 +1,14 @@
 # Local verification and continuous integration
 
+D328's managed workspace regression uses real grouped ASP.NET routes and bounds
+route construction independently of elapsed time: one metadata snapshot and one
+build per registered operation. It fails on the prior repeated enumeration. It
+also checks fresh permissions/endpoints and cancellation before metadata work.
+The owned workspace HTTP fixture discovers the full authorized catalog while
+retaining command approval effects; its browser follows full discovery with
+native New swap navigation. Use the existing `--assistant-workspace-check
+--browser-check` command below. These checks use synthetic disposable resources.
+
 D325–D326 add actual frontend-report / prompt-API / SQL catalog parity, empty
 identity-only asks and immutable prompt pins for Dashboard, crude setup and Vol
 surfaces. Managed checks reject browser values and Blotter-only fields on these

@@ -2566,3 +2566,18 @@ from an older framed-answer move must restore a facility origin's explicit date
 and ledger without selecting a price close. Migration 0199 gates new admission
 and tool publication on `turns_v16`; retained request replay remains available.
 Hosted activation remains separate from local qualification.
+
+## D328 — Resolve operation discovery against one read-local route snapshot
+
+Full operation discovery takes one snapshot of the application's endpoint metadata
+and resolves each authorized catalog entry by its exact path and method. Grouped
+route sources rebuild endpoint definitions when read: the owned managed regression
+previously built 27,225 routes for its original 165-operation catalog; the check
+now requires one build per registered operation, including later catalog additions.
+The snapshot belongs to that read; later reads obtain fresh endpoints and current
+permissions. Missing routes remain unavailable and command approval flags are
+unchanged. Cancellation is checked before metadata work and between operations.
+The existing read/turn limits, source-access publication checks and retained
+context are unchanged. There is no new tool, result shape, grant, cache of
+authority or business data, runtime version or migration. Owned HTTP and browser
+checks cover full discovery followed by native swap navigation without booking.
