@@ -7,6 +7,7 @@ namespace OpenEtrm.MarketData.Risk;
 public sealed record PcaFitSample(string Id,ImmutableArray<ExactDecimal> Changes);
 public sealed record PcaFitPlan(ImmutableArray<string> NativeSteps,ImmutableArray<ImmutableArray<ExactDecimal>> PcDirections,
     ImmutableArray<ImmutableArray<string>> Projection,string DirectionError,string ProjectionError,ImmutableArray<PcaFitSample> Samples);
+public sealed record PcaHybridPrediction(ImmutableArray<PcaHoldingModel> Models,ImmutableArray<HistoricalObservation> Observations,ImmutableArray<string> MaximumResidualLinearPnl);
 public sealed record PcaValuationIdentity(string ExposureId,string ValuationKey);
 public sealed record PcaHoldingModel(string ExposureId,ImmutableArray<string> Delta,ImmutableArray<ImmutableArray<string>> Gamma,bool Stable);
 public sealed record PcaExposureComparison(string ExposureId,string FullValueAtRisk,string FullExpectedShortfall,string CandidateValueAtRisk,string CandidateExpectedShortfall,string MaximumAbsoluteError,string MaximumTailError,string MaximumResidualLinearPnl,bool LossesPass);
@@ -16,7 +17,11 @@ public sealed record PcaPartitionComparison(string Measure,ReferenceKey Currency
     string MaximumCandidateError,string MaximumCandidateTailError,bool PortfolioFallback);
 public sealed record PcaHybridComparison(ImmutableArray<PcaHoldingModel> Models,ImmutableArray<PcaExposureComparison> Exposures,
     ImmutableArray<PcaClassification> Classifications,ImmutableArray<PcaPartitionComparison> Partitions,
-    ImmutableArray<HistoricalPartition> Candidate,ImmutableArray<HistoricalPartition> Hybrid);
+    ImmutableArray<HistoricalPartition> Candidate,ImmutableArray<HistoricalPartition> Hybrid)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public ImmutableArray<HistoricalPartition> Reference{get;init;}
+}
 
 public static partial class PcaHybridRisk
 {
@@ -110,21 +115,32 @@ public static partial class PcaHybridRisk
         ImmutableArray<HistoricalExposure> exposures,ImmutableArray<HistoricalObservation> full,
         ImmutableArray<HistoricalObservation> fitted,ImmutableArray<PcaValuationIdentity> identities,CancellationToken cancellation=default)
     {
+        if(generation.Policy.Convention!=MonteCarloRiskPolicy.Version1||pca.Policy.ValuationPolicy is not(PcaHybridPolicy.Qualification or PcaHybridPolicy.FallbackQualification))
+            throw Invalid("Every-path qualification requires its full-PV reference method and explicit reference-analysis policy.");
+        return CompareSamples(generation,pca,plan,exposures,full,fitted,identities,cancellation);
+    }
+    public static PcaHybridComparison ComparePanel(MonteCarloGeneration generation,HybridMonteCarloPolicy execution,PcaCalibration pca,PcaFitPlan plan,
+        ImmutableArray<HistoricalExposure> exposures,ImmutableArray<HistoricalObservation> full,
+        ImmutableArray<HistoricalObservation> fitted,ImmutableArray<PcaValuationIdentity> identities,CancellationToken cancellation=default)
+    {
+        HybridMonteCarloRisk.Validate(execution,generation.Policy,pca.Policy);
+        var panel=HybridMonteCarloRisk.SelectPanel(generation,execution,cancellation);
+        try{return CompareSamples(generation with{Samples=panel},pca,plan,exposures,full,fitted,identities,cancellation,retainReference:true);}
+        catch(MarketDataException error)when(error.Code=="risk_historical_numeric")
+        {throw new MarketDataException("risk_pca_hybrid_numeric","The observed validation-panel reduction exceeded its exact arithmetic bound.",error);}
+    }
+    public static PcaHybridPrediction Predict(MonteCarloGeneration generation,PcaCalibration pca,PcaFitPlan plan,
+        ImmutableArray<HistoricalExposure> exposures,ImmutableArray<HistoricalObservation> fitted,CancellationToken cancellation=default)
+    {
         cancellation.ThrowIfCancellationRequested();ValidatePolicy(pca.Policy,generation.Calibration.Columns.Length);
         var policy=pca.Policy;var d=pca.Columns.Length;var k=policy.RetainedComponents;
-        var ids=generation.Samples.Select(s=>s.Id).ToImmutableArray();
-        var reference=EmpiricalRisk.Calculate(generation.HistoryId,ids,generation.Policy.Confidence,exposures,full,cancellation);
-        if(identities.Length!=exposures.Length||identities.Select(i=>i.ExposureId).Distinct().Count()!=exposures.Length||
-            !identities.Select(i=>i.ExposureId).ToHashSet().SetEquals(exposures.Select(e=>e.Id))||identities.Any(i=>string.IsNullOrWhiteSpace(i.ValuationKey)))
-            throw Invalid("Every native exposure requires exactly one complete unit-valuation identity.");
         var exposureIds=exposures.Select(e=>e.Id).ToHashSet();
         var fitIds=plan.Samples.Select(s=>s.Id).ToHashSet();
         if(fitted.Length!=fitIds.Count||fitted.Select(s=>s.Id).Distinct().Count()!=fitIds.Count||!fitted.Select(s=>s.Id).ToHashSet().SetEquals(fitIds)||
             fitted.Any(s=>s.Values.Length!=exposures.Length||s.Values.Select(v=>v.ExposureId).Distinct().Count()!=exposures.Length||!s.Values.Select(v=>v.ExposureId).ToHashSet().SetEquals(exposureIds)))
             throw Invalid("The finite-difference matrix must contain every complete native holding under every planned shared scenario.");
         var fit=fitted.ToDictionary(s=>s.Id,s=>s.Values.ToDictionary(v=>v.ExposureId,v=>Number(v.Value)),StringComparer.Ordinal);
-        var fullValues=full.ToDictionary(s=>s.Id,s=>s.Values.ToDictionary(v=>v.ExposureId,v=>Number(v.Value)),StringComparer.Ordinal);
-        var stability=Number(policy.StabilityRelative);var absolute=Number(policy.LossAbsolute);var relative=Number(policy.LossRelative);
+        var stability=Number(policy.StabilityRelative);
         var multipliers=new[]{new SignedRatio(1,2),One,Two};
         var models=ImmutableArray.CreateBuilder<PcaHoldingModel>();
         foreach(var exposure in exposures)
@@ -164,6 +180,25 @@ public static partial class PcaHybridRisk
                 return new HistoricalScenarioValue(exposure.Id,Text(Number(exposure.BaseValue)+linear+quadratic));
             })]);
         }).ToImmutableArray();
+        return new(model,candidate,[..maxResidual.Select(Text)]);
+    }
+
+    private static PcaHybridComparison CompareSamples(MonteCarloGeneration generation,PcaCalibration pca,PcaFitPlan plan,
+        ImmutableArray<HistoricalExposure> exposures,ImmutableArray<HistoricalObservation> full,
+        ImmutableArray<HistoricalObservation> fitted,ImmutableArray<PcaValuationIdentity> identities,CancellationToken cancellation=default,bool retainReference=false)
+    {
+        cancellation.ThrowIfCancellationRequested();ValidatePolicy(pca.Policy,generation.Calibration.Columns.Length);
+        var policy=pca.Policy;var d=pca.Columns.Length;var k=policy.RetainedComponents;
+        var ids=generation.Samples.Select(s=>s.Id).ToImmutableArray();
+        var reference=EmpiricalRisk.Calculate(generation.HistoryId,ids,generation.Policy.Confidence,exposures,full,cancellation);
+        if(identities.Length!=exposures.Length||identities.Select(i=>i.ExposureId).Distinct().Count()!=exposures.Length||
+            !identities.Select(i=>i.ExposureId).ToHashSet().SetEquals(exposures.Select(e=>e.Id))||identities.Any(i=>string.IsNullOrWhiteSpace(i.ValuationKey)))
+            throw Invalid("Every native exposure requires exactly one complete unit-valuation identity.");
+        var prediction=Predict(generation,pca,plan,exposures,fitted,cancellation);
+        var model=prediction.Models;var candidate=prediction.Observations;
+        var maxResidual=prediction.MaximumResidualLinearPnl.Select(Number).ToArray();
+        var fullValues=full.ToDictionary(s=>s.Id,s=>s.Values.ToDictionary(v=>v.ExposureId,v=>Number(v.Value)),StringComparer.Ordinal);
+        var absolute=Number(policy.LossAbsolute);var relative=Number(policy.LossRelative);
         var candidateResult=ReduceQualification(generation.HistoryId,ids,generation.Policy.Confidence,exposures,candidate,cancellation);
         var candidateValues=candidate.ToDictionary(s=>s.Id,s=>s.Values.ToDictionary(v=>v.ExposureId,v=>Number(v.Value)),StringComparer.Ordinal);
         var tails=reference.Partitions.ToDictionary(p=>(p.Measure,p.Currency),p=>p.Samples.Where(s=>Number(s.VarWeight).Numerator.Sign>0||Number(s.EsWeight).Numerator.Sign>0).Select(s=>s.Id).ToHashSet());
@@ -215,6 +250,6 @@ public static partial class PcaHybridRisk
             return new PcaPartitionComparison(p.Measure,p.Currency,p.ValueAtRisk,p.ExpectedShortfall,proposed.ValueAtRisk,proposed.ExpectedShortfall,
                 applied.ValueAtRisk,applied.ExpectedShortfall,Text(max),Text(tail),portfolioFallback);
         }).ToImmutableArray();
-        return new(model,diagnostics,classes,comparisons,candidateResult.Partitions,hybridResult.Partitions);
+        return new(model,diagnostics,classes,comparisons,candidateResult.Partitions,hybridResult.Partitions){Reference=retainReference?reference.Partitions:default};
     }
 }

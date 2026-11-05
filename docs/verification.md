@@ -42,14 +42,60 @@ block its current replacement. All runs use disposable
 resources and neutral test inputs. This is qualification coverage, not measured
 production throughput or proof about unpriced future paths.
 
-### Planned hybrid Monte Carlo qualification
+## Hybrid Monte Carlo valuation (D311)
 
-The [hybrid Monte Carlo acceptance gates](pca-hybrid-risk.md#acceptance-before-enabling-hybrid-monte-carlo)
-are requirements for the next phase, not checks already executed or evidence of
-speedup. They cover independent full-reference accuracy/tail comparisons, finite
-validation-panel limitations, explicit fallback consent, retained/direct/worker
-parity, report labels and complete cost/environment measurements. Existing D308
-checks qualify the every-path reference comparison only.
+`--hybrid-monte-carlo-risk` adds seven managed numerical groups: unchanged native
+R6 shock goldens, independent Python SHA256 panel-index goldens and boundary seeds,
+exact quadratic full-N PV comparisons, strict mode separation and interval
+suppression, omitted residual-curvature refusal/opt-in, deliberately unpriced
+black-box tail spikes missed by a successful panel, and declared quote-domain
+admission without PV or parent mutation. Existing eight R6 and nine D308 groups
+remain green. API checks cover complete method/analysis/panel tuples, exact
+captured base keys/units/values and independently computed output/fitting/panel/
+worst-case fallback capacities. Frontend mutants reject policy, evidence,
+classification, consent, interval and completed-check/fallback contradictions.
+
+The owned PostgreSQL 16 `--with-exchange --monte-carlo-risk-check` suite compares
+all main values and native partitions with a separate full-PV futures run, all-panel
+controls, exact economic direct/worker replay, immutable source/clock evidence,
+current authority, leases, cancellation, missing-source refusal and unchanged
+observation RLS. Migration 0193 rejects altered predecessor function bodies,
+owners, ACLs and search paths, and SQL admission rejects incomplete, unknown or
+mixed execution/fitting policies. The nonlinear listed-option case uses an
+explicit zero-error policy to exercise immediate/worker strict refusal and
+consented complete fallback against a separate all-path full-PV run. Failed jobs
+have no successful result. Archive metadata retains the applied method.
+
+The 25-check owned browser suite exercises explicit method/panel selection, initially unchecked
+fallback, model versus observed-full-PV graphics/drilldown, honest work and
+coverage, absence of an inherited interval, exact export, queued/archive/reopen,
+rejected contradictory fallback evidence and phone layout. The existing
+full-PV/PCA and Blotter stale-formatting checks remain in that suite. A standalone
+real-browser widget check also prevents the shared header from calling model
+values full PV. All 1,317 frontend checks pass locally. These checks
+qualify the bounded versioned contract; sampled acceptance does not prove
+unpriced-path or full-tail accuracy. Production activation is separate.
+
+### Local workload measurement — 4 November 2026
+
+One held futures trade, one unique valuation/market contract/factor, one native
+partition, 1024 identical seeded native paths, one retained component and 64
+validation paths. Every approximate value and portfolio tail matches a separately
+priced full-PV reference on this linear workload. Full PV executed 1025 scenario
+and unit-PV calls; hybrid executed 78 (13 fitting including base and 65 validation
+including base), with 1024 predicted holding values counted separately. There
+was no fallback. Both include complete history/preparation and output work.
+
+On macOS 26.6.2 arm64, PostgreSQL 16, .NET SDK 10.0.402 and Python 3.14.2, three
+alternating warm HTTP requests after warm-up had median total roundtrip times
+0.216 s full PV and 0.211 s hybrid. Separate fresh worker runs, including process
+startup, claim, reconstruction, calculation and persistence, took 1.102 s and
+1.209 s. Process RSS sampled every 50 ms peaked at 222960 KiB and 203376 KiB
+respectively. One process per method is not a memory comparison; sampling can
+miss the true peak and does not measure the API heap. This cheap-pricer workload
+shows fewer PV calls with similar total time. It establishes no general speed,
+memory or production-throughput improvement. The owned runner emits complete
+work/environment/timing/memory evidence; generated artifacts stay private.
 
 ## Monte Carlo full-PV risk (D307)
 

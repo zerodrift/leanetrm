@@ -15,7 +15,9 @@ public sealed record MonteCarloRiskPolicy(string Convention,string NumericalPoli
 {
     public const string Version1="dated_factor_full_pv_monte_carlo_v1",Numerics="exact_ldl_binary64_polar_v1",
         Gaussian="joint_additive_gaussian_v1",Generator="sha256_counter_polar_log_series_v1",
-        ShockRounding="binary64_exact_to_native_18_places_to_even_v1",Uncertainty="binomial_order_statistic_binary64_95_v1";
+        ShockRounding="binary64_exact_to_native_18_places_to_even_v1",Uncertainty="binomial_order_statistic_binary64_95_v1",
+        Hybrid="dated_factor_hybrid_monte_carlo_v1",HybridValuation="pca_delta_gamma_frozen_nonfactor_inputs_v1",
+        HybridUncertainty="empirical_prefix_diagnostics_no_interval_v1";
 }
 public sealed record MonteCarloSample(string Id,int Index,ImmutableArray<ExactDecimal> Changes);
 public sealed record MonteCarloGeneration(string HistoryId,MonteCarloRiskPolicy Policy,ParametricCalibration Calibration,
@@ -23,7 +25,7 @@ public sealed record MonteCarloGeneration(string HistoryId,MonteCarloRiskPolicy 
     bool Available,ImmutableArray<string> UnavailableReasons);
 public sealed record MonteCarloConvergence(int Paths,string ValueAtRisk,string ExpectedShortfall,string TailSampleMass);
 public sealed record MonteCarloQuantileInterval(string Confidence,int LowerRank,int UpperRank,string? Lower,string? Upper);
-public sealed record MonteCarloDiagnostic(string Measure,ReferenceKey Currency,ImmutableArray<MonteCarloConvergence> Convergence,MonteCarloQuantileInterval ValueAtRiskInterval);
+public sealed record MonteCarloDiagnostic(string Measure,ReferenceKey Currency,ImmutableArray<MonteCarloConvergence> Convergence,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] MonteCarloQuantileInterval? ValueAtRiskInterval);
 public sealed record MonteCarloRiskReport(MonteCarloRiskPolicy Policy,string HistoryId,int Samples,ImmutableArray<HistoricalPartition> Partitions,
     ImmutableArray<MonteCarloDiagnostic> Diagnostics,bool Available,ImmutableArray<string> UnavailableReasons);
 
@@ -34,15 +36,17 @@ public static class MonteCarloRisk
     public const long MaximumShockValues=2_000_000;
     public static void ValidatePolicy(MonteCarloRiskPolicy p)
     {
-        if(p is null||p.Convention!=MonteCarloRiskPolicy.Version1||p.NumericalPolicy!=MonteCarloRiskPolicy.Numerics||
+        var full=p is not null&&p.Convention==MonteCarloRiskPolicy.Version1&&p.ValuationPolicy==HistoricalRiskPolicy.Valuation&&p.SamplingUncertainty==MonteCarloRiskPolicy.Uncertainty;
+        var hybrid=p is not null&&p.Convention==MonteCarloRiskPolicy.Hybrid&&p.ValuationPolicy==MonteCarloRiskPolicy.HybridValuation&&p.SamplingUncertainty==MonteCarloRiskPolicy.HybridUncertainty;
+        if(p is null||!full&&!hybrid||p.NumericalPolicy!=MonteCarloRiskPolicy.Numerics||
             p.Estimator!=ParametricRiskPolicy.Sample||p.Centering!=ParametricRiskPolicy.Centered||
             p.Drift is not(ParametricRiskPolicy.Zero or ParametricRiskPolicy.Mean)||p.Horizon!=ParametricRiskPolicy.Session||
-            p.QuantilePolicy!=HistoricalRiskPolicy.Quantile||p.TailPolicy!=HistoricalRiskPolicy.Tail||p.ValuationPolicy!=HistoricalRiskPolicy.Valuation||
+            p.QuantilePolicy!=HistoricalRiskPolicy.Quantile||p.TailPolicy!=HistoricalRiskPolicy.Tail||
             p.Distribution!=MonteCarloRiskPolicy.Gaussian||p.RandomGenerator!=MonteCarloRiskPolicy.Generator||p.ShockPolicy!=MonteCarloRiskPolicy.ShockRounding||
-            p.SamplingUncertainty!=MonteCarloRiskPolicy.Uncertainty||p.Paths is <2 or >MaximumPaths||!ulong.TryParse(p.Seed,NumberStyles.None,CultureInfo.InvariantCulture,out var seed)||seed.ToString(CultureInfo.InvariantCulture)!=p.Seed)
-            throw Error("risk_monte_carlo_policy","Select the explicit additive Gaussian, frozen one-session full-PV contract, a canonical unsigned 64-bit seed and 2–16384 paths.");
+            p.Paths is <2 or >MaximumPaths||!ulong.TryParse(p.Seed,NumberStyles.None,CultureInfo.InvariantCulture,out var seed)||seed.ToString(CultureInfo.InvariantCulture)!=p.Seed)
+            throw Error("risk_monte_carlo_policy","Select a complete full-PV or hybrid additive Gaussian one-session policy, a canonical unsigned 64-bit seed and 2–16384 paths.");
         try{HistoricalRisk.ValidatePolicy(new(HistoricalRiskPolicy.Version1,HistoricalRiskPolicy.Numerics,p.Horizon,HistoricalRiskPolicy.Sampling,
-            p.QuantilePolicy,p.TailPolicy,p.ValuationPolicy,p.Confidence));
+            p.QuantilePolicy,p.TailPolicy,HistoricalRiskPolicy.Valuation,p.Confidence));
             if(Real(Number(p.Confidence))<=.5)throw Error("risk_monte_carlo_policy","Confidence must remain greater than 0.5 in the selected binary64 diagnostic policy.");}
         catch(MarketDataException e){throw new MarketDataException("risk_monte_carlo_policy",e.Message,e);}
     }
@@ -134,7 +138,7 @@ public static class MonteCarloRisk
             [..generation.Samples.Take(n).Select(s=>byId[s.Id])],cancellation)).ToArray();
         var diagnostics=result.Partitions.Select((p,i)=>new MonteCarloDiagnostic(p.Measure,p.Currency,
             [..prefix.Select(r=>new MonteCarloConvergence(r.Samples,r.Partitions[i].ValueAtRisk,r.Partitions[i].ExpectedShortfall,r.Partitions[i].TailSampleMass))],
-            QuantileInterval(p.Samples.Select(s=>s.Loss).ToArray(),generation.Policy.Confidence,cancellation))).ToImmutableArray();
+            generation.Policy.SamplingUncertainty==MonteCarloRiskPolicy.Uncertainty?QuantileInterval(p.Samples.Select(s=>s.Loss).ToArray(),generation.Policy.Confidence,cancellation):null)).ToImmutableArray();
         return new(generation.Policy,generation.HistoryId,result.Samples,result.Partitions,diagnostics,true,[]);
     }
     // Pointwise binomial order-statistic bounds, conditional on this fixed fitted

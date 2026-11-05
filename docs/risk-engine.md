@@ -474,8 +474,9 @@ submissions retain every original request identity before dispatch and reconcile
 after reload. Worker and calculation diagnostics are expandable.
 [Aligned history](risk-factor-history.md) and [delta-normal VaR/ES](parametric-risk.md)
 now add statistical calibration, native distribution/contribution diagnostics and
-a completed-report archive. Hybrid Monte Carlo valuation,
-EVT and rolling backtesting remain subsequent work.
+a completed-report archive. [Hybrid Monte Carlo valuation](pca-hybrid-risk.md#hybrid-monte-carlo-valuation-d311)
+is separately selected and approximate, with observed full-PV validation and
+explicit opt-in fallback. EVT and rolling backtesting remain subsequent work.
 
 Queueing writes to PostgreSQL. A separately configured managed risk worker claims
 compatible work; submitting a request does not provision a worker. The queue
@@ -528,3 +529,16 @@ failed shared fitting batch falls back every valuation with its reason. The
 selected policy is retained through queue/replay and report export. This mode
 qualifies only the captured run and adds work; it does not enable hybrid
 Monte Carlo valuation or certify future tails.
+
+
+## Hybrid Monte Carlo valuation (D311)
+
+Choose the explicit approximate method in VaR setup; review simulation and
+validation path counts, components and seeds. Fallback starts unchecked. Failed
+checks stop the run unless complete full-PV fallback was explicitly permitted.
+The main distribution contains model estimates; the separate validation section
+shows observed full PV, sample-only errors and VaR/ES, coverage, PCA/residual
+matrices and work. A consented fallback is labelled full PV with its reasons.
+There is no inherited binomial interval or whole-tail accuracy guarantee.
+The common archive, retained reopen, Blotter and export preserve method and
+consent. See [the walkthrough and exact contract](pca-hybrid-risk.md#hybrid-monte-carlo-valuation-d311).

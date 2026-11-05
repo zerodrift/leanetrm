@@ -79,6 +79,9 @@ public sealed class ConnectedScenario
         return selected;
     }
 
+    public void ValidateShifts(ImmutableArray<CurveShift> shifts,CancellationToken cancellation=default)
+        =>_=ResolveShifts(shifts,point=>Price(point,cancellation),cancellation);
+
     public ConnectedScenario WithShifts(ImmutableArray<CurveShift> shifts,CancellationToken cancellation=default)
     {
         var ordered=ResolveShifts(shifts,point=>Price(point,cancellation),cancellation);

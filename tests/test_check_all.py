@@ -62,7 +62,7 @@ class CheckAllTests(unittest.TestCase):
                    run=lambda command, **options: commands.append(command))
         market = 'tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj'
         runs = [c for c in commands if '--project' in c and c[c.index('--project') + 1] == market]
-        self.assertEqual([c[c.index('--project') + 2:] for c in runs], [[], ['--', '--futures-options']])
+        self.assertEqual([c[c.index('--project') + 2:] for c in runs], [[], ['--', '--futures-options'], ['--', '--hybrid-monte-carlo-risk']])
         restores = [c for c in commands if 'restore' in c and c[c.index('restore') + 1] == market]
         self.assertEqual(len(restores), 1)
 
@@ -91,7 +91,7 @@ class CheckAllTests(unittest.TestCase):
                          [['--', flag] for flag in ('--schedules', '--historical-risk', '--monte-carlo-risk', '--automation',
                            '--live-calculation', '--reference-intake', '--preview-data', '--side-observation-compatibility')])
         self.assertTrue(any('--historical-risk-check' in c and '--browser-check' in c for c in commands))
-        self.assertTrue(any('--monte-carlo-risk-check' in c and '--browser-check' in c for c in commands))
+        self.assertTrue(any('--monte-carlo-risk-check' in c and '--with-exchange' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--reference-import-check' in c for c in commands))
         self.assertTrue(any('--live-calculation-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('build' in c and 'src/OpenEtrm.Worker/OpenEtrm.Worker.csproj' in c for c in commands))

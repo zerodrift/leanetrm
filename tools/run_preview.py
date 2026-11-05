@@ -322,6 +322,9 @@ def main():
             if args.assistant_check and migration.name=='0120_agent_read_limit.sql':
                 from check_agent_administration import check_read_limit_upgrade
                 check_read_limit_upgrade(query,migration.read_text())
+            if args.monte_carlo_risk_check and migration.name=='0193_hybrid_monte_carlo.sql':
+                from check_hybrid_monte_carlo_risk import upgrade_checks as check_hybrid_upgrade
+                check_hybrid_upgrade(query,migration.read_text())
             if args.monte_carlo_risk_check and migration.name=='0192_pca_hybrid_fallback_consent.sql':
                 from check_pca_hybrid_risk_db import upgrade_checks as check_pca_upgrade
                 check_pca_upgrade(query,migration.read_text(),consent=True)
@@ -590,8 +593,8 @@ def main():
             config.write_text(json.dumps({'connectionFile':str(connection),'leaseSeconds':30,'pollSeconds':1,'timeoutSeconds':timeout}))
             config.chmod(0o600)
             return {**env,'OPENETRM_RISK_WORKER_CONFIG':str(config)}
-        def risk_worker_runner(selected=None,login='preview_risk_worker',timeout=60):
-            worker_env=prepare_risk_worker(selected,login,timeout)
+        def risk_worker_runner(selected=None,login='preview_risk_worker',timeout=60,worker_env=None):
+            worker_env=worker_env or prepare_risk_worker(selected,login,timeout)
             def run(measure=False):
                 command=[str(dotnet),str(frozen_dll),'--risk-worker','once']
                 if not measure:
@@ -773,10 +776,12 @@ def main():
                 check_curve_lookup(url,manifest,query,run_worker)
             elif args.monte_carlo_risk_check:
                 from check_monte_carlo_risk import run_checks as check_monte_carlo
-                worker_env=prepare_risk_worker()
-                def run_monte_carlo_worker():
-                    subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=120)
+                worker_env=prepare_risk_worker(timeout=120)
+                run_monte_carlo_worker=risk_worker_runner(timeout=120,worker_env=worker_env)
                 check_monte_carlo(url,manifest,query,run_monte_carlo_worker)
+                if args.with_exchange:
+                    from check_hybrid_monte_carlo_risk import option_checks
+                    option_checks(url,exchange_manifest,risk_worker_runner(exchange_manifest,'preview_hybrid_option_worker',timeout=120))
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

@@ -132,7 +132,7 @@ archives, current authority, cancellation, lease custody and missing source pins
 Browser checks cover setup, graphics, drilldown, export, archive, replay and phone
 layout. See [verification](verification.md) for the current qualification record.
 
-Hybrid Monte Carlo valuation, EWMA, alternative innovation distributions, operating
+EWMA, alternative innovation distributions, operating
 rolling backtests, ES uncertainty and Monte Carlo page-assistant summaries remain
 separate increments. Production activation requires a separately qualified schema
 release; application implementation does not deploy the schema.
@@ -149,3 +149,14 @@ qualification, with no claimed reduction in full-PV work.
 The selected policy, actual fitting vectors/PVs and classification results travel
 with the original retained job; migrations 0191–0192 extend its strict private
 admission and retain explicit fallback consent.
+
+
+## Hybrid Monte Carlo valuation (D311)
+
+A separate method predicts all native holding values with all-factor delta and
+selected PCA curvature, pricing a recorded seed/index validation panel through
+ordinary PV. It preserves this document's generator, history and native shifts.
+Strict failure stops the run; explicit consent alone permits complete all-path
+full-PV fallback. Approximate and observed PV are separate; there is no inherited
+binomial interval, including after fallback. See the
+[walkthrough, exact tuple, selector and limitations](pca-hybrid-risk.md#hybrid-monte-carlo-valuation-d311).

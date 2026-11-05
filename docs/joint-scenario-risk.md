@@ -156,6 +156,7 @@ selected local/cross-market derivatives, native aggregation, direct/worker parit
 selected product binding PV oracles, private SQL admission and report reload.
 [Aligned dated-factor history](risk-factor-history.md) is implemented as a bounded
 managed/read/export consumer (D296). Statistical calibration, VaR/ES,
-Monte Carlo/PCA/hybrid, EVT and backtesting remain subsequent work.
+[Full-PV Monte Carlo](monte-carlo-risk.md) and [PCA/Hybrid Monte Carlo](pca-hybrid-risk.md)
+reuse these scenarios. EVT and backtesting remain subsequent work.
 No production deployment is implied by these
 local checks. Migration 0172 requires separate installation qualification.

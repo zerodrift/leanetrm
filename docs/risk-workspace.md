@@ -109,8 +109,9 @@ native finite differences, sample covariance and drift/confidence/tail policies.
 Risk shares Gaussian density, signed book/factor contributions, in-sample linearized
 losses and correlation/covariance graphics, plus a paged archive of completed statistical
 reports. Unavailable scope/history or unstable deltas retain diagnostics without
-risk estimates. Hybrid Monte Carlo valuation, EVT and rolling
-backtests remain subsequent increments. No production throughput is claimed.
+risk estimates. [Hybrid Monte Carlo valuation](pca-hybrid-risk.md#hybrid-monte-carlo-valuation-d311)
+adds a separately selected approximate distribution and observed full-PV panel.
+EVT and rolling backtests remain subsequent increments. No production throughput is claimed.
 
 ## Guided parametric setup (D301)
 
@@ -166,3 +167,16 @@ failed shared fitting batch falls back every valuation with its reason. The
 selected policy is retained through queue/replay and report export. This mode
 qualifies only the captured run and adds work; it does not enable hybrid
 Monte Carlo valuation or certify future tails.
+
+
+## Hybrid Monte Carlo valuation (D311)
+
+Choose the explicit approximate method in VaR setup; review simulation and
+validation path counts, components and seeds. Fallback starts unchecked. Failed
+checks stop the run unless complete full-PV fallback was explicitly permitted.
+The main distribution contains model estimates; the separate validation section
+shows observed full PV, sample-only errors and VaR/ES, coverage, PCA/residual
+matrices and work. A consented fallback is labelled full PV with its reasons.
+There is no inherited binomial interval or whole-tail accuracy guarantee.
+The common archive, retained reopen, Blotter and export preserve method and
+consent. See [the walkthrough and exact contract](pca-hybrid-risk.md#hybrid-monte-carlo-valuation-d311).

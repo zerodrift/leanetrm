@@ -1,5 +1,4 @@
 using System.Collections.Immutable;
-using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using OpenEtrm.MarketData;
@@ -27,25 +26,17 @@ public sealed partial class PortfolioRiskPreview
     private static PcaHybridRun CalculatePcaHybrid(Prepared prepared,FullPvSamples reference,CancellationToken ct)
     {
         var generation=prepared.Simulation!;var policy=prepared.Request.MonteCarlo!.Analysis!;
-        var identities=prepared.Portfolio.Markets.SelectMany(m=>m.Connected.Holdings.Select(p=>new PcaValuationIdentity(
-                HistoricalExposureId(new(p.BookId,p.TradeId,p.BindingId,m.Measures[p.Group],p.Currency)),
-                Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{m.Snapshot.Definitions,p.ValuationId},RiskJobs.Json)))))).ToImmutableArray();
+        var identities=PcaIdentities(prepared);
         PcaCalibration? pca=null;PcaFitPlan? plan=null;var attempted=false;RiskWork? work=null;
         try
         {
             pca=PcaHybridRisk.Decompose(generation,policy,ct);
             plan=PcaHybridRisk.PrepareFit(pca,[..prepared.History!.Columns.Select(c=>c.Mapping.Factor.TradingTick)],ct);
-            var samples=plan.Samples.Select(s=>new PortfolioJointRisk.Sample(s.Id,s.Id,
-                [..prepared.HistoricalAxes.Select((axis,i)=>new PortfolioCurveShift(axis,s.Changes[i])).Where(s=>s.Size!=default)])).ToImmutableArray();
-            var study=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{generation.HistoryId,simulationPolicy=generation.Policy,analysisPolicy=policy,plan.PcDirections},RiskJobs.Json)));
-            var set=new PortfolioScenarioSetRequest(study,MonteCarloRiskPolicy.Version1,ConnectedRiskScenarioSet.Independent,
-                [..samples.Select(s=>new PortfolioScenarioRequest(s.Id,s.Label,[..s.Shifts.Select(x=>new CurveShiftRequest(x.Axis.Request,x.Size.ToString(),OpenEtrm.MarketData.Calculation.CurveShift.ParentAdditive))]))]);
-            var fitPrepared=prepared with{Joint=new(new(PortfolioJointRiskRequest.Version1,set,null),samples,[],[])};
+            var fitPrepared=PreparePcaFit(prepared,plan);
             var prior=ParentCounters(prepared.Portfolio);
             attempted=true;
             var fitted=EvaluateFullPvSamples(fitPrepared,MonteCarloRiskPolicy.Version1,ct);work=AdditionalPcaWork(prepared.Portfolio,fitted.Nominal.Work,prior);
-            if(JsonSerializer.Serialize(reference.Exposures,RiskJobs.Json)!=JsonSerializer.Serialize(fitted.Exposures,RiskJobs.Json))
-                throw new MarketDataException("risk_historical_exposures","Fitting changed the captured native holding identity or frozen base.");
+            RequireSameRiskExposures(reference.Exposures,fitted.Exposures);
             var comparison=PcaHybridRisk.Compare(generation,pca,plan,reference.Exposures,reference.Observations,fitted.Observations,identities,ct);
             return new(JsonSerializer.SerializeToNode(new{policy,pca,fit=new{plan.NativeSteps,plan.PcDirections,plan.Projection,plan.DirectionError,plan.ProjectionError,
                 scenarioCount=plan.Samples.Length},finiteDifferenceValues=fitted.Observations,comparison,available=true,unavailableReasons=Array.Empty<object>(),fallbackClassifications=Array.Empty<PcaClassification>(),

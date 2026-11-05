@@ -1,3 +1,4 @@
+import {validateHybridMonteCarlo,hybridMode,hybridValuation,hybridUncertainty,type HybridExecutionPolicy,type HybridCapabilities,type HybridMonteCarloView} from './hybrid-monte-carlo-risk.js';
 import {validatePcaHybrid,type PcaHybridPolicy,type PcaHybridCapabilities,type PcaHybridView} from './pca-hybrid-risk.js';
 import {validateHistoryPrices,type HistoryManifest,type HistoryRequest} from './factor-history.js';
 import {validateSampleCoverage,type SampleRiskView} from './historical-risk.js';
@@ -9,13 +10,13 @@ import {exactNumber} from './exact-number.js';
 import {amountText} from './amount-display.js';
 
 export type MonteCarloPolicy={convention:string;numericalPolicy:string;estimator:string;centering:string;drift:string;horizon:string;quantilePolicy:string;tailPolicy:string;valuationPolicy:string;confidence:string;distribution:string;randomGenerator:string;shockPolicy:string;seed:string;paths:number;samplingUncertainty:string};
-export type MonteCarloRequest={history:HistoryRequest;policy:MonteCarloPolicy;factors?:unknown[];analysis?:PcaHybridPolicy};
-export type MonteCarloCapabilities={profile:Omit<MonteCarloPolicy,'confidence'|'drift'|'paths'|'seed'>;defaults:{confidence:string;paths:number;seed:string;drift:string};drifts:{zero:string;sample:string};limits:{maxFactors:number;maxPaths:number;scopeMaxPaths?:number;maxShockValues:number};analysis?:PcaHybridCapabilities};
+export type MonteCarloRequest={history:HistoryRequest;policy:MonteCarloPolicy;factors?:unknown[];analysis?:PcaHybridPolicy;hybrid?:HybridExecutionPolicy};
+export type MonteCarloCapabilities={profile:Omit<MonteCarloPolicy,'confidence'|'drift'|'paths'|'seed'>;defaults:{confidence:string;paths:number;seed:string;drift:string};drifts:{zero:string;sample:string};limits:{maxFactors:number;maxPaths:number;scopeMaxPaths?:number;maxShockValues:number};analysis?:PcaHybridCapabilities;hybrid?:HybridCapabilities};
 type Sample={id:string;index:number;changes:string[]};
-type Diagnostic={measure:string;currency:unknown;convergence:{paths:number;valueAtRisk:string;expectedShortfall:string;tailSampleMass:string}[];valueAtRiskInterval:{confidence:string;lowerRank:number;upperRank:number;lower:string|null;upper:string|null}};
+type Diagnostic={measure:string;currency:unknown;convergence:{paths:number;valueAtRisk:string;expectedShortfall:string;tailSampleMass:string}[];valueAtRiskInterval?:{confidence:string;lowerRank:number;upperRank:number;lower:string|null;upper:string|null}};
 export type MonteCarloView=Omit<SampleRiskView,'result'>&{request:MonteCarloRequest;history:HistoryManifest;
  generation:{historyId:string;policy:MonteCarloPolicy;calibration:ParametricView['result']['calibration'];lower:string[][];diagonal:string[];samples:Sample[];available:boolean;unavailableReasons:string[]};
- result:SampleRiskView['result']&{policy:MonteCarloPolicy;diagnostics:Diagnostic[]};analysis?:PcaHybridView|null};
+ result:SampleRiskView['result']&{policy:MonteCarloPolicy;diagnostics:Diagnostic[]};analysis?:PcaHybridView|null;hybrid?:HybridMonteCarloView|null};
 export type MonteCarloContainer={monteCarlo:MonteCarloView;context:{contextId:string};snapshotId:string;tradeIds?:string[]|null;excludedPositions?:ExcludedPosition[];inputs?:{positions:{bookId:string;tradeId:string;bindingId:string;measure:string}[]};historical?:unknown;parametric?:unknown;joint?:unknown;factors?:unknown};
 const canonical=(v:unknown)=>JSON.stringify(v,(_k,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.fromEntries(Object.entries(x).sort(([a],[b])=>a.localeCompare(b))):x);
 const numeric=(v:unknown):v is string=>typeof v==='string'&&exactNumber(v)!==null;
@@ -29,8 +30,10 @@ export function validateMonteCarlo(report:MonteCarloContainer,expected?:MonteCar
   h.forecast?.contextId!==report.context?.contextId||q.history.scope.context.contextId!==report.context.contextId||q.history.scope.context.snapshotId!==report.snapshotId||
   !sameTradeSelection(report.tradeIds,q.history.scope.tradeIds)||canonical(p)!==canonical(g.policy)||canonical(p)!==canonical(r.policy)||
   expected&&canonical({...q,factors:undefined})!==canonical({...expected,factors:undefined}))throw bad();
+ const hybrid=p.convention===hybridMode;
  const profile={convention:'dated_factor_full_pv_monte_carlo_v1',numericalPolicy:'exact_ldl_binary64_polar_v1',estimator:'equal_weight_sample_n_minus_one_v1',centering:'sample_mean_centered_v1',horizon:'frozen_portfolio_one_adjacent_session_v1',quantilePolicy:'empirical_inverse_cdf_v1',tailPolicy:'signed_upper_loss_fractional_mass_uniform_ties_v1',valuationPolicy:'current_instrument_pv_frozen_nonfactor_inputs_v1',distribution:'joint_additive_gaussian_v1',randomGenerator:'sha256_counter_polar_log_series_v1',shockPolicy:'binary64_exact_to_native_18_places_to_even_v1',samplingUncertainty:'binomial_order_statistic_binary64_95_v1'};
- if(Object.entries(profile).some(([k,value])=>p[k as keyof MonteCarloPolicy]!==value)||!numeric(p.confidence)||!['zero_drift_v1','sample_mean_drift_v1'].includes(p.drift)||
+ if(hybrid)Object.assign(profile,{convention:hybridMode,valuationPolicy:hybridValuation,samplingUncertainty:hybridUncertainty});
+ if(!hybrid&&(q.hybrid!==undefined||v.hybrid!=null)||Object.entries(profile).some(([k,value])=>p[k as keyof MonteCarloPolicy]!==value)||!numeric(p.confidence)||!['zero_drift_v1','sample_mean_drift_v1'].includes(p.drift)||
   typeof p.seed!=='string'||!/^(0|[1-9][0-9]{0,19})$/.test(p.seed)||BigInt(p.seed)>18446744073709551615n||!Number.isInteger(p.paths)||p.paths<2||p.paths>16384)throw bad();
  validateHistoryPrices(h,q.history.policy);
  const ids=h.columns?.map(c=>c.id),c=g.calibration,d=ids?.length;
@@ -45,24 +48,25 @@ export function validateMonteCarlo(report:MonteCarloContainer,expected?:MonteCar
    g.lower.length!==d||g.lower.some(row=>row.length!==d||row.some(x=>!numeric(x)))||g.diagonal.length!==d||g.diagonal.some(x=>!numeric(x)))throw bad();
  }else if(g.samples.length||g.lower.length||g.diagonal.length||r.available)throw bad();
  try{validateSampleCoverage(report,v,g.samples.map(s=>s.id));}catch{throw bad();}
- if(!r.available){if(r.samples!==0||r.diagnostics.length)throw bad();validatePcaHybrid(report,v);return v;}
+ if(!r.available){if(r.samples!==0||r.diagnostics.length)throw bad();(hybrid?validateHybridMonteCarlo:validatePcaHybrid)(report,v);return v;}
  if(!g.available||r.samples!==p.paths||r.diagnostics.length!==r.partitions.length||!distinct(r.diagnostics.map(p=>key(p.measure,p.currency))))throw bad();
  for(const p of r.partitions){
   const diagnostic=r.diagnostics.find(x=>key(x.measure,x.currency)===key(p.measure,p.currency)),b=diagnostic?.valueAtRiskInterval,points=diagnostic?.convergence;
-  if(!b||b.confidence!=='0.95'||!Number.isInteger(b.lowerRank)||!Number.isInteger(b.upperRank)||b.lowerRank<0||b.upperRank>r.samples+1||b.lowerRank>=b.upperRank||
-   (b.lowerRank===0?b.lower!==null:!numeric(b.lower))||(b.upperRank===r.samples+1?b.upper!==null:!numeric(b.upper))||
+  if((hybrid?b!==undefined:!b||b.confidence!=='0.95'||!Number.isInteger(b.lowerRank)||!Number.isInteger(b.upperRank)||b.lowerRank<0||b.upperRank>r.samples+1||b.lowerRank>=b.upperRank||
+   (b.lowerRank===0?b.lower!==null:!numeric(b.lower))||(b.upperRank===r.samples+1?b.upper!==null:!numeric(b.upper)))||
    !points?.length||points.some((x,i)=>!Number.isInteger(x.paths)||x.paths<2||x.paths>r.samples||i>0&&x.paths<=points[i-1].paths||![x.valueAtRisk,x.expectedShortfall,x.tailSampleMass].every(numeric))||
    points.at(-1)!.paths!==r.samples||points.at(-1)!.valueAtRisk!==p.valueAtRisk||points.at(-1)!.expectedShortfall!==p.expectedShortfall)throw bad();
  }
- validatePcaHybrid(report,v);return v;
+ (hybrid?validateHybridMonteCarlo:validatePcaHybrid)(report,v);return v;
 }
 export function monteCarloCharts(v:MonteCarloView,index:number):ChartSpec[]{
  const p=v.result.partitions[index];if(!v.result.available||!p)return [];
  const unit=v.partitions.find(x=>key(x.measure,x.currencyReference)===key(p.measure,p.currency))!.currency;
+ const hybrid=v.request.policy.convention===hybridMode,label=hybrid?(v.hybrid?.fallbackApplied?'Full-PV loss · consented fallback':'Approximate hybrid loss'):'Full-PV loss';
  const losses=new Map(p.samples.map(s=>[s.id,s])),diagnostic=v.result.diagnostics.find(x=>key(x.measure,x.currency)===key(p.measure,p.currency))!;
  const charts:ChartSpec[]=[
-  {title:'Simulated loss distribution',subtitle:'Equal probability per generated full-PV scenario. Repeated outcomes retain their mass.',axis:'category',kind:'bar',unit:'Probability',categoryTitle:`Loss interval · ${unit}`,series:[{name:'Simulation probability',points:p.histogram.map((b,i)=>({x:String(i),label:`${amountText(b.lower,'money')} to ${amountText(b.upper,'money')}`,y:b.probability,text:`${b.count} paths`}))}]},
-  {title:'Simulated losses · VaR and ES',subtitle:'Each path is an independent sibling under the same frozen current portfolio.',axis:'category',kind:'line',unit,categoryTitle:'Simulation path',reference:{value:p.valueAtRisk,label:'Monte Carlo VaR'},series:[{name:'Full-PV loss',points:v.generation.samples.map(s=>({x:s.id,label:`Path ${s.index+1}`,y:losses.get(s.id)!.loss}))},{name:'Expected shortfall',points:v.generation.samples.map(s=>({x:s.id,label:`Path ${s.index+1}`,y:p.expectedShortfall}))}]},
+  {title:'Simulated loss distribution',subtitle:hybrid?'Equal probability per generated path under the reported valuation method. Repeated outcomes retain their mass.':'Equal probability per generated full-PV scenario. Repeated outcomes retain their mass.',axis:'category',kind:'bar',unit:'Probability',categoryTitle:`Loss interval · ${unit}`,series:[{name:'Simulation probability',points:p.histogram.map((b,i)=>({x:String(i),label:`${amountText(b.lower,'money')} to ${amountText(b.upper,'money')}`,y:b.probability,text:`${b.count} paths`}))}]},
+  {title:'Simulated losses · VaR and ES',subtitle:'Each path is an independent sibling under the same frozen current portfolio.',axis:'category',kind:'line',unit,categoryTitle:'Simulation path',reference:{value:p.valueAtRisk,label:'Monte Carlo VaR'},series:[{name:label,points:v.generation.samples.map(s=>({x:s.id,label:`Path ${s.index+1}`,y:losses.get(s.id)!.loss}))},{name:'Expected shortfall',points:v.generation.samples.map(s=>({x:s.id,label:`Path ${s.index+1}`,y:p.expectedShortfall}))}]},
   {title:'Convergence by simulation count',subtitle:'Prefixes of the same seeded sample set. Movement is a diagnostic, not an error guarantee.',axis:'category',kind:'line',unit,categoryTitle:'Simulation paths',series:[{name:'VaR',points:diagnostic.convergence.map(x=>({x:String(x.paths),y:x.valueAtRisk}))},{name:'ES',points:diagnostic.convergence.map(x=>({x:String(x.paths),y:x.expectedShortfall}))}]},
   {title:'Book VaR / ES allocations',subtitle:'Portfolio quantile/tail weights applied to book losses; signed allocations may be negative.',axis:'category',kind:'bar',unit,positiveTone:'loss',colorBySign:true,series:([{name:'VaR',metric:'valueAtRisk'},{name:'ES',metric:'expectedShortfall'}] as const).map(m=>({name:m.name,points:p.books.map(b=>({x:b.id,label:v.books.find(x=>x.id===b.id)!.name,y:b[m.metric]}))}))}
  ];

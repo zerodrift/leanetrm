@@ -1,4 +1,4 @@
-# PCA diagnostics and hybrid qualification (D308, D309)
+# PCA diagnostics, qualification and Hybrid Monte Carlo (D308–D311)
 
 Monte Carlo setup can include **PCA diagnostics and hybrid comparison**. This
 mode retains the complete full-PV reference and fits a black-box delta-gamma
@@ -164,9 +164,9 @@ Additional counters subtract shared parent-graph, materialization and cached vol
 work already charged to the reference; new fitting PV and quantity applications
 remain charged. Report size remains bounded at 30 MB. Calculation counters distinguish reference and
 additional work; no performance benefit is claimed from these comparisons.
-Hybrid Monte Carlo valuation, per-valuation isolation of fitting
-domain failures, EWMA, EVT, broader shock types and operating rolling backtests
-remain separate work.
+D311 adds the separately selected approximate mode below. Per-valuation isolation
+of fitting domain failures, EWMA, EVT, broader shock types and operating rolling
+backtests remain separate work.
 
 Independent numerical checks cover analytic eigenpairs, singular/constant and
 tied factors, unit rescaling, every native-vector reconstruction, low-variance
@@ -177,88 +177,119 @@ checks.
 
 
 <a id="planned-accelerated-hybrid-mode"></a>
+<a id="planned-hybrid-monte-carlo-valuation"></a>
 
-## Planned hybrid Monte Carlo valuation
+## Hybrid Monte Carlo valuation (D311)
 
-Status: next implementation phase; hybrid Monte Carlo valuation is not enabled
-by D308/D309, and no performance benefit has been demonstrated. The current
-qualification mode still prices every generated path through full PV. The following requirements describe the
-next phase and do not add an executable API policy or establish numerical
-eligibility.
+Status: implemented as a separately selected approximate method. Production
+schema activation is a separate release operation. Full-PV Monte Carlo and the
+every-path qualification mode above retain their original contracts.
 
-### Selection and financial contract
+### Run a calculation
 
-Hybrid describes the valuation method. The same joint market-factor simulation
-feeds a fitted delta-gamma PV response; ordinary full PV supplies fitting,
-validation and any explicitly permitted full repricing. The shared shock model
-and residual factor exposure remain part of the calculation. Computational cost
-is measured separately from the method's accuracy and validation requirements.
+1. In Risk, select a portfolio, book or individual trades and open VaR setup.
+2. Choose **Hybrid Monte Carlo VaR / expected shortfall · approximate**. Review
+   history, confidence, paths, random seed, retained PCA components and **Full-PV
+   validation paths**. The visible starting panel has up to 64 paths, up to three
+   components and up to 4096 simulation paths, bounded by the captured scope's
+   complete work limits. Advanced settings expose the separate validation seed,
+   finite-difference ticks and stability/loss tolerances. No time entry is needed;
+   official EOD closes remain selected unless alternatives are explicitly allowed.
+3. Leave **Allow full-PV fallback** unchecked to stop on failed checks. Select it
+   only to permit complete portfolio repricing after a fitting/validation failure.
+   The choice is retained in the request, study identity, worker and report.
+4. Calculate immediately or queue. Aligned history is prepared/reused by the
+   existing guided workflow. Scope or source changes cannot inherit model approval.
+5. Read the approximate distribution separately from **Hybrid Monte Carlo
+   validation**. The main path table contains model PV estimates on every path,
+   including checked indices. Validation has its own actual full-PV drilldown,
+   observed panel VaR/ES and error graph, PCA/residual matrices, applied valuation,
+   reasons and work by phase. Retained Risk and Blotter reports and exports use
+   the same evidence. Fresh method selection resets fallback off.
 
-The user must explicitly select approximate hybrid Monte Carlo valuation,
-separate from full-PV Monte Carlo and the current every-path qualification mode. Selecting
-hybrid valuation does not authorize fallback. **Allow full-PV fallback** remains a
-separate choice, initially off, retained with the calculation and honored by the
-UI, API and worker. Failed model, holding, portfolio or fitting checks stop a
-no-fallback run with a visible reason. Only explicit fallback consent permits
-whole-valuation or whole-portfolio replacement; isolated tail losses must never
-be patched into an otherwise approximate distribution.
+### Explicit execution contract
 
-Reuse the complete shared market-factor identities, native joint shocks, frozen
-ordinary PV operation, native deltas and selected PCA curvature. Keep residual
-factor moves and their linear exposure. New instrument types enter through their
-ordinary PV, declared dependencies, retained materializer and supported
-shock/history inputs; there is no product allowlist or assumption that a zero
-local Greek proves a globally linear pricer. Eligibility belongs to the captured
-valuation and model checks, including all shared bindings.
+The complete method tuple is:
 
-The new versioned calculation contract must state its approximation, fitting and
-validation policies, tolerances, scenario counts and work limits. Validation
-panel selection/size, sample independence and deterministic random-stream rules
-must be chosen and documented before implementation, then independently
-qualified before enabling the mode; this roadmap does not silently choose them. Missing policy must refuse. Changing
-scope, market inputs, model, history or seed cannot inherit an earlier passing
-result as an accuracy guarantee. Any later model-reuse contract needs its own
-qualification.
+- `dated_factor_hybrid_monte_carlo_v1`;
+- `pca_delta_gamma_frozen_nonfactor_inputs_v1`;
+- `empirical_prefix_diagnostics_no_interval_v1`.
 
-### Execution, evidence and widgets
+The other R6 generator/covariance/native-rounding policies are unchanged. The
+required `analysis` reuses D308 fitting with either
+`sampled_panel_no_fallback_qualification_v1` (default) or
+`sampled_panel_opt_in_whole_portfolio_full_pv_v1` (explicit consent). Required
+`hybrid` inputs select `pca_delta_gamma_sampled_pv_validation_v1`,
+`sha256_ranked_indices_independent_of_loss_v1`,
+`whole_portfolio_full_pv_v1`, an integer validation count from 2 through the
+selected path count, and a canonical unsigned 64-bit decimal validation seed.
+Mixed/missing policies refuse; the old every-path fitting modes cannot authorize
+this execution. Visible defaults are sent explicitly, never inferred by the API.
 
-Use the fitted model for eligible simulation paths and ordinary full PV for the
-explicit validation work and any user-authorized fallback. The report must label
-the result as approximate and identify which values were approximated or fully
-repriced, which validation paths were priced, and all failures or substitutions.
-Keep candidate and reference diagnostics separate. A finite validation panel
-cannot prove correctness on unpriced paths or certify their tail VaR/ES; observed
-panel errors must not be presented as whole-distribution bounds. Full-reference
-benchmark comparisons remain a separate accuracy check.
+For each original zero-based path index, the selector hashes a 40-byte record:
+ASCII `OpenETRM hybrid panel v1` starting at byte 0, zero padding, the validation
+seed as unsigned little-endian 64-bit at byte 24, the index as little-endian
+32-bit at byte 32, and trailing zero bytes. Rank by SHA256 bytes, break a tie by
+original index, take the requested count and execute in original-index order.
+The selector reads no losses, prices or shock values and uses no shock-stream
+random draw. A changed count gives nested panels for a fixed seed/index range.
+There is no adaptive expansion, replacement draw or implicit tolerance change.
 
-Risk and Blotter should expose the selected mode and fallback consent, PCA and
-residual diagnostics, observed holding/portfolio validation errors, validation
-coverage, approximation/fallback classifications, and actual fitting, validation
-and simulation work. Retained reports and exports must preserve this evidence
-and the selected policy. Direct and queued calculations must agree under the
-same source, clock, engine, authority, lease and cancellation fences.
+All native factors/deltas and full native simulated shifts remain. PCA limits
+curvature directions, not factor exposure. Ordinary PV supplies the complete
+half/nominal/double fitting batch and the selected validation panel. The model
+predicts all N main path values; checked paths are never patched with full PV.
+Every generated shock, including unpriced ones, must pass the existing declared
+quote min/max, coordinate and unit checks. Those checks do not establish that an
+arbitrary black-box pricer is accurate or valid at every unpriced point.
 
 <a id="acceptance-before-enabling-acceleration"></a>
+<a id="acceptance-before-enabling-hybrid-monte-carlo"></a>
 
-### Acceptance before enabling hybrid Monte Carlo
+### Validation, failure and consent
 
-- Preserve the full native generator, residual exposure and shared factor/scenario
-  behavior; test nonlinear residuals, low-variance spreads, kinks and opposing
-  bindings with independent pricing fixtures.
-- Compare approximate path losses and native portfolio/holding VaR/ES against
-  complete full-PV reference runs on qualified workloads, including tail failures
-  missed by a small panel. Do not treat one passing seed as general eligibility.
-- Prove no-fallback refusal and explicitly consented fallback across immediate,
-  queued and retained operations. Reject stale models and incomplete evidence.
-- Demonstrate repeatable direct/worker execution and complete work accounting.
-  Benchmark the same captured workloads, history, paths and seeds, recording
-  unique factors/valuations, fitting and validation PV calls, evaluated work,
-  elapsed time, memory and execution environment. Include setup/fallback cost;
-  claim speedup only where the complete measurement demonstrates it.
-- Verify the approximate/validation labels and consent controls in Risk, Blotter,
-  report reopen and export. Schema/release qualification remains separate.
+Derivative stability, observed holding path errors, standalone panel VaR/ES and
+native portfolio panel checks use the explicitly selected D308 tolerances.
+Panel tail membership and metrics describe the **observed panel only**. A finite
+panel cannot bound unpriced losses or certify full-distribution/tail accuracy.
+Independent tests deliberately construct nonlinear losses missed by a panel.
+The full-reference mode remains available when every-path evidence is required.
 
-After this phase, the planned sequence is EVT tail estimation and then operating
-daily reporting/rolling backtesting. EWMA is a separately selected calibration
-enhancement; neither hybrid Monte Carlo valuation nor EVT implicitly selects it.
-See [the delivery sequence](plan.md#remaining-risk-delivery-sequence).
+A failed model, holding, native portfolio or fitting numerical/domain check stops
+a strict run with `risk_pca_hybrid_qualification`; no successful replacement
+report is returned. With explicit opt-in, v1 reprices **every path and holding**
+through full PV, including each shared binding and native partition. It reports
+`full_pv`, `fallbackApplied`, reasons and completed work. There is no per-tail
+patching or per-valuation partial execution in v1. Fallback pricing failure is
+fatal. Invalid policies, generated quote-domain failures, changed/missing base
+holdings/units/values, history, authority and cancellation remain fatal and never
+invoke fallback.
+
+Prefix convergence is descriptive. Hybrid results never inherit R6's conditional
+binomial VaR interval, even after full-PV fallback: the applied method was selected
+after observing sampled checks, so that interval would require separate coverage
+qualification. ES and model/calibration uncertainty are not estimated.
+
+### Custody and complete work
+
+Migration 0193 guards the complete prior retention and report-summary functions,
+including owner, ACL and search path. It admits the exact new policy tuple on the
+existing job and exposes approximate/applied-method/fallback archive metadata.
+There are no new tables, raw grants or instrument allowlists. Existing retained
+source/clock/engine/lease/cancellation/current-authority fences are reused.
+All completed fitting, panel and fallback passes must reproduce identical captured
+base holding keys, units and PVs.
+
+Before pricing, admission includes the N-row predicted output, fitting and panel
+PV work, and all-N fallback work if consented. For d factors, k components and M
+validation paths, fitting has `6*d + 6*k*k` sibling scenarios. Fitting and panel
+each include a base; opted-in fallback adds N paths and another base. PPA row,
+option-tree, result-value and 30 MB report bounds remain enforced. Actual counters
+charge completed passes; an interrupted attempt marks total work unavailable.
+Predicted values are counted separately from ordinary PV calls.
+
+See [verification](verification.md#hybrid-monte-carlo-valuation-d311) for full-reference
+oracles and measured workload results. Reducing PV calls alone is not a speedup
+claim. Per-valuation fitting isolation, model reuse, EWMA, EVT and operating
+backtests remain separate increments. The next delivery item is EVT tail risk,
+then daily reporting/rolling backtests; see [the plan](plan.md#remaining-risk-delivery-sequence).

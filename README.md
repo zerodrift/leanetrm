@@ -65,7 +65,10 @@ for synthetic booking, graphical break-even pricing and settlement previews.
   shocks, full PV and convergence/sampling diagnostics. Optional
   [PCA / hybrid qualification](docs/pca-hybrid-risk.md) adds loadings, residual
   diagnostics and every-path candidate comparisons with user-selected fallback
-  and cost. Fallback starts off. Full-PV
+  and cost. [Hybrid Monte Carlo valuation](docs/pca-hybrid-risk.md#hybrid-monte-carlo-valuation-d311)
+  separately predicts the distribution with sampled full-PV validation and visible
+  approximate/observed/fallback graphics. Fallback starts off and requires explicit
+  opt-in. Full-PV
   [historical simulation](docs/historical-risk.md) adds empirical loss distributions,
   signed book/trade allocations, sample PV drilldown and a matching normal comparison
 - **Scheduled swaps:** persistent booking, amendments and inspection of up to 120
@@ -107,7 +110,7 @@ for synthetic booking, graphical break-even pricing and settlement previews.
 ## What's not built yet
 
 Full futures settlement PV and variation margin, option products beyond the
-supported listed American futures options, hybrid Monte Carlo valuation, EVT,
+supported listed American futures options, EVT,
 broader physical settlement, general physical power booking, inventory costing,
 post-delivery crude valuation, PPA accepted-cash accounting/payments, broader agent
 credential lifecycle and production qualification remain work. General swap/PPA

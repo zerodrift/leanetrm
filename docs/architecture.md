@@ -8,10 +8,13 @@ failed qualification stops the run unless the user explicitly permits full-PV fa
 failure falls back the whole portfolio. This mode adds measured work and does not
 reduce full-PV work.
 
-The [planned hybrid Monte Carlo valuation](pca-hybrid-risk.md#planned-hybrid-monte-carlo-valuation)
-will require a separate approximate execution contract, independently qualified
-validation evidence and explicit fallback consent. Its remaining-work status and
-EVT/backtesting sequence are recorded in [the plan](plan.md#remaining-risk-delivery-sequence).
+D311 adds separately selected [Hybrid Monte Carlo valuation](pca-hybrid-risk.md#hybrid-monte-carlo-valuation-d311):
+all native deltas and selected PCA curvature predict the distribution, with a
+seeded index panel receiving ordinary full PV for observed checks. Results are
+explicitly approximate. Fallback starts off; only explicit consent permits
+complete portfolio/all-path full-PV replacement, with retained reasons and work.
+Sampled checks do not bound unpriced losses; no R6 sampling interval is inherited.
+EVT and operating backtests remain next in [the plan](plan.md#remaining-risk-delivery-sequence).
 
 D307 adds [full-PV Monte Carlo VaR/ES](monte-carlo-risk.md): explicit additive
 Gaussian joint-factor generation, exact sample covariance/LDL, reproducible seeded

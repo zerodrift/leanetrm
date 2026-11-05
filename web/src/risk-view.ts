@@ -38,7 +38,7 @@ type JobRun={id:string;part:number;parts:number};
 /** The books and portfolios a run was asked for, as they were chosen. */
 type RunScope=RiskScope;
 export type RiskJob={id:string;requestId?:string;state:JobState;error?:{code:string;message:string};result?:RiskReport;context?:FinancialContext;asOf?:string;
-  finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null;shocks?:number;kind?:'scenarios'|'derivatives'|'parametric'|'historical'|'monte_carlo';scenarioCount?:number;derivativeCount?:number};
+  finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null;shocks?:number;kind?:'scenarios'|'derivatives'|'parametric'|'historical'|'monte_carlo'|'hybrid_monte_carlo';appliedMethod?:string|null;fallbackApplied?:boolean|null;approximate?:boolean|null;scenarioCount?:number;derivativeCount?:number};
 type Job=RiskJob;
 /**
  * A part of a run and what became of it: the report it returned, or the job it was queued as, or why it failed. A queued part's
@@ -128,7 +128,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   const submissions=new Map<string,Run>();
   let generation=0,pollTimer:ReturnType<typeof setTimeout>|undefined,run:Run|undefined,reviewing=false,recent:Job[]=[],runs=0;
   const mounted=()=>!root.hidden;
-  const statisticalRun=()=>!!run?.parts.some(p=>p.request?.monteCarlo||p.report?.monteCarlo||p.job?.kind==='monte_carlo'||p.request?.historical||p.report?.historical||p.job?.kind==='historical'||p.request?.parametric||p.report?.parametric||p.job?.kind==='parametric');
+  const statisticalRun=()=>!!run?.parts.some(p=>p.request?.monteCarlo||p.report?.monteCarlo||(p.job?.kind==='monte_carlo'||p.job?.kind==='hybrid_monte_carlo')||p.request?.historical||p.report?.historical||p.job?.kind==='historical'||p.request?.parametric||p.report?.parametric||p.job?.kind==='parametric');
   const running=()=>!!run&&run.parts.some(p=>active(p.job));
   const uncertain=(current:Run|undefined)=>current?.parts.flatMap((p,i)=>p.recovery?.command?[i]:[])??[];
   const complete=(current:Run|undefined)=>!!current&&current.parts.every(p=>p.report);
@@ -641,12 +641,12 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
   function current():RunView|undefined{
     if(!run||run.making)return undefined;
     const historical=run.parts.some(p=>p.request?.historical||p.report?.historical||p.job?.kind==='historical');
-    const simulation=run.parts.some(p=>p.request?.monteCarlo||p.report?.monteCarlo||p.job?.kind==='monte_carlo');
+    const simulation=run.parts.some(p=>p.request?.monteCarlo||p.report?.monteCarlo||(p.job?.kind==='monte_carlo'||p.job?.kind==='hybrid_monte_carlo'));
     const requested=simulation?(run.parts[0]?.report?.monteCarlo?.result.samples??run.parts[0]?.request?.monteCarlo?.policy.paths??null):historical?(run.parts[0]?.report?.historical?.result.samples??null):run.parts.every(p=>p.request)?run.parts.reduce((count,p)=>count+(p.request!.joint?.scenarios?.scenarios.length??(p.request!.joint?.derivatives?2*p.request!.joint.derivatives.axes.length+p.request!.joint.derivatives.mixed.length:p.request!.bumps.length)),0):null;
-    const statistical=run.parts.some(p=>p.request?.monteCarlo||p.report?.monteCarlo||p.job?.kind==='monte_carlo'||p.report?.historical||p.request?.historical||p.job?.kind==='historical'||p.report?.parametric||p.request?.parametric||p.job?.kind==='parametric');
+    const statistical=run.parts.some(p=>p.request?.monteCarlo||p.report?.monteCarlo||(p.job?.kind==='monte_carlo'||p.job?.kind==='hybrid_monte_carlo')||p.report?.historical||p.request?.historical||p.job?.kind==='historical'||p.report?.parametric||p.request?.parametric||p.job?.kind==='parametric');
     const retainedKind=run.parts.find(p=>p.report?.joint)?.report?.joint?.kind;
     return {key:run.key,queued:run.queued,running:running(),retained:reviewing,setup:run.setup,setupText:statistical?'VaR / ES · captured dated-factor history, frozen portfolio and explicit method policies.':!run.setup&&retainedKind?`Retained ${retainedKind==='scenarios'?'named joint scenarios':'selected Greeks and cross-gamma'} under the captured request and policies.`:setupText(run.setup),context:run.context,asOf:run.asOf,finishedAt:run.finishedAt,scope:run.scope,factors:requested,
-      parts:run.parts.map(p=>({report:p.report,job:p.job&&{id:p.job.id,state:p.job.state,finishedAt:p.job.finishedAt??null,shocks:p.job.kind==='monte_carlo'?p.report?.monteCarlo?.result.samples:p.job.kind==='historical'?p.report?.historical?.result.samples:p.job.kind==='scenarios'?p.job.scenarioCount:p.job.kind==='derivatives'?p.job.derivativeCount:p.job.shocks},failure:p.failure,unknown:!!p.recovery?.command,unlisted:!!p.unlisted}))};
+      parts:run.parts.map(p=>({report:p.report,job:p.job&&{id:p.job.id,state:p.job.state,finishedAt:p.job.finishedAt??null,shocks:(p.job.kind==='monte_carlo'||p.job.kind==='hybrid_monte_carlo')?p.report?.monteCarlo?.result.samples:p.job.kind==='historical'?p.report?.historical?.result.samples:p.job.kind==='scenarios'?p.job.scenarioCount:p.job.kind==='derivatives'?p.job.derivativeCount:p.job.shocks},failure:p.failure,unknown:!!p.recovery?.command,unlisted:!!p.unlisted}))};
   }
 
   function sync(){

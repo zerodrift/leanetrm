@@ -1,7 +1,7 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0192_pca_hybrid_fallback_consent.sql`. It includes reference/market data, certified
+`0193_hybrid_monte_carlo.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts, bounded physical gas/crude operations and
 pre-loading LNG cargo booking/valuation with saved Incoterms.
@@ -12,6 +12,11 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- 0193: separately selected approximate Hybrid Monte Carlo, explicit sampled
+  validation and strict/opt-in whole-portfolio fallback. Existing job custody
+  remains; summary identifies approximate and fallback outcomes. Complete prior
+  retention/summary definition, owner, ACL and search-path guards; no new table
+  or raw grant. Qualify matching schema/API/worker before hosted activation.
 - 0192: hybrid fallback requires explicit user consent; strict or opt-in mode is
   retained on each request. Legacy completed reports remain unchanged; legacy
   policy cannot authorize new calculations. Full predecessor helper guard; no

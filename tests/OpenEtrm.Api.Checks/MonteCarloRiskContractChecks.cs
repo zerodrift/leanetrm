@@ -77,6 +77,31 @@ internal static class MonteCarloRiskContractChecks
         if(failure["available"]!.GetValue<bool>()||classifications.Count!=2||classifications.Any(c=>c!["method"]!.GetValue<string>()!="full_pv")||
             classifications.Sum(c=>c!["exposureIds"]!.AsArray().Count)!=3||!failure["cost"]!["attemptUnmetered"]!.GetValue<bool>())
             throw new Exception("A failed mixed fitting batch did not explicitly fall back every valuation and all shared bindings.");
+        var execution=new HybridMonteCarloPolicy(HybridMonteCarloPolicy.Version1,HybridMonteCarloPolicy.IndexPanel,64,"1",HybridMonteCarloPolicy.WholePortfolio);
+        var hybridSpec=spec with{Policy=p with{Convention=MonteCarloRiskPolicy.Hybrid,ValuationPolicy=MonteCarloRiskPolicy.HybridValuation,
+            SamplingUncertainty=MonteCarloRiskPolicy.HybridUncertainty},Analysis=analysis with{ValuationPolicy=PcaHybridPolicy.PanelQualification},Hybrid=execution};
+        PortfolioRiskPreview.ValidateMonteCarlo(outer with{MonteCarlo=hybridSpec},hybridSpec);
+        foreach(var bad in new[]{hybridSpec with{Hybrid=null},hybridSpec with{Analysis=null},hybridSpec with{Policy=p},hybridSpec with{Analysis=analysis},
+            selected with{Hybrid=execution},selected with{Analysis=hybridSpec.Analysis}})
+        {
+            try{PortfolioRiskPreview.ValidateMonteCarlo(outer with{MonteCarlo=bad},bad);throw new Exception("Mixed or incomplete hybrid execution mode succeeded.");}
+            catch(MarketDataException error)when(error.Code is "risk_hybrid_policy" or "risk_pca_hybrid_policy"){}
+        }
+        if(PortfolioRiskPreview.HybridPathCapacity(2,0,50000,1,1,64,false)!=16384||
+            PortfolioRiskPreview.HybridPathCapacity(2,0,50000,1,1,64,true)!=1921||
+            PortfolioRiskPreview.HybridPathCapacity(500,0,0,1,1,64,false)!=422||
+            PortfolioRiskPreview.HybridPathCapacity(500,0,0,1,1,64,true)!=210||
+            PortfolioRiskPreview.HybridPathCapacity(2,2_000_000,0,1,1,64,true)!=921||
+            PortfolioRiskPreview.HybridPathCapacity(2,10_000_000,0,128,3,64,false)!=0)
+            throw new Exception("Hybrid admission lost all-N output, fitting/panel bases or consented full-fallback work.");
+        var identity=new HistoricalExposure("holding",Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),"present_value",new(new(Guid.NewGuid(),Guid.NewGuid()),"USD"),"1");
+        PortfolioRiskPreview.RequireSameRiskExposures([identity],[identity]);
+        foreach(var changed in new[]{identity with{BaseValue="2"},identity with{BindingId=Guid.NewGuid()},identity with{Currency=identity.Currency with{Code="other"}}})
+        {
+            try{PortfolioRiskPreview.RequireSameRiskExposures([identity],[changed]);throw new Exception("A fallback pass changed its captured base/identity/unit.");}
+            catch(MarketDataException error)when(error.Code=="risk_historical_exposures"){}
+        }
+        Console.WriteLine("PASS hybrid MC API: explicit exclusive modes, independent output/PV work budgets and fatal fitting/validation/fallback base changes");
         var fixture=new PpaAcceptanceFixture();var physical=fixture.Physical(volume:true);var market=fixture.Market(fixture.From.AddDays(-1));
         var nextSource=fixture.Source with{Key=new(fixture.Definitions,"second_output")};
         var nextSide=new PowerPhysicalSide(Guid.NewGuid(),fixture.Terms(new VolumeQuantity([nextSource.Key],QuantityStage.Generated,fixture.Energy.Key)),fixture.Asset.Location);

@@ -132,3 +132,6 @@ def run_checks(url,manifest,query,run_worker):
     unavailable=c.call('portfolio/risk/monte-carlo',{**request,'history':short['request']})['monteCarlo']
     assert not unavailable['result']['available'] and unavailable['result']['samples']==0 and not unavailable['matrix']['rows'] and not unavailable['result']['partitions']
     print('PASS Monte Carlo incomplete history: no fabricated simulation distribution or partial successful report',flush=True)
+
+    from check_hybrid_monte_carlo_risk import run_checks as check_hybrid
+    check_hybrid(c,profile,request,v,query,manifest,run_worker)

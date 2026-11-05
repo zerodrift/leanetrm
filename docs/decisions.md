@@ -2207,3 +2207,32 @@ old-policy API resubmissions. Existing report reads and database idempotence
 are unchanged.
 The full-PV reference remains required in both qualification modes; hybrid
 Monte Carlo valuation and production schema activation remain separate work.
+
+
+## D311 — Explicit Hybrid Monte Carlo valuation with sampled full-PV validation
+
+Keep the complete R6 joint Gaussian generator, native shocks and source custody.
+A separately selected `dated_factor_hybrid_monte_carlo_v1` method uses D308 all-factor
+delta and selected actual-direction PCA curvature to predict every main path.
+Require the exact hybrid valuation/uncertainty tuple, panel execution policy and
+strict or explicitly consented fitting policy. Rank original indices by a
+domain-separated SHA256 score of explicit validation seed/index, independent of
+losses and the shock RNG. Price the retained panel through ordinary PV; never
+patch those values into the predicted distribution or expand a failed panel.
+
+Observed stability, holding and native portfolio panel checks are not full-tail
+accuracy bounds. No binomial VaR interval is reported, including after fallback,
+because sampled acceptance selects the applied method. Default failure stops the
+run. Only explicit opt-in authorizes the coarser v1 whole-portfolio/all-path full-PV
+fallback, with visible reason, applied method and actual cost. Generated quote
+bounds, source/base/units/authority/cancellation failures remain fatal. Every
+completed pass must reproduce identical captured base exposures.
+
+Admit retained predicted output separately from fitting/panel PV and worst-case
+fallback work. Preserve generic PV/dependencies and immutable sibling scenarios;
+no product allowlist or market-linearity assertion is introduced. Migration 0193
+extends existing strict retention/summary operations with full predecessor guards;
+no tables or raw grants. Risk/Blotter, queued reports, archive and export distinguish
+model estimates, observed full PV and consented complete fallback. See the
+[execution and user contract](pca-hybrid-risk.md#hybrid-monte-carlo-valuation-d311).
+Production activation remains a separately qualified release.

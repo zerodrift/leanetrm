@@ -148,5 +148,6 @@ empirical quantile/tail-mass estimator and an optional same-study sample-mean
 normal comparison. Its losses are distinct from this method's in-sample linearized
 diagnostics. [Full Monte Carlo](monte-carlo-risk.md) shares the exact common-row calibration
 and supplies a full-PV Gaussian simulation reference. An operating rolling-backtest
-workflow, PCA/hybrid acceleration and EVT remain subsequent increments. Production activation requires
+workflow and EVT remain subsequent increments. [PCA/Hybrid Monte Carlo](pca-hybrid-risk.md)
+is separately implemented with explicit approximation and fallback contracts. Production activation requires
 a separately qualified schema release.

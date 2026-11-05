@@ -26,8 +26,9 @@ shared sensitivity ladders/heatmaps and drill-through, visible incomplete covera
 retained report links, and multipart submission recovery. The bounded recent-job
 directory remains separate from the D299 completed statistical-report archive.
 Delta-normal, full-PV historical and full-PV Monte Carlo VaR/ES are implemented
-below. PCA / hybrid qualification is implemented in D308; hybrid Monte Carlo
-valuation, EVT and an operating rolling-backtest workflow remain subsequent increments.
+below. PCA / hybrid qualification is implemented in D308 and explicitly selected
+Hybrid Monte Carlo valuation in D311. EVT and an operating rolling-backtest
+workflow remain subsequent increments.
 
 D294 adds temporary maximize/restore to every Blotter pane, a shared searchable
 portfolio/book picker in Blotter and Risk, and personal saved-view sidebar pins
@@ -1830,7 +1831,8 @@ graphics and prefix convergence accompany a conditional 95% VaR sampling interva
 with explicit unbounded endpoints. Guided setup retains EOD official-close
 history and lowers its visible starting path count to the selected scope's work
 budget. One complete retained job reuses source/clock/engine/attempt custody;
-migration 0190 adds no raw grants or tables. Hybrid Monte Carlo valuation, EWMA, EVT
+migration 0190 adds no raw grants or tables. D311 adds separate Hybrid Monte Carlo
+valuation; EWMA, EVT
 and the operating rolling-backtest service remain separate work. Production
 activation requires a separately qualified schema release.
 
@@ -1848,9 +1850,9 @@ comparison, residual, classification and actual extra-work widgets. Migrations
 0191–0192 retain the explicit optional policy and fallback consent on the
 existing job without new tables or grants.
 
-This increment qualifies candidate models and adds work. Hybrid Monte Carlo
-valuation requires a separate explicitly approximate contract with further
-accuracy/cost evidence;
+This increment qualifies candidate models and adds work. D311 below adds a
+separate explicitly approximate execution contract with its own accuracy/cost
+evidence;
 a pass on one captured seed/run never establishes global eligibility. Per-valuation
 isolation of a failed shared FD batch, EWMA, EVT and operating rolling backtests
 remain subsequent work. Schema activation stays with the separate release process.
@@ -1864,20 +1866,21 @@ implemented in their documented bounded contracts. D309 makes full-PV fallback
 an explicit opt-in. Merged implementation and production activation remain
 separate statuses.
 
-1. **Finish R7: hybrid Monte Carlo valuation.** Implement a separately selected,
-   explicitly approximate mode with native deltas/PCA curvature, full-PV validation
-   work, visible error/coverage and measured complete cost. Fallback starts off
-   and requires separate consent. Pin and independently qualify validation and
-   approximation policies before enabling the mode. The current every-path
-   qualification run remains the full-reference comparison, with no speed claim.
-   See [scope and acceptance gates](pca-hybrid-risk.md#planned-hybrid-monte-carlo-valuation).
-2. **R8: EVT tail risk.** Fit a separately selected unconditional peaks-over-threshold
+R7 now also includes **Hybrid Monte Carlo valuation (D311)**: explicit approximate
+selection, native deltas/PCA curvature, independent seeded validation indices,
+observed-panel error graphics and retained work. Strict failure stops the run;
+only explicit opt-in permits all-path/all-holding full-PV fallback. Full-reference
+linear/quadratic oracles and missed-panel nonlinear cases qualify the bounded
+contract, not arbitrary future portfolios or tail accuracy. See the
+[implemented scope](pca-hybrid-risk.md#hybrid-monte-carlo-valuation-d311).
+
+1. **R8: EVT tail risk.** Fit a separately selected unconditional peaks-over-threshold
    model to eligible retained historical portfolio losses. Show threshold and
    exceedance counts, tail fit/stability, uncertainty and VaR/ES where defined.
    Refuse insufficient data, failed fitting or invalid support; non-finite ES must
    be reported as unavailable. Do not silently switch methods. Conditional
    volatility filtering requires its own qualified extension.
-3. **R9: operating daily reports and rolling backtests.** Extend the existing
+2. **R9: operating daily reports and rolling backtests.** Extend the existing
    archive and frozen-forecast fixtures into an authorized forecast/history and
    hypothetical-P&L workflow with matching horizons, visible exceptions and
    retained exports. Preserve no-look-ahead holdings, observations and corrections;
