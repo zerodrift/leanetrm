@@ -39,9 +39,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await openReport();await fromHistory(job.id);
   await check('a run made at another close is made elsewhere: never drawn as this close\'s risk, and offered for export',elsewhere,
     "[[...document.querySelectorAll('#desk-run-notes li')].map(li=>li.textContent),document.querySelector('#desk-lens').hidden,[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]");
-  // Back at its own close, context and books, the same run from the history is drawn.
+  // Working data captures its context again at each read, so back at its own close the run is still made elsewhere; it is drawn
+  // inline only at the exact read it was made at, as the first check shows.
   await blotterAt(closes[0]);await openReport();await fromHistory(job.id);
-  await check('the run from the history at its own close, context and books is drawn inline',`${inline}&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-label').textContent.split(' · ').at(-1)==='1 shock'`,
+  await check('back at its own close a run from an earlier read of working data is made elsewhere, never drawn as current risk',elsewhere,
     "[[...document.querySelectorAll('#desk-run-notes li')].map(li=>li.textContent),[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]");
 
   // A run of several parts whose part the job history no longer lists: that part is missing from the history, and a position no listed

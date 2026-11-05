@@ -73,10 +73,14 @@ def run_checks(url, query, manifest,psql,environment):
     assert result['id'] in {f['id'] for day in dates['dates'] for f in day['frames']}
     selected=max((saved for saved in full['frames'] if saved['id'] in full['initialFrameIds']),key=lambda saved:saved['at'])
     curve=next(iter(frame['curveContracts']));contract=frame['curveContracts'][curve][0]
+    # A close's history is its own session's (D319): pinned at the built-in close it omits the pilot session's close of the
+    # same instant, and pinned at the pilot close it lists that close.
     history=fresh.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':selected['id'],'curve':curve,'contractId':contract})
+    assert all(point['snapshotId']!=result['id'] for point in history['points']), 'History mixed another session\'s close'
+    history=fresh.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':result['id'],'curve':curve,'contractId':contract})
     stored_point=next((point for point in history['points'] if point['snapshotId']==result['id']),None)
-    assert stored_point, 'Current price history omitted an unselected durable close'
-    assert len({point['snapshotId'] for point in history['points'] if point['at']==frame['at']})==2, 'Distinct same-instant close identities were merged'
+    assert stored_point, 'Current price history omitted its own session\'s durable close'
+    assert len({point['snapshotId'] for point in history['points'] if point['at']==frame['at']})==1, 'A session day offered two closes'
     exact=fresh.call('evaluate',{'snapshotId':result['id'],'curve':curve})
     point=next(point for point in exact['points'] if point['contractId']==contract)
     assert stored_point['value']==point['value'] and set(stored_point['observationIds'])==set(point['lineage'])

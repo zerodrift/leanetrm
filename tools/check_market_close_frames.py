@@ -86,10 +86,10 @@ def check_generated_history(url,query,manifest,run_id,curve,contract_id):
     reader=PreviewClient(url);reader.bootstrap();reader.call('profile',{'profile':'viewer'})
     navigation=reader.call('workspace/navigation')
     generated=next(frame for frame in navigation['frames'] if frame.get('originCloseId')==run_id)
-    older=max((frame for frame in navigation['frames'] if frame['id'] in navigation['initialFrameIds'] and frame['at']<generated['at']),key=lambda frame:frame['at'])
-    history=reader.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':older['id'],'curve':curve,'contractId':contract_id})
+    # A close's history is its own session's (D319): the generated close's history, read at that close, lists it.
+    history=reader.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':generated['id'],'curve':curve,'contractId':contract_id})
     point=next((point for point in history['points'] if point['snapshotId']==run_id),None)
-    assert point,'History omitted a later generated close while an older initial snapshot remained selected'
+    assert point,'History omitted the generated close it was read at'
     native=json.loads(query(f"""SELECT jsonb_build_object('id',o.id,'value',o.value::text) FROM market_data.market_close_pins p
      JOIN market_data.observations o ON(o.catalog_id,o.id)=(p.catalog_id,p.observation_id)
      JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.id)=(o.catalog_id,o.definition_revision_id,o.series_id)

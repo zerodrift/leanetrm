@@ -402,6 +402,8 @@ async function recheckNewestClose(){
 // whoever selected the close. A historical or unapplied view has no newest close to claim, and a workspace without closes
 // has nothing to compare.
 function currentCloseBadge():CloseBadge|null{
+ const shownFrame=shownClose&&!contextDirty?navigation?.frames.find(f=>f.id===shownClose):undefined;
+ if(shownFrame&&!shownFrame.close)return 'working';
  const closes=workspaceCloses,shown=shownClose,latest=closes?latestInstant(closes):null;
  if(latest&&closeBasis?.close!==shown)closeBasis={close:shown,latest};
  return closes&&latest&&closeBasis&&!contextDirty&&!historicalContext()?closeBadge(shown,closeBasis.latest,closes):null;

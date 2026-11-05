@@ -27,7 +27,7 @@ export function unavailableClosesMessage(catalog:Pick<MarketDates,'dates'|'unava
  return ['No complete close is available for this selection.',...details,'Choose another curve or ask a market-data maintainer to complete its inputs and configuration.'].join(' ');
 }
 
-const badgeText:Record<CloseBadge,string>={latest:'Latest close',selected:'Selected close',newer:'Newer close available',choose:'Choose a close'};
+const badgeText:Record<CloseBadge,string>={latest:'Latest close',selected:'Selected close',newer:'Newer close available',choose:'Choose a close',working:'Working snapshot'};
 
 export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;busy:()=>boolean;enabled:()=>boolean;selected:()=>string;current:()=>{at:string}|undefined;businessDate?:()=>string;select:(id:string)=>void;open:()=>void;newer:()=>void;workspace?:{enabled:()=>boolean;open:()=>void}}){
  const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=publicText(text);return n;};
