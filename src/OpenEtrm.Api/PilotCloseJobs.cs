@@ -13,7 +13,8 @@ namespace OpenEtrm.Api;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PilotLeafMove(string Curve,int MaxTicks);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record PilotCloseDefinition(Guid PriorCloseId,ImmutableArray<Guid> BookIds,ImmutableArray<string> CurveCodes,
+// Session names the close session its generated closes are recorded for (D319).
+public sealed record PilotCloseDefinition([property:JsonRequired] string Session,Guid PriorCloseId,ImmutableArray<Guid> BookIds,ImmutableArray<string> CurveCodes,
     string SourceCode,[property:JsonRequired]int Seed,ImmutableArray<PilotLeafMove> LeafMoves,string Generator,string TickBasis,
     string ParameterPolicy,string FrozenPolicy,string MembershipPolicy,string CalendarPolicy,string ClosePolicy,
     PortfolioValuationPolicy ValuationPolicy);
@@ -89,7 +90,7 @@ public static class PilotCloseJobs
         // own exact typed profile rather than a Swarm execution profile.
         (schedule with{Operation="worker_check"}).Validate();
         if(schedule.Operation!=Operation||schedule.ProfileId is not null||schedule.ProfileVersion is not null||schedule.IntervalSeconds is not(null or 86400)||schedule.DueAt.Ticks%10!=0||schedule.ExpiresAt.Ticks%10!=0||schedule.DueAt.Year is <1901 or >2199||
-            definition.PriorCloseId==Guid.Empty||definition.BookIds.IsDefaultOrEmpty||definition.BookIds.Length>128||definition.BookIds.Any(id=>id==Guid.Empty)||definition.BookIds.Distinct().Count()!=definition.BookIds.Length||
+            string.IsNullOrWhiteSpace(definition.Session)||definition.PriorCloseId==Guid.Empty||definition.BookIds.IsDefaultOrEmpty||definition.BookIds.Length>128||definition.BookIds.Any(id=>id==Guid.Empty)||definition.BookIds.Distinct().Count()!=definition.BookIds.Length||
             definition.CurveCodes.IsDefaultOrEmpty||definition.CurveCodes.Length>128||definition.CurveCodes.Distinct(StringComparer.Ordinal).Count()!=definition.CurveCodes.Length||
             string.IsNullOrWhiteSpace(definition.SourceCode)||definition.Seed<0||definition.LeafMoves.IsDefaultOrEmpty||definition.LeafMoves.Length>128||
             definition.LeafMoves.Any(m=>m is null||string.IsNullOrWhiteSpace(m.Curve)||m.MaxTicks is <1 or >PilotMarkGenerator.MaximumTickMove)||

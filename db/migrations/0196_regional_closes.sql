@@ -268,6 +268,19 @@ BEGIN
   WHERE(g.tenant_id,g.workspace_id)=(c.tenant_id,c.workspace_id)),'[]'::jsonb);
 END;$$;
 
+-- A close carries exactly its session version's curves. The refusal names them in its message, after the code.
+CREATE FUNCTION security.require_session_curves(catalog uuid,session text,session_version integer,members jsonb) RETURNS void
+ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE missing text;extra text;
+BEGIN
+ SELECT string_agg(k.curve_code,', ' ORDER BY k.curve_code COLLATE "C") INTO missing FROM market_data.close_session_curves k
+ WHERE(k.catalog_id,k.code,k.version)=(catalog,session,session_version) AND NOT EXISTS(SELECT 1 FROM jsonb_to_recordset(members)x(curve text) WHERE x.curve=k.curve_code);
+ IF missing IS NOT NULL THEN RAISE EXCEPTION 'close_incomplete: missing curves %',missing USING ERRCODE='P0001';END IF;
+ SELECT string_agg(DISTINCT x.curve,', ' ORDER BY x.curve) INTO extra FROM jsonb_to_recordset(members)x(curve text)
+ WHERE NOT EXISTS(SELECT 1 FROM market_data.close_session_curves k WHERE(k.catalog_id,k.code,k.version,k.curve_code)=(catalog,session,session_version,x.curve));
+ IF extra IS NOT NULL THEN RAISE EXCEPTION 'close_outside_session: curves outside the session %',extra USING ERRCODE='P0001';END IF;
+END;$$;
+
 -- Records a close for one session and business day from an exact frame. The frame must be at the session cutoff on that
 -- day and carry exactly the session's curves; recording needs a grant for the session. Retries return the first close.
 DROP FUNCTION security.register_market_close(uuid,uuid,uuid,text,timestamptz,jsonb,jsonb);
@@ -275,7 +288,7 @@ CREATE FUNCTION security.register_market_close(catalog uuid,definition uuid,oper
  frame_at timestamptz,pins jsonb,members jsonb) RETURNS uuid
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE c security.request_contexts;r market_data.revisions;v market_data.close_session_versions;previous market_data.market_closes;
- payload jsonb;identity uuid;ordinal integer;close_at timestamptz;missing text;extra text;
+ payload jsonb;identity uuid;ordinal integer;close_at timestamptz;
 BEGIN
  IF NOT security.current_write_context() OR NOT security.market_access(catalog,'PublishMarketData') THEN RAISE EXCEPTION 'pilot_close_denied' USING ERRCODE='42501';END IF;
  PERFORM pg_advisory_xact_lock(730849102);
@@ -300,12 +313,7 @@ BEGIN
  IF NOT FOUND OR v.definition_revision_id<>definition THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
  close_at=security.close_session_instant(catalog,session,v.version,business_date);
  IF frame_at<>close_at OR close_at>clock_timestamp() THEN RAISE EXCEPTION 'close_session_instant' USING ERRCODE='P0001';END IF;
- SELECT string_agg(k.curve_code,', ' ORDER BY k.curve_code COLLATE "C") INTO missing FROM market_data.close_session_curves k
- WHERE(k.catalog_id,k.code,k.version)=(catalog,session,v.version) AND NOT EXISTS(SELECT 1 FROM jsonb_to_recordset(members)x(curve text) WHERE x.curve=k.curve_code);
- IF missing IS NOT NULL THEN RAISE EXCEPTION 'close_incomplete' USING ERRCODE='P0001',DETAIL='Missing curves: '||missing||'.';END IF;
- SELECT string_agg(DISTINCT x.curve,', ' ORDER BY x.curve) INTO extra FROM jsonb_to_recordset(members)x(curve text)
- WHERE NOT EXISTS(SELECT 1 FROM market_data.close_session_curves k WHERE(k.catalog_id,k.code,k.version,k.curve_code)=(catalog,session,v.version,x.curve));
- IF extra IS NOT NULL THEN RAISE EXCEPTION 'close_outside_session' USING ERRCODE='P0001',DETAIL='Curves outside the session: '||extra||'.';END IF;
+ PERFORM security.require_session_curves(catalog,session,v.version,members);
  IF r.state IS DISTINCT FROM 'sealed' OR NOT EXISTS(SELECT 1 FROM market_data.revision_periods p WHERE(p.catalog_id,p.revision_id)=(catalog,definition)
  AND p.effective_from<=business_date AND business_date<p.effective_to)
  OR EXISTS(SELECT 1 FROM jsonb_to_recordset(pins) x("seriesId" uuid,"observationId" uuid,"inputUse" text)
@@ -436,13 +444,149 @@ CREATE FUNCTION security.close_recorded_after_cutoff(catalog uuid,close_id uuid)
  FROM security.request_contexts q WHERE q.backend_pid=pg_backend_pid() AND q.transaction_id=pg_current_xact_id_if_assigned() AND q.runtime_login=session_user;
 $$;
 
+-- A generated close is recorded for its profile's session, which the profile names explicitly (D319).
+DO $$BEGIN
+ IF EXISTS(SELECT 1 FROM automation.pilot_close_profiles) THEN RAISE EXCEPTION 'regional_closes_requires_empty_close_history';END IF;
+END$$;
+ALTER TABLE automation.pilot_close_profiles ADD COLUMN session_code ref_data.code NOT NULL,
+ ADD FOREIGN KEY(catalog_id,session_code) REFERENCES market_data.close_sessions(catalog_id,code);
+DO $$DECLARE signature text='automation.create_pilot_close_job(jsonb,jsonb)';definition text;before text;BEGIN
+ definition=pg_get_functiondef(signature::regprocedure);
+ FOREACH before IN ARRAY ARRAY['definition-ARRAY[''priorCloseId'',''bookIds''','(definition ?& ARRAY[''priorCloseId'',''bookIds'''] LOOP
+  IF(length(definition)-length(replace(definition,before,'')))/length(before)<>1 THEN RAISE EXCEPTION 'regional closes: unexpected pilot job definition';END IF;
+  definition=replace(definition,before,replace(before,'[''priorCloseId''','[''session'',''priorCloseId'''));
+ END LOOP;
+ before:='p.valuation_policy=definition->''valuationPolicy'';';
+ IF(length(definition)-length(replace(definition,before,'')))/length(before)<>1 THEN RAISE EXCEPTION 'regional closes: unexpected pilot profile assignment';END IF;
+ EXECUTE replace(definition,before,before||'p.session_code=definition->>''session'';');
+END$$;
+
+DO $$DECLARE signature text='automation.pilot_definition(automation.jobs)';definition text;before text='jsonb_build_object(''priorCloseId'',p.prior_close_id,';BEGIN
+ definition=pg_get_functiondef(signature::regprocedure);
+ IF(length(definition)-length(replace(definition,before,'')))/length(before)<>1 THEN RAISE EXCEPTION 'regional closes: unexpected pilot definition reader';END IF;
+ EXECUTE replace(definition,before,'jsonb_build_object(''session'',p.session_code,''priorCloseId'',p.prior_close_id,');
+END$$;
+
+-- The session version and business day whose cutoff is exactly an instant: the day before, of or after its UTC date.
+-- None or several is refused (close_session_instant); nothing picks the nearest day.
+CREATE FUNCTION security.close_session_day(catalog uuid,session text,at timestamptz,OUT session_version integer,OUT business_date date)
+ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE candidate date;v market_data.close_session_versions;matches integer=0;
+BEGIN
+ FOR candidate IN SELECT (at AT TIME ZONE 'UTC')::date+k FROM generate_series(-1,1)k LOOP
+  SELECT * INTO v FROM market_data.close_session_versions s WHERE(s.catalog_id,s.code)=(catalog,session) AND s.state='published'
+   AND s.effective_from<=candidate AND candidate<s.effective_to;
+  CONTINUE WHEN NOT FOUND;
+  BEGIN
+   IF security.close_session_instant(catalog,session,v.version,candidate)=at THEN matches=matches+1;session_version=v.version;business_date=candidate;END IF;
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN NULL;
+  END;
+ END LOOP;
+ IF matches<>1 THEN RAISE EXCEPTION 'close_session_instant' USING ERRCODE='P0001';END IF;
+END;$$;
+
+CREATE OR REPLACE FUNCTION automation.publish_pilot_close(marks jsonb,carried jsonb,members jsonb) RETURNS uuid
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE r automation.runs;j automation.jobs;p automation.pilot_close_profiles;q security.request_contexts;
+ previous market_data.market_closes;ordinal integer;identity uuid;mark_row record;observation uuid;payload jsonb;
+ anchor market_data.market_closes;day record;
+BEGIN
+ r=automation.lock_pilot_run();
+ IF NOT EXISTS(SELECT 1 FROM automation.jobs job WHERE job.id=r.job_id AND job.operation='generated_pilot_close_v1' AND NOT automation.unsafe_pilot_ppa(job)) THEN RAISE EXCEPTION 'job_operation' USING ERRCODE='42501';END IF;PERFORM pg_advisory_xact_lock(730849102);
+ SELECT * INTO j FROM automation.jobs WHERE id=r.job_id;
+ SELECT * INTO p FROM automation.pilot_close_profiles WHERE(id,version)=(j.pilot_profile_id,j.pilot_profile_version);
+ SELECT * INTO q FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
+ payload=jsonb_build_object('profileId',p.id,'profileVersion',p.version,'seed',p.seed,'marks',marks,'carried',carried,'members',members);
+ SELECT * INTO previous FROM market_data.market_closes WHERE run_id=r.id;
+ IF FOUND THEN
+  IF previous.request<>payload THEN RAISE EXCEPTION 'pilot_close_conflict';END IF;
+  IF NOT security.market_close_visible(p.catalog_id,previous.id) THEN RAISE EXCEPTION 'job_fence' USING ERRCODE='42501';END IF;
+  RETURN previous.id;
+ END IF;
+ PERFORM security.require_bound_market_context(p.catalog_id,q.market_context_id,r.due_at);
+ -- D319: a generated close belongs to its profile's session, on the business day whose cutoff is the due instant. It never
+ -- replaces a recorded close, never follows a replaced anchor and needs the service's grant for the session.
+ SELECT * INTO anchor FROM market_data.market_closes WHERE(catalog_id,id)=(p.catalog_id,p.prior_close_id);
+ IF security.close_in_force(anchor.catalog_id,anchor.session_code,anchor.business_date)<>anchor.id THEN RAISE EXCEPTION 'close_replaced' USING ERRCODE='P0001';END IF;
+ IF jsonb_typeof(marks) IS DISTINCT FROM 'array' OR jsonb_array_length(marks) NOT BETWEEN 1 AND 20000
+ OR jsonb_typeof(carried) IS DISTINCT FROM 'array' OR jsonb_array_length(carried)>20000
+ OR jsonb_typeof(members) IS DISTINCT FROM 'array' OR jsonb_array_length(members) NOT BETWEEN 1 AND 20000
+ OR EXISTS(SELECT 1 FROM jsonb_to_recordset(marks)x("seriesId" uuid,"anchorObservationId" uuid,"moveTicks" integer,value numeric)
+ LEFT JOIN market_data.market_close_pins a ON(a.catalog_id,a.close_id,a.series_id,a.observation_id,a.input_use)=(p.catalog_id,p.prior_close_id,x."seriesId",x."anchorObservationId",'variable')
+ LEFT JOIN market_data.observations o ON(o.catalog_id,o.id)=(a.catalog_id,a.observation_id)
+ LEFT JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.id)=(a.catalog_id,a.definition_revision_id,a.series_id)
+ LEFT JOIN market_data.contracts k ON(k.catalog_id,k.revision_id,k.id)=(s.catalog_id,s.revision_id,s.contract_id)
+ LEFT JOIN ref_data.quote_specifications qs ON(qs.catalog_id,qs.revision_id,qs.code)=(s.reference_catalog_id,s.reference_revision_id,s.quote_code)
+ LEFT JOIN ref_data.sources src ON(src.catalog_id,src.revision_id,src.code)=(o.reference_catalog_id,o.reference_revision_id,o.source_code)
+ LEFT JOIN LATERAL(SELECT min(m.maximum_ticks) maximum_ticks,count(DISTINCT m.maximum_ticks) distinct_bounds FROM automation.pilot_close_moves m
+  JOIN market_data.curve_members cm ON(cm.catalog_id,cm.revision_id,cm.curve_code)=(m.catalog_id,m.definition_revision_id,m.curve_code)
+  JOIN market_data.curves cv ON(cv.catalog_id,cv.revision_id,cv.code)=(cm.catalog_id,cm.revision_id,cm.curve_code)
+  WHERE(m.profile_id,m.profile_version)=(p.id,p.version) AND cv.rule='direct' AND cm.contract_id=s.contract_id AND cv.quote_code=s.quote_code)bounds ON true
+ WHERE a.close_id IS NULL OR o.role NOT IN('trader_mark','daily_settlement') OR o.publication_state<>'final' OR src.kind<>'synthetic'
+ OR k.expiry_at<=r.due_at OR x."moveTicks" IS NULL OR x.value IS NULL OR x.value<>o.value+x."moveTicks"*qs.clearing_increment OR o.source_code<>p.source_code
+ OR bounds.maximum_ticks IS NULL OR bounds.distinct_bounds<>1 OR abs(x."moveTicks")>bounds.maximum_ticks)
+ OR EXISTS(SELECT 1 FROM jsonb_to_recordset(carried)x("seriesId" uuid,"observationId" uuid,"inputUse" text)
+ LEFT JOIN market_data.market_close_pins a ON(a.catalog_id,a.close_id,a.series_id,a.observation_id,a.input_use)=(p.catalog_id,p.prior_close_id,x."seriesId",x."observationId",x."inputUse")
+ LEFT JOIN market_data.observations o ON(o.catalog_id,o.id)=(a.catalog_id,a.observation_id)
+ WHERE a.close_id IS NULL OR NOT(o.role='parameter' AND x."inputUse"='variable' OR o.role IN('final_contract_settlement','index_fixing') AND o.publication_state='final' AND x."inputUse"='frozen'))
+ OR EXISTS(WITH expected AS(
+  SELECT a.series_id,a.observation_id,a.input_use FROM market_data.market_close_pins a
+  JOIN market_data.observations o ON(o.catalog_id,o.id)=(a.catalog_id,a.observation_id)
+  WHERE(a.catalog_id,a.close_id)=(p.catalog_id,p.prior_close_id) AND(o.role='parameter' OR a.input_use='frozen'))
+  SELECT 1 FROM expected e FULL JOIN jsonb_to_recordset(carried)x("seriesId" uuid,"observationId" uuid,"inputUse" text)
+  ON(e.series_id,e.observation_id,e.input_use)=(x."seriesId",x."observationId",x."inputUse")
+  WHERE e.observation_id IS NULL OR x."observationId" IS NULL)
+ OR EXISTS(SELECT 1 FROM automation.pilot_close_curves selected WHERE(selected.profile_id,selected.profile_version)=(p.id,p.version)
+  AND NOT EXISTS(SELECT 1 FROM market_data.market_close_members a JOIN market_data.contracts k ON(k.catalog_id,k.revision_id,k.id)=(a.catalog_id,a.definition_revision_id,a.contract_id)
+   WHERE(a.catalog_id,a.close_id,a.curve_code)=(p.catalog_id,p.prior_close_id,selected.curve_code) AND k.expiry_at>r.due_at))
+ OR EXISTS(WITH expected AS(
+  SELECT a.curve_code AS curve,a.contract_id AS contract,(row_number() OVER(PARTITION BY a.curve_code ORDER BY a.ordinal)-1)::integer AS ordinal
+  FROM automation.pilot_close_curves selected JOIN market_data.market_close_members a
+   ON(a.catalog_id,a.close_id,a.curve_code)=(p.catalog_id,p.prior_close_id,selected.curve_code)
+  JOIN market_data.contracts k ON(k.catalog_id,k.revision_id,k.id)=(a.catalog_id,a.definition_revision_id,a.contract_id)
+  WHERE(selected.profile_id,selected.profile_version)=(p.id,p.version) AND k.expiry_at>r.due_at)
+  SELECT 1 FROM expected e FULL JOIN jsonb_to_recordset(members)x(curve text,"contractId" uuid,ordinal integer)
+  ON(e.curve,e.contract)=(x.curve,x."contractId") WHERE e.ordinal IS DISTINCT FROM x.ordinal)
+ THEN RAISE EXCEPTION 'pilot_close_inputs';END IF;
+ -- The generated close's session day (D319), once its inputs are qualified.
+ SELECT * INTO day FROM security.close_session_day(p.catalog_id,p.session_code,r.due_at);
+ IF NOT EXISTS(SELECT 1 FROM market_data.close_session_versions v WHERE(v.catalog_id,v.code,v.version,v.definition_revision_id)=(p.catalog_id,p.session_code,day.session_version,p.definition_revision_id))
+ THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
+ PERFORM security.require_session_curves(p.catalog_id,p.session_code,day.session_version,members);
+ IF EXISTS(SELECT 1 FROM market_data.market_closes s WHERE(s.catalog_id,s.session_code,s.business_date)=(p.catalog_id,p.session_code,day.business_date))
+ THEN RAISE EXCEPTION 'close_exists' USING ERRCODE='P0001';END IF;
+ -- This is the sole transition from a preflight read view to publication. The
+ -- run and global gate remain locked throughout the transaction. No generic
+ -- context reset operation is exposed. The close retains the preflight view.
+ UPDATE security.request_contexts SET market_catalog_id=NULL,market_context_id=NULL,trading_as_of=NULL,pilot_publication=true WHERE id=q.id;
+ PERFORM automation.lock_pilot_run();
+ -- Recording authority is a current write: it is checked once the preflight view is released.
+ IF NOT security.can_record_close(p.catalog_id,p.session_code) THEN RAISE EXCEPTION 'close_grant' USING ERRCODE='42501';END IF;
+ identity=r.id;SELECT coalesce(max(publication_order),0)+1 INTO ordinal FROM market_data.market_closes WHERE catalog_id=p.catalog_id;
+ INSERT INTO market_data.market_closes VALUES(p.catalog_id,identity,p.definition_revision_id,p.reference_catalog_id,p.reference_revision_id,
+ 'Generated pilot close',r.due_at,'generated_pilot',q.actor_id,r.id,payload,
+ p.prior_close_id,r.id,p.generator,q.market_context_id,ordinal,pg_current_xact_id(),p.session_code,day.session_version,day.business_date);
+ FOR mark_row IN SELECT v.*,o.role FROM jsonb_to_recordset(marks)v("seriesId" uuid,"anchorObservationId" uuid,"moveTicks" integer,value numeric)
+ JOIN market_data.observations o ON(o.catalog_id,o.id)=(p.catalog_id,v."anchorObservationId") LOOP
+  observation=gen_random_uuid();
+  INSERT INTO market_data.observations VALUES(p.catalog_id,observation,p.definition_revision_id,mark_row."seriesId",p.reference_catalog_id,p.reference_revision_id,p.source_code,
+   'pilot:'||r.id::text||':'||mark_row."seriesId"::text,p.generator,mark_row.role,'final',r.due_at,clock_timestamp(),mark_row.value,NULL);
+  INSERT INTO market_data.market_close_pins VALUES(p.catalog_id,identity,p.definition_revision_id,mark_row."seriesId",observation,'variable');
+ END LOOP;
+ INSERT INTO market_data.market_close_pins SELECT p.catalog_id,identity,p.definition_revision_id,x."seriesId",x."observationId",x."inputUse" FROM jsonb_to_recordset(carried)x("seriesId" uuid,"observationId" uuid,"inputUse" text);
+ INSERT INTO market_data.market_close_members SELECT p.catalog_id,identity,p.definition_revision_id,x.curve,x."contractId",x.ordinal FROM jsonb_to_recordset(members)x(curve text,"contractId" uuid,ordinal integer);
+ UPDATE security.request_contexts SET pilot_publication=false WHERE id=q.id;
+ PERFORM automation.lock_pilot_run();
+ RETURN identity;
+END;$$;
+
 DO $$DECLARE f record;BEGIN
  FOR f IN SELECT p.oid::regprocedure signature,p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security'
  AND p.proname IN('close_session_instant','close_in_force','can_record_close','close_session_json','close_session_catalog','save_close_session','publish_close_session',
- 'close_grant_json','require_close_administration','grant_close_session','revoke_close_session_grant','close_session_grants','register_market_close','close_history','market_close_visible','close_recorded_after_cutoff') LOOP
+ 'close_grant_json','require_close_administration','grant_close_session','revoke_close_session_grant','close_session_grants','register_market_close','close_history','market_close_visible','close_recorded_after_cutoff','close_session_day','require_session_curves') LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f.signature);
   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f.signature);
-  IF f.proname NOT IN('close_session_instant','close_session_json','close_grant_json','require_close_administration') THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;
+  IF f.proname NOT IN('close_session_instant','close_session_json','close_grant_json','require_close_administration','close_session_day','require_session_curves') THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;
  END LOOP;
 END$$;
 COMMIT;

@@ -98,7 +98,8 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
         f"INSERT INTO ref_data.clock_rules(catalog_id,revision_id,code,kind,fixed_offset_seconds) VALUES ({R},'test_minus_18_clock','fixed_offset',-64800);\n") + ''.join(
         f"INSERT INTO ref_data.calendars VALUES ({R},'{calendar}','{clock}',{weekend},'2020-01-01','2023-01-01');\n"
         for calendar, clock, weekend in [('test_london_days', 'test_london_clock', 96), ('test_new_york_days', 'test_new_york_clock', 96),
-                                         ('test_london_every_day', 'test_london_clock', 0), ('test_minus_18_days', 'test_minus_18_clock', 96)]) + 'COMMIT;' + tail
+                                         ('test_london_every_day', 'test_london_clock', 0), ('test_minus_18_days', 'test_minus_18_clock', 96),
+                                         ('test_utc_every_day', 'test_utc', 0)]) + 'COMMIT;' + tail
     market = historical((root / 'tests/fixtures/market-synthetic.sql').read_text())
     if date_plan is not None:
         from demo_date_plan import schedule_sql

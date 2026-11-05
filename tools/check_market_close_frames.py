@@ -33,7 +33,8 @@ def run_checks(query,manifest,psql,environment,close_id,context):
     DO $$BEGIN PERFORM security.read_market_close_parts('{catalog}',ARRAY['{close_id}'::uuid],'{uuid4()}');
     RAISE EXCEPTION 'A close read mislabeled its bound context';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;END$$;ROLLBACK;""")
     def attempt(expect_refusal,direct=False):
-        table='market_close_receipts' if direct else 'market_close_members'
+        # A close in force is qualified from its pins, whatever the cutoff (D319), so the direct read waits on them.
+        table='market_close_pins' if direct else 'market_close_members'
         read=(f"IF security.market_close_visible('{catalog}','{close_id}') THEN RAISE EXCEPTION 'Expired close reader returned financial parts';END IF;" if direct else
               f"PERFORM security.read_market_close_parts('{catalog}',ARRAY['{close_id}'::uuid],'{context['contextId']}');RAISE EXCEPTION 'Expired close reader returned financial parts';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;")
         locker=subprocess.Popen(psql,env=environment,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
@@ -77,7 +78,7 @@ def run_checks(query,manifest,psql,environment,close_id,context):
         query(visibility)
         query(original)
         query(f"DELETE FROM security.request_contexts WHERE actor_id='{principal}';DELETE FROM security.role_grants WHERE id='{grant}';DELETE FROM security.workspace_memberships WHERE principal_id='{principal}';DELETE FROM security.identity_bindings WHERE principal_id='{principal}';DELETE FROM security.principals WHERE id='{principal}';DELETE FROM security.role_permissions WHERE role_id='{role}';DELETE FROM security.roles WHERE id='{role}';")
-    print('PASS direct close visibility: missing helper final guard detected; natural expiry while waiting for the exact close receipt refuses visibility',flush=True)
+    print('PASS direct close visibility: missing helper final guard detected; natural expiry while waiting for the exact close pins refuses visibility',flush=True)
     print('PASS close-parts guard: missing final guard detected, natural expiry after content wait rejected, wrong context refused, recent-header index usable',flush=True)
 
 

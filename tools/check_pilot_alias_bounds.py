@@ -1,6 +1,7 @@
 """Qualify native-factor alias policies using a new tiny immutable bundle."""
 import json
 from uuid import uuid4
+from close_session_fixture import sql_session
 
 
 def run_checks(owner,body,query,manifest):
@@ -21,13 +22,14 @@ def run_checks(owner,body,query,manifest):
     assert query(f"SELECT count(*) FROM market_data.curves WHERE(catalog_id,revision_id)=('{catalog}','{revision}');")=='2'
     def human_token():
         return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','approver','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120);")
+    sql_session(query,manifest,'test_pilot_alias','test_utc_every_day','16:00',aliases,['approver','pilot_fixture_worker'],revision=revision)
     members=[{'curve':code,'contractId':contract,'ordinal':0} for code in aliases]
     pins=[{'seriesId':series,'observationId':observation,'inputUse':'variable'}]
     def encoded(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
-    anchor=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{human_token()}');SELECT security.register_market_close('{catalog}','{revision}','{uuid4()}','Synthetic native alias anchor','2020-12-18T16:00:00Z',{encoded(pins)},{encoded(members)});COMMIT;").splitlines()[-1]
+    anchor=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{human_token()}');SELECT security.register_market_close('{catalog}','{revision}','{uuid4()}','Synthetic native alias anchor','test_pilot_alias','2020-12-18','2020-12-18T16:00:00Z',{encoded(pins)},{encoded(members)});COMMIT;").splitlines()[-1]
     for second_bound,rejected in [(8,True),(7,False)]:
         request={**body,'schedule':{**body['schedule'],'requestId':str(uuid4()),'name':'Synthetic native alias policy'},
-            'definition':{**body['definition'],'priorCloseId':anchor,'curveCodes':aliases,
+            'definition':{**body['definition'],'session':'test_pilot_alias','priorCloseId':anchor,'curveCodes':aliases,
                 'leafMoves':[{'curve':aliases[0],'maxTicks':7},{'curve':aliases[1],'maxTicks':second_bound}]}}
         job=owner.call('jobs/pilot-close/create',request)
         try:
