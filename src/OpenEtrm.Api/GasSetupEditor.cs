@@ -66,7 +66,7 @@ public sealed class GasSetupEditor(PreviewDatabase database)
     tariffs=tariffs.Select(t=>new{code=t.Text("code"),pipeline=t.Text("pipeline_code"),product=t.Text("product_code"),quote=t.Text("quote_code"),rate=t.Text("rate"),validFrom=t.Text("valid_from"),validTo=t.Text("valid_to")})},Json);
   }
 
-  var response=new{activeSetupId=setup,configuration,versions,proposals,proposal,context=view?.Context,canSave=working&&await PreviewDatabase.HasPermission(c,"WriteMarketDefinitions",ct),canPublish=working&&await PreviewDatabase.HasPermission(c,"SealMarketDefinitions",ct),
+  var response=new{activeSetupId=setup,configuration,versions,proposals,proposal,context=view?.Context,fieldDescriptions=DeliverySetupDescriptions.Gas,startingValues=DeliverySetupDefaults.Gas(configuration),canSave=working&&await PreviewDatabase.HasPermission(c,"WriteMarketDefinitions",ct),canPublish=working&&await PreviewDatabase.HasPermission(c,"SealMarketDefinitions",ct),
    locations=data.References["locations"],products=data.References["commodities"],clocks=data.References["clock_rules"].Where(x=>x.Text("kind")=="fixed_offset"),quantities=data.References["quantity_specifications"],quotes=data.References["quote_specifications"].Where(x=>x.Text("kind")=="outright"),curves=data.Definitions["curves"],data.ReferenceRevision,data.DefinitionRevision};
   await using var authority=ScheduleStore.Command(c,"SELECT security.market_access($1,'ReadMarketData') AND security.reference_access($2,'ReadMarketData')",catalog,data.ReferenceRevision.CatalogId);
   if(!Equals(await authority.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();

@@ -112,3 +112,89 @@ test('a native sheet keeps walkthrough Continue and Stop reachable while the bac
     assert.equal(await evaluate("document.querySelector('#background').inert"),true);
   });
 });
+
+test('the guide can minimize and close, tracks its control, and releases stale highlights',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+  await withBrowserPage('<link rel="stylesheet" href="/app.css"><main id="host"><button id="target" style="position:absolute;left:420px;top:140px">Synthetic control</button></main>',async(evaluate,command)=>{
+    await command('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+    await evaluate(`(async()=>{window.runner=(await import('/assistant-walkthroughs.js')).setupWalkthrough({identity:()=> 'synthetic',context:()=> 'pin',verify:async()=>true,perform:async()=>document.querySelector('#target')});
+      window.plan={agentLabel:'Synthetic guide',ordinal:1,plan:{pageReport:{page:'blotter',selection:{}},context:{},steps:[{kind:'scroll_to',page:'blotter',widget:'positions'},{kind:'pause',page:'blotter'}]}};
+      void runner.start(plan);await new Promise(r=>setTimeout(r,60));})()`);
+    const pointsAtTarget=()=>evaluate(`(()=>{const c=document.querySelector('.assistant-walkthrough-cursor'),p=c.getBoundingClientRect(),t=document.querySelector('#target').getBoundingClientRect();return !c.hidden&&p.left>=t.left&&p.left<t.right&&p.top>=t.top&&p.top<t.bottom;})()`);
+    assert.equal(await pointsAtTarget(),true);
+    await evaluate(`(async()=>{document.querySelector('#target').style.top='280px';document.querySelector('#target').style.left='500px';for(let n=0;n<100;n++){await new Promise(r=>setTimeout(r,10));const c=document.querySelector('.assistant-walkthrough-cursor').getBoundingClientRect(),t=document.querySelector('#target').getBoundingClientRect();if(c.left>=t.left&&c.left<t.right&&c.top>=t.top&&c.top<t.bottom)return;}})()`);
+    assert.equal(await pointsAtTarget(),true,JSON.stringify(await evaluate("({cursor:document.querySelector('.assistant-walkthrough-cursor').outerHTML,target:document.querySelector('#target').getBoundingClientRect().toJSON(),status:document.querySelector('.assistant-walkthrough-status').textContent})")));
+    assert.equal(await evaluate("getComputedStyle(document.querySelector('.assistant-walkthrough-cursor')).animationName"),'none');
+    await evaluate("document.querySelector('.assistant-walkthrough-minimize').click()");
+    assert.equal(await evaluate("document.querySelector('.assistant-walkthrough-status').hidden"),true);
+    assert.equal(await evaluate("document.querySelector('.assistant-walkthrough-continue').hidden"),false);
+    await evaluate("document.querySelector('.assistant-walkthrough-minimize').click()");
+    assert.equal(await evaluate("document.querySelector('.assistant-walkthrough-status').hidden"),false);
+    await evaluate("document.querySelector('.assistant-walkthrough-close').click()");
+    assert.equal(await evaluate('runner.active()'),false);
+    assert.equal(await evaluate("document.querySelector('.assistant-walkthrough').hidden"),true);
+    assert.equal(await evaluate("document.querySelector('.assistant-walkthrough-cursor').hidden"),true);
+    assert.equal(await evaluate("document.querySelectorAll('.assistant-walkthrough-target').length"),0);
+    await evaluate("void runner.start(plan);new Promise(r=>setTimeout(r,60))");
+    await evaluate("(async()=>{document.querySelector('#target').remove();for(let n=0;n<100&&runner.active();n++)await new Promise(r=>setTimeout(r,10));})()");
+    assert.equal(await evaluate('runner.active()'),false);
+    assert.match(await evaluate("document.querySelector('.assistant-walkthrough-status').textContent"),/control is no longer available/);
+  });
+});
+
+test('a native Review dialog leaves guide controls usable without approving a change',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+  await withBrowserPage('<link rel="stylesheet" href="/app.css"><main id="host"></main>',async(evaluate,command)=>{
+    await evaluate(`(async()=>{window.commands=[];const actions=(await import('/assistant-actions.js')).setupAssistantActions({identity:()=> 'synthetic',changed:async()=>{},api:async(path)=>{commands.push(path);return {operation:'synthetic_command',body:{},parameters:{},context:{mode:'operational'},status:'awaiting_user_approval'};}});
+      window.runner=(await import('/assistant-walkthroughs.js')).setupWalkthrough({identity:()=> 'synthetic',context:()=> 'pin',verify:async()=>true,perform:async()=>{await actions.review({turnId:'71000000-0000-4000-8000-000000000001',step:2});return document.querySelector('dialog');}});
+      void runner.start({agentLabel:'Synthetic guide',ordinal:1,plan:{pageReport:{page:'blotter',selection:{}},context:{},steps:[{kind:'open',page:'blotter',pane:'review',target:null,proposalStep:2},{kind:'pause',page:'blotter'},{kind:'say',page:'blotter',text:'You review this.'},{kind:'pause',page:'blotter'}]}});
+      await new Promise(r=>setTimeout(r,450));})()`);
+    const click=async selector=>{const point=await evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};})()`);await command('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});await command('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});};
+    await click('.assistant-walkthrough-continue');await evaluate('new Promise(r=>setTimeout(r,30))');
+    assert.match(await evaluate("document.querySelector('.assistant-walkthrough-status').textContent"),/You review this/);
+    await click('.assistant-walkthrough-minimize');
+    assert.equal(await evaluate("document.querySelector('.assistant-walkthrough-status').hidden"),true);
+    await click('.assistant-walkthrough-close');
+    assert.equal(await evaluate('runner.active()'),false);
+    assert.equal(await evaluate("document.querySelector('dialog').open"),true);
+    assert.equal(await evaluate("document.querySelector('dialog input').checked"),false);
+    assert.deepEqual(await evaluate('commands'),['assistant/actions/review']);
+  });
+});
+
+test('closing a guide fences a late control and a replaced run owns its highlight',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+  await withBrowserPage('<link rel="stylesheet" href="/app.css"><main id="host"><button id="target">Synthetic control</button></main>',async evaluate=>{
+    await evaluate(`(async()=>{window.hold=true;window.runner=(await import('/assistant-walkthroughs.js')).setupWalkthrough({identity:()=> 'synthetic',context:()=> 'pin',verify:async()=>true,perform:async()=>{if(hold)await new Promise(resolve=>window.release=resolve);return document.querySelector('#target');}});
+      window.plan={agentLabel:'Synthetic guide',ordinal:1,plan:{pageReport:{page:'blotter',selection:{}},context:{},steps:[{kind:'scroll_to',page:'blotter',widget:'positions'},{kind:'pause',page:'blotter'}]}};
+      window.first=runner.start(plan);for(let n=0;n<100&&!window.release;n++)await new Promise(r=>setTimeout(r,10));document.querySelector('.assistant-walkthrough-close').click();release();await first;})()`);
+    assert.equal(await evaluate("document.querySelector('.assistant-walkthrough').hidden&&document.querySelector('.assistant-walkthrough-cursor').hidden"),true);
+    await evaluate("hold=false;void runner.start(plan);new Promise(r=>setTimeout(r,40))");
+    await evaluate("runner.stop();void runner.start(plan);new Promise(r=>setTimeout(r,450))");
+    assert.equal(await evaluate("runner.active()&&document.querySelector('#target').classList.contains('assistant-walkthrough-target')"),true);
+    await evaluate('runner.destroy()');
+    assert.equal(await evaluate("document.querySelectorAll('.assistant-walkthrough,.assistant-walkthrough-cursor,.assistant-walkthrough-target').length"),0);
+  });
+});
+
+test('a tracking failure stops cleanly and a later run can start',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+  await withBrowserPage('<link rel="stylesheet" href="/app.css"><main id="host"><button id="target">Synthetic control</button></main>',async evaluate=>{
+    await evaluate(`(async()=>{window.errors=[];window.addEventListener('error',e=>{errors.push(e.message);e.preventDefault();});window.failTracking=false;window.inFrame=false;const frame=requestAnimationFrame;window.requestAnimationFrame=callback=>frame(time=>{inFrame=true;try{callback(time);}finally{inFrame=false;}});
+      window.runner=(await import('/assistant-walkthroughs.js')).setupWalkthrough({identity:()=> 'synthetic',context:()=>{if(failTracking&&inFrame){failTracking=false;throw Error('Synthetic context unavailable');}return 'pin';},verify:async()=>true,perform:async()=>document.querySelector('#target')});
+      window.plan={agentLabel:'Synthetic guide',ordinal:1,plan:{pageReport:{page:'blotter',selection:{}},context:{},steps:[{kind:'scroll_to',page:'blotter',widget:'positions'},{kind:'pause',page:'blotter'}]}};
+      void runner.start(plan);await new Promise(r=>setTimeout(r,450));failTracking=true;await new Promise(r=>setTimeout(r,150));})()`);
+    assert.deepEqual(await evaluate('errors'),[]);
+    assert.equal(await evaluate('runner.active()'),false);
+    assert.equal(await evaluate("document.querySelector('.assistant-walkthrough-cursor').hidden&&document.querySelectorAll('.assistant-walkthrough-target').length===0"),true);
+    await evaluate('void runner.start(plan);new Promise(r=>setTimeout(r,450))');
+    assert.equal(await evaluate('runner.active()'),true);
+  });
+});
+
+test('a later page transition releases the previous pointer before awaiting native reads',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+  await withBrowserPage('<link rel="stylesheet" href="/app.css"><main id="host"><button id="first">Positions</button><button id="second" hidden>Ticket</button></main>',async evaluate=>{
+    await evaluate(`(async()=>{window.runner=(await import('/assistant-walkthroughs.js')).setupWalkthrough({identity:()=> 'synthetic',context:()=> 'pin',verify:async()=>true,perform:async step=>{if(step.kind==='scroll_to')return document.querySelector('#first');document.querySelector('#first').hidden=true;await new Promise(resolve=>window.release=resolve);document.querySelector('#second').hidden=false;return document.querySelector('#second');}});
+      void runner.start({agentLabel:'Synthetic guide',ordinal:1,plan:{pageReport:{page:'blotter',selection:{}},context:{},steps:[{kind:'scroll_to',page:'blotter',widget:'positions'},{kind:'go',target:{}},{kind:'pause',page:'blotter_new_swap'}]}});
+      for(let n=0;n<100&&!window.release;n++)await new Promise(r=>setTimeout(r,10));await new Promise(r=>setTimeout(r,100));})()`);
+    assert.equal(await evaluate('runner.active()'),true,'a native transition does not count as a vanished target');
+    await evaluate('release();new Promise(r=>setTimeout(r,450))');
+    assert.equal(await evaluate("runner.active()&&!document.querySelector('.assistant-walkthrough-continue').hidden&&document.querySelector('#second').classList.contains('assistant-walkthrough-target')"),true);
+  });
+});

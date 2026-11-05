@@ -1,5 +1,35 @@
 # Local verification and continuous integration
 
+D325–D326 add actual frontend-report / prompt-API / SQL catalog parity, empty
+identity-only asks and immutable prompt pins for Dashboard, crude setup and Vol
+surfaces. Managed checks reject browser values and Blotter-only fields on these
+pages. Web browser checks cover cursor tracking, reduced motion, minimize/close,
+late controls, replaced highlights and native modal Review controls without
+consent or authorization. The workspace browser also checks the native swap field
+anchor. These are synthetic owned checks, not production business tests.
+
+D319 regression qualification uses the owned `--assistant-workspace-check --browser-check`
+suite. It covers New swap operation discovery, page handles and shared numbering,
+empty/bounded reads, native navigation, walkthrough go/pause, booking refusal and
+Stop during an outstanding catalog read. `--assistant-runtime-check` separately
+checks v15 admission and v14 refusal; run it separately from the workspace flag.
+
+D320 adds injected initial-control-refresh failures to the owned assistant and
+`--live-calculation-check --browser-check` suites. They check main-window recovery,
+live Retry and pop-out recovery, plus native pointer Stop during a held catalog
+read. No production reproduction is implied by these synthetic regressions.
+
+The owned futures/swap browser fixtures normalize the virtual positions viewport
+through `positions-scroll.mjs` before checking its first rows or group headers.
+They allow 500 ms for pending retained-row placement, then make at most five
+native scroll attempts before requiring the viewport at the top. The exact quantity/display and two-subtotal
+assertions remain unchanged; this is fixture positioning, not a financial rule.
+The pop-out Keep/Discard check captures its displayed context after the native
+ticket-opening read and immediately before the proposed date change.
+PPA and Dashboard reloads require a new document before checking controls or
+request counters. The Dashboard read-count case leaves a restored Dashboard
+before measuring its next explicit opening.
+
 D312–D315 page-digest, selection and walkthrough checks run with
 `python3 tools/run_preview.py --pg-bin /path/to/postgres/bin --dotnet /path/to/dotnet --assistant-workspace-check --browser-check --browser /path/to/chrome`.
 The managed `--assistant-workspace` checks run first; the owned HTTP fixture then
@@ -3859,3 +3889,26 @@ The choices read still proves the trade's authority once for every candidate
 (one call per obligation-day). Its cost grows linearly with the catalog's
 single-day gas targets, up to its 1,001-result limit. No hosted-runner timing is
 claimed here.
+
+## Synthetic gas basis and final facility inputs (D321)
+
+See [the recording guide](gas-basis-demo.md#local-verification) for the owned
+scenario, executable command and local results. The trading partition runs
+`--gas-basis-demo-check --browser-check` in addition to the existing facility,
+daily gas, composition and setup regressions. New-schema hosted qualification
+remains separate.
+
+## Integrated physical delivery qualification (D321–D324)
+
+Qualification after integrating the current curve-definition and assistant
+navigation changes passed 657 managed core checks, 1,358 frontend checks, the
+managed delivery-starting-values checks, 85 Python tests and 32 release-admission
+tests. Deployment configuration rendering passed. Owned stock-PostgreSQL
+workflows passed the gas basis/history/final-adoption scenario with four browser
+checks, the facility/gas regression with 20 facility and 20 gas browser checks,
+and the combined workspace/crude workflow with 22 browser checks.
+
+Migration 0197 is qualified alongside the preceding assistant migration 0196.
+Independent adversarial review found no outstanding material issue. Public
+source excludes local configuration, generated assets, logs and private review
+artifacts. Hosted schema/API activation remains a separate qualification.

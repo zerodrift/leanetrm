@@ -9,6 +9,11 @@ from preview_fixture import gas_purchase
 def run_checks(url,query,manifest):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'editor'})
     setup=c.call('gas-setup/catalog')
+    assert {'tab','row','paths.pipeline','paths.zone','paths.point','paths.product','paths.clock','paths.groupCode','groups.pipeline','groups.product','groups.curve','meters.pipeline','meters.zone','meters.point','meters.product','meters.quantity','tariffs.pipeline','tariffs.product','tariffs.quote'} <= setup['fieldDescriptions'].keys()
+    assert all(isinstance(v,str) and len(v)>20 for v in setup['fieldDescriptions'].values())
+    assert setup['startingValues']['records']['paths']['adjustment']=='0'
+    assert setup['startingValues']['records']['groups']['adjustment']=='0'
+    assert 'rate' not in setup['startingValues']['records']['tariffs']
     assert setup['canSave'] and not setup['canPublish']
     c.call('gas-setup/validate',{'setupId':str(uuid4()),'from':'2021-01-01','to':'2021-02-01'},expected=422)
     c.call('gas-setup/save',{'operationId':str(uuid4()),'baseSetupId':setup['activeSetupId']},expected=400)

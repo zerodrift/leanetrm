@@ -4,6 +4,7 @@ import {chooseProduct,closeNewTrade,newTrade,startNewTrade} from './new-trade.mj
 import {deliveryLabel} from '../../web/dist/market-view.js';
 import {setupTradingReplies} from './trading-responses.mjs';
 import {swapPvCard,groupHeadersReadApart} from './desk-cards.mjs';
+import {scrollPositionsToTop} from './positions-scroll.mjs';
 import {sidePanelChecks,deltaInkCheck} from './side-panel-checks.mjs';
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,url}){
   const rawSet=set;set=async(selector,value)=>{if(selector==='#futures-contract'){const c=await evaluate(`window.__tradingCatalogs(window.__futuresResponses).at(-1).data.contracts.find(c=>JSON.stringify([c.curve,c.id])===${JSON.stringify(value)})`);if(!c)throw Error('Missing selected futures contract');await chooseFutures({evaluate,set:rawSet,click},c);}else await rawSet(selector,value);};
@@ -209,7 +210,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   // Sorting keeps the trader's place, and the pane shows only some rows: the first rows are read from the top of the sorted grid.
   await click('#desk-positions [role=columnheader][tabulator-field=c2]');await wait("document.querySelector('#desk-positions [role=columnheader][tabulator-field=c2]').getAttribute('aria-sort')==='ascending'");
   // The sort restores the trader's place over the next frames; the grid is scrolled to its top once that is done.
-  await evaluate("(async()=>{const frames=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));await new Promise(r=>setTimeout(r,500));const h=document.querySelector('#desk-positions .tabulator-tableholder');for(let i=0;i<5&&h.scrollTop>0;i++){h.scrollTop=0;await frames();}})()");
+  await scrollPositionsToTop(evaluate);
   await check('positions sort by exact quantity while showing the backend display text',"(()=>{const values=[...document.querySelectorAll('#desk-positions .tabulator-row [tabulator-field=c2] .desk-figure')].map(n=>n.title);const expected=window.__tradingReports(window.__futuresResponses).at(-1).data.holdings.map(h=>h.quantity).sort((a,b)=>Number(a)-Number(b));return document.querySelector('#desk-positions [role=columnheader][tabulator-field=c2]').getAttribute('aria-sort')==='ascending'&&JSON.stringify(values)===JSON.stringify(expected.slice(0,values.length))&&values.length>0&&document.querySelector('#error').hidden;})()","[document.querySelector('#desk-positions .tabulator-tableholder').scrollTop,[...document.querySelectorAll('#desk-positions .tabulator-row [tabulator-field=c2] .desk-figure')].map(n=>n.title)]");
   await set('#blotter-row-group','book');await wait(idle);
   await evaluate('window.__secondCurrency=true');await click('#futures-refresh');

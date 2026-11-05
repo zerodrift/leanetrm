@@ -1,8 +1,10 @@
+import {reloadPage} from './reload-page.mjs';
 // The Dashboard (docs/market-dashboard.md): one widget of each kind added through Add widget, the same widgets under Board and Morning,
 // the layout kept across a reload, a Positions definition run now until the widget reads its ladder by itself, a Board widget moved and
 // resized from the keyboard, a curve the catalog does not have refused by the backend in its own tile, close footers that follow a newer
 // close, a newer run stated at an earlier close, tied runs chosen explicitly, and a past context read only with no Run now.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,fitsWidth,errors,url}){
+  const reload=()=>reloadPage({command,evaluate,wait});
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   // The curve-shapes reads the page makes, and the workspace calendar ending a date early while a check asks: showing that to the app stands
   // in for a close that becomes available during a session, as the market-dates check does. Every other reply is the backend's own.
@@ -78,12 +80,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('switching the arrangement keeps the drawn widgets and reads no curve again',
     "window.__shapeReads.length===window.__readsBeforeArranging&&document.querySelectorAll('.level-tile').length===2&&!!document.querySelector('.price-chart .contract-chart canvas')");
   const saved=await evaluate("(async()=>(await(await fetch('/api/dashboard/layout')).json()))()");
-  await command('Page.reload');await wait(idle);await evaluate('window.__readsBeforeOpening=window.__shapeReads.length');await click('#nav-dashboard');await added(3);
+  await reload();await click('#nav-jobs');await evaluate('window.__readsBeforeOpening=window.__shapeReads.length');await click('#nav-dashboard');await added(3);
   await reveal('Latest levels');await wait("document.querySelectorAll('.level-tile').length===2");
   await check('after a reload the saved layout is shown: the same widgets, arrangement and version',
     `(async()=>{const now=await(await fetch('/api/dashboard/layout')).json();return now.version===${JSON.stringify(saved.version)}&&now.layout.arrangement==='board'&&JSON.stringify(now.layout.widgets)===${JSON.stringify(JSON.stringify(saved.layout.widgets))}&&${widgets}===${JSON.stringify(kinds)};})()`);
   await check('opening the Dashboard reads the curves of every Latest levels and Price chart widget in one curve-shapes read',
-    // The market page behind it reads its own selected curve, so only the reads naming the chart's curve are the dashboard's.
+    // Jobs reads no market shapes; leaving the restored Dashboard also disposes its pending widget reads before this baseline.
     "window.__shapeReads.slice(window.__readsBeforeOpening).filter(r=>r.curves.includes('local_power')).map(r=>[...r.curves].sort().join()).join('|')==='future,local_power'","window.__shapeReads.map(r=>r.curves)");
 
   // Run now queues the definition's run; the widget follows its parts and reads the run once the risk worker has finished them.
@@ -112,7 +114,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     `(async()=>({box:await ${box},row:${levelsCard}.style.gridRow,column:${levelsCard}.style.gridColumn,focus:document.activeElement?.outerHTML.slice(0,80)}))()`);
   await check('moving a widget redraws none of them and reads no curve again',
     "window.__shapeReads.length===window.__readsBeforeArranging&&document.querySelectorAll('.level-tile').length===2&&!!document.querySelector('.price-chart .contract-chart canvas')");
-  await command('Page.reload');await wait(idle);await click('#nav-dashboard');await added(3);
+  await reload();await click('#nav-dashboard');await added(3);
   await check('after a reload the widget keeps its new place and size',
     `${levelsCard}.style.gridRow.startsWith('${before.y+2} ')&&${levelsCard}.style.gridColumn.endsWith('span ${before.w-1}')`,`[${levelsCard}.style.gridRow,${levelsCard}.style.gridColumn]`);
 
@@ -158,7 +160,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
 
   // The calendar first ends a date early, so the page opens on the close before the newest, which it calls the latest. A newer close
   // found when the window is focused again turns every close footer to Newer available without reading any widget again.
-  await evaluate("sessionStorage.setItem('hideNewestDate','1')");await command('Page.reload');await wait(idle);await click('#nav-dashboard');await added(3);
+  await evaluate("sessionStorage.setItem('hideNewestDate','1')");await reload();await click('#nav-dashboard');await added(3);
   await revealAll();await wait(`document.querySelectorAll('.level-tile').length===2&&!!document.querySelector('.price-chart .contract-chart canvas')&&${read}`);
   await check('at the close before the newest, which the calendar calls the latest, the close footers say Latest',
     "document.querySelector('#market-date-badge').textContent==='Latest close'&&/· Latest · Intraday not configured$/.test(document.querySelector('.level-tiles-footer').textContent)&&/· Latest$/m.test(document.querySelector('.price-chart').innerText)");

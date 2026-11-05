@@ -343,7 +343,8 @@ def run_checks(url, query, manifest):
     own_sql = f"SELECT security.read_trade_facility_allocations('{catalog_id}','{trades[0]['tradeId']}')::text;"
     own = json.loads(call(own_sql, context=capture()))
     assert len(own) == 1 and own[0]['quantity'] == '60' and own[0]['sideCode'] == 'receipt'
-    assert set(own[0]) == {'obligationId', 'sideCode', 'day', 'quantity', 'unit', 'state'}
+    assert own[0]['finalQuantity'] is None and own[0]['finalState']=='missing'
+    assert set(own[0]) == {'obligationId', 'sideCode', 'day', 'quantity', 'unit', 'state', 'finalQuantity', 'finalState'}
     assert json.loads(call(own_sql, context=frozen)) == []
     inspection = {**before, 'snapshotId': next(f['id'] for f in workspace['frames'] if f['at'].startswith('2021-01-31T08:')),
                   'convention': 'trading_workspace_v1'}

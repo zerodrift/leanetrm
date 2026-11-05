@@ -11,6 +11,13 @@ const context='c1000000-0000-4000-8000-000000000001',frame='f1000000-0000-4000-8
 const open={pane:{details:true,charts:true},poppedOut:false},layout={pane:{details:true,charts:true},poppedOut:false};
 const blotter={mode:'trades',bookIds:[book],portfolioIds:[],groupBy:['contract'],measures:['lots']};
 
+test('identity-only dashboard, setup and volatility reports have usable Looking at labels',()=>{
+  for(const [page,label] of [['dashboard','Dashboard'],['gas-setup','Gas delivery setup'],['crude-setup','Crude delivery setup'],['vol-surfaces','Vol surfaces']]){
+    const report=pageReport({page}),seen=lookingAt(report,{mode:'current',frameId:frame,frameLabel:'Synthetic close'},{curve:String,table:String});
+    assert.deepEqual(report.selection,{});assert.equal(seen.page,label);assert.equal(seen.askable,true);assert.equal(seen.supported,false);assert.match(seen.shows,/does not read this page/);
+  }
+});
+
 test('Curves & prices reports the directory with no curve, the curve on Prices and Dependencies, and its observations on Inputs',()=>{
   assert.deepEqual(pageReport({page:'market',curve:null,tab:'prices'}),{page:'curves',selection:{view:'curves',curve:null}});
   assert.deepEqual(pageReport({page:'market',curve:'future',tab:'prices'}),{page:'curves',selection:{view:'curve',curve:'future'}});

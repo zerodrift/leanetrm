@@ -1,5 +1,10 @@
 # Reusable physical delivery and cash lifecycle
 
+D321 implements the bounded [facility-final quantity-input consumer](gas-basis-demo.md)
+through exact adopted-plan/target links. It adds no physical completion, invoice,
+cash or lifecycle remaining-value policy. The wider object responsibilities and
+commodity adapters below retain their stated proposed/implemented boundaries.
+
 Status: local design for review. D303 records the agreed object-oriented reuse
 and scheduling ownership model: unique booked physical Side schedules, a shared
 facility quantity ledger where operations span trades, and explicit connecting

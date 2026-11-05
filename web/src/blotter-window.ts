@@ -80,9 +80,9 @@ function syncControls(){
 // Actions run one at a time. Each ends by checking that the account is still the main window's, and then reports what the window shows.
 async function act(work:()=>Promise<void>){
   if(busy||ended&&!retaining)return;
-  busy=true;syncControls();$('error').hidden=true;$('notice').hidden=true;text('status','Loading…');
+  busy=true;
   // A window keeping only its request checks the account before each action on it, as no other check is made once it shows no values.
-  try{if(retaining)await verify();await work();text('status','Blotter · its own window, tied to the main window.');}
+  try{syncControls();$('error').hidden=true;$('notice').hidden=true;text('status','Loading…');if(retaining)await verify();await work();text('status','Blotter · its own window, tied to the main window.');}
   catch(error){if(!ended)failed(error);}
   finally{busy=false;syncControls();}
   checkAccount();

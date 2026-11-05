@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--delivery-setup-defaults"]){DeliverySetupDefaultsChecks.Run();return;}
 if(args is ["--market-calendar-demand"]){await MarketCalendarDemandChecks.Run();return;}
 if(args is ["--historical-risk"]){HistoricalRiskContractChecks.Run();return;}
 if(args is ["--monte-carlo-risk"]){MonteCarloRiskContractChecks.Run();return;}
@@ -90,6 +91,7 @@ if(args is ["--blotter-stream"]){await BlotterStreamChecks.Run();return;}
 
 if (args is ["--schedules"])
 {
+    DeliverySetupDefaultsChecks.Run();
     RiskValuationAdmissionChecks.Run();
     ReferencePresentationChecks.Run();
     CurveActivationInputChecks.Run();

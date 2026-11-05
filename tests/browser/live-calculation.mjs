@@ -1,7 +1,7 @@
 import {visibleCurveCellsReady} from './curve-cells.mjs';
 import {workspaceProbeScript} from './workspace-probe.mjs';
 import {sideSession} from './side-session.mjs';
-import {popOut} from './blotter-window.mjs';
+import {popOut,press} from './blotter-window.mjs';
 
 export async function run({command,evaluate,wait,click,persona,set,submit,check,shot,idle,url,tab}){
  await command('Runtime.enable');await command('Page.enable');await command('Network.enable');
@@ -29,6 +29,13 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  await click('#nav-custom-curves');await click('#nav-market');
  await wait("document.querySelector('#live-status').dataset.state==='live'&&document.querySelector('#contracts').textContent.includes('31.2')&&"+idle);
  await check('returning to a live market screen refreshes its displayed generation',"document.querySelector('#error').hidden&&document.querySelector('#contracts').textContent.includes('31.2')");
+ // A failed presentation refresh before a live read must release the workspace for Retry.
+ await evaluate(`(()=>{const control=document.querySelector('#profile-open'),disabled=Object.getOwnPropertyDescriptor(HTMLButtonElement.prototype,'disabled');
+  Object.defineProperty(control,'disabled',{configurable:true,get(){return disabled.get.call(this);},set(value){delete this.disabled;throw Error('Synthetic live control refresh failure');}});})()`);
+ await correct('base','3.31');await wait("document.querySelector('#live-status').dataset.state==='stale'");
+ await check('a failed live control refresh releases the workspace for Retry',"document.body.getAttribute('aria-busy')==='false'&&!document.querySelector('#nav-market').disabled&&!document.querySelector('#live-retry').hidden");
+ await click('#live-retry');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
+ await check('Retry completes a live read after a presentation failure',"!document.querySelector('#nav-market').disabled&&document.querySelector('#error').hidden");
  await click('#current-view-context');await persona('editor');await click('#example');await click('#nav-custom-curves');await set('#custom-curves-template','ng_prompt');await click('#custom-curves-preview');
  const nodes=await evaluate("document.querySelectorAll('.custom-curve-node').length");
  await click('#follow-live');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
@@ -221,6 +228,12 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  if(await evaluate("!document.querySelector('#follow-live').hidden"))await click('#follow-live');
  await wait("document.querySelector('#live-status').dataset.state==='live'&&!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&"+idle,60000);
  const popup=await popOut({command,evaluate,url,tab});
+ await popup.evaluate(`(()=>{const control=document.querySelector('#blotter-window-close'),disabled=Object.getOwnPropertyDescriptor(HTMLButtonElement.prototype,'disabled');
+  Object.defineProperty(control,'disabled',{configurable:true,get(){return disabled.get.call(this);},set(value){if(!value){disabled.set.call(this,value);return;}delete this.disabled;window.__popupControlRefreshThrown=true;throw Error('Synthetic pop-out control refresh failure');}});})()`);
+ await press(popup,'#futures-refresh');await popup.evaluate('new Promise(resolve=>setTimeout(resolve,100))');
+ await check('a pop-out control refresh failure releases its busy state and reports the reason',JSON.stringify(await popup.evaluate("window.__popupControlRefreshThrown===true&&document.body.getAttribute('aria-busy')==='false'&&!document.querySelector('#futures-refresh').disabled&&!document.querySelector('#error').hidden&&document.querySelector('#error').textContent.includes('Synthetic pop-out control refresh failure')")));
+ await popup.click('#futures-refresh');await popup.wait(idle);
+ await check('the pop-out remains usable after a failed presentation refresh',JSON.stringify(await popup.evaluate("document.querySelector('#error').hidden&&!document.querySelector('#futures-refresh').disabled")));
  await popup.click('#blotter-risk');await popup.wait(reportOpen+'&&'+idle,30000);
  await popup.click('input[name=risk-choice][value=held]');await popup.wait("!!document.querySelector('#risk-size-0')&&"+idle,30000);
  await popup.evaluate("(()=>{const n=document.querySelector('#risk-size-0');n.focus();n.select();})()");await popup.command('Input.insertText',{text:'0.25'});

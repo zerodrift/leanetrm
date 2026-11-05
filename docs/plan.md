@@ -1,5 +1,25 @@
 # Delivery plan and acceptance criteria
 
+D324 adds [delivery editor starting values](physical-workspace.md#starting-new-entries)
+under the existing context, validation and publication boundaries. Sole choices
+and managed suggestions apply to new entries, preserving exact saved terms.
+
+D323 adds [delivery field definitions and contextual inspection](physical-workspace.md#delivery-setup-fields-and-context).
+The separate assistant setup reader must reuse native catalogs and context;
+reviewed guidance can reuse existing immutable page-prompt revisions. Conversation
+history alone is not verified expertise and must not supply missing financial terms.
+
+D322 locally consolidates the physical screens in one Operations workspace.
+The [workspace contract](physical-workspace.md) records implemented consumers and
+scope. Region classification and broader facility allocation mappings remain
+subsequent work; neither is inferred from the shared navigation.
+
+D321 adds an opt-in [synthetic gas basis demo](gas-basis-demo.md) with explicit
+benchmark/basis dependencies, dated history and whole-plan final-input adoption.
+Accepted quantities retain exact allocation links under a separate strict policy;
+source corrections require an explicit acceptance change. Migration 0197 and
+hosted activation remain separate from local qualification.
+
 D316 makes displayed versions follow the shared As of date and knowledge cutoff;
 exact backend history and retained financial pins remain available. See
 [contextual version presentation](contextual-versions.md) for implemented consumers
@@ -13,6 +33,11 @@ The [assistant digest and walkthrough extension](assistant-walkthroughs.md)
 (D312–D315) is approved for local implementation. The bounded digest is locally
 qualified together with selection asks and bounded presentation walkthroughs;
 see the implementation contract for supported native controls and literal fills.
+D319 repairs native New trade/future/swap navigation and issues bounded workspace
+page handles under `turns_v14`/migration 0196. Entry discovery reuses existing
+operations; swap term filling and automated booking are not added. D320 releases
+busy ownership after a failed control refresh in main/live/pop-out actions and
+keeps walkthrough Stop available during native reads.
 Unsaved draft/close-out/request counts lack server-readable identities and remain
 explicitly unavailable; a concrete pointer-backed consumer must precede any store.
 Keep requires source-bound read artifacts and an exact existing Blotter/risk
@@ -1852,8 +1877,8 @@ native-period maximum assessments for retained gas days. The Facilities UI and
 HTTP operations share authorization, receipts and backend quantity rules; trade
 Sides show only their own read-only allocation track. Triggers enforce immutable
 chains, conservation and exact references. Metadata/clock revisions cannot mint
-capacity. Remaining slices include broader facility-to-point relationships, final
-allocation adoption, external source evidence and notification dispatch. Billing,
+capacity. Remaining slices include broader facility-to-point relationships, additional
+final-input profiles, external source evidence and notification dispatch. Billing,
 fulfillment and cash remain governed by their existing contracts.
 
 ### Monte Carlo risk increment (D307, R6)
@@ -1938,3 +1963,12 @@ product directories by explicit page/search. Preserve whole-portfolio valuation
 and risk. The [read contract](ui-read-demand.md) states the intentional directory
 and portfolio boundaries. Database paging of all position-fact product adapters
 remains a later increment; current response paging is not that qualification.
+
+
+### Assistant page catalog and guide follow-up (D325–D326)
+
+Identity-only page asks and dismissible, tracked guide controls are implemented.
+Dashboard widget evidence, crude-setup and volatility reads remain outside the
+assistant until named authorized operation consumers are classified and qualified.
+These pages currently contribute page/context identity only. Arbitrary page
+controls, generated UI and business-effect walkthrough steps remain excluded.

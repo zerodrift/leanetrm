@@ -6,6 +6,10 @@ stored single-point trades are not enrolled. No trade amendment, physical
 completion, cash determination, payment, inventory or weighted inventory-cost
 calculation follows from recording or selecting a quantity.
 
+D321 adds a separate [facility-final input policy](gas-basis-demo.md#final-input-contract).
+It reads adopted exact allocation links rather than copying facility amounts into
+manual quantity revisions. Existing manual policies below remain unchanged.
+
 ## Ownership and persistence
 
 Migration 0145 creates a delivery obligation for each physical membership when a

@@ -2,9 +2,14 @@
 
 D312–D314 are implemented in the bounded contract below; D315 is deferred. This extends the existing
 [workspace assistant](assistant-workspace.md); it adds no independent agent loop.
-Runtime `turns_v13` is a single local compatibility increment, not a hosted release.
+The current runtime is `turns_v15` (D325); deployment requires matching schema,
+API and browser assets. A runtime increment alone does not qualify a hosted release.
 Migration 0194 is consumed by digest admission, tool consent and Looking at;
 0195 adds walkthrough admission and the stored event. Neither adds a table.
+Migration 0196 guards admission and walkthrough storage for workspace page handles;
+older v13 binaries cannot admit new work. Migration 0198 extends the identity-only
+report catalog and requires v15 at admission and stored-plan publication.
+Existing versions and grants are unchanged.
 
 ## Page digest
 
@@ -73,6 +78,12 @@ new tool. The tool takes `planJson`, an array of one to twelve steps; the entire
 plan validates before publication. Fixed instructions require walkthroughs for
 requests to show, find, explain or do something on screen when enabled.
 
+A successful `read_workspace_page` with available authorized operations returns
+its own `target` handle and fixed `targetLabel`. The target names that page with
+no selection. Handles join the same turn-local sequence as digest and legacy
+read targets, only after complete-result bounds and step publication succeed.
+An empty or refused page read issues none.
+
 The managed catalog admits `go`, `select`, `sort`, `filter`, `open`, `scroll_to`,
 `fill`, `say` and `pause`. Every named page must have a successful read in this
 turn. Go resolves only a handle this turn issued; trade selections resolve issued
@@ -83,7 +94,21 @@ No step names a selector, URL, code, Book, Save, job control or Authorize.
 
 Blotter adapters use native presentation operations for row selection, column
 sort/search/filter, details/charts, known widgets and an unsaved futures ticket.
-Opening the ticket leaves book, contract, lots and price unchosen. Other pages
+Opening the ticket leaves book, contract, lots and price unchosen.
+A `go` to an issued New trade, New futures trade or New swap page handle opens
+the native product chooser or ticket. Ordinary `navigate` uses the same route.
+The native catalog must allow booking; missing contexts and retained requests
+refuse without changing to working data. Walkthroughs stop at unsaved edits;
+ordinary Go/Back retains its explicit leave confirmation. Confirmed navigation
+opens a fresh ticket without carrying discarded financial terms.
+Stop and stale source/generation checks prevent a late catalog from mounting
+a swap ticket or replacing a newer form. No price, preview or booking is sent
+by opening it. Swap term filling remains unsupported; the person enters terms
+and uses the ordinary booking controls.
+
+Entry-page discovery includes closed aliases of the existing native catalog and
+booking operations, preserving canonical IDs, permissions, context and approval.
+Amendment and settlement commands are excluded from new-ticket discovery. Other pages
 support issued navigation, the page widget, narration/pause and Review of a
 proposal on that page. An unavailable grid column, pane or widget stops with the
 failed ordinal. There is no general editor-field adapter or model-written UI.
@@ -113,8 +138,10 @@ tool step in the same transaction, with `(turn, step)` identity and a backend
 agent label. The existing publication/source fence and D190 owner-read hiding
 cover the entire plan. Plans fit a 16 KiB managed budget and ordinary admitted
 result bounds; storage also refuses oversized/unknown event vocabulary. Runtime
-`turns_v13` covers the full local tool/report/event contract; no intermediate v13
-binary is released.
+`turns_v14` covers workspace page target results and the existing tool/report/event
+contract. Migration 0196 refuses v13 admission and stored walkthrough writes. Migration 0198
+extends identity-only page admission and requires v15 at both boundaries;
+previous runtime histories and grants remain unchanged.
 
 Eligible live asks in this tab can start a plan. History, reload, gaps and duplicate
 events never start one automatically. Start/Resume rechecks the owner's stored
@@ -177,3 +204,36 @@ independently rerun the suites. The complete release command in
 [verification.md](verification.md#required-tools) remains required before any
 release publication; it now includes the dedicated workspace browser gate.
 Targeted checks alone do not qualify production activation.
+
+
+D320 keeps walkthrough Continue/Stop under the runner's own control while a native
+page read is busy. Initial control-refresh errors in main actions, live updates
+and pop-out actions release busy ownership through their normal error paths;
+they never retry a command. Owned browser regressions qualify recovery from that
+failure path without attributing a production input lock to a specific exception.
+
+
+## Identity-only page admission and guide controls (D325–D326)
+
+Dashboard, Crude delivery setup and Vol surfaces report their page identity and an
+empty selection. Their asks now pass both the managed and SQL closed catalogs,
+pin page guidance and use the normal As of / retained-context requirements.
+Facilities also regains SQL prompt admission for its existing empty report.
+The digest returns identity, context and empty selection only. These pages have
+no assistant reader, navigation target or newly exposed operation. Gas delivery
+setup also has its missing Looking at label. Browser widget contents never enter
+these reports. Catalog parity is checked from native PageState reports through
+the server prompt list and SQL whitelist.
+
+The guide offers Minimize / Restore and Close beside Continue and Stop. Minimize
+keeps Continue and Stop available; Close stops the run and hides its box and cursor.
+A later plan requires the existing Start / Resume policy. The cursor tracks the
+actual native control through layout and scroll changes, hides while offscreen or
+occluded, and stops if the control disappears. Navigation to a native ticket
+points at a visible enabled field rather than the page container. Its glow and
+subtle tilt respect reduced motion. Stop, Close, replacement and teardown release
+the target outline and tracking callbacks.
+
+Native modal Review dialogs host the guide's presentation controls in their top
+layer, keeping them reachable while the surrounding page stays inert. The guide
+never checks consent, closes Review, submits a form or authorizes a proposal.

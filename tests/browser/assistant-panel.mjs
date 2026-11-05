@@ -183,7 +183,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await press('Back');await wait(`${buttons}==='Back anyway'`);
   await check('Back from a page with unsaved edits first says so, keeping them, and offers Back anyway',
     `${shown('#futures-new-trade')}&&${q('#futures-lots')}.value==='5'&&${notice}.textContent.includes('Back would leave unsaved changes on this page.')`);
-  await press('Back anyway');await wait(`${q('#futures-new-trade')}.hidden&&${q('#page-title')}.textContent==='Blotter'&&${idle}`);
+  await press('Back anyway');await wait(`${shown('#futures-new-trade')}&&${q('#page-title')}.textContent==='Blotter'&&${q('#futures-lots')}.value===''&&${idle}`);
+  await check('Back anyway restores the native entry page without the discarded terms',`${shown('#futures-new-trade')}&&${q('#futures-lots')}.value===''&&${q('#futures-execution')}.value===''&&${q('#futures-book')}.value===''&&${q('#futures-contract')}.value===''&&${q('#error')}.hidden&&!window.__requests.some(request=>['/futures/book','/swaps/book','/assistant/actions/authorize'].some(path=>request.path.endsWith(path)))`);
 
   // A trade open in the panel is not a dialog (D221): the assistant stays open beside it and can be asked about it, and Looking at names
   // the trade at its revision.

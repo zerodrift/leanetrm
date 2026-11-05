@@ -88,7 +88,7 @@ Each row groups the related controls of one functional widget. Endpoint lists ar
 | **Schedule workspace and calendar**<br>Schedules/Date mappings tabs; month navigation; calendar event selection/disclosure | [schedule-workspace.ts](../web/src/schedule-workspace.ts)<br>[schedule-calendar.ts](../web/src/schedule-calendar.ts)<br>Backend: `Consumes exact backend-evaluated generator/template receipts from date-editor.ts` | Local presentation over authorized data | [web/tests/schedule-calendar.test.mjs](../web/tests/schedule-calendar.test.mjs)<br>[tests/browser/contract-dates.mjs](../tests/browser/contract-dates.mjs) |
 | **TOU product library and authoring**<br>published products; open/new product; code/name/exact market clock; peak bounds/weekdays; save draft; publish exact saved draft | [tou-products.ts](../web/src/tou-products.ts)<br>Backend: `ScheduleReads.TouProducts`, `TouProductStore.Save/Publish` | `GET /api/tou-products`<br>`POST /api/tou-products/save`<br>`POST /api/tou-products/publish` | [tests/browser/power.mjs](../tests/browser/power.mjs)<br>[web/tests/power-options.test.mjs](../web/tests/power-options.test.mjs) |
 | **Synthetic power TOU calculation**<br>curve/contract/product/block/grid/hour labels; weekday and holiday masks; flat MW/total MWh basis; allocation policy; quantity/price classification/timing; advanced money display; preview; first/all interval rows | [power-view.ts](../web/src/power-view.ts)<br>Backend: `ScheduleReads.PowerCatalog/PublishedProducts`, `PowerPreview.Calculate` | `POST /api/power/catalog`<br>`POST /api/power/preview` | [tests/browser/power.mjs](../tests/browser/power.mjs)<br>[web/tests/power-options.test.mjs](../web/tests/power-options.test.mjs) |
-| **Gas delivery setup**<br>saved/current version; delivery points/groups/meters/tariffs categories; record choice/add/remove; all typed reference/economic/date fields; save draft; validation delivery range; validate resolved pricing/meter coverage; publish validated version; retry original command; keep/discard unsaved changes | [gas-setup-editor.ts](../web/src/gas-setup-editor.ts)<br>Backend: `GasSetupEditor.Catalog/Save/Validate/Publish`, `security.save_gas_setup/validate_gas_setup/publish_gas_setup` | `GET /api/gas-setup/catalog`<br>`POST /api/gas-setup/save`<br>`POST /api/gas-setup/validate`<br>`POST /api/gas-setup/publish` | [tests/browser/gas-setup.mjs](../tests/browser/gas-setup.mjs)<br>[tools/check_gas_setup_editor.py](../tools/check_gas_setup_editor.py) |
+| **Facilities & delivery → Natural gas**<br>saved/current version; delivery points/groups/meters/tariffs categories; record choice/add/remove; all typed reference/economic/date fields; save draft; validation delivery range; validate resolved pricing/meter coverage; publish validated version; retry original command; keep/discard unsaved changes | [gas-setup-editor.ts](../web/src/gas-setup-editor.ts)<br>Backend: `GasSetupEditor.Catalog/Save/Validate/Publish`, `security.save_gas_setup/validate_gas_setup/publish_gas_setup` | `GET /api/gas-setup/catalog`<br>`POST /api/gas-setup/save`<br>`POST /api/gas-setup/validate`<br>`POST /api/gas-setup/publish` | [tests/browser/gas-setup.mjs](../tests/browser/gas-setup.mjs)<br>[tools/check_gas_setup_editor.py](../tools/check_gas_setup_editor.py) |
 | **Automation job directory and scheduler**<br>refresh; previous/next automation page; job-name/edit/view details; name/due/expiry/frequency/interval/timeout/attempts/approved image; create/save schedule; pause/resume/cancel/run again; retry/discard retained request | [jobs-view.ts](../web/src/jobs-view.ts)<br>[job-requests.ts](../web/src/job-requests.ts)<br>Backend: `CollectionJobs.Directory`, `JobOperations.Create/Update/Control` | `GET /api/jobs`<br>`POST /api/jobs/create`<br>`POST /api/jobs/update`<br>`POST /api/jobs/control` | [tests/browser/jobs.mjs](../tests/browser/jobs.mjs)<br>[web/tests/job-requests.test.mjs](../web/tests/job-requests.test.mjs)<br>[web/tests/job-target.test.mjs](../web/tests/job-target.test.mjs) |
 | **Collection job configuration**<br>previous/next collection page; view/edit registered collection schedule; name/enabled schedule/day offsets; save/close; retry exact generation-bound request | [jobs-view.ts](../web/src/jobs-view.ts)<br>Backend: `CollectionJobs.Directory/Update` | `GET /api/jobs`<br>`POST /api/jobs/collection/update` | [tests/browser/jobs.mjs](../tests/browser/jobs.mjs) |
 | **Infrastructure operations**<br>node status; pause/resume scheduling; drain idle node; command outcomes; keep observed state and reconcile | [jobs-view.ts](../web/src/jobs-view.ts)<br>Backend: `JobOperations.NodeAction/ResolveNode`, `CollectionJobs.Directory infrastructure projection` | `GET /api/jobs`<br>`POST /api/infrastructure/availability`<br>`POST /api/infrastructure/resolve` | [tests/browser/jobs.mjs](../tests/browser/jobs.mjs) |
@@ -179,3 +179,42 @@ no Keep wiring: prose tables lack operation/input source bindings.
 choices. Stop suppresses subsequent automatic plans/navigation for the same
 owner/conversation/turn. Narration persists across presentation steps and pauses;
 ticket setters scroll their native field into view before positioning the cursor.
+
+
+D319: workspace page reads issue fixed page handles after authorization and complete
+result bounds. `AssistantOperations.ForPage` supplies closed entry aliases without
+changing the underlying operation contracts. `app.ts` routes New trade/future/swap
+targets through `futures-view.ts` native entry methods; ordinary navigation and
+walkthrough `go` share this route. Swap opening checks AbortSignal, source and
+editor generation before mount; product opening guards fallback/focus work too.
+No presentation path invokes price, preview, booking or authorization. The owned
+assistant workspace browser suite covers native navigation, issued-handle go/pause,
+booking refusal and Stop while the catalog response is held. Runtime `turns_v14`
+and migration 0196 must ship with the matching API/browser assets.
+
+
+D320: `app.ts` and `blotter-window.ts` own busy state through initial control
+refresh and completion. A refresh failure follows the same error/stale path as
+other failed work and releases busy before refreshing controls again.
+`assistant-walkthroughs.ts` owns its HUD controls with `data-own-controls`; native
+page refresh cannot disable Stop while awaiting a read. The owned assistant and
+live-calculation browser suites qualify initial-refresh failures and subsequent
+native action/Retry, including the pop-out.
+
+
+### Report catalog and guide placement (D325–D326)
+
+`assistant-pages.ts` emits identity-only reports for Dashboard, Crude delivery
+setup and Vol surfaces. `PageReports` and migration 0198 admit those exact empty
+reports without adding readers or navigation. The owned workspace browser check
+compares actual `pageReport(PageState)` output with Looking at's catalog and the
+page-prompt API; the managed HTTP check verifies the SQL whitelist and prompt pins.
+Runtime `turns_v15` fences old admission and stored-plan writers.
+
+`assistant-walkthroughs.ts` owns Minimize / Restore, Close, Stop and Continue.
+Its animation-frame tracker anchors the cursor inside the actual visible native
+control, suppresses occluded/offscreen pointers and clears the outline on stop.
+A native modal hosts only these guide elements so modal inertness still protects
+the background. `app.ts` and `futures-view.ts` return native heading/visible ticket
+field anchors for navigation. No model selector, markup or business action enters
+this presentation adapter. CSS supplies the glowing cursor and reduced-motion rule.
