@@ -31,7 +31,7 @@ selection rule.
 
 ## Authoring and publication
 
-Settings → Crude delivery setup offers Save, Validate and Publish. Each field is
+Operations → Facilities & delivery → Delivery setup → Crude oil offers Save, Validate and Publish. Each field is
 selected explicitly. Validation checks typed references, standard-volume
 compatibility, and exactly one qualified monthly forward/fixing per covered
 month; it does not assert that market prices are available on every market date.

@@ -11,7 +11,7 @@ internal static class GasDailyQuantityChecks
   var f=new CommodityLookupFixture(1);var unit=f.Quote.Quantity;
   var start=new DateTimeOffset(2021,1,1,6,0,0,TimeSpan.Zero);var end=start.AddDays(1);
   var contract=new GasDailyContract("gas/0/quantity",0,0,new DateOnly(2021,1,1),start,end,ExactQuantity.FromQuantity(new(ExactDecimal.Parse("1000"),unit)));
-  GasQuantityObservation Observation(string kind,string status,string amount)=>new(Guid.NewGuid(),kind,status,ExactQuantity.FromQuantity(new(ExactDecimal.Parse(amount),unit)),"Synthetic allocation evidence");
+  GasQuantityObservation Observation(string kind,string status,string amount)=>new(Guid.NewGuid(),kind,status,ExactQuantity.FromQuantity(new(ExactDecimal.Parse(amount),unit)),"Synthetic allocation evidence","manual_daily_v1");
   var nominated=Observation("nominated","provisional","990");var scheduled=Observation("scheduled","provisional","985");var allocated=Observation("allocated","final","980");
   var result=GasDailyQuantitySelection.Select(contract,[nominated,scheduled,allocated],"operational_projection_v1",end,new ExactRatio(1000,1));
   Equal(result.Quantity,"980");if(result.RevisionId!=allocated.Id)throw new Exception("Selected quantity lost its source revision.");
@@ -25,6 +25,10 @@ internal static class GasDailyQuantityChecks
   Reject(()=>GasDailyQuantitySelection.Select(contract,[allocated,allocated with{Id=Guid.NewGuid()}],"operational_projection_v1",end,new ExactRatio(1000,1)));
   Reject(()=>GasDailyQuantitySelection.Select(contract,[allocated],"unknown",end,new ExactRatio(1000,1)));
   Equal(GasDailyQuantitySelection.Select(contract,[allocated with{Status="withdrawn"}],"operational_projection_v1",end,new ExactRatio(1000,1)).Quantity,"1000");
+  Reject(()=>GasDailyQuantitySelection.Select(contract,[allocated],"final_facility_allocated_billing_v1",end,new ExactRatio(1000,1)));
+  var facility=allocated with{Source="facility_allocation_adoption_v1"};
+  Equal(GasDailyQuantitySelection.Select(contract,[facility],"final_facility_allocated_billing_v1",end,new ExactRatio(1000,1)).Quantity,"980");
+  Reject(()=>GasDailyQuantitySelection.Select(contract,[facility with{Status="withdrawn"}],"final_facility_allocated_billing_v1",end,new ExactRatio(1000,1)));
   Console.WriteLine("PASS daily gas quantities: explicit selection, missing billing refusal, zero, finality, causal evidence and exactly-once normalization");
  }
  static void Equal(ExactQuantity q,string text){if(q.ToQuantity().Amount.ToString()!=text)throw new Exception($"Expected {text}, got {q.Numerator}/{q.Denominator}");}

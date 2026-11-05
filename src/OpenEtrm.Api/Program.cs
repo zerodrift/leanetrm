@@ -993,6 +993,14 @@ api.MapPost("/crude-setup/publish",(HttpContext c,CrudeSetupPublishRequest body)
 }));
 api.MapPost("/crude-setup/preview",(HttpContext c,CrudeSetupPreviewRequest body)=>Locked(c,session=>database.WithIdentity<IResult>(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
+ if(body.KnowledgeMode=="context")
+ {
+  var view=await PartyView(connection,session,body.SnapshotId,ct);
+  await view.Bind(connection,database.Manifest.CatalogId,ct);
+  if(!(await CrudeSetupEditor.CurrentSetups(connection,database.Manifest.CatalogId,ct)).Contains(body.SetupId))
+   throw new MarketDataException("crude_setup_context","Choose the published delivery binding resolved by the header context.");
+  return Results.Ok(await crudeSetupEditor.Preview(connection,view.CalculationFrame,body,ct));
+ }
  var pin=Pin(session,body.SnapshotId);
  if(body.KnowledgeMode!="current"||pin.Context is not null)throw new MarketDataException("crude_setup_input","Choose current working knowledge for delivery-mark preview.");
  var frame=pin.RequireFrame();

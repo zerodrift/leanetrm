@@ -1,9 +1,10 @@
 # Facility quantities and physical Side delivery tracks
 
 Status: implemented for local synthetic qualification (D303, migration 0184).
-The Operations › Facilities page and authorized API use the same database
-operations. Broader lifecycle responsibilities remain in the
+Operations › Facilities & delivery › Quantities & allocations and the authorized
+API use the same database operations. Broader lifecycle responsibilities remain in the
 [design](physical-lifecycle-design.md) and [extension guide](physical-lifecycle-extension-guide.md).
+D321 adds explicit [final-input adoption and a gas basis demo](gas-basis-demo.md).
 No deployment or production qualification is implied.
 
 ## Supported contract
@@ -19,8 +20,10 @@ binding ratios, rather than another calendar or inferred conversions or losses.
 A source is recorded once; allocations link it to each trade's own physical Side.
 The trade ticket and unvalued trade inspector project only that Side's planned
 delivery amounts from the same ledger, independently of PV availability. There is no second writable copy of its facility allocation schedule.
-These plans do not overwrite existing gas daily inputs, adopt final billing
-quantities, establish fulfillment, change PV, create invoices or post cash.
+Plans do not overwrite existing gas daily inputs. A separate explicit D321
+adoption supplies facility-only final billing inputs through exact allocation
+links. Neither plan nor adoption establishes fulfillment, changes contractual
+PV, creates invoices or posts cash.
 Financial hedges create no physical flow. Other commodities require qualified
 adapters and their own independent examples before activation.
 
@@ -152,6 +155,6 @@ recovery, edit guards, context transitions and responsive layout alongside exist
 gas/ticket workflows. See [verification](verification.md#facility-quantity-ledger-d303).
 
 Migration 0184 adds objects without rewriting legacy rows. Hosted schema/API/role
-qualification, broader facility mappings, external evidence ingestion, final
-allocation adoption and notification dispatch remain separate work. No additional
+qualification, broader facility mappings, external evidence ingestion, broader final
+allocation profiles and notification dispatch remain separate work. No additional
 billing, cash, netting, commodity or production capability follows from these plans.

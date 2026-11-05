@@ -1917,6 +1917,23 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 .gas-setup-toolbar>button{flex:0 0 auto;white-space:nowrap}
 .gas-setup-category{display:block;max-width:360px;margin:16px 0}
 .gas-setup-category select{display:block;width:100%}
+.delivery-setup .card{padding:24px;min-width:0}
+.delivery-setup .card>p{max-width:90ch;line-height:1.6}
+.delivery-setup-context{padding:14px 16px;margin:18px 0;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius)}
+.delivery-setup-context p{margin:6px 0 0;font-size:12px;line-height:1.6;color:var(--text-2)}
+.delivery-setup .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:22px 24px;margin-top:20px}
+.delivery-setup-field{min-width:0}
+.delivery-setup-field label{display:block;margin:0;font-weight:550}
+.delivery-setup-field :is(input,select){display:block;width:100%;min-width:0;max-width:100%;margin-top:7px}
+.delivery-setup-field .field-help{margin:7px 0 0;max-width:65ch;font-weight:400}
+.delivery-setup .gas-setup-toolbar>.delivery-setup-field{flex:1 1 320px;max-width:600px}
+.delivery-setup .gas-setup-toolbar{align-items:flex-start}
+.delivery-setup .gas-setup-toolbar>button{margin-top:24px}
+.delivery-setup #gs-version-label{align-self:center;flex:1 1 240px;color:var(--text-2);font-size:12px}
+.delivery-setup #gs-current{margin-top:0}
+.delivery-setup .schedule-actions{flex-wrap:wrap}
+.delivery-setup :is(#gs-status,#gs-validation,#cs-status,#cs-version-state,#cs-value){overflow-wrap:anywhere;line-height:1.6}
+@media(max-width:600px){.delivery-setup .card{padding:16px}.delivery-setup .gas-setup-toolbar>button{margin-top:0}.delivery-setup .gas-setup-toolbar>button{white-space:normal}}
 
 /* Dashboard */
 .dashboard-board{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:72px;gap:16px}
@@ -2314,3 +2331,17 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 
 .curve-updating{opacity:.55}
 .position-side-schedules .regular-table-scroll{min-height:0;max-height:280px}
+
+#facility-adoption-fields{display:grid;gap:10px;min-width:0}
+#facility-adoption-evidence{width:100%;box-sizing:border-box}
+.physical-workspace-heading{margin-bottom:1rem}.physical-workspace-nav,.physical-commodity{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem}.physical-workspace-nav{border-bottom:1px solid var(--border);padding-bottom:.75rem}.physical-workspace-nav button,.physical-commodity button{background:transparent;color:var(--text-3);border:1px solid transparent}.physical-workspace-nav button.active,.physical-commodity button.active{background:var(--accent-soft);color:var(--accent-text);border-color:var(--accent-border)}.physical-commodity{padding-top:.75rem}.physical-commodity>span{font-size:.8rem;color:var(--text-3);margin-right:.5rem}
+
+.physical-type-coverage{margin:1rem 0 0;padding:14px 16px}
+.physical-type-coverage summary{font-weight:650;cursor:pointer}
+.physical-type-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:8px}
+.physical-type-card{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:5px;min-width:0;padding:12px;text-align:left;background:var(--surface);color:var(--text);border:1px solid var(--border);white-space:normal}
+.physical-type-card strong{font-size:.85rem;overflow-wrap:anywhere}
+.physical-type-card span{font-size:.75rem;color:var(--text-3)}
+.physical-type-card:not(:disabled):hover{background:var(--accent-soft);border-color:var(--accent-border)}
+.physical-type-card:disabled{background:var(--surface-3);color:var(--text-3);border-color:var(--border);opacity:1;cursor:not-allowed}
+.physical-type-card:disabled span{color:var(--text-3)}

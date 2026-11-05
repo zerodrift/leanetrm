@@ -20,8 +20,8 @@ test('the groups and their pages keep the sidebar order',()=>{
   ['overview','Overview',['dashboard']],
   ['trading','Trading',['futures']],
   ['markets','Markets',['market','custom-curves','delivery','interval-series','vol-surfaces','interval-curves']],
-  ['operations','Operations',['facilities','risk','jobs']],
-  ['settings','Settings',['schedules','power','gas-setup','crude-setup','reference','parties']],
+  ['operations','Operations',['physical','risk','jobs']],
+  ['settings','Settings',['schedules','power','reference','parties']],
   ['admin','Admin',['admin','ai']]]);
 });
 test('PPA bookings is a Trading page the Blotter opens, not a sidebar entry',()=>{
@@ -31,6 +31,16 @@ test('PPA bookings is a Trading page the Blotter opens, not a sidebar entry',()=
 test('facility quantities require explicit complete-pool access',()=>{
  assert.equal(pageAvailable('facilities',['ReadMarketData','ReadTrades','ReadFacilityQuantities']),true);
  for(const permissions of [[],['ReadMarketData','ReadTrades'],['ReadFacilityQuantities']])assert.equal(pageAvailable('facilities',permissions),false);
+});
+test('one physical workspace groups delivery setup and facilities without widening pool authority',()=>{
+ assert.equal(pageAvailable('physical',['ReadMarketData']),true);
+ assert.equal(pageAvailable('physical',['ReadTrades','ReadFacilityQuantities']),false);
+ for(const page of ['gas-setup','crude-setup','facilities']){
+  assert.equal(pageGroup(page),'Operations');assert.ok(!allPages.includes(page));
+ }
+ assert.equal(pageAvailable('gas-setup',['ReadMarketData']),true);
+ assert.equal(pageAvailable('crude-setup',['ReadMarketData']),true);
+ assert.equal(pageAvailable('facilities',['ReadMarketData']),false);
 });
 test('a page outside every group is refused instead of given a default heading',()=>{
  assert.throws(()=>pageGroup('unknown'),/could not load/);
@@ -59,7 +69,7 @@ test('market data outranks administration and the Blotter outranks plain market 
 });
 
 test('the sidebar lists each page for the permissions that open it',()=>{
- const market=['dashboard','market','custom-curves','delivery','interval-series','interval-curves','schedules','power','gas-setup','crude-setup','reference'];
+ const market=['dashboard','market','custom-curves','delivery','interval-series','interval-curves','schedules','power','physical','reference'];
  assert.deepEqual(listed(['ReadMarketData','RunJobs']).sort(),[...market,'jobs'].sort());
  assert.deepEqual(listed(['ReadMarketData','ReadTrades','ReadTradeParties']).sort(),[...market,'jobs','futures','vol-surfaces','parties'].sort());
  assert.deepEqual(listed(['ReadMarketData','ReadTrades']).sort(),[...market,'jobs','futures','vol-surfaces'].sort());

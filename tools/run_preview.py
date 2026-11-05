@@ -33,6 +33,8 @@ def main():
     parser.add_argument('--historical-risk-check',action='store_true',help='Qualify retained full-PV historical simulation and exact empirical VaR/ES')
     parser.add_argument('--factor-history-check',action='store_true',help='Qualify aligned dated-factor history under the retained risk context')
     parser.add_argument('--unified-trading-check',action='store_true',help='Verify the common trading workflow across futures, swaps, PPAs and gas')
+    parser.add_argument('--with-gas-basis-demo',action='store_true',help='Seed an owned pipeline-gas basis, history and facility allocation example')
+    parser.add_argument('--gas-basis-demo-check',action='store_true',help='Qualify the complete synthetic gas basis and final allocation example')
     parser.add_argument('--with-gas-quantity-dates',action='store_true',help='Include synthetic January working frames for daily gas quantity exploration')
     parser.add_argument('--gas-quantity-benchmark',action='store_true',help='Measure owned daily gas quantity grids with authorized revision history')
     parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
@@ -138,7 +140,11 @@ def main():
     if args.gas_setup_check or args.gas_composition_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.facility_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check: args.check=True
     if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check or args.lng_cargo_check: args.check=True
-    fixing_frames=args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    if args.gas_basis_demo_check: args.check=True
+    gas_demo=args.with_gas_basis_demo or args.gas_basis_demo_check
+    if gas_demo and (args.example!='standard' or any(name.endswith('_check') and value and name not in ('gas_basis_demo_check','browser_check') for name,value in vars(args).items()) or args.check and not args.gas_basis_demo_check or args.with_ppa or args.with_exchange or args.with_custom_curves):
+        parser.error('Run the gas basis demo separately in the standard fixture; use --gas-basis-demo-check for verification')
+    fixing_frames=gas_demo or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
     if args.interval_series_benchmark or args.usage_benchmark or args.blotter_stream_benchmark:
@@ -229,7 +235,7 @@ def main():
             reference,market,security,manifest=mixed_fixture(export)
         else:
             from demo_date_plan import compile_plan
-            date_plan=compile_plan(dotnet,dll,temporary) if not args.check else None
+            date_plan=compile_plan(dotnet,dll,temporary) if not args.check and not gas_demo else None
             reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan,window_frames=args.contract_dates_check)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             if args.lng_cargo_check and migration.name=='0176_lng_cargo_references.sql':
@@ -418,7 +424,7 @@ def main():
             query(combined)
 
             print('PASS fresh hosted seed validates on an empty stock database without synthetic users, observations or trades, and grants its owner the human roles',flush=True)
-        if args.example=='standard' and (not args.check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check):
+        if args.example=='standard' and (gas_demo or not args.check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check):
             from factor_history_fixture import calendar as history_calendar
             reference=history_calendar(reference,manifest)
         query(reference)
@@ -458,9 +464,12 @@ def main():
                 prepare_factor(manifest)
         query(security)
         query(f"SELECT security.initialize_operating_policies('{manifest["tenantId"]}','{manifest["workspaceId"]}');")
-        if args.example=='standard' and (not args.check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check):
+        if args.example=='standard' and (gas_demo or not args.check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check):
             from factor_history_fixture import seed as seed_history
             seed_history(query,manifest)
+            if gas_demo:
+                from seed_gas_basis_demo import history_frames
+                history_frames(query,manifest)
         if args.hosted_check:
             from check_hosted_auth import run_checks as check_hosted_auth
             check_hosted_auth(query, manifest)
@@ -609,7 +618,7 @@ def main():
                 if process.returncode:raise subprocess.CalledProcessError(process.returncode,command)
                 return peak
             return run
-        if (not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard':
+        if (not gas_demo and not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard':
             if not args.check and date_plan is not None:
                 from demo_date_plan import verify_instrument_dates
                 count=verify_instrument_dates(query,date_plan,manifest['catalogId'],manifest['revisionId'])
@@ -631,6 +640,11 @@ def main():
                 from delivery_price_seed import seed as seed_delivery_prices
                 seed_delivery_prices(query,manifest)
                 print('Collected seven synthetic days of hourly and quarter-hour delivery prices, including the 2026-11-01 fall-back day.',flush=True)
+        if gas_demo:
+            query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN unnest(ARRAY['ReadFacilityQuantities','RecordFacilityQuantities','ConfigureFacilityLimits'])p WHERE code='trader' ON CONFLICT DO NOTHING;")
+            from seed_gas_basis_demo import seed as seed_gas_demo
+            gas_demo_fixture=seed_gas_demo(url,run_id,temporary)
+            print('Loaded synthetic gas benchmark, basis and history plus three gas trades and a facility allocation plan.',flush=True)
         if args.with_exchange and not args.check:
             from seed_exchange_positions import seed_positions as seed_exchange
             seed_exchange(url,run_id,temporary)
@@ -703,6 +717,13 @@ def main():
                     # Full-page recovery scenarios repeatedly reload facts and valuation for the accumulated fixture.
                     # Keep each action bounded separately from the complete booking, corrections and sales suite.
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--crude-setup' if args.crude_setup_check else '--physical-crude'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},check=True,timeout=900)
+            elif args.gas_basis_demo_check:
+                from check_gas_basis_demo import run_checks as check_gas_demo
+                check_gas_demo(url,run_id,temporary,query,manifest)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':gas_demo_fixture}))
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-basis-demo'],cwd=ROOT,env=env,check=True,timeout=300)
             elif args.physical_gas_check:
                 from check_physical_gas_preview import run_checks,run_shape_checks
                 run_checks(url)

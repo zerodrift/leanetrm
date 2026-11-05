@@ -36,9 +36,10 @@ public sealed class GasDailyQuantities(PreviewDatabase database)
    WHERE(o.catalog_id,o.trade_id)=($1,$2) ORDER BY slot)x
    """,[database.Manifest.CatalogId,trade],ct);
   Mark();
-  var heads=await QuantityRows(c,trade,"heads",ct);
+  var facility=policy==GasDailyQuantitySelection.FacilityBillingPolicy;
+  var heads=await QuantityRows(c,trade,"heads",facility,ct);
   Mark();
-  var history=includeHistory?await QuantityRows(c,trade,"history",ct):ImmutableArray<JsonElement>.Empty;
+  var history=includeHistory?await QuantityRows(c,trade,"history",facility,ct):ImmutableArray<JsonElement>.Empty;
   var byDay=heads.GroupBy(h=>(h.Id("obligation_id"),DateWorkspace.Date(h.Text("day"))))
    .ToDictionary(g=>g.Key,g=>g.ToArray());
   Mark();
@@ -52,7 +53,7 @@ public sealed class GasDailyQuantities(PreviewDatabase database)
    foreach(var contract in GasDailyQuantitySelection.ReadContract(p.Program,scale))
    {
     var matching=byDay.GetValueOrDefault((o.Id("id"),contract.Day),[]);
-    var observations=matching.Select(h=>new GasQuantityObservation(h.Id("id"),h.Text("kind"),h.Text("status"),ExactQuantity.FromQuantity(new(ExactDecimal.Parse(h.OptionalText("quantity")??"0"),contract.Quantity.Specification)),h.Text("evidence"))).ToImmutableArray();
+    var observations=matching.Select(h=>new GasQuantityObservation(h.Id("id"),h.Text("kind"),h.Text("status"),ExactQuantity.FromQuantity(new(ExactDecimal.Parse(h.OptionalText("quantity")??"0"),contract.Quantity.Specification)),h.Text("evidence"),h.Text("source"))).ToImmutableArray();
     days.Add(new(o.Id("id"),o.Text("code"),o.Text("pipeline_code"),o.Text("zone_code"),o.Text("point_code"),contract,GasDailyQuantitySelection.Select(contract,observations,policy,frame.At,scale),matching));
    }
   }
@@ -77,20 +78,20 @@ public sealed class GasDailyQuantities(PreviewDatabase database)
     contractual=Q(contract.Quantity),selected=Q(selected.Quantity),normalizedInput=Q(selected.NormalizedQuantity),selected.Kind,selected.RevisionId,selected.Evidence,contract.Root,contract.Instruction,contract.Grid,
     heads=d.Heads.Select(h=>new{id=h.Id("id"),kind=h.Text("kind"),status=h.Text("status"),quantity=h.OptionalText("quantity"),evidence=h.Text("evidence"),revision=int.Parse(h.Text("revision"),CultureInfo.InvariantCulture)})};}).ToArray();
   var ms=s.Milliseconds;
-  return new{tradeId=body.TradeId,expectedRevision=int.Parse(s.Header.Text("revision"),CultureInfo.InvariantCulture),body.SelectionPolicy,canWrite=await MayAmend(c,ct),rows,history=s.History,
+  return new{tradeId=body.TradeId,expectedRevision=int.Parse(s.Header.Text("revision"),CultureInfo.InvariantCulture),body.SelectionPolicy,canWrite=body.SelectionPolicy!=GasDailyQuantitySelection.FacilityBillingPolicy&&await MayAmend(c,ct),rows,history=s.History,
    scope="daily_delivery_quantity_inputs_only",valuationEffect="contractual_pv_unchanged",historyLimit=100,
    performance=body.MeasurePerformance?new{metadataMs=ms[0],headsMs=ms[1],historyMs=ms[2],programsMs=ms[3],selectionMs=ms[4],headCount=s.HeadCount,programCount=s.Programs.Length,uniquePrograms=s.Programs.Select(p=>p.Identity.ContentDigest).Distinct().Count(),dayCount=rows.Length}:null};
  }
- async Task<ImmutableArray<JsonElement>> QuantityRows(NpgsqlConnection c,Guid trade,string mode,CancellationToken ct)
+ async Task<ImmutableArray<JsonElement>> QuantityRows(NpgsqlConnection c,Guid trade,string mode,bool facility,CancellationToken ct)
  {
-  await using var query=ScheduleStore.Command(c,"SELECT security.read_gas_quantity_rows($1,$2,$3)::text",database.Manifest.CatalogId,trade,mode);
+  await using var query=ScheduleStore.Command(c,facility?"SELECT security.read_trade_facility_final_quantities($1,$2,$3)::text":"SELECT security.read_gas_quantity_rows($1,$2,$3)::text",database.Manifest.CatalogId,trade,mode);
   var result=JsonSerializer.Deserialize<JsonElement>((string)(await query.ExecuteScalarAsync(ct))!);
   return [..result.EnumerateArray()];
  }
  public async Task<object> History(NpgsqlConnection c,Guid trade,CancellationToken ct)
  {
   await using(var authority=ScheduleStore.Command(c,"SELECT security.require_gas_quantity_trade($1,$2,false)",database.Manifest.CatalogId,trade))await authority.ExecuteNonQueryAsync(ct);
-  return new{tradeId=trade,history=await QuantityRows(c,trade,"history",ct),historyLimit=100};
+  return new{tradeId=trade,history=await QuantityRows(c,trade,"history",false,ct),historyLimit=100};
  }
  public async Task<JsonElement> Status(NpgsqlConnection c,Guid operation,CancellationToken ct)
  {

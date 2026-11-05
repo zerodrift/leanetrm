@@ -1,16 +1,24 @@
+import {openPhysical} from './physical-workspace.mjs';
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,url}){
- await persona('editor');await click('#nav-gas-setup');await wait("document.querySelectorAll('#gs-row option').length>0&&"+idle);
+ const open=()=>openPhysical({click,evaluate,wait},'gas-setup');
+ await persona('editor');await open();await wait("document.querySelectorAll('#gs-row option').length>0&&"+idle);
  await check('gas setup resolves its version without a manual picker',"document.querySelector('#gs-version').tagName!=='SELECT'&&!!document.querySelector('#gs-version-label')");
  await check('gas setup uses reference selectors and separate configuration categories',"!document.querySelector('#gas-setup-page').hidden&&document.querySelectorAll('#gs-tab option').length===4&&document.querySelector('#gs-field-pipeline').tagName==='SELECT'");
+ await check('published setup is read-only and every dropdown has a native definition',"document.querySelector('#gs-field-pipeline').disabled&&[...document.querySelectorAll('#gas-setup-page select')].every(s=>{const help=document.getElementById(s.getAttribute('aria-describedby'));return help&&help.textContent.length>20&&!help.textContent.includes('unavailable');})");
+ await click('#gs-current');
  await set('#gs-tab','groups');await set('#gs-row',await evaluate("[...document.querySelector('#gs-row').options].find(o=>o.textContent==='synthetic_gas_group_a').value"));
- await set('#gs-field-adjustment','-0.15');await click('#nav-reference');
+ await set('#gs-field-adjustment','-0.15');await click('#nav-crude-setup');
+ await check('switching commodity asks before leaving unsaved setup and keeps the current family selected',"document.querySelector('#gs-leave').open&&document.querySelector('#nav-gas-setup').getAttribute('aria-current')==='page'&&document.querySelector('#crude-setup-page').hidden");
+ await click('#gs-keep');
+ await check('keeping gas edits cancels the commodity switch without changing the draft',"document.querySelector('#gs-field-adjustment').value==='-0.15'&&!document.querySelector('#gas-setup-page').hidden&&document.querySelector('#nav-gas-setup').getAttribute('aria-current')==='page'");
+ await click('#nav-reference');
  await check('navigation protects unsaved economic setup edits',"document.querySelector('#gs-leave').open&&!document.querySelector('#gas-setup-page').hidden");
  await click('#gs-keep');await click('#gs-save');
  const draft=await evaluate("document.querySelector('#gs-version').value");
  await check('saving creates a reviewable draft and leaves publication to the approver',"document.querySelector('#gs-status').textContent.includes('Draft saved')&&document.querySelector('#gs-publish').disabled");
  await set('#gs-from','2021-01-01');await set('#gs-to','2021-02-01');await click('#gs-validate');
  await check('validation previews shared pricing and meter coverage for each point',"document.querySelector('#gs-validation').textContent.includes('passed')&&document.querySelectorAll('#gs-preview tbody tr').length===5&&document.querySelector('#gs-preview').textContent.includes('local_gas')&&document.querySelector('#gs-preview').textContent.includes('-0.15')");
- await persona('approver');await click('#nav-gas-setup');await click(`[data-gas-draft="${draft}"]`);
+ await persona('approver');await open();await click(`[data-gas-draft="${draft}"]`);
  await set('#gs-from','2021-01-01');await set('#gs-to','2021-02-01');await click('#gs-validate');
  await check('the approver reviews immutable fields and can publish the validated version',"document.querySelector('#gs-field-adjustment').disabled&&!document.querySelector('#gs-publish').disabled");
  await set('#gs-to','2021-01-31');
@@ -18,8 +26,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await set('#gs-to','2021-02-01');await click('#gs-validate');
  await evaluate(`{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/gas-setup/publish')&&response.ok)throw new TypeError('Synthetic lost publication response');return response;};}`);
  await click('#gs-publish');await check('an uncertain publication retains the original command',"!document.querySelector('#gs-retry').hidden&&document.querySelector('#gs-tab').disabled");
- await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await click('#nav-gas-setup');await click('#gs-retry');
- await check('reload and exact retry recover the single published version',`document.querySelector('#gs-active').dataset.setupId===${JSON.stringify(draft)}&&document.querySelector('#gs-active').textContent.startsWith('Current setup: Published setup')&&document.querySelector('#gs-retry').hidden&&document.querySelector('#gs-status').textContent.includes('Version published')`);
+ await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await open();await click('#gs-retry');
+ await check('reload and exact retry recover the single published version',`document.querySelector('#gs-active').dataset.setupId===${JSON.stringify(draft)}&&document.querySelector('#gs-active').textContent.startsWith('Contextual setup: Published setup')&&document.querySelector('#gs-retry').hidden&&document.querySelector('#gs-status').textContent.includes('Version published')`);
  await check('the configuration editor fits its viewport',"document.documentElement.scrollWidth<=innerWidth");
  await shot('gas-delivery-setup');
 }

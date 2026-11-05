@@ -37,6 +37,9 @@ class CheckAllTests(unittest.TestCase):
         run_checks(Path('/stock postgres/bin'),Path('/managed sdk/dotnet'),Path('/browser executable'),group='trading',run=lambda command,**options:commands.append(command))
         gas=[c for c in commands if '--gas-daily-quantity-check' in c]
         self.assertEqual(len(gas),1)
+        demo=[c for c in commands if '--gas-basis-demo-check' in c]
+        self.assertEqual(len(demo),1)
+        self.assertIn('--browser-check',demo[0])
         for argument in ('--facility-quantity-check','--gas-composition-check','--gas-setup-check','--browser-check','--browser'):
             self.assertIn(argument,gas[0])
 

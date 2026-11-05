@@ -369,6 +369,12 @@ def run_booking_checks(url, query, manifest, *, run_worker):
     c.call('crude/book', {**body, 'operationId': str(uuid4())}, expected=409)
     assert c.call('crude/book', body) == booked, 'An admitted booking retry retains its first outcome after a new setup publication'
     # Explicit supplemental-source pins must be identical in setup preview, ticket and booking.
+    pinned_setup=c.call('crude-setup/catalog?snapshotId='+frame['id'])
+    assert {'binding','commodity','grade','facility','custodyPoint','source','clock','policy'} <= pinned_setup['fieldDescriptions'].keys()
+    assert all(isinstance(v,str) and len(v)>20 for v in pinned_setup['fieldDescriptions'].values())
+    header_known=pinned_setup['context']['knownAt']
+    suggested=next(s for s in pinned_setup['sources'] if s['definitionRevisionId']==assignment['definitionRevisionId'] and s['curve']==assignment['curve'])['suggestedDeliveryPeriod']
+    assert suggested=={'from':'2021-01-01','to':'2021-02-01'}
     c.call('profile', {'profile': 'editor'})
     source = next(m for m in manifest['swapMarkets'] if m['revisionId'] == assignment['definitionRevisionId'])
     source_frame = next(f for f in source['frames'] if f['at'][:10] == frame['at'][:10])
@@ -380,6 +386,17 @@ def run_booking_checks(url, query, manifest, *, run_worker):
     mark = c.call('crude-setup/preview', {'snapshotId': selected, 'setupId': current['crudeSetupId'], 'knowledgeMode': 'current',
         'deliveryFrom': body['deliveryFrom'], 'deliveryTo': body['deliveryTo'], 'quantity': '1000'})
     assert Decimal(mark['presentValue']) == 81000
+    contextual_body={'snapshotId':selected,'setupId':current['crudeSetupId'],'knowledgeMode':'context',
+        'deliveryFrom':body['deliveryFrom'],'deliveryTo':body['deliveryTo'],'quantity':'1000'}
+    assert Decimal(c.call('crude-setup/preview',contextual_body)['presentValue'])==81000
+    stale=c.call('crude-setup/preview',{**contextual_body,'setupId':assignment['crudeSetupId']},expected=422)
+    assert stale['code']=='crude_setup_context'
+    header=c.call('market/context',{'effectiveOn':'2020-12-18','knownAt':header_known,'mode':'at','selection':'latest_correction','snapshotId':frame['id'],'frameSelectionPolicy':'preserve_origin_or_unique_asof_frame_v1'})
+    assert header['snapshotId'], 'The explicit original close must resolve under historical knowledge'
+    historical=c.call('crude-setup/preview',{**contextual_body,'snapshotId':header['snapshotId']})
+    assert Decimal(historical['presentValue'])==80000, 'The historical header must exclude the later price correction'
+    assert historical['contextId']==header['context']['contextId']
+    c.call('market/current',{})
     assert Decimal(c.call('crude/preview', b_body)['presentValue']) == 3000
     b_trade = c.call('crude/book', b_body)
     assert Decimal(c.call('crude/editor', {'context': {**context, 'snapshotId': selected}, 'tradeId': b_trade['tradeId']})['valuation']['presentValue']) == 3000

@@ -23,9 +23,11 @@ public sealed record CrudeDeliveryWindow
     }
 
     public static bool IsMonthlyForward(MarketContract contract) =>
-        contract.Kind == ContractKind.Forward && contract.Interval is null &&
-        contract.DeliveryFrom.Day == 1 && contract.DeliveryFrom < new DateOnly(9999, 12, 1) &&
-        contract.DeliveryTo == contract.DeliveryFrom.AddMonths(1);
+        IsMonthlyForward(contract.Kind,contract.DeliveryFrom,contract.DeliveryTo,contract.Interval is not null);
+
+    public static bool IsMonthlyForward(ContractKind kind,DateOnly from,DateOnly to,bool hasInterval) =>
+        kind == ContractKind.Forward && !hasInterval && from.Day == 1 &&
+        from < new DateOnly(9999, 12, 1) && to == from.AddMonths(1);
 
     public bool IsCoveredBy(MarketContract contract) => IsMonthlyForward(contract) &&
         From >= Midnight(contract.DeliveryFrom) && To <= Midnight(contract.DeliveryTo);

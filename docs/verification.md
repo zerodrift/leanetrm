@@ -3870,3 +3870,26 @@ The choices read still proves the trade's authority once for every candidate
 (one call per obligation-day). Its cost grows linearly with the catalog's
 single-day gas targets, up to its 1,001-result limit. No hosted-runner timing is
 claimed here.
+
+## Synthetic gas basis and final facility inputs (D321)
+
+See [the recording guide](gas-basis-demo.md#local-verification) for the owned
+scenario, executable command and local results. The trading partition runs
+`--gas-basis-demo-check --browser-check` in addition to the existing facility,
+daily gas, composition and setup regressions. New-schema hosted qualification
+remains separate.
+
+## Integrated physical delivery qualification (D321–D324)
+
+Qualification after integrating the current curve-definition and assistant
+navigation changes passed 657 managed core checks, 1,358 frontend checks, the
+managed delivery-starting-values checks, 85 Python tests and 32 release-admission
+tests. Deployment configuration rendering passed. Owned stock-PostgreSQL
+workflows passed the gas basis/history/final-adoption scenario with four browser
+checks, the facility/gas regression with 20 facility and 20 gas browser checks,
+and the combined workspace/crude workflow with 22 browser checks.
+
+Migration 0197 is qualified alongside the preceding assistant migration 0196.
+Independent adversarial review found no outstanding material issue. Public
+source excludes local configuration, generated assets, logs and private review
+artifacts. Hosted schema/API activation remains a separate qualification.

@@ -3216,3 +3216,8 @@ inside its own error boundary. A past or unapplied context makes the page read
 only, with no Run now. Provider widgets, intraday prices, agent cards, close
 lateness, Blotter use of definitions and Board drag remain in
 [plan.md](plan.md). The page's benchmark result is in the dashboard document.
+
+D321 implements the opt-in [gas basis demo](gas-basis-demo.md), including explicit
+benchmark/basis data, dated history, immutable whole-plan final-input adoption,
+withdrawal and read-only own-trade projections. Migration 0197 is local schema
+work; hosted qualification and settlement integration remain separate.

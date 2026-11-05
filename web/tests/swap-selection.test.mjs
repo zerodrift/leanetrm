@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {linkedValue,quantityChoice,deliveryChoices,filterSwapIndices} from '../dist/swap-selection.js';
+import {quantityChoice,deliveryChoices,filterSwapIndices} from '../dist/swap-selection.js';
+import {linkedValue} from '../dist/choice-selection.js';
 test('linked selectors preserve an offered choice and fill only an unambiguous replacement',()=>{
  assert.equal(linkedValue(['a','b'],'b'),'b');assert.equal(linkedValue(['a','b'],'old'),'');assert.equal(linkedValue(['a'],'old'),'a');assert.equal(linkedValue([],'old'),'');
 });

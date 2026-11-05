@@ -1,5 +1,25 @@
 # Architecture and domain contracts
 
+D324 adds visible [delivery editor starting values](physical-workspace.md#starting-new-entries):
+sole required choices and native context-derived suggestions for new entries.
+Saved terms and explicit clears remain exact; calculations gain no input fallback.
+
+D323 clarifies [delivery setup inspection](physical-workspace.md#delivery-setup-fields-and-context):
+native field definitions, explicit editable drafts and coverage checks, with
+published crude value preview pinned to the shared header context. Exact backend
+history and original command recovery remain available.
+
+D322 locally consolidates gas/crude delivery setup and the existing facility
+quantity workflow in [Facilities & delivery](physical-workspace.md) under
+Operations. Shared navigation preserves each section's native permissions,
+temporal inputs and edit/recovery guards. Commodity contracts remain separate.
+
+D321 adds an opt-in [synthetic gas basis demo](gas-basis-demo.md) with explicit
+benchmark/basis dependencies, dated history and whole-plan final-input adoption.
+Accepted quantities retain exact allocation links under a separate strict policy;
+source corrections require an explicit acceptance change. Migration 0197 and
+hosted activation remain separate from local qualification.
+
 D317 refines [Blotter details](blotter-desk.md#side-panel) and navigation reuse:
 side schedules replace the position curve chart, and unchanged saved-view entry
 retains completed positions, risk lenses and report selection under a fresh
@@ -92,7 +112,7 @@ revisions, explicit gas allocation plans, versioned native-period limit assessme
 and a Facilities UI through authorized operations and integrity triggers. Each
 trade projects only its own planned physical Side allocations from those facts.
 Existing gas billing, fulfillment and valuation remain unchanged; broader facility
-mappings, final allocation adoption and notification dispatch remain future work.
+mappings, additional final-input profiles and notification dispatch remain future work.
 
 D284 extends the assistant across existing page operations, with explicit human
 approval of every proposed business command and separately delegated, versioned

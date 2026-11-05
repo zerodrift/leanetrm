@@ -94,7 +94,11 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
    """,[revision.CatalogId,revision.RevisionId],ct);
   var sources=await PreviewDatabase.Rows(c,"""
    SELECT json_build_object('definitionRevisionId',m.id,'referenceCatalogId',m.reference_catalog_id,'referenceRevisionId',m.reference_revision_id,
-    'curve',c.code,'name',c.name,'quantity',q.quantity_code,'multiplier',q.multiplier::text)::text
+    'curve',c.code,'name',c.name,'quantity',q.quantity_code,'multiplier',q.multiplier::text,
+    'deliveryPeriods',(SELECT coalesce(jsonb_agg(jsonb_build_object('from',k.delivery_from,'to',k.delivery_to,'kind',k.kind,
+      'hasInterval',EXISTS(SELECT 1 FROM market_data.contract_intervals i WHERE(i.catalog_id,i.revision_id,i.contract_id)=(k.catalog_id,k.revision_id,k.id)))),'[]'::jsonb)
+      FROM market_data.curve_members b JOIN market_data.contracts k ON(k.catalog_id,k.revision_id,k.id)=(b.catalog_id,b.revision_id,b.contract_id)
+      WHERE(b.catalog_id,b.revision_id,b.curve_code)=(c.catalog_id,c.revision_id,c.code)))::text
    FROM market_data.revisions m JOIN market_data.curves c ON(c.catalog_id,c.revision_id)=(m.catalog_id,m.id)
    JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)=(m.reference_catalog_id,m.reference_revision_id,c.quote_code)
    JOIN ref_data.quantity_specifications n ON(n.catalog_id,n.revision_id,n.code)=(q.catalog_id,q.revision_id,q.quantity_code)
@@ -103,7 +107,12 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
    ORDER BY c.name,m.id,c.code
    """,[Catalog,Sources().ToArray()],ct);
 
-  var response=new{deliveryReferences=await CrudeDeliveryReferences.Read(c,revision,ct),deliveryPoints=points,sources,clocks=await ProfileClocks(c,revision,ct),versions,contextSetups,proposals,proposal,context=view?.Context,quantityPolicies=new[]{new{code=CrudeQuantityEquivalence.Policy,label="Same standard volume at 60°F · no conversion"}},
+  var authoringSources=sources.Select(s=>new{definitionRevisionId=s.Id("definitionRevisionId"),referenceCatalogId=s.Id("referenceCatalogId"),referenceRevisionId=s.Id("referenceRevisionId"),
+   curve=s.Text("curve"),name=s.Text("name"),quantity=s.Text("quantity"),multiplier=s.Text("multiplier"),
+   suggestedDeliveryPeriod=view is null?null:DeliverySetupDefaults.FuturePeriod(s.GetProperty("deliveryPeriods").EnumerateArray().Select(p=>new DeliverySetupContract(
+    p.Text("kind") switch{"forward"=>ContractKind.Forward,"future"=>ContractKind.Future,"future_option"=>ContractKind.FutureOption,_=>throw Invalid("The source contract kind is unsupported.")},
+    DateWorkspace.Date(p.Text("from")),DateWorkspace.Date(p.Text("to")),p.GetProperty("hasInterval").GetBoolean())),view.Frame.At)}).ToArray();
+  var response=new{deliveryReferences=await CrudeDeliveryReferences.Read(c,revision,ct),deliveryPoints=points,sources=authoringSources,clocks=await ProfileClocks(c,revision,ct),versions,contextSetups,proposals,proposal,context=view?.Context,fieldDescriptions=DeliverySetupDescriptions.Crude,quantityPolicies=new[]{new{code=CrudeQuantityEquivalence.Policy,label="Same standard volume at 60°F · no conversion"}},
    canSave=working&&await PreviewDatabase.HasPermission(c,"WriteMarketDefinitions",ct),canPublish=working&&await PreviewDatabase.HasPermission(c,"SealMarketDefinitions",ct),
    scope="Maintain exact delivery-to-price bindings for pre-delivery crude booking and valuation. Booked contracts retain their exact setup and original pricing source. Delivery-to-cash for separate delivery masters remains unsupported."};
   var references=versions.Concat(contextSetups).Concat(proposals).Concat(proposal is {} exact?[exact]:[]).SelectMany(v=>new[]{v.Id("delivery_reference_catalog_id"),v.Id("source_reference_catalog_id")})

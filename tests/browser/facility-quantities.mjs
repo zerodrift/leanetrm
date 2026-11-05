@@ -1,11 +1,13 @@
+import {openPhysical} from './physical-workspace.mjs';
 import {openBookedSchedules} from './gas-ticket.mjs';
 const q=JSON.stringify;
 
 export async function run({command,evaluate,wait,set,click,submit,persona,check,shot,idle,url,fixture,fitsWidth}){
+ const open=()=>openPhysical({click,evaluate,wait},'facilities');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');
  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-15T08:')).id;})()");
- await set('#snapshot',frame);await wait(idle);await click('#nav-facilities');
+ await set('#snapshot',frame);await wait(idle);await open();
  await set('#facility-ledger',fixture.ledgerId);await wait("!document.querySelector('#facility-editor').hidden&&"+idle).catch(async error=>{throw Error(error.message+' · '+JSON.stringify(await evaluate("({page:document.querySelector('#page-title').textContent,error:document.querySelector('#error').textContent,context:document.querySelector('#facility-context').textContent,selected:document.querySelector('#facility-ledger').value,options:document.querySelector('#facility-ledger').innerHTML})")));});
  const shown="document.querySelector('#facility-balance').textContent",saved="document.querySelector('#facility-saved').textContent";
  await check('Facilities uses the compact shared business date and native quantities',
@@ -37,7 +39,7 @@ export async function run({command,evaluate,wait,set,click,submit,persona,check,
  // Browser storage can be unavailable. Navigation still retains the original
  // command in actor-scoped memory and status recovery does not resubmit it.
  await evaluate(`window.fetch=window.originalFacilityFetch;window.facilityStorage={};for(const name of ['getItem','setItem','removeItem']){facilityStorage[name]=Storage.prototype[name];Storage.prototype[name]=function(key,...rest){if(String(key).startsWith('openetrm.facilities.'))throw Error('Synthetic unavailable storage');return facilityStorage[name].call(this,key,...rest);};}`);
- await click('#nav-reference');await click('#nav-facilities');
+ await click('#nav-reference');await open();
  await check('an uncertain command survives navigation when browser storage is unavailable',
   "!document.querySelector('#facility-pending').hidden&&document.querySelector('#facility-pending-description').textContent.includes('2021-01-15T17:01')");
  await click('#facility-status');
@@ -75,14 +77,14 @@ export async function run({command,evaluate,wait,set,click,submit,persona,check,
  // close; choose the later valuation date for the following read.
  await click('#nav-futures');
  const inspectionFrame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-31T08:')).id;})()");
- await set('#snapshot',inspectionFrame);await wait(idle);await click('#nav-facilities');
+ await set('#snapshot',inspectionFrame);await wait(idle);await open();
  await evaluate(`window.facilityTicketPayload=null;window.facilityTradeFetch=window.fetch;window.fetch=async(...args)=>{const response=await facilityTradeFetch(...args);if(String(args[0]).endsWith('/trading/gas')&&response.ok)window.facilityTicketPayload=await response.clone().json();return response;};
   const row=[...document.querySelectorAll('#facility-allocation-table tbody tr')].find(r=>r.querySelector('input')?.value==='60');row.querySelector('[data-facility-trade]').click();`);
  await openBookedSchedules({wait,click});
  await wait("!!document.querySelector('#position-details .ticket-facility-track')&&"+idle,30000).catch(async error=>{throw Error(error.message+' · '+JSON.stringify(await evaluate("({page:document.querySelector('#page-title').textContent,error:document.querySelector('#error').textContent,detail:document.querySelector('#position-details')?.textContent,ticket:window.facilityTicketPayload})")));});
  await check('a historical allocation opens the trade and only its own Side delivery track',
-  "facilityTicketPayload.facilityAllocations.length===1&&facilityTicketPayload.facilityAllocations[0].quantity==='60'&&Object.keys(facilityTicketPayload.facilityAllocations[0]).sort().join()==='day,obligationId,quantity,sideCode,state,unit'");
- await evaluate('window.fetch=window.facilityTradeFetch');await click('#nav-facilities');await click('#current-view-context');
+  "facilityTicketPayload.facilityAllocations.length===1&&facilityTicketPayload.facilityAllocations[0].quantity==='60'&&Object.keys(facilityTicketPayload.facilityAllocations[0]).sort().join()==='day,finalQuantity,finalState,obligationId,quantity,sideCode,state,unit'&&facilityTicketPayload.facilityAllocations[0].finalQuantity===null&&facilityTicketPayload.facilityAllocations[0].finalState==='missing'");
+ await evaluate('window.fetch=window.facilityTradeFetch');await open();await click('#current-view-context');
  await check('Working data reloads the facility independently of a market close choice',"!document.querySelector('#facility-source-fields').disabled&&!document.querySelector('#facility-editor').hidden");
  await persona('viewer');
  await check('an account without facility access clears values and navigation',"document.querySelector('#nav-facilities').hidden&&document.querySelector('#facility-balance').children.length===0&&document.querySelector('#facility-source-quantity').value===''");

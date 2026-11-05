@@ -139,7 +139,8 @@ public sealed class FacilityQuantityStore(PreviewDatabase database)
         await Authorize(c,ct);
         return new{ownerId=await Owner(c,ct),context=scope.Context,at=scope.At,facts,choices=choices.Take(1000).ToArray(),choicesTruncated=choices.Length>1000,balance=Balance(facts,Evaluate(facts)),
             canRecord=scope.Working&&await PreviewDatabase.HasPermission(c,"RecordFacilityQuantities",ct),
-            canConfigure=scope.Working&&await PreviewDatabase.HasPermission(c,"ConfigureFacilityLimits",ct)};
+            canConfigure=scope.Working&&await PreviewDatabase.HasPermission(c,"ConfigureFacilityLimits",ct),
+            canAdopt=scope.Working&&await PreviewDatabase.HasPermission(c,"RecordFacilityQuantities",ct)&&await PreviewDatabase.HasPermission(c,"AmendTrade",ct)};
     }
     public async Task<object> Preview(NpgsqlConnection c,FacilityPreviewRequest request,ScheduleContext? selected,CancellationToken ct)
     {

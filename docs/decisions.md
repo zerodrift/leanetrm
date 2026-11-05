@@ -2411,3 +2411,99 @@ command controls keep their existing busy and authorization guards.
 Owned browser checks inject one failed control refresh and then perform the
 next native action. They establish recovery from this latch path, not which
 exception caused a reported production input lock.
+
+## D321 — Synthetic gas basis demo and explicit final facility inputs
+
+Owner-authorized increment: provide a repeatable isolated pipeline-gas example
+with a synthetic benchmark, separately quoted regional basis and dated history.
+Reuse existing native curve dependencies, generated source observations,
+Instrument/Side bookings, retained daily grids and facility allocation operations.
+The viewer keeps a bounded 100-close catalog while the aligned risk reader consumes
+250 source sessions. No external prices, production seeds or broader market
+conventions follow from this example.
+
+Final facility quantities require explicit whole-plan adoption or withdrawal.
+Two immutable relational records serve this consumer: the accepted plan decision
+and changed per-obligation target links. Exact allocation FKs provide amounts;
+there is no second authoritative writable quantity. Reused own heads must match
+the source and exact target pins as well as the amount. Removed targets retain
+withdrawn own heads. Deferred guards validate the complete resulting accepted
+set, including unchanged heads, before a command completes.
+
+The explicit `final_facility_allocated_billing_v1` policy admits only those own
+final inputs; it has no manual or contractual fallback. Source corrections retain
+accepted pins pending an explicit decision. Current facility and affected-trade
+write authority, certified knowledge/effective context and actor-bound receipts
+apply equally to retries and fresh facts. Historical exact-fact retries never
+reinstate a prior head. Acceptance reviews the immutable saved amounts and refuses
+unsaved source/plan drafts. Existing gas billing preview and contractual valuation
+are preserved; this increment implements neither invoices nor cash settlement.
+See [the demo and contract](gas-basis-demo.md). Migration 0197 needs separate
+hosted schema qualification; no production activation is implied.
+
+## D322 — One physical delivery workspace
+
+Implement locally one **Operations → Facilities & delivery** entry for delivery
+setup and facility quantities. Commodity-family selection distinguishes the gas
+and crude delivery editors inside the same workspace. Task navigation connects
+these definitions to the existing quantity, allocation and operating-limit UI.
+Share presentation and navigation; retain the exact commodity contracts and
+authorized native operations rather than introducing a generic financial form.
+
+Each section retains its current authority, temporal context, edit guard and
+pending-command recovery. Unselected sections do not load. Full facility pools
+keep their separate read permission. Navigation state resets with the account;
+assistant/native page identities remain unchanged. Region grouping needs explicit
+reference data and remains outside this increment. No schema or new commodity
+operation is introduced. The workspace also exposes facility/transport coverage:
+existing pipeline and crude delivery setup links use the same guarded page
+navigation; unsupported storage, plant, rail, marine and road workflows are gray,
+disabled **Planned · TBD** entries. They are presentation placeholders, not
+reference-data rows or executable physical profiles. Existing location/type FKs
+remain authoritative for current location identities.
+See [the workspace contract](physical-workspace.md).
+Hosted activation remains separate from local qualification.
+
+## D323 — Delivery field definitions and contextual inspection
+
+Gas and crude delivery editors share field-description presentation, with native
+catalogs owning definitions of supported terms. Definitions accompany every
+dropdown; this is the extension contract for later delivery editors. Opening
+published gas setup is read-only until an explicit editable-copy action.
+Structural saved-draft checks and contextual published delivery valuation have
+distinct labels and explanations. Explicit delivery-period inputs remain contract
+coverage parameters, separate from header As of and knowledge cutoff.
+
+Ordinary setup inspection requires a resolved header selection. Context reset
+clears prior terms/results. Draft choices must be based on that context's
+published head; new crude proposals require no head for their logical code.
+Original uncertain commands remain exactly retryable. Superseded outcomes are
+confirmed as receipts without reopening old terms or silently rebasing them.
+
+Crude preview gains an additive `knowledgeMode: context` operation that binds the
+header context once, requires its resolved published setup and carries its exact
+knowledge identity through valuation. Historical price preview is read-only.
+Existing exact-version backend operations and current working draft checks remain
+available. No schema, financial defaults or new agent authority are added.
+The assistant setup reader and reviewed-expertise workflow remain a separate
+increment using existing guidance/history storage. See [the workspace contract](physical-workspace.md).
+Hosted activation remains separate from local qualification.
+
+## D324 — Visible delivery editor starting values
+
+New delivery entries may preselect a sole available required dropdown choice.
+Several choices remain unselected; the gas no-group choice remains a real
+alternative. A sole contextual crude binding opens for inspection, without
+editing or publishing it. Published terms, retained proposals, explicit clears
+and original pending commands are not rewritten by this convenience.
+
+Managed catalog metadata supplies gas new-row zero price adjustments, a single
+consistent contextual gas-day convention and any shared assignment/tariff
+validity dates. A single meter period of at most 31 operating days can initialize
+the coverage check. Crude source dates are suggested only when one future monthly
+forward is admitted by the native non-interval and supported-window rules under
+the header context. Ambiguity supplies no suggested period. These are visible,
+editable authoring inputs; native validation and publication remain separate.
+Rates, amounts, identifiers and binding codes are not invented. Saving retains
+the exact entered values; calculations gain no missing-input fallback or new
+financial convention. No schema or dependency is added. Hosted activation remains separate from local qualification.

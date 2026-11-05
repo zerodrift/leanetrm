@@ -1,5 +1,25 @@
 # Delivery plan and acceptance criteria
 
+D324 adds [delivery editor starting values](physical-workspace.md#starting-new-entries)
+under the existing context, validation and publication boundaries. Sole choices
+and managed suggestions apply to new entries, preserving exact saved terms.
+
+D323 adds [delivery field definitions and contextual inspection](physical-workspace.md#delivery-setup-fields-and-context).
+The separate assistant setup reader must reuse native catalogs and context;
+reviewed guidance can reuse existing immutable page-prompt revisions. Conversation
+history alone is not verified expertise and must not supply missing financial terms.
+
+D322 locally consolidates the physical screens in one Operations workspace.
+The [workspace contract](physical-workspace.md) records implemented consumers and
+scope. Region classification and broader facility allocation mappings remain
+subsequent work; neither is inferred from the shared navigation.
+
+D321 adds an opt-in [synthetic gas basis demo](gas-basis-demo.md) with explicit
+benchmark/basis dependencies, dated history and whole-plan final-input adoption.
+Accepted quantities retain exact allocation links under a separate strict policy;
+source corrections require an explicit acceptance change. Migration 0197 and
+hosted activation remain separate from local qualification.
+
 D316 makes displayed versions follow the shared As of date and knowledge cutoff;
 exact backend history and retained financial pins remain available. See
 [contextual version presentation](contextual-versions.md) for implemented consumers
@@ -1857,8 +1877,8 @@ native-period maximum assessments for retained gas days. The Facilities UI and
 HTTP operations share authorization, receipts and backend quantity rules; trade
 Sides show only their own read-only allocation track. Triggers enforce immutable
 chains, conservation and exact references. Metadata/clock revisions cannot mint
-capacity. Remaining slices include broader facility-to-point relationships, final
-allocation adoption, external source evidence and notification dispatch. Billing,
+capacity. Remaining slices include broader facility-to-point relationships, additional
+final-input profiles, external source evidence and notification dispatch. Billing,
 fulfillment and cash remain governed by their existing contracts.
 
 ### Monte Carlo risk increment (D307, R6)

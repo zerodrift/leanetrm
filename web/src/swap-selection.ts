@@ -1,6 +1,5 @@
 // Selection and search over backend-qualified choices; no financial conventions
 // or date coverage are inferred in the presentation layer.
-export function linkedValue(values:readonly string[],current=''){return values.includes(current)?current:values.length===1?values[0]:'';}
 export function quantityChoice(choices:readonly {specification:{code:string}}[],quoteQuantityCode:string,current=''){
  if(choices.some(c=>JSON.stringify(c.specification)===current))return current;
  const canonical=choices.filter(c=>c.specification.code===quoteQuantityCode);

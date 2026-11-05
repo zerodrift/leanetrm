@@ -26,6 +26,12 @@ Uncertain commands retain their original identity and pins. Proposal review is
 separately bounded at 50 gas or 100 crude drafts; exceeding that limit refuses
 the list rather than hiding proposals. New crude choices select a logical binding code.
 
+D323 filters proposal review and recovered form state against the contextual
+head, including new crude drafts whose logical code now has a publication.
+Superseded outcomes remain original command receipts without reopening old
+configuration. Setup inspection waits for a resolved header frame; it does not
+fall back to a raw catalog when that selection is empty or unapplied.
+
 A saved trade, graph, activation interval or PPA can retain a version different
 from the one offered for a new choice. Retained values remain exact, disabled
 choices where needed. Clearing a retained TOU leaves a required missing choice;
@@ -38,6 +44,10 @@ Malformed explicit snapshot identities refuse instead of selecting current data.
 Curve definition metadata remains readable while an ambiguous close choice is
 unresolved; pricing and save operations still require an exact selected frame.
 Gas/crude contextual setup inspection is read-only under historical knowledge.
+Crude's `knowledgeMode: context` value preview can read historical knowledge;
+it binds the selected header context once and requires a setup in its resolved
+published heads. Draft checks remain structural, working-context operations.
+Explicit delivery-period inputs do not move valuation As of or knowledge cutoff.
 Their published heads are read separately from bounded raw history, so a long
 history of one binding cannot hide another current code. Current reference and
 market authority are rechecked over the complete response scope.

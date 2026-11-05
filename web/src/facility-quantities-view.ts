@@ -12,18 +12,18 @@ type Choice={obligationId:string;tradeId:string;tradeRevision:number;pointCode:s
 type Header={id:string;facility:string;point:string;commodity:string;unit:string;legal_entity:string;day:string};
 type Revision={id:string;revision:number;quantity:string|null;evidence:string;effective_at:string;source_revision_id?:string};
 type Allocation={obligationId:string;tradeId:string;tradeRevision:number;quantity:string;book:string;portfolio:string;counterparty:string;sideCode:string};
-type Facts={ledger:{id:string;native_from:string;native_to:string};labels:{facility:string;point:string;commodity:string;unit:string;legalEntity:string;day:string};source:Revision|null;plan:Revision|null;limit:Revision|null;allocations:Allocation[];sourceHistory:Revision[];planHistory:Revision[];limitHistory:Revision[];requiresReconciliation:boolean};
+type Facts={ledger:{id:string;native_from:string;native_to:string};labels:{facility:string;point:string;commodity:string;unit:string;legalEntity:string;day:string};source:Revision|null;plan:Revision|null;limit:Revision|null;allocations:Allocation[];sourceHistory:Revision[];planHistory:Revision[];limitHistory:Revision[];requiresReconciliation:boolean;adoption:{id:string;revision:number;plan_id:string;source_revision_id:string;state:'adopted'|'withdrawn'}|null;requiresAdoptionReconciliation:boolean};
 type Balance={allocated:string;available:string|null;excess:string|null;constraint:'unassessed'|'within_limit'|'breached'};
 type Directory={ownerId:string;context:Context;at:string;ledgers:Header[];choices:Choice[];hasMore:boolean;choicesTruncated:boolean;canRecord:boolean;canConfigure:boolean};
-type View={ownerId:string;context:Context;at:string;facts:Facts;choices:Choice[];choicesTruncated:boolean;balance:Balance;canRecord:boolean;canConfigure:boolean};
-type Outcome={operationId:string;outcome:{ledgerId:string;revisionId?:string;revision?:number}};
+type View={ownerId:string;context:Context;at:string;facts:Facts;choices:Choice[];choicesTruncated:boolean;balance:Balance;canRecord:boolean;canConfigure:boolean;canAdopt:boolean};
+type Outcome={operationId:string;outcome:{ledgerId:string;revisionId?:string;revision?:number;adoptionId?:string;state?:string}};
 
 export function setupFacilityQuantities(o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string;context:()=>FacilityContext;changed:()=>void;tradeInspection:()=>string|null;openTrade:(id:string,revision:number)=>Promise<void>}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const input=(id:string)=>get<HTMLInputElement>(id),select=(id:string)=>get<HTMLSelectElement>(id);
  const set=(id:string,value:string)=>get(id).textContent=value;
  const effective=zonedInput(input('facility-effective'),o.zone,o.api),edits=trackEdits(get('facility-forms'),['.scope-search','.table-filters','.column-filter-row'],o.changed);
- const formEdits=new Map(['create','source','limit','plan'].map(kind=>[kind,trackEdits(get(`facility-${kind}-form`),['.scope-search','.table-filters','.column-filter-row'],o.changed)]));
+ const formEdits=new Map(['create','source','limit','plan','adoption'].map(kind=>[kind,trackEdits(get(`facility-${kind}-form`),['.scope-search','.table-filters','.column-filter-row'],o.changed)]));
  function clearEdits(){edits.clear();for(const form of formEdits.values())form.clear();}
  const pending=new PendingCommand(code=>!!code&&(/^(facility_quantity_|temporal_)/.test(code)||['access_denied','historical_read_only','request_format','revision_conflict'].includes(code)));
  let directory:Directory|undefined,view:View|undefined,selected='',generation=0,pendingStatus='';
@@ -36,7 +36,7 @@ export function setupFacilityQuantities(o:{api:Api;act:(work:()=>Promise<void>)=
  const createKey=(c:Choice)=>c.obligationId+'|'+c.day;
  const choiceText=(c:Choice)=>`${c.point} · ${c.day} · ${c.commodity} · ${c.direction} · ${c.counterparty} · ${c.book} · ${c.sideCode}`;
  function store(){transport.write(pending.command);}
- function clearView(){view=undefined;amounts.clear();get('facility-editor').hidden=true;get('facility-balance').replaceChildren();get('facility-allocation-table').replaceChildren();select('facility-targets').replaceChildren();for(const id of ['facility-source-history','facility-plan-history','facility-limit-history'])get(id).replaceChildren();for(const id of ['facility-source-quantity','facility-source-evidence','facility-limit-quantity','facility-limit-evidence','facility-plan-evidence'])input(id).value='';for(const id of ['facility-title','facility-period','facility-preview-result','facility-exception'])set(id,'');document.querySelectorAll<HTMLElement>('[data-facility-unit]').forEach(n=>n.textContent='');}
+ function clearView(){view=undefined;amounts.clear();get('facility-editor').hidden=true;get('facility-balance').replaceChildren();get('facility-allocation-table').replaceChildren();select('facility-targets').replaceChildren();for(const id of ['facility-source-history','facility-plan-history','facility-limit-history'])get(id).replaceChildren();for(const id of ['facility-source-quantity','facility-source-evidence','facility-limit-quantity','facility-limit-evidence','facility-plan-evidence','facility-adoption-evidence'])input(id).value='';for(const id of ['facility-title','facility-period','facility-preview-result','facility-exception','facility-adoption-state'])set(id,'');document.querySelectorAll<HTMLElement>('[data-facility-unit]').forEach(n=>n.textContent='');}
  function withhold(){clearView();directory=undefined;select('facility-ledger').replaceChildren(new Option('Choose a ledger…',''));select('facility-create-target').replaceChildren(new Option('Choose a booked delivery…',''));set('facility-context','');}
  function sync(){
   const blocked=o.busy()||!!pending.command;
@@ -49,6 +49,9 @@ export function setupFacilityQuantities(o:{api:Api;act:(work:()=>Promise<void>)=
   for(const id of ['facility-preview','facility-plan-save'])get<HTMLButtonElement>(id).disabled=blocked||!view?.canRecord||!view.facts.source;
   input('facility-plan-evidence').disabled=blocked||!view?.canRecord||!view.facts.source;
   get<HTMLFieldSetElement>('facility-limit-fields').disabled=blocked||!view?.canConfigure;
+  get<HTMLFieldSetElement>('facility-adoption-fields').disabled=blocked||!view?.canAdopt;
+  get<HTMLButtonElement>('facility-adopt').disabled=blocked||!view?.canAdopt||!view.facts.plan||view.facts.requiresReconciliation||!!formEdits.get('plan')?.edited()||!!formEdits.get('source')?.edited();
+  get<HTMLButtonElement>('facility-retract-adoption').disabled=blocked||!view?.canAdopt||view.facts.adoption?.state!=='adopted';
   for(const field of get('facility-allocation-table').querySelectorAll<HTMLInputElement>('[data-facility-allocation]'))
    field.disabled=blocked||!view?.canRecord||!view.choices.some(c=>c.obligationId===field.dataset.facilityAllocation);
   const inspection=o.tradeInspection();set('facility-trade-help',inspection??'');get('facility-trade-help').hidden=!inspection;
@@ -104,6 +107,8 @@ export function setupFacilityQuantities(o:{api:Api;act:(work:()=>Promise<void>)=
   get('facility-reconcile').hidden=!facts.requiresReconciliation;
   input('facility-source-quantity').value=facts.source?.quantity??'';input('facility-source-evidence').value='';
   input('facility-limit-quantity').value=facts.limit?.quantity??'';input('facility-limit-evidence').value='';input('facility-limit-remove').checked=false;
+  input('facility-adoption-evidence').value='';
+  set('facility-adoption-state',facts.adoption?`Final input decision ${facts.adoption.revision}: ${facts.adoption.state==='adopted'?'accepted':'withdrawn'}${facts.requiresAdoptionReconciliation?' · the current source or plan differs; accepted inputs keep their exact earlier source.':''}`:'No final facility inputs accepted.');
   input('facility-plan-evidence').value='';amounts.clear();for(const row of facts.allocations)amounts.set(row.obligationId,row.quantity);
   select('facility-targets').replaceChildren(...view.choices.map(c=>new Option(`${c.counterparty} · ${c.portfolio} / ${c.book} · ${c.sideCode}`,c.obligationId,false,amounts.has(c.obligationId))),
    ...facts.allocations.filter(a=>!view!.choices.some(c=>c.obligationId===a.obligationId)).map(a=>{const option=new Option(`${a.counterparty} · retained target`,a.obligationId,false,true);option.disabled=true;return option;}));
@@ -144,7 +149,7 @@ export function setupFacilityQuantities(o:{api:Api;act:(work:()=>Promise<void>)=
    ((command.body.command as {ledgerId?:string}).ledgerId&&result.outcome.ledgerId!==(command.body.command as {ledgerId?:string}).ledgerId))throw Error('The request outcome could not be verified. Check its status before retrying.');
   pending.clear();pendingStatus='';store();clearEdits();selected=result.outcome.ledgerId;
   try{sessionStorage.setItem(key('selection'),selected);}catch{/* The selected id remains in memory. */}
-  await load(selected);set('facility-saved',result.outcome.revision?`Saved revision ${result.outcome.revision}.`:'Facility ledger opened.');o.changed();
+  await load(selected);set('facility-saved',result.outcome.adoptionId?'Final input decision recorded.':result.outcome.revision?`Saved revision ${result.outcome.revision}.`:'Facility ledger opened.');o.changed();
  }
  async function send(command:RequestCommand){
   if(command.path!=='facilities/quantities/record')throw Error('The retained facility request is invalid. Check the ledger history.');
@@ -153,7 +158,7 @@ export function setupFacilityQuantities(o:{api:Api;act:(work:()=>Promise<void>)=
   catch(error){if(!current(at))return;pending.failed((error as {code?:string}).code,wasUncertain);store();if(['access_denied','facility_quantity_denied'].includes((error as {code?:string}).code??''))withhold();sync();throw error;}
  }
  async function record(command:Record<string,unknown>,label:string){
-  const kind=command.kind==='allocate'?'plan':command.kind;
+  const kind=command.kind==='allocate'?'plan':['adopt','retract_adoption'].includes(String(command.kind))?'adoption':command.kind;
   if([...formEdits].some(([name,form])=>name!==kind&&form.edited())&&!confirm('Saving this record reloads the ledger and discards unsaved changes in the other facility forms. Continue?'))return;
   if(!directory)throw Error('Load the facility account before recording.');
   const body={ownerId:directory.ownerId,context:o.context(),effectiveAt:await effective.instant(),command};
@@ -173,6 +178,19 @@ export function setupFacilityQuantities(o:{api:Api;act:(work:()=>Promise<void>)=
   await record({kind:'allocate',ledgerId:view.facts.ledger.id,expectedPreviousId:view.facts.plan?.id??null,sourceRevisionId:view.facts.source.id,
    allocations:allocations(),evidence:input('facility-plan-evidence').value},'Replace allocation plan');
  });};
+ async function adoption(withdraw:boolean){
+  if(!view?.facts.plan||!view.facts.source)throw Error('Load a saved allocation plan first.');
+  const {facts}=view,prior=facts.adoption;
+  if(!withdraw&&(formEdits.get('plan')!.edited()||formEdits.get('source')!.edited()))throw Error('Save or discard reported-quantity and allocation edits before accepting final inputs.');
+  if(withdraw&&prior?.state!=='adopted')throw Error('There is no accepted final input to withdraw.');
+  if(!input('facility-adoption-evidence').reportValidity())return;
+  const review=withdraw?'Withdraw the current final inputs for every trade in the accepted plan? The operational plan stays recorded.':`Accept saved plan revision ${facts.plan!.revision} with ${facts.allocations.length} allocations as final quantity inputs? Saved allocations:\n${facts.allocations.map(a=>`${a.counterparty} · ${a.sideCode}: ${a.quantity} ${facts.labels.unit}`).join('\n')}`;
+  if(!confirm(review))return;
+  await record({kind:withdraw?'retract_adoption':'adopt',ledgerId:facts.ledger.id,planRevisionId:withdraw?prior!.plan_id:facts.plan!.id,
+   sourceRevisionId:withdraw?prior!.source_revision_id:facts.source!.id,expectedPreviousId:prior?.id??null,evidence:input('facility-adoption-evidence').value},withdraw?'Withdraw final acceptance':'Accept final quantities');
+ }
+ get<HTMLFormElement>('facility-adoption-form').onsubmit=e=>{e.preventDefault();void o.act(()=>adoption(false));};
+ get('facility-retract-adoption').onclick=()=>void o.act(()=>adoption(true));
  get('facility-preview').onclick=()=>void o.act(async()=>{
   if(!view?.facts.source)throw Error('Record a reported quantity first.');const at=fence();
   const result=await o.api<{balance:Balance}>('facilities/quantities/preview',{ownerId:view.ownerId,context:o.context(),ledgerId:view.facts.ledger.id,sourceRevisionId:view.facts.source.id,expectedPreviousId:view.facts.plan?.id??null,allocations:allocations()});
@@ -189,7 +207,7 @@ export function setupFacilityQuantities(o:{api:Api;act:(work:()=>Promise<void>)=
   if('found'in result){pendingStatus='No completed receipt is available yet. Retry the original request with its retained identity.';sync();}else await confirmed(command,result);
  });
  get('facility-discard').onclick=()=>{if(!o.busy()&&confirm('Discard this request only after checking its status and the ledger history. Continue?')){pending.clear();pendingStatus='';store();sync();}};
- get('facility-forms').addEventListener('input',o.changed);get('facility-forms').addEventListener('change',o.changed);
+ get('facility-forms').addEventListener('input',()=>{sync();o.changed();});get('facility-forms').addEventListener('change',()=>{sync();o.changed();});
  return{load,sync,edited:()=>edits.edited()||!!pending.command,
   leave:()=>!!pending.command||!edits.edited()||confirm('Discard unsaved facility edits?'),
   refresh(){effective.refresh();if(view){renderAllocations();history();}},

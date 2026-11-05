@@ -280,7 +280,7 @@ fuel remains a separate quantity rule; the existing managed fuel foundation does
 not enable it in booking. Configuration must distinguish market-location basis
 from separately owed service costs rather than entering one expense twice.
 
-Settings → Gas delivery setup provides economic authoring for the admitted
+Operations → Facilities & delivery → Delivery setup → Natural gas provides economic authoring for the admitted
 profile. The general reference browser retains the imported master relationships;
 a published setup's own point and meter relationships are inspected in the gas
 setup editor and consumed by its pinned trades. This is separate from the
@@ -333,7 +333,7 @@ profiles. A pipeline-level tariff does not itself prove a transportation right.
 
 ## Draft, validate and publish gas delivery setup
 
-The local **Gas delivery setup** page under Settings edits a complete snapshot of
+The local **Gas delivery setup** view under Operations → Facilities & delivery edits a complete snapshot of
 point relationships, shared valuation groups, meter assignments and per-unit
 tariffs. Select existing master locations, products, clocks, quantities, quotes
 and curves. Creating a new location-master identity is a separate reference-data
