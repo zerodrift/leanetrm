@@ -52,7 +52,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('the main window shows that the Blotter is in its own window, with Bring back and no Blotter controls',
     `${shown('#blotter-away')}&&${away}.textContent.includes('Blotter is in its own window')&&!!${q('#blotter-bring-back')}&&${q('#futures-page')}.hidden`,`[${away}?.textContent,${q('#futures-page')}.hidden]`);
   const asOf="document.querySelector('#header-calculation-time').textContent";
-  const firstAsOf=await popup.evaluate(asOf),firstValues=await popup.evaluate("document.querySelector('#blotter-strip').textContent");
+  const firstAsOf=await popup.evaluate(asOf);
   await check('the pop-out says the As of and knowledge cutoff it reads at',JSON.stringify(/^As of .+ · knowledge cutoff .+/.test(firstAsOf)));
 
   // Edits the pop-out holds are asked about in the main window before a change made there gives them up; a move to another page is not one.
@@ -68,12 +68,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await lots(popup,'2');
   await click('#nav-market',30000);
   await check('moving to another page of the main window asks nothing of the pop-out\'s edits',`${prompt}.hidden&&${q('#page-title')}.textContent==='Curves & prices'`);
+  // Opening the native ticket performs a fresh read. Keep must preserve the displayed context held immediately before this request.
+  const heldAsOf=await popup.evaluate(asOf),heldValues=await popup.evaluate("document.querySelector('#blotter-strip').textContent");
   await set('#snapshot',dates[1]);await wait(`!${prompt}.hidden`).catch(async error=>{throw Error(error.message+' · observed '+JSON.stringify({main:await evaluate(`({snapshot:${q('#snapshot')}.value,first:${JSON.stringify(dates[0])},notice:${q('#notice')}.textContent,error:${q('#error')}.textContent})`),
     popup:await popup.evaluate("({mode:document.querySelector('#position-details').dataset.mode,lots:document.querySelector('#futures-lots')?.value,notice:document.querySelector('#notice').textContent,asOf:document.querySelector('#header-calculation-time').textContent})")}));});
   await check('a change of the market date in the main window first asks about the edits the pop-out holds',`${prompt}.textContent.includes('The Blotter’s window holds unsaved edits')`,`${prompt}.textContent`);
   await answer('Keep them');await wait(`${prompt}.hidden&&${idle}`);await reported();
-  await check('keeping them leaves the main window on its date and the pop-out on its edits',
-    `${q('#snapshot')}.value===${JSON.stringify(dates[0])}&&${JSON.stringify(await popup.evaluate(`document.querySelector('#futures-lots').value==='2'&&${asOf}===${JSON.stringify(firstAsOf)}`))}`);
+  await check('keeping the edits preserves the displayed context held before the requested date change',
+    `${q('#snapshot')}.value===${JSON.stringify(dates[0])}&&${JSON.stringify(await popup.evaluate(`document.querySelector('#futures-lots').value==='2'&&${asOf}===${JSON.stringify(heldAsOf)}`))}`,`({snapshot:${q('#snapshot')}.value,expectedSnapshot:${JSON.stringify(dates[0])},heldAsOf:${JSON.stringify(heldAsOf)},popup:${JSON.stringify(await popup.evaluate(`({lots:document.querySelector('#futures-lots').value,asOf:${asOf}})`))}})`);
   // Following live corrections changes what the pop-out reads too, so it asks the same.
   await click('#follow-live');await wait(`!${prompt}.hidden`,10000);
   await check('Follow live corrections asks first about the edits the pop-out holds',`${prompt}.textContent.includes('The Blotter’s window holds unsaved edits')`);
@@ -82,10 +84,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     `${q('#live-status')}.hidden&&${q('#workspace-mode-label')}.textContent.startsWith('Working data')&&${JSON.stringify(await popup.evaluate("document.querySelector('#futures-lots').value==='2'"))}`);
   // Giving them up changes the date there, which is applied in the pop-out at once, and the pop-out says its edits went.
   await set('#snapshot',dates[1]);await wait(`!${prompt}.hidden`);await answer('Give them up');await wait(idle,30000);
-  await popup.wait(`${idle}&&${asOf}!==${JSON.stringify(firstAsOf)}&&document.querySelector('#futures-page').dataset.pricingState==='complete'`,60000);
+  await popup.wait(`${idle}&&${asOf}!==${JSON.stringify(heldAsOf)}&&document.querySelector('#futures-page').dataset.pricingState==='complete'`,60000);
   const followed=await popup.evaluate(`(()=>{const reads=performance.getEntriesByType('resource').filter(r=>['/api/trading/workspace','/api/trading/workspace/stream'].includes(new URL(r.name).pathname));return reads.length>=2;})()`);
   await check('the pop-out follows the market date the main window chose on Curves & prices: its As of and values are read again',
-    JSON.stringify(followed&&await popup.evaluate(`${asOf}!==${JSON.stringify(firstAsOf)}&&(document.querySelector('#blotter-strip').textContent)!==${JSON.stringify(firstValues)}`)));
+    JSON.stringify(followed&&await popup.evaluate(`${asOf}!==${JSON.stringify(heldAsOf)}&&(document.querySelector('#blotter-strip').textContent)!==${JSON.stringify(heldValues)}`)));
   await check('and says the edits in its details were given up',JSON.stringify(await popup.evaluate("document.querySelector('#notice').textContent.includes('the edits in this window’s details were given up')")));
 
   // Group the rows in the pop-out: the main window's assistant hears what the pop-out shows, labelled as from it.

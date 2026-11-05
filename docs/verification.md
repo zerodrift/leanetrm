@@ -24,6 +24,8 @@ through `positions-scroll.mjs` before checking its first rows or group headers.
 They allow 500 ms for pending retained-row placement, then make at most five
 native scroll attempts before requiring the viewport at the top. The exact quantity/display and two-subtotal
 assertions remain unchanged; this is fixture positioning, not a financial rule.
+The pop-out Keep/Discard check captures its displayed context after the native
+ticket-opening read and immediately before the proposed date change.
 
 D312–D315 page-digest, selection and walkthrough checks run with
 `python3 tools/run_preview.py --pg-bin /path/to/postgres/bin --dotnet /path/to/dotnet --assistant-workspace-check --browser-check --browser /path/to/chrome`.
