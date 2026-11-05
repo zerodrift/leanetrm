@@ -2643,7 +2643,7 @@ calendar/schedule consistency, acyclicity, 32-edge depth, 256-version bounds and
 closure membership. No fictitious zero price substitutes for an unused branch.
 
 The API's operator metadata exposes the same graph contract to the visual and
-formula editors. Migration 0201 admits the node and checks publication policy
+formula editors. Migration 0200 admits the node and checks publication policy
 and ports; downstream lookup and weighted-panel guards retain their other rules.
 The migration pins reviewed predecessor bodies, installation ownership, ACLs,
 configuration and node kinds before changing them. Operational setup scripts and
@@ -2676,7 +2676,7 @@ program retains typed source foreign keys and daily query bounds. Different
 forecast sources distinguish pricing/program identity while native gas assignments,
 fixing metadata and contractual economic identity remain unchanged. Preview,
 booked inspection and portfolio risk use the existing authorized connected market
-preparation. Migration 0202 validates closed query/source contracts and current
+preparation. Migration 0201 validates closed query/source contracts and current
 source authority. The admitted application profile remains future physical gas
 value with fixed consideration; it does not admit the separate payment-aware
 indexed purchase lifecycle. Operational setup remains private and hosted

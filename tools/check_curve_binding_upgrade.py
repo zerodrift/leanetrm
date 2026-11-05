@@ -18,7 +18,7 @@ def run_checks(query, migration):
              EXECUTE replace(d,'AS $function$','AS $function$ /* synthetic upgrade drift */ ');END$body$;"""))
     new_signature=next(signature for signature in signatures if signature.startswith('trading.require_gas_program_shape('))[:-1]+',jsonb)'
     changes.append((f"CREATE FUNCTION {new_signature} RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS 'BEGIN RETURN;END';GRANT EXECUTE ON FUNCTION {new_signature} TO openetrm_runtime;",new_signature))
-    check_guard(query,text,'0202','curve_binding_upgrade',changes)
+    check_guard(query,text,'0201','curve_binding_upgrade',changes)
     for table,constraint in [('trading.custom_curve_projection_bindings','custom_projection_coordinate'),('risk.job_custom_curves','custom_projection_coordinate'),('trading.side_schedule_rows','side_schedule_source_output_kind')]:
         try:query(f'BEGIN;ALTER TABLE {table} DROP CONSTRAINT {constraint};'+migration_body(text)+'ROLLBACK;')
         except RuntimeError as error:assert f'curve_binding_upgrade: unexpected constraint {table}' in str(error),error

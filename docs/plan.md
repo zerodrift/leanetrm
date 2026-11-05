@@ -16,7 +16,7 @@ D331 locally implements separate Henry Hub daily/monthly OTC projections and a
 mixed-grid splice through existing saved graphs and exact published-source links.
 The managed physical cash example now consumes that hierarchy through the normal
 daily lookup and PV contracts. Explicit range boundaries do not add automatic
-rollover or full historical coverage. Migration 0201, durable indexed-physical
+rollover or full historical coverage. Migration 0200, durable indexed-physical
 booking/payment admission and hosted activation require their own release work.
 
 D330 starts the Henry Hub setup with separate HHD daily and H monthly futures

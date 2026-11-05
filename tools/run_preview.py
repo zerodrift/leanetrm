@@ -239,10 +239,10 @@ def main():
             date_plan=compile_plan(dotnet,dll,temporary) if not args.check and not gas_demo else None
             reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan,window_frames=args.contract_dates_check)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
-            if migration.name=='0202_shared_curve_price_queries.sql':
+            if migration.name=='0201_shared_curve_price_queries.sql':
                 from check_curve_binding_upgrade import run_checks as check_curve_binding_upgrade
                 check_curve_binding_upgrade(query,migration)
-            if migration.name=='0201_curve_delivery_splice.sql':
+            if migration.name=='0200_curve_delivery_splice.sql':
                 from check_curve_splice_upgrade import run_checks as check_curve_splice_upgrade
                 check_curve_splice_upgrade(query,migration)
             if args.lng_cargo_check and migration.name=='0176_lng_cargo_references.sql':

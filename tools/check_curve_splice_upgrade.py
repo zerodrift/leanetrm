@@ -9,7 +9,7 @@ def run_checks(query, migration):
         f"ALTER FUNCTION {signature} OWNER TO openetrm_security_owner;",
         f"ALTER FUNCTION {signature} SET work_mem='64kB';",
         f"REVOKE EXECUTE ON FUNCTION {signature} FROM PUBLIC;"))
-    check_guard(query,migration.read_text(),'0201','curve_splice_upgrade',changes)
+    check_guard(query,migration.read_text(),'0200','curve_splice_upgrade',changes)
     try:
         query('BEGIN;ALTER TABLE market_data.custom_curve_nodes DROP CONSTRAINT custom_curve_nodes_kind_check;'+migration_body(migration.read_text())+'ROLLBACK;')
     except RuntimeError as error:

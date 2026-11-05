@@ -78,7 +78,7 @@ repeated periods and intervals crossing a boundary reject. Source points outside
 their selected ranges are explicitly excluded. The operator neither changes
 prices nor shapes monthly intervals into days; a downstream `lookup` supplies
 an explicit daily-query policy when needed. The operator is available through
-the same visual/formula graph and save/publication operations (migration 0201).
+the same visual/formula graph and save/publication operations (migration 0200).
 
 Demand planning retains full source shapes and exact publication authority even
 when a consumer needs only one branch. Empty observation demand produces no
