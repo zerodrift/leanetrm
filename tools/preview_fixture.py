@@ -89,6 +89,14 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
             text = text.replace(old, new)
         return text
     reference = historical((root / 'tests/fixtures/reference-synthetic.sql').read_text())
+    # D319 close sessions keep their business days on these synthetic regional clocks and calendars.
+    head, tail = reference.rsplit('COMMIT;', 1)
+    reference = head + ''.join(
+        f"INSERT INTO ref_data.clock_rules(catalog_id,revision_id,code,kind,iana_zone,tzdb_version) VALUES ({R},'{clock}','iana','{zone}','{installed_tzdb()}');\n"
+        for clock, zone in [('test_london_clock', 'Europe/London'), ('test_new_york_clock', 'America/New_York')]) + ''.join(
+        f"INSERT INTO ref_data.calendars VALUES ({R},'{calendar}','{clock}',{weekend},'2020-01-01','2023-01-01');\n"
+        for calendar, clock, weekend in [('test_london_days', 'test_london_clock', 96), ('test_new_york_days', 'test_new_york_clock', 96),
+                                         ('test_london_every_day', 'test_london_clock', 0)]) + 'COMMIT;' + tail
     market = historical((root / 'tests/fixtures/market-synthetic.sql').read_text())
     if date_plan is not None:
         from demo_date_plan import schedule_sql

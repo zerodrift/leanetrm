@@ -67,6 +67,7 @@ def main():
     parser.add_argument('--usage-benchmark',action='store_true',help='Measure a year of page-assistant usage at a stated volume in an owned fixture and print a JSON report')
     parser.add_argument('--index-fixing-check',action='store_true',help='Qualify published monthly and partially fixed daily index observations')
     parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
+    parser.add_argument('--regional-closes-check',action='store_true',help='Qualify D319 regional close sessions, grants and the close in force')
     parser.add_argument('--pilot-close-check',action='store_true',help='Qualify explicitly generated pilot closes in an owned fixture')
     parser.add_argument('--swap-risk-holdings-check',action='store_true',help='Qualify stored swap risk materialization in an owned fixture')
     parser.add_argument('--close-out-drafts-check',action='store_true',help='Qualify Blotter close-out drafts of futures and swaps, settled periods and refusals in an owned fixture')
@@ -145,7 +146,7 @@ def main():
         if args.example != 'standard' or args.interval_series_benchmark+args.usage_benchmark+args.blotter_stream_benchmark>1 or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
-    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
+    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.regional_closes_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -938,6 +939,9 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'closeOut':close_out_fixture}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--close-out'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=240):raise RuntimeError('Owned Blotter close-out browser checks failed')
+            elif args.regional_closes_check:
+                from check_regional_closes_sql import run_checks as check_regional_closes_sql
+                check_regional_closes_sql(url,query,manifest)
             elif args.pilot_close_check:
                 from check_pilot_close import run_checks as check_pilot_close
                 check_pilot_close(url,query,manifest,psql,app_env)
