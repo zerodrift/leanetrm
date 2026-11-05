@@ -24,7 +24,7 @@ internal static class MarketCalendarDemandChecks
         await database.WithIdentity("viewer","ReadMarketData",async(connection,ct)=>
         {
             var metadata=await database.Read(connection,ct,observationIds:[]);
-            // The built-in frame is a recorded close (D327), read as the close it was seeded as.
+            // The built-in frame is a recorded close (D328), read as the close it was seeded as.
             var seeded=database.Manifest.Frames.Single(frame=>frame.At==DateTimeOffset.Parse("2020-12-18T16:00:00Z")).CloseId!.Value;
             var frame=await MarketCloses.Frame(connection,database.Manifest.CatalogId,seeded,null,ct);
             var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -33,7 +33,7 @@ internal static class MarketCalendarDemandChecks
             var references=await new CustomCurvesStore(database).References(connection,definition,metadata,ct);
             // Each candidate is legal: 12 contracts x20 prior dates. Distinct
             // second-of-day sampling gives 70x240=16,800 distinct windows.
-            // Calendar candidates are recorded closes of one session (D327); these synthetic ones all close the frame's day.
+            // Calendar candidates are recorded closes of one session (D328); these synthetic ones all close the frame's day.
             var closeDay=new FrameClose(frame.Close!.Session,frame.Close.SessionVersion,DateOnly.FromDateTime(frame.At.UtcDateTime),null);
             var frames=Enumerable.Range(1,70).Select(second=>frame with{Id=Guid.NewGuid(),At=frame.At.AddSeconds(second),Close=closeDay}).ToImmutableArray();
             await using(var save=ScheduleStore.Command(connection,"SAVEPOINT calendar_demand"))await save.ExecuteNonQueryAsync(ct);

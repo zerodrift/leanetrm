@@ -163,7 +163,7 @@ public static class PilotCloseReports
         if(positions.IsEmpty||totals.IsEmpty||models.IsEmpty)throw Invalid();
         var dependenciesByModel=dependencies.ToLookup(d=>d.Id("model_id"));
         var observationsByDiscount=discountObservations.ToLookup(o=>o.Text("discount_ordinal"),StringComparer.Ordinal);
-        // A report keeps the exact close it valued; it says when that close has since been replaced (D327).
+        // A report keeps the exact close it valued; it says when that close has since been replaced (D328).
         var recorded=await MarketCloses.Read(connection,catalog,h.Id("close_id"),ct);
         var result=new{reportId=runId,runId,state="report_published",mode=h.Text("mode"),close=new{id=h.Id("close_id"),name=h.Text("close_name"),at=h.Instant("close_at"),kind=h.Text("close_kind"),
             session=recorded.Session,businessDate=recorded.BusinessDate,replaced=recorded.ReplacedBy is not null,inForce=recorded.ReplacedBy??recorded.Id},

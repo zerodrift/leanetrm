@@ -5,7 +5,7 @@ import {sessionOffer} from '../dist/close-sessions.js';
 const close=(id,session,businessDate)=>({id,at:`${businessDate}T16:00:00Z`,name:id,originCloseId:id,close:{session,sessionVersion:1,businessDate,replacedBy:null}});
 const working=(id,at)=>({id,at,name:'Edited inputs',originCloseId:null});
 
-test('a chosen session offers its own closes and every working snapshot, separately (D327)',()=>{
+test('a chosen session offers its own closes and every working snapshot, separately (D328)',()=>{
  const frames=[close('a','london','2020-12-17'),close('b','new_york','2020-12-17'),working('w','2020-12-17T16:00:00Z')];
  assert.deepEqual(sessionOffer(frames,'london',null),{closes:[frames[0]],working:[frames[2]]});
 });

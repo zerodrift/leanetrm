@@ -1,4 +1,4 @@
--- D327: a close belongs to an exact versioned close session and an explicit business day. For each session and business
+-- D328: a close belongs to an exact versioned close session and an explicit business day. For each session and business
 -- day the latest recorded close is in force; earlier ones remain as history. Recording needs a per-session grant.
 -- Existing closes are retired, not mapped: this migration requires an empty close history.
 BEGIN;
@@ -147,7 +147,7 @@ CREATE FUNCTION security.close_session_json(catalog uuid,session text,session_ve
  WHERE(v.catalog_id,v.code,v.version)=(catalog,session,session_version);
 $$;
 
--- The published version governing a session business day: the one with the latest start that covers it (D327). A later
+-- The published version governing a session business day: the one with the latest start that covers it (D328). A later
 -- version takes over from its own start, so a session can change its cutoff or curves without a new code.
 CREATE FUNCTION security.close_session_version_on(catalog uuid,session text,business_date date) RETURNS integer
  LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
@@ -367,7 +367,7 @@ BEGIN
   'replaced',coalesce((SELECT jsonb_agg(r) FROM jsonb_array_elements(rows)r WHERE NOT(r->>'inForce')::boolean),'[]'::jsonb));
 END;$$;
 
--- Always latest (D327, a recorded exception to the knowledge cutoff): under a historical context the close in force for a
+-- Always latest (D328, a recorded exception to the knowledge cutoff): under a historical context the close in force for a
 -- session and business day is visible even if it, or its pins, became known after the context's cutoff. Its definition and
 -- reference revisions must still be visible, and its pins must lie in revision periods covering the context's date. Every
 -- other close keeps the exact knowledge rules of 0100.
@@ -420,7 +420,7 @@ BEGIN
  OR security.reference_version_visible(selected.reference_catalog_id,selected.reference_revision_id) IS NOT TRUE THEN RETURN false;END IF;
  RETURN true;
 END;$$;
--- The close session a request reads (D327). "Always latest" releases only the pins of that session's closes in force, so one
+-- The close session a request reads (D328). "Always latest" releases only the pins of that session's closes in force, so one
 -- region's correction never becomes another region's knowledge. A request binds at most one session.
 ALTER TABLE security.request_contexts ADD COLUMN close_session ref_data.code;
 CREATE FUNCTION security.use_close_session(catalog uuid,session text) RETURNS void
@@ -434,7 +434,7 @@ BEGIN
 END;$$;
 
 -- The pinned observations of the bound session's closes in force for the context's date are visible whatever its knowledge
--- cutoff: the prices "always latest" reads (D327). Every other observation keeps the 0158 rules exactly.
+-- cutoff: the prices "always latest" reads (D328). Every other observation keeps the 0158 rules exactly.
 CREATE OR REPLACE FUNCTION security.visible_observations() RETURNS TABLE(catalog uuid, revision uuid, observation uuid)
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE cut record;
@@ -472,7 +472,7 @@ BEGIN
    AND security.market_close_visible(s.catalog_id,s.id);
 END$$;
 -- The per-row check keeps 0158's contract with visible_observations(): it releases exactly the same pinned prices of the bound
--- session's closes in force (D327), and otherwise keeps the 0037 rules.
+-- session's closes in force (D328), and otherwise keeps the 0037 rules.
 CREATE OR REPLACE FUNCTION security.market_fact_visible(catalog uuid,revision uuid,observation uuid)
 RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog SET plan_cache_mode=force_generic_plan AS $$
 DECLARE session text;
@@ -534,7 +534,7 @@ CREATE FUNCTION security.close_recorded_after_cutoff(catalog uuid,close_id uuid)
  FROM security.request_contexts q WHERE q.backend_pid=pg_backend_pid() AND q.transaction_id=pg_current_xact_id_if_assigned() AND q.runtime_login=session_user;
 $$;
 
--- A generated close is recorded for its profile's session, which the profile names explicitly (D327).
+-- A generated close is recorded for its profile's session, which the profile names explicitly (D328).
 DO $$BEGIN
  IF EXISTS(SELECT 1 FROM automation.pilot_close_profiles) THEN RAISE EXCEPTION 'regional_closes_requires_empty_close_history';END IF;
 END$$;
@@ -601,7 +601,7 @@ BEGIN
   RETURN previous.id;
  END IF;
  PERFORM security.require_bound_market_context(p.catalog_id,q.market_context_id,r.due_at);
- -- D327: a generated close belongs to its profile's session, on the business day whose cutoff is the due instant. It never
+ -- D328: a generated close belongs to its profile's session, on the business day whose cutoff is the due instant. It never
  -- replaces a recorded close, never follows a replaced anchor and needs the service's grant for the session.
  SELECT * INTO anchor FROM market_data.market_closes WHERE(catalog_id,id)=(p.catalog_id,p.prior_close_id);
  IF security.close_in_force(anchor.catalog_id,anchor.session_code,anchor.business_date)<>anchor.id THEN RAISE EXCEPTION 'close_replaced' USING ERRCODE='P0001';END IF;
@@ -645,7 +645,7 @@ BEGIN
   SELECT 1 FROM expected e FULL JOIN jsonb_to_recordset(members)x(curve text,"contractId" uuid,ordinal integer)
   ON(e.curve,e.contract)=(x.curve,x."contractId") WHERE e.ordinal IS DISTINCT FROM x.ordinal)
  THEN RAISE EXCEPTION 'pilot_close_inputs';END IF;
- -- The generated close's session day (D327), once its inputs are qualified.
+ -- The generated close's session day (D328), once its inputs are qualified.
  SELECT * INTO day FROM security.close_session_day(p.catalog_id,p.session_code,r.due_at);
  IF NOT EXISTS(SELECT 1 FROM market_data.close_session_versions v WHERE(v.catalog_id,v.code,v.version,v.definition_revision_id)=(p.catalog_id,p.session_code,day.session_version,p.definition_revision_id))
  THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
@@ -677,7 +677,7 @@ BEGIN
  RETURN identity;
 END;$$;
 
--- Each person's chosen close session, remembered so a page opens on that session's newest close (D327). Nothing chooses a
+-- Each person's chosen close session, remembered so a page opens on that session's newest close (D328). Nothing chooses a
 -- session for a person without a choice; the header asks. Changing the choice replaces it.
 CREATE TABLE presentation.close_session_choices(
  tenant_id uuid NOT NULL,workspace_id uuid NOT NULL,principal_id uuid NOT NULL,catalog_id uuid NOT NULL,session_code ref_data.code NOT NULL,
@@ -713,7 +713,7 @@ BEGIN
  RETURN session;
 END;$$;
 
--- The business days of a session whose close in force the reader cannot see (D327): the calendar names them, never offering
+-- The business days of a session whose close in force the reader cannot see (D328): the calendar names them, never offering
 -- the close it replaced in their place.
 CREATE FUNCTION security.close_session_hidden_days(catalog uuid,session text) RETURNS date[]
  LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$

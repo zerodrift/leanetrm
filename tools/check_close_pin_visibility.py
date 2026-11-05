@@ -43,7 +43,7 @@ def run_checks(query, claim, profile):
             result=query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION {login};SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{context}');"
                 f"SELECT security.market_close_visible('{catalog}','{close}');RESET SESSION AUTHORIZATION;SET LOCAL session_replication_role=replica;"+change+
                 f"SET LOCAL session_replication_role=origin;SET LOCAL SESSION AUTHORIZATION {login};SELECT security.market_close_visible('{catalog}','{close}');ROLLBACK;").splitlines()
-            # Always latest (D327): knowledge-time evidence no longer hides the close in force; time and scope still do.
+            # Always latest (D328): knowledge-time evidence no longer hides the close in force; time and scope still do.
             expected=['t','t'] if name in LATEST else ['t','f']
             assert result==expected,(login,name,result)
         print(f'PASS close pin visibility: {login} reads the close in force whatever its knowledge evidence, and refuses next-day, ineffective and foreign-catalog evidence',flush=True)

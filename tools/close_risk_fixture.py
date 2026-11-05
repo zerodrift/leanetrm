@@ -39,7 +39,7 @@ def prepare(reference,market,security,manifest):
     # API booking now seals retained schedules in resumable transactions. Keep
     # this synthetic close after setup so every deliberately supplied input can
     # be certified before its unchanged valuation-instant cutoff.
-    # A close session cuts off on a whole minute (D327).
+    # A close session cuts off on a whole minute (D328).
     at=(now+timedelta(minutes=6)).replace(second=0,microsecond=0).isoformat()
     template=manifest['frames'][0]
     live=deepcopy(template);live.update(name='Synthetic existing-close live PPA',at=at)

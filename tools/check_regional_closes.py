@@ -1,4 +1,4 @@
-"""D327 regional closes over HTTP: recording for a session business day, the close in force and replaced history."""
+"""D328 regional closes over HTTP: recording for a session business day, the close in force and replaced history."""
 import json
 from datetime import datetime
 import threading
@@ -117,7 +117,7 @@ def run_checks(url, query, manifest):
     assert refused['code'] == 'close_replaced' and newer['id'] in refused['message'], refused
     print('PASS a close replaced after it was offered is refused for new work, naming the close in force', flush=True)
 
-    # Always latest (D327): a historical view reads the close in force for its business day even when it was recorded after the
+    # Always latest (D328): a historical view reads the close in force for its business day even when it was recorded after the
     # view's knowledge cutoff, and says so. Its business day, not the UTC date of its instant, matches the view's date.
     historical = client(url, 'viewer')
     historical.call('market/context', {'effectiveOn': '2020-12-18', 'knownAt': None, 'mode': 'current', 'selection': 'latest_correction'})
@@ -151,7 +151,7 @@ def run_checks(url, query, manifest):
     assert newest['id'] in {f['originCloseId'] for f in historical.call('workspace')['frames']}
     print('PASS set and per-row visibility release a later price pinned by the close in force, for its session only', flush=True)
 
-    # A person's chosen session is remembered (D327); nothing chooses one for a new account.
+    # A person's chosen session is remembered (D328); nothing chooses one for a new account.
     created = admin.call('admin/create', {'operationId': str(uuid4()), 'login': 'session_chooser', 'name': 'Synthetic session chooser', 'kind': 'human', 'roles': ['trader']})
     # A created account is offered only in the session that created it.
     chooser = admin

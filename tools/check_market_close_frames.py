@@ -33,7 +33,7 @@ def run_checks(query,manifest,psql,environment,close_id,context):
     DO $$BEGIN PERFORM security.read_market_close_parts('{catalog}',ARRAY['{close_id}'::uuid],'{uuid4()}');
     RAISE EXCEPTION 'A close read mislabeled its bound context';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;END$$;ROLLBACK;""")
     def attempt(expect_refusal,direct=False):
-        # A close in force is qualified from its pins, whatever the cutoff (D327), so the direct read waits on them.
+        # A close in force is qualified from its pins, whatever the cutoff (D328), so the direct read waits on them.
         table='market_close_pins' if direct else 'market_close_members'
         read=(f"IF security.market_close_visible('{catalog}','{close_id}') THEN RAISE EXCEPTION 'Expired close reader returned financial parts';END IF;" if direct else
               f"PERFORM security.read_market_close_parts('{catalog}',ARRAY['{close_id}'::uuid],'{context['contextId']}');RAISE EXCEPTION 'Expired close reader returned financial parts';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;")
@@ -86,7 +86,7 @@ def check_generated_history(url,query,manifest,run_id,curve,contract_id):
     reader=PreviewClient(url);reader.bootstrap();reader.call('profile',{'profile':'viewer'})
     navigation=reader.call('workspace/navigation')
     generated=next(frame for frame in navigation['frames'] if frame.get('originCloseId')==run_id)
-    # A close's history is its own session's (D327): the generated close's history, read at that close, lists it.
+    # A close's history is its own session's (D328): the generated close's history, read at that close, lists it.
     history=reader.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':generated['id'],'curve':curve,'contractId':contract_id})
     point=next((point for point in history['points'] if point['snapshotId']==run_id),None)
     assert point,'History omitted the generated close it was read at'

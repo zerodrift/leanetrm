@@ -69,7 +69,7 @@ def main():
     parser.add_argument('--usage-benchmark',action='store_true',help='Measure a year of page-assistant usage at a stated volume in an owned fixture and print a JSON report')
     parser.add_argument('--index-fixing-check',action='store_true',help='Qualify published monthly and partially fixed daily index observations')
     parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
-    parser.add_argument('--regional-closes-check',action='store_true',help='Qualify D327 regional close sessions, grants and the close in force')
+    parser.add_argument('--regional-closes-check',action='store_true',help='Qualify D328 regional close sessions, grants and the close in force')
     parser.add_argument('--pilot-close-check',action='store_true',help='Qualify explicitly generated pilot closes in an owned fixture')
     parser.add_argument('--swap-risk-holdings-check',action='store_true',help='Qualify stored swap risk materialization in an owned fixture')
     parser.add_argument('--close-out-drafts-check',action='store_true',help='Qualify Blotter close-out drafts of futures and swaps, settled periods and refusals in an owned fixture')
@@ -547,7 +547,7 @@ def main():
             # One owned test date deliberately has no admitted demo input frame.
             reference_demo['omittedAt']=max(f['at'] for f in reference_demo['frames'] if not f['at'].startswith('2020-12-18'))
             manifest['swapMarkets'][-1]['frames']=[f for f in reference_demo['frames'] if f['at']!=reference_demo['omittedAt']]
-        # Only recorded closes are closes (D327): the built-in frames are recorded as synthetic session closes.
+        # Only recorded closes are closes (D328): the built-in frames are recorded as synthetic session closes.
         from seed_session_closes import seed as seed_session_closes
         seed_session_closes(query,manifest)
         (temporary/'manifest.json').write_text(json.dumps(manifest))

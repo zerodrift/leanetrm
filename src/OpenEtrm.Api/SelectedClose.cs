@@ -23,7 +23,7 @@ public static class SelectedClose
             throw new TemporalException("market_date","Choose a close on the selected effective date.");
         return pin;
     }
-    // The session a request reads: "always latest" releases only that session's pinned prices (D327).
+    // The session a request reads: "always latest" releases only that session's pinned prices (D328).
     public static async Task BindSession(NpgsqlConnection connection,Guid catalog,string session,CancellationToken ct)
     {
         await using var command=ScheduleStore.Command(connection,"SELECT security.use_close_session($1,$2)",catalog,session);

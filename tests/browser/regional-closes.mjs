@@ -1,4 +1,4 @@
-// D327: the header opens on the person's remembered close session, offers only that session's closes as closes and lists a
+// D328: the header opens on the person's remembered close session, offers only that session's closes as closes and lists a
 // day's replaced closes as history, never as a choice.
 export async function run({command,evaluate,wait,persona,check,idle,url}){
  await command('Page.navigate',{url:url+'/'});await wait(idle,30000);

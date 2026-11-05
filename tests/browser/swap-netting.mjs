@@ -14,7 +14,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await persona('admin');
  await evaluate(`(async()=>{const b=await(await fetch('/api/bootstrap')).json();const r=await fetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:'netting_risk_browser',name:'Synthetic netting and risk account',kind:'human',roles:['trader','risk_analyst']})});if(!r.ok)throw Error(await r.text());})()`);
  await persona('netting_risk_browser');
- // A new account chooses its close session before it reads prices (D327).
+ // A new account chooses its close session before it reads prices (D328).
  await set('#close-session','demo_close_1600');await wait(idle);
  const typeInto=async(selector,text)=>{await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.focus();n.select();})()`);await command('Input.insertText',{text});};
  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-15T08:00:00')&&w.initialFrameIds.includes(f.id)).id;})()");
