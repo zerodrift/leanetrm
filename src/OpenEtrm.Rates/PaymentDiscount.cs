@@ -78,7 +78,7 @@ public sealed record PaymentDiscount
             {
                 rates = new(mapping.Definition,snapshot,mapping.InterpolationPolicy);
             }
-            var factor=rates.Evaluate(paymentDate);
+            var factor=rates.Lookup(paymentDate).Value;
             var value=new PaymentDiscount(true,factor.Value,currency,mapping,paymentDate,snapshot,factor.Pillars);
             resolved.Add(paymentDate, value);
             return value;

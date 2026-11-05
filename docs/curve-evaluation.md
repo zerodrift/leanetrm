@@ -1,16 +1,33 @@
 # Curve evaluation
 
-`CurveBase<TRequest,TValue>` defines query validation, required inputs, coverage,
-single evaluation and bounded batch evaluation. Curves consume resolved immutable
-inputs. Authorization, exact-version selection and historical visibility remain
-at the existing operation boundary.
+`CurveBase<TQuery,TValue,TSelection>` provides one nonvirtual `Lookup(query)`
+entry point. Each implementation must resolve and validate a typed query, declare
+its selected inputs, and evaluate that same immutable selection. `LookupMany`
+preserves order and duplicate requests through that entry point. The result
+contains the typed value, exact curve key, selected policy and required inputs.
+Price values carry units, scenario/context and observation lineage; discount
+factors carry currency, snapshot and contributing rate pillars.
+
+Concrete versioned policy records retain interpolation, boundaries and analytical
+implementation. Price settings also retain axis and maximum span. Rate policy
+retains construction, compounding, day count and date basis. There is no implicit
+interpolation, extrapolation, alternate evaluator or missing-value fallback.
+A stored recipe or analytical model implements evaluation behind this contract;
+a fitter produces qualified curve state, rather than exposing a competing lookup.
+
+Curves consume resolved immutable inputs. Authorization, exact-version selection
+and historical visibility remain at the operation boundary. The current concrete
+lookup families are prices and discount factors. The volatility fitter is a
+separate producer; a selectable fitted-volatility lookup/provider is not admitted
+by this change, and no expiry interpolation or volatility extrapolation is added.
 
 `AssetCurve` evaluates typed prices over native curve members or published recipe
 outputs. Exact contract identity, a date inside a delivery period, and a point
 sample date are distinct requests. Contract queries preserve the contract key;
 point queries introduce no market contract or delivery period. `AssetCurveValue`
 retains exact rational price units, observation lineage, scenario and resolved
-context. A prepared batch shares its connected plan across immutable scenarios
+context. A prepared batch binds an exact scenario with `WithScenario` and uses the same
+`Lookup` method against that scenario. It shares its connected plan across immutable scenarios
 and preserves duplicate requests and their order. The native factory requires a
 complete input snapshot for its declared curve members; it does not fetch marks.
 

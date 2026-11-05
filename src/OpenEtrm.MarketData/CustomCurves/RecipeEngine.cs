@@ -23,6 +23,7 @@ public static partial class RecipeEngine
         ["dates"]=ImmutableDictionary<string,string>.Empty,
         ["sample"]=new Dictionary<string,string>{{"selection","selection"},{"dates","dates"}}.ToImmutableDictionary(),
         ["lookup"]=new Dictionary<string,string>{{"values","panel"},{"dates","dates"}}.ToImmutableDictionary(),
+        ["splice"]=new Dictionary<string,string>{{"before","panel"},{"after","panel"}}.ToImmutableDictionary(),
         ["mean"]=new Dictionary<string,string>{{"values","panel"}}.ToImmutableDictionary(),
         ["output"]=new Dictionary<string,string>{{"values","panel"}}.ToImmutableDictionary()
     }.ToImmutableDictionary();
@@ -46,7 +47,7 @@ public static partial class RecipeEngine
             foreach(var (port,id) in node.Inputs)
             {
                 if(!nodes.TryGetValue(id,out var upstream))throw Invalid($"Node {node.Id} refers to a missing input.");
-                var type=upstream.Kind switch{"sample" or "mean" or "published_source" or "weighted_panels" or "lookup"=>"panel","select" or "weighted_contracts"=>"selection",_=>upstream.Kind};
+                var type=upstream.Kind switch{"sample" or "mean" or "published_source" or "weighted_panels" or "lookup" or "splice"=>"panel","select" or "weighted_contracts"=>"selection",_=>upstream.Kind};
                 if(type!=ports[port])throw Invalid($"Port {port} on {node.Id} requires {ports[port]}.");
             }
             switch(node.Kind)
@@ -64,6 +65,7 @@ public static partial class RecipeEngine
                     else if(node.Parameters["binding"]!="context")throw Invalid("Daily forwards use one context observation frame.");break;
                 case "dates":if(Required(node,"mode")=="delivery_range")_=DeliveryDates(node);break;
                 case "lookup":_=LookupSettings(node);break;
+                case "splice":_=SpliceRange(node);break;
                 case "mean":if(Required(node,"axis") is not ("dates" or "contracts"))throw Invalid("Choose the averaging axis explicitly.");break;
                 case "weighted_panels":
                     if(Required(node,"alignment")!=ExactDeliveryAlignment||Required(node,"aggregation") is not(SignedSum or WeightedMean)||
@@ -97,6 +99,7 @@ public static partial class RecipeEngine
                 "source"=>["curve"],"select"=>node.Parameters["mode"]=="positions"?["mode","first","count","binding"]:["mode","binding"],
                 "dates"=>["mode","sampling","corrections","count","includeContext","calendar","schedule","first","from","to"],
                 "lookup"=>["axis","method","maxGapDays","leftBoundary","rightBoundary","implementation","output"],
+                "splice"=>["from","cutover","to","implementation"],
                 "mean"=>["axis"],"weighted_contracts"=>["aggregation"],"weighted_panels"=>["alignment","aggregation"],"published_source"=>["selection"],_=>[]
             };
             if(node.Parameters.Keys.Any(key=>!parameters.Contains(key,StringComparer.Ordinal)))throw Invalid($"Node {node.Id} contains an unsupported or conflicting parameter.");
@@ -245,6 +248,8 @@ public static partial class RecipeEngine
                     result=new Panel(lookedUp.ToImmutable());break;
                 case "weighted_panels":
                     result=CombinePanels(node,node.Inputs.ToDictionary(p=>p.Key,p=>(Panel)Node(p.Value)),inputs.ContextDate,cancellation,ref work);break;
+                case "splice":
+                    result=SplicePanels(node,(Panel)Node(node.Inputs["before"]),(Panel)Node(node.Inputs["after"]),cancellation);break;
                 case "output":result=Node(node.Inputs["values"]);break;
                 default:throw Invalid("Unsupported node.");
             }

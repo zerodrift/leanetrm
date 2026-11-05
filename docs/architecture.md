@@ -1,5 +1,36 @@
 # Architecture and domain contracts
 
+D333 makes the OTC examples explicit futures-plus-basis curves, using separate
+synthetic spread assessments with a small winter premium. Ordinary graph
+arithmetic and instrument PV preserve independent futures and basis risk.
+
+D332 extends common whole-interval curve binding to mixed grids and the physical
+gas ticket, with retained source/query identity and normal connected PV/risk.
+The shared curve base exposes one enforced `Lookup` contract with explicit
+policies and selected input evidence. Local ticket, booking, inspection and
+retained-worker checks qualify the future-delivery profile; hosted publication
+and indexed-purchase cash lifecycle admission remain
+separate. See [curve evaluation](curve-evaluation.md).
+
+D331 locally implements an explicit whole-delivery splice in the existing curve
+graph. Separate HHD/H OTC projections feed the mixed daily/monthly curve; the
+physical cash example consumes it through the existing daily lookup and normal
+Side PV. Unused branches retain flat definition receipts without numerical
+points or observation demand. See [custom curves](custom-curves.md) and the
+[physical example](indexed-physical-gas-example.md). Durable physical profile
+admission and hosted activation remain separate from this qualification.
+
+D330 selects separate Henry Hub futures sources: daily ICE HHD and monthly ICE H.
+Their settlement references remain distinct. The local source-data qualification
+uses existing dated futures, pricing and risk operations. D331 adds the OTC
+projections and splice consumer. See [the source-curve boundary](indexed-physical-gas-example.md#henry-hub-source-curves).
+
+D329 locally qualifies an [indexed physical gas cash example](indexed-physical-gas-example.md)
+through the common Instrument/Side PV contracts and unchanged risk engine.
+Explicit binding state supplies final cash and payment evidence; the separately
+selected unpaid cash measure excludes commodity asset value. Durable booking,
+payment operations and application/hosted admission remain subsequent work.
+
 D327 connects [native physical operations to the assistant](physical-workspace.md#physical-assistant-operations).
 Facility questions retain an explicit operating date and certified knowledge cutoff
 without inventing a pricing frame. Native authoring and quantity changes retain
@@ -1547,6 +1578,13 @@ Missing inputs, nonconvergence and invalid contracts are structured failures.
 An unavailable result is not zero exposure. Unrelated successes may be retained,
 but a partial run is visibly partial and cannot be represented as a complete
 portfolio result.
+
+The inherited Instrument/Side valuation boundary is non-negotiable. Each
+implementation resolves its prices through the supplied scenario context and
+incorporates them in its own `PV`. Risk applies generic market shocks and calls
+that same contract; factor/tenor reporting buckets the resulting PV differences.
+Daily, monthly or stitched price curves do not introduce product-specific shock
+handling or an alternative exposure calculation in the risk calculator.
 
 The initial engine supports trusted built-in operators. An extension interface
 does not authorize tenants or agents to load arbitrary executable code.

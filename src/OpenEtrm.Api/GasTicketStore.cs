@@ -4,6 +4,7 @@ using Npgsql;
 using System.Collections.Immutable;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Gas;
+using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
 
@@ -41,11 +42,21 @@ public sealed class GasTicketStore(PreviewDatabase database)
  // shows only those known and effective in it, so historical choices list that context's revisions.
  async Task<JsonElement> Catalog(NpgsqlConnection c,PreviewData data,InputFrame frame,CancellationToken ct)=>JsonSerializer.SerializeToElement(await gas.CatalogRead(c,data,frame,ct),Json);
 
- public async Task<object> Choices(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketFieldRequest body,CancellationToken ct)=>
-  new{choices=GasTicket.Choices(body.Draft,body.Side,body.Field,
-   GasTicket.PhysicalReferenceField(body.Draft,body.Side,body.Field)
-    ?JsonSerializer.SerializeToElement(await gas.PhysicalReferences(c,data,ct),Json)
-    :await Catalog(c,data,frame,ct))};
+ public async Task<object> Choices(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketFieldRequest body,CancellationToken ct)
+ {
+  if(body.Field=="forecast_curve")
+  {
+   var probe=GasTicket.PriceProbe(body.Draft,body.Side!,await Catalog(c,data,frame,ct),frame.Id,data.DefinitionRevision.RevisionId);
+   var physical=probe.PhysicalSides.Single();var metadata=await gas.Metadata(c,data,GasCompositionStore.Selection(probe,physical),ct);
+   var from=DateWorkspace.Date(physical.DeliveryFrom);var to=DateWorkspace.Date(physical.DeliveryTo);
+   var days=Enumerable.Range(0,to.DayNumber-from.DayNumber).Select(n=>new ProjectionDelivery(from.AddDays(n),from.AddDays(n+1)));
+   var choices=await CustomCurves.ProjectionChoices(c,database,data,frame,ct);
+   return new{choices=new[]{GasTicket.AssignedForecastChoice}.Concat(choices.Where(choice=>choice.Reference.Selection==CustomCurveProjectionBinding.ContainingDeliverySelection&&
+    choice.Unit==PriceUnit.FromQuote(metadata.Assignment.Quote)&&choice.Covers(days)).Select(choice=>new TicketChoice(GasTicket.ForecastValue(choice.Reference),choice.Label)))};
+  }
+  return new{choices=GasTicket.Choices(body.Draft,body.Side,body.Field,
+   GasTicket.PhysicalReferenceField(body.Draft,body.Side,body.Field)?JsonSerializer.SerializeToElement(await gas.PhysicalReferences(c,data,ct),Json):await Catalog(c,data,frame,ct))};
+ }
 
  public async Task<object> Lookup(NpgsqlConnection c,PreviewData data,InputFrame frame,TicketFieldRequest body,CancellationToken ct)
  {

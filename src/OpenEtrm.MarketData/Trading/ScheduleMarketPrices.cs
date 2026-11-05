@@ -46,12 +46,12 @@ public sealed partial class ScheduleMarketSources
         }
         var candidates=dated.Where(lookup=>lookup.Market==bindings["market"].Market&&lookup.Index==bindings["index"].Reference&&
             lookup.Quote.Key==bindings["quote"].Reference&&lookup.Contract.DeliveryFrom==row.ObservationFrom&&lookup.Contract.DeliveryTo==row.ObservationTo&&
-            DefinitionIdentity.For(lookup.Settlement).Canonical==row.Parameters["selection"]&&
+            DefinitionIdentity.For(lookup.Settlement).Canonical==row.Parameters["selection"]&&CurvePriceScheduleSource.Matches(row,lookup)&&
             lookup.Fixing is {} f&&f.Series==fixing.Series&&f.Source==fixing.Reference&&f.Implementation==fixing.Coordinate&&
             (bindings.TryGetValue("projection",out var projection)?lookup.CustomProjection is {} p&&p.CatalogId==projection.EntityCatalog&&p.CurveId==projection.Entity&&
                 p.Version==projection.Version&&p.OutputNode==projection.Coordinate&&p.Position==projection.Position:lookup.CustomProjection is null)).Distinct().ToArray();
         if(candidates.Length!=1)throw Invalid("A stored dated lookup requires one exact admitted contract, quote, fixing and projection definition.");
-        if(gasAssignment is not null&&candidates[0]!=gasAssignment.Lookup)
+        if(gasAssignment is not null&&!CurvePriceScheduleSource.SameObservation(candidates[0],gasAssignment.Lookup))
             throw Invalid("Gas price metadata must retain the complete qualified assignment lookup, including fixing time.");
         if(crudeAssignment is not null&&candidates[0]!=crudeAssignment.Lookup)
             throw Invalid("Crude metadata must retain the exact qualified quote, index, forward and fixing lookup.");

@@ -8,7 +8,7 @@ namespace OpenEtrm.MarketData.Trading;
 public enum ComponentKind { Delivery=1,Payment,Holding }
 public enum EconomicClass { Realised=1,Estimated,Held,Unrealised }
 public enum PaymentLifecycle { RemainingProjected=1,DeliveredUnsettled }
-public enum ValueCoverage { Discounted=1,HoldingValue,OverdueBalance,OverdueEstimate,DeliveredValue }
+public enum ValueCoverage { Discounted=1,HoldingValue,OverdueBalance,OverdueEstimate,DeliveredValue,UnpaidCashPresentValue }
 public enum RowPriceState { Fixed=1,Projected,Actual,Modeled,PublishedFixing,Estimated }
 public sealed record QuantityComponent(ReferenceKey Location,ExactQuantity Quantity,AssetKey? Asset);
 public sealed record CapacityDay(DateOnly OperatingDay,AssetVersionKey Version,ReferenceKey Location,ExactQuantity PerUnit);
@@ -24,6 +24,7 @@ public sealed record ScheduleRowValue(Guid SideId,SideSlot? NativeSlot,Component
     EconomicClass? RowClass,PaymentLifecycle? Lifecycle,ValueCoverage Coverage,string? UnavailableReason)
 {
     public required ScheduleRow Row { get; init; }
+    public CashPaymentBalance? CashBalance { get; init; }
     public SideSlot Slot=>NativeSlot??throw new MarketDataException("schedule_row_kind","A dated payment row has no interval composition slot.");
     public DeliveryInterval Interval=>NativeInterval??throw new MarketDataException("schedule_row_kind","A dated row retains its explicit date delivery window.");
     public EconomicClass Class=>RowClass??throw new MarketDataException("schedule_row_classification","This dated payment contract does not declare an interval lifecycle classification.");
@@ -47,6 +48,12 @@ public sealed record ScheduleRowValue(Guid SideId,SideSlot? NativeSlot,Component
             Components(row,cash),cash.CashAmount,ExactDecimal.Parse("1"),row.PaymentConvention is null?row.Implementation:PaymentRule.Implementation,
             row.PaymentAt,discount,cash.CashAmount.Scale(discount.DiscountFactor),null,null,ValueCoverage.Discounted,null)
     {Row=row;observation=cash;}
+    [SetsRequiredMembers]
+    internal ScheduleRowValue(SidePaymentCash cash,SidePaymentFactor? discount,ExactMoney presentValue,CashPaymentBalance balance)
+        :this(cash.Plan.SideId,null,ComponentKind.Payment,null,cash.Plan.AllocatedQuantity.Scale(cash.Plan.UnitQuantity.Amount),VolumeState.Contractual,null,[],[],
+            Components(cash.Plan,cash),cash.CashAmount,ExactDecimal.Parse("1"),cash.Plan.PaymentConvention is null?cash.Plan.Implementation:PaymentRule.Implementation,
+            cash.Plan.PaymentAt,discount,presentValue,null,null,ValueCoverage.UnpaidCashPresentValue,null)
+    {Row=cash.Plan;observation=cash;CashBalance=balance;}
     private static ImmutableArray<PriceComponent> Components(ScheduleRow row,SidePaymentCash cash)
     {
         var total=cash.Prices.Aggregate(System.Numerics.BigInteger.Zero,(sum,price)=>sum+price.Term.Weight.ScaledValue);
@@ -59,6 +66,7 @@ public sealed record ScheduleRowValue(Guid SideId,SideSlot? NativeSlot,Component
         Quantity=Quantity.Scale(mw),Amount=Amount.Scale(coefficient).Scale(mw),Coefficient=Coefficient*coefficient,
         PresentValue=PresentValue?.Scale(coefficient).Scale(mw),
         PriceComponents=[..PriceComponents.Select(p=>p with {Quantity=p.Quantity.Scale(mw)})],
+        CashBalance=CashBalance?.Scale(coefficient*mw),
         observation=observation?.Scale(coefficient*mw)};
 }
 

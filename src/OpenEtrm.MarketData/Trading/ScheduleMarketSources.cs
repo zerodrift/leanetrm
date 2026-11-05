@@ -165,6 +165,7 @@ public sealed partial class ScheduleMarketSources
                             Set(cell,new(sampled.Price.NumeratorValue,sampled.Price.DenominatorValue),new(null,sampled.State));
                             evidence.Add(new(source.Instruction,cell,id),sampled.Evidence);break;
                         case "price_lookup":
+                        case CurvePriceScheduleSource.Operation:
                             var price=grid is null?Dated(instruction,market):Native(instruction,grid,cell,program.Document.Family,resolver!,nativePriceAttribute);
                             Set(cell,new(price.Price.NumeratorValue,price.Price.DenominatorValue),new(null,price.State));
                             evidence.Add(new(source.Instruction,cell,id),price.Evidence);break;

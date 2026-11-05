@@ -63,7 +63,7 @@ public sealed partial class SwapStore
             JsonElement curve, PriceSettlementSelection settlement, QuoteSpecification quote, DateOnly start, DateOnly end,
             FloatingAveraging mode, SwapObservationCalendar? calendar, CustomCurveProjectionInput? projection)
         {
-            var custom = projection is {} c ? new CustomCurveProjectionBinding(c.CatalogId,c.CurveId,c.Version,c.OutputNode,c.Position,c.Selection,c.Implementation) : null;
+            var custom = projection?.ToBinding();
             var references = SwapObservationCompatibility.PreviewReferences(bundle,curve,
                 settlement,quote,start,end,mode,calendar,custom);
             if (projection is not null && references.Fixings.All(fixing => fixing.FixingAt <= selectedFrame.At))
@@ -77,8 +77,7 @@ public sealed partial class SwapStore
                     publishedByRevision.Add(revision,published);
                 }
                 if (!published.Any(choice => choice.Reference == projection && choice.Unit == PriceUnit.FromQuote(quote) &&
-                    (projection.Selection == CustomCurveProjectionBinding.SupportedSelection ||
-                     references.Observations.All(observation => choice.Deliveries.Contains(new(observation.From,observation.To))))))
+                    choice.Covers(references.Observations.Select(observation=>new ProjectionDelivery(observation.From,observation.To)))))
                     throw Error("custom_projection", "The exact published projection is unavailable or does not cover this observation plan.");
             }
             RequireObservationInputs(bundle,selectedFrame,references,settlement,custom is not null,ct);

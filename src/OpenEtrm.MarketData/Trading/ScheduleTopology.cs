@@ -90,7 +90,7 @@ internal static class ScheduleTopology
     }
     internal static (string Kind,string Ports) Shape(string operation)=>operation switch
     {
-        "constant_price" or "price_lookup" or ContractObservationScheduleSource.Operation => ("price", ""),
+        "constant_price" or "price_lookup" or CurvePriceScheduleSource.Operation or ContractObservationScheduleSource.Operation => ("price", ""),
         "quantity_input" or "quantity_literal" or "asset_capacity" or "profile_quantity" => ("quantity", ""),
         "quantity_normalize" => ("quantity", "input,basis"),
         "quantity_add" => ("quantity", "input+"),
@@ -115,6 +115,9 @@ internal static class ScheduleTopology
                     throw ScheduleDefinition.Error("A dated-contract observation requires exactly its market, quote and settlement source bindings.");
                 break;
             case "price_lookup":
+            case CurvePriceScheduleSource.Operation:
+                if(row.Operation==CurvePriceScheduleSource.Operation&&!sources.Any(binding=>binding.Port=="projection"&&binding.Kind=="custom_output"))
+                    throw ScheduleDefinition.Error("A curve interval query requires its exact published source binding.");
                 if(sources.Any(b=>b.Kind=="contract_price"))
                 {
                     if(!sources.Any(b=>b.Port=="market")||!sources.Any(b=>b.Port=="index")||!sources.Any(b=>b.Port=="quote")||!sources.Any(b=>b.Port=="fixing")||

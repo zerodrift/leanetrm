@@ -179,8 +179,9 @@ public static partial class ScheduleDefinitionCompiler
         private int Lookup(string key,IndexPriceLookup lookup,ScheduleRow plan)
         {
             var unit=PriceUnit.FromQuote(lookup.Quote);
-            var price=Row(key,"source","price_lookup","price",plan,unit.Quantity,unit.Currency,unit.Multiplier.ToString(),
-                P(("selection",SelectionIdentity(lookup.Settlement))),lookup.Contract.DeliveryFrom,lookup.Contract.DeliveryTo);
+            var interval=lookup.CustomProjection?.Selection==CustomCurveProjectionBinding.ContainingDeliverySelection;
+            var price=Row(key,"source",interval?CurvePriceScheduleSource.Operation:"price_lookup","price",plan,unit.Quantity,unit.Currency,unit.Multiplier.ToString(),
+                interval?CurvePriceScheduleSource.Parameters(lookup):P(("selection",SelectionIdentity(lookup.Settlement))),lookup.Contract.DeliveryFrom,lookup.Contract.DeliveryTo);
             Binding(price,"market","contract_price",market:lookup.Market);
             Binding(price,"index","index",reference:lookup.Index);Binding(price,"quote","quote",reference:lookup.Quote.Key);
             if(lookup.Fixing is {} fixing)Binding(price,"fixing","index_fixing",reference:fixing.Source,series:fixing.Series,coordinate:fixing.Implementation);
@@ -252,7 +253,7 @@ public static partial class ScheduleDefinitionCompiler
         public void Crude(PhysicalCrudeSchedule schedule)
         {
             var plan=schedule.Rows[0];var assignment=schedule.Side.Assignment;const string prefix="crude/0";
-            var price=Lookup(prefix+"/market",assignment.Lookup,plan);
+            var price=Lookup(prefix+"/market",plan.Prices.Single().Lookup!,plan);
             Binding(price,"crude","crude_assignment",reference:assignment.Key,coordinate:DefinitionIdentity.For(assignment).Canonical,
                 definitions:assignment.Projection.Market.Curve.Revision,code:assignment.Key.Code);
             Binding(price,"facility","location",reference:assignment.Location.Facility);
@@ -275,7 +276,7 @@ public static partial class ScheduleDefinitionCompiler
                 var prefix="gas/"+plan.Ordinal;var unit=PriceUnit.FromQuote(assignment.Quote);
                 // Period prices remain scalar inputs; delivery quantities and
                 // contributions retain their exact gas-day UTC geometry.
-                var price=Lookup(prefix+"/market",assignment.Lookup,plan);
+                var price=Lookup(prefix+"/market",plan.Prices.Single().Lookup!,plan);
                 Binding(price,"assignment","gas_assignment",reference:assignment.Key,coordinate:DefinitionIdentity.For(assignment).Canonical,definitions:assignment.Projection.Market.Curve.Revision,code:assignment.Key.Code);
                 Binding(price,"point","location",reference:schedule.Side.DeliveryPoint);
                 Binding(price,"product","gas_product",reference:schedule.Side.Product);

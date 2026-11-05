@@ -4,7 +4,7 @@ using OpenEtrm.MarketData.Power;
 
 namespace OpenEtrm.MarketData.Trading;
 
-public enum ValuationMeasure { PresentValue=1, ExecutionPnl }
+public enum ValuationMeasure { PresentValue=1, ExecutionPnl, UnpaidCashPresentValue }
 
 // Operation-owned immutable inputs. A missing discount provider is explicitly
 // unavailable, never an instruction to substitute undiscounted cashflows.
@@ -15,7 +15,7 @@ public sealed record ValuationSetup(ValuationMeasure Measure,
     // while selecting different retained discounting terms.
     public IntervalValuationInputs? Interval{get;init;}
     public ImmutableDictionary<Guid,ISideDiscounting> InstrumentDiscounting{get;init;}=ImmutableDictionary<Guid,ISideDiscounting>.Empty;
-    public ImmutableDictionary<MeasureBinding,SwapBindingValuation> Settlements{get;init;}=ImmutableDictionary<MeasureBinding,SwapBindingValuation>.Empty;
+    public ImmutableDictionary<MeasureBinding,IBindingValuationState> BindingStates{get;init;}=ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty;
     public ImmutableDictionary<Guid,FuturesOptionMarketBinding> OptionBindings{get;init;}=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty;
 }
 
@@ -23,22 +23,22 @@ public sealed record ValuationSetup(ValuationMeasure Measure,
 // provider is intentional; equal-looking providers do not establish equal pins.
 internal sealed class SideValuationContexts
 {
-    private sealed record Key(ISideDiscounting? Provider,ImmutableHashSet<CurveRequest> Dependencies);
+    private sealed record Key(ISideDiscounting? Provider,ImmutableHashSet<CurveRequest> Dependencies,IBindingValuationState? State);
     private sealed class Keys:IEqualityComparer<Key>
     {
-        public bool Equals(Key? a,Key? b)=>ReferenceEquals(a,b)||a is not null&&b is not null&&ReferenceEquals(a.Provider,b.Provider)&&a.Dependencies.SetEquals(b.Dependencies);
+        public bool Equals(Key? a,Key? b)=>ReferenceEquals(a,b)||a is not null&&b is not null&&ReferenceEquals(a.Provider,b.Provider)&&ReferenceEquals(a.State,b.State)&&a.Dependencies.SetEquals(b.Dependencies);
         public int GetHashCode(Key key)
         {
             var hash=key.Provider is null?0:System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(key.Provider);
             foreach(var dependency in key.Dependencies)hash^=dependency.GetHashCode();
-            return HashCode.Combine(hash,key.Dependencies.Count);
+            return HashCode.Combine(hash,key.Dependencies.Count,key.State is null?0:System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(key.State));
         }
     }
     private readonly Dictionary<Key,SideValuationContext> contexts=new(new Keys());
     internal int Calculations=>contexts.Values.Sum(c=>c.EvaluatedSides);
-    internal SideValuationContext Get(ISideDiscounting? provider,ImmutableArray<CurveRequest> dependencies,Func<SideValuationContext> create)
+    internal SideValuationContext Get(ISideDiscounting? provider,ImmutableArray<CurveRequest> dependencies,IBindingValuationState? state,Func<SideValuationContext> create)
     {
-        var key=new Key(provider,dependencies.ToImmutableHashSet());
+        var key=new Key(provider,dependencies.ToImmutableHashSet(),state);
         if(!contexts.TryGetValue(key,out var context)){context=create();contexts.Add(key,context);}
         return context;
     }
@@ -61,7 +61,7 @@ public sealed class UnitValuationContext
     private readonly CancellationToken cancellation;
     internal CancellationToken Cancellation=>cancellation;
     private readonly SideValuationContexts sideContexts;
-    internal SwapBindingValuation? Settlement{get;}
+    public IBindingValuationState? BindingState{get;}
     internal int SideCalculations=>sideContexts.Calculations;
     public PricingInputs Inputs=>declaration is {} contract&&pricing is {} market?new(market,contract,cancellation):
         throw new MarketDataException("risk_dependency","A unit valuation requires its declared market inputs.");
@@ -79,15 +79,15 @@ public sealed class UnitValuationContext
         (declaration is not null?Setup.InstrumentDiscounting.GetValueOrDefault(declaration.Id):null)??
         throw new MarketDataException("side_context","Supply this instrument's explicit discount inputs.");
     internal UnitValuationContext(MarketSnapshot snapshot,ValuationSetup setup,PreparedValuationMarket? market=null,UnitPricingContract? declaration=null,CancellationToken cancellation=default,DeliveryCoverage? coverage=null,IntervalValuationSession? intervalSession=null,
-        SideValuationContexts? sideContexts=null,SwapBindingValuation? settlement=null)
+        SideValuationContexts? sideContexts=null,IBindingValuationState? bindingState=null)
     {
         if(market is not null&&declaration is null&&(setup.Discounting??setup.InstrumentDiscounting.Values.FirstOrDefault()) is {} provider)
             SideValuationContext.Validate(snapshot,provider);
         Snapshot=snapshot;Setup=setup;Coverage=coverage;IntervalSession=intervalSession;pricing=market;this.declaration=declaration;this.cancellation=cancellation;
-        this.sideContexts=sideContexts??new();Settlement=settlement;
+        this.sideContexts=sideContexts??new();BindingState=bindingState;
     }
-    internal UnitValuationContext For(UnitPricingContract contract,DeliveryCoverage? coverage=null,SwapBindingValuation? settlement=null)=>new(Snapshot,Setup,pricing,contract,cancellation,coverage,IntervalSession,sideContexts,settlement);
-    internal UnitValuationContext ForCoverage(DeliveryCoverage? coverage)=>new(Snapshot,Setup,pricing,declaration,cancellation,coverage,IntervalSession);
+    internal UnitValuationContext For(UnitPricingContract contract,DeliveryCoverage? coverage=null,IBindingValuationState? bindingState=null)=>new(Snapshot,Setup,pricing,contract,cancellation,coverage,IntervalSession,sideContexts,bindingState);
+    internal UnitValuationContext ForCoverage(DeliveryCoverage? coverage,IBindingValuationState? state=null)=>new(Snapshot,Setup,pricing,declaration,cancellation,coverage,IntervalSession,bindingState:state);
     public ImmutableArray<QuoteFactor> ResolveFactors(ImmutableArray<CurveRequest> dependencies)
     {
         if(declaration is null||pricing is null||dependencies.IsDefault||dependencies.Any(d=>!declaration.Dependencies.Contains(d)))
@@ -115,7 +115,7 @@ public sealed class UnitValuationContext
         if(pricing is null||declaration is null)
             throw new MarketDataException("side_context","Supply the declared market and explicit payment discount inputs.");
         var provider=selected??Setup.Discounting??Setup.InstrumentDiscounting.GetValueOrDefault(declaration.Id);
-        return sideContexts.Get(provider,declaration.Dependencies,()=>pricing.Context(provider,declaration.Dependencies,cancellation));
+        return sideContexts.Get(provider,declaration.Dependencies,BindingState,()=>pricing.Context(provider,declaration.Dependencies,cancellation).WithBindingState(BindingState));
     }
 }
 
@@ -200,7 +200,7 @@ public sealed class Book
     }
 }
 
-public sealed record UnitValuationScope(Instrument Instrument,DeliveryCoverage? Coverage,MeasureBinding? Settlement=null);
+public sealed record UnitValuationScope(Instrument Instrument,DeliveryCoverage? Coverage,MeasureBinding? BindingState=null);
 
 public sealed class ValuationPortfolio
 {
@@ -256,7 +256,7 @@ public sealed class ValuationPortfolio
             if(p.Quantity.Specification!=instrument.UnitQuantity.Specification||p.UnitBasis.Quantity!=p.Quantity.Specification||
                 p.FixedBasis.Currency!=instrument.Currency||p.UnitBasis.Money.Currency!=instrument.Currency)
                 throw Error("risk_position","Each external holding requires the instrument's exact quantity basis and currency.");
-            if(Setup.Measure==ValuationMeasure.PresentValue&&
+            if(Setup.Measure!=ValuationMeasure.ExecutionPnl&&
                 (p.FixedBasis.Amount!=default||p.UnitBasis.Money.Numerator!="0"))
                 throw Error("valuation_measure","Execution bases require the explicitly selected execution-P&L operation.");
         }
@@ -270,20 +270,25 @@ public sealed class ValuationPortfolio
         }
         if(Positions.Select(p=>p.ValuationId).Distinct().Count()!=Instruments.Length)
             throw Error("risk_contract","Every unit instrument must have a held consumer.");
-        if(Setup.Settlements is null || Setup.Settlements.Any(s=>s.Value is null || s.Value.Discounting is null ||
-            !Positions.Any(p=>new MeasureBinding(p.TradeId,p.BindingId)==s.Key && p.Quantity==s.Value.Settlement.Quantity &&
-                p.TradeId==s.Value.Settlement.TradeId && p.BindingId==s.Value.Settlement.BindingId && Instruments[indexes[p.ValuationId]].SupportsSettlement)))
-            throw Error("settlement_scope","Every settlement input must belong to its exact held trade binding and booked quantity.");
+        if(Setup.BindingStates is null)throw Error("settlement_scope","Supply explicit binding valuation inputs.");
+        var held=Positions.ToDictionary(p=>new MeasureBinding(p.TradeId,p.BindingId));
+        foreach(var (binding,state) in Setup.BindingStates)
+        {
+            if(state is null||!held.TryGetValue(binding,out var position)||position.Quantity!=state.Quantity||
+                binding.TradeId!=state.TradeId||binding.BindingId!=state.BindingId)
+                throw Error("settlement_scope","Every valuation state must belong to its exact held trade binding and booked quantity.");
+            Instruments[indexes[position.ValuationId]].ValidateValuationState(state);
+        }
         Scopes=Positions.Select(ScopeKey).Distinct().OrderBy(s=>s.ValuationId)
             .ThenBy(s=>s.Coverage?.From).ThenBy(s=>s.Coverage?.To)
-            .ThenBy(s=>s.Settlement?.TradeId).ThenBy(s=>s.Settlement?.BindingId)
-            .Select(s=>new UnitValuationScope(Instruments[indexes[s.ValuationId]],s.Coverage,s.Settlement)).ToImmutableArray();
-        var scopeIndexes=Scopes.Select((s,n)=>(s,n)).ToDictionary(x=>(x.s.Instrument.Id,x.s.Coverage,x.s.Settlement),x=>x.n);
+            .ThenBy(s=>s.BindingState?.TradeId).ThenBy(s=>s.BindingState?.BindingId)
+            .Select(s=>new UnitValuationScope(Instruments[indexes[s.ValuationId]],s.Coverage,s.BindingState)).ToImmutableArray();
+        var scopeIndexes=Scopes.Select((s,n)=>(s,n)).ToDictionary(x=>(x.s.Instrument.Id,x.s.Coverage,x.s.BindingState),x=>x.n);
         Books=Positions.Select((p,n)=>(p,n)).GroupBy(x=>x.p.BookId).OrderBy(g=>g.Key)
             .Select(g=>new Book(g.Key,g.Select(x=>(x.n,scopeIndexes[ScopeKey(x.p)])).ToImmutableArray(),Positions)).ToImmutableArray();
     }
-    private (Guid ValuationId,DeliveryCoverage? Coverage,MeasureBinding? Settlement) ScopeKey(RiskPosition p) =>
-        (p.ValuationId,p.Coverage,Setup.Settlements.ContainsKey(new(p.TradeId,p.BindingId))?new(p.TradeId,p.BindingId):null);
+    private (Guid ValuationId,DeliveryCoverage? Coverage,MeasureBinding? BindingState) ScopeKey(RiskPosition p) =>
+        (p.ValuationId,p.Coverage,Setup.BindingStates.ContainsKey(new(p.TradeId,p.BindingId))?new(p.TradeId,p.BindingId):null);
     public ImmutableArray<BookRiskFactors> RiskFactors(CurveModel model,MarketSnapshot snapshot,CancellationToken cancellation=default)
     {
         cancellation.ThrowIfCancellationRequested();
@@ -299,13 +304,13 @@ public sealed class ValuationPortfolio
         var byScope=Scopes.Select((scope,n)=>
         {
             cancellation.ThrowIfCancellationRequested();
-            var unitContext=context.For(declarations[n],scope.Coverage);
-            var supplied=scope.Settlement is null?scope.Instrument.MarketFactors(unitContext):unitContext.ResolveFactors(declarations[n].Dependencies);
+            var unitContext=context.For(declarations[n],scope.Coverage,scope.BindingState is {} binding?Setup.BindingStates[binding]:null);
+            var supplied=scope.Instrument.MarketFactors(unitContext);
             var expected=unitContext.ResolveFactors(declarations[n].Dependencies);
             if(supplied.IsDefault||supplied.Any(f=>f is null)||supplied.Select(f=>f.Input).Distinct().Count()!=supplied.Length||
                 !supplied.ToHashSet().SetEquals(expected))
                 throw Error("risk_contract","An instrument's factor list must match its complete declared inputs in this exact context.");
-            return (Key:(scope.Instrument.Id,scope.Coverage,scope.Settlement),Factors:supplied);
+            return (Key:(scope.Instrument.Id,scope.Coverage,scope.BindingState),Factors:supplied);
         }).ToDictionary(p=>p.Key,p=>p.Factors);
         return Books.Select(book=>
         {
@@ -318,11 +323,11 @@ public sealed class ValuationPortfolio
     public ImmutableArray<UnitPricingContract> Declare(MarketSnapshot snapshot)
     {
         var context=new UnitValuationContext(snapshot,Setup);
-        var lifecycleInstruments=Scopes.Where(s=>s.Settlement is not null).Select(s=>s.Instrument.Id).ToHashSet();
+        var lifecycleInstruments=Scopes.Where(s=>s.BindingState is not null).Select(s=>s.Instrument.Id).ToHashSet();
         return Scopes.Select(scope=>
         {
             var instrument=scope.Instrument;
-            var c=instrument.DeclareScope(context.ForCoverage(scope.Coverage),lifecycleInstruments.Contains(instrument.Id));
+            var c=instrument.DeclareScope(context.ForCoverage(scope.Coverage,scope.BindingState is {} binding?Setup.BindingStates[binding]:null),lifecycleInstruments.Contains(instrument.Id));
             if(c is null||c.Id!=instrument.Id||string.IsNullOrWhiteSpace(c.ModelVersion)||c.Dependencies.IsDefault||
                 c.Dependencies.Distinct().Count()!=c.Dependencies.Length||c.Quantity!=instrument.UnitQuantity.Specification||
                 c.Currency!=instrument.Currency||instrument.UnitQuantity.Amount!=ExactDecimal.Parse("1"))
@@ -355,7 +360,7 @@ public sealed class ValuationPortfolio
             if(contract.Id!=Scopes[n].Instrument.Id)throw Error("risk_contract","Declaration ordering must match exact instrument identities.");
             var affected=baseMarket is null||!market.Unchanged(baseMarket,contract.Dependencies,ct);
             var scope=Scopes[n];
-            var unitContext=context.For(contract,scope.Coverage,scope.Settlement is {} binding?Setup.Settlements[binding]:null);
+            var unitContext=context.For(contract,scope.Coverage,scope.BindingState is {} binding?Setup.BindingStates[binding]:null);
             ExactMoney value;
             if(affected)
             {

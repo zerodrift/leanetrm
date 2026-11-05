@@ -22,9 +22,9 @@ internal static class CurveLookupChecks
             Curve=new(f.C("lookup"),f.Quotes[0].Key,f.R("location"),f.R("uniform"),new(SettlementKind.Index,f.R("index"),null),
                 CurveRule.Direct,[..Contracts.Select(c=>c.Key)],[],ObservationRole.TraderMark,f.R("source"),null);
             Model=new(f.Revision,f.Reference,[f.Quantities[0]],[f.Quotes[0]],Contracts,[Curve],[],[],series);
-            Snapshot=f.Snapshot() with{Selections=[..series.Select((s,n)=>new SelectedObservation(new(s.Key,InputUse.Variable),
+            Snapshot=(f.Snapshot() with{Selections=[..series.Select((s,n)=>new SelectedObservation(new(s.Key,InputUse.Variable),
                 new(new(f.Revision.CatalogId,Guid.NewGuid()),s.Key,f.R("source"),ObservationRole.TraderMark,PublicationState.Final,
-                    f.Snapshot().ValuationAt,ExactDecimal.Parse(n.ToString()))))]};
+                    f.Snapshot().ValuationAt,ExactDecimal.Parse(n.ToString()))))]}).WithKnowledge(Guid.NewGuid(),f.Snapshot().ValuationAt);
         }
     }
     public static int Run()
@@ -33,28 +33,28 @@ internal static class CurveLookupChecks
         var settings=new CurveLookupSettings(CurveLookupMethod.Linear,CurveLookupAxis.DeliveryStart,10,"reject","reject",CurveLookupSettings.Version);
         var curve=AssetCurve.FromNative(m.Model,m.Snapshot,m.Curve.Key,settings);
         var batch=curve.Prepare([new AssetPointDate(start.AddDays(1)),new AssetPointDate(start.AddDays(1)),new AssetContract(m.Contracts[0].Key)]);
-        var values=batch.Evaluate(batch.Base);
+        var values=batch.LookupMany(batch.Requests).Select(result=>result.Value).ToImmutableArray();
         if(values[0].Value.Numerator!="1"||values[0].Value.Denominator!="3"||!ReferenceEquals(values[0],values[1])||values[2].Value.Numerator!="0")
             throw new Exception("Independent exact price oracle: 0+(1-0)/3 = 1/3; exact endpoints and duplicates stay exact.");
         var right=batch.Base.Plan.Primitives.Single(p=>p.Source.Request.Contract==m.Contracts[1].Key);
         var changed=batch.Base.WithShifts([new(CurveShockCoordinate.MarketQuote,new PointCurveTarget(right.Source.Request.Curve,
             [batch.Base.Plan.Points.Values.Single(p=>p.Expression is ConnectedSource s&&s.Request==right.Source.Request).Key.PointId]),right.Unit,ExactDecimal.Parse("0.3"),CurveShift.ParentAdditive)]);
-        if(batch.Evaluate(changed)[0].Value.ExactTimes(new(ExactDecimal.Parse("3"),right.Unit.Quantity)).ToMoney().Amount.ToString()!="1.3")
+        if(batch.WithScenario(changed).Lookup(batch.Requests[0]).Value.Value.ExactTimes(new(ExactDecimal.Parse("3"),right.Unit.Quantity)).ToMoney().Amount.ToString()!="1.3")
             throw new Exception("Independent scenario oracle: three units gain 0.3 when only the right endpoint rises 0.3.");
         if(values[0].Observations.Count!=2||values[0].Inputs.Length!=2)throw new Exception("Interpolation must retain both exact inputs and observations.");
         var root=batch.Base.Plan.Points.Values.Single(p=>p.PointDate==start.AddDays(1)).Key;
         var outputShift=batch.Base.WithShifts([new(CurveShockCoordinate.ComputedOutput,new PointCurveTarget(root.Curve,[root.PointId]),right.Unit,ExactDecimal.Parse("1"),CurveShift.ParentAdditive)]);
-        if(batch.Evaluate(outputShift)[0].Value.ExactTimes(new(ExactDecimal.Parse("3"),right.Unit.Quantity)).ToMoney().Amount.ToString()!="4")
+        if(batch.WithScenario(outputShift).Lookup(batch.Requests[0]).Value.Value.ExactTimes(new(ExactDecimal.Parse("3"),right.Unit.Quantity)).ToMoney().Amount.ToString()!="4")
             throw new Exception("Computed output shock oracle: three units at 1/3 + 1 = 4.");
-        Reject(()=>curve.Evaluate(new AssetPointDate(start.AddDays(-1))));
-        Reject(()=>curve.Evaluate(new AssetPointDate(start.AddDays(4))));
+        Reject(()=>curve.Lookup(new AssetPointDate(start.AddDays(-1))));
+        Reject(()=>curve.Lookup(new AssetPointDate(start.AddDays(4))));
         var bucket=AssetCurve.FromNative(m.Model,m.Snapshot,m.Curve.Key,settings with{Method=CurveLookupMethod.ContainingDelivery});
-        if(bucket.Evaluate(new AssetDeliveryDate(start)).Value.Numerator!="0")throw new Exception("Containing delivery lookup failed.");
-        Reject(()=>bucket.Evaluate(new AssetDeliveryDate(start.AddDays(1))));
+        if(bucket.Lookup(new AssetDeliveryDate(start)).Value.Value.Numerator!="0")throw new Exception("Containing delivery lookup failed.");
+        Reject(()=>bucket.Lookup(new AssetDeliveryDate(start.AddDays(1))));
         foreach(var (method,expected) in new[]{(CurveLookupMethod.Previous,"0"),(CurveLookupMethod.Next,"1")})
-            if(AssetCurve.FromNative(m.Model,m.Snapshot,m.Curve.Key,settings with{Method=method}).Evaluate(new AssetPointDate(start.AddDays(1))).Value.Numerator!=expected)
+            if(AssetCurve.FromNative(m.Model,m.Snapshot,m.Curve.Key,settings with{Method=method}).Lookup(new AssetPointDate(start.AddDays(1))).Value.Value.Numerator!=expected)
                 throw new Exception("Explicit step lookup chose the wrong endpoint.");
-        Reject(()=>AssetCurve.FromNative(m.Model,m.Snapshot,m.Curve.Key,settings with{MaxGapDays=2}).Evaluate(new AssetPointDate(start.AddDays(1))));
+        Reject(()=>AssetCurve.FromNative(m.Model,m.Snapshot,m.Curve.Key,settings with{MaxGapDays=2}).Lookup(new AssetPointDate(start.AddDays(1))));
         Console.WriteLine("PASS asset curves: exact contracts, delivery gaps, explicit point axis, rational interpolation, steps, batch duplicates and connected shocks");
         var explicitGrid=new CurveLookupGrid<int>([new(1,start,start.AddDays(1),start.AddDays(10)),new(2,start.AddDays(3),start.AddDays(4),start.AddDays(12))],settings with{Axis=CurveLookupAxis.ExplicitDate});
         if(!explicitGrid.Select(start.AddDays(11),false).Select(w=>w.Weight.ToString()).SequenceEqual(["1","1"]))
@@ -85,7 +85,7 @@ internal static class CurveLookupChecks
         var graph=RecipeEngine.Connect(definition,inputs,new(m.F.Revision.CatalogId,Guid.NewGuid(),1,RecipeEngine.Version),
             [..m.Contracts.Select(c=>new ConnectedRecipeSample(m.Curve.Key,day,c.Key,m.Model,m.Snapshot,false))],context);
         var curve=AssetCurve.FromRecipe(graph,settings with{Method=CurveLookupMethod.ContainingDelivery});
-        var value=curve.Evaluate(new AssetDeliveryDate(start.AddDays(1))).Value;
+        var value=curve.Lookup(new AssetDeliveryDate(start.AddDays(1))).Value.Value;
         if(value.Numerator!="1"||value.Denominator!="3")throw new Exception("Recipe and facade must retain the same exact interpolation oracle and target delivery period.");
         Reject(()=>RecipeEngine.Connect(definition,inputs with{Dates=inputs.Dates.SetItem("targets",[start])},
             graph.Identity,[..m.Contracts.Select(c=>new ConnectedRecipeSample(m.Curve.Key,day,c.Key,m.Model,m.Snapshot,false))],context));

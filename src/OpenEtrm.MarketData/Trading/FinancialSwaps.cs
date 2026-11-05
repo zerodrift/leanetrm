@@ -96,7 +96,7 @@ public sealed partial record FixedSide : Side
         }).ToImmutableArray();
         return new(Id,Currency,UnitQuantity,Implementation,payments);
     }
-    public override SideValuation PV(SideValuationContext context) => GenerateSchedule().Evaluate(context);
+    public override SideValuation PV(SideValuationContext context) => SideValuationContext.EvaluatePaymentSide(context,this,GenerateSchedule());
 }
 
 public sealed record CustomCurveProjectionBinding(Guid CatalogId, Guid CurveId, int Version,
@@ -104,13 +104,14 @@ public sealed record CustomCurveProjectionBinding(Guid CatalogId, Guid CurveId, 
 {
     public const string SupportedSelection = "single_output_position_v1";
     public const string DeliverySelection = "exact_delivery_interval_v1";
+    public const string ContainingDeliverySelection = "containing_delivery_interval_v1";
     public const string SupportedImplementation = "published_custom_curve_projection_v1";
     internal void Validate()
     {
         if (CatalogId == Guid.Empty || CurveId == Guid.Empty || Version is < 1 or > 64 || Position < 0 ||
             string.IsNullOrEmpty(OutputNode) || OutputNode.Length > 32 || OutputNode[0] is < 'a' or > 'z' ||
             OutputNode.Any(c => !(c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_')) ||
-            (Selection switch{SupportedSelection=>Position is null or <0,DeliverySelection=>Position is not null,_=>true}) || Implementation != SupportedImplementation)
+            (Selection switch{SupportedSelection=>Position is null or <0,DeliverySelection or ContainingDeliverySelection=>Position is not null,_=>true}) || Implementation != SupportedImplementation)
             throw new MarketDataException("custom_projection", "Supply an exact published curve version, output coordinate and supported projection policies.");
     }
     // An in-memory input alias, never a database name lookup. The contractual
@@ -123,6 +124,15 @@ public sealed record CustomCurveProjectionBinding(Guid CatalogId, Guid CurveId, 
         var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new object?[]
             { "custom_projection_request_v1", CatalogId, CurveId, Version, OutputNode, Position, Selection, Implementation, original.Curve.Code });
         return new(new(original.Curve.Revision, "custom_" + Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes))), original.Contract);
+    }
+    public CurveRequest Request(CurveRequest original,ProjectionDelivery interval)
+    {
+        _=Request(original);
+        if(Selection!=ContainingDeliverySelection||interval is null||interval.From>=interval.To)
+            throw new MarketDataException("custom_projection","Supply a positive delivery interval under the selected whole-interval curve binding.");
+        var bytes=System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new object?[]{"curve_interval_request_v1",CatalogId,CurveId,Version,
+            OutputNode,Selection,Implementation,original.Curve.Code,interval.From,interval.To});
+        return new(new(original.Curve.Revision,"custom_"+Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes))),original.Contract);
     }
 }
 
@@ -231,9 +241,9 @@ public sealed partial record FloatingSide : Side
     private static void ValidateCustom(FloatingSidePeriod period,CustomCurveProjectionBinding binding)
     {
         if(period.Fixings.IsDefaultOrEmpty || (period.Averaging switch
-            {FloatingAveraging.MonthlyIndexPrice=>period.Projections.Length!=1 || binding.Selection!=CustomCurveProjectionBinding.SupportedSelection,
-             FloatingAveraging.CalendarDayArithmetic=>binding.Selection!=CustomCurveProjectionBinding.DeliverySelection,_=>true}))
-            throw new MarketDataException("custom_projection","Select one exact output for a monthly reset or exact delivery-interval mapping for daily indexed resets.");
+            {FloatingAveraging.MonthlyIndexPrice=>period.Projections.Length!=1 || binding.Selection is not(CustomCurveProjectionBinding.SupportedSelection or CustomCurveProjectionBinding.ContainingDeliverySelection),
+             FloatingAveraging.CalendarDayArithmetic=>binding.Selection is not(CustomCurveProjectionBinding.DeliverySelection or CustomCurveProjectionBinding.ContainingDeliverySelection),_=>true}))
+            throw new MarketDataException("custom_projection","Select a compatible explicit output or delivery-interval lookup for the indexed resets.");
         foreach(var projection in period.Projections)_=binding.Request(projection.Market);
     }
     public FloatingSide WithCustomProjection(CustomCurveProjectionBinding binding)
@@ -259,7 +269,7 @@ public sealed partial record FloatingSide : Side
         }).ToImmutableArray();
         return new(Id,Currency,UnitQuantity,IndexedImplementation,payments);
     }
-    public override SideValuation PV(SideValuationContext context)=>GenerateSchedule().Evaluate(context);
+    public override SideValuation PV(SideValuationContext context)=>SideValuationContext.EvaluatePaymentSide(context,this,GenerateSchedule());
 }
 
 [EconomicDefinition("FinancialSwapInstrument_v2")]

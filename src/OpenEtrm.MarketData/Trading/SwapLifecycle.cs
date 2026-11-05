@@ -19,7 +19,12 @@ public sealed record SwapLifecycleValue(ExactMoney RemainingValue, ExactMoney De
     ExactMoney DeterminedPv, ExactMoney DueBalance, ExactMoney Realized, ExactMoney Unrealized,
     ExactMoney NetCash, ExactMoney Corrections, ExactMoney EstimatedRemainingPv, ExactMoney RoundingEffect,
     ImmutableArray<SwapLifecyclePayment> Payments);
-public sealed record SwapBindingValuation(SwapSettlementInputs Settlement, ISideDiscounting Discounting);
+public sealed record SwapBindingValuation(SwapSettlementInputs Settlement, ISideDiscounting Discounting) : IBindingValuationState
+{
+    public Guid TradeId => Settlement.TradeId;
+    public Guid BindingId => Settlement.BindingId;
+    public Quantity Quantity => Settlement.Quantity;
+}
 
 // Immutable operation-owned trade binding state, outside reusable instrument identity.
 public sealed class SwapSettlementInputs
@@ -51,11 +56,7 @@ public sealed class SwapSettlementInputs
             if (!group.Select(c => c.Ordinal).Order().SequenceEqual(Enumerable.Range(1, group.Count())))
                 throw Error("settlement_lineage", "Retain the complete ordered original and adjustment chain.");
         foreach(var contribution in contributions)
-        {
-            var original=contribution.Amount.ToMoney().Amount;var applied=contribution.Applied.ToMoney().Amount;
-            if(applied.CompareTo(default)>0?original.CompareTo(applied)<0:applied.CompareTo(default)<0&&original.CompareTo(applied)>0)
-                throw Error("settlement_conservation","Cash allocations must retain contribution direction and cannot exceed its amount.");
-        }
+            CashAllocationBalance.Require(ExactMoney.FromMoney(contribution.Amount.ToMoney()),ExactMoney.FromMoney(contribution.Applied.ToMoney()));
         if (contributions.Select(c => c.Applied).Aggregate(ExactMoney.FromMoney(new(default,netCash.Currency)),(a,b) => a.Add(b)) != netCash)
             throw Error("settlement_conservation", "Recorded cash must equal its explicit allocations.");
         TradeId = tradeId; BindingId = bindingId; Quantity = quantity; Contributions = contributions;

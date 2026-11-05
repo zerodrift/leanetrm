@@ -76,7 +76,7 @@ def run_checks(url, manifest, query, run_worker):
         reference={**choice['reference'],'curveId':invalid['id']}
         assert client.call('swaps/observation-options',{**period_query,'customProjection':reference})['deliveryPeriods']==[], 'Incomplete or ambiguous daily custom mapping became selectable.'
         rejected=client.call('swaps/book',{**terms,'operationId':str(uuid4()),'floating':{**terms['floating'],'customProjection':reference}},expected=422)
-        assert rejected['code'] in ('custom_projection','custom_curve_definition'),rejected
+        assert rejected['code'] in ('custom_projection','custom_curve_definition','curve_coverage'),rejected
     client.call('profile',{'profile':'risk'})
     selected={**context,'convention':'trading_workspace_v1'}
     catalog=client.call('portfolio/risk/catalog',{'context':selected,'bookIds':[terms['bookId']],'portfolioIds':[]})

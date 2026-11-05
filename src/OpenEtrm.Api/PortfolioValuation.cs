@@ -394,9 +394,9 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
             {InstrumentDiscounting=holdings.Where(holding=>holding.Settlement is null).DistinctBy(holding=>holding.Instrument.Id)
                 .ToImmutableDictionary(holding=>holding.Instrument.Id,holding=>holding.Discounting),
-             Settlements=holdings.Where(holding=>holding.Settlement is not null).ToImmutableDictionary(
+             BindingStates=holdings.Where(holding=>holding.Settlement is not null).ToImmutableDictionary(
                 holding=>new MeasureBinding(holding.Row.Id("trade_id"),holding.Row.Id("binding_id")),
-                holding=>new SwapBindingValuation(holding.Settlement!,holding.Discounting))});
+                holding=>(IBindingValuationState)new SwapBindingValuation(holding.Settlement!,holding.Discounting))});
     }
     private static ImmutableArray<SchedulePriceTerm> SwapPrices(IEnumerable<SwapStore.ResolvedSwapHolding> holdings)=>
         holdings.SelectMany(holding=>holding.Settlement?.RequiredPrices(holding.Instrument)??
