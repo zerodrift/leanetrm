@@ -1,6 +1,6 @@
 # Native curve definitions
 
-Status: D312, owner-directed design (2026-11-04). The first increment, a curve
+Status: D318, owner-directed design (2026-11-04). The first increment, a curve
 editor that validates a definition and previews its rolling contract window, is
 implemented locally. Saving, publishing and pricing from native definitions
 remain work, listed at the end. Examples are synthetic.
@@ -90,22 +90,28 @@ count larger than the mapping's contracts is refused. The same definition
 resolved at a later context date gives the later contracts.
 
 The mapping's own date rules decide when the window steps forward; the curve
-adds no roll rule. A preview reads its reference terms and resolves its mapping
-in the one exact retained context the request names; when the session has a
-selected market context, the request must name that context.
+adds no roll rule. A preview names the close selected in the page header and
+reads its reference terms and resolves its mapping in that close's one exact
+context: current knowledge captured on the close's date, or the session's
+selected historical context, whose effective date must be the close's
+(`market_date` otherwise). Choosing another close in the header clears the
+shown window; previewing again rolls it.
 
 ## Implemented increment
 
 - `GET /api/curve-definitions/catalog` (`ReadMarketData`): reference choices from
   the pinned reference revision, published date mappings and the policy choices,
   each marked supported or Coming soon.
-- `POST /api/curve-definitions/preview` (`ReadMarketData`): validates a complete
+- `POST /api/curve-definitions/preview` (`ReadMarketData`): takes a complete
+  definition and the header's selected close (`snapshotId`), validates the
   definition against those terms and returns its resolved window, or a
   structured refusal (`curve_definition`, `curve_reference`,
   `curve_terms_mismatch`, `curve_unsupported`, `curve_contract_count`,
   `curve_contract_series`, `curve_contract_order`).
-- **Settings → Schedules & date mappings → Curves**: the editor, the third step
-  after schedules and date mappings. It previews only; it does not save.
+- **Curves & prices → Define a curve**: the editor takes the place of the
+  market board or a curve and previews at the header's selected close. Schedules
+  and date mappings stay on Settings → Schedules & date mappings. It previews
+  only; it does not save.
 
 No table, migration or dependency is added. The preview is read-only.
 

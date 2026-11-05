@@ -35,7 +35,7 @@ public static partial class CustomCurves
             Results.Ok(await activations.Publish(connection,body,ct))));
         api.MapPost("/custom-curves/effective-preview",(HttpContext c,EffectiveCurveRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {
-            pin=await PreviewPin(connection,database,pin,ct);
+            pin=await SelectedClose.Pin(connection,database,pin,ct);
             var frame=pin.RequireFrame();var context=pin.Context!;
             var plan=await activations.Read(connection,body.CurveId,ct);
             var segment=CurveActivations.Resolve(plan,DateWorkspace.Date(context.EffectiveOn),body.Policy);
@@ -70,26 +70,14 @@ public static partial class CustomCurves
             Results.Ok(await store.Publish(connection,body,ct))));
         api.MapPost("/custom-curves/component-history",(HttpContext c,ComponentHistoryRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {
-            pin=await PreviewPin(connection,database,pin,ct);
+            pin=await SelectedClose.Pin(connection,database,pin,ct);
             return Results.Ok((await PreviewRead(connection,database,pin,new(body.Definition,body.SnapshotId,body.Id,body.Version),ct,body)).Value);
         }));
         api.MapPost("/custom-curves/preview",(HttpContext c,CustomCurvePreviewRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {
-            pin=await PreviewPin(connection,database,pin,ct);
+            pin=await SelectedClose.Pin(connection,database,pin,ct);
             return Results.Ok((await PreviewRead(connection,database,pin,body,ct)).Value);
         }));
-    }
-    static async Task<PinnedContext> PreviewPin(NpgsqlConnection connection,PreviewDatabase database,PinnedContext pin,CancellationToken ct)
-    {
-        var frame=pin.RequireFrame();
-        if(pin.Context is null)
-        {
-            var captured=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,new(frame.At.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
-            pin=PinnedContext.Retained(captured,frame with{ContextId=captured.ContextId});
-            await pin.Bind(connection,database.Manifest.CatalogId,ct);
-        }
-        if(DateOnly.FromDateTime(frame.At.UtcDateTime)!=DateWorkspace.Date(pin.Context!.EffectiveOn))throw Invalid("Choose a snapshot on the selected effective date.");
-        return pin;
     }
     static bool Equivalent(RecipeDefinition left,RecipeDefinition right)
     {

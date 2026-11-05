@@ -257,7 +257,7 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 .curve-button.selected{background:var(--accent-soft);border-color:var(--accent-border);color:var(--accent-text)}
 .library-collapsed .market-layout{grid-template-columns:48px minmax(0,1fr)}
 .library-collapsed .curve-library{padding:8px 4px}
-.library-collapsed .library-title,.library-collapsed #curve-count,.library-collapsed .library-filters{display:none}
+.library-collapsed .library-title,.library-collapsed #curve-count,.library-collapsed .library-filters,.library-collapsed .curve-define{display:none}
 .library-collapsed .library-chevron{transform:rotate(180deg);margin:0 auto}
 .market-content{min-width:0}
 /* Commodity dots remain on trading views; curve lists and the market board use named icons. */
@@ -397,7 +397,8 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 
 /* Forms */
 .schedule-fields.three{grid-template-columns:repeat(3,minmax(0,1fr))}
-/* Curves step (D312): one field per row, sections stacked. */
+/* Define a curve (D318): one field per row, sections stacked. */
+.curve-define{width:100%;margin-top:12px}
 .curve-definition-section{min-width:0;border:0;border-top:1px solid #e4ebdf;padding:12px 0 4px;margin:0;display:grid;gap:12px;max-width:560px}.curve-definition-section legend{font-weight:600;padding:0 0 4px}.curve-definition-section input,.curve-definition-section select{width:100%;min-width:0;max-width:100%}
 .form-section{font-size:13px;font-weight:600;color:var(--text-2);margin:20px 0 10px;padding-top:16px;border-top:1px solid var(--border)}
 form>.form-section:first-child{border-top:0;padding-top:0;margin-top:6px}

@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 
-// D312: a curve definition is validated against its reference terms, and its contracts are the first positions of a date mapping.
+// D318: a curve definition is validated against its reference terms, and its contracts are the first positions of a date mapping.
 internal static class CurveDefinitionChecks
 {
     public static void Run()

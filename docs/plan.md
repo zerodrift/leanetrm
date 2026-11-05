@@ -1743,8 +1743,8 @@ D283 defines saved date lists and symbolic date mappings as inputs to instrument
 and curve authoring. Implementation is local and in progress. Date imports and
 shared context resolution are implemented; full demo provenance and editable
 native curve definitions remain to be completed and qualified.
-D312 starts native curve authoring: the Curves step validates a definition and
-previews its rolling contract window ([curve definitions](curve-definitions.md));
+D318 starts native curve authoring: Define a curve on Curves & prices validates a
+definition and previews its rolling contract window at the header's selected close ([curve definitions](curve-definitions.md));
 durable versions and admission into market revisions remain.
 
 D286 local increment: separate crude reference selection, user-zone instant

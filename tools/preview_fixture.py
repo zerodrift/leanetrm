@@ -82,7 +82,7 @@ def monthly_value(kind, month, distance=0):
             6:Decimal('7')-d*Decimal('.02'),7:Decimal('29.1')+m*Decimal('.605')-d*Decimal('.05')}[kind]
 
 
-def fixture(root, current_schema=True, fixing_frames=False, date_plan=None):
+def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, window_frames=False):
     """current_schema=False omits rows that need migrations 0026+ (curve names, TOU products)."""
     def historical(text):
         for old, new in [('2039','2019'),('2040','2020'),('2041','2021'),('2042','2022')]:
@@ -251,6 +251,10 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None):
             frames.append({'at':at,'observationIds':pins,'curveContracts':{code:[identity('5',month*5+n) for month in range(6)] for code,n in curves}})
         partial=next(frame for frame in frames if frame['at']=='2021-01-15T08:00:00Z')
         frames.append({**partial,'at':'2021-01-15T09:00:00Z'})
+    if window_frames:
+        # Closes either side of the 202102 last trading day (2021-01-28), for curve windows that roll with the selected
+        # close. They repeat 18 December's prices; only their dates are read.
+        frames.extend({**frames[3],'at':at} for at in ('2021-01-15T16:00:00Z','2021-02-15T16:00:00Z'))
     extra_ref.append(f"DO $$ BEGIN IF to_regclass('ref_data.futures_product_terms') IS NOT NULL THEN INSERT INTO ref_data.futures_product_terms VALUES({R},'test_gas_future','test_uniform',NULL); END IF; END $$;")
     extra_ref.append(f"""DO $policy$ BEGIN
  IF to_regclass('ref_data.futures_execution_policies') IS NOT NULL THEN

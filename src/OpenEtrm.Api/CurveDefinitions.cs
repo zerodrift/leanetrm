@@ -14,7 +14,7 @@ public sealed record CurveDefinitionDraft(string? Code,string? Name,string? Comm
     string? ContractKind,string? FuturesProduct,CurveContractWindow? Contracts,string? SettlementTarget,
     string? PriceRule,string? MarkRole,string? MarkSource,string? MissingPrice,string? Interpolation);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record CurveDefinitionPreviewRequest(CurveDefinitionDraft? Definition,ScheduleContext? Context);
+public sealed record CurveDefinitionPreviewRequest(CurveDefinitionDraft? Definition,Guid? SnapshotId);
 
 public sealed record CurveCommodityLocation(string Commodity,string Location);
 public sealed record CurveQuoteTerms(string Commodity,string Currency,string Unit,ExactDecimal Multiplier);
@@ -64,7 +64,7 @@ public sealed record CurveWindowContract(int Position,string Label,DateOnly Star
     DateReceipt StartReference,DateReceipt EndReference,DateReceipt LastTradingReference);
 public sealed record CurveDefinitionPreview(string Code,string Name,CurveTermsView Terms,string Mapping,ScheduleContext Context,ImmutableArray<CurveWindowContract> Contracts);
 
-// D312: a curve names an exact date mapping and how many of its positions it carries, so its contracts roll with the mapping's
+// D318: a curve names an exact date mapping and how many of its positions it carries, so its contracts roll with the mapping's
 // context. The curve's terms must equal those its contracts and settlement target declare; nothing is defaulted or substituted.
 public static partial class CurveDefinitions
 {
