@@ -82,4 +82,10 @@ def run_checks(query,manifest,choices):
     query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.finish_run('{claim['id']}',{claim['fence']},'{claim['workerId']}',false,'synthetic_qualification',NULL);")
     assert query(f"SELECT count(*) FROM market_data.market_closes WHERE run_id='{claim['id']}';")=='0'
     print('PASS frozen actual carry: final exact index fact retained, variable/preliminary/missing/substituted/generated actuals rejected, no durable generated writes',flush=True)
+    # A replaced close is not offered for new work, so no job is admitted on it as an anchor.
+    retry={**schedule,'requestId':str(uuid4()),'name':'Synthetic replaced anchor'}
+    refused=query(f"""SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{human_token()}');
+     DO $$BEGIN PERFORM automation.create_pilot_close_job('{json.dumps(retry)}'::jsonb,'{json.dumps(definition)}'::jsonb);RAISE EXCEPTION 'accepted';
+     EXCEPTION WHEN SQLSTATE 'P0001' THEN PERFORM set_config('openetrm.check_refusal',SQLERRM,false);END$$;SELECT current_setting('openetrm.check_refusal');ROLLBACK;""").splitlines()[-1]
+    assert refused=='close_replaced',refused
     print('PASS generated closes join their anchor session at its cutoff, never replace a recorded close and never follow a replaced anchor',flush=True)

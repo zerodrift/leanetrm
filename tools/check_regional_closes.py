@@ -44,18 +44,18 @@ def run_checks(url, query, manifest):
     assert first['replacedBy'] is None
     print('PASS a close is recorded for a session business day at its cutoff, idempotently and only under a session grant', flush=True)
 
-    # The late session's 22:00 cutoff on 17 December is 16:00 UTC on 18 December: the business day stays 17 December.
+    # A cutoff must fall on its business day's UTC date, as every valuation reads it there: the late session's 22:00 cutoff on
+    # 17 December is 16:00 UTC on the 18th, so its close is refused, never moved to another day.
     assert record(approver, 'test_late_close', '2020-12-17', expected=403)['code'] == 'close_grant', 'One session grant recorded another session'
     grant(admin, query, manifest, 'approver', 'test_late_close')
-    late = record(approver, 'test_late_close', '2020-12-17')
-    assert (late['businessDate'], instant(late['at'])) == ('2020-12-17', instant('2020-12-18T16:00:00Z')), late
+    assert record(approver, 'test_late_close', '2020-12-17', expected=422)['code'] == 'close_session_instant'
     for session, day, code in [('test_utc_close', '2020-12-17', 'close_session_instant'), ('test_utc_close', '2020-12-19', 'close_session'),
                                ('test_utc_close', '2021-12-02', 'close_session')]:
         assert record(approver, session, day, expected=422)['code'] == code, (session, day, code)
     # Nobody holds a grant for a session that does not exist.
     assert record(approver, 'not_a_session', '2020-12-18', expected=403)['code'] == 'close_grant'
     approver.call('market/closes/register', {**body, 'requestId': str(uuid4()), 'unexpected': 1}, expected=400)
-    print('PASS a business day keeps its session date across UTC midnight; other days, instants and sessions are refused', flush=True)
+    print('PASS a cutoff after its business day\'s UTC date is refused; other days, instants and sessions are refused', flush=True)
 
     # The frame must carry exactly the session's curves; the database names what is missing or extra.
     series = dict(json.loads(query(f"SELECT json_agg(json_build_array(id,series_id))::text FROM market_data.observations WHERE catalog_id='{catalog}' AND id IN({','.join(repr(o) for o in frame['observationIds'])});")))
@@ -98,7 +98,6 @@ def run_checks(url, query, manifest):
     day = next(d for d in utc['dates'] if d['date'] == '2020-12-18')
     assert [f['id'] for f in day['frames']] == [latest['id']] and day['replaced'] == 2, day
     assert day['frames'][0]['businessDate'] == '2020-12-18'
-    assert [f['id'] for d in dates(viewer, 'test_late_close')['dates'] if d['date'] == '2020-12-17' for f in d['frames']] == [late['id']]
     viewer.call('market/dates', {'curve': None, 'timeZone': 'UTC'}, expected=400)
     history = viewer.call('market/closes/history', {'session': 'test_utc_close', 'businessDate': '2020-12-18'})
     assert history['inForce']['id'] == latest['id'] and sorted(c['id'] for c in history['replaced']) == replaced, history
@@ -130,14 +129,27 @@ def run_checks(url, query, manifest):
     assert historical.call('evaluate', {'snapshotId': closes[after['id']]['id'], 'curve': 'future'})['points']
     day = next(d for d in historical.call('market/dates', {'curve': None, 'timeZone': 'UTC', 'session': 'test_utc_close'})['dates'] if d['date'] == '2020-12-18')
     assert [f['id'] for f in day['frames']] == [closes[after['id']]['id']], day
-    late_view = client(url, 'viewer')
-    late_view.call('market/context', {'effectiveOn': '2020-12-17', 'knownAt': None, 'mode': 'current', 'selection': 'latest_correction'})
-    late_closes = {f['originCloseId']: f['id'] for f in late_view.call('workspace')['frames']}
-    assert late['id'] in late_closes, late_closes
-    assert late_view.call('evaluate', {'snapshotId': late_closes[late['id']], 'curve': 'future'})['points']
-    late_days = late_view.call('market/dates', {'curve': None, 'timeZone': 'UTC', 'session': 'test_late_close'})['dates']
-    assert [f['id'] for d in late_days if d['date'] == '2020-12-17' for f in d['frames']] == [late_closes[late['id']]], late_days
-    print('PASS historical views read the close in force recorded after their cutoff, matched by session business day', flush=True)
+    print('PASS historical views read the close in force recorded after their cutoff', flush=True)
+
+    # A price first published after the view's cutoff, pinned by the close in force, is released alike by the set and the per-row
+    # visibility checks, and only for the session the request reads.
+    base = next(f for f in approver.call('workspace')['frames'] if f.get('originCloseId', f['id']) == after['id'])
+    pinned = next(o for o in approver.call('workspace')['observations'] if o['id'] in base['observationIds'] and o['series_id'].endswith('000000000001'))
+    editor.call('workspace')
+    corrected = editor.call('corrections', {'snapshotId': base['id'], 'observationId': pinned['id'], 'value': '3.1'})
+    selected = approver.call('select-observation', {'snapshotId': base['id'], 'observationId': corrected['observationId']})['frame']
+    newest = record(approver, 'test_utc_close', '2020-12-18', 'Synthetic corrected after cutoff', snapshot=selected['id'])
+    context_id = historical.call('workspace')['context']['contextId']
+    def released(session):
+        bind = f"SELECT security.use_close_session('{catalog}','{session}');"
+        return query(f"""SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{issue()}');SELECT security.use_market_context('{catalog}','{context_id}');{bind}
+          SELECT EXISTS(SELECT 1 FROM security.visible_observations() v WHERE v.observation='{corrected['observationId']}')::text||'|'||security.market_fact_visible('{catalog}','{revision}','{corrected['observationId']}')::text;COMMIT;""").splitlines()[-1]
+    def issue():
+        return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120);")
+    assert released('test_utc_close') == 'true|true', released('test_utc_close')
+    assert released('test_late_close') == 'false|false', 'Another session released this session\'s later price'
+    assert newest['id'] in {f['originCloseId'] for f in historical.call('workspace')['frames']}
+    print('PASS set and per-row visibility release a later price pinned by the close in force, for its session only', flush=True)
 
     # A person's chosen session is remembered (D319); nothing chooses one for a new account.
     created = admin.call('admin/create', {'operationId': str(uuid4()), 'login': 'session_chooser', 'name': 'Synthetic session chooser', 'kind': 'human', 'roles': ['trader']})
@@ -152,3 +164,4 @@ def run_checks(url, query, manifest):
     assert chooser.call('close-sessions/choice', {'session': 'not_a_session'}, expected=422)['code'] == 'close_session'
     assert created['login'] == 'session_chooser'
     print('PASS a new account has no close session until it chooses one, and its choice is remembered', flush=True)
+

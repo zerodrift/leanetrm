@@ -46,12 +46,8 @@ public static class MarketDates
         if(frames.IsDefault||frames.Length>128||frames.Select(frame=>frame.Id).Distinct().Count()!=frames.Length)
             throw new MarketDataException("market_dates_input","Supply at most 128 distinct retained snapshot choices.");
         if(string.IsNullOrWhiteSpace(request.Session))throw new MarketDataException("market_dates_input","Choose a close session explicitly.");
-        // Only recorded closes of the named session are closes; a day lists the close in force alone (D319). A day whose close in
-        // force this reader cannot see is unavailable, never answered with the close it replaced.
-        var sessionCloses=frames.Where(frame=>frame.Close?.Session==request.Session).ToImmutableArray();
-        var hidden=sessionCloses.Where(frame=>frame.Close!.ReplacedBy is {} current&&sessionCloses.All(other=>(other.OriginCloseId??other.Id)!=current))
-            .Select(frame=>frame.Close!.BusinessDate).ToHashSet();
-        frames=[..sessionCloses.Where(frame=>frame.Close!.ReplacedBy is null)];
+        // Only recorded closes of the named session are closes; a day lists the close in force alone (D319).
+        frames=[..frames.Where(frame=>frame.Close?.Session==request.Session&&frame.Close.ReplacedBy is null)];
         foreach(var frame in frames)_=pin.Require(frame);
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
         await SelectedClose.BindSession(connection,database.Manifest.CatalogId,request.Session,ct);
@@ -211,7 +207,8 @@ public static class MarketDates
             if(request.MaximumDates is {} maximum&&available.Select(item=>item.Date).Distinct().Count()>=maximum)break;
         }
         var replaced=await ReplacedCounts(connection,database.Manifest.CatalogId,request.Session,ct);
-        unavailable.AddRange(hidden.Select(day=>new UnavailableMarketDate(day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),"close_not_visible")));
+        // A day whose close in force this reader cannot see is unavailable, never answered with the close it replaced.
+        unavailable.AddRange((await HiddenDays(connection,database.Manifest.CatalogId,request.Session,ct)).Select(day=>new UnavailableMarketDate(day,"close_not_visible")));
         var dates=available.GroupBy(row=>row.Date,StringComparer.Ordinal).OrderBy(group=>group.Key,StringComparer.Ordinal)
             .Select(group=>new MarketDateChoice(group.Key,[..group.Select(row=>row.Frame).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)],
                 replaced.GetValueOrDefault(group.Key))).ToImmutableArray();
@@ -250,6 +247,11 @@ public static class MarketDates
         var rows=await PreviewDatabase.Rows(connection,"SELECT json_build_object('day',business_date,'replaced',count(*)-1)::text FROM market_data.market_closes "+
             "WHERE catalog_id=$1 AND session_code=$2 GROUP BY business_date",[catalog,session],ct);
         return rows.ToDictionary(row=>row.Text("day"),row=>int.Parse(row.Text("replaced"),CultureInfo.InvariantCulture),StringComparer.Ordinal);
+    }
+    static async Task<string[]> HiddenDays(NpgsqlConnection connection,Guid catalog,string session,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT array(SELECT to_char(d,'YYYY-MM-DD') FROM unnest(security.close_session_hidden_days($1,$2))d)",catalog,session);
+        return (string[])(await command.ExecuteScalarAsync(ct))!;
     }
     static async Task RequireAccess(PreviewDatabase database,NpgsqlConnection connection,CancellationToken ct)
     {

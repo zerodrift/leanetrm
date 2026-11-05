@@ -69,7 +69,8 @@ END$$;
 
 -- The UTC instant of a session's cutoff on one business day, on the clock of the session's calendar. A day outside the
 -- version's range, outside its calendar or not a business day is refused (close_session); a cutoff that does not exist or
--- exists twice on that day's local clock is refused (close_session_instant). Nothing moves the day or the time.
+-- exists twice on that day's local clock, or falls on another UTC date, is refused (close_session_instant). Nothing moves the
+-- day or the time.
 CREATE FUNCTION security.close_session_instant(catalog uuid,session text,session_version integer,business_date date) RETURNS timestamptz
  LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE v market_data.close_session_versions;cal ref_data.calendars;clock ref_data.clock_rules;open boolean;
@@ -84,14 +85,18 @@ BEGIN
  IF NOT coalesce(open,(cal.weekend_mask&(1<<(extract(isodow FROM business_date)::integer-1)))=0) THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
  SELECT * INTO clock FROM ref_data.clock_rules r WHERE(r.catalog_id,r.revision_id,r.code)=(cal.catalog_id,cal.revision_id,cal.clock_code);
  local=business_date+v.cutoff_local;
- IF clock.kind='fixed_offset' THEN RETURN(local-make_interval(secs=>clock.fixed_offset_seconds)) AT TIME ZONE 'UTC';END IF;
- -- The local time's instants under the offsets in force a day either side; exactly one must map back to it.
- base=local AT TIME ZONE 'UTC';
- SELECT array_agg(DISTINCT c) INTO candidates FROM(
-  SELECT(local-((t AT TIME ZONE clock.iana_zone)-(t AT TIME ZONE 'UTC'))) AT TIME ZONE 'UTC' c
-  FROM unnest(ARRAY[base-interval '1 day',base+interval '1 day'])t)x
- WHERE(c AT TIME ZONE clock.iana_zone)=local;
- IF coalesce(cardinality(candidates),0)<>1 THEN RAISE EXCEPTION 'close_session_instant' USING ERRCODE='P0001';END IF;
+ IF clock.kind='fixed_offset' THEN candidates=ARRAY[(local-make_interval(secs=>clock.fixed_offset_seconds)) AT TIME ZONE 'UTC'];
+ ELSE
+  -- The local time's instants under the offsets in force a day either side; exactly one must map back to it.
+  base=local AT TIME ZONE 'UTC';
+  SELECT array_agg(DISTINCT c) INTO candidates FROM(
+   SELECT(local-((t AT TIME ZONE clock.iana_zone)-(t AT TIME ZONE 'UTC'))) AT TIME ZONE 'UTC' c
+   FROM unnest(ARRAY[base-interval '1 day',base+interval '1 day'])t)x
+  WHERE(c AT TIME ZONE clock.iana_zone)=local;
+ END IF;
+ -- Every valuation reads a close on its business day's UTC date, so a cutoff that falls on another UTC date is refused.
+ IF coalesce(cardinality(candidates),0)<>1 OR(candidates[1] AT TIME ZONE 'UTC')::date<>business_date
+ THEN RAISE EXCEPTION 'close_session_instant' USING ERRCODE='P0001';END IF;
  RETURN candidates[1];
 END;$$;
 
@@ -108,12 +113,13 @@ BEGIN
 END;$$;
 
 -- Whether the request's actor may record, and so replace, a close for the session: publishing authority and a live grant.
+-- A close is a person's sign-off, so a delegated request records none.
 CREATE FUNCTION security.can_record_close(catalog uuid,session text) RETURNS boolean
  LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
  SELECT security.market_access(catalog,'PublishMarketData') AND EXISTS(SELECT 1 FROM security.request_contexts c
   JOIN security.close_session_grants g ON(g.principal_id,g.tenant_id,g.workspace_id)=(c.actor_id,c.tenant_id,c.workspace_id)
   WHERE c.backend_pid=pg_backend_pid() AND c.transaction_id=pg_current_xact_id_if_assigned() AND c.runtime_login=session_user
-  AND c.expires_at>clock_timestamp() AND(g.catalog_id,g.session_code)=(catalog,session) AND NOT g.revoked
+  AND c.delegation_id IS NULL AND c.expires_at>clock_timestamp() AND(g.catalog_id,g.session_code)=(catalog,session) AND NOT g.revoked
   AND g.granted_from<=clock_timestamp() AND clock_timestamp()<g.granted_to);
 $$;
 
@@ -139,6 +145,16 @@ CREATE FUNCTION security.close_session_json(catalog uuid,session text,session_ve
  FROM market_data.close_session_versions v JOIN market_data.close_sessions s USING(catalog_id,code)
  JOIN ref_data.calendars c ON(c.catalog_id,c.revision_id,c.code)=(v.reference_catalog_id,v.reference_revision_id,v.calendar_code)
  WHERE(v.catalog_id,v.code,v.version)=(catalog,session,session_version);
+$$;
+
+-- The published version governing a session business day: the one with the latest start that covers it (D319). A later
+-- version takes over from its own start, so a session can change its cutoff or curves without a new code.
+CREATE FUNCTION security.close_session_version_on(catalog uuid,session text,business_date date) RETURNS integer
+ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+ SELECT v.version FROM market_data.close_session_versions v
+ WHERE(v.catalog_id,v.code,v.state)=(catalog,session,'published') AND v.effective_from<=business_date AND business_date<v.effective_to
+  AND security.market_access(catalog,'ReadMarketData')
+ ORDER BY v.effective_from DESC LIMIT 1;
 $$;
 
 CREATE FUNCTION security.close_session_catalog(catalog uuid) RETURNS jsonb
@@ -207,8 +223,10 @@ BEGIN
  END IF;
  IF v.generation<>expected_generation OR EXISTS(SELECT 1 FROM market_data.close_session_versions o WHERE(o.catalog_id,o.code)=(catalog,session) AND o.publisher_id=c.actor_id AND o.publish_request_id=operation)
  THEN RAISE EXCEPTION 'close_conflict' USING ERRCODE='P0001';END IF;
+ -- A version supersedes the published ones it overlaps from its own start; one starting no later than them would leave a day
+ -- with two governing versions.
  IF EXISTS(SELECT 1 FROM market_data.close_session_versions o WHERE(o.catalog_id,o.code)=(catalog,session) AND o.state='published'
-  AND o.effective_from<v.effective_to AND v.effective_from<o.effective_to) THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
+  AND o.effective_from<v.effective_to AND v.effective_from<o.effective_to AND o.effective_from>=v.effective_from) THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
  UPDATE market_data.close_session_versions SET state='published',generation=v.generation+1,publisher_id=c.actor_id,publish_request_id=operation
  WHERE(catalog_id,code,version)=(catalog,session,session_version);
  IF NOT security.market_access(catalog,'SealMarketDefinitions') THEN RAISE EXCEPTION 'close_denied' USING ERRCODE='42501';END IF;
@@ -308,8 +326,8 @@ BEGIN
   IF NOT security.market_close_visible(catalog,previous.id) THEN RAISE EXCEPTION 'pilot_close_denied' USING ERRCODE='42501';END IF;
   RETURN previous.id;
  END IF;
- SELECT * INTO v FROM market_data.close_session_versions s WHERE(s.catalog_id,s.code)=(catalog,session) AND s.state='published'
-  AND s.effective_from<=business_date AND business_date<s.effective_to;
+ SELECT * INTO v FROM market_data.close_session_versions s
+  WHERE(s.catalog_id,s.code,s.version)=(catalog,session,security.close_session_version_on(catalog,session,business_date));
  IF NOT FOUND OR v.definition_revision_id<>definition THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
  close_at=security.close_session_instant(catalog,session,v.version,business_date);
  IF frame_at<>close_at OR close_at>clock_timestamp() THEN RAISE EXCEPTION 'close_session_instant' USING ERRCODE='P0001';END IF;
@@ -449,8 +467,57 @@ BEGIN
     AND c.transaction_id=pg_current_xact_id_if_assigned() AND c.runtime_login=session_user)
    AND v.effective_from<=cut.effective_on AND cut.effective_on<v.effective_to
    AND s.id=(SELECT l.id FROM market_data.market_closes l WHERE(l.catalog_id,l.session_code,l.business_date)=(s.catalog_id,s.session_code,s.business_date)
-    ORDER BY l.publication_order DESC LIMIT 1);
+    ORDER BY l.publication_order DESC LIMIT 1)
+   -- The close in force must itself be visible: its definition and reference revisions under the context (spec design call).
+   AND security.market_close_visible(s.catalog_id,s.id);
 END$$;
+-- The per-row check keeps 0158's contract with visible_observations(): it releases exactly the same pinned prices of the bound
+-- session's closes in force (D319), and otherwise keeps the 0037 rules.
+CREATE OR REPLACE FUNCTION security.market_fact_visible(catalog uuid,revision uuid,observation uuid)
+RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog SET plan_cache_mode=force_generic_plan AS $$
+BEGIN
+ IF security.market_access(catalog,'ReadMarketData') IS NOT TRUE THEN RETURN false; END IF;
+ IF NOT EXISTS(
+  SELECT 1 FROM security.request_contexts c WHERE c.backend_pid=pg_backend_pid()
+   AND c.transaction_id=pg_current_xact_id_if_assigned() AND c.runtime_login=session_user AND c.market_context_id IS NOT NULL) THEN RETURN true; END IF;
+ IF EXISTS(
+  SELECT 1 FROM security.request_contexts c
+  JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(c.market_catalog_id,c.market_context_id)
+  JOIN market_data.market_contexts m ON(m.catalog_id,m.context_id)=(t.catalog_id,t.id)
+  JOIN LATERAL (
+   SELECT event.* FROM market_data.knowledge_events event
+   WHERE observation IS NULL AND event.catalog_id=t.catalog_id AND event.revision_id=revision AND event.observation_id IS NULL
+   UNION ALL
+   SELECT event.* FROM market_data.knowledge_events event
+   WHERE observation IS NOT NULL AND event.catalog_id=t.catalog_id AND event.revision_id=revision AND event.observation_id=observation
+  ) e ON true
+  JOIN market_data.market_knowledge_receipts k ON(k.catalog_id,k.event_order,k.publication_xid)=(e.catalog_id,e.event_order,e.publication_xid)
+  JOIN market_data.revision_periods p ON(p.catalog_id,p.revision_id)=(e.catalog_id,e.revision_id)
+  WHERE c.backend_pid=pg_backend_pid() AND c.transaction_id=pg_current_xact_id_if_assigned()
+   AND c.runtime_login=session_user AND t.catalog_id=catalog
+   AND e.event_order<=m.known_through AND k.known_from<=t.known_at
+   AND p.effective_from<=t.effective_on AND t.effective_on<p.effective_to
+   AND(observation IS NULL OR EXISTS(SELECT 1 FROM market_data.observations o
+    WHERE o.catalog_id=catalog AND o.id=observation AND o.observed_at<((t.effective_on+1)::timestamp AT TIME ZONE 'UTC')))
+ ) THEN RETURN true; END IF;
+ RETURN observation IS NOT NULL AND EXISTS(
+  SELECT 1 FROM security.request_contexts c
+  JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(c.market_catalog_id,c.market_context_id)
+  JOIN market_data.market_close_pins p ON(p.catalog_id,p.observation_id)=(t.catalog_id,observation)
+  JOIN market_data.market_closes s ON(s.catalog_id,s.id)=(p.catalog_id,p.close_id)
+  JOIN market_data.observations o ON(o.catalog_id,o.id)=(p.catalog_id,p.observation_id)
+  JOIN market_data.revision_periods v ON(v.catalog_id,v.revision_id)=(s.catalog_id,s.definition_revision_id)
+  WHERE c.backend_pid=pg_backend_pid() AND c.transaction_id=pg_current_xact_id_if_assigned() AND c.runtime_login=session_user
+   AND t.catalog_id=catalog AND s.definition_revision_id=revision AND s.session_code=c.close_session
+   AND s.business_date=t.effective_on AND o.observed_at<=s.at
+   AND v.effective_from<=t.effective_on AND t.effective_on<v.effective_to
+   AND s.id=(SELECT l.id FROM market_data.market_closes l WHERE(l.catalog_id,l.session_code,l.business_date)=(s.catalog_id,s.session_code,s.business_date)
+    ORDER BY l.publication_order DESC LIMIT 1)
+   AND security.market_close_visible(s.catalog_id,s.id));
+END;
+$$;
+CREATE INDEX market_close_pin_observations ON market_data.market_close_pins(catalog_id,observation_id);
+
 -- Whether the close was recorded after the bound historical context's knowledge cutoff; null in current working data.
 CREATE FUNCTION security.close_recorded_after_cutoff(catalog uuid,close_id uuid) RETURNS boolean
  LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
@@ -475,7 +542,14 @@ DO $$DECLARE signature text='automation.create_pilot_close_job(jsonb,jsonb)';def
  END LOOP;
  before:='p.valuation_policy=definition->''valuationPolicy'';';
  IF(length(definition)-length(replace(definition,before,'')))/length(before)<>1 THEN RAISE EXCEPTION 'regional closes: unexpected pilot profile assignment';END IF;
- EXECUTE replace(definition,before,before||'p.session_code=definition->>''session'';');
+ definition=replace(definition,before,before||'p.session_code=definition->>''session'';');
+ -- A replaced close is not offered for new work: no job is admitted on it as an anchor.
+ before:=' THEN RAISE EXCEPTION ''pilot_profile'';END IF;
+ p.id=gen_random_uuid();';
+ IF(length(definition)-length(replace(definition,before,'')))/length(before)<>1 THEN RAISE EXCEPTION 'regional closes: unexpected pilot anchor check';END IF;
+ EXECUTE replace(definition,before,' THEN RAISE EXCEPTION ''pilot_profile'';END IF;
+ IF security.close_in_force(anchor.catalog_id,anchor.session_code,anchor.business_date)<>anchor.id THEN RAISE EXCEPTION ''close_replaced'' USING ERRCODE=''P0001'';END IF;
+ p.id=gen_random_uuid();');
 END$$;
 
 DO $$DECLARE signature text='automation.pilot_definition(automation.jobs)';definition text;before text='jsonb_build_object(''priorCloseId'',p.prior_close_id,';BEGIN
@@ -491,8 +565,8 @@ CREATE FUNCTION security.close_session_day(catalog uuid,session text,at timestam
 DECLARE candidate date;v market_data.close_session_versions;matches integer=0;
 BEGIN
  FOR candidate IN SELECT (at AT TIME ZONE 'UTC')::date+k FROM generate_series(-1,1)k LOOP
-  SELECT * INTO v FROM market_data.close_session_versions s WHERE(s.catalog_id,s.code)=(catalog,session) AND s.state='published'
-   AND s.effective_from<=candidate AND candidate<s.effective_to;
+  SELECT * INTO v FROM market_data.close_session_versions s
+   WHERE(s.catalog_id,s.code,s.version)=(catalog,session,security.close_session_version_on(catalog,session,candidate));
   CONTINUE WHEN NOT FOUND;
   BEGIN
    IF security.close_session_instant(catalog,session,v.version,candidate)=at THEN matches=matches+1;session_version=v.version;business_date=candidate;END IF;
@@ -633,10 +707,21 @@ BEGIN
  RETURN session;
 END;$$;
 
+-- The business days of a session whose close in force the reader cannot see (D319): the calendar names them, never offering
+-- the close it replaced in their place.
+CREATE FUNCTION security.close_session_hidden_days(catalog uuid,session text) RETURNS date[]
+ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ IF NOT security.market_access(catalog,'ReadMarketData') THEN RAISE EXCEPTION 'close_denied' USING ERRCODE='42501';END IF;
+ RETURN coalesce((SELECT array_agg(d.business_date ORDER BY d.business_date) FROM(
+  SELECT DISTINCT s.business_date FROM market_data.market_closes s WHERE(s.catalog_id,s.session_code)=(catalog,session))d
+  WHERE NOT security.market_close_visible(catalog,security.close_in_force(catalog,session,d.business_date))),ARRAY[]::date[]);
+END;$$;
+
 DO $$DECLARE f record;BEGIN
  FOR f IN SELECT p.oid::regprocedure signature,p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security'
  AND p.proname IN('close_session_instant','close_in_force','can_record_close','close_session_json','close_session_catalog','save_close_session','publish_close_session',
- 'close_grant_json','require_close_administration','grant_close_session','revoke_close_session_grant','close_session_grants','register_market_close','close_history','market_close_visible','close_recorded_after_cutoff','close_session_day','require_session_curves','close_session_choice','choose_close_session','use_close_session') LOOP
+ 'close_grant_json','require_close_administration','grant_close_session','revoke_close_session_grant','close_session_grants','register_market_close','close_history','market_close_visible','close_recorded_after_cutoff','close_session_day','require_session_curves','close_session_choice','choose_close_session','use_close_session','close_session_hidden_days','close_session_version_on') LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f.signature);
   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f.signature);
   IF f.proname NOT IN('close_session_instant','close_session_json','close_grant_json','require_close_administration','close_session_day','require_session_curves') THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;

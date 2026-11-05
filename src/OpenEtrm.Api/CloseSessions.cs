@@ -61,7 +61,7 @@ public static class CloseSessions
 
     public static string Refusal(string code)=>code switch
     {
-        "close_session"=>"Choose a published close session whose calendar, cutoff, curves and effective dates cover this business day, and versions that do not overlap.",
+        "close_session"=>"Choose a published close session whose calendar, cutoff, curves and effective dates cover this business day; a new version must start after the versions it supersedes.",
         "close_session_instant"=>"The session's cutoff does not exist exactly once on this business day's local clock, or the snapshot is not at the session cutoff.",
         "close_incomplete"=>"The snapshot does not carry every curve of the session.",
         "close_outside_session"=>"The snapshot carries curves outside the session.",

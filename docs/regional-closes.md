@@ -302,20 +302,35 @@ Implementation calls, recorded for review:
 - A generated close joins its profile's session, which must cover exactly the
   profile's curves; its anchor may belong to another session.
 - An identity that cannot discover closes is refused (403) when it names one.
+- A session's cutoff must fall on its business day's UTC date (`close_session_instant`
+  otherwise), because every valuation reads a close on that date.
+- A later published version supersedes the versions it overlaps from its own start;
+  a version starting no later than a published one is refused.
+- A request binds the session it reads (`security.use_close_session`); "always
+  latest" releases only that session's pinned prices, in both the set and the
+  per-row visibility checks, and only when the close in force is itself visible.
+- Delegated requests record no close: a close is a person's sign-off.
+- Replaced closes are not offered as pilot anchors and are refused at admission.
 
 ## Remaining work
+
+- Sessions whose cutoffs fall after UTC midnight (late western closes) are refused;
+  supporting them means valuing, booking and risk at the business day across UTC
+  midnight.
+- Generated pilot closes follow the pilot schedule's UTC instants, so only a UTC
+  every-day session fits them.
+- The risk worker binds no close session, so a historical risk job at a close
+  recorded after its cutoff keeps that cutoff for the close's later prices.
 
 - Role-based session grants and a screen for administering grants.
 - Choosing a session's business day for an anchor on the pilot page uses the
   UTC date of the frame's instant.
 - Portfolio risk job views do not yet report whether their close was replaced.
-- `close_not_visible` has no synthetic scenario: every fixture reader shares one
-  workspace's visibility.
 
 ## Verification
 
-- `--regional-closes-check`: sessions, versions and grants; London, New York and
-  a UTC−18h session; a business day across UTC midnight; refused days,
+- `--regional-closes-check`: sessions, superseding versions and grants; London,
+  New York and a refused UTC−18h session; refused days,
   instants, curves and grants; idempotent and concurrent recording; the close in
   force, history and `close_replaced`; historical views reading a close recorded
   after their cutoff.
