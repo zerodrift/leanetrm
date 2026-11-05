@@ -975,6 +975,8 @@ def main():
                 check_contract_dates(url,query,manifest,psql,env)
                 from check_contract_materialization import run_checks as check_materialization
                 check_materialization(url,query,manifest,psql,env)
+                from check_curve_definitions import run_checks as check_curve_definitions
+                check_curve_definitions(url,query,manifest)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

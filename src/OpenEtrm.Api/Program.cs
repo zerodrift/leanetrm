@@ -831,6 +831,25 @@ api.MapPost("/date-schedules/contracts/materialize",(HttpContext c,ContractMater
     Results.Ok(await contractDateMaterialization.Materialize(connection,body,ct))));
 api.MapPost("/date-schedules/contracts/admissions",(HttpContext c,ContractAdmissionRead body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
     Results.Ok(await contractDateMaterialization.Read(connection,body,session.MarketContext,ct))));
+// D312: the curve editor's choices, under the page's pin, and a read-only preview of a definition's rolling contract window. A preview
+// reads its reference terms and resolves its mapping in the one exact retained context the request names, which must be the session's
+// selected context when one is selected.
+api.MapGet("/curve-definitions/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    var data=await marketReads.Data(connection,Pin(session),ct,ImmutableArray<Guid>.Empty,ReferenceReadScope.AllVisible);
+    return Results.Ok(new{choices=CurveDefinitions.Choices,maximumContracts=CurveDefinitions.MaximumContracts,references=CurveReferenceTerms.From(data.References),data.ReferenceRevision});
+},c.RequestAborted))));
+api.MapPost("/curve-definitions/preview",(HttpContext c,CurveDefinitionPreviewRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    var definition=body.Definition??throw new MarketDataException("curve_definition","Supply a complete curve definition.");
+    var window=CurveDefinitions.Window(definition);
+    var context=await knowledgeStore.Retained(connection,body.Context??throw new TemporalException("schedule_context","Choose an explicit temporal context."),ct);
+    if(session.MarketContext is {} selected&&selected.ContextId!=context.ContextId)
+        throw new TemporalException("schedule_context","Preview in the selected exact market context, or explicitly change that selection first.");
+    var data=await marketReads.Data(connection,PinnedContext.Retained(context),ct,ImmutableArray<Guid>.Empty,ReferenceReadScope.AllVisible);
+    var mapping=await contractDateStore.Resolve(connection,new(window.MappingId,window.MappingVersion,context),context,ct);
+    return Results.Ok(CurveDefinitions.Preview(definition,CurveReferenceTerms.From(data.References),mapping));
+},c.RequestAborted)));
 // Selects a historical view: binds the context, under the explicit latest-known correction policy, and shows its frames.
 async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? selection,Func<NpgsqlConnection,CancellationToken,Task<KnowledgeSnapshot>> resolve)
 {

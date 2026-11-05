@@ -25,7 +25,7 @@ async function fixture(work){
     selected:()=> '',current:()=>undefined,select:()=>{},open:()=>{},newer:()=>{}}).reset();
    for(const [name,label] of [['from','Delivery date from'],['through','Delivery date to']])createAvailableDatePicker(document.getElementById('delivery-price-'+name+'-calendar'),
     {id:'delivery-price-'+name+'-picker',label,busy:()=>false,onChange:()=>{}}).set(['2031-11-01'],'2031-11-01');
-   window.scheduleWorkspace=setupScheduleWorkspace();
+   window.scheduleWorkspace=setupScheduleWorkspace({element:document.createElement('div'),shown(){}});
    const custom=setupCustomCurves(document.getElementById('custom-curves-page'),{
     api:async()=>({kindsVersion:'curve_kinds_v1',canEdit:true,canPublish:true,operators:[],templates:[],sources:[],calendars:[],schedules:[],recipes:[]}),
     act:work=>work(),busy:()=>false,zone:()=> 'UTC',identity:()=> 'synthetic-layout',source:()=>({snapshotId:'synthetic'}),historical:()=>false,

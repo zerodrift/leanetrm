@@ -43,7 +43,7 @@ internal static class AssistantOperations
         Add("reference_data","SealReferenceData",true,"","reference/apply");
         Add("parties","ReadTradeParties|ReadMarketData",false,"parties/catalog");
         Add("parties","WriteTradeParties|ReadMarketData",true,"","parties/save");
-        Add("schedules","ReadMarketData",false,"!schedules !date-schedules date-schedules/preview date-schedules/resolve date-schedules/catalog date-schedules/contracts/preview date-schedules/contracts/resolve schedules/observation-contracts schedules/preview schedules/dates/preview schedules/expression schedules/contracts/preview");
+        Add("schedules","ReadMarketData",false,"!schedules !date-schedules date-schedules/preview date-schedules/resolve date-schedules/catalog date-schedules/contracts/preview date-schedules/contracts/resolve schedules/observation-contracts schedules/preview schedules/dates/preview schedules/expression schedules/contracts/preview !curve-definitions/catalog curve-definitions/preview");
         Add("schedules","WriteMarketDefinitions",true,"","date-schedules/save date-schedules/contracts/save");
         Add("schedules","SealMarketDefinitions",true,"","date-schedules/publish date-schedules/contracts/publish");
         Add("power_tous","ReadMarketData",true,"!tou-products power/catalog power/preview power/settlement");

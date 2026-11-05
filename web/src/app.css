@@ -397,6 +397,8 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 
 /* Forms */
 .schedule-fields.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+/* Curves step (D312): one field per row, sections stacked. */
+.curve-definition-section{min-width:0;border:0;border-top:1px solid #e4ebdf;padding:12px 0 4px;margin:0;display:grid;gap:12px;max-width:560px}.curve-definition-section legend{font-weight:600;padding:0 0 4px}.curve-definition-section input,.curve-definition-section select{width:100%;min-width:0;max-width:100%}
 .form-section{font-size:13px;font-weight:600;color:var(--text-2);margin:20px 0 10px;padding-top:16px;border-top:1px solid var(--border)}
 form>.form-section:first-child{border-top:0;padding-top:0;margin-top:6px}
 .label{display:block;font-size:13px;font-weight:500;color:var(--text-2);margin-bottom:6px}
