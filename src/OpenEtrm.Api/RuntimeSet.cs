@@ -15,7 +15,8 @@ static class RuntimeSet
     // layout its page report states (D271). turns_v8 is reserved for the installation limits (P42).
     // turns_v11 adds authorized workspace operations and ask-time page guidance (D284).
     // turns_v14 adds bounded workspace-page target handles for native entry navigation (D319).
-    public const string Turns="turns_v14";
+    // turns_v15 restores identity-only report admission for every named browser page (D325).
+    public const string Turns="turns_v15";
     // A question, in characters, so an ask's body stays under 32 KB at four bytes each beside its page report of 8 KiB.
     public const int QuestionLength=4000;
     // The turns a workspace runs at once.

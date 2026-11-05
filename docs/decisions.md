@@ -2507,3 +2507,29 @@ editable authoring inputs; native validation and publication remain separate.
 Rates, amounts, identifiers and binding codes are not invented. Saving retains
 the exact entered values; calculations gain no missing-input fallback or new
 financial convention. No schema or dependency is added. Hosted activation remains separate from local qualification.
+
+## D325 — Admit every emitted identity-only page report
+
+Dashboard, Crude delivery setup and Vol surfaces join the closed managed report
+and SQL prompt catalogs as empty-selection identity-only pages. They gain no
+reader, navigation target, business operation or grant. Their digest reports
+identity/context only and keeps the normal frame and retained-context contract.
+Gas and crude setup have complete Looking at labels and honest unread-page wording.
+Native report factories, frontend labels, API prompt pages and SQL admission have
+executable parity checks. Facilities also joins the SQL whitelist, matching its existing empty report.
+Migration 0198 patches the exact prompt predecessor and
+both current runtime guards; `turns_v15` refuses older admission and stored-plan
+writers while preserving immutable history and existing grants.
+
+## D326 — Keep the guide dismissible and its cursor attached to native controls
+
+Minimize retains the guide's Continue/Stop controls; Restore reveals narration.
+Close stops presentation and hides both guide and cursor. A frame tracker follows
+the page-owned target, hides the cursor when offscreen/occluded and stops if the
+target disappears. Stop/replacement/teardown remove the target outline and cancel
+tracking; late async steps cannot reopen a closed guide. Native ticket navigation
+returns a visible field anchor. The cursor's glow and tilt respect reduced motion.
+Native modal dialogs host only the guide's presentation elements, retaining modal
+background inertness and human-only Review/Authorize. Checks use real pointer
+input at Review and synthetic unsaved forms; no new presentation vocabulary or
+business effects are introduced.

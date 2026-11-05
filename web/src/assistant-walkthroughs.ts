@@ -48,17 +48,44 @@ export function setupWalkthrough(options:{identity:()=>string;context:()=>string
   const status=document.createElement('p');status.className='assistant-walkthrough-status';status.setAttribute('role','status');status.setAttribute('aria-live','polite');
   const next=document.createElement('button');next.type='button';next.className='assistant-walkthrough-continue';next.textContent='Continue';next.hidden=true;
   const stopButton=document.createElement('button');stopButton.type='button';stopButton.textContent='Stop';
-  root.append(label,status,next,stopButton);document.body.append(cursor,root);
+  const minimize=document.createElement('button');minimize.type='button';minimize.className='assistant-walkthrough-minimize';minimize.textContent='Minimize';minimize.setAttribute('aria-expanded','true');
+  const close=document.createElement('button');close.type='button';close.className='assistant-walkthrough-close';close.textContent='Close';close.setAttribute('aria-label','Close walkthrough');
+  root.append(label,status,next,minimize,close,stopButton);document.body.append(cursor,root);
+  // Native modal dialogs make their body siblings inert. Only the guide's own presentation controls join the top layer.
+  const place=()=>{const host=document.querySelector('dialog:modal')??document.body;if(root.parentElement!==host)host.append(cursor,root);};
+  const layers=new MutationObserver(place);layers.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['open']});
+  minimize.onclick=()=>{status.hidden=!status.hidden;minimize.textContent=status.hidden?'Restore':'Minimize';minimize.setAttribute('aria-expanded',String(!status.hidden));};
+  close.onclick=()=>{stop();root.hidden=true;};
   let watching:ReturnType<typeof setInterval>|undefined;
   let generation=0,abort:AbortController|undefined,continued:(()=>void)|undefined,index=0;
-  function stop(reason='Stopped'){clearInterval(watching);watching=undefined;generation++;abort?.abort();abort=undefined;continued?.();continued=undefined;next.hidden=true;cursor.hidden=true;status.textContent=reason;options.progress?.(index,reason);}
+  let target:HTMLElement|undefined,tracking=0;
+  function clearTarget(){cancelAnimationFrame(tracking);tracking=0;target?.classList.remove('assistant-walkthrough-target');target=undefined;cursor.hidden=true;}
+  function point(control:HTMLElement,current:()=>boolean){
+    clearTarget();const owner=generation;target=control;control.classList.add('assistant-walkthrough-target');place();
+    const track=()=>{
+      try{
+      if(owner!==generation)return;
+      if(!current()){stop('Stopped because the account or context changed.');return;}
+      if(!control.isConnected||!control.getClientRects().length||control.closest('[hidden],[inert]')){stop('Stopped because the page control is no longer available.');return;}
+      const box=control.getBoundingClientRect(),left=Math.max(0,box.left),top=Math.max(0,box.top),right=Math.min(innerWidth,box.right),bottom=Math.min(innerHeight,box.bottom);
+      // The tip stays inside the visible control. An offscreen or occluded control gets no misleading pointer.
+      let spot:{x:number;y:number}|undefined;
+      if(right>left&&bottom>top)for(const [x,y] of [[left+Math.min(16,(right-left)/2),top+Math.min(16,(bottom-top)/2)],[(left+right)/2,(top+bottom)/2]]){
+        const hit=document.elementFromPoint(x,y);if(hit&&(control===hit||control.contains(hit))){spot={x,y};break;}
+      }
+      cursor.hidden=!spot;if(spot){cursor.style.left=`${spot.x}px`;cursor.style.top=`${spot.y}px`;}
+      tracking=requestAnimationFrame(track);
+      }catch{if(owner===generation)stop('Stopped because the page context or control is unavailable.');}
+    };track();
+  }
+  function stop(reason='Stopped'){clearInterval(watching);watching=undefined;generation++;abort?.abort();abort=undefined;continued?.();continued=undefined;next.hidden=true;clearTarget();status.textContent=reason;options.progress?.(index,reason);}
   stopButton.onclick=()=>stop();next.onclick=()=>{const run=continued;continued=undefined;next.hidden=true;run?.();};
   const human=(event:Event)=>{if(event instanceof KeyboardEvent&&event.key==='Escape'){if(abort){event.preventDefault();stop();}return;}if(root.contains(event.target as Node)||(event.target instanceof Element&&event.target.closest('[data-assistant-walkthrough-control]')))return;
     options.takenOver?.();if(!abort)return;
     if(event.type==='input'||event.type==='pointerdown'||event instanceof KeyboardEvent&&!['Shift','Control','Meta','Alt'].includes(event.key))stop('Stopped because you took control.');};
   for(const kind of ['keydown','pointerdown','input'])document.addEventListener(kind,human,true);
   async function start(value:Walkthrough,from=0){
-    stop('Starting walkthrough');root.hidden=false;label.textContent=value.agentLabel;cursor.dataset.agent=value.agentLabel;const owned=++generation,who=options.identity(),context=options.context(),controller=new AbortController();abort=controller;index=from;
+    stop('Starting walkthrough');root.hidden=false;status.hidden=false;minimize.textContent='Minimize';minimize.setAttribute('aria-expanded','true');place();label.textContent=value.agentLabel;cursor.dataset.agent=value.agentLabel;const owned=++generation,who=options.identity(),context=options.context(),controller=new AbortController();abort=controller;index=from;
     watching=setInterval(()=>{try{if(who!==options.identity()||context!==options.context())stop('Stopped because the account or context changed.');}catch{stop('Stopped because the page context is unavailable.');}},50);
     let narration=value.plan.steps.slice(0,from).filter((step):step is Extract<PresentationStep,{kind:'say'}>=>step.kind==='say').at(-1)?.text??'';
     const current=()=>owned===generation&&!controller.signal.aborted&&who===options.identity()&&context===options.context();
@@ -72,16 +99,16 @@ export function setupWalkthrough(options:{identity:()=>string;context:()=>string
           await new Promise<void>(resolve=>{continued=resolve;});if(!current())return;
         }else if(step.kind==='say'){narration=step.text;status.textContent=`Step ${index+1} of ${value.plan.steps.length} · ${narration}`;}
         else{
-          const target=await options.perform(step,controller.signal);if(!current())return;
-          if(!target.isConnected)throw Error('The page control is no longer available.');
-          const box=target.getBoundingClientRect();cursor.style.left=`${Math.max(4,box.left+Math.min(24,box.width/2))}px`;cursor.style.top=`${Math.max(4,box.top+Math.min(24,box.height/2))}px`;cursor.hidden=false;
-          target.classList.add('assistant-walkthrough-target');
-          await new Promise(resolve=>setTimeout(resolve,matchMedia('(prefers-reduced-motion: reduce)').matches?0:350));target.classList.remove('assistant-walkthrough-target');if(!current())return;
+          clearTarget();
+          const control=await options.perform(step,controller.signal);if(!current())return;
+          if(!control.isConnected)throw Error('The page control is no longer available.');
+          control.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});point(control,current);
+          await new Promise(resolve=>setTimeout(resolve,matchMedia('(prefers-reduced-motion: reduce)').matches?0:350));if(!current())return;
         }
         options.progress?.(index+1,'Presented');
       }
       if(current())stop('Walkthrough complete. '+(narration?narration+' ':'')+'Review and submit any change yourself.');
     }catch(error){if(owned===generation)stop(`Stopped at step ${index+1}: ${error instanceof Error?error.message:'The page could not perform it.'}`);}
   }
-  return {start,stop,active:()=>!!abort,destroy(){stop();for(const kind of ['keydown','pointerdown','input'])document.removeEventListener(kind,human,true);root.remove();cursor.remove();}};
+  return {start,stop,active:()=>!!abort,destroy(){stop();layers.disconnect();for(const kind of ['keydown','pointerdown','input'])document.removeEventListener(kind,human,true);root.remove();cursor.remove();}};
 }

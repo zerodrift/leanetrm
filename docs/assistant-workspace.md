@@ -2,12 +2,13 @@
 
 D312 adds the [bounded page digest](assistant-walkthroughs.md), under explicit
 new-tool consent. D319 adds workspace page target handles and native entry navigation
-under runtime `turns_v14`. The original workspace contract follows.
+under runtime `turns_v14`; D325 completes identity-only page admission under
+`turns_v15`. The original workspace contract follows.
 
 D284 extends the assistant with discovery, reads, previews and human-approved
-commands over the application's existing operations. The current runtime `turns_v14`
+commands over the application's existing operations. The current runtime `turns_v15`
 requires the workspace operations in 0162–0164, operating settings in 0181–0183,
-and migration 0196 with matching API/browser assets. New turns retain the admitted operating policy;
+and migrations 0196/0198 with matching API/browser assets. New turns retain the admitted operating policy;
 older binaries cannot admit new work they cannot enforce. This local
 implementation does not qualify a hosted schema or deployment.
 

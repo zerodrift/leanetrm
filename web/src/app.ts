@@ -1362,7 +1362,7 @@ const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launche
       if(navigation?.live)throw Error('Pause live data yourself before a walkthrough moves pages.');
       if(unsaved()||futures.windowEdits())throw Error('Finish unsaved changes before moving.');
       if(busy)throw Error('The page is busy.');
-      await acting(act,async()=>{try{await showTarget(step.target.page,step.target.selection,step.target.kind,signal);if(step.target.page.startsWith('blotter'))await futures.valued();signal.throwIfAborted();}catch(error){if(!signal.aborted)throw error;}});signal.throwIfAborted();return main;
+      await acting(act,async()=>{try{await showTarget(step.target.page,step.target.selection,step.target.kind,signal);if(step.target.page.startsWith('blotter'))await futures.valued();signal.throwIfAborted();}catch(error){if(!signal.aborted)throw error;}});signal.throwIfAborted();return step.target.page.startsWith('blotter')?futures.presentationTarget():$('page-title');
     }
     const shown=pageReport(pageState()).page;
     if((shown.startsWith('blotter')?'blotter':shown)!==(step.page.startsWith('blotter')?'blotter':step.page))throw Error('The page changed.');

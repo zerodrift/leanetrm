@@ -1,5 +1,6 @@
 import {sideSession} from './side-session.mjs';
 import {press} from './blotter-window.mjs';
+import {openPhysical} from './physical-workspace.mjs';
 
 // Real page selection -> admitted report -> pinned digest, in the owned synthetic workspace fixture.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url,provider}){
@@ -8,6 +9,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   if(control.protocol!=='http:'||control.hostname!=='127.0.0.1'||!control.port)throw Error('Use the owned synthetic provider.');
   const script=async answers=>{if(!(await fetch(new URL('/respond',control),{method:'POST',body:JSON.stringify(answers)})).ok)throw Error('Synthetic provider refused the script.');};
   const side=await sideSession(url);
+  const reportPages=(await side.call('settings/ai/page-prompts')).pages.map(page=>page.id).sort();
   const agent=(await side.call('settings/ai/agents')).agents.find(a=>a.name.includes('workspace operations'));
   if(!agent)throw Error('The workspace fixture must publish its explicitly enabled guide.');
   await side.call('profile',{profile:'trader'});
@@ -34,6 +36,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
       return response;
     };}`});
   await command('Page.navigate',{url});await wait(idle);await persona('admin');await click('#nav-ai');await click('#ai-tab-agents');
+  await check('native page reports, labels and server prompt admission have the same catalog',`(()=>{return import('/assistant-pages.js').then(({pageReport,reportedPages})=>{
+    const base={page:'futures',risk:false,trade:null,entry:null,lens:'values',view:{mode:'trades',bookIds:[],portfolioIds:[],groupBy:[],measures:[]},pane:{details:false,charts:false},poppedOut:false};
+    const states=[{page:'market',curve:null,tab:'prices'},{page:'power',frame:true},{page:'configuration'},{page:'schedules'},
+      {page:'reference',table:'units',search:''},{page:'parties',kind:'counterparty'},{page:'jobs',job:null},{page:'ppa',trade:null,book:null},{page:'custom-curves',curve:null,unsaved:false},
+      base,{...base,risk:true},{...base,lens:'risk'},...[null,'futures','options','swaps','ppa','gas','crude','lng'].map(product=>({...base,entry:{product}})),
+      ...['facilities','risk','dashboard','crude-setup','gas-setup','gas','crude','delivery','interval-series','interval-curves','vol-surfaces','admin','ai'].map(page=>({page}))];
+    const actual=[...new Set(states.map(state=>pageReport(state).page))].sort();return JSON.stringify(actual)===${JSON.stringify(JSON.stringify(reportPages))}&&JSON.stringify(actual)===JSON.stringify([...reportedPages].sort());});})()`);
   await check('an administrator can explicitly configure both new workspace tools',"['read_page_digest','present_walkthrough'].every(code=>[...document.querySelectorAll('#ai-agent-tools input')].some(i=>i.value===code))&&document.querySelector('#error').hidden");
   await persona('trader');await click('#nav-futures');await wait(idle);
   await wait("document.querySelectorAll('#desk-positions .tabulator-row[data-row-key]').length>=3");
@@ -87,6 +96,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate('window.__denySwapOpen=false');await wait("document.querySelector('#assistant-send').textContent==='Send'&&"+idle);await click('#nav-futures');await wait(idle);
   await openSwap(true,'walkthrough');
   await wait("document.querySelector('#swap-form')?.getBoundingClientRect().height>0&&!document.querySelector('.assistant-walkthrough-continue').hidden");
+  await check('the swap guide points inside a visible native ticket control',`(()=>{const c=document.querySelector('.assistant-walkthrough-cursor'),r=c.getBoundingClientRect(),target=document.elementFromPoint(r.left,r.top);return !c.hidden&&!!target?.closest('#swap-form')&&target.matches('input,select,button,textarea');})()`);
   await check('an issued New swap go opens the ticket and pauses without pricing or booking',"!__selectionRequests.some(r=>['/swaps/price','/swaps/preview','/swaps/draft-risk','/swaps/book','/assistant/actions/authorize'].some(path=>r.path.endsWith(path)))");
   await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
   await wait("document.querySelector('#assistant-send').textContent==='Send'&&"+idle);await click('#nav-futures');await wait(idle);
@@ -108,6 +118,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#nav-futures');await wait(idle);
   await evaluate(`(()=>{for(const row of document.querySelectorAll('#desk-positions .tabulator-row[data-row-key]')){
     const wanted=__selectedTradeIds.includes(row.dataset.rowKey.split(':')[0]);if(wanted!==(row.getAttribute('aria-selected')==='true'))row.dispatchEvent(new MouseEvent('click',{bubbles:true,ctrlKey:true}));}})()`);
+  await evaluate("document.querySelector('#blotter-reset-layout').click()");await wait(idle);
+  await check('the default layout collapses Details before ordinary page guidance',"document.querySelector('#position-details').getBoundingClientRect().height===0");
+  await script([{tools:[['toolu_collapsed_digest','read_page_digest',{}],['toolu_collapsed_plan','present_walkthrough',{planJson:JSON.stringify([{kind:'go',target:'n1'},{kind:'pause',page:'blotter'}])}]]},{text:'Synthetic ordinary page guidance.'}]);
+  await set('#assistant-question','Show this page and pause.');await sendQuestion();await wait("!document.querySelector('.assistant-walkthrough-continue').hidden");
+  await check('ordinary Blotter guidance points at a visible page anchor with Details collapsed',"!document.querySelector('.assistant-walkthrough-cursor').hidden&&['desk-positions','page-title'].includes(document.querySelector('.assistant-walkthrough-target')?.id)&&document.querySelector('#position-details').getBoundingClientRect().height===0","({cursor:document.querySelector('.assistant-walkthrough-cursor').outerHTML,target:document.querySelector('.assistant-walkthrough-target')?.id,details:document.querySelector('#position-details').getBoundingClientRect().toJSON(),status:document.querySelector('.assistant-walkthrough-status').textContent,looking:document.querySelector('#assistant-looking-shows').textContent})");
+  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await wait("document.querySelector('#assistant-send').textContent==='Send'");
+  await click('#blotter-dock-grid');await wait("document.querySelector('#desk-positions').getBoundingClientRect().height>0&&"+idle);
   const stopPlan=[{kind:'pause',page:'blotter'}];
   const stopAnswers=[{tools:[['toolu_stop_digest','read_page_digest',{}],['toolu_stop_plan','present_walkthrough',{planJson:JSON.stringify(stopPlan)}]]},
     {hold:'walkthrough_later_plan',tools:[['toolu_later_plan','present_walkthrough',{planJson:JSON.stringify(stopPlan)}]]},{text:'Synthetic stopped walkthrough.'}];
@@ -153,4 +170,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('an entry navigation target keeps unsaved terms until the person confirms',"document.querySelector('#futures-lots').value==='2'&&document.querySelector('#futures-execution').value==='3.4'&&document.querySelector('#futures-new-trade').getBoundingClientRect().height>0");
   await evaluate("[...document.querySelectorAll('#assistant-turns .assistant-target button')].filter(button=>button.textContent==='Go anyway').at(-1).click()");await wait(idle);
   await check('confirmed Go opens the native swap ticket with no carried financial terms',"document.querySelector('#swap-form')?.getBoundingClientRect().height>0&&document.querySelector('#swap-quantity').value===''&&document.querySelector('#swap-price').value===''&&document.querySelector('#error').hidden");
+  for(const [navigation,page] of [['dashboard','dashboard'],['crude-setup','crude_setup'],['vol-surfaces','vol_surfaces']]){
+    if(navigation==='crude-setup')await openPhysical({click,evaluate,wait},navigation);else await click('#nav-'+navigation);await wait(idle);
+    await evaluate(`(()=>{const value=document.createElement('p');value.textContent='Synthetic widget evidence 918273';document.querySelector('#'+${JSON.stringify(navigation)}+'-page').append(value);})()`);
+    await script([{tools:[['toolu_identity_'+page,'read_page_digest',{}],['toolu_unsupported_'+page,'read_current_page',{}]]},{text:'Synthetic page identity '+page+'.'}]);
+    await set('#assistant-question','Identify this page.');await sendQuestion();
+    await wait(`document.querySelector('#assistant-turns').textContent.includes(${JSON.stringify('Synthetic page identity '+page+'.')})&&document.querySelector('#assistant-send').textContent==='Send'`);
+    await check(page+' admits its native empty report without browser widget values',`(()=>{const request=__selectionRequests.filter(r=>r.path.endsWith('/assistant/turns/ask')).at(-1).body;return JSON.stringify(request.pageReport)===JSON.stringify({page:${JSON.stringify(page)},selection:{}})&&!JSON.stringify(request).includes('918273')&&document.querySelector('#assistant-error').hidden;})()`);
+  }
 }

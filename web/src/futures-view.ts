@@ -1709,10 +1709,17 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // A main window that reloaded is handed a pop-out's requests once it is back, after its own first read: they are taken, and shown, as
   // soon as they arrive.
   if(options.window.kind==='main')setInterval(()=>{if(!busy()&&owner&&owner===options.profile()&&!tie?.out()&&takeStoredRequest())sync();},1000);
+  // Page-owned anchors only: never a selector or field supplied by the model. Hidden compatibility inputs are excluded.
+  function presentationTarget():HTMLElement{
+    const form=[...get('position-details').querySelectorAll<HTMLElement>('form')].find(element=>element.getClientRects().length&&!element.closest('[hidden]'));
+    const control=form&&[...form.querySelectorAll<HTMLElement>('input:not([type=hidden]),select,textarea,button')].find(element=>element.getClientRects().length&&!element.closest('[hidden]')&&!element.matches(':disabled'));
+    const target=control??[get('position-details'),get('desk-positions'),get('page-title'),get('futures-page')].find(element=>element?.getClientRects().length&&!element.closest('[hidden]'));if(!target)throw Error('The native page control is unavailable.');return target;
+  }
   return {load:({background=true}:{background?:boolean}={})=>load('directory',false,background),open:()=>{leavePage();return load('directory',false,true,true);},reset,sync,show,
     /** The values of the read under way, which a read in the background draws after `load` returns: rejects with the read's failure. */
     valued:()=>pricingRead,
     presentationRevision:()=>String(booking.presentationRevision()),
+    presentationTarget,
     async present(step:PresentationStep,signal:AbortSignal):Promise<HTMLElement>{
       const apply=<O extends BlotterOperation>(operation:O)=>operate(operation,{placed:false});
       signal.throwIfAborted();if(busy()||tie?.out())throw Error('The Blotter is busy or in another window.');
@@ -1741,6 +1748,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       }else if(step.kind==='fill'){const target=booking.presentationFill(step.field,step.value);target.scrollIntoView({block:'center',behavior:'instant'});options.reported();return target;}
       else if(step.kind!=='scroll_to')throw Error('This is not a supported page presentation step.');
       signal.throwIfAborted();
+      if(step.kind==='open'&&step.pane==='new_future')return presentationTarget();
       const key=step.kind==='scroll_to'?step.widget:step.kind==='open'?(step.pane==='charts'?'charts':'details'):'positions',target=widget(key);
       if(!target||target.hidden||target.closest('[hidden]'))throw Error('The requested pane is unavailable.');target.scrollIntoView({block:'nearest',behavior:'instant'});return target;
     },

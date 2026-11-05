@@ -1963,3 +1963,12 @@ product directories by explicit page/search. Preserve whole-portfolio valuation
 and risk. The [read contract](ui-read-demand.md) states the intentional directory
 and portfolio boundaries. Database paging of all position-fact product adapters
 remains a later increment; current response paging is not that qualification.
+
+
+### Assistant page catalog and guide follow-up (D325–D326)
+
+Identity-only page asks and dismissible, tracked guide controls are implemented.
+Dashboard widget evidence, crude-setup and volatility reads remain outside the
+assistant until named authorized operation consumers are classified and qualified.
+These pages currently contribute page/context identity only. Arbitrary page
+controls, generated UI and business-effect walkthrough steps remain excluded.

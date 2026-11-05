@@ -6,6 +6,18 @@ static class AssistantWorkspaceChecks
 {
     public static void Run()
     {
+        foreach(var page in new[]{"dashboard","crude_setup","vol_surfaces","facility_quantities"})
+        {
+            PageReports.Require(JsonSerializer.SerializeToElement(new{page,selection=new{}}));
+            if(PageReports.Dispatch(JsonSerializer.SerializeToElement(new{page,selection=new{}})) is not null||PageReports.Opens(page))
+                throw new Exception("An identity-only page gained a reader or navigation target.");
+            foreach(var invalid in new[]{"{\"value\":\"918273\"}","{}"})
+            foreach(var extra in invalid=="{}"?new[]{",\"layout\":{}",",\"view\":{}",",\"focus\":{}"}:new[]{""})
+            {
+                try{PageReports.Require(JsonDocument.Parse("{\"page\":\""+page+"\",\"selection\":"+invalid+extra+"}").RootElement);throw new Exception("Browser values or Blotter fields entered an identity-only report.");}
+                catch(OpenEtrm.MarketData.MarketDataException e) when(e.Code=="page_report_invalid"){}
+            }
+        }
         var pages=new[]{"risk_jobs","delivery_prices","interval_series","interval_curves","users_access","settings_ai",
             "blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap"};
         foreach(var page in pages)

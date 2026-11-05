@@ -1,7 +1,7 @@
 # Page assistant, phase 1: local-preview core
 
 Current extension: [workspace operations and page guidance](assistant-workspace.md)
-(D284/D312/D319, runtime `turns_v14`, workspace migrations 0162–0164/0196 and D302 settings
+(D284/D312/D319/D325, runtime `turns_v15`, workspace migrations 0162–0164/0196/0198 and D302 settings
 migrations 0181–0183). It supersedes the unsupported-page
 inventory and D260's direct curve-save exception. Business commands require the
 human's separate authorization; configurable page prompts are pinned to questions.

@@ -1,10 +1,18 @@
 # Local verification and continuous integration
 
+D325–D326 add actual frontend-report / prompt-API / SQL catalog parity, empty
+identity-only asks and immutable prompt pins for Dashboard, crude setup and Vol
+surfaces. Managed checks reject browser values and Blotter-only fields on these
+pages. Web browser checks cover cursor tracking, reduced motion, minimize/close,
+late controls, replaced highlights and native modal Review controls without
+consent or authorization. The workspace browser also checks the native swap field
+anchor. These are synthetic owned checks, not production business tests.
+
 D319 regression qualification uses the owned `--assistant-workspace-check --browser-check`
 suite. It covers New swap operation discovery, page handles and shared numbering,
 empty/bounded reads, native navigation, walkthrough go/pause, booking refusal and
 Stop during an outstanding catalog read. `--assistant-runtime-check` separately
-checks v14 admission and v13 refusal; run it separately from the workspace flag.
+checks v15 admission and v14 refusal; run it separately from the workspace flag.
 
 D320 adds injected initial-control-refresh failures to the owned assistant and
 `--live-calculation-check --browser-check` suites. They check main-window recovery,

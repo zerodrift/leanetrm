@@ -2,12 +2,14 @@
 
 D312–D314 are implemented in the bounded contract below; D315 is deferred. This extends the existing
 [workspace assistant](assistant-workspace.md); it adds no independent agent loop.
-The current runtime is `turns_v14` (D319); deployment requires matching schema,
+The current runtime is `turns_v15` (D325); deployment requires matching schema,
 API and browser assets. A runtime increment alone does not qualify a hosted release.
 Migration 0194 is consumed by digest admission, tool consent and Looking at;
 0195 adds walkthrough admission and the stored event. Neither adds a table.
 Migration 0196 guards admission and walkthrough storage for workspace page handles;
-older v13 binaries cannot admit new work. Existing versions and grants are unchanged.
+older v13 binaries cannot admit new work. Migration 0198 extends the identity-only
+report catalog and requires v15 at admission and stored-plan publication.
+Existing versions and grants are unchanged.
 
 ## Page digest
 
@@ -137,7 +139,9 @@ agent label. The existing publication/source fence and D190 owner-read hiding
 cover the entire plan. Plans fit a 16 KiB managed budget and ordinary admitted
 result bounds; storage also refuses oversized/unknown event vocabulary. Runtime
 `turns_v14` covers workspace page target results and the existing tool/report/event
-contract. Migration 0196 refuses v13 admission and stored walkthrough writes.
+contract. Migration 0196 refuses v13 admission and stored walkthrough writes. Migration 0198
+extends identity-only page admission and requires v15 at both boundaries;
+previous runtime histories and grants remain unchanged.
 
 Eligible live asks in this tab can start a plan. History, reload, gaps and duplicate
 events never start one automatically. Start/Resume rechecks the owner's stored
@@ -207,3 +211,29 @@ page read is busy. Initial control-refresh errors in main actions, live updates
 and pop-out actions release busy ownership through their normal error paths;
 they never retry a command. Owned browser regressions qualify recovery from that
 failure path without attributing a production input lock to a specific exception.
+
+
+## Identity-only page admission and guide controls (D325–D326)
+
+Dashboard, Crude delivery setup and Vol surfaces report their page identity and an
+empty selection. Their asks now pass both the managed and SQL closed catalogs,
+pin page guidance and use the normal As of / retained-context requirements.
+Facilities also regains SQL prompt admission for its existing empty report.
+The digest returns identity, context and empty selection only. These pages have
+no assistant reader, navigation target or newly exposed operation. Gas delivery
+setup also has its missing Looking at label. Browser widget contents never enter
+these reports. Catalog parity is checked from native PageState reports through
+the server prompt list and SQL whitelist.
+
+The guide offers Minimize / Restore and Close beside Continue and Stop. Minimize
+keeps Continue and Stop available; Close stops the run and hides its box and cursor.
+A later plan requires the existing Start / Resume policy. The cursor tracks the
+actual native control through layout and scroll changes, hides while offscreen or
+occluded, and stops if the control disappears. Navigation to a native ticket
+points at a visible enabled field rather than the page container. Its glow and
+subtle tilt respect reduced motion. Stop, Close, replacement and teardown release
+the target outline and tracking callbacks.
+
+Native modal Review dialogs host the guide's presentation controls in their top
+layer, keeping them reachable while the surrounding page stays inert. The guide
+never checks consent, closes Review, submits a form or authorizes a proposal.

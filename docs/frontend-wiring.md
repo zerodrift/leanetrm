@@ -200,3 +200,21 @@ other failed work and releases busy before refreshing controls again.
 page refresh cannot disable Stop while awaiting a read. The owned assistant and
 live-calculation browser suites qualify initial-refresh failures and subsequent
 native action/Retry, including the pop-out.
+
+
+### Report catalog and guide placement (D325–D326)
+
+`assistant-pages.ts` emits identity-only reports for Dashboard, Crude delivery
+setup and Vol surfaces. `PageReports` and migration 0198 admit those exact empty
+reports without adding readers or navigation. The owned workspace browser check
+compares actual `pageReport(PageState)` output with Looking at's catalog and the
+page-prompt API; the managed HTTP check verifies the SQL whitelist and prompt pins.
+Runtime `turns_v15` fences old admission and stored-plan writers.
+
+`assistant-walkthroughs.ts` owns Minimize / Restore, Close, Stop and Continue.
+Its animation-frame tracker anchors the cursor inside the actual visible native
+control, suppresses occluded/offscreen pointers and clears the outline on stop.
+A native modal hosts only these guide elements so modal inertness still protects
+the background. `app.ts` and `futures-view.ts` return native heading/visible ticket
+field anchors for navigation. No model selector, markup or business action enters
+this presentation adapter. CSS supplies the glowing cursor and reduced-motion rule.

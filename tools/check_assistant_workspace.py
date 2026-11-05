@@ -96,6 +96,17 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     admin.call(prompt_path + '/save', {**prompt, 'operationId': str(uuid4()), 'expectedVersion': 1, 'instructions': 'Synthetic next guidance.'})
     check('later prompt edits do not alter an admitted turn', query(f"SELECT version FROM assistant.turn_prompt_pins WHERE turn_id='{turn['id']}';") == '1')
 
+    for page in ('dashboard', 'crude_setup', 'vol_surfaces', 'facility_quantities'):
+        admin.call(prompt_path + '/save', {'operationId': str(uuid4()), 'page': page, 'expectedVersion': 0, 'instructions': 'Synthetic identity-only guidance.'})
+        identity_turn, identity_results, _ = ask([('read_page_digest', {}), ('read_current_page', {})], page=page)
+        check(page + ' admits an empty report and pins guidance without inventing widget values',
+              query(f"SELECT page||':'||version FROM assistant.turn_prompt_pins WHERE turn_id='{identity_turn['id']}';") == page + ':1'
+              and identity_results[0]['result']['text'].startswith('Page: ' + page + ' |')
+              and identity_results[0]['result']['text'].endswith('Selection: {}')
+              and identity_results[0]['result']['targets'] == [] and identity_results[1]['code'] == 'page_not_supported')
+    listed = admin.call(prompt_path)['pages']
+    check('the entire API page catalog is accepted by SQL prompt admission', all(query(f"SELECT assistant.is_prompt_page('{p['id']}');") == 't' for p in listed))
+
     _, entry_results, _ = ask([('read_workspace_page', {'page': 'blotter_new_swap'})], page='blotter_new_swap')
     swap_operations = {op['id']: op for op in entry_results[0]['operations']}
     check('New swap discovers its native catalog, pricing and human-approved booking operation',
