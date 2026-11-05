@@ -475,6 +475,7 @@ END$$;
 -- session's closes in force (D319), and otherwise keeps the 0037 rules.
 CREATE OR REPLACE FUNCTION security.market_fact_visible(catalog uuid,revision uuid,observation uuid)
 RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog SET plan_cache_mode=force_generic_plan AS $$
+DECLARE session text;
 BEGIN
  IF security.market_access(catalog,'ReadMarketData') IS NOT TRUE THEN RETURN false; END IF;
  IF NOT EXISTS(
@@ -500,7 +501,12 @@ BEGIN
    AND(observation IS NULL OR EXISTS(SELECT 1 FROM market_data.observations o
     WHERE o.catalog_id=catalog AND o.id=observation AND o.observed_at<((t.effective_on+1)::timestamp AT TIME ZONE 'UTC')))
  ) THEN RETURN true; END IF;
- RETURN observation IS NOT NULL AND EXISTS(
+ -- Only a request that reads a session releases its later pins; every other request keeps the 0037 decision unchanged.
+ IF observation IS NULL THEN RETURN false; END IF;
+ SELECT c.close_session INTO session FROM security.request_contexts c WHERE c.backend_pid=pg_backend_pid()
+  AND c.transaction_id=pg_current_xact_id_if_assigned() AND c.runtime_login=session_user;
+ IF session IS NULL THEN RETURN false; END IF;
+ RETURN EXISTS(
   SELECT 1 FROM security.request_contexts c
   JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(c.market_catalog_id,c.market_context_id)
   JOIN market_data.market_close_pins p ON(p.catalog_id,p.observation_id)=(t.catalog_id,observation)
@@ -508,7 +514,7 @@ BEGIN
   JOIN market_data.observations o ON(o.catalog_id,o.id)=(p.catalog_id,p.observation_id)
   JOIN market_data.revision_periods v ON(v.catalog_id,v.revision_id)=(s.catalog_id,s.definition_revision_id)
   WHERE c.backend_pid=pg_backend_pid() AND c.transaction_id=pg_current_xact_id_if_assigned() AND c.runtime_login=session_user
-   AND t.catalog_id=catalog AND s.definition_revision_id=revision AND s.session_code=c.close_session
+   AND t.catalog_id=catalog AND s.definition_revision_id=revision AND s.session_code=session
    AND s.business_date=t.effective_on AND o.observed_at<=s.at
    AND v.effective_from<=t.effective_on AND t.effective_on<v.effective_to
    AND s.id=(SELECT l.id FROM market_data.market_closes l WHERE(l.catalog_id,l.session_code,l.business_date)=(s.catalog_id,s.session_code,s.business_date)
