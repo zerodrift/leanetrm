@@ -3,7 +3,7 @@ import {press} from './blotter-window.mjs';
 
 // Real page selection -> admitted report -> pinned digest, in the owned synthetic workspace fixture.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url,provider}){
-  const sendQuestion=async()=>{await wait("!document.querySelector('#assistant-send').disabled&&"+idle);await submit('#assistant-composer');};
+  const sendQuestion=async()=>{await wait("!document.querySelector('#assistant-send').disabled&&document.querySelector('#assistant-send').textContent==='Send'&&"+idle);await submit('#assistant-composer');};
   const control=new URL(provider);
   if(control.protocol!=='http:'||control.hostname!=='127.0.0.1'||!control.port)throw Error('Use the owned synthetic provider.');
   const script=async answers=>{if(!(await fetch(new URL('/respond',control),{method:'POST',body:JSON.stringify(answers)})).ok)throw Error('Synthetic provider refused the script.');};
@@ -144,4 +144,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
   await check('Escape stops at the current step without submitting',"document.querySelector('.assistant-walkthrough-status').textContent.startsWith('Stopped')&&!__selectionRequests.some(r=>r.path.endsWith('/futures/book'))");
   await shot('assistant-walkthrough-stopped');
+  await openSwap(true,'unsaved_walkthrough');
+  await wait("document.querySelector('#assistant-turns').textContent.includes('Synthetic swap ticket unsaved_walkthrough.')&&document.querySelector('#assistant-send').textContent==='Send'");
+  await evaluate("[...document.querySelectorAll('#assistant-turns [data-assistant-walkthrough-control]')].at(-1).click()");
+  await check('a walkthrough cannot discard the unsaved ticket while confirmed navigation remains available',"document.querySelector('#assistant-status').textContent.includes('Finish your unsaved changes')&&document.querySelector('#futures-lots').value==='2'&&document.querySelector('#futures-execution').value==='3.4'&&!document.querySelector('#swap-form')?.getBoundingClientRect().height&&document.querySelector('.assistant-walkthrough-continue').hidden");
+  await openSwap(false,'confirmed_navigation');
+  await wait("[...document.querySelectorAll('#assistant-turns .assistant-target button')].some(button=>button.textContent==='Go anyway')");
+  await check('an entry navigation target keeps unsaved terms until the person confirms',"document.querySelector('#futures-lots').value==='2'&&document.querySelector('#futures-execution').value==='3.4'&&document.querySelector('#futures-new-trade').getBoundingClientRect().height>0");
+  await evaluate("[...document.querySelectorAll('#assistant-turns .assistant-target button')].filter(button=>button.textContent==='Go anyway').at(-1).click()");await wait(idle);
+  await check('confirmed Go opens the native swap ticket with no carried financial terms',"document.querySelector('#swap-form')?.getBoundingClientRect().height>0&&document.querySelector('#swap-quantity').value===''&&document.querySelector('#swap-price').value===''&&document.querySelector('#error').hidden");
 }

@@ -2392,7 +2392,9 @@ admission and stored-plan guards without rewriting earlier migrations or grants.
 New trade, New futures trade and New swap targets open the existing native
 chooser/ticket through both navigation and walkthrough go. Opening is unsaved
 presentation only. Native permission/context/pending-request guards remain;
-Stop and source/editor generations fence late opens and focus/fallback work.
+walkthroughs stop at unsaved edits, while Go/Back honors explicit leave confirmation
+and opens a fresh ticket without discarded terms. Stop and source/editor
+generations fence late opens and focus/fallback work.
 Entry discovery aliases only existing catalog/booking operations with unchanged
 IDs, permissions, context policy and human approval. No new pane vocabulary,
 swap field fill, generic UI or booking automation is introduced.

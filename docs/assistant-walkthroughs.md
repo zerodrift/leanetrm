@@ -95,8 +95,10 @@ sort/search/filter, details/charts, known widgets and an unsaved futures ticket.
 Opening the ticket leaves book, contract, lots and price unchosen.
 A `go` to an issued New trade, New futures trade or New swap page handle opens
 the native product chooser or ticket. Ordinary `navigate` uses the same route.
-The native catalog must allow booking; missing contexts, retained requests and
-unsaved edits refuse without changing to working data or discarding terms.
+The native catalog must allow booking; missing contexts and retained requests
+refuse without changing to working data. Walkthroughs stop at unsaved edits;
+ordinary Go/Back retains its explicit leave confirmation. Confirmed navigation
+opens a fresh ticket without carrying discarded financial terms.
 Stop and stale source/generation checks prevent a late catalog from mounting
 a swap ticket or replacing a newer form. No price, preview or booking is sent
 by opening it. Swap term filling remains unsupported; the person enters terms

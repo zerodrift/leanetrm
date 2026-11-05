@@ -1250,7 +1250,6 @@ async function showTarget(report:string,selection:Record<string,unknown>|null,ki
   const next=webPage(report);
   if(report==='blotter_new_trade'||report==='blotter_new_future'||report==='blotter_new_swap'){
     if(futures.poppedOut())throw Error('Bring the Blotter back to this window before opening a ticket here.');
-    if(unsaved()||futures.windowEdits())throw Error('Finish unsaved changes before opening a ticket.');
     await setPage('futures');signal?.throwIfAborted();
     await futures.load({background:false});signal?.throwIfAborted();
     await futures.openEntry(report==='blotter_new_trade'?null:report==='blotter_new_future'?'futures':'swaps',signal);return;
