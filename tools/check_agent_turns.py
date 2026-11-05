@@ -714,7 +714,7 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
 
     def ask_sql(turn, profile='trader', operation=None, scope='api', conversation=None, agent_id=None, version=1, question='What does this page show?',
                 report=None, mode='current', context=None, frame=None, generation=None, limit=4000, workspace=4, deadline=30, session='c' * 64,
-                ends="clock_timestamp()+interval '30 minutes'", runtime="turns_v15"):
+                ends="clock_timestamp()+interval '30 minutes'", runtime="turns_v16"):
         # The asking process names the catalog, the session binding, the token's digest under its worker generation and
         # the runtime set it applies: its version, the question bound, the workspace's turns and the admission deadline.
         return (f"assistant.ask_turn({literal(operation or uuid4())},'{scope}',{literal(conversation)},{literal(agent_id or guide['id'])},{version},"
@@ -874,6 +874,7 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     refusal('trader', 'agent_runtime_unavailable', runtime='turns_v12')
     refusal('trader', 'agent_runtime_unavailable', runtime='turns_v13')
     refusal('trader', 'agent_runtime_unavailable', runtime='turns_v14')
+    refusal('trader', 'agent_runtime_unavailable', runtime='turns_v15')
 
     # A turn from ask to completion (§7.4).
     first = Turn()
@@ -882,7 +883,7 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     check('an admitted ask creates the conversation and the queued turn under the covering grant, with its accepted event, and is answered '
           'as admitted', asked.get('admitted') is True and asked['turn']['state'] == 'queued' and asked['turn']['ordinal'] == 1 and asked['turn']['version'] == 1 and not asked['turn']['draft']
           and query(f"SELECT delegation_id||' '||cardinality(included_turns)||' '||generation||' '||token_digest||' '||runtime_set FROM assistant.turns "
-                    f"WHERE id='{first.id}';") == f"{covering['id']} 0 {worker.generation} {first.digest} turns_v15"
+                    f"WHERE id='{first.id}';") == f"{covering['id']} 0 {worker.generation} {first.digest} turns_v16"
           and kinds(first) == 'accepted', asked)
     records = query(RECORDS)
     operation = query(f"SELECT operation_id FROM assistant.turns WHERE id='{first.id}';")
@@ -925,13 +926,13 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     # definition, then current admission is restored. Immutable turn history is never rewritten.
     signature = 'assistant.ask_turn(uuid,text,uuid,uuid,integer,text,jsonb,uuid,text,uuid,uuid,text,text,timestamptz,text,bigint,text,integer,integer,integer)'
     admission = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
-    assert admission.count("runtime_set<>'turns_v15'") == 1
+    assert admission.count("runtime_set<>'turns_v16'") == 1
     legacy_person = persona('legacy_plan', ['trader'])
     grant(legacy_person, guide)
     legacy_plan_turn = Turn()
     try:
-        query(admission.replace("runtime_set<>'turns_v15'", "runtime_set<>'turns_v14'"))
-        legacy_admitted = ask(legacy_plan_turn, profile=login('legacy_plan'), runtime='turns_v14')
+        query(admission.replace("runtime_set<>'turns_v16'", "runtime_set<>'turns_v15'"))
+        legacy_admitted = ask(legacy_plan_turn, profile=login('legacy_plan'), runtime='turns_v15')
         assert legacy_admitted.get('admitted') is True, legacy_admitted
     finally:
         query(admission)
@@ -947,8 +948,8 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
           "RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN RAISE EXCEPTION 'runtime_delegate_reached';END$$;"
           'SET SESSION AUTHORIZATION preview_runtime;' + refused(f'PERFORM {stored_plan_write(first)};', 'runtime_delegate_reached') +
           refused(f'PERFORM {stored_plan_write(legacy_plan_turn)};', 'turn_input') + 'ROLLBACK;')
-    check('stored walkthrough writes admit v15 and refuse a legitimately admitted v14 turn before the delegate, without changing history',
-          query(RECORDS) == records_before_guard and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{legacy_plan_turn.id}';") == 'turns_v14')
+    check('stored walkthrough writes admit v16 and refuse a legitimately admitted v15 turn before the delegate, without changing history',
+          query(RECORDS) == records_before_guard and query(f"SELECT runtime_set FROM assistant.turns WHERE id='{legacy_plan_turn.id}';") == 'turns_v15')
     stop(legacy_plan_turn, profile=login('legacy_plan')); end(legacy_plan_turn, 'failed', 'request_cancelled')
     opened = open_call(first)['opened']
     attestation = query(f"SELECT credential_version||' '||terms_version FROM assistant.current_attestation('{provider_id}');")

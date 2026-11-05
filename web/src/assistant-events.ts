@@ -15,7 +15,7 @@ export type StreamItem=TurnEvent|{kind:'replaced'}|{kind:'refused';code:string;m
 const stored:readonly string[]=['accepted','step','navigation','walkthrough','text','usage','completed','failed','cancelled','interrupted'];
 const terminal:readonly string[]=['completed','failed','cancelled','interrupted'];
 export const tools:readonly string[]=['present_walkthrough','read_page_digest','read_current_page','read_market_data','read_trades','futures_option_catalog','read_trade_parties','read_schedules','read_reference_data','read_custom_curves','prepare_custom_curve','save_custom_curve_draft','read_jobs','navigate','read_workspace_page','discover_page_operations','read_page_operation','propose_page_action'];
-export const readPages:readonly string[]=['curves','contract_definitions','schedules','power_tous','reference_data','parties','blotter','custom_curves','jobs','risk_jobs','delivery_prices','interval_series','interval_curves','users_access','settings_ai','blotter_risk','blotter_risk_lens','blotter_new_trade','blotter_new_future','blotter_new_swap'];
+export const readPages:readonly string[]=['gas_setup','crude_setup','facility_quantities','curves','contract_definitions','schedules','power_tous','reference_data','parties','blotter','custom_curves','jobs','risk_jobs','delivery_prices','interval_series','interval_curves','users_access','settings_ai','blotter_risk','blotter_risk_lens','blotter_new_trade','blotter_new_future','blotter_new_swap'];
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,codePattern=/^[a-z][a-z0-9_]{0,63}$/,decimal=/^-?[0-9]+(\.[0-9]+)?$/;
 
 const unreadable=()=>Error('The assistant’s stream sent an event the panel cannot read.');

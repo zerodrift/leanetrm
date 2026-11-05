@@ -3,12 +3,13 @@
 D312 adds the [bounded page digest](assistant-walkthroughs.md), under explicit
 new-tool consent. D319 adds workspace page target handles and native entry navigation
 under runtime `turns_v14`; D325 completes identity-only page admission under
-`turns_v15`. The original workspace contract follows.
+`turns_v15`. D327 adds [native physical reads and reviewed changes](physical-workspace.md#physical-assistant-operations)
+under `turns_v16`. The original workspace contract follows.
 
 D284 extends the assistant with discovery, reads, previews and human-approved
-commands over the application's existing operations. The current runtime `turns_v15`
+commands over the application's existing operations. The current runtime `turns_v16`
 requires the workspace operations in 0162–0164, operating settings in 0181–0183,
-and migrations 0196/0198 with matching API/browser assets. New turns retain the admitted operating policy;
+and migrations 0196/0198/0199 with matching API/browser assets. New turns retain the admitted operating policy;
 older binaries cannot admit new work they cannot enforce. This local
 implementation does not qualify a hosted schema or deployment.
 
@@ -26,7 +27,9 @@ Administrative and financial permissions remain separate. Administrators can
 ask about administrative/operational pages without a market frame. Those turns
 retain an explicit `operational` context with no financial context or observation
 pins. Financial operations require explicit authority, a certified context and
-the selected frame; they never substitute current inputs.
+the selected frame; they never substitute current inputs. Facility quantities
+instead require the explicit operating date and the certified knowledge cutoff;
+no pricing frame is synthesized.
 
 **Settings → AI → Page prompts** configures guidance for every recognized page,
 including Blotter entry/risk views. `ManageAssistantPrompts` is held by the access

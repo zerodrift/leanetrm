@@ -72,7 +72,7 @@ public sealed partial class AgentTools
                 {
                     value["page"]=arguments.Page;value["presentation"]=WalkthroughPlans.Capabilities(arguments.Page!);
                     value["selection"]=JsonNode.Parse(turn.PageReport.GetProperty("selection").GetRawText());
-                    var selection=turn.PageReport.GetProperty("selection");
+                    var selection=arguments.Page==turn.PageReport.GetProperty("page").GetString()?turn.PageReport.GetProperty("selection"):JsonSerializer.SerializeToElement(new{});
                     if(selection.TryGetProperty("operation",out _))
                     {
                         var selected=(WorkspaceArguments)Parse("read_page_operation",selection).Arguments;
@@ -81,17 +81,28 @@ public sealed partial class AgentTools
                     }
                     var directory=arguments.Page switch
                     {"risk_jobs"=>"portfolio.risk.jobs_v1","jobs"=>"jobs_v1","delivery_prices"=>"power-imports_v1","interval_series"=>"interval-series_v1",
-                        "users_access"=>"admin_v1",_=>null};
+                        "users_access"=>"admin_v1","gas_setup"=>"gas-setup.catalog_v1","crude_setup"=>"crude-setup.catalog_v1",
+                        "facility_quantities"=>selection.TryGetProperty("ledgerId",out var ledger)&&ledger.ValueKind==JsonValueKind.String?"facilities.quantities.read_v1":"facilities.quantities.directory_v1",_=>null};
                     if(directory is not null&&!selection.TryGetProperty("operation",out _))
                     {
                         var operation=AssistantOperations.RequireRead(directory);
                         access=[..access.Concat(AssistantWorkspace.Access(operation)).Distinct()];
-                        var read=await workspace.Read(turn,directory,JsonSerializer.SerializeToElement(new{body=(object?)null,parameters=new{}}),ct);
+                        var native=new JsonObject{["body"]=null,["parameters"]=new JsonObject()};
+                        if(directory is "gas-setup.catalog_v1" or "crude-setup.catalog_v1")
+                            native["parameters"]!["snapshotId"]=turn.Pin.RequireFrame().Id.ToString();
+                        if(arguments.Page=="facility_quantities")
+                        {
+                            var certificate=value["context"]??throw new ToolRefusal("context_required");
+                            native["body"]=new JsonObject{["context"]=new JsonObject{["effectiveOn"]=certificate["effectiveOn"]!.DeepClone(),
+                                ["knowledgeMode"]="retained",["retained"]=certificate.DeepClone(),["convention"]=FacilityQuantityStore.Convention}};
+                            if(selection.TryGetProperty("ledgerId",out var selectedLedger)&&selectedLedger.ValueKind==JsonValueKind.String)native["body"]!["ledgerId"]=selectedLedger.GetString();
+                        }
+                        var read=await workspace.Read(turn,directory,JsonSerializer.SerializeToElement(native),ct);
                         value["directory"]=read.Value;access=[..access.Concat(read.Access).Distinct()];
                     }
                 }
             }
-            var (content,issued)=WorkspaceResult(value,arguments.Kind=="read_workspace_page"?arguments.Page:null,targets.Next,turn.OutputLimits);
+            var (content,issued)=WorkspaceResult(value,arguments.Kind=="read_workspace_page"&&turn.Pin.BusinessDate is null?arguments.Page:null,targets.Next,turn.OutputLimits);
             return new(tool,call.Operation.Id,input,null,at,access,content,ToolStepEnd.Result){Issued=issued,ProposalPage=arguments.Kind=="propose_page_action"?AssistantOperations.Find(arguments.Operation!)!.Page:null,ReadPages=arguments.Kind=="read_workspace_page"?[arguments.Page!]:arguments.Kind=="read_page_operation"?[AssistantOperations.RequireRead(arguments.Operation!).Page]:[]};
         }
         catch(Exception e)

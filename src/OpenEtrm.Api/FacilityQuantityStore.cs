@@ -120,11 +120,11 @@ public sealed class FacilityQuantityStore(PreviewDatabase database)
             limitRevisionId=limit.ValueKind==JsonValueKind.Null?(Guid?)null:limit.Id("id"),
             planRevisionId=facts.GetProperty("plan").ValueKind==JsonValueKind.Null?(Guid?)null:facts.GetProperty("plan").Id("id")};
     }
-    public async Task<object> Directory(NpgsqlConnection c,FacilityDirectoryRequest request,ScheduleContext? selected,CancellationToken ct)
+    public async Task<object> Directory(NpgsqlConnection c,FacilityDirectoryRequest request,ScheduleContext? selected,CancellationToken ct,bool capturedWorkingRead=false)
     {
         var scope=await Bind(c,request.Context,selected,ct);
         var ledgers=await Json(c,"SELECT security.facility_quantity_directory($1)::text",ct,database.Manifest.CatalogId);
-        var canRecord=scope.Working&&await PreviewDatabase.HasPermission(c,"RecordFacilityQuantities",ct);
+        var canRecord=(scope.Working||capturedWorkingRead)&&await PreviewDatabase.HasPermission(c,"RecordFacilityQuantities",ct);
         var choices=canRecord?await Choices(c,null,scope.At,ct):ImmutableArray<FacilityQuantityChoice>.Empty;
         await Authorize(c,ct);
         return new{ownerId=await Owner(c,ct),context=scope.Context,at=scope.At,ledgers=ledgers.EnumerateArray().Take(200).ToArray(),hasMore=ledgers.GetArrayLength()>200,
@@ -142,12 +142,12 @@ public sealed class FacilityQuantityStore(PreviewDatabase database)
             canConfigure=scope.Working&&await PreviewDatabase.HasPermission(c,"ConfigureFacilityLimits",ct),
             canAdopt=scope.Working&&await PreviewDatabase.HasPermission(c,"RecordFacilityQuantities",ct)&&await PreviewDatabase.HasPermission(c,"AmendTrade",ct)};
     }
-    public async Task<object> Preview(NpgsqlConnection c,FacilityPreviewRequest request,ScheduleContext? selected,CancellationToken ct)
+    public async Task<object> Preview(NpgsqlConnection c,FacilityPreviewRequest request,ScheduleContext? selected,CancellationToken ct,bool capturedWorkingRead=false)
     {
         await RequireOwner(c,request.OwnerId,ct);
         if(request.Allocations.IsDefault||request.Allocations.Length>100||request.Allocations.Select(a=>a.ObligationId).Distinct().Count()!=request.Allocations.Length)throw Invalid();
         var scope=await Bind(c,request.Context,selected,ct);
-        if(!scope.Working)throw new MarketDataException("historical_read_only","Return to working data before preparing allocations.");
+        if(!scope.Working&&!capturedWorkingRead)throw new MarketDataException("historical_read_only","Return to working data before preparing allocations.");
         var facts=await Facts(c,request.LedgerId,ct);var source=facts.GetProperty("source");var plan=facts.GetProperty("plan");
         if(source.ValueKind==JsonValueKind.Null||source.Id("id")!=request.SourceRevisionId||
             (plan.ValueKind==JsonValueKind.Null?(Guid?)null:plan.Id("id"))!=request.ExpectedPreviousId)

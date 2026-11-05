@@ -118,12 +118,12 @@ export function setupFacilityQuantities(o:{api:Api;act:(work:()=>Promise<void>)=
   const result=await o.api<View>('facilities/quantities/read',{context:o.context(),ledgerId:id});if(!current(at))return;
   view=result;selected=id;renderView();set('facility-context',`Business date ${result.context.effectiveOn} · effective through ${displayInstant(result.at,o.zone())} · known through ${displayInstant(result.context.knownAt!,o.zone())}`);
  }
- async function load(id=selected){
+ async function load(id=selected,rememberSelection=true){
   generation++;const at=fence();withhold();set('facility-saved','');sync();
   try{
    const result=await o.api<Directory>('facilities/quantities/directory',{context:o.context()});if(!current(at))return;
    directory=result;
-   if(!id)try{id=sessionStorage.getItem(key('selection'))??'';}catch{/* No saved choice. */}
+   if(!id&&rememberSelection)try{id=sessionStorage.getItem(key('selection'))??'';}catch{/* No saved choice. */}
    select('facility-ledger').replaceChildren(new Option('Choose a ledger…',''),...result.ledgers.map(l=>new Option(`${l.facility} · ${l.day} · ${l.commodity} · ${l.legal_entity}`,l.id)));
    if(id&&!result.ledgers.some(l=>l.id===id))select('facility-ledger').append(new Option('Previously selected facility day',id));
    select('facility-ledger').value=id;
@@ -208,7 +208,7 @@ export function setupFacilityQuantities(o:{api:Api;act:(work:()=>Promise<void>)=
  });
  get('facility-discard').onclick=()=>{if(!o.busy()&&confirm('Discard this request only after checking its status and the ledger history. Continue?')){pending.clear();pendingStatus='';store();sync();}};
  get('facility-forms').addEventListener('input',()=>{sync();o.changed();});get('facility-forms').addEventListener('change',()=>{sync();o.changed();});
- return{load,sync,edited:()=>edits.edited()||!!pending.command,
+ return{load,sync,selected:()=>view?.facts.ledger.id??null,edited:()=>edits.edited()||!!pending.command,
   leave:()=>!!pending.command||!edits.edited()||confirm('Discard unsaved facility edits?'),
   refresh(){effective.refresh();if(view){renderAllocations();history();}},
   reset(){generation++;directory=undefined;selected='';pending.clear();pendingStatus='';clearEdits();effective.clear();clearView();select('facility-ledger').replaceChildren(new Option('Choose a ledger…',''));select('facility-create-target').replaceChildren(new Option('Choose a booked delivery…',''));set('facility-context','');set('facility-saved','');get('facility-empty').hidden=false;sync();}};

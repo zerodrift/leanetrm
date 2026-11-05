@@ -78,9 +78,10 @@ public sealed partial class AgentTurns(PreviewDatabase database,string scope,Age
         var id=turn.GetProperty("id").GetGuid();
         try
         {
+            var effectiveDate=PageReports.BusinessDate(body.PageReport)??(frame is not null?TradingView.WorkingDate(frame):(DateOnly?)null);
             turn=(await database.WithIdentity(profile,"UseAgents",(connection,ct)=>ModelProviders.Read(connection,
                 "SELECT assistant.pin_turn($1,$2,$3::date,$4::jsonb,$5)::text",
-                [id,token,mode=="current"?TradingView.WorkingDate(frame!):DBNull.Value,frame is null?DBNull.Value:TurnPin.Record(frame),DBNull.Value],
+                [id,token,mode=="current"?(object?)effectiveDate??DBNull.Value:DBNull.Value,frame is null?DBNull.Value:TurnPin.Record(frame),DBNull.Value],
                 ct),aborted)).GetProperty("turn");
         }
         catch(Exception e)

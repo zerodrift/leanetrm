@@ -15,7 +15,7 @@ public sealed record CrudeSetupVersionRequest(Guid SetupId);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CrudeSetupPublishRequest(Guid OperationId,Guid SetupId);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record CrudeSetupPreviewRequest(Guid SnapshotId,Guid SetupId,string KnowledgeMode,string DeliveryFrom,string DeliveryTo,string Quantity);
+public sealed record CrudeSetupPreviewRequest(Guid SnapshotId,Guid SetupId,string KnowledgeMode,string DeliveryFrom,string DeliveryTo,string Quantity,Guid? ContextId=null);
 
 // Delivery masters and pricing sources have independent exact revisions. A setup
 // selects an admitted source; it never creates curves, observations or defaults.
@@ -66,7 +66,7 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
  // The delivery clocks the crude profile admits: an explicit UTC clock, as PhysicalCrudeStore requires of every booking.
  internal static Task<ImmutableArray<JsonElement>> ProfileClocks(NpgsqlConnection c,ReferenceRevision revision,CancellationToken ct)=>
   PreviewDatabase.Rows(c,"SELECT row_to_json(k)::text FROM ref_data.clock_rules k WHERE(catalog_id,revision_id)=($1,$2) AND kind='fixed_offset' AND fixed_offset_seconds=0 ORDER BY code",[revision.CatalogId,revision.RevisionId],ct);
- public async Task<object> CatalogRead(NpgsqlConnection c,CancellationToken ct,TradingView? view=null,Guid? proposalId=null)
+ public async Task<object> CatalogRead(NpgsqlConnection c,CancellationToken ct,TradingView? view=null,Guid? proposalId=null,bool contextOnly=false)
  {
   async Task<ImmutableArray<JsonElement>> Versions()=>await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT v.*,r.reference_catalog_id source_reference_catalog_id FROM market_data.crude_setup_versions v JOIN market_data.revisions r ON(r.catalog_id,r.id)=(v.catalog_id,v.definition_revision_id) WHERE v.catalog_id=$1 ORDER BY v.publication_order DESC NULLS LAST,v.id LIMIT 100)x",[Catalog],ct);
   async Task<JsonElement?> Proposal()
@@ -75,11 +75,11 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
    var rows=await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT v.*,r.reference_catalog_id source_reference_catalog_id FROM market_data.crude_setup_versions v JOIN market_data.revisions r ON(r.catalog_id,r.id)=(v.catalog_id,v.definition_revision_id) WHERE(v.catalog_id,v.id)=($1,$2))x",[Catalog,selected],ct);
    return rows.Length==1?rows[0]:throw Invalid("The exact saved proposal is unavailable under this context and current access.");
   }
-  var working=view?.Working??true;var versions=working?await Versions():[];var proposal=working?await Proposal():null;
-  var proposals=working&&proposalId is null?await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT v.*,r.reference_catalog_id source_reference_catalog_id FROM market_data.crude_setup_versions v JOIN market_data.revisions r ON(r.catalog_id,r.id)=(v.catalog_id,v.definition_revision_id) WHERE v.catalog_id=$1 AND v.state='draft' ORDER BY v.id LIMIT 101)x",[Catalog],ct):[];
+  var working=view?.Working??true;var versions=working&&!contextOnly?await Versions():[];var proposal=working&&!contextOnly?await Proposal():null;
+  var proposals=working&&!contextOnly&&proposalId is null?await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT v.*,r.reference_catalog_id source_reference_catalog_id FROM market_data.crude_setup_versions v JOIN market_data.revisions r ON(r.catalog_id,r.id)=(v.catalog_id,v.definition_revision_id) WHERE v.catalog_id=$1 AND v.state='draft' ORDER BY v.id LIMIT 101)x",[Catalog],ct):[];
   if(proposals.Length>100)throw Invalid("The unpublished proposal review exceeds one hundred entries. Read an exact proposal identity.");
   if(view is not null)await view.Bind(c,Catalog,ct);
-  if(!working){versions=await Versions();proposal=await Proposal();}
+  if(!working&&!contextOnly){versions=await Versions();proposal=await Proposal();}
   var heads=await CurrentSetups(c,Catalog,ct);
   var contextSetups=await PreviewDatabase.Rows(c,"SELECT row_to_json(x)::text FROM(SELECT v.*,r.reference_catalog_id source_reference_catalog_id FROM market_data.crude_setup_versions v JOIN market_data.revisions r ON(r.catalog_id,r.id)=(v.catalog_id,v.definition_revision_id) WHERE v.catalog_id=$1 AND v.id=ANY($2::uuid[]) ORDER BY v.code)x",[Catalog,heads],ct);
   if(contextSetups.Length!=heads.Length)throw new PreviewDeniedException();

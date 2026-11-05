@@ -215,7 +215,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     // What a started turn's reads run with (§7.1, §7.2), from start_turn's answer: its pin, rebuilt from its record for
     // this scope's catalog, the agent and grant it was asked under, its stored page report and its version's tools.
     public TurnReads Reads(JsonElement turn,JsonElement started)=>new(
-        TurnPin.From(turn.GetProperty("context"),started.GetProperty("pins"),started.GetProperty("catalogId").GetGuid(),database.Manifest),
+        TurnPin.From(turn.GetProperty("context"),started.GetProperty("pins"),started.GetProperty("catalogId").GetGuid(),database.Manifest,turn.GetProperty("pageReport")),
         new(started.GetProperty("agentPrincipal").GetString()!,started.GetProperty("delegationId").GetGuid()),turn.GetProperty("pageReport").Clone(),
         [..started.GetProperty("tools").EnumerateArray().Select(t=>t.GetString()!)],turn.GetProperty("id").GetGuid(),
         TimeSpan.FromSeconds(started.GetProperty("limits").GetProperty("readSeconds").GetInt32()),
@@ -457,6 +457,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
             if(turn.Pin.Operational&&call.Operation.Needs!=ToolNeeds.Operational&&call.Arguments is not WorkspaceArguments and not NavigateArguments and not DigestArguments and not WalkthroughArguments)
                 throw new ToolRefusal("context_required");
             if(call.Arguments is SaveCurveArguments draft&&DraftRefusal(turn,draft) is {} refusal)throw new ToolRefusal(refusal);
+            if(turn.Pin.BusinessDate is not null&&call.Arguments is NavigateArguments or WalkthroughArguments)throw new ToolRefusal("page_selection_unavailable");
             Require(turn.Pin,call.Operation.Needs);
         }
         catch(ToolRefusal refused){return Before(refused.Code,refused.Code=="tool_arguments_invalid"?null:input);}
