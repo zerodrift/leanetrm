@@ -17,6 +17,8 @@ public sealed record CloseSessionPublish([property:JsonRequired] Guid RequestId,
 public sealed record CloseSessionGrant([property:JsonRequired] Guid RequestId,[property:JsonRequired] Guid PrincipalId,[property:JsonRequired] string Session,
     [property:JsonRequired] DateTimeOffset GrantedFrom,[property:JsonRequired] DateTimeOffset GrantedTo);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record CloseSessionChoice([property:JsonRequired] string Session);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CloseSessionRevoke([property:JsonRequired] Guid RequestId,[property:JsonRequired] Guid GrantId);
 
 // D319 close sessions: versioned configuration of a regional close (calendar, its clock, local cutoff and exact curves) and
@@ -43,6 +45,17 @@ public static class CloseSessions
     public static Task<JsonElement> Revoke(NpgsqlConnection connection,CloseSessionRevoke request,CancellationToken ct)=>
         ModelProviders.Read(connection,"SELECT security.revoke_close_session_grant($1,$2)::text",[request.RequestId,request.GrantId],ct);
 
+    // The person's remembered session, or null: nothing chooses one for them.
+    public static async Task<object> Choice(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT security.close_session_choice($1)",catalog);
+        return new{session=await command.ExecuteScalarAsync(ct) as string};
+    }
+    public static async Task<object> Choose(NpgsqlConnection connection,Guid catalog,CloseSessionChoice request,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT security.choose_close_session($1,$2)",catalog,request.Session);
+        return new{session=(string)(await command.ExecuteScalarAsync(ct))!};
+    }
     public static async Task<object> Grants(NpgsqlConnection connection,CancellationToken ct)=>
         new{grants=await ModelProviders.Read(connection,"SELECT security.close_session_grants()::text",[],ct)};
 

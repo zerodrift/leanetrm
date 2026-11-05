@@ -468,6 +468,10 @@ api.MapPost("/close-sessions/save",(HttpContext c,CloseSessionSave body)=>DateOp
     Results.Ok(await CloseSessions.Save(connection,database,body,ct))));
 api.MapPost("/close-sessions/publish",(HttpContext c,CloseSessionPublish body)=>DateOperation(c,"SealMarketDefinitions",async(session,connection,ct)=>
     Results.Ok(await CloseSessions.Publish(connection,database.Manifest.CatalogId,body,ct))));
+api.MapGet("/close-sessions/choice",(Func<HttpContext,Task<IResult>>)(c=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
+    Results.Ok(await CloseSessions.Choice(connection,database.Manifest.CatalogId,ct)))));
+api.MapPost("/close-sessions/choice",(HttpContext c,CloseSessionChoice body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+    Results.Ok(await CloseSessions.Choose(connection,database.Manifest.CatalogId,body,ct)),c.RequestAborted)));
 Task<IResult> CloseGrantOperation(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> work)=>Locked(c,session=>
 {
     c.Items["administration_attempted"]=true;
@@ -941,8 +945,8 @@ object WorkspaceProjection(PreviewSession session,WorkspaceRead read,bool catalo
         return new {referenceRevision=source.Revision,definitionRevisionId=source.Definition};
     });
     return new {referenceSources,unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references=data.References,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
-        frames=prior is null?[..session.VisibleFrames.Where(f=>f.Close is not null)]:ImmutableArray.Create(prior),
-        workingSnapshots=prior is null?[..session.VisibleFrames.Where(f=>f.Close is null)]:ImmutableArray<InputFrame>.Empty,frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:session.InitialFrameIds};
+        // Each offered frame names its recorded close; one without a close is a working snapshot (D319).
+        frames=prior is null?session.VisibleFrames:[prior],frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:session.InitialFrameIds};
 }
 Task<IResult> Workspace(HttpContext c,bool catalogOnly)=>Locked(c,async session=>
 {

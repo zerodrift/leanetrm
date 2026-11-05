@@ -31,7 +31,7 @@ def run_checks(url, query, manifest,psql,environment):
     prepare(query,manifest)
     editor, approver, viewer=(client(p) for p in ('editor','approver','viewer'))
     workspace=approver.call('workspace')
-    snapshots=sorted(workspace['workingSnapshots']+workspace['frames'],key=lambda f:f['at'])
+    snapshots=sorted(workspace['frames'],key=lambda f:f['at'])
     assert snapshots, 'The fixture must contain actual retained inputs'
     # D319: the pilot records into a UTC 16:00 session that closes every calendar day, as its generator does.
     publish(editor,approver,draft('test_pilot_utc','test_utc_every_day','16:00',sorted(snapshots[0]['curveContracts'])))
@@ -71,7 +71,7 @@ def run_checks(url, query, manifest,psql,environment):
     assert result['id'] not in {f['id'] for f in fresh.bootstrap()['frames']}, 'Bootstrap exposed cached durable financial headers without a fresh read check'
     dates=fresh.call('market/dates',{'curve':next(iter(frame['curveContracts'])),'timeZone':'UTC','session':'test_pilot_utc'})
     assert result['id'] in {f['id'] for day in dates['dates'] for f in day['frames']}
-    selected=max((saved for saved in full['frames']+full['workingSnapshots'] if saved['id'] in full['initialFrameIds']),key=lambda saved:saved['at'])
+    selected=max((saved for saved in full['frames'] if saved['id'] in full['initialFrameIds']),key=lambda saved:saved['at'])
     curve=next(iter(frame['curveContracts']));contract=frame['curveContracts'][curve][0]
     history=fresh.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':selected['id'],'curve':curve,'contractId':contract})
     stored_point=next((point for point in history['points'] if point['snapshotId']==result['id']),None)

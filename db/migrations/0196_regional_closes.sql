@@ -582,10 +582,46 @@ BEGIN
  RETURN identity;
 END;$$;
 
+-- Each person's chosen close session, remembered so a page opens on that session's newest close (D319). Nothing chooses a
+-- session for a person without a choice; the header asks. Changing the choice replaces it.
+CREATE TABLE presentation.close_session_choices(
+ tenant_id uuid NOT NULL,workspace_id uuid NOT NULL,principal_id uuid NOT NULL,catalog_id uuid NOT NULL,session_code ref_data.code NOT NULL,
+ chosen_at ref_data.instant NOT NULL,
+ PRIMARY KEY(tenant_id,workspace_id,principal_id,catalog_id),
+ FOREIGN KEY(tenant_id,workspace_id,principal_id) REFERENCES security.workspace_memberships(tenant_id,workspace_id,principal_id),
+ FOREIGN KEY(catalog_id,session_code) REFERENCES market_data.close_sessions(catalog_id,code)
+);
+ALTER TABLE presentation.close_session_choices OWNER TO openetrm_security_owner;
+ALTER TABLE presentation.close_session_choices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE presentation.close_session_choices FORCE ROW LEVEL SECURITY;
+CREATE POLICY owner_all ON presentation.close_session_choices TO openetrm_security_owner USING(true) WITH CHECK(true);
+-- The request actor's choice for the catalog, or null when they have not chosen one.
+CREATE FUNCTION security.close_session_choice(catalog uuid) RETURNS text
+ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+ SELECT x.session_code FROM security.request_contexts c JOIN presentation.close_session_choices x
+  ON(x.tenant_id,x.workspace_id,x.principal_id,x.catalog_id)=(c.tenant_id,c.workspace_id,c.actor_id,catalog)
+ WHERE c.backend_pid=pg_backend_pid() AND c.transaction_id=pg_current_xact_id_if_assigned() AND c.runtime_login=session_user
+  AND security.market_access(catalog,'ReadMarketData');
+$$;
+-- Records the actor's choice of a published session they can read. Choosing the session already chosen changes nothing.
+CREATE FUNCTION security.choose_close_session(catalog uuid,session text) RETURNS text
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE c security.request_contexts;
+BEGIN
+ IF NOT security.market_access(catalog,'ReadMarketData') THEN RAISE EXCEPTION 'close_denied' USING ERRCODE='42501';END IF;
+ SELECT * INTO c FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
+ IF c.delegation_id IS NOT NULL OR NOT EXISTS(SELECT 1 FROM market_data.close_session_versions v WHERE(v.catalog_id,v.code,v.state)=(catalog,session,'published'))
+ THEN RAISE EXCEPTION 'close_session' USING ERRCODE='P0001';END IF;
+ INSERT INTO presentation.close_session_choices VALUES(c.tenant_id,c.workspace_id,c.actor_id,catalog,session,clock_timestamp())
+ ON CONFLICT(tenant_id,workspace_id,principal_id,catalog_id) DO UPDATE SET session_code=excluded.session_code,chosen_at=excluded.chosen_at
+  WHERE close_session_choices.session_code IS DISTINCT FROM excluded.session_code;
+ RETURN session;
+END;$$;
+
 DO $$DECLARE f record;BEGIN
  FOR f IN SELECT p.oid::regprocedure signature,p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='security'
  AND p.proname IN('close_session_instant','close_in_force','can_record_close','close_session_json','close_session_catalog','save_close_session','publish_close_session',
- 'close_grant_json','require_close_administration','grant_close_session','revoke_close_session_grant','close_session_grants','register_market_close','close_history','market_close_visible','close_recorded_after_cutoff','close_session_day','require_session_curves') LOOP
+ 'close_grant_json','require_close_administration','grant_close_session','revoke_close_session_grant','close_session_grants','register_market_close','close_history','market_close_visible','close_recorded_after_cutoff','close_session_day','require_session_curves','close_session_choice','choose_close_session') LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f.signature);
   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f.signature);
   IF f.proname NOT IN('close_session_instant','close_session_json','close_grant_json','require_close_administration','close_session_day','require_session_curves') THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);END IF;

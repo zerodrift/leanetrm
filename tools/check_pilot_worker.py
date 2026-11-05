@@ -17,7 +17,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     if not(root/'.openetrm-preview').is_file() or not(root/'data/postmaster.pid').is_file():
         raise AssertionError('The worker qualifier requires the matching live owned preview')
     trader=PreviewClient(url);trader.bootstrap();trader.call('profile',{'profile':'trader'})
-    listed=trader.call('workspace');frame=next(f for f in listed['workingSnapshots']+listed['frames'] if f['at'].startswith('2020-12-18T16:00:00') and 'close' not in f)
+    listed=trader.call('workspace');frame=next(f for f in listed['frames'] if f['at'].startswith('2020-12-18T16:00:00'))
     swap_context={'snapshotId':frame['id'],'convention':'independent_side_financial_swap_v2','knowledgeMode':'current'}
     catalog=trader.call('swaps/catalog',swap_context);books=[b['id'] for b in catalog['books'][:2]]
     def payment(days):return {'frequency':'monthly','rule':'days_after_period_end','days':days,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}
@@ -41,7 +41,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     from pilot_report_fixture import prepare_alias
     prepare_alias(query,manifest,future_trade['tradeId'])
     owner=PreviewClient(url);owner.bootstrap();owner.call('profile',{'profile':'approver'})
-    listed=owner.call('workspace');selected=next(f for f in listed['workingSnapshots']+listed['frames'] if f['at']==frame['at'] and 'close' not in f)
+    listed=owner.call('workspace');selected=next(f for f in listed['frames'] if f['at']==frame['at'])
     # Generated closes carry only the profile's root curve, so they are recorded for a session of that curve (D319).
     from close_session_fixture import draft,grant,publish
     editor=PreviewClient(url);editor.bootstrap();editor.call('profile',{'profile':'editor'})

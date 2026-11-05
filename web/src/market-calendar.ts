@@ -2,8 +2,9 @@ import {displayDate,displayInstant,publicText,timeLabels} from './market-view.js
 import {frameCatalogNote,type FrameCatalog} from './frame-catalog.js';
 import type {CloseBadge} from './latest-close.js';
 
-export type MarketClose={id:string;at:string;name:string;businessDateUTC:string};
-export type MarketDates={context:unknown;curve:string|null;timeZone:string;selectionPolicy:string;dates:{date:string;frames:MarketClose[]}[];unavailable:{date:string;reason:string}[];minDate:string|null;maxDate:string|null;frameCatalog?:FrameCatalog};
+// A session's close in force for its business day, and how many recorded closes it replaced (D319).
+export type MarketClose={id:string;at:string;name:string;businessDate:string};
+export type MarketDates={context:unknown;curve:string|null;timeZone:string;selectionPolicy:string;dates:{date:string;frames:MarketClose[];replaced:number}[];unavailable:{date:string;reason:string}[];minDate:string|null;maxDate:string|null;frameCatalog?:FrameCatalog};
 
 // Gregorian layout only. Available business dates and exact closes come from
 // the authorized backend; this component never infers a publication calendar.

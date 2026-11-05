@@ -44,7 +44,7 @@ def run_checks(c, check, query, manifest):
                 and nav['definitionRevision'] == {'catalogId': revision['catalog_id'], 'revisionId': revision['id']}
                 and nav['referenceRevision'] == {'catalogId': revision['reference_catalog_id'], 'revisionId': revision['reference_revision_id']}
                 and nav['frames'] == [{**{key: frame[key] for key in ['id', 'name', 'at']},'originCloseId':frame.get('originCloseId'),'close':frame.get('close')}
-                                      for frame in workspace['frames'] + workspace['workingSnapshots']]
+                                      for frame in workspace['frames']]
                 and all(nav[key] == workspace[key] for key in ['profile', 'context', 'example', 'futuresConvention', 'initialFrameIds','referenceDisplay','frameCatalog'])
                 and nav['curveNames'] == c.call('curve-names'))
 

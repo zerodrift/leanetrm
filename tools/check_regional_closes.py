@@ -14,7 +14,7 @@ def instant(value):
 def snapshot(who, at):
     """A snapshot the session offers at an instant: a recorded close in force or a working snapshot."""
     workspace = who.call('workspace')
-    return next(f for f in workspace['workingSnapshots'] + workspace['frames'] if instant(f['at']) == instant(at))
+    return next(f for f in workspace['frames'] if instant(f['at']) == instant(at))
 
 
 def client(url, profile):
@@ -106,7 +106,7 @@ def run_checks(url, query, manifest):
     workspace = viewer.call('workspace')
     listed = {f['id'] for f in workspace['frames']}
     assert latest['id'] in listed and not listed & set(replaced), 'A replaced close is still offered as a close'
-    assert all('close' in f for f in workspace['frames']) and all('close' not in f for f in workspace['workingSnapshots'])
+    assert all('close' in f for f in workspace['frames']), 'Every built-in frame is a recorded close'
     print('PASS the calendar and workspace offer only the close in force; replaced closes are history', flush=True)
 
     # A replaced close is refused for new work, naming the close in force; the close in force is accepted.

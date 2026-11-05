@@ -51,7 +51,7 @@ def record(who, frame, name, login='approver', request_id=None):
     def client(profile):
         value = PreviewClient(who.url); value.bootstrap(); value.call('profile', {'profile': profile}); return value
     if (who.url, code) not in _published:
-        publish(client('editor'), client('approver'), draft(code, 'test_utc_every_day', cutoff, curves, ('2020-01-01', '2023-01-01')))
+        publish(client('editor'), client('approver'), draft(code, 'test_utc_every_day', cutoff, curves, ('2020-01-01', '2100-01-01')))
         _published.add((who.url, code))
     if (who.url, code, login) not in _granted:
         grant_member(client('admin'), login, code)

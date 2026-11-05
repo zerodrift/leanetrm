@@ -18,6 +18,7 @@ import {setupPpa} from './ppa-editor.js';
 import {setupCustomCurves} from './custom-curves-view.js';
 import {LiveUpdates,liveContextUpdate,type LiveSelection,type LiveContextUpdate,type LiveStatus} from './live-context.js';
 import {setupMarketCalendar,type MarketDates} from './market-calendar.js';
+import {sessionOffer} from './close-sessions.js';
 import {newestDate,newestClose,closeBadge,latestInstant,type CloseBadge,type CloseChoice} from './latest-close.js';
 import {setupPowerImports} from './power-imports-view.js';
 import {setupIntervalSeries} from './interval-series-view.js';
@@ -93,6 +94,8 @@ let contractOpener:HTMLElement|undefined,contract='',historyPolicy:RevisionPolic
 // The overlay catalog, read for one account.
 let overlayCatalog:{scope:string;catalog:OverlayCatalog}|undefined;
 let definingCurve=false,contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
+// The person's remembered close session (D319); null until they choose one, and nothing chooses it for them.
+let closeSession:string|null=null;
 let navigation:MarketNavigation|undefined,marketGeneration=0;
 // The curve shapes the market board and the library draw, read at one close for one directory and account (markets-desk.md).
 let boardShapes:{owner:MarketNavigation;scope:string;shapes:ReadonlyMap<string,CurveShape|string>}|undefined;
@@ -304,7 +307,7 @@ function invalidateMarketDates(){
  marketDateGeneration++;marketDatesLoaded=false;
  marketCalendar.invalidate(contextDirty?'Apply the changed history and knowledge context first.':'Open the calendar to check available closes.');
 }
-type MarketDatesRequest={curve:string|null;timeZone:string;definition:unknown;maximumDates?:number};
+type MarketDatesRequest={curve:string|null;timeZone:string;session:string;definition:unknown;maximumDates?:number};
 const datesMismatch=()=>Error('The available market dates do not match this workspace. Reload the calendar.');
 // What the calendar offers for one scope, checked as describing this workspace. It resolves to nothing when the
 // workspace or the scope changed while it loaded, since that answer no longer applies.
@@ -341,7 +344,8 @@ async function openMarketCalendar(date?:string):Promise<void>{
  if(marketDatesLoaded){marketCalendar.show(date);return;}
  const definition=page==='custom-curves'?customCurves.dateDefinition():undefined;
  if(page==='custom-curves'&&!definition){marketCalendar.unavailable('Complete a curve graph or apply your formula to see available closes.');marketCalendar.show();return;}
- const request={curve:(page==='market'||page==='power')&&curve?curve:null,timeZone:prefs.timeZone,definition:definition??null};
+ if(closeSession===null){marketCalendar.unavailable('Choose a close session to see its closes.');marketCalendar.show();return;}
+ const request={curve:(page==='market'||page==='power')&&curve?curve:null,timeZone:prefs.timeZone,session:closeSession,definition:definition??null};
  marketCalendar.loading();
  try{
   const catalog=await readMarketDates(request);
@@ -359,9 +363,10 @@ async function openMarketCalendar(date?:string):Promise<void>{
 // Opening working data on its newest close (D219, with D217's latest instant). The workspace-wide calendar's uniquely latest
 // close is selected as if the person had picked it, several closes at that instant ask, and none selects nothing. The page
 // that is showing then reads it.
-const workspaceDates=():MarketDatesRequest=>({curve:null,timeZone:prefs.timeZone,definition:null,maximumDates:1});
+const workspaceDates=(session:string):MarketDatesRequest=>({curve:null,timeZone:prefs.timeZone,session,definition:null,maximumDates:1});
 async function selectNewestClose():Promise<CloseChoice>{
- const catalog=await readMarketDates(workspaceDates());
+ if(closeSession===null)return {kind:'none'};
+ const catalog=await readMarketDates(workspaceDates(closeSession));
  if(!catalog)return {kind:'none'};
  const choice=newestClose(catalog);
  workspaceCloses=catalog;
@@ -384,10 +389,10 @@ async function openNewestClose(){
 // background and without polling. The badge reports what the check found and only a click on it selects the newer close.
 // A check that could not be made leaves the badge as the last one left it, and the next page or focus asks again.
 async function recheckNewestClose(){
- if(checkingCloses||!navigation||contextDirty||historicalContext()||!showsDate(page)||['jobs','facilities'].includes(page))return;
+ if(checkingCloses||!navigation||contextDirty||historicalContext()||!showsDate(page)||['jobs','facilities'].includes(page)||closeSession===null)return;
  const owner=navigation;checkingCloses=true;
  try{
-  const catalog=await readAvailability(workspaceDates());
+  const catalog=await readAvailability(workspaceDates(closeSession));
   if(catalog&&navigation===owner){workspaceCloses=catalog;renderCloseBadge();}
  }catch{/* the badge stays as the last check left it */}
  finally{checkingCloses=false;}
@@ -404,8 +409,11 @@ function currentCloseBadge():CloseBadge|null{
 // The dashboard's close footers say what the badge says.
 function renderCloseBadge(){marketCalendar.badge(currentCloseBadge());if(page==='dashboard')dashboard.closeChanged();}
 // The As of dates the selector offers: a historical view's own date's frames, or every frame of working data.
-function offeredFrames(){const context=historicalContext();return context?directory().frames.filter(f=>f.at.slice(0,10)===context.effectiveOn):directory().frames;}
-function renderFrames(value:string){const frames=offeredFrames();choose('snapshot',[{value:'',name:frames.length?'Choose a date…':'No inputs for this context date'},...frameOptions(frames,prefs.timeZone)],value);select('snapshot').title=`Times shown in ${prefs.timeZone}`;shownClose=select('snapshot').value;invalidateMarketDates();}
+function offeredFrames(){const offer=sessionOffer(directory().frames,closeSession,historicalContext()?.effectiveOn??null);return [...offer.closes,...offer.working];}
+// A working snapshot is offered apart from the session's closes and named as working data (D319).
+function renderFrames(value:string){const frames=offeredFrames(),working=new Set(frames.filter(f=>!f.close).map(f=>f.id));
+ choose('snapshot',[{value:'',name:closeSession===null?'Choose a session first':frames.length?'Choose a date…':'No inputs for this context date'},
+  ...frameOptions(frames,prefs.timeZone).map(o=>working.has(o.value)?{...o,name:'Working snapshot · '+o.name}:o)],value);select('snapshot').title=`Times shown in ${prefs.timeZone}`;shownClose=select('snapshot').value;invalidateMarketDates();}
 // The board's shapes are those of one close of one directory, read for one account and context: any change of them leaves none read.
 const boardScope=()=>JSON.stringify([administrationScope,currentProfile,select('snapshot').value,contextDirty]);
 function readShapes():ReadonlyMap<string,CurveShape|string>{const kept=boardShapes;return kept&&kept.owner===navigation&&kept.scope===boardScope()?kept.shapes:new Map();}
@@ -812,6 +820,25 @@ async function loadWorkspace(){
   const owner=directory(),started=marketGeneration,scope=marketSelection();
   const next=await api<Workspace>('workspace/catalog');workspace=validateWorkspace(next,owner,started,scope);
 }
+// The published close sessions and the person's remembered choice. A choice that is no longer published or visible is named,
+// and the person chooses again; no other session is put in its place.
+async function loadCloseSessions(){
+ const [catalog,choice]=await Promise.all([api<{sessions:{code:string;name:string;state:string}[]}>('close-sessions/catalog'),api<{session:string|null}>('close-sessions/choice')]);
+ const published=new Map(catalog.sessions.filter(s=>s.state==='published').map(s=>[s.code,s.name]));
+ closeSession=choice.session!==null&&published.has(choice.session)?choice.session:null;
+ const withdrawn=choice.session!==null&&closeSession===null;
+ choose('close-session',[{value:'',name:withdrawn?'Your session is no longer available · choose one':'Choose a session…'},...[...published].map(([value,name])=>({value,name}))],closeSession??'');
+ $('close-session-status').hidden=!withdrawn;
+}
+// A day's replaced closes are history: listed under the close in force, never offered as a choice.
+async function showCloseHistory(){
+ const host=$('close-history'),shown=directory().frames.find(f=>f.id===select('snapshot').value);host.hidden=true;
+ if(!shown?.close)return;
+ const history=await api<{replaced:{id:string;name:string;recordedBy:string|null;recordedAt:string}[]}>('market/closes/history',{session:shown.close.session,businessDate:shown.close.businessDate});
+ if(select('snapshot').value!==shown.id)return;
+ $('close-history-list').replaceChildren(...history.replaced.map(c=>el('li',`${c.name} · recorded ${instant(c.recordedAt)}${c.recordedBy?' by '+c.recordedBy:''} · replaced`)));
+ host.hidden=!history.replaced.length;
+}
 async function loadNavigation(){
   riskJobs.contextChanged();
   const started=++marketGeneration,profile=currentProfile,scope=administrationScope;
@@ -921,7 +948,7 @@ async function loadIdentity(initialAccess?:unknown){
   // The newest close is chosen between the directory and the first page, which then reads it. A historical view the session
   // kept is not working data, so it chooses nothing.
   let opening:CloseChoice={kind:'none'};
-  if(read){await loadNavigation();renderFrames('');renderContext();if(!historicalContext()){opening=await selectNewestClose();await initializeContext();}}else renderLayout();
+  if(read){await loadNavigation();await loadCloseSessions();renderFrames('');renderContext();if(!historicalContext()){opening=await selectNewestClose();await initializeContext();}}else renderLayout();
   // A reference address in the location opens that page in place of the first; failing to open it keeps the rest of the opening.
   const address=location.hash.startsWith('#reference')&&pageAvailable('reference',permissions)?location.hash:undefined;
   const riskLink=riskAddress(location.hash)&&pageAvailable('risk',permissions);
@@ -938,10 +965,15 @@ async function loadIdentity(initialAccess?:unknown){
   else{$('no-access-page').hidden=false;text('page-title','Workspace access');text('status','This account has no current workspace permissions.');}
   if(unopened!==undefined)throw unopened;
 }
+select('close-session').onchange=()=>void (async()=>{
+ const chosen=select('close-session').value;if(!chosen)return;
+ await api('close-sessions/choice',{session:chosen});closeSession=chosen;$('close-session-status').hidden=true;
+ clearPrices();renderFrames('');await openNewestClose();
+})();
 $('open').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('The user was not switched'))return;await profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;futures.ended('account_changed');savedPreferences.invalidate();try{await api('profile',{profile:next});}catch(error){await blotterBack();throw error;}currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});})();
 // A newly selected As of close replaces what the previous one showed, and the badge takes its basis afresh.
 function closeChanged(){
-  shownClose=select('snapshot').value;closeBasis=undefined;
+  shownClose=select('snapshot').value;closeBasis=undefined;void showCloseHistory();
   marketCalendar.selectedChanged();dateEditor.contextChanged();curveDefinitions.contextChanged();customCurves.snapshotChanged();riskJobs.contextChanged();gas.reset();crude.reset();parties.reset();futures.reset('inputs');clearPrices();
   // The board and the library show nothing of the previous close while the new one is read.
   if(navigation)renderBrowse();renderMarketBoard();

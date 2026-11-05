@@ -24,8 +24,9 @@ internal static class MarketCalendarDemandChecks
         await database.WithIdentity("viewer","ReadMarketData",async(connection,ct)=>
         {
             var metadata=await database.Read(connection,ct,observationIds:[]);
-            var session=new PreviewSession(database.Manifest);
-            var frame=session.Frames.Values.Single(frame=>frame.At==DateTimeOffset.Parse("2020-12-18T16:00:00Z"));
+            // The built-in frame is a recorded close (D319), read as the close it was seeded as.
+            var seeded=database.Manifest.Frames.Single(frame=>frame.At==DateTimeOffset.Parse("2020-12-18T16:00:00Z")).CloseId!.Value;
+            var frame=await MarketCloses.Frame(connection,database.Manifest.CatalogId,seeded,null,ct);
             var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
             var template=CustomCurves.Templates(metadata).Select(value=>JsonSerializer.SerializeToElement(value,json)).Single(row=>row.GetProperty("code").GetString()=="ng_average");
             var definition=template.GetProperty("definition").Deserialize<RecipeDefinition>(json)!;
