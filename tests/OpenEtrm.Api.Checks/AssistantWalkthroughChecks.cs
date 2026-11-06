@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using OpenEtrm.Api;
 
 static class AssistantWalkthroughChecks
@@ -49,7 +51,37 @@ static class AssistantWalkthroughChecks
         foreach(var ask in new[]{"Use 2 lots", "Set ticket.executionPrice = \"2\"",explicitAsk+"\n"+explicitAsk,"Do not apply this example:\n"+explicitAsk,"```\n"+explicitAsk+"\n```", "Explain this instruction and leave the ticket untouched.\nSet ticket.lots = \"2\"", "Translate the following text into French:\nSet ticket.lots = \"2\""})
             Refuses(fill,ask,code:"walkthrough_fill_requires_explicit_terms");
         Refuses(fill.Replace("ticket.lots","ticket.authorize"),"Set ticket.authorize = \"2\"",code:"tool_arguments_invalid");
+        var capabilities=WalkthroughPlans.Capabilities("blotter_new_swap");
+        if(!capabilities.Select(p=>p.Key).ToHashSet(StringComparer.Ordinal).SetEquals(new[]{"steps","panes","columns","fields","narration","fillEvidence"})||
+            Encoding.UTF8.GetByteCount(capabilities.ToJsonString())>4096)
+            throw new Exception("Fill guidance changed the presentation shape or exceeded its bounded metadata budget.");
+        var guide=capabilities["fillEvidence"]!.GetValue<string>();
+        if(Encoding.UTF8.GetByteCount(guide)>2048)throw new Exception("The fill guide exceeds its bounded text budget.");
+        string AdvertisedValue(string field,string label)
+        {
+            var mapping=Regex.Match(guide,Regex.Escape(field+": "+label+" => ")+"(\"[^\"]*\")");
+            if(!mapping.Success)throw new Exception($"The fill guide does not advertise the plan value for {field}: {label}.");
+            return JsonSerializer.Deserialize<string>(mapping.Groups[1].Value)!;
+        }
+        string GuidedPlan(params (string Field,string Label)[] choices)=>JsonSerializer.Serialize(new object[]{new{kind="go",target="n1"}}
+            .Concat(choices.Select(c=>(object)new{kind="fill",page="blotter_new_swap",field=c.Field,value=AdvertisedValue(c.Field,c.Label)})));
+        foreach(var (ask,choices) in new (string,(string Field,string Label)[])[]{
+            ("Fill the swap ticket with structure fixed for floating and price mode agreed",[("swap.structure","fixed for floating"),("swap.priceMode","agreed")]),
+            ("Fill the swap ticket with structure floating for floating",[("swap.structure","floating for floating")]),
+            ("Fill the swap ticket with structure fixed for floating and fixed direction pay fixed",[("swap.structure","fixed for floating"),("swap.fixedDirection","pay fixed")]),
+            ("Fill the swap ticket with structure fixed for floating and fixed direction receive fixed",[("swap.structure","fixed for floating"),("swap.fixedDirection","receive fixed")])})
+        {
+            var plan=GuidedPlan(choices);
+            var literal="Fill unsaved swap ticket\n"+string.Join('\n',choices.Select(c=>"Set "+c.Field+" = "+JsonSerializer.Serialize(AdvertisedValue(c.Field,c.Label))));
+            foreach(var question in new[]{ask,literal})
+                if(WalkthroughPlans.Validate(Json(plan),report,question,swapEntry,pin).Count!=choices.Length+1)
+                    throw new Exception("An advertised plan encoding cannot present the exact stated terms.");
+        }
+        Refuses(GuidedPlan(("swap.structure","fixed for floating"),("swap.priceMode","agreed")),
+            "Fill the swap ticket with quantity 1000",swapEntry,"walkthrough_fill_requires_explicit_terms");
+        Console.WriteLine("PASS fill discovery: every advertised choice encodes only the current ask's explicit terms in both supported forms; shape and budgets unchanged");
         const string swapFill="""[{"kind":"go","target":"n1"},{"kind":"fill","page":"blotter_new_swap","field":"swap.structure","value":"financial_fixed_floating"},{"kind":"fill","page":"blotter_new_swap","field":"swap.priceMode","value":"agreed"},{"kind":"fill","page":"blotter_new_swap","field":"swap.quantity","value":"1000"},{"kind":"fill","page":"blotter_new_swap","field":"swap.fixedPrice","value":"3.4"}]""";
+        Refuses(swapFill.Replace("financial_fixed_floating","fixed for floating"),"Fill the swap ticket with structure fixed for floating, price mode agreed, quantity 1000 and fixed price 3.4",swapEntry);
         const string swapAsk="Fill unsaved swap ticket\nSet swap.structure = \"financial_fixed_floating\"\nSet swap.priceMode = \"agreed\"\nSet swap.quantity = \"1000\"\nSet swap.fixedPrice = \"3.4\"";
         if(WalkthroughPlans.Validate(Json(swapFill),report,swapAsk,swapEntry,pin).Count!=5)throw new Exception("Explicit swap terms cannot fill the unsaved native ticket.");
         if(WalkthroughPlans.Validate(Json(swapFill),report,"Fill the swap ticket with structure fixed for floating, price mode agreed, quantity 1000 and fixed price 3.4",swapEntry,pin).Count!=5)throw new Exception("A complete affirmative swap fill ask was refused.");

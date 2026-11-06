@@ -398,7 +398,7 @@ page's separate daily quantity panel are removed (D281); so are the single-point
 operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
 `gas/directory` and `gas/editor`). Stored single-point trades stay readable.
 
-D346 permits one composition physical Side to span up to 1200 operating days,
+D347 permits one composition physical Side to span up to 1200 operating days,
 with exactly one compatible native monthly contract and fixing for every day.
 The native monthly assignments can share one persisted location mapping key;
 the exact period is also part of their identity. Daily/monthly forecast cutovers
@@ -414,7 +414,7 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
   a required soon field, a soon field naming choices or a lookup, a soon side kind
   that opens or admits a side or has fields, columns or a side limit, a soon column
   that takes entries or names a unit, and a soon trade column. A soon column is not
-  a schedule view column. D345 groups these items in one closed **Coming soon**
+  a schedule view column. D346 groups these items in one closed **Coming soon**
   disclosure below the working schedule. Planned fields, side kinds and views
   remain disabled and tagged with explanatory hover text. Planned columns appear
   as descriptions there, without blank columns in the live schedule. Opening the
@@ -711,7 +711,7 @@ quantity inputs and contractual billing/valuation.
 
 ## Indexed consideration and refreshed entry fields
 
-D349 adds **Index payment**, an independent existing FloatingSide linked to one
+D350 adds **Index payment**, an independent existing FloatingSide linked to one
 physical Side's quantity/stage. Its selected index has exact daily published
 fixing definitions. Its forecast curve is independently selected from eligible
 published whole-interval outputs; a stitched daily/monthly output is eligible
@@ -724,7 +724,7 @@ consideration, rather than gross unpaid cash alone. Equal forecasts with zero
 additional spread offset. Started delivery and the separate paid/unpaid cash
 lifecycle are not admitted by this profile.
 
-D350 shares dependency refresh and choice reconciliation across described tickets.
+D351 shares dependency refresh and choice reconciliation across described tickets.
 A valid manual selection survives a parent refresh, a prior suggestion follows
 its new source, and the backend can supply a sole eligible required choice or
 labelled starting value. Optional quantity links stay empty. Entry suggestions

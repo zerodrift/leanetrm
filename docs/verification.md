@@ -1,5 +1,13 @@
 # Local verification and continuous integration
 
+D344's managed `--assistant-workspace` checks consume the advertised fill
+encodings to build plans for both supported ask forms. They preserve the exact
+capability keys, a 4 KiB metadata bound and 2 KiB guide bound, and reject human
+labels as plan values and unstated prerequisites. Run the existing owned
+`--assistant-workspace-check --browser-check` and separate
+`--assistant-runtime-check` consumers. Guidance-only changes do not establish
+real-model GUI success from a scripted fixture.
+
 D341 local UI qualification passed 1,379 web checks, including stage/day dirty
 rollback, explicit historical action gates, failed-refresh identity clearing and
 compact phone headers. The fresh stock PostgreSQL demo passed native manual gas

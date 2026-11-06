@@ -2940,7 +2940,26 @@ New instruments require an admitted native adapter and discovery integration;
 dynamic quantity inputs require explicit managed resolution. A synthetic intraday
 view qualifies presentation geometry only, not executable power operations.
 
-## D344 — One curve workspace for prices and construction
+## D344 — Discover the existing walkthrough fill encodings
+
+The assistant's page capabilities must advertise the accepted plan values for
+choice fields. A person can ask for “fixed for floating”; the fill step uses
+`financial_fixed_floating`. The existing `fillEvidence` string now gives the
+exact mappings for both structures, fixed-side directions and agreed pricing,
+and states their prerequisite order. The tool description directs the model to
+those encodings. These labels encode only terms present in the current ask;
+metadata examples supply no financial choice or authorization.
+
+The parser, validator, accepted values, fields, tool JSON schema and stored event
+shape are unchanged. Human labels remain invalid plan values; missing,
+contradictory and unstated terms still refuse. This description-only correction
+keeps `turns_v20` and schema 207, and rewrites no agent version or grant. Managed
+checks construct canonical plans from the advertised mappings alone, validate
+both supported ask forms, preserve refusal cases and bound the unchanged
+capability shape. Native workspace/browser and runtime checks cover consumers;
+real-model GUI verification remains separate from deterministic qualification.
+
+## D345 — One curve workspace for prices and construction
 
 Curves & prices is the single Markets entry for contract prices, Curve builder
 and hourly/sub-hourly prices. The workspace switch opens the existing managed
@@ -2957,7 +2976,7 @@ price read behavior.
 No pricing, schema or financial model change is introduced by this consolidation.
 
 
-## D345 — Collapse unfinished ticket features
+## D346 — Collapse unfinished ticket features
 
 Group description-declared planned fields, side types, schedule columns and views
 under one closed Coming soon disclosure. Supported trade terms, side cards and
@@ -2974,7 +2993,7 @@ reflects that adapter boundary; a daily/monthly curve cutover does not itself
 define another economic Side. Consolidating booking onto the general Side
 contract and admitting indexed purchase payment state remain separate work.
 
-## D346 — Whole-term physical gas composition booking
+## D347 — Whole-term physical gas composition booking
 
 Use one physical Side for its selected delivery term, independent of the forecast
 curve's daily/monthly cutover. Resolve every intersecting calendar month to one
@@ -3002,7 +3021,7 @@ idempotent booking, daily reads, mixed-grid curve binding and retained worker
 scenario parity. Indexed-purchase payment state and counterparty agreement/credit
 administration remain separate work.
 
-## D347 — Use the available Blotter workspace
+## D348 — Use the available Blotter workspace
 
 Remove the ordinary page-width cap while the Blotter is shown. Use the desktop
 viewport above a compact footer, sharing its space with visible Assistant
@@ -3012,7 +3031,7 @@ presentation only; saved arrangements and business reads do not change. Browser
 checks cover wide and ordinary desktop sizes, docked Assistant clearance and
 maximized Positions/Details content and scrolling.
 
-## D348 — Amend future physical gas compositions through the ordinary ticket
+## D349 — Amend future physical gas compositions through the ordinary ticket
 
 Use the common Blotter Amend workflow with the explicit
 `future_gas_composition_replace_v1` contract. Keep the selected trade's exact
@@ -3042,7 +3061,7 @@ and daily-quantity refusals, worker claim scope and interactive/worker risk pari
 Browser checks exercise the actual Blotter amendment, edit guard, lost response
 recovery and reopened terms, including a retained mixed-curve physical example.
 
-## D349 — Independent indexed consideration in future gas compositions
+## D350 — Independent indexed consideration in future gas compositions
 
 Admit the existing `FloatingSide` as `indexed_consideration` under the explicit
 `indexed_gas_composition_v1` profile. Each payment row corresponds exactly to a
@@ -3073,7 +3092,7 @@ independent PV and 61-factor delta oracles, raw schedule/payment/source refusals
 retained ticket reads, spread/payment amendment and unchanged/retried commands,
 and interactive/claimed-worker parity. Synthetic operational loaders stay private.
 
-## D350 — Shared ticket choices and visible entry suggestions
+## D351 — Shared ticket choices and visible entry suggestions
 
 Reconcile refreshed choice lists in common ticket presentation code. Preserve a
 valid manually selected value; replace an untouched suggestion when its explicit
@@ -3098,7 +3117,7 @@ input fallback. Browser checks cover valid term extensions, singleton cascades,
 stale responses and cleared fields; exact arithmetic tests cover quote precision.
 
 
-## D351 — Shared Side pricing and lifecycle inspection
+## D352 — Shared Side pricing and lifecycle inspection
 
 Keep the selected gas measure as contractual net MTM. Expose pricing rows and
 lifecycle evidence through a common managed inspection projection, without
@@ -3127,7 +3146,7 @@ certificate holdings, cancellation, context mismatches and the separate paid gas
 cash example. Existing PPA/swap application readers and durable started gas
 lifecycle admission remain separate; no universal paid-cash ledger is implied.
 
-## D352 — Required Side inspection and registered native readers
+## D353 — Required Side inspection and registered native readers
 
 Make `SideValuation.InspectSchedule` required. Shared factories project native
 evaluated rows and compiled program values without pricing again. Immutable

@@ -130,7 +130,7 @@ The default arrangement, top to bottom:
   a compact footer. Visible Assistant launch/minimize controls share that footer
   space; with them hidden, the panes extend farther down. Maximizing Positions
   or Details fills that available dock area and retains scrolling within the
-  grid or pane. Phone pages retain their normal page scrolling (D347).
+  grid or pane. Phone pages retain their normal page scrolling (D348).
 
 - The summary strip replaces the large tiles. It shows the same backend
   figures with the same rules (separate currencies, swap PV and futures P&L
@@ -416,7 +416,7 @@ D272 (grid and details pane), D273 (saved layout), D274 (pop-out), D275
 
 ## Side pricing details
 
-The existing gas Side tabs use one [shared pricing/lifecycle grid](side-schedules.md#pricing-and-lifecycle-inspection-d351).
+The existing gas Side tabs use one [shared pricing/lifecycle grid](side-schedules.md#pricing-and-lifecycle-inspection-d352).
 It replaces the old summary Side grid, with no additional disclosure or selector.
 Crude and LNG use the same inspector in their schedule views. Select
 **Calculation** for averaging,

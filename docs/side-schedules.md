@@ -1,6 +1,6 @@
 # Whole-term side schedules
 
-## Implementer contract (D352)
+## Implementer contract (D353)
 
 Every `SideValuation` implements `InspectSchedule(manifest, scale, coefficient,
 boundary)`. It returns an immutable `SideScheduleSnapshot` with exact Side,
@@ -105,7 +105,7 @@ but preserve existing whole-trade sibling admission; they do not silently price
 only one binding of an otherwise incompatible PPA trade. The futures product form
 still requires its complete priced catalog.
 
-## Pricing and lifecycle inspection (D351)
+## Pricing and lifecycle inspection (D352)
 
 Gas booked Side tabs use one pricing/lifecycle grid in the existing deal ticket,
 replacing the summary Side grid. There is no second schedule grid, disclosure or

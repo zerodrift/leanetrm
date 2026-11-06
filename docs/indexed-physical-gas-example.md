@@ -68,7 +68,7 @@ Operational loaders remain private; no production load or deployment is implied.
 
 ## Valuation boundary
 
-D349 additionally admits future-delivery indexed consideration through the
+D350 additionally admits future-delivery indexed consideration through the
 ordinary gas composition ticket: one PhysicalGasSide and an independent
 FloatingSide with exact daily index inputs, explicit additional spread and
 monthly UTC payment terms. That application profile reports contractual MTM,

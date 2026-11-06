@@ -1,5 +1,10 @@
 # Delivery plan and acceptance criteria
 
+D344 advertises the existing walkthrough choice encodings so a model can map
+explicit human terms to valid fill values without guessing internal identifiers.
+Validation and business approval remain unchanged. Model adherence still needs
+real GUI verification; publishing a plan does not confirm browser execution.
+
 D343 adds the [common physical delivery view](physical-delivery-view.md): explicit
 native intervals, exact membership/source references, quantity tracks and declared
 capabilities. Gas, crude and LNG reuse one grid over their native reads; commodity
@@ -69,7 +74,7 @@ no financial defaults or generic DOM automation are admitted. Numerical overview
 digests can still refuse oversized results and take the underlying pricing time;
 controls mode is not numerical evidence. Model round trips remain part of latency.
 
-D352 consolidates position schedule reads behind the required managed Side
+D353 consolidates position schedule reads behind the required managed Side
 inspection contract and a registered native source. PPA and ordinary, monthly,
 scheduled and cross-commodity swap positions join the existing physical readers.
 PPA detail uses explicit server-declared monthly windows. New registered products
@@ -80,7 +85,7 @@ its settlement/P&L operation remains available. Adapting that ledger's evaluated
 corrections and payment allocations remains work; ordinary Side PV must never
 substitute for them. Started physical lifecycle admission remains separate.
 
-D351 locally connects gas, crude and LNG to one lazy, paged Side pricing and
+D352 locally connects gas, crude and LNG to one lazy, paged Side pricing and
 lifecycle inspector. Exact source/contract/fixing evidence and the native
 calculation graph are available on demand. The common evaluated-row adapter is
 also checked against the managed indexed gas payment example and native power
@@ -88,21 +93,21 @@ source cases. Existing PPA and swap application readers remain unchanged;
 consolidating them onto this inspector requires their own bounded scope and
 lifecycle adapters. Started gas booking/payment admission remains separate work.
 
-D349 locally qualifies future gas compositions with independent physical and
+D350 locally qualifies future gas compositions with independent physical and
 indexed payment Sides, daily varying price inputs, explicit monthly payments,
 native shape refusals, idempotent booking/amendment and retained worker risk.
 Durable started-delivery determinations, payments and unpaid-cash measures remain
-separate work. D350 shares ticket choice reconciliation and visible managed
+separate work. D351 shares ticket choice reconciliation and visible managed
 starting values while preserving manual choices and explicit clears.
 
-D348 implements gas amendments from the main-window Blotter through the common
+D349 implements gas amendments from the main-window Blotter through the common
 deal ticket. The explicit future composition replacement profile appends a new
 immutable revision, retaining original booking facts and historical views.
 Started trades, legacy single-point trades and operational/facility continuity
 remain outside this profile and return an eligibility reason. Unchanged terms
 do not publish another business revision. See [deal ticket](deal-ticket.md).
 
-D346 qualifies one multi-month physical gas Side through preview, idempotent
+D347 qualifies one multi-month physical gas Side through preview, idempotent
 booking, ticket/quantity reads, Blotter and retained interactive/worker risk.
 Composition booking shares the existing 1–1200 operating-day bound and requires
 exact native monthly coverage. Whole-term fixed cash keeps its explicit payment
@@ -111,12 +116,12 @@ still does not book the separate indexed-purchase paid/unpaid lifecycle.
 Counterparty master agreements, credit terms and legal documents remain planned;
 their ticket placeholders are collapsed and admit no financial behavior.
 
-D345 keeps unfinished ticket features in a closed disclosure and displays supported
+D346 keeps unfinished ticket features in a closed disclosure and displays supported
 trade terms compactly. Native Side memberships and calculation contracts remain
-unchanged. D346 closes the composition adapter coverage gap that the earlier
+unchanged. D347 closes the composition adapter coverage gap that the earlier
 long-term domain checks alone did not qualify.
 
-D344 consolidates contract prices, computed curve construction/inspection and
+D345 consolidates contract prices, computed curve construction/inspection and
 hourly prices in one Curves & prices workspace. Existing view adapters and
 financial contexts are preserved; the shared navigation remembers the last view
 and uses the ordinary unsaved-edit and request guards.

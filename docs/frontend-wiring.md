@@ -241,3 +241,10 @@ market values. Shared exact frame consumers keep current authority and pinned
 context, including the latest-close rule. [Owned exact-read checks](../tools/check_exact_pin_reads.py)
 and [authority checks](../tools/check_exact_pin_authority.py) cover that boundary;
 the ordinary swap and assistant workspace browser suites cover native opening.
+
+
+D344: `WalkthroughPlans.Capabilities` advertises the existing canonical choice
+encodings through its `fillEvidence` string. The native swap adapter and browser
+plan interpreter receive the same fields and values. Managed discovery checks
+build valid plans from the advertised mappings and prove the guidance cannot
+supply missing user terms; no TypeScript or saved-event shape changes.
