@@ -1,11 +1,16 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
 using OpenEtrm.Api;
 
 static class AssistantWorkspaceChecks
 {
     public static void Run()
     {
+        DiscoveryWork();
         foreach(var page in new[]{"dashboard","crude_setup","vol_surfaces","facility_quantities"})
         {
             PageReports.Require(JsonSerializer.SerializeToElement(new{page,selection=new{}}));
@@ -114,5 +119,35 @@ static class AssistantWorkspaceChecks
             else try{AssistantWorkspace.RequireFacilityContext(operation,request,certificate,false);throw new Exception("A facility read changed the asked date.");}catch(ToolRefusal e)when(e.Code=="operation_context_mismatch"){}
         }
         Console.WriteLine("PASS facility questions: explicit operating date, exact certified cutoff and no inferred pricing frame");
+    }
+
+    static void DiscoveryWork()
+    {
+        var builder=WebApplication.CreateBuilder();builder.Logging.ClearProviders();
+        using var app=builder.Build();var group=app.MapGroup("/api");
+        var built=0;var enumerations=0;
+        foreach(var operation in AssistantOperations.Catalog)
+            ((IEndpointConventionBuilder)group.MapMethods(operation.Path,[operation.Method],(HttpContext _)=>Task.CompletedTask)).Add(_=>built++);
+        // Only endpoint metadata is used here; authenticated discovery still obtains its own current permissions.
+        var workspace=new AssistantWorkspace(null!,"api","/api",app.Services,()=>
+        {
+            enumerations++;return ((IEndpointRouteBuilder)app).DataSources.SelectMany(source=>source.Endpoints);
+        },new HttpContextAccessor());
+        var permissions=AssistantOperations.Catalog.SelectMany(o=>o.Permissions).Distinct().ToArray();
+        var result=workspace.DiscoverOperations("all",null,permissions,CancellationToken.None);
+        if(result.Count!=AssistantOperations.Catalog.Count||!result.Select(o=>o!["id"]!.GetValue<string>()).SequenceEqual(AssistantOperations.Catalog.Select(o=>o.Id)))
+            throw new Exception("Full discovery lost or changed an authorized operation.");
+        if(enumerations!=1||built!=AssistantOperations.Catalog.Count)
+            throw new Exception($"Full operation discovery rebuilt route metadata: {enumerations} source reads and {built} route builds for {AssistantOperations.Catalog.Count} operations.");
+        var denied=workspace.DiscoverOperations("all",null,[],CancellationToken.None);
+        if(denied.Count!=0)throw new Exception("A prior permission set survived a later discovery.");
+        ((IEndpointRouteBuilder)app).DataSources.Clear();
+        if(workspace.DiscoverOperations("all",null,permissions,CancellationToken.None).Count!=0)
+            throw new Exception("Discovery retained endpoints that are no longer available.");
+        var before=enumerations;using var cancelled=new CancellationTokenSource();cancelled.Cancel();
+        try{workspace.DiscoverOperations("all",null,permissions,cancelled.Token);throw new Exception("Cancelled discovery continued to resolve routes.");}
+        catch(OperationCanceledException){}
+        if(enumerations!=before)throw new Exception("Cancelled discovery read route metadata.");
+        Console.WriteLine("PASS assistant discovery: one route snapshot, fresh permissions/endpoints and cancellation before metadata work");
     }
 }

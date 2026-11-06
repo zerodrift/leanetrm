@@ -8,6 +8,7 @@ Business calculations, validation, authorization, revisions and persistence rema
 
 | Trigger | Required behavior | Regression evidence |
 | --- | --- | --- |
+| Assistant discovers all operations before opening a native ticket | The backend takes one route-metadata snapshot per discovery, preserves current permissions and the question's pin, and keeps commands behind human authorization. | [Managed discovery work](../tests/OpenEtrm.Api.Checks/AssistantWorkspaceChecks.cs), [workspace HTTP](../tools/check_assistant_workspace.py), [native swap navigation](../tests/browser/assistant-workspace.mjs) |
 | Change Dashboard Positions books, preset or definition while price units are loading | Earlier directory/catalog replies and errors cannot populate the new selection; entered sizes reach the exact saved definition. | [Positions controls](../web/tests/dashboard-position-controls.test.mjs) |
 | Change PPA pending-actuals policy, native month, binding or side while a read is pending | The previous result cannot repaint under the new selector. | [PPA controls](../web/tests/ppa-editor-browser.test.mjs) |
 | Change the selected PPA book | Directory pagination resets and old page actions cannot remain active for the new book. | [PPA controls](../web/tests/ppa-editor-browser.test.mjs) |

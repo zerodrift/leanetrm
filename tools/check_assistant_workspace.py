@@ -91,6 +91,13 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     turn, results, calls = ask([('read_current_page', {}), ('discover_page_operations', {'page': 'users_access', 'operation': 'admin.update_v1'})])
     check('an administrator page is read through its ordinary authorized directory', 'directory' in results[0] and 'data' in results[0]['directory'])
     check('operation discovery returns the actual handler request contract', results[1]['operations'][0]['input']['body']['contract'] == 'AdminUpdate')
+    _, discovery_results, _ = ask([('discover_page_operations', {'page': 'all', 'operation': None})])
+    discovery = {operation['id']: operation for operation in discovery_results[0]['operations']}
+    check('full authorized discovery completes with exact identities and human-approved command effects',
+          {'swaps.catalog_v1', 'swaps.price_v1', 'swaps.book_v1', 'admin.update_v1'} <= discovery.keys()
+          and discovery['swaps.book_v1']['effect'] == 'requires_user_approval'
+          and discovery['admin.update_v1']['effect'] == 'requires_user_approval'
+          and discovery['swaps.catalog_v1']['effect'] == 'read_or_preview')
     check('the admitted page guidance reaches the provider after the fixed policy', prompt['instructions'] in calls[0]['system'][0]['text'])
     check('the turn pins the exact page prompt version', query(f"SELECT version FROM assistant.turn_prompt_pins WHERE turn_id='{turn['id']}';") == '1')
     admin.call(prompt_path + '/save', {**prompt, 'operationId': str(uuid4()), 'expectedVersion': 1, 'instructions': 'Synthetic next guidance.'})
