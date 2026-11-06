@@ -99,7 +99,7 @@ def run_checks(c, check, query, manifest):
     check('gzip cannot confer current trading authority', status == 403 and 'content-encoding' not in headers)
 
 
-def run_hosted_checks(client, origin, certificate, boot):
+def run_hosted_checks(client, origin, certificate, workspace):
     """Call in the existing owned TLS/forwarded-header fixture before its empty reset."""
     tls = ssl.create_default_context(cafile=str(certificate))
     passed = 0
@@ -110,6 +110,6 @@ def run_hosted_checks(client, origin, certificate, boot):
         print('PASS hosted compression: ' + name, flush=True)
     def raw(path, body=None, encoding=None, headers=None):
         return _raw(client, origin, client.csrf, path, body, encoding, headers, tls)
-    frame = next(f for f in boot['frames'] if f['at'].startswith('2020-12-18') and not f.get('contextId'))
+    frame = next(f for f in workspace['frames'] if f['at'].startswith('2020-12-18') and not f.get('contextId'))
     _checks(raw, frame, check)
     print(f'{passed} hosted HTTPS trading compression checks passed.', flush=True)
