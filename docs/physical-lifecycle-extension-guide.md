@@ -44,7 +44,7 @@ object names do not justify a parallel persistence or event framework.
 
 ## Choose the smallest behavioral extension
 
-The implemented [Side inspection contract](side-schedules.md#implementer-contract-d344)
+The implemented [Side inspection contract](side-schedules.md#implementer-contract-d345)
 owns common rendering and paging. Populate native evaluated schedules/evidence via
 `SideValuation.InspectSchedule` and register the normal authorized storage source.
 Do not add a product branch to the shared reader or write another schedule grid.

@@ -1,5 +1,15 @@
 # Delivery plan and acceptance criteria
 
+D336 bounds exact observation reads by their selected ids while retaining the
+existing cutoff, latest-close, permission and worker-claim rules. Bulk history
+keeps its filtered join shape. Synthetic checks compare the native reader with
+archived RLS and reject policy drift, expiry and invalid complete-close pins.
+See [the contract](exact-observation-reads.md). This removes unrelated history
+work from native swap catalog entry; model latency, other catalog reads and
+portfolio pricing remain separate costs. Walkthrough publication describes an
+intended plan; it does not acknowledge browser completion. A browser completion
+protocol remains deferred rather than adding a second assistant loop.
+
 D335 replaces the floating walkthrough box with inline controls and a cursor
 that aims before native presentation actions. Controls-only digests and native
 swap entry avoid full-portfolio valuation for navigation. Unsaved swap setters
@@ -10,7 +20,7 @@ no financial defaults or generic DOM automation are admitted. Numerical overview
 digests can still refuse oversized results and take the underlying pricing time;
 controls mode is not numerical evidence. Model round trips remain part of latency.
 
-D344 consolidates position schedule reads behind the required managed Side
+D345 consolidates position schedule reads behind the required managed Side
 inspection contract and a registered native source. PPA and ordinary, monthly,
 scheduled and cross-commodity swap positions join the existing physical readers.
 PPA detail uses explicit server-declared monthly windows. New registered products
@@ -21,7 +31,7 @@ its settlement/P&L operation remains available. Adapting that ledger's evaluated
 corrections and payment allocations remains work; ordinary Side PV must never
 substitute for them. Started physical lifecycle admission remains separate.
 
-D343 locally connects gas, crude and LNG to one lazy, paged Side pricing and
+D344 locally connects gas, crude and LNG to one lazy, paged Side pricing and
 lifecycle inspector. Exact source/contract/fixing evidence and the native
 calculation graph are available on demand. The common evaluated-row adapter is
 also checked against the managed indexed gas payment example and native power
@@ -29,21 +39,21 @@ source cases. Existing PPA and swap application readers remain unchanged;
 consolidating them onto this inspector requires their own bounded scope and
 lifecycle adapters. Started gas booking/payment admission remains separate work.
 
-D341 locally qualifies future gas compositions with independent physical and
+D342 locally qualifies future gas compositions with independent physical and
 indexed payment Sides, daily varying price inputs, explicit monthly payments,
 native shape refusals, idempotent booking/amendment and retained worker risk.
 Durable started-delivery determinations, payments and unpaid-cash measures remain
-separate work. D342 shares ticket choice reconciliation and visible managed
+separate work. D343 shares ticket choice reconciliation and visible managed
 starting values while preserving manual choices and explicit clears.
 
-D340 implements gas amendments from the main-window Blotter through the common
+D341 implements gas amendments from the main-window Blotter through the common
 deal ticket. The explicit future composition replacement profile appends a new
 immutable revision, retaining original booking facts and historical views.
 Started trades, legacy single-point trades and operational/facility continuity
 remain outside this profile and return an eligibility reason. Unchanged terms
 do not publish another business revision. See [deal ticket](deal-ticket.md).
 
-D338 qualifies one multi-month physical gas Side through preview, idempotent
+D339 qualifies one multi-month physical gas Side through preview, idempotent
 booking, ticket/quantity reads, Blotter and retained interactive/worker risk.
 Composition booking shares the existing 1–1200 operating-day bound and requires
 exact native monthly coverage. Whole-term fixed cash keeps its explicit payment
@@ -52,12 +62,12 @@ still does not book the separate indexed-purchase paid/unpaid lifecycle.
 Counterparty master agreements, credit terms and legal documents remain planned;
 their ticket placeholders are collapsed and admit no financial behavior.
 
-D337 keeps unfinished ticket features in a closed disclosure and displays supported
+D338 keeps unfinished ticket features in a closed disclosure and displays supported
 trade terms compactly. Native Side memberships and calculation contracts remain
-unchanged. D338 closes the composition adapter coverage gap that the earlier
+unchanged. D339 closes the composition adapter coverage gap that the earlier
 long-term domain checks alone did not qualify.
 
-D336 consolidates contract prices, computed curve construction/inspection and
+D337 consolidates contract prices, computed curve construction/inspection and
 hourly prices in one Curves & prices workspace. Existing view adapters and
 financial contexts are preserved; the shared navigation remembers the last view
 and uses the ordinary unsaved-edit and request guards.

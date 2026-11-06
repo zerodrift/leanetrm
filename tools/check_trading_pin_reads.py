@@ -75,8 +75,19 @@ def run_checks(c, check, query, manifest):
         c.call('trading/workspace', {'context': trading_context(changed['frame'], old_cut),
                'view': VIEW, 'bookingCatalog': 'priced_contracts'}, expected=422)
         check('a later corrected pin cannot enter an earlier trading cutoff')
-        # A read-only fault makes inspecting an unselected successor observable.
-        # The explicit full-workspace inspector remains the broad-read control.
+        # This single-bundle native catalog has no supplemental history. Keep
+        # the route-level work boundary observable, not only the point helper.
+        visibility=query("SELECT pg_get_functiondef('security.visible_observations()'::regprocedure);")
+        try:
+            query("CREATE OR REPLACE FUNCTION security.visible_observations() RETURNS TABLE(catalog uuid,revision uuid,observation uuid) LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN RAISE EXCEPTION 'Synthetic broad catalog read' USING ERRCODE='42501';END$$;")
+            c.call('workspace',expected=403)
+            check('the native futures catalog reads exact pins while broad enumeration is forbidden',
+                  c.call('futures/catalog',{**old_pin,'convention':data['futuresConvention']})==old_result['catalog'])
+        finally:
+            query(visibility)
+        # A new policy must refuse the exact reader even if it only targets an
+        # unselected successor. The managed broad-scan fault separately proves
+        # bounded exact reads under the canonical policy contract.
         query(f"""CREATE FUNCTION public.synthetic_unselected_trading_pin(id uuid) RETURNS boolean
           LANGUAGE plpgsql VOLATILE AS $$BEGIN
           IF id='{successor}'::uuid THEN RAISE EXCEPTION 'Synthetic unselected correction read' USING ERRCODE='42501';END IF;
@@ -86,21 +97,21 @@ def run_checks(c, check, query, manifest):
         try:
             c.call('workspace',expected=403)
             check('the explicit full inspector makes the unselected-row fault observable')
-            check('standalone trading reads use only the exact selected primary pins',legacy_trading_reads(c,old_pin,data['futuresConvention'])==old_result)
-            check('priced workspace does not inspect unselected primary correction rows',
-                  trading_workspace(c, old_pin) == old_result)
-            check('the valued booking directory does not inspect unselected primary correction rows',
-                  trading_workspace(c, old_pin, 'directory') == old_directory)
+            c.call('futures/catalog',{**old_pin,'convention':data['futuresConvention']},expected=403)
+            c.call('trading/blotter',{'context':old_pin,'view':VIEW},expected=403)
+            for catalog in ('priced_contracts','directory'):
+                c.call('trading/workspace',{'context':old_pin,'view':VIEW,'bookingCatalog':catalog},expected=403)
+            check('native point readers refuse an unknown policy even when it targets only an unselected successor')
         finally:
             query('DROP POLICY synthetic_unselected_trading_pin ON market_data.observations;DROP FUNCTION public.synthetic_unselected_trading_pin(uuid);')
         anchor = str(UUID(original['id']))
         query(f"CREATE POLICY synthetic_hidden_trading_pin ON market_data.observations AS RESTRICTIVE FOR SELECT TO openetrm_runtime USING(id<>'{anchor}'::uuid);")
         try:
             c.call('trading/workspace', {'context': old_pin, 'view': VIEW,
-                   'bookingCatalog': 'priced_contracts'}, expected=422)
+                   'bookingCatalog': 'priced_contracts'}, expected=403)
             c.call('trading/workspace', {'context': old_pin, 'view': VIEW,
-                   'bookingCatalog': 'directory'}, expected=422)
-            check('a hidden exact anchor is not replaced by its visible successor')
+                   'bookingCatalog': 'directory'}, expected=403)
+            check('a changed pin policy refuses both reports instead of substituting a successor')
         finally:
             query('DROP POLICY synthetic_hidden_trading_pin ON market_data.observations;')
     finally:

@@ -148,13 +148,20 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('a filtered group header says how many of its positions show',`${headerCounts}.ok`,headerCounts);
   await set('#blotter-filters .table-search','');await evaluate(frames);
   const press=async(key,code,keyCode,text)=>{await command('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:keyCode,text});await command('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:keyCode});await evaluate('new Promise(resolve=>setTimeout(resolve,80))');};
-  const positionRows="document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)').length",firstHeader="document.querySelector('#desk-positions .desk-group')";
-  const rowsOpen=await evaluate(positionRows);
-  await evaluate(`${firstHeader}.focus()`);await press('Enter','Enter',13,'\r');
-  await check('a group header closes its positions from the keyboard and says so',`document.activeElement===${firstHeader}&&${firstHeader}.getAttribute('aria-expanded')==='false'&&${positionRows}<${rowsOpen}`,`[document.activeElement.className,${firstHeader}.getAttribute('aria-expanded'),${positionRows}]`);
+  // A buffered header's DOM ordinal changes when keyboard focus scrolls it.
+  // Keep the group identity through both native toggle redraws.
+  const groupLabel=await evaluate("document.querySelector('#desk-positions .desk-group-label').textContent");
+  const header=`[...document.querySelectorAll('#desk-positions .desk-group')].find(h=>h.querySelector('.desk-group-label').textContent===${JSON.stringify(groupLabel)})`;
+  const groupPosition=`(()=>{const row=${header}.closest('.tabulator-group').nextElementSibling;return row?.matches('.tabulator-row[data-row-key]')?row.dataset.rowKey:null;})()`;
+  await evaluate(`${header}.focus()`);await evaluate(frames);
+  const firstPosition=await evaluate(groupPosition);
+  if(!firstPosition)throw Error('The expanded group must show its first position.');
+  await press('Enter','Enter',13,'\r');
+  await check('a group header closes its positions from the keyboard and says so',`document.activeElement===${header}&&${header}.getAttribute('aria-expanded')==='false'&&${groupPosition}===null`,`[document.activeElement.textContent,${header}.getAttribute('aria-expanded'),${groupPosition}]`);
   await press(' ',' ',32,' ');
-  // The grid draws only the rows in its pane's view: reopening draws at least as many as were drawn before the group closed.
-  await check('and opens them again with the space bar',`document.activeElement===${firstHeader}&&${firstHeader}.getAttribute('aria-expanded')==='true'&&${positionRows}>=${rowsOpen}`,`[document.activeElement.className,${firstHeader}.getAttribute('aria-expanded'),${positionRows}]`);
+  // Reopening restores this group's first position. The virtual renderer may
+  // draw a different number of buffered rows elsewhere in the grid.
+  await check('and opens its positions again with the space bar',`document.activeElement===${header}&&${header}.getAttribute('aria-expanded')==='true'&&${groupPosition}===${JSON.stringify(firstPosition)}`,`({focused:document.activeElement.textContent,group:${JSON.stringify(groupLabel)},position:${groupPosition},expected:${JSON.stringify(firstPosition)}})`);
   await sidePanelChecks({command,evaluate,wait,click,set,check,idle,press,settle,rowsRead,persona});
   // Curves that arrive after the rows are drawn into their own cells; the rest of each row is left as it was.
   await evaluate('window.__holdShapes=true');await click('#futures-refresh');

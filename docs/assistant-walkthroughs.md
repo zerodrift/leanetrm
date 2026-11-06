@@ -270,3 +270,11 @@ other missing terms and performs Preview/Book themselves; consent and Authorize
 retain their separate human actions. Unsupported references, dates, par policies
 or ambiguous asks require clarification. Native setters affect unsaved state
 only, invalidate prior preview and contribute a local revision to Resume checks.
+
+
+D336 keeps publication separate from execution: returning a walkthrough plan
+confirms only that it was retained. Fixed instructions describe intended steps,
+without claiming that native reads or controls have completed. The browser's
+inline status reports completion or the first failed step. Native swap catalog
+reads share the [bounded exact observation reader](exact-observation-reads.md);
+no tool/event shape or runtime version changes.

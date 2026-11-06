@@ -25,10 +25,11 @@ internal static class DirectReadChecks
             Console.WriteLine($"Direct reads with {string.Join(" and ",disabled)} off");
             await Run(fixturePath,disabled);
         }
-        await StreamVisibility(fixturePath);
+        await StreamVisibility(fixturePath,false);
     }
 
-    static async Task StreamVisibility(string fixturePath)
+    public static Task StreamFault(string fixturePath)=>StreamVisibility(fixturePath,true);
+    static async Task StreamVisibility(string fixturePath,bool faultOnly)
     {
         await using var database=new PreviewDatabase(Path.GetFullPath(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_ROOT")!));
         using var fixture=JsonDocument.Parse(File.ReadAllText(fixturePath));
@@ -40,34 +41,38 @@ internal static class DirectReadChecks
         {
             var metadata=await database.Read(connection,ct,observationIds:[]);
             var all=await database.Read(connection,ct);
-            // A large first packet must be observable before a later pin's native
-            // read fails. This checks streaming behavior, not a query plan or clock.
-            var fault=all.Observations.Last().Id("id");
-            var packet=all.Observations.Where(row=>row.Id("id")!=fault).Take(256).ToArray();
-            if(packet.Sum(row=>System.Text.Encoding.UTF8.GetByteCount(row.GetRawText()))<=32768)
-                throw new Exception("The first-frame fixture must exceed the protocol output buffer.");
-            var ids=packet.Select(row=>row.Id("id")).ToImmutableArray();
-            var at=all.Observations.Max(row=>row.Instant("observed_at"));
-            var ordered=ImmutableArray.Create(frames[0] with{At=at,ObservationIds=ids},frames[1] with{At=at,ObservationIds=[fault]});
-            var yielded=0;var faulted=false;
-            await Execute(connection,"SAVEPOINT ordered_stream",ct);
-            try
+            if(faultOnly)
             {
-                await using(var choose=ScheduleStore.Command(connection,"SELECT set_config('openetrm.synthetic_frame_read_fault',$1,true)",[fault.ToString()]))
-                    await choose.ExecuteNonQueryAsync(ct);
+                // Only the batch stream runs under the extra restrictive fault
+                // policy. Exact point readers must refuse unknown policy shapes.
+                var fault=all.Observations.Last().Id("id");
+                var packet=all.Observations.Where(row=>row.Id("id")!=fault).Take(256).ToArray();
+                if(packet.Sum(row=>System.Text.Encoding.UTF8.GetByteCount(row.GetRawText()))<=32768)
+                    throw new Exception("The first-frame fixture must exceed the protocol output buffer.");
+                var ids=packet.Select(row=>row.Id("id")).ToImmutableArray();
+                var at=all.Observations.Max(row=>row.Instant("observed_at"));
+                var ordered=ImmutableArray.Create(frames[0] with{At=at,ObservationIds=ids},frames[1] with{At=at,ObservationIds=[fault]});
+                var yielded=0;var faulted=false;
+                await Execute(connection,"SAVEPOINT ordered_stream",ct);
                 try
                 {
-                    await foreach(var data in database.ReadFrameObservations(connection,metadata,ordered,ObservationReadScope.ExactPins,ct))
+                    await using(var choose=ScheduleStore.Command(connection,"SELECT set_config('openetrm.synthetic_frame_read_fault',$1,true)",[fault.ToString()]))
+                        await choose.ExecuteNonQueryAsync(ct);
+                    try
                     {
-                        if(yielded++!=0||!data.Observations.Select(row=>row.Id("id")).ToHashSet().SetEquals(ids))
-                            throw new Exception("The first streamed frame changed its exact pins or order.");
+                        await foreach(var data in database.ReadFrameObservations(connection,metadata,ordered,ObservationReadScope.ExactPins,ct))
+                        {
+                            if(yielded++!=0||!data.Observations.Select(row=>row.Id("id")).ToHashSet().SetEquals(ids))
+                                throw new Exception("The first streamed frame changed its exact pins or order.");
+                        }
                     }
+                    catch(PostgresException error) when(error is {SqlState:"P0001",MessageText:"synthetic_frame_read_fault"}){faulted=true;}
                 }
-                catch(PostgresException error) when(error is {SqlState:"P0001",MessageText:"synthetic_frame_read_fault"}){faulted=true;}
+                finally{await Execute(connection,"ROLLBACK TO SAVEPOINT ordered_stream;RELEASE SAVEPOINT ordered_stream;SELECT 1",ct);}
+                if(yielded!=1||!faulted)throw new Exception("The first frame must be yielded before a later frame's native read failure.");
+                Console.WriteLine("PASS exact frame payloads stream in request order before a later native read failure and release their reader");
+                return true;
             }
-            finally{await Execute(connection,"ROLLBACK TO SAVEPOINT ordered_stream;RELEASE SAVEPOINT ordered_stream;SELECT 1",ct);}
-            if(yielded!=1||!faulted)throw new Exception("The first frame must be yielded before a later frame's native read failure.");
-            Console.WriteLine("PASS exact frame payloads stream in request order before a later native read failure and release their reader");
 
             var group=all.Observations.GroupBy(row=>(row.Id("series_id"),row.Text("source_code"),row.Text("role")))
                 .First(rows=>rows.Select(row=>row.Instant("observed_at")).Distinct().Count()>=3).ToArray();
@@ -111,7 +116,7 @@ internal static class DirectReadChecks
             await Execute(connection,"ROLLBACK TO SAVEPOINT cancelled_stream;RELEASE SAVEPOINT cancelled_stream;SELECT 1",ct);
             return true;
         },CancellationToken.None);
-        Console.WriteLine("PASS one-statement history preserves visibility across concurrent corrections and releases readers on early exit and cancellation");
+        if(!faultOnly)Console.WriteLine("PASS one-statement history preserves visibility across concurrent corrections and releases readers on early exit and cancellation");
     }
 
     static async Task Run(string fixturePath,string[] disabled)

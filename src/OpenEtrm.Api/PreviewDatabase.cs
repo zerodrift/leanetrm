@@ -628,8 +628,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
         if(pins.IsEmpty)return Task.FromResult(ImmutableArray<JsonElement>.Empty);
         return Rows(connection,"""
             SELECT row_to_json(t)::text FROM (
-                SELECT * FROM market_data.observations
-                WHERE catalog_id=$1 AND definition_revision_id=$2 AND id=ANY($3::uuid[])
+                SELECT * FROM security.read_observation_pins($1,$2,$3::uuid[])
                 ORDER BY observed_at,received_at,id
             ) t
             """,[manifest.CatalogId,manifest.RevisionId,pins.ToArray()],ct);

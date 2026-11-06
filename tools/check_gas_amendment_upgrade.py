@@ -14,7 +14,7 @@ def run_checks(query, migration):
             f"GRANT EXECUTE ON FUNCTION {signature} TO PUBLIC;",
             f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;",
             f"DO $drift$ DECLARE body text=pg_get_functiondef('{signature}'::regprocedure);BEGIN EXECUTE replace(body,'AS $function$','AS $function$ /* synthetic drift */');END$drift$;"))
-    check_guard(query, text, '0205', 'gas_amendment_upgrade', changes)
+    check_guard(query, text, '0206', 'gas_amendment_upgrade', changes)
     for table, constraint in [('gas_trade_revisions', 'gas_trade_revisions_revision_check'),
                               ('gas_delivery_obligations', 'gas_delivery_obligations_catalog_id_trade_id_slot_key')]:
         try:

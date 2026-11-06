@@ -1,5 +1,21 @@
 # Local verification and continuous integration
 
+D336's owned `--check --regional-closes-check` fixture includes the actual
+managed exact-pin reader, archived 0202 RLS row/order equivalence, working and
+retained contexts, separate sessions, a broad-enumeration refusal probe and one
+complete-close visibility decision for 40 pins under custom/generic plans. It
+rejects changed SELECT policies/roles/RLS flags, revoked table SELECT, a risk
+role without a live claim, invalid unrequested close pins, fallback to an older
+close and expiry while results buffer. After 4096 unrelated later facts, bulk
+observation tuple work equals the archived reader (420/420 in both plans), and
+exact reads still do not invoke broad enumeration. The 0204 guards reject helper
+and complete policy drift. The standard HTTP fixture also forbids broad
+enumeration while the actual single-bundle futures catalog reads its exact pins.
+The regional-close fixture runs in the complete gate's workspace
+partition. Standard browser, assistant workspace/runtime and risk/close worker
+suites qualify their native consumers. These are synthetic disposable checks;
+production GUI observations are not public fixtures or performance claims.
+
 D335's owned workspace checks cover controls-only digests without record/pivot
 evidence, native swap entry without portfolio valuation, explicit unsaved swap
 fields and human-only Preview/Book/Authorize. Browser checks cover aim before

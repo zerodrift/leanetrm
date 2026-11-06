@@ -14,7 +14,7 @@ def run_checks(query,migration):
             f"GRANT EXECUTE ON FUNCTION {signature} TO PUBLIC;",
             f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;",
             f"DO $drift$ DECLARE body text=pg_get_functiondef('{signature}'::regprocedure);BEGIN EXECUTE replace(body,'AS $function$','AS $function$ /* synthetic drift */');END$drift$;"))
-    check_guard(query,text,'0206','gas_index_upgrade',changes)
+    check_guard(query,text,'0207','gas_index_upgrade',changes)
     for constraint in ['gas_component_terms_role_check','gas_component_terms_check2']:
         try:query(f'BEGIN;ALTER TABLE trading.gas_component_terms DROP CONSTRAINT {constraint};'+migration_body(text)+'ROLLBACK;')
         except RuntimeError as error:assert f'gas_index_upgrade: unexpected constraint {constraint}' in str(error),error

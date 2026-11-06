@@ -248,13 +248,13 @@ def main():
             if migration.name=='0203_assistant_presentation_controls.sql':
                 from check_assistant_presentation_upgrade import run_checks as check_presentation_upgrade
                 check_presentation_upgrade(query,migration)
-            if migration.name=='0206_indexed_gas_consideration.sql':
+            if migration.name=='0207_indexed_gas_consideration.sql':
                 from check_gas_index_upgrade import run_checks as check_gas_index_upgrade
                 check_gas_index_upgrade(query,migration)
-            if migration.name=='0205_gas_trade_amendments.sql':
+            if migration.name=='0206_gas_trade_amendments.sql':
                 from check_gas_amendment_upgrade import run_checks as check_gas_amendment_upgrade
                 check_gas_amendment_upgrade(query,migration)
-            if migration.name=='0204_multimonth_gas_booking.sql':
+            if migration.name=='0205_multimonth_gas_booking.sql':
                 from check_multimonth_gas_upgrade import run_checks as check_multimonth_gas_upgrade
                 check_multimonth_gas_upgrade(query,migration)
             if migration.name=='0201_shared_curve_price_queries.sql':
@@ -383,6 +383,9 @@ def main():
             if args.physical_gas_check and migration.name=='0142_physical_gas_bookings.sql':
                 from check_gas_upgrade import run_checks as check_gas_upgrade
                 check_gas_upgrade(query,ROOT,[reference,market,security,trading_fixture(manifest['catalogId'])])
+            if args.check and migration.name=='0204_exact_observation_reads.sql':
+                from check_exact_pin_upgrade import run_checks as check_exact_pin_upgrade
+                check_exact_pin_upgrade(query,migration)
             query(migration.read_text())
         if args.check:
             from check_whole_term_swap_schema import run_checks as check_whole_term_swap_schema
@@ -1021,6 +1024,8 @@ def main():
                 # Last: it records bare closes directly in SQL, which no later read could qualify.
                 from check_regional_closes_sql import run_checks as check_regional_closes_sql
                 check_regional_closes_sql(url,query,manifest)
+                from check_exact_pin_reads import run_checks as check_exact_pin_reads
+                check_exact_pin_reads(query,manifest,dotnet,app_env,temporary)
             elif args.pilot_close_check:
                 from check_pilot_close import run_checks as check_pilot_close
                 check_pilot_close(url,query,manifest,psql,app_env)

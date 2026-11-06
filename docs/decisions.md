@@ -2757,7 +2757,37 @@ financial evidence, retained/date-only context escape, access-change replay,
 field provenance/product compatibility, hidden control targeting, Stop during
 aim/read, modal ownership, stale callbacks and explicitly confirmed navigation.
 
-## D336 — One curve workspace for prices and construction
+
+## D336 — Bounded exact observation reads under the existing visibility contract
+
+Native frame consumers read already selected observation ids. Scanning the entire
+visible history for each such query can time out ordinary swap entry even though
+its result is small. Migration 0204 introduces an internal visibility core and
+an exact-pin definer reader. Point candidates are bounded before receipt and
+close joins. Bulk/history reads keep their original cutoff-filtered join shape;
+they do not materialize every candidate first. Both select the newest session/day
+close before eligibility filters and validate its entire pin set once.
+
+The point reader preserves ordinary table SELECT privilege, the complete
+permissive/restrictive SELECT-policy set and RLS flags, current market authority,
+authority deadlines and a risk worker's live claim. Changed policy contracts
+refuse rather than bypassing a new restriction. A final authority/expiry check
+refuses the complete buffered result. Existing retained cutoff rules and the
+D334 latest-close exception are unchanged. No new endpoint, table, runtime event,
+agent grant or numerical policy is introduced. The same native reader serves
+human tickets, assistant reads and retained workers.
+
+Qualification compares actual managed rows/order with the archived RLS reader,
+forbids broad enumeration on exact reads, exercises policy/privilege/role drift,
+expiry, newest-close precedence and invalid unrequested close pins, and measures
+bulk observation tuple work under custom and generic plans with unrelated later
+history. Migration guards pin predecessor definitions, ownership, ACLs and
+configuration. Independent review attacks these authorization and temporal
+boundaries. A published walkthrough remains an intended plan, not evidence that
+the browser has completed its actions; the fixed model instructions say so.
+See [the read boundary](exact-observation-reads.md).
+
+## D337 — One curve workspace for prices and construction
 
 Curves & prices is the single Markets entry for contract prices, Curve builder
 and hourly/sub-hourly prices. The workspace switch opens the existing managed
@@ -2771,7 +2801,7 @@ Saved page/assistant identities remain exact.
 No pricing, schema or financial model change is introduced by this consolidation.
 
 
-## D337 — Collapse unfinished ticket features
+## D338 — Collapse unfinished ticket features
 
 Group description-declared planned fields, side types, schedule columns and views
 under one closed Coming soon disclosure. Supported trade terms, side cards and
@@ -2788,7 +2818,7 @@ reflects that adapter boundary; a daily/monthly curve cutover does not itself
 define another economic Side. Consolidating booking onto the general Side
 contract and admitting indexed purchase payment state remain separate work.
 
-## D338 — Whole-term physical gas composition booking
+## D339 — Whole-term physical gas composition booking
 
 Use one physical Side for its selected delivery term, independent of the forecast
 curve's daily/monthly cutover. Resolve every intersecting calendar month to one
@@ -2798,7 +2828,7 @@ assignments refuse. Carry all assignments through ordinary market preparation,
 retained programs, inspection and risk, with the existing 1200 operating-day
 quantity bound. No risk-specific exposure allocation or shock behavior is added.
 
-Migration 0204 expands composition admission and proves each retained daily
+Migration 0205 expands composition admission and proves each retained daily
 source against its native period while preserving unit, quantity, geometry,
 lifecycle and graph validation. Predecessor helper bodies, ownership, ACLs,
 configuration and the original geometry constraint are pinned. The private
@@ -2816,7 +2846,7 @@ idempotent booking, daily reads, mixed-grid curve binding and retained worker
 scenario parity. Indexed-purchase payment state and counterparty agreement/credit
 administration remain separate work.
 
-## D339 — Use the available Blotter workspace
+## D340 — Use the available Blotter workspace
 
 Remove the ordinary page-width cap while the Blotter is shown. Use the desktop
 viewport above a compact footer, sharing its space with visible Assistant
@@ -2826,7 +2856,7 @@ presentation only; saved arrangements and business reads do not change. Browser
 checks cover wide and ordinary desktop sizes, docked Assistant clearance and
 maximized Positions/Details content and scrolling.
 
-## D340 — Amend future physical gas compositions through the ordinary ticket
+## D341 — Amend future physical gas compositions through the ordinary ticket
 
 Use the common Blotter Amend workflow with the explicit
 `future_gas_composition_replace_v1` contract. Keep the selected trade's exact
@@ -2856,7 +2886,7 @@ and daily-quantity refusals, worker claim scope and interactive/worker risk pari
 Browser checks exercise the actual Blotter amendment, edit guard, lost response
 recovery and reopened terms, including a retained mixed-curve physical example.
 
-## D341 — Independent indexed consideration in future gas compositions
+## D342 — Independent indexed consideration in future gas compositions
 
 Admit the existing `FloatingSide` as `indexed_consideration` under the explicit
 `indexed_gas_composition_v1` profile. Each payment row corresponds exactly to a
@@ -2867,7 +2897,7 @@ forecast selection, explicit additional spread and next-month UTC payment day
 exposes this as **Index payment** and uses the same published-curve eligibility
 resolver for physical and indexed forecast fields.
 
-Migration 0206 pins the predecessor writer, seal, publisher and component
+Migration 0207 pins the predecessor writer, seal, publisher and component
 constraints, adds exact typed index/projection relationships, and proves the
 retained daily schedule graph, quantities, source bindings and payment geometry.
 Fixing publication must precede payment and payment cannot precede the native
@@ -2887,7 +2917,7 @@ independent PV and 61-factor delta oracles, raw schedule/payment/source refusals
 retained ticket reads, spread/payment amendment and unchanged/retried commands,
 and interactive/claimed-worker parity. Synthetic operational loaders stay private.
 
-## D342 — Shared ticket choices and visible entry suggestions
+## D343 — Shared ticket choices and visible entry suggestions
 
 Reconcile refreshed choice lists in common ticket presentation code. Preserve a
 valid manually selected value; replace an untouched suggestion when its explicit
@@ -2912,7 +2942,7 @@ input fallback. Browser checks cover valid term extensions, singleton cascades,
 stale responses and cleared fields; exact arithmetic tests cover quote precision.
 
 
-## D343 — Shared Side pricing and lifecycle inspection
+## D344 — Shared Side pricing and lifecycle inspection
 
 Keep the selected gas measure as contractual net MTM. Expose pricing rows and
 lifecycle evidence through a common managed inspection projection, without
@@ -2941,7 +2971,7 @@ certificate holdings, cancellation, context mismatches and the separate paid gas
 cash example. Existing PPA/swap application readers and durable started gas
 lifecycle admission remain separate; no universal paid-cash ledger is implied.
 
-## D344 — Required Side inspection and registered native readers
+## D345 — Required Side inspection and registered native readers
 
 Make `SideValuation.InspectSchedule` required. Shared factories project native
 evaluated rows and compiled program values without pricing again. Immutable
