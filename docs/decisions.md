@@ -2757,7 +2757,7 @@ financial evidence, retained/date-only context escape, access-change replay,
 field provenance/product compatibility, hidden control targeting, Stop during
 aim/read, modal ownership, stale callbacks and explicitly confirmed navigation.
 
-## D336 — Versioned accounting policy and standards references
+## D337 — Versioned accounting policy and standards references
 
 Keep physical quantity balances, commercial cash determinations/documents and
 financial accounting as separate responsibilities. An economic Instrument/Side
@@ -2791,7 +2791,7 @@ See [the accounting boundary](accounting-policy-boundary.md) for contracts,
 independent acceptance cases, decisions needing accounting review and sequence.
 
 
-## D337 — Final daily gas commercial cash with shared restatement arithmetic
+## D338 — Final daily gas commercial cash with shared restatement arithmetic
 
 Implement one completed native gas day and independently signed retained fixed
 cash/fee delivery membership under `gas_final_daily_fixed_cash_v1`. Select final
@@ -2808,16 +2808,16 @@ including fresh requests and other authorized actors; a new accepted revision
 records a linked correction with explicit cause, due instant and evidence.
 Storage waits cannot retain expired mutation or recovery authority. Billing needs
 AmendTrade and source reads, not BookTrade. UI and approval-only agent operations
-share the native handlers; migration 0204 gates new tools on `turns_v18`.
+share the native handlers; migration 0205 gates new tools on `turns_v18`.
 
 This consumer neither recognizes title/completion nor issues invoices, records
 payments, posts journals or changes contractual PV. Receipt/fuel stages, monthly
 rounding, price/fee corrections and broader commodities need their own qualified
-contracts. D336 remains an accounting design, not an executable posting policy.
+contracts. D337 remains an accounting design, not an executable posting policy.
 See [the gas cash contract](gas-cash-billing.md) for actual scope and checks.
 
 
-## D338 — Manual delivery desk, retro nominations and imbalance transfers
+## D339 — Manual delivery desk, retro nominations and imbalance transfers
 
 Implement the named manual workflows in [the delivery operations contract](gas-delivery-operations.md).
 Keep submitted requests, external counterparty/pipeline responses and reviewed
@@ -2839,7 +2839,7 @@ instrument, automatic cash-out, invoice/payment execution or accounting is
 introduced by this manual consumer. Qualify the business oracles and complete
 independent review before publication.
 
-## D339 — Separate physical operations and instrument inspection
+## D340 — Separate physical operations and instrument inspection
 
 Physical work belongs in a dedicated Operations sidebar view. Keep the Blotter
 focused on pricing, retained terms and the sides' read-only schedules. Reuse a
@@ -2854,9 +2854,9 @@ transport retains an uncertain command across widget/page/context changes, with
 shared Keep/Discard guards and current native authorization. Gas workflow and
 billing are separate tabs. LNG operational actuals, other commodity adapters and
 live pipeline connectivity retain explicit TBD status. New page/runtime admission
-is migration 0206 / turns_v20; no financial policy or executable commodity is added.
+is migration 0207 / turns_v20; no financial policy or executable commodity is added.
 
-## D340 — Focused physical operations layout
+## D341 — Focused physical operations layout
 
 Use one compact instrument picker and a persistent selected-instrument header.
 Present saved terms in responsive cards. Delivery stage tabs reveal their own
@@ -2870,7 +2870,7 @@ no financial policy or delivery day is inferred. Dirty stage/day changes preserv
 the current form, and a refused directory refresh clears prior identity metadata.
 Native permissions and the shared header context remain authoritative.
 
-## D341 — Physical trade and delivery-row grids
+## D342 — Physical trade and delivery-row grids
 
 Replace the trade/commodity pickers and delivery-day picker with the existing
 sortable, filterable data grid. Trade rows identify exact booked bindings under
@@ -2892,7 +2892,7 @@ compatibility, authority, evidence, version and acceptance decisions; selection
 adds no financial defaults or new write contract.
 
 
-## D342 — Native physical delivery projections
+## D343 — Native physical delivery projections
 
 Use one managed `PhysicalDeliveryView` for retained physical delivery intervals,
 quantity tracks, references and capabilities. Reuse a literal quantity-output

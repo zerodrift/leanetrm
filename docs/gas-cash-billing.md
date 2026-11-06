@@ -1,6 +1,6 @@
 # Final daily gas cash determinations
 
-D337 implements a bounded commercial consumer, `gas_final_daily_fixed_cash_v1`.
+D338 implements a bounded commercial consumer, `gas_final_daily_fixed_cash_v1`.
 It consumes one completed native gas day and one fixed-price payment or fee
 membership from a retained composed booking. It determines original/correcting
 cash obligations; it does not issue invoices, record payments, transfer title,
@@ -45,7 +45,7 @@ introduced.
 
 ## Persistence, review and history
 
-Migration 0204 adds immutable `trading.gas_cash_determinations` and actor-owned
+Migration 0205 adds immutable `trading.gas_cash_determinations` and actor-owned
 `trading.gas_billing_commands`. A determination retains exact trade revision,
 instrument/cash slot, obligation/day, manual revision or facility adopted-target
 FK, predecessor/ordinal, profile and numerical policy, currency revision, exact
@@ -98,7 +98,7 @@ actor-owned retained command and recovery card for status or exact retry,
 including widget remounts and unavailable browser storage during the same visit. The UI renders managed results and performs no cash calculations.
 
 The assistant operation catalog exposes these same native reads and approval-only
-commands on the Blotter. Migration 0204 and `turns_v18` gate new admission/tool
+commands on the Blotter. Migration 0205 and `turns_v18` gate new admission/tool
 execution together. Retained earlier requests remain replayable; deployment and
 provider/tool consent remain separate from local qualification.
 

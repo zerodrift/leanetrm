@@ -233,7 +233,7 @@ def run_checks(url, query, manifest, fake, demo):
         any(p['tradeId']==demo['trades'][0] for p in physical_facts['positions']) and
         all('presentValue' not in p for p in physical_facts['positions']) and physical_facts['context']['contextId']==directory_results[0]['context']['contextId'])
 
-    # Explicit fixture-only capabilities; no installed production role is changed by D338.
+    # Explicit fixture-only capabilities; no installed production role is changed by D339.
     query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN unnest(ARRAY['ReadGasOperations','ConfigureGasServices','RecordGasOperations'])p WHERE code='trader' ON CONFLICT DO NOTHING;")
     service_details=dict(obligationId=row['obligationId'],holderRole='legal_entity',externalReference='synthetic-agent-service',expectedPreviousId=None,validFrom='2021-01-01',validTo='2021-02-01',active=True,statementPolicy='final_statement_balance_v1',termsReference='Synthetic reviewed agent service',evidence='Synthetic agent service review')
     service_preview=dict(context=daily_current,tradeId=demo['trades'][0],expectedRevision=1,day=row['day'],kind='service',details=service_details)

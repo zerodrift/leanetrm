@@ -1,6 +1,6 @@
 # Accounting policy, settlement evidence and standards updates
 
-Status: local design under D336. This document defines the next bounded design
+Status: local design under D337. This document defines the next bounded design
 and acceptance contract. It adds no accounting engine, journal persistence,
 standards-compliance claim, posting permission or production accounting policy.
 Proposed object and method names below are not implemented APIs.
@@ -153,11 +153,11 @@ Source-head checks follow that approved determination/correction chain and its
 declared freshness policy. A later unaccepted measurement/allocation revision
 does not silently replace or erase the approved cash source; its eligibility
 effects require that explicit policy and, where needed, a commercial correction.
-The [D337 gas commercial consumer](gas-cash-billing.md) now qualifies one
+The [D338 gas commercial consumer](gas-cash-billing.md) now qualifies one
 completed native day/fixed-delivery component and its final-source corrections.
 It adds no invoice issuance or accounting policy. Existing gas quantity selection
 alone is not a cash determination; the accounting adapter must consume the exact
-approved D337 result within its separately qualified accounting scope.
+approved D338 result within its separately qualified accounting scope.
 
 Synthetic baseline: one buyer, one supplier, one January claim and a March
 correction in the same calendar year. Select USD with two decimal places and

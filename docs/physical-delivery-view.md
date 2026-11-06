@@ -1,4 +1,4 @@
-# Common physical delivery view (D342)
+# Common physical delivery view (D343)
 
 `PhysicalDeliveryView` is the managed read contract consumed by the operations
 grid. Gas, crude and LNG supply it through their existing authorized reads. It

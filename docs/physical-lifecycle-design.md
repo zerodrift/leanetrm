@@ -1,6 +1,6 @@
 # Reusable physical delivery and cash lifecycle
 
-D337 qualifies [daily gas commercial cash](gas-cash-billing.md) for fixed
+D338 qualifies [daily gas commercial cash](gas-cash-billing.md) for fixed
 delivery components and accepted final sources. It reuses the swap rounded-total
 difference; other proposed lifecycle/commodity adapters keep their own limits.
 

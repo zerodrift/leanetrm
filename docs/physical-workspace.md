@@ -208,7 +208,7 @@ Quantity/source and allocation revisions retain their effective period and their
 knowledge/publication identity. A later correction does not rewrite earlier
 certificates, accepted allocations or settled cash. The assistant can inspect the
 revisions and prepare supported operational corrections; automatic invoice
-adjustments are not implemented by this increment. D337 adds a separate
+adjustments are not implemented by this increment. D338 adds a separate
 [reviewed daily gas cash determination](gas-cash-billing.md), accessible from a
 booked gas instrument's Billing & corrections tab in Physical operations. It retains accepted source links and signed
 corrections; invoice/credit documents and accounting remain subsequent consumers.
@@ -218,13 +218,13 @@ classification: late actuals, quantity correction, allocation correction, price
 correction and fee correction. Whether the affected period or invoice is closed
 is a separate lifecycle fact; a late reading alone does not establish a
 prior-period accounting adjustment. Reuse governed reference-data conventions
-when a configurable consumer requires them. D337 currently admits only typed
+when a configurable consumer requires them. D338 currently admits only typed
 late-actual, quantity and allocation causes under its installed profile; price
 and fee corrections remain unsupported. No classification master is introduced. Debit/credit adjustments must link the
 original determination, corrected inputs and explicit delta without overwriting
 historical settlement.
 
-D336 defines the [accounting policy and standards-update boundary](accounting-policy-boundary.md)
+D337 defines the [accounting policy and standards-update boundary](accounting-policy-boundary.md)
 for this future consumer. Commercial correction and accounting treatment remain
 separate; source references and policy versions are retained independently, and
 updates cannot rewrite posted history. This is a design contract, not an
@@ -242,7 +242,7 @@ service terms follow that context without a version dropdown. Live transmission,
 partial imbalance reversals and portfolio imbalance instruments remain TBD.
 
 
-## Instrument inspection and operational work (D339)
+## Instrument inspection and operational work (D340)
 
 The Blotter inspects pricing, immutable instrument terms and read-only side
 schedules. It never mounts physical submission, statement, allocation or billing
@@ -269,7 +269,7 @@ clears it only after native operation, trade and result identities match; malfor
 success or status responses leave it retained. Historical
 views remain read-only and all native rights/source checks remain authoritative.
 
-## Focused operations layout (D340)
+## Focused operations layout (D341)
 
 Select a booked instrument in the Physical trades grid. The instrument
 header retains its exact trade reference, book and exclusive delivery window
@@ -292,7 +292,7 @@ independent. Historical and unauthorized actions stay disabled under native
 capabilities. The layout adapts to narrow viewports without new view-local As of
 or knowledge controls.
 
-## Trade and delivery grids (D341)
+## Trade and delivery grids (D342)
 
 Physical trades replaces both selection dropdowns. It lists trade reference,
 commodity, book, exclusive delivery bounds, pricing reference, booked quantity/unit
@@ -316,7 +316,7 @@ identified by the shared notice. Keep preserves a dirty row/form; an unavailable
 source or context clears stale data without losing an uncertain request.
 
 
-## Shared delivery intervals (D342)
+## Shared delivery intervals (D343)
 
 Delivery grids use the [common native view](physical-delivery-view.md). Gas keeps
 its independent side/day tracks and manual workflow. Crude and LNG show their

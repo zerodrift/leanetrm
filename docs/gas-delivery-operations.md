@@ -1,6 +1,6 @@
 # Manual gas delivery operations
 
-D338 is the bounded local implementation contract for a manual delivery desk covering
+D339 is the bounded local implementation contract for a manual delivery desk covering
 before flow, scheduling, after flow and reconciliation. Live pipeline submission,
 EDI/file connectors and automatic acknowledgments remain unavailable. Recorded
 external evidence and application of that evidence are separate operations.
@@ -138,7 +138,7 @@ activate permissions on an existing installation. `--gas-operations-check`
 qualifies the consumer in a fresh stock PostgreSQL database; add `--browser-check`
 with an installed browser to exercise review and request recovery.
 
-D341 replaces the delivery-day dropdown with all retained side/day rows in a
+D342 replaces the delivery-day dropdown with all retained side/day rows in a
 sortable/filterable grid. Select a row before operating it; its exact obligation
 is retained for service and quantity entry. Native recorded track/status values
 provide the display colors, without inferring operational completion.

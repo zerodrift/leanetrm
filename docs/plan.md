@@ -1,49 +1,49 @@
 # Delivery plan and acceptance criteria
 
-D342 adds the [common physical delivery view](physical-delivery-view.md): explicit
+D343 adds the [common physical delivery view](physical-delivery-view.md): explicit
 native intervals, exact membership/source references, quantity tracks and declared
 capabilities. Gas, crude and LNG reuse one grid over their native reads; commodity
 operations retain their own policies and authority. Dynamic quantity resolution
 and additional operational adapters remain separately qualified work.
 
-D341 replaces physical trade and delivery-day pickers with shared sortable,
+D342 replaces physical trade and delivery-day pickers with shared sortable,
 filterable grids. Exact binding/obligation/day identity, recorded source statuses
 and native quantity text remain authoritative; selection preserves context, edit
-and request-recovery guards. See [the operations grid contract](physical-workspace.md#trade-and-delivery-grids-d341).
+and request-recovery guards. See [the operations grid contract](physical-workspace.md#trade-and-delivery-grids-d342).
 
-D340 refines the [physical operations layout](physical-workspace.md#focused-operations-layout-d340):
+D341 refines the [physical operations layout](physical-workspace.md#focused-operations-layout-d341):
 compact instrument context, responsive saved-term cards, focused delivery stages
 and grouped billing inputs. Presentation reuses native operations and existing
 context, permission, edit and request-recovery guards.
 
-D339 moves physical work into **Operations → Physical operations**. The Blotter
+D340 moves physical work into **Operations → Physical operations**. The Blotter
 keeps pricing, retained instrument overviews and read-only Side schedules. The
 operations directory reads exact booked metadata without PV, refuses missing held
 source metadata and follows the header context. Gas and crude reuse their native
 workflows; gas billing has its own tab. Gas/crude/LNG overview presenters share a
 physical outline with commodity-specific saved conventions. LNG operational
 actuals and other unsupported commodity workflows remain explicitly TBD.
-Migration 0206 / assistant `turns_v20` add page admission and native discovery;
+Migration 0207 / assistant `turns_v20` add page admission and native discovery;
 financial contracts, permissions and persistence remain their existing owners.
 
-D338 adds [manual gas delivery operations](gas-delivery-operations.md): versioned
+D339 adds [manual gas delivery operations](gas-delivery-operations.md): versioned
 service accounts, nomination/retro requests, separate external acknowledgments,
 reviewed schedule adoption, signed operator statements and paired imbalance
 agreements. The dedicated gas workflow groups before flow, scheduling,
 after flow and reconciliation. It reuses native daily quantities, facility
 allocations, gas billing and the Blotter's retained-command transport. Migration
-0205 and assistant `turns_v19` require separate release qualification. Live
+0206 and assistant `turns_v19` require separate release qualification. Live
 connectivity, portfolio imbalance positions and accounting posting remain outside
 this bounded consumer; new permissions require explicit grants.
 
-D337 adds [final daily gas cash determinations](gas-cash-billing.md): an explicit
+D338 adds [final daily gas cash determinations](gas-cash-billing.md): an explicit
 completed-day/fixed-delivery consumer with original and correcting contributions,
 exact accepted source links and reviewed native/agent operations. It reuses swap
 cash-restatement arithmetic while preserving crude's cumulative invoice contract.
-Migration 0204 and assistant `turns_v18` require separate release qualification;
+Migration 0205 and assistant `turns_v18` require separate release qualification;
 invoices, payments, accounting journals and contractual PV changes are excluded.
 
-D336 records the [accounting policy and standards-update boundary](accounting-policy-boundary.md).
+D337 records the [accounting policy and standards-update boundary](accounting-policy-boundary.md).
 This is a design contract: exact reference/policy versions, separate posting
 periods and reviewed adoption. Its first proposed consumer is a synthetic gas
 billing correction; no journal engine, accounting policy or compliance claim is

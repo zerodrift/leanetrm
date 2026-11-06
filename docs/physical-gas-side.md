@@ -25,7 +25,7 @@ admits no fuel adjustment. The independent-side profile below admits explicit
 fixed-quantity fuel links. Floating cash, operational fuel treatment and broader
 captured clocks remain separately bounded capabilities.
 
-D337 adds separate [final daily fixed cash determinations](gas-cash-billing.md).
+D338 adds separate [final daily fixed cash determinations](gas-cash-billing.md).
 Physical completion/title, inventory, invoice issuance, payment allocation and
 settlement-aware portfolio valuation remain unsupported. The common Blotter includes both gas profiles through the native retained-schedule pricer, with a distinct contractual PV measure. One immutable gas instrument is one position binding; physical-side quantities are never summed into a receipt-plus-delivery total. Missing gas market context or started delivery produces an explicit unavailable valuation, while retained terms and daily operational quantities remain readable.
 
