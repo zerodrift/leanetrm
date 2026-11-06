@@ -3295,7 +3295,7 @@ completion; D201 has separate actual-worker evidence below.
 
 `tools/run_preview.py --close-risk-lease-check --pg-bin <stock-PG-bin> --dotnet
 <pinned-dotnet> --no-build` uses this repository and a fresh disposable database.
-It admits actual ten-year hourly PPA risk, runs isolated scheduler/runtime worker
+It admits actual twelve-month quarter-hour PPA risk, runs isolated scheduler/runtime worker
 logins, and covers failed renewal, cancellation, current authority loss, overall
 deadline expiry, real worker death and natural replacement. A PostgreSQL wire
 proxy drops a committed report's acknowledgement; it first independently confirms
@@ -3304,6 +3304,20 @@ pins/deadline after correction, exact complete HTTP results, stale-context refus
 terminal outcome replay/conflict/authority, and original legacy claim gates.
 Independent count assertions can also be applied directly to the captured complete
 worker receipt, without repeating valuation.
+
+The deadline case suspends only its owned worker after observing its durable claim
+and confirms that publication has not begun. Native renewal requests
+cap at the original deadline before expiry and refuse after PostgreSQL's clock
+passes it; the resumed worker must publish no report. This scheduling-stall fault
+does not rely on cold preparation taking longer than five seconds or alter clocks.
+The process is always resumed during cleanup.
+
+The replacement must publish after its original lease would have expired, with
+observed native renewals. If calculation reaches its transaction-free phase
+before that boundary, a brief owned-process scheduling stall crosses it while
+the renewed lease remains live. The receipt records this stall separately from
+elapsed completion time; no computation-speed claim includes it. The native
+publisher, calculation inputs, clocks and lease duration remain unchanged.
 
 The actual long completion measured 326.922 seconds; replacement and lost-ack
 recovery measured 329.441 seconds, both over 120 seconds. Exact numerical/work and
