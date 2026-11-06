@@ -197,7 +197,7 @@ and migration 0196 must ship with the matching API/browser assets.
 D320: `app.ts` and `blotter-window.ts` own busy state through initial control
 refresh and completion. A refresh failure follows the same error/stale path as
 other failed work and releases busy before refreshing controls again.
-`assistant-walkthroughs.ts` owns its HUD controls with `data-own-controls`; native
+`assistant-walkthroughs.ts` owns its dedicated inline controls with `data-own-controls`; native
 page refresh cannot disable Stop while awaiting a read. The owned assistant and
 live-calculation browser suites qualify initial-refresh failures and subsequent
 native action/Retry, including the pop-out.
@@ -212,10 +212,23 @@ compares actual `pageReport(PageState)` output with Looking at's catalog and the
 page-prompt API; the managed HTTP check verifies the SQL whitelist and prompt pins.
 Runtime `turns_v15` fences old admission and stored-plan writers.
 
-`assistant-walkthroughs.ts` owns Minimize / Restore, Close, Stop and Continue.
+`assistant-walkthroughs.ts` owns inline Stop and Continue; panel Close stops the run.
 Its animation-frame tracker anchors the cursor inside the actual visible native
 control, suppresses occluded/offscreen pointers and clears the outline on stop.
-A native modal hosts only these guide elements so modal inertness still protects
+A native modal or sheet hosts only these dedicated controls so modal inertness still protects
 the background. `app.ts` and `futures-view.ts` return native heading/visible ticket
 field anchors for navigation. No model selector, markup or business action enters
 this presentation adapter. CSS supplies the glowing cursor and reduced-motion rule.
+
+
+D335: `assistant-panel.ts` hosts the dedicated inline walkthrough controls and
+stops on panel close. `assistant-walkthroughs.ts` resolves a page-owned anchor
+through `presentationLocate`, aims a top-layer cursor, fences cancellation, invokes
+the existing typed adapter and tracks its returned control. Intended transitions
+retire the old anchor before awaiting reads. `app.ts` routes native entry through
+`futures-view.ts.loadEntry`; this reads only the authorized trading directory
+before the ordinary product catalog. `data-grid.ts` exposes page-owned row/cell/
+column anchors. `swap-editor.ts` owns the closed unsaved swap setters and revision;
+no synthetic change/submit event reaches the native form. Book/Save/Authorize
+have no presentation adapter. Controls-mode digest metadata comes from the API;
+the browser supplies no financial evidence.

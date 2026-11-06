@@ -105,7 +105,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
 
     for page in ('dashboard', 'vol_surfaces'):
         admin.call(prompt_path + '/save', {'operationId': str(uuid4()), 'page': page, 'expectedVersion': 0, 'instructions': 'Synthetic identity-only guidance.'})
-        identity_turn, identity_results, _ = ask([('read_page_digest', {}), ('read_current_page', {})], page=page)
+        identity_turn, identity_results, _ = ask([('read_page_digest', {'mode': 'overview'}), ('read_current_page', {})], page=page)
         check(page + ' admits an empty report and pins guidance without inventing widget values',
               query(f"SELECT page||':'||version FROM assistant.turn_prompt_pins WHERE turn_id='{identity_turn['id']}';") == page + ':1'
               and identity_results[0]['result']['text'].startswith('Page: ' + page + ' |')
@@ -174,19 +174,32 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     digest_report = {'page': 'blotter', 'selection': digest_selection,
                      'view': {**{k: digest_selection[k] for k in ('mode', 'bookIds', 'portfolioIds', 'groupBy')},
                               'measures': ['executionPnl'], 'primaryMeasure': 'executionPnl'}}
-    digest_turn, digest_results, _ = ask([('read_page_digest', {})], report=digest_report)
+    controls_turn, controls_results, _ = ask([('read_page_digest', {'mode': 'controls'})], report=digest_report)
+    controls = controls_results[0]['result']
+    check('controls digest returns authorized native entry handles without portfolio values or record evidence',
+          controls['text'].endswith('Screen controls only. Financial values were not read.')
+          and 'Positions:' not in controls['text'] and 'Totals:' not in controls['text']
+          and [t['label'] for t in controls['targets']] == ['Blotter', 'New trade', 'New futures trade', 'New swap']
+          and all('tradeId' not in json.dumps(t) for t in controls['targets'])
+          and len(controls['screens']) == 4)
+    controls_plan = [{'kind': 'go', 'target': 'n4'}, {'kind': 'pause', 'page': 'blotter_new_swap'}]
+    _, controls_presented, _ = ask([('read_page_digest', {'mode': 'controls'}), ('present_walkthrough', {'planJson': json.dumps(controls_plan)})], report=digest_report)
+    check('controls metadata alone can open the native entry page without redundant discovery', controls_presented[1].get('status') == 'presented')
+    _, control_selection, _ = ask([('read_page_digest', {'mode': 'controls'}), ('present_walkthrough', {'planJson': json.dumps([{'kind': 'select', 'page': 'blotter', 'focus': {'tradeIds': [booked['tradeId']], 'pivotCell': None}}])})], report=digest_report)
+    check('controls metadata cannot certify a selected trade as server-read evidence', control_selection[1].get('code') == 'walkthrough_plan_invalid')
+    digest_turn, digest_results, _ = ask([('read_page_digest', {'mode': 'overview'})], report=digest_report)
     digest = digest_results[0]
     check('the Blotter digest has ordered server counts, totals, extrema and issued targets',
           digest['operation'] == 'workspace.digest_v1' and 'Positions: future=1' in digest['result']['text']
           and digest['result']['text'].index('Book:') < digest['result']['text'].index('Largest:') < digest['result']['text'].index('Smallest:')
           and len(digest['result']['targets']) == 2 and len(digest['result']['text'].encode()) <= 4096)
-    _, numbered, _ = ask([('read_workspace_page', {'page': 'blotter_new_swap'}), ('read_page_digest', {}), ('read_workspace_page', {'page': 'blotter_new_future'})], report=digest_report)
+    _, numbered, _ = ask([('read_workspace_page', {'page': 'blotter_new_swap'}), ('read_page_digest', {'mode': 'overview'}), ('read_workspace_page', {'page': 'blotter_new_future'})], report=digest_report)
     check('workspace and digest reads share one turn-local target sequence', numbered[0]['target'] == 'n1'
           and [t['handle'] for t in numbered[1]['result']['targets']] == ['n2', 'n3'] and numbered[2]['target'] == 'n4')
     plan = [{'kind': 'sort', 'page': 'blotter', 'column': 'presentValue', 'direction': 'desc'},
             {'kind': 'select', 'page': 'blotter', 'focus': {'tradeIds': [booked['tradeId']], 'pivotCell': None}},
             {'kind': 'say', 'page': 'blotter', 'message': 'review'}, {'kind': 'pause', 'page': 'blotter'}]
-    shown, shown_results, _ = ask([('read_page_digest', {}), ('present_walkthrough', {'planJson': json.dumps(plan)})], report=digest_report)
+    shown, shown_results, _ = ask([('read_page_digest', {'mode': 'overview'}), ('present_walkthrough', {'planJson': json.dumps(plan)})], report=digest_report)
     stored = owner.call(f"assistant/conversations/{shown['conversationId']}?after=0")
     events = stored['events'];event = next(e for e in events if e['kind'] == 'walkthrough')
     check('a validated walkthrough is stored immediately after its tool step with no business effect',
@@ -196,12 +209,12 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
                            ('unknown navigation handle',[{'kind':'go','target':'n99'}]),
                            ('unread page',[{'kind':'pause','page':'jobs'}]),
                            ('oversized plan',[{'kind':'pause','page':'blotter'}]*13)]:
-        invalid_turn, invalid_results, _ = ask([('read_page_digest', {}), ('present_walkthrough', {'planJson':json.dumps(invalid)})], report=digest_report)
+        invalid_turn, invalid_results, _ = ask([('read_page_digest', {'mode': 'overview'}), ('present_walkthrough', {'planJson':json.dumps(invalid)})], report=digest_report)
         denied_events=owner.call(f"assistant/conversations/{invalid_turn['conversationId']}?after=0")['events']
         check('walkthrough refuses '+label+' without publishing a partial plan', 'code' in invalid_results[1] and not any(e['kind']=='walkthrough' for e in denied_events))
     retained_context = query(f"SELECT context_id FROM assistant.turns WHERE id='{digest_turn['id']}';")
     pinned_lines = digest['result']['text'].split('Status:', 1)[1]
-    _, curve_digest, _ = ask([('read_page_digest', {})], report={'page': 'curves', 'selection': {'view': 'curves', 'curve': None}})
+    _, curve_digest, _ = ask([('read_page_digest', {'mode': 'overview'})], report={'page': 'curves', 'selection': {'view': 'curves', 'curve': None}})
     check('curve digest reuses the authorized curve directory', 'Curves: ' in curve_digest[0]['result']['text'])
 
     # Legacy publication-prefix contexts and binder aliases cannot escape the question's exact certificate.
@@ -226,17 +239,17 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     owner.call('market/context/retained', {'contextId': retained_context, 'selection': 'latest_correction'})
     try:
         retained_frame = initial_frame(owner.call('workspace/navigation'), '2020-12-18')
-        _, retained_digest, _ = ask([('read_page_digest', {})], report=digest_report,
+        _, retained_digest, _ = ask([('read_page_digest', {'mode': 'overview'})], report=digest_report,
             knowledge={'mode': 'retained', 'contextId': retained_context, 'frameId': retained_frame['id']})
         check('a retained-context digest keeps the pre-correction server values',
               retained_digest[0]['result']['text'].split('Status:', 1)[1] == pinned_lines)
-        _, refusal_digest, _ = ask([('read_page_digest', {})], report={'page': 'jobs', 'selection': {'view': 'jobs', 'job': None, 'page': 0, 'before': None}},
+        _, refusal_digest, _ = ask([('read_page_digest', {'mode': 'overview'})], report={'page': 'jobs', 'selection': {'view': 'jobs', 'job': None, 'page': 0, 'before': None}},
             knowledge={'mode': 'retained', 'contextId': retained_context, 'frameId': None})
         check('digest retains the underlying current-only job refusal', refusal_digest[0]['code'] == 'jobs_current_only')
     finally:
         owner.call('market/current', {})
         frame = initial_frame(owner.call('workspace/navigation'), '2020-12-18')
-    _, current_digest, _ = ask([('read_page_digest', {})], report=digest_report)
+    _, current_digest, _ = ask([('read_page_digest', {'mode': 'overview'})], report=digest_report)
     check('working digest includes later business facts while the retained digest keeps the original values',
           'Positions: future=2' in current_digest[0]['result']['text'] and current_digest[0]['result']['text'].split('Status:', 1)[1] != pinned_lines)
     # A proposal can expire while its ordinary command waits, without any role or epoch change. Its final guard must

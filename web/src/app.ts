@@ -1291,7 +1291,7 @@ async function showTarget(report:string,selection:Record<string,unknown>|null,ki
   if(report==='blotter_new_trade'||report==='blotter_new_future'||report==='blotter_new_swap'){
     if(futures.poppedOut())throw Error('Bring the Blotter back to this window before opening a ticket here.');
     await setPage('futures');signal?.throwIfAborted();
-    await futures.load({background:false});signal?.throwIfAborted();
+    await futures.loadEntry(signal);signal?.throwIfAborted();
     await futures.openEntry(report==='blotter_new_trade'?null:report==='blotter_new_future'?'futures':'swaps',signal);return;
   }
   if(!selection)return showPage(next);
@@ -1393,13 +1393,20 @@ $('assistant-hide').onclick=()=>{prefs.assistantMinimized=true;persist();assista
 const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launcherMinimized:()=>prefs.assistantMinimized,restoreLauncher:()=>{prefs.assistantMinimized=false;persist();},api,root:apiRoot,identity:()=>administrationScope+':'+currentProfile,zone:()=>prefs.timeZone,
   changed:async()=>{if(!unsaved())await showPage(page);},
   presentationRevision:()=>futures.presentationRevision(),
+  presentationLocate:step=>{
+    if(step.kind==='go'){
+      const id=step.target.page.startsWith('blotter')?(page==='futures'&&['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(step.target.page)?'futures-new':'nav-futures'):'nav-'+webPage(step.target.page);
+      const control=$(id);return control?.getClientRects().length&&!control.closest('[hidden]')?control:null;
+    }
+    return page==='futures'?futures.presentationLocate(step):$('page-title');
+  },
   presentation:async(step,signal)=>{
     signal.throwIfAborted();
     if(step.kind==='go'){
       if(navigation?.live)throw Error('Pause live data yourself before a walkthrough moves pages.');
       if(unsaved()||futures.windowEdits())throw Error('Finish unsaved changes before moving.');
       if(busy)throw Error('The page is busy.');
-      await acting(act,async()=>{try{await showTarget(step.target.page,step.target.selection,step.target.kind,signal);if(step.target.page.startsWith('blotter'))await futures.valued();signal.throwIfAborted();}catch(error){if(!signal.aborted)throw error;}});signal.throwIfAborted();return step.target.page.startsWith('blotter')?futures.presentationTarget():$('page-title');
+      await acting(act,async()=>{try{await showTarget(step.target.page,step.target.selection,step.target.kind,signal);if(step.target.page.startsWith('blotter')&&!['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(step.target.page))await futures.valued();signal.throwIfAborted();}catch(error){if(!signal.aborted)throw error;}});signal.throwIfAborted();return step.target.page.startsWith('blotter')?futures.presentationTarget():$('page-title');
     }
     const shown=pageReport(pageState()).page;
     if((shown.startsWith('blotter')?'blotter':shown)!==(step.page.startsWith('blotter')?'blotter':step.page))throw Error('The page changed.');

@@ -62,7 +62,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('Looking at states the selection and the server digest',"document.querySelector('#assistant-looking-shows').textContent.includes('3 selected positions')&&document.querySelector('#assistant-looking-shows').textContent.includes('server will read a page digest')");
   await check('the prefilled ask remains editable and unsent',"document.querySelector('#assistant-question').value.includes('selected positions')&&!__selectionRequests.some(r=>r.path.endsWith('/assistant/turns/ask'))");
   await sendQuestion();await wait("!document.querySelector('#assistant-consent').hidden");
-  const answers=[{tools:[['toolu_selection_digest','read_page_digest',{}]]},{text:'Synthetic selected positions were read at the question pin.'}];
+  const answers=[{tools:[['toolu_selection_digest','read_page_digest',{mode:'overview'}]]},{text:'Synthetic selected positions were read at the question pin.'}];
   if(!(await fetch(new URL('/respond',control),{method:'POST',body:JSON.stringify(answers)})).ok)throw Error('Synthetic provider refused the script.');
   await wait('__selectionWaits>0');
   const consentPrices=await evaluate("__selectionRequests.filter(r=>r.path==='/api/trading/workspace').length"),changedHeads=await evaluate('__selectionChangedHeads');
@@ -79,13 +79,15 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('the server digest completes without a selection refusal',"document.querySelector('#assistant-turns .assistant-steps').textContent.includes('Read page digest')&&!document.querySelector('#assistant-turns .assistant-steps').textContent.includes('refused')");
   await shot('assistant-selection');
   const selected=await evaluate('__selectedTradeIds');
-  const swapPlan=[{kind:'go',target:'n1'},{kind:'pause',page:'blotter_new_swap'}];
+  const swapPlan=[{kind:'go',target:'n4'},{kind:'pause',page:'blotter_new_swap'}];
   const openSwap=async(walkthrough,tag)=>{
+    const fast=walkthrough&&tag!=='unsaved_walkthrough';
+    if(await evaluate("!!document.querySelector('#swap-form')?.getBoundingClientRect().height&&!!document.querySelector('#details-collapse')?.getClientRects().length")){await click('#details-collapse');await wait("!document.querySelector('#swap-form')?.getBoundingClientRect().height");}
     await script([...(tag==='navigation'?[{tools:[['toolu_full_catalog','discover_page_operations',{page:'all',operation:null}]]}]:[]),
-      {tools:[['toolu_'+tag+'_read','read_workspace_page',{page:'blotter_new_swap'}]]},
-      {tools:[[ 'toolu_'+tag+'_open',walkthrough?'present_walkthrough':'navigate',walkthrough?{planJson:JSON.stringify(swapPlan)}:{page:'blotter_new_swap',target:null}]]},
+      {tools:[[ 'toolu_'+tag+'_read',fast?'read_page_digest':'read_workspace_page',fast?{mode:'controls'}:{page:'blotter_new_swap'}]]},
+      {tools:[[ 'toolu_'+tag+'_open',walkthrough?'present_walkthrough':'navigate',walkthrough?{planJson:JSON.stringify(fast?swapPlan:[{kind:'go',target:'n1'},{kind:'pause',page:'blotter_new_swap'}])}:{page:'blotter_new_swap',target:null}]]},
       {text:'Synthetic swap ticket '+tag+'.'}]);
-    await set('#assistant-question','Help me open a swap ticket.');await sendQuestion();
+    await evaluate('window.__entryRequestStart=__selectionRequests.length');await set('#assistant-question','Help me open a swap ticket.');await sendQuestion();
   };
   await openSwap(false,'navigation');
   await wait("document.querySelector('#swap-form')?.getBoundingClientRect().height>0");
@@ -100,11 +102,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await openSwap(true,'walkthrough');
   await wait("document.querySelector('#swap-form')?.getBoundingClientRect().height>0&&!document.querySelector('.assistant-walkthrough-continue').hidden");
   await check('the swap guide points inside a visible native ticket control',`(()=>{const c=document.querySelector('.assistant-walkthrough-cursor'),r=c.getBoundingClientRect(),target=document.elementFromPoint(r.left,r.top);return !c.hidden&&!!target?.closest('#swap-form')&&target.matches('input,select,button,textarea');})()`);
+  await check('native swap entry needs no portfolio valuation or broad operation discovery',"!__selectionRequests.slice(__entryRequestStart).some(r=>r.path.endsWith('/trading/workspace')||r.path.includes('/trading/workspace/'))&&![...document.querySelectorAll('#assistant-turns .assistant-steps')].at(-1).textContent.includes('Inspect available operations')");
   await check('an issued New swap go opens the ticket and pauses without pricing or booking',"!__selectionRequests.some(r=>['/swaps/price','/swaps/preview','/swaps/draft-risk','/swaps/book','/assistant/actions/authorize'].some(path=>r.path.endsWith(path)))");
   await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
   await wait("document.querySelector('#assistant-send').textContent==='Send'&&"+idle);await click('#nav-futures');await wait(idle);
+  await check('Escape stops the walkthrough without closing its inline assistant panel',"!document.querySelector('#assistant-panel').hidden");
   await evaluate('window.__holdSwapOpen=true');await openSwap(true,'stopped');
-  await wait("typeof window.__releaseSwapOpen==='function'");
+  await wait("typeof window.__releaseSwapOpen==='function'").catch(async error=>{throw Error(error.message+' · '+JSON.stringify(await evaluate("({status:document.querySelector('.assistant-walkthrough-status').textContent,report:__selectionRequests.filter(r=>r.path.endsWith('/assistant/turns/ask')).at(-1).body.pageReport,steps:[...document.querySelectorAll('#assistant-turns .assistant-steps')].at(-1).textContent})")));});
   await check('walkthrough Stop stays enabled during a native page read',"!document.querySelector('.assistant-walkthrough button:last-child').disabled");
   await press({command,evaluate},'.assistant-walkthrough button:last-child');
   await evaluate('window.__holdSwapOpen=false;window.__releaseSwapOpen()');await wait(idle);
@@ -123,13 +127,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     const wanted=__selectedTradeIds.includes(row.dataset.rowKey.split(':')[0]);if(wanted!==(row.getAttribute('aria-selected')==='true'))row.dispatchEvent(new MouseEvent('click',{bubbles:true,ctrlKey:true}));}})()`);
   await evaluate("document.querySelector('#blotter-reset-layout').click()");await wait(idle);
   await check('the default layout collapses Details before ordinary page guidance',"document.querySelector('#position-details').getBoundingClientRect().height===0");
-  await script([{tools:[['toolu_collapsed_digest','read_page_digest',{}],['toolu_collapsed_plan','present_walkthrough',{planJson:JSON.stringify([{kind:'go',target:'n1'},{kind:'pause',page:'blotter'}])}]]},{text:'Synthetic ordinary page guidance.'}]);
+  await script([{tools:[['toolu_collapsed_digest','read_page_digest',{mode:'overview'}],['toolu_collapsed_plan','present_walkthrough',{planJson:JSON.stringify([{kind:'go',target:'n1'},{kind:'pause',page:'blotter'}])}]]},{text:'Synthetic ordinary page guidance.'}]);
   await set('#assistant-question','Show this page and pause.');await sendQuestion();await wait("!document.querySelector('.assistant-walkthrough-continue').hidden");
   await check('ordinary Blotter guidance points at a visible page anchor with Details collapsed',"!document.querySelector('.assistant-walkthrough-cursor').hidden&&['desk-positions','page-title'].includes(document.querySelector('.assistant-walkthrough-target')?.id)&&document.querySelector('#position-details').getBoundingClientRect().height===0","({cursor:document.querySelector('.assistant-walkthrough-cursor').outerHTML,target:document.querySelector('.assistant-walkthrough-target')?.id,details:document.querySelector('#position-details').getBoundingClientRect().toJSON(),status:document.querySelector('.assistant-walkthrough-status').textContent,looking:document.querySelector('#assistant-looking-shows').textContent})");
   await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await wait("document.querySelector('#assistant-send').textContent==='Send'");
   await click('#blotter-dock-grid');await wait("document.querySelector('#desk-positions').getBoundingClientRect().height>0&&"+idle);
   const stopPlan=[{kind:'pause',page:'blotter'}];
-  const stopAnswers=[{tools:[['toolu_stop_digest','read_page_digest',{}],['toolu_stop_plan','present_walkthrough',{planJson:JSON.stringify(stopPlan)}]]},
+  const stopAnswers=[{tools:[['toolu_stop_digest','read_page_digest',{mode:'overview'}],['toolu_stop_plan','present_walkthrough',{planJson:JSON.stringify(stopPlan)}]]},
     {hold:'walkthrough_later_plan',tools:[['toolu_later_plan','present_walkthrough',{planJson:JSON.stringify(stopPlan)}]]},{text:'Synthetic stopped walkthrough.'}];
   if(!(await fetch(new URL('/respond',control),{method:'POST',body:JSON.stringify(stopAnswers)})).ok)throw Error('Synthetic provider refused the stop script.');
   await set('#assistant-question','Show this selection and pause.');await sendQuestion();
@@ -150,7 +154,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     {kind:'fill',page:'blotter',field:'ticket.executionPrice',value:'3.4'},
     {kind:'say',page:'blotter',message:'fill'},{kind:'pause',page:'blotter'}];
   await set('#assistant-question','Fill unsaved futures ticket\nSet ticket.lots = "2"\nSet ticket.executionPrice = "3.4"');
-  await script([{tools:[['toolu_walk_digest','read_page_digest',{}],['toolu_walk_plan','present_walkthrough',{planJson:JSON.stringify(plan)}]]},{text:'Synthetic walkthrough presented.'}]);
+  await script([{tools:[['toolu_walk_digest','read_page_digest',{mode:'overview'}],['toolu_walk_plan','present_walkthrough',{planJson:JSON.stringify(plan)}]]},{text:'Synthetic walkthrough presented.'}]);
   await sendQuestion();
   try{await wait("!document.querySelector('.assistant-walkthrough-continue').hidden");}catch(error){throw Error(error.message+' · '+JSON.stringify(await evaluate("({walk:document.querySelector('.assistant-walkthrough-status').textContent,turns:document.querySelector('#assistant-turns').textContent,status:document.querySelector('#assistant-status')?.textContent})")));}
   await check('the live walkthrough visibly changes only presentation and pauses',"document.querySelector('.assistant-walkthrough-label').textContent.includes('workspace operations')&&document.querySelector('#assistant-looking-shows').textContent.includes('3 selected positions')&&!__selectionRequests.some(r=>r.path.endsWith('/futures/book'))","({label:document.querySelector('.assistant-walkthrough-label').textContent,looking:document.querySelector('#assistant-looking-shows').textContent,rows:document.querySelectorAll('#desk-positions .tabulator-row[aria-selected=true]').length,walk:document.querySelector('.assistant-walkthrough-status').textContent})");
@@ -176,9 +180,24 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   for(const [navigation,page] of [['dashboard','dashboard'],['crude-setup','crude_setup'],['vol-surfaces','vol_surfaces']]){
     if(navigation==='crude-setup')await openPhysical({click,evaluate,wait},navigation);else await click('#nav-'+navigation);await wait(idle);
     await evaluate(`(()=>{const value=document.createElement('p');value.textContent='Synthetic widget evidence 918273';document.querySelector('#'+${JSON.stringify(navigation)}+'-page').append(value);})()`);
-    await script([{tools:[['toolu_identity_'+page,'read_page_digest',{}],['toolu_unsupported_'+page,'read_current_page',{}]]},{text:'Synthetic page identity '+page+'.'}]);
+    await script([{tools:[['toolu_identity_'+page,'read_page_digest',{mode:'overview'}],['toolu_unsupported_'+page,'read_current_page',{}]]},{text:'Synthetic page identity '+page+'.'}]);
     await set('#assistant-question','Identify this page.');await sendQuestion();
     await wait(`document.querySelector('#assistant-turns').textContent.includes(${JSON.stringify('Synthetic page identity '+page+'.')})&&document.querySelector('#assistant-send').textContent==='Send'`);
     await check(page+' admits its native empty report without browser widget values',`(()=>{const request=__selectionRequests.filter(r=>r.path.endsWith('/assistant/turns/ask')).at(-1).body;return JSON.stringify(request.pageReport)===JSON.stringify({page:${JSON.stringify(page)},selection:{}})&&!JSON.stringify(request).includes('918273')&&document.querySelector('#assistant-error').hidden;})()`);
   }
+  await wait("document.querySelector('#assistant-send').textContent==='Send'&&"+idle);
+  // Reuse the native ordinary entry navigation, then present explicitly stated unsaved swap terms.
+  await openSwap(false,'swap_fill_entry');await wait("document.querySelector('#swap-form')?.getBoundingClientRect().height>0&&document.querySelector('#assistant-send').textContent==='Send'");
+  const swapTerms=[['swap.structure','financial_fixed_floating'],['swap.priceMode','agreed'],['swap.quantity','1000'],['swap.fixedPrice','3.4'],['swap.fixedDirection','-1'],['swap.memo','Synthetic unsaved terms']];
+  const fillSwapPlan=swapTerms.map(([field,value])=>({kind:'fill',page:'blotter_new_swap',field,value}));fillSwapPlan.push({kind:'pause',page:'blotter_new_swap'});
+  await script([{tools:[['toolu_swap_fill_controls','read_page_digest',{mode:'controls'}],['toolu_swap_fill_plan','present_walkthrough',{planJson:JSON.stringify(fillSwapPlan)}]]},{text:'Synthetic unsaved swap terms presented.'}]);
+  await set('#assistant-question','Fill unsaved swap ticket'+swapTerms.map(([field,value])=>'\nSet '+field+' = '+JSON.stringify(value)).join(''));
+  await evaluate('window.__swapFillStart=__selectionRequests.length');await sendQuestion();
+  await wait("document.querySelector('#swap-memo').value==='Synthetic unsaved terms'&&!document.querySelector('.assistant-walkthrough-continue').hidden").catch(async error=>{throw Error(error.message+' · '+JSON.stringify(await evaluate("({status:document.querySelector('.assistant-walkthrough-status').textContent,announce:document.querySelector('#assistant-status').textContent,error:document.querySelector('#assistant-error').textContent,steps:[...document.querySelectorAll('#assistant-turns .assistant-steps')].at(-1).textContent,report:__selectionRequests.filter(r=>r.path.endsWith('/assistant/turns/ask')).at(-1).body.pageReport,fields:['swap-type','swap-quantity','swap-price-mode','swap-price','swap-memo'].map(id=>{const c=document.getElementById(id);return {id,value:c.value,disabled:c.disabled,box:c.getBoundingClientRect().toJSON(),hit:(()=>{const b=c.getBoundingClientRect(),h=document.elementFromPoint(b.left+16,b.top+16);return h?{id:h.id,tag:h.tagName,classes:h.className}:null;})()};})})")));});
+  await check('typed swap fills operate native controls and leave every unstated term unselected',"document.querySelector('#swap-type').value==='financial_fixed_floating'&&document.querySelector('#swap-quantity').value==='1000'&&document.querySelector('#swap-price').value==='3.4'&&document.querySelector('#swap-direction').value==='-1'&&document.querySelector('#swap-book').value===''&&document.querySelector('#swap-commodity').value===''&&document.querySelector('#swap-discounting').value===''");
+  await check('native swap fills never preview, book, save or authorize',"!__selectionRequests.slice(__swapFillStart).some(r=>['/swaps/price','/swaps/book','/assistant/actions/authorize'].some(path=>r.path.endsWith(path)))&&document.querySelector('#swap-submit').disabled&&document.querySelectorAll('aside.assistant-walkthrough').length===0");
+  await shot('assistant-swap-fill');
+  await click('#assistant-close');
+  await check('closing the assistant stops its cursor and leaves the unsaved swap for the person',"document.querySelector('.assistant-walkthrough-cursor').hidden&&document.querySelector('.assistant-walkthrough-continue').hidden&&document.querySelector('#swap-price').value==='3.4'");
+
 }

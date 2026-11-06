@@ -183,7 +183,7 @@ internal static class PageDigest
 
 public sealed partial class AgentTools
 {
-    async Task<ToolStep> RunDigest(TurnReads turn,TurnTargets targets,ModelToolRequest request,CancellationToken ct)
+    async Task<ToolStep> RunDigest(TurnReads turn,TurnTargets targets,ModelToolRequest request,DigestArguments arguments,CancellationToken ct)
     {
         var at=DateTimeOffset.UtcNow;var access=WorkspaceAccess(database.Manifest);
         ToolStep Step(string? code,string content,ToolStepEnd end)=>new(request.Name,"workspace.digest_v1",request.Input,code,at,access,content,end);
@@ -193,8 +193,16 @@ public sealed partial class AgentTools
             await database.WithAgent(turn.Agent,turn.ReadLimit,[AssistantOperations.Permission],instant=>at=instant,(_,_)=>Task.FromResult(true),ct);
             access=[..access.Concat(await workspace.SourceAccess(turn,ct)).Distinct()];
             var page=turn.PageReport.GetProperty("page").GetString()!;
-            DigestContent digest;
-            if(PageReports.DigestView(turn.PageReport) is {} view)
+            DigestContent digest;JsonArray? screens=null;string[] readPages=[page];
+            if(arguments.Mode=="controls")
+            {
+                screens=await workspace.PresentationPages(turn,ct);
+                readPages=screens.Select(s=>s!["page"]!.GetValue<string>()).ToArray();
+                var available=screens.Where(s=>PageReports.Opens(s!["page"]!.GetValue<string>())&&s["operations"]!.AsArray().Count>0&&turn.Pin.BusinessDate is null)
+                    .Select(s=>NavigationTargets.Page(s!["page"]!.GetValue<string>())).ToImmutableArray();
+                digest=new(PageDigest.Bounded([PageDigest.Header(page,turn.Pin),"Selection: "+turn.PageReport.GetProperty("selection").GetRawText(),"Screen controls only. Financial values were not read."]),available,CountRows(screens));
+            }
+            else if(PageReports.DigestView(turn.PageReport) is {} view)
             {
                 var projected=await workspace.Project(turn,"trading.workspace_v1",async(connection,t)=>
                 {
@@ -268,8 +276,9 @@ public sealed partial class AgentTools
             }
             var digestTargets=digest.Targets.Select((target,i)=>new IssuedTarget(NavigationTargets.Handle(targets.Next+i),target)).ToImmutableArray();
             var digestValue=new JsonObject{["text"]=digest.Text,["presentation"]=WalkthroughPlans.Capabilities(page),["targets"]=new JsonArray([..digestTargets.Select(i=>(JsonNode?)new JsonObject{["handle"]=i.Handle,["label"]=i.Target.Label})])};
+            if(screens is not null)digestValue["screens"]=screens;
             var envelope=new JsonObject{["operation"]="workspace.digest_v1",["context"]=new JsonObject{["knowledge"]=turn.Pin.Operational?"current_operations":turn.Pin.Working?"working_data":"retained",["contextId"]=turn.Pin.Operational?null:turn.Pin.ContextId.ToString(),["cutoff"]=turn.Pin.Cutoff.ToString("O",CultureInfo.InvariantCulture)},["amountDisplay"]=ToolAmountDisplay.Implementation,["result"]=digestValue};
-            return Bounded(envelope,digest.Rows,turn.OutputLimits) is {} content?Step(null,content,ToolStepEnd.Result) with{ReadPages=[page],ReadFocus=PageReports.DigestView(turn.PageReport) is not null&&PageFocus.From(turn.PageReport)?.PivotCell is not null?turn.PageReport.GetProperty("focus").Clone():null,Issued=digestTargets}:throw new ToolRefusal("result_too_large");
+            return Bounded(envelope,digest.Rows,turn.OutputLimits) is {} content?Step(null,content,ToolStepEnd.Result) with{ReadPages=[..readPages],ReadFocus=arguments.Mode=="overview"&&PageReports.DigestView(turn.PageReport) is not null&&PageFocus.From(turn.PageReport)?.PivotCell is not null?turn.PageReport.GetProperty("focus").Clone():null,Issued=digestTargets}:throw new ToolRefusal("result_too_large");
         }
         catch(ToolRefusal e){return Step(e.Code,Refusal(e.Code),ToolStepEnd.Refusal);}
         catch(Exception e)

@@ -1716,10 +1716,37 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const target=control??[get('position-details'),get('desk-positions'),get('page-title'),get('futures-page')].find(element=>element?.getClientRects().length&&!element.closest('[hidden]'));if(!target)throw Error('The native page control is unavailable.');return target;
   }
   return {load:({background=true}:{background?:boolean}={})=>load('directory',false,background),open:()=>{leavePage();return load('directory',false,true,true);},reset,sync,show,
+    async loadEntry(signal?:AbortSignal){
+      signal?.throwIfAborted();restore();
+      if(tie?.out())throw Error('Bring the Blotter back before opening a ticket.');
+      clear();const source=options.source();snapshot=source.snapshotId;
+      if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before opening a ticket.');
+      const started=generation,scope=whereAmI(),request=readContext();
+      const directory=await api<Catalog>('trading/directory',{...request,convention:'trading_workspace_v1'},signal);
+      signal?.throwIfAborted();if(started!==generation||scope!==whereAmI())throw Error('The account or financial context changed.');
+      if(directory.kind!=='directory'||Object.hasOwn(directory,'contracts')||!directory.context?.contextId||!Array.isArray(directory.books)||source.context&&directory.context.contextId!==source.context.contextId)throw Error('The trading directory returned an inconsistent context.');
+      catalog=directory;viewControls();options.onReadContext(directory.asOf,directory.context.knownAt);sync();
+    },
     /** The values of the read under way, which a read in the background draws after `load` returns: rejects with the read's failure. */
     valued:()=>pricingRead,
-    presentationRevision:()=>String(booking.presentationRevision()),
+    presentationRevision:()=>booking.presentationRevision()+":"+swapEditor.presentationRevision(),
     presentationTarget,
+    presentationLocate(step:PresentationStep):HTMLElement|null{
+      if(step.kind==='fill')return step.field.startsWith('swap.')?swapEditor.presentationField(step.field):booking.presentationField(step.field);
+      if(step.kind==='open'&&step.pane==='new_future')return get('futures-new');
+      if(step.kind==='filter')return table?.presentationFilter(step.field)??null;
+      if(step.kind==='sort')return table?.presentationColumn(step.column)??null;
+      if(step.kind==='select'){
+        if(step.focus.pivotCell){const cell=pivotCells.get(String(step.focus.pivotCell.keys.groupId)+':'+step.focus.pivotCell.measure);return cell?table?.presentationCell(cell.row,cell.column)??null:null;}
+        const row=holdings?.holdings.find(h=>h.tradeId===step.focus.tradeIds[0]);return row?table?.presentationRow(rowKey(row))??null:null;
+      }
+      if(step.kind==='scroll_to')return get({'page':'futures-page','positions':'desk-positions','details':'position-details','charts':'blotter-chart-card'}[step.widget]);
+      if(step.kind==='open'){
+        if(step.pane==='details'&&step.target){const row=holdings?.holdings.find(h=>h.tradeId===step.target!.selection?.tradeId);return row?table?.presentationRow(rowKey(row))??null:null;}
+        if(step.pane==='details'||step.pane==='charts')return get('blotter-dock-'+step.pane);
+      }
+      return presentationTarget();
+    },
     async present(step:PresentationStep,signal:AbortSignal):Promise<HTMLElement>{
       const apply=<O extends BlotterOperation>(operation:O)=>operate(operation,{placed:false});
       signal.throwIfAborted();if(busy()||tie?.out())throw Error('The Blotter is busy or in another window.');
@@ -1745,7 +1772,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
             signal.throwIfAborted();await deskPanel.open(index,'terms',true,signal);signal.throwIfAborted();
           }else await apply({kind:'details',open:true});
         }else throw Error('Review opens through the assistant review adapter.');
-      }else if(step.kind==='fill'){const target=booking.presentationFill(step.field,step.value);target.scrollIntoView({block:'center',behavior:'instant'});options.reported();return target;}
+      }else if(step.kind==='fill'){const target=step.field.startsWith('swap.')?swapEditor.presentationFill(step.field,step.value):booking.presentationFill(step.field,step.value);target.scrollIntoView({block:'center',behavior:'instant'});options.reported();return target;}
       else if(step.kind!=='scroll_to')throw Error('This is not a supported page presentation step.');
       signal.throwIfAborted();
       if(step.kind==='open'&&step.pane==='new_future')return presentationTarget();

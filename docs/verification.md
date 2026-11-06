@@ -1,5 +1,16 @@
 # Local verification and continuous integration
 
+D335's owned workspace checks cover controls-only digests without record/pivot
+evidence, native swap entry without portfolio valuation, explicit unsaved swap
+fields and human-only Preview/Book/Authorize. Browser checks cover aim before
+mutation, missing/covered controls, late overlays, Stop during aim/read, nested
+inline controls in native sheets/modals and confirmed navigation. The final
+control remains briefly visible; panel close stops the run. The 0203 upgrade
+checks refuse changed bodies, owners, ACLs and configuration for all three
+replaced assistant helpers. Run the workspace and runtime preview flags
+separately; use the complete command below for release qualification.
+
+
 D328's managed workspace regression uses real grouped ASP.NET routes and bounds
 route construction independently of elapsed time: one metadata snapshot and one
 build per registered operation. It fails on the prior repeated enumeration. It

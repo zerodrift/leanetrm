@@ -89,6 +89,13 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
   form.hidden=!catalog;
   get<HTMLButtonElement>('futures-book-submit').disabled=options.busy()||!catalog?.canBook||held;
  }
+ function presentationField(key:string){
+   if(!mounted()||options.busy()||options.pending())throw Error('The unsaved futures ticket is unavailable.');
+   const target=get<HTMLInputElement|HTMLTextAreaElement>(({'ticket.lots':'futures-lots','ticket.executionPrice':'futures-execution','ticket.memo':'futures-memo'} as Record<string,string>)[key]);
+   if(!target||target.disabled||target.closest('fieldset[disabled]'))throw Error('The ticket field is unavailable.');
+   return target;
+ }
+
  return {
   /** Fills the form from the catalog of the read on screen, keeping what the person has chosen or typed that it still offers. */
   populate(){
@@ -120,10 +127,9 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
    renderCloseOut(closeOut,drafted,shown);priceSource.show(drafted.price);draft.reset();edits.clear();sync();
   },
   // Typed unsaved-state adapter: no change/blur/key/submit event and no request is dispatched.
-  presentationFill(key:'ticket.lots'|'ticket.executionPrice'|'ticket.memo',value:string){
-   if(!mounted()||options.busy()||options.pending())throw Error('The unsaved futures ticket is unavailable.');
-   const target=get<HTMLInputElement|HTMLTextAreaElement>({'ticket.lots':'futures-lots','ticket.executionPrice':'futures-execution','ticket.memo':'futures-memo'}[key]);
-   if(!target||target.disabled||target.closest('fieldset[disabled]'))throw Error('The ticket field is unavailable.');
+  presentationField(key:string){return presentationField(key);},
+  presentationFill(key:string,value:string){
+   const target=presentationField(key);
    presentationRevision++;target.value=value;edits.mark();draft.reset();priceSource.clear();sync();return target;
   },
   presentationBlank(){presentationRevision++;form.reset();for(const id of ['futures-lots','futures-execution','futures-memo'])field(id).value='';selected='';instrument.populate(priced()?.contracts??[],'');field('futures-book').value='';terms();draft.reset();edits.clear();sync();},

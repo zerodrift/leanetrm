@@ -2,14 +2,14 @@
 
 D312–D314 are implemented in the bounded contract below; D315 is deferred. This extends the existing
 [workspace assistant](assistant-workspace.md); it adds no independent agent loop.
-The current runtime is `turns_v15` (D325); deployment requires matching schema,
+The current runtime is `turns_v17` (D335); deployment requires matching schema,
 API and browser assets. A runtime increment alone does not qualify a hosted release.
 Migration 0194 is consumed by digest admission, tool consent and Looking at;
 0195 adds walkthrough admission and the stored event. Neither adds a table.
 Migration 0196 guards admission and walkthrough storage for workspace page handles;
 older v13 binaries cannot admit new work. Migration 0198 extends the identity-only
 report catalog and requires v15 at admission and stored-plan publication.
-Existing versions and grants are unchanged.
+Existing versions and grants are unchanged. Migration 0203 guards v17 admission, plan storage and closed swap fields against reviewed function fingerprints.
 
 ## Page digest
 
@@ -19,7 +19,7 @@ cover it. Existing versions and grants are not changed. Looking at announces
 the digest only for an enabled chosen version. Fixed instructions require it
 as the first read on page questions. Page prompts cannot override this rule.
 
-The tool accepts no arguments. It reads the admitted page report at the turn's
+The tool requires `mode: "overview"` for the numerical digest or `mode: "controls"` for screen assistance. Controls returns current authorized page/entry metadata and page handles without portfolio valuation, trade handles or pivot evidence. It retains the turn context and publication/source rechecks; date-only facility turns gain no entry navigation. Overview reads the admitted page report at the turn's
 exact context/frame/cutoff, under workspace consent and the person's current
 operation permissions. Projected reads use the same managed operations as pages,
 on assistant pools with the existing read deadline and authorization fence.
@@ -93,7 +93,7 @@ Narration uses short server templates, which introduce no calculated values.
 No step names a selector, URL, code, Book, Save, job control or Authorize.
 
 Blotter adapters use native presentation operations for row selection, column
-sort/search/filter, details/charts, known widgets and an unsaved futures ticket.
+sort/search/filter, details/charts, known widgets and unsaved futures/swap tickets.
 Opening the ticket leaves book, contract, lots and price unchosen.
 A `go` to an issued New trade, New futures trade or New swap page handle opens
 the native product chooser or ticket. Ordinary `navigate` uses the same route.
@@ -103,8 +103,8 @@ ordinary Go/Back retains its explicit leave confirmation. Confirmed navigation
 opens a fresh ticket without carrying discarded financial terms.
 Stop and stale source/generation checks prevent a late catalog from mounting
 a swap ticket or replacing a newer form. No price, preview or booking is sent
-by opening it. Swap term filling remains unsupported; the person enters terms
-and uses the ordinary booking controls.
+by opening it. D335 adds bounded explicit swap fills described below; the person chooses remaining
+terms and uses the ordinary booking controls.
 
 Entry-page discovery includes closed aliases of the existing native catalog and
 booking operations, preserving canonical IDs, permissions, context and approval.
@@ -115,8 +115,8 @@ failed ordinal. There is no general editor-field adapter or model-written UI.
 Live market navigation must be paused by the person before a walkthrough moves
 pages, because the ordinary navigation path can otherwise record a live pause.
 
-Filling supports only `ticket.lots`, `ticket.executionPrice`, `ticket.memo`.
-The entire current ask must use this deliberately narrow literal form:
+Futures filling supports `ticket.lots`, `ticket.executionPrice`, `ticket.memo`.
+A futures ask uses this deliberately narrow literal form:
 
 ```text
 Fill unsaved futures ticket
@@ -128,8 +128,7 @@ Set ticket.memo = "Synthetic review"
 Each field occurs once; a value must equal its stated JSON string. Numeric text
 is at most 64 characters; memo is a plain line of at most 200 characters. Surrounding
 prose, quoted/reported instructions, translation requests, duplicate assignments,
-missing terms and guessed identities require clarification. No text matching
-heuristic infers fill intent. Typed setters update unsaved state and invalidate
+missing terms and guessed identities require clarification. The supported whole-ask grammars do not infer missing terms. Typed setters update unsaved state and invalidate
 previews without dispatching input/change/blur/key/submit events. The person
 chooses remaining terms and books through the ordinary form.
 
@@ -225,15 +224,49 @@ setup also has its missing Looking at label. Browser widget contents never enter
 these reports. Catalog parity is checked from native PageState reports through
 the server prompt list and SQL whitelist.
 
-The guide offers Minimize / Restore and Close beside Continue and Stop. Minimize
-keeps Continue and Stop available; Close stops the run and hides its box and cursor.
-A later plan requires the existing Start / Resume policy. The cursor tracks the
-actual native control through layout and scroll changes, hides while offscreen or
-occluded, and stops if the control disappears. Navigation to a native ticket
-points at a visible enabled field rather than the page container. Its glow and
-subtle tilt respect reduced motion. Stop, Close, replacement and teardown release
-the target outline and tracking callbacks.
+D335 removes the floating guide and its Minimize/Close controls. Continue, Stop
+and status are inline in the assistant panel. The cursor tracks the actual native
+control through layout and scroll changes, hides while offscreen or occluded,
+and stops if a tracked control disappears unexpectedly. Intended transitions
+retire the old control before awaiting native reads. Navigation to a native
+ticket points at a visible enabled field rather than the page container. Glow
+and motion respect reduced motion. Stop, panel close, replacement and teardown
+release the target outline and tracking callbacks.
 
 Native modal Review dialogs host the guide's presentation controls in their top
 layer, keeping them reachable while the surrounding page stays inert. The guide
 never checks consent, closes Review, submits a form or authorizes a proposal.
+
+
+## Native cursor and entry assistance (D335)
+
+The floating narration box has been removed. Status, Stop and Continue are inline
+in the assistant panel; only that dedicated controls root moves into a native
+modal. Closing the panel stops and suppresses later automatic presentation for
+that ask. The cursor is a pointer-events-free manual popover in the top layer,
+so dialog transforms do not change its viewport coordinates. It aims before a
+typed native action, releases its old anchor during navigation and briefly
+retains the final target. Reduced motion removes animation. No generic DOM click,
+selector, key press or submit is accepted.
+
+New swap opens through the ordinary authorized trading directory and swap catalog
+without a full Blotter valuation. Controls mode already reads the entry metadata
+needed for a walkthrough go; it needs no additional broad operation discovery.
+Financial explanations still use overview and its ordinary pinned reads. Model
+round trips and native catalog reads still take time; no model prefetch is added.
+
+Swap fields are `swap.structure`, `swap.quantity`, `swap.fixedPrice`,
+`swap.fixedDirection`, `swap.priceMode` and `swap.memo`. Only agreed pricing is
+admitted. Example complete ask:
+
+```text
+Fill the swap ticket with structure fixed for floating, price mode agreed, quantity 1000 and fixed price 3.4
+```
+
+The equivalent literal form starts `Fill unsaved swap ticket` and uses unique
+`Set swap.FIELD = "value"` lines. A fixed-price plan must first fill the explicitly
+stated fixed-for-floating structure and agreed mode. The person chooses all
+other missing terms and performs Preview/Book themselves; consent and Authorize
+retain their separate human actions. Unsupported references, dates, par policies
+or ambiguous asks require clarification. Native setters affect unsaved state
+only, invalidate prior preview and contribute a local revision to Resume checks.

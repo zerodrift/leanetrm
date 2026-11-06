@@ -214,7 +214,23 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
             ["inputFormat"]="inputJson is an object with body (the exact request, or null) and parameters (string query/route values). Read operations use this turn's retained context. Proposals must state current working knowledge. Request schemas and ordinary business validation are authoritative. All commands require a separate user approval."};
     }
 
-    internal JsonArray DiscoverOperations(string page,string? id,string[] permissions,CancellationToken ct)
+    public async Task<JsonArray> PresentationPages(TurnReads turn,CancellationToken ct)
+    {
+        var owner=await Reader(turn,ct);var permissions=await Permissions(owner,turn.ReadLimit,ct);
+        ct.ThrowIfCancellationRequested();
+        var snapshot=endpoints().OfType<RouteEndpoint>().ToArray();var result=new JsonArray();
+        var page=turn.PageReport.GetProperty("page").GetString()!;
+        foreach(var name in new[]{page,"blotter_new_trade","blotter_new_future","blotter_new_swap"}.Distinct())
+        {
+            var operations=DiscoverOperations(name,null,permissions,ct,snapshot);
+            // Date-only facility questions retain their exact context and cannot issue pricing navigation.
+            if(name!=page&&(turn.Pin.BusinessDate is not null||operations.Count==0))continue;
+            result.Add(new JsonObject{["page"]=name,["operations"]=operations,["presentation"]=WalkthroughPlans.Capabilities(name)});
+        }
+        return result;
+    }
+
+    internal JsonArray DiscoverOperations(string page,string? id,string[] permissions,CancellationToken ct,RouteEndpoint[]? snapshot=null)
     {
         ct.ThrowIfCancellationRequested();
         var visible=AssistantOperations.ForPage(page).Where(o=>(id is null||o.Id==id)&&o.Permissions.All(permissions.Contains)).ToArray();
@@ -222,7 +238,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         if(visible.Length==0)return operations;
         // Grouped endpoint sources rebuild their route metadata when enumerated. Resolve the catalog against one
         // read-local snapshot, never once per operation; current authority and the retained context are not cached.
-        var available=endpoints().OfType<RouteEndpoint>().ToArray();
+        var available=snapshot??endpoints().OfType<RouteEndpoint>().ToArray();
         foreach(var operation in visible)
         {
             ct.ThrowIfCancellationRequested();

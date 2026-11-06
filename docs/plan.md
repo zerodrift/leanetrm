@@ -1,5 +1,16 @@
 # Delivery plan and acceptance criteria
 
+D335 replaces the floating walkthrough box with inline controls and a cursor
+that aims before native presentation actions. Controls-only digests and native
+swap entry avoid full-portfolio valuation for navigation. Unsaved swap setters
+cover explicit structure, quantity, agreed fixed price, fixed-side direction and
+memo. Dynamic book/index/curve/party selection, delivery dates, remaining payment
+terms and par policy need source-bound typed adapters before assisted filling;
+no financial defaults or generic DOM automation are admitted. Numerical overview
+digests can still refuse oversized results and take the underlying pricing time;
+controls mode is not numerical evidence. Model round trips remain part of latency.
+
+
 D333 makes the OTC examples explicit futures-plus-basis curves, using separate
 synthetic spread assessments with a small winter premium. Ordinary graph
 arithmetic and instrument PV preserve independent futures and basis risk.

@@ -47,7 +47,7 @@ function markup(id='side-panel'){
  const part=()=>({hidden:false,onclick:null,focused:false,children:[],replaceChildren(...nodes){this.children=nodes;}});
  const parts={close:part(),head:part(),tabs:part(),body:part(),view:part(),form:part(),prompt:part()};
  const handlers={};
- const host={id,hidden:true,dataset:{},focused:0,labels:[],focus(){host.focused++;},setAttribute(name,value){if(name==='aria-label')host.labels.push(value);},addEventListener(type,handler){handlers[type]=handler;},querySelector:selector=>selector.startsWith(`#${id}-`)?parts[selector.slice(id.length+2)]:undefined};
+ const host={id,hidden:true,dataset:{},focused:0,labels:[],focus(){host.focused++;},attributes:new Map(),hasAttribute(name){return this.attributes.has(name);},removeAttribute(name){this.attributes.delete(name);},setAttribute(name,value){this.attributes.set(name,value);if(name==='aria-label')host.labels.push(value);},addEventListener(type,handler){handlers[type]=handler;},querySelector:selector=>selector.startsWith(`#${id}-`)?parts[selector.slice(id.length+2)]:undefined};
  return {host,parts,handlers};
 }
 const position=(tradeId,revision=1,bindingId='b1')=>({kind:'position',tradeId,bindingId,revision});
@@ -184,7 +184,7 @@ test('arrow keys move between tabs and wrap, Home and End go to the ends, other 
 
 // A page as plain nodes: each has its parent, its children and what isolating a page reads and sets of them.
 function page(){
- const node=(name,children=[],localName='div')=>{const n={name,children,parentElement:null,localName,inert:false,classList:{contains:()=>false}};for(const child of children)child.parentElement=n;return n;};
+ const node=(name,children=[],localName='div')=>{const n={name,children,parentElement:null,localName,inert:false,attributes:new Map(),hasAttribute(name){return this.attributes.has(name);},setAttribute(name,value){this.attributes.set(name,value);},removeAttribute(name){this.attributes.delete(name);},classList:{contains:()=>false}};for(const child of children)child.parentElement=n;return n;};
  const host=node('panel'),stage=node('stage',[host]),toolbar=node('toolbar'),workspace=node('workspace',[toolbar,stage]),
   banner=node('banner'),editor=node('editor',[],'dialog'),main=node('main',[banner,workspace]),sidebar=node('sidebar'),root=node('body',[sidebar,main,editor]);
  return {host,stage,toolbar,workspace,banner,editor,main,sidebar,root};

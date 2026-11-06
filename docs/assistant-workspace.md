@@ -7,9 +7,9 @@ under runtime `turns_v14`; D325 completes identity-only page admission under
 under `turns_v16`. The original workspace contract follows.
 
 D284 extends the assistant with discovery, reads, previews and human-approved
-commands over the application's existing operations. The current runtime `turns_v16`
+commands over the application's existing operations. The current runtime `turns_v17`
 requires the workspace operations in 0162–0164, operating settings in 0181–0183,
-and migrations 0196/0198/0199 with matching API/browser assets. New turns retain the admitted operating policy;
+and migrations 0196/0198/0199/0203 with matching API/browser assets. New turns retain the admitted operating policy;
 older binaries cannot admit new work they cannot enforce. This local
 implementation does not qualify a hosted schema or deployment.
 

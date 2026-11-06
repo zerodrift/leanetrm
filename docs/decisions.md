@@ -2714,3 +2714,45 @@ both native futures and basis scenarios through unchanged ordinary PV. A monthly
 quote and its monthly basis remain two factors across daily delivery rows. Source
 and fixing identities, business/knowledge times, units and versioned policies
 remain explicit. No pricing adjustment or exposure allocation is added to risk.
+
+
+## D335 — Visible native actions and a controls-only first read
+
+Screen assistance uses the existing turn loop, page tools and workspace consent.
+`read_page_digest` requires an explicit `overview` or `controls` mode. Overview
+retains the pinned numerical digest. Controls reads fresh authorized endpoint
+metadata once for the current page and native entry pages, returning bounded
+capabilities and page handles without pricing positions. It issues no record
+handles or pivot-read certificate; dated facility questions retain their exact
+context and gain no pricing navigation. Every read and publication keeps the
+existing source-access fence. No prompt, model call or browser values are cached
+as authority. Fixed instructions select controls for navigation/form assistance
+and avoid redundant broad discovery.
+
+The floating narration box is removed. Stop, Continue and status live in the
+assistant panel, with a dedicated controls-only root inside a native modal while
+it owns input. Closing the panel stops the run. The labelled cursor uses the
+browser top layer and viewport coordinates, aims before the typed native action,
+then follows the returned control. An intended page transition retires its old
+anchor before awaiting native reads. Stop, Escape, input takeover, account/context
+changes and stale callbacks remain cancellation boundaries. Motion respects the
+operating-system preference; the final pointer lingers briefly. Native swap entry
+reads its directory/catalog without awaiting a full Blotter valuation.
+
+Unsaved swap filling supports explicit structure, quantity, agreed fixed pricing,
+fixed-side direction and memo through closed native setters. A complete literal
+assignment ask, or the bounded affirmative `Fill the swap ticket with ...`
+grammar, supplies every value. Structure and agreed pricing must be stated before
+a fixed price can be presented; conflicting, unsupported, reported or negated
+instructions refuse. Setters dispatch no DOM command/change events, calculate
+nothing and never press Preview, Book, Save, consent or Authorize. Reference
+choices, dates, par pricing and other terms remain the person's controls until
+source-bound adapters are implemented.
+
+Runtime `turns_v17` and migration 0203 protect the changed tool input and stored
+field vocabulary; older binaries refuse new work. No agent version/grant is
+rewritten and no table is added. Migration predecessors are fingerprinted for
+body, owner, ACL and configuration. Independent review must attack metadata as
+financial evidence, retained/date-only context escape, access-change replay,
+field provenance/product compatibility, hidden control targeting, Stop during
+aim/read, modal ownership, stale callbacks and explicitly confirmed navigation.
