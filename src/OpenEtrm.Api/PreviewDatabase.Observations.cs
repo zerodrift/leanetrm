@@ -66,12 +66,11 @@ public sealed partial class PreviewDatabase
             FROM requested r LEFT JOIN completeness c ON c.ordinal=r.ordinal LEFT JOIN samples s ON s.ordinal=r.ordinal ORDER BY r.ordinal
             """:seriesIds is not null?"""
             WITH requested AS MATERIALIZED(SELECT * FROM jsonb_to_recordset($3::jsonb)r(ordinal integer,pins jsonb)),
-            requested_pins AS MATERIALIZED(SELECT r.ordinal,jsonb_array_elements_text(r.pins)::uuid AS id FROM requested r),
             visible_pins AS MATERIALIZED(
-                SELECT p.ordinal,o.id,o.observed_at,o.received_at,
+                SELECT r.ordinal,o.id,o.observed_at,o.received_at,
                     CASE WHEN o.series_id=ANY($4::uuid[]) THEN to_jsonb(o) END AS sample
-                FROM requested_pins p JOIN market_data.observations o
-                  ON o.catalog_id=$1 AND o.definition_revision_id=$2 AND o.id=p.id
+                FROM requested r CROSS JOIN LATERAL security.read_observation_pins($1,$2,
+                    ARRAY(SELECT jsonb_array_elements_text(r.pins)::uuid))o
             ),
             samples AS(SELECT ordinal,count(*) AS visible,
                 jsonb_agg(sample ORDER BY observed_at,received_at,id) FILTER(WHERE sample IS NOT NULL) AS rows
@@ -87,8 +86,7 @@ public sealed partial class PreviewDatabase
                 )
                 SELECT jsonb_agg(to_jsonb(o) ORDER BY o.observed_at,o.received_at,o.id)
                 FROM anchors a CROSS JOIN LATERAL(
-                    SELECT * FROM market_data.observations o WHERE o.catalog_id=$1 AND o.definition_revision_id=$2
-                      AND o.id=ANY(a.ids) OFFSET 0
+                    SELECT * FROM security.read_observation_pins($1,$2,a.ids) OFFSET 0
                 )o
             ),'[]'::jsonb)::text
             FROM(
@@ -99,15 +97,33 @@ public sealed partial class PreviewDatabase
         object[] parameters=seriesIds is not null?
             [metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,requests,seriesIds!.Value.ToArray()]:
             [metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,requests];
+        var payloadColumns=scope==ObservationReadScope.FactHistory||seriesIds is not null?3:2;
+        if(scope==ObservationReadScope.ExactPins)
+        {
+            DateTimeOffset until;
+            await using(var authority=ScheduleStore.Command(connection,"SELECT security.authority_until('ReadMarketData')"))
+            await using(var clock=await authority.ExecuteReaderAsync(ct))
+            {
+                if(!await clock.ReadAsync(ct)||clock.IsDBNull(0))throw new PreviewDeniedException();
+                until=clock.GetFieldValue<DateTimeOffset>(0);
+            }
+            // Point calls recheck current access, but a later-starting grant
+            // must not extend this batch. The barrier evaluates each payload
+            // before its DB-clock check, without buffering all frame payloads.
+            var deadline=seriesIds is null?"$4":"$5";
+            sql=$"SELECT batch.*,clock_timestamp()<{deadline}::timestamptz FROM({sql} OFFSET 0)batch ORDER BY batch.ordinal";
+            parameters=[..parameters,until];
+        }
         await using var command=ScheduleStore.Command(connection,sql,parameters);
         await using var reader=await command.ExecuteReaderAsync(ct);
         while(await reader.ReadAsync(ct))
         {
             ct.ThrowIfCancellationRequested();
+            if(scope==ObservationReadScope.ExactPins&&!reader.GetBoolean(payloadColumns))throw new PreviewDeniedException();
             using var json=JsonDocument.Parse(reader.GetString(1));
             var rows=json.RootElement.EnumerateArray().Select(row=>ReferenceJson.PreserveNumericLexemes(row.GetRawText())).ToImmutableArray();
             Interlocked.Add(ref observationRowsRead,rows.Length);
-            yield return metadata.WithObservations(rows,reader.FieldCount<3||reader.GetBoolean(2));
+            yield return metadata.WithObservations(rows,payloadColumns<3||reader.GetBoolean(2));
         }
     }
 }

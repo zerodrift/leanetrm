@@ -29,6 +29,27 @@ internal static class ExactPinReadChecks
                     var fields=observed.Count>at&&expected.Count>at?observed[at]!.AsObject().Where(p=>!JsonNode.DeepEquals(p.Value,expected[at]![p.Key])).Select(p=>p.Key):[];
                     throw new Exception($"Exact observation retrieval changed native RLS rows/order: context={sample.GetProperty("contextId")}, expected={expected.Count}, actual={observed.Count}, index={at}, fields={string.Join(',',fields)}.");
                 }
+                var metadata=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
+                var frame=new InputFrame(Guid.NewGuid(),"Synthetic calendar frame",DateTimeOffset.Parse("2020-12-18T16:00:00Z"),pins,
+                    ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
+                foreach(var series in new ImmutableArray<Guid>?[]{null,[..actual.Select(row=>row.Id("series_id")).Distinct()],[..actual.Take(1).Select(row=>row.Id("series_id"))]})
+                {
+                    var wanted=series is null?expected:new JsonArray(expected.Where(row=>series.Value.Contains(Guid.Parse(row!["series_id"]!.GetValue<string>()))).Select(row=>row!.DeepClone()).ToArray());
+                    var count=0;
+                    await foreach(var selected in database.ReadFrameObservations(connection,metadata,[frame],ObservationReadScope.ExactPins,ct,series))
+                    {
+                        count++;
+                        if(!JsonNode.DeepEquals(JsonSerializer.SerializeToNode(selected.Observations),wanted))
+                            throw new Exception("Calendar frame reads changed exact authorized pins or native row order.");
+                        if(series is not null&&selected.CompletePins!=(actual.Length==pins.Length))
+                            throw new Exception("Series filtering changed complete-frame visibility.");
+                    }
+                    if(count!=1)throw new Exception("A calendar frame disappeared from the bounded read.");
+                }
+                var incomplete=frame with{ObservationIds=[..pins,Guid.NewGuid()]};
+                await foreach(var selected in database.ReadFrameObservations(connection,metadata,[incomplete],ObservationReadScope.ExactPins,ct,
+                    [..actual.Take(1).Select(row=>row.Id("series_id"))]))
+                    if(selected.CompletePins)throw new Exception("An unavailable pin outside the selected series was ignored.");
                 return true;
             },CancellationToken.None);
         }

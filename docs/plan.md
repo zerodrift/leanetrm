@@ -1,5 +1,13 @@
 # Delivery plan and acceptance criteria
 
+D354 groups the close session, As of date and knowledge controls, explains their
+different meanings and replaces stale Dashboard values with Apply guidance while
+a context is unapplied. Selected correction history and calendar pins use bounded
+authorized reads. Migration 0211 adds the named correction-history consumer;
+production activation requires a qualified schema release. Broad history/window
+reads remain separate consumers; this change does not qualify every history
+query or remove the page's native pricing work.
+
 D344 advertises the existing walkthrough choice encodings so a model can map
 explicit human terms to valid fill values without guessing internal identifiers.
 Validation and business approval remain unchanged. Model adherence still needs

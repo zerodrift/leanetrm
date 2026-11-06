@@ -299,6 +299,7 @@ async function setPage(next:string){
   for(const name of ['physical-operations','dashboard','market','custom-curves','delivery','interval-series','vol-surfaces','interval-curves','power','reference','configuration','schedules','admin','ai','parties','risk','jobs'])$('nav-'+name).classList.toggle('active',next===name);
   physicalWorkspace.show(next);curveWorkspace.show(next);
 
+  $('market-close-controls').hidden=usesBusinessDate(next);
   renderBlotterViews();
   text('status',pageStatus());syncControls();
 }
@@ -1013,7 +1014,7 @@ document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick
 document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();showView(prefs.tab);assistant.sync();});
 let scheduleWorkspace:ReturnType<typeof setupScheduleWorkspace>|undefined;
 const schedules=setupShortcutEditor(act,{time:api,load:()=>api('schedules'),preview:draft=>api('schedules/preview',draft),keep:draft=>api('schedules/keep',draft),resolve:body=>api('schedules/resolve',body)},()=>busy,()=>prefs.timeZone);
-function dirtyContext(){physicalOperations.reset();facilities.reset();curveDefinitions.contextChanged();riskJobs.contextChanged();volSurfaces.reset();scheduleWorkspace?.calendar.reset();dateEditor.contextChanged();touProducts.reset();gasSetup.reset();crudeSetup.reset();stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();parties.reset();clearReference();referenceNavigation.clear();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();if(navigation)renderBrowse();renderMarketBoard();text('environment-context-note','Context changed · choose Apply to use it.');renderWorkspaceMode();}
+function dirtyContext(){physicalOperations.reset();facilities.reset();curveDefinitions.contextChanged();riskJobs.contextChanged();volSurfaces.reset();scheduleWorkspace?.calendar.reset();dateEditor.contextChanged();touProducts.reset();gasSetup.reset();crudeSetup.reset();stopLive();marketGeneration++;jobs.contextChanged();customCurves.contextChanged();deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();parties.reset();clearReference();referenceNavigation.clear();futures.reset('inputs');power.reset();contextDirty=true;clearPrices();if(page==='dashboard')dashboard.closeChanged();if(navigation)renderBrowse();renderMarketBoard();text('environment-context-note','Context changed · choose Apply to use it.');renderWorkspaceMode();}
 const parties=setupPartyEditors({api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,source:()=>{if(contextDirty)throw Error('Apply the changed context first.');return frame().id;}});
 
 const physicalOperations=setupPhysicalOperations($('physical-operations-page'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
@@ -1109,6 +1110,7 @@ const intervalCurves=setupIntervalCurves({api,act,busy:()=>busy,zone:()=>prefs.t
 const intervalSeries=setupIntervalSeries({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
 // The market the dashboard's widgets read in: the navigation and close on screen, the close's own label and its badge.
 function dashboardMarket():DashboardMarket{
+ if(contextDirty)throw Error('Apply the changed context to read this widget, or return to Working data.');
  const close=frame();
  return {navigation:directory(),snapshotId:close.id,zone:prefs.timeZone,historical:!!historicalContext(),close:{at:close.at,label:close.name||null,badge:currentCloseBadge()}};
 }
@@ -1193,7 +1195,7 @@ async function loadPowerPage({refreshProducts}:{refreshProducts:boolean}){
 async function showPage(next:string){
   switch(next){
     case 'physical':return showPage(physicalWorkspace.entry());
-    case 'market':await setPage('market');await loadBoard();return;
+    case 'market':await setPage('market');if(curve&&!result&&select('snapshot').value)await build();await loadBoard();return;
     case 'custom-curves':await setPage('custom-curves');await customCurves.load();return;
     case 'vol-surfaces':await setPage('vol-surfaces');await volSurfaces.refresh();return;
     case 'delivery':await setPage('delivery');await deliveryPrices.load();return;

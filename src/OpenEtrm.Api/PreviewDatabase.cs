@@ -637,21 +637,12 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
     private static Task<ImmutableArray<JsonElement>> ReadObservationFacts(NpgsqlConnection connection,PreviewManifest manifest,ImmutableArray<Guid> pins,CancellationToken ct)
     {
         if(pins.IsEmpty)return Task.FromResult(ImmutableArray<JsonElement>.Empty);
-        // Both the anchor pins and their same-fact versions pass the bound RLS
-        // and historical context. This does not select a newer pricing input.
+        // One bounded visibility set authorizes both the requested anchors and
+        // their same-fact versions. This does not select a newer pricing input.
         return Rows(connection,"""
-            WITH pins AS MATERIALIZED (
-                SELECT DISTINCT series_id,source_code,source_event_id,observed_at,role
-                FROM market_data.observations
-                WHERE catalog_id=$1 AND definition_revision_id=$2 AND id=ANY($3::uuid[])
-            )
             SELECT row_to_json(t)::text FROM (
-                SELECT o.* FROM market_data.observations o
-                WHERE o.catalog_id=$1 AND o.definition_revision_id=$2
-                  AND EXISTS(SELECT 1 FROM pins p WHERE
-                    (p.series_id,p.source_code,p.source_event_id,p.observed_at,p.role)=
-                    (o.series_id,o.source_code,o.source_event_id,o.observed_at,o.role))
-                ORDER BY o.observed_at,o.received_at,o.id
+                SELECT * FROM security.read_observation_facts($1,$2,$3::uuid[])
+                ORDER BY observed_at,received_at,id
             ) t
             """,[manifest.CatalogId,manifest.RevisionId,pins.ToArray()],ct);
     }
