@@ -42,6 +42,11 @@ internal static class SidePaymentStateChecks
         var direct=(PaymentSideValuation)side.PV(unpaidContext);
         if(direct.Payments[0].CashBalance!.State!=CashPaymentState.PartPaidOverdue||direct.Payments[0].Coverage!=ValueCoverage.UnpaidCashPresentValue)
             throw new Exception("Dated cash was classified under the interval overdue measure.");
+        var inspect=direct.InspectSchedule(ScheduleDefinitionCompiler.Generate(side).Manifest,ExactDecimal.Parse("200"),new(1,1),day=>new(day.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero));
+        var inspected=inspect.Read(0,8).Rows.Single();
+        if(inspected.Paid!="500"||inspected.Outstanding!="1500"||inspected.PresentValue!="1500"||inspected.Lifecycle.Cash!="PartPaidOverdue")throw new Exception("The common inspector must retain native paid and outstanding holding balances.");
+        var calculation=inspect.Calculation(inspected.Key,0,128);
+        if(calculation.Rows.Single(r=>r.Key=="pv").Inputs.Single().Key!="outstanding"||calculation.Rows.Single(r=>r.Key=="outstanding").Parameters["determination"]!=receipt.Id.ToString())throw new Exception("Cash inspection must show outstanding as the source of PV and preserve its exact determination.");
         var prepaidAt=determinedAt.AddDays(2);var prepaidSnapshot=f.Snapshot(prepaidAt,1).WithKnowledge(Guid.NewGuid(),prepaidAt);
         var prepayment=cash with{PaidAt=determinedAt.AddDays(1),KnownAt=determinedAt.AddDays(1),Amount=ExactMoney.Parse("2000",instrument.Currency)};
         var prepaid=(PaymentSideValuation)side.PV(new SideValuationContext(f.Model.Build(prepaidSnapshot,[]),discount).WithBindingState(State([prepayment])));

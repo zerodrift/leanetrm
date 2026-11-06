@@ -1,3 +1,4 @@
+import {withSideSchedules} from '../dist/position-schedules.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -181,7 +182,7 @@ test('a swap is read from its own trade revision, and the read must hold the ins
 test('a swap\'s read view also draws its valuation and schedules, from the deal\'s own display formats, which are read with it',async()=>{
  const seen=[],read=await readSwapView(swapApi(seen),{market:'context'},heldSwap(),formats,{busy:()=>false,act:async work=>work(),settle:()=>{}});
  assert.deepEqual(seen.find(([path])=>path==='trade-formats/read'),['trade-formats/read',{tradeId:details.swap.state.tradeId,context:{market:'context',convention:'independent_side_financial_swap_v2'}}]);
- assert.equal(typeof read.view('UTC').schedules,'function','the view has schedules to draw into the panel\'s Terms');
+ assert.equal(typeof withSideSchedules(read,async()=>{}, {},{...heldSwap(),bindingId:'binding',instrumentType:'financial_swap'},()=>{}).view('UTC').schedules,'function','the view has schedules to draw into the panel\'s Terms');
  assert.equal(typeof tradeDetailView(details.future,'UTC',formats,unit).schedules,'undefined','a future has none');
 });
 
@@ -311,7 +312,7 @@ test('a scheduled side whose periods differ in a term says it is by period, and 
 test('a scheduled swap\'s revisions say its quantity is by period, and its view also draws its review',async()=>{
  assert.equal(rowsOf(swapHistory(details.scheduledSwap,'UTC',formats),'Revision 1 · Booked').Quantity,'By period');
  const read=await readSwapView(readOf(details.scheduledSwap),{},{...heldSwap(),contractId:details.scheduledSwap.state.instrumentId},formats,{busy:()=>false,act:async work=>work(),settle:()=>{}});
- assert.equal(typeof read.view('UTC').schedules,'function');
+ assert.equal(typeof withSideSchedules(read,async()=>{}, {},{...heldSwap(),bindingId:'binding',instrumentType:'financial_swap'},()=>{}).view('UTC').schedules,'function');
 });
 
 // A swap whose settlement lifecycle is under way (D215) is valued by it: its read has no pure valuation, and Terms states the lifecycle's measures.

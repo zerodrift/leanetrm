@@ -16,10 +16,11 @@ public sealed partial class TradeReads
     readonly FuturesStore futures;
     readonly SwapStore swaps;
     readonly TradingBlotter blotter;
+    readonly BookedScheduleReader scheduleReader;
 
     public TradeReads(PreviewDatabase database)
     {
-        this.database=database;futures=new(database.Manifest);swaps=new(database);blotter=new(database,futures,swaps);
+        this.database=database;futures=new(database.Manifest);swaps=new(database);blotter=new(database,futures,swaps);scheduleReader=new(BookedScheduleSources.Create(database));
     }
 
     // The Blotter with the booking catalog, or with only the catalog's directory of books and parties, and the groupings

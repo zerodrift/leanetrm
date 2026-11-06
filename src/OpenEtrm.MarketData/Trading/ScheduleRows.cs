@@ -191,6 +191,7 @@ public sealed record IntervalSideValuation:SideValuation
     public ValueMeasureSet Measures { get; }
     public IntervalScopeReceipt Receipt { get; }
     public ImmutableArray<ScheduleRowValue> Rows=>Measures.Rows;
+    public override SideScheduleSnapshot InspectSchedule(string manifest,ExactDecimal scale,OpenEtrm.Shared.Numerics.SignedRatio coefficient,Func<DateOnly,DateTimeOffset> boundary)=>SideScheduleSnapshot.FromRows(this,Rows,manifest,scale,coefficient,boundary);
     public override string NumericalPolicy=>"exact_interval_leg_pv_v1";
     internal IntervalSideValuation(IntervalSideSchedule schedule,SideValuationContext context,ValueMeasureSet measures,IntervalScopeReceipt receipt):base(schedule,context,measures.ValueExcludingOverdue)
     {Measures=measures;Receipt=receipt;}

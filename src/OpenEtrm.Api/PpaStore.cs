@@ -259,7 +259,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
                 reason=b.Id("definition_revision_id")!=definition?"ppa_definition_revision":"ppa_reference_revision"}).ToArray(),
             mismatch.Select(b=>b.Id("reference_catalog_id")).Concat(declared.Select(r=>r.Id("reference_catalog_id"))).Append(referenceCatalog).Distinct().ToArray());
     }
-    internal async Task<object> Preview(NpgsqlConnection connection,InputFrame frame,PpaPreviewRequest request,CancellationToken ct,PpaInspectRequest? inspection=null)
+    internal async Task<object> Preview(NpgsqlConnection connection,InputFrame frame,PpaPreviewRequest request,CancellationToken ct,PpaInspectRequest? inspection=null,Guid? retainedContext=null,Action<Guid,InstrumentValuation,ExactDecimal>? inspectValues=null)
     {
         var watch=Stopwatch.StartNew();var allocated=GC.GetTotalAllocatedBytes(false);var process=Process.GetCurrentProcess();
         if(request.SelectedIds is null || request.DetailMonths is null || request.DetailMonths.Length>12 || request.DetailMonths.Distinct().Count()!=request.DetailMonths.Length)throw PpaCompiler.Error("ppa_limit","Supply bounded explicit selection and detail arrays.");
@@ -269,7 +269,12 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         else if(request.Scope is not("trades" or "books") || request.ExplicitSubset!=(request.Scope=="trades") || request.Terms is not null || request.Quantity is not null || request.CoverageFrom is not null || request.CoverageTo is not null)
             throw PpaCompiler.Error("ppa_scope","Select complete books or an explicitly labelled trade subset, without draft terms.");
         var known=await PpaQuantitiesStore.KnownAt(connection,request.KnownAt,ct);var pending=PpaQuantitiesStore.Policy(request.PendingActuals);
-        var knowledge=await Bind(connection,frame,request.KnownAt,ct);
+        var knowledge=retainedContext??await Bind(connection,frame,request.KnownAt,ct);
+        if(retainedContext is not null)
+        {
+            var bound=(await new KnowledgeStore(Catalog).Read(connection,knowledge,ct)).Context;
+            if(frame.ContextId!=knowledge||SchedulePreview.ParseAt(bound.KnownAt)!=known)throw PpaCompiler.Error("ppa_context","Use the exact retained frame context and its resolved cutoff.");
+        }
         var scope=request.Scope=="draft"?(JsonElement?)null:await ReadScope(connection,request.Scope,request.SelectedIds,knowledge,frame,false,ct);
         var heads=scope is {} h?Rows(h,"heads"):ImmutableArray<JsonElement>.Empty;
         var stored=scope is {} storedScope?Rows(storedScope,"bindings"):ImmutableArray<JsonElement>.Empty;
@@ -328,6 +333,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
             ct.ThrowIfCancellationRequested();var value=session.Value(b.Instrument,b.Coverage,prepared.Discounting[b.Instrument.Id],ct);var measures=ValueMeasures.From(value).Scale(b.Mw);totals.Add(measures);
             if(inspection is not null && b.BindingId==inspection.BindingId)
             {
+                inspectValues?.Invoke(b.BindingId,value,b.Mw);
                 var side=value.Sides.Single(s=>s.SideId==inspection.SideId);var rows=((IntervalSideValuation)side.Value).Measures.Scale(side.Coefficient,b.Mw).Rows;
                 detailPage=new{b.BindingId,inspection.SideId,month=request.DetailMonths[0],total=rows.Length,inspection.Offset,inspection.Limit,hasMore=(long)inspection.Offset+inspection.Limit<rows.Length,
                     rows=rows.Skip(inspection.Offset).Take(inspection.Limit).Select(InspectionRow).ToArray()};

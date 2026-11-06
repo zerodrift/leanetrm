@@ -224,7 +224,7 @@ public sealed class PhysicalLngStore(PreviewDatabase database)
     }
     private async Task<object> Value(NpgsqlConnection connection, PreviewData data, InputFrame frame, PhysicalLngWriteRequest body, Guid instrumentId,
         PhysicalLngInstrument? draft, LngValuationAssignment assignment, LngCargoQuantity quantity,
-        ImmutableArray<RetainedSideProgram>? retained, CancellationToken ct)
+        ImmutableArray<RetainedSideProgram>? retained, CancellationToken ct,Action<int,SideViewInput>? inspect=null,int? inspectSlot=null)
     {
         if (frame.ContextId is not {} contextId) throw Invalid("LNG valuation requires one certified calculation context.");
         if (frame.At >= Instant(body.LoadFrom)) throw new MarketDataException("lng_delivery_lifecycle", "This contractual LNG profile applies only before loading starts.");
@@ -239,7 +239,9 @@ public sealed class PhysicalLngStore(PreviewDatabase database)
             draft?.Incoterms ?? await ResolveIncoterms(connection, data, body.Incoterms, ct), members);
         var context = (await new KnowledgeStore(Catalog).Read(connection, contextId, ct)).Context;
         var snapshot = MarketSnapshotBinding.Bind(data.Snapshot(frame), contextId, SchedulePreview.ParseAt(context.KnownAt));
-        var dependencies = PeriodPriceSelector.ProjectionAt(assignment.Lookup, snapshot) is {} request ? ImmutableArray.Create(request) : [];
+        if(inspectSlot is not null&&inspect is null)throw Invalid("A selected schedule inspection requires an evaluation consumer.");
+        if(inspectSlot is {} selectedSlot)programs=[programs.Single(p=>p.Slot==selectedSlot)];
+        var dependencies = programs.Any(p=>p.Program.Document.Instructions.Any(i=>i.Output.Operation=="price_lookup"))&&PeriodPriceSelector.ProjectionAt(assignment.Lookup, snapshot) is {} request ? ImmutableArray.Create(request) : [];
         var market = data.Model.Build(snapshot, dependencies, ct);
         var sources = ScheduleMarketSources.ForPhysicalLng(market, [assignment]);
         var discount = new ExplicitDiscounting(ExactDecimal.Parse("1"), DiscountFactorSource.Undiscounted);
@@ -247,7 +249,9 @@ public sealed class PhysicalLngStore(PreviewDatabase database)
         foreach (var program in programs.OrderBy(p => p.Slot))
         {
             var coefficient = program.Slot == 0 ? Sign(body.Direction, true) : Sign(body.ConsiderationDirection);
-            var amount = sources.Evaluate(program.Program, program.SideId, market, discount, ct).PresentValue.Scale(quantity.Energy.Amount * coefficient);
+            var evaluated=sources.Evaluate(program.Program, program.SideId, market, discount, ct);
+            inspect?.Invoke(program.Slot,new($"side_{program.Slot}",evaluated,program.Program,quantity.Energy.Amount,new(coefficient.Power(1).Numerator,coefficient.Power(1).Denominator),[]));
+            var amount = evaluated.PresentValue.Scale(quantity.Energy.Amount * coefficient);
             total = total.Add(amount);
             sides.Add(new { role = program.Slot == 0 ? "cargo" : "consideration", presentValue = amount.ToExactString() });
         }
@@ -273,7 +277,7 @@ public sealed class PhysicalLngStore(PreviewDatabase database)
         await using var query = ScheduleStore.Command(connection, "SELECT security.book_physical_lng($1,$2::jsonb,$3)::text", Catalog, JsonSerializer.Serialize(body, Json), frame.At);
         return JsonSerializer.Deserialize<JsonElement>((string)(await query.ExecuteScalarAsync(ct))!);
     }
-    public async Task<object> Editor(NpgsqlConnection connection, PreviewData data, InputFrame frame, Guid trade, CancellationToken ct)
+    public async Task<object> Editor(NpgsqlConnection connection, PreviewData data, InputFrame frame, Guid trade, CancellationToken ct,Action<int,SideViewInput>? inspect=null,int? inspectSlot=null)
     {
         var row = One(await PreviewDatabase.Rows(connection, """
             SELECT jsonb_build_object('request',t.request,'instrumentId',i.instrument_id,'definition',i.definition_revision_id,
@@ -288,7 +292,7 @@ public sealed class PhysicalLngStore(PreviewDatabase database)
         if (quantity.Energy.Amount != ExactDecimal.Parse(row.Text("energyQuantity"))) throw Invalid("Retained conversion evidence must reproduce the booked energy quantity exactly.");
         var programs = await new RetainedScheduleStore(database).LoadPrograms(connection, row.Id("instrumentId"), frame.ContextId, frame.ContextId is null ? null : frame.At, ct);
         return new { tradeId = trade, revision = int.Parse(row.Text("revision"), CultureInfo.InvariantCulture), terms = body,
-            valuation = await Value(connection, data, frame, body, row.Id("instrumentId"), null, assignment, quantity, programs, ct) };
+            valuation = await Value(connection, data, frame, body, row.Id("instrumentId"), null, assignment, quantity, programs, ct,inspect,inspectSlot) };
     }
     public async Task<object> Directory(NpgsqlConnection connection, CancellationToken ct)
     {

@@ -1,3 +1,4 @@
+import {inspectPositionSide} from './position-schedules.mjs';
 import {visibleCurveCellsReady} from './curve-cells.mjs';
 import {workspaceProbeScript} from './workspace-probe.mjs';
 import {sideSession} from './side-session.mjs';
@@ -90,8 +91,11 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  await check('a swap\'s Terms are read in a live context: its structure and each side, with no error',
   `(()=>{const titles=[...document.querySelectorAll('#position-details-view .side-panel-section>h3')].map(n=>n.textContent);return titles[0]==='Trade'&&titles[1]==='Structure'&&!document.querySelector('#position-details-view .side-panel-error')&&document.querySelector('#error').hidden;})()`,
   "[document.querySelector('#position-details-view').innerText.slice(0,300),document.querySelector('#error').textContent]");
- await click('#position-details-tabs-schedules');await wait("document.querySelectorAll('#position-details-view .swap-schedule').length===2&&"+idle);
- await check('the live swap exposes each side pricing and payment rows on Side schedules',"document.querySelectorAll('#position-details-view .swap-pricing-rows').length===2&&document.querySelectorAll('#position-details-view .swap-payment-table').length===2&&!document.querySelector('#position-details-view .side-panel-error')");
+ await click('#position-details-tabs-schedules');
+ for(const slot of [0,1]){
+  await inspectPositionSide({evaluate,wait,set},slot);
+  await check('the live swap exposes each native Side through the shared pricing and payment inspector',"document.querySelector('#position-details-view .inspection-rows tbody tr')&&document.querySelector('#position-details-view .inspection-rows').textContent.includes('PV')&&!document.querySelector('#position-details-view .side-panel-error')");
+ }
  await click('#details-collapse');await set('#blotter-filters .table-search','');
  // A position in a market Curves & prices lists, so that its Open curve is available to hold focus below.
  const reference=await evaluate("(async()=>{const listed=new Set((await(await fetch('/api/workspace/navigation')).json()).curves.map(c=>c.code));return window.liveResponses.filter(r=>r.path==='/api/trading/workspace').at(-1).data.blotter.holdings.find(h=>listed.has(h.curve)).tradeReference;})()");

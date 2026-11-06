@@ -35,7 +35,7 @@ public sealed record SideViewInput(string Code,BookedSideEvaluation Evaluation,B
 public static class ScheduleViews
 {
     public const string NetCash="trade.net_cash",PaymentAt="trade.payment_at";
-    private static readonly string[] Supported=["month","day"];
+    private static readonly string[] Supported=["term","month","day"];
     // One canonical tag order; a set of tags is a bit mask over it.
     private static readonly string[] Tags=["contract","forecast","meter","fwd","actual","modeled","fixed","estimated","nominated","confirmed","scheduled","allocated"];
     private static readonly string[] RecordedTags=["nominated","confirmed","scheduled","allocated"];
@@ -54,6 +54,7 @@ public static class ScheduleViews
         if(!levels.SequenceEqual(Supported.Where(levels.Contains)))throw Error("Row levels must be supported, distinct and ordered from coarse to fine.");
         if(sides.Select(side=>side.Code).Distinct(StringComparer.Ordinal).Count()!=sides.Length)throw Error("Each side requires a distinct code.");
         var pieces=sides.SelectMany(side=>Pieces(side,boundary)).ToArray();
+        if(!pieces.Any(piece=>piece.Level=="term"))levels=[..levels.Where(level=>level!="term")];
         if(pieces.Any(piece=>!levels.Contains(piece.Level)))throw Error("A side reports values at a granularity outside the selected row levels.");
         if(pieces.Where(piece=>piece.Payment is not null).Select(piece=>piece.Currency).Distinct().Count()>1)
             throw Error("Net cash requires every paying side to settle in one currency.");
@@ -61,12 +62,14 @@ public static class ScheduleViews
         void Add(IEnumerable<Piece> scope,int depth,string? parent)
         {
             var level=levels[depth];
-            foreach(var group in scope.GroupBy(piece=>level=="month"?piece.Month:piece.Day!).OrderBy(group=>group.Key,StringComparer.Ordinal))
+            foreach(var group in scope.GroupBy(piece=>level=="term"?"term":level=="month"?piece.Month:piece.Day!).OrderBy(group=>group.Key,StringComparer.Ordinal))
             {
                 var finer=group.Where(piece=>piece.Level!=level).ToArray();
                 var spans=group.Where(piece=>piece.Level==level).Select(piece=>(piece.Start,piece.End));
                 if(finer.Length>0)spans=spans.Append((finer.Min(piece=>piece.Start),finer.Max(piece=>piece.End)));
-                var span=spans.Distinct().ToArray();
+                // A whole-term row aggregates the union of its actual intervals.
+                // Scalar term amounts stay here; nothing allocates them to months.
+                var span=level=="term"?[(group.Min(piece=>piece.Start),group.Max(piece=>piece.End))]:spans.Distinct().ToArray();
                 if(span.Length!=1)throw Error($"Values on schedule row {group.Key} disagree on its clock interval or are finer than its level.");
                 var delivered=span[0].End<=valuationAt;
                 rows.Add(new(group.Key,parent,level,span[0].Start,span[0].End,level=="day"?group.Key:null,Cells(sides,group.ToArray()),delivered));
@@ -157,7 +160,7 @@ public static class ScheduleViews
             return("day",Month(day),day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),interval.Start,interval.End);
         }
         if(row.DeliveryFrom is not {} from||row.DeliveryTo is not {} to)throw Error("A scalar contribution requires its delivery window.");
-        var level=to==from.AddDays(1)?"day":Month(from)==Month(to.AddDays(-1))?"month":throw Error("A scalar contribution must lie within one day or one calendar month.");
+        var level=to==from.AddDays(1)?"day":Month(from)==Month(to.AddDays(-1))?"month":"term";
         return(level,Month(from),level=="day"?from.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture):null,boundary(from),boundary(to));
     }
     private static ImmutableDictionary<string,ScheduleViewCell> Cells(ImmutableArray<SideViewInput> sides,IReadOnlyCollection<Piece> scope)

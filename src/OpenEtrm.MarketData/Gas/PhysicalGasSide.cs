@@ -69,15 +69,15 @@ public sealed record PhysicalGasSide : Side
             throw new MarketDataException("gas_quantity_basis", "Select a normalized one-unit gas daily or period-total profile in the supported retained horizon and one reference revision.");
         if (assignments.IsDefaultOrEmpty || assignments.Any(a => a is null || a.Location != location || a.Product != product ||
             a.Quote.Quantity != quantities.Receipt.Specification || a.Quote.Currency != assignments[0].Quote.Currency) ||
-            assignments.Select(a => a.Key).Distinct().Count() != assignments.Length)
+            assignments.Select(a => (a.Key,a.From,a.To)).Distinct().Count() != assignments.Length)
             throw new MarketDataException("gas_valuation_assignment", "Supply distinct compatible market assignments for this exact gas point, product and quantity.");
-        var used = new HashSet<ReferenceKey>();
+        var used = new HashSet<(ReferenceKey,DateOnly,DateOnly)>();
         for (var day = quantities.From; day < quantities.To; day = day.AddDays(1))
         {
             var candidates = assignments.Where(a => a.From <= day && a.To >= day.AddDays(1)).ToArray();
             if (candidates.Length != 1)
                 throw new MarketDataException("gas_valuation_assignment", "Every gas day requires exactly one complete market assignment without gaps or overlaps.");
-            used.Add(candidates[0].Key);
+            used.Add((candidates[0].Key,candidates[0].From,candidates[0].To));
         }
         if (used.Count != assignments.Length)
             throw new MarketDataException("gas_valuation_assignment", "Every supplied assignment must value part of this delivery term.");
@@ -138,6 +138,7 @@ public sealed record PhysicalGasSchedule : SideSchedule
 public sealed record PhysicalGasSideValuation : SideValuation
 {
     public BookedSideEvaluation Execution { get; }
+    public override SideScheduleSnapshot InspectSchedule(string manifest,ExactDecimal scale,OpenEtrm.Shared.Numerics.SignedRatio coefficient,Func<DateOnly,DateTimeOffset> boundary)=>SideScheduleSnapshot.FromProgramValue(this,Execution,((PhysicalGasSchedule)Schedule).Program,manifest,scale,coefficient,boundary);
     internal PhysicalGasSideValuation(PhysicalGasSchedule schedule, SideValuationContext context, BookedSideEvaluation execution)
         : base(schedule, context, execution.PresentValue) { Execution = execution; }
 }

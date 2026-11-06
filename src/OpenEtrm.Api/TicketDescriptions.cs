@@ -7,7 +7,8 @@ namespace OpenEtrm.Api;
 public static class TicketBand { public static readonly ImmutableArray<string> Rows=["direction","start","end","product","quantity","price","payment"]; }
 // Unit names the unit a field's or column's values are in, resolved per trade, never a unit symbol: "quantity" is the trade's quantity unit,
 // which the product's preview and booked read return.
-public sealed record TicketField(string Id,string Label,string Meaning,string Type,string? Unit,string State,bool Required,string? Band,string? Choices,ImmutableArray<string> DependsOn,string? Lookup,string? Soon,string? Rule);
+public sealed record TicketField(string Id,string Label,string Meaning,string Type,string? Unit,string State,bool Required,string? Band,string? Choices,ImmutableArray<string> DependsOn,string? Lookup,string? Soon,string? Rule)
+{public ImmutableArray<string> RefreshOn{get;init;}=[];}
 // Input names the modes in which a side column's day cells are entered in the side's tab, each recorded by the product's own operation.
 // Soon, on a field, side kind, column or tab, is the hover text of an item drawn as coming soon: it holds no value, is never sent and reads nothing.
 public sealed record TicketColumn(string Id,string Label,string? Unit,string Measure,ImmutableArray<string> Input,string? Soon=null);
@@ -27,7 +28,7 @@ public sealed class TicketFieldException(string code,string message,string? side
 public static class TicketDescriptions
 {
  static readonly ImmutableArray<string> States=["editable","derived","info","soon"];
- static readonly ImmutableArray<string> LevelOrder=["month","day","hour"];
+ static readonly ImmutableArray<string> LevelOrder=["term","month","day","hour"];
  static readonly ImmutableArray<string> ModeNames=["new","booked","amend","close_out"];
  static readonly ImmutableArray<string> ResolvedUnits=["quantity"];
  // The one map from a side column's measure to what the schedule view reports.
@@ -40,7 +41,7 @@ public static class TicketDescriptions
  {
   if(d.RowShape!="flow")Fail(d,$"row shape '{d.RowShape}' is not supported; only 'flow' is");
   var levels=d.Levels.Select(LevelOrder.IndexOf).ToArray();
-  if(levels.Length==0||levels.Contains(-1)||levels.Zip(levels.Skip(1),(a,b)=>a>=b).Any(x=>x))Fail(d,"levels must be a non-empty, ordered subset of month, day, hour");
+  if(levels.Length==0||levels.Contains(-1)||levels.Zip(levels.Skip(1),(a,b)=>a>=b).Any(x=>x))Fail(d,"levels must be a non-empty, ordered subset of term, month, day, hour");
   if(d.Modes.Any(mode=>!ModeNames.Contains(mode)))Fail(d,"modes must be among new, booked, amend and close_out");
   if(d.Sides.GroupBy(s=>s.Kind).FirstOrDefault(g=>g.Count()>1) is {} twice)Fail(d,$"side kind '{twice.Key}' is declared more than once");
   foreach(var (owner,columns) in d.Sides.Select(s=>($"side kind '{s.Kind}'",s.Columns)).Append(("the trade",d.TradeColumns)))
@@ -64,7 +65,7 @@ public static class TicketDescriptions
    Fail(d,$"column '{input.Id}' must be an input in distinct declared modes, or none");
   if(units.FirstOrDefault(u=>u.Unit is not null&&!ResolvedUnits.Contains(u.Unit)) is {Id:not null} literal)Fail(d,$"'{literal.Id}' names unit '{literal.Unit}'; a unit is resolved per trade, and only 'quantity' is");
   foreach(var field in all)
-   foreach(var dependency in field.DependsOn)
+   foreach(var dependency in field.DependsOn.Concat(field.RefreshOn))
     if(!ids.Contains(dependency))Fail(d,$"field '{field.Id}' depends on unknown field '{dependency}'");
   foreach(var side in d.Sides.Where(s=>s.Soon is not null))
    if(string.IsNullOrWhiteSpace(side.Soon)||side.Min!=0||side.Initial!=0||side.Max!=0||!side.Fields.IsEmpty||!side.Columns.IsEmpty||d.SideLimits.Any(l=>l.Kinds.Contains(side.Kind)))

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {acceptOffer,acceptPreview,addSide,applyLookup,draftOf,dropLookup,newTicket,nextPreview,removeSide,setValue,ticketOf} from '../dist/ticket-model.js';
+import {acceptOffer,acceptPreview,addSide,applyLookup,draftOf,dropLookup,newTicket,nextPreview,removeSide,resolveChoice,setValue,ticketOf} from '../dist/ticket-model.js';
 
 const f=(id,label,over={})=>({id,label,meaning:'',type:'choice',unit:null,state:'editable',required:false,band:null,choices:null,dependsOn:[],lookup:null,soon:null,rule:null,...over});
 const description={product:'synthetic',version:3,rowShape:'flow',levels:['month'],tabs:[],modes:['new'],tradeColumns:[],
@@ -13,6 +13,23 @@ const description={product:'synthetic',version:3,rowShape:'flow',levels:['month'
  sideLimits:[{kinds:['cash','fee'],max:3}]};
 const leg='leg-1';
 const looked={value:'4.5',source:{kind:'market',label:'Market close'}};
+
+test('a retained suggestion follows the new source while a manually chosen value survives',()=>{
+ const d={...description,sides:description.sides.map(k=>k.kind==='cash'?{...k,initial:1,fields:[...k.fields,f('direction','Direction',{choices:'directions',dependsOn:['source']})]}:k)};
+ let s=newTicket(d),side='cash-1';
+ const choices=['pay','receive'].map(value=>({value,label:value}));
+ const suggestion=value=>({value,source:{kind:'suggestion',label:'Suggested direction'}});
+ s=resolveChoice(s,side,'direction',choices,undefined,suggestion('pay'));
+ const old=s.sides.find(x=>x.code===side).values.direction;
+ s=setValue(s,side,'source','other');
+ s=resolveChoice(s,side,'direction',choices,old,suggestion('receive'));
+ assert.equal(s.sides.find(x=>x.code===side).values.direction.value,'receive');
+ s=setValue(s,side,'direction','pay');
+ const manual=s.sides.find(x=>x.code===side).values.direction;
+ s=setValue(s,side,'source','third');
+ s=resolveChoice(s,side,'direction',choices,manual,suggestion('receive'));
+ assert.equal(s.sides.find(x=>x.code===side).values.direction.value,'pay');
+});
 
 test('a new ticket opens with each kind’s initial sides, coded by kind',()=>{
  const s=newTicket(description);
@@ -52,6 +69,14 @@ test('changing a parent clears its set dependents transitively with a notice eac
  const before=s.notices.length;
  s=setValue(s,leg,'region','R3');
  assert.equal(s.notices.length,before);
+});
+
+test('re-entering the same parent value preserves its linked selections',()=>{
+ let s=newTicket(description);
+ for(const [k,v] of [['region','R1'],['zone','Z1'],['point','P1']])s=setValue(s,leg,k,v);
+ const before=draftOf(s);s=setValue(s,leg,'region','R1');
+ assert.deepEqual(draftOf(s),before);
+ assert.deepEqual(s.notices,[]);
 });
 
 test('unknown sides and fields, and values for fields the user cannot edit, are refused',()=>{

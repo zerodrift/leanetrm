@@ -26,7 +26,7 @@ public static class GasDailyQuantitySelection
    var interval=g.Interval(0);var q=new ExactQuantity(BigInteger.Parse(instruction.Parameters["numerator"]),BigInteger.Parse(instruction.Parameters["denominator"]),unit).Scale(scale);
    rows.Add(new(root.Name,root.Row,grid,interval.OperatingDate,interval.Start,interval.End,q));
   }
-  if(rows.Count is <1 or >31||rows.Select(r=>r.Day).Distinct().Count()!=rows.Count)throw Invalid("Select a unique retained daily gas grid of one to 31 days.");
+  if(rows.Count<1||rows.Count>GasQuantityTerms.MaximumOperatingDays||rows.Select(r=>r.Day).Distinct().Count()!=rows.Count)throw Invalid($"Select a unique retained daily gas grid of one to {GasQuantityTerms.MaximumOperatingDays} days.");
   return [..rows.OrderBy(r=>r.Start)];
  }
  public static GasSelectedQuantity Select(GasDailyContract contract,ImmutableArray<GasQuantityObservation> heads,string policy,DateTimeOffset at,ExactRatio scale)

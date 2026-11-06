@@ -178,7 +178,7 @@ public sealed partial class ScheduleMarketSources
                 {numbers[cell]=number;states[cell]=state;presence[cell]=ScheduleCellPresence.Resolved;}
             }
         }
-        return program.Execute(demand,baseId,scenarioId,inputs,cancellation) with{SourceReceipt=new(sideId,program.Identity,evidence.ToImmutable())};
+        return program.Execute(demand,baseId,scenarioId,inputs,cancellation) with{SourceReceipt=new(sideId,program.Identity,demand.Context,evidence.ToImmutable())};
     }
     private void RequireNative(ScheduleDefinitionGrid? grid)
     {

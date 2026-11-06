@@ -32,14 +32,11 @@ test('the instrument tab comes first, one tab per side in order, then the descri
  assert.deepEqual(scheduleTabs(later,sides).at(-1),{id:'balance',label:'Balance',colour:'neutral',soon:'Will compare days.'});
 });
 
-test('a coming-soon column is drawn blank beside the others with its hover text, and reads no value from the view',()=>{
+test('planned columns do not occupy the live schedule or read their stored values',()=>{
  const later={...description,sides:description.sides.map(k=>k.kind==='physical'?{...k,columns:[k.columns[0],{...col('volume','Volume',null,'quantity'),soon:'Will show volume.'},...k.columns.slice(1)]}:k)};
- const g=scheduleGridData(view(),later,sides,'physical-1','day',shown);
- assert.deepEqual(g.headers,['Period','Quantity (MMBtu)','Volume','Market price','Amount']);
- assert.deepEqual(g.soon,{2:'Will show volume.'});
- assert.deepEqual(g.rows.map(r=>r[2]),['','','']);assert.deepEqual(g.totals.map(r=>r[2]),['']);
- assert.deepEqual(g.decorations.map(r=>r[2]),[null,null,null]);assert.deepEqual(g.numeric,[1,3,4]);
- assert.deepEqual(scheduleGridData(view(),description,sides,'physical-1','day',shown).soon,{});
+ const original=scheduleGridData(view(),description,sides,'physical-1','day',shown);
+ const revised=view();for(const row of revised.rows)row.cells['physical-1.volume']={value:'not a supported live value',sources:['unknown']};
+ assert.deepEqual(scheduleGridData(revised,later,sides,'physical-1','day',shown),original);
 });
 
 test('the instrument tab groups each side’s columns under its name and colour, then the trade measures',()=>{
@@ -70,6 +67,15 @@ test('the row level chooses the rows, and finer rows name their parent row',()=>
  assert.deepEqual(day.keys,['2026-11','2026-11-01','2026-11-02']);
  assert.deepEqual(day.parents,[null,'2026-11','2026-11']);
  assert.throws(()=>scheduleGridData(view(),description,sides,'instrument','hour',shown),/The schedule has no hour rows/);
+});
+
+test('a whole-term row keeps its backend values above the monthly children',()=>{
+ const v=view();v.levels=['term','month','day'];
+ v.rows=[row('term',null,'term',cells('-2000','4.5','-9000','6500',null)),...v.rows.map(r=>r.level==='month'?{...r,parent:'term'}:r)];
+ const g=scheduleGridData(v,description,sides,'instrument','month',shown);
+ assert.deepEqual(g.keys,['term','2026-11']);assert.deepEqual(g.parents,[null,'term']);
+ assert.equal(g.displayRows[0][0],'Whole term');assert.equal(g.rows[0][0],'term');
+ assert.equal(g.displayRows[0][3],'-9,000');
 });
 
 test('rows keep the exact strings; only the display text is formatted, by the page’s instant formatter for times, and totals are the view’s own',()=>{

@@ -50,7 +50,7 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
     terms=c.call('trading/gas',selected)
     assert len(terms['physical'])==2 and len(terms['components'])==3
     # The gas terms say why the trade is not amended, as the deal ticket's booked read does.
-    assert terms['amend']['allowed'] is False and terms['amend']['reason'].startswith('Gas amendments'),terms['amend']
+    assert terms['amend']['allowed'] is False and terms['amend']['reason'].startswith('Return to working data'),terms['amend']
     c.call('trading/position',{**selected,'revision':2},expected=422)
     c.call('trading/position',{**selected,'bindingId':str(uuid4())},expected=422)
     print('PASS gas shares blotter, exact individual selection and retained side terms; no receipt/delivery quantity double counting',flush=True)
@@ -158,3 +158,6 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
         print('PASS mixed queued risk reproduces exact retained gas composition PV and shared shocks under the leased worker role',flush=True)
     c.call('gas/composition/book',{**body,'operationId':str(uuid4())},expected=403)
     print('PASS gas composition: independent directions, 1000/980/20 conservation, receipt/delivery fee bases, retained book/reopen, replay and invalid links',flush=True)
+
+    from check_multimonth_gas_booking import run_checks as check_multimonth
+    check_multimonth(url,query,manifest,run_worker)

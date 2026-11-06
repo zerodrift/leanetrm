@@ -117,6 +117,7 @@ public sealed record PhysicalLngCargoSchedule : SideSchedule
 public sealed record PhysicalLngCargoValuation : SideValuation
 {
     public BookedSideEvaluation Execution { get; }
+    public override SideScheduleSnapshot InspectSchedule(string manifest,ExactDecimal scale,OpenEtrm.Shared.Numerics.SignedRatio coefficient,Func<DateOnly,DateTimeOffset> boundary)=>SideScheduleSnapshot.FromProgramValue(this,Execution,((PhysicalLngCargoSchedule)Schedule).Program,manifest,scale,coefficient,boundary);
     internal PhysicalLngCargoValuation(PhysicalLngCargoSchedule schedule, SideValuationContext context, BookedSideEvaluation execution)
         : base(schedule, context, execution.PresentValue) { Execution = execution; }
 }

@@ -175,7 +175,9 @@ public sealed partial class SwapStore(PreviewDatabase database)
    if(selected.Length!=1)throw Error("swap_definition","The selected exact swap market is unavailable in this historical context.");
    data=selected[0].Data;frame=selected[0].Frame;
   }
-  var terms=Resolve(data,body,instrumentId,fixedId,floatingId);var snapshot=data.Snapshot(frame);
+  if(frame.ContextId is not {} contextId)throw Error("swap_context","Pricing requires the retained financial context.");
+  var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
+  var terms=Resolve(data,body,instrumentId,fixedId,floatingId);var snapshot=data.Snapshot(frame).WithKnowledge(contextId,SchedulePreview.ParseAt(context.KnownAt));
   if(retained is not null)
   {
    if(retained.Id!=instrumentId||retained.EconomicIdentity!=terms.Instrument.EconomicIdentity)throw Error("side_schedule_definition","Retained valuation must use the exact booked instrument definition.");
@@ -185,8 +187,6 @@ public sealed partial class SwapStore(PreviewDatabase database)
    terms=(RetainedSideSchedules.Attach(terms.Instrument,await new RetainedScheduleStore(database).Load(connection,storedId,frame.ContextId,frame.ContextId is null?null:frame.At,ct)),terms.Quantity);
   var mapping=body.Discounting==true?await Discount(connection,data,frame,terms.Instrument.Currency,ct):null;
   var dependencies=terms.Instrument.DependenciesAt(snapshot);
-  if(frame.ContextId is not {} contextId)throw Error("swap_context","Pricing requires the retained financial context.");
-  var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
   var connected=await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[terms.Instrument],dependencies,CustomCurves.MarketPreparation.ValuationDependencies,ct,preparationScope:preparationScope);
   return FinancialSwapValuation.Evaluate(terms.Instrument,connected.Valuation,connected.Bindings,connected.Authority,mapping,ct);
  }
@@ -404,6 +404,27 @@ public sealed partial class SwapStore(PreviewDatabase database)
   if(terms.Scheduled is null)ValidateProjections(value,row);
   return new{state=State(data,row,frame.Id),history=rows.Select(r=>State(data,r,frame.Id)),valuation=Value(value),quantityInputs=terms.Scheduled is null?null:await RetainedQuantityInputs(connection,row,ct),catalog=await Catalog(connection,data,frame,ct,terms),
    lifecycleEligible=terms.Scheduled is not null?ScheduledAmendmentEligible(ResolveScheduled((await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct)).Data,terms,row.Id("instrument_id")).Instrument,frame.At):frame.At<row.Instant("first_fixing_at")&&(row.OptionalText("first_floating_fixing") is not {} firstFixing||frame.At<SchedulePreview.ParseAt(firstFixing))&&frame.At>=row.Instant("effective_at")};
+ }
+ internal async Task<SideScheduleSnapshot> InspectSchedule(NpgsqlConnection connection,PreviewData data,InputFrame frame,JsonElement row,
+  ImmutableArray<BookedScheduleSide> headers,int slot,CancellationToken ct)
+ {
+  var side=headers.Single(s=>s.Slot==slot);var terms=Terms(data,row,frame.Id);
+  var settlement=await SettlementState(connection,row.Id("trade_id"),ct);
+  async Task<SideScheduleSnapshot> Plan(string refusal)
+  {
+   var program=(await new RetainedScheduleStore(database).LoadPrograms(connection,row.Id("instrument_id"),frame.ContextId,frame.At,ct)).Single(p=>p.Slot==slot);
+   var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,frame.ContextId!.Value,ct)).Context;
+   return SideScheduleSnapshot.Plan(side.SideId,frame.Id,frame.ContextId.Value,$"side_{slot}",program.Program,BookedScheduleSources.Utc,frame.At,SchedulePreview.ParseAt(context.KnownAt),refusal);
+  }
+  // Binding cash must never be substituted by ordinary reusable Side PV.
+  if(settlement.GetProperty("occurrences").GetArrayLength()!=0)return await Plan("swap_binding_cash_inspection_unavailable");
+  try
+  {
+   var value=await Price(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
+   if(terms.Scheduled is null)ValidateProjections(value,row);
+   return BookedScheduleSources.Inspect(value.Instrument,headers,value.Quantity.Amount)[slot];
+  }
+  catch(MarketDataException error)when(error.Code=="side_payment_due"){return await Plan(error.Code);}
  }
  private static object? CanonicalFloating(SwapFloatingInput? side)=>side is null?null:new{
   curve=Required(side.Curve),index=side.ContractObservations is null?Required(side.Index):side.Index,currency=Required(side.Currency),from=Date(side.DeliveryFrom),to=Date(side.DeliveryTo),

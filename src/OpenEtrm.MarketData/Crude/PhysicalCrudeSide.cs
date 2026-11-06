@@ -151,6 +151,7 @@ public sealed record PhysicalCrudeSchedule : SideSchedule
 public sealed record PhysicalCrudeSideValuation : SideValuation
 {
     public BookedSideEvaluation Execution { get; }
+    public override SideScheduleSnapshot InspectSchedule(string manifest,ExactDecimal scale,OpenEtrm.Shared.Numerics.SignedRatio coefficient,Func<DateOnly,DateTimeOffset> boundary)=>SideScheduleSnapshot.FromProgramValue(this,Execution,((PhysicalCrudeSchedule)Schedule).Program,manifest,scale,coefficient,boundary);
     internal PhysicalCrudeSideValuation(PhysicalCrudeSchedule schedule,SideValuationContext context,BookedSideEvaluation execution)
         :base(schedule,context,execution.PresentValue) { Execution=execution; }
 }

@@ -40,12 +40,78 @@ internal static class ScheduleViewChecks
         Pass("daily quantities sum exactly to the month");
 
         var cash=Cash("cash","3.412",1,before);var fee=Cash("fee","0.045",-1,before);
+        var inspected=SideScheduleInspection.Read(cash,Utc,0,48);
+        if(inspected.Total!=1||inspected.Rows is not [var payment]||payment.DeliveryFrom!=new DateOnly(2031,12,1)||
+            payment.DeliveryTo!=new DateOnly(2032,1,1)||payment.ValueAt!=PayAt||payment.Quantity!="310000"||payment.Price!="3.412"||
+            payment.Amount!="1057720"||payment.DiscountFactor!="1"||payment.PresentValue!="1057720"||payment.Lifecycle.Due!="NotDue"||
+            payment.Lifecycle.Cash!="NotTracked"||payment.QuantitySpecification!=Quote.Quantity||payment.Currency!=Quote.Currency||payment.QuoteMultiplier!="1")throw new Exception("The shared inspector must expose exact schedule dates and evaluated price, discount, value and independent lifecycle facts.");
+        var signed=SideScheduleInspection.Read(cash with{Coefficient=S(-1),Scale=D("2")},Utc,0,48).Rows.Single();
+        if(signed.Quantity!="-620000"||signed.Amount!="-2115440"||signed.PresentValue!="-2115440"||signed.Price!="3.412"||signed.DiscountFactor!="1")
+            throw new Exception("Inspection applies the signed membership and trade scale only to quantities and money.");
+        var fractional=SideScheduleInspection.Read(cash with{Coefficient=S(-2,3),Scale=D("2")},Utc,0,1).Rows.Single();
+        if(fractional.Quantity!="-1240000/3"||fractional.Amount!="-4230880/3"||fractional.PresentValue!=fractional.Amount||fractional.Price!="3.412")
+            throw new Exception("Signed non-unit memberships retain exact rational quantities and values.");
+        var paged=SideScheduleInspection.Read(daily,Utc,15,4);
+        if(paged.Total!=31||paged.Rows.Length!=4||paged.Rows[0].Start!=From.AddDays(15)||paged.Rows[0].End!=From.AddDays(16)||paged.Rows[0].Lifecycle.Cash is not null||paged.Rows[0].DeliveryFrom is not null||paged.Rows[0].OperatingDate!=new DateOnly(2031,12,16))
+            throw new Exception("Inspection pages native physical intervals without inventing cash state.");
+        Pass("shared schedule inspection keeps dates, exact values, scale, paging and lifecycle axes");
+        var calculation=SideScheduleInspection.Calculation(cash with{Coefficient=S(-1),Scale=D("2")},Utc,inspected.Rows[0].Key,0,128);
+        if(calculation.ValueBasis!="unit_side_v1"||calculation.TradeQuantityScale!="2"||calculation.MembershipNumerator!="-1"||calculation.MembershipDenominator!="1"||
+            !calculation.Rows.Any(r=>r.Operation=="amount"&&r.Value=="1057720")||!calculation.Rows.Any(r=>r.Operation=="discount"&&r.Value=="1")||
+            !calculation.Rows.Any(r=>r.Operation=="weighted_price")||calculation.Rows.Select(r=>r.Key).Distinct().Count()!=calculation.Total||
+            calculation.Rows.SelectMany(r=>r.Inputs).Any(i=>!calculation.Rows.Any(r=>r.Key==i.Key)))
+            throw new Exception("Calculation drill-down follows exact native inputs and declares its unit-side values and holding scale.");
+        Reject("side_schedule_inspection",()=>SideScheduleInspection.Read(cash,Utc,0,129));
+        Reject("side_schedule_inspection",()=>SideScheduleInspection.Calculation(cash,Utc,"-1:0",0,48));
+        Pass("calculation inspection exposes averaging and discount operands with an explicit value basis");
+        var partialInspection=Daily(31,before,_=>(N("10000"),VolumeState.Contractual),_=>(N("3.412"),SchedulePriceFacts.Fixed),new(From.AddDays(10),From.AddDays(12)));
+        Reject("side_schedule_inspection",()=>SideScheduleInspection.Read(partialInspection,Utc,0,4));
+        Reject("side_schedule_inspection",()=>SideScheduleInspection.Calculation(partialInspection,Utc,"5:0",0,48));
+        var wrongReceipt=new ScheduleSourceReceipt(Guid.NewGuid(),daily.Program.Identity,cash.Evaluation.Context,ImmutableDictionary<ScheduleSourceCell,ScheduleSourceEvidence>.Empty);
+        Reject("side_schedule_inspection",()=>SideScheduleInspection.Calculation(cash with{Evaluation=cash.Evaluation with{SourceReceipt=wrongReceipt}},Utc,inspected.Rows[0].Key,0,48));
+        var wrongContext=wrongReceipt with{Program=cash.Program.Identity,Context=Context(before,before.AddHours(-1))};
+        Reject("side_schedule_inspection",()=>SideScheduleInspection.Calculation(cash with{Evaluation=cash.Evaluation with{SourceReceipt=wrongContext}},Utc,inspected.Rows[0].Key,0,48));
+        Pass("unevaluated contribution cells and foreign program evidence cannot become inspected financial rows");
+
+        using var cancelled=new CancellationTokenSource();cancelled.Cancel();
+        try{SideScheduleInspection.Read(cash,Utc,0,1,cancelled.Token);throw new Exception("Cancelled inspection returned a row.");}catch(OperationCanceledException){}
+        try{SideScheduleInspection.Calculation(cash,Utc,inspected.Rows[0].Key,0,1,cancelled.Token);throw new Exception("Cancelled calculation returned evidence.");}catch(OperationCanceledException){}
+        try{SideScheduleInspection.Plan("cash",cash.Program,Utc,before,before,0,1,"synthetic_refusal",cancelled.Token);throw new Exception("Cancelled plan returned a row.");}catch(OperationCanceledException){}
+        var unavailable=SideScheduleInspection.Plan("cash",cash.Program,Utc,PayAt.AddDays(1),PayAt.AddDays(1),0,48,"side_payment_due").Rows.Single();
+        if(unavailable.Lifecycle.Delivery!="Elapsed"||unavailable.Lifecycle.Due!="Due"||unavailable.Lifecycle.Cash!="NotTracked"||unavailable.PresentValue is not null||
+            unavailable.Amount is not null||unavailable.Lifecycle.UnavailableReason!="side_payment_due")throw new Exception("An elapsed plan must not become paid or acquire a zero/substituted PV.");
         view=ScheduleViews.Build([daily,cash,fee],Levels,Utc);month=Row(view,"2031-12");
         if(view.Rows.Where(row=>row.Level=="day").Any(day=>day.Cells["cash.amount"].Value is not null||day.Cells["cash.price"].Value is not null||
             !day.Cells["cash.amount"].Sources.IsEmpty))
             throw new Exception("A monthly payment side is blank on day rows.");
         Equal(month.Cells["cash.amount"].Value,"1057720");Equal(month.Cells["cash.quantity"].Value,"310000");Equal(month.Cells["cash.price"].Value,"3.412");
         Pass("a monthly payment side is blank on day rows and set on the month row");
+
+        var monthlyView=ScheduleViews.Build([daily,cash,fee],["term","month","day"],Utc);
+        if(!monthlyView.Levels.SequenceEqual(Levels)||!monthlyView.Rows.Select(row=>(row.Key,row.Parent)).SequenceEqual(view.Rows.Select(row=>(row.Key,row.Parent))))
+            throw new Exception("A one-month view retains its existing levels and row keys when a term row is unnecessary.");
+
+        var termCash=Cash("payment","3",-1,before,days:62);
+        var termView=ScheduleViews.Build([daily,termCash],
+            ["term","month","day"],Utc);
+        var term=Row(termView,"term");
+        if(term.Start!=From||term.End!=From.AddDays(62)||term.Parent is not null||term.Level!="term"||termView.Leaves!=31||
+            termView.Rows.Where(row=>row.Level=="month").Any(row=>row.Parent!="term")||
+            termView.Rows.Where(row=>row.Level!="term").Any(row=>row.Cells["payment.amount"].Value is not null))
+            throw new Exception("A whole-term scalar payment stays on its exact term without allocation to month or day rows.");
+        Equal(term.Cells["physical.quantity"].Value,"310000");Equal(term.Cells["payment.amount"].Value,"-1860000");
+        Equal(term.Cells["trade.net_cash"].Value,"-1860000");
+        Equal(termView.Totals["payment.amount"].Value,"-1860000");
+        Equal(term.Cells["trade.payment_at"].Value,From.AddDays(87).ToString("O",System.Globalization.CultureInfo.InvariantCulture));
+        var overlapping=ScheduleViews.Build([daily,termCash,Cash("other","2",1,before,days:45)],["term","month","day"],Utc);
+        Equal(Row(overlapping,"term").Cells["trade.net_cash"].Value,"-960000");
+        Equal(overlapping.Totals["trade.net_cash"].Value,"-960000");
+        Equal(Row(overlapping,"term").Cells["trade.payment_at"].Value,null);
+        Equal(Row(overlapping,"term").Cells["other.quantity"].Value,"450000");
+        if(Row(overlapping,"term").End!=From.AddDays(62)||overlapping.Rows.Where(row=>row.Level!="term").Any(row=>row.Cells["other.amount"].Value is not null))
+            throw new Exception("Independent scalar spans retain their own values and payment dates under the aggregate term interval.");
+        Reject("schedule_view",()=>ScheduleViews.Build([termCash],Levels,Utc));
+        Pass("whole-term payments retain their interval and explicit payment date without monthly allocation");
 
         Equal(month.Cells["physical.price"].Value,"3.412");
         var uneven=Daily(31,before,_=>(N("10000"),VolumeState.Contractual),day=>(N(day==4?"3.413":"3.412"),SchedulePriceFacts.Fixed));
@@ -197,11 +263,11 @@ internal static class ScheduleViewChecks
         }));
         return new("physical",evaluation,program,D("1"),S(1),Columns);
     }
-    private static SideViewInput Cash(string code,string price,int direction,DateTimeOffset valuation,QuoteSpecification? quote=null,DateTimeOffset? known=null)
+    private static SideViewInput Cash(string code,string price,int direction,DateTimeOffset valuation,QuoteSpecification? quote=null,DateTimeOffset? known=null,int days=31)
     {
         var q=quote??Quote;
         var side=new FixedSide(Guid.NewGuid(),new FlatPrice(new UnitPrice(D(price),q)),q,new(D("1"),q.Quantity),
-            [new(DateOnly.FromDateTime(From.UtcDateTime),DateOnly.FromDateTime(From.AddDays(31).UtcDateTime),PayAt,new(310000,1),null)]);
+            [new(DateOnly.FromDateTime(From.UtcDateTime),DateOnly.FromDateTime(From.AddDays(days).UtcDateTime),From.AddDays(days+25),new(days*10000,1),null)]);
         var program=Load(ScheduleDefinitionCompiler.Generate(side));var demand=program.Inputs(Context(valuation,known));
         var evaluation=program.Execute(demand,"base","base",Inputs(program,demand,(_,_)=>(N("1"),default)));
         return new(code,evaluation,program,D("1"),S(direction),Columns);

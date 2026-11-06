@@ -15,5 +15,5 @@ public sealed record ScheduleNativePriceEvidence(PreparedCurve Curve,IntervalPri
     LocationAssignment? Assignment,ExactUnitPrice Price,SchedulePriceFacts State):ScheduleSourceEvidence;
 // A port records the received value only. The instrument retains its provider mapping.
 public sealed record SchedulePortEvidence(ScheduleNumber Value,ScheduleCellState State):ScheduleSourceEvidence;
-public sealed record ScheduleSourceReceipt(Guid SideId,BookedSideProgramIdentity Program,
+public sealed record ScheduleSourceReceipt(Guid SideId,BookedSideProgramIdentity Program,OpenEtrm.MarketData.Calculation.ResolvedCalculationContext Context,
     ImmutableDictionary<ScheduleSourceCell,ScheduleSourceEvidence> Cells);

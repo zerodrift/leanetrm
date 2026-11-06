@@ -3,6 +3,7 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--generic-schedules"]){GenericScheduleChecks.Run();return;}
 if(args is ["--facility-quantities"]){FacilityQuantityChecks.Run();return;}
 
 if(args is ["--crude-inventory-sales"]){CrudeInventorySalesChecks.Run();return;}
@@ -118,6 +119,7 @@ if (args.Length > 0)
     return;
 }
 
+GenericScheduleChecks.Run();
 CrudeReceiptCashChecks.Run();
 FacilityQuantityChecks.Run();
 CrudeInventorySalesChecks.Run();

@@ -1,3 +1,4 @@
+import {inspectPositionSide} from './position-schedules.mjs';
 import {chooseSwapSides} from './swap-sides.mjs';
 import {setupWorkspaceProbe} from './workspace-probe.mjs';
 import {setupTradingReplies} from './trading-responses.mjs';
@@ -176,10 +177,24 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
   "(()=>{const titles=[...document.querySelectorAll('#position-details-view .side-panel-section:has(.side-terms-list)>h3')].map(n=>n.textContent),read=window.__swaps.filter(r=>r.path==='/api/swaps/editor').at(-1);return titles[0]==='Trade'&&titles[1]==='Structure'&&titles.slice(2).length===2&&titles.slice(2).every(t=>/^(Fixed|Floating) side · (Pay|Receive)$/.test(t))&&!!read&&read.data.state.tradeReference===document.querySelector('#position-details-head .side-panel-reference').textContent;})()",
   "[...document.querySelectorAll('#position-details-view .side-panel-section>h3')].map(n=>n.textContent)");
  await click('#position-details-tabs-schedules');
- await eventually("document.querySelectorAll('#position-details-view .swap-schedule canvas').length>=2");
- await check('and the swap\'s valuation and the schedule of each side too, which its read-only view draws as its form does',
-  "(()=>{const view=document.querySelector('#position-details-view'),section=[...view.querySelectorAll('#position-details .side-panel-section')].find(n=>n.querySelector('h3')?.textContent==='Valuation & schedules'),valuation=window.__swaps.filter(r=>r.path==='/api/swaps/editor').at(-1).data.valuation;return !!section&&section.textContent.includes('Trade PV')&&section.querySelectorAll('.swap-schedule').length===2&&section.querySelectorAll('canvas').length>=2&&section.querySelectorAll('.swap-pricing-rows').length===2&&[...section.querySelectorAll('.swap-pricing-rows')].every((table,n)=>table.querySelectorAll(':scope > .swap-contract-prices tbody tr').length===valuation.sides[n].payments.flatMap(p=>p.resets).length)&&document.querySelector('#error').hidden;})()",
-  "(()=>{const section=[...document.querySelectorAll('#position-details-view .side-panel-section')].find(n=>n.querySelector('h3')?.textContent==='Valuation & schedules');return section?[section.textContent.slice(0,200),section.querySelectorAll('.swap-schedule').length,section.querySelectorAll('canvas').length,document.querySelector('#error').hidden]:null;})()");
+ for(const slot of [0,1]){
+  await inspectPositionSide({evaluate,wait,set},slot);
+  await check('shared Side payment cardinality matches the exact native valuation',`(()=>{const native=window.__swaps.filter(r=>r.path==='/api/swaps/editor').at(-1).data.valuation.sides[${slot}],page=window.__swaps.filter(r=>r.path==='/api/trading/side-schedules'&&r.body.sideSlot===${slot}&&r.body.contribution===null).at(-1).data.page;return page.total===native.payments.length&&document.querySelectorAll('#position-details-view .inspection-rows tbody tr').length===page.rows.length&&page.rows.length===Math.min(32,native.payments.length);})()`);
+  await check('read-only swap Sides use the shared native pricing and lifecycle rows',"(()=>{const view=document.querySelector('#position-details-view');return view.querySelector('.inspection-rows tbody tr')&&['Quantity','DF','Amount','PV','Lifecycle'].every(title=>[...view.querySelectorAll('.inspection-rows th')].some(h=>h.textContent===title))&&view.textContent.includes('Cash: Not tracked')&&!view.querySelector('.swap-schedule')&&document.querySelector('#error').hidden;})()","document.querySelector('#position-details-view').innerText");
+ }
+ await click('#position-details-view .inspection-calculation');await wait("!!document.querySelector('#position-details-view .inspection-steps tbody tr')");
+ const inspected=[];
+ for(let n=0;n<16;n++){
+  const page=await evaluate("window.__swaps.filter(r=>r.path==='/api/trading/side-schedules'&&r.body.contribution!==null).at(-1).data.page");
+  inspected.push(...page.rows);
+  await check('each calculation page renders its exact bounded native cells',`(()=>{const rows=[...document.querySelectorAll('#position-details-view .inspection-steps tbody tr')];return rows.length===${page.rows.length}&&rows.map(r=>r.cells[0].textContent).join(',')===${JSON.stringify(page.rows.map(r=>r.key).join(','))};})()`);
+  if(page.offset+page.rows.length===page.total)break;
+  if(n===15)throw Error('Native calculation paging did not terminate.');
+  await click('#position-details-view .inspection-evidence .inspection-pager button:last-child');
+  await wait(`window.__swaps.filter(r=>r.path==='/api/trading/side-schedules'&&r.body.contribution!==null).at(-1).data.page.offset===${page.offset+32}&&document.querySelector('#position-details-view .inspection-steps tbody tr td').textContent!==${JSON.stringify(page.rows[0].key)}`);
+ }
+ const expected=await evaluate("window.__swaps.filter(r=>r.path==='/api/swaps/editor').at(-1).data.valuation.sides[1].payments[0]");
+ await check('all native reset prices, weights and application inputs survive calculation paging',`(()=>{const cells=${JSON.stringify(inspected)},native=${JSON.stringify(expected)},resets=cells.filter(r=>r.key.startsWith('reset:')),applications=cells.filter(r=>r.key.startsWith('application:'));return new Set(cells.map(r=>r.key)).size===cells.length&&resets.length===native.resets.length&&applications.length===native.observationSchedule.applications.length&&resets.every((r,n)=>r.value===native.resets[n].price&&r.parameters.weight===native.resets[n].weight)&&applications.every((r,n)=>r.parameters.weight===native.observationSchedule.applications[n].weight&&r.inputs.some(i=>i.key==='reset:'+native.observationSchedule.applications[n].observationOrdinal));})()`);
  await click('#position-details-tabs-terms');
  await evaluate('window.__retainedOnly=true');await reopen();
  await check('retained swap without new observation eligibility opens with exact disabled selections and valued schedules',"!document.querySelector('#swap-editing').hidden&&document.querySelector('#swap-reset-frequency').value==='daily'&&document.querySelector('#swap-averaging').value==='arithmetic'&&!!document.querySelector('#swap-projection').value&&document.querySelector('#swap-projection').selectedOptions[0].disabled&&document.querySelector('#swap-averaging').selectedOptions[0].textContent.includes('booked value (unavailable here)')&&document.querySelector('#swap-averaging-booked-value-note').textContent.includes('Your booked terms have not changed')&&document.querySelectorAll('#swap-schedules .swap-schedule').length===2");

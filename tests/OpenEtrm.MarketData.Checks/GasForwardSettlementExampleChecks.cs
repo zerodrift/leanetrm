@@ -173,6 +173,20 @@ internal static class GasForwardSettlementExampleChecks
     internal static void Run()
     {
         var e=new Example();var p=e.Prepare();
+        GasCompositionInstrument Composition(FloatingSide cash)=>new(Guid.NewGuid(),
+            [new("delivery",e.Instrument.Delivery,ExactDecimal.Parse("1"),ExactDecimal.Parse("100"),null)],
+            [new("payment",cash,"indexed_consideration","delivery",GasQuantityStage.Delivery,ExactDecimal.Parse("-1"))]);
+        _=Composition(e.Cash);
+        var redistributed=e.Cash.Periods.SetItem(0,e.Cash.Periods[0] with{Allocation=new(3,2)}).SetItem(1,e.Cash.Periods[1] with{Allocation=new(1,2)});
+        try{_=Composition(new(Guid.NewGuid(),e.Cash.Settlement,e.Quote,e.Cash.UnitQuantity,redistributed));throw new Exception("Redistributed indexed quantities were accepted.");}
+        catch(MarketDataException error)when(error.Code=="gas_composition_input"){}
+        var combined=e.Cash.Periods[0] with{DeliveryTo=e.Cash.Periods[1].DeliveryTo,Allocation=new(2,1),Projections=[..e.Cash.Periods[0].Projections,..e.Cash.Periods[1].Projections],Fixings=[..e.Cash.Periods[0].Fixings,..e.Cash.Periods[1].Fixings]};
+        try{_=Composition(new(Guid.NewGuid(),e.Cash.Settlement,e.Quote,e.Cash.UnitQuantity,[combined,..e.Cash.Periods.Skip(2)]));throw new Exception("Combined index delivery days were accepted.");}
+        catch(MarketDataException error)when(error.Code=="gas_composition_input"){}
+        var retainedGas=BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(e.Instrument.Delivery));
+        var retainedDays=GasDailyQuantitySelection.ReadContract(retainedGas,new ExactRatio(100,1));
+        if(retainedDays.Length!=92||retainedDays.Any(day=>day.Quantity.ToExactString()!="100"))
+            throw new Exception("The operational inspector must retain the whole multi-month Side and exact held daily quantities.");
         if(p.Mapping.Count!=57||p.Mapping.Values.Distinct().Count()!=27||p.Valuation.Scenario.Plan.Points.Values.Any(point=>
             point.Expression is ConnectedRecipeProjection projection&&projection.Declaration.Definition.Code=="synthetic_daily_projection"))
             throw new Exception("The physical trade must bind the mixed curve directly, sharing its monthly point across daily requests without a wrapper curve.");
@@ -194,6 +208,10 @@ internal static class GasForwardSettlementExampleChecks
         Equal(rows.Aggregate(ExactMoney.Parse("0",e.Quote.Currency),(sum,r)=>sum.Add(r.Amount)),"-29902");
         if(rows.Where(r=>r.CashBalance!.State==CashPaymentState.Paid).Any(r=>r.RequirePresentValue().ToExactString()!="0"||r.Coverage!=ValueCoverage.UnpaidCashPresentValue))
             throw new Exception("Paid history became overdue cash or re-entered PV.");
+        var inspection=rows.Select(r=>SideScheduleInspection.FromValue(r,e.AsOf,d=>new(d.ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc)))).ToArray();
+        if(inspection.Any(r=>r.Quantity!="-100")||inspection.Count(r=>r.Lifecycle.Cash=="Paid")!=31||inspection.Count(r=>r.Lifecycle.Cash=="FixedUnpaid")!=4||
+            inspection.Count(r=>r.Lifecycle.Cash=="Projected")!=57||inspection.Where(r=>r.Lifecycle.Cash=="Paid").Any(r=>r.PresentValue!="0"||r.Outstanding!="0"||r.Paid is null))
+            throw new Exception("The shared inspector must retain paid, fixed-unpaid and projected state independently of dates and price state.");
         var otherBinding=Guid.NewGuid();var other=new Trade(Guid.NewGuid(),e.Trade.BookId,[new(otherBinding,e.Instrument,e.Trade.Instruments[0].Quantity)]);
         var otherState=new CashflowBindingValuation(other.Id,otherBinding,other.Instruments[0].Quantity,[new(other,otherBinding,1,[],[],PaymentSideState.Policy)]);
         var shared=ValuationPortfolio.FromTrades([e.Trade,other],p.Portfolio.Setup with{BindingStates=p.Portfolio.Setup.BindingStates.Add(new(other.Id,otherBinding),otherState)});

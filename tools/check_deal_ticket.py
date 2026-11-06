@@ -235,7 +235,7 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     opened=c.call('tickets/trade',{'context':context,'tradeId':fact['tradeId'],'bindingId':fact['bindingId'],'revision':fact['revision']})
     assert opened['draft']==draft,(opened['draft'],draft)
     assert opened['schedule']==view and opened['summaries']==preview['summaries'] and opened['scheduleRefusal'] is None and opened['quantityUnit']==preview['quantityUnit']
-    assert opened['actions']['amend']['allowed'] is False and opened['actions']['closeOut']['allowed'] is False and opened['actions']['amend']['reason'],opened['actions']
+    assert opened['actions']['amend']=={'allowed':True,'reason':None} and opened['actions']['closeOut']['allowed'] is False,opened['actions']
     assert opened['links']==preview['links']==[] and opened['quantityPolicy']=='operational_projection_v1',(opened['links'],opened['quantityPolicy'])
     # A daily quantity recorded through its own operation shows on that day of the booked schedule, with its kind as the source, and in
     # the month's quantity; the amounts stay the contract's. A retry with the same operation receives its first outcome.

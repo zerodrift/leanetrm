@@ -468,12 +468,14 @@ def run_temporal_checks(url,query,manifest):
         result=client.call('swaps/book',body)
         assert client.call('swaps/book',body)==result, 'Restored swap publication must retain the first exact retry outcome'
         return result
+    booking_inputs={}
     def book(frame,index,daily):
         floating=dict(settlement=dict(mode='curve_target',index=None,projectionPolicy=None),curve=index['curve'],index=index['index'],currency=index['currencyCode'],deliveryFrom='2021-01-01',deliveryTo='2021-02-01',paymentSchedule=payment,resetFrequency='daily' if daily else 'monthly',averagingMethod='arithmetic' if daily else 'none',spread='0')
         body={**context(frame),**trade_booking(), 'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],
             'definitionRevisionId':index['definitionRevisionId'],'commodity':index['commodity'],'quantity':'10','fixedCoefficient':'-1','discounting':False,
             'fixed':dict(price='3',currency=index['currencyCode'],deliveryFrom='2021-01-01',deliveryTo='2021-02-01',paymentSchedule=payment),'floating':floating}
-        return checked_booking(body)
+        result=checked_booking(body);booking_inputs[result['tradeId']]=body
+        return result
     first=book(later,secondary,True)
     second=book(earlier,primary,False)
     specification=next(q['specification'] for q in primary['quantityChoices'] if q['specification']['code']==primary['quantityCode'])
@@ -517,6 +519,11 @@ def run_temporal_checks(url,query,manifest):
     editor=client.call('swaps/editor',dict(context=context(earlier),tradeId=second['tradeId'],revision=None))
     assert editor['valuation']['presentValue'] is not None,'The earlier effective trade must read its shared complete retained graph'
     print('PASS retained schedule temporal reuse: a later-first shared Side reads under the earlier independent market boundary',flush=True)
+    from check_side_schedule_inspection import check_swap
+    for saved in (first,second,whole):check_swap(client,later if saved!=second else earlier,saved)
+    check_swap(client,later,factor,'heat_rate')
+    from check_side_schedule_inspection import check_swap_head
+    check_swap_head(client,query,manifest,later,second,booking_inputs[second['tradeId']])
     return [dict(instrumentId=first['instrumentId'],asOf=later['at'],fixedUnitPv='3'),
             dict(instrumentId=second['instrumentId'],asOf=earlier['at'],fixedUnitPv='3'),
             dict(instrumentId=whole['instrumentId'],asOf=later['at'],minimumPayments=2,secondRatio='3/2'),

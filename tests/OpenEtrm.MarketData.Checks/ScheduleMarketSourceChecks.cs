@@ -16,6 +16,12 @@ internal static class ScheduleMarketSourceChecks
             [..swap.Floating.GenerateSchedule().Rows.SelectMany(r=>r.Prices).Select(p=>p.Lookup!).Distinct()],[]);
         var factors=new ExplicitDiscounting(ExactDecimal.Parse("0.9"),DiscountFactorSource.Explicit);
         var result=sources.Evaluate(program,swap.Floating.Id,market,factors);
+        var nativeValued=swap.Floating.PV(new(market,factors));
+        Func<DateOnly,DateTimeOffset> utc=day=>new(day.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero);
+        var inspected=SideScheduleSnapshot.FromProgramValue(nativeValued,result,program,program.Document.ScheduleManifest,ExactDecimal.Parse("1"),new(1,1),utc);
+        if(inspected.Read(0,8).Rows.IsEmpty)throw new Exception("A compiled native Side must supply the common inspection contract.");
+        Reject("side_schedule_inspection",()=>SideScheduleSnapshot.FromProgramValue(nativeValued,result with{Context=new(Guid.NewGuid(),result.Context.ManifestId,result.Context.EffectiveAt,result.Context.KnownAt,result.Context.ValuationAt,result.Context.MarketAsOf)},program,program.Document.ScheduleManifest,ExactDecimal.Parse("1"),new(1,1),utc));
+        Reject("side_schedule_inspection",()=>SideScheduleSnapshot.FromProgramValue(nativeValued,result with{Context=new(result.Context.ContextId,result.Context.ManifestId,result.Context.EffectiveAt,result.Context.KnownAt,result.Context.ValuationAt,result.Context.MarketAsOf.AddSeconds(-1))},program,program.Document.ScheduleManifest,ExactDecimal.Parse("1"),new(1,1),utc));
         Equal(result.PresentValue.ToExactString(),"2.925");
         var receipt=result.SourceReceipt??throw new Exception("Source evaluation must retain input evidence.");
         Equal(receipt.Program.ContentDigest,BookedSideProgram.Digest(program.Write()));
@@ -239,7 +245,15 @@ internal static class ScheduleMarketSourceChecks
         var context=market.Graph.Plan.Context;var df=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted);
         var source=new ScheduleMarketSources(context,market,null,null,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,lookups,[]);
         // (10 actual + 20 actual + 33 projected) / 3 = 21, independent of the evaluator.
-        Equal(source.Evaluate(program,side.Id,market,df).PresentValue.ToExactString(),"21");
+        var inspected=source.Evaluate(program,side.Id,market,df);
+        Equal(inspected.PresentValue.ToExactString(),"21");
+        var input=Inspection(inspected,program);
+        var contribution=SideScheduleInspection.Read(input,Utc,0,1).Rows.Single();
+        var cells=SideScheduleInspection.Calculation(input,Utc,contribution.Key,0,128).Rows;
+        var observations=cells.Where(cell=>cell.Operation=="price_lookup").ToArray();
+        if(observations.Length!=3||observations.Count(cell=>cell.PriceStates.Contains("PublishedFixing"))!=2||
+            observations.Any(cell=>cell.FixingAt is null||cell.ContractFrom is null||cell.ContractTo is null||cell.Lineage.IsEmpty))
+            throw new Exception("Inspection must retain every averaging observation, fixing cutoff, contract tenor and selected source lineage.");
         var factor=fixture.Model.QuoteFactors(snapshot).Single(f=>f.Input.Series==fixture.Series[2].Key);
         var pair=fixture.Model.Scenarios(market,[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("3"),QuoteBump.Convention)]).Single();
         Equal(source.Evaluate(program,side.Id,pair.Up,df).PresentValue.ToExactString(),"22");
@@ -288,7 +302,12 @@ internal static class ScheduleMarketSourceChecks
         var source=new ScheduleMarketSources(market.Build.Graph.Plan.Context,market.Build,data.Reference,data.Read,data.KnowledgePolicy,data.Policy,[],[]);
         var df=new ExplicitDiscounting(ExactDecimal.Parse("0.9"),DiscountFactorSource.Explicit);
         // 180.25 delivered certificates are held at 5, without payment discounting.
-        Equal(source.Evaluate(program,side.Id,market.Build,df).PresentValue.ToExactString(),"901.25");
+        var held=source.Evaluate(program,side.Id,market.Build,df);
+        Equal(held.PresentValue.ToExactString(),"901.25");
+        var row=SideScheduleInspection.Read(Inspection(held,program),Utc,0,1).Rows.Single();
+        var plan=SideScheduleInspection.Plan("certificate",program,Utc,held.Context.ValuationAt,held.Context.KnownAt,0,1,"synthetic_refusal").Rows.Single();
+        if(row.Kind!="Holding"||plan.Kind!="Holding"||row.DiscountFactor is not null||row.Amount!=row.PresentValue)
+            throw new Exception("Held certificates retain their native holding classification and undiscounted value.");
         var pair=market.Model.Scenarios(market.Build,[market.Bumps["synthetic_certificate"]]).Single();
         Equal(source.Evaluate(program,side.Id,pair.Up,df).PresentValue.ToExactString(),"1081.5");
         Equal(source.Evaluate(program,side.Id,pair.Down,df).PresentValue.ToExactString(),"721");
@@ -314,6 +333,12 @@ internal static class ScheduleMarketSourceChecks
         var df=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted);
         var result=source.Evaluate(program,side.Id,market.Build,df);
         CheckReceipt(result,program);
+        var inspected=Inspection(result,program);
+        var row=SideScheduleInspection.Read(inspected,Utc,0,1).Rows.Single();
+        var actual=SideScheduleInspection.Calculation(inspected,Utc,row.Key,0,128).Rows.Single(cell=>cell.Operation=="price_lookup");
+        if(row.PresentValue is not null||row.Lifecycle.Coverage!="DeliveredValue"||actual.ActualBatch is null||actual.ActualRevision is null||
+            actual.ActualKnownAt is null||!actual.PriceStates.Contains("Actual"))
+            throw new Exception("Historical inspection keeps OutsideMeasure PV unavailable and retains the selected actual batch/revision/knowledge evidence.");
         var volumes=result.SourceReceipt!.Cells.Values.OfType<ScheduleVolumeEvidence>().ToArray();
         var prices=result.SourceReceipt.Cells.Values.OfType<ScheduleNativePriceEvidence>().ToArray();
         if(volumes.Length==0||prices.Length==0||volumes.Any(value=>value.Volume.State!=VolumeState.Metered||value.Volume.KnownAt!=f.To)||
@@ -330,6 +355,7 @@ internal static class ScheduleMarketSourceChecks
     private static void CheckReceipt(BookedSideEvaluation value,BookedSideProgram program)
     {
         var receipt=value.SourceReceipt??throw new Exception("Missing source receipt.");
+        if(receipt.Context!=value.Context)throw new Exception("Source provenance belongs to another resolved calculation context.");
         var expected=new HashSet<ScheduleSourceCell>();
         foreach(var source in program.Inputs(value.Context,coverage:value.Coverage).Sources)
         foreach(var lane in new[]{(Id:value.BaseScenarioId,Mask:ScheduleInputLanes.Base),(Id:value.ScenarioId,Mask:ScheduleInputLanes.Scenario)})
@@ -338,6 +364,8 @@ internal static class ScheduleMarketSourceChecks
         if(!expected.SetEquals(receipt.Cells.Keys))throw new Exception("Receipt must cover exactly the demanded source cells and lanes.");
         Equal(receipt.Program.ContentDigest,BookedSideProgram.Digest(program.Write()));
     }
+    private static DateTimeOffset Utc(DateOnly day)=>new(day.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero);
+    private static SideViewInput Inspection(BookedSideEvaluation result,BookedSideProgram program)=>new("synthetic_side",result,program,ExactDecimal.Parse("1"),new(1,1),[]);
     private static void Reject(string code,Action action)
     {try{action();}catch(MarketDataException error)when(error.Code==code){return;}throw new Exception("Expected "+code);}
     private static BookedSideProgram Load(Side side)

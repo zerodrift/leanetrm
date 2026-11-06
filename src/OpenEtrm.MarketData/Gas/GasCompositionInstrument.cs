@@ -12,7 +12,7 @@ public sealed record GasCashComponent(string Code,Side Side,string Role,string S
 [EconomicDefinition("gas_composition_role_v1")]
 public sealed record GasCompositionRole([property:IdentityField]string Code,[property:IdentityField]string Role,[property:IdentityField]string? Source,[property:IdentityField]GasQuantityStage? Stage,[property:IdentityField]GasCompositionLink? Link);
 
-// Fixed contractual profiles only. Exact native-unit membership ratios retain
+// Contractual physical and payment sides. Exact native-unit membership ratios retain
 // quantity normalization separately from direction; no operational selection or
 // transport entitlement is inferred from a quantity link.
 [EconomicDefinition("gas_composition_instrument_v1")]
@@ -82,11 +82,17 @@ public sealed record GasCompositionInstrument:SidedInstrument
   foreach(var p in cash)
   {
    var source=Index(p.Source);var a=physical[source].Side;
-   if(p.Role is not("consideration" or "fee")||!Enum.IsDefined(p.Stage)||p.Direction!=one&&p.Direction!=minus||
-    p.Side is not FixedSide||p.Side.GenerateSchedule() is not SidePaymentSchedule schedule||schedule.Currency!=native.Currency||schedule.UnitQuantity!=native.UnitQuantity||schedule.Rows.Count!=1)
-    throw Invalid("Cash and fee sides need an independent direction, fixed price and one explicit physical quantity stage in the same native quote.");
-   var row=schedule.Rows[0];
-   if(row.DeliveryFrom!=a.Quantities.From||row.DeliveryTo!=a.Quantities.To||row.AllocatedQuantity!=a.GenerateSchedule().Quantities.TotalDelivery)throw Invalid("Cash coverage must match its selected physical quantity profile.");
+   var indexed=p.Role=="indexed_consideration"&&p.Side is FloatingSide;
+   if(!(indexed||p.Role is("consideration" or "fee")&&p.Side is FixedSide)||!Enum.IsDefined(p.Stage)||p.Direction!=one&&p.Direction!=minus||
+    p.Side.GenerateSchedule() is not SidePaymentSchedule schedule||schedule.Currency!=native.Currency||schedule.UnitQuantity!=native.UnitQuantity||schedule.Rows.Count<1||!indexed&&schedule.Rows.Count!=1)
+    throw Invalid("Cash sides require their declared fixed or indexed price, independent direction and explicit physical quantity stage in the same native quote.");
+   var rows=schedule.Rows;
+   var delivery=a.GenerateSchedule().Quantities.Rows;
+   if(indexed&&(rows.Count!=delivery.Length||rows.Where((row,n)=>row.DeliveryFrom!=delivery[n].OperatingDay||row.DeliveryTo!=delivery[n].OperatingDay.AddDays(1)||row.AllocatedQuantity!=delivery[n].Delivery).Any()))
+    throw Invalid("Indexed consideration requires each source gas day's exact delivery interval and quantity.");
+   if(rows[0].DeliveryFrom!=a.Quantities.From||rows[^1].DeliveryTo!=a.Quantities.To||rows.Where((row,n)=>n>0&&rows[n-1].DeliveryTo!=row.DeliveryFrom).Any()||
+    rows.Select(row=>row.AllocatedQuantity).Aggregate((x,y)=>x.Add(y))!=a.GenerateSchedule().Quantities.TotalDelivery)
+    throw Invalid("Cash coverage must match its selected physical quantity profile.");
    members.Add(new(p.Side,p.Direction,Stage(inputs[source],outputs[source]!,p.Stage)));
   }
   return new(members.ToImmutable(),[..inputs],amount);

@@ -86,6 +86,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('maintained crude setup, original pricing bindings and recovery', [*preview, '--crude-setup-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('gas basis history and final facility inputs', [*preview, '--gas-basis-demo-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('physical gas booking, facility allocation, setup and daily quantities', [*preview, '--facility-quantity-check', '--gas-daily-quantity-check', '--gas-composition-check', '--gas-setup-check', '--browser-check', '--browser', str(browser)], suite='trading')
+    preview_check('future gas amendments, immutable revisions and ticket recovery', [*preview, '--gas-amendments-check', '--browser-check', '--browser', str(browser)], suite='trading')
+    preview_check('daily indexed gas payments, shared Side inspection and retained risk', [*preview, '--gas-indexed-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('physical LNG cargo, Incoterms, upgrade, recovery and retained worker valuation', [*preview, '--lng-cargo-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('retained graph admission and reverse-boundary independent Side reuse', [*preview, '--retained-schedule-check'], suite='trading')
     preview_check('mixed PPA and heat-rate trades, exact worker custody and browser', [*preview, '--demo-instruments-check', '--browser-check', '--browser', str(browser)], suite='trading')

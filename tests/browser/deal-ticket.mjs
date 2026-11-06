@@ -25,11 +25,11 @@ export async function run(actions){
  await evaluate(`{const original=window.fetch;window.ticketBodies=[];window.fetch=async(...args)=>{const sent=/[/]tickets[/](preview|book)$/.exec(String(args[0]));if(sent)ticketBodies.push({path:sent[1],draft:JSON.parse(args[1].body).draft});return original(...args);};}`);
  const soonIds=await evaluate(`[...document.querySelectorAll(${q(ticket+' .ticket-field[data-state=soon]')})].map(f=>f.dataset.field)`);
  await check('a coming-soon field is disabled, tagged Coming soon and says what it will do on hover',
-  `(()=>{const f=document.querySelector(${q(field('physical-1','heat_content'))}),c=f?.querySelector('.ticket-control');
+  `(()=>{const f=document.querySelector(${q(ticket+' .ticket-upcoming [data-field=heat_content]')}),c=f?.querySelector('.ticket-control');
    return !!c&&c.disabled&&c.getAttribute('aria-disabled')==='true'&&f.title===c.title&&/Btu per cubic foot/.test(c.title)&&f.querySelector('.ticket-soon-tag')?.textContent==='Coming soon';})()`,q(soonIds));
- await check('the floating side and the Imbalance tab are offered as coming soon, and cannot be chosen',
-  `(()=>{const add=[...document.querySelectorAll(${q(ticket+' .ticket-add-kind')})].find(b=>b.textContent.startsWith('Floating')),tab=document.querySelector(${q(ticket+' .ticket-tab[data-tab="imbalance"]')});
-   return add.disabled&&/does not accept it yet/.test(add.title)&&tab.disabled&&tab.getAttribute('aria-disabled')==='true'&&/cash-out/.test(tab.title);})()`);
+ await check('Index payment is available while the Imbalance tab remains coming soon',
+  `(()=>{const add=[...document.querySelectorAll(${q(ticket+' .ticket-add-kind')})].find(b=>b.textContent==='Index payment'),tab=document.querySelector(${q(ticket+' .ticket-tab[data-tab="imbalance"]')});
+   return !!add&&!add.disabled&&tab.disabled&&tab.getAttribute('aria-disabled')==='true'&&/cash-out/.test(tab.title);})()`);
 
  await tradeTerms();await physicalTerms('physical-1','deliver','5000');
  await wait(`!!document.querySelector(${q(field('physical-1','gas_day_start')+' .ticket-chip')})&&!!document.querySelector(${q(field('physical-1','price')+' .ticket-chip')})`);
@@ -175,6 +175,7 @@ export async function run(actions){
  await evaluate(`{const original=window.recordFetch=window.fetch;window.recordRequests=0;window.fetch=async(...args)=>{const response=await original(...args);
   if(String(args[0]).endsWith('/gas/quantities/record')){recordRequests++;if(response.ok)throw new TypeError('Synthetic lost record response');}return response;};}`);
  const later=`${booked} .tabulator-row[data-row-key="2021-01-06"] .ticket-cell-input`;
+ await wait(`!!document.querySelector(${q(later)})`);
  await set(later,'8000');await wait(`!!document.querySelector(${q(record)})`);
  for(const [id,value] of [['kind','nominated'],['status','provisional'],['evidence','Synthetic nomination']])await set(`${record} [data-field="${id}"] .ticket-control`,value);
  await click(`${record} .ticket-record-send`);

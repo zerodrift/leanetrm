@@ -217,6 +217,8 @@ public sealed partial class SideValuationContext
     private readonly Func<CurveRequest,ImmutableHashSet<ObservationKey>>? exactLineage;
     private readonly string? connectedNumericalPolicy;
     private readonly string? connectedScenarioId;
+    private readonly bool baseScenario=true;
+    internal bool IsBaseScenario=>baseScenario&&observationScenario?.ParentId is null;
     public MarketSnapshot Snapshot { get; }
     public ISideDiscounting Discounting => discounting??throw new MarketDataException("side_context","Supply this instrument's explicit payment discount inputs.");
     public string CurveNumericalPolicy => connectedNumericalPolicy??ConnectedCurves.NumericalPolicy;
@@ -244,20 +246,21 @@ public sealed partial class SideValuationContext
         exactLineage = request => pricing.Lineage(request, default);
         connectedNumericalPolicy = pricing.NumericalPolicy;
         connectedScenarioId = pricing.ScenarioId;
+        baseScenario=market.Graph.ParentId is null;
     }
     // Connected calculations retain the same pricer contract and dependency
     // fence. Rational inputs are resolved on demand under their active scenario.
     internal SideValuationContext(MarketSnapshot snapshot,ISideDiscounting? discounting,
-        ImmutableArray<CurveRequest> dependencies,Func<CurveRequest,ExactUnitPrice> exactPrices,string numericalPolicy,string scenarioId)
+        ImmutableArray<CurveRequest> dependencies,Func<CurveRequest,ExactUnitPrice> exactPrices,string numericalPolicy,string scenarioId,bool baseScenario)
     {
         Snapshot=snapshot;this.discounting=discounting;this.exactPrices=exactPrices;
         permitted=dependencies.ToImmutableHashSet();
-        connectedNumericalPolicy=numericalPolicy;connectedScenarioId=scenarioId;
+        connectedNumericalPolicy=numericalPolicy;connectedScenarioId=scenarioId;this.baseScenario=baseScenario;
     }
     internal SideValuationContext(CurveBuild authority, ISideDiscounting? discounting,
         IEnumerable<CurveRequest> dependencies, Func<CurveRequest,ExactUnitPrice> exactPrices,
-        Func<CurveRequest,ImmutableHashSet<ObservationKey>> lineage, string numericalPolicy, string scenarioId)
-        : this(authority.Snapshot, discounting, dependencies.ToImmutableArray(), exactPrices, numericalPolicy, scenarioId)
+        Func<CurveRequest,ImmutableHashSet<ObservationKey>> lineage, string numericalPolicy, string scenarioId,bool baseScenario)
+        : this(authority.Snapshot, discounting, dependencies.ToImmutableArray(), exactPrices, numericalPolicy, scenarioId,baseScenario)
     {
         market = authority; exactLineage = lineage;
     }
@@ -462,6 +465,7 @@ public abstract record SideValuation
     public ReferenceKey Currency => Schedule.Currency;
     public Quantity UnitQuantity => Schedule.UnitQuantity;
     public SideSchedule Schedule { get; }
+    public abstract SideScheduleSnapshot InspectSchedule(string manifest,ExactDecimal scale,OpenEtrm.Shared.Numerics.SignedRatio coefficient,Func<DateOnly,DateTimeOffset> boundary);
     internal SideValuationContext Context { get; }
     public MarketSnapshot Snapshot => Context.Snapshot;
     public ExactMoney PresentValue { get; }
@@ -473,6 +477,7 @@ public sealed record PaymentSideValuation : SideValuation
 {
     public new SidePaymentSchedule Schedule => (SidePaymentSchedule)base.Schedule;
     public ImmutableArray<ScheduleRowValue> Payments { get; }
+    public override SideScheduleSnapshot InspectSchedule(string manifest,ExactDecimal scale,OpenEtrm.Shared.Numerics.SignedRatio coefficient,Func<DateOnly,DateTimeOffset> boundary)=>SideScheduleSnapshot.FromRows(this,Payments,manifest,scale,coefficient,boundary);
     internal PaymentSideValuation(SidePaymentSchedule schedule,SideValuationContext context,ImmutableArray<ScheduleRowValue> payments)
         : base(schedule,context,payments.Select(p=>p.RequirePresentValue()).Aggregate((a,b)=>a.Add(b)))
     {Payments=payments;}

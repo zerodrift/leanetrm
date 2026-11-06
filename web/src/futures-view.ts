@@ -1,3 +1,4 @@
+import {withSideSchedules,genericPositionView} from './position-schedules.js';
 import {watchVersions} from './version-updates.js';
 import type {PresentationStep} from './assistant-walkthroughs.js';
 import {validateMonteCarlo} from './monte-carlo-risk.js';
@@ -361,14 +362,15 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,shape:shapeOf,context:()=>JSON.stringify(readContext()),onDenied:clear,
     read:async(h,formats)=>{
       const stale=!holdings,context=readContext();
-      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:options.profile,recorded:()=>void act(load),surface:options.volSurface}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h,()=>void operateCrude(h.tradeId)):h.instrumentType==='physical_gas'?readGasView(api,context,h,{actor:options.profile}):h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt,()=>void manage('ppa',h.tradeId)):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
+      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:options.profile,recorded:()=>void act(load),surface:options.volSurface}):h.instrumentType==='physical_lng'?readLngView(api,context,h,clear):h.instrumentType==='physical_crude'?readCrudeView(api,context,h,()=>void operateCrude(h.tradeId),clear):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:clear,actor:options.profile,amend:options.window.kind==='main'?()=>void perform({kind:'amend',key:rowKey(h)}):undefined}):h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt,()=>void manage('ppa',h.tradeId)):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):h.instrumentType==='future'?readTradeView(api,context,h,formats):genericPositionView(h));
       // Details kept on screen while the Blotter is read again do not transition into a working settlement editor.
-      return {...read,view:zone=>{const detail=read.view(zone);return stale?{...detail,actions:undefined}:!options.assistant.available()?detail:{...detail,actions:[...(detail.actions??[]),{id:'position-ask-assistant',label:'Ask about this position',run:()=>{if(busy())return;pivotFocus=null;if(view.mode==='trades')table?.select(rowKey(h));options.reported();options.assistant.about({key:rowKey(h),reference:h.tradeReference,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]});}}]};}};
+      const scheduled=withSideSchedules(read,api,context,h,clear);
+      return {...scheduled,view:zone=>{const detail=scheduled.view(zone);return stale?{...detail,actions:undefined}:!options.assistant.available()?detail:{...detail,actions:[...(detail.actions??[]),{id:'position-ask-assistant',label:'Ask about this position',run:()=>{if(busy())return;pivotFocus=null;if(view.mode==='trades')table?.select(rowKey(h));options.reported();options.assistant.about({key:rowKey(h),reference:h.tradeReference,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]});}}]};}};
     },
     amendment:{
       open:h=>void perform({kind:'amend',key:rowKey(h)}),
       // A future's form is open for its binding, a swap's for its instrument.
-      shown:h=>{const future=editor.shown(),swap=swapEditor.shown();return !!future&&future.tradeId===h.tradeId&&future.bindingId===h.bindingId||!!swap&&swap.tradeId===h.tradeId&&swap.contractId===h.contractId;},
+      shown:h=>{const future=editor.shown(),swap=swapEditor.shown();return options.tickets.active()==='gas'&&options.tickets.trade()===h.tradeId||!!future&&future.tradeId===h.tradeId&&future.bindingId===h.bindingId||!!swap&&swap.tradeId===h.tradeId&&swap.contractId===h.contractId;},
       close:async()=>{await leave();},
     },
     openCurve:(curve,contractId)=>asked(()=>options.openCurve(curve,contractId))});
@@ -1673,6 +1675,11 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       if(!h)throw refuse('that position is not among the rows on screen');
       if(!shown||rowKey(shown)!==key)throw refuse('a position is amended from its details, which do not show it');
       const why=amendRefusal(h.instrumentType,!!catalog?.canAmendTrades,position.amendState(h));if(why)throw Error(why);
+      if(h.instrumentType==='physical_gas'){
+        if(options.window.kind!=='main')throw Error('Open the Blotter in the main window to amend this gas trade.');
+        await guarded(async()=>{await options.tickets.open('gas',panel.element('form'),h.tradeId,{bindingId:h.bindingId,revision:Number(h.revision)});panel.form(true);panel.reveal();});
+        position.sync();return;
+      }
       await acting(act,()=>h.instrumentType!=='future'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision)));
     }},{busy});
   // The person's own actions: each takes away what an earlier refusal said, and one refused, before its handler or by it, says why as any
