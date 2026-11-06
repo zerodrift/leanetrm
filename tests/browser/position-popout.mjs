@@ -1,4 +1,5 @@
 import {setupWorkspaceProbe} from './workspace-probe.mjs';
+import {inspectPositionSide} from './position-schedules.mjs';
 // Native double-clicks open independent windows. All values and schedules remain backend reads.
 import {mkdtemp,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -40,16 +41,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const value=selected.instrumentType==='future'?selected.executionPnl:selected.presentValue;
   const matches=state.opener&&state.title===selected.tradeReference&&state.context===report.context.contextId&&state.knownAt===report.context.knownAt&&state.asOf===report.asOf&&state.tabs.join()==='Terms,Side schedules,History'&&state.amend&&!state.settlement&&!state.forms&&state.value===value+' '+selected.currency&&state.error&&!state.resources.some(path=>/\/(book|amend|market\/context|market\/current|risk)(?:\/|$)/.test(path));
   await evaluate(`window.__popupCheck=${JSON.stringify(matches)}`);await check(type+' double-click opens an independent read-only window at the exact retained context and backend value',"window.__popupCheck",'('+JSON.stringify(state)+')');
-  await popup.evaluate("(()=>{const send=window.fetch;window.popupReads=[];window.fetch=async(...args)=>{const r=await send(...args);window.popupReads.push({path:args[0],body:args[1]?.body?JSON.parse(args[1].body):null,status:r.status});return r;};document.querySelector('#position-window-retry').click();})()");
+  await popup.evaluate("(()=>{const send=window.fetch;window.popupReads=[];window.fetch=async(...args)=>{const r=await send(...args);window.popupReads.push({path:args[0],body:args[1]?.body?JSON.parse(args[1].body):null,status:r.status,...(String(args[0]).endsWith('/trading/side-schedules')&&r.ok?{value:await r.clone().json()}:{})});return r;};document.querySelector('#position-window-retry').click();})()");
   await popup.wait("document.body.getAttribute('aria-busy')==='false'&&window.popupReads.some(r=>r.path.endsWith('/trading/position'))&&!document.querySelector('#position-window-detail').hidden&&!!document.querySelector('#position-window-view .side-panel-section')",30000);
   const read=await popup.evaluate("window.popupReads.find(r=>r.path.endsWith('/trading/position')).body");
   if(read.context.snapshotId!==snapshot||read.context.knowledgeMode!=='retained'||read.context.contextId!==report.context.contextId||read.tradeId!==selected.tradeId||read.bindingId!==selected.bindingId||read.revision!==Number(selected.revision))throw Error('The popup replaced its retained selection.');
   if(type==='ppa'){
    await popup.click('#position-window-tabs-schedules');
-   await popup.wait("document.querySelector('.position-schedules')?.textContent.includes('under this Blotter')",30000);
-   await popup.evaluate("(()=>{const root=document.querySelector('.position-schedules');for(const select of root.querySelectorAll('.schedule-fields select')){select.value=select.options[1].value;select.dispatchEvent(new Event('change',{bubbles:true}));}root.querySelector('.schedule-fields button').click();})()");
-   await popup.wait("window.popupReads.some(r=>r.path.endsWith('/ppa/inspect')&&r.status===200)&&!document.querySelector('.position-schedules').textContent.includes('Loading selected month…')",30000);
-   const bounded=await popup.evaluate("(()=>{const tables=document.querySelector('.position-schedules').querySelectorAll('table'),rows=tables[tables.length-1].querySelectorAll('tbody tr');return rows.length>0&&rows.length<=48;})()");
+   await inspectPositionSide(popup,0,{host:'#position-window-view',deliveryWindow:'2031-11-01'});
+   const bounded=await popup.evaluate(`(()=>{const read=window.popupReads.find(r=>r.path.endsWith('/trading/side-schedules')&&r.body.sideSlot===0),rows=document.querySelector('#position-window-view .inspection-rows').querySelectorAll('tbody tr');return read?.status===200&&read.body.position.tradeId===${JSON.stringify(selected.tradeId)}&&read.body.position.bindingId===${JSON.stringify(selected.bindingId)}&&read.body.position.context.knowledgeMode==='retained'&&read.value.contextId===${JSON.stringify(report.context.contextId)}&&read.value.window==='2031-11-01'&&read.value.page.rows.length>0&&rows.length===read.value.page.rows.length&&rows.length<=32;})()`);
    await evaluate(`window.__popupCheck=${bounded}`);await check('the PPA window uses bounded backend schedule pages',"window.__popupCheck");last={popup,id:target.targetId};
   }
   const picture=await popup.command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(join(artifacts,'position-'+type+'.png'),Buffer.from(picture.data,'base64'));

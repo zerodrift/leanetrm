@@ -12,8 +12,8 @@ export async function runReferenceOnly(actions){
  await newTrade(actions,'gas');await wait(`document.querySelectorAll(${q(ticket+' .ticket-card')}).length===2`);
  for(const [id,value] of [['product','test_gas'],['pipeline','test_pipeline_a'],['zone','synthetic_gas_zone_b']])await choose('physical-1',id,value);
  await wait(`document.querySelectorAll(${q(control('physical-1','delivery_point')+' option')}).length===2`);
- await check('gas reference entry opens without any dated gas price frame and keeps its singleton point explicit',
-  `document.querySelector(${q(control('physical-1','delivery_point'))}).value===''&&!document.querySelector(${q(control('physical-1','delivery_point'))}).disabled&&!document.querySelector('#gas-curve')`);
+ await check('gas reference entry selects its sole managed delivery point without any dated gas price frame',
+  `document.querySelector(${q(control('physical-1','delivery_point'))}).value==='synthetic_gas_point_b'&&!document.querySelector(${q(control('physical-1','delivery_point'))}).disabled&&!document.querySelector('#gas-curve')`);
 }
 
 export async function run(actions){

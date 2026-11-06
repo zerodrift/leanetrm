@@ -2990,7 +2990,12 @@ manifest/context/snapshot validation and bounded pages. PPA sources declare thei
 monthly windows explicitly. Ordinary swap valuation retains the already selected
 certified knowledge context on its snapshot. The position panel supplies a shared
 lazy renderer; remove the separate PPA position grid and read-only swap grid
-hookup. Editable booking reviews retain their own inputs and authorized writes.
+hookup. The generic inspector captures the displayed Blotter's certified context
+before awaiting detail reads; it never opens a newer working context in its place.
+Position detail caches include that context and discard late reads from a replaced
+context. Unchanged read-only terms retain their nodes during refresh; pending
+operational widgets retain their inputs until released. Editable booking reviews
+retain their own inputs and authorized writes.
 
 New implementers supply their native values and normal storage integration;
 they do not implement a separate schedule API or UI. Instrument/Side pricing and

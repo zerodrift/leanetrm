@@ -160,7 +160,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag:K,className?:string,text?
   const element=document.createElement(tag);if(className)element.className=className;if(text!==undefined)element.textContent=publicText(text);return element;
 }
 const failure=(error:unknown,fallback:string)=>error instanceof Error?error.message:fallback;
-type Detail={key:string}&({state:'loading'}|{state:'ready';read:DetailRead}|{state:'error';message:string});
+type Detail={key:string;position:string}&({state:'loading';previous?:DetailRead}|{state:'ready';read:DetailRead}|{state:'error';message:string});
 
 /**
  * The position view over the shell's head, tab strip and tab panel. The Terms and History tabs read the trade revision once, when
@@ -190,7 +190,8 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
   let drawnSchedules:(()=>void)|undefined,drawnScheduleKey:string|undefined,drawnTab:PositionTab|undefined;
   const takeDownSchedules=()=>{drawnSchedules?.();drawnSchedules=undefined;drawnScheduleKey=undefined;drawnTab=undefined;};
   const view=()=>shell.element('view');
-  const key=(at:PositionInput)=>JSON.stringify([at.holding.tradeId,at.holding.revision,o.context()]);
+  const positionKey=(at:PositionInput)=>JSON.stringify([at.holding.tradeId,at.holding.bindingId,at.holding.revision,at.holding.instrumentType]);
+  const key=(at:PositionInput)=>JSON.stringify([positionKey(at),o.context()]);
   function status(text:string,className='side-panel-status'){const p=el('p',className,text);p.setAttribute('role','status');return p;}
   function drawHead(at:PositionInput,now:PositionSummary){
     shell.element('head').classList.toggle('schedule-header',tab==='schedules');
@@ -245,37 +246,41 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
   }
   function drawDetail(host:HTMLElement,at:PositionInput){
     if(detail?.key!==key(at))void load();
-    if(!detail||detail.state==='loading')return void host.append(status('Loading…'));
+    if(!detail||detail.state==='loading'&&(!detail.previous||tab!=='terms'))return void host.append(status('Loading…'));
     if(detail.state==='error'){
       const retry=el('button','secondary','Retry');retry.type='button';retry.id='side-panel-retry';retry.onclick=()=>void load();
       return void host.append(status(detail.message,'side-panel-status side-panel-error'),retry);
     }
-    const read=detail.read.view(o.zone());
+    const refreshing=detail.state==='loading',read=(detail.state==='ready'?detail.read:detail.previous!).view(o.zone());
     if(tab==='terms'&&read.actions?.length){
       const row=el('div','side-panel-actions side-panel-terms-actions');
-      for(const action of read.actions){const button=el('button','secondary',action.label);button.type='button';button.id=action.id;button.disabled=o.busy();button.onclick=()=>action.run();row.append(button);}
+      for(const action of read.actions){const button=el('button','secondary',action.label);button.type='button';button.id=action.id;button.disabled=o.busy()||refreshing;button.onclick=()=>action.run();row.append(button);}
       host.append(row);
     }
     if(tab==='schedules'){
       if(read.schedules){const schedules=el('div','position-side-schedules');host.append(schedules);drawnSchedules=read.schedules(schedules);drawnTab=tab;}
       else host.append(status('No side schedule view is available for this instrument.'));
-    }else{drawSections(host,tab==='terms'?read.terms:read.history);if(tab==='terms'&&read.termsContent){drawnSchedules=read.termsContent(host);drawnTab=tab;}}
+    }else drawSections(host,tab==='terms'?read.terms:read.history);
+    if(refreshing)host.append(status('Refreshing position details…'));
   }
   function drawBody(at:PositionInput,now:PositionSummary){
     const host=view();
     const scheduleKey=tab==='schedules'&&detail?.state==='ready'&&detail.key===key(at)?detail.read.view(o.zone()).scheduleKey:undefined;
     if(scheduleKey!==undefined&&drawnScheduleKey===key(at)+scheduleKey)return;
     const ready=detail?.state==='ready'&&detail.key===key(at)?detail.read:undefined,read=ready?.view(o.zone());
-    const widget=tab==='schedules'||tab==='terms'&&!!read?.termsContent;
-    if(widget&&drawnSchedules&&drawnTab===tab&&ready?.updatesBlocked?.())return;
+    const retained=detail?.state==='ready'?detail.read:detail?.state==='loading'?detail.previous:undefined;
+    if(drawnSchedules&&drawnTab===tab&&detail?.position===positionKey(at)&&retained?.updatesBlocked?.())return;
     takeDownSchedules();
     // The amendment's form is the Terms tab's content while it is open: the other tabs keep it, and its edits, out of sight. Travelling
     // along the tabs back to it is not opening it, so only an Amend press takes focus into it, into its first control.
     const form=tab==='terms'&&amending;
     shell.form(form);
     if(form){if(focusOnOpen){focusOnOpen=false;shell.reveal();shell.focusForm();}return;}
-    if(widget){host.replaceChildren();if(tab==='terms')drawFacts(host,now);drawDetail(host,at);drawnScheduleKey=scheduleKey===undefined?undefined:key(at)+scheduleKey;}
-    else{const next=el('div');if(tab==='risk')drawRisk(next,at);else{if(tab==='terms')drawFacts(next,now);drawDetail(next,at);}replaceChangedChildren(host,[...next.childNodes],true);}
+    if(tab==='schedules'){host.replaceChildren();drawDetail(host,at);drawnScheduleKey=scheduleKey===undefined?undefined:key(at)+scheduleKey;}
+    else{
+      const next=el('div');if(tab==='risk')drawRisk(next,at);else{if(tab==='terms')drawFacts(next,now);drawDetail(next,at);}replaceChangedChildren(host,[...next.childNodes],true);
+      if(tab==='terms'&&read?.termsContent){drawnSchedules=read.termsContent(host);drawnTab=tab;}
+    }
   }
   // Keyboard focus. A control of the panel that has it when the page goes busy is disabled with the rest of the page, and the browser
   // drops focus a moment later without a word; a redraw replaces the control that has it. So the id of the control that has focus is
@@ -317,17 +322,20 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
   }
   // Reads the trade revision of the position and draws it. Resolves to why it could not be read, or to nothing; it never rejects.
   function load():Promise<unknown>{
-    const at=input!,started=++generation,loading:Detail={key:key(at),state:'loading'};
+    const at=input!,started=++generation,position=positionKey(at);
+    const previous=detail?.position===position?(detail.state==='ready'?detail.read:detail.state==='loading'?detail.previous:undefined):undefined;
+    const loading:Detail={key:key(at),position,state:'loading',previous};
     detail=loading;
+    const current=()=>{if(started!==generation||!input)return false;try{return loading.key===key(input);}catch{return false;}};
     const done=(async()=>{
       try{
         const read=await o.read(at.holding,at.formats);
-        if(started!==generation)return;
-        detail={key:loading.key,state:'ready',read};
+        if(!current())return;
+        detail={key:loading.key,position,state:'ready',read};
       }catch(error){
-        if(started!==generation)return;
+        if(!current())return;
         if((error as {code?:string}).code==='access_denied'){o.onDenied();return error;}
-        detail={key:loading.key,state:'error',message:failure(error,'The trade could not be read.')};paint();return error;
+        detail={key:loading.key,position,state:'error',message:failure(error,'The trade could not be read.')};paint();return error;
       }
       paint();
     })();
@@ -344,7 +352,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     if(o.busy())held=focused()??held;
     actions.amend.hidden=control.label===null;if(control.label!==null)actions.amend.textContent=control.label;
     actions.amend.disabled=o.busy();
-    for(const button of view().querySelectorAll<HTMLButtonElement>('.side-panel-terms-actions button'))button.disabled=o.busy();
+    for(const button of view().querySelectorAll<HTMLButtonElement>('.side-panel-terms-actions button'))button.disabled=o.busy()||detail?.state==='loading'||detail?.key!==key(at);
     actions.note.hidden=control.note===null;actions.note.textContent=control.note===null?'':publicText(control.note);
     const several=at.row.severalCurves,listed=!several&&o.curveListed(at.holding.curve);
     actions.open.hidden=!o.openCurve;actions.open.disabled=o.busy()||!listed;say(actions.openNote,actions.open,o.openCurve?curveNote(listed,several):null);

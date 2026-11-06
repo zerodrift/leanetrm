@@ -1,11 +1,17 @@
 import {blotterAt,decemberClose} from './gas-ticket.mjs';
-export async function inspectPositionSide({evaluate,wait,set},slot){
- const root='#position-details-view .side-schedule-inspection';
- await wait(`!!document.querySelector('${root}')`);
- await evaluate(`document.querySelector('${root}').open=true`);
- await wait(`!!document.querySelector('${root} .inspection-side option[value="${slot}"]')`);
+export async function inspectPositionSide({evaluate,wait,set},slot,{host='#position-details-view',deliveryWindow}={}){
+ const root=host+' .side-schedule-inspection';
+ await wait(`!!document.querySelector(${JSON.stringify(root)})`,30000);
+ await evaluate(`document.querySelector(${JSON.stringify(root)}).open=true`);
+ await wait(`!!document.querySelector(${JSON.stringify(root+' .inspection-side option[value="'+slot+'"]')})`,30000);
  await set(root+' .inspection-side',String(slot));
- await wait(`!!document.querySelector('${root} .inspection-rows tbody tr')`);
+ if(deliveryWindow!==undefined){
+  await wait(`!!document.querySelector(${JSON.stringify(root+' .inspection-window option[value="'+deliveryWindow+'"]')})`,30000);
+  if(await evaluate(`document.querySelector(${JSON.stringify(root+' .inspection-window')}).value`)!==deliveryWindow)await set(root+' .inspection-window',deliveryWindow);
+ }
+ await wait(`!!document.querySelector(${JSON.stringify(root+' .inspection-rows tbody tr')})`,30000).catch(async error=>{
+  throw Error(error.message+' · '+await evaluate(`document.querySelector(${JSON.stringify(root+' [role=status]')})?.textContent`),{cause:error});
+ });
 }
 
 export async function run(actions){
