@@ -1,8 +1,10 @@
 import {openPhysical} from './physical-workspace.mjs';
 import {openBookedSchedules} from './gas-ticket.mjs';
+import {openPhysicalTrade,openGasDelivery} from './physical-operations-grid.mjs';
 const q=JSON.stringify;
 
-export async function run({command,evaluate,wait,set,click,submit,persona,check,shot,idle,url,fixture,fitsWidth}){
+export async function run(actions){
+ const {command,evaluate,wait,set,click,submit,persona,check,shot,idle,url,fixture,fitsWidth}=actions;
  const open=()=>openPhysical({click,evaluate,wait},'facilities');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');
@@ -83,9 +85,13 @@ export async function run({command,evaluate,wait,set,click,submit,persona,check,
  await evaluate(`window.facilityTicketPayload=null;window.facilityTradeFetch=window.fetch;window.fetch=async(...args)=>{const response=await facilityTradeFetch(...args);if(String(args[0]).endsWith('/trading/gas')&&response.ok)window.facilityTicketPayload=await response.clone().json();return response;};
   const row=[...document.querySelectorAll('#facility-allocation-table tbody tr')].find(r=>r.querySelector('input')?.value==='60');row.querySelector('[data-facility-trade]').click();`);
  await openBookedSchedules({wait,click});
- await wait("!!document.querySelector('#position-details .ticket-facility-track')&&"+idle,30000).catch(async error=>{throw Error(error.message+' · '+JSON.stringify(await evaluate("({page:document.querySelector('#page-title').textContent,error:document.querySelector('#error').textContent,detail:document.querySelector('#position-details')?.textContent,ticket:window.facilityTicketPayload})")));});
- await check('a historical allocation opens the trade and only its own Side delivery track',
-  "facilityTicketPayload.facilityAllocations.length===1&&facilityTicketPayload.facilityAllocations[0].quantity==='60'&&Object.keys(facilityTicketPayload.facilityAllocations[0]).sort().join()==='day,finalQuantity,finalState,obligationId,quantity,sideCode,state,unit'&&facilityTicketPayload.facilityAllocations[0].finalQuantity===null&&facilityTicketPayload.facilityAllocations[0].finalState==='missing'");
+ await wait("[...document.querySelectorAll('#position-details tbody tr')].some(r=>r.cells[0]?.textContent==='receipt'&&r.cells[1]?.textContent==='2021-01-01'&&r.cells[4]?.textContent==='1000/1')&&"+idle);
+ await check('a historical allocation opens read-only Side schedules and retains only its own allocation evidence',
+  "!document.querySelector('#position-details .ticket-facility-track,#position-details .ticket-cell-input')&&facilityTicketPayload.facilityAllocations.length===1&&facilityTicketPayload.facilityAllocations[0].quantity==='60'&&Object.keys(facilityTicketPayload.facilityAllocations[0]).sort().join()==='day,finalQuantity,finalState,obligationId,quantity,sideCode,state,unit'&&facilityTicketPayload.facilityAllocations[0].finalQuantity===null&&facilityTicketPayload.facilityAllocations[0].finalState==='missing'");
+ const inspection=await evaluate('({tradeId:facilityTicketPayload.head.trade_id,contextId:facilityTicketPayload.context.contextId})');
+ await click('#nav-physical-operations');await openPhysicalTrade(actions,inspection.tradeId);await click('#physical-operations-tabs-delivery');await openGasDelivery(actions,'2021-01-01','receipt');await click('.gas-operations [data-stage="2"]');
+ await check('Operations shows the historical planned share without accepting it as final or allowing writes',
+  `(()=>{const rows=[...document.querySelectorAll('#physical-operations-view .ticket-facility-track tbody tr')];return rows.length===1&&rows[0].textContent.includes('receipt')&&rows[0].textContent.includes('2021-01-01')&&rows[0].textContent.includes('60 MMBtu')&&rows[0].textContent.includes('Planned')&&rows[0].textContent.includes('Not accepted')&&[...document.querySelectorAll('.gas-operations [data-operation]')].every(b=>b.disabled)&&document.querySelector('#snapshot').value===${q(inspectionFrame)}&&facilityTicketPayload.context.contextId===${q(inspection.contextId)};})()`);
  await evaluate('window.fetch=window.facilityTradeFetch');await open();await click('#current-view-context');
  await check('Working data reloads the facility independently of a market close choice',"!document.querySelector('#facility-source-fields').disabled&&!document.querySelector('#facility-editor').hidden");
  await persona('viewer');
