@@ -2,7 +2,7 @@
 
 D312–D314 are implemented in the bounded contract below; D315 is deferred. This extends the existing
 [workspace assistant](assistant-workspace.md); it adds no independent agent loop.
-The current runtime is `turns_v17` (D335); deployment requires matching schema,
+The current runtime is `turns_v20` (D340); deployment requires matching schema,
 API and browser assets. A runtime increment alone does not qualify a hosted release.
 Migration 0194 is consumed by digest admission, tool consent and Looking at;
 0195 adds walkthrough admission and the stored event. Neither adds a table.
@@ -278,3 +278,11 @@ without claiming that native reads or controls have completed. The browser's
 inline status reports completion or the first failed step. Native swap catalog
 reads share the [bounded exact observation reader](exact-observation-reads.md);
 no tool/event shape or runtime version changes.
+
+
+D344 makes the existing fill encodings discoverable in the server's
+`presentation.fillEvidence` guidance. Human structure/direction labels map to
+the existing canonical step strings. The model copies those encodings only for
+terms explicitly present in this ask and follows the advertised prerequisite
+order. Labels in a plan, unknown values and unstated terms still refuse. Tool
+schemas, validators, events, grants and runtime `turns_v20` remain unchanged.

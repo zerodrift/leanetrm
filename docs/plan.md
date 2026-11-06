@@ -1,5 +1,10 @@
 # Delivery plan and acceptance criteria
 
+D344 advertises the existing walkthrough choice encodings so a model can map
+explicit human terms to valid fill values without guessing internal identifiers.
+Validation and business approval remain unchanged. Model adherence still needs
+real GUI verification; publishing a plan does not confirm browser execution.
+
 D343 adds the [common physical delivery view](physical-delivery-view.md): explicit
 native intervals, exact membership/source references, quantity tracks and declared
 capabilities. Gas, crude and LNG reuse one grid over their native reads; commodity

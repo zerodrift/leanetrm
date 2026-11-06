@@ -1600,3 +1600,9 @@ D336 makes exact frame observation reads bounded by issued pins under the same
 server authority and temporal contract. It changes no assistant tool/event shape
 or grants. A published walkthrough is an intended plan, not browser completion;
 the fixed preamble requires that distinction. See [exact observation reads](exact-observation-reads.md).
+
+
+D344 exposes existing choice encodings in the page's `fillEvidence` guidance and
+directs the presentation tool to them. This changes descriptions only; tool and
+event shapes, accepted terms, validation and runtime remain unchanged. See
+[the walkthrough contract](assistant-walkthroughs.md).

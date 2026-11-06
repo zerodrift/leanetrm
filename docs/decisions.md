@@ -2939,3 +2939,22 @@ existing lifecycle; LNG gains delivery inspection with actuals visibly TBD.
 New instruments require an admitted native adapter and discovery integration;
 dynamic quantity inputs require explicit managed resolution. A synthetic intraday
 view qualifies presentation geometry only, not executable power operations.
+
+## D344 — Discover the existing walkthrough fill encodings
+
+The assistant's page capabilities must advertise the accepted plan values for
+choice fields. A person can ask for “fixed for floating”; the fill step uses
+`financial_fixed_floating`. The existing `fillEvidence` string now gives the
+exact mappings for both structures, fixed-side directions and agreed pricing,
+and states their prerequisite order. The tool description directs the model to
+those encodings. These labels encode only terms present in the current ask;
+metadata examples supply no financial choice or authorization.
+
+The parser, validator, accepted values, fields, tool JSON schema and stored event
+shape are unchanged. Human labels remain invalid plan values; missing,
+contradictory and unstated terms still refuse. This description-only correction
+keeps `turns_v20` and schema 207, and rewrites no agent version or grant. Managed
+checks construct canonical plans from the advertised mappings alone, validate
+both supported ask forms, preserve refusal cases and bound the unchanged
+capability shape. Native workspace/browser and runtime checks cover consumers;
+real-model GUI verification remains separate from deterministic qualification.
