@@ -191,7 +191,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
     choices[key]=r.choices;delete choiceErrors[key];
     if(entry&&state&&choiceEdits.get(key)===edit&&!blocked()){
      const before=sent();state=resolveChoice(state,side,f.id,r.choices,retainedChoices.get(key),clearedChoices.has(key)?null:r.startingValue);retainedChoices.delete(key);
-     if(sent()!==before){state=nextPreview(state).state;bookable=undefined;cancelPreview();settle();void readChoices(dependents(side,f.id));}
+     if(sent()!==before){state=nextPreview(state).state;bookable=undefined;cancelPreview();panel={...panel,status:{kind:'updating',text:'Updating…'}};settle();void readChoices(dependents(side,f.id));}
     }
    }
    catch(error){if(signal.aborted||asked.get(key)!==n)return;choices[key]=[];choiceErrors[key]=reasonOf(error);}
