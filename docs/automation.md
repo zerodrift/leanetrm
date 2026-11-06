@@ -347,7 +347,7 @@ Shared sides may retain different per-instrument discount providers. Discount
 inputs remain fixed during commodity-quote shocks. The selected
 `exact_rational_portfolio_repricing_v1` policy stores exact rational money and
 risk derivatives; it does not silently round an unrepresentable decimal result.
-The legacy interactive futures operation retains its separate exact18 contract.
+Interactive futures draft risk also invokes the shared exact repricing engine.
 The portfolio risk API and retained risk queue use this common valuation adapter
 with exact rational holding or book detail and explicit supplemental market pins.
 

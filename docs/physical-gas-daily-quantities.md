@@ -88,23 +88,26 @@ bounded determination and its corrections without changing this read contract.
   operation, obligation, kind/status, day, quantity or withdrawal, evidence and
   expected predecessor.
 - `POST /api/gas/quantities/history`: the latest 100 revisions under an exact
-  retained grid context; loaded only when the history disclosure opens.
+  retained grid context, available through the native history operation.
 - `POST /api/gas/quantities/status`: original operation identity, actor-bound and
   checked against current trade/source authority.
 
-A booked composition's day quantities are recorded in the [deal ticket](deal-ticket.md):
-in its physical side's tab each day quantity is an entry, and changing one opens a
-record whose kind, status and source evidence the person chooses. The ticket opens
-independently of pre-delivery valuation, so started deliveries can be inspected
-without bypassing the pricing lifecycle guard, and its schedule shows each day under
-the operations projection, tagged with the record's kind. Financial calculations
-stay in the backend. A record awaiting its outcome keeps its exact command and offers
-Check and Retry while the page is open; it is not kept across a reload. The strict
-billing selection and the revision history are served by their operations and are
-not drawn in the ticket yet. Entries are offered by the record operation's own rule:
-on working data, to a role the trading authority lets amend trades. A historical or
-retained view, including the trade's own window, and a role without that permission
-see the day quantities without entries, and the record refuses there.
+Open **Operations → Physical operations → Delivery** for the booked gas
+instrument and select its exact side/day row. **After flow** offers allocated
+quantity entry with explicit status and evidence, followed by review and
+acceptance. Nominations, confirmations and schedule adoption use the separate
+[manual operations](gas-delivery-operations.md). The Blotter and separate trade
+windows mount the [deal ticket](deal-ticket.md) read-only; their schedules retain
+the operational projection alongside unchanged contractual amounts.
+
+Operational reads remain available after delivery starts without bypassing the
+pricing lifecycle guard. Financial calculations stay in the backend. The
+workspace retains an uncertain command for status or exact retry across widget
+remounts; available browser storage also preserves it across reloads. Entry
+requires working data and current AmendTrade authority. Historical views and
+read-only trade windows offer no quantity writes. Strict billing uses its
+separate [daily cash workflow](gas-cash-billing.md); quantity history remains
+available through the native history operation.
 
 ## Executable acceptance
 
@@ -114,12 +117,12 @@ Owned database/API checks exercise retained day binding, unchanged original term
 and PV, immutable corrections, source pins, certified old-cutoff reads, series
 visibility, restrictive row-security fences, pre-booking context refusal, actor
 replay, fresh-fact no-op, backdated no-op refusal and concurrent predecessor races.
-Owned HTTP checks read a recorded day in the ticket's booked schedule, its amount
-still the contract's, and show the booked read offering entries only on working
-data to a role that may amend trades. Owned browser checks enter a day in the
-ticket's physical side tab, check that only that day and its month change, and
-recover a record whose response is lost with Check, which finds the one record it
-made. All examples and evidence are synthetic.
+The original ticket checkpoint verified recorded-day schedule projection,
+unchanged contractual amounts, role/context entry restrictions and lost-response
+recovery in the then-editable physical-side tab. D340 moved entry and recovery
+to Physical operations; the [workspace contract](physical-workspace.md#instrument-inspection-and-operational-work-d340)
+records the current path. The dated qualification below describes that original
+checkpoint. All examples and evidence are synthetic.
 
 Interactive owned previews can include the synthetic January working frames with
 `tools/run_preview.py --with-gas-quantity-dates` plus the usual installed-tool
