@@ -81,6 +81,8 @@ if (args is ["--hosted-access"])
 }
 if(args is ["--power-collection"]){Environment.ExitCode=await PowerImportChecks.MalformedCollection();return;}
 if(args is ["--direct-reads",var readFixture]){await DirectReadChecks.Run(readFixture);return;}
+if(args is ["--exact-pin-reads",var pinFixture]){await ExactPinReadChecks.Run(pinFixture);return;}
+if(args is ["--stream-read-faults",var streamFixture]){await DirectReadChecks.StreamFault(streamFixture);return;}
 if(args is ["--stored-credentials",var credentialFixture]){CredentialCustodyChecks.Stored(credentialFixture);return;}
 if (args is ["--power-imports"])
 {

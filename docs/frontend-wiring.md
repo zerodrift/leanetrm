@@ -232,3 +232,12 @@ column anchors. `swap-editor.ts` owns the closed unsaved swap setters and revisi
 no synthetic change/submit event reaches the native form. Book/Save/Authorize
 have no presentation adapter. Controls-mode digest metadata comes from the API;
 the browser supplies no financial evidence.
+
+
+D336: native swap catalog entry retains the same `POST /api/swaps/catalog`
+contract. `PreviewDatabase.ReadObservationPins` uses the bounded server reader
+`security.read_observation_pins`; no table cells or browser calculations supply
+market values. Shared exact frame consumers keep current authority and pinned
+context, including the latest-close rule. [Owned exact-read checks](../tools/check_exact_pin_reads.py)
+and [authority checks](../tools/check_exact_pin_authority.py) cover that boundary;
+the ordinary swap and assistant workspace browser suites cover native opening.

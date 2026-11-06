@@ -1594,3 +1594,9 @@ or overview (pinned numerical digest). The floating box is replaced by inline
 Stop/Continue; the cursor aims before typed actions. Unsaved swap setters require
 explicit compatible terms and never submit. See [the contract](assistant-walkthroughs.md#native-cursor-and-entry-assistance-d335)
 for the bounded fill grammar, remaining fields and verification boundaries.
+
+
+D336 makes exact frame observation reads bounded by issued pins under the same
+server authority and temporal contract. It changes no assistant tool/event shape
+or grants. A published walkthrough is an intended plan, not browser completion;
+the fixed preamble requires that distinction. See [exact observation reads](exact-observation-reads.md).
