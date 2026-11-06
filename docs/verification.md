@@ -3319,8 +3319,10 @@ the renewed lease remains live. The receipt records this stall separately from
 elapsed completion time; no computation-speed claim includes it. The native
 publisher, calculation inputs, clocks and lease duration remain unchanged.
 
-The actual long completion measured 326.922 seconds; replacement and lost-ack
-recovery measured 329.441 seconds, both over 120 seconds. Exact numerical/work and
+The historical ten-year hourly, five-side workload with a fifteen-second lease
+measured 326.922 seconds for completion and 329.441 seconds for replacement and
+lost-ack recovery, both over 120 seconds. These are not measurements of the current
+twelve-month fixture. Exact numerical/work and
 renewal/lock measurements and remaining limits are recorded in the
 [implementation qualification](implementation.md#renewable-existing-close-completion-qualification).
 The new stage is included in `tools/check_all.py`; this bounded change ran that

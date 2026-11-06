@@ -382,7 +382,7 @@ def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, 
     check_work(report['work'], cells, job['admission'])
     evidence.update(expectedBase=str(expected), intervalRows=cells, admittedWork=job['admission'], actualWork=report['work'])
     print('DURABLE_COMPLETION_EVIDENCE='+json.dumps(evidence, sort_keys=True), flush=True)
-    print(f'PASS durable completion: real twelve-month quarter-hour preparation/risk {elapsed:.3f}s; independent complete report, replacement, pinned correction and lost COMMIT acknowledgement', flush=True)
+    print(f'PASS durable completion: twelve-month quarter-hour completion {elapsed:.3f}s including {scheduling_stall:.3f}s scheduling stall; independent complete report, replacement, pinned correction and lost COMMIT acknowledgement', flush=True)
     with running('completed-retry') as (worker, log):
         worker.wait(timeout=15); assert worker.returncode == 0
     assert report_count(final) == 1 and state(job) == final
