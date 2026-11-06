@@ -344,6 +344,31 @@ production-runtime limit.
 
 ## Volatility surfaces (D304)
 
+D354 (surfaces at their close and the surface library), local runs on 6 November
+2026 against the branch head after the independent review's fixes, each in its own
+disposable PostgreSQL cluster with synthetic data:
+
+| Run | Result |
+| --- | --- |
+| `npm test --prefix web` | 1,437 pass |
+| `python3 -m unittest tests.test_migration_identity tests.test_release_deployment` | 33 OK |
+| `run_preview.py --exchange-check --browser-check` | exit 0, 385 PASS |
+| `run_preview.py --regional-closes-check` | exit 0, 72 PASS |
+| `run_preview.py --market-dates-check --browser-check` | exit 0, 98 PASS |
+
+The exchange run records one frame as the close of two synthetic sessions: a fit at
+one session's close is not the other's nor the working snapshot's at the same
+instant; another sign-in and a historical view (under its own alias id) read the
+same surface; a close that replaces it starts without one, still reads the replaced
+close's surface as history and refuses a calibration there with `close_replaced`; a
+recording at a close refuses an input the close does not pin; a refit at an earlier
+instant of the day records nothing new; and the library marks the context's own
+surface and lists it first. The browser checks cover the product cards, search and
+paging, the not-calibrated panel for readers and calibrators, opening the newest
+calibrated close and a chip through the header, calibrating from the panel through a
+lost response and retry, and the existing heat map, 3D, smile, phone-width and
+historical-view checks.
+
 Local runs on 2 November 2026 against the branch head after the final review's fixes
 (a revision's inputs now include its valuation instant and the discount-curve points
 the calibration read), each in its own disposable PostgreSQL cluster with synthetic

@@ -1105,8 +1105,10 @@ const volSurfaces=setupVolSurfaces({api,zone:()=>prefs.timeZone,historical:()=>c
  // A frame's id is session-scoped, so a stored surface is found by its close, or for a working snapshot by its instant.
  frames:{here:()=>{const f=frame() as Frame&{close?:FrameClose|null};return {closeId:f.close?f.originCloseId??null:null,at:f.at,close:f.close?{session:f.close.session,businessDate:f.close.businessDate}:null};},
   sessionName:code=>closeSessionNames.get(code)??code,open:chooseClose,
-  offered:surface=>offeredFrames().find(f=>{const close=(f as Frame&{close?:FrameClose|null}).close;
-   return surface.closeId?!!close&&f.originCloseId===surface.closeId:!close&&Date.parse(f.at)===Date.parse(surface.valuationAt);})?.id??null}});
+  // A working snapshot has no identity beyond its instant here, so one is offered only when no other working snapshot shares it.
+  offered:surface=>{const matches=offeredFrames().filter(f=>{const close=(f as Frame&{close?:FrameClose|null}).close;
+   return surface.closeId?!!close&&f.originCloseId===surface.closeId:!close&&Date.parse(f.at)===Date.parse(surface.valuationAt);});
+   return matches.length===1?matches[0].id:null;}}});
 // An option links to its product's surface: Vol surfaces opens on that product as its navigation opens the page, at the applied context.
 const openVolSurface=(product:string)=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('vol-surfaces');await volSurfaces.open(product);},contextDirty?'discards':'page');
 const optionTicket=setupOptionTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked,surface:openVolSurface});

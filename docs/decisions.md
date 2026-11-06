@@ -3187,3 +3187,34 @@ due-plan refusal and selective denial of a successor's required instrument while
 an exact prior-knowledge context still reads its original head. The public test
 harness creates and removes disposable stock PostgreSQL clusters. No hosted
 deployment or production qualification follows from these local checks.
+
+## D354 — A volatility surface belongs to its close; a library replaces product search
+
+Owner direction, 2026-11-06. A surface is fitted to one close's option
+settlements, so it is shown only at that close. When the selected close has none,
+the page asks the person to calibrate it there, if they may, or to open a close
+that has one. A surface is never carried to another day or session: that would need
+an explicit sticky-strike or sticky-moneyness policy and time decay, and rich/cheap
+against another day's smile measures the market's move rather than mispricing.
+Automatic calibration after each close is later work, triggered by a recorded close
+for an explicitly configured product list per session.
+
+A frame id is session-scoped, so a stored revision is located by its recorded close
+(`close_id`, which names its session and business day) or, for a working snapshot,
+none, together with its valuation instant. Reads, fit-job status and the recording's
+no-op test use that location, and reads and job status also require the frame to pin
+every input, since working snapshots of one instant can pin different observations.
+A recorded close must pin every input of a revision attributed to it; previously a read matched the business date alone, so
+one session's surface appeared at another session's close and at the close that
+replaced it. Migration 0211 refuses to run while any revision exists: no stored
+surface is attributed to a close after the fact, and deployments clear and refit.
+
+`POST /api/vol-surfaces/library` lists the stored surfaces at or before the context
+with their close and whether it is in force. Vol surfaces shows a shelf of product
+cards saying where each is calibrated, the closes the chosen product is calibrated
+at, and the calibrate-or-open panel. Opening a close is the header's own selection;
+another session's close is named, never switched to (D334). See
+[volatility surfaces](vol-surfaces.md).
+
+The Risk action that opens parametric, historical and Monte Carlo VaR/ES is
+labelled **VaR / ES**, since it was never parametric only.

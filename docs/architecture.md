@@ -1,5 +1,11 @@
 # Architecture and domain contracts
 
+D354 keys each stored [volatility surface](vol-surfaces.md) to the recorded close
+(session and business day) or working-snapshot instant it was fitted at, never to
+a session-scoped frame id, and lists stored surfaces in a library the Vol surfaces
+page offers instead of product search. A close without a surface offers
+calibration there or a close that has one; no surface is carried to another close.
+
 D353 makes inspection a required `SideValuation.InspectSchedule` contract.
 Evaluators expose native rows or compiled executions through one immutable,
 context-bound snapshot. One registered authorized source per native storage family

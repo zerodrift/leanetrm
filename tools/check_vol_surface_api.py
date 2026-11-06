@@ -295,7 +295,7 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     grant = str(uuid4())
     query(f"INSERT INTO security.role_grants VALUES('{grant}','{trader}','{role}','{tenant}','{workspace}',clock_timestamp(),'9999-12-31',false);")
 
-    # A surface belongs to the exact close it was fitted at (D345). The latest close's frame, recorded as the close of two
+    # A surface belongs to the exact close it was fitted at (D354). The latest close's frame, recorded as the close of two
     # synthetic sessions with the same cutoff: a fit at one session's close is not the other's, nor the working snapshot's at the
     # same instant, and a close that replaces it starts without one. No member chooses these sessions, so the browser checks
     # that follow still open on working snapshots.
@@ -324,36 +324,63 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     check('a fit at one session\'s close is that close\'s alone', fitted_east['state'] == 'fitted' and fitted_east['job']['id'] == eastern['jobId']
           and unfitted_west['state'] == 'notFitted' and unfitted_west['job'] is None and read()['revision']['id'] == working['revision']['id'],
           (fitted_east['state'], unfitted_west, read()['revision']))
-    # Frame ids are session-scoped: another sign-in reads the same close under another id and sees the same surface.
+    # Another sign-in reads the same close and sees the same surface.
     signed_in = PreviewClient(url); signed_in.bootstrap()
     stranger = PreviewClient(url, 'exchange'); stranger.opener = signed_in.opener; stranger.bootstrap()
     stranger.call('profile', {'profile': 'risk'})
-    elsewhere = close_frame(stranger, east)
-    seen = stranger.call('vol-surfaces/read', {'context': {'snapshotId': elsewhere['id'], 'convention': OPTION, 'knowledgeMode': 'current'}, 'product': PRODUCT, 'model': MODEL}, timeout=TIMEOUT)
-    check('another sign-in reads the close under its own frame id and sees the same surface', elsewhere['id'] != at_east['id']
-          and seen['state'] == 'fitted' and seen['revision']['id'] == fitted_east['revision']['id'], (elsewhere['id'], seen['state']))
+    seen = stranger.call('vol-surfaces/read', {'context': {'snapshotId': close_frame(stranger, east)['id'], 'convention': OPTION, 'knowledgeMode': 'current'},
+                                               'product': PRODUCT, 'model': MODEL}, timeout=TIMEOUT)
+    check('another sign-in reads the same surface at that close', seen['state'] == 'fitted' and seen['revision']['id'] == fitted_east['revision']['id'], seen['state'])
+    # A historical view sees the close under a session-scoped alias id, and still reads the surface fitted at that close.
+    view = c.call('market/context', {'effectiveOn': DAY, 'knownAt': datetime.now(timezone.utc).isoformat(), 'mode': 'at', 'selection': 'latest_correction'})['context']
+    try:
+        alias = close_frame(c, east)
+        aliased = read(snapshot=alias['id'], knowledgeMode='retained', contextId=view['contextId'])
+    finally:
+        c.call('market/current', {})
+    check('a historical view reads the close under its own alias id and sees the surface fitted there',
+          alias['id'] != east and aliased['state'] == 'fitted' and aliased['revision']['id'] == fitted_east['revision']['id'], (alias['id'], aliased['state']))
     listed = library(c, at_west['id'], PRODUCT)['surfaces']
     eastern_row = next((row for row in listed if row['closeId'] == east), None)
     check('the library lists the surface with its close, session and business day, in force',
           eastern_row is not None and eastern_row['close'] == {'session': 'synthetic_east', 'businessDate': DAY, 'inForce': True}
           and eastern_row['revision'] == fitted_east['revision']['id'] and eastern_row['product'] == PRODUCT
-          and any(row['closeId'] is None and row['revision'] == working['revision']['id'] for row in listed)
+          # The working snapshot's location lists its newest revision, the refit after the corrections, as a frame pinning them reads it.
+          and any(row['closeId'] is None and row['revision'] == latest['revision']['id'] and not row['here'] for row in listed)
+          and eastern_row['here'] is False
           and all(row['product'] == PRODUCT for row in listed) and all(row['businessDate'] <= DAY for row in listed), listed)
+    first = library(c, at_east['id'])['surfaces'][0]
+    check('at the close itself, its own surface is marked here and listed first', (first['closeId'], first['here'], first['revision']) == (east, True, fitted_east['revision']['id']), first)
     whole = library(c, at_west['id'])
     check('the whole library lists every product\'s surfaces, newest business date first',
           {row['product'] for row in whole['surfaces']} >= {PRODUCT, UNFITTED} and [row['businessDate'] for row in whole['surfaces']] == sorted((row['businessDate'] for row in whole['surfaces']), reverse=True)
           and whole['canFit'] is True and whole['hasMore'] is False, whole)
     check('a library read names a known model', c.call('vol-surfaces/library', {'context': {'snapshotId': at_west['id'], 'convention': OPTION, 'knowledgeMode': 'current'},
                                                                               'model': 'smile_unknown_v1', 'offset': 0}, expected=422)['code'] == 'vol_model_unknown')
+    # A recording names a close only with inputs the close pins: a working fit cannot be attributed to a close at its instant.
+    def attributed(inputs):
+        located = json.dumps({'referenceCatalogId': manifest['referenceCatalogId'], 'referenceRevisionId': manifest['referenceRevisionId'], 'code': PRODUCT})
+        pinned = 'ARRAY[' + ','.join(f"'{o}'" for o in inputs) + ']::uuid[]'
+        return query(f"BEGIN;DO $check$ BEGIN PERFORM trading.record_vol_surface_revision('{catalog}','{trader}','{uuid4()}','{located}'::jsonb,'{DAY}','{MODEL}',"
+                     f"'{SOLVER_POLICY}','{uuid4()}','{west}','{frame['at']}',{pinned},'{{\"synthetic\":\"attribution\"}}'::jsonb,'{'0' * 64}');"
+                     "RAISE EXCEPTION 'recorded';EXCEPTION WHEN SQLSTATE 'P0001' THEN PERFORM set_config('check.outcome',SQLERRM,true);END $check$;"
+                     "SELECT current_setting('check.outcome');ROLLBACK;").splitlines()[-1]
+    inside = query(f"SELECT observation_id FROM market_data.market_close_pins WHERE(catalog_id,close_id)=('{catalog}','{west}') ORDER BY observation_id LIMIT 1;")
+    outside = query(f"SELECT o.id FROM market_data.observations o WHERE o.catalog_id='{catalog}' AND NOT EXISTS(SELECT 1 FROM market_data.market_close_pins p "
+                    f"WHERE(p.catalog_id,p.close_id,p.observation_id)=(o.catalog_id,'{west}',o.id)) ORDER BY o.id LIMIT 1;")
+    check('a recording at a close is refused for an input the close does not pin, and admitted for one it does',
+          attributed([outside]) == 'vol_surface_input' and attributed([inside]) == 'recorded', (attributed([outside]), attributed([inside])))
     replacement = record_close(query, manifest, 'synthetic_east', 1, frame)
     at_replacement = close_frame(c, replacement)
     replaced = library(c, at_replacement['id'], PRODUCT)['surfaces']
     check('the close that replaces it starts without a surface, and the library names the replaced one as history',
           read(snapshot=at_replacement['id'])['state'] == 'notFitted'
           and next(row for row in replaced if row['closeId'] == east)['close']['inForce'] is False, replaced)
-    stale = c.call('vol-surfaces/read', {'context': {'snapshotId': at_east['id'], 'convention': OPTION, 'knowledgeMode': 'current'}, 'product': PRODUCT, 'model': MODEL},
-                   expected=422, timeout=TIMEOUT)
-    check('the replaced close is refused for new reads', stale['code'] == 'close_replaced', stale)
+    # A replaced close is history (D334): a read of it still names its own surface, which no other close shows.
+    history = read(snapshot=at_east['id'])
+    check('the replaced close still reads its own surface as history', history['state'] == 'fitted' and history['revision']['id'] == fitted_east['revision']['id'], history['state'])
+    refit_replaced = fit(snapshot=at_east['id'], expected=422)
+    check('a calibration at the replaced close is new work and refused', refit_replaced['code'] == 'close_replaced', refit_replaced)
 
     # The fitter loses PublishMarketData after submitting and before the worker runs; this also restores the trader's own roles.
     revoked = fit(product=UNFITTED)

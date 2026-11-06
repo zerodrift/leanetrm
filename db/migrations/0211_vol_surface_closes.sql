@@ -1,8 +1,9 @@
--- A volatility surface belongs to the exact close it was fitted at (D345). A frame identity is session-scoped, so the stored
+-- A volatility surface belongs to the exact close it was fitted at (D354). A frame identity is session-scoped, so the stored
 -- key is the recorded close (which names its session and business day) or, for a working snapshot, none, with the valuation
--- instant in both cases. A read, the fit-job status and the recording's no-op test all name that close and instant: a surface
--- fitted at one session's close is not shown at another session's close on the same business date, nor at the close that
--- replaced it, nor at a working snapshot of another instant. The library read lists the surfaces visible at the bound context
+-- instant in both cases. A read, the fit-job status and the recording's no-op test all name that close and instant, and a
+-- read or fit-job status also the frame's pins: a surface fitted at one session's close is not shown at another session's
+-- close on the same business date, nor at the close that replaced it, nor at a working snapshot of another instant or of
+-- other pins at the same instant. The library read lists the surfaces visible at the bound context
 -- with the close each belongs to, so the page can offer them instead of being searched product by product.
 -- Current consumer: the Vol surfaces page.
 -- No stored revision is attributed to a close after the fact (no backwards compatibility): the migration refuses to run while
@@ -23,11 +24,11 @@ CREATE INDEX vol_surface_revisions_location ON trading.vol_surface_revisions(cat
 -- Records a fitted surface for an actor and request (D238). It grants no authority of its own: no login or runtime
 -- role may execute it. The risk worker's finish path, after rechecking the job actor's current authority, calls it in
 -- the transaction that completes the job.
--- - The surface is located by its recorded close, which must be a close at the valuation instant, or by none for a working
---   snapshot. The frame is the request's session-scoped identity, kept as provenance.
+-- - The surface is located by its recorded close, which must be a close at the valuation instant whose pins include every
+--   input, or by none for a working snapshot. The frame is the request's session-scoped identity, kept as provenance.
 -- - A known request returns its first outcome; the same request with a different payload is refused.
 -- - Under the trading publication lock, which serializes every recording of the key, the latest revision of the key at the
---   same close is read. Its inputs are its valuation instant, from which time to expiry runs, and its pinned observations. If
+--   same close and valuation instant is read. Its inputs are its valuation instant, from which time to expiry runs, and its pinned observations. If
 --   both are the same and so is the content, it is returned and nothing new is published; the same inputs with other content
 --   are refused as nondeterministic. The digest is the worker's SHA-256 of its canonical serialization, not of the stored jsonb.
 -- - Otherwise the surface is published as a new revision under the next publication order. Its knowledge time is
@@ -44,7 +45,8 @@ BEGIN
  SELECT array_agg(o ORDER BY o) INTO pinned FROM unnest(inputs) o;
  IF request IS NULL OR request='00000000-0000-0000-0000-000000000000'::uuid OR frame IS NULL
  OR record_vol_surface_revision.valuation_at IS NULL OR NOT isfinite(record_vol_surface_revision.valuation_at)
- OR close IS NOT NULL AND NOT EXISTS(SELECT 1 FROM market_data.market_closes s WHERE(s.catalog_id,s.id)=(catalog,close) AND s.at=record_vol_surface_revision.valuation_at)
+ OR close IS NOT NULL AND(NOT EXISTS(SELECT 1 FROM market_data.market_closes s WHERE(s.catalog_id,s.id)=(catalog,close) AND s.at=record_vol_surface_revision.valuation_at)
+  OR EXISTS(SELECT 1 FROM unnest(inputs) o WHERE NOT EXISTS(SELECT 1 FROM market_data.market_close_pins x WHERE(x.catalog_id,x.close_id,x.observation_id)=(catalog,close,o))))
  OR NOT EXISTS(SELECT 1 FROM market_data.catalogs c WHERE c.id=catalog) OR NOT EXISTS(SELECT 1 FROM security.principals x WHERE x.id=actor)
  OR policy IS DISTINCT FROM 'american_futures_option_crr_v1'
  OR inputs IS NULL OR cardinality(inputs) NOT BETWEEN 1 AND 100000 OR array_position(inputs,NULL) IS NOT NULL
@@ -66,9 +68,9 @@ BEGIN
  END IF;
  SELECT * INTO prior FROM trading.vol_surface_revisions r
   WHERE(r.catalog_id,r.reference_catalog_id,r.reference_revision_id,r.product_code,r.effective_on,r.model_id)=(catalog,p.catalog_id,p.revision_id,p.code,business_date,model)
-  AND r.close_id IS NOT DISTINCT FROM close
+  AND r.close_id IS NOT DISTINCT FROM close AND r.valuation_at=record_vol_surface_revision.valuation_at
   ORDER BY r.publication_order DESC LIMIT 1;
- IF FOUND AND prior.valuation_at=record_vol_surface_revision.valuation_at
+ IF FOUND
  AND(SELECT array_agg(i.observation_id ORDER BY i.observation_id) FROM trading.vol_surface_inputs i WHERE(i.catalog_id,i.revision_id)=(catalog,prior.id))=pinned THEN
   IF prior.content_sha256<>digest OR prior.content<>surface THEN RAISE EXCEPTION 'vol_surface_nondeterministic' USING ERRCODE='P0001';END IF;
   outcome=jsonb_build_object('revision',prior.id,'publicationOrder',prior.publication_order,'created',false,
@@ -96,10 +98,10 @@ BEGIN
  EXECUTE replace(definition,before,replace(before,'(job.frame->>''id'')::uuid,','(job.frame->>''id'')::uuid,(job.frame->>''originCloseId'')::uuid,'));
 END $upgrade$;
 
--- The latest revision at a close (or, with none, at a working snapshot) and valuation instant, known at the request's bound
--- trading context, or null when none is. The business date must be the context's own; a product whose reference data the
--- reader cannot read is refused exactly as an unknown one.
-CREATE FUNCTION security.read_vol_surface(catalog uuid,product jsonb,business_date date,model text,close uuid,valuation_at timestamptz) RETURNS jsonb
+-- The latest revision at a close (or, with none, at a working snapshot) and valuation instant whose every input is one of the
+-- frame's pins, known at the request's bound trading context, or null when none is. The business date must be the context's
+-- own; a product whose reference data the reader cannot read is refused exactly as an unknown one.
+CREATE FUNCTION security.read_vol_surface(catalog uuid,product jsonb,business_date date,model text,close uuid,valuation_at timestamptz,pins uuid[]) RETURNS jsonb
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE p ref_data.futures_option_products;context uuid;context_date date;head trading.vol_surface_revisions;result jsonb;
 BEGIN
@@ -115,12 +117,13 @@ BEGIN
  p=trading.vol_surface_key(product,business_date,model);
  IF NOT security.reference_access(p.catalog_id,'ReadMarketData') OR NOT security.reference_version_visible(p.catalog_id,p.revision_id)
  THEN RAISE EXCEPTION 'vol_surface_product' USING ERRCODE='P0001';END IF;
- IF business_date<>context_date OR read_vol_surface.valuation_at IS NULL OR NOT isfinite(read_vol_surface.valuation_at)
+ IF business_date<>context_date OR read_vol_surface.valuation_at IS NULL OR NOT isfinite(read_vol_surface.valuation_at) OR pins IS NULL
  THEN RAISE EXCEPTION 'vol_surface_context' USING ERRCODE='P0001';END IF;
  SELECT * INTO head FROM trading.vol_surface_revisions r
   WHERE(r.catalog_id,r.reference_catalog_id,r.reference_revision_id,r.product_code,r.effective_on,r.model_id,r.valuation_at)
    =(catalog,p.catalog_id,p.revision_id,p.code,business_date,model,read_vol_surface.valuation_at)
   AND r.close_id IS NOT DISTINCT FROM close
+  AND NOT EXISTS(SELECT 1 FROM trading.vol_surface_inputs i WHERE(i.catalog_id,i.revision_id)=(r.catalog_id,r.id) AND i.observation_id<>ALL(pins))
   AND security.trading_visible(r.catalog_id,r.publication_order,r.effective_on::timestamp AT TIME ZONE 'UTC')
   ORDER BY r.publication_order DESC LIMIT 1;
  IF FOUND THEN
@@ -139,9 +142,9 @@ BEGIN
 END$$;
 DROP FUNCTION security.read_vol_surface(uuid,jsonb,date,text);
 
--- The caller's newest fit job for a key at a close (or a working snapshot) and valuation instant, with its state and error
--- code, or null. Jobs are operational state: the read shows each as it is now.
-CREATE FUNCTION risk.vol_surface_fit_job(catalog uuid,product jsonb,business_date date,model text,close uuid,valuation_at timestamptz) RETURNS jsonb
+-- The caller's newest fit job for a key at a close (or a working snapshot), valuation instant and set of pins, with its state
+-- and error code, or null. Jobs are operational state: the read shows each as it is now.
+CREATE FUNCTION risk.vol_surface_fit_job(catalog uuid,product jsonb,business_date date,model text,close uuid,valuation_at timestamptz,pins uuid[]) RETURNS jsonb
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE c security.request_contexts;result jsonb;
 BEGIN
@@ -155,6 +158,7 @@ BEGIN
   AND j.request->>'convention'='vol_surface_fit_v1' AND j.request->'product'=product
   AND j.request->>'businessDate'=to_char(business_date,'YYYY-MM-DD') AND j.request->>'model'=model
   AND j.valuation_at=vol_surface_fit_job.valuation_at AND(j.frame->>'originCloseId')::uuid IS NOT DISTINCT FROM close
+  AND(SELECT array_agg(x::uuid ORDER BY x::uuid) FROM jsonb_array_elements_text(j.frame->'observationIds') x)=(SELECT array_agg(p ORDER BY p) FROM unnest(pins) p)
   ORDER BY j.created_at DESC,j.id DESC LIMIT 1;
  RETURN result;
 END$$;
@@ -163,9 +167,11 @@ DROP FUNCTION risk.vol_surface_fit_job(uuid,jsonb,date,text);
 -- The surface library at the bound trading context: for each product of one reference revision, each close (or working
 -- snapshot) and valuation instant it was fitted at, the latest revision known at the context, on or before the context's
 -- business date, newest business date first. Each names its close (session, business day and whether it is still in force) or,
--- for a working snapshot, none. A surface whose close the reader cannot see is left out, as the close itself is. A product code
--- narrows it to that product. Paged by `skip` and `take`; `hasMore` says whether more follow.
-CREATE FUNCTION security.vol_surface_library(catalog uuid,reference_catalog uuid,reference_revision uuid,product text,model text,skip integer,take integer) RETURNS jsonb
+-- for a working snapshot, none. `here` says whether it is the surface a read at the context's own close, instant and pins
+-- returns; those are listed first. A surface whose close the reader cannot see is left out, as the close itself is. A product
+-- code narrows it to that product. Paged by `skip` and `take`; `hasMore` says whether more follow.
+CREATE FUNCTION security.vol_surface_library(catalog uuid,reference_catalog uuid,reference_revision uuid,product text,model text,
+ close uuid,valuation_at timestamptz,pins uuid[],skip integer,take integer) RETURNS jsonb
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE context uuid;context_date date;page jsonb;
 BEGIN
@@ -180,31 +186,35 @@ BEGIN
  PERFORM security.require_trading_history(catalog,context);
  IF model IS DISTINCT FROM 'smile_quadratic_log_moneyness_v1' THEN RAISE EXCEPTION 'vol_model_unknown' USING ERRCODE='P0001';END IF;
  IF skip IS NULL OR take IS NULL OR skip NOT BETWEEN 0 AND 100000 OR take NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION 'vol_surface_input' USING ERRCODE='P0001';END IF;
+ IF vol_surface_library.valuation_at IS NULL OR NOT isfinite(vol_surface_library.valuation_at) OR pins IS NULL THEN RAISE EXCEPTION 'vol_surface_context' USING ERRCODE='P0001';END IF;
  IF reference_catalog IS NULL OR reference_revision IS NULL OR NOT security.reference_access(reference_catalog,'ReadMarketData')
   OR NOT security.reference_version_visible(reference_catalog,reference_revision)
  THEN RAISE EXCEPTION 'vol_surface_product' USING ERRCODE='P0001';END IF;
  WITH heads AS(
-  SELECT DISTINCT ON(r.product_code,r.close_id,r.valuation_at) r.* FROM trading.vol_surface_revisions r
+  SELECT DISTINCT ON(r.product_code,r.close_id,r.valuation_at) r.*,
+   r.close_id IS NOT DISTINCT FROM vol_surface_library.close AND r.valuation_at=vol_surface_library.valuation_at
+   AND NOT EXISTS(SELECT 1 FROM trading.vol_surface_inputs i WHERE(i.catalog_id,i.revision_id)=(r.catalog_id,r.id) AND i.observation_id<>ALL(pins)) here
+  FROM trading.vol_surface_revisions r
   WHERE(r.catalog_id,r.reference_catalog_id,r.reference_revision_id,r.model_id)=(catalog,reference_catalog,reference_revision,model)
    AND(product IS NULL OR r.product_code=product) AND r.effective_on<=context_date
    AND security.trading_visible(r.catalog_id,r.publication_order,r.effective_on::timestamp AT TIME ZONE 'UTC')
-  ORDER BY r.product_code,r.close_id,r.valuation_at,r.publication_order DESC),
+  ORDER BY r.product_code,r.close_id,r.valuation_at,here DESC,r.publication_order DESC),
  listed AS(
   SELECT h.*,p.name,s.session_code,s.business_date close_date,
    CASE WHEN s.id IS NOT NULL THEN security.close_in_force(s.catalog_id,s.session_code,s.business_date)=s.id END in_force
   FROM heads h JOIN ref_data.futures_option_products p ON(p.catalog_id,p.revision_id,p.code)=(h.reference_catalog_id,h.reference_revision_id,h.product_code)
   LEFT JOIN market_data.market_closes s ON(s.catalog_id,s.id)=(h.catalog_id,h.close_id)
   WHERE h.close_id IS NULL OR security.market_close_visible(s.catalog_id,s.id)
-  ORDER BY h.effective_on DESC,h.valuation_at DESC,h.product_code,h.close_id NULLS LAST
+  ORDER BY h.here DESC,h.effective_on DESC,h.valuation_at DESC,h.product_code,h.close_id NULLS LAST
   OFFSET skip LIMIT take+1)
  SELECT coalesce(jsonb_agg(jsonb_build_object('revision',l.id,'product',l.product_code,'productName',l.name,'closeId',l.close_id,
-   'businessDate',l.effective_on,'valuationAt',l.valuation_at,
+   'businessDate',l.effective_on,'valuationAt',l.valuation_at,'here',l.here,
    'knownFrom',(SELECT k.known_from FROM trading.knowledge_receipts k WHERE(k.catalog_id,k.publication_order)=(catalog,l.publication_order)),
    'close',CASE WHEN l.close_id IS NULL THEN NULL ELSE jsonb_build_object('session',l.session_code,'businessDate',l.close_date,'inForce',l.in_force) END,
    'expiries',jsonb_array_length(l.content->'expiries'),
    'fittedExpiries',(SELECT count(*) FROM jsonb_array_elements(l.content->'expiries') e WHERE e->>'status'='fitted'),
    'series',jsonb_array_length(l.content->'series'))
-   ORDER BY l.effective_on DESC,l.valuation_at DESC,l.product_code,l.close_id NULLS LAST),'[]') INTO page FROM listed l;
+   ORDER BY l.here DESC,l.effective_on DESC,l.valuation_at DESC,l.product_code,l.close_id NULLS LAST),'[]') INTO page FROM listed l;
  IF NOT security.market_access(catalog,'ReadMarketData') OR NOT security.trading_access(catalog,'ReadTrades') OR NOT security.reference_access(reference_catalog,'ReadMarketData')
  THEN RAISE EXCEPTION 'Volatility surface read authority expired' USING ERRCODE='42501';END IF;
  RETURN jsonb_build_object('surfaces',(SELECT coalesce(jsonb_agg(e ORDER BY n),'[]') FROM jsonb_array_elements(page) WITH ORDINALITY x(e,n) WHERE n<=take),
@@ -213,11 +223,11 @@ END$$;
 
 DO $$DECLARE f text;BEGIN
  FOREACH f IN ARRAY ARRAY['trading.record_vol_surface_revision(uuid,uuid,uuid,jsonb,date,text,text,uuid,uuid,timestamptz,uuid[],jsonb,text)',
-  'security.read_vol_surface(uuid,jsonb,date,text,uuid,timestamptz)','risk.vol_surface_fit_job(uuid,jsonb,date,text,uuid,timestamptz)',
-  'security.vol_surface_library(uuid,uuid,uuid,text,text,integer,integer)'] LOOP
+  'security.read_vol_surface(uuid,jsonb,date,text,uuid,timestamptz,uuid[])','risk.vol_surface_fit_job(uuid,jsonb,date,text,uuid,timestamptz,uuid[])',
+  'security.vol_surface_library(uuid,uuid,uuid,text,text,uuid,timestamptz,uuid[],integer,integer)'] LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f);EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f);
  END LOOP;
 END$$;
-GRANT EXECUTE ON FUNCTION security.read_vol_surface(uuid,jsonb,date,text,uuid,timestamptz),risk.vol_surface_fit_job(uuid,jsonb,date,text,uuid,timestamptz),
- security.vol_surface_library(uuid,uuid,uuid,text,text,integer,integer) TO openetrm_runtime;
+GRANT EXECUTE ON FUNCTION security.read_vol_surface(uuid,jsonb,date,text,uuid,timestamptz,uuid[]),risk.vol_surface_fit_job(uuid,jsonb,date,text,uuid,timestamptz,uuid[]),
+ security.vol_surface_library(uuid,uuid,uuid,text,text,uuid,timestamptz,uuid[],integer,integer) TO openetrm_runtime;
 COMMIT;

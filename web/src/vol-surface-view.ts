@@ -3,7 +3,7 @@ import {publicText} from './market-view.js';
 import {plotNumber} from './plot-number.js';
 import {PendingCommand} from './pending-command.js';
 import {valuationReason,type ValuationReason} from './valuation-status.js';
-import {libraryEntries,reach,sameLocation,type Here,type LibrarySurface} from './vol-surface-library.js';
+import {libraryEntries,reach,type Here,type LibrarySurface} from './vol-surface-library.js';
 import {surfaceLink,type SurfaceLink} from './vol-surface-link.js';
 import {drawSurface3d,levelRange} from './vol-surface-3d.js';
 import {richCheapColour,richCheapTone,volTheme} from './vol-surface-theme.js';
@@ -318,7 +318,8 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
 
  // The shelf: a card per product, in the library's order, the chosen one pressed.
  function renderShelf(){
-  const entries=libraryEntries(products,library,here,libraryComplete);
+  // A search narrows the cards to the catalog's matches; without one, a product the library lists is shown even off this page.
+  const entries=libraryEntries(products,library,libraryComplete).filter(e=>!productQuery||products.some(p=>p.code===e.code));
   const calibrated=entries.filter(e=>e.state==='here').length;
   shelfCount.textContent=entries.length?`${calibrated} of ${entries.length} calibrated here`:'';
   cards.replaceChildren(...entries.map(entry=>{
@@ -430,7 +431,8 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   if(how==='open'){o.frames.open(o.frames.offered(surface)!);return;}
   moveMessage=how==='otherSession'?`This surface belongs to the ${o.frames.sessionName(surface.close!.session)} session. Choose that session in the header to open it.`
    :how==='replaced'?'That close has been replaced. Its surface is history; calibrate at the close in force for its day.'
-   :'This view offers only its own business day. Return to working data to open another day.';
+   :o.historical()?'This view offers only its own business day. Return to working data to open another day.'
+   :'The header does not offer that snapshot in this view. Choose it from the As of control.';
   renderMissing();renderTimeline();
  }
  function renderTimeline(){
@@ -457,7 +459,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   missing.hidden=!product||!shown||shown.state==='fitted'||active(shown.job)||!here;
   if(missing.hidden)return;
   // The newest close this view can open, or else the newest other one, which names why it cannot.
-  const latest=timeline?.find(s=>reach(s,here!,o.frames.offered)==='open')??timeline?.find(s=>!sameLocation(s,here!));
+  const latest=timeline?.find(s=>reach(s,here!,o.frames.offered)==='open')??timeline?.find(s=>!s.here);
   const text=el('div','vol-missing-text');
   text.append(el('h4',undefined,`Not calibrated at ${hereName()}`),
    el('p',undefined,'A surface is fitted to one close’s option settlements. It is not carried to another day or session.'));
