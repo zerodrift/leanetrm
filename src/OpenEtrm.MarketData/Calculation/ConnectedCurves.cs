@@ -313,8 +313,8 @@ public static class ConnectedCurves
                 }
             }
             if(point.Expression is ConnectedRecipeProjection projection)
+            foreach(var declaration in new[]{projection.Declaration}.Concat(projection.Declaration.MetadataSources.IsDefault?[]:projection.Declaration.MetadataSources))
             {
-                var declaration=projection.Declaration;
                 if(recipeDeclarations.TryGetValue(declaration.Identity,out var prior)&&prior.ManifestId!=declaration.ManifestId)
                     throw Invalid("One exact saved recipe version cannot carry conflicting declarations.");
                 recipeDeclarations[declaration.Identity]=declaration;
@@ -333,7 +333,8 @@ public static class ConnectedCurves
                 }
             }
         }
-        foreach(var declaration in points.Select(p=>p.Expression).OfType<ConnectedRecipeProjection>().Select(p=>p.Declaration).DistinctBy(d=>d.Identity))
+        if(recipeDeclarations.Count>256)throw Invalid("A calculation supports at most 256 exact published recipe versions.");
+        foreach(var declaration in recipeDeclarations.Values)
         foreach(var published in declaration.PublishedSources.IsDefault?[]:declaration.PublishedSources)
         {
             var identity=new ConnectedRecipeIdentity(published.Reference.CatalogId,published.Reference.CurveId,published.Reference.Version,RecipeEngine.Version);
@@ -341,6 +342,19 @@ public static class ConnectedCurves
                 imported.Definition.Output!=published.Reference.OutputNode)
                 throw Invalid("A published source must retain its exact imported declaration and graph coordinates.");
         }
+        var depths=new Dictionary<ConnectedRecipeIdentity,int>();var visiting=new HashSet<ConnectedRecipeIdentity>();
+        int Depth(ConnectedRecipeDeclaration declaration)
+        {
+            if(depths.TryGetValue(declaration.Identity,out var depth))return depth;
+            if(!visiting.Add(declaration.Identity)||visiting.Count>33)throw Invalid("Published declarations require an acyclic closure within 32 dependency edges.");
+            depth=0;
+            foreach(var parent in declaration.PublishedSources.IsDefault?[]:declaration.PublishedSources)
+                depth=Math.Max(depth,1+Depth(recipeDeclarations[new(parent.Reference.CatalogId,parent.Reference.CurveId,parent.Reference.Version,RecipeEngine.Version)]));
+            visiting.Remove(declaration.Identity);if(depth>32)throw Invalid("Published declarations exceed 32 dependency edges.");
+            depths.Add(declaration.Identity,depth);return depth;
+        }
+        foreach(var declaration in points.Select(p=>p.Expression).OfType<ConnectedRecipeProjection>().Select(p=>p.Declaration).DistinctBy(d=>d.Identity))_=Depth(declaration);
+        if(depths.Count!=recipeDeclarations.Count)throw Invalid("Metadata-only declarations must belong to the exact published-source closure.");
         var nodes=nodeOperations.Select(op=>new ConnectedNode(op.Source,op.Dependencies.Select(p=>indexes[p]).ToImmutableArray(),op.Weights,op.Divisor,op.Built)).ToImmutableArray();
         var edges=nodes.SelectMany((node,index)=>node.Dependencies.Distinct().Select(dependency=>new DependencyEdge(index,dependency)));
         DependencyPlan plan;

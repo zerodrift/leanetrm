@@ -15,7 +15,7 @@ namespace OpenEtrm.Api;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record GasQuantityLinkRequest(string Source,string Formula,string Fraction);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record GasPhysicalRequest(string Code,string Pipeline,string Zone,string DeliveryPoint,string Product,string Direction,string DeliveryFrom,string DeliveryTo,string QuantityBasis,[property:JsonRequired]string? Quantity,[property:JsonRequired]GasQuantityLinkRequest? Link);
+public sealed record GasPhysicalRequest(string Code,string Pipeline,string Zone,string DeliveryPoint,string Product,string Direction,string DeliveryFrom,string DeliveryTo,string QuantityBasis,[property:JsonRequired]string? Quantity,[property:JsonRequired]GasQuantityLinkRequest? Link,[property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]CustomCurveProjectionInput? ForecastCurve=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record GasCashRequest(string Code,string Role,string Direction,string Source,string Stage,[property:JsonRequired]string? Price,[property:JsonRequired]string? TariffCode,string PaymentAt);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -46,10 +46,10 @@ internal sealed record GasCompositionExecution
    !programs.Select(p=>p.Slot).Order().SequenceEqual(Enumerable.Range(0,programs.Length)))
    throw new MarketDataException("gas_program_membership","Every retained gas program requires its exact visible member slot and side family.");
  }
- internal RetainedGasInstrument Instrument()=>new(InstrumentId,[..Members.OrderBy(m=>m.Slot).Select(m=>{
+ internal RetainedGasInstrument Instrument(ImmutableArray<IndexPriceLookup> lookups)=>new(InstrumentId,[..Members.OrderBy(m=>m.Slot).Select(m=>{
   var p=Programs.Single(p=>p.Slot==m.Slot);
   return new RetainedGasMember(p.SideId,ExactDecimal.Parse(m.Direction.ToString(CultureInfo.InvariantCulture)),m.Ratio,p.Program);
- })],[..Members.Select(m=>m.Assignment).Distinct()]);
+ })],[..Members.Select(m=>m.Assignment).Distinct()],lookups);
 }
 
 public sealed class GasCompositionStore(PreviewDatabase database)
@@ -70,7 +70,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  // The trade's quantity unit: its sides share one quantity specification, whose unit the reference data names.
  internal static string QuantityUnit(PreviewData data,IEnumerable<ReferenceKey> quantities)=>quantities.Distinct().ToArray() is [var one]?data.QuantityUnit(one.Code):
   throw Invalid("The sides' gas paths are quoted in different quantity specifications; one trade takes one quantity unit.");
- static PhysicalGasTerms Selection(GasCompositionRequest body,GasPhysicalRequest p)=>new(body.SnapshotId,body.Convention,body.KnowledgeMode,body.OperationId,body.BookId,body.DefinitionRevisionId,p.Pipeline,p.Zone,p.DeliveryPoint,p.Product,p.DeliveryFrom,p.DeliveryTo,p.Quantity,p.QuantityBasis,p.Direction,null,null,null,null,null,body.Discounting,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision,body.GasSetupId);
+ internal static PhysicalGasTerms Selection(GasCompositionRequest body,GasPhysicalRequest p)=>new(body.SnapshotId,body.Convention,body.KnowledgeMode,body.OperationId,body.BookId,body.DefinitionRevisionId,p.Pipeline,p.Zone,p.DeliveryPoint,p.Product,p.DeliveryFrom,p.DeliveryTo,p.Quantity,p.QuantityBasis,p.Direction,null,null,null,null,null,body.Discounting,body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision,body.GasSetupId);
  async Task<GasCompositionDraft> Resolve(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)
  {
   if(body.Profile!=Profile||body.Discounting!=false||body.KnowledgeMode!="current"||body.PhysicalSides.IsDefault||body.PhysicalSides.Length is <GasCompositionInstrument.MinPhysicalSides or >GasCompositionInstrument.MaxPhysicalSides||body.CashSides.IsDefault||body.CashSides.Length>GasCompositionInstrument.MaxCashSides)
@@ -80,7 +80,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   {
    var m=await gas.Metadata(c,data,Selection(body,p),ct);assignments.Add(m.Assignment);clocks.Add(m.Clock);mappings.Add(m.Mapping);
    var basis=p.QuantityBasis switch{"per_operating_day"=>GasQuantityBasis.PerOperatingDay,"period_total_equal_days"=>GasQuantityBasis.PeriodTotalEqualOperatingDays,_=>throw Invalid("Choose each physical quantity basis explicitly.")};
-   var side=new PhysicalGasSide(Guid.NewGuid(),m.Assignment.Location,m.Assignment.Product,new(m.Clock,DateWorkspace.Date(p.DeliveryFrom),DateWorkspace.Date(p.DeliveryTo),basis,new(Number("1"),m.Assignment.Quote.Quantity),GasFuelConvention.None,default),[m.Assignment]);
+   var side=new PhysicalGasSide(Guid.NewGuid(),m.Assignment.Location,m.Assignment.Product,new(m.Clock,DateWorkspace.Date(p.DeliveryFrom),DateWorkspace.Date(p.DeliveryTo),basis,new(Number("1"),m.Assignment.Quote.Quantity),GasFuelConvention.None,default),[m.Assignment],p.ForecastCurve?.ToBinding());
    var link=p.Link is null?null:new GasCompositionLink(p.Link.Source,p.Link.Formula switch{"none"=>GasFuelConvention.None,"gross_less_fraction"=>GasFuelConvention.NetEqualsGrossTimesOneMinusFuel,"gross_divided_by_one_plus_fraction"=>GasFuelConvention.NetEqualsGrossDividedByOnePlusFuel,_=>throw Invalid("Select an installed fuel rule.")},Number(p.Link.Fraction));
    physical.Add(new(p.Code,side,Number(Sign(p.Direction,true).ToString(CultureInfo.InvariantCulture)),p.Quantity is null?null:Number(p.Quantity),link));
   }
@@ -117,8 +117,13 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var knowledge=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,contextId,ct)).Context;
   var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),contextId,SchedulePreview.ParseAt(knowledge.KnownAt));
   var assignments=members.Select(m=>m.Assignment).Distinct().ToImmutableArray();
-  var dated=assignments.Select(a=>a.Lookup).Distinct().ToImmutableArray();var deps=dated.Select(x=>PeriodPriceSelector.ProjectionAt(x,snapshot)).OfType<CurveRequest>().Distinct().ToImmutableArray();
-  var market=data.Model.Build(snapshot,deps,ct);var sources=new ScheduleMarketSources(market.Graph.Plan.Context,market,null,null,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,dated,[],assignments);
+  var dated=programs.SelectMany(p=>BookedScheduleLookups.Dated(data,p.Program)).Distinct().ToImmutableArray();
+  foreach(var group in dated.Where(lookup=>lookup.CustomProjection is not null).GroupBy(lookup=>lookup.CustomProjection!))
+   await CustomCurves.RequireProjection(c,database,data,frame,CustomCurveProjectionInput.FromBinding(group.Key),PriceUnit.FromQuote(group.First().Quote),[..group.Select(lookup=>lookup.ForecastDelivery)],ct);
+  var deps=dated.Select(x=>PeriodPriceSelector.ProjectionAt(x,snapshot)).OfType<CurveRequest>().Distinct().ToImmutableArray();
+  var prepared=await CustomCurves.PrepareMarket(c,database,data,frame,snapshot,knowledge,[],deps,CustomCurves.MarketPreparation.ValuationDependencies,ct,
+   activePrices:[..dated.Select(lookup=>SchedulePriceTerm.FromLookup(lookup))]);
+  var market=prepared.Valuation.ProgramMarket(prepared.Bindings,prepared.Authority,ct);var sources=new ScheduleMarketSources(market.Graph.Plan.Context,market,null,null,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,dated,[],assignments);
   var discount=new ExplicitDiscounting(Number("1"),DiscountFactorSource.Undiscounted);ExactMoney? total=null;var sides=new List<object>();var views=view?ImmutableArray.CreateBuilder<SideViewInput>():null;var quantities=new Dictionary<string,ExactQuantity>(StringComparer.Ordinal);
   foreach(var member in members.OrderBy(x=>x.Slot))
   {

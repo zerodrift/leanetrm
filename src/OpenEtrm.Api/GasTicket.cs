@@ -16,6 +16,7 @@ public sealed record TicketLookup(string Value,TicketSource Source);
 public static class GasTicket
 {
  const string Physical="physical";
+ public static TicketChoice AssignedForecastChoice{get;}=new("assigned","Assigned index forward");
  // The composition role each side kind books as.
  static readonly ImmutableDictionary<string,string> Roles=new Dictionary<string,string>{[Physical]="physical",["cash"]="consideration",["fee"]="fee"}.ToImmutableDictionary();
  public static TicketDescription Description{get;}=TicketDescriptions.Validate(new("physical_gas",1,"flow",
@@ -33,6 +34,7 @@ public static class GasTicket
      Field("delivery_to","To · exclusive","End of delivery, exclusive.","date","end"),
      Field("product","Product","Service level of the gas.","choice","product",choices:"gas_products"),
      Field("quantity","Quantity","Quantity per the chosen basis, in the unit the side's gas path is quoted in. Taken from the link when the side is linked.","decimal","quantity",unit:"quantity",required:false,rule:"Derived from the link source when a link is set."),
+     Field("forecast_curve","Forecast curve","Published curve used for future prices; the assigned index and fixing source remain contractual.","choice",choices:"forecast_curves",required:false) with{DependsOn=["delivery_from","delivery_to","product","delivery_point"]},
      Info("price","Price","Market price at the delivery point.","price","market_price"),
      Info("payment","Payment","Sides that pay for this gas.","payment","paid_through"),
      Field("quantity_basis","Quantity basis","Whether the quantity applies to each operating day or to the whole period.","choice",choices:"quantity_basis"),
@@ -129,9 +131,17 @@ public static class GasTicket
  static GasPhysicalRequest PhysicalRequest(TicketSideDraft side,Func<TicketSideDraft,string,string> source)
  {
   var v=side.Values;var link=Link(side,source);
-  return new(side.Code,v["pipeline"],v["zone"],v["delivery_point"],v["product"],v["direction"],v["delivery_from"],v["delivery_to"],v["quantity_basis"],Quantity(side,link),link);
+  return new(side.Code,v["pipeline"],v["zone"],v["delivery_point"],v["product"],v["direction"],v["delivery_from"],v["delivery_to"],v["quantity_basis"],Quantity(side,link),link,Forecast(v.GetValueOrDefault("forecast_curve")));
  }
 
+ static readonly JsonSerializerOptions CurveJson=new(JsonSerializerDefaults.Web);
+ public static string ForecastValue(CustomCurveProjectionInput source)=>JsonSerializer.Serialize(source,CurveJson);
+ static CustomCurveProjectionInput? Forecast(string? value)
+ {
+  if(value is null||value=="assigned")return null;
+  try{return JsonSerializer.Deserialize<CustomCurveProjectionInput>(value,CurveJson)??throw Bad("Select a published forecast curve.");}
+  catch(JsonException){throw Bad("Select an exact published forecast curve version and query policy.");}
+ }
  static GasQuantityLinkRequest? Link(TicketSideDraft side,Func<TicketSideDraft,string,string> source)
  {
   var v=side.Values;
@@ -187,7 +197,7 @@ public static class GasTicket
   Party("legal_entity",terms.LegalEntityId,terms.LegalEntityRevision);Party("counterparty",terms.CounterpartyId,terms.CounterpartyRevision);
   static ImmutableDictionary<string,string> Values(params (string Id,string? Value)[] values)=>values.Where(v=>v.Value is not null).ToImmutableDictionary(v=>v.Id,v=>v.Value!);
   var physical=terms.PhysicalSides.Select(p=>new TicketSideDraft(Physical,p.Code,Values(("direction",p.Direction),("delivery_from",p.DeliveryFrom),("delivery_to",p.DeliveryTo),("product",p.Product),("quantity",p.Quantity),
-   ("quantity_basis",p.QuantityBasis),("pipeline",p.Pipeline),("zone",p.Zone),("delivery_point",p.DeliveryPoint),("link_source",p.Link?.Source),("link_formula",p.Link?.Formula),("link_fraction",p.Link?.Fraction))));
+   ("forecast_curve",p.ForecastCurve is {} curve?ForecastValue(curve):null),("quantity_basis",p.QuantityBasis),("pipeline",p.Pipeline),("zone",p.Zone),("delivery_point",p.DeliveryPoint),("link_source",p.Link?.Source),("link_formula",p.Link?.Formula),("link_fraction",p.Link?.Fraction))));
   var cash=terms.CashSides.Select(s=>{var kind=SideKind(s.Role).Kind;
    return new TicketSideDraft(kind,s.Code,Values(($"{kind}_direction",s.Direction),($"{kind}_source",s.Source),($"{kind}_stage",s.Stage),($"{kind}_price",s.Price),($"{kind}_payment_at",s.PaymentAt),($"{kind}_tariff",s.TariffCode)));});
   return new(Description.Product,Description.Version,trade.ToImmutableDictionary(),[..physical,..cash]);
@@ -219,6 +229,7 @@ public static class GasTicket
 
  // Fixed lists the booking contract admits, and the lists read from the context's gas catalog.
  static readonly ImmutableDictionary<string,ImmutableArray<TicketChoice>> Fixed=new Dictionary<string,ImmutableArray<TicketChoice>>{
+  ["forecast_curves"]=[AssignedForecastChoice],
   ["physical_direction"]=[new("receive","Receive"),new("deliver","Deliver")],["cash_direction"]=[new("pay","Pay"),new("receive","Receive")],
   ["quantity_basis"]=[new("per_operating_day","Per operating day"),new("period_total_equal_days","Period total over equal days")],
   ["quantity_stages"]=[new("receipt","Receipt"),new("delivery","Delivery"),new("fuel","Fuel")],
@@ -284,7 +295,7 @@ public static class GasTicket
   RequireSetup(draft,catalog);
   var (from,to)=(Term(target!,"delivery_from",Unresolved),Term(target!,"delivery_to",Unresolved));var path=Path(target!,catalog,Unresolved);
   return new(snapshot,PhysicalGasStore.Convention,"current",GasCompositionStore.Profile,Guid.Empty,Guid.Empty,definition,Id(draft.Trade,"gas_setup"),false,null,null,null,null,
-   [new(target!.Code,path.Text("pipeline"),path.Text("zone"),path.Text("deliveryPoint"),path.Text("product"),"receive",from,to,"per_operating_day","1",null)],[]);
+   [new(target!.Code,path.Text("pipeline"),path.Text("zone"),path.Text("deliveryPoint"),path.Text("product"),"receive",from,to,"per_operating_day","1",null,Forecast(target.Values.GetValueOrDefault("forecast_curve")))],[]);
  }
 
  public static string? LookupOf(TicketDraft draft,string? side,string field)=>Field(draft,side,field).Field.Lookup;

@@ -159,7 +159,7 @@ internal static class LngCargoChecks
             new(new Money(default, instrument.Currency), quantity.Specification), new(default, instrument.Currency));
         Reject("settlement_scope", () => new ValuationPortfolio([instrument], [position],
             new(ValuationMeasure.PresentValue, ImmutableDictionary<Guid, FuturesMarketBinding>.Empty, discount)
-            { Settlements = ImmutableDictionary<MeasureBinding, SwapBindingValuation>.Empty.Add(new(trade, binding), new(settlement, discount)) }));
+            { BindingStates = ImmutableDictionary<MeasureBinding, IBindingValuationState>.Empty.Add(new(trade, binding), new SwapBindingValuation(settlement, discount)) }));
     }
     private static void Equal(string actual, string expected)
     { if (actual != expected) throw new Exception($"Expected {expected}, got {actual}."); }

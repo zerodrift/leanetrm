@@ -95,8 +95,10 @@ def run_checks(url, manifest, query, run_worker):
     all_points=deepcopy(parent);all_points.update(code='lookup_all_days',name='Synthetic full daily parent')
     all_points['nodes'][1]['contractWeights']=[{'outputPosition':i+1,'sourcePort':'source_a','contractId':c['id'],'weight':'2'} for i,c in enumerate(contracts)]
     all_saved=publish(all_points)
+    from check_curve_splice import run_checks as check_splice
+    spliced=check_splice(query,manifest,contracts,all_points,graph,save,publish,preview,exact)
     containing=deepcopy(graph);containing.update(code='lookup_containing',name='Synthetic containing daily child')
-    containing['nodes'][0]['publishedSource']['curveId']=all_saved['id']
+    containing['nodes'][0]['publishedSource']['curveId']=spliced['id']
     containing['nodes'][2]['parameters']['method']='containing_delivery'
     containing_saved=publish(containing)
     client.call('profile',{'profile':'trader'})
@@ -105,6 +107,38 @@ def run_checks(url, manifest, query, run_worker):
     index=next(i for i in choices['indices'] if i['curve']=='ng_daily' and i['definitionRevisionId']==manifest['revisionId'])
     partial_ref=next(p['reference'] for p in index['customProjections'] if p['reference']['curveId']==containing_saved['id'] and p['reference']['selection']=='exact_delivery_interval_v1')
     trade=client.call('swaps/book',{**terms,'bookId':partial_book,'operationId':str(uuid4()),'floating':{**terms['floating'],'customProjection':partial_ref}})
+    # Before-only demand keeps the after branch's definition, with no price or
+    # risk-factor demand from that unused branch.
+    monthly_source=next(s for s in client.call('custom-curves')['sources'] if s['code']=='ng_monthly')
+    february=next(c for c in monthly_source['contracts'] if c['deliveryFrom']=='2021-02-01')
+    monthly=deepcopy(parent);monthly.update(code='splice_monthly_tail',name='Synthetic monthly tail')
+    monthly['nodes'][0]['parameters']['curve']='ng_monthly'
+    monthly['nodes'][1]['contractWeights']=[{'outputPosition':1,'sourcePort':'source_a','contractId':february['id'],'weight':'1'}]
+    monthly_saved=publish(monthly)
+    before_splice={'code':'splice_full_month','name':'Synthetic daily and monthly splice','output':'output','nodes':[
+        {'id':name,'kind':'published_source','parameters':{'selection':'all_output_points_v1'},'inputs':{},
+         'publishedSource':{'catalogId':manifest['catalogId'],'curveId':version['id'],'version':1,'outputNode':'output'}} for name,version in [('before',all_saved),('after',monthly_saved)]]}
+    before_splice['nodes'] += [
+        {'id':'splice','kind':'splice','parameters':{'from':'2021-01-01','cutover':'2021-02-01','to':'2021-03-01','implementation':'whole_delivery_intervals_v1'},'inputs':{'before':'before','after':'after'}},
+        {'id':'output','kind':'output','parameters':{},'inputs':{'values':'splice'}}]
+    before_spliced=publish(before_splice)
+    from check_curve_bindings import run_checks as check_curve_bindings
+    check_curve_bindings(client,manifest,query,run_worker,frame,before_spliced,all_points,publish,preview,exact)
+    before_lookup=deepcopy(containing);before_lookup.update(code='splice_before_lookup',name='Synthetic first-branch lookup')
+    before_lookup['nodes'][0]['publishedSource']['curveId']=before_spliced['id']
+    before_saved=publish(before_lookup)
+    client.call('profile',{'profile':'trader'})
+    before_index=next(i for i in client.call('swaps/catalog',context)['indices'] if i['curve']=='ng_daily' and i['definitionRevisionId']==manifest['revisionId'])
+    before_ref=next(p['reference'] for p in before_index['customProjections'] if p['reference']['curveId']==before_saved['id'] and p['reference']['selection']=='exact_delivery_interval_v1')
+    before_book=str(uuid4());query(f"INSERT INTO trading.books SELECT catalog_id,'{before_book}',portfolio_id,'Synthetic first splice branch',publication_order,effective_at FROM trading.books LIMIT 1;")
+    before=client.call('swaps/book',{**terms,'bookId':before_book,'operationId':str(uuid4()),'floating':{**terms['floating'],'customProjection':before_ref}})
+    before_detail=client.call('swaps/editor',{'context':context,'tradeId':before['tradeId'],'revision':None})
+    assert Fraction(before_detail['valuation']['presentValue'])==sum(map(exact,preview(all_points)['points']))
+    client.call('profile',{'profile':'risk'})
+    before_scope={'context':{**context,'convention':'trading_workspace_v1'},'bookIds':[before_book],'portfolioIds':[]}
+    before_catalog=client.call('portfolio/risk/catalog',before_scope)
+    assert len(before_catalog['factors'])==31 and all(f['curves']==['ng_daily'] for f in before_catalog['factors'])
+    client.call('profile',{'profile':'trader'})
     later=initial_frame(client.call('workspace/navigation'),'2021-01-02')
     later_context={**context,'snapshotId':later['id']}
     detail=client.call('swaps/editor',{'context':later_context,'tradeId':trade['tradeId'],'revision':None})

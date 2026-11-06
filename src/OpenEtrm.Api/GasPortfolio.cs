@@ -37,7 +37,7 @@ internal static class GasPortfolio
     var execution=position.Head.GetProperty("composition").GetBoolean()
      ?await store.Load(connection,source.Data,source.Frame,position.Trade,ct)
      :await store.LoadSinglePoint(connection,source.Data,source.Frame,position.Trade,ct);
-    var instrument=execution.Instrument();
+    var instrument=execution.Instrument([..execution.Programs.SelectMany(p=>BookedScheduleLookups.Dated(source.Data,p.Program)).Distinct()]);
     if(instrument.Id!=position.Binding||instrument.Currency!=position.Currency||instrument.UnitQuantity.Specification!=position.Quantity||
      execution.Quantity!=ExactDecimal.Parse(position.Head.Text("quantity")))
      throw Invalid("Held quantity, currency and instrument must match the retained gas programs.");

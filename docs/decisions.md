@@ -2582,3 +2582,135 @@ The existing read/turn limits, source-access publication checks and retained
 context are unchanged. There is no new tool, result shape, grant, cache of
 authority or business data, runtime version or migration. Owned HTTP and browser
 checks cover full discovery followed by native swap navigation without booking.
+
+## D329 — Daily indexed physical consideration through native PV
+
+The [bounded physical gas example](indexed-physical-gas-example.md) uses the
+existing Instrument/Side valuation boundary, exact daily schedules, fixing
+resolver and saved curve recipe lookup. Shared cash state retains final amounts
+and explicit paid allocations per held binding. The normal cash Side values
+remaining amounts; generic market scenarios and instrument PV determine risk.
+No commodity-specific shock rule or exposure-allocation path is introduced.
+
+`IBindingValuationState` generalizes the existing swap-specific portfolio context
+while the instrument retains admission and interpretation. Separate state
+identities form separate calculation scopes and Side cache entries. The explicit
+`UnpaidCashPresentValue` measure includes fixed unpaid and projected consideration,
+discounts future outstanding cash and keeps due unpaid cash nominal under the
+selected policy. It excludes commodity asset value and does not change existing
+physical-market-value or financial-swap policies. Passing a due date creates no
+payment; supplied final determinations retain exact price evidence and payments
+remove only their explicitly allocated amounts.
+
+This is a locally qualified managed consumer and synthetic native export.
+Durable source/settlement relationships, authorized idempotent writes, corrections,
+ticket/inspection integration, retained worker admission and hosted activation
+remain separately qualified work. No schema migration or public business
+operation is added by the managed proof.
+
+## D330 — Separate Henry Hub daily and monthly futures sources
+
+The daily source is ICE Henry Swing (HHD); the selected monthly source is ICE
+Henry LD1 Fixed Price (H). HHD references daily Gas Daily Henry Hub prices. H
+references the monthly NYMEX Henry Hub settlement. These are distinct settlement
+references; neither an IFERC basis nor a Gas Daily monthly average is inferred.
+Both public products quote USD/MMBtu with a fixed 2,500 MMBtu lot, with quoted
+minimum price increments of 0.0001 and 0.001 respectively. Public specification
+links and the synthetic-data boundary are recorded in the
+[example contract](indexed-physical-gas-example.md#henry-hub-source-curves).
+
+The requested hierarchy is two independent futures sources, separate daily and
+monthly OTC projections, and an explicitly configured synthetic splice associated
+with physical pricing. A splice selects source intervals; it does not add their
+prices, unify their settlement lifecycles, infer an index basis or replace normal
+instrument PV. Market shocks and tenor risk continue through the common engine.
+
+The first locally verified increment is source data only: exact dated futures
+contracts, separate settlement-index metadata, synthetic prices at three closes
+and existing native signed-lot pricing/risk. The disposable example explicitly
+uses synthetic weekday-only calendars and selected cutoffs, not verified exchange
+listings or expiry instants. Operational loaders and generated artifacts remain
+private. OTC conversion terms, splice/roll rules, full historical coverage,
+physical pricing admission and hosted activation remain separate work.
+
+## D331 — Whole-delivery curve splice and separate OTC projections
+
+`splice` selects complete price intervals from `before` over `[from, cutover)`
+and `after` over `[cutover, to)`. All three dates and
+`whole_delivery_intervals_v1` are mandatory. Each selected range must have one
+continuous, non-overlapping cover in identical price units. A crossing interval,
+gap, repeated period or incompatible unit refuses. Prices, delivery boundaries
+and source expressions survive unchanged; the operator creates no observation,
+price aggregation, index basis or independent risk factor.
+
+The current consumer uses separate explicit price projections of HHD daily and H
+monthly futures, then selects the daily front and monthly tail. This is a selected
+forecast-price relationship; Gas Daily daily fixings and NYMEX monthly settlement
+retain distinct reference meanings. The physical cash fixture's ordinary daily
+lookup consumes the mixed grid, and Instrument/Side PV determines every scenario
+result. No special shock, allocation or gas risk policy is added.
+
+Published-source demand includes explicit empty sets for unused branches. Those
+branches keep their complete authorized topology and a bounded flat closure of
+definition receipts, with no numerical points or price observations. Existing
+published-edge manifests commit the receipts; consumer demand does not change
+semantic recipe identity. Compilation validates exact imported declarations,
+calendar/schedule consistency, acyclicity, 32-edge depth, 256-version bounds and
+closure membership. No fictitious zero price substitutes for an unused branch.
+
+The API's operator metadata exposes the same graph contract to the visual and
+formula editors. Migration 0200 admits the node and checks publication policy
+and ports; downstream lookup and weighted-panel guards retain their other rules.
+The migration pins reviewed predecessor bodies, installation ownership, ACLs,
+configuration and node kinds before changing them. Operational setup scripts and
+generated data remain private. Boundaries are explicit dated setup, with no
+automatic month-end roll or futures margining assertion. New indexed physical
+booking/payment operations, retained worker admission for that physical profile
+and hosted activation remain separate work.
+
+
+## D332 — Common curve queries and retained physical source selection
+
+Use one whole-interval published-source binding over mixed daily/monthly outputs.
+Queries retain their own delivery interval separately from native index observation
+periods. Persist the new policy in `curve_price_lookup`; preserve legacy program
+and identity bytes when the new binding is absent. Qualify the complete output
+grid before filtering units, reject gaps/overlaps/crossings and load only demanded
+source intervals. A containing monthly point remains one native factor for daily
+queries; risk still shocks immutable scenarios and calls ordinary instrument PV.
+
+The common `CurveBase<TQuery,TValue,TSelection>` enforces nonvirtual `Lookup`:
+resolve/validate once, declare the selected inputs, evaluate that same selection,
+and return value plus exact curve, policy and dependency details. Price and
+rate implementations supply explicit versioned interpolation/boundary/construction
+policies. Prepared price lookups bind the actual supplied scenario. Analytical
+models and fitters remain producers/evaluators of curve state; no model registry,
+volatility interpolation rule or fitted-surface pricing admission is inferred.
+
+The physical gas ticket selects compatible exact published versions. Its stored
+program retains typed source foreign keys and daily query bounds. Different
+forecast sources distinguish pricing/program identity while native gas assignments,
+fixing metadata and contractual economic identity remain unchanged. Preview,
+booked inspection and portfolio risk use the existing authorized connected market
+preparation. Migration 0201 validates closed query/source contracts and current
+source authority. The admitted application profile remains future physical gas
+value with fixed consideration; it does not admit the separate payment-aware
+indexed purchase lifecycle. Operational setup remains private and hosted
+activation requires separate publication authorization.
+
+
+## D333 — Explicit OTC-minus-futures basis in the gas example
+
+Construct daily OTC prices as HHD plus an independent daily basis curve, and
+monthly OTC prices as H plus an independent monthly basis curve. Combine these
+meaningful OTC outputs directly; retain no plain pass-through OTC definitions.
+Both inputs are declared in existing signed-sum recipes. The spread assessments
+are original synthetic data with a small November–March seasonal premium, not
+inferred index equivalence, observed market prices or a universal pricing rule.
+Outright quote construction remains separately supported by the framework.
+
+The managed cash example and disposable future-delivery ticket example exercise
+both native futures and basis scenarios through unchanged ordinary PV. A monthly
+quote and its monthly basis remain two factors across daily delivery rows. Source
+and fixing identities, business/knowledge times, units and versioned policies
+remain explicit. No pricing adjustment or exposure allocation is added to risk.

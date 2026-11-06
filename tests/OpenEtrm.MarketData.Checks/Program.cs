@@ -12,6 +12,9 @@ if(args is ["--lng-cargo"]){LngCargoChecks.Run();return;}
 if(args is ["--gas-daily-quantities"]){GasDailyQuantityChecks.Run();return;}
 if(args is ["--physical-gas-quantities"]){PhysicalGasQuantityChecks.Run();return;}
 if(args is ["--physical-gas-side"]){PhysicalGasSideChecks.Run();return;}
+if(args is ["--side-payment-state"]){SidePaymentStateChecks.Run();return;}
+if(args is ["--gas-forward-settlement-example"]){GasForwardSettlementExampleChecks.Run();return;}
+if(args is ["--gas-forward-settlement-example-json"]){Console.WriteLine(GasForwardSettlementExampleChecks.Export());return;}
 if(args is ["--contract-observation-schedules"]){ContractObservationScheduleChecks.Run();return;}
 if(args is ["--schedule-market-sources"]){ScheduleMarketSourceChecks.Run();return;}
 if(args is ["--schedule-input-batch"]){await ScheduleInputBatchChecks.Run();return;}
@@ -77,6 +80,8 @@ if(args is ["--curve-engine-cutover"]){CurveEngineCutoverChecks.Run();return;}
 if(args is ["--connected-curves"]){ConnectedCurveChecks.Run();return;}
 if(args is ["--connected-scenarios"]){ConnectedScenarioChecks.Run();return;}
 if(args is ["--connected-recipes"]){ConnectedRecipeChecks.Run();return;}
+if(args is ["--spliced-curves"]){SplicedCurveChecks.Run();return;}
+if(args is ["--curve-price-bindings"]){CurvePriceBindingChecks.Run();return;}
 if(args is ["--custom-projection"]){CustomProjectionChecks.Run();return;}
 if(args is ["--connected-portfolios"]){ConnectedPortfolioChecks.Run();return;}
 if(args is ["--aligned-factor-history"]){AlignedFactorHistoryChecks.Run();return;}
@@ -526,6 +531,10 @@ passed += ObservationScheduleChecks.Run();
 passed += CommodityLookupChecks.Run();
 PhysicalGasQuantityChecks.Run();passed++;
 PhysicalGasSideChecks.Run();passed++;
+SidePaymentStateChecks.Run();passed++;
+GasForwardSettlementExampleChecks.Run();passed++;
+SplicedCurveChecks.Run();passed++;
+CurvePriceBindingChecks.Run();passed++;
 GasDailyQuantityChecks.Run();passed++;
 ScheduleViewChecks.Run();passed++;
 passed += SnapshotInputChecks.Run();

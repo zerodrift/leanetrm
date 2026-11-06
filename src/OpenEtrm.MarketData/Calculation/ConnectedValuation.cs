@@ -178,6 +178,9 @@ public sealed class ConnectedValuation
         }
     }
 
+    public CurveBuild ProgramMarket(ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild authority,CancellationToken cancellation=default)
+        =>authority.BindConnected(this,bindings,cancellation);
+
     public SideValuationContext PaymentContext(ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild authority,
         ISideDiscounting discounting,CancellationToken cancellation=default) =>
         Market(bindings,authority,cancellation).Context(discounting,bindings.Keys.ToImmutableArray(),cancellation);

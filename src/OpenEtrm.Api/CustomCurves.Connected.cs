@@ -70,12 +70,10 @@ public static partial class CustomCurves
             throw Invalid("Connected pricing requires the exact retained financial and market context.");
         if(snapshot.Knowledge is not null)
             snapshot=MarketSnapshotBinding.Bind(snapshot,exact.ContextId!.Value,SchedulePreview.ParseAt(exact.KnownAt));
-        var custom=instruments.OfType<SidedInstrument>().SelectMany(i=>i.Sides.Select(m=>m.Side)).OfType<FloatingSide>()
-            .SelectMany(side=>side.Periods).Where(period=>period.CustomProjection is not null)
-            .SelectMany(period=>period.Projections.Select(p=>new{Binding=period.CustomProjection!,Original=p.Market}))
-            .Distinct().ToArray();
         var prices=activePrices??instruments.OfType<SidedInstrument>().SelectMany(instrument=>instrument.Sides)
-            .SelectMany(member=>((SidePaymentSchedule)member.Side.GenerateSchedule()).Payments).SelectMany(payment=>payment.Prices).ToImmutableArray();
+            .SelectMany(member=>member.Side.GenerateSchedule().Rows).SelectMany(row=>row.Prices).ToImmutableArray();
+        var custom=prices.Where(price=>price.Lookup?.CustomProjection is not null)
+            .Select(price=>new{Binding=price.Lookup!.CustomProjection!,Original=price.Lookup.Market,Request=price.Lookup.ProjectionRequest,Interval=price.Lookup.ForecastDelivery}).Distinct().ToArray();
         var ordinary=purpose==MarketPreparation.ValuationDependencies&&retained is null&&custom.Length==0&&
             prices.All(price=>price.ContractObservation is null);
         ct.ThrowIfCancellationRequested();
@@ -85,7 +83,7 @@ public static partial class CustomCurves
                 _=IndexFixingPricing.Resolve(reused.Authority,lookup);
             return reused;
         }
-        var aliases=custom.ToDictionary(p=>p.Binding.Request(p.Original),p=>p.Original);
+        var aliases=custom.ToDictionary(p=>p.Request,p=>p.Original);
         var needed=dependencies.ToHashSet();
         var originals=dependencies.Where(d=>!aliases.ContainsKey(d)).ToImmutableArray();
         var authority=data.Model.Build(snapshot,[]);
@@ -106,7 +104,7 @@ public static partial class CustomCurves
         var definitions=export.Definitions.ToList();
         var bindings=ImmutableDictionary.CreateBuilder<CurveRequest,CurvePointKey>();
         foreach(var request in dependencies.Where(d=>!aliases.ContainsKey(d)))bindings.Add(request,export.Points[(request,InputUse.Variable)]);
-        var required=custom.Where(c=>needed.Contains(c.Binding.Request(c.Original))).ToArray();
+        var required=custom.Where(c=>needed.Contains(c.Request)).ToArray();
         var recipeBindings=required.Select(c=>c.Binding).Distinct().OrderBy(c=>c.CurveId).ThenBy(c=>c.Version)
             .ThenBy(c=>c.OutputNode,StringComparer.Ordinal).ThenBy(c=>c.Position).ToImmutableArray();
         var samples=ImmutableArray.CreateBuilder<ConnectedRecipeSample>();
@@ -133,11 +131,20 @@ public static partial class CustomCurves
                 demands[(id,version)]=deliveries;
                 var definition=saved.SingleOrDefault(v=>v.Id==id&&v.Version==version)?.Definition??throw Invalid("The exact published custom curve is unavailable.");
                 var topology=await preparation.Topology(new(data.DefinitionRevision.CatalogId,id,version,definition.Output),ct);
-                foreach(var (parent,needed) in topology.PublishedInputs(deliveries))await Require(parent.CurveId,parent.Version,needed,depth+1);
+                var parents=topology.PublishedInputs(deliveries);
+                foreach(var parent in definition.Nodes.Where(n=>n.Kind=="published_source").Select(n=>n.PublishedSource!).Distinct())
+                    await Require(parent.CurveId,parent.Version,parents.GetValueOrDefault(parent,ImmutableHashSet<RecipeDelivery>.Empty),depth+1);
             }
             foreach(var group in recipeBindings.GroupBy(b=>(b.CurveId,b.Version)))
-                await Require(group.Key.CurveId,group.Key.Version,group.All(b=>b.Selection==CustomCurveProjectionBinding.DeliverySelection)?required.Where(c=>group.Contains(c.Binding))
-                    .Select(c=>data.Contracts.Single(k=>k.Key==c.Original.Contract)).Select(k=>new RecipeDelivery(k.DeliveryFrom,k.DeliveryTo)).ToImmutableHashSet():null,0);
+            {
+                if(group.Any(binding=>binding.Selection==CustomCurveProjectionBinding.SupportedSelection))
+                {await Require(group.Key.CurveId,group.Key.Version,null,0);continue;}
+                var shape=await preparation.Topology(new(data.DefinitionRevision.CatalogId,group.Key.CurveId,group.Key.Version,group.First().OutputNode),ct);
+                var intervals=shape.Outputs.Select(output=>new ProjectionDelivery(output.DeliveryFrom,output.DeliveryTo)).ToArray();
+                var selected=group.SelectMany(binding=>CurvePriceMapping.RequiredIntervals(binding.Selection,intervals,
+                    required.Where(c=>c.Binding==binding).Select(c=>c.Interval))).Select(interval=>new RecipeDelivery(interval.From,interval.To)).ToImmutableHashSet();
+                await Require(group.Key.CurveId,group.Key.Version,selected,0);
+            }
             foreach(var group in recipeBindings.GroupBy(b=>(b.CatalogId,b.CurveId,b.Version)))
             {
                 ct.ThrowIfCancellationRequested();
@@ -156,8 +163,7 @@ public static partial class CustomCurves
                 {
                     foreach(var item in required.Where(c=>c.Binding==binding))
                     {
-                        var contract=data.Contracts.Single(c=>c.Key==item.Original.Contract);
-                        bindings.Add(binding.Request(item.Original),mapping.Resolve(binding,contract));
+                        bindings.Add(item.Request,mapping.Resolve(binding,item.Interval));
                     }
                 }
             }
@@ -210,7 +216,7 @@ public static partial class CustomCurves
         if(ordinary)preparationScope?.Add(connection,database,data,snapshot,exact,dependencies,prepared);
         return prepared;
     }
-    static CustomProjectionMapping ProjectionMapping(ConnectedRecipeGraph graph)
+    static CurvePriceMapping ProjectionMapping(ConnectedRecipeGraph graph)
     {
         var points=graph.Definitions.SelectMany(d=>d.Points).ToDictionary(p=>p.Key);
         return new(graph.Outputs.Select(o=>new ProjectionOutput(o.Position,o.Point,new(points[o.Point].DeliveryFrom,points[o.Point].DeliveryTo))));

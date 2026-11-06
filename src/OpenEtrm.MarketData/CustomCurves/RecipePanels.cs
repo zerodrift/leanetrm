@@ -4,6 +4,38 @@ namespace OpenEtrm.MarketData.CustomCurves;
 
 public static partial class RecipeEngine
 {
+    public const string WholeDeliverySplice="whole_delivery_intervals_v1";
+    private static (DateOnly From,DateOnly Cutover,DateOnly To) SpliceRange(RecipeNode node)
+    {
+        DateOnly Date(string key)=>DateOnly.TryParseExact(Required(node,key),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,out var day)?day:throw Invalid("Splice dates require exact YYYY-MM-DD values.");
+        var from=Date("from");var cutover=Date("cutover");var to=Date("to");
+        if(from.Year<1901||to.Year>2199||from>=cutover||cutover>=to||Required(node,"implementation")!=WholeDeliverySplice)
+            throw Invalid("Select ordered explicit start, cutover and exclusive end dates and whole-delivery splice semantics.");
+        return(from,cutover,to);
+    }
+    // Selection only: retained cells keep their source expression, geometry and
+    // evidence. No prices are averaged, shaped or independently observed here.
+    private static Panel SplicePanels(RecipeNode node,Panel before,Panel after,CancellationToken cancellation)
+    {
+        var range=SpliceRange(node);var result=ImmutableArray.CreateBuilder<Cell>();
+        void Select(Panel source,DateOnly from,DateOnly to)
+        {
+            if(source.Cells.IsDefault)throw Missing("A splice requires explicit source panels.");
+            var next=from;
+            foreach(var cell in source.Cells.Where(c=>c.DeliveryFrom<to&&c.DeliveryTo>from).OrderBy(c=>c.DeliveryFrom).ThenBy(c=>c.DeliveryTo))
+            {
+                cancellation.ThrowIfCancellationRequested();
+                if(cell.DeliveryFrom!=next||cell.DeliveryTo>to||cell.DeliveryTo<=cell.DeliveryFrom)
+                    throw Missing("Splice coverage has a gap, overlap, repeated value or a delivery interval crossing a selected boundary.");
+                if(result.Count>0&&result[0].Unit!=cell.Unit)throw Missing("Spliced curves require identical currency, quantity and quote multiplier.");
+                result.Add(cell with{Position=result.Count+1});next=cell.DeliveryTo;
+            }
+            if(next!=to)throw Missing("Every selected splice range requires complete source coverage; another source cannot fill a gap.");
+        }
+        Select(before,range.From,range.Cutover);Select(after,range.Cutover,range.To);
+        return new(result.ToImmutable());
+    }
     // Pair complete symbolic outputs by explicit delivery boundaries. Price
     // evaluation stays in the connected plan; no value buffer is constructed.
     private static Panel CombinePanels(RecipeNode node,IReadOnlyDictionary<string,Panel> panels,DateOnly contextDate,CancellationToken cancellation,ref int work)

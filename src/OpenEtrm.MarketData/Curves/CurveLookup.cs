@@ -63,6 +63,14 @@ public sealed class CurveLookupGrid<T> where T:notnull
             _=>throw Error("Unsupported point lookup.")
         };
     }
+    public ImmutableArray<CurveLookupWeight<T>> SelectInterval(DateOnly from,DateOnly to)
+    {
+        if(Settings.Method!=CurveLookupMethod.ContainingDelivery||from>=to)
+            throw Error("A whole delivery interval requires positive bounds and explicit containing-delivery lookup.");
+        var matches=members.Where(m=>m.From<to&&m.To>from).Take(2).ToArray();
+        return matches.Length==1&&matches[0].From<=from&&matches[0].To>=to
+            ?[new(matches[0].Id,ExactDecimal.Parse("1"))]:throw Error("One unambiguous source interval must cover the entire requested delivery period.");
+    }
     private static ExactDecimal Days(int value)=>ExactDecimal.Parse(value.ToString(System.Globalization.CultureInfo.InvariantCulture));
     private static MarketDataException Error(string text)=>new("curve_coverage",text);
 }

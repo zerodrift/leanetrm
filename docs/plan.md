@@ -1,5 +1,38 @@
 # Delivery plan and acceptance criteria
 
+D333 makes the OTC examples explicit futures-plus-basis curves, using separate
+synthetic spread assessments with a small winter premium. Ordinary graph
+arithmetic and instrument PV preserve independent futures and basis risk.
+
+D332 extends common whole-interval curve binding to mixed grids and the physical
+gas ticket, with retained source/query identity and normal connected PV/risk.
+The shared curve base exposes one enforced `Lookup` contract with explicit
+policies and selected input evidence. Local ticket, booking, inspection and
+retained-worker checks qualify the future-delivery profile; hosted publication
+and indexed-purchase cash lifecycle admission remain
+separate. See [curve evaluation](curve-evaluation.md).
+
+D331 locally implements separate Henry Hub daily/monthly OTC projections and a
+mixed-grid splice through existing saved graphs and exact published-source links.
+The managed physical cash example now consumes that hierarchy through the normal
+daily lookup and PV contracts. Explicit range boundaries do not add automatic
+rollover or full historical coverage. Migration 0200, durable indexed-physical
+booking/payment admission and hosted activation require their own release work.
+
+D330 starts the Henry Hub setup with separate HHD daily and H monthly futures
+curves. A disposable local example qualifies 26 daily contracts, 36 monthly
+contracts and three synthetic closes through existing native pricing and retained
+risk operations. D331 adds the separate OTC projection definitions and explicit
+delivery-range splice retaining source lineage. Automatic rollover, full physical
+booking admission and hosted load remain separate work.
+
+D329 locally qualifies the [daily indexed physical gas cash example](indexed-physical-gas-example.md)
+using shared Side payment behavior and ordinary Instrument PV/risk. Next admission
+requires exact persisted relationships, authorized/idempotent determination and
+allocation operations, certified historical reads, native ticket/inspection and
+retained worker parity. The managed example adds no booking/payment API, schema
+migration or hosted activation and does not broaden existing physical PV.
+
 D327 connects [native physical operations to the assistant](physical-workspace.md#physical-assistant-operations).
 Facility questions retain an explicit operating date and certified knowledge cutoff
 without inventing a pricing frame. Native authoring and quantity changes retain

@@ -40,11 +40,11 @@ internal static class SwapLifecycleChecks
         RiskPosition Position(Guid t, Guid b) => new(t,b,book,swap.Id,quantity,new(new Money(default,swap.Currency),quantity.Specification),new(default,swap.Currency));
         var portfolio = new ValuationPortfolio([swap],[Position(trade,binding),Position(otherTrade,otherBinding)],
             new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
-            { Settlements = ImmutableDictionary<MeasureBinding,SwapBindingValuation>.Empty
-                .Add(new(trade,binding),new(inputs,provider)).Add(new(otherTrade,otherBinding),new(other,provider)) });
+            { BindingStates = ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty
+                .Add(new(trade,binding),new SwapBindingValuation(inputs,provider)).Add(new(otherTrade,otherBinding),new SwapBindingValuation(other,provider)) });
         // A close receipt identifies models by instrument. Mixed enrollment must
         // declare the same dispatch model for both scopes while retaining distinct values.
-        var mixed = new ValuationPortfolio([swap],[Position(trade,binding),Position(Guid.NewGuid(),Guid.NewGuid())],portfolio.Setup with { Settlements=portfolio.Setup.Settlements.Remove(new(otherTrade,otherBinding)), InstrumentDiscounting=ImmutableDictionary<Guid,ISideDiscounting>.Empty.Add(swap.Id,provider) });
+        var mixed = new ValuationPortfolio([swap],[Position(trade,binding),Position(Guid.NewGuid(),Guid.NewGuid())],portfolio.Setup with { BindingStates=portfolio.Setup.BindingStates.Remove(new(otherTrade,otherBinding)), InstrumentDiscounting=ImmutableDictionary<Guid,ISideDiscounting>.Empty.Add(swap.Id,provider) });
         var mixedContracts=mixed.Declare(snapshot);
         Equal(mixedContracts.Select(c=>c.ModelVersion).Distinct().Count(),1);
         var preDue=snapshot with{Id=Guid.NewGuid(),ValuationAt=f.Payment.AddDays(-1),MarketCutoff=f.Payment.AddDays(-1)};

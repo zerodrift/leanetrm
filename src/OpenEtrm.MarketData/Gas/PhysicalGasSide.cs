@@ -48,14 +48,17 @@ public sealed record PhysicalGasSide : Side
     public ImmutableArray<GasValuationAssignment> Assignments { get; }
     public ReferenceKey Currency => Assignments[0].Quote.Currency;
     public Quantity UnitQuantity => new(ExactDecimal.Parse("1"), Quantities.Receipt.Specification);
-    public override DefinitionIdentity PricingBindingIdentity => DefinitionIdentity.For(new GasValuationBindings(Assignments));
+    public CustomCurveProjectionBinding? ForecastCurve { get; }
+    public override DefinitionIdentity PricingBindingIdentity => ForecastCurve is {} source?
+        CurvePriceScheduleSource.PricingIdentity(DefinitionIdentity.For(new GasValuationBindings(Assignments)),source):
+        DefinitionIdentity.For(new GasValuationBindings(Assignments));
     private readonly Lazy<PhysicalGasSchedule> schedule;
-    public override ImmutableArray<CurveRequest> Dependencies => [..Assignments.Select(a => a.Projection.Market).Distinct()];
+    public override ImmutableArray<CurveRequest> Dependencies => [..GenerateSchedule().Rows.SelectMany(row=>row.Prices).Select(price=>price.Lookup!.ProjectionRequest).Distinct()];
     public override ImmutableArray<CurveRequest> DependenciesAt(MarketSnapshot snapshot) =>
-        [..Assignments.Select(a => PeriodPriceSelector.ProjectionAt(a.Lookup, snapshot)).OfType<CurveRequest>().Distinct()];
+        [..GenerateSchedule().Rows.SelectMany(row=>row.Prices).Select(price => PeriodPriceSelector.ProjectionAt(price.Lookup!, snapshot)).OfType<CurveRequest>().Distinct()];
 
     public PhysicalGasSide(Guid id, GasDeliveryLocation location, ReferenceKey product, GasQuantityTerms quantities,
-        ImmutableArray<GasValuationAssignment> assignments) : base(id)
+        ImmutableArray<GasValuationAssignment> assignments, CustomCurveProjectionBinding? forecastCurve=null) : base(id)
     {
         if (location is null) throw new MarketDataException("gas_delivery_location", "Select a complete gas delivery location.");
         var deliveryPoint = location.Point; Money.RequireKey(product);
@@ -80,6 +83,9 @@ public sealed record PhysicalGasSide : Side
             throw new MarketDataException("gas_valuation_assignment", "Every supplied assignment must value part of this delivery term.");
         Location = location; Product = product; Quantities = quantities;
         Assignments = [..assignments.OrderBy(a => a.From)];
+        if(forecastCurve is not null)foreach(var assignment in Assignments)
+            _=CurvePriceScheduleSource.Bind(assignment.Lookup,forecastCurve,new(assignment.From,assignment.To));
+        ForecastCurve=forecastCurve;
         schedule = new(() => new(this));
     }
 
@@ -110,8 +116,9 @@ public sealed record PhysicalGasSchedule : SideSchedule
         {
             var assignment = side.Assignments.Single(a => a.From <= quantity.OperatingDay && a.To > quantity.OperatingDay);
             var next = quantity.OperatingDay.AddDays(1); var one = ExactDecimal.Parse("1");
+            var lookup=side.ForecastCurve is {} source?CurvePriceScheduleSource.Bind(assignment.Lookup,source,new(quantity.OperatingDay,next)):assignment.Lookup;
             var row = new ScheduleRow(side.Id, quantity.OperatingDay, next, quantity.End, side.Currency, side.UnitQuantity,
-                null, null, null, [new(one, null, assignment.Lookup, assignment.Adjustment)], Implementation,
+                null, null, null, [new(one, null, lookup, assignment.Adjustment)], Implementation,
                 [new(quantity.OperatingDay, next, 0, one, Implementation)], Implementation);
             return new ScheduleRow(row, side.Id, ordinal, quantity.Delivery).WithPhysicalInterval(
                 new(quantity.Start, quantity.End, quantity.OperatingDay, side.Quantities.Clock.StartMinute / 60, side.Quantities.Clock.StartMinute % 60, 1));

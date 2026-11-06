@@ -245,7 +245,7 @@ internal sealed partial class RetainedSideSchedule
             if(candidates.Length!=1)throw Error("The retained contract observation requires one exact admitted source; selection cannot be repeated on load.");
             return new(weight,candidates[0],spread);
         }
-        Require(row,"price_lookup");var lookup=Lookup(row);
+        if(!CurvePriceScheduleSource.IsLookup(row.Operation))throw Error("Select a supported stored curve price source.");var lookup=Lookup(row);
         return new(weight,null,lookup,spread);
     }
     private IndexPriceLookup Lookup(ScheduleDefinitionRow row)
@@ -263,8 +263,10 @@ internal sealed partial class RetainedSideSchedule
                 p.period.CustomProjection is {} custom&&custom.CatalogId==projection.EntityCatalog&&custom.CurveId==projection.Entity&&custom.Version==projection.Version&&custom.OutputNode==projection.Coordinate&&custom.Position==projection.Position)
             .ToArray();
         if(selected.Length==0)throw Error("A retained observation must bind exact immutable contract, quote, index, fixing and projection definitions.");
-        var value=selected[0];return new(floating.Settlement,floating.Quote,value.projection.Market,value.projection.Contract,value.projection.AveragingQuantity,
+        var value=selected[0];var lookup=new IndexPriceLookup(floating.Settlement,floating.Quote,value.projection.Market,value.projection.Contract,value.projection.AveragingQuantity,
             value.period.Fixings[value.n],value.period.CustomProjection);
+        if(!CurvePriceScheduleSource.Matches(row,lookup))throw Error("The stored query policy and interval must match the side's selected forecast binding.");
+        return lookup;
     }
     private ScheduleDefinitionRoot OutputRoot(string name,string measure)=>
         outputRoots.TryGetValue(name,out var root)&&root.Measure==measure?root:

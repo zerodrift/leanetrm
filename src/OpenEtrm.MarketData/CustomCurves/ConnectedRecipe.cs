@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.Shared.Temporal;
@@ -27,6 +28,11 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
     ImmutableArray<ConnectedRecipeSourceReference> Sources,ImmutableArray<ConnectedRecipeDateBinding> Dates,
     ConnectedRecipeReferencePins References,ImmutableArray<ConnectedPublishedRecipeReference> PublishedSources=default)
 {
+    // Flat, nonnumeric receipts for parents whose outputs may be unselected.
+    // PublishedSources already commits their manifests; semantic identity stays
+    // independent of which outputs this consumer requests.
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]
+    public ImmutableArray<ConnectedRecipeDeclaration> MetadataSources{get;init;}
     public CurveKey Curve=>new(new(Identity.CatalogId,ConnectedIdentity.Id(new{Version="saved_recipe_graph_v1",Identity})),Definition.Code);
     public string ManifestId=>ConnectedIdentity.Digest(Canonical);
     internal object Canonical=>new{Adapter="saved_recipe_graph_v1",Identity,Definition.Code,Definition.Name,Definition.Output,
@@ -55,6 +61,15 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
         schedule.Selection,schedule.Occurrences,Calendar=schedule.Calendar is {} calendar?new{calendar.Reference,
             calendar.BusinessDates.From,calendar.BusinessDates.To,Dates=calendar.BusinessDates.Dates.ToArray()}:null});
     internal void Validate(ResolvedCalculationContext context)
+    {
+        ValidateOwn(context);
+        if(MetadataSources.IsDefaultOrEmpty)return;
+        if(MetadataSources.Length>256||MetadataSources.Any(d=>d is null||!d.MetadataSources.IsDefaultOrEmpty)||
+            MetadataSources.Select(d=>d.Identity).Distinct().Count()!=MetadataSources.Length)
+            throw new MarketDataException("recipe_reference","Metadata-only source receipts require a flat, unique closure of at most 256 versions.");
+        foreach(var source in MetadataSources)source.ValidateOwn(context);
+    }
+    private void ValidateOwn(ResolvedCalculationContext context)
     {
         if(Identity is null||Identity.CatalogId==Guid.Empty||Identity.CurveId==Guid.Empty||Identity.Version<1||Identity.EngineVersion!=RecipeEngine.Version)
             throw new MarketDataException("recipe_identity","Select an exact saved recipe identity and its supported engine.");
@@ -175,9 +190,9 @@ public static partial class RecipeEngine
         if(inputs is null||context is null||samples.IsDefault||inputs.ValuationAt!=context.ValuationAt)
             throw Missing("Supply the same resolved valuation context and explicit source snapshot bindings.");
         Validate(definition);
-        if(demand is not null&&(demand.Deliveries is null||demand.Deliveries.IsEmpty||demand.Deliveries.Any(d=>d is null||d.From>=d.To)||
+        if(demand is not null&&(demand.Deliveries is null||demand.Deliveries.Any(d=>d is null||d.From>=d.To)||
             demand.SamplingInstants is null||demand.SamplingInstants.Any(s=>s.Value.Offset!=TimeSpan.Zero||DateOnly.FromDateTime(s.Value.UtcDateTime)!=s.Key)))
-            throw Missing("Output demand requires explicit nonempty delivery intervals and coherent UTC sampling instants.");
+            throw Missing("Output demand requires an explicit delivery set and coherent UTC sampling instants; an empty set requests metadata only.");
         publishedSources??=ImmutableDictionary<string,ConnectedRecipeGraph>.Empty;
         if(samples.Any(s=>s is null)||samples.Select(s=>(s.Source,s.Date,s.Contract)).Distinct().Count()!=samples.Length)
             throw Missing("Each directly declared source sample must be supplied once.");
@@ -185,7 +200,8 @@ public static partial class RecipeEngine
             publishedSources.Any(p=>p.Value is null||p.Value.Context!=context||p.Value.PreparedPanel is null||
                 definition.Nodes.Single(n=>n.Id==p.Key).PublishedSource!=new PublishedRecipeReference(p.Value.Identity.CatalogId,p.Value.Identity.CurveId,p.Value.Identity.Version,p.Value.Declaration.Definition.Output)))
             throw Missing("Every published source requires its exact graph under the same resolved context.");
-        if(publishedSources.Values.SelectMany(g=>g.Definitions).SelectMany(d=>d.Points).Any(p=>
+        if(publishedSources.Values.Any(g=>g.Identity==identity||!g.Declaration.MetadataSources.IsDefaultOrEmpty&&g.Declaration.MetadataSources.Any(d=>d.Identity==identity))||
+            publishedSources.Values.SelectMany(g=>g.Definitions).SelectMany(d=>d.Points).Any(p=>
             p.Expression is ConnectedRecipeProjection projection&&projection.Declaration.Identity==identity))
             throw Invalid("Published recipe dependencies must be acyclic.");
         var publishedDepth=publishedSources.Count==0?0:publishedSources.Values.Max(g=>g.PublishedDepth)+1;
@@ -197,6 +213,10 @@ public static partial class RecipeEngine
             inputs.Sources.Select(s=>new ConnectedRecipeSourceReference(s.Key,s.Value.Key)).ToImmutableArray(),
             inputs.Dates.Select(d=>new ConnectedRecipeDateBinding(d.Key,d.Value)).ToImmutableArray(),references??new([],[]),
             publishedSources.Select(p=>new ConnectedPublishedRecipeReference(p.Key,definition.Nodes.Single(n=>n.Id==p.Key).PublishedSource!,p.Value.Curve,p.Value.Declaration.ManifestId)).ToImmutableArray());
+        var metadata=publishedSources.Values.Select(g=>g.Declaration with{MetadataSources=default})
+            .Concat(publishedSources.Values.SelectMany(g=>g.Declaration.MetadataSources.IsDefault?[]:g.Declaration.MetadataSources)).GroupBy(d=>d.Identity).ToArray();
+        if(metadata.Any(g=>g.Select(d=>d.ManifestId).Distinct().Count()!=1))throw Invalid("Conflicting metadata-only parent declarations.");
+        if(metadata.Length>0)declaration=declaration with{MetadataSources=[..metadata.Select(g=>g.First()).OrderBy(d=>d.Identity.CurveId).ThenBy(d=>d.Identity.Version)]};
         declaration.Validate(context);
         var retained=new Dictionary<SampleKey,ConnectedRecipeSample>();
         var inherited=publishedSources.Values.SelectMany(g=>g.SamplePoints).DistinctBy(p=>p.Point).ToImmutableArray();

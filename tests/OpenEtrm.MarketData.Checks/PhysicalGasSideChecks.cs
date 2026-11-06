@@ -26,6 +26,15 @@ internal static class PhysicalGasSideChecks
         PhysicalGasSide Side(GasQuantityTerms terms, ImmutableArray<GasValuationAssignment> assignments) =>
             new(Guid.NewGuid(), Location(R("delivery_point")), R("gas_product"), terms, assignments);
         var physical = Side(quantity, [assignment]);
+        var selectedCurve=new CustomCurveProjectionBinding(lookup.Market.Curve.Revision.CatalogId,Guid.NewGuid(),1,"output",null,
+            CustomCurveProjectionBinding.ContainingDeliverySelection,CustomCurveProjectionBinding.SupportedImplementation);
+        var bound=new PhysicalGasSide(Guid.NewGuid(),physical.Location,physical.Product,quantity,[assignment],selectedCurve);
+        var other=new PhysicalGasSide(Guid.NewGuid(),physical.Location,physical.Product,quantity,[assignment],selectedCurve with{CurveId=Guid.NewGuid()});
+        if(DefinitionIdentity.For(bound)!=DefinitionIdentity.For(physical)||bound.PricingBindingIdentity==physical.PricingBindingIdentity||bound.PricingBindingIdentity==other.PricingBindingIdentity)
+            throw new Exception("Forecast curve choices must retain contractual identity and distinguish pricing/program identity.");
+        var boundDefinition=ScheduleDefinitionCompiler.Generate(bound);
+        if(boundDefinition.Manifest==ScheduleDefinitionCompiler.Generate(other).Manifest||boundDefinition.Rows.Single(r=>r.Operation==CurvePriceScheduleSource.Operation).Parameters["from"]!=from.ToString("yyyy-MM-dd"))
+            throw new Exception("Gas programs must retain their exact selected forecast source and daily query.");
         var snapshot = f.Snapshot with { Selections = [..f.Snapshot.Selections.Select((s, n) => s with {
             Observation = s.Observation with { Value = ExactDecimal.Parse(n % 2 == 0 ? "3" : "0.20") } })] };
         snapshot = snapshot.WithKnowledge(Guid.NewGuid(), snapshot.ValuationAt);
