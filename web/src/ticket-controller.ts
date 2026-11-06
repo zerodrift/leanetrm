@@ -66,7 +66,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  const loading=document.createElement('p');loading.className='side-panel-status';loading.textContent='Loading the ticket…';view.append(loading);
  const reasonLabel=document.createElement('label'),reasonField=document.createElement('input');
  reasonLabel.className='trade-editor-actions';reasonLabel.append('Amendment reason',reasonField);reasonField.dataset.role='amendment-reason';reasonField.maxLength=500;reasonField.required=true;reasonField.value=reason;
- reasonField.oninput=()=>{reason=reasonField.value;bookable=undefined;cancelPreview();settle();};
+ reasonField.oninput=()=>{reason=reasonField.value;change(s=>s,[]);};
  host.replaceChildren(...mode==='amend'?[reasonLabel]:[],view,booking);
  const transport=entry&&requests(o.product,()=>owner);
  const pending=new PendingCommand(definite);
@@ -247,7 +247,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   if(!state||blocked())return;
   try{state=nextPreview(apply({...state,notices:[]})).state;}
   catch(error){state={...state,notices:[reasonOf(error)]};draw();return;}
-  cancelPreview();
+  bookable=undefined;cancelPreview();
   said='';panel={...panel,status:{kind:'updating',text:'Updating…'}};draw();settle();
   void readChoices(lists==='all'?listed():lists);
  }

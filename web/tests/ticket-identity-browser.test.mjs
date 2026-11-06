@@ -18,7 +18,7 @@ async function fixture(work,levels=['month','day'],amend=false){
     calls.push({path,body});
     if(path==='tickets/description'){if(window.holdDescription)return new Promise(resolve=>window.releaseDescription=()=>resolve(description));if(window.refuseDescription)throw Error('Synthetic metadata refusal');return description;}
     if(path==='tickets/trade'){if(holdTrade){const held=structuredClone(trade);return new Promise(resolve=>{releaseTrade=()=>resolve(held);});}return trade;}
-    if(path==='tickets/preview'||path==='tickets/amend-preview')return preview;
+    if(path==='tickets/preview'||path==='tickets/amend-preview'){if(window.holdPreview)return new Promise(resolve=>window.releasePreview=()=>resolve(preview));return preview;}
     if(path==='tickets/book'||path==='tickets/amend')return await new Promise((resolve,reject)=>{const receipt={operationId:body.operationId,tradeId:'trade-a',instrumentId:'instrument-a',revision:path==='tickets/amend'?2:1};bookings.push({body,receipt,resolve:()=>resolve(receipt),reject:()=>reject(Error('Unknown response'))});window.release=()=>{resolve(receipt);setTimeout(()=>window.done=true,20);};});
     if(path==='tickets/status')return bookings.find(b=>b.body.operationId===body.operationId).receipt;
     if(path==='gas/quantities/read')return {tradeId:'trade-a',expectedRevision:1,rows:[{sideCode:'physical-1',day:'2041-02-01',obligationId:'obligation-a',heads:[]}]};
@@ -180,4 +180,24 @@ test('restored pending terms stay locked before metadata arrives while recovery 
   await evaluate("(async()=>{document.querySelector('.ticket-booking button').click();await until(()=>callbacks.length===1);})()");
   assert.equal(await evaluate("calls.filter(c=>c.path==='tickets/book').length"),1);
  });
+});
+
+
+for(const revert of [false,true])test(revert?'round-trip amendment reason edits cannot reuse an earlier preview while the latest preview is held':'editing only an amendment reason invalidates the displayed preview and preserves one recoverable write',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await fixture(async evaluate=>{
+  await evaluate(`(async()=>{
+   await open(false,false,true);
+   const reason=document.querySelector('[data-role=amendment-reason]');reason.value='First reviewed reason';reason.dispatchEvent(new Event('input'));
+   await until(()=>calls.some(c=>c.path==='tickets/amend-preview')&&document.querySelector('.ticket-status')?.dataset.kind==='current');
+   window.holdPreview=true;reason.value='Changed reviewed reason';reason.dispatchEvent(new Event('input'));
+   if(${revert}){reason.value='First reviewed reason';reason.dispatchEvent(new Event('input'));}
+  })()`);
+  assert.equal(await evaluate("document.querySelector('.ticket-status').dataset.kind"),'updating','reason edits must not leave an older preview marked current');
+  await evaluate(`(async()=>{await until(()=>typeof releasePreview==='function');document.querySelector('.ticket-book').click();})()`);
+  assert.equal(await evaluate('bookings.length'),0,'a held reason preview cannot save a command');
+  await evaluate(`(async()=>{releasePreview();await until(()=>document.querySelector('.ticket-status')?.dataset.kind==='current');document.querySelector('.ticket-book').click();await until(()=>bookings.length===1);bookings[0].reject();await until(()=>!!document.querySelector('.ticket-booking button:not([disabled])'));})()`);
+  assert.equal(await evaluate('bookings[0].body.reason'),revert?'First reviewed reason':'Changed reviewed reason');
+  await evaluate(`(async()=>{document.querySelector('.ticket-booking button').click();await until(()=>callbacks.length===1);})()`);
+  assert.equal(await evaluate("calls.filter(c=>c.path==='tickets/amend').length"),1,'status recovery never rebooks');
+ },['month','day'],true);
 });
