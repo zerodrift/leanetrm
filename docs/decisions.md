@@ -2756,3 +2756,33 @@ body, owner, ACL and configuration. Independent review must attack metadata as
 financial evidence, retained/date-only context escape, access-change replay,
 field provenance/product compatibility, hidden control targeting, Stop during
 aim/read, modal ownership, stale callbacks and explicitly confirmed navigation.
+
+
+## D336 — Bounded exact observation reads under the existing visibility contract
+
+Native frame consumers read already selected observation ids. Scanning the entire
+visible history for each such query can time out ordinary swap entry even though
+its result is small. Migration 0204 introduces an internal visibility core and
+an exact-pin definer reader. Point candidates are bounded before receipt and
+close joins. Bulk/history reads keep their original cutoff-filtered join shape;
+they do not materialize every candidate first. Both select the newest session/day
+close before eligibility filters and validate its entire pin set once.
+
+The point reader preserves ordinary table SELECT privilege, the complete
+permissive/restrictive SELECT-policy set and RLS flags, current market authority,
+authority deadlines and a risk worker's live claim. Changed policy contracts
+refuse rather than bypassing a new restriction. A final authority/expiry check
+refuses the complete buffered result. Existing retained cutoff rules and the
+D334 latest-close exception are unchanged. No new endpoint, table, runtime event,
+agent grant or numerical policy is introduced. The same native reader serves
+human tickets, assistant reads and retained workers.
+
+Qualification compares actual managed rows/order with the archived RLS reader,
+forbids broad enumeration on exact reads, exercises policy/privilege/role drift,
+expiry, newest-close precedence and invalid unrequested close pins, and measures
+bulk observation tuple work under custom and generic plans with unrelated later
+history. Migration guards pin predecessor definitions, ownership, ACLs and
+configuration. Independent review attacks these authorization and temporal
+boundaries. A published walkthrough remains an intended plan, not evidence that
+the browser has completed its actions; the fixed model instructions say so.
+See [the read boundary](exact-observation-reads.md).

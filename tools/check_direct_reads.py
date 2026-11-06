@@ -74,6 +74,8 @@ def trade_view(c):
 def run_checks(views, trades, dotnet, environment, directory, query):
     fixture = Path(directory) / 'direct-reads.json'
     fixture.write_text(json.dumps({'profile': PROFILE, 'views': views, 'trades': trades}))
+    command=[str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--']
+    subprocess.run([*command,'--direct-reads',str(fixture)],cwd=Path(__file__).resolve().parents[1],env=environment,check=True,timeout=120)
     # This restrictive fixture gate can only refuse a selected pin. It never grants
     # access, and stays inactive outside the transaction that chooses its test pin.
     query("""CREATE FUNCTION public.synthetic_frame_read_fault(id uuid) RETURNS boolean
@@ -86,8 +88,7 @@ def run_checks(views, trades, dotnet, environment, directory, query):
         CREATE POLICY synthetic_frame_read_fault ON market_data.observations AS RESTRICTIVE
           FOR SELECT TO openetrm_runtime USING(public.synthetic_frame_read_fault(id));""")
     try:
-        subprocess.run([str(dotnet), 'run', '--project', 'tests/OpenEtrm.Api.Checks', '--',
-                        '--direct-reads', str(fixture)],
+        subprocess.run([*command,'--stream-read-faults',str(fixture)],
                        cwd=Path(__file__).resolve().parents[1], env=environment, check=True,
                        timeout=120)
     finally:

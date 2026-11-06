@@ -1,5 +1,15 @@
 # Delivery plan and acceptance criteria
 
+D336 bounds exact observation reads by their selected ids while retaining the
+existing cutoff, latest-close, permission and worker-claim rules. Bulk history
+keeps its filtered join shape. Synthetic checks compare the native reader with
+archived RLS and reject policy drift, expiry and invalid complete-close pins.
+See [the contract](exact-observation-reads.md). This removes unrelated history
+work from native swap catalog entry; model latency, other catalog reads and
+portfolio pricing remain separate costs. Walkthrough publication describes an
+intended plan; it does not acknowledge browser completion. A browser completion
+protocol remains deferred rather than adding a second assistant loop.
+
 D335 replaces the floating walkthrough box with inline controls and a cursor
 that aims before native presentation actions. Controls-only digests and native
 swap entry avoid full-portfolio valuation for navigation. Unsaved swap setters
