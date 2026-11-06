@@ -415,6 +415,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    draw();void readChoices(listed());
   }catch(error){fail(error);drawBooking();}
  }
+ view.inert=!!entry&&blocked();
  drawBooking();
  void load();
  return {

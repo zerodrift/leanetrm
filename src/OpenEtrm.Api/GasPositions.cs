@@ -56,9 +56,7 @@ internal static class GasPositions
   ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null,Guid? trade=null,ImmutableHashSet<Guid>? trades=null)
  {
   var books=await BookScope.Read(connection,manifest.CatalogId,ct);
-  var selected=BookScope.Select(books,bookIds,portfolioIds)
-   .ToImmutableDictionary(b=>b.Id("id"));
-  if(selected.IsEmpty)return [];
+  BookScope.RequireSelection(bookIds,portfolioIds);
   // Resolve the temporal head before source-authority filtering. An inaccessible
   // latest revision must never resurrect an earlier authorized contract.
   var selectedTrades=trades??((position?.TradeId??trade) is {} id?ImmutableHashSet.Create(id):null);
@@ -67,6 +65,8 @@ internal static class GasPositions
    "SELECT value::text FROM jsonb_array_elements(security.gas_position_scope($1,$2::uuid[],$3::uuid[]))":
    "SELECT value::text FROM jsonb_array_elements(security.gas_position_scope($1,$2::uuid[],$3::uuid[],$4::uuid[]))",
    selectedTrades is null?args:[..args,selectedTrades.ToArray()],ct);
+  var selected=BookScope.Select(books,bookIds,portfolioIds).ToImmutableDictionary(b=>b.Id("id"));
+  if(selected.IsEmpty)return [];
   var heads=await PreviewDatabase.Rows(connection,"""
    WITH heads AS(SELECT DISTINCT ON(trade_id) * FROM trading.gas_trade_revisions WHERE catalog_id=$1 ORDER BY trade_id,revision DESC)
    SELECT row_to_json(x)::text FROM(

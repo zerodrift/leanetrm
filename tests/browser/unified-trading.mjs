@@ -46,18 +46,20 @@ export async function run(a){
  await evaluate(`[...document.querySelectorAll('#futures-retained button')].find(b=>b.textContent==='Reconcile physical gas request').click()`);await wait(`!!${reconcile}&&${idle}`);
  await check('reopening restores the same pending request with storage unavailable',`document.querySelector('#position-details-form').contains(document.querySelector('#gas-page'))&&document.querySelector('#gas-ticket > div').inert`);
  await evaluate(`${reconcile}.click()`);
- const booked=bookedTicket,opened=gasTicket(a,booked);
+ const booked=bookedTicket;
  await openBookedSchedules(a);
- await opened.until(`!!document.querySelector(${q(booked)})&&`+opened.current(booked));
+ await wait(`!!document.querySelector(${q(booked+' .inspection-rows tbody tr')})`);
  await check('confirmed booking opens common retained side schedules exactly once',`window.bookRequests.length===1&&window.tradeReads.at(-1).blotter.holdings.filter(h=>h.tradeId===window.bookReceipt.tradeId).length===1&&document.querySelector('#position-details-tabs-schedules').getAttribute('aria-selected')==='true'`, `({error:document.querySelector('#error').textContent,details:document.querySelector('#position-details').textContent.slice(0,300)})`);
  // A day's quantity is recorded from the booked physical side's tab, without changing its contract.
- await set(`${booked} .ticket-level`,'day');await click(`${booked} .ticket-tab[data-tab="physical-1"]`);
- const cell=`${booked} .tabulator-row[data-row-key="2021-01-05"] .ticket-cell-input`,record=`${booked} .ticket-record`;
- await wait(`!!document.querySelector(${q(cell)})`);await set(cell,'990');await wait(`!!document.querySelector(${q(record)})`);
+ await click(`${booked} .ticket-tab[data-tab="physical-1"]`);
+ const cell=`${booked} .inspection-rows input[aria-label="Record quantity · 2021-01-05"]`,record=`${booked} .ticket-record`;
+ await wait(`!!document.querySelector(${q(cell)})`);
+ const contractual=await evaluate(`document.querySelector(${q(cell)}).closest('td').querySelector('span').textContent`);
+ await set(cell,'990');await wait(`!!document.querySelector(${q(record)})`);
  for(const [id,value] of [['kind','nominated'],['status','provisional'],['evidence','Daily nomination']])await set(`${record} [data-field="${id}"] .ticket-control`,value);
  await click(`${record} .ticket-record-send`);
- await opened.until(`${opened.row('2021-01-05',booked)}.includes('Nominated')&&!document.querySelector(${q(record)})`);
- await check('an operational day record keeps the contractual amount',`[...document.querySelectorAll(${q(booked+' .tabulator-row[data-row-key="2021-01-05"] .grid-source')})].map(t=>t.textContent).includes('Contract')`);
+ await wait(`document.querySelector(${q(cell)})?.closest('tr').textContent.includes('Nominated')&&!document.querySelector(${q(record)})`);
+ await check('an operational day record keeps the contractual quantity',`document.querySelector(${q(cell)}).closest('td').querySelector('span').textContent===${q(contractual)}&&document.querySelector(${q(cell)}).placeholder==='990'`);
  await check('all integrated forms fit the desktop viewport',`document.documentElement.scrollWidth<=innerWidth`);
  await capture('unified-trading');
 }

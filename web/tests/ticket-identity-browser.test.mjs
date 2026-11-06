@@ -16,7 +16,7 @@ async function fixture(work,levels=['month','day'],amend=false){
    window.actor='actor-a';window.callbacks=[];window.calls=[];window.bookings=[];window.release=null;window.done=false;window.nativeSchedules=[];window.useNative=false;window.holdTrade=false;window.releaseTrade=null;window.advanceQuantityContext=()=>{trade.context={...trade.context,contextId:"ticket-cutoff-b",knownAt:"2041-01-01T19:00:00Z"};trade.schedule.rows.find(r=>r.level==="day").cells={"physical-1.quantity":{value:"1050",sources:["nominated"]}};};
    const api=async(path,body)=>{
     calls.push({path,body});
-    if(path==='tickets/description'){if(window.refuseDescription)throw Error('Synthetic metadata refusal');return description;}
+    if(path==='tickets/description'){if(window.holdDescription)return new Promise(resolve=>window.releaseDescription=()=>resolve(description));if(window.refuseDescription)throw Error('Synthetic metadata refusal');return description;}
     if(path==='tickets/trade'){if(holdTrade){const held=structuredClone(trade);return new Promise(resolve=>{releaseTrade=()=>resolve(held);});}return trade;}
     if(path==='tickets/preview'||path==='tickets/amend-preview')return preview;
     if(path==='tickets/book'||path==='tickets/amend')return await new Promise((resolve,reject)=>{const receipt={operationId:body.operationId,tradeId:'trade-a',instrumentId:'instrument-a',revision:path==='tickets/amend'?2:1};bookings.push({body,receipt,resolve:()=>resolve(receipt),reject:()=>reject(Error('Unknown response'))});window.release=()=>{resolve(receipt);setTimeout(()=>window.done=true,20);};});
@@ -165,5 +165,19 @@ test('an intervening quantity revision cannot mix a held ticket response with a 
   assert.equal(await evaluate('nativeSchedules[0].context.contextId'),'ticket-cutoff-a');
   assert.equal(await evaluate('nativeSchedules[0].context.knowledgeMode'),'retained');
   assert.equal(await evaluate('nativeSchedules[0].quantity'),'1000');
+ });
+});
+
+test('restored pending terms stay locked before metadata arrives while recovery remains usable',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await fixture(async evaluate=>{
+  await evaluate(`(async()=>{
+   await open();const field=document.querySelector('[data-field=reference] input');field.value='Pending original';field.onchange();
+   await until(()=>document.querySelector('.ticket-status')?.dataset.kind==='current');document.querySelector('.ticket-book').click();await until(()=>bookings.length===1);
+   ticket.destroy();window.holdDescription=true;void open();await until(()=>typeof releaseDescription==='function');
+  })()`);
+  assert.equal(await evaluate("document.querySelector('#host > div').inert"),true,'uncertain terms are locked before description loading completes');
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('.ticket-booking button')].map(b=>[b.textContent,b.disabled])"),[['Check booking status',false],['Retry the original booking',false]]);
+  await evaluate("(async()=>{document.querySelector('.ticket-booking button').click();await until(()=>callbacks.length===1);})()");
+  assert.equal(await evaluate("calls.filter(c=>c.path==='tickets/book').length"),1);
  });
 });

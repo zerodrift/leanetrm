@@ -1,3 +1,4 @@
+import {inspectPositionSide} from './position-schedules.mjs';
 import {chooseSwapSides} from './swap-sides.mjs';
 import {mkdtemp,copyFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
@@ -10,7 +11,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Emulation.setFocusEmulationEnabled',{enabled:true});
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle);await persona('trader');
- await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{const response=await send(input,init);if(input==='/api/swaps/scheduled-price')window.scheduledPricing={request:JSON.parse(init.body),status:response.status,result:await response.clone().json()};if(input==='/api/swaps/book'&&response.ok){window.scheduledBooking={request:JSON.parse(init.body),result:await response.clone().json()};}return response;};})()`);
+ await evaluate(`(()=>{const send=window.fetch;window.fetch=async(input,init)=>{const response=await send(input,init);if(input==='/api/swaps/editor'&&response.ok)window.scheduledEditor=await response.clone().json();if(input==='/api/trading/side-schedules'&&response.ok)window.scheduledInspection={request:JSON.parse(init.body),result:await response.clone().json()};if(input==='/api/swaps/scheduled-price')window.scheduledPricing={request:JSON.parse(init.body),status:response.status,result:await response.clone().json()};if(input==='/api/swaps/book'&&response.ok){window.scheduledBooking={request:JSON.parse(init.body),result:await response.clone().json()};}return response;};})()`);
  // The scheduled ticket is in the details' form part, open for entry.
  const ticket="(()=>{const root=document.querySelector('#scheduled-swap-editor'),form=root?.closest('#position-details-form,#position-details-form');return !!root&&!root.hidden&&!!form&&form.contains(root)&&!form.hidden;})()";
  // Closing the panel gives up what its form holds: it asks first when the form holds edits, and the answer is Discard changes.
@@ -97,8 +98,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  // The row summary is immediate; the retained terms arrive in their own authorized read.
  await wait("!!document.querySelector('#position-details-view .side-terms-list')&&!!document.querySelector('#side-panel-settlement')");
  await check('Terms retain the independent side terms and settlement action',"document.querySelector('#position-details-view').textContent.includes('QuantityBy period')&&!!document.querySelector('#side-panel-settlement')");
- await click('#position-details-tabs-schedules');await wait("(async()=>{for(let i=0;i<2;i++){if(!document.querySelector('#position-details-view .scheduled-review h3'))return false;await new Promise(r=>requestAnimationFrame(r));}return !!document.querySelector('#position-details-view .scheduled-review h3')&&"+idle+";})()");
- await check('Side schedules show the selected trade PV and both independent side reviews',"(()=>{const view=document.querySelector('#position-details-view');return /^Trade PV · -?\\d+\\.\\d{3} /.test(view.querySelector('.scheduled-review h3').textContent)&&document.querySelector('#error').hidden;})()","document.querySelector('#position-details-view').innerText.slice(0,1200)");
+ await click('#position-details-tabs-schedules');
+ for(const slot of [0,1]){
+  await inspectPositionSide({evaluate,wait,set},slot);
+  await check('scheduled Side inspection retains every native payment period, quantity and signed PV',`(()=>{const native=window.scheduledEditor.valuation.sides[${slot}],read=window.scheduledInspection,page=read.result.page;return read.request.sideSlot===${slot}&&page.total===native.payments.length&&page.rows.length===native.payments.length&&page.rows.every((r,n)=>r.quantity!==null&&r.amount===native.payments[n].tradeCashAmount&&r.presentValue===native.payments[n].tradePresentValue)&&document.querySelectorAll('#position-details-view .inspection-rows tbody tr').length===page.rows.length&&document.querySelector('#error').hidden;})()`,"document.querySelector('#position-details-view').innerText.slice(0,1200)");
+ }
  await evaluate("document.querySelector('#position-details-body').scrollTop=0;document.querySelector('#position-details-tabs').scrollIntoView({block:'start'})");await shot('scheduled-terms');await copyFile(join(dirname(process.argv[2]),'scheduled-terms.png'),join(artifacts,'terms.png'));
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await reopenBooked();

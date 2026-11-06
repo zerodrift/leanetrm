@@ -2763,9 +2763,11 @@ Curves & prices is the single Markets entry for contract prices, Curve builder
 and hourly/sub-hourly prices. The workspace switch opens the existing managed
 read/editor adapters under their existing leave, context, authority and retained
 request guards. Existing catalog, selection and read behavior is retained. Returning
-to the workspace opens its last view; clicking an already active entry performs
-no read. Switching views does not publish, change prices, choose another close,
-or admit an incomplete definition. Saved page/assistant identities remain exact.
+to the workspace opens its last view; clicking an already active entry with an
+unchanged context performs no read. A pending header context passes through the
+ordinary context/leave guard even on a same-view click. Switching views does not
+publish, change prices, choose another close or admit an incomplete definition.
+Saved page/assistant identities remain exact.
 No pricing, schema or financial model change is introduced by this consolidation.
 
 

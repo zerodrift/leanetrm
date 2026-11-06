@@ -33,3 +33,16 @@ test('curve views share one entry without reading or leaving before the existing
   assert.equal(await evaluate('opened.at(-1)'),'market','a new identity starts from its permitted price view');
  });
 });
+
+test('same-view navigation delegates pending context to the existing guard without reloading an unchanged view',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(`(async()=>{window.opened=[];window.dirty=true;window.blocked=false;
+   window.workspace=(await import('/curve-workspace.js')).setupCurveWorkspace({open:page=>opened.push(page),available:()=>true,busy:()=>blocked,pendingContext:()=>dirty});workspace.show('interval-curves');
+   document.querySelector('#nav-interval-curves').click();})()`);
+  assert.deepEqual(await evaluate('opened'),['interval-curves']);
+  await evaluate("dirty=false;workspace.show('interval-curves');document.querySelector('#nav-interval-curves').click();document.querySelector('#nav-market').click()");
+  assert.equal(await evaluate('opened.length'),1);
+  await evaluate("dirty=true;document.querySelector('#nav-market').click()");
+  assert.deepEqual(await evaluate('opened'),['interval-curves','interval-curves']);
+ });
+});

@@ -1078,7 +1078,7 @@ const marketCalendar=setupMarketCalendar($('market-date-calendar'),{
 const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=>busy,instant});
 const crudeSetup=setupCrudeConfiguration({api,act,busy:()=>busy,actor:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>({snapshotId:contextDirty?'':select('snapshot').value}),marketLabel:()=>select('snapshot').value?`Market date: ${instant(frame().at)}`:'Select a market date above for preview.'});
 const gasSetup=setupGasConfiguration({api,act,busy:()=>busy,actor:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>contextDirty?'':select('snapshot').value});
-const curveWorkspace=setupCurveWorkspace({open:next=>navigate(next)(),available:next=>pageAvailable(next,permissions),busy:()=>busy});
+const curveWorkspace=setupCurveWorkspace({open:next=>navigate(next)(),available:next=>pageAvailable(next,permissions),busy:()=>busy,pendingContext:()=>contextDirty});
 const physicalWorkspace=setupPhysicalWorkspace({open:next=>navigate(next)(),available:next=>pageAvailable(next,permissions),busy:()=>busy});
 const crude=setupPhysicalCrude({api,act,zone:()=>prefs.timeZone,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
 const lng=setupPhysicalLng({api,act,zone:()=>prefs.timeZone,busy:()=>busy,canBook:()=>can('BookTrade'),source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
