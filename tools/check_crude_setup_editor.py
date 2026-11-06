@@ -272,7 +272,7 @@ def run_checks(url, query, manifest):
         query(f"DELETE FROM security.reference_catalog_scopes WHERE(catalog_id,tenant_id,workspace_id)=('{reference}','{tenant}','{workspace}');")
         try:
             c.call('profile', {'profile': 'trader'})
-            # Revoking the market's reference catalog hides its recorded closes (D328), so the account switch no longer holds the frame.
+            # Revoking the market's reference catalog hides its recorded closes (D334), so the account switch no longer holds the frame.
             hidden = reference != delivery['catalog_id']
             refused = c.call('crude/catalog', {'snapshotId':frame['id'],'convention':'physical_crude_fixed_volume_v1','knowledgeMode':'current'}, expected=422 if hidden else 403)
             assert refused['code'] == ('snapshot_missing' if hidden else 'access_denied'), refused

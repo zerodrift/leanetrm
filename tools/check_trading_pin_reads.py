@@ -156,7 +156,7 @@ def run_supplemental_checks(c, check, query, manifest):
         c.call('market/context', {'effectiveOn': '2020-12-18', 'knownAt': current['catalog']['context']['knownAt'],
                                   'mode': 'at', 'selection': 'latest_correction'})
         historical = c.call('workspace')
-        # Built-in frames are recorded closes (D328); the view offers the close under its own frame identity.
+        # Built-in frames are recorded closes (D334); the view offers the close under its own frame identity.
         alias = next(f for f in historical['frames'] if f['at'] == frame['at'] and f.get('originCloseId') == frame.get('originCloseId', frame['id']))
         certified = {'snapshotId': alias['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'retained',
                      'contextId': historical['context']['contextId']}

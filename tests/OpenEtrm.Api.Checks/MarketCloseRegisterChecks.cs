@@ -9,7 +9,7 @@ internal static class MarketCloseRegisterChecks
     {
         await using var runtime=NpgsqlDataSource.Create(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_RUNTIME")!);
         await using var selectedDatabase=new PreviewDatabase(database.Manifest with{RevisionId=revisionId},runtime);
-        // D328: the close is recorded for a session over its exact bundle, at the frame's instant, by a granted recorder.
+        // D334: the close is recorded for a session over its exact bundle, at the frame's instant, by a granted recorder.
         var cutoff=actualFrame.At.UtcDateTime;
         var day=DateOnly.FromDateTime(cutoff);
         var draft=new CloseSessionDraft("test_indexed_close","Synthetic indexed close","test_utc_every_day",cutoff.ToString("HH:mm",System.Globalization.CultureInfo.InvariantCulture),

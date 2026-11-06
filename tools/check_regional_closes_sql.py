@@ -1,4 +1,4 @@
-"""D328 close sessions, per-session grants and the close-in-force rule, qualified in SQL on an owned synthetic database."""
+"""D334 close sessions, per-session grants and the close-in-force rule, qualified in SQL on an owned synthetic database."""
 from uuid import uuid4
 
 
@@ -78,7 +78,7 @@ def run_checks(url, query, manifest):
      RAISE EXCEPTION 'A close without a session was recorded';EXCEPTION WHEN not_null_violation THEN NULL;END$$;""")
     print('PASS a close cannot be recorded without a session and business day', flush=True)
 
-    # A day whose close in force the reader cannot see is named, never answered with an older close (D328): a close under a
+    # A day whose close in force the reader cannot see is named, never answered with an older close (D334): a close under a
     # definition revision sealed after a historical view's cutoff is invisible to that view.
     context = query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);COMMIT;").splitlines()[-1]
     later = str(uuid4())

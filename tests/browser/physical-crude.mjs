@@ -35,7 +35,7 @@ export async function run(actions){
  await check('crude bookings fit the viewport',fitsWidth);await shot('physical-crude-booking');
  // Contractual PV is unavailable in January; the authorized booked-facts path still opens operations.
  const january=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();const f=w.frames.find(f=>f.at.startsWith('2021-01-15T08:')&&w.initialFrameIds.includes(f.id));return {id:f.id,session:f.close?.session??null};})()`);
- // The January close may belong to another session; the As of list offers it once that session is chosen (D328).
+ // The January close may belong to another session; the As of list offers it once that session is chosen (D334).
  const chooseJanuary=async()=>{if(january.session){await set('#close-session',january.session);await wait(idle);}await set('#snapshot',january.id);await wait(idle);};
  const capFacts=()=>evaluate(`{if(!window.crudeFactPages){window.crudeFactPages=[];const original=window.fetch;window.fetch=(path,init)=>{if(String(path).endsWith('/trading/positions')&&init?.body){const body=JSON.parse(init.body);body.limit=2;window.crudeFactPages.push(body);return original(path,{...init,body:JSON.stringify(body)});}return original(path,init);};}}`);
  const openFacts=async()=>{await evaluate("window.crudeFactPages=[window.crudeFactPages.findLast(p=>p.offset===0)]");for(let page=0;page<20;page++){

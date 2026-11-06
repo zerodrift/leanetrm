@@ -53,7 +53,7 @@ def run_checks(c, check, query, manifest):
                               'example', 'futuresConvention', 'initialFrameIds', 'frames', 'curveNames', 'curves','referenceDisplay','frameCatalog','live'}
           and navigation['live'] is None
           and navigation['kind'] == 'market_navigation' and navigation['kindsVersion'] == 'curve_kinds_v1'
-          # Built-in frames are recorded session closes (D328): each names its stored close and its session day. A frame a
+          # Built-in frames are recorded session closes (D334): each names its stored close and its session day. A frame a
           # fixture never records stays a working snapshot, with neither.
           and all(set(frame) == {'id', 'name', 'at','originCloseId','close'} and (frame['originCloseId'] == frame['id']
                   and frame['close']['session'] and frame['close']['businessDate'] or frame['originCloseId'] is None and frame['close'] is None)

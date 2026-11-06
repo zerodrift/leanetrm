@@ -47,7 +47,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('unbound future-correction frame is rejected, no fallback',JSON.stringify(mismatch.status===422));
   await click('#date-context-latest');await click('#apply-view-context');
   await evaluate(`(()=>{const s=document.querySelector('#snapshot');s.value=[...s.options].find(o=>o.textContent.includes('Dec 17')).value;s.dispatchEvent(new Event('change',{bubbles:true}));})()`);await wait(idle);
-  // A recorded close stays exact (D172, D328): the unrecorded correction does not reach it under current knowledge either.
+  // A recorded close stays exact (D172, D334): the unrecorded correction does not reach it under current knowledge either.
   await check('explicit current knowledge reads the recorded close exactly',`window.__responses.filter(r=>r.path==='/api/evaluate').at(-1).data.points[0].value===${JSON.stringify(before.points[0].value)}&&document.querySelector('#error').hidden`);
   await set('#date-context-on','2020-12-16');await wait(idle);
   await check('unapplied date edit immediately hides old prices and reference rows',"document.querySelector('#contracts').children.length===0&&document.querySelector('#reference').children.length===0");

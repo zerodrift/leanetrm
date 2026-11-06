@@ -13,7 +13,7 @@ namespace OpenEtrm.Api;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PilotLeafMove(string Curve,int MaxTicks);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-// Session names the close session its generated closes are recorded for (D328).
+// Session names the close session its generated closes are recorded for (D334).
 public sealed record PilotCloseDefinition([property:JsonRequired] string Session,Guid PriorCloseId,ImmutableArray<Guid> BookIds,ImmutableArray<string> CurveCodes,
     string SourceCode,[property:JsonRequired]int Seed,ImmutableArray<PilotLeafMove> LeafMoves,string Generator,string TickBasis,
     string ParameterPolicy,string FrozenPolicy,string MembershipPolicy,string CalendarPolicy,string ClosePolicy,

@@ -41,7 +41,7 @@ def run_checks(Client, check, after_browser):
     c.call('evaluate', {'snapshotId': changed['frame']['id'], 'curve': 'local_power'}, expected=422)
     check('historical view cannot evaluate a different unpinned context')
     # A recorded close stays exact (D172); the correction reaches a close only when it is recorded as that day's close
-    # (D328), which every view of that session then reads. A test session keeps the built-in closes untouched.
+    # (D334), which every view of that session then reads. A test session keeps the built-in closes untouched.
     c.call('profile', {'profile': 'approver'})
     original = record(c, next(f for f in c.call('workspace')['frames'] if f['id'] == seed['id']), 'Synthetic original close')
     c.call('select-observation', {'snapshotId': seed['id'], 'observationId': changed['observationId']})
@@ -54,7 +54,7 @@ def run_checks(Client, check, after_browser):
     assert original['id'] not in {f.get('originCloseId') for f in current['frames']}, 'A replaced close is still offered'
     after = c.call('evaluate', {'snapshotId': newer['id'], 'curve': 'local_power'})
     check('a recorded correction replaces the close every view reads', after['points'][0]['value'] != before['points'][0]['value'])
-    # History is a session's own (D328): read it over the built-in session's closes under the latest context.
+    # History is a session's own (D334): read it over the built-in session's closes under the latest context.
     seeded = next(f for f in current['frames'] if f.get('originCloseId') == seed['id'])
     history = c.call('history', {'revisionPolicy': 'exact_snapshot_pins_v1', 'snapshotId': seeded['id'], 'curve': 'local_power', 'contractId': after['points'][0]['contractId']})
     check('contract history stops at the context date', all(p['at'][:10] <= '2020-12-17' for p in history['points']))
@@ -95,7 +95,7 @@ def run_checks(Client, check, after_browser):
         contract = after['points'][0]['contractId']
         query = {'revisionPolicy': 'exact_snapshot_pins_v1', 'snapshotId': pinned['id'], 'curve': 'local_power', 'contractId': contract}
         offered=c.call('history',query)['points']
-        # A close's history is its own session's (D328): closes another session records at the same instants are not its
+        # A close's history is its own session's (D334): closes another session records at the same instants are not its
         # samples, so one session's chart has one sample per day.
         record(c, seed_frame, 'Synthetic other-session sample')
         record(c, corrected_frame, 'Synthetic other-session correction')
@@ -128,7 +128,7 @@ def run_checks(Client, check, after_browser):
         working_pin = next(f for f in working if f['at'][:10] == '2020-12-16' and not f.get('ppaBundle'))
         base = {'snapshotId': working_pin['id'], 'curve': 'local_power', 'contractId': contract}
         exact_view = c.call('history', {**base, 'revisionPolicy': 'exact_snapshot_pins_v1'})
-        # One close per session day (D328): exact pins read the built-in session's one close at the seed instant.
+        # One close per session day (D334): exact pins read the built-in session's one close at the seed instant.
         check('exact pins read the session\'s one close at the seed instant',
               exact_view['revisionPolicy'] == 'exact_snapshot_pins_v1' and len(at_seed_day(exact_view)) == 1)
         resolved = c.call('history', {**base, 'revisionPolicy': asknown, 'overlays': [sma]})

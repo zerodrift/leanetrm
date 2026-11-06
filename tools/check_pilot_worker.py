@@ -42,7 +42,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     prepare_alias(query,manifest,future_trade['tradeId'])
     owner=PreviewClient(url);owner.bootstrap();owner.call('profile',{'profile':'approver'})
     listed=owner.call('workspace');selected=next(f for f in listed['frames'] if f['at']==frame['at'])
-    # Generated closes carry only the profile's root curve, so they are recorded for a session of that curve (D328).
+    # Generated closes carry only the profile's root curve, so they are recorded for a session of that curve (D334).
     from close_session_fixture import draft,grant,publish
     editor=PreviewClient(url);editor.bootstrap();editor.call('profile',{'profile':'editor'})
     admin=PreviewClient(url);admin.bootstrap();admin.call('profile',{'profile':'admin'})

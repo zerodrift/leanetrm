@@ -96,7 +96,7 @@ let contractOpener:HTMLElement|undefined,contract='',historyPolicy:RevisionPolic
 // The overlay catalog, read for one account.
 let overlayCatalog:{scope:string;catalog:OverlayCatalog}|undefined;
 let definingCurve=false,contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
-// The person's remembered close session (D328); null until they choose one, and nothing chooses it for them.
+// The person's remembered close session (D334); null until they choose one, and nothing chooses it for them.
 let closeSession:string|null=null,closeSessionNames:ReadonlyMap<string,string>=new Map();
 let navigation:MarketNavigation|undefined,marketGeneration=0;
 // The curve shapes the market board and the library draw, read at one close for one directory and account (markets-desk.md).
@@ -415,7 +415,7 @@ function currentCloseBadge():CloseBadge|null{
 function renderCloseBadge(){marketCalendar.badge(currentCloseBadge());if(page==='dashboard')dashboard.closeChanged();}
 // The As of dates the selector offers: a historical view's own date's frames, or every frame of working data.
 function offeredFrames(){const offer=sessionOffer(directory().frames,closeSession,historicalContext()?.effectiveOn??null);return [...offer.closes,...offer.working];}
-// A working snapshot is offered apart from the session's closes and named as working data (D328).
+// A working snapshot is offered apart from the session's closes and named as working data (D334).
 function renderFrames(value:string){const frames=offeredFrames(),working=new Set(frames.filter(f=>!f.close).map(f=>f.id));
  choose('snapshot',[{value:'',name:closeSession===null?'Choose a session first':frames.length?'Choose a date…':'No inputs for this context date'},
   ...frameOptions(frames,prefs.timeZone).map(o=>working.has(o.value)?{...o,name:'Working snapshot · '+o.name}:o)],value);select('snapshot').title=`Times shown in ${prefs.timeZone}`;shownClose=select('snapshot').value;invalidateMarketDates();}

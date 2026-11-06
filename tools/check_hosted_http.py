@@ -225,7 +225,7 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         from check_power_history_http import run_checks as check_power_history
         check_power_history(client,query,manifest)
         from check_trading_compression import run_hosted_checks as check_hosted_compression
-        # Built-in frames are recorded closes, which the workspace discovers; a bootstrap lists working snapshots only (D328).
+        # Built-in frames are recorded closes, which the workspace discovers; a bootstrap lists working snapshots only (D334).
         check_hosted_compression(client,origin,cert,workspace)
         from check_blotter_stream import run_hosted_checks as check_hosted_stream
         ending = Client(); ending.login('invalid', password); ending.bootstrap()

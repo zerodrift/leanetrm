@@ -19,7 +19,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await script([{hold:'physical_old_navigation',tools:[['physical_nav','navigate',{page:'gas_setup',target:null}]]},{text:'Synthetic earlier setup answer.'}]);
  await set('#assistant-question','Open this gas setup.');await submit('#assistant-composer');await wait("!document.querySelector('#assistant-consent').hidden");await click('#assistant-allow');
  await wait("document.querySelector('#assistant-send').textContent==='Stop'");
- // A close of another session is offered once that session is chosen (D328).
+ // A close of another session is offered once that session is chosen (D334).
  if(after.close&&after.close.session!==before.close?.session){await set('#close-session',after.close.session);await wait(idle);}
  await set('#snapshot',after.id);await wait(idle);await open('facilities');await set('#facility-ledger',fixture.ledgerId);await wait(idle);
  await fetch(new URL('/release/physical_old_navigation',control),{method:'POST'});
@@ -30,7 +30,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const place="({date:document.querySelector('#date-context-on').value,ledger:document.querySelector('#facility-ledger').value})";
  let origin={date:'2021-01-15',ledger:fixture.ledgerId};
  if(before.close&&before.close.session!==after.close?.session){
-  // Go never changes the remembered session (D328): it names the one the answer used, and the person chooses it.
+  // Go never changes the remembered session (D334): it names the one the answer used, and the person chooses it.
   await evaluate(go);await wait(idle);
   await check('Go to a close of another session names that session and leaves the facility context',
    "!document.querySelector('#facilities-page').hidden&&document.querySelector('#error').textContent.includes('close session. Choose that session to open its As of date.')&&document.querySelector('#close-session').value==="+JSON.stringify(after.close.session));

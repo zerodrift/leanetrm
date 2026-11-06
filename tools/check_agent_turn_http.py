@@ -135,7 +135,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
     def frame_pins(session, frame):
         """The exact pins of an As of frame, as the session's workspace shows it. The workspace leaves out the observations
         a frame froze, of which the seeded frames freeze none, and whether it resolves the latest correction, as a working
-        frame of a retained context does; a recorded close keeps its exact pins (D328)."""
+        frame of a retained context does; a recorded close keeps its exact pins (D334)."""
         shown = next(f for f in session.call('workspace')['frames'] if f['id'] == frame['id'])
         return {'at': shown['at'], 'curveContracts': shown['curveContracts'], 'frameId': shown['id'], 'frozenObservationIds': [], 'name': shown['name'],
                 'observationIds': shown['observationIds'], 'resolvesLatestCorrection': 'contextId' in shown and shown['originCloseId'] is None,

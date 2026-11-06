@@ -9,7 +9,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle);await persona('trader');
  const {frame,session}=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();const f=w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id));return {frame:f.id,session:f.close?.session??null};})()");
- // The As of list offers the chosen session's closes (D328), so the frame's own session is chosen first.
+ // The As of list offers the chosen session's closes (D334), so the frame's own session is chosen first.
  if(session){await set('#close-session',session);await wait(idle);}
  await set('#snapshot',frame);await wait(idle,30000);await click('#nav-futures',30000);
  const catalog=await evaluate(`(async()=>{const token=(await(await fetch('/api/bootstrap')).json()).csrfToken;window.syntheticPost=async(path,body)=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json();};const c=await window.syntheticPost('swaps/catalog',{snapshotId:${JSON.stringify(frame)},convention:'independent_side_financial_swap_v2',knowledgeMode:'current'});const send=window.fetch;window.fetch=async(input,init)=>{const r=await send(input,init);if(String(input).endsWith('/api/swaps/book')&&r.ok)window.syntheticScheduledBook={request:JSON.parse(init.body),result:await r.clone().json()};return r;};return c;})()`);

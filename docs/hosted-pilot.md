@@ -44,9 +44,9 @@ explicit trusted proxy network may supply them. Proxy-network membership is not 
 authenticated application identity. Route an exact hostname and maintain a valid
 certificate plus a renewal reload hook. Do not expose the synthetic persona mode.
 
-### Regional closes (D328, migration 0200)
+### Regional closes (D334, migration 0202)
 
-Migration 0200 refuses to run while any market close or pilot close profile
+Migration 0202 refuses to run while any market close or pilot close profile
 exists: existing closes are retired, not mapped. Before the release, stop the
 deploy timer, clear the pilot's market closes and every record that refers to
 them (pins, members, receipts, close-risk and pilot profiles, runs and reports),

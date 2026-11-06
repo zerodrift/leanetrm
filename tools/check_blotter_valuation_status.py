@@ -155,7 +155,7 @@ def run_checks(url, session=None):
     check('only the valued futures market counts as an evaluated price', late['evaluatedContracts'] == 1)
     # The curves read for the desk's sparklines state what the close cannot price per contract, and which curves it cannot read.
     priced, unavailable = c.call('market/curve-shapes', {'snapshotId': dec31['id'], 'curves': ['ng_monthly', 'future']})['curves']
-    # A recorded close freezes the final settlement the bridge needs (D328); the Dec 17 close records none.
+    # A recorded close freezes the final settlement the bridge needs (D334); the Dec 17 close records none.
     dec17 = initial_frame(workspace, '2020-12-17')
     unpriced, = c.call('market/curve-shapes', {'snapshotId': dec17['id'], 'curves': ['ng_fixed_bridge']})['curves']
     check('a curve the close prices is shaped exactly as /evaluate prices it',

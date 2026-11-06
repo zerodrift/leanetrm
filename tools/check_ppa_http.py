@@ -92,7 +92,7 @@ def run_checks(url, query, manifest):
         retained=cutoff()
         try:
             query(f"DELETE FROM security.{table} WHERE {where};")
-            # The selected frame is a recorded close, which either revocation hides before any reference is resolved (D328).
+            # The selected frame is a recorded close, which either revocation hides before any reference is resolved (D334).
             check('current '+table+' revocation refuses already selected inputs',quantity(start,end,known=retained,expected=403)['code']=='access_denied')
         finally:
             encoded=saved.replace("'","''")

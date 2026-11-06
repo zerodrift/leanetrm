@@ -1,4 +1,4 @@
-"""Record a preview's built-in frames as D328 session closes in its owned synthetic database.
+"""Record a preview's built-in frames as D334 session closes in its owned synthetic database.
 
 Only recorded closes are closes: each built-in frame becomes the close of a synthetic UTC session whose cutoff is the
 frame's time of day and whose curves are the frame's. A later frame on the same session day replaces an earlier one.
@@ -64,7 +64,7 @@ def seed(query, manifest):
          FROM market_data.observations o WHERE o.catalog_id='{catalog}' AND o.id IN(SELECT jsonb_array_elements_text({encoded(frame['observationIds'])})::uuid);
         INSERT INTO market_data.market_close_members SELECT '{catalog}','{close}','{revision}',x.curve,x."contractId",x.ordinal FROM jsonb_to_recordset({encoded(members)})x(curve text,"contractId" uuid,ordinal integer);
         COMMIT;""")
-    # Each synthetic member has chosen the session with the most built-in closes, as a person would once (D328); that is a
+    # Each synthetic member has chosen the session with the most built-in closes, as a person would once (D334); that is a
     # stored choice, so pages open on it, and a check that needs no choice clears it.
     if versions:
         chosen = max(versions, key=lambda code: sum(len(version['days']) for version in versions[code]))

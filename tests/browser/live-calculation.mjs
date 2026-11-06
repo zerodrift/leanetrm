@@ -11,7 +11,7 @@ export async function run({command,evaluate,wait,click,persona,set,submit,check,
  // A risk analyst opens on the Blotter, and a live correction refreshes the page that is showing, so start on Curves & prices.
  await persona('risk');await click('#nav-market');await click('#example');await click('#contracts tbody tr:first-child');
  await click('#follow-live');await wait("document.querySelector('#live-status').dataset.state==='live'&&"+idle);
- // A live view's history samples its working data; the built-in inputs are recorded closes, which live mode does not offer (D328).
+ // A live view's history samples its working data; the built-in inputs are recorded closes, which live mode does not offer (D334).
  await check('live mode preserves the shared header and open price history',"document.querySelector('#workspace-mode-label').textContent.includes('Live corrections')&&!document.querySelector('#contract-panel').hidden&&document.querySelectorAll('#history-values tbody tr').length===window.liveResponses.filter(r=>r.path==='/api/history').at(-1).data.points.length&&document.querySelectorAll('#history-values tbody tr').length>=1&&document.querySelector('#error').hidden",
   "({mode:document.querySelector('#workspace-mode-label').textContent,panel:!document.querySelector('#contract-panel').hidden,rows:document.querySelectorAll('#history-values tbody tr').length,points:window.liveResponses.filter(r=>r.path==='/api/history').at(-1)?.data?.points?.length,error:document.querySelector('#error').textContent})");
  const actor=await sideSession(url,'editor');

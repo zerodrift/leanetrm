@@ -97,7 +97,7 @@ choices. Update the decision record when a decision changes.
 - Historical context carries business/effective time and a resolved knowledge
   cutoff through every business read, join, calculation and agent operation.
   Never silently substitute current data or historical permissions.
-  Exception (D328): market closes are always latest. A historical view reads
+  Exception (D334): market closes are always latest. A historical view reads
   the close in force for its session and business day, and that close's pinned
   prices, even when they were recorded after the view's knowledge cutoff, and
   says so; every other read keeps the cutoff.

@@ -152,7 +152,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   `!document.querySelector('#option-exercise').disabled&&document.querySelector('#option-assign').disabled&&document.querySelector('#option-abandon').disabled&&
    document.querySelector('[data-action=assignment]').textContent===${q(option.actions.assignment.reason)}&&document.querySelector('[data-action=instruction]').textContent===${q(option.actions.instruction.reason)}`);
  await picture({command},'option-blotter');
- // A switched account selects no market date by default (D328), so it opens the same example inputs.
+ // A switched account selects no market date by default (D334), so it opens the same example inputs.
  // A role without booking authority reads the same holding with every lifecycle action off, and the backend's reason why.
  await evaluate('window.blotterRows=null');await persona('risk');await click('#example');await click('#nav-futures');await wait("!!window.blotterRows&&"+idle,60000);await find(receipt.tradeId);await details(row);await terms();
  await check('a role without Book Trade sees the lifecycle actions off, with the backend\'s reason',

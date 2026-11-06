@@ -1,4 +1,4 @@
-"""D328 close sessions are authored, published and granted through the API, in an owned synthetic preview."""
+"""D334 close sessions are authored, published and granted through the API, in an owned synthetic preview."""
 from uuid import uuid4
 from preview_client import PreviewClient
 from close_session_fixture import draft, grant, publish

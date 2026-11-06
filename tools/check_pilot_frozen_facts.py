@@ -74,7 +74,7 @@ def run_checks(query,manifest,choices):
     publish([{**fixed,'inputUse':'variable'}],expected='pilot_close_inputs')
     publish([{**fixed,'observationId':preliminary}],expected='pilot_close_inputs')
     publish([fixed],[native,{'seriesId':fixed['seriesId'],'anchorObservationId':actual,'moveTicks':0,'value':'3.5'}],'pilot_close_inputs')
-    # D328: automation never replaces a recorded close for its session day, and never follows a replaced anchor.
+    # D334: automation never replaces a recorded close for its session day, and never follows a replaced anchor.
     register(pins,day='2021-01-02')
     publish([fixed],expected='close_exists')
     register(pins)

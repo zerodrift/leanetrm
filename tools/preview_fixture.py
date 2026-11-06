@@ -89,7 +89,7 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
             text = text.replace(old, new)
         return text
     reference = historical((root / 'tests/fixtures/reference-synthetic.sql').read_text())
-    # D328 close sessions keep their business days on these synthetic regional clocks and calendars.
+    # D334 close sessions keep their business days on these synthetic regional clocks and calendars.
     head, tail = reference.rsplit('COMMIT;', 1)
     reference = head + ''.join(
         f"INSERT INTO ref_data.clock_rules(catalog_id,revision_id,code,kind,iana_zone,tzdb_version) VALUES ({R},'{clock}','iana','{zone}','{installed_tzdb()}');\n"
