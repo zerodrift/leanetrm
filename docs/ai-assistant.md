@@ -1,8 +1,10 @@
 # Page assistant, phase 1: local-preview core
 
 Current extension: [workspace operations and page guidance](assistant-workspace.md)
-(D284/D312/D319/D325, runtime `turns_v15`, workspace migrations 0162–0164/0196/0198 and D302 settings
-migrations 0181–0183). It supersedes the unsupported-page
+(D284/D312/D319/D325/D327/D335/D338–D340, runtime `turns_v20`). This requires
+workspace migrations 0162–0164, settings migrations 0181–0183,
+digest/navigation/context migrations 0194–0196/0198–0199/0203 and physical-operation
+migrations 0205–0207 with matching API/browser assets. It supersedes the unsupported-page
 inventory and D260's direct curve-save exception. Business commands require the
 human's separate authorization; configurable page prompts are pinned to questions.
 The phase record below remains the provider/grant/runtime foundation.
@@ -12,8 +14,9 @@ its bounded local capability and remaining Keep prerequisite are recorded there.
 
 Status: bounded local implementation with hosted-pilot support. The rollout
 sequence is in §12; the checkpoint history below records how the current slice
-was assembled. Remaining phases are not implied by implemented read tools,
-provider adapters or the bounded custom-curve draft write.
+was assembled. The older tool/page inventory and direct curve-save description
+are historical contracts; the workspace extension records current admission and
+human-approved commands. Cards/Show card and agent notes remain unimplemented.
 
 Step 2 is complete for the §7.3
 read tools: the market and reference page reads (`MarketReads`) and the schedule

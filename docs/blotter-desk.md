@@ -93,14 +93,16 @@ Sidebar groups, in order. Visibility follows today's permissions.
 
 | Group | Pages |
 | --- | --- |
-| Trading | Blotter, PPA bookings |
-| Markets | Curves & prices, Curve builder, Delivery prices, Interval series, Interval curves |
-| Operations | Jobs & infrastructure |
-| Settings | Contract definitions, Schedules, Power TOUs, Reference data, Entities & counterparties |
+| Overview | Dashboard |
+| Trading | Blotter; product booking opens from New trade |
+| Markets | Curves & prices (Contract prices, Curve builder, Hourly / sub-hourly prices), Delivery prices, Interval data, Vol surfaces |
+| Operations | Physical operations, Facilities & delivery, Risk, Jobs & Infrastructure |
+| Settings | Schedules & date mappings, Power TOUs, Reference data, Entities & counterparties |
 | Admin | Users & access, AI |
 
-Each page's eyebrow is its group name. The Blotter opens first when the account
-can read trades; otherwise Curves & prices. The preview's example-dataset switch
+Each page's eyebrow is its group name. Trade readers open the Blotter; other
+market readers open Curves & prices, and administration-only accounts open their
+authorized administration page. The preview's example-dataset switch
 moves into the workspace card at the foot of the sidebar.
 
 ## Opening on the newest close

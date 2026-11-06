@@ -7,7 +7,7 @@ stock PostgreSQL cluster; stopping it discards all exploratory bookings.
 
 ## Prerequisites and startup
 
-Use Python **3.11 or newer**, Node **24.22.0** (`.node-version`), .NET SDK
+Use Python **3.12 or newer**, Node **24.22.0** (`.node-version`), .NET SDK
 **10.0.402** (`global.json`), stock PostgreSQL **16+** binaries, and an installed
 Chromium-compatible browser for browser verification. Python assertions must stay
 enabled. Run from the repository root. Put the required Node and Python versions

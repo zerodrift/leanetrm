@@ -4,8 +4,13 @@ The quantity foundation defines contractual gas-day geometry and receipt/deliver
 quantities. Its first consumer is the managed [physical gas pre-delivery
 profile](physical-gas-side.md). That profile now has database booking and a
 [deal ticket](deal-ticket.md); [daily operational quantity revisions](physical-gas-daily-quantities.md)
-are a separate implemented workflow. Physical completion and cash settlement
-remain in the [commodity delivery plan](physical-commodity-test-plan.md).
+are a separate implemented workflow. Composition booking now carries a selected
+multi-month term of up to 1200 operating days through exact monthly source
+coverage. Future amendments and indexed consideration have their own bounded
+contracts in the Side profile. The bounded
+[final daily cash consumer](gas-cash-billing.md) now determines fixed-price
+obligations and corrections. Broader physical completion, gas invoices and
+payment execution remain in the [commodity delivery plan](physical-commodity-test-plan.md).
 
 `GasQuantitySchedule.Generate` consumes immutable `GasQuantityTerms`. The selected
 quantity specification and clock reference must belong to the same exact

@@ -301,7 +301,25 @@ and configured per-unit tariffs are wired into that bounded profile. The
 Gas delivery setup editor saves immutable drafts, previews resolution/coverage and
 publishes versioned economic settings; saved trades retain their setup pins. Usage fees
 have independent pay/receive directions. The fixed-quantity composition ticket now adds independently directed physical
-and cash/fee sides, exact fuel links and retained per-member quantity ratios. The [daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily revisions, retained-grid reconciliation and explicit quantity-input selection. The [performance checkpoint](gas-quantity-performance.md) adds bounded batch selection and demand-loaded history. The common Blotter now includes gas positions, exact retained terms and contractual PV alongside futures, swaps and PPAs. New trade uses one product panel and each product’s existing authorized booking operations. Physical gas entry and booked daily quantities use the description-driven [deal ticket](deal-ticket.md); quantity records remain separate operational revisions. Interactive and retained portfolio risk include fixed contractual gas through the common PV and shared market-factor operations (D287). Physical completion, operational PV, settlement and automated-close gas admission remain work.
+and cash/fee sides, exact fuel links and retained per-member quantity ratios. The
+[daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily
+revisions, retained-grid reconciliation and explicit quantity-input selection. The
+[performance checkpoint](gas-quantity-performance.md) adds bounded batch selection
+and demand-loaded history. The common Blotter now includes gas positions, exact
+retained terms and contractual PV alongside futures, swaps and PPAs. New trade uses
+one product panel and each product’s existing authorized booking operations.
+Physical gas entry uses the description-driven [deal ticket](deal-ticket.md); booked
+daily quantities are recorded in **Operations → Physical operations** as separate
+operational revisions. Interactive and retained portfolio risk include fixed
+contractual gas through the common PV and shared market-factor operations (D287).
+Manual nominations/acknowledgments, schedule adoption, statements and imbalance
+agreements are now implemented in [gas operations](gas-delivery-operations.md).
+Bounded [final daily cash determinations](gas-cash-billing.md) support fixed-price
+delivery components and corrections. Broader physical completion, operational PV,
+invoicing/payment execution and automated-close gas admission remain work. D347–D350 subsequently add multi-month
+composition booking, future replacement amendments and independent indexed
+consideration through the existing FloatingSide. These preserve contractual net
+MTM and do not admit started-delivery cash lifecycle operations.
 The first gas composition gate now supports fixed contractual memberships and
 quantity links. Transport eligibility, allocation splits, operational inputs and
 ordered paths require their own behavior;

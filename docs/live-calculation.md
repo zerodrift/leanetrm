@@ -10,7 +10,7 @@ instruments, side schedules and the Blotter. There is no browser pricing engine.
 | Selection | Knowledge and inputs |
 | --- | --- |
 | Working | Explicit selected observation pins; changing the database does not change those pins |
-| Historical | One certified effective date and knowledge cutoff, with exact selected input frames |
+| Historical | One certified effective date and knowledge cutoff; D334 selects the in-force session close and its pins even when recorded after that cutoff |
 | Live corrections | Fixed selected facts, effective/valuation date, observation cutoff, sources, roles and contracts; follow their latest committed corrections through successive certified knowledge contexts |
 
 Choose **Follow live corrections** on a selected market, custom-curve or trading
@@ -29,6 +29,10 @@ follows the custom timeline selected at each new certified knowledge context
 other rolling policies require separate explicit selection contracts. Frozen
 actuals retain the existing frozen-input policy. A live correction is a newly
 admitted market frame, not a scenario offset.
+
+The [regional-close exception](regional-closes.md#historical-views-always-latest)
+applies to the selected close and its pins only. Other market facts, references
+and trade state retain the historical cutoff; current authority is always checked.
 
 ## Calculation and reuse
 

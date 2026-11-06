@@ -1,9 +1,11 @@
 # Separate source curves and rollover: proposed next example
 
-Status: proposed extension to the mixed-period browser example.
-This is an acceptance specification, not a claim that splice/roll operators or
-automatic eligibility resolution are implemented. Keep the current preview intact
-while the remaining-window rule is selected.
+Status: acceptance specification for automatic rollover in the mixed-period
+browser example. D331 subsequently implemented an explicit whole-delivery
+[splice](../custom-curves.md) and the
+[indexed physical gas example](../indexed-physical-gas-example.md) composes separate
+daily/monthly sources. Automatic eligibility and month-end window resolution
+remain proposed; the explicit-date splice does not select those rules.
 All names, dates, prices and milestone times below are synthetic.
 
 ## Source ownership and the composed view

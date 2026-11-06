@@ -3,10 +3,10 @@
 **An open source ETRM for commodity trading, built for traders, risk managers and AI agents.**
 
 LeanETRM books trades, builds curves and calculates P&L and risk on a standard,
-unmodified PostgreSQL database. Calculations use exact arithmetic, every curve
-price traces back to the observations that built it, and corrections never
-overwrite history. It is aimed at shops that need real trade capture and risk
-with explicit inputs and an auditable calculation history.
+unmodified PostgreSQL database. Exact quantity and cash arithmetic, explicit
+numerical policies and retained source lineage make calculations auditable;
+corrections never overwrite history. It is aimed at shops that need trade capture
+and risk with explicit inputs and a retained calculation history.
 
 > **Status:** a foundation, not a finished product. Try it as a disposable local
 > preview on synthetic data. Nothing here is production-qualified.
@@ -20,28 +20,48 @@ for synthetic booking, graphical break-even pricing and settlement previews.
   power swaps, factor swaps and PPAs,
   with exact party references and retained history. New trade opens each product's
   booking workflow; supported amendments retain immutable revisions
-- **Physical gas:** independent fixed delivery, cash and fee sides in the
-  [deal ticket](docs/deal-ticket.md), with explicit fuel links, versioned delivery
-  setup and trade-owned daily quantity revisions. Contractual pre-delivery PV is
-  supported alongside interactive/queued contractual scenario risk; operational PV
-  and physical settlement remain work
+- **Physical gas:** fixed-quantity delivery with independent fixed or daily indexed
+  consideration and fixed fee sides in the [deal ticket](docs/deal-ticket.md), explicit
+  fuel links, multi-month booking and versioned delivery setup. Future compositions
+  support amendments before operational/facility relationships exist. Contractual
+  pre-delivery net MTM and interactive/queued scenario risk retain independent
+  physical and payment forecasts; started-delivery indexed cash lifecycle remains
+  work. Manual nominations, acknowledgments, schedule adoption and imbalance reconciliation
+  reuse retained daily quantities. Final daily fixed-price cash determinations
+  retain original and correcting contributions; gas invoices, payments and
+  operational PV remain work. See [delivery operations](docs/gas-delivery-operations.md)
+  and [billing](docs/gas-cash-billing.md)
 - **Physical crude:** fixed standard-volume booking, contractual pre-delivery PV
   and interactive/queued risk, plus bounded receipts, title transfer, inventory-lot
   allocation, dispatch, invoices, payments and cash-record corrections. See
   [the contract](docs/physical-crude.md) and [operations](docs/physical-crude-operations.md)
-- **Curves:** futures, gas and power forwards, basis and interest rates, built from
-  explicitly selected prices, with a diagram showing which inputs built each
+- **Physical LNG:** future cargo booking with separate loading/discharge terms,
+  explicit discharge-energy quantity or retained mass-to-energy conversion,
+  Incoterms and fixed consideration. Retained trading views and interactive/queued
+  risk support contractual PV before loading starts; cargo actuals and settlement
+  remain work. See [the bounded cargo contract](docs/physical-lng.md)
+- **Physical operations:** gas and crude workflows have a dedicated Operations
+  workspace. Gas, crude and LNG share a read-only delivery grid with native
+  intervals, quantities and source status; LNG operational actions remain TBD.
+  See [the workspace](docs/physical-workspace.md) and
+  [delivery view](docs/physical-delivery-view.md)
+- **Curves:** one **Curves & prices** workspace groups **Contract prices**,
+  **Curve builder** and **Hourly / sub-hourly prices** under the shared context
+  and edit guards. Futures, gas and power forwards, basis and interest rates are
+  built from explicitly selected prices, with a diagram showing which inputs built each
   contract's price. The custom-curve workbench supports visual/formula recipes and
   explicit weighted contract baskets, reusable published curve outputs and guided
   combinations of computed curves with matching periods and units; all keep their
   upstream graph links; the swap editor selects compatible published
   outputs for monthly or exact daily projections. Effective-version timelines
-  resolve under the selected business date and knowledge cutoff
+  resolve under the selected business date and knowledge cutoff. Explicit delivery
+  splices and whole-interval lookups retain selected source evidence; see
+  [curve evaluation](docs/curve-evaluation.md)
 - **P&L and risk:** futures execution P&L and swap/PPA PV using pinned actuals
-  and projections. Connected quote and computed-output scenarios produce exact
-  delta and gamma; generated-close jobs retain mixed futures-and-swaps reports.
-  Interactive and queued portfolio risk also cover supported PPA, gas and crude bindings;
-  automated gas/crude closes refuse.
+  and projections. Connected quote and computed-output scenarios calculate
+  delta and gamma from shared scenario PV evaluations; generated-close jobs retain
+  mixed futures-and-swaps reports. Interactive and queued portfolio risk also cover
+  supported PPA, gas, crude and LNG bindings; generated gas, crude and LNG closes refuse.
   A delta ladder shows each shocked contract's totals by book and measure, see
   [the delta ladder](docs/delta-ladder.md). Native one-session delta-normal VaR/ES
   uses retained complete held-factor history, with signed contributions and
@@ -79,7 +99,11 @@ for synthetic booking, graphical break-even pricing and settlement previews.
   see [the bounded lifecycle](docs/swap-settlement.md)
 - **Blotter:** filters, pivots, saved views, charts, exports, docked trade details,
   pop-out, maximize/restore for every pane, shared portfolio/book selectors, personal
-  sidebar pins and backend-prepared close-out drafts; see [the workbench](docs/blotter-workbench.md)
+  sidebar pins and backend-prepared close-out drafts. Shared lazy, paged Side
+  inspection exposes pricing, source/calculation detail and native lifecycle state
+  for swaps, PPAs, gas, crude and LNG; unsupported values retain explicit reasons.
+  See [the workbench](docs/blotter-workbench.md) and
+  [Side inspection limits](docs/side-schedules.md#implementer-contract-d353)
 - **Dashboard:** account-owned layouts, curve levels/history and positions from
   saved risk run definitions; see [implemented widgets and limits](docs/market-dashboard.md)
 - **Interval series:** audited per-interval values on any market clock (price shapes,
@@ -92,25 +116,35 @@ for synthetic booking, graphical break-even pricing and settlement previews.
   from monthly peak and off-peak marks, delivered hours resolved to collected actuals
   under an explicit due rule, with lineage for every price, see
   [the implementation record](docs/implementation.md#interval-prices-curves-and-block-shaping)
+- **Volatility surfaces:** fitted expiry smiles, rich/cheap heat maps and a linked
+  3D view for listed futures options. These are analytical views; option valuation
+  and risk retain each series' own settlement calibration. See
+  [the surface contract](docs/vol-surfaces.md)
 - **History:** browse supported market and trade history at explicit business and
-  knowledge times; trading-history cutover boundaries refuse earlier trade contexts
+  knowledge times; trading-history cutover boundaries refuse earlier trade contexts.
+  Close-based views use the latest close in force for the selected session and
+  business day, including in historical views; saved calculation results retain
+  their original pins. See [regional closes](docs/regional-closes.md)
 - **Access control:** roles enforced by PostgreSQL row-level security, with people
   and AI agents as separate principals; agent actions require an explicit delegation
 - **Private pilot mode:** invited user accounts and scheduled PJM and ERCOT day-ahead
   and real-time price collection; see [private pilot operations](docs/hosted-pilot.md)
-- **Page assistant:** bounded delegated reads, recorded conversations, provider
-  configuration and usage accounting in the local preview; see
-  [the assistant's implemented scope](docs/ai-assistant.md)
+- **Page assistant:** bounded delegated reads, human-approved business proposals,
+  page guidance, selection questions and presentation walkthroughs, plus recorded
+  conversations, provider configuration and usage accounting. Walkthroughs use
+  supported native controls and stop at unsaved edits; see
+  [workspace operations](docs/assistant-workspace.md) and
+  [walkthrough limits](docs/assistant-walkthroughs.md)
 - **Operating settings and profiles:** versioned assistant/access policies under
   separate administration permissions, account-owned display preferences, explicit
-  process/connection budgets, and server-supplied risk/request limits. Gas and crude
-  share retained instrument execution while preserving exact commodity contracts;
+  process/connection budgets, and server-supplied risk/request limits. Gas, crude
+  and LNG execute retained instrument schedules under their exact commodity contracts;
   see [implemented consumers and remaining work](docs/operational-limits.md)
 
 ## What's not built yet
 
 Full futures settlement PV and variation margin, option products beyond the
-supported listed American futures options, EVT,
+supported listed American futures options, EVT and operating backtests,
 broader physical settlement, general physical power booking, inventory costing,
 post-delivery crude valuation, PPA accepted-cash accounting/payments, broader agent
 credential lifecycle and production qualification remain work. General swap/PPA
@@ -122,7 +156,7 @@ task; the booking-storage checkpoint alone does not complete it. See the
 ## Quickstart
 
 You need the .NET SDK pinned in `global.json`, Node with npm (version in
-`.node-version`), Python 3.11+ with assertions enabled and PostgreSQL 16 or later.
+`.node-version`), Python 3.12+ with assertions enabled and PostgreSQL 16 or later.
 CI runs on Ubuntu 24.04.
 
 ```sh
@@ -132,8 +166,9 @@ python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/
 ```
 
 Open the `http://127.0.0.1:PORT` address it prints. You start as a read-only demo
-user; click **Explore sample power prices** for a worked example. To book trades or
-correct prices, switch demo users under **Profile → Preview access**.
+user. Use **Curves & prices** and the header's close-session/date controls to
+inspect the synthetic market. To book trades or correct prices, switch demo users
+under **Profile → Preview access**; **New trade** opens the product booking workflows.
 
 The preview builds the app, creates its own throwaway PostgreSQL cluster seeded with
 synthetic data, and deletes it when you stop it with Ctrl+C. It never connects to an
@@ -163,6 +198,8 @@ existing database.
 - [PPA and heat-rate portfolio consumers](docs/demo-instruments.md)
 - [Physical gas booking and quantities](docs/physical-gas-side.md)
 - [Physical crude booking](docs/physical-crude.md) and [delivery-to-cash operations](docs/physical-crude-operations.md)
+- [Physical LNG cargo booking and valuation](docs/physical-lng.md)
+- [Curve-definition preview and remaining publication work](docs/curve-definitions.md)
 - [Market dashboard and saved risk runs](docs/market-dashboard.md)
 - [Booked executable schedule storage and remaining cutover](docs/booked-side-programs.md)
 - [Business scenarios, settlement gaps and shared scenarios](docs/business-scenarios.md)
@@ -187,7 +224,13 @@ existing database.
 
 **Operations**
 
+- [Physical operations workspace](docs/physical-workspace.md) and [common delivery view](docs/physical-delivery-view.md)
+- [Manual gas delivery operations](docs/gas-delivery-operations.md)
+- [Final daily gas cash determinations and corrections](docs/gas-cash-billing.md)
 - [Shared facility quantities, physical Side allocations and operating limits](docs/facility-quantity-ledger.md)
+- [Regional close sessions and historical-view policy](docs/regional-closes.md)
+- [Workspace assistant operations and human approval](docs/assistant-workspace.md)
+- [Assistant digests and presentation walkthroughs](docs/assistant-walkthroughs.md)
 - [Connected-curve cutover prerequisites](docs/connected-calculation.md#adopting-the-schema-cutover)
 - [Jobs, workers and infrastructure](docs/automation.md)
 - [Private pilot operations](docs/hosted-pilot.md)

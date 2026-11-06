@@ -1,9 +1,9 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0193_hybrid_monte_carlo.sql`. It includes reference/market data, certified
+`0210_indexed_gas_consideration.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
-Side programs, dashboard layouts, bounded physical gas/crude operations and
+Side programs, dashboard layouts, regional closes, bounded physical gas/crude operations and
 pre-loading LNG cargo booking/valuation with saved Incoterms.
 The migration notes below include historical foundation checkpoints; statements
 about what an individual migration lacks describe that checkpoint, not the whole
@@ -12,6 +12,34 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- 0208: whole-term [physical gas composition booking](../docs/deal-ticket.md),
+  with daily quantities across up to 1,200 delivery days and exact native monthly
+  price references; legacy single-point admission retains its original bound.
+- 0209: future gas composition amendments through the ordinary ticket, with exact
+  expected revisions, retained prior bookings and idempotent/no-op outcomes.
+  Started delivery and existing operational relationships refuse this bounded
+  replacement policy.
+- 0210: daily indexed gas consideration using the ordinary floating-side program,
+  exact published-index terms, explicit spread/projection and next-month payment
+  rules. This adds no indexed gas billing/payment lifecycle.
+- 0205–0207: [daily gas cash determinations](../docs/gas-cash-billing.md),
+  [manual gas delivery operations](../docs/gas-delivery-operations.md) and the
+  [Physical operations workspace](../docs/physical-workspace.md). These retain
+  native authority, exact source links and idempotent command outcomes; they do
+  not add live pipeline connectivity or accounting posting.
+- 0204: [exact observation reads](../docs/exact-observation-reads.md) bounded by
+  selected IDs with current authority, retained-worker and close-pin checks.
+- 0202: [regional close sessions](../docs/regional-closes.md), explicit selected
+  session/business-day closes and their latest-close historical exception.
+- 0200–0201: [whole-delivery curve splicing](../docs/custom-curves.md) and
+  [shared curve price queries](../docs/curve-evaluation.md), with exact input
+  references, interval coverage and retained source evidence.
+- 0194–0196, 0198–0199 and 0203: [page digests and bounded walkthroughs](../docs/assistant-walkthroughs.md),
+  workspace navigation/report admission, physical context and typed presentation
+  controls. The later physical-operation migrations advance assistant admission
+  to `turns_v20`; schema, API and browser assets must agree.
+- 0197: [final facility quantities](../docs/facility-quantity-ledger.md), explicit
+  whole-plan adoption and exact source links for the supported gas consumer.
 - 0193: separately selected approximate Hybrid Monte Carlo, explicit sampled
   validation and strict/opt-in whole-portfolio fallback. Existing job custody
   remains; summary identifies approximate and fallback outcomes. Complete prior
@@ -69,6 +97,9 @@ Recent schema groups and their contracts:
 - 0181–0183: [current operating policies, personal presentation and hosted access
   admission](../docs/operational-limits.md#implemented-consumers-d302), with immutable
   revisions, exact policy pins and retained command receipts.
+- 0184–0185: [facility quantity ledgers and bounded read plans](../docs/facility-quantity-ledger.md).
+- 0186–0188: [volatility surface calibration and retained fit jobs](../docs/vol-surfaces.md),
+  with exact source custody and current authority at admission.
 
 - 0189: complete historical statistical jobs, exact factor declarations, shared
   retained history custody and authorized method/combined archives (D305,

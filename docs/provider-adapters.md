@@ -8,9 +8,12 @@ versions, effective prices and enablement gates remain required.
 Capability versions explicitly choose `fixed` (a sourced non-repointing claim) or
 `alias` (administrator approval to follow the provider's name), under D213 and
 migration 0105. Identifier source/date fields describe that policy. New settings
-forms require a choice. Existing versions and legacy command retries retain the
-fixed-only contract. An alias still accepts only its requested name and exact
-listed served identifiers; it never accepts arbitrary snapshots or a new provider.
+forms require a choice. Migration 0135 retires the older fixed-only command
+format: capability edits require an explicit `fixed` or `alias` policy, and
+requests omitting it refuse. Existing capability versions and recorded audit
+outcomes remain immutable and readable. An alias still accepts only its requested
+name and exact listed served identifiers; it never accepts arbitrary snapshots or
+a new provider.
 The existing call record pins requested model, capability/price versions and
 reported served identifier. A returned alias cannot prove an underlying snapshot;
 administrators must review capabilities and prices when the provider changes it.

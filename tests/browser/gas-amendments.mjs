@@ -26,7 +26,9 @@ export async function run(actions){
  await wait("!![...document.querySelectorAll('#position-details button')].find(b=>b.textContent==='Keep editing')");
  await evaluate("[...document.querySelectorAll('#position-details button')].find(b=>b.textContent==='Keep editing').click()");
  await check('Keep editing preserves the amendment terms and reason',`!!document.querySelector(${q(ticket+'[data-mode=amend]')})&&document.querySelector(${q(helpers.control('payment','cash_price'))}).value==='3.25'&&document.querySelector('#gas-ticket [data-role=amendment-reason]').value==='Synthetic browser correction'`);
- await helpers.until(helpers.current()+"&&window.__gasAmendPreviews.at(-1)?.reason==='Synthetic browser correction'&&window.__gasAmendPreviews.at(-1).draft.sides.find(s=>s.code==='payment').values.cash_price==='3.25'");
+ // Select the retained native forecast before reviewing: initial choice reads can finish after the first preview.
+ await helpers.choose('gas','forecast_curve','assigned');
+ await helpers.until(helpers.current()+"&&window.__gasAmendPreviews.at(-1)?.reason==='Synthetic browser correction'&&window.__gasAmendPreviews.at(-1).draft.sides.find(s=>s.code==='payment').values.cash_price==='3.25'&&window.__gasAmendPreviews.at(-1).draft.sides.find(s=>s.code==='gas').values.forecast_curve==='assigned'");
  await evaluate('window.__loseGasAmend=true');await click(ticket+' .ticket-book');
  const recovery="[...document.querySelectorAll('#gas-ticket .ticket-booking button')].find(b=>b.textContent==='Check amendment status')";
  await wait(`!!${recovery}&&!${recovery}.disabled&&document.querySelector('#gas-ticket .ticket-booking').textContent.includes('not confirmed')`,60000).catch(async error=>{

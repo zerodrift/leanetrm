@@ -22,32 +22,49 @@ fixed-offset gas clock and start minute, daily or equal-day period-total fixed
 quantities, receive/deliver direction, fixed consideration, an optional fixed
 per-unit fee with its own pay/receive direction, an explicit UTC payment instant and explicit no discounting. It
 admits no fuel adjustment. The independent-side profile below admits explicit
-fixed-quantity fuel links. Floating cash, operational fuel treatment and broader
-captured clocks remain separately bounded capabilities.
+fixed-quantity fuel links and, under D350, independent daily indexed consideration.
+Operational fuel treatment and broader captured clocks remain separately bounded
+capabilities.
 
-D338 adds separate [final daily fixed cash determinations](gas-cash-billing.md).
+D338 adds separate [final daily fixed cash determinations](gas-cash-billing.md);
+D339 adds [manual delivery operations](gas-delivery-operations.md), including
+nomination requests, external acknowledgments, statements and imbalance agreements.
 Physical completion/title, inventory, invoice issuance, payment allocation and
 settlement-aware portfolio valuation remain unsupported. The common Blotter includes both gas profiles through the native retained-schedule pricer, with a distinct contractual PV measure. One immutable gas instrument is one position binding; physical-side quantities are never summed into a receipt-plus-delivery total. Missing gas market context or started delivery produces an explicit unavailable valuation, while retained terms and daily operational quantities remain readable.
 
-New trade offers Future, Swap, PPA, Physical gas and Physical crude in the same panel. Physical gas opens the deal ticket, whose operations delegate to the composition's preview, booking, status and idempotent recovery operations; the other forms use their own. A confirmed booking refreshes the common Blotter and opens its exact position when uniquely identified. A booked composition's day quantities are recorded in Operations → Physical operations → Delivery; Side schedules remains read-only. PPA lifecycle operations remain native and open in the same panel. Unknown booking outcomes block replacement requests and retain the actor-owned command across ticket remounts, including when supplementary browser storage fails.
+New trade opens the supported product booking workflows in the same panel, including
+listed futures options and physical LNG. Physical gas opens the deal ticket, whose
+operations delegate to the composition's preview, booking, amendment, status and
+idempotent recovery operations; the other forms use their own. A confirmed booking refreshes
+the common Blotter and opens its exact position when uniquely identified. A booked
+composition's day quantities are recorded in Operations → Physical operations →
+Delivery; Side schedules remains read-only. PPA lifecycle operations remain native
+and open in the same panel. Unknown booking outcomes block replacement requests and
+retain the actor-owned command across ticket remounts, including when supplementary
+browser storage fails.
 
-Interactive and queued portfolio risk load both fixed contractual gas profiles from their retained programs and use the common `PV` and `MarketFactors` contracts (D287). Shared factors appear once across gas and other instruments, while exact membership directions and quantity ratios determine their repriced contributions. Gas-only scopes are admitted. Migration 0165 supplies read-only worker access with the runtime history/current-authority rules and an additional lease fence. Missing inputs and started delivery refuse explicitly; earlier reports retain their original exclusions. Automated closes containing gas remain explicitly unsupported. Operational quantity revisions do not change contractual PV or create extra positions.
+Interactive and queued portfolio risk load supported gas profiles, including future compositions with fixed or indexed consideration, from their retained programs and use the common `PV` and `MarketFactors` contracts (D287). Shared factors appear once across gas and other instruments, while exact membership directions and quantity ratios determine their repriced contributions. Gas-only scopes are admitted. Migration 0165 supplies read-only worker access with the runtime history/current-authority rules and an additional lease fence. Missing inputs and started delivery refuse explicitly; earlier reports retain their original exclusions. Automated closes containing gas remain explicitly unsupported. Operational quantity revisions do not change contractual PV or create extra positions.
 
 ## Independent sides and fixed quantity links
 
-The deal ticket's Add side offers physical, payment and fee sides. The explicit
-profile is `fixed_gas_composition_v1`, using the existing v4 context convention and
-`gas/composition/preview`, `/book`, `/status` and `/editor`, which the ticket
-operations delegate to. A preview and a booking are held to the gas setup their
+The deal ticket's Add side offers physical, fixed payment, index payment and fee
+sides. The explicit
+fixed-cash profile is `fixed_gas_composition_v1`; compositions with an indexed
+payment use `indexed_gas_composition_v1`. Both use the existing v4 context convention
+and native composition operations through the ticket. A preview and a booking are
+held to the gas setup their
 context resolves: a request naming another setup, or none where the context resolves
 one, refuses with `ticket_input` on the `gas_setup` field; a retried booking still
 receives its first outcome.
 
-Admit one to four physical memberships and up to four fixed-price cash/fee
-memberships. Receive/deliver belongs on each physical membership; pay/receive
+Admit one to four physical memberships and up to four cash/fee memberships,
+including the separately qualified indexed consideration. Receive/deliver belongs
+on each physical membership; pay/receive
 belongs on each cash membership. There is no trade-wide direction. Each physical
-side selects its own PZL/product and 1–31-day delivery profile within one forward
-month. Independent sides can have different dates, quantity bases and clocks.
+side selects its own PZL/product and future delivery term of 1–1200 operating
+days. Each intersecting month requires exact native contract/assignment coverage;
+the forecast curve's grid does not divide the physical Side. Independent sides
+can have different dates, quantity bases and clocks.
 All memberships require the same exact native quantity specification and currency;
 there is no implicit physical-unit or FX conversion.
 
@@ -67,8 +84,18 @@ stage, their own fixed per-unit price, payment instant and direction. An eligibl
 configured usage tariff can supply a delivery-based fee price. A tariff cannot
 silently price a receipt/fuel stage or overwrite a manual price. Selecting the
 fuel stage bills a separately declared charge on that reduction; it does not
-change in-kind fuel into cash-paid fuel. Fixed nominal/capacity charges, floating
-cash, actuals and settlement are not admitted by this profile.
+change in-kind fuel into cash-paid fuel. Whole-term fixed cash retains its explicit
+payment instant without inferred monthly allocation. Fixed nominal/capacity
+charges remain outside this profile.
+
+**Index payment** uses the existing `FloatingSide` under
+`indexed_gas_composition_v1`. Each source physical day has one exact daily index
+contract and published-fixing definition, an explicit forecast selection and
+additional spread. Payments use an explicit next-month UTC day from 1–28 without
+holiday adjustment. Physical and payment Sides keep independent prices and signed
+contributions. This is contractual net MTM before delivery, not a lifecycle-aware
+unpaid-cash measure; started-delivery determinations, paid realization and broader
+cash settlement remain outside this admission.
 
 The first independent physical amount defines the external holding quantity.
 Every side retains a normalized one-unit executable schedule; exact positive
@@ -99,8 +126,21 @@ quantity foundation.
 The ticket preserves exact reviewed commands across uncertain booking replies
 and reload, invalidates review after any term/link change, and provides a durable
 composed-trade directory with retained daily schedules, price/payment inspection
-and independently signed contributions. Shared mixed-product reports still
-refuse scopes containing gas; the new composition cannot disappear from totals.
+and independently signed contributions. Common interactive and queued portfolio
+risk include supported gas compositions; generated gas closes still refuse.
+
+## Future composition amendments
+
+The main-window Blotter's **Amend** action opens the ordinary ticket under
+`future_gas_composition_replace_v1`. Original and replacement delivery must remain
+future, with the latest exact binding/revision, retained definition and explicit
+reason. A changed command appends a revision with new owned physical occurrences;
+unchanged typed terms return the existing revision. Retries retain their first
+outcome, including after a successor. Legacy single-point trades and trades with
+daily quantity, service or facility relationships refuse until operational
+continuity is qualified. Default booked inspection and separate trade windows
+remain read-only. Shared Side inspection exposes selected pricing/lifecycle
+facts without adding a started-delivery cash lifecycle.
 
 ## Admitted terms and their consumers
 
@@ -344,7 +384,7 @@ publishing a gas setup.
 
 1. A market-definition editor starts from the current published setup or imported
    definitions, changes records and saves an immutable draft.
-2. Select a delivery period of up to 31 operating days and validate the saved
+2. Select a supported delivery period and validate the saved
    version. Preview shows each point's group, curve, index, quote, separate price
    adjustments and number of operating days without a meter assignment.
 3. A market-definition approver opens that exact saved version, validates it and

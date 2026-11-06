@@ -16,10 +16,13 @@ proposed extension or selects missing financial conventions.
 This plan specifies broader standalone gas/power delivery obligations and
 operational settlement. Bounded [physical gas booking](physical-gas-side.md),
 [contractual quantities](physical-gas-quantities.md) and
-[daily quantity revisions](physical-gas-daily-quantities.md) are implemented;
-physical gas completion, settlement and standalone physical power booking remain
-work. [PPA booking](demo-instruments.md) and bounded
-[physical crude booking/operations](physical-crude.md) have separate contracts.
+[daily quantity revisions](physical-gas-daily-quantities.md),
+[manual gas operations](gas-delivery-operations.md) and bounded
+[final daily cash determinations](gas-cash-billing.md) are implemented. Gas
+invoicing/payment execution, broader physical completion and standalone physical
+power booking remain work. [PPA booking](demo-instruments.md), bounded
+[physical crude booking/operations](physical-crude.md) and
+[LNG cargo booking/pre-delivery valuation](physical-lng.md) have separate contracts.
 These physical workflows are not prerequisites for financial gas swaps or
 cash-settled power swaps whose MW is integrated into an agreed energy payment basis.
 

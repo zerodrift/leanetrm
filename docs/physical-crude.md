@@ -87,8 +87,11 @@ same retained programs under exact market partitions. Shared cash-side identitie
 retain independent membership signs. Physical dependencies use shared immutable
 base/up/down scenarios; quantity scales the normalized result once. Historical
 inventory completeness and current reference visibility are checked before a
-result can be published. Unsupported gas scenario positions retain explicit
-exclusions; automated closes containing crude refuse with `crude_close_scope`.
+result can be published. Supported contractual gas profiles, including future
+indexed-consideration compositions, also use the
+common interactive/queued risk path. Unsupported physical contracts refuse;
+they do not imply a qualified partial report. Automated closes containing crude
+refuse with `crude_close_scope`.
 
 ## Independent acceptance gates
 

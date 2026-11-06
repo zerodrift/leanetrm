@@ -1,7 +1,7 @@
 # Volatility surfaces
 
 Status: local implementation, verified as recorded in
-[verification](verification.md#volatility-surfaces-d301). This is not a production
+[verification](verification.md#volatility-surfaces-d304). This is not a production
 activation record. The decision is [D304](decisions.md).
 
 A volatility surface shows, for one listed futures option product on one settlement
@@ -274,7 +274,7 @@ and 71 series per product, a Debug `--vol-surface-fit` check took 24.7 to 31.2 s
 product across runs. A fit job took 18.3 to 22.6 s end to end in the preview, and
 the fit inside the risk worker took 15.9 to 20.9 s across runs. These are local
 observations, not a performance qualification; see
-[verification](verification.md#volatility-surfaces-d301).
+[verification](verification.md#volatility-surfaces-d304).
 
 ## Remaining work
 

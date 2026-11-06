@@ -11,7 +11,7 @@ commodity subset uses curve-owned definitions and scoped contract/measure keys,
 with no separate public factor/point business objects. Generic numeric series and
 price histories share observations; ratio inputs use the same typed series contract.
 Current role persistence/RLS is in [security.md](security.md).
-Implemented immutable quote scenarios, nested stresses and retained futures jobs
+Implemented immutable quote scenarios, nested stresses and retained portfolio jobs
 are described in [risk-engine.md](risk-engine.md). This broader storage proposal
 does not replace those executable contracts.
 
@@ -106,14 +106,17 @@ monthly-block shaping. Those separate consumers do not enable arbitrary mappings
 in this mixed daily/monthly contract. Managed validation, database sealing and the
 adapter must agree before another mapping is enabled.
 
-Follow-up proposal: replace the mixed demo's directly marked daily/monthly source
-with separate daily-only and monthly-only sources and an explicit selection/splice
+The original follow-up proposed replacing the mixed demo's directly marked
+daily/monthly source with separate daily-only and monthly-only sources and an explicit selection/splice
 composition. Treat BALMO as a possible named remaining-day selector separately
 from a directly quoted period contract. The month-end window rule is awaiting
 selection; see [curve composition and rollover](examples/curve-composition-rollover.md).
-Custom curves already implement explicit prompt selection and a daily-forward
-remaining-month mean. The proposed splice composition and listing-window rule
-remain separate work; see [custom curves](custom-curves.md).
+Custom curves now implement explicit prompt selection, a daily-forward
+remaining-month mean and a whole-delivery splice with explicit start, cutover and
+end dates (D331). The [indexed physical gas example](indexed-physical-gas-example.md)
+uses separate daily/monthly futures-plus-basis sources through that splice.
+Automatic listing-window and month-end rollover rules remain separate work; see
+[custom curves](custom-curves.md).
 
 ### Detailed storage proposal
 
@@ -497,14 +500,17 @@ history/knowledge policies and exact observation/build lineage. Rows define
 aligned intervals; transforms define price changes or supported return measures
 with units. Same calendar date does not prove synchronized price observations.
 Missing/stale values remain diagnosed; no default filling or fabricated zero move.
-Covariance/VaR methods and how to handle short dated-contract histories remain
-open, not attributes guessed by the data objects.
+The implemented [dated-factor history](risk-factor-history.md) and
+[parametric](parametric-risk.md), [historical](historical-risk.md) and
+[Monte Carlo](monte-carlo-risk.md) contracts select explicit covariance/tail
+methods and refuse insufficient complete history. Broader proxy, rolling-history
+and short-history repair policies remain unselected.
 
 A future RollingReferenceVersion pins contract selection and adjustment policies.
 Each resolved point retains the actual dated constituent. Raw rolling prices,
 adjusted analytical series and an executed rolling trading strategy are distinct.
 Rolling a data reference does not submit orders or amend Trades. Initial scope
-reserves this boundary; it does not implement rolling algorithms or VaR.
+reserves this boundary; it does not implement automatic rolling-reference algorithms.
 
 ## 8. Settlement references and realized observations
 

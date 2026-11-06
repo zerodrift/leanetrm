@@ -47,9 +47,13 @@ agent reader:
 
 Later migrations add [agent-only swap settlement](../db/migrations/0109_swap_settlement_agent_role.sql),
 [assistant prompt editing](../db/migrations/0162_assistant_page_prompts.sql) and the
-[facility operations/limits roles](facility-quantity-ledger.md). The current catalog
-has nine assignable human roles and two agent-only roles. Facility operations can
-read/record shared quantities and allocation plans; facility operating limits can
+[facility operations/limits roles](facility-quantity-ledger.md). Migration 0206 adds
+the [Gas delivery operations and Gas service setup roles](gas-delivery-operations.md).
+The former reads and records manual gas operations; the latter reads operations
+and configures service accounts. Both include market/trade reads, and neither
+is assigned automatically. The two agent-only roles remain separately managed.
+Facility operations can read/record shared quantities and allocation plans;
+facility operating limits can
 read/configure maxima. Each also requires market/trade reads. Neither is assigned
 automatically, and the two writing capabilities are separate. Users & access
 serves role names/permissions from the stored catalog.
@@ -824,8 +828,11 @@ runs them ([ai-assistant.md](ai-assistant.md) §7.2, §7.4, §8):
   turn `agent_runtime_unavailable`.
 
 Usage (migration 0075, step 5) needs `ReadModelUsage`, held by the access administrator,
-and never runs under a delegated context, so an agent never reads usage
-([ai-assistant.md](ai-assistant.md) §5.4, §9):
+and its native operations refuse a delegated SQL context
+([ai-assistant.md](ai-assistant.md) §5.4, §9). The later
+[workspace assistant](assistant-workspace.md) can read usage through those same
+operations under its captured human owner's current authority; an export remains
+a command requiring separate human approval:
 
 - **Reads:** a report covers every call of the reader's workspace through definer
   operations. It names models, users and agents and shows counts, tokens and cost, never a

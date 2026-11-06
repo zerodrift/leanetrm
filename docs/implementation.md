@@ -31,17 +31,34 @@ Status: local synthetic preview. This is a bounded
 foundation with runnable market-data, trading and operational workflows. No
 existing application or production resource is used by its checks.
 
-Current product scope includes futures execution P&L, single-period and
+Current product scope includes futures execution P&L,
+[listed American futures options](futures-options.md), single-period and
 [scheduled financial swaps](financial-swap-quantities.md), opt-in
 [swap settlement and P&L](swap-settlement.md), and common
 [PPA/heat-rate portfolio consumers](demo-instruments.md). Bounded physical
-[gas booking and daily quantities](physical-gas-side.md) and
+[gas booking and daily quantities](physical-gas-side.md),
+[manual gas operations](gas-delivery-operations.md),
+[final daily gas cash](gas-cash-billing.md),
 [crude booking/risk](physical-crude.md) with
-[delivery-to-cash operations](physical-crude-operations.md) have their own exact
-contracts and limits. The [Blotter workbench](blotter-workbench.md),
+[delivery-to-cash operations](physical-crude-operations.md), and
+[LNG cargo booking/pre-delivery valuation](physical-lng.md) have their own exact
+contracts and limits. Gas compositions now support up to 1200 operating days,
+future replacement amendments and independent indexed consideration through the
+existing FloatingSide. Started-delivery cash lifecycle admission remains separate.
+The [shared Side inspector](side-schedules.md#pricing-and-lifecycle-inspection-d352)
+provides lazy, paged pricing and lifecycle facts through registered native readers
+for gas, crude, LNG, PPA and supported swaps. This read-only consolidation does
+not complete the general swap/PPA retained-program valuation cutover. Statistical
+risk includes
+[parametric](parametric-risk.md), [historical](historical-risk.md),
+[Monte Carlo](monte-carlo-risk.md) and explicitly selected
+[PCA/hybrid modes](pca-hybrid-risk.md). The [Blotter workbench](blotter-workbench.md),
 [gas deal ticket](deal-ticket.md) and [market dashboard](market-dashboard.md)
-describe current presentation. The detailed sections below include earlier
-checkpoints; their dated counts and measurements are historical evidence.
+describe current presentation. [Regional sessions](regional-closes.md) select
+one close in force per business day, including the disclosed D334 historical
+knowledge-cutoff exception. The detailed sections below include earlier
+checkpoints; their dated counts, measurements and then-remaining work are historical
+evidence. Current product contracts linked above supersede those older status claims.
 
 D303 adds [facility quantities and physical Side allocation tracks](facility-quantity-ledger.md).
 The Facilities page, SQL/HTTP commands and managed native-period maximum evaluator
@@ -51,9 +68,10 @@ trade readers see only their own planned Side amounts. Versioned maxima flag
 reported breaches and missing/withdrawn rules remain unassessed. Existing direct
 gas quantities, billing, PV and cash are unchanged. This first adapter supports
 one delivery point per facility and one retained gas day; broader facilities,
-commodity adapters, accepted settlement quantities and external notifications
-remain unimplemented. See [the lifecycle extension guide](physical-lifecycle-extension-guide.md)
-before adding consumers.
+commodity adapters and external notifications remain unimplemented. D321 later
+adds explicit whole-plan final-input adoption for supported gas targets, now
+consumed by the separate D338 final daily cash profile. See
+[the lifecycle extension guide](physical-lifecycle-extension-guide.md) before adding consumers.
 
 D302 adds [versioned operating settings and personal presentation](operational-limits.md#implemented-consumers-d302).
 Assistant/access policies have separate current-human permissions, immutable
@@ -276,8 +294,9 @@ Instrument interning rejects a conflicting binding rather than substituting it.
 Swap definitions mark Discounting, and common/specialized PV reject conflicting
 policies. Existing market series, observations, explicit derived dependencies and
 immutable scenario risk already separate market inputs from contractual cashflows.
-Standalone physical forward booking, option products other than listed American
-futures options ([D288](futures-options.md)) remain unimplemented.
+Physical profiles beyond the bounded gas, crude and LNG contracts, and option
+products other than listed American futures options ([D288](futures-options.md)),
+remain unimplemented.
 [Parametric risk](parametric-risk.md) implements native sample covariance and
 one-session delta-normal VaR/ES. D307 adds [full-PV Monte Carlo](monte-carlo-risk.md), with explicit seeded joint
 Gaussian shocks, ordinary PV repricing, empirical tails and sampling diagnostics.

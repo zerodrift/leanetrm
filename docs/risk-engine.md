@@ -17,7 +17,12 @@ qualify financial compilation, database loading or end-to-end throughput.
 The risk operation uses the same resolved financial environment as the header
 date selectors. Effective and knowledge coordinates select retained business
 state; the selected market frame supplies explicit valuation/observation cutoffs
-and exact observation pins. The existing supported date modes remain unchanged.
+and exact observation pins. Under [D334](regional-closes.md#historical-views-always-latest),
+interactive session-bound reads use the in-force close and its pins, including
+prices recorded after a historical knowledge cutoff. Other business facts retain
+that cutoff. Retained jobs keep their exact admitted inputs, but the worker does
+not bind a close session: replay of close prices first recorded after the cutoff
+remains a [documented limitation](regional-closes.md#remaining-work).
 An actor's current authority accompanies that environment and is checked
 separately. A historical context never restores a historical permission.
 
@@ -127,9 +132,11 @@ unaffected work reuses its base value. Factor discovery establishes which inputs
 can affect a value, while repricing measures the exposure. A zero local delta
 does not remove a declared factor or its nonlinear consumers.
 
-The fixed contractual gas profiles enter this same path through retained
-programs, including independent side directions and exact quantity ratios. They
-report `gas_contractual_present_value`; gas-only scopes and mixed portfolios can
+Supported contractual gas profiles enter this same path through retained
+programs, including independent side directions and exact quantity ratios.
+D350 adds future gas compositions with daily indexed consideration under the
+ordinary floating-Side contract; physical and cash dependencies remain independent.
+They report `gas_contractual_present_value`; gas-only scopes and mixed portfolios can
 run immediate and retained risk without a gas product exclusion. Migration 0165
 adds the read-only worker policies needed to load those programs under the same
 history, current-authority and lease checks. Started delivery and missing inputs
@@ -305,8 +312,8 @@ Availability describes readable booking identity, not successful valuation.
 Selection occurs before terms, required-source checks, market preparation and
 PV, including unvalued-position retries. Every selected trade contributes all
 its held bindings or explicit valuation exclusions; a missing trade cannot
-silently disappear. Futures, swaps/heat-rate, PPAs, physical gas/crude and futures
-options share this selection contract. Factors still come from the selected
+silently disappear. Futures, swaps/heat-rate, PPAs, physical gas/crude/LNG and
+futures options share this selection contract. Factors still come from the selected
 instruments' declared shared dependencies, with no browser financial logic.
 
 The request, retained frame scope and completed report capture the same trade
@@ -388,11 +395,15 @@ explicit failed job, so lease recovery cannot repeatedly compute it forever.
 ## Scope and verification
 
 The interactive and retained consumers include futures, financial and heat-rate
-swaps, qualified PPAs, and fixed contractual crude and gas holdings across exact
-primary and supplemental market revisions. They preserve the distinct native
+swaps, qualified PPAs, fixed-volume crude holdings, gas compositions with fixed or
+qualified indexed consideration, the bounded
+[LNG cargo](physical-lng.md), and [listed American futures options](futures-options.md)
+across exact primary and supplemental market revisions. They preserve the distinct native
 valuation measures, including futures execution P&L/open sensitivity and swap PV
-under fixed rate inputs. Full futures settlement PV, variation-margin transitions and executable
-options remain work. The generic valuation contract does not imply that every
+under fixed rate inputs. Options require the explicit tree, calibration and
+held-volatility policies described in their contract. Full futures settlement PV,
+variation-margin transitions and broader option products remain work.
+The generic valuation contract does not imply that every
 instrument type has an implemented pricer or persisted booking adapter. Managed
 checks exercise common instrument PV, nonlinear scenarios and independent
 repricing oracles; these do not establish production capacity.
@@ -418,8 +429,11 @@ shock follows its weighted edges; a child-output offset changes that coordinate
 with upstream inputs held constant. These axes answer different questions and
 must not be summed as independent exposures. Synthetic integration checks book
 a two-parent combination and verify independent parent/root deltas, nested
-stresses, base isolation and exact retained-worker parity. Historical resampling,
-volatility/correlation and financial throughput qualification remain work.
+stresses, base isolation and exact retained-worker parity. Retained aligned
+history, covariance diagnostics and full-PV historical/Monte Carlo risk are
+implemented under the separate [statistical contracts](risk-factor-history.md).
+Cross-run sample reuse, stochastic volatility/correlation shocks and financial
+throughput qualification remain work.
 
 
 ## Shared automated-close pricing

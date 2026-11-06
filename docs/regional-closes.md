@@ -1,17 +1,17 @@
 # Regional closes
 
-Status: D334, implemented locally and verified by the checks under
-[Verification](#verification); not yet published or deployed. The owner decided
-the points listed below; calls marked *design call* await owner review. It
+Status: D334, implemented in the repository and verified by the checks under
+[Verification](#verification). Hosted activation requires separate qualification.
+The owner decided the points listed below; calls marked *design call* await owner review. It
 refines D162 and D219 where they allow several selectable closes on one day.
 Examples are synthetic.
 
 ## Why
 
 A deployment can span regions. Desks in London mark their end of day at London
-time; desks in New York mark theirs hours later. Today every recorded close is
-one more selectable frame: several closes on a day all stay selectable, and the
-business day is only the UTC date of the close instant. Two problems follow:
+time; desks in New York mark theirs hours later. Before D334, every recorded close
+was another selectable frame: several closes on a day stayed selectable, and the
+business day was only the UTC date of the close instant. Two problems followed:
 
 - With one global "latest close wins" rule, a New York close would silently
   replace London's sign-off, and London books would revalue at New York prices
@@ -229,13 +229,15 @@ the context's cutoff.
 ### Saved results
 
 Risk jobs, close reports, bookings and other saved results keep the exact close
-they used, as today. Their reads report `replaced: true` and the close now in
-force when that close has since been replaced. Rerunning is an explicit action
-at the close in force; nothing reruns automatically.
+they used. Pilot close report reads expose `replaced: true` and the close now in
+force when their original close has since been replaced. Portfolio risk job views
+do not yet expose replacement status. Rerunning is an explicit action at the close
+in force; nothing reruns automatically.
 
 - *Design call:* work admitted before its close was replaced (for example a
-  queued close-risk job) is not new work. It runs on its exact close and reports
-  `replaced`. Only admission checks `close_replaced`.
+  queued close-risk job) is not new work and retains its exact close. Only
+  admission checks `close_replaced`. Replacement disclosure and the historical
+  worker limitations below remain separate implementation work.
 
 ### Several prices on one day
 
@@ -345,4 +347,5 @@ Implementation calls, recorded for review:
 - The standard HTTP suite, rewritten for seeded session closes.
 - Web unit tests for the session offer; the `--market-dates` browser suite for
   the header.
-- Adversarial review (temporal behavior and authorization) before publication.
+- Independent adversarial review is required for changes to temporal behavior and
+  authorization before publication.

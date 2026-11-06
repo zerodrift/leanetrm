@@ -4,8 +4,13 @@ Status: baseline approved for implementation and publication on 2026-10-16.
 The bounded futures booking workflow retains explicit `Unprocessed` settlement
 state and latest-head booking amendments with immutable versioned events. Futures
 settlement transitions and a generic event executor remain unimplemented. Enrolled
-financial swaps have a bounded [settlement and P&L lifecycle](swap-settlement.md);
+financial swaps have a bounded [settlement and P&L lifecycle](swap-settlement.md).
+Listed American futures options support their qualified [exercise, assignment and
+expiry operations](futures-options.md). Physical gas has [manual delivery
+operations](gas-delivery-operations.md) and [final daily cash determinations](gas-cash-billing.md);
 physical crude has bounded [delivery and cash operations](physical-crude-operations.md).
+LNG currently supports [booking and pre-delivery valuation](physical-lng.md),
+without operational actuals or settlement.
 The broader contracts below complement [the architecture](architecture.md) and
 [delivery plan](plan.md).
 
@@ -292,9 +297,10 @@ booking correction, required fixing observations and due/outstanding-obligation
 state for its supported cashflows. Exact enabled actions must be listed and
 tested rather than inferred from a generic status editor.
 
-Define the event framework and extension contracts now. Add actual option
-exercise, richer physical lifecycles, termination, novation and settlement
-execution only with their product rules and acceptance tests.
+The implemented option, swap, gas and crude workflows above have product-specific
+rules and acceptance tests. A general event executor, additional option products,
+richer physical lifecycles, termination and novation remain later scope; each new
+transition requires its own explicit rules and acceptance tests.
 
 Required tests include duplicate/uncertain requests, conflicting amendments,
 backdating, a due event racing an amendment, stable occurrence IDs across rebuilds,

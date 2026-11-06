@@ -357,8 +357,10 @@ installation or private configuration is modified by these sources.
    explicit carried-forward operating baselines; fresh provisioning calls
    `security.initialize_operating_policies` before issuing its invitation.
    Missing policy refuses. A new API process fences/interrupts its predecessor's
-   work through the existing worker-generation contract. Only `turns_v12` admits
-   new assistant turns; old request receipts remain replayable.
+   work through the existing worker-generation contract. D302 introduced
+   `turns_v12` admission; subsequent reviewed migrations advance the required
+   runtime to [the current workspace contract](assistant-workspace.md),
+   `turns_v20`. Old request receipts remain replayable.
 4. Render a private gateway file using the same target `host.json` and a private
    JSON file containing the seven operator placeholders:
    `python3 tools/gateway_configuration.py --host /private/host.json --values /private/gateway-values.json --output /private/nginx.candidate.conf`.

@@ -221,7 +221,7 @@ complete held-factor history, ordinary native PV finite differences and one
 retained statistical job. Reports include signed book/factor contributions and
 correlation diagnostics; currencies and valuation measures remain separate.
 
-The authorized next [physical LNG cargo](physical-lng.md) slice retains separate
+The implemented [physical LNG cargo](physical-lng.md) slice retains separate
 loading/discharge references, explicit discharge-energy/conversion terms,
 backend-derived valuation and saved Incoterms edition/rule/named place. Its
 local qualification covers native booking, retained trading views and shared
@@ -298,7 +298,28 @@ and configured per-unit tariffs are wired into that bounded profile. The
 Gas delivery setup editor saves immutable drafts, previews resolution/coverage and
 publishes versioned economic settings; saved trades retain their setup pins. Usage fees
 have independent pay/receive directions. The fixed-quantity composition ticket now adds independently directed physical
-and cash/fee sides, exact fuel links and retained per-member quantity ratios. The [daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily revisions, retained-grid reconciliation and explicit quantity-input selection. The [performance checkpoint](gas-quantity-performance.md) adds bounded batch selection and demand-loaded history. The common Blotter now includes gas positions, exact retained terms and contractual PV alongside futures, swaps and PPAs. New trade uses one product panel and each product’s existing authorized booking operations; physical gas is entered and opened in the description-driven [deal ticket](deal-ticket.md) (D278–D281), which replaced the gas single-point and composition editors. Daily gas quantities are recorded in the booked ticket and remain separate operational revisions. Interactive and retained portfolio risk include fixed contractual gas through the common PV and shared market-factor operations (D287). Physical completion, operational PV, settlement and automated-close gas admission remain work.
+and cash/fee sides, exact fuel links and retained per-member quantity ratios. The
+[daily quantity workflow](physical-gas-daily-quantities.md) adds trade-owned daily
+revisions, retained-grid reconciliation and explicit quantity-input selection. The
+[performance checkpoint](gas-quantity-performance.md) adds bounded batch selection
+and demand-loaded history. The common Blotter now includes gas positions, exact
+retained terms and contractual PV alongside futures, swaps and PPAs. New trade uses
+one product panel and each product’s existing authorized booking operations;
+physical gas is entered and opened in the description-driven [deal
+ticket](deal-ticket.md) (D278–D281), which replaced the gas single-point and
+composition editors. Daily gas quantities are recorded in **Operations → Physical
+operations** and remain separate operational revisions; the booked ticket and Side
+schedules retain contractual inspection. Interactive and retained portfolio risk
+include supported contractual gas through the common PV and shared market-factor
+operations (D287). Manual nominations/acknowledgments, schedule adoption, statements
+and imbalance agreements are now implemented in [gas
+operations](gas-delivery-operations.md). Bounded [final daily cash
+determinations](gas-cash-billing.md) support fixed-price delivery components and
+corrections. Broader physical completion, operational PV, invoicing/payment
+execution and automated-close gas admission remain work. D347–D350 subsequently add multi-month
+composition booking, future replacement amendments and independent indexed
+consideration through the existing FloatingSide. These preserve contractual net
+MTM and do not admit started-delivery cash lifecycle operations.
 
 D229 integrates PPA bindings into the common blotter and interactive/queued
 portfolio risk, with an explicit pending-meter policy and distinct value measure.
@@ -2184,9 +2205,16 @@ through all lazy/paged reads.
 
 The baseline requires a bitemporal historical environment: business/effective
 time and a knowledge cutoff. A user can select a past context and see trades,
-market information and all their dependencies under that same selection. The
-server resolves the requested coordinates into an immutable context used by UI,
-API, agents, schedules, PV/risk, background jobs and exports.
+market information and their dependencies under that selection. D334 is an
+explicit exception: the latest recorded close for the selected regional session
+and business day is in force even when its close/pins were recorded after the
+cutoff. This condition is disclosed; reference/definition visibility and other
+facts retain the cutoff. Saved results keep their exact close; pilot close reports
+disclose replacement, while portfolio risk job views do not yet expose that status.
+See [regional closes](regional-closes.md#historical-views-always-latest) for this
+policy and the remaining worker limitations.
+The server resolves the requested coordinates into an immutable context used by
+UI, API, agents, schedules, PV/risk, background jobs and exports.
 
 Use `effective_from` / `effective_to` and `known_from` / `known_to` for retained
 half-open intervals. Context point selectors are `effective_at` and `known_at`.

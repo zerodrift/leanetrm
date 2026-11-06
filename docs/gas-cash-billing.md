@@ -97,9 +97,11 @@ positions, pages, profile and context changes. Unknown outcomes use the Operatio
 actor-owned retained command and recovery card for status or exact retry,
 including widget remounts and unavailable browser storage during the same visit. The UI renders managed results and performs no cash calculations.
 
-The assistant operation catalog exposes these same native reads and approval-only
-commands on the Blotter. Migration 0205 and `turns_v18` gate new admission/tool
-execution together. Retained earlier requests remain replayable; deployment and
+The assistant exposes these same native reads and approval-only commands in
+Physical operations, reusing their canonical Blotter operation identities.
+Migration 0205 and `turns_v18` introduced the billing admission boundary;
+[the current workspace runtime](assistant-workspace.md) includes its later page
+aliases. Retained earlier requests remain replayable; deployment and
 provider/tool consent remain separate from local qualification.
 
 ## Qualification and remaining work

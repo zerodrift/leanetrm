@@ -22,8 +22,9 @@ separate producer; a selectable fitted-volatility lookup/provider is not admitte
 by this change, and no expiry interpolation or volatility extrapolation is added.
 
 `AssetCurve` evaluates typed prices over native curve members or published recipe
-outputs. Exact contract identity, a date inside a delivery period, and a point
-sample date are distinct requests. Contract queries preserve the contract key;
+outputs. Exact contract identity, a date inside a delivery period, a whole
+delivery interval and a point sample date are distinct requests. Contract queries
+preserve the contract key;
 point queries introduce no market contract or delivery period. `AssetCurveValue`
 retains exact rational price units, observation lineage, scenario and resolved
 context. A prepared batch binds an exact scenario with `WithScenario` and uses the same
@@ -40,6 +41,12 @@ requires unique sample dates; historical rows must first be reduced explicitly.
 Previous/next and linear methods require two bounding points within the selected
 span. They never extend the end points. Monthly delivery prices retain bucket
 semantics unless a point-date policy is explicitly selected.
+
+`AssetDeliveryPeriod` selects one source interval covering the entire requested
+half-open period under the explicit containing-delivery policy. A gap, overlap or
+request spanning several source intervals refuses; the query does not average
+across them. This supports mixed daily/monthly price grids without treating a
+point sample as a delivery price.
 
 Linear interpolation compiles integer day weights into the existing exact
 connected weighted mean. Price evaluation, upstream shocks, computed-output
@@ -75,6 +82,24 @@ publication, including publication attempted outside the application. It extends
 the existing immutable recipe tables and guards without changing old graphs.
 Read, write, publication and worker permissions use the existing operations.
 
+D332 / migration 0201 adds the persisted
+`containing_delivery_interval_v1` binding and `curve_price_lookup` schedule
+operation. Supported indexed swaps and the physical gas ticket retain the exact
+published curve, requested interval and selected source evidence. Their normal
+connected valuation and retained-worker paths consume those relationships; see
+[the physical gas example](indexed-physical-gas-example.md). This future-delivery
+consumer does not add indexed-purchase cash settlement or broader profile rules.
+
+D350 adds independent daily indexed consideration to future gas compositions.
+Physical and payment forecasts use separately selected curve bindings through
+the same lookup/source machinery. Exact daily index contracts and fixing
+definitions, an explicit spread, physical quantity allocations and next-month
+UTC payment terms feed ordinary Instrument/Side PV and retained scenario risk.
+Multi-month booking retains those native periods without inferred monthly
+allocation of whole-term fixed cash. The selected measure remains contractual
+net MTM; started-delivery indexed cash, paid/unpaid cash state and payment
+execution are outside this profile.
+
 ## Rate curves
 
 `RatesCurve` evaluates a typed `DiscountFactor` by maturity, retaining currency,
@@ -89,8 +114,9 @@ Rate construction conventions remain on the exact rate definition. The explicit
 interpolation policy remains on the existing versioned currency-discount mapping;
 this increment does not migrate that persisted contract. Asset recipe operators
 remain price-valued. Rate bootstrap instruments, additional conventions, rate
-scenario coordinates, rate-valued custom recipes and interval/profile lookup are
-separate work.
+scenario coordinates, rate-valued custom recipes and rate interval/profile
+evaluation remain separate work. Whole-delivery price lookup is supported as
+described above.
 
 ## Verification
 

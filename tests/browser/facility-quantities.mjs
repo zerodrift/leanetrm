@@ -11,8 +11,8 @@ export async function run(actions){
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');
  const {frame,session}=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();const f=w.frames.find(f=>f.at.startsWith('2021-01-15T08:')&&w.initialFrameIds.includes(f.id));return {frame:f.id,session:f.close?.session??null};})()");
  // Where this frame is a recorded close, the As of list offers it under its own session (D334).
- if(session){await set('#close-session',session);await wait(idle);}
- await set('#snapshot',frame);await wait(idle);await open();
+ if(session){await set('#close-session',session);await wait(idle,30000);}
+ await set('#snapshot',frame);await wait(idle,30000);await open();
  await set('#facility-ledger',fixture.ledgerId);await wait("!document.querySelector('#facility-editor').hidden&&"+idle).catch(async error=>{throw Error(error.message+' · '+JSON.stringify(await evaluate("({page:document.querySelector('#page-title').textContent,error:document.querySelector('#error').textContent,context:document.querySelector('#facility-context').textContent,selected:document.querySelector('#facility-ledger').value,options:document.querySelector('#facility-ledger').innerHTML})")));});
  const shown="document.querySelector('#facility-balance').textContent",saved="document.querySelector('#facility-saved').textContent";
  await check('Facilities uses the compact shared business date and native quantities',

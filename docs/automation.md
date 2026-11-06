@@ -117,6 +117,13 @@ worker installation remain separate reviewed steps.
 
 ## Page assistant reads
 
+The [workspace assistant](assistant-workspace.md) additionally discovers native
+job reads and proposes job creation, update/control, collection schedule changes
+and typed infrastructure commands. Each command requires separate human approval
+and its ordinary handler's current ownership, management and operator authority.
+These operational questions need no financial frame. The dedicated read tool
+below retains its narrower owner-only scope.
+
 The page assistant reads Jobs & Infrastructure under `ReadJobs` (D239, D241,
 [devops-assistant.md](devops-assistant.md)). Migration 0119 adds
 `automation.owned_jobs(page)` and `automation.owned_job_history(job, before)`, which
@@ -340,7 +347,7 @@ Shared sides may retain different per-instrument discount providers. Discount
 inputs remain fixed during commodity-quote shocks. The selected
 `exact_rational_portfolio_repricing_v1` policy stores exact rational money and
 risk derivatives; it does not silently round an unrepresentable decimal result.
-The legacy interactive futures operation retains its separate exact18 contract.
+Interactive futures draft risk also invokes the shared exact repricing engine.
 The portfolio risk API and retained risk queue use this common valuation adapter
 with exact rational holding or book detail and explicit supplemental market pins.
 

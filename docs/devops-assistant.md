@@ -1,5 +1,18 @@
 # Page assistant: Jobs & Infrastructure (DevOps)
 
+Current behavior also includes the [workspace operation catalog](assistant-workspace.md).
+It admits existing job creation, update/control, collection schedule changes and
+typed infrastructure operations as proposals requiring separate human approval.
+Those operations retain the native handler's ownership, management and
+installation-operator checks. Operational questions need no financial frame.
+The owner-only `Read jobs` tool remains available separately; its scope does not
+describe the broader workspace catalog.
+
+The following is the original staged design. Its dedicated `jobs.prepare_v1`
+workflow remains unimplemented; approved workspace proposals provide the current
+command path. The original As of prerequisite below is superseded by operational
+turn admission. Owner-only restrictions remain specific to the dedicated readers.
+
 Status: the owner approved this design on 2026-10-26, including pause and resume and
 the owner-only scope ([decisions.md](decisions.md) D239–D244). Step 1 of §9 is
 implemented: the decisions, `ReadJobs`, Read jobs (§3) and its page report and

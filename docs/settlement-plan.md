@@ -590,5 +590,7 @@ global S1/S2 or their gas dependencies. Approvals, accepted cash, financial clai
 obligations, payments and settlement workers for this broader physical/PPA plan
 remain unimplemented. Financial swaps separately implement the bounded
 [D215–D216 settlement lifecycle](swap-settlement.md); crude has its own bounded
-[delivery-to-cash operations](physical-crude-operations.md). Neither completes
-this broader plan.
+[delivery-to-cash operations](physical-crude-operations.md). Gas separately adds
+[manual delivery operations](gas-delivery-operations.md) and fixed-price
+[final daily cash determinations/corrections](gas-cash-billing.md), without
+invoicing or payment execution. These consumers do not complete this broader plan.
