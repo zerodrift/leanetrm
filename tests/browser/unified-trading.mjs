@@ -1,19 +1,19 @@
 import {workspaceProbeScript} from './workspace-probe.mjs';
 import {newTrade,closeNewTrade} from './new-trade.mjs';
 import {bookedTicket,gasTicket,openBookedSchedules,q} from './gas-ticket.mjs';
+import {selectDeliveryFrame,openPhysicalTrade,openGasDelivery} from './physical-operations-grid.mjs';
 import {copyFile,mkdtemp} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
 
 export async function run(a){
- const {command,evaluate,wait,click,set,persona,check,idle,url,shot}=a;
+ const {command,evaluate,wait,click,set,submit,persona,check,idle,url,shot}=a;
  const artifacts=await mkdtemp(join(tmpdir(),'openetrm-unified-trading-'));console.log('VISUAL_ARTIFACTS='+artifacts);
  const capture=async name=>{await shot(name);await copyFile(join(dirname(process.argv[2]),name+'.png'),join(artifacts,name+'.png'));};
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle);await persona('trader');
  await evaluate(workspaceProbeScript+`{const original=window.fetch;window.tradeReads=[];window.fetch=window.__workspaceProbe(original,async(input,init,original)=>{const args=[input,init];const r=await original(...args);if(String(args[0]).endsWith('/trading/workspace')&&r.ok)window.tradeReads.push(await r.clone().json());return r;});}`);
- const frame=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18')).id;})()`);
- await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
+ await selectDeliveryFrame(a,'2020-12-18');await click('#nav-futures');
  await check('one blotter includes futures, financial swaps, heat rates, PPAs and physical gas',`['future','financial_swap','heat_rate','ppa','physical_gas'].every(t=>window.tradeReads.at(-1)?.blotter.holdings.some(h=>h.instrumentType===t))`,`({types:window.tradeReads.at(-1)?.blotter.holdings.map(h=>h.instrumentType),error:document.querySelector('#error').textContent})`);
  await check('gas has an explicit contractual PV measure in the common workspace',`[...document.querySelectorAll('#blotter-strip .strip-item .strip-label')].some(l=>l.textContent==='Gas contractual PV')`);
  await capture('unified-blotter');
@@ -50,14 +50,26 @@ export async function run(a){
  await openBookedSchedules(a);
  await opened.until(`!!document.querySelector(${q(booked)})&&`+opened.current(booked));
  await check('confirmed booking opens common retained side schedules exactly once',`window.bookRequests.length===1&&window.tradeReads.at(-1).blotter.holdings.filter(h=>h.tradeId===window.bookReceipt.tradeId).length===1&&document.querySelector('#position-details-tabs-schedules').getAttribute('aria-selected')==='true'`, `({error:document.querySelector('#error').textContent,details:document.querySelector('#position-details').textContent.slice(0,300)})`);
- // A day's quantity is recorded from the booked physical side's tab, without changing its contract.
+ // Side schedules inspect the immutable contract; manual nominations belong in Operations.
  await set(`${booked} .ticket-level`,'day');await click(`${booked} .ticket-tab[data-tab="physical-1"]`);
- const cell=`${booked} .tabulator-row[data-row-key="2021-01-05"] .ticket-cell-input`,record=`${booked} .ticket-record`;
- await wait(`!!document.querySelector(${q(cell)})`);await set(cell,'990');await wait(`!!document.querySelector(${q(record)})`);
- for(const [id,value] of [['kind','nominated'],['status','provisional'],['evidence','Daily nomination']])await set(`${record} [data-field="${id}"] .ticket-control`,value);
- await click(`${record} .ticket-record-send`);
- await opened.until(`${opened.row('2021-01-05',booked)}.includes('Nominated')&&!document.querySelector(${q(record)})`);
- await check('an operational day record keeps the contractual amount',`[...document.querySelectorAll(${q(booked+' .tabulator-row[data-row-key="2021-01-05"] .grid-source')})].map(t=>t.textContent).includes('Contract')`);
+ await check('booked Side schedules keep the original contract read only',`!document.querySelector(${q(booked+' .ticket-cell-input')})&&${opened.row('2021-01-05',booked)}.includes('1,000')`);
+ const tradeId=await evaluate('window.bookReceipt.tradeId');
+ await click('#nav-physical-operations');await selectDeliveryFrame(a,'2021-01-15T08:');await openPhysicalTrade(a,tradeId);await click('#physical-operations-tabs-delivery');
+ const root='.gas-operations',field=name=>root+' [name="'+name+'"]';
+ const selectDay=()=>openGasDelivery(a,'2021-01-05','physical-1');
+ const record=async(kind,values)=>{
+  await click(root+' [data-operation='+kind+']');
+  for(const [name,value] of values)await set(field(name),value);
+  await submit(root+' [data-ops=editor] form');
+  await wait(`!document.querySelector('${root} [data-ops=confirm]').hidden||document.querySelector('${root} [data-ops=message]').textContent.includes('Error')`);
+  if(await evaluate(`document.querySelector('${root} [data-ops=confirm]').hidden`))throw Error(await evaluate(`document.querySelector('${root} [data-ops=message]').textContent`));
+  await click(root+' [data-ops=confirm]');await selectDay();
+ };
+ await selectDay();
+ await record('service',[['holderRole','legal_entity'],['externalReference','synthetic-unified-service'],['validFrom','2021-01-01'],['validTo','2021-02-01'],['active','true'],['statementPolicy','final_statement_balance_v1'],['termsReference','Synthetic manual service agreement'],['evidence','Synthetic reviewed service scope']]);
+ await record('nomination',[['externalReference','synthetic-unified-nomination'],['quantity','990'],['submittedAt','2021-01-06T00:00:00'],['channel','manual_import'],['reason','Synthetic agreed retro nomination'],['evidence','Synthetic external nomination record']]);
+ const dayRow=`[...document.querySelectorAll('${root} [data-ops=rows] .tabulator-row')].find(r=>r.dataset.rowKey.endsWith(':2021-01-05')&&r.querySelector('[tabulator-field=c1]').textContent==='physical-1')`;
+ await check('a recorded nomination keeps the 1,000 contract and selects the provisional 990 operational quantity',`(()=>{const r=${dayRow};return r.querySelector('[tabulator-field=c3]').textContent==='1000'&&r.querySelector('[tabulator-field=c4]').textContent==='990'&&r.querySelector('[tabulator-field=c8]').textContent==='990'&&r.querySelector('[tabulator-field=c9]').textContent==='Nominated'&&r.querySelector('[tabulator-field=c10]').textContent==='Provisional';})()`,`${dayRow}?.textContent`);
  await check('all integrated forms fit the desktop viewport',`document.documentElement.scrollWidth<=innerWidth`);
  await capture('unified-trading');
 }

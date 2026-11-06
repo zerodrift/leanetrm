@@ -139,7 +139,7 @@ def main():
     if args.ppa_http_benchmark:
         args.ppa_bookings_check = True
     if args.unified_trading_check:
-        args.demo_instruments_check=True;args.physical_gas_check=True
+        args.demo_instruments_check=True;args.physical_gas_check=True;args.with_gas_quantity_dates=True
     if args.crude_lifecycle_check or args.crude_setup_check: args.physical_crude_check=True
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
     if args.with_gas_operations_demo: args.with_gas_basis_demo=True
@@ -695,6 +695,10 @@ def main():
                 from check_gas_composition import run_checks as check_composed
                 check_composed(url,query,manifest,run_worker=run_demo_worker)
                 if args.browser_check:
+                    # This synthetic operator explicitly holds both manual scheduling capabilities.
+                    principal=query("SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='trader';")
+                    for role in ['gas_operator','gas_service_admin']:
+                        query(f"INSERT INTO security.role_grants SELECT '{uuid4()}','{principal}',id,'{manifest['tenantId']}','{manifest['workspaceId']}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '1 hour',false FROM security.roles WHERE code='{role}';")
                     target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--unified-trading'],cwd=ROOT,env=env,check=True,timeout=240)
             elif args.lng_cargo_check:
