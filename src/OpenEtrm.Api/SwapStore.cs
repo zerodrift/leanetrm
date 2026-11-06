@@ -234,7 +234,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
  public Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)=>Catalog(connection,data,frame,ct,null);
  private async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct,SwapWriteRequest? retained)
  {
-  var indices=new List<object>();var indexOffered=false;
+  var indices=new List<object>();
   var markets=new List<(PreviewData Data,InputFrame Frame)>{(data,frame)};markets.AddRange((await database.ReadSwapMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision!=data.DefinitionRevision));
   foreach(var market in markets)
   {
@@ -251,7 +251,6 @@ public sealed partial class SwapStore(PreviewDatabase database)
    var retainedIndex=retained?.DefinitionRevisionId==data.DefinitionRevision.RevisionId&&
     new[]{retained.Floating,retained.FirstFloating}.Concat(retained.Scheduled is {} scheduled?new[]{scheduled.First,scheduled.Second}.SelectMany(s=>s.Periods).Select(p=>p.Floating):[]).Any(side=>side?.Curve==curve.Text("code")&&side.Index==target.Text("index_a_code"));
    if(samplings.IsEmpty&&settlementIndices.Length==0&&!retainedIndex)continue;
-   indexOffered|=!samplings.IsEmpty||settlementIndices.Length>0;
    var ids=data.Definitions["curve_members"].Where(m=>m.Text("curve_code")==curve.Text("code")).Select(m=>m.Id("contract_id")).ToHashSet();
    var contracts=data.Contracts.Where(c=>ids.Contains(c.Key.Id)&&c.Kind==ContractKind.Forward&&c.DeliveryFrom.Day==1&&c.DeliveryFrom.Year<9999&&c.DeliveryFrom.AddMonths(1)==c.DeliveryTo).GroupBy(c=>(c.DeliveryFrom,c.DeliveryTo)).Where(g=>g.Count()==1&&(frame.At<g.Single().Expiry||FixingPublished(data,target.Text("index_a_code"),quote.Key,g.Single(),frame.At))).Select(g=>g.Single()).OrderBy(c=>c.DeliveryFrom).ToArray();
    var daily=data.Contracts.Where(c=>ids.Contains(c.Key.Id)&&c.Kind==ContractKind.Forward&&c.DeliveryTo.DayNumber-c.DeliveryFrom.DayNumber==1)
@@ -285,7 +284,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    powerQuantities=m.Data.References["quantity_specifications"].Where(q=>q.Text("unit_code")=="megawatt"&&q.Text("dimension_code")=="power").Select(q=>new{specification=new ReferenceKey(m.Data.ReferenceRevision,q.Text("code")),unit=m.Data.QuantityUnit(q.Text("code")),commodity=q.Text("commodity_code")}).ToArray(),
    clocks=m.Data.References["clock_rules"].Select(c=>new{reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),label=c.OptionalText("iana_zone")??c.Text("code")}).ToArray()}).ToArray();
   var contractObservationSources=markets.SelectMany(m=>ContractObservationSources(m.Data)).ToArray();
-  return new{books=await BookScope.Read(connection,manifest.CatalogId,ct),bookingActor=await TradeAnnotations.Actor(connection,manifest.CatalogId,ct),legalEntities=await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),counterparties=await TradeParties.Catalog(connection,manifest.CatalogId,false,ct),indices,priceSourceUnavailable=PriceSourceUnavailable(indexOffered,contractObservationSources.Length>0),referenceChoices,contractObservationSources,
+  return new{books=await BookScope.Read(connection,manifest.CatalogId,ct),bookingActor=await TradeAnnotations.Actor(connection,manifest.CatalogId,ct),legalEntities=await TradeParties.Catalog(connection,manifest.CatalogId,true,ct),counterparties=await TradeParties.Catalog(connection,manifest.CatalogId,false,ct),indices,priceSourceUnavailable=PriceSourceUnavailable(indices.Count>0,contractObservationSources.Length>0),referenceChoices,contractObservationSources,
    commodities=markets.SelectMany(m=>m.Data.References["commodities"]).DistinctBy(c=>c.Text("code")).Select(c=>new{code=c.Text("code"),name=c.Text("name")}),
    paymentCalendars=markets.SelectMany(m=>m.Data.References["calendars"].Select(c=>new{definitionRevisionId=m.Data.DefinitionRevision.RevisionId,code=c.Text("code"),reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),from=c.Text("coverage_from"),to=c.Text("coverage_to")})),
    factorOptions=new{swapImplementation=CrossCommodityScheduledSwap.Implementation,factorImplementation=QuantityFactor.Implementation,unitConversionImplementation=UnitConverter.Implementation,quantityBasis="factor_of_first_side_v1"},
@@ -294,8 +293,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
     clocks=markets.SelectMany(m=>m.Data.References["clock_rules"].Select(c=>new{definitionRevisionId=m.Data.DefinitionRevision.RevisionId,reference=new ReferenceKey(m.Data.ReferenceRevision,c.Text("code")),label=c.OptionalText("iana_zone")??c.Text("code")}))},
    sideStructures=SwapPaymentOptions.SideStructures,parRateOptions=new{implementation=FinancialSwapValuation.ParRatePolicy,initialDecimalPlaces=6,tieRule="to_even"},entryTemplate=SwapPaymentOptions.EntryTemplate,paymentOptions=SwapPaymentOptions.Catalog,convention=Convention};
  }
- // Why a new swap can price no floating index here, or null when one can: the ticket explains the market instead of offering empty choices.
- public static object? PriceSourceUnavailable(bool indexOffered,bool contractScheduleOffered)=>indexOffered?null:contractScheduleOffered?
+ // Why the ticket lists no floating index here, or null when it lists one (a retained swap's own index included): the ticket explains the market instead of offering empty choices.
+ public static object? PriceSourceUnavailable(bool indexListed,bool contractScheduleOffered)=>indexListed?null:contractScheduleOffered?
   new{code="swap_index_unavailable",message="This market has no swap-eligible index. Its published contract schedules price swaps in the scheduled swap ticket."}:
   new{code="swap_price_source_unavailable",message="This market has no swap-eligible index or published contract schedule, so a swap has no floating price to choose."};
  private static SwapPaymentInput? StoredPayment(JsonElement row,string key)
