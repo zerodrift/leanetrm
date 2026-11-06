@@ -65,7 +65,9 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         owners[turn]=new(session,session.Profile??throw new PreviewDeniedException(),user.Clone());
     }
 
-    RouteEndpoint Endpoint(AssistantOperation operation)=>endpoints().OfType<RouteEndpoint>().SingleOrDefault(e=>
+    RouteEndpoint Endpoint(AssistantOperation operation)=>Endpoint(operation,endpoints().OfType<RouteEndpoint>());
+
+    RouteEndpoint Endpoint(AssistantOperation operation,IEnumerable<RouteEndpoint> available)=>available.SingleOrDefault(e=>
         e.RoutePattern.RawText==prefix+"/"+operation.Path&&e.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(operation.Method)==true)
         ??throw new ToolRefusal("operation_unavailable");
 
@@ -207,17 +209,30 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
     public async Task<JsonObject> Discover(TurnReads turn,string page,string? id,CancellationToken ct)
     {
         var owner=await Reader(turn,ct);var permissions=await Permissions(owner,turn.ReadLimit,ct);
+        var operations=DiscoverOperations(page,id,permissions,ct);
+        return new(){["operations"]=operations,["context"]=JsonSerializer.SerializeToNode(await Certificate(turn,ct),JsonSerializerOptions.Web),["frameId"]=turn.Pin.Frame?.Id.ToString(),
+            ["inputFormat"]="inputJson is an object with body (the exact request, or null) and parameters (string query/route values). Read operations use this turn's retained context. Proposals must state current working knowledge. Request schemas and ordinary business validation are authoritative. All commands require a separate user approval."};
+    }
+
+    internal JsonArray DiscoverOperations(string page,string? id,string[] permissions,CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var visible=AssistantOperations.ForPage(page).Where(o=>(id is null||o.Id==id)&&o.Permissions.All(permissions.Contains)).ToArray();
         var operations=new JsonArray();
-        foreach(var operation in AssistantOperations.ForPage(page).Where(o=>(id is null||o.Id==id)&&o.Permissions.All(permissions.Contains)))
+        if(visible.Length==0)return operations;
+        // Grouped endpoint sources rebuild their route metadata when enumerated. Resolve the catalog against one
+        // read-local snapshot, never once per operation; current authority and the retained context are not cached.
+        var available=endpoints().OfType<RouteEndpoint>().ToArray();
+        foreach(var operation in visible)
         {
-            RouteEndpoint endpoint;try{endpoint=Endpoint(operation);}catch(ToolRefusal){continue;}
+            ct.ThrowIfCancellationRequested();
+            RouteEndpoint endpoint;try{endpoint=Endpoint(operation,available);}catch(ToolRefusal){continue;}
             var item=new JsonObject{["id"]=operation.Id,["page"]=operation.Page,["effect"]=operation.RequiresApproval?"requires_user_approval":"read_or_preview",
                 ["currentOnly"]=operation.CurrentOnly,["permissions"]=JsonSerializer.SerializeToNode(operation.Permissions)};
             if(id is not null)item["input"]=Contract(operation,endpoint);
             operations.Add(item);
         }
-        return new(){["operations"]=operations,["context"]=JsonSerializer.SerializeToNode(await Certificate(turn,ct),JsonSerializerOptions.Web),["frameId"]=turn.Pin.Frame?.Id.ToString(),
-            ["inputFormat"]="inputJson is an object with body (the exact request, or null) and parameters (string query/route values). Read operations use this turn's retained context. Proposals must state current working knowledge. Request schemas and ordinary business validation are authoritative. All commands require a separate user approval."};
+        return operations;
     }
 
     public async Task<(JsonObject Value,ImmutableArray<ReadAccess> Access)> Read(TurnReads turn,string id,JsonElement input,CancellationToken ct)
