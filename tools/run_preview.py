@@ -556,7 +556,8 @@ def main():
             manifest['swapMarkets'][-1]['frames']=[f for f in reference_demo['frames'] if f['at']!=reference_demo['omittedAt']]
         # Only recorded closes are closes (D334): the built-in frames are recorded as synthetic session closes.
         from seed_session_closes import seed as seed_session_closes
-        seed_session_closes(query,manifest)
+        # The aligned-history check reads a correction through a working frame of its day, which a close's exact pins never take.
+        seed_session_closes(query,manifest,working=('2020-12-18',) if args.factor_history_check else ())
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         # Freeze assets for this owned instance; a later web build must not change
         # another running preview's presentation while it is being used.

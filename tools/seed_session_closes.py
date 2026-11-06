@@ -12,8 +12,9 @@ from uuid import uuid4
 CALENDAR = 'test_utc_every_day'
 
 
-def seed(query, manifest):
-    """Insert the sessions and closes; return the manifest frames, each seeded one naming its close."""
+def seed(query, manifest, working=()):
+    """Insert the sessions and closes; return the manifest frames, each seeded one naming its close. Frames at the instant
+    prefixes in `working` stay working snapshots, for a check that needs one where a close would otherwise be."""
     catalog, revision = manifest['catalogId'], manifest['revisionId']
     reference = f"'{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}'"
     owner = query(f"SELECT principal_id FROM security.workspace_memberships WHERE(tenant_id,workspace_id,login_handle)=('{manifest['tenantId']}','{manifest['workspaceId']}','approver');")
@@ -24,7 +25,7 @@ def seed(query, manifest):
     for frame in sorted(manifest['frames'], key=lambda f: f['at']):
         # A session cuts off on a whole minute; a frame between minutes stays a working snapshot. So does one that selects a
         # curve with no remaining contracts, which a close records no members for.
-        if (frame.get('ppaBundle') or frame.get('swapMarketSelections') or not frame['observationIds'] or not frame['curveContracts']
+        if (frame['at'].startswith(tuple(working)) or frame.get('ppaBundle') or frame.get('swapMarketSelections') or not frame['observationIds'] or not frame['curveContracts']
                 or not all(frame['curveContracts'].values()) or frame['at'][16:19] != ':00' or frame['at'][19:20] not in ('', 'Z', '+')):
             continue
         cutoff, day, curves = frame['at'][11:16], frame['at'][:10], tuple(sorted(frame['curveContracts']))
