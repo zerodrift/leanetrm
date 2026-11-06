@@ -190,6 +190,11 @@ due business day.
   has not chosen one: their pages show the session choice and no prices. If the
   remembered session is no longer published or visible to them, the page says
   so and shows the session choice; it never moves to another session.
+- **Opening another session's close names that session (owner decision).** When
+  an assistant answer's Go, or any other move, targets a close of a session other
+  than the chosen one, the page refuses and names the session the close belongs
+  to. The person chooses that session; nothing changes their remembered choice
+  as a side effect.
 
 ### Working snapshots (owner decision)
 

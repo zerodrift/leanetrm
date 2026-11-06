@@ -19,7 +19,7 @@ import {setupPpa} from './ppa-editor.js';
 import {setupCustomCurves} from './custom-curves-view.js';
 import {LiveUpdates,liveContextUpdate,type LiveSelection,type LiveContextUpdate,type LiveStatus} from './live-context.js';
 import {setupMarketCalendar,type MarketDates} from './market-calendar.js';
-import {sessionOffer} from './close-sessions.js';
+import {otherSessionRefusal,sessionOffer} from './close-sessions.js';
 import {newestDate,newestClose,closeBadge,latestInstant,type CloseBadge,type CloseChoice} from './latest-close.js';
 import {setupPowerImports} from './power-imports-view.js';
 import {setupIntervalSeries} from './interval-series-view.js';
@@ -97,7 +97,7 @@ let contractOpener:HTMLElement|undefined,contract='',historyPolicy:RevisionPolic
 let overlayCatalog:{scope:string;catalog:OverlayCatalog}|undefined;
 let definingCurve=false,contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
 // The person's remembered close session (D328); null until they choose one, and nothing chooses it for them.
-let closeSession:string|null=null;
+let closeSession:string|null=null,closeSessionNames:ReadonlyMap<string,string>=new Map();
 let navigation:MarketNavigation|undefined,marketGeneration=0;
 // The curve shapes the market board and the library draw, read at one close for one directory and account (markets-desk.md).
 let boardShapes:{owner:MarketNavigation;scope:string;shapes:ReadonlyMap<string,CurveShape|string>}|undefined;
@@ -829,7 +829,7 @@ async function loadWorkspace(){
 // and the person chooses again; no other session is put in its place.
 async function loadCloseSessions(){
  const [catalog,choice]=await Promise.all([api<{sessions:{code:string;name:string;state:string}[]}>('close-sessions/catalog'),api<{session:string|null}>('close-sessions/choice')]);
- const published=new Map(catalog.sessions.filter(s=>s.state==='published').map(s=>[s.code,s.name]));
+ const published=new Map(catalog.sessions.filter(s=>s.state==='published').map(s=>[s.code,s.name]));closeSessionNames=published;
  closeSession=choice.session!==null&&published.has(choice.session)?choice.session:null;
  const withdrawn=choice.session!==null&&closeSession===null;
  choose('close-session',[{value:'',name:withdrawn?'Your session is no longer available · choose one':'Choose a session…'},...[...published].map(([value,name])=>({value,name}))],closeSession??'');
@@ -1364,7 +1364,7 @@ async function selectContext(knowledge:TargetContext&{businessDate?:string}){
   else if(contextDirty||historicalContext()?.contextId!==knowledge.contextId)await selectRetained(knowledge.contextId!);
   const frame=knowledge.frameId??'';
   if(select('snapshot').value!==frame){
-    if(frame&&!offeredFrames().some(f=>f.id===frame))throw Error('That As of date is not available in this session. Choose an As of date, or ask again.');
+    if(frame&&!offeredFrames().some(f=>f.id===frame))throw Error(otherSessionRefusal(directory().frames,frame,closeSession,closeSessionNames)??'That As of date is not available in this session. Choose an As of date, or ask again.');
     renderFrames(frame);
     closeChanged();
   }
