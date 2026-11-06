@@ -2798,6 +2798,9 @@ unchanged context performs no read. A pending header context passes through the
 ordinary context/leave guard even on a same-view click. Switching views does not
 publish, change prices, choose another close or admit an incomplete definition.
 Saved page/assistant identities remain exact.
+Explicit sample-close selection within the curve workspace refreshes its active
+view through the existing selected-close loader. Other pages retain their sample
+price read behavior.
 No pricing, schema or financial model change is introduced by this consolidation.
 
 

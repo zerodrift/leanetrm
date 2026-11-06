@@ -58,7 +58,8 @@ export async function run(a){
  await set(cell,'990');await wait(`!!document.querySelector(${q(record)})`);
  for(const [id,value] of [['kind','nominated'],['status','provisional'],['evidence','Daily nomination']])await set(`${record} [data-field="${id}"] .ticket-control`,value);
  await click(`${record} .ticket-record-send`);
- await wait(`document.querySelector(${q(cell)})?.closest('tr').textContent.includes('Nominated')&&!document.querySelector(${q(record)})`);
+ // Recording rereads the trade, the Side directory and its evaluated page.
+ await wait(`document.querySelector(${q(cell)})?.closest('tr').textContent.includes('Nominated')&&!document.querySelector(${q(record)})`,30000);
  await check('an operational day record keeps the contractual quantity',`document.querySelector(${q(cell)}).closest('td').querySelector('span').textContent===${q(contractual)}&&document.querySelector(${q(cell)}).placeholder==='990'`);
  await check('all integrated forms fit the desktop viewport',`document.documentElement.scrollWidth<=innerWidth`);
  await capture('unified-trading');
