@@ -225,8 +225,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await settled(`document.querySelector('#page-title').textContent==='Vol surfaces'&&window.surfaceReads.length>0&&!['idle','loading'].includes(document.querySelector('#vol-surfaces-page').dataset.state)&&${idle}`,30000);
   const read=await evaluate('window.surfaceReads.at(-1)');
   await check(name,q(read.status===200&&read.body.product===product&&read.body.context.snapshotId===context.snapshotId&&read.body.context.knowledgeMode===context.knowledgeMode&&
-   await evaluate(`document.querySelector('#vol-product').value===${q(product)}&&['notFitted','fitted'].includes(document.querySelector('#vol-surfaces-page').dataset.state)`)),
-   `({read:window.surfaceReads.at(-1),state:document.querySelector('#vol-surfaces-page').dataset.state,error:document.querySelector('#vol-surface-error').textContent,product:document.querySelector('#vol-product').value})`);
+   await evaluate(`document.querySelector('.vol-product-card[aria-pressed=true]')?.dataset.product===${q(product)}&&['notFitted','fitted'].includes(document.querySelector('#vol-surfaces-page').dataset.state)`)),
+   `({read:window.surfaceReads.at(-1),state:document.querySelector('#vol-surfaces-page').dataset.state,error:document.querySelector('#vol-surface-error').textContent,product:document.querySelector('.vol-product-card[aria-pressed=true]')?.dataset.product})`);
  };
  await newTrade({click,wait},'options');
  await wait("document.querySelector('#option-exchange').options.length>1&&"+idle);

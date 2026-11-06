@@ -21,6 +21,10 @@ public sealed record VolSurfaceFitRequest(Guid RequestId,Guid SnapshotId,string 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record VolSurfaceReadRequest(FuturesReadRequest Context,string Product,string Model);
 
+/// <summary>A page of the surfaces stored at or before a trading context, under an explicit vol model.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record VolSurfaceLibraryRequest(FuturesReadRequest Context,string Model,int Offset,string? Product=null);
+
 // A fitted surface as its job's completion records it: the pinned inputs, the canonical bytes and their digest, and the work done.
 internal sealed record VolSurfaceFitOutcome(ImmutableArray<Guid> Inputs,string Surface,string Digest,int Series,int Solves,long ElapsedMs);
 
@@ -50,8 +54,8 @@ internal static class VolSurfaceStore
         return new{jobId=job["jobId"]!.GetValue<Guid>(),state=job["state"]!.GetValue<string>()};
     }
 
-    // The stored surface of a key at the view's bound context, whether its inputs were revised since, the caller's newest fit job
-    // for the key and whether the caller may fit.
+    // The stored surface of a key fitted at the view's own close (or working snapshot) and instant, known at its bound context,
+    // whether its inputs were revised since, the caller's newest fit job for the key there and whether the caller may fit.
     internal static async Task<object> Read(NpgsqlConnection connection,PreviewManifest manifest,TradingView view,VolSurfaceReadRequest body,CancellationToken ct)
     {
         VolModels.Require(body.Model);
@@ -61,8 +65,11 @@ internal static class VolSurfaceStore
             await using var command=ScheduleStore.Command(connection,sql,arguments);
             return await command.ExecuteScalarAsync(ct) is string text?JsonNode.Parse(text):null;
         }
-        var stored=await Value("SELECT security.read_vol_surface($1,$2::jsonb,$3,$4)::text",manifest.CatalogId,product,date,body.Model);
-        var job=await Value("SELECT risk.vol_surface_fit_job($1,$2::jsonb,$3,$4)::text",manifest.CatalogId,product,date,body.Model);
+        // A frame's id is session-scoped: the surface is located by the close the frame is, or for a working snapshot by none,
+        // and its valuation instant.
+        var close=(object?)view.Frame.OriginCloseId??DBNull.Value;
+        var stored=await Value("SELECT security.read_vol_surface($1,$2::jsonb,$3,$4,$5::uuid,$6)::text",manifest.CatalogId,product,date,body.Model,close,view.Frame.At);
+        var job=await Value("SELECT risk.vol_surface_fit_job($1,$2::jsonb,$3,$4,$5::uuid,$6)::text",manifest.CatalogId,product,date,body.Model,close,view.Frame.At);
         JsonObject? revision=null;
         if(stored is not null)
         {
@@ -76,6 +83,20 @@ internal static class VolSurfaceStore
             ["solverPolicy"]=stored?["solverPolicy"]?.DeepClone()??SolverPolicy,["state"]=stored is null?"notFitted":"fitted",
             ["revision"]=revision,["job"]=job,["canFit"]=canFit,["surface"]=stored?["content"]?.DeepClone()};
     }
+
+    // The surfaces stored at or before the view's bound context, newest business date first, each with the close it belongs to,
+    // and whether the caller may fit, a page at a time, for every product or one.
+    internal static async Task<object> Library(NpgsqlConnection connection,PreviewManifest manifest,TradingView view,VolSurfaceLibraryRequest body,CancellationToken ct)
+    {
+        VolModels.Require(body.Model);
+        await using var command=ScheduleStore.Command(connection,"SELECT security.vol_surface_library($1,$2,$3,$4::text,$5,$6,$7)::text",
+            manifest.CatalogId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId,(object?)body.Product??DBNull.Value,body.Model,body.Offset,LibraryPage);
+        var page=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
+        var canFit=await PreviewDatabase.HasPermission(connection,"PublishMarketData",ct)&&await PreviewDatabase.HasPermission(connection,"ReadTrades",ct);
+        return new JsonObject{["snapshotId"]=view.Frame.Id,["model"]=body.Model,["product"]=body.Product,["offset"]=body.Offset,["pageSize"]=LibraryPage,
+            ["surfaces"]=page["surfaces"]!.DeepClone(),["hasMore"]=page["hasMore"]!.DeepClone(),["canFit"]=canFit};
+    }
+    private const int LibraryPage=48;
 
     // Fits a claimed job from its pinned frame in the worker: the actor's retained authority is bound to the read, which the
     // fit's discount-default lookup also uses, and the attempt is rechecked again when the job completes.

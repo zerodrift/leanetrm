@@ -295,6 +295,66 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     grant = str(uuid4())
     query(f"INSERT INTO security.role_grants VALUES('{grant}','{trader}','{role}','{tenant}','{workspace}',clock_timestamp(),'9999-12-31',false);")
 
+    # A surface belongs to the exact close it was fitted at (D345). The latest close's frame, recorded as the close of two
+    # synthetic sessions with the same cutoff: a fit at one session's close is not the other's, nor the working snapshot's at the
+    # same instant, and a close that replaces it starts without one. No member chooses these sessions, so the browser checks
+    # that follow still open on working snapshots.
+    from seed_session_closes import publish_session, record_close
+    window = [{'curves': sorted(frame['curveContracts']), 'cutoff': frame['at'][11:16], 'from': '2026-10-13', 'to': '2026-10-17'}]
+    for session in ('synthetic_east', 'synthetic_west'):
+        publish_session(query, manifest, session, f'Synthetic {session[10:]} close', window, calendar='source_business_days')
+    east, west = (record_close(query, manifest, session, 1, frame) for session in ('synthetic_east', 'synthetic_west'))
+
+    def close_frame(client, close):
+        return next(f for f in client.call('workspace')['frames'] if f.get('originCloseId') == close)
+
+    def library(client, snapshot, product=None):
+        return client.call('vol-surfaces/library', {'context': {'snapshotId': snapshot, 'convention': OPTION, 'knowledgeMode': 'current'}, 'model': MODEL,
+                                                    'offset': 0, **({'product': product} if product else {})}, timeout=TIMEOUT)
+    at_east, at_west = close_frame(c, east), close_frame(c, west)
+    check('each recorded close is its own frame naming its session', (at_east['close']['session'], at_west['close']['session']) == ('synthetic_east', 'synthetic_west')
+          and at_east['id'] != at_west['id'] and at_east['at'] == at_west['at'] == frame['at'], (at_east.get('close'), at_west.get('close')))
+    before_close = read(snapshot=at_east['id'])
+    working = read()
+    check('a close starts without the working snapshot\'s surface at the same instant', before_close['state'] == 'notFitted' and before_close['job'] is None
+          and working['state'] == 'fitted', (before_close['state'], working['state']))
+    eastern = fit(snapshot=at_east['id'])
+    run_worker()
+    fitted_east, unfitted_west = read(snapshot=at_east['id']), read(snapshot=at_west['id'])
+    check('a fit at one session\'s close is that close\'s alone', fitted_east['state'] == 'fitted' and fitted_east['job']['id'] == eastern['jobId']
+          and unfitted_west['state'] == 'notFitted' and unfitted_west['job'] is None and read()['revision']['id'] == working['revision']['id'],
+          (fitted_east['state'], unfitted_west, read()['revision']))
+    # Frame ids are session-scoped: another sign-in reads the same close under another id and sees the same surface.
+    signed_in = PreviewClient(url); signed_in.bootstrap()
+    stranger = PreviewClient(url, 'exchange'); stranger.opener = signed_in.opener; stranger.bootstrap()
+    stranger.call('profile', {'profile': 'risk'})
+    elsewhere = close_frame(stranger, east)
+    seen = stranger.call('vol-surfaces/read', {'context': {'snapshotId': elsewhere['id'], 'convention': OPTION, 'knowledgeMode': 'current'}, 'product': PRODUCT, 'model': MODEL}, timeout=TIMEOUT)
+    check('another sign-in reads the close under its own frame id and sees the same surface', elsewhere['id'] != at_east['id']
+          and seen['state'] == 'fitted' and seen['revision']['id'] == fitted_east['revision']['id'], (elsewhere['id'], seen['state']))
+    listed = library(c, at_west['id'], PRODUCT)['surfaces']
+    eastern_row = next((row for row in listed if row['closeId'] == east), None)
+    check('the library lists the surface with its close, session and business day, in force',
+          eastern_row is not None and eastern_row['close'] == {'session': 'synthetic_east', 'businessDate': DAY, 'inForce': True}
+          and eastern_row['revision'] == fitted_east['revision']['id'] and eastern_row['product'] == PRODUCT
+          and any(row['closeId'] is None and row['revision'] == working['revision']['id'] for row in listed)
+          and all(row['product'] == PRODUCT for row in listed) and all(row['businessDate'] <= DAY for row in listed), listed)
+    whole = library(c, at_west['id'])
+    check('the whole library lists every product\'s surfaces, newest business date first',
+          {row['product'] for row in whole['surfaces']} >= {PRODUCT, UNFITTED} and [row['businessDate'] for row in whole['surfaces']] == sorted((row['businessDate'] for row in whole['surfaces']), reverse=True)
+          and whole['canFit'] is True and whole['hasMore'] is False, whole)
+    check('a library read names a known model', c.call('vol-surfaces/library', {'context': {'snapshotId': at_west['id'], 'convention': OPTION, 'knowledgeMode': 'current'},
+                                                                              'model': 'smile_unknown_v1', 'offset': 0}, expected=422)['code'] == 'vol_model_unknown')
+    replacement = record_close(query, manifest, 'synthetic_east', 1, frame)
+    at_replacement = close_frame(c, replacement)
+    replaced = library(c, at_replacement['id'], PRODUCT)['surfaces']
+    check('the close that replaces it starts without a surface, and the library names the replaced one as history',
+          read(snapshot=at_replacement['id'])['state'] == 'notFitted'
+          and next(row for row in replaced if row['closeId'] == east)['close']['inForce'] is False, replaced)
+    stale = c.call('vol-surfaces/read', {'context': {'snapshotId': at_east['id'], 'convention': OPTION, 'knowledgeMode': 'current'}, 'product': PRODUCT, 'model': MODEL},
+                   expected=422, timeout=TIMEOUT)
+    check('the replaced close is refused for new reads', stale['code'] == 'close_replaced', stale)
+
     # The fitter loses PublishMarketData after submitting and before the worker runs; this also restores the trader's own roles.
     revoked = fit(product=UNFITTED)
     query(f"UPDATE security.role_grants SET revoked=true WHERE id='{grant}';")

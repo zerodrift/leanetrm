@@ -3,14 +3,15 @@ import {publicText} from './market-view.js';
 import {plotNumber} from './plot-number.js';
 import {PendingCommand} from './pending-command.js';
 import {valuationReason,type ValuationReason} from './valuation-status.js';
+import {libraryEntries,reach,sameLocation,type Here,type LibrarySurface} from './vol-surface-library.js';
 import {surfaceLink,type SurfaceLink} from './vol-surface-link.js';
 import {drawSurface3d,levelRange} from './vol-surface-3d.js';
 import {richCheapColour,richCheapTone,volTheme} from './vol-surface-theme.js';
 
-// Vol surfaces (Markets): the stored volatility surface of one option product at the selected context, fitted by a job on the
-// risk queue, shown as a rich/cheap heat map, a rotatable 3D surface and one smile per expiry. Every value, fit, rich/cheap and reason
-// is the backend's; the page maps them to pixels, colours and display text. Wire
-// values are decimal fractions, shown as volatility points (0.012 is 1.20).
+// Vol surfaces (Markets): a library of the option products and the closes each is calibrated at, and the chosen product's stored
+// volatility surface at the selected close, fitted by a job on the risk queue, shown as a rich/cheap heat map, a rotatable 3D
+// surface and one smile per expiry. Every value, fit, rich/cheap and reason is the backend's; the page maps them to pixels,
+// colours and display text. Wire values are decimal fractions, shown as volatility points (0.012 is 1.20).
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 /** The trading context a read is made at, as the option operations state it. */
 export type FuturesReadRequest={snapshotId:string;convention:string;knowledgeMode:'current'|'retained';contextId?:string};
@@ -201,40 +202,71 @@ function smile(host:HTMLElement,expiry:SurfaceExpiry,members:SurfaceSeries[],ext
  };
 }
 
+/** The page's view of the header's As of frame and the moves it offers, which the app owns. */
+export type VolSurfaceFrames={
+ /** Where the page reads: the header's As of close, or working snapshot, and its instant. */
+ here():Here;
+ /** A close session's display name. */
+ sessionName(code:string):string;
+ /** The frame the header offers in the current view at a stored surface's close or working snapshot, if any. */
+ offered(surface:LibrarySurface):string|null;
+ /** Selects an offered frame in the header, as choosing it there does. */
+ open(frameId:string):void;
+};
+
 /**
- * The Vol surfaces page. `refresh` reads the products listed at the context and the chosen product's surface; `open` shows a
- * product's surface, as an option's link to it does; `reset` clears what an earlier context showed.
+ * The Vol surfaces page. `refresh` reads the library of stored surfaces and the products listed at the context, and the chosen
+ * product's surface at the selected close; `open` shows a product's surface, as an option's link to it does; `reset` clears what
+ * an earlier context showed. A surface belongs to the close it was fitted at: when the selected close has none, the page offers
+ * to calibrate it there or to open a close that has one, and never shows another close's surface in its place.
  */
-export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;historical:()=>boolean;zone:()=>string}){
+export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;historical:()=>boolean;zone:()=>string;frames:VolSurfaceFrames}){
  const root=document.getElementById('vol-surfaces-page')!;root.dataset.ownControls='';
  const link=surfaceLink(),pending=new PendingCommand(definite);
- const productSelect=el('select');productSelect.id='vol-product';
- const productRow=el('div','vol-field'),productLabel=el('label',undefined,'Option product');productLabel.htmlFor='vol-product';productRow.append(productLabel,productSelect);
- const productSearch=el('input');productSearch.type='search';productSearch.setAttribute('aria-label','Search option products');
- const searchProducts=el('button','secondary','Search'),moreProducts=el('button','secondary','More products');searchProducts.type=moreProducts.type='button';moreProducts.hidden=true;
- productRow.append(productSearch,searchProducts,moreProducts);
- const modelRow=el('div','vol-field'),modelValue=el('code','vol-model',model);modelValue.id='vol-model';modelRow.append(el('span','vol-field-label','Vol model'),modelValue);
- const legend=el('p','vol-legend','Rich: the market’s implied volatility is above the fitted smile. Cheap: below it. On the smile: exactly on it. In volatility points.');legend.id='vol-legend';
- const controls=el('div','vol-controls');controls.append(productRow,modelRow,legend);
- const status=el('p','vol-status');status.id='vol-fit-status';status.setAttribute('role','status');
+ const button=(className:string,text:string,id?:string)=>{const b=el('button',className,text);b.type='button';if(id)b.id=id;return b;};
+
+ // The close in view, named as large as the page's title, with the explicit vol model beside it.
+ const hero=el('header','vol-hero'),hereKind=el('span','vol-eyebrow'),hereTitle=el('h2','vol-here');hereTitle.id='vol-here';
+ const heroText=el('div');heroText.append(hereKind,hereTitle);
+ const modelChip=el('div','vol-model-chip'),modelValue=el('code','vol-model',model);modelValue.id='vol-model';
+ modelChip.append(el('span',undefined,'Vol model'),modelValue);hero.append(heroText,modelChip);
+ const error=el('p','vol-error');error.id='vol-surface-error';error.setAttribute('role','alert');error.hidden=true;
+
+ // The shelf: one card per option product, saying whether it is calibrated at this close or when it last was.
+ const shelf=el('section','vol-shelf');shelf.id='vol-library';shelf.setAttribute('aria-label','Option products');
+ const shelfHead=el('div','vol-shelf-head'),shelfTitle=el('h3',undefined,'Option products'),shelfCount=el('span','vol-shelf-count');shelfCount.id='vol-library-count';
+ const productSearch=el('input','vol-search');productSearch.type='search';productSearch.id='vol-search';productSearch.placeholder='Find an option product';
+ productSearch.setAttribute('aria-label','Find an option product');productSearch.autocomplete='off';
+ const titles=el('div','vol-shelf-titles');titles.append(shelfTitle,shelfCount);shelfHead.append(titles,productSearch);
+ const cards=el('div','vol-cards');cards.id='vol-products';cards.setAttribute('role','list');
+ const moreProducts=button('secondary vol-more','More products','vol-more-products');moreProducts.hidden=true;
+ shelf.append(shelfHead,cards,moreProducts);
+
+ // The chosen product: its name, its fit action and state, the closes it is calibrated at, and its surface or why there is none.
+ const detail=el('section','vol-detail');detail.id='vol-detail';
+ const placeholder=el('div','vol-placeholder');placeholder.id='vol-placeholder';
+ const productHead=el('header','vol-product-head'),productName=el('h3','vol-product-name'),productCode=el('code','vol-product-code');productName.id='vol-product-name';
+ const naming=el('div','vol-product-naming');naming.append(productName,productCode);
  const actions=el('div','vol-fit-actions');
- const fit=el('button');fit.id='vol-fit';fit.type='button';
+ const fit=button('',"Calibrate",'vol-fit');
  const failure=el('span','vol-fit-failure');failure.id='vol-fit-failure';
- const retry=el('button','secondary','Retry the fit request');retry.id='vol-fit-retry';retry.type='button';
+ const retry=button('secondary','Retry the calibration request','vol-fit-retry');
  const note=el('span','vol-fit-note');
- actions.append(fit,note,failure,retry);
- const fitBar=el('div','vol-fit-bar');fitBar.append(status,actions);
- const error=el('p','vol-error');error.id='vol-surface-error';error.setAttribute('role','alert');
+ actions.append(note,failure,retry,fit);productHead.append(naming,actions);
+ const status=el('p','vol-status');status.id='vol-fit-status';status.setAttribute('role','status');
+ const closes=el('nav','vol-closes');closes.id='vol-closes';closes.setAttribute('aria-label','Closes this product is calibrated at');
+ const missing=el('div','vol-missing');missing.id='vol-missing';
  const heat=el('section','vol-card vol-heat');heat.id='vol-heatmap';
  const heatHead=el('div','vol-card-head'),scale=el('div','vol-scale'),halves=el('p','vol-halves');
  halves.append('Each strike: ',el('b',undefined,'C'),' Call · ',el('b',undefined,'P'),' Put · ',el('span','vol-key-gap'),' no rich/cheap · ',el('span','vol-key-unlisted'),' not listed');
  heatHead.append(el('h3',undefined,'Rich / cheap'),scale);
+ const legend=el('p','vol-legend','Rich: the market’s implied volatility is above the fitted smile. Cheap: below it. On the smile: exactly on it. In volatility points.');legend.id='vol-legend';
  const heatChart=el('div','vol-chart');heatChart.tabIndex=0;heatChart.setAttribute('role','img');heatChart.setAttribute('aria-label','Rich/cheap heat map. Use the arrow keys to move between series.');
- heat.append(heatHead,halves,heatChart);
+ heat.append(heatHead,legend,halves,heatChart);
  const readout=el('aside','vol-card vol-readout');readout.id='vol-readout';readout.setAttribute('aria-live','polite');
  // The rotatable 3D surface: its canvas is drawn afresh for each stored revision, with a legend whose shading scale is that revision's.
  const surface3d=el('section','vol-card vol-surface-3d');surface3d.id='vol-surface-3d';
- const resetView=el('button','secondary','Reset view');resetView.id='vol-surface-reset';resetView.type='button';
+ const resetView=button('secondary','Reset view','vol-surface-reset');
  const head3d=el('div','vol-card-head'),tools3d=el('div','vol-3d-tools');tools3d.append(el('span','vol-3d-hint','Drag or use the arrow keys to rotate'),resetView);
  head3d.append(el('h3',undefined,'Surface'),tools3d);
  const canvasHost=el('div','vol-3d-canvas'),levelScale=el('span','vol-3d-levels');
@@ -247,19 +279,35 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  surface3d.append(head3d,canvasHost,legend3d);
  const smiles=el('section','vol-smiles');smiles.id='vol-smiles';
  const views=el('div','vol-views');views.append(heat,readout,surface3d,smiles);
- root.replaceChildren(controls,fitBar,error,views);
+ detail.append(placeholder,productHead,status,closes,missing,views);
+ root.replaceChildren(hero,error,shelf,detail);
 
  // The generations of the reads under way: only a read of the current product and context stands for the next one.
  const reading:number[]=[];
- let products:{code:string;name:string}[]=[],product='',shown:SurfaceRead|undefined,drawn:View[]=[],view3d:{reset():void;dispose():void}|undefined,cells:HeatCell[]=[],drawnFor:VolSurfaceResult|undefined,drawnRevision='';
- let generation=0,timer:ReturnType<typeof setTimeout>|undefined,submitting=false,fitMessage='';
+ let products:{code:string;name:string}[]=[],library:LibrarySurface[]=[],libraryComplete=false,canFit=false,product='',
+  timeline:LibrarySurface[]|undefined,shown:SurfaceRead|undefined,drawn:View[]=[],view3d:{reset():void;dispose():void}|undefined,cells:HeatCell[]=[],
+  drawnFor:VolSurfaceResult|undefined,drawnRevision='',here:Here|undefined;
+ let generation=0,timer:ReturnType<typeof setTimeout>|undefined,submitting=false,fitMessage='',moveMessage='';
+ const day=(date:string)=>new Intl.DateTimeFormat('en',{weekday:'short',month:'short',day:'numeric',year:'numeric',timeZone:'UTC'}).format(new Date(date+'T00:00:00Z'));
+ const shortDay=(date:string)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(date+'T00:00:00Z'));
  const expiryLabel=(e:SurfaceExpiry)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',year:'numeric',timeZone:o.zone()}).format(new Date(e.expiryAt));
  const instant=(at:string)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZone:o.zone()}).format(new Date(at));
+ const shortInstant=(at:string)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:o.zone()}).format(new Date(at));
+ // A close is named by its session and business day; a working snapshot by its instant, since it has no session.
+ const closeName=(close:{session:string;businessDate:string}|null,at:string,short=false)=>close
+  ?`${o.frames.sessionName(close.session)} · ${short?shortDay(close.businessDate):day(close.businessDate)}`:`Working snapshot · ${short?shortInstant(at):instant(at)}`;
+ const surfaceName=(s:LibrarySurface,short=false)=>closeName(s.close,s.valuationAt,short);
+ const hereName=(short=false)=>here?closeName(here.close,here.at,short):'';
 
- function state(next:'idle'|'loading'|'noProducts'|'notFitted'|'fitted'|'error',message=''){
-  root.dataset.state=next;error.textContent=next==='error'?publicText(message):'';error.hidden=next!=='error';
-  views.hidden=next!=='fitted';if(next!=='fitted')clearViews();
-  if(next!=='notFitted'&&next!=='fitted'){status.textContent=next==='loading'?'Reading the surface…':publicText(next==='error'?'':message);actions.hidden=true;}
+ function showHere(){
+  try{here=o.frames.here();}catch{here=undefined;}
+  hereKind.textContent=here?.close?'Close':here?'Working snapshot':'';
+  hereTitle.textContent=here?(here.close?closeName(here.close,here.at):instant(here.at)):'Choose an As of date above';
+ }
+ function failed(cause:unknown){
+  root.dataset.state='error';error.hidden=false;
+  error.textContent=publicText(`${messageOf(cause)}${codeOf(cause)&&!messageOf(cause).includes(codeOf(cause)!)?` (${codeOf(cause)})`:''}`);
+  views.hidden=true;clearViews();
  }
  function clearViews(){
   for(const view of drawn)view.dispose();view3d?.dispose();drawn=[];view3d=undefined;cells=[];drawnFor=undefined;drawnRevision='';link.set(null);
@@ -267,7 +315,24 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  }
  function stop(){clearTimeout(timer);timer=undefined;}
  const scopeOf=()=>JSON.stringify([o.context(),product]);
- function failed(error:unknown){state('error',`${messageOf(error)}${codeOf(error)&&!messageOf(error).includes(codeOf(error)!)?` (${codeOf(error)})`:''}`);}
+
+ // The shelf: a card per product, in the library's order, the chosen one pressed.
+ function renderShelf(){
+  const entries=libraryEntries(products,library,here,libraryComplete);
+  const calibrated=entries.filter(e=>e.state==='here').length;
+  shelfCount.textContent=entries.length?`${calibrated} of ${entries.length} calibrated here`:'';
+  cards.replaceChildren(...entries.map(entry=>{
+   const card=button('vol-product-card','');card.dataset.product=entry.code;card.dataset.state=entry.state;card.setAttribute('role','listitem');
+   card.setAttribute('aria-pressed',String(entry.code===product));
+   const top=el('span','vol-card-top');top.append(el('span','vol-card-name',entry.name),el('code','vol-card-code',entry.code));
+   const pill=el('span','vol-pill');pill.append(el('span','vol-dot'),entry.state==='here'?'Calibrated here':entry.state==='elsewhere'?`Latest · ${surfaceName(entry.latest!,true)}`:entry.state==='none'?'Not calibrated yet':'—');
+   const facts=el('span','vol-card-facts',entry.here?`${entry.here.fittedExpiries} of ${entry.here.expiries} expiries fitted · ${entry.here.series} series`:'');
+   card.append(top,pill,facts);
+   card.onclick=()=>{if(product===entry.code)return;product=entry.code;renderShelf();void readProduct();};
+   return card;
+  }));
+  if(!entries.length)cards.append(el('p','vol-empty-shelf',productQuery?'No option product matches that search.':'No option products in the reference data at this date.'));
+ }
 
  // Each read is numbered: an answer to a read that a newer one replaced is dropped. While the read reports a fit job queued or
  // running, one timer reads again, unless the product, context or page changed or the page is hidden.
@@ -278,20 +343,39 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   if(number!==generation)return;
   if(answer.model!==model||answer.snapshotId!==context.snapshotId||(answer.state==='fitted')!==!!answer.surface||answer.surface&&answer.surface.modelId!==model)
    throw Error('The surface read does not match the selected product, model and context. Refresh and try again.');
-  shown=answer;render();stop();
+  const finished=shown?.job&&active(shown.job)&&!active(answer.job);
+  shown=answer;canFit=answer.canFit;render();stop();
+  // A fit that finished here adds this close to the product's closes and to the library.
+  if(finished)void readTimeline(number).then(()=>readLibrary(number)).catch(cause=>{if(number===generation)failed(cause);});
   if(active(answer.job)&&!document.hidden)timer=setTimeout(()=>{timer=undefined;
    let same=false;try{same=scopeOf()===scope;}catch{/* an unapplied context reads nothing */}
-   if(number===generation&&same&&!root.hidden)void read(number).catch(error=>{if(number===generation)failed(error);});
+   if(number===generation&&same&&!root.hidden)void read(number).catch(cause=>{if(number===generation)failed(cause);});
   },checkBackMs);
  }
+ type LibraryPage={snapshotId:string;model:string;product:string|null;offset:number;pageSize:number;surfaces:LibrarySurface[];hasMore:boolean;canFit:boolean};
+ async function libraryPage(of?:string){
+  const context=o.context(),page=await o.api<LibraryPage>('vol-surfaces/library',{context,model,offset:0,...(of?{product:of}:{})});
+  if(page.model!==model||page.snapshotId!==context.snapshotId||(page.product??undefined)!==of||page.surfaces.some(s=>of!==undefined&&s.product!==of))
+   throw Error('The surface library does not match the selected context and model. Refresh and try again.');
+  return page;
+ }
+ async function readLibrary(number:number){
+  const page=await libraryPage();if(number!==generation)return;
+  library=page.surfaces;libraryComplete=!page.hasMore;canFit=page.canFit;renderShelf();
+ }
+ // The closes the chosen product is calibrated at, newest first.
+ async function readTimeline(number:number){
+  const page=await libraryPage(product);if(number!==generation)return;
+  timeline=page.surfaces;renderTimeline();renderMissing();
+ }
  // A newly chosen product or context: what was shown and any read or check-back under way are given up.
- function restart(){stop();generation++;moreProducts.disabled=false;pending.clear();fitMessage='';shown=undefined;return generation;}
+ function restart(){stop();generation++;moreProducts.disabled=false;pending.clear();fitMessage='';moveMessage='';shown=undefined;timeline=undefined;return generation;}
  async function readProduct(){
   const number=restart();
-  if(!products.length){state('noProducts','No option products in the reference data at this date.');return;}
-  if(!product){state('idle','Choose an option product to see its surface.');return;}
-  state('loading');
-  try{await read(number);}catch(error){if(number===generation)failed(error);}
+  root.dataset.state=product?'loading':'idle';error.hidden=true;
+  renderDetail();
+  if(!product)return;
+  try{await Promise.all([read(number),readTimeline(number)]);}catch(cause){if(number===generation)failed(cause);}
  }
  // Product metadata is paged too; another page requires an explicit search or More.
  let nextProductOffset:number|null=null,productQuery='';
@@ -301,80 +385,135 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   if(code)params.set('code',code);
   return o.api<ProductPage>('reference/catalog?'+params);
  }
- function showProducts(){
-  productSelect.replaceChildren(new Option(products.length?'Choose…':'No option products',''),...products.map(p=>new Option(publicText(`${p.name} · ${p.code}`),p.code)));
-  productSelect.disabled=!products.length;productSelect.value=product;moreProducts.hidden=nextProductOffset===null;moreProducts.disabled=false;
- }
  async function listProducts(number:number,offset:number){
   const page=await productPage(offset);if(number!==generation)return;
   const rows=page.rows.map(row=>({code:String(row.code),name:String(row.name)}));
   products=offset===0?rows:[...products,...rows.filter(row=>!products.some(kept=>kept.code===row.code))];
   nextProductOffset=page.hasMore?page.offset+page.pageSize:null;
-  if(product&&!products.some(row=>row.code===product)){
+  if(product&&!products.some(row=>row.code===product)&&!productQuery){
    const exact=await productPage(0,product);if(number!==generation)return;
    const row=exact.rows.find(row=>row.code===product);
-   if(!row){showProducts();throw Error(`Option product ${product} is not in the reference data at this context.`);}
+   if(!row){renderShelf();throw Error(`Option product ${product} is not in the reference data at this context.`);}
    products.push({code:String(row.code),name:String(row.name)});
   }
-  showProducts();
+  moreProducts.hidden=nextProductOffset===null;moreProducts.disabled=false;renderShelf();
  }
  async function refresh(){
-  const number=restart();state('loading');nextProductOffset=null;moreProducts.hidden=true;productSelect.disabled=true;productSelect.replaceChildren(new Option('Reading products…',''));
+  const number=restart();root.dataset.state='loading';error.hidden=true;nextProductOffset=null;moreProducts.hidden=true;showHere();
+  cards.replaceChildren(el('p','vol-empty-shelf','Reading the library…'));renderDetail();
   try{
    o.context(); // an unapplied context reads nothing
-   await listProducts(number,0);if(number!==generation)return;
+   // A search narrows the product cards; the library of stored surfaces is read whole.
+   await Promise.all([listProducts(number,0),readLibrary(number)]);if(number!==generation)return;
    await readProduct();
-  }catch(error){if(number===generation)failed(error);}
+  }catch(cause){if(number===generation)failed(cause);}
  }
- searchProducts.onclick=()=>{productQuery=productSearch.value.trim();void refresh();};
- productSearch.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();searchProducts.click();}};
+ let searchTimer:ReturnType<typeof setTimeout>|undefined;
+ productSearch.oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{
+  if(productQuery===productSearch.value.trim())return;productQuery=productSearch.value.trim();
+  const number=generation;void listProducts(number,0).catch(cause=>{if(number===generation)failed(cause);});
+ },250);};
  moreProducts.onclick=()=>{
   if(nextProductOffset===null||moreProducts.disabled)return;
   const number=generation,offset=nextProductOffset;moreProducts.disabled=true;
-  void listProducts(number,offset).catch(error=>{if(number===generation)failed(error);}).finally(()=>{if(number===generation)moreProducts.disabled=false;});
+  void listProducts(number,offset).catch(cause=>{if(number===generation)failed(cause);}).finally(()=>{if(number===generation)moreProducts.disabled=false;});
  };
- productSelect.onchange=()=>{product=productSelect.value;void readProduct();};
  // A hidden page stops checking back; shown again, it reads at once unless a read is already under way.
  document.addEventListener('visibilitychange',()=>{
   if(document.hidden){stop();return;}
-  if(!root.hidden&&!reading.includes(generation)&&active(shown?.job??null)){const number=generation;void read(number).catch(error=>{if(number===generation)failed(error);});}
+  if(!root.hidden&&!reading.includes(generation)&&active(shown?.job??null)){const number=generation;void read(number).catch(cause=>{if(number===generation)failed(cause);});}
  });
 
+ // Opening another close is the header's own move: an offered close is selected there, so every page reads it; any other is named.
+ function move(surface:LibrarySurface){
+  const how=reach(surface,here!,o.frames.offered);
+  if(how==='open'){o.frames.open(o.frames.offered(surface)!);return;}
+  moveMessage=how==='otherSession'?`This surface belongs to the ${o.frames.sessionName(surface.close!.session)} session. Choose that session in the header to open it.`
+   :how==='replaced'?'That close has been replaced. Its surface is history; calibrate at the close in force for its day.'
+   :'This view offers only its own business day. Return to working data to open another day.';
+  renderMissing();renderTimeline();
+ }
+ function renderTimeline(){
+  closes.replaceChildren();closes.hidden=!product||!timeline?.length;
+  if(!timeline?.length||!here)return;
+  closes.append(el('span','vol-closes-label','Calibrated at'));
+  const list=el('ol','vol-close-list');
+  for(const surface of timeline){
+   const how=reach(surface,here,o.frames.offered),chip=button('vol-close-chip','');chip.dataset.reach=how;chip.dataset.at=surface.valuationAt;
+   if(surface.closeId)chip.dataset.close=surface.closeId;
+   chip.append(el('span','vol-close-date',surface.close?shortDay(surface.close.businessDate):shortInstant(surface.valuationAt)),
+    el('span','vol-close-session',surface.close?o.frames.sessionName(surface.close.session):'Working snapshot'));
+   if(how==='current'){chip.setAttribute('aria-current','true');chip.title='The surface shown';}
+   else{chip.title=how==='open'?`Open ${surfaceName(surface)}`:how==='replaced'?'Replaced close: history':how==='otherSession'?'Another session':'Not offered in this view';
+    if(how==='replaced')chip.append(el('span','vol-close-note','replaced'));chip.onclick=()=>move(surface);}
+   const li=el('li');li.append(chip);list.append(li);
+  }
+  closes.append(list);
+  if(moveMessage)closes.append(el('p','vol-move-note',moveMessage));
+ }
+ // The selected close has no surface: calibrate it here, or open the newest close this product is calibrated at.
+ function renderMissing(){
+  missing.replaceChildren();
+  missing.hidden=!product||!shown||shown.state==='fitted'||active(shown.job)||!here;
+  if(missing.hidden)return;
+  // The newest close this view can open, or else the newest other one, which names why it cannot.
+  const latest=timeline?.find(s=>reach(s,here!,o.frames.offered)==='open')??timeline?.find(s=>!sameLocation(s,here!));
+  const text=el('div','vol-missing-text');
+  text.append(el('h4',undefined,`Not calibrated at ${hereName()}`),
+   el('p',undefined,'A surface is fitted to one close’s option settlements. It is not carried to another day or session.'));
+  const choices=el('div','vol-missing-actions');
+  if(canFit&&!o.historical()){const now=button('','Calibrate at '+hereName(true),'vol-fit-here');now.onclick=()=>void submit();now.disabled=submitting||!!pending.command;choices.append(now);}
+  if(latest){const go=button(canFit&&!o.historical()?'secondary':'',`Open ${surfaceName(latest,true)} →`,'vol-open-latest');go.onclick=()=>move(latest);choices.append(go);}
+  const why=!canFit?'Calibrating needs Publish market data and Read trades.':o.historical()?'Calibrate in the current workspace.':'';
+  if(why)choices.append(el('span','vol-fit-note',why));
+  missing.append(el('span','vol-missing-mark'),text,choices);
+ }
+ function renderDetail(){
+  const stored=library.find(s=>s.product===product),chosen=products.find(p=>p.code===product)??(stored&&{code:product,name:stored.productName});
+  placeholder.hidden=!!product;productHead.hidden=status.hidden=!product;
+  placeholder.replaceChildren(el('span','vol-placeholder-mark'),el('h3',undefined,'Choose an option product'),
+   el('p',undefined,'Products calibrated at this close come first. Each surface belongs to the close it was fitted at.'));
+  productName.textContent=chosen?publicText(chosen.name):publicText(product);productCode.textContent=product;
+  if(!shown){status.replaceChildren(product?'Reading the surface…':'');actions.hidden=true;views.hidden=true;missing.hidden=true;closes.hidden=!timeline?.length;clearViews();return;}
+  render();
+ }
  function render(){
   const read=shown!;
   const job=read.job,running=active(job),revision=read.revision;
   status.replaceChildren();
-  if(running)status.append(el('span','vol-spinner'),`Fit ${job!.state==='cancellation_requested'?'cancelling':job!.state} · checking again every few seconds`);
+  if(running)status.append(el('span','vol-spinner'),`Calibrating at ${hereName(true)} · ${job!.state==='cancellation_requested'?'cancelling':job!.state} · checking again every few seconds`);
   else if(read.state==='fitted'&&revision){
-   status.append(`Fitted · known from ${instant(revision.knownFrom)}`);
+   status.append(el('span','vol-dot vol-dot-here'),`Calibrated at ${hereName(true)} · known from ${instant(revision.knownFrom)}`);
    if(revision.inputsRevised)status.append(' ',el('span','vol-chip vol-chip-warn','Inputs revised after this fit'));
-  }else status.append('Not fitted for this date');
-  // Fitting is offered only to those who may, and only in the current workspace, where a fit is admitted.
+  }else status.append(el('span','vol-dot'),`Not calibrated at ${hereName(true)}`);
+  // Calibrating is offered only to those who may, and only in the current workspace, where a fit is admitted. Before a first
+  // fit the panel below offers it; the header offers a refit.
   const historical=o.historical();
-  fit.hidden=!read.canFit||historical||running||!!pending.command;fit.textContent=read.state==='fitted'?'Refit':'Fit now';
-  note.textContent=submitting?'Submitting the fit…':!read.canFit?'Fitting needs Publish market data and Read trades.':historical&&!running?'Fit in the current workspace':'';
+  fit.hidden=!read.canFit||historical||running||!!pending.command||read.state!=='fitted';fit.textContent='Recalibrate';fit.classList.toggle('secondary',true);
+  note.textContent=submitting?'Submitting the calibration…':read.state==='fitted'&&!read.canFit?'Calibrating needs Publish market data and Read trades.':read.state==='fitted'&&historical&&!running?'Calibrate in the current workspace':'';
   const ended=!running&&job&&(job.state==='failed'||job.state==='cancelled');
-  failure.textContent=fitMessage||(ended?`Last fit ${job!.state==='failed'?'failed':'was cancelled'}${job!.errorCode?` · ${jobFailures[job!.errorCode]?jobFailures[job!.errorCode]+' ':''}${job!.errorCode}`:''}`:'');
+  failure.textContent=fitMessage||(ended?`Last calibration ${job!.state==='failed'?'failed':'was cancelled'}${job!.errorCode?` · ${jobFailures[job!.errorCode]?jobFailures[job!.errorCode]+' ':''}${job!.errorCode}`:''}`:'');
   retry.hidden=!pending.command||submitting;
   actions.hidden=false;
   root.dataset.state=read.state;error.hidden=true;views.hidden=read.state!=='fitted';
+  renderTimeline();renderMissing();
   if(read.state==='fitted')drawSurface(read.surface!,revision!.id);else clearViews();
  }
 
  async function submit(){
   if(submitting)return;
-  let command;try{const c=o.context();command=pending.begin('vol-surfaces/fit',{snapshotId:c.snapshotId,product,model});}catch(error){fitMessage=messageOf(error);render();return;}
+  let command;try{const c=o.context();command=pending.begin('vol-surfaces/fit',{snapshotId:c.snapshotId,product,model});}catch(cause){fitMessage=messageOf(cause);render();return;}
   const number=generation;submitting=true;fitMessage='';render();
   const previouslyUncertain=pending.sending();
   let queued=false;
   try{await o.api('vol-surfaces/fit',{requestId:command.operationId,...command.body});pending.clear();queued=true;}
-  catch(error){
-   pending.failed(codeOf(error),previouslyUncertain);
-   fitMessage=pending.command?`The fit request is not confirmed: ${messageOf(error)} Retry it to submit the same request.`:`Fit refused: ${messageOf(error)}`;
+  catch(cause){
+   pending.failed(codeOf(cause),previouslyUncertain);
+   fitMessage=pending.command?`The calibration request is not confirmed: ${messageOf(cause)} Retry it to submit the same request.`:`Calibration refused: ${messageOf(cause)}`;
   }finally{submitting=false;}
   if(number!==generation)return;
-  // The job is read back as the surface reports it, and checked on from there.
-  if(queued)await read(number).catch(error=>{if(number===generation)failed(error);});else render();
+  // The job is read back at once, and checked on until it ends.
+  if(queued)await read(number).catch(cause=>{if(number===generation)failed(cause);});else render();
  }
  fit.onclick=()=>void submit();retry.onclick=()=>void submit();
  resetView.onclick=()=>view3d?.reset();
@@ -445,12 +584,16 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   const next=ahead.sort((a,b)=>distance(a)-distance(b))[0];if(next)link.set(next.series!.series.code);
  };
 
- state('idle','Choose an option product to see its surface.');
+ showHere();renderShelf();renderDetail();
  return {
   refresh,
   async open(code:string){product=code;await refresh();},
   // Left for another page: what was drawn is released, and no read or check-back under way draws it again while away.
   leave(){restart();clearViews();},
-  reset(){restart();products=[];nextProductOffset=null;moreProducts.hidden=true;productSelect.disabled=true;productSelect.replaceChildren(new Option('Apply the selected context',''));state('idle','Apply the selected context to see its surfaces.');},
+  reset(){
+   restart();products=[];library=[];libraryComplete=false;nextProductOffset=null;moreProducts.hidden=true;clearViews();views.hidden=true;missing.hidden=true;closes.hidden=true;
+   root.dataset.state='idle';error.hidden=true;hereKind.textContent='';hereTitle.textContent='Apply the selected context to see its surfaces';
+   shelfCount.textContent='';cards.replaceChildren(el('p','vol-empty-shelf','Apply the selected context to see its surfaces.'));productHead.hidden=status.hidden=true;placeholder.hidden=!product;
+  },
  };
 }

@@ -111,3 +111,44 @@ test('the page reads each colour from the theme, and a token the theme does not 
     assert.throws(()=>volTheme(styled({...all,'--vol-cheap':' '})),/does not define --vol-cheap/);
   }finally{delete globalThis.getComputedStyle;}
 });
+
+// A stored surface at a close (its id carries the session) or, with none, at a working snapshot's instant.
+const stored=(product,businessDate,close=null,closeId=close&&'c-'+close.session+businessDate,at=businessDate+'T18:30:00Z')=>({revision:'r-'+product+businessDate+closeId,
+  product,productName:product.toUpperCase(),closeId,businessDate,valuationAt:at,knownFrom:businessDate+'T19:00:00Z',close,expiries:4,fittedExpiries:4,series:40});
+const closeOf=(session,businessDate,inForce=true)=>({session,businessDate,inForce});
+
+test('the library lists each product with its surface at this close, or else its newest one, calibrated here first',async()=>{
+  const {libraryEntries}=await import('../dist/vol-surface-library.js');
+  const products=[{code:'aa',name:'A options'},{code:'bb',name:'B options'},{code:'cc',name:'C options'}];
+  const ny=day=>closeOf('ny',day);
+  const surfaces=[stored('bb','2026-10-16',ny('2026-10-16')),stored('cc','2026-10-15',ny('2026-10-15')),stored('bb','2026-10-14',ny('2026-10-14')),
+    stored('cc','2026-10-14',ny('2026-10-14')),stored('dd','2026-10-14',ny('2026-10-14'))];
+  const here={closeId:'c-ny2026-10-16',at:'2026-10-16T18:30:00Z',close:{session:'ny',businessDate:'2026-10-16'}};
+  const entries=libraryEntries(products,surfaces,here,true);
+  assert.deepEqual(entries.map(e=>[e.code,e.state,e.here?.businessDate??null,e.latest?.businessDate??null]),
+    [['bb','here','2026-10-16','2026-10-14'],['cc','elsewhere',null,'2026-10-15'],['dd','elsewhere',null,'2026-10-14'],['aa','none',null,null]]);
+  // A product the catalog page has not listed keeps the name its surface carries.
+  assert.equal(entries.find(e=>e.code==='dd').name,'DD');
+  // While more surfaces remain unread, a product without one listed is not said to have none.
+  assert.equal(libraryEntries(products,surfaces,here,false).find(e=>e.code==='aa').state,'unknown');
+});
+
+test('a stored surface is this close, one this view can open, another session, a replaced close or a day this view does not offer',async()=>{
+  const {reach,sameLocation}=await import('../dist/vol-surface-library.js');
+  const here={closeId:'c-ny2026-10-16',at:'2026-10-16T18:30:00Z',close:{session:'ny',businessDate:'2026-10-16'}};
+  const offered=s=>s.closeId==='c-ny2026-10-15'||s.closeId===null&&s.valuationAt==='2026-10-15T18:30:00Z'?'frame':null;
+  assert.equal(reach(stored('bb','2026-10-16',closeOf('ny','2026-10-16')),here,offered),'current');
+  assert.equal(reach(stored('bb','2026-10-15',closeOf('ny','2026-10-15')),here,offered),'open');
+  assert.equal(reach(stored('bb','2026-10-15'),here,offered),'open');
+  assert.equal(reach(stored('bb','2026-10-16',closeOf('ldn','2026-10-16')),here,offered),'otherSession');
+  // A replaced close is history even when a frame of it is still offered.
+  assert.equal(reach(stored('bb','2026-10-15',closeOf('ny','2026-10-15',false)),here,offered),'replaced');
+  assert.equal(reach(stored('bb','2026-10-13',closeOf('ny','2026-10-13')),here,offered),'otherDay');
+  // At a working snapshot, a close of a session the view does not offer is that session's; another instant of the day is not this one.
+  const working={closeId:null,at:'2026-10-16T16:00:00Z',close:null};
+  assert.equal(reach(stored('bb','2026-10-16',closeOf('ldn','2026-10-16')),working,offered),'otherSession');
+  assert.equal(reach(stored('bb','2026-10-16',null,null,'2026-10-16T16:00:00.000Z'),working,offered),'current');
+  assert.equal(reach(stored('bb','2026-10-16',null,null,'2026-10-16T17:00:00Z'),working,offered),'otherDay');
+  // The same close is the same location whatever offset its instant is written with.
+  assert.ok(sameLocation({closeId:null,valuationAt:'2026-10-16T16:00:00+00:00'},working));
+});

@@ -115,7 +115,7 @@ EVT and rolling backtests remain subsequent increments. No production throughput
 
 ## Guided parametric setup (D301)
 
-The primary **Parametric VaR** action opens the shared selected scope with visible
+The primary **VaR / ES** action opens the shared selected scope with visible
 editable starting settings: 99% confidence, six months, one business-day horizon,
 zero drift and 60 minimum common changes. A sole business calendar is selected
 automatically. **Scenarios and Greeks** opens the existing deterministic editor.
