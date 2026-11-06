@@ -34,8 +34,11 @@ D355 adds the actual managed billing-read work check to
 `--physical-assistant-check`. Its custom/generic plan matrix holds each certified
 context across 512 unrelated curves and compares matching fresh/analyzed
 maintenance states. It requires exact native result/order and per-relation work
-bounds, allowing at most one physical scan of the added curve rows. The ticket's
-held-choice checks also require Save to remain disabled until its matching preview
+bounds, allowing at most one physical scan of the added curve rows. The owned
+fixture holds automatic maintenance, checks unchanged non-curve planner inputs
+and restores exact table settings in finally; the analyzed baseline covers all
+RLS dependency statistics. The old reader still fails this isolated work check.
+The ticket's held-choice checks also require Save to remain disabled until its matching preview
 arrives. Native amendment and physical gas browser checks passed 5 and 20 scenarios
 respectively; these focused results do not replace the complete gate.
 

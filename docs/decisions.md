@@ -3244,3 +3244,10 @@ not a claim of constant raw scan work or a reproduced production latency bound.
 The fixture removes only its own added rows and verifies the original curve
 inventory. Independent review must challenge visibility, pin propagation,
 cardinality/order, current access, counter cancellation and fault cleanup.
+
+Work measurements compare stable planner inputs. The owned fixture temporarily
+pauses its tables' automatic maintenance, waits for existing workers, and checks
+non-curve relation/statistic fingerprints across each pair. Its analyzed layout
+maintains the full dependency database before recording the baseline at the same
+original context and expected result. Finally restores every original maintenance
+option as well as the curve inventory. Production retains its maintenance policy.

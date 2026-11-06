@@ -87,8 +87,12 @@ The owned `--physical-assistant-check` consumer runs the actual managed billing
 read at one certified context before and after adding 512 unrelated synthetic
 curves, then after `VACUUM ANALYZE`, under custom and generic plans. It compares
 the complete native result and bounds work per relation so reductions elsewhere
-cannot conceal repeated authorization work. Stale small-table estimates can
-still cause one physical curve scan; this is not a history-independent scan or
+cannot conceal repeated authorization work. The disposable fixture freezes automatic
+table maintenance during each comparison, checks unchanged non-curve planner
+statistics and restores original maintenance settings, including after refusal.
+The analyzed layout covers the full database's RLS dependencies before recording
+its baseline. Stale small-table estimates can still cause one physical curve scan;
+this is not a history-independent scan or
 latency claim. The ordinary five-second command deadline is unchanged.
 
 ## Native operations and UI
