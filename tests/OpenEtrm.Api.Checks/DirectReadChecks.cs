@@ -43,8 +43,8 @@ internal static class DirectReadChecks
             var all=await database.Read(connection,ct);
             if(faultOnly)
             {
-                // Only the batch stream runs under the extra restrictive fault
-                // policy. Exact point readers must refuse unknown policy shapes.
+                // Only the batch stream enables the owned native-reader fault.
+                // The exact reader's SELECT policy contract stays unchanged.
                 var fault=all.Observations.Last().Id("id");
                 var packet=all.Observations.Where(row=>row.Id("id")!=fault).Take(256).ToArray();
                 if(packet.Sum(row=>System.Text.Encoding.UTF8.GetByteCount(row.GetRawText()))<=32768)
