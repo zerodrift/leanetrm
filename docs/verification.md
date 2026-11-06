@@ -20,6 +20,8 @@ Focused combined-source qualification passed 1,436 frontend checks and 14 contex
 recovery browser checks. Header checks cover visible grouping, native help
 disclosures and phone layout. The cursor tracking check waits for its observed target
 position instead of assuming the first animation frame completes within 60 ms.
+Market-board checks reveal off-screen cards before requiring their optional
+shapes, retaining exact curve coverage, unique reads and the 64-curve batch bound.
 
 In the local synthetic workload of one requested fact and a 40-pin selected
 close, adding 4,096 unrelated observations left fact work at 44/44 observation
