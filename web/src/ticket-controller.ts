@@ -107,6 +107,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   return {tradeId:amendment.tradeId,bindingId:amendment.bindingId,expectedRevision:amendment.revision,definitionRevisionId,reason,policy:'future_gas_composition_replace_v1'};
  };
  const blocked=()=>!current()||o.readOnly||!entry||!state||!!pending.command||sending||booked!==undefined;
+ const previewCurrent=()=>settling===undefined&&bookable!==undefined&&bookable===previewIdentity();
 
  function draw(){
   queued=false;
@@ -135,6 +136,8 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    refocus(view,at);
   }
   if(labelsOnly)drawn?.updateBookedChoiceLabels(choices);
+  const submit=view.querySelector<HTMLButtonElement>('.ticket-book');
+  if(submit)submit.disabled=blocked()||unresolved.size>0||!previewCurrent();
   view.inert=!!entry&&blocked();
   reasonField.disabled=blocked();
   drawBooking();
@@ -370,7 +373,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  async function book(){
   if(!state||blocked())return;
   if(unresolved.size){say('Book once every local time you entered resolves to one instant.');return;}
-  if(settling!==undefined||bookable!==previewIdentity()){say('Save once the preview of your latest change is up to date.');return;}
+  if(!previewCurrent()){say('Save once the preview of your latest change is up to date.');return;}
   pending.begin(amendment?'tickets/amend':'tickets/book',{context:o.context(),draft:draft(),...amendmentTerms()});retain();
   await send();
  }

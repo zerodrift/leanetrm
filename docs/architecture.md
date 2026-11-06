@@ -1,5 +1,10 @@
 # Architecture and domain contracts
 
+D355 bounds repeated gas billing metadata authorization work by following the
+selected trade's exact relational keys. Native read policies, visible revisions,
+context and cash terms remain unchanged; the ordinary read deadline stays in
+force. See [gas billing](gas-cash-billing.md#selected-metadata-reads-d355).
+
 D354 groups the shared view context and bounds selected-frame correction reads.
 The close session and recorded date remain separate from the knowledge cutoff;
 help explains their meanings and the close-in-force exception. One authorized

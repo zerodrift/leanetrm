@@ -85,6 +85,7 @@ if(args is ["--direct-reads",var readFixture]){await DirectReadChecks.Run(readFi
 if(args is ["--exact-pin-reads",var pinFixture]){await ExactPinReadChecks.Run(pinFixture);return;}
 if(args is ["--observation-fact-reads",var factFixture]){await ObservationFactReadChecks.Run(factFixture);return;}
 if(args is ["--frame-read-authority",var frameAuthorityFixture]){await FrameReadAuthorityChecks.Run(frameAuthorityFixture);return;}
+if(args is ["--gas-billing-read-work",var billingReadFixture]){await GasBillingReadChecks.Run(billingReadFixture);return;}
 if(args is ["--stream-read-faults",var streamFixture]){await DirectReadChecks.StreamFault(streamFixture);return;}
 if(args is ["--stored-credentials",var credentialFixture]){CredentialCustodyChecks.Stored(credentialFixture);return;}
 if (args is ["--power-imports"])

@@ -1,5 +1,12 @@
 # Delivery plan and acceptance criteria
 
+D355 follows exact selected gas billing metadata links without reordering the
+authorized chain around unrelated curves. The owned physical assistant consumer
+checks pinned native result/order and per-relation work before and after unrelated
+curve growth and maintenance. This does not qualify broad metadata/history reads
+or establish production latency. Ticket Save readiness also follows its existing
+exact draft-and-reason preview guard; stale previews cannot enable the control.
+
 D354 groups the close session, As of date and knowledge controls, explains their
 different meanings and replaces stale Dashboard values with Apply guidance while
 a context is unapplied. Selected correction history and calendar pins use bounded

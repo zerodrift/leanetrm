@@ -16,7 +16,7 @@ successor reads, hidden anchors, full-close validity and concurrent replacement
 close/correction publication. Broad observation enumeration is deliberately made
 unavailable during the native context/calendar and managed selected-read checks.
 
-Focused combined-source qualification passed 1,436 frontend checks and 14 context
+Focused combined-source qualification passed 1,437 frontend checks and 14 context
 recovery browser checks. Header checks cover visible grouping, native help
 disclosures and phone layout. The cursor tracking check waits for its observed target
 position instead of assuming the first animation frame completes within 60 ms.
@@ -29,6 +29,15 @@ tuple reads and point work at 42/42 under both custom and generic plans. These
 are scoped work counters, not a latency or general history benchmark. The
 combined release still requires the complete command below, positive worker
 consumers and separate restore/upgrade qualification before production activation.
+
+D355 adds the actual managed billing-read work check to
+`--physical-assistant-check`. Its custom/generic plan matrix holds each certified
+context across 512 unrelated curves and compares matching fresh/analyzed
+maintenance states. It requires exact native result/order and per-relation work
+bounds, allowing at most one physical scan of the added curve rows. The ticket's
+held-choice checks also require Save to remain disabled until its matching preview
+arrives. Native amendment and physical gas browser checks passed 5 and 20 scenarios
+respectively; these focused results do not replace the complete gate.
 
 D344's managed `--assistant-workspace` checks consume the advertised fill
 encodings to build plans for both supported ask forms. They preserve the exact

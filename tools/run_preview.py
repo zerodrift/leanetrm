@@ -790,7 +790,7 @@ def main():
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--crude-setup' if args.crude_setup_check else '--physical-crude'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},check=True,timeout=900)
             elif args.physical_assistant_check:
                 from check_physical_assistant import run_checks as check_physical_assistant
-                physical_assistant=check_physical_assistant(url,query,manifest,fake_provider,gas_demo_fixture)
+                physical_assistant=check_physical_assistant(url,query,manifest,fake_provider,gas_demo_fixture,dotnet,app_env,temporary)
                 if args.browser_check:
                     target=temporary/'physical-assistant-browser.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'provider':fake_provider.control(),'facility':physical_assistant}))
