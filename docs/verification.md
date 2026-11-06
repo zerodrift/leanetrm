@@ -4059,3 +4059,26 @@ precedes classification of labels filtered out by row security.
 Desktop and 390-pixel gas grid inspection passes. Independent adversarial review
 has no outstanding material findings. D342 adds no schema migration or financial
 write policy; existing operational and release qualifications remain applicable.
+
+## Physical operations release integration
+
+The integrated schema uses migrations 0204–0206 after the existing curve,
+regional-close and assistant-presentation migrations. Assistant admission advances
+from the existing v17 boundary through v18/v19 to v20; retained replay and the
+previous presentation vocabulary remain intact. Decision records D336–D342
+describe this physical increment independently of the preceding records.
+
+Qualification passes the API build, 663 managed core checks, API schedule and
+assistant contracts, 1,398 web checks and 86 Python tooling/release checks.
+Fresh stock-PostgreSQL workflows pass 10 manual gas operations, 19 gas billing,
+47 crude lifecycle and 14 LNG browser checks, alongside the existing gas/setup
+regressions. The assistant runtime passes turn, HTTP tool, stream and usage
+regressions with v20 admission and older-version refusal.
+
+Close-session changes use the existing context leave guard before changing the
+saved session or selected frame. Real browser checks preserve dirty billing and
+the exact header on Keep, apply the session on explicit Discard, and retain one
+unchanged uncertain determination request across a session switch. The trading
+CI partition now includes both manual gas and billing recovery workflows.
+Independent adversarial review has no outstanding material finding. These are
+local qualification results; hosted rollout remains separate.
