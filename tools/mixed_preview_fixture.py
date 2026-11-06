@@ -38,7 +38,8 @@ def fixture(export_path):
     r('quote_specifications',('gas_out','gas','outright','gas_mmbtu','usd',1,'0.001','0.001',-1000,1000),
       ('gas_basis','gas','basis','gas_mmbtu','usd',1,'0.001','0.001',-1000,1000))
     r('clock_rules',('utc','fixed_offset',0),columns='catalog_id,revision_id,code,kind,fixed_offset_seconds')
-    r('calendars',('synthetic_calendar','utc',96,'2025-01-01','2028-01-01'),
+    # The built-in frames are recorded as closes of a UTC session on every calendar day (D334).
+    r('calendars',('synthetic_calendar','utc',96,'2025-01-01','2028-01-01'),('test_utc_every_day','utc',0,'2020-01-01','2100-01-01'),
       columns='catalog_id,revision_id,code,clock_code,weekend_mask,coverage_from,coverage_to')
     r('location_types',('hub','Synthetic pricing hub'))
     r('locations',('benchmark_hub','Synthetic benchmark hub','hub','utc'),('location_hub','Synthetic location hub','hub','utc'),

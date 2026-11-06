@@ -2,7 +2,8 @@
 
 Only recorded closes are closes: each built-in frame becomes the close of a synthetic UTC session whose cutoff is the
 frame's time of day and whose curves are the frame's. A later frame on the same session day replaces an earlier one.
-Frames that belong to a separate bundle (PPA or swap selections), or fall between minutes, stay working snapshots.
+Frames that belong to a separate bundle (PPA or swap selections), fall between minutes or select a curve with no remaining
+contracts stay working snapshots.
 """
 import json
 from uuid import uuid4
@@ -21,9 +22,10 @@ def seed(query, manifest):
     # different curves need a second session.
     seeded, versions = [], {}
     for frame in sorted(manifest['frames'], key=lambda f: f['at']):
-        # A session cuts off on a whole minute; a frame between minutes stays a working snapshot.
+        # A session cuts off on a whole minute; a frame between minutes stays a working snapshot. So does one that selects a
+        # curve with no remaining contracts, which a close records no members for.
         if (frame.get('ppaBundle') or frame.get('swapMarketSelections') or not frame['observationIds'] or not frame['curveContracts']
-                or frame['at'][16:19] != ':00' or frame['at'][19:20] not in ('', 'Z', '+')):
+                or not all(frame['curveContracts'].values()) or frame['at'][16:19] != ':00' or frame['at'][19:20] not in ('', 'Z', '+')):
             continue
         cutoff, day, curves = frame['at'][11:16], frame['at'][:10], tuple(sorted(frame['curveContracts']))
         lane = 0
