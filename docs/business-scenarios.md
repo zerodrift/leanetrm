@@ -312,7 +312,8 @@ full futures settlement PV remain work. Interactive portfolio risk and
 generated-close jobs share the mixed futures-and-swaps valuation adapter, while
 retaining their separate operation and publication contracts. Computed-output
 absolute shifts are implemented alongside primitive quote shifts. Interactive and
-queued risk also admit supported PPA, crude and fixed contractual gas positions.
+queued risk also admit supported PPA, crude and contractual gas positions,
+including future compositions with fixed or indexed consideration.
 Gas operational quantities do not change contractual PV; automated gas/crude
 closes still refuse. Later [LNG](physical-lng.md) and
 [listed futures option](futures-options.md) consumers retain their own explicit

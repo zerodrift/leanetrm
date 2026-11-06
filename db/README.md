@@ -1,7 +1,7 @@
 # Database schema and migration history
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0207_physical_operations_workspace.sql`. It includes reference/market data, certified
+`0210_indexed_gas_consideration.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts, regional closes, bounded physical gas/crude operations and
 pre-loading LNG cargo booking/valuation with saved Incoterms.
@@ -12,6 +12,16 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- 0208: whole-term [physical gas composition booking](../docs/deal-ticket.md),
+  with daily quantities across up to 1,200 delivery days and exact native monthly
+  price references; legacy single-point admission retains its original bound.
+- 0209: future gas composition amendments through the ordinary ticket, with exact
+  expected revisions, retained prior bookings and idempotent/no-op outcomes.
+  Started delivery and existing operational relationships refuse this bounded
+  replacement policy.
+- 0210: daily indexed gas consideration using the ordinary floating-side program,
+  exact published-index terms, explicit spread/projection and next-month payment
+  rules. This adds no indexed gas billing/payment lifecycle.
 - 0205–0207: [daily gas cash determinations](../docs/gas-cash-billing.md),
   [manual gas delivery operations](../docs/gas-delivery-operations.md) and the
   [Physical operations workspace](../docs/physical-workspace.md). These retain

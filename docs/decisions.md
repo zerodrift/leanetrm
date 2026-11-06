@@ -3003,7 +3003,7 @@ assignments refuse. Carry all assignments through ordinary market preparation,
 retained programs, inspection and risk, with the existing 1200 operating-day
 quantity bound. No risk-specific exposure allocation or shock behavior is added.
 
-Migration 0205 expands composition admission and proves each retained daily
+Migration 0208 expands composition admission and proves each retained daily
 source against its native period while preserving unit, quantity, geometry,
 lifecycle and graph validation. Predecessor helper bodies, ownership, ACLs,
 configuration and the original geometry constraint are pinned. The private
@@ -3072,7 +3072,7 @@ forecast selection, explicit additional spread and next-month UTC payment day
 exposes this as **Index payment** and uses the same published-curve eligibility
 resolver for physical and indexed forecast fields.
 
-Migration 0207 pins the predecessor writer, seal, publisher and component
+Migration 0210 pins the predecessor writer, seal, publisher and component
 constraints, adds exact typed index/projection relationships, and proves the
 retained daily schedule graph, quantities, source bindings and payment geometry.
 Fixing publication must precede payment and payment cannot precede the native

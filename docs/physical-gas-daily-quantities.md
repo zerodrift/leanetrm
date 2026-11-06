@@ -15,9 +15,11 @@ manual quantity revisions. Existing manual policies below remain unchanged.
 Migration 0145 creates a delivery obligation for each physical membership when a
 composed trade is booked. Existing composed bookings receive the same mapping on
 migration. An obligation pins the originating trade revision, instrument and
-membership slot through exact foreign keys. The current booking profile admits
-revision one only; future amendments require a qualified continuity mapping.
-Two trades using reusable Sides have different obligation identities and facts.
+membership slot through exact foreign keys. Future composition amendments now
+create new revision-owned occurrences; they refuse trades with daily quantity,
+service or facility relationships rather than infer continuity. Reads select the
+retained selected revision's obligations. Two trades using reusable Sides have
+different obligation identities and facts.
 
 A quantity series identifies an obligation, quantity kind, manual source profile
 and delivery stage. Supported kinds are nominated, confirmed, scheduled and
@@ -40,8 +42,8 @@ previous revision. Identical actor/request retries return the original outcome.
 A fresh operation with the same current business fact is a no-op, provided its
 recording instant does not precede that head. Changed data creates a new revision.
 The profile admits at most 10,000 commands/facts per trade and 1,000 revisions per
-series/day. There are at most four physical memberships and 31 retained days per
-membership. History inspection returns the latest 100 visible revisions.
+series/day. There are at most four physical memberships and 1200 retained
+operating days per membership. History inspection returns the latest 100 visible revisions.
 
 Runtime roles cannot mutate tables directly. Forced row security and restrictive
 policies require current trade/source authority and certified temporal visibility.

@@ -42,7 +42,14 @@ Current product scope includes futures execution P&L,
 [crude booking/risk](physical-crude.md) with
 [delivery-to-cash operations](physical-crude-operations.md), and
 [LNG cargo booking/pre-delivery valuation](physical-lng.md) have their own exact
-contracts and limits. Statistical risk includes
+contracts and limits. Gas compositions now support up to 1200 operating days,
+future replacement amendments and independent indexed consideration through the
+existing FloatingSide. Started-delivery cash lifecycle admission remains separate.
+The [shared Side inspector](side-schedules.md#pricing-and-lifecycle-inspection-d352)
+provides lazy, paged pricing and lifecycle facts through registered native readers
+for gas, crude, LNG, PPA and supported swaps. This read-only consolidation does
+not complete the general swap/PPA retained-program valuation cutover. Statistical
+risk includes
 [parametric](parametric-risk.md), [historical](historical-risk.md),
 [Monte Carlo](monte-carlo-risk.md) and explicitly selected
 [PCA/hybrid modes](pca-hybrid-risk.md). The [Blotter workbench](blotter-workbench.md),

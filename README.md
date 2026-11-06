@@ -20,11 +20,13 @@ for synthetic booking, graphical break-even pricing and settlement previews.
   power swaps, factor swaps and PPAs,
   with exact party references and retained history. New trade opens each product's
   booking workflow; supported amendments retain immutable revisions
-- **Physical gas:** independent fixed delivery, cash and fee sides in the
-  [deal ticket](docs/deal-ticket.md), with explicit fuel links, versioned delivery
-  setup and trade-owned daily quantity revisions. Contractual pre-delivery PV is
-  supported alongside interactive/queued contractual scenario risk. Manual
-  nominations, acknowledgments, schedule adoption and imbalance reconciliation
+- **Physical gas:** fixed-quantity delivery with independent fixed or daily indexed
+  consideration and fixed fee sides in the [deal ticket](docs/deal-ticket.md), explicit
+  fuel links, multi-month booking and versioned delivery setup. Future compositions
+  support amendments before operational/facility relationships exist. Contractual
+  pre-delivery net MTM and interactive/queued scenario risk retain independent
+  physical and payment forecasts; started-delivery indexed cash lifecycle remains
+  work. Manual nominations, acknowledgments, schedule adoption and imbalance reconciliation
   reuse retained daily quantities. Final daily fixed-price cash determinations
   retain original and correcting contributions; gas invoices, payments and
   operational PV remain work. See [delivery operations](docs/gas-delivery-operations.md)
@@ -43,8 +45,10 @@ for synthetic booking, graphical break-even pricing and settlement previews.
   intervals, quantities and source status; LNG operational actions remain TBD.
   See [the workspace](docs/physical-workspace.md) and
   [delivery view](docs/physical-delivery-view.md)
-- **Curves:** futures, gas and power forwards, basis and interest rates, built from
-  explicitly selected prices, with a diagram showing which inputs built each
+- **Curves:** one **Curves & prices** workspace groups **Contract prices**,
+  **Curve builder** and **Hourly / sub-hourly prices** under the shared context
+  and edit guards. Futures, gas and power forwards, basis and interest rates are
+  built from explicitly selected prices, with a diagram showing which inputs built each
   contract's price. The custom-curve workbench supports visual/formula recipes and
   explicit weighted contract baskets, reusable published curve outputs and guided
   combinations of computed curves with matching periods and units; all keep their
@@ -95,7 +99,11 @@ for synthetic booking, graphical break-even pricing and settlement previews.
   see [the bounded lifecycle](docs/swap-settlement.md)
 - **Blotter:** filters, pivots, saved views, charts, exports, docked trade details,
   pop-out, maximize/restore for every pane, shared portfolio/book selectors, personal
-  sidebar pins and backend-prepared close-out drafts; see [the workbench](docs/blotter-workbench.md)
+  sidebar pins and backend-prepared close-out drafts. Shared lazy, paged Side
+  inspection exposes pricing, source/calculation detail and native lifecycle state
+  for swaps, PPAs, gas, crude and LNG; unsupported values retain explicit reasons.
+  See [the workbench](docs/blotter-workbench.md) and
+  [Side inspection limits](docs/side-schedules.md#implementer-contract-d353)
 - **Dashboard:** account-owned layouts, curve levels/history and positions from
   saved risk run definitions; see [implemented widgets and limits](docs/market-dashboard.md)
 - **Interval series:** audited per-interval values on any market clock (price shapes,

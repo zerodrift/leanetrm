@@ -316,7 +316,10 @@ Manual nominations/acknowledgments, schedule adoption, statements and imbalance
 agreements are now implemented in [gas operations](gas-delivery-operations.md).
 Bounded [final daily cash determinations](gas-cash-billing.md) support fixed-price
 delivery components and corrections. Broader physical completion, operational PV,
-invoicing/payment execution and automated-close gas admission remain work.
+invoicing/payment execution and automated-close gas admission remain work. D347–D350 subsequently add multi-month
+composition booking, future replacement amendments and independent indexed
+consideration through the existing FloatingSide. These preserve contractual net
+MTM and do not admit started-delivery cash lifecycle operations.
 The first gas composition gate now supports fixed contractual memberships and
 quantity links. Transport eligibility, allocation splits, operational inputs and
 ordered paths require their own behavior;

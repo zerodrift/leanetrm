@@ -90,6 +90,16 @@ connected valuation and retained-worker paths consume those relationships; see
 [the physical gas example](indexed-physical-gas-example.md). This future-delivery
 consumer does not add indexed-purchase cash settlement or broader profile rules.
 
+D350 adds independent daily indexed consideration to future gas compositions.
+Physical and payment forecasts use separately selected curve bindings through
+the same lookup/source machinery. Exact daily index contracts and fixing
+definitions, an explicit spread, physical quantity allocations and next-month
+UTC payment terms feed ordinary Instrument/Side PV and retained scenario risk.
+Multi-month booking retains those native periods without inferred monthly
+allocation of whole-term fixed cash. The selected measure remains contractual
+net MTM; started-delivery indexed cash, paid/unpaid cash state and payment
+execution are outside this profile.
+
 ## Rate curves
 
 `RatesCurve` evaluates a typed `DiscountFactor` by maturity, retaining currency,

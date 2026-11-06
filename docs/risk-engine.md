@@ -132,9 +132,11 @@ unaffected work reuses its base value. Factor discovery establishes which inputs
 can affect a value, while repricing measures the exposure. A zero local delta
 does not remove a declared factor or its nonlinear consumers.
 
-The fixed contractual gas profiles enter this same path through retained
-programs, including independent side directions and exact quantity ratios. They
-report `gas_contractual_present_value`; gas-only scopes and mixed portfolios can
+Supported contractual gas profiles enter this same path through retained
+programs, including independent side directions and exact quantity ratios.
+D350 adds future gas compositions with daily indexed consideration under the
+ordinary floating-Side contract; physical and cash dependencies remain independent.
+They report `gas_contractual_present_value`; gas-only scopes and mixed portfolios can
 run immediate and retained risk without a gas product exclusion. Migration 0165
 adds the read-only worker policies needed to load those programs under the same
 history, current-authority and lease checks. Started delivery and missing inputs
@@ -393,7 +395,8 @@ explicit failed job, so lease recovery cannot repeatedly compute it forever.
 ## Scope and verification
 
 The interactive and retained consumers include futures, financial and heat-rate
-swaps, qualified PPAs, fixed contractual crude and gas holdings, the bounded
+swaps, qualified PPAs, fixed-volume crude holdings, gas compositions with fixed or
+qualified indexed consideration, the bounded
 [LNG cargo](physical-lng.md), and [listed American futures options](futures-options.md)
 across exact primary and supplemental market revisions. They preserve the distinct native
 valuation measures, including futures execution P&L/open sensitivity and swap PV

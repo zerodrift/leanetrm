@@ -310,13 +310,16 @@ ticket](deal-ticket.md) (D278–D281), which replaced the gas single-point and
 composition editors. Daily gas quantities are recorded in **Operations → Physical
 operations** and remain separate operational revisions; the booked ticket and Side
 schedules retain contractual inspection. Interactive and retained portfolio risk
-include fixed contractual gas through the common PV and shared market-factor
+include supported contractual gas through the common PV and shared market-factor
 operations (D287). Manual nominations/acknowledgments, schedule adoption, statements
 and imbalance agreements are now implemented in [gas
 operations](gas-delivery-operations.md). Bounded [final daily cash
 determinations](gas-cash-billing.md) support fixed-price delivery components and
 corrections. Broader physical completion, operational PV, invoicing/payment
-execution and automated-close gas admission remain work.
+execution and automated-close gas admission remain work. D347–D350 subsequently add multi-month
+composition booking, future replacement amendments and independent indexed
+consideration through the existing FloatingSide. These preserve contractual net
+MTM and do not admit started-delivery cash lifecycle operations.
 
 D229 integrates PPA bindings into the common blotter and interactive/queued
 portfolio risk, with an explicit pending-meter policy and distinct value measure.
