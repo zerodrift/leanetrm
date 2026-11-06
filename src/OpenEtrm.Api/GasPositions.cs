@@ -45,10 +45,10 @@ internal static class GasPositions
 {
  internal const string Type="physical_gas";
  internal const string Measure="gas_contractual_present_value";
- internal static async Task<ImmutableArray<GasPosition>> ReadRisk(NpgsqlConnection connection,PreviewManifest manifest,
-  ImmutableArray<Guid> books,CancellationToken ct,ImmutableHashSet<Guid>? trades=null)
+ internal static async Task<ImmutableArray<GasPosition>> ReadComplete(NpgsqlConnection connection,PreviewManifest manifest,
+  ImmutableArray<Guid> books,ImmutableArray<Guid> portfolios,CancellationToken ct,ImmutableHashSet<Guid>? trades=null)
  {
-  try{return await Read(connection,manifest,books,[],ct,trades:trades);}
+  try{return await Read(connection,manifest,books,portfolios,ct,trades:trades);}
   catch(MarketDataException error)when(error.Code=="position_facts")
   {throw new MarketDataException("risk_contract","Every held gas position must have its exact visible retained valuation inputs.");}
  }

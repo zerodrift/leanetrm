@@ -11,8 +11,7 @@ export async function run(actions){
  const row=`#desk-positions [data-row-key="${fixture.tradeId}:${fixture.instrumentId}"] .desk-reference`;
  await wait(`!!document.querySelector(${q(row)})`,30000);await click(row);
  await wait("document.querySelector('#side-panel-amend')?.textContent==='Amend'&&!document.querySelector('#side-panel-amend').hidden",30000);
- await click('#position-details-tabs-schedules');await wait("!!document.querySelector('#position-details .deal-ticket[data-mode=booked] .ticket-action')",30000);
- await evaluate(`window.__amendAgain=document.querySelector('#position-details .deal-ticket[data-mode=booked] .ticket-action').onclick;
+ await evaluate(`window.__amendAgain=document.querySelector('#side-panel-amend').onclick;
   {const send=window.fetch;window.__gasAmends=[];window.fetch=async(input,init)=>{
    const response=await send(input,init);if(String(input)==='/api/tickets/amend'){
     window.__gasAmends.push({body:JSON.parse(init.body),receipt:await response.clone().json()});
@@ -35,5 +34,6 @@ export async function run(actions){
  await wait("document.querySelector('#position-details-head .side-panel-meta')?.textContent.startsWith('Revision 4')&&"+idle,30000);
  await check('Check status follows the same trade to its new revision without a second write',`window.__gasAmends.length===1&&window.__gasAmends[0].receipt.tradeId===${q(fixture.tradeId)}&&window.__gasAmends[0].receipt.revision===4`);
  await click('#position-details-tabs-schedules');await wait("!!document.querySelector('#position-details .deal-ticket[data-mode=booked]')",30000);
- await check('the amended physical trade reopens with its new payment price',"document.querySelector('#position-details .ticket-card[data-side=payment] [data-field=cash_price]').textContent.includes('3.25')");
+ await click('#position-details-tabs-terms');
+ await check('the amended physical trade reopens with its new payment price',"[...document.querySelectorAll('#position-details-view .side-panel-section')].find(s=>s.querySelector('h3')?.textContent==='payment').textContent.includes('3.25')");
 }

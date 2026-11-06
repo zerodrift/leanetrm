@@ -11,8 +11,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await evaluate(`window.__physicalAsks=[];{const send=window.fetch;window.fetch=async(path,options)=>{if(String(path).endsWith('/assistant/turns/ask'))window.__physicalAsks.push(JSON.parse(options.body));return send(path,options);};}`);
  const frames=await evaluate("(async()=>{const w=await(await fetch('/api/workspace/navigation')).json();return w.frames;})()");
  const before=frames.find(f=>f.at.startsWith('2020-12-18')),after=frames.find(f=>f.at.startsWith('2021-01-15T08:'));
+ await open('gas-setup');
  if(before.close){await set('#close-session',before.close.session);await wait(idle);}
- await set('#snapshot',before.id);await wait(idle);await open('gas-setup');
+ await set('#snapshot',before.id);await wait(idle);
  await click('#assistant-launcher');await wait("!document.querySelector('#assistant-panel').hidden");
  await wait(`[...document.querySelector('#assistant-agent').options].some(o=>o.value===${JSON.stringify(agent.id+':1')})`);
  await set('#assistant-agent',agent.id+':1');

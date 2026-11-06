@@ -93,6 +93,8 @@ DECLARE h trading.gas_trade_revisions;i trading.gas_instruments;BEGIN
   WHERE(s.catalog_id,s.instrument_id)=(catalog,h.instrument_id) AND m.role='physical' AND g.origin<=valuation)
  THEN RETURN 'gas_amendment_started';END IF;
  IF EXISTS(SELECT 1 FROM trading.gas_quantity_commands WHERE(catalog_id,trade_id)=(catalog,trade)) OR
+ EXISTS(SELECT 1 FROM trading.gas_service_accounts WHERE(catalog_id,trade_id)=(catalog,trade)) OR
+ EXISTS(SELECT 1 FROM trading.gas_operation_commands WHERE(catalog_id,trade_id)=(catalog,trade)) OR
  EXISTS(SELECT 1 FROM trading.gas_delivery_obligations o WHERE(o.catalog_id,o.trade_id)=(catalog,trade) AND(
   EXISTS(SELECT 1 FROM trading.gas_quantity_series s WHERE(s.catalog_id,s.obligation_id)=(o.catalog_id,o.id)) OR
   EXISTS(SELECT 1 FROM trading.facility_gas_delivery_scopes l WHERE(l.catalog_id,l.origin_obligation_id)=(o.catalog_id,o.id)) OR

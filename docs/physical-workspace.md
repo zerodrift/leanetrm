@@ -208,14 +208,119 @@ Quantity/source and allocation revisions retain their effective period and their
 knowledge/publication identity. A later correction does not rewrite earlier
 certificates, accepted allocations or settled cash. The assistant can inspect the
 revisions and prepare supported operational corrections; automatic invoice
-adjustments are not implemented by this increment.
+adjustments are not implemented by this increment. D338 adds a separate
+[reviewed daily gas cash determination](gas-cash-billing.md), accessible from a
+booked gas instrument's Billing & corrections tab in Physical operations. It retains accepted source links and signed
+corrections; invoice/credit documents and accounting remain subsequent consumers.
 
-For a future settlement-adjustment consumer, keep a small explicit cause
+For settlement-adjustment consumers, keep a small explicit cause
 classification: late actuals, quantity correction, allocation correction, price
 correction and fee correction. Whether the affected period or invoice is closed
 is a separate lifecycle fact; a late reading alone does not establish a
 prior-period accounting adjustment. Reuse governed reference-data conventions
-when that consumer is implemented. No new classification table or executable
-settlement policy is introduced here. Debit/credit adjustments must link the
+when a configurable consumer requires them. D338 currently admits only typed
+late-actual, quantity and allocation causes under its installed profile; price
+and fee corrections remain unsupported. No classification master is introduced. Debit/credit adjustments must link the
 original determination, corrected inputs and explicit delta without overwriting
 historical settlement.
+
+D337 defines the [accounting policy and standards-update boundary](accounting-policy-boundary.md)
+for this future consumer. Commercial correction and accounting treatment remain
+separate; source references and policy versions are retained independently, and
+updates cannot rewrite posted history. This is a design contract, not an
+implemented journal or standards-compliance engine.
+
+## Manual gas delivery desk
+
+The separate **Physical operations** sidebar page contains the
+[manual delivery desk](gas-delivery-operations.md). Booked gas instruments have
+Overview, Delivery and Billing & corrections tabs. Four stages compose service
+setup/submission, external responses/adoption, actual allocations/statements and
+reconciliation/billing. Delivery-day inputs select the period being operated on;
+all setup, source and statement reads remain pinned to the header context. Current
+service terms follow that context without a version dropdown. Live transmission,
+partial imbalance reversals and portfolio imbalance instruments remain TBD.
+
+
+## Instrument inspection and operational work (D340)
+
+The Blotter inspects pricing, immutable instrument terms and read-only side
+schedules. It never mounts physical submission, statement, allocation or billing
+forms. Physical instruments open with a Physical overview; gas, crude and LNG
+present their exact saved pipeline/zone/point, custody/standard-volume or
+cargo/Incoterms conventions. The physical power consumer uses its explicit energy
+delivery membership to label its overview. This is presentation composition,
+not a new commodity inheritance hierarchy or a financial-policy default.
+
+Physical operations lists booked gas, crude and LNG metadata independently of PV.
+Its directory reuses native inventory/source completeness checks and certified
+pagination. Missing held metadata refuses the directory rather than erasing the
+instrument. Gas has a four-stage workflow and a separate billing tab. Crude reuses
+its existing certified receipt/inventory/dispatch/invoice/payment workflow. LNG
+conventions are inspectable; its operational workflow and unsupported commodity
+families are visibly TBD. Facilities & delivery retains facility setup and shared
+quantity allocation scopes.
+
+The workspace owns one actor-scoped retained native command, separate from its
+widgets. Leaving a tab, page or context asks before discarding edits; Keep preserves
+the selected tab and form. An uncertain command retains its exact original payload
+for status or retry, including when the header selection is unapplied. A result
+clears it only after native operation, trade and result identities match; malformed
+success or status responses leave it retained. Historical
+views remain read-only and all native rights/source checks remain authoritative.
+
+## Focused operations layout (D341)
+
+Select a booked instrument in the Physical trades grid. The instrument
+header retains its exact trade reference, book and exclusive delivery window
+while Overview, Delivery and Billing & corrections present their own work.
+Overview cards show saved terms, readable convention labels and explicit quote
+units through existing shared formatters; the browser performs no calculations.
+
+Delivery lists every retained physical-side/native-day row in its own grid. Four keyboard-accessible stage
+tabs reveal the relevant manual actions; they are topics, not completion states.
+An action opens its inline form, preserving field definitions and the separate
+native review/accept steps. Activity & evidence shows the recorded facts across
+all stages. Billing groups delivery/source, calculation and evidence/correction
+inputs without adding a financial default.
+
+Unfinished inputs block stage/day changes until retained or explicitly discarded.
+A refresh removes focused inputs before starting its new read so native blur
+changes cannot invalidate that read. A failed directory read clears prior
+instrument metadata and tab roles; the actor-scoped recovery card remains
+independent. Historical and unauthorized actions stay disabled under native
+capabilities. The layout adapts to narrow viewports without new view-local As of
+or knowledge controls.
+
+## Trade and delivery grids (D342)
+
+Physical trades replaces both selection dropdowns. It lists trade reference,
+commodity, book, exclusive delivery bounds, pricing reference, booked quantity/unit
+where stated, and the implemented workflow. Multi-side gas quantity is shown as
+By side, with no invented aggregate. Future workflows remain visibly TBD.
+
+The Delivery grid lists every native side/day with contract quantity, nominated,
+confirmed, scheduled and allocated heads, selected input/track, source status,
+quantity specification, location and interval bounds. Values are exact backend
+text; the shared grid sorts decimal/fraction quantities without rounding. A blank
+track has no record, a withdrawal remains labeled, and an explicit zero remains
+zero. Colors reinforce textual commodity/status labels and claim no completion or
+settlement state. Table search, column filters and sorting read authorized facts;
+they never change header context or financial policies.
+
+Select a row to open its work. Service/direct-quantity entry stays on the selected
+obligation, and transfers preserve the owned-leg/counterparty distinction.
+Changing delivery selection loads only that day's private state; it retains the
+standing grid, focus and presentation state. A filtered-out open row remains
+identified by the shared notice. Keep preserves a dirty row/form; an unavailable
+source or context clears stale data without losing an uncertain request.
+
+
+## Shared delivery intervals (D343)
+
+Delivery grids use the [common native view](physical-delivery-view.md). Gas keeps
+its independent side/day tracks and manual workflow. Crude and LNG show their
+retained whole-window totals, directions, exact unit/custody references and source
+addresses. Crude's existing operations remain below its grid; LNG actuals and
+reconciliation display TBD. The common table accepts supplied interval geometry
+and track names; new operational adapters remain explicit backend work.

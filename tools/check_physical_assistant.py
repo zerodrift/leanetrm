@@ -197,6 +197,59 @@ def run_checks(url, query, manifest, fake, demo):
     check('approved daily gas corrections use native immutable revisions and replay the original outcome',owner.call('assistant/actions/authorize',daily_reference)==daily_receipt and
         next(h for h in owner.call('gas/quantities/read',{'context':daily_current,'tradeId':demo['trades'][0],'selectionPolicy':'operational_projection_v1'})['rows'][0]['heads'] if h['kind']=='nominated')['quantity']=='88')
 
+    # Gas commercial cash uses the same pinned read and separately approved native write.
+    allocated=next((h for h in row['heads'] if h['kind']=='allocated'),None)
+    final_request={**daily_write,'operationId':str(uuid4()),'kind':'allocated','status':'final','quantity':'100',
+        'evidence':'Synthetic accepted manual final quantity','expectedPreviousId':allocated['id'] if allocated else None}
+    owner.call('gas/quantities/record',final_request)
+    billing_current=dict(context=daily_current,tradeId=demo['trades'][0],expectedRevision=1,cashSlot=1,day=row['day'],
+        selectionPolicy='final_allocated_billing_v1',profile='gas_final_daily_fixed_cash_v1',decimalPlaces=2,roundingPolicy='currency_minor_units_to_even_v1')
+    def billing_read(rows):
+        certificate=rows[0]['context']
+        return 'read_page_operation',operation('gas.billing.preview_v1',{**billing_current,'context':{**daily_current,'knowledgeMode':'retained','contextId':certificate['contextId']}})
+    _,cash_results,_=ask([('discover_page_operations',{'page':'blotter','operation':'gas.billing.preview_v1'}),billing_read],
+        report={'page':'gas_setup','selection':{}},knowledge={**current,'frameId':after})
+    cash_preview=cash_results[1]['data']
+    check('gas billing agent preview retains native final source and signed cash',cash_preview['amount']=='-300' and cash_preview['contribution']=='-300')
+    cash_write=dict(preview=billing_current,operationId=str(uuid4()),previewHash=cash_preview['previewHash'],sourceId=cash_preview['sourceId'],
+        expectedPreviousId=None,correctionDueAt=None,reason=None,evidence='Synthetic approved agent cash review')
+    cash_turn,_,_=ask([('propose_page_action',operation('gas.billing.determine_v1',cash_write))],report={'page':'gas_setup','selection':{}},knowledge={**current,'frameId':after})
+    check('gas billing proposals leave cash history unchanged',owner.call('gas/billing/read',dict(context=daily_current,tradeId=demo['trades'][0]))['determinations']==[])
+    cash_reference={'turnId':cash_turn['id'],'step':1}
+    cash_receipt=owner.call('assistant/actions/authorize',cash_reference)
+    check('authorized gas cash uses the native handler and retains its first outcome',owner.call('assistant/actions/authorize',cash_reference)==cash_receipt and
+        owner.call('gas/billing/read',dict(context=daily_current,tradeId=demo['trades'][0]))['determinations'][0]['rounded_total']=='-300')
+
+    # The operational page discovers metadata without running contractual valuation.
+    def directory_read(rows):
+        certificate=rows[0]['context']
+        return 'read_page_operation',operation('physical.operations.directory_v1',{
+            'context':{'snapshotId':after,'convention':'trading_workspace_v1','knowledgeMode':'retained','contextId':certificate['contextId']},
+            'bookIds':[],'portfolioIds':[],'offset':0,'limit':64})
+    _,directory_results,_=ask([('discover_page_operations',{'page':'physical_operations','operation':'physical.operations.directory_v1'}),directory_read],
+        report={'page':'physical_operations','selection':{}},knowledge={**current,'frameId':after})
+    physical_facts=directory_results[1]['data']
+    check('physical operations agent lists exact booked metadata under the captured header context without PV',
+        any(p['tradeId']==demo['trades'][0] for p in physical_facts['positions']) and
+        all('presentValue' not in p for p in physical_facts['positions']) and physical_facts['context']['contextId']==directory_results[0]['context']['contextId'])
+
+    # Explicit fixture-only capabilities; no installed production role is changed by D339.
+    query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN unnest(ARRAY['ReadGasOperations','ConfigureGasServices','RecordGasOperations'])p WHERE code='trader' ON CONFLICT DO NOTHING;")
+    service_details=dict(obligationId=row['obligationId'],holderRole='legal_entity',externalReference='synthetic-agent-service',expectedPreviousId=None,validFrom='2021-01-01',validTo='2021-02-01',active=True,statementPolicy='final_statement_balance_v1',termsReference='Synthetic reviewed agent service',evidence='Synthetic agent service review')
+    service_preview=dict(context=daily_current,tradeId=demo['trades'][0],expectedRevision=1,day=row['day'],kind='service',details=service_details)
+    def operations_preview(rows):
+        certificate=rows[0]['context']
+        return 'read_page_operation',operation('gas.operations.preview_v1',{**service_preview,'context':{**daily_current,'knowledgeMode':'retained','contextId':certificate['contextId']}})
+    _,operations_results,_=ask([('discover_page_operations',{'page':'physical_operations','operation':'gas.operations.preview_v1'}),operations_preview],report={'page':'physical_operations','selection':{}},knowledge={**current,'frameId':after})
+    operations_review=operations_results[1]['data']
+    native_review=owner.call('gas/operations/preview',service_preview)
+    check('manual service preview shares deterministic pins across captured assistant and current UI context',native_review['previewHash']==operations_review['previewHash'])
+    service_write=dict(preview=service_preview,operationId=str(uuid4()),previewHash=operations_review['previewHash'])
+    service_turn,_,_=ask([('propose_page_action',operation('gas.operations.configure_v1',service_write))],report={'page':'physical_operations','selection':{}},knowledge={**current,'frameId':after})
+    check('manual service proposals make no operational writes before approval',owner.call('gas/operations/read',dict(context=daily_current,tradeId=demo['trades'][0],day=row['day']))['state']['accounts']==[])
+    service_reference={'turnId':service_turn['id'],'step':1};service_receipt=owner.call('assistant/actions/authorize',service_reference)
+    check('approved service setup uses the native handler and retained outcome',owner.call('assistant/actions/authorize',service_reference)==service_receipt and len(owner.call('gas/operations/read',dict(context=daily_current,tradeId=demo['trades'][0],day=row['day']))['state']['accounts'])==1)
+
     query("DELETE FROM security.role_permissions WHERE role_id=(SELECT id FROM security.roles WHERE code='trader') AND permission='RecordFacilityQuantities';")
     try:
         denied,_,_=ask([('read_workspace_page',{'page':'facility_quantities'}),preview_allocations],refused='access_changed')

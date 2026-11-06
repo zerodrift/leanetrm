@@ -1,5 +1,74 @@
 # Local verification and continuous integration
 
+D341 local UI qualification passed 1,379 web checks, including stage/day dirty
+rollback, explicit historical action gates, failed-refresh identity clearing and
+compact phone headers. The fresh stock PostgreSQL demo passed native manual gas
+and billing scenarios; owned browser checks passed 10 scheduling/recovery and
+15 cash-correction scenarios, plus six desktop/phone presentation checks.
+Independent adversarial review verified the repaired context/refresh guards and
+reran the focused controller, presenter and billing checks. No native financial
+contract, schema, authorization policy or agent operation changed in this layout.
+
+D340 moves physical work into **Operations → Physical operations**. The Blotter
+keeps pricing, retained instrument overviews and read-only Side schedules. The
+operations directory reads exact booked metadata without PV, refuses missing held
+source metadata and follows the header context. Gas and crude reuse their native
+workflows; gas billing has its own tab. Gas/crude/LNG overview presenters share a
+physical outline with commodity-specific saved conventions. LNG operational
+actuals and other unsupported commodity workflows remain explicitly TBD.
+Migration 0207 / assistant `turns_v20` add page admission and native discovery;
+financial contracts, permissions and persistence remain their existing owners.
+
+D340 local qualification passed 1,376 web checks, 85 Python tooling checks and
+managed API schedule/page checks. A fresh stock PostgreSQL fixture passed 36
+physical assistant scenarios, including captured-context metadata-only discovery
+and approved native service configuration from the new page. Independent review
+checked native receipt identity, actor/context fencing and source completeness;
+malformed or mismatched success/status responses retain their original command.
+Owned native gas/billing scenarios verify immutable corrections and current
+authority after observed storage waits. The relocated crude browser suite passed
+47 receipt, dispatch, cash, correction, conservation and recovery checks. Gas
+operations, cash billing and read-only ticket inspection passed another 10, 15
+and 23 owned browser checks, including a separate trade window.
+
+D339 adds [manual gas delivery operations](gas-delivery-operations.md): versioned
+service accounts, nomination/retro requests, separate external acknowledgments,
+reviewed schedule adoption, signed operator statements and paired imbalance
+agreements. The dedicated gas workflow groups before flow, scheduling,
+after flow and reconciliation. It reuses native daily quantities, facility
+allocations, gas billing and the Blotter's retained-command transport. Migration
+0206 and assistant `turns_v19` require separate release qualification. Live
+connectivity, portfolio imbalance positions and accounting posting remain outside
+this bounded consumer; new permissions require explicit grants.
+
+D339 local qualification uses stock disposable PostgreSQL and synthetic contracts.
+The native scenario verifies service setup, before/intra/retro classification,
+100 requested / 95 confirmed / 90 scheduled adoption, stale heads, canonical
+semantic retries, signed statements, explicit movement coverage, paired concurrent
+acceptance, -600 owned cash and a preserved -50 corrected deficit. Raw ingress
+refuses nonfinite/fractional/unbounded exact-cash components and historical write
+bodies. Real observed transfer/alias/known-status/unknown-status storage waits
+refuse expired authority without leaking facts or receipts. A ReadTrades-only
+reader cannot read private operations, even with an added permissive policy;
+public quantity projections retain generic provenance.
+
+Eight real browser checks cover the four stages, sole account selection, trusted
+Keep editing, native retro review/invalidation and lost committed response recovery
+through the shared retained card with one submitted fact. The desk screenshot was
+visually inspected. Thirty-five physical assistant scenarios include exact pinned
+manual preview, proposal without writes and separately authorized native setup
+with replay. The tightened native/agent scenarios, 1,372 web checks, 85 Python
+checks, managed core/API checks and v18 turn/tool/stream/usage regressions pass.
+These are bounded local results; production pipeline connectivity, portfolio
+imbalance positions and accounting posting are not qualified by these checks.
+
+D338 adds [final daily gas cash determinations](gas-cash-billing.md): an explicit
+completed-day/fixed-delivery consumer with original and correcting contributions,
+exact accepted source links and reviewed native/agent operations. It reuses swap
+cash-restatement arithmetic while preserving crude's cumulative invoice contract.
+Migration 0205 and assistant `turns_v18` require separate release qualification;
+invoices, payments, accounting journals and contractual PV changes are excluded.
+
 D336's owned `--check --regional-closes-check` fixture includes the actual
 managed exact-pin reader, archived 0202 RLS row/order equivalence, working and
 retained contexts, separate sessions, a broad-enumeration refusal probe and one
@@ -3964,3 +4033,68 @@ Migration 0197 is qualified alongside the preceding assistant migration 0196.
 Independent adversarial review found no outstanding material issue. Public
 source excludes local configuration, generated assets, logs and private review
 artifacts. Hosted schema/API activation remains a separate qualification.
+
+## Physical operations grids (D342, local)
+
+The frontend build and all 1,384 web checks pass. Focused checks cover exact
+binding selection after sorting, global/column filters, all native side/day
+rows, exact rational sorting, zero versus absent/withdrawn quantities, dirty
+form retention, denied-read cleanup and repeated arrow-key selection. Service
+entry stays on the highlighted obligation; transfer choices retain authorized
+counterparties while restricting the owned leg to that obligation.
+
+Owned stock-PostgreSQL scenarios pass 10 gas scheduling/recovery, 15 gas billing
+and 47 crude lifecycle browser checks using the new trade/delivery grid helpers.
+These retain the existing nomination acknowledgments, source adoption, correction,
+lost-response recovery, inventory, dispatch, invoice and payment assertions.
+Desktop and 390-pixel visual inspection confirms the grids and selected delivery
+workflow fit their containers; wider tables scroll internally. Independent
+adversarial review has no outstanding material finding.
+
+This qualifies presentation and selection over the existing manual operations.
+It adds no live operator interface, new financial policy, throughput claim or
+hosted deployment qualification.
+
+## Common physical delivery view (D343, local)
+
+The frontend build, all 1,388 web checks and 659 managed core checks pass.
+Independent quantity/geometry assertions qualify the shared retained-output
+projection for gas, crude and LNG. Grid checks cover custom track names,
+15-minute intervals, exact fractions, microsecond bounds, binding/revision
+refusal and cargo TBD capabilities alongside the existing edit/recovery checks.
+The intraday specimen qualifies presentation only, not power operations.
+
+Owned stock-PostgreSQL qualification passes 10 gas operations, 47 crude lifecycle
+and 14 LNG browser checks. Native read checks preserve whole-window quantities,
+exact schedule/source/reference scope, retained context and stale-selection
+refusal. All three adapters refuse with an authorization error when independently
+expiring ReadMarketData authority lapses during an observed post-program
+unit-label query wait while ReadTrades remains granted. That source recheck
+precedes classification of labels filtered out by row security.
+
+Desktop and 390-pixel gas grid inspection passes. Independent adversarial review
+has no outstanding material findings. D343 adds no schema migration or financial
+write policy; existing operational and release qualifications remain applicable.
+
+## Physical operations release integration
+
+The integrated schema uses migrations 0205–0207 after the existing curve,
+regional-close and assistant-presentation migrations. Assistant admission advances
+from the existing v17 boundary through v18/v19 to v20; retained replay and the
+previous presentation vocabulary remain intact. Decision records D337–D343
+describe this physical increment independently of the preceding records.
+
+Qualification passes the API build, 663 managed core checks, API schedule and
+assistant contracts, 1,398 web checks and 86 Python tooling/release checks.
+Fresh stock-PostgreSQL workflows pass 10 manual gas operations, 19 gas billing,
+47 crude lifecycle and 14 LNG browser checks, alongside the existing gas/setup
+regressions. The assistant runtime passes turn, HTTP tool, stream and usage
+regressions with v20 admission and older-version refusal.
+
+Close-session changes use the existing context leave guard before changing the
+saved session or selected frame. Real browser checks preserve dirty billing and
+the exact header on Keep, apply the session on explicit Discard, and retain one
+unchanged uncertain determination request across a session switch. The trading
+CI partition now includes both manual gas and billing recovery workflows.
+Independent adversarial review has no outstanding material finding. These are
+local qualification results; hosted rollout remains separate.

@@ -3,8 +3,6 @@ import {watchVersions} from './version-updates.js';
 import type {PresentationStep} from './assistant-walkthroughs.js';
 import {validateMonteCarlo} from './monte-carlo-risk.js';
 import type {BlotterStreamRequest,BlotterStreamHandlers,BlotterStreamStart} from './blotter-stream.js';
-import {refreshAcceptedCrudeOperation,openCrudeOperationPanel} from './crude-operations-model.js';
-import {setupCrudeOperations} from './crude-operations.js';
 import {readLngView} from './lng-trade-view.js';
 import {readCrudeView} from './crude-trade-view.js';
 import {readOptionView} from './futures-option-view.js';
@@ -64,7 +62,7 @@ class ValueUpdateDeferred extends Error {}
 type Context={contextId:string;effectiveOn:string;knownAt:string};
 type ReadRequest={snapshotId:string;convention:string;knowledgeMode:'current'|'retained';contextId?:string};
 type BookingCatalog='directory'|'priced_contracts';
-type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string;portfolio_id:string}[];context:Context;asOf:string;canBook:boolean;canAmendTrades:boolean;bookingUnavailableReason:string|null}&({kind:'directory'}|{kind:'priced_contracts';contracts:Contract[]});
+type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string;portfolio_id:string}[];context:Context;asOf:string;canBook:boolean;canAmendTrades:boolean;canConfigureGasServices?:boolean;canRecordGasOperations?:boolean;bookingUnavailableReason:string|null}&({kind:'directory'}|{kind:'priced_contracts';contracts:Contract[]});
 type Holdings={convention:string;pivotNumericalPolicy:string;groups:PivotGroup[];context:Context;asOf:string;evaluatedContracts:number;hasSwaps:boolean;holdings:Holding[];totals:{book:string;currency:string;executionPnl:string|null;unvaluedPositions:number}[];unvaluedPositions:number};
 type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 // A stored view an earlier release saved is listed with this label. It cannot be applied, and choosing it says why.
@@ -152,7 +150,6 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // bindings. Failed valuation can expose these independently read operational facts.
   let facts:PositionFacts|undefined,factsRequest:Record<string,unknown>|undefined,pricingRead:Promise<void>=Promise.resolve(),pricingController:AbortController|undefined;
   const factPageSize=64;
-  const crudeFacts=document.createElement('section');crudeFacts.id='crude-operation-facts';get('desk-positions').after(crudeFacts);
   // Rows and totals wait for the complete valuation. Streamed batches update progress only; a failed read has Retry:
   // the valuation, or the count of the positions read beside it.
   type Loading={state:'reading'}|{state:'valuing';total:number;completed?:number}|{state:'failed';read:'count'|'valuation';reason:string};
@@ -309,8 +306,6 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,
     queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
 
-  const crudeOperations=setupCrudeOperations({api,act,busy,context:readContext,actor:options.profile,zone:options.zone,onDenied:clear,pending:()=>pending.command,host:()=>panel.element('form'),unsavedChanged:options.unsavedChanged,
-    queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
   const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
     ask:question=>detailsPane.ask(question),
     queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
@@ -321,7 +316,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // report. Opening a row opens it; Amend puts the amendment's form in the Terms tab, and a new trade has the whole pane, its form beneath a
   // instrument-type choice. Collapsing the details returns focus to the row; on a narrow page the positions are shown again instead (modeChanged).
   const main=document.querySelector('main')!;
-  const editing=()=>editor.unsaved()||swapEditor.unsaved()||crudeOperations.unsaved()||booking.unsaved()||options.tickets.unsaved()||risk.edited();
+  let position!:ReturnType<typeof setupPositionPanel>;
+  const editing=()=>!!position?.unsaved()||editor.unsaved()||swapEditor.unsaved()||booking.unsaved()||options.tickets.unsaved()||risk.edited();
   const detailsPane=setupDetailsPane(get('blotter-pane-details'),{unsaved:editing,busy,step:direction=>void stepPosition(direction),
     collapsed:()=>{if(!deskPanel.closed())focusSelected();},expand:()=>{dock.reveal('details');makeRoom();fitRoom();},changed:modeChanged});
   const panel=detailsPane.shell;
@@ -360,12 +356,13 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // the open details' room again.
   let mainWidth=main.clientWidth;
   new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;placeDock();}else fitRoom();}).observe(main);
-  const position=setupPositionPanel(panel,{zone:options.zone,busy,canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,shape:shapeOf,context:()=>JSON.stringify([readContext(),displayedContext()?.contextId]),onDenied:clear,
+  position=setupPositionPanel(panel,{zone:options.zone,busy,leave:()=>panel.leave(),canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,shape:shapeOf,context:()=>JSON.stringify([readContext(),displayedContext()?.contextId]),onDenied:clear,
     read:async(h,formats)=>{
       const stale=!holdings,context=readContext();
       const displayed=displayedContext();if(!displayed?.contextId)throw Error('Read the Blotter before inspecting its Side schedules.');
       const inspectionContext={...context,knowledgeMode:'retained',contextId:displayed.contextId};
-      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:options.profile,recorded:()=>void act(load),surface:options.volSurface}):h.instrumentType==='physical_lng'?readLngView(api,context,h,clear):h.instrumentType==='physical_crude'?readCrudeView(api,context,h,()=>void operateCrude(h.tradeId),clear):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:clear,actor:options.profile,amend:options.window.kind==='main'?()=>void perform({kind:'amend',key:rowKey(h)}):undefined}):h.instrumentType==='ppa'?readPpaView(api,context,h,displayed.knownAt,()=>void manage('ppa',h.tradeId)):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):h.instrumentType==='future'?readTradeView(api,context,h,formats):genericPositionView(h));
+      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:options.profile,recorded:()=>void act(load),surface:options.volSurface}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:clear,actor:options.profile,readOnly:stale,amend:options.window.kind==='main'?()=>void perform({kind:'amend',key:rowKey(h)}):undefined}):h.instrumentType==='ppa'?readPpaView(api,context,h,displayed.knownAt,()=>void manage('ppa',h.tradeId)):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):h.instrumentType==='future'?readTradeView(api,context,h,formats):genericPositionView(h));
+
       // Details kept on screen while the Blotter is read again do not transition into a working settlement editor.
       const scheduled=withSideSchedules(read,api,inspectionContext,h,clear);
       return {...scheduled,view:zone=>{const detail=scheduled.view(zone);return stale?{...detail,actions:undefined}:!options.assistant.available()?detail:{...detail,actions:[...(detail.actions??[]),{id:'position-ask-assistant',label:'Ask about this position',run:()=>{if(busy())return;pivotFocus=null;if(view.mode==='trades')table?.select(rowKey(h));options.reported();options.assistant.about({key:rowKey(h),reference:h.tradeReference,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]});}}]};}};
@@ -386,7 +383,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     return {selectRow:index=>grid.selectRow(index),focusRow:index=>grid.focusRow(index),revealRow:index=>grid.revealRow(index)};
   },notice:options.notice});
   // Operational facts have their own authorized read; priced rows do not own that form's lifetime.
-  function syncPositionDetails(){if(!crudeOperations.shown())deskPanel.sync();}
+  function syncPositionDetails(){deskPanel.sync();}
   // Focus after details that showed no position collapse: the grid's selected row, or else its first row on screen.
   function focusSelected(){
     if(!table||!holdings)return;
@@ -405,7 +402,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // Gives the forms the panel hosts up, without asking, and updates the panel's controls for what it then shows.
   // The leave guard must read the final state after every editor has reset.
   // A product ticket closed with a request whose outcome is not known leaves it to be reconciled from the page at once.
-  function resetForms(){options.tickets.detach();editor.reset();swapEditor.reset();crudeOperations.reset();booking.reset();risk.dropEdits();panel.place();syncProductPending();syncNewTrade();queueMicrotask(options.unsavedChanged);}
+  function resetForms(){options.tickets.detach();editor.reset();swapEditor.reset();booking.reset();risk.dropEdits();panel.place();syncProductPending();syncNewTrade();queueMicrotask(options.unsavedChanged);}
   // Gives the panel's forms up without asking, for a page that is left on the person's word, so that no form stays held that they cannot return to.
   // A new trade has nothing but its form, so the panel it was in is closed with it.
   function dropForms(){resetForms();closeNew();options.reported();}
@@ -626,13 +623,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   async function openAdditional(product:TicketProduct,next:PanelMode){
     resetForms();await panel.show(next);await options.tickets.open(product,panel.element('form'));return true;
   }
-  async function operateCrude(trade:string){
-    if(busy()||!await panel.leave())return;
-    const selected=facts?.positions.find(p=>p.tradeId===trade)??holdings?.holdings.find(p=>p.tradeId===trade);
-    if(!selected)throw Error('Refresh the booked position before opening delivery and cash.');
-    const place=whereAmI();
-    await act(async()=>{resetForms();await openCrudeOperationPanel({tradeId:trade,bindingId:selected.bindingId,revision:Number(selected.revision)},next=>panel.show(next),()=>crudeOperations.open(trade),()=>place===whereAmI(),()=>{panel.form(true);panel.reveal();detailsPane.title(`${selected.tradeReference} · delivery and cash`);});});
-  }
+
   async function manage(product:TicketProduct,trade:string){
     if(busy()||!await panel.leave())return;
     await act(async()=>{resetForms();await options.tickets.open(product,panel.element('form'),trade);panel.form(true);panel.reveal();});
@@ -952,7 +943,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     if(!busy())workspace.busy(false);
     const awaitingValues=!holdings&&loading!==undefined;get('blotter-workspace').querySelectorAll<HTMLElement>('.table-menu').forEach(menu=>{menu.inert=busy()||awaitingValues&&menu.id!=='blotter-scope';});field('blotter-saved').disabled=busy()||awaitingValues;get<HTMLButtonElement>('blotter-retry').disabled=busy();
     // Rows on screen while no valued read is, kept stale from the previous one, are not offered: opening them only says why.
-    crudeFacts.querySelectorAll<HTMLButtonElement>('button').forEach(button=>button.disabled=busy());const grid=get('desk-positions').querySelector('[role=grid]');if(holdings)grid?.removeAttribute('aria-disabled');else grid?.setAttribute('aria-disabled','true');syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();crudeOperations.sync();options.tickets.sync();syncProductPending();position.sync();entry.sync();panel.place();syncRiskReport();if(busy())workspace.busy(true);syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));get<HTMLButtonElement>('blotter-export').disabled=busy()||!holdings||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+    const grid=get('desk-positions').querySelector('[role=grid]');if(holdings)grid?.removeAttribute('aria-disabled');else grid?.setAttribute('aria-disabled','true');syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();options.tickets.sync();syncProductPending();position.sync();entry.sync();panel.place();syncRiskReport();if(busy())workspace.busy(true);syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));get<HTMLButtonElement>('blotter-export').disabled=busy()||!holdings||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;get('blotter-strip').replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));for(const id of ['desk-chart-books','desk-chart-mix'])get(id).replaceChildren(get(id).querySelector('h3')!);}
   function cancelRead(){stopUpdates();stopUpdates=()=>{};stopShapeReads();requestShape=undefined;shapesRead=Promise.resolve();generation++;pricingController?.abort();pricingController=undefined;}
   function clear(){clearRead(false);}
@@ -979,7 +970,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     // closes; anything else the details hold closes now.
     const keepDetails=keepGrid&&panel.current()?.kind==='position';
     if(keepGrid){if(!keepDetails)table?.selectRow(null);markStale(staleReason);}else markStale(null);
-    pivotFocus=null;cancelRead();crudeFacts.replaceChildren();facts=undefined;factsRequest=undefined;arrived=[];showLoad(undefined);get('futures-page').dataset.pricingState='empty';delete get('futures-page').dataset.pricingContext;readInputs=undefined;readPlace=undefined;chartState=undefined;drawn=undefined;lens='values';ladderTable=undefined;ladderShown=undefined;inline=undefined;preparing=undefined;lensFor=undefined;booking.reset();editor.reset();swapEditor.reset();crudeOperations.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;if(!keepDetails)deskPanel.reset();lastReadRequest=undefined;text('header-calculation-time','');
+    pivotFocus=null;cancelRead();facts=undefined;factsRequest=undefined;arrived=[];showLoad(undefined);get('futures-page').dataset.pricingState='empty';delete get('futures-page').dataset.pricingContext;readInputs=undefined;readPlace=undefined;chartState=undefined;drawn=undefined;lens='values';ladderTable=undefined;ladderShown=undefined;inline=undefined;preparing=undefined;lensFor=undefined;booking.reset();editor.reset();swapEditor.reset();risk.reset();catalog=undefined;holdings=undefined;summaries=undefined;shapes=undefined;drafts.reset();table=undefined;if(!keepDetails)deskPanel.reset();lastReadRequest=undefined;text('header-calculation-time','');
     // The summary strip kept is drawn stale now: a read for the priced contracts reads no position count, which would draw it.
     if(keepGrid)drawStrip();
     if(!keepGrid){clearDeskCharts(get('blotter-chart'));get('blotter-chart-card').hidden=true;get('blotter-books').replaceChildren();get('blotter-portfolios').replaceChildren();workspace.clear();clearDesk();text('futures-summary','Choose a market date to inspect holdings.');}
@@ -1222,38 +1213,18 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function acceptValuedRows(batch:Holding[]){arrived=[...arrived,...batch];if(holdings)render();}
   // A read whose values or count failed keeps what the previous read drew, marked stale, or, on a first load, no rows; the grid pane says which
   // failed and why, with Retry.
-  function showCrudeFacts(){
-    crudeFacts.replaceChildren();if(!facts)return;
-    const rows=facts.positions.filter(p=>p.instrumentType==='physical_crude');
-    if(!rows.length&&facts.nextOffset===null)return;
-    const title=document.createElement('h3');title.textContent='Physical crude · booked facts';crudeFacts.append(title);
-    for(const row of rows){const button=document.createElement('button');button.type='button';button.dataset.tradeId=row.tradeId;button.textContent=`${row.tradeReference} · delivery and cash`;button.onclick=()=>void operateCrude(row.tradeId);crudeFacts.append(button);}
-    if(facts.nextOffset!==null){
-      const more=document.createElement('button');more.type='button';more.id='crude-facts-more';more.textContent=`Read more booked facts (${facts.positions.length} of ${facts.total} read)`;
-      more.onclick=()=>{if(!busy())void act(async()=>{
-        const before=facts,query=factsRequest,started=generation,place=whereAmI();
-        if(!before||before.nextOffset===null||!query)return;
-        try{
-          const page=await api<unknown>('trading/positions',{...query,offset:before.nextOffset,limit:factPageSize});
-          if(started!==generation||place!==whereAmI()||facts!==before)return;
-          facts=appendPositionFacts(before,page,factPageSize);showCrudeFacts();sync();
-        }catch(error){if(started===generation&&place===whereAmI()&&(error as {code?:string}).code==='access_denied')clear();throw error;}
-      });};
-      crudeFacts.append(more);
-    }
-    crudeFacts.querySelectorAll<HTMLButtonElement>('button').forEach(button=>button.disabled=busy());
-  }
+
   function readFailed(error:unknown,read:'count'|'valuation'){
     get('futures-page').dataset.pricingState='failed';
     showLoad({state:'failed',read,reason:error instanceof Error&&error.message?error.message:read==='count'?'The positions could not be counted.':'The positions could not be valued.'});
     if(kept)markStale(failedStale[read]);
-    drawStrip();showCrudeFacts();sync();
+    drawStrip();sync();
   }
   async function load(bookingCatalog:BookingCatalog='directory',live=false,background=false,reuse=false,serverVersion?:string){
     // A Blotter in a window of its own is read there; one that keeps only its retained request reads nothing.
     if(tie?.out()||retainedOnly)return;
     // A read awaiting its values has only its book scope to change; its other controls belong to the view.
-    crudeFacts.replaceChildren();if(!live)factsRequest=undefined;
+    if(!live)factsRequest=undefined;
     const account=owner;restore();if(!viewsLoaded)await loadViews();view=parseBlotterViews(JSON.stringify([!holdings&&loading?{...view,bookIds:selected('blotter-books'),portfolioIds:selected('blotter-portfolios')}:readView()]))[0];const source=options.source();
     if(source.context&&!source.context.contextId)throw Error('Select a retained historical context before reading holdings.');
     snapshot=source.snapshotId;
@@ -1381,7 +1352,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
         // A Blotter read whose values were not drawn says why, once the count read beside it is in, and keeps what the previous read drew.
         else if(!live&&bookingCatalog==='directory'&&!holdings){if(arrived.length&&!kept){arrived=[];table=undefined;workspace.clear();}await factsRead.catch(()=>undefined);if(started!==generation||get('futures-page').hidden)return;readFailed(error,error===countFailed?'count':'valuation');}
         else if(!live)clear();
-        else{get('futures-page').dataset.pricingState='failed';showCrudeFacts();noShapes('the refresh that interrupted their read failed',true);}
+        else{get('futures-page').dataset.pricingState='failed';noShapes('the refresh that interrupted their read failed',true);}
         // A read in the background is said by its own handler below; it still fails, for whoever awaits the values (valued).
         throw error;
       }finally{if(pricingController===controller)pricingController=undefined;}
@@ -1514,13 +1485,11 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // and that view clears what the command consumed and reads its state again: also when the Blotter cannot be read, as a form still
   // holding a command that went through would offer it a second time.
   async function settled(command:RequestCommand){
+    if(command.path==='gas/billing/determine'||command.path.startsWith('gas/operations/')||command.path==='gas/quantities/record'){try{await load('directory',true);}finally{await position.reload();}return;}
     const plan=riskRefreshPlan({open:panel.current()?.kind==='risk',edited:risk.edited(),run:!!risk.current(),retained:risk.unconfirmed()},'settlement');
     inputsChanged(plan);
-    if(isCrudeOperation(command.path)){
-      const place=whereAmI();
-      const failure=await refreshAcceptedCrudeOperation(()=>load('directory',true),async()=>{if(place===whereAmI())await crudeOperations.reload();});
-      if(failure&&place===whereAmI())options.notice('The operation was recorded. Contractual valuation is unavailable; delivery and cash are read separately.');
-    }else{try{await load('directory',true);}finally{await swapEditor.reloadSettlement(command.operationId);}}
+    if(isCrudeOperation(command.path)){try{await load('directory',true);}finally{await position.reload();}}
+    else{try{await load('directory',true);}finally{await swapEditor.reloadSettlement(command.operationId);}}
     if(plan.reopen)await risk.open();
   }
   // What the risk report holds belongs to inputs that have changed. It is cleared before the read, with the note, so that a read that then
@@ -1828,8 +1797,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
         else options.notice('Trade saved. Select its position binding in the Blotter to inspect it.');
       }catch(error){options.notice('The trade was saved. Refresh the Blotter to inspect its position.');options.failed(error);}
     },
-    refreshDisplay(){resetFullReport();chartState=undefined;drawn=undefined;clearDeskCharts(get('blotter-chart'));get('blotter-chart-card').hidden=true;risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();crudeOperations.sync();captureFilters();render();showRunBar();},
-    refresh(){risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();crudeOperations.refresh();captureFilters();render();},
+    refreshDisplay(){resetFullReport();chartState=undefined;drawn=undefined;clearDeskCharts(get('blotter-chart'));get('blotter-chart-card').hidden=true;risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();captureFilters();render();showRunBar();},
+    refresh(){risk.refresh();booking.refresh();editor.refresh();swapEditor.refresh();captureFilters();render();},
     // Opens a trade a target names, as the position it is in at the revision the Blotter holds. An earlier revision is said not to be shown.
     async openTrade(tradeId:string,instrumentType:TradeShown['instrumentType'],revision:number|null,signal?:AbortSignal){
       await pricingRead;signal?.throwIfAborted();

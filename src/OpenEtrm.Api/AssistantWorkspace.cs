@@ -190,6 +190,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
             "settings_ai"=>new[]{"ManageAgents","ManageModelProviders","ReadModelUsage","ManageAssistantPrompts"}.Any(held.Contains),
             "risk_jobs" or "blotter_risk" or "blotter_risk_lens"=>held.Contains("ReadTrades")&&held.Contains("RunScenario"),
             "blotter_new_trade" or "blotter_new_future" or "blotter_new_swap"=>held.Contains("ReadTrades"),
+            "physical_operations"=>held.Contains("ReadMarketData")&&held.Contains("ReadTrades"),
             "facility_quantities"=>new[]{"ReadMarketData","ReadTrades","ReadFacilityQuantities"}.All(held.Contains),
             _=>held.Contains("ReadMarketData")
         };

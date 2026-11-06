@@ -238,10 +238,10 @@ static class AgentToolChecks
             Require(stated.SequenceEqual(required)&&!new[]{"anyOf","oneOf","allOf","if","then","else","not"}.Any(k=>tool.InputSchema.TryGetProperty(k,out _)),
                 $"{tool.Name} requires every member it states, with no top-level composition");
         }
-        Require(RuntimeSet.Turns=="turns_v17"&&RuntimeSet.MaxReadSeconds==30&&PreviewDatabase.AgentCommandSeconds==RuntimeSet.MaxReadSeconds,
+        Require(RuntimeSet.Turns=="turns_v20"&&RuntimeSet.MaxReadSeconds==30&&PreviewDatabase.AgentCommandSeconds==RuntimeSet.MaxReadSeconds,
             "The operating-policy runtime preserves the existing versioned read deadline ceiling.");
         Console.WriteLine("PASS a version's switched-on tools are offered in the fixed order, Navigate after the read tools, with closed schemas that "+
-            "require every member they state, and their permissions; turns_v17 retains admitted operating limits and bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
+            "require every member they state, and their permissions; turns_v20 retains admitted operating limits and bounds reads by their version's time per read and their turn, and their results, and keeps workspace turns below the agent pools");
     }
 
     const string Book="d1000000-0000-0000-0000-000000000001",Trade="71000000-0000-0000-0000-000000000009";
@@ -481,7 +481,7 @@ static class AgentToolChecks
             Require(PageReports.Dispatch(Json(report)) is {Call:{} dispatchedCall} read&&read.Page==page&&dispatchedCall.Operation.Id==operation,$"{report} dispatches {operation}");
         }
         var unsupported=new[]{"dashboard","vol_surfaces","blotter_new_lng","blotter_new_ppa","blotter_new_gas","blotter_new_crude","blotter_new_option","physical_gas","physical_crude"};
-        var workspace=new[]{"gas_setup","crude_setup","facility_quantities","risk_jobs","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","users_access","settings_ai"};
+        var workspace=new[]{"physical_operations","gas_setup","crude_setup","facility_quantities","risk_jobs","blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","delivery_prices","interval_series","interval_curves","users_access","settings_ai"};
         Require(PageReports.NotSupported.Order().SequenceEqual(unsupported.Order())&&PageReports.Supported.Order()
                 .SequenceEqual(new[]{"curves","contract_definitions","schedules","power_tous","reference_data","parties","blotter","custom_curves","jobs","ppa"}.Concat(workspace).Order()),
             "the closed set keeps newer product reports while enabling the workspace operation pages");
@@ -838,7 +838,7 @@ static class AgentToolChecks
             ["jobs"]="Jobs & Infrastructure",["risk_jobs"]="Risk",["delivery_prices"]="Delivery prices",["interval_series"]="Interval data",
             ["interval_curves"]="Hourly / sub-hourly curves",["users_access"]="Users & access",["settings_ai"]="AI settings",
             ["blotter_risk"]="Blotter risk",["blotter_risk_lens"]="Blotter risk lens",["blotter_new_trade"]="New trade",
-            ["blotter_new_future"]="New futures trade",["blotter_new_swap"]="New swap",["gas_setup"]="Gas delivery setup",["crude_setup"]="Crude delivery setup"};
+            ["blotter_new_future"]="New futures trade",["blotter_new_swap"]="New swap",["physical_operations"]="Physical operations",["gas_setup"]="Gas delivery setup",["crude_setup"]="Crude delivery setup"};
         Require(PageReports.Navigable.Order().SequenceEqual(names.Keys.Order())
             &&names.All(n=>NavigationTargets.Page(n.Key) is {Kind:"page",Selection:null} target&&target.Page==n.Key&&target.Label==n.Value),
             "a page target names one of the supported navigable pages the assistant reads with no selection, the page as it opens, labeled with the page's name");

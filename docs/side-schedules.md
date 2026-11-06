@@ -1,6 +1,6 @@
 # Whole-term side schedules
 
-## Implementer contract (D345)
+## Implementer contract (D352)
 
 Every `SideValuation` implements `InspectSchedule(manifest, scale, coefficient,
 boundary)`. It returns an immutable `SideScheduleSnapshot` with exact Side,
@@ -105,13 +105,13 @@ but preserve existing whole-trade sibling admission; they do not silently price
 only one binding of an otherwise incompatible PPA trade. The futures product form
 still requires its complete priced catalog.
 
-## Pricing and lifecycle inspection (D344)
+## Pricing and lifecycle inspection (D351)
 
 Gas booked Side tabs use one pricing/lifecycle grid in the existing deal ticket,
 replacing the summary Side grid. There is no second schedule grid, disclosure or
 Side chooser beneath it. The Instrument aggregate and quantity links remain
 separate tabs. Exact backend membership slots select the displayed Side;
-operational quantity entry continues through the existing record/status workflow.
+daily quantity entry uses the existing record/status workflow in Physical operations.
 Crude, LNG and unavailable gas plans use the same read-only inspector directly.
 Opening a displayed Side reads its authorized directory and 32 contribution rows. The API caps pages at
 128. Calculation inputs load only after selecting **Calculation**, following

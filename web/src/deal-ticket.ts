@@ -20,8 +20,9 @@ export type TicketEntry={side:string;day:string;fields:TicketField[];values:Reco
 // fieldErrors and choices are keyed by the field id for a trade field and by "<side code>.<field id>" for a side field. Under the chosen
 // level every schedule row is open but those in `closed`, the rows the person closed. quantityUnit is the unit the schedule's preview resolved,
 // and instant the page's formatter for the instants the ticket shows. links are the schedule's quantity links, and entry the day entry open, if any.
-export type TicketView={state:TicketState;mode:'new'|'booked'|'amend';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
+export type TicketView={state:TicketState;mode:'new'|'booked'|'amend';presentation?:'schedules';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
  links:TicketLink[];entry:TicketEntry|null;sideSchedule?:(host:HTMLElement,side:TicketSide)=>()=>void;facilityAllocations?:FacilityAllocationTrack[];
+
  status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;closed:ReadonlySet<string>;on:TicketEvents};
 
 // The common band's rows, in order: TicketBand.Rows in TicketDescriptions.cs.
@@ -257,8 +258,12 @@ export function renderTicket(host:HTMLElement,o:TicketView){
  for(const side of sides)deck.append(card(o,side,rows));
  if(o.mode!=='booked')deck.append(addCard(o));
  const {panel,content}=schedulePanel(o,named);
+ if(o.presentation!=='schedules')root.append(strip(o),...o.state.notices.length?[notices]:[],chips,deck);
+ if(o.presentation==='schedules'){const state=el('p','ticket-status',o.status.text);state.dataset.kind=o.status.kind;root.append(state);}
+ root.append(panel);
  const planned=upcoming(o);
- root.append(strip(o),...o.state.notices.length?[notices]:[],chips,deck,panel,...planned?[planned]:[],foot(o));
+ if(!o.presentation)root.append(...planned?[planned]:[],foot(o));
+
  host.replaceChildren(root);
  let grid:GridHandle|undefined,disposeSide:(()=>void)|undefined;
  const shows=o.tab==='instrument'||sides.some(s=>s.code===o.tab);

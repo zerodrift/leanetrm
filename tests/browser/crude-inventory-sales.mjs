@@ -1,3 +1,4 @@
+import {openPhysicalTrade,selectDeliveryFrame} from './physical-operations-grid.mjs';
 // Full inventory-to-sale workflow over native operations in the owned crude fixture.
 export async function run(actions){
  const {command,evaluate,wait,click,set,submit,check,shot,idle,fitsWidth,url}=actions;
@@ -14,13 +15,9 @@ export async function run(actions){
  })()`);
  const open=async id=>{
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#snapshot')&&"+idle);
-  const january=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-15T08:')&&w.initialFrameIds.includes(f.id)).id;})()");
-  await set('#snapshot',january);await wait(idle);await click('#nav-futures');await wait(idle);
-  for(let page=0;page<20;page++){
-   if(await evaluate(`[...document.querySelectorAll('#crude-operation-facts button')].some(b=>b.dataset.tradeId===${JSON.stringify(id)})`))break;
-   await click('#crude-facts-more');await wait(idle);
-  }
-  await evaluate(`[...document.querySelectorAll('#crude-operation-facts button')].find(b=>b.dataset.tradeId===${JSON.stringify(id)}).click()`);await wait(visible+'&&'+idle);
+  await selectDeliveryFrame(actions,'2021-01-15T08:');await click('#nav-physical-operations');await wait("(!document.querySelector('#physical-operations-refresh').disabled||!document.querySelector('#physical-operations-pending').hidden)&&"+idle);
+  if(!await evaluate("document.querySelector('#physical-operations-pending').hidden"))return;
+  await openPhysicalTrade(actions,id);await wait("!document.querySelector('#physical-operations-tabs-delivery').disabled&&"+idle);await click('#physical-operations-tabs-delivery');await wait(visible+'&&'+idle);
  };
  const common=async(kind,key,at,profile='physical_crude_receipt_cash_v1')=>{
   await set('#crude-operation-kind',kind);await set('#crude-operation-profile',profile);
@@ -42,8 +39,8 @@ export async function run(actions){
  await check('reservation selects an exact sale but does not claim a title transfer',"document.querySelector('#crude-operation-title').parentElement.hidden&&document.querySelector('#crude-operation-allocation').parentElement.hidden&&document.querySelector('#crude-operation-sale').value.endsWith(':1')");
  await evaluate(`{const send=window.fetch;window.fetch=async(...args)=>{const response=await send(...args);if(String(args[0]).endsWith('/crude/operations/allocation')&&response.ok){sessionStorage.setItem('inventory-browser-allocation',JSON.stringify(JSON.parse(args[1].body)));throw new TypeError('Synthetic lost allocation response');}return response;};}`);
  await submit('#crude-operation-form');await wait(idle);
- await check('lost reservation response retains the exact command and disables replacement terms',"!document.querySelector('#futures-pending').hidden&&document.querySelector('#crude-operation-quantity').disabled");
- await open(trades.purchase);await click('#futures-reconcile');await wait(idle);await open(trades.purchase);
+ await check('lost reservation response retains the exact command and disables replacement terms',"!document.querySelector('#physical-operations-pending').hidden&&document.querySelector('#crude-operation-quantity').disabled");
+ await open(trades.purchase);await click('#physical-operations-status');await wait(idle);await open(trades.purchase);
  await check('reservation recovery leaves title owned and reserves exactly once',measure('Available owned inventory','400')+'&&'+measure('Total owned','1000')+'&&'+measure('Reserved for onward sale','600'));
  for(const [quantity,key,at] of [['250','inventory-dispatch-first','2021-01-04T13:00:00'],['350','inventory-dispatch-last','2021-01-04T14:00:00']]){
   await common('dispatch',key,at);await option('receipt','inventory-owned-lot');await option('allocation','inventory-sale-reservation');await set('#crude-operation-quantity',quantity);await click('#crude-operation-title');await submit('#crude-operation-form');await wait(idle);

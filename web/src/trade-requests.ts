@@ -1,19 +1,19 @@
 export const crudeOperationPaths=['crude/operations/allocation','crude/operations/receipt','crude/operations/dispatch','crude/operations/invoice/issue','crude/operations/payment','crude/operations/payment/reverse','crude/operations/invoice/void'] as const;
 export const isCrudeOperation=(path:string):boolean=>(crudeOperationPaths as readonly string[]).includes(path);
-export const isLifecycleCommand=(path:string):boolean=>path.startsWith('swaps/settlement/')||isCrudeOperation(path);
-export const tradeStatusPath=(path:string)=>isCrudeOperation(path)?'crude/operations/status':path.startsWith('swaps/settlement/')?'swaps/settlement/status':path.startsWith('swaps/')?'swaps/status':'futures/status';
+export const isLifecycleCommand=(path:string):boolean=>path==='gas/billing/determine'||path==='gas/operations/record'||path==='gas/operations/configure'||path==='gas/quantities/record'||path.startsWith('swaps/settlement/')||isCrudeOperation(path);
+export const tradeStatusPath=(path:string)=>path.startsWith('gas/operations/')?'gas/operations/status':path==='gas/quantities/record'?'gas/quantities/status':path==='gas/billing/determine'?'gas/billing/status':isCrudeOperation(path)?'crude/operations/status':path.startsWith('swaps/settlement/')?'swaps/settlement/status':path.startsWith('swaps/')?'swaps/status':'futures/status';
 
 // Refusals that prove a first booking or amendment wrote nothing, so its retained request can be released. Every swap
 // code is one, except an outcome the API could not confirm.
 const knownRejections=new Set(['trade_operation_conflict','futures_revision_conflict','futures_amendment','futures_no_change','futures_trade','futures_conflict','futures_input','futures_lots','futures_execution','futures_convention','futures_book','futures_definition','futures_execution_policy','futures_limit','historical_read_only','access_denied','request_format','request_too_large','request_token','numeric_format','price_domain','quote_specification']);
 
 export function knownTradeRejection(code:string|undefined):boolean{
-  return !!code&&((code.startsWith('swap_')||code.startsWith('scheduled_')||code.startsWith('quantity_factor')||code==='quantity_mapping'||code==='quantity_conversion'||code==='cross_commodity_swap'||code.startsWith('settlement_')||code.startsWith('crude_'))&&!code.endsWith('outcome_unknown')||knownRejections.has(code));
+  return !!code&&((code.startsWith('swap_')||code.startsWith('scheduled_')||code.startsWith('quantity_factor')||code==='quantity_mapping'||code==='quantity_conversion'||code==='cross_commodity_swap'||code.startsWith('settlement_')||code.startsWith('gas_billing_')||code.startsWith('gas_operations_')||code.startsWith('gas_quantity_')||code.startsWith('crude_'))&&!code.endsWith('outcome_unknown')||knownRejections.has(code));
 }
 
 // Refusals that say nothing of a retried original: of the caller rather than of the request (its access, its request token, or a
 // historical view it reads), and of an operation identity the backend holds for another actor or payload, which may be the original's.
-const unprovenOnRetry=new Set(['access_denied','request_token','historical_read_only','trade_operation_conflict','settlement_operation_conflict','crude_conflict','crude_operation_conflict']);
+const unprovenOnRetry=new Set(['access_denied','request_token','historical_read_only','trade_operation_conflict','settlement_operation_conflict','crude_conflict','crude_operation_conflict','gas_billing_conflict']);
 // The requests whose backend answers a retry with the original's outcome before it refuses one: swap bookings, amendments and
 // settlement commands. A futures booking or amendment is admitted (eligibility, the trading interval) before its earlier outcome is
 // looked up, so a refused retry of one says nothing of the original.
@@ -33,6 +33,25 @@ export const retainedText=(command:{label?:string})=>`${command.label??'A trade 
 
 
 /** Whether the account may retry a retained request: an amendment or a settlement command needs AmendTrade, a booking BookTrade. */
-export function retryAllowed(path:string,catalog:{canBook?:boolean;canAmendTrades?:boolean}|undefined):boolean{
+export function retryAllowed(path:string,catalog:{canBook?:boolean;canAmendTrades?:boolean;canConfigureGasServices?:boolean;canRecordGasOperations?:boolean}|undefined):boolean{
+  if(path==='gas/operations/configure')return !!catalog?.canConfigureGasServices;
+  if(path==='gas/operations/record')return !!catalog?.canRecordGasOperations;
   return !!(path.endsWith('/amend')||isLifecycleCommand(path)?catalog?.canAmendTrades:catalog?.canBook);
+}
+
+/** Reconcile transport identity before releasing an unconfirmed physical command.
+ * Native handlers own interpretation; the UI checks only the returned identity. */
+export function requirePhysicalReceipt(command:{path:string;operationId:string;body:Record<string,unknown>},value:unknown):void{
+ const refused=()=>Error('The operation outcome could not be reconciled. Check its retained status.');
+ if(!value||typeof value!=='object'||Array.isArray(value))throw refused();
+ const receipt=value as Record<string,unknown>,body=command.body;
+ const preview=command.path.startsWith('gas/operations/')||command.path==='gas/billing/determine';
+ const source=preview?body.preview as Record<string,unknown>|undefined:body;
+ const named=(key:string)=>typeof receipt[key]==='string'&&receipt[key]!=='';
+ if(!source||typeof source.tradeId!=='string'||!source.tradeId||receipt.operationId!==command.operationId||receipt.tradeId!==source.tradeId)throw refused();
+ if(command.path==='gas/billing/determine'){if(!named('determinationId'))throw refused();}
+ else if(command.path==='gas/quantities/record'){if(!named('revisionId')||receipt.obligationId!==source.obligationId||!Number.isSafeInteger(receipt.revision)||Number(receipt.revision)<1)throw refused();}
+ else if(command.path==='gas/operations/configure'||command.path==='gas/operations/record'){if(!named('id')||receipt.kind!==source.kind)throw refused();}
+ else if(isCrudeOperation(command.path)){if(!named('eventId')||!Number.isSafeInteger(receipt.version)||Number(receipt.version)<1)throw refused();}
+ else throw refused();
 }

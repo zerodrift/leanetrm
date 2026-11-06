@@ -11,7 +11,7 @@ static class AssistantWorkspaceChecks
     public static void Run()
     {
         DiscoveryWork();
-        foreach(var page in new[]{"dashboard","crude_setup","vol_surfaces","facility_quantities"})
+        foreach(var page in new[]{"physical_operations","dashboard","crude_setup","vol_surfaces","facility_quantities"})
         {
             PageReports.Require(JsonSerializer.SerializeToElement(new{page,selection=new{}}));
             if((page is "dashboard" or "vol_surfaces")&&(PageReports.Dispatch(JsonSerializer.SerializeToElement(new{page,selection=new{}})) is not null||PageReports.Opens(page)))
@@ -24,7 +24,7 @@ static class AssistantWorkspaceChecks
             }
         }
         BusinessDatePins();
-        var pages=new[]{"risk_jobs","delivery_prices","interval_series","interval_curves","users_access","settings_ai",
+        var pages=new[]{"physical_operations","risk_jobs","delivery_prices","interval_series","interval_curves","users_access","settings_ai",
             "blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","gas_setup","crude_setup","facility_quantities"};
         foreach(var page in pages)
         {
@@ -39,9 +39,9 @@ static class AssistantWorkspaceChecks
             try{AssistantOperations.RequireRead(operation);throw new Exception("A command entered the read path.");}
             catch(ToolRefusal e) when(e.Code=="approval_required"){}
         }
-        foreach(var id in new[]{"gas-setup.catalog_v1","crude-setup.catalog_v1","facilities.quantities.directory_v1","facilities.quantities.read_v1","gas.quantities.read_v1"})
+        foreach(var id in new[]{"gas-setup.catalog_v1","crude-setup.catalog_v1","facilities.quantities.directory_v1","facilities.quantities.read_v1","gas.quantities.read_v1","gas.billing.read_v1","gas.billing.preview_v1"})
             if(AssistantOperations.RequireRead(id).CurrentOnly)throw new Exception("Physical reads must retain the question's exact context.");
-        foreach(var id in new[]{"gas-setup.save_v1","gas-setup.publish_v1","crude-setup.save_v1","crude-setup.publish_v1","facilities.quantities.record_v1","gas.quantities.record_v1"})
+        foreach(var id in new[]{"gas-setup.save_v1","gas-setup.publish_v1","crude-setup.save_v1","crude-setup.publish_v1","facilities.quantities.record_v1","gas.quantities.record_v1","gas.billing.determine_v1"})
             if(AssistantOperations.Find(id) is not {RequiresApproval:true,CurrentOnly:true})throw new Exception("Physical changes require working context and human approval.");
         if(AssistantWorkspace.CanOpen("facility_quantities",["ReadMarketData","ReadTrades"]))throw new Exception("Facility navigation requires facility read authority.");
         foreach(var excluded in new[]{"futures.amend-preview_v1","swaps.preview_v1","swaps.scheduled-price_v1"})

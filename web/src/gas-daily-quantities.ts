@@ -1,8 +1,9 @@
+import type {PhysicalDeliveryView} from './physical-delivery.js';
 import type {TicketField} from './ticket-types.js';
 type Quantity={numerator:string;denominator:string};
 type Head={id:string;kind:string;status:string;quantity:string|null;evidence:string;revision:number};
-export type GasQuantityRow={quantitySpecification:{code:string};obligationId:string;sideCode:string;day:string;start:string;end:string;contractual:Quantity;selected:Quantity;normalizedInput:Quantity;kind:string;revisionId:string|null;heads:Head[]};
-export type GasQuantityView={context:{contextId:string};tradeId:string;expectedRevision:number;selectionPolicy:string;canWrite:boolean;rows:GasQuantityRow[];history:{id:string;side_code:string;day:string;kind:string;status:string;quantity:string|null;previous_id:string|null;evidence:string}[]};
+export type GasQuantityRow={quantitySpecification:{code:string};obligationId:string;sideCode:string;pipeline:string;zone:string;deliveryPoint:string;day:string;start:string;end:string;contractual:Quantity;selected:Quantity;normalizedInput:Quantity;kind:string;revisionId:string|null;heads:Head[]};
+export type GasQuantityView={context:{contextId:string};tradeId:string;expectedRevision:number;selectionPolicy:string;canWrite:boolean;rows:GasQuantityRow[];delivery:PhysicalDeliveryView;history:{id:string;side_code:string;day:string;kind:string;status:string;quantity:string|null;previous_id:string|null;evidence:string}[]};
 export type GasQuantityReceipt={operationId:string;tradeId:string;obligationId:string;revisionId:string;revision:number;unchanged:boolean};
 // The kinds and statuses a daily quantity record takes (gas/quantities/record), as the person chooses them.
 const quantityKinds=[{value:'nominated',label:'Nominated'},{value:'confirmed',label:'Confirmed'},{value:'scheduled',label:'Accepted schedule'},{value:'allocated',label:'Allocated delivery'}];

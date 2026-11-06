@@ -12,12 +12,12 @@ def run_checks(Client, check):
           [(k['code'], k['creatable']) for k in directory['kinds']] == [('human', True), ('service', True), ('agent', False)] and all(k['name'] for k in directory['kinds']))
     admin.call('workspace', expected=403)
     check('access administration does not imply market-data access')
-    check('the nine human roles are assignable, and both agent-only roles are listed only to name what agents hold',
-          sorted(r['code'] for r in directory['roles'] if r['assignable']) == ['access_administrator', 'assistant_prompt_editor', 'facility_limits_admin', 'facility_operator', 'market_data_approver', 'market_data_editor', 'risk_analyst', 'trader', 'viewer']
+    check('the eleven human roles are assignable, and both agent-only roles are listed only to name what agents hold',
+          sorted(r['code'] for r in directory['roles'] if r['assignable']) == ['access_administrator', 'assistant_prompt_editor', 'facility_limits_admin', 'facility_operator', 'gas_operator', 'gas_service_admin', 'market_data_approver', 'market_data_editor', 'risk_analyst', 'trader', 'viewer']
           and sorted(r['code'] for r in directory['roles'] if not r['assignable']) == ['agent_reader', 'swap_settlement_operator'])
-    check('role choices carry stored display names', all(isinstance(r.get('name'), str) and r['name'].strip() for r in directory['roles']) and len({r['name'] for r in directory['roles']}) == len(directory['roles']) == 11)
-    check('facility roles start unassigned to existing members',
-          all(not {'facility_operator', 'facility_limits_admin'}.intersection(m['roles']) for m in directory['members']))
+    check('role choices carry stored display names', all(isinstance(r.get('name'), str) and r['name'].strip() for r in directory['roles']) and len({r['name'] for r in directory['roles']}) == len(directory['roles']) == 13)
+    check('facility and gas operations roles start unassigned to existing members',
+          all(not {'facility_operator', 'facility_limits_admin', 'gas_operator', 'gas_service_admin'}.intersection(m['roles']) for m in directory['members']))
     context = dict(effectiveOn='2020-12-18', knowledgeMode='current', retained=None,
                    convention='facility_business_date_end_utc_v1')
     for role, login, records, configures in [('facility_operator', 'synthetic_facility_operator', True, False),

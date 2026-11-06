@@ -1,6 +1,6 @@
 # Markets desk
 
-D337 groups the existing views under one **Curves & prices** Markets entry.
+D344 groups the existing views under one **Curves & prices** Markets entry.
 Its workspace switch offers **Contract prices**, **Curve builder** and
 **Hourly / sub-hourly prices**. The builder retains its saved-curve library,
 Outputs, Graph, Configuration, Versions, Lineage and History views, visual/formula

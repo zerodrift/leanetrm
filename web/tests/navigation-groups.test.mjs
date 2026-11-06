@@ -20,7 +20,7 @@ test('the groups and their pages keep the sidebar order',()=>{
   ['overview','Overview',['dashboard']],
   ['trading','Trading',['futures']],
   ['markets','Markets',['market','custom-curves','delivery','interval-series','vol-surfaces','interval-curves']],
-  ['operations','Operations',['physical','risk','jobs']],
+  ['operations','Operations',['physical-operations','physical','risk','jobs']],
   ['settings','Settings',['schedules','power','reference','parties']],
   ['admin','Admin',['admin','ai']]]);
 });
@@ -71,8 +71,8 @@ test('market data outranks administration and the Blotter outranks plain market 
 test('the sidebar lists each page for the permissions that open it',()=>{
  const market=['dashboard','market','custom-curves','delivery','interval-series','interval-curves','schedules','power','physical','reference'];
  assert.deepEqual(listed(['ReadMarketData','RunJobs']).sort(),[...market,'jobs'].sort());
- assert.deepEqual(listed(['ReadMarketData','ReadTrades','ReadTradeParties']).sort(),[...market,'jobs','futures','vol-surfaces','parties'].sort());
- assert.deepEqual(listed(['ReadMarketData','ReadTrades']).sort(),[...market,'jobs','futures','vol-surfaces'].sort());
+ assert.deepEqual(listed(['ReadMarketData','ReadTrades','ReadTradeParties']).sort(),[...market,'jobs','physical-operations','futures','vol-surfaces','parties'].sort());
+ assert.deepEqual(listed(['ReadMarketData','ReadTrades']).sort(),[...market,'jobs','physical-operations','futures','vol-surfaces'].sort());
  assert.deepEqual(listed(['ReadMarketData','ReadTradeParties']).sort(),[...market,'jobs','parties'].sort());
  assert.deepEqual(listed(['ManageAccess','ManageIdentities']),['jobs','admin']);
  assert.deepEqual(listed(['ManageAgents']),['jobs','ai']);
@@ -118,4 +118,12 @@ test('the curve workspace switch precedes every curve view',()=>{
  const switchAt=markup.indexOf('<nav id="curve-price-navigation"');
  for(const id of ['market-page','custom-curves-page','interval-curves-page'])
   assert.ok(switchAt<markup.indexOf(`<section id="${id}"`),`workspace switch must precede ${id}`);
+});
+
+test('physical work has its own sidebar workspace under Operations',()=>{
+ assert.equal(pageGroup('physical-operations'),'Operations');
+ assert.equal(allPages.includes('physical-operations'),true);
+ assert.equal(pageAvailable('physical-operations',['ReadMarketData','ReadTrades']),true);
+ assert.equal(pageAvailable('physical-operations',['ReadMarketData']),false);
+
 });

@@ -26,7 +26,9 @@ export async function run(actions){
  const saved=await evaluate('window.__indexBooked.receipt');
  const row=`#desk-positions [data-row-key="${saved.tradeId}:${saved.instrumentId}"] .desk-reference`;
  await wait(`!!document.querySelector(${q(row)})&&`+idle,30000);await click(row);
- await wait("!!document.querySelector('#position-details-tabs-schedules')&&"+idle);await click('#position-details-tabs-schedules');
+ await wait("!!document.querySelector('#position-details-view .physical-instrument')&&"+idle);
+ await check('indexed physical overview renders retained index and monthly payment terms',"document.querySelector('#position-details-tabs-terms').textContent==='Physical overview'&&(()=>{const section=[...document.querySelectorAll('#position-details-view .side-panel-section')].find(s=>s.querySelector('h3')?.textContent==='floating-1'),value=label=>[...section.querySelectorAll('.side-term')].find(r=>r.querySelector('dt').textContent===label)?.querySelector('dd').textContent;return value('Pricing index')==='test_price'&&value('Spread')==='0'&&value('Payment day')==='10'&&value('Payment convention')==='next_month_day_utc_v1'&&value('Fixed unit price')===undefined&&value('Payment')===undefined;})()");
+ await click('#position-details-tabs-schedules');
  const inspector='#position-details .ticket-grid .side-schedule-inspection';
  await wait(`!!document.querySelector(${q(inspector+' .inspection-calculation')})`);
  await check('the selected Side uses one expanded grid without an extra disclosure or selector',

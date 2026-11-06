@@ -27,6 +27,10 @@ def run_checks(url,query,manifest,run_worker):
     assert Fraction(preview['presentValue'])==asset-payable==Fraction('1288.9')
     saved=c.call('gas/composition/book',body)
     assert c.call('gas/composition/book',body)==saved
+    overview=c.call('trading/gas',dict(context={**context,'convention':'trading_workspace_v1'},tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1,instrumentType='physical_gas'))
+    index=overview['indexedCash'][0]
+    assert (index['index_code'],index['observation_convention'],index['payment_convention'],index['payment_day'],index['spread'],index['projection_id'])==('test_price','daily_published_index_v1','next_month_day_utc_v1','10','0',None),index
+    assert next(m for m in overview['components'] if m['role']=='indexed_consideration')['payment_at'] is None
     ticket=c.call('tickets/trade',dict(context=context,tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1))
     assert [s['kind'] for s in ticket['draft']['sides']]==['physical','floating']
     assert len([r for r in ticket['schedule']['rows'] if r['level']=='day'])==59

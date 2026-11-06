@@ -70,3 +70,30 @@ test('invoice void and payment record reversal retain exact identities through r
   assert.equal(releasesRetained(path,'crude_lifecycle_trade',true),false);
  }
 });
+
+test('manual service configuration and operation retries retain their distinct capabilities',()=>{
+ assert.equal(retryAllowed('gas/operations/configure',{canAmendTrades:false,canConfigureGasServices:true}),true);
+ assert.equal(retryAllowed('gas/operations/configure',{canAmendTrades:true}),false);
+ assert.equal(retryAllowed('gas/operations/record',{canAmendTrades:true,canRecordGasOperations:true}),true);
+ assert.equal(retryAllowed('gas/operations/record',{canAmendTrades:true}),false);
+ assert.equal(knownTradeRejection('gas_operations_conflict'),true);
+ assert.equal(releasesRetained('gas/operations/record','gas_operations_conflict',true),false);
+});
+
+test('physical receipt recovery keeps a request unless its native outcome matches the requested operation and trade',async()=>{
+ const {requirePhysicalReceipt}=await import('../dist/trade-requests.js');
+ const samples=[
+  [{path:'gas/operations/configure',operationId:'op',body:{preview:{tradeId:'gas',kind:'service'}}},{operationId:'op',tradeId:'gas',kind:'service',id:'terms'}],
+  [{path:'gas/operations/record',operationId:'op',body:{preview:{tradeId:'gas',kind:'nomination'}}},{operationId:'op',tradeId:'gas',kind:'nomination',id:'request'}],
+  [{path:'gas/billing/determine',operationId:'op',body:{preview:{tradeId:'gas'}}},{operationId:'op',tradeId:'gas',determinationId:'cash'}],
+  [{path:'gas/quantities/record',operationId:'op',body:{tradeId:'gas',obligationId:'receipt'}},{operationId:'op',tradeId:'gas',obligationId:'receipt',revisionId:'daily',revision:2}],
+  [{path:'crude/operations/invoice/issue',operationId:'op',body:{tradeId:'crude'}},{operationId:'op',tradeId:'crude',eventId:'invoice',version:2}]
+ ];
+ for(const [command,receipt] of samples){
+  assert.doesNotThrow(()=>requirePhysicalReceipt(command,receipt),command.path);
+  for(const bad of [null,{}, {found:true}, {...receipt,operationId:'different'}, {...receipt,tradeId:'different'}, {...receipt,id:undefined,revisionId:undefined,eventId:undefined,determinationId:undefined}])
+   assert.throws(()=>requirePhysicalReceipt(command,bad),/retained status/,command.path);
+ }
+ assert.throws(()=>requirePhysicalReceipt(samples[0][0],{...samples[0][1],kind:'nomination'}),/retained status/);
+ assert.throws(()=>requirePhysicalReceipt(samples[3][0],{...samples[3][1],obligationId:'delivery'}),/retained status/);
+});

@@ -1,5 +1,9 @@
 # Reusable physical delivery and cash lifecycle
 
+D338 qualifies [daily gas commercial cash](gas-cash-billing.md) for fixed
+delivery components and accepted final sources. It reuses the swap rounded-total
+difference; other proposed lifecycle/commodity adapters keep their own limits.
+
 D321 implements the bounded [facility-final quantity-input consumer](gas-basis-demo.md)
 through exact adopted-plan/target links. It adds no physical completion, invoice,
 cash or lifecycle remaining-value policy. The wider object responsibilities and

@@ -2787,7 +2787,160 @@ boundaries. A published walkthrough remains an intended plan, not evidence that
 the browser has completed its actions; the fixed model instructions say so.
 See [the read boundary](exact-observation-reads.md).
 
-## D337 — One curve workspace for prices and construction
+## D337 — Versioned accounting policy and standards references
+
+Keep physical quantity balances, commercial cash determinations/documents and
+financial accounting as separate responsibilities. An economic Instrument/Side
+is not a chart-of-accounts mapping, and recording an imbalance or billing
+correction does not select its accounting treatment.
+
+Accounting references retain exact source edition/locator and amendment lineage;
+reviewed executable policies separately retain book/applicability, effective and
+knowledge coordinates, implementation/mapping/numerical versions and approval.
+A reference update cannot alter an executable rule or posted history. Supported
+parameter/mapping updates can be runtime revisions; new financial semantics
+require a qualified managed implementation. Source text is not an executable
+policy or permission to distribute licensed material.
+
+Delivery coverage, effective/knowledge time and accounting posting period remain
+separate. Posting must recheck exact approved inputs, current authority and the
+selected accounting period's state atomically. Missing, ambiguous, stale or
+unsupported policies/treatments refuse. Historical reproduction is read-only;
+retrospective transitions create explicit authorized linked facts. The UI and
+agent share native operations and cannot bypass the header context or approve
+policy/classification implicitly.
+
+The first proposed consumer is a synthetic final gas payable correction from
+300 to 294 USD under an explicitly selected expense/current-period fixture.
+Existing gas selection is not final cash determination; qualify that commercial
+consumer first. Reuse existing retained cash arithmetic, contextual selection,
+exact reference integrity and idempotent receipts where their contracts agree.
+No new journal table, policy catalog, executable accounting rule, imbalance
+instrument class, GL export or compliance claim is introduced here.
+See [the accounting boundary](accounting-policy-boundary.md) for contracts,
+independent acceptance cases, decisions needing accounting review and sequence.
+
+
+## D338 — Final daily gas commercial cash with shared restatement arithmetic
+
+Implement one completed native gas day and independently signed retained fixed
+cash/fee delivery membership under `gas_final_daily_fixed_cash_v1`. Select final
+manual or accepted facility quantity policy explicitly, pin currency minor-unit
+ties-to-even rounding, and retain original and revised totals with signed
+rounded-total differences. Extract the existing difference into `CashRestatement`
+for swap and gas; preserve crude's different cumulative allocation semantics.
+
+Persist exact trade/member/day, manual revision or adopted-target, currency,
+context and predecessor FKs. Recheck current authority and source/head identity
+under the existing publication gate. Native review hashes prevent changed inputs
+from entering an accepted proposal. A repeated source returns its existing fact,
+including fresh requests and other authorized actors; a new accepted revision
+records a linked correction with explicit cause, due instant and evidence.
+Storage waits cannot retain expired mutation or recovery authority. Billing needs
+AmendTrade and source reads, not BookTrade. UI and approval-only agent operations
+share the native handlers; migration 0205 gates new tools on `turns_v18`.
+
+This consumer neither recognizes title/completion nor issues invoices, records
+payments, posts journals or changes contractual PV. Receipt/fuel stages, monthly
+rounding, price/fee corrections and broader commodities need their own qualified
+contracts. D337 remains an accounting design, not an executable posting policy.
+See [the gas cash contract](gas-cash-billing.md) for actual scope and checks.
+
+
+## D339 — Manual delivery desk, retro nominations and imbalance transfers
+
+Implement the named manual workflows in [the delivery operations contract](gas-delivery-operations.md).
+Keep submitted requests, external counterparty/pipeline responses and reviewed
+application separate. Retain native gas-day geometry and exact existing quantity
+heads. A retro request does not backdate what was known, and a received response
+cannot silently replace a newer independent schedule.
+
+Explicit service-account scope and source/acceptance policies own operator balance
+statements. Exact accepted-movement prefixes distinguish gross from already-net
+statements. Source revisions preserve accepted consumptive movements. Compatible
+buyer/seller imbalance accounts transfer equal/opposite quantity only under the
+selected offsetting profile, retaining independent fixed-price nominal cash.
+Facility residuals and financial hedges never supply an imbalance implicitly.
+New independent gas-operations capabilities are granted explicitly. Historical
+context, current authority and idempotent first outcomes apply throughout.
+
+No live pipeline submission, tariff interpretation, new portfolio imbalance
+instrument, automatic cash-out, invoice/payment execution or accounting is
+introduced by this manual consumer. Qualify the business oracles and complete
+independent review before publication.
+
+## D340 — Separate physical operations and instrument inspection
+
+Physical work belongs in a dedicated Operations sidebar view. Keep the Blotter
+focused on pricing, retained terms and the sides' read-only schedules. Reuse a
+physical overview outline with commodity-native convention sections; do not create
+a broad commodity subclass hierarchy or infer physical behavior from market labels.
+
+Discover supported physical bookings from native metadata without invoking PV.
+Require complete held-source inventory and exact effective/knowledge context;
+permission or source loss cannot become a successful partial directory. Reuse
+existing gas/crude business operations and their immutable receipts. One workspace
+transport retains an uncertain command across widget/page/context changes, with
+shared Keep/Discard guards and current native authorization. Gas workflow and
+billing are separate tabs. LNG operational actuals, other commodity adapters and
+live pipeline connectivity retain explicit TBD status. New page/runtime admission
+is migration 0207 / turns_v20; no financial policy or executable commodity is added.
+
+## D341 — Focused physical operations layout
+
+Use one compact instrument picker and a persistent selected-instrument header.
+Present saved terms in responsive cards. Delivery stage tabs reveal their own
+manual actions and an inline reviewed form; stage numbers identify navigation,
+not completion or inferred operational status. Keep activity/evidence separate
+from entry, and group billing inputs by source, calculation and correction.
+
+Reuse native operation contracts, exact-text/unit display helpers, shared tabs,
+edit tracking and retained requests. Selecting a stage changes presentation only;
+no financial policy or delivery day is inferred. Dirty stage/day changes preserve
+the current form, and a refused directory refresh clears prior identity metadata.
+Native permissions and the shared header context remain authoritative.
+
+## D342 — Physical trade and delivery-row grids
+
+Replace the trade/commodity pickers and delivery-day picker with the existing
+sortable, filterable data grid. Trade rows identify exact booked bindings under
+the header context. Delivery rows identify each retained obligation/native day
+and expose independent recorded tracks and exact contract/selected quantities.
+No per-trade PV or per-day private-state sweep is required for discovery.
+
+Use labeled commodity colors and native source status only; do not infer
+completion, imbalance or billing state from dates or quantities. Missing tracks,
+withdrawals and explicit zero remain distinct. Reuse exact-text rational sorting,
+column filters, keyboard selection and hidden-open-row notices. Dirty row changes
+must preserve the original row/form. Keep the standing delivery grid while loading
+its selected day's private state so keyboard focus and sort/filter state survive.
+
+Service and direct-quantity entry anchor to the highlighted obligation. Transfer
+choices keep authorized counterparties while the owned leg and applicable
+agreements follow the selected legal-entity anchor. Native operations retain
+compatibility, authority, evidence, version and acceptance decisions; selection
+adds no financial defaults or new write contract.
+
+
+## D343 — Native physical delivery projections
+
+Use one managed `PhysicalDeliveryView` for retained physical delivery intervals,
+quantity tracks, references and capabilities. Reuse a literal quantity-output
+projection for the current gas, crude and LNG consumers. Apply an explicit booked
+membership scale once; retain the original program/grid/cell identity and native
+geometry. Do not divide a whole-window delivery into invented days or discover
+physical memberships from cash/fee schedules.
+
+The grid renders supplied track and attribute columns, with exact quantity text
+and explicit source statuses. Native adapters retain quantity-selection policies,
+source authority and all write operations. Capabilities are descriptive and never
+grant rights. Gas preserves its side/day recording anchor; crude preserves its
+existing lifecycle; LNG gains delivery inspection with actuals visibly TBD.
+New instruments require an admitted native adapter and discovery integration;
+dynamic quantity inputs require explicit managed resolution. A synthetic intraday
+view qualifies presentation geometry only, not executable power operations.
+
+## D344 — One curve workspace for prices and construction
 
 Curves & prices is the single Markets entry for contract prices, Curve builder
 and hourly/sub-hourly prices. The workspace switch opens the existing managed
@@ -2804,7 +2957,7 @@ price read behavior.
 No pricing, schema or financial model change is introduced by this consolidation.
 
 
-## D338 — Collapse unfinished ticket features
+## D345 — Collapse unfinished ticket features
 
 Group description-declared planned fields, side types, schedule columns and views
 under one closed Coming soon disclosure. Supported trade terms, side cards and
@@ -2821,7 +2974,7 @@ reflects that adapter boundary; a daily/monthly curve cutover does not itself
 define another economic Side. Consolidating booking onto the general Side
 contract and admitting indexed purchase payment state remain separate work.
 
-## D339 — Whole-term physical gas composition booking
+## D346 — Whole-term physical gas composition booking
 
 Use one physical Side for its selected delivery term, independent of the forecast
 curve's daily/monthly cutover. Resolve every intersecting calendar month to one
@@ -2849,7 +3002,7 @@ idempotent booking, daily reads, mixed-grid curve binding and retained worker
 scenario parity. Indexed-purchase payment state and counterparty agreement/credit
 administration remain separate work.
 
-## D340 — Use the available Blotter workspace
+## D347 — Use the available Blotter workspace
 
 Remove the ordinary page-width cap while the Blotter is shown. Use the desktop
 viewport above a compact footer, sharing its space with visible Assistant
@@ -2859,7 +3012,7 @@ presentation only; saved arrangements and business reads do not change. Browser
 checks cover wide and ordinary desktop sizes, docked Assistant clearance and
 maximized Positions/Details content and scrolling.
 
-## D341 — Amend future physical gas compositions through the ordinary ticket
+## D348 — Amend future physical gas compositions through the ordinary ticket
 
 Use the common Blotter Amend workflow with the explicit
 `future_gas_composition_replace_v1` contract. Keep the selected trade's exact
@@ -2889,7 +3042,7 @@ and daily-quantity refusals, worker claim scope and interactive/worker risk pari
 Browser checks exercise the actual Blotter amendment, edit guard, lost response
 recovery and reopened terms, including a retained mixed-curve physical example.
 
-## D342 — Independent indexed consideration in future gas compositions
+## D349 — Independent indexed consideration in future gas compositions
 
 Admit the existing `FloatingSide` as `indexed_consideration` under the explicit
 `indexed_gas_composition_v1` profile. Each payment row corresponds exactly to a
@@ -2920,7 +3073,7 @@ independent PV and 61-factor delta oracles, raw schedule/payment/source refusals
 retained ticket reads, spread/payment amendment and unchanged/retried commands,
 and interactive/claimed-worker parity. Synthetic operational loaders stay private.
 
-## D343 — Shared ticket choices and visible entry suggestions
+## D350 — Shared ticket choices and visible entry suggestions
 
 Reconcile refreshed choice lists in common ticket presentation code. Preserve a
 valid manually selected value; replace an untouched suggestion when its explicit
@@ -2945,7 +3098,7 @@ input fallback. Browser checks cover valid term extensions, singleton cascades,
 stale responses and cleared fields; exact arithmetic tests cover quote precision.
 
 
-## D344 — Shared Side pricing and lifecycle inspection
+## D351 — Shared Side pricing and lifecycle inspection
 
 Keep the selected gas measure as contractual net MTM. Expose pricing rows and
 lifecycle evidence through a common managed inspection projection, without
@@ -2956,8 +3109,8 @@ never create paid, accepted or final states; unsupported evidence is explicit.
 
 Gas, crude and LNG application adapters read the exact selected native Side
 under the certified position context. Gas integrates this into the existing Side
-tabs as their single schedule grid, retaining quantity recording through the
-ordinary operation and keeping the Instrument aggregate in its separate tab.
+tabs as their single read-only schedule grid, keeping the Instrument aggregate
+in its separate tab. Daily quantity recording uses Physical operations (D340).
 Exact native code-to-slot metadata selects the Side; its ticket snapshot and
 certified context bind both operational quantities and pricing. A metadata
 directory precedes bounded row pages. Calculation detail traverses retained operand addresses and projects
@@ -2974,7 +3127,7 @@ certificate holdings, cancellation, context mismatches and the separate paid gas
 cash example. Existing PPA/swap application readers and durable started gas
 lifecycle admission remain separate; no universal paid-cash ledger is implied.
 
-## D345 — Required Side inspection and registered native readers
+## D352 — Required Side inspection and registered native readers
 
 Make `SideValuation.InspectSchedule` required. Shared factories project native
 evaluated rows and compiled program values without pricing again. Immutable
@@ -2994,7 +3147,9 @@ hookup. The generic inspector captures the displayed Blotter's certified context
 before awaiting detail reads; it never opens a newer working context in its place.
 Position detail caches include that context and discard late reads from a replaced
 context. Unchanged read-only terms retain their nodes during refresh; pending
-operational widgets retain their inputs until released. Editable booking reviews
+operational widgets retain their inputs until released. Indexed gas overviews
+render retained index, spread and payment conventions instead of fixed cash terms.
+Editable booking reviews
 retain their own inputs and authorized writes.
 
 New implementers supply their native values and normal storage integration;

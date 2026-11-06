@@ -11,12 +11,7 @@ public sealed record SettlementDetermination
     private SettlementDetermination(Guid id, SwapPaymentCalculation calculation, SettlementDetermination? previous, DateTimeOffset dueAt)
     {
         Id = id; Calculation = calculation; PreviousId = previous?.Id; DueAt = dueAt;
-        Contribution = RestatedContribution(calculation.Amount,previous?.Total);
-    }
-    public static Money RestatedContribution(Money roundedTotal,Money? previousRoundedTotal)
-    {
-        if(roundedTotal is null)throw new MarketDataException("settlement_determination","Supply the rounded contractual total.");
-        return previousRoundedTotal is null?roundedTotal:ExactMoney.FromMoney(roundedTotal).Subtract(ExactMoney.FromMoney(previousRoundedTotal)).ToMoney();
+        Contribution = CashRestatement.Contribution(calculation.Amount,previous?.Total);
     }
 
     public static SettlementDetermination Create(Guid id, SwapPaymentCalculation calculation,

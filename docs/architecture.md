@@ -1,6 +1,6 @@
 # Architecture and domain contracts
 
-D345 makes inspection a required `SideValuation.InspectSchedule` contract.
+D352 makes inspection a required `SideValuation.InspectSchedule` contract.
 Evaluators expose native rows or compiled executions through one immutable,
 context-bound snapshot. One registered authorized source per native storage family
 supplies position membership; the common reader owns exact selection, paging and
@@ -8,48 +8,98 @@ publication checks. The position panel supplies the common lazy renderer when a
 product has no integrated schedule editor. Product implementers retain pricing,
 source selection and lifecycle admission. No shared risk behavior changes.
 
-D344 adds shared read-only Side schedule inspection. Gas, crude and LNG adapters
+D351 adds shared read-only Side schedule inspection. Gas, crude and LNG adapters
 project native evaluated rows with exact delivery/payment coordinates, signed
 holding quantities and money, price state, DF/PV and independent lifecycle facts.
 Calculation detail follows retained operands and context-bound source evidence.
 The selected gas measure remains contractual net MTM; inspection introduces no
-new lifecycle or risk behavior. See [Side schedules](side-schedules.md#pricing-and-lifecycle-inspection-d344).
+new lifecycle or risk behavior. See [Side schedules](side-schedules.md#pricing-and-lifecycle-inspection-d351).
 
-D342 admits daily indexed consideration as an ordinary independent `FloatingSide`
+D349 admits daily indexed consideration as an ordinary independent `FloatingSide`
 in future gas compositions. Exact daily index contracts/fixings, physical quantity
 allocations, explicit spread, selected projection and monthly UTC payment terms
 are retained through native admission and the common Instrument/Side PV path.
 This contractual MTM includes the physical asset and signed cash payment; the
 separate paid/unpaid cash lifecycle remains outside this booking profile.
 
-D343 reconciles ticket choices through shared presentation code. Managed choices
+D350 reconciles ticket choices through shared presentation code. Managed choices
 and labelled entry suggestions provide eligible starting values; valid manual
 terms and explicit clears survive refreshes. Pricing and imports still require
 explicit terms and receive no calculation fallback.
 
-D341 adds an explicit future gas composition amendment profile. The ordinary
+D348 adds an explicit future gas composition amendment profile. The ordinary
 ticket delegates to the same native booking builder with exact expected head,
 retained definition, reason and immutable command identity. Changed terms retain
 new revision-owned physical occurrences; they never inherit operational identity
 from matching codes or dates. Original booking facts and certified old heads stay
-unchanged. Daily quantity or facility relationships require a continuity contract
+unchanged. Daily quantity, service or facility relationships require a continuity contract
 and currently refuse amendments. Risk still reprices the retained Instrument and
 Side contracts under generic scenarios.
 
-D339 carries a physical gas Side's full term through composition booking and
+D346 carries a physical gas Side's full term through composition booking and
 retained inspection. Each day resolves its exact native monthly assignment;
 published mixed-grid forecasts remain an independent explicit selection. A
 whole-term scalar payment stays on a whole-term schedule row without inferred
 monthly allocation. Generic PV and scenario risk remain unchanged.
 
-D338 keeps unfinished ticket features in a closed disclosure and displays supported
+D345 keeps unfinished ticket features in a closed disclosure and displays supported
 trade terms compactly. Native Side memberships and calculation contracts remain
-unchanged. D339 subsequently removes the composition adapter's monthly restriction.
+unchanged. D346 subsequently removes the composition adapter's monthly restriction.
 
-D337 consolidates contract prices, computed curve construction/inspection and
+D344 consolidates contract prices, computed curve construction/inspection and
 hourly prices in one Curves & prices workspace. Existing view adapters and
 financial contexts are preserved; the shared navigation remembers the last view
 and uses the ordinary unsaved-edit and request guards.
+
+D343 adds the [common physical delivery view](physical-delivery-view.md): explicit
+native intervals, exact membership/source references, quantity tracks and declared
+capabilities. Gas, crude and LNG reuse one grid over their native reads; commodity
+operations retain their own policies and authority. Dynamic quantity resolution
+and additional operational adapters remain separately qualified work.
+
+D342 replaces physical trade and delivery-day pickers with shared sortable,
+filterable grids. Exact binding/obligation/day identity, recorded source statuses
+and native quantity text remain authoritative; selection preserves context, edit
+and request-recovery guards. See [the operations grid contract](physical-workspace.md#trade-and-delivery-grids-d342).
+
+D341 refines the [physical operations layout](physical-workspace.md#focused-operations-layout-d341):
+compact instrument context, responsive saved-term cards, focused delivery stages
+and grouped billing inputs. Presentation reuses native operations and existing
+context, permission, edit and request-recovery guards.
+
+D340 moves physical work into **Operations → Physical operations**. The Blotter
+keeps pricing, retained instrument overviews and read-only Side schedules. The
+operations directory reads exact booked metadata without PV, refuses missing held
+source metadata and follows the header context. Gas and crude reuse their native
+workflows; gas billing has its own tab. Gas/crude/LNG overview presenters share a
+physical outline with commodity-specific saved conventions. LNG operational
+actuals and other unsupported commodity workflows remain explicitly TBD.
+Migration 0207 / assistant `turns_v20` add page admission and native discovery;
+financial contracts, permissions and persistence remain their existing owners.
+
+D339 adds [manual gas delivery operations](gas-delivery-operations.md): versioned
+service accounts, nomination/retro requests, separate external acknowledgments,
+reviewed schedule adoption, signed operator statements and paired imbalance
+agreements. The dedicated gas workflow groups before flow, scheduling,
+after flow and reconciliation. It reuses native daily quantities, facility
+allocations, gas billing and the Blotter's retained-command transport. Migration
+0206 and assistant `turns_v19` require separate release qualification. Live
+connectivity, portfolio imbalance positions and accounting posting remain outside
+this bounded consumer; new permissions require explicit grants.
+
+D338 adds [final daily gas cash determinations](gas-cash-billing.md): an explicit
+completed-day/fixed-delivery consumer with original and correcting contributions,
+exact accepted source links and reviewed native/agent operations. It reuses swap
+cash-restatement arithmetic while preserving crude's cumulative invoice contract.
+Migration 0205 and assistant `turns_v18` require separate release qualification;
+invoices, payments, accounting journals and contractual PV changes are excluded.
+
+D337 records the [accounting policy and standards-update boundary](accounting-policy-boundary.md).
+This is a design contract: exact reference/policy versions, separate posting
+periods and reviewed adoption. Its first proposed consumer is a synthetic gas
+billing correction; no journal engine, accounting policy or compliance claim is
+implemented by this record.
+
 
 D333 makes the OTC examples explicit futures-plus-basis curves, using separate
 synthetic spread assessments with a small winter premium. Ordinary graph

@@ -117,6 +117,33 @@ def check_restrictions(c,query,manifest,terms,context):
         return result,rows['rows'][0]['obligationId']
     def read(saved,ctx=context):
         return c.call('tickets/trade',dict(context=ctx,tradeId=saved['tradeId'],bindingId=saved['instrumentId'],revision=1))
+    # Service custody exists before any nomination or quantity observation.
+    serviced,service_obligation=book()
+    principal=query("SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='trader';")
+    grants=[str(uuid4()),str(uuid4())]
+    for grant,role in zip(grants,['gas_operator','gas_service_admin']):
+        query(f"INSERT INTO security.role_grants SELECT '{grant}','{principal}',id,'{manifest['tenantId']}','{manifest['workspaceId']}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '1 hour',false FROM security.roles WHERE code='{role}';")
+    try:
+        service=dict(context=context,tradeId=serviced['tradeId'],expectedRevision=1,day='2021-01-01',kind='service',details=dict(
+            obligationId=service_obligation,holderRole='legal_entity',externalReference='synthetic-amendment-service',expectedPreviousId=None,
+            validFrom='2021-01-01',validTo='2021-02-01',active=True,statementPolicy='final_statement_balance_v1',termsReference='Synthetic service terms',evidence='Synthetic service custody'))
+        review=c.call('gas/operations/preview',service)
+        c.call('gas/operations/configure',dict(preview=service,operationId=str(uuid4()),previewHash=review['previewHash']))
+        assert query(f"SELECT (SELECT count(*) FROM trading.gas_quantity_commands WHERE trade_id='{serviced['tradeId']}')+(SELECT count(*) FROM trading.gas_quantity_series WHERE obligation_id='{service_obligation}');")=='0'
+        refusal=runtime_query(query,manifest,f"SELECT security.gas_amendment_refusal('{catalog}','{serviced['tradeId']}',1,'{serviced['instrumentId']}','2020-12-18T16:00:00Z');")
+        assert refusal=='gas_amendment_operational',('service-only native amendment refusal',refusal)
+        opened=read(serviced)
+        assert not opened['actions']['amend']['allowed'] and 'service' in opened['actions']['amend']['reason']
+        draft=deepcopy(opened['draft']);next(s for s in draft['sides'] if s['kind']=='cash')['values']['cash_price']='3.2'
+        change=dict(context=context,draft=draft,tradeId=serviced['tradeId'],bindingId=serviced['instrumentId'],expectedRevision=1,
+            definitionRevisionId=short['definitionRevisionId'],reason='Synthetic service-only amendment refusal',policy='future_gas_composition_replace_v1')
+        assert c.call('tickets/amend-preview',change,expected=422)['code']=='gas_amendment_operational'
+        assert c.call('tickets/amend',{**change,'operationId':str(uuid4())},expected=422)['code']=='gas_amendment_operational'
+        assert query(f"SELECT count(*) FROM trading.gas_trade_revisions WHERE trade_id='{serviced['tradeId']}';")=='1'
+        assert query(f"SELECT count(*) FROM trading.gas_delivery_obligations WHERE trade_id='{serviced['tradeId']}' AND id='{service_obligation}';")=='1'
+        print('PASS service-only custody: no quantity facts, native/API amendment refusal and original obligation retained',flush=True)
+    finally:
+        query("DELETE FROM security.role_grants WHERE id=ANY(ARRAY["+','.join("'"+g+"'::uuid" for g in grants)+"]);")
     saved,obligation=book()
     later=next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2021-01-15T08:'))
     after={**context,'snapshotId':later['id']}

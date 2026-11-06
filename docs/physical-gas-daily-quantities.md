@@ -77,7 +77,9 @@ quantities. It does not substitute them into the existing fixed contractual
 program's PV, physical completion or payment roots. Dynamic linked fuel/cash
 ports and settlement consumers need their own qualified execution profile. The
 read response states `contractual_pv_unchanged`; no source field silently enables
-that wider lifecycle. A billing quantity preview is not a settlement determination.
+that wider lifecycle. A billing quantity preview is not a settlement determination. The separately
+enrolled [D338 daily fixed cash consumer](gas-cash-billing.md) supplies that
+bounded determination and its corrections without changing this read contract.
 
 ## API and user workflow
 

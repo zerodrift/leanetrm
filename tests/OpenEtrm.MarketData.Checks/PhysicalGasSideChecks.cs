@@ -54,6 +54,7 @@ internal static class PhysicalGasSideChecks
         var bytes = BookedSideProgram.Compile(definition).Write();
         var loaded = BookedSideProgram.Read(bytes, new(BookedSideProgram.Digest(bytes), definition.Manifest,
             definition.Family, definition.EconomicIdentity, definition.PricingBindingIdentity));
+        PhysicalDeliveryChecks.Contract(loaded, new(1000, 1), to.DayNumber-from.DayNumber, "1000", clock.Boundary(from), clock.Boundary(to));
         var source = new ScheduleMarketSources(market.Graph.Plan.Context, market, null, null,
             IntervalKnowledgePolicy.ResolvedCutoff, PendingActualsPolicy.RequireActuals, [lookup], [], [assignment]);
         Equal(source.Evaluate(loaded, physical.Id, market, df).PresentValue, "3.2");

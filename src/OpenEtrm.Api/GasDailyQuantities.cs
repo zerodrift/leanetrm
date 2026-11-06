@@ -25,7 +25,7 @@ public sealed class GasDailyQuantities(PreviewDatabase database)
  // One booked trade's daily quantities: each physical side's retained contract days and the quantity the policy selects for them.
  internal sealed record Day(Guid ObligationId,string SideCode,string Pipeline,string Zone,string DeliveryPoint,GasDailyContract Contract,GasSelectedQuantity Selected,JsonElement[] Heads);
  internal sealed record Selection(JsonElement Header,ImmutableArray<Day> Days,ImmutableArray<JsonElement> History,int HeadCount,ImmutableArray<RetainedSideProgram> Programs,double[] Milliseconds);
- internal async Task<Selection> Select(NpgsqlConnection c,InputFrame frame,Guid trade,string policy,bool includeHistory,CancellationToken ct)
+ internal async Task<Selection> Select(NpgsqlConnection c,InputFrame frame,Guid trade,string policy,bool includeHistory,CancellationToken ct,Guid? obligation=null,DateOnly? day=null)
  {
   var timer=Stopwatch.StartNew();var marks=new List<double>();void Mark()=>marks.Add(timer.Elapsed.TotalMilliseconds-marks.Sum());
   await using(var authority=ScheduleStore.Command(c,"SELECT security.require_gas_quantity_trade($1,$2,false)",database.Manifest.CatalogId,trade))await authority.ExecuteNonQueryAsync(ct);
@@ -46,11 +46,11 @@ public sealed class GasDailyQuantities(PreviewDatabase database)
   var programs=await new RetainedScheduleStore(database).LoadPrograms(c,header.Id("instrument_id"),frame.ContextId,frame.At,ct);
   Mark();
   var days=ImmutableArray.CreateBuilder<Day>();
-  foreach(var o in obligations)
+  foreach(var o in obligations.Where(o=>obligation is null||o.Id("id")==obligation))
   {
    var slot=int.Parse(o.Text("slot"),CultureInfo.InvariantCulture);var p=programs.Single(p=>p.Slot==slot);
    var booked=ScheduleNumber.Parse(header.Text("quantity"));var scale=new ExactRatio(BigInteger.Parse(o.Text("ratio_n"))*booked.Numerator,BigInteger.Parse(o.Text("ratio_d"))*booked.Denominator);
-   foreach(var contract in GasDailyQuantitySelection.ReadContract(p.Program,scale))
+   foreach(var contract in GasDailyQuantitySelection.ReadContract(p.Program,scale).Where(c=>day is null||c.Day==day))
    {
     var matching=byDay.GetValueOrDefault((o.Id("id"),contract.Day),[]);
     var observations=matching.Select(h=>new GasQuantityObservation(h.Id("id"),h.Text("kind"),h.Text("status"),ExactQuantity.FromQuantity(new(ExactDecimal.Parse(h.OptionalText("quantity")??"0"),contract.Quantity.Specification)),h.Text("evidence"),h.Text("source"))).ToImmutableArray();
@@ -77,8 +77,9 @@ public sealed class GasDailyQuantities(PreviewDatabase database)
    return new{obligationId=d.ObligationId,sideCode=d.SideCode,pipeline=d.Pipeline,zone=d.Zone,deliveryPoint=d.DeliveryPoint,day=contract.Day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),contract.Start,contract.End,quantitySpecification=contract.Quantity.Specification,
     contractual=Q(contract.Quantity),selected=Q(selected.Quantity),normalizedInput=Q(selected.NormalizedQuantity),selected.Kind,selected.RevisionId,selected.Evidence,contract.Root,contract.Instruction,contract.Grid,
     heads=d.Heads.Select(h=>new{id=h.Id("id"),kind=h.Text("kind"),status=h.Text("status"),quantity=h.OptionalText("quantity"),evidence=h.Text("evidence"),revision=int.Parse(h.Text("revision"),CultureInfo.InvariantCulture)})};}).ToArray();
+  var delivery=await PhysicalDeliveryViews.Gas(c,body.TradeId,s,frame,body.SelectionPolicy,ct);
   var ms=s.Milliseconds;
-  return new{tradeId=body.TradeId,expectedRevision=int.Parse(s.Header.Text("revision"),CultureInfo.InvariantCulture),body.SelectionPolicy,canWrite=body.SelectionPolicy!=GasDailyQuantitySelection.FacilityBillingPolicy&&await MayAmend(c,ct),rows,history=s.History,
+  return new{tradeId=body.TradeId,expectedRevision=int.Parse(s.Header.Text("revision"),CultureInfo.InvariantCulture),body.SelectionPolicy,canWrite=body.SelectionPolicy!=GasDailyQuantitySelection.FacilityBillingPolicy&&await MayAmend(c,ct),rows,delivery,history=s.History,
    scope="daily_delivery_quantity_inputs_only",valuationEffect="contractual_pv_unchanged",historyLimit=100,
    performance=body.MeasurePerformance?new{metadataMs=ms[0],headsMs=ms[1],historyMs=ms[2],programsMs=ms[3],selectionMs=ms[4],headCount=s.HeadCount,programCount=s.Programs.Length,uniquePrograms=s.Programs.Select(p=>p.Identity.ContentDigest).Distinct().Count(),dayCount=rows.Length}:null};
  }

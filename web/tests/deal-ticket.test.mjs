@@ -214,3 +214,12 @@ test('unfinished ticket fields, side kinds and views stay inside one closed disc
  assert.deepEqual(all(upcoming).filter(n=>n.dataset.field).map(n=>n.dataset.field),['agreement','meter']);
  assert.equal(all(upcoming).filter(n=>n.tagName==='BUTTON').length,2);
 });
+
+test('the side-schedule presentation contains no instrument editor or operational entry controls',()=>{
+ const host=draw({mode:'booked',presentation:'schedules',actions:{amend:{allowed:false,reason:'Retained'},closeOut:{allowed:false,reason:'Retained'},record:{allowed:false,reason:'Read only'}}});
+ assert.equal(byClass(host,'ticket-schedule').length,1);
+ assert.equal(byClass(host,'ticket-card').length,0);
+ assert.equal(byClass(host,'ticket-strip').length,0);
+ assert.equal(byClass(host,'ticket-record').length,0);
+
+});

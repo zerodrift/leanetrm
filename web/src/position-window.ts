@@ -26,7 +26,7 @@ const panel=setupPositionPanel({element:name=>get('position-window-'+name),form:
   read:async(h,formats)=>{
    const api=reader,actor=readerActor,context={...positionWindowRequest(selection!).context,
     convention:h.instrumentType==='future'?'contract_lot_execution_pnl_v2':'independent_side_financial_swap_v2'};
-   const value:DetailRead=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:()=>actor,recorded,surface:null}):h.instrumentType==='physical_lng'?readLngView(api,context,h,denied):h.instrumentType==='physical_crude'?readCrudeView(api,context,h,undefined,denied):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:denied,actor:()=>actor,readOnly:true}):h.instrumentType==='ppa'?readPpaView(api,context,h,selection!.context.knownAt):h.instrumentType==='future'?
+   const value:DetailRead=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:()=>actor,recorded,surface:null}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:denied,actor:()=>actor,readOnly:true}):h.instrumentType==='ppa'?readPpaView(api,context,h,selection!.context.knownAt):h.instrumentType==='future'?
     readTradeView(api,context,h,formats):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy:()=>loading,act:async work=>{await work();},settle(){throw Error('This trade window is read only.');}}):genericPositionView(h));
    const read=withSideSchedules(value,api,context,h,denied);
    return {...read,view:zone=>({...read.view(zone),actions:undefined})};

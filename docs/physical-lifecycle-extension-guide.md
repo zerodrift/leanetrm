@@ -5,6 +5,11 @@ Developer guide for the D303 object-oriented reuse direction and proposed
 no APIs and does not approve the proposed financial policies. Read the current
 source before treating a design name as an existing class.
 
+The implemented [common delivery view](physical-delivery-view.md) (D343) supplies
+the interval/track grid contract and retained literal-output projection for gas,
+crude and LNG. Reuse it for presentation when extending a native adapter; it does
+not implement the broader lifecycle objects or operational policies proposed here.
+
 The [implemented facility contract](facility-quantity-ledger.md) uses relational tables,
 write functions and constraint triggers. Reuse those boundaries; proposed domain
 object names do not justify a parallel persistence or event framework.
@@ -44,7 +49,7 @@ object names do not justify a parallel persistence or event framework.
 
 ## Choose the smallest behavioral extension
 
-The implemented [Side inspection contract](side-schedules.md#implementer-contract-d345)
+The implemented [Side inspection contract](side-schedules.md#implementer-contract-d352)
 owns common rendering and paging. Populate native evaluated schedules/evidence via
 `SideValuation.InspectSchedule` and register the normal authorized storage source.
 Do not add a product branch to the shared reader or write another schedule grid.

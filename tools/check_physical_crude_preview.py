@@ -62,6 +62,8 @@ def run_checks(url, query, manifest):
     exact={'context':shared,'tradeId':booked['tradeId'],'bindingId':booked['instrumentId'],'revision':1,'instrumentType':'physical_crude'}
     single=c.call('trading/position',exact)
     assert single['holding']['presentValue']==holding['presentValue']
+    from check_physical_operations import contract_delivery_checks
+    contract_delivery_checks(c,'trading/crude',exact,'1000',body['deliveryFrom'],body['deliveryTo'],'crude_delivery_cash_v1',query,manifest)
     terms=c.call('trading/crude',exact)
     assert terms['head']['request']['assignmentCode']==body['assignmentCode']
     assert terms['physical']['grade_code']==assignment['grade']

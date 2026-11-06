@@ -1,0 +1,73 @@
+import {gasDeliveryFixture} from './physical-delivery-fixture.mjs';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {browserAvailable,browserTestTimeout,withBrowserPage} from './browser-page.mjs';
+const page='<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host"></div><div id="editor-shelf"></div>';
+const settle='await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));';
+const trade=(suffix,book,type='physical_gas')=>({tradeId:'trade-'+suffix,bindingId:'binding-'+suffix,revision:1,tradeReference:'TR-00000'+suffix.toUpperCase(),bookId:'book-'+suffix,book,instrumentType:type,marketLabel:'Synthetic basis',deliveryFrom:'2021-01-01',deliveryTo:'2021-01-03',bookedQuantity:null,bookedUnit:null});
+const trades=[trade('b','Beta book'),trade('a','Alpha book'),trade('c','Crude book','physical_crude')];
+const facts={context:{contextId:'certificate',effectiveOn:'2021-01-15',knownAt:'2026-11-06T00:00:00Z'},asOf:'2021-01-15T08:00:00Z',positions:trades,total:3,nextOffset:null};
+const billing={expectedRevision:1,canWrite:true,profile:'gas_final_daily_fixed_cash_v1',roundingPolicy:'currency_minor_units_to_even_v1',quantityPolicies:['final_allocated_billing_v1'],correctionReasons:[],claims:[],determinations:[]};
+
+test('a cargo exposes retained delivery windows and explicit TBD capabilities through the common grid',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async evaluate=>{
+ const cargo={...trades[0],instrumentType:'physical_lng',bookedQuantity:'49000',bookedUnit:'MMBtu'};
+ const {delivery}=await import('./physical-interval-fixture.mjs');
+ const cargoDelivery={...delivery,tradeId:cargo.tradeId,bindingId:cargo.bindingId,periodLabel:'Delivery window',tracks:[],attributes:[],selectionPolicy:'contractual_schedule_v1',capabilities:[{code:'lng_actuals',label:'Cargo actuals & reconciliation',implemented:false}],rows:delivery.rows.map(r=>({...r,heads:[],attributes:{},selected:r.contractual,selectedTrack:'contractual',sourceStatus:'contractual'}))};
+ await evaluate(`(async()=>{const {setupPhysicalOperations}=await import('/physical-operations.js');const api=async path=>path==='physical/operations/directory'?${JSON.stringify({...facts,positions:[cargo],total:1})}:{head:{},physical:{},delivery:${JSON.stringify(cargoDelivery)}};
+ window.desk=setupPhysicalOperations(document.querySelector('#host'),{api,act:async f=>f(),busy:()=>false,identity:()=> 'operator',context:()=>({snapshotId:'header',convention:'trading_workspace_v1',knowledgeMode:'current'}),zone:()=> 'UTC',permission:()=>true,changed(){}});await desk.load();document.querySelector('#physical-operations-tabs-delivery').click();await new Promise(r=>setTimeout(r,80));${settle}})()`);
+ assert.equal(await evaluate("document.querySelectorAll('[data-delivery=rows] .tabulator-row[data-row-key]').length"),2);
+ assert.equal(await evaluate("document.querySelector('[data-delivery=capabilities]').textContent.includes('Cargo actuals & reconciliation · TBD')&&!document.querySelector('[data-operation]')"),true);
+}));
+
+test('trade sorting and filtering keep exact identity, unfinished edits and header context',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async(evaluate,command)=>{
+ await evaluate(`(async()=>{const {setupPhysicalOperations}=await import('/physical-operations.js');window.denied=false;window.calls=[];const api=async(path,body)=>{calls.push({path,body});if(denied)throw Error('access_denied');if(path==='physical/operations/directory')return ${JSON.stringify(facts)};if(path==='trading/gas')return {head:{revision:1,instrument_id:body.bindingId,fixed_price:'3',payment_at:'2021-02-02T00:00:00Z',usage_fee:null},physical:[],components:[]};if(path==='gas/billing/read')return ${JSON.stringify(billing)};throw Error(path)};
+ window.desk=setupPhysicalOperations(document.querySelector('#host'),{api,act:async f=>f(),busy:()=>false,identity:()=> 'operator',context:()=>({snapshotId:'header',convention:'trading_workspace_v1',knowledgeMode:'current'}),zone:()=> 'UTC',permission:()=>true,changed(){}});await desk.load();${settle}})()`);
+ assert.equal(await evaluate("!document.querySelector('#physical-operations-trade')&&!document.querySelector('#physical-operations-product')&&document.querySelectorAll('#physical-operations-trades .tabulator-row[data-row-key]').length===3"),true);
+ await evaluate(`document.querySelector('#physical-operations-trades [tabulator-field=c0] .tabulator-col-content').click();`);await evaluate(`(async()=>{${settle}})()`);
+ assert.equal(await evaluate("document.querySelector('#physical-operations-trades .tabulator-row[data-row-key]').dataset.rowKey"),'trade-c:binding-c');
+ await evaluate("(()=>{const s=document.querySelector('#physical-operations-trades .table-search');s.value='Alpha';s.dispatchEvent(new Event('input'));})()");await evaluate(`(async()=>{${settle}})()`);
+ assert.deepEqual(await evaluate("({count:document.querySelector('#physical-operations-trades .table-row-count').textContent,busy:document.querySelector('#physical-operations-refresh').disabled,inert:document.querySelector('#physical-operations-trades').inert,message:document.querySelector('#physical-operations-message').textContent})"),{count:'1 of 3 rows',busy:false,inert:false,message:''});
+ await evaluate("document.querySelector('#physical-operations-trades .table-filter-clear').click();document.querySelector('#physical-operations-trades .column-filter-toggle').click();const f=document.querySelector('#physical-operations-trades [aria-label=\"Filter Commodity\"]');f.value=[...f.options].find(o=>o.textContent==='Natural gas').value;f.dispatchEvent(new Event('change'));");await evaluate(`(async()=>{${settle}document.querySelector('#physical-operations-trades [data-row-key=\"trade-a:binding-a\"]').click();for(let i=0;i<50&&document.querySelector('#physical-operations-reference').textContent!=='TR-00000A';i++)await new Promise(r=>setTimeout(r,10));})()`);
+ assert.equal(await evaluate("document.querySelector('#physical-operations-reference').textContent"),'TR-00000A');
+ assert.equal(await evaluate("calls.filter(c=>c.path==='trading/gas').every(c=>c.body.tradeId==='trade-a'&&c.body.bindingId==='binding-a'&&c.body.context.snapshotId==='header')"),true);
+ await evaluate("document.querySelector('#physical-operations-tabs-cash').click()");await new Promise(r=>setTimeout(r,30));await evaluate("document.querySelector('[data-billing=evidence]').focus()");await command('Input.insertText',{text:'Synthetic unfinished billing review'});
+ await evaluate("document.querySelector('#physical-operations-trades [data-row-key=\"trade-b:binding-b\"]').click()");await new Promise(r=>setTimeout(r,20));assert.equal(await evaluate("!document.querySelector('#host-prompt').hidden"),true);
+ await evaluate("[...document.querySelectorAll('#host-prompt button')].find(b=>b.textContent==='Keep editing').click()");await new Promise(r=>setTimeout(r,20));
+ assert.equal(await evaluate("document.querySelector('#physical-operations-reference').textContent==='TR-00000A'&&document.querySelector('[data-billing=evidence]').value==='Synthetic unfinished billing review'&&document.querySelector('#physical-operations-trades [aria-current=true]').dataset.rowKey==='trade-a:binding-a'"),true);
+ await evaluate("denied=true;desk.reset();desk.load()");await new Promise(r=>setTimeout(r,30));
+ assert.equal(await evaluate("document.querySelector('#physical-operations-instrument').hidden&&!document.querySelector('#physical-operations-trades').textContent.includes('TR-00000A')"),true);
+}));
+
+const row=(id,day,amount)=>({obligationId:id,sideCode:id,day,start:day+'T06:00:00Z',end:(day==='2021-01-01'?'2021-01-02':'2021-01-03')+'T06:00:00Z',pipeline:'synthetic_pipe',zone:'synthetic_zone',deliveryPoint:'synthetic_point',quantitySpecification:{code:'gas_quantity'},contractual:{numerator:amount,denominator:'1'},selected:{numerator:amount,denominator:'1'},kind:'contractual',revisionId:null,heads:[]});
+const daily={tradeId:'trade',expectedRevision:1,canWrite:true,rows:[row('receipt','2021-01-01','100'),row('delivery','2021-01-01','10'),row('receipt','2021-01-02','2')],history:[]};
+daily.delivery=gasDeliveryFixture(daily);
+const view={permissions:{canConfigure:true,canRecord:true},nominationProfile:'manual_confirmed_ceiling_v1',imbalanceProfile:'paired_offsetting_imbalance_v1',roundingPolicy:'currency_minor_units_to_even_v1',statementPolicies:['final_statement_balance_v1'],balances:[],state:{accounts:[],nominations:[],statements:[],agreements:[],responses:[],movements:[],nominationApplications:[],imbalanceApplications:[],heads:[]}};
+test('all delivery rows are sortable and an explicit side/day selection cannot discard an unfinished entry',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async(evaluate,command)=>{
+ await evaluate(`(async()=>{const {setupGasOperations}=await import('/gas-operations.js');window.calls=[];const api=async(path,body)=>{calls.push({path,body});return path==='gas/quantities/read'?${JSON.stringify(daily)}:${JSON.stringify(view)}};window.widget=setupGasOperations(document.querySelector('#host'),{api,context:()=>({snapshotId:'header',knowledgeMode:'current'}),tradeId:'trade',actor:()=> 'operator',zone:()=> 'UTC',workflow:{busy:()=>false,pending:()=>undefined,queue:async()=>{},changed(){}}});for(let i=0;i<80&&!document.querySelector('[data-ops=rows] .tabulator-row[data-row-key]');i++)await new Promise(r=>setTimeout(r,10));${settle}})()`);
+ assert.deepEqual(await evaluate("({picker:!!document.querySelector('[data-ops=day]'),rows:document.querySelectorAll('[data-ops=rows] .tabulator-row[data-row-key]').length,reads:calls.filter(c=>c.path==='gas/operations/read').length,message:document.querySelector('[data-ops=message]').textContent})"),{picker:false,rows:3,reads:0,message:'Select a delivery row to work with its day and side.'});
+ await evaluate("document.querySelector('[data-ops=rows] [tabulator-field=c3] .tabulator-col-content').click()");await evaluate(`(async()=>{${settle}})()`);
+ assert.equal(await evaluate("document.querySelector('[data-ops=rows] .tabulator-row[data-row-key]').dataset.rowKey"),'receipt:2021-01-02');
+ await evaluate("document.querySelector('[data-ops=rows] [data-row-key=\"receipt:2021-01-02\"]').click()");await new Promise(r=>setTimeout(r,40));
+ assert.equal(await evaluate("calls.filter(c=>c.path==='gas/operations/read').at(-1).body.day"),'2021-01-02');
+ await evaluate("document.querySelector('[data-ops=rows] [data-row-key=\"receipt:2021-01-02\"]').focus()");
+ for(const expected of ['delivery:2021-01-01','receipt:2021-01-01']){
+  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40,nativeVirtualKeyCode:40});await command('Input.dispatchKeyEvent',{type:'keyUp',key:'ArrowDown',code:'ArrowDown',windowsVirtualKeyCode:40,nativeVirtualKeyCode:40});
+  await evaluate("new Promise(r=>setTimeout(r,60))");assert.equal(await evaluate("document.activeElement?.dataset.rowKey"),expected);
+ }
+ await evaluate("document.querySelector('[data-ops=rows] [data-row-key=\"receipt:2021-01-02\"]').click()");await new Promise(r=>setTimeout(r,30));
+ await evaluate("document.querySelector('[data-operation=service]').click()");
+ assert.deepEqual(await evaluate("[...document.querySelector('[name=obligationId]').options].filter(o=>o.value).map(o=>o.value)"),['receipt']);
+ await evaluate("document.querySelector('[data-stage=\"2\"]').click();document.querySelector('[data-operation=daily_quantity]').click();document.querySelector('[name=evidence]').focus()");await command('Input.insertText',{text:'Synthetic delivery evidence in progress'});
+ await evaluate("document.querySelector('[data-ops=rows] [data-row-key=\"delivery:2021-01-01\"]').click()");await new Promise(r=>setTimeout(r,20));
+ assert.equal(await evaluate("document.querySelector('[data-ops=rows] [aria-current=true]').dataset.rowKey==='receipt:2021-01-02'&&document.querySelector('[name=obligationId]').value==='receipt'&&document.querySelector('[name=evidence]').value==='Synthetic delivery evidence in progress'"),true);
+}));
+
+test('transfer choices keep authorized counterparties while the owned leg stays on the selected side',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async evaluate=>{
+ const account=(id,tradeId,obligation,role)=>({id,trade_id:tradeId,origin_obligation_id:obligation,holder_role:role,external_reference:id,version_id:id+'-terms',active:true,revision:1,valid_from:'2021-01-01',valid_to:'2021-02-01',statement_policy:'final_statement_balance_v1',version_evidence:'Synthetic reviewed service terms'});
+ const scoped={...view,state:{...view.state,accounts:[account('owned-a','trade','receipt','legal_entity'),account('counter-same','trade','delivery','counterparty'),account('counter-receipt','trade','receipt','counterparty'),account('owned-b','trade','delivery','legal_entity'),account('owned-other','other','receipt','legal_entity'),account('counter-outside','other','delivery','counterparty')],agreements:[{id:'apply-a',buyer_account_id:'owned-a',seller_account_id:'counter-same',external_reference:'Synthetic A',quantity:'10',price:'3'},{id:'apply-b',buyer_account_id:'owned-b',seller_account_id:'counter-receipt',external_reference:'Synthetic B',quantity:'10',price:'3'}]}};
+ const result=await evaluate(`(async()=>{const {setupGasOperations}=await import('/gas-operations.js');const api=async path=>path==='gas/quantities/read'?${JSON.stringify(daily)}:${JSON.stringify(scoped)};
+ setupGasOperations(document.querySelector('#host'),{api,context:()=>({snapshotId:'header',knowledgeMode:'current'}),tradeId:'trade',actor:()=> 'operator',zone:()=> 'UTC',workflow:{busy:()=>false,pending:()=>undefined,queue:async()=>{},changed(){}}});
+ for(let i=0;i<80&&!document.querySelector('[data-ops=rows] [data-row-key="receipt:2021-01-01"]');i++)await new Promise(r=>setTimeout(r,10));document.querySelector('[data-ops=rows] [data-row-key="receipt:2021-01-01"]').click();await new Promise(r=>setTimeout(r,30));document.querySelector('[data-stage="3"]').click();document.querySelector('[data-operation=imbalance]').click();
+ const choices=[...document.querySelector('[name=buyerAccountId]').options].filter(o=>o.value).map(o=>o.value);document.querySelector('[data-operation=imbalance_apply]').click();return {choices,agreements:[...document.querySelector('[name=imbalanceId]').options].filter(o=>o.value).map(o=>o.value)};})()`);
+ assert.deepEqual(result.choices,['owned-a','counter-same','counter-receipt','counter-outside']);assert.deepEqual(result.agreements,['apply-a']);
+}));

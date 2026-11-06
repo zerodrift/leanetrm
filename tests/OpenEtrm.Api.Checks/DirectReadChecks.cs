@@ -250,6 +250,9 @@ internal static class DirectReadChecks
         var report=recorded.GetProperty("report").Deserialize<FuturesBlotterView>(Json)!;
         var summaries=recorded.GetProperty("summaries").Deserialize<ImmutableArray<FuturesBlotterView>>(Json);
         var captured=Recorded("captured");
+        if(captured["catalog"]!["canConfigureGasServices"]!.GetValue<bool>()||captured["catalog"]!["canRecordGasOperations"]!.GetValue<bool>())
+            throw new Exception("An ordinary trader must not gain manual gas operations rights implicitly.");
+        Console.WriteLine("PASS the ordinary trader's page grants no manual gas operations rights");
         var traded=captured["catalog"]!["context"].Deserialize<ScheduleContext>(Json)!;
         var (fresh,again)=(new TradingView(at,traded,true),TradingView.Reread(at,traded));
         var chosen=TradingView.Retained(Recorded("historical","frame").Deserialize<InputFrame>(Json),Recorded("historical","context").Deserialize<ScheduleContext>(Json)!);
@@ -356,9 +359,9 @@ internal static class DirectReadChecks
 
     static JsonObject Without(JsonObject page,string field){var copy=page.DeepClone().AsObject();copy.Remove(field);return copy;}
 
-    // Trading pages add the view's context and As of and the reader's booking and amendment rights
+    // Trading pages add the view's context and As of and the reader's booking, amendment and operations rights
     // to each part they return. The context and As of must be exactly the view a direct read uses.
-    static readonly string[] Adornments=["context","asOf","canRunDealRisk","canBook","canAmendTrades","bookingUnavailableReason","canAmend","amendUnavailableReason"];
+    static readonly string[] Adornments=["context","asOf","canRunDealRisk","canBook","canConfigureGasServices","canRecordGasOperations","canAmendTrades","bookingUnavailableReason","canAmend","amendUnavailableReason"];
     static JsonNode Unadorned(JsonNode page,TradingView view,params string[] parts)
     {
         var copy=page.DeepClone().AsObject();
