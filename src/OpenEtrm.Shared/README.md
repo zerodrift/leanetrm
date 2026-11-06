@@ -73,8 +73,10 @@ following candidate before deciding whether to move to the preceding month-end.
 These are raw payloads: the caller must validate market clocks, date bases,
 calendar versions, provenance and permissions. UTC grids do not infer local
 hours or resolve DST. Tests supply explicit 23/25-hour grids and a synthetic
-clock. A timezone/TOU compiler remains future work. The application now owns
-a separate durable schedule draft/publication store.
+clock. Market-clock and TOU compilation is implemented separately by
+`OpenEtrm.MarketData.Power.PowerHours`; it supplies the domain rules rather than
+adding them to these shared payloads. The application owns a separate durable
+schedule draft/publication store.
 The contract resolver is a separate domain consumer. `MonthlyDates` now generates
 up to 120 explicit monthly anchors with short-month policy and adjustment, keeping
 source months and unadjusted dates. `DateReference` parses bounded indexed names
@@ -90,7 +92,7 @@ dotnet run --project tests/OpenEtrm.Shared.Checks -c Release
 dotnet run --project tests/OpenEtrm.Shared.Checks -c Release --no-build -- --benchmark /tmp/temporal-benchmark.json
 ```
 
-The 31 behavior checks include exhaustive small-set comparison against an
+The initial 31 behavior checks include exhaustive small-set comparison against an
 independent oracle, joint calendars, roll collisions, immutable ownership,
 concurrent interning, deliberate hash collisions, mask word boundaries and
 subhourly/DST durations. Behavior was written and observed failing before the

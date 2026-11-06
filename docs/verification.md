@@ -1,5 +1,12 @@
 # Local verification and continuous integration
 
+For the current complete command and prerequisites, start with
+[Required tools](#required-tools). `tools/check_all.py` runs all suites by
+default; `--group workspace|standard|assistant|trading|portfolio|settlement|ppa|recovery`
+selects one CI partition. CI requires every partition and its aggregate check
+to succeed. The implementation records below retain the results and limits of
+each dated increment; older check counts are not the current suite size.
+
 D344's managed `--assistant-workspace` checks consume the advertised fill
 encodings to build plans for both supported ask forms. They preserve the exact
 capability keys, a 4 KiB metadata bound and 2 KiB guide bound, and reject human
@@ -629,7 +636,8 @@ synthetic fixtures. No existing database or application is a verification target
 
 - The exact .NET SDK in `global.json`.
 - The exact Node version in `.node-version`, including its bundled npm.
-- Python 3.11+ with assertions enabled; the hosted job uses Ubuntu's Python 3.12.
+- Python 3.12+ with assertions enabled; the preview launcher uses Python 3.12
+  f-string syntax. The hosted job uses Ubuntu's Python 3.12.
 - Installed stock PostgreSQL 16+ binaries, including `initdb`, `pg_ctl` and `psql`.
 - An installed Chromium-compatible browser. Keep its normal sandbox enabled.
 

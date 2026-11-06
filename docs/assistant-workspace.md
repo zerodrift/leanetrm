@@ -4,12 +4,16 @@ D312 adds the [bounded page digest](assistant-walkthroughs.md), under explicit
 new-tool consent. D319 adds workspace page target handles and native entry navigation
 under runtime `turns_v14`; D325 completes identity-only page admission under
 `turns_v15`. D327 adds [native physical reads and reviewed changes](physical-workspace.md#physical-assistant-operations)
-under `turns_v16`. The original workspace contract follows.
+under `turns_v16`. D335 adds typed screen assistance under `turns_v17`;
+D338–D340 add gas billing, manual gas operations and Physical operations page
+admission under `turns_v18`–`turns_v20`.
 
 D284 extends the assistant with discovery, reads, previews and human-approved
-commands over the application's existing operations. The current runtime `turns_v17`
+commands over the application's existing operations. The current runtime `turns_v20`
 requires the workspace operations in 0162–0164, operating settings in 0181–0183,
-and migrations 0196/0198/0199/0203 with matching API/browser assets. New turns retain the admitted operating policy;
+the digest/navigation/physical-context migrations 0194–0196/0198–0199/0203 and
+gas/physical-workspace migrations 0205–0207 with matching API/browser assets.
+New turns retain the admitted operating policy;
 older binaries cannot admit new work they cannot enforce. This local
 implementation does not qualify a hosted schema or deployment.
 
@@ -62,6 +66,7 @@ before metadata work and between operations; the configured read bound is unchan
 | Markets/curves | Navigation, evaluation, history, overlays, corrections, composition, save, publication and activation |
 | Reference/parties/schedules | Authorized catalogs, editors, conversion, date resolution, preview, save and publication |
 | Trading | Catalogs, positions, draft pricing/risk, booking, amendments and supported swap settlement |
+| Physical setup/operations | Gas/crude setup catalogs, validation and reviewed publication; facility quantities and explicit allocations; gas daily quantities, manual service/scheduling operations and daily cash determinations |
 | Risk | Interactive calculations, bounded statistical VaR setup, parametric and historical summaries and historical scenario drill-down, retained job directory/reports, submission and cancellation |
 | Interval/delivery data | Source/series catalogs, selected windows, corrections and supported curve/quantity previews |
 | Jobs/infrastructure | Existing directory, job creation/update/control and typed node operations |
@@ -120,19 +125,23 @@ authority. New curve saves use the ordinary human-approved save.
 The catalog excludes `futures/amend-preview`, `swaps/preview` and
 `swaps/scheduled-price`: their legacy handlers cannot preserve an assistant
 question's exact retained context. Typed futures/swap draft pricing and risk
-operations accept explicit pinned contexts. Newer physical-product entry/setup
-pages retain their existing read boundary; their prompts are configurable, but
-those product-specific command families are not added by this catalog.
+operations accept explicit pinned contexts. Physical-product families are admitted
+only where explicitly cataloged: gas/crude setup, facility quantities, gas quantity
+revisions, manual gas operations and gas cash determinations. Physical operations
+discovery reads retained booking metadata without pricing. Gas/crude/LNG booking
+and crude lifecycle commands are not currently admitted by the assistant catalog;
+native pages retain those operations.
 
-Existing turn/token/read limits and complete-result bounds of 500 records/64 KiB
-apply. Oversized results refuse instead of becoming partial successful reports.
+The turn's retained operating policy supplies complete-result row/byte bounds
+(the carried-forward baseline is 500 records/64 KiB), alongside existing
+turn/token/read limits. Oversized results refuse instead of becoming partial successful reports.
 The Risk page's full VaR catalog, history and reports exceed that bound, so the
 assistant uses `portfolio/risk/statistical/setup`, `portfolio/risk/parametric/summary`,
 `portfolio/risk/historical/summary` and `portfolio/risk/historical/sample` (D306):
 the same capabilities and calculations, projected to exact estimates shown as
 `{value, display}` at money display precision, coverage, per-session price types, allocations, the
 tail scenarios and one scenario's factor moves and holding losses. They grow
-with the scope: roughly 150 trades in a measure, a 95% tail of 2,048 samples
+with the scope: at the baseline result bounds, roughly 150 trades in a measure, a 95% tail of 2,048 samples
 over three measures, or about 150 holdings in one scenario exceed the bound and
 refuse as usual after the calculation.
 Large retained reports, missing frames/sources and unsupported financial contracts

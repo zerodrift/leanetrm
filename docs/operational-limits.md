@@ -15,8 +15,9 @@ listed limit is configurable or that a release has been qualified.
   tool rows/bytes at ask time. Pin/start/output consumers use that revision even
   after policy changes. New agent versions and grants retain their policy revision;
   their explicit grant duration stays unchanged. Prior rows retain their original
-  runtime provenance without invented historical pins. `turns_v12` is required for
-  new asks; legacy request replay remains available.
+  runtime provenance without invented historical pins. D302 introduced this
+  admission contract under `turns_v12`; the [current workspace runtime](assistant-workspace.md)
+  is `turns_v20`. Legacy request replay remains available.
 - New hosted sessions use configured duration, with the cookie taking the stored
   expiry. Failed-login requests are idempotent and retain policy lineage. New
   lockouts, invitations and enrollment use current policy; invitation retries and
