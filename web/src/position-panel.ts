@@ -1,3 +1,4 @@
+import {renderPhysicalSections} from './physical-instrument.js';
 import {replaceChangedChildren} from './view-updates.js';
 // The position's value, retained terms, each side's schedule, risk and revisions. What is shown is selected from the rows and
 // reads the desk already holds; amounts stay the backend's exact strings in the backend's display text.
@@ -109,7 +110,7 @@ export function openCurveTarget(h:Holding,row:DeskRow,shape:CurveShape|string|un
 /** What the Terms and History tabs show of one trade revision, drawn from its editor read: titled lists of exact facts. */
 export type TermSection={title:string;rows:readonly (readonly [string,string])[]};
 export type DetailView={
-  terms:TermSection[];history:TermSection[];
+  termsLabel?:string;terms:TermSection[];history:TermSection[];
   /** Draws the independently retained side schedules; returns their disposer. */
   schedules?:(host:HTMLElement)=>()=>void;
   termsContent?:(host:HTMLElement)=>()=>void;
@@ -120,7 +121,7 @@ export type DetailView={
 /** Whether the editor can amend the revision, and why not when it cannot. */
 export type AmendState={allowed:true;reason:null}|{allowed:false;reason:string};
 /** An editor read of a trade revision: its amendment state, and the views drawn from it in the person's time zone. */
-export type DetailRead={amend:AmendState;view:(zone:string)=>DetailView;updatesBlocked?:()=>boolean};
+export type DetailRead={amend:AmendState;view:(zone:string)=>DetailView;updatesBlocked?:()=>boolean;unsaved?:()=>boolean;sync?:()=>void};
 
 /**
  * Why Amend is not offered: first that the account cannot amend, then why the revision cannot be, once the editor has been read.
@@ -168,7 +169,7 @@ type Detail={key:string}&({state:'loading'}|{state:'ready';read:DetailRead}|{sta
  * opens the position's amendment, whose form Terms shows in place of its read view for as long as it is open.
  */
 export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal'|'focusForm'>,o:{
-  zone:()=>string;busy:()=>boolean;canAmend:()=>boolean;
+  zone:()=>string;busy:()=>boolean;canAmend:()=>boolean;leave?:()=>Promise<boolean>;
   tabs?:readonly PositionTab[];
   /** Whether Curves & prices lists a market: a position in one it does not list has no curve to open. */
   curveListed:(curve:string)=>boolean;
@@ -191,6 +192,14 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
   const takeDownSchedules=()=>{drawnSchedules?.();drawnSchedules=undefined;drawnScheduleKey=undefined;drawnTab=undefined;};
   const view=()=>shell.element('view');
   const key=(at:PositionInput)=>JSON.stringify([at.holding.tradeId,at.holding.revision,o.context()]);
+  async function selectTab(id:string){
+    tabs?.mark(tab);
+    if(id===tab||o.busy())return;
+    const started=generation;
+    if(detail?.state==='ready'&&detail.read.unsaved?.()&&(!o.leave||!await o.leave()))return;
+    if(started!==generation)return;
+    tab=id as PositionTab;tabs?.mark(tab);paint();shell.element('body').scrollTop=0;
+  }
   function status(text:string,className='side-panel-status'){const p=el('p',className,text);p.setAttribute('role','status');return p;}
   function drawHead(at:PositionInput,now:PositionSummary){
     shell.element('head').classList.toggle('schedule-header',tab==='schedules');
@@ -236,13 +245,6 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     host.append(facts);
   }
   // Terms and History are lists of titled sections of label and value rows, which fit the panel's width.
-  function drawSections(host:HTMLElement,sections:readonly TermSection[]){
-    for(const section of sections){
-      const list=el('dl','side-terms-list');
-      for(const [label,value] of section.rows){const row=el('div','side-term');row.append(el('dt',undefined,label),el('dd',undefined,value));list.append(row);}
-      const wrap=el('section','side-panel-section');wrap.append(el('h3',undefined,section.title),list);host.append(wrap);
-    }
-  }
   function drawDetail(host:HTMLElement,at:PositionInput){
     if(detail?.key!==key(at))void load();
     if(!detail||detail.state==='loading')return void host.append(status('Loading…'));
@@ -251,6 +253,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
       return void host.append(status(detail.message,'side-panel-status side-panel-error'),retry);
     }
     const read=detail.read.view(o.zone());
+    const primary=shell.element('tabs').querySelector<HTMLButtonElement>('[id$="-terms"]');if(primary)primary.textContent=read.termsLabel??'Terms';
     if(tab==='terms'&&read.actions?.length){
       const row=el('div','side-panel-actions side-panel-terms-actions');
       for(const action of read.actions){const button=el('button','secondary',action.label);button.type='button';button.id=action.id;button.disabled=o.busy();button.onclick=()=>action.run();row.append(button);}
@@ -259,7 +262,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     if(tab==='schedules'){
       if(read.schedules){const schedules=el('div','position-side-schedules');host.append(schedules);drawnSchedules=read.schedules(schedules);drawnTab=tab;}
       else host.append(status('No side schedule view is available for this instrument.'));
-    }else{drawSections(host,tab==='terms'?read.terms:read.history);if(tab==='terms'&&read.termsContent){drawnSchedules=read.termsContent(host);drawnTab=tab;}}
+    }else{renderPhysicalSections(host,tab==='terms'?read.terms:read.history);if(tab==='terms'&&read.termsContent){drawnSchedules=read.termsContent(host);drawnTab=tab;}}
   }
   function drawBody(at:PositionInput,now:PositionSummary){
     const host=view();
@@ -335,6 +338,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     return done;
   }
   function sync(){
+    if(detail?.state==='ready')detail.read.sync?.();
     if(!input||!actions)return;
     const at=input,editing=o.amendment.shown(at.holding);
     // The amendment opened or closed, by the panel's own button or by the page: Terms shows its form, or its read view again.
@@ -364,7 +368,7 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
       const available=o.tabs?positionTabs.filter(([id])=>o.tabs!.includes(id)):positionTabs,start=requested??tab;
       if(!available.some(([id])=>id===start))throw Error('Choose an available position tab.');
       input=next;tab=start;detail=undefined;held=undefined;generation++;
-      tabs=setupTabs(shell.element('tabs'),available,{label:'Position details',panel:shell.element('body'),selected:start,select:id=>{tab=id as PositionTab;paint();shell.element('body').scrollTop=0;}});
+      tabs=setupTabs(shell.element('tabs'),available,{label:'Position details',panel:shell.element('body'),selected:start,select:id=>void selectTab(id)});
       paint();
     },
     /** Whether the revision of this position the panel has read can be amended, once read; nothing for another position or before. */
@@ -387,6 +391,8 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     },
     sync,
     block(value:boolean){if(value)held=focused()??held;view().inert=value;if(!value)refocus();},
+    /** Only edits enter the leave guard; transient reads do not. */
+    unsaved:()=>detail?.state==='ready'&&!!detail.read.unsaved?.(),
     /** Keep a rendered operational edit or unresolved write in place. */
     updatesBlocked:()=>detail?.state==='ready'&&!!detail.read.updatesBlocked?.(),
   };

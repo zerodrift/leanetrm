@@ -55,7 +55,13 @@ internal static class AssistantOperations
         Add("facility_quantities","ReadMarketData|ReadTrades|ReadFacilityQuantities|RecordFacilityQuantities",false,"facilities/quantities/preview");
         // The native record handler also checks command-specific limit/adoption capabilities.
         Add("facility_quantities","ReadMarketData|ReadTrades|ReadFacilityQuantities",true,"facilities/quantities/status","facilities/quantities/record");
-        Add("blotter","ReadMarketData|ReadTrades",false,"gas/quantities/read gas/quantities/history");
+        Add("physical_operations","ReadMarketData|ReadTrades",false,"physical/operations/directory");
+        Add("blotter","ReadGasOperations|ReadMarketData|ReadTrades",false,"gas/operations/read gas/operations/preview");
+        Add("blotter","ReadGasOperations|ReadMarketData|ReadTrades",true,"gas/operations/status");
+        Add("blotter","ConfigureGasServices|ReadGasOperations|ReadMarketData|ReadTrades",true,"","gas/operations/configure");
+        Add("blotter","RecordGasOperations|AmendTrade|ReadGasOperations|ReadMarketData|ReadTrades",true,"","gas/operations/record");
+        Add("blotter","ReadMarketData|ReadTrades",false,"gas/quantities/read gas/quantities/history gas/billing/read gas/billing/preview");
+        Add("blotter","AmendTrade|ReadMarketData|ReadTrades",true,"gas/billing/status","gas/billing/determine");
         Add("blotter","AmendTrade|ReadMarketData|ReadTrades",true,"gas/quantities/status","gas/quantities/record");
         Add("schedules","ReadMarketData",false,"!schedules !date-schedules date-schedules/preview date-schedules/resolve date-schedules/catalog date-schedules/contracts/preview date-schedules/contracts/resolve schedules/observation-contracts schedules/preview schedules/dates/preview schedules/expression schedules/contracts/preview");
         Add("schedules","WriteMarketDefinitions",true,"","date-schedules/save date-schedules/contracts/save");
@@ -105,6 +111,7 @@ internal static class AssistantOperations
     {
         ImmutableHashSet<string> shared=page switch
         {
+            "physical_operations"=>["physical/operations/directory",..Catalog.Where(o=>o.Path.StartsWith("gas/operations/",StringComparison.Ordinal)||o.Path.StartsWith("gas/billing/",StringComparison.Ordinal)||o.Path.StartsWith("gas/quantities/",StringComparison.Ordinal)||o.Path.StartsWith("crude/operations/",StringComparison.Ordinal)).Select(o=>o.Path)],
             "blotter_new_trade"=>["futures/catalog","swaps/catalog"],
             "blotter_new_future"=>["futures/catalog","futures/book"],
             "blotter_new_swap"=>["swaps/catalog","swaps/quantity-schedule","swaps/scheduled-periods","swaps/contract-observation-preview","swaps/observation-options","swaps/book"],
@@ -155,7 +162,12 @@ internal static class AssistantOperations
             return new JsonObject{["type"]="array",["items"]=Describe(type.GetGenericArguments()[0],path)};
         var properties=new JsonObject();
         foreach(var property in type.GetProperties().Where(p=>p.GetMethod is not null&&p.GetCustomAttribute<JsonIgnoreAttribute>() is not {Condition:JsonIgnoreCondition.Always}))
-            properties[JsonNamingPolicy.CamelCase.ConvertName(property.Name)]=Describe(property.PropertyType,path.Add(type));
+        {
+            if(type==typeof(GasOperationPreviewRequest)&&property.Name==nameof(GasOperationPreviewRequest.Details)){
+                var variants=new JsonObject();foreach(var entry in GasDeliveryOperationsStore.DetailTypes)variants[entry.Key]=Describe(entry.Value,path.Add(type));
+                properties["details"]=new JsonObject{["type"]="object",["discriminator"]="kind",["contracts"]=variants};
+            }else properties[JsonNamingPolicy.CamelCase.ConvertName(property.Name)]=Describe(property.PropertyType,path.Add(type));
+        }
         return new JsonObject{["type"]="object",["properties"]=properties,["contract"]=type.Name};
     }
 }

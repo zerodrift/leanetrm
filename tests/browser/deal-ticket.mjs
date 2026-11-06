@@ -1,7 +1,7 @@
 // The deal ticket (docs/deal-ticket.md) enters a physical gas trade from New trade: live previews of the whole draft, lookups that say
 // where their values came from, refusals that keep the last schedule, a booking whose response is lost reconciled after a reload, and the
-// booked trade opened read-only in the Blotter's Details pane and in the trade's own window, a day's quantity recorded in its physical side's
-// tab, whose lost response is checked once, the coming-soon items drawn and never sent, and the quantity links of a linked side.
+// booked trade opened with read-only Side schedules in the Blotter and in its own window, the coming-soon items drawn and never sent,
+// and the quantity links of a linked side. Native daily work and request recovery are checked in the Operations scenarios.
 import {newTrade} from './new-trade.mjs';
 import {sideSession,correctSyntheticBase} from './side-session.mjs';
 import {blotterAt,bookedTicket as booked,decemberClose,gasTicket,openBookedSchedules,q} from './gas-ticket.mjs';
@@ -105,7 +105,7 @@ export async function run(actions){
  await openBookedSchedules(actions);
  await until(`!!document.querySelector(${q(booked)})&&`+current(booked),`({error:document.querySelector('#error').textContent,booking:document.querySelector('#gas-ticket .ticket-booking')?.textContent,details:document.querySelector('#position-details').textContent.slice(0,300)})`);
  await check('the booked trade opens read-only in the Details pane with the schedule it was previewed with',
-  `${month(booked)}===${q(previewed)}&&document.querySelectorAll(${q(booked+' .ticket-card')}).length===3&&!document.querySelector(${q(booked+' .ticket-control:not([disabled])')})&&!document.querySelector(${q(booked+' .ticket-book')})`,
+  `${month(booked)}===${q(previewed)}&&document.querySelectorAll(${q(booked+' .ticket-card')}).length===0&&!document.querySelector(${q(booked+' .ticket-control:not([disabled])')})&&!document.querySelector(${q(booked+' .ticket-book')})`,
   `({booked:${month(booked)},previewed:${q(previewed)}})`);
  // The row's own window opens the same read-only ticket.
  const reference=await evaluate("document.querySelector('#details-title').textContent.split(' · ')[0]"),rows="[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length)";
@@ -124,68 +124,9 @@ export async function run(actions){
   await own.wait(`!!document.querySelector(${q(windowTicket+' .tabulator-row[data-row-key="2021-01"]')})`,30000);
   await check('the trade\'s own window opens the same read-only ticket',`${q(await own.evaluate(month(windowTicket)))}===${q(previewed)}`);
  }finally{await own.close();}
- const stacked=`(()=>{const cards=[...document.querySelectorAll(${q(booked+' .ticket-card')})].map(c=>c.getBoundingClientRect());return cards.length===3&&new Set(cards.map(c=>Math.round(c.left))).size===1&&cards[0].bottom<=cards[1].top;})()`;
- await check('a wide Details pane draws the cards side by side',`!${stacked}`);
- await command('Emulation.setDeviceMetricsOverride',{width:700,height:1000,deviceScaleFactor:1,mobile:false});
- await wait(stacked);await check('narrowing the Details pane stacks the cards',stacked);
- await command('Emulation.clearDeviceMetricsOverride');
-
- // A booked physical side's day quantities are entered in its tab and recorded as daily quantity revisions; the ticket then reads the trade
- // again, and only that day and its month change.
- // A row's text, with the quantities its entries show: an entry opens empty, its drawn quantity its placeholder.
- const row=(key,root=booked)=>`(()=>{const r=document.querySelector(${q(root+' .tabulator-row[data-row-key="'+key+'"]')});return r?r.textContent+[...r.querySelectorAll('input')].map(i=>' '+(i.value||i.placeholder)).join(''):'';})()`;
- await set(`${booked} .ticket-level`,'day');
- await wait(`!!document.querySelector(${q(booked+' .tabulator-row[data-row-key="2021-01-05"]')})`);
- await check('the Instrument tab takes no entries',`!document.querySelector(${q(booked+' .ticket-cell-input')})`);
- await click(`${booked} .ticket-tab[data-tab="physical-1"]`);
- const cell=`${booked} .tabulator-row[data-row-key="2021-01-05"] .ticket-cell-input`;
- await wait(`!!document.querySelector(${q(cell)})`);
- await check('only the physical side\'s day quantities are entries',`document.querySelectorAll(${q(booked+' .tabulator-row[data-row-key="2021-01"] .ticket-cell-input')}).length===0&&document.querySelectorAll(${q(booked+' .tabulator-row[data-row-key="2021-01-05"] .ticket-cell-input')}).length===1`);
- const before={day:await evaluate(row('2021-01-04')),month:await evaluate(row('2021-01'))};
- // A user can start a daily edit after an automatic valuation has already begun.
- await evaluate("{const send=window.fetch;window.__holdAutomaticValues=true;window.fetch=async(input,init)=>{const response=await send(input,init);if(String(input)==='/api/trading/workspace'&&window.__holdAutomaticValues){window.__holdAutomaticValues=false;await new Promise(resolve=>window.__releaseAutomaticValues=resolve);}if(String(input)==='/api/gas/quantities/read'&&window.__holdQuantityRead){window.__holdQuantityRead=false;await new Promise(resolve=>window.__releaseQuantityRead=resolve);}if(String(input)==='/api/trading/gas'&&window.__holdGasDetail){window.__holdGasDetail=false;await new Promise(resolve=>window.__releaseGasDetail=resolve);}return response;};}");
- const publisher=await sideSession(url,'editor');await correctSyntheticBase(publisher,'3.491');await wait("typeof window.__releaseAutomaticValues==='function'",30000);
- await set(cell,'9000');
- const record=`${booked} .ticket-record`;
- await wait(`!!document.querySelector(${q(record)})`);
- for(const [id,value] of [['kind','nominated'],['status','provisional'],['evidence','Synthetic nomination']])await set(`${record} [data-field="${id}"] .ticket-control`,value);
- await evaluate(`window.__heldTicket=document.querySelector(${q(booked)}).parentElement;window.__releaseAutomaticValues()`);await wait(idle);await evaluate('new Promise(resolve=>setTimeout(resolve,350))');
- await check('an edit started during automatic valuation keeps its original ticket and entered quantity',`document.querySelector(${q(booked)}).parentElement===window.__heldTicket&&document.querySelector(${q(record+' [data-field="quantity"] .ticket-control')}).value==='9000'&&document.querySelector('#error').hidden`);
- await evaluate('window.__holdQuantityRead=true');
- await click(`${record} .ticket-record-send`);
- await wait("typeof window.__releaseQuantityRead==='function'");await correctSyntheticBase(publisher,'3.492');await evaluate('new Promise(resolve=>setTimeout(resolve,350))');
- await check('a pending native daily-record preparation survives a server publication',`document.querySelector(${q(booked)}).parentElement===window.__heldTicket&&!!document.querySelector(${q(record+' .ticket-record-send[disabled]')})`);
- await evaluate('window.__releaseQuantityRead()');
- await until(`${row('2021-01-05')}.includes('-9,000')&&!document.querySelector(${q(record)})`,`({record:document.querySelector(${q(record)})?.textContent,day:${row('2021-01-05')},status:${status(booked)}?.textContent})`);
- await check('a recorded day quantity changes that day and its month only, after the trade is read again',
-  `${row('2021-01-05')}.includes('Nominated')&&${row('2021-01')}.includes('-309,000')&&${row('2021-01-04')}===${q(before.day)}&&
-   [...document.querySelectorAll(${q(booked+' .tabulator-row .grid-changed')})].map(m=>m.closest('.tabulator-row').dataset.rowKey).every(k=>k==='2021-01-05'||k==='2021-01')&&
-   !!document.querySelector(${q(booked+' .tabulator-row[data-row-key="2021-01-05"] .grid-changed')})`,`({day:${row('2021-01-05')},month:${row('2021-01')},before:${q(before)}})`);
-  // The tab's columns are Period, Quantity, Market price and Amount: the recorded day's amount is still the contract's, and its source says so.
- const sources=(key,column)=>`[...document.querySelectorAll(${q(booked+' .tabulator-row[data-row-key="'+key+'"] .tabulator-cell[tabulator-field="'+column+'"] .grid-source')})].map(t=>t.textContent)`;
- await check('the recorded day\'s amount is tagged as the contract\'s while its quantity is tagged as recorded',
-  `${sources('2021-01-05','c3')}.includes('Contract')&&${sources('2021-01-05','c1')}.join()==='Nominated'`,`({amount:${sources('2021-01-05','c3')},quantity:${sources('2021-01-05','c1')}})`);
-
- await evaluate('window.__holdGasDetail=true');await correctSyntheticBase(publisher,'3.493');await wait("typeof window.__releaseGasDetail==='function'",30000);
- await check('the final detail refresh blocks new actions in the widget it is replacing',"document.querySelector('#position-details-view').inert");
- await evaluate('window.__releaseGasDetail()');await wait(idle);await wait("!document.querySelector('#position-details-view').inert&&!!document.querySelector("+q(booked+' .ticket-level')+")");
+ await check('booked side schedules fit the viewport and expose no instrument editor',`document.documentElement.scrollWidth<=innerWidth&&!document.querySelector(${q(booked+' .ticket-card')})`);
  await set(`${booked} .ticket-level`,'day');await click(`${booked} .ticket-tab[data-tab="physical-1"]`);
-
- // A day record whose response is lost keeps its command, offers only Check and Retry, and Check finds the one record it made.
- await evaluate(`{const original=window.recordFetch=window.fetch;window.recordRequests=0;window.fetch=async(...args)=>{const response=await original(...args);
-  if(String(args[0]).endsWith('/gas/quantities/record')){recordRequests++;if(response.ok)throw new TypeError('Synthetic lost record response');}return response;};}`);
- const later=`${booked} .tabulator-row[data-row-key="2021-01-06"] .ticket-cell-input`;
- await set(later,'8000');await wait(`!!document.querySelector(${q(record)})`);
- for(const [id,value] of [['kind','nominated'],['status','provisional'],['evidence','Synthetic nomination']])await set(`${record} [data-field="${id}"] .ticket-control`,value);
- await click(`${record} .ticket-record-send`);
- // While the record is being sent its Check and Retry are drawn disabled; they are offered once the response is lost.
- await until(`!!document.querySelector(${q(record+' .ticket-record-check:not([disabled])')})`,`document.querySelector(${q(record)})?.textContent`);
- await check('a day record whose response is lost keeps its command and offers only Check and Retry',
-  `!document.querySelector(${q(record+' .ticket-record-send')})&&!!document.querySelector(${q(record+' .ticket-record-retry')})&&document.querySelector(${q(record+' [data-field="quantity"] .ticket-control')}).disabled`);
- await click(`${record} .ticket-record-check`);
- await until(`${row('2021-01-06')}.includes('-8,000')&&!document.querySelector(${q(record)})`,`({record:document.querySelector(${q(record)})?.textContent,day:${row('2021-01-06')}})`);
- await check('checking the lost record finds the one record it made',`recordRequests===1&&${row('2021-01-06')}.includes('Nominated')`);
- await evaluate('window.fetch=window.recordFetch');
+ await check('physical schedule inspection is read-only; daily work belongs to Operations',`!document.querySelector(${q(booked+' .ticket-cell-input')})&&!document.querySelector(${q(booked+' .ticket-record')})&&!document.querySelector('.gas-operations')`);
 
  // A linked side's receipt, delivery and fuel are drawn in the Quantity links tab exactly as the preview returned them.
  await newTrade(actions,'gas');

@@ -41,11 +41,17 @@ internal sealed partial class RetainedScheduleStore
         if(result.Count==0)throw new MarketDataException("side_schedule_missing","The booked instrument has no executable schedules and must be rebooked.");
         // Deserialization can outlast a source grant's expiry. Recheck the same
         // membership/source authority after consuming the protected byte columns.
+        await RequireProgramAuthority(connection,instrument,context,asOf,result.Count,cancellation);
+        cancellation.ThrowIfCancellationRequested();return result.ToImmutable();
+    }
+    // Consumers that await further protected labels/inputs recheck the same exact
+    // booked closure after those waits, before publishing their projection.
+    internal async Task RequireProgramAuthority(NpgsqlConnection connection,Guid instrument,Guid? context,DateTimeOffset? asOf,int count,CancellationToken cancellation)
+    {
         await using var authority=ScheduleStore.Command(connection,
             "SELECT count(*) FROM security.read_instrument_side_schedule_headers($1,$2,$3,$4)",Catalog,instrument,
             (object?)context??DBNull.Value,(object?)asOf??DBNull.Value);
-        if((long)(await authority.ExecuteScalarAsync(cancellation))! !=result.Count)
+        if((long)(await authority.ExecuteScalarAsync(cancellation))! !=count)
             throw Error("The executable membership set changed during its authorized read.");
-        cancellation.ThrowIfCancellationRequested();return result.ToImmutable();
     }
 }

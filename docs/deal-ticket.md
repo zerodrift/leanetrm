@@ -552,26 +552,18 @@ operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
   sources are the evaluated contract's (`contract` with its price's), so on a
   recorded day the grid tags the quantity with the record's kind and the amount
   as Contract, and quantity times price need not equal the amount.
-- A side column's `input` lists the modes in which its day cells are entries.
-  Gas declares the physical `quantity` column an entry in booked mode: in a
-  booked physical side's tab of a trade whose `actions.record` is allowed, each
-  day quantity is an input. An input opens empty, the drawn quantity its
-  placeholder, since the record takes a plain unsigned decimal. Changing one
-  opens a record form for that day, whose kind, status and evidence the person
-  chooses (none is chosen for them). Record reads `gas/quantities/read` for the
-  trade revision and the day's previous record of that kind, and sends
-  `gas/quantities/record` with its own operation id, kept until its outcome is
-  known: an unknown outcome offers Check (`gas/quantities/status`) and Retry of
-  the same command. The backend refuses what it does not admit, such as a
-  negative quantity or a historical context. Once recorded the ticket reads the
-  trade again and draws its schedule; the cells that moved are marked.
+- The native ticket contract may describe day-entry capabilities, but Blotter
+  and separate trade windows mount booked tickets read-only. Side schedules
+  contains schedule inspection only. Daily quantity entry, current source-head
+  review and retained-command recovery belong in **Operations → Physical
+  operations → Gas workflow**. The native `gas/quantities` operations retain
+  their explicit revision, kind, status, evidence and historical-write checks.
 - The preview and the booked read return `links`: for each linked physical
   side its source, target, formula, fraction and the receipt, delivery and fuel
   totals as exact text. The Quantity links tab draws them.
 - The controller draws the ticket again only when what it shows has changed, so
   an answer that changes nothing keeps the person's place in the schedule.
-  Late labels for booked fields update in place, preserving a daily quantity
-  input's value and focus. The read-only Quantity links grid still redraws when
+  Late labels for editable fields update in place, preserving their value and focus. The read-only Quantity links grid still redraws when
   its formula labels change.
   The page's busy sweep, which disables and re-enables every control, leaves the
   ticket's controls as the ticket drew them (`data-own-controls`), so a read-only,
@@ -683,8 +675,8 @@ not production activation.
 ## Facility allocation plan on a booked physical Side
 
 A booked gas Side with a [facility allocation](facility-quantity-ledger.md) shows a
-read-only delivery-day track in its details. The trade inspector shows the same
-track independently when post-delivery contractual PV is unavailable. It projects the Side's own planned
+read-only delivery-day track in Physical operations → Gas workflow → After flow,
+including when post-delivery contractual PV is unavailable. It projects the Side's own planned
 quantity and unit from the shared facility ledger, with explicit removal/null
 state. It does not expose shared pool totals, residuals, other counterparties or
 source/plan head identifiers. Changing another target's allocation alone does not

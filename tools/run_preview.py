@@ -37,6 +37,9 @@ def main():
     parser.add_argument('--gas-basis-demo-check',action='store_true',help='Qualify the complete synthetic gas basis and final allocation example')
     parser.add_argument('--with-gas-quantity-dates',action='store_true',help='Include synthetic January working frames for daily gas quantity exploration')
     parser.add_argument('--gas-quantity-benchmark',action='store_true',help='Measure owned daily gas quantity grids with authorized revision history')
+    parser.add_argument('--with-gas-operations-demo',action='store_true',help='Seed the synthetic basis example plus manual scheduling and imbalance records')
+    parser.add_argument('--gas-operations-check',action='store_true',help='Qualify manual gas requests, acknowledgments and imbalance transfers')
+    parser.add_argument('--gas-billing-check',action='store_true',help='Qualify final daily gas cash and retained corrections')
     parser.add_argument('--gas-daily-quantity-check',action='store_true',help='Qualify daily trade-owned quantities, temporal selection and corrections')
     parser.add_argument('--facility-quantity-check',action='store_true',help='Qualify shared facility quantity storage and explicit gas allocations')
     parser.add_argument('--gas-composition-check',action='store_true',help='Qualify multiple gas sides and explicit quantity links')
@@ -138,6 +141,8 @@ def main():
         args.demo_instruments_check=True;args.physical_gas_check=True
     if args.crude_lifecycle_check or args.crude_setup_check: args.physical_crude_check=True
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
+    if args.with_gas_operations_demo: args.with_gas_basis_demo=True
+    if args.gas_billing_check or args.gas_operations_check: args.physical_gas_check=True
     if args.gas_setup_check or args.gas_composition_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.facility_quantity_check: args.physical_gas_check=True
     if args.demo_instruments_check: args.check=True
     if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check or args.lng_cargo_check: args.check=True
@@ -145,7 +150,7 @@ def main():
     gas_demo=args.with_gas_basis_demo or args.gas_basis_demo_check or args.physical_assistant_check
     if gas_demo and (args.example!='standard' or any(name.endswith('_check') and value and name not in ('gas_basis_demo_check','physical_assistant_check','browser_check') for name,value in vars(args).items()) or args.check and not (args.gas_basis_demo_check or args.physical_assistant_check) or args.with_ppa or args.with_exchange or args.with_custom_curves):
         parser.error('Run the gas basis demo separately in the standard fixture; use --gas-basis-demo-check for verification')
-    fixing_frames=gas_demo or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    fixing_frames=args.gas_operations_check or gas_demo or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_daily_quantity_check or args.gas_billing_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
     if args.interval_series_benchmark or args.usage_benchmark or args.blotter_stream_benchmark:
@@ -646,6 +651,11 @@ def main():
             from seed_gas_basis_demo import seed as seed_gas_demo
             gas_demo_fixture=seed_gas_demo(url,run_id,temporary)
             print('Loaded synthetic gas benchmark, basis and history plus three gas trades and a facility allocation plan.',flush=True)
+        if args.with_gas_operations_demo and not args.check:
+            from check_gas_operations import run_checks as seed_gas_operations
+            operations_demo=seed_gas_operations(url,query,manifest)
+            (temporary/'gas-operations-target.json').write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':operations_demo}))
+            print('Loaded synthetic manual service, nomination and imbalance history: '+operations_demo['tradeId'],flush=True)
         if args.with_exchange and not args.check:
             from seed_exchange_positions import seed_positions as seed_exchange
             seed_exchange(url,run_id,temporary)
@@ -745,6 +755,12 @@ def main():
                     if args.gas_quantity_benchmark:
                         from benchmark_gas_quantities import run as benchmark_gas_quantities
                         benchmark_gas_quantities(url,query,manifest,child.pid)
+                if args.gas_operations_check:
+                    from check_gas_operations import run_checks as check_gas_operations
+                    gas_operations_fixture=check_gas_operations(url,query,manifest)
+                if args.gas_billing_check:
+                    from check_gas_billing import run_checks as check_gas_billing
+                    gas_billing_fixture=check_gas_billing(url,query,manifest)
                 if args.gas_composition_check:
                     from check_gas_composition import run_checks as check_gas_composition
                     check_gas_composition(url,query,manifest,run_worker=risk_worker_runner())
@@ -753,7 +769,11 @@ def main():
                     check_deal_ticket(url,query,manifest)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
-                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,**({'facility':facility_fixture} if args.facility_quantity_check else {})}))
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,**({'facility':gas_operations_fixture} if args.gas_operations_check else {'facility':gas_billing_fixture} if args.gas_billing_check else {'facility':facility_fixture} if args.facility_quantity_check else {})}))
+                    if args.gas_operations_check:
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-operations'],cwd=ROOT,env=env,check=True,timeout=180)
+                    if args.gas_billing_check:
+                        subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-billing'],cwd=ROOT,env=env,check=True,timeout=180)
                     if args.facility_quantity_check:
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--facility-quantities'],cwd=ROOT,env=env,check=True,timeout=300)
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--physical-gas'],cwd=ROOT,env=env,check=True,timeout=180)

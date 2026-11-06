@@ -119,7 +119,7 @@ public sealed partial class SwapStore
             .Where(d=>d.Id("occurrence_id")==existing.Id("id")).OrderBy(d=>d.GetProperty("ordinal").GetInt32()).LastOrDefault();
         var previousId=previous.ValueKind==JsonValueKind.Undefined?(Guid?)null:previous.Id("id");
         var previousTotal=previousId is null?new Money(default,calculation.Amount.Currency):ExactMoney.Parse(previous.Text("rounded_total"),calculation.Amount.Currency).ToMoney();
-        var contribution=SettlementDetermination.RestatedContribution(calculation.Amount,previousId is null?null:previousTotal);
+        var contribution=CashRestatement.Contribution(calculation.Amount,previousId is null?null:previousTotal);
         return new(calculation, state, frame.ContextId ?? throw Error("settlement_context", "Retain the certified calculation context."),
             contractHash, inputHash, SettlementHash(new { contractHash, inputHash, frame.Id,frame.At,calculation.Snapshot.Definitions,calculation.Occurrence,
                 request.ExpectedRevision,previousId,settlementVersion=state.GetProperty("version").GetInt32() }),completion,

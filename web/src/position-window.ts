@@ -18,7 +18,7 @@ const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementByI
 const error=get('position-window-error'),detail=get('position-window-detail'),retry=get<HTMLButtonElement>('position-window-retry');
 type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 // The window reads its trade; of writes it records only an option holding's lifecycle events, through their own authorized operations.
-const operations=new Set(['bootstrap?includeFrames=false&includeAccess=true','options/holding','options/exercise','options/assignment','options/instruction','tickets/description','tickets/trade','tickets/choices','trading/crude','trading/lng','trading/gas','trading/position','futures/editor','swaps/editor','swaps/quantity-schedule','trade-formats/read','ppa/editor','ppa/preview','ppa/inspect','amounts/display']);
+const operations=new Set(['bootstrap?includeFrames=false&includeAccess=true','options/holding','options/exercise','options/assignment','options/instruction','tickets/description','tickets/trade','tickets/choices','trading/crude','trading/lng','trading/gas','gas/quantities/read','trading/position','futures/editor','swaps/editor','swaps/quantity-schedule','trade-formats/read','ppa/editor','ppa/preview','ppa/inspect','amounts/display']);
 let controller:AbortController|undefined,generation=0,loading=false,selection:PositionWindowSelection|undefined,reader:Api,readerActor='';
 const panel=setupPositionPanel({element:name=>get('position-window-'+name),form:on=>{if(on)throw Error('This trade window is read only.');},reveal(){},focusForm(){}},
  {zone:()=>selection!.zone,busy:()=>loading,canAmend:()=>false,tabs:['terms','schedules','history'],curveListed:()=>false,context:()=>JSON.stringify(selection),

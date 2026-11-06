@@ -17,7 +17,10 @@ static class RuntimeSet
     // turns_v14 adds bounded workspace-page target handles for native entry navigation (D319).
     // turns_v15 restores identity-only report admission for every named browser page (D325).
     // turns_v16 adds native physical operations and explicit facility business-date pins (D327).
-    public const string Turns="turns_v16";
+    // turns_v17 adds reviewed daily gas commercial cash determinations (D329).
+    // turns_v18 adds explicit manual gas services, acknowledgments and paired transfers (D330).
+    // turns_v19 adds a physical operations workspace with native booking-fact discovery (D331).
+    public const string Turns="turns_v19";
     // A question, in characters, so an ask's body stays under 32 KB at four bytes each beside its page report of 8 KiB.
     public const int QuestionLength=4000;
     // The turns a workspace runs at once.

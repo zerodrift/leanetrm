@@ -57,6 +57,7 @@ internal static class LngCargoChecks
         var start = new DateTimeOffset(2041, 1, 4, 0, 0, 0, TimeSpan.Zero);
         var side = new PhysicalLngCargoSide(Guid.NewGuid(), assignment, R("test_load_terminal"), R("test_load_custody"),
             start, start.AddDays(1), start.AddDays(10), start.AddDays(11));
+        PhysicalDeliveryChecks.Contract(side.GenerateSchedule().Program, new(49000, 1), 1, "49000", start, start.AddDays(11));
         var snapshot = (fixture.Snapshot with { Selections = [..fixture.Snapshot.Selections.Select((s, n) => s with {
             Observation = s.Observation with { Value = ExactDecimal.Parse(n % 2 == 0 ? "11" : "0") } })] })
             .WithKnowledge(Guid.NewGuid(), fixture.Snapshot.ValuationAt);

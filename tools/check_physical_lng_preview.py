@@ -56,6 +56,8 @@ def run_checks(url, query, manifest):
     assert Decimal(loaded['valuation']['presentValue']) == 49000
     listed = next(row for row in client.call('lng/directory', context)['trades'] if row['tradeId'] == booked['tradeId'])
     assert listed['tradeReference'].startswith('TR-'), listed
+    from check_physical_operations import contract_delivery_checks
+    contract_delivery_checks(client,'trading/lng',dict(context={**context,'convention':'trading_workspace_v1'},tradeId=booked['tradeId'],bindingId=booked['instrumentId'],revision=1,instrumentType='physical_lng'),'49000',body['loadFrom'],body['dischargeTo'],'lng_actuals',query,manifest)
     historical = {**context, 'knowledgeMode':'retained', 'contextId':value['context']['contextId']}
     assert not any(row['tradeId'] == booked['tradeId'] for row in client.call('lng/directory', historical)['trades'])
     client.call('lng/editor', {'context':historical, 'tradeId':booked['tradeId']}, expected=422)

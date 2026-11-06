@@ -135,6 +135,8 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.MessageText is "job_input" or "job_transition" or "job_limit" => (422,p.MessageText,"Supply a supported job contract or an available action within its limits."),
     AntiforgeryValidationException => (400,"request_token","Reload the preview to obtain a valid request token."),
     MarketDataException m when m.Code is "shortcut_conflict" or "tou_conflict" or "table_view_conflict" or "dashboard_layout_conflict" or "dashboard_request_conflict" or "risk_definition_conflict" or "risk_definition_request_conflict" or "futures_revision_conflict" or "swap_revision_conflict" or "custom_curve_conflict" or "contract_date_conflict" => (409,m.Code,m.Message),
+    PostgresException p when p.MessageText.StartsWith("gas_operations_") => (p.MessageText.Contains("denied")?403:p.MessageText.Contains("conflict")||p.MessageText.Contains("stale")?409:422,p.MessageText,"The manual operation requires compatible current service terms, explicit evidence and the reviewed source heads. Refresh and review the operation."),
+    PostgresException p when apiPath.StartsWithSegments("/api/gas/operations") && p.SqlState is "23505" or "23514" or "23503" or "22P02" or "22003" or "22007" or "22008" or "P0002" => (422,"gas_operations_input","Supply the complete explicit manual operation with exact sources, canonical dates and evidence."),
     PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/custom-curves") => (409,"custom_curve_conflict","This curve or request changed. Reload or reconcile the original request."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="party_conflict" => (409,p.MessageText,"This party or request changed. Reload the latest revision or retry the original request."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "party_input" or "party_limit" => (422,p.MessageText,"Supply a stable code, name and an effective time at or after the preceding version. Party codes cannot change."),
@@ -149,8 +151,10 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("lng_",StringComparison.Ordinal) => (422,p.MessageText,"The LNG operation requires compatible exact physical, pricing, quantity and Incoterms terms. Preview the complete current terms again."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="crude_conflict" => (409,p.MessageText,"This crude operation already belongs to different terms or ownership."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("crude_",StringComparison.Ordinal) => (422,p.MessageText,"The crude operation requires complete compatible terms and retained schedules."),
-    PostgresException p when p.MessageText is "gas_conflict" or "gas_setup_conflict" or "gas_quantity_conflict" => (409,p.MessageText,"This operation already belongs to different terms or ownership."),
+    PostgresException p when p.MessageText is "gas_conflict" or "gas_setup_conflict" or "gas_quantity_conflict" or "gas_billing_conflict" => (409,p.MessageText,"This operation already belongs to different terms or ownership."),
+    PostgresException p when p.SqlState is "23505" or "23514" or "23503" or "22P02" or "22003" or "22007" or "22008" && apiPath.StartsWithSegments("/api/gas/billing") => (422,"gas_billing_input","Supply compatible exact source, cash terms and a new correction occurrence."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("gas_",StringComparison.Ordinal) => (422,p.MessageText,"The gas operation requires complete compatible terms and retained schedules."),
+    MarketDataException m when m.Code is "gas_billing_conflict" or "gas_billing_stale_preview" or "gas_operations_conflict" or "gas_operations_stale_preview" => (409,m.Code,m.Message),
     MarketDataException m => (422,m.Code,m.Message),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_denied" => (403,"access_denied","Current authority does not permit this risk job operation."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_conflict" => (409,p.MessageText,"This request identity already belongs to different risk inputs."),
@@ -1281,6 +1285,8 @@ async Task Rights(NpgsqlConnection connection,System.Text.Json.Nodes.JsonObject 
     json["canRunDealRisk"]=JsonSerializer.SerializeToNode(await PreviewDatabase.HasPermission(connection,"RunDealRisk",ct));
     json["canBook"]=JsonSerializer.SerializeToNode(working&&await PreviewDatabase.HasPermission(connection,"BookTrade",ct));
     if(!booking)return;
+    json["canConfigureGasServices"]=JsonSerializer.SerializeToNode(working&&await PreviewDatabase.HasPermission(connection,"ReadGasOperations",ct)&&await PreviewDatabase.HasPermission(connection,"ConfigureGasServices",ct));
+    json["canRecordGasOperations"]=JsonSerializer.SerializeToNode(working&&await PreviewDatabase.HasPermission(connection,"ReadGasOperations",ct)&&await PreviewDatabase.HasPermission(connection,"RecordGasOperations",ct)&&await PreviewDatabase.HasPermission(connection,"AmendTrade",ct));
     json["canAmendTrades"]=JsonSerializer.SerializeToNode(working&&await PreviewDatabase.HasPermission(connection,"AmendTrade",ct));
     json["bookingUnavailableReason"]=JsonSerializer.SerializeToNode(!working
         ?$"{selection.ReadOnlyLabel} is read-only. Return to working data, then select an As of date."
@@ -1445,6 +1451,29 @@ foreach(var operation in new[]{("receipt","receipt"),("allocation","allocation")
 var gasStore=new PhysicalGasStore(database);
 api.MapPost("/gas/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,
  (connection,data,frame,ct)=>gasStore.CatalogRead(connection,data,frame,ct),expectedConvention:PhysicalGasStore.Convention));
+var gasBilling=new GasCashBillingStore(database);
+api.MapPost("/gas/billing/read",(HttpContext c,GasBillingReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("gas_billing_context","Supply the selected billing context."),
+ (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>gasBilling.Read(connection,view.CalculationFrame,body,ct),ct),expectedConvention:PhysicalGasStore.Convention));
+api.MapPost("/gas/billing/preview",(HttpContext c,GasBillingPreviewRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("gas_billing_context","Supply the selected billing context."),
+ (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>gasBilling.Preview(connection,view.CalculationFrame,body,ct),ct),expectedConvention:PhysicalGasStore.Convention));
+api.MapPost("/gas/billing/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>Results.Ok(await gasBilling.Status(connection,body.OperationId,ct)),c.RequestAborted)));
+api.MapPost("/gas/billing/determine",(HttpContext c,GasBillingDetermineRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>{
+ if(!TradingReadSelection.IsWorking(session,GasCashBillingStore.RequirePreview(body).Context))throw new MarketDataException("historical_read_only","Return to working data before determining billing.");
+ return Results.Ok(await gasBilling.Determine(connection,Frame(session,body.Preview.Context.SnapshotId),body,ct));
+},c.RequestAborted)));
+var gasOperations=new GasDeliveryOperationsStore(database);
+api.MapPost("/gas/operations/read",(HttpContext c,GasOperationsReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("gas_operations_context","Supply the header context."),
+ (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>gasOperations.Read(connection,view.CalculationFrame,body,ct),ct),expectedConvention:PhysicalGasStore.Convention));
+api.MapPost("/gas/operations/preview",(HttpContext c,GasOperationPreviewRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("gas_operations_context","Supply the header context."),
+ (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>gasOperations.Preview(connection,view.CalculationFrame,body,ct),ct),expectedConvention:PhysicalGasStore.Convention));
+api.MapPost("/gas/operations/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadGasOperations",async(connection,ct)=>Results.Ok(await gasOperations.Status(connection,body.OperationId,ct)),c.RequestAborted)));
+foreach(var configureGasService in new[]{true,false}){
+ var configure=configureGasService;
+ api.MapPost(configure?"/gas/operations/configure":"/gas/operations/record",(HttpContext c,GasOperationCommand body)=>Locked(c,session=>database.WithIdentity(Profile(session),configure?"ConfigureGasServices":"RecordGasOperations",async(connection,ct)=>{
+  if(body.Preview?.Context is not {} selected||!TradingReadSelection.IsWorking(session,selected))throw new MarketDataException("historical_read_only","Return to working data before recording gas operations.");
+  return Results.Ok(await gasOperations.Record(connection,Frame(session,selected.SnapshotId),body,configure,ct));
+ },c.RequestAborted)));
+}
 var gasDaily=new GasDailyQuantities(database);
 var facilityQuantities=new FacilityQuantityStore(database);
 api.MapPost("/facilities/quantities/preview",(HttpContext c,FacilityPreviewRequest body)=>Locked(c,session=>
@@ -1524,6 +1553,9 @@ api.MapPost("/tickets/book",(HttpContext c,TicketBookRequest body)=>Locked(c,ses
  return BookGasComposition(c,session,TicketRequest(body.Draft,context,body.OperationId,PhysicalMarketSelection.Gas.Select(database.Manifest,Frame(session,context.SnapshotId)).Revision));
 }));
 
+api.MapPost("/physical/operations/directory",(HttpContext c,TradingPositionsRequest body)=>TradingRead(c,
+ body.Context??throw new MarketDataException("position_facts","Supply the selected header context."),
+ (connection,view,ct)=>tradeReads.PhysicalPositions(connection,view,body.BookIds,body.PortfolioIds,body.Offset,body.Limit,ct),expectedConvention:TradingBlotter.Convention));
 api.MapPost("/trading/positions",(HttpContext c,TradingPositionsRequest body)=>TradingRead(c,
  body.Context??throw new MarketDataException("position_facts","Supply the selected context."),
  (connection,view,ct)=>tradeReads.Positions(connection,view,body.BookIds,body.PortfolioIds,body.Offset,body.Limit,ct),

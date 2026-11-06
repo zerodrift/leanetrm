@@ -115,18 +115,29 @@ internal sealed class TradePositionFacts(PreviewManifest manifest)
             Add(row,"ppa",null,Utc(binding,"coverage_from"),Utc(binding,"coverage_to"),RequiredText(binding,"quantity"),RequiredText(header,"unit"));
         }
         await RequireReferences(connection,references,ct);
-        foreach(var gas in await GasPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
-            facts.Add((Integer(gas.Head,"trade_reference"),gas.Fact()));
-        foreach(var lng in await LngPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
-            facts.Add((Integer(lng.Head,"trade_reference"),lng.Fact()));
-        foreach(var crude in await CrudePositions.Read(connection,manifest,bookIds,portfolioIds,ct))
-            facts.Add((Integer(crude.Head,"trade_reference"),crude.Fact()));
+        facts.AddRange(await PhysicalFacts(connection,bookIds,portfolioIds,ct));
         foreach(var option in await FuturesOptionPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
             facts.AddRange(option.Facts().Select(fact=>(Integer(option.Head,"trade_reference"),fact)));
         await RequireHeads(connection,scopeBooks,ct);
         if(facts.GroupBy(p=>(p.Position.TradeId,p.Position.BindingId)).Any(g=>g.Count()!=1)||
             facts.GroupBy(p=>p.Position.TradeId).Any(g=>g.Select(p=>p.Position.InstrumentType).Distinct().Count()!=1))throw Missing();
         return Page(facts.ToImmutable(),offset,limit);
+    }
+    internal async Task<TradePositionsPage> Physical(NpgsqlConnection connection,ImmutableArray<Guid> books,ImmutableArray<Guid> portfolios,int offset,int limit,CancellationToken ct)
+    {
+        RequirePage(offset,limit);
+        return Page(await PhysicalFacts(connection,books,portfolios,ct),offset,limit);
+    }
+    private async Task<ImmutableArray<(int Reference,TradePositionFact Position)>> PhysicalFacts(NpgsqlConnection connection,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct)
+    {
+        var facts=ImmutableArray.CreateBuilder<(int Reference,TradePositionFact Position)>();
+        foreach(var gas in await GasPositions.ReadComplete(connection,manifest,bookIds,portfolioIds,ct))
+            facts.Add((Integer(gas.Head,"trade_reference"),gas.Fact()));
+        foreach(var lng in await LngPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
+            facts.Add((Integer(lng.Head,"trade_reference"),lng.Fact()));
+        foreach(var crude in await CrudePositions.Read(connection,manifest,bookIds,portfolioIds,ct))
+            facts.Add((Integer(crude.Head,"trade_reference"),crude.Fact()));
+        return facts.ToImmutable();
     }
     private async Task RequireHeads(NpgsqlConnection connection,Guid[] books,CancellationToken ct)
     {

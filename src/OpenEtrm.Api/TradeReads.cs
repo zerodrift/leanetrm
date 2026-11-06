@@ -62,6 +62,8 @@ public sealed partial class TradeReads
             await MarketBundle.RequireReferenceVisibility(connection,database.Manifest,ct);
             return directory;
         },ct);
+    public Task<object> PhysicalPositions(NpgsqlConnection connection,TradingView view,ImmutableArray<Guid> books,ImmutableArray<Guid> portfolios,int offset,int limit,CancellationToken ct)=>ReadBound(connection,view,
+        async()=>await new TradePositionFacts(database.Manifest).Physical(connection,books,portfolios,offset,limit,ct),ct);
     public Task<object> Positions(NpgsqlConnection connection,TradingView view,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,
         int offset,int limit,CancellationToken ct)=>ReadBound(connection,view,
             async()=>await new TradePositionFacts(database.Manifest).Read(connection,view,bookIds,portfolioIds,offset,limit,ct),ct);

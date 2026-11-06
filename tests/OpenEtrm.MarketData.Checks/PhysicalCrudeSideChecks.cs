@@ -49,6 +49,7 @@ internal static class PhysicalCrudeSideChecks
         Reject("side_schedule_program",()=>BookedSideProgram.Compile(wrongLifecycle));
         var bytes = BookedSideProgram.Compile(definition).Write();
         var loaded = BookedSideProgram.Read(bytes, new(BookedSideProgram.Digest(bytes), definition.Manifest, definition.Family, definition.EconomicIdentity, definition.PricingBindingIdentity));
+        PhysicalDeliveryChecks.Contract(loaded, new(1000, 1), 1, "1000", from, to);
         var sources = ScheduleMarketSources.ForPhysicalCrude(market, [assignment]);
         var replay = sources.Evaluate(loaded, physical.Id, market, discount);
         Equal(replay.PresentValue.Scale(thousand), "80000");

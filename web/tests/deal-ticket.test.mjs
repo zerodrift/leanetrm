@@ -201,3 +201,11 @@ test('a booked date-time shows through the page\'s instant formatter, never as i
  const row=all(host).find(n=>n.dataset.field==='pay_at'&&n.dataset.band);
  assert.equal(one(row,'ticket-value').textContent,'shown 2026-12-28T18:00:00Z');
 });
+
+test('the side-schedule presentation contains no instrument editor or operational entry controls',()=>{
+ const host=draw({mode:'booked',presentation:'schedules',actions:{amend:{allowed:false,reason:'Retained'},closeOut:{allowed:false,reason:'Retained'},record:{allowed:false,reason:'Read only'}}});
+ assert.equal(byClass(host,'ticket-schedule').length,1);
+ assert.equal(byClass(host,'ticket-card').length,0);
+ assert.equal(byClass(host,'ticket-strip').length,0);
+ assert.equal(byClass(host,'ticket-record').length,0);
+});

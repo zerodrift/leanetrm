@@ -25,20 +25,6 @@ test('invoice and partial payment retain explicit component, rounding and cash d
  const paid=crudePayment(base(),{invoiceId:'invoice',amount:'10.01',direction:'pay'});assert.equal(paid.amount,'10.01');assert.equal(paid.direction,'pay');
  assert.throws(()=>crudePayment(base(),{invoiceId:'invoice',amount:'10',direction:''}),/direction/);
 });
-test('accepted lifecycle refresh preserves receipt readback when contractual valuation refuses',async()=>{
- const {refreshAcceptedCrudeOperation}=await import('../dist/crude-operations-model.js');const events=[];
- const failure=Error('Delivery has started');
- const result=await refreshAcceptedCrudeOperation(async()=>{events.push('valuation');throw failure;},async()=>{events.push('ledger');});
- assert.equal(result,failure);assert.deepEqual(events,['valuation','ledger']);
- await assert.rejects(refreshAcceptedCrudeOperation(async()=>{},async()=>{throw Error('Ledger inaccessible');}),/Ledger inaccessible/);
-});
-test('facts-based lifecycle opens the exact position mode before mounting and revealing its form',async()=>{
- const {openCrudeOperationPanel}=await import('../dist/crude-operations-model.js');const events=[];
- const selected={tradeId:'trade',bindingId:'instrument',revision:2};
- await openCrudeOperationPanel(selected,async mode=>{events.push(mode);return true;},async()=>{events.push('mount');return true;},()=>true,()=>events.push('reveal'));
- assert.deepEqual(events,[{kind:'position',...selected},'mount','reveal']);
- let current=true;const stale=[];await openCrudeOperationPanel(selected,async()=>{current=false;return true;},async()=>{stale.push('mount');return true;},()=>current,()=>stale.push('reveal'));assert.deepEqual(stale,[]);
-});
 test('record corrections require explicit policy and native eligibility and never invent a refund cash leg',async()=>{
  const {crudeRecordCorrection}=await import('../dist/crude-operations-model.js');
  const payment={id:'payment',canReverse:true};

@@ -25,7 +25,9 @@ admits no fuel adjustment. The independent-side profile below admits explicit
 fixed-quantity fuel links. Floating cash, operational fuel treatment and broader
 captured clocks remain separately bounded capabilities.
 
-Physical settlement and inventory remain unsupported. The common Blotter includes both gas profiles through the native retained-schedule pricer, with a distinct contractual PV measure. One immutable gas instrument is one position binding; physical-side quantities are never summed into a receipt-plus-delivery total. Missing gas market context or started delivery produces an explicit unavailable valuation, while retained terms and daily operational quantities remain readable.
+D329 adds separate [final daily fixed cash determinations](gas-cash-billing.md).
+Physical completion/title, inventory, invoice issuance, payment allocation and
+settlement-aware portfolio valuation remain unsupported. The common Blotter includes both gas profiles through the native retained-schedule pricer, with a distinct contractual PV measure. One immutable gas instrument is one position binding; physical-side quantities are never summed into a receipt-plus-delivery total. Missing gas market context or started delivery produces an explicit unavailable valuation, while retained terms and daily operational quantities remain readable.
 
 New trade offers Future, Swap, PPA, Physical gas and Physical crude in the same panel. Physical gas opens the deal ticket, whose operations delegate to the composition's preview, booking, status and idempotent recovery operations; the other forms use their own. A confirmed booking refreshes the common Blotter and opens its exact position when uniquely identified. A booked composition's day quantities are recorded in its physical side's tab of the ticket. PPA lifecycle operations remain native and open in the same panel. Unknown booking outcomes block replacement requests and retain the actor-owned command across ticket remounts, including when supplementary browser storage fails.
 

@@ -1,5 +1,54 @@
 # Delivery plan and acceptance criteria
 
+D334 adds the [common physical delivery view](physical-delivery-view.md): explicit
+native intervals, exact membership/source references, quantity tracks and declared
+capabilities. Gas, crude and LNG reuse one grid over their native reads; commodity
+operations retain their own policies and authority. Dynamic quantity resolution
+and additional operational adapters remain separately qualified work.
+
+D333 replaces physical trade and delivery-day pickers with shared sortable,
+filterable grids. Exact binding/obligation/day identity, recorded source statuses
+and native quantity text remain authoritative; selection preserves context, edit
+and request-recovery guards. See [the operations grid contract](physical-workspace.md#trade-and-delivery-grids-d333).
+
+D332 refines the [physical operations layout](physical-workspace.md#focused-operations-layout-d332):
+compact instrument context, responsive saved-term cards, focused delivery stages
+and grouped billing inputs. Presentation reuses native operations and existing
+context, permission, edit and request-recovery guards.
+
+D331 moves physical work into **Operations → Physical operations**. The Blotter
+keeps pricing, retained instrument overviews and read-only Side schedules. The
+operations directory reads exact booked metadata without PV, refuses missing held
+source metadata and follows the header context. Gas and crude reuse their native
+workflows; gas billing has its own tab. Gas/crude/LNG overview presenters share a
+physical outline with commodity-specific saved conventions. LNG operational
+actuals and other unsupported commodity workflows remain explicitly TBD.
+Migration 0202 / assistant `turns_v19` add page admission and native discovery;
+financial contracts, permissions and persistence remain their existing owners.
+
+D330 adds [manual gas delivery operations](gas-delivery-operations.md): versioned
+service accounts, nomination/retro requests, separate external acknowledgments,
+reviewed schedule adoption, signed operator statements and paired imbalance
+agreements. The dedicated gas workflow groups before flow, scheduling,
+after flow and reconciliation. It reuses native daily quantities, facility
+allocations, gas billing and the Blotter's retained-command transport. Migration
+0201 and assistant `turns_v18` require separate release qualification. Live
+connectivity, portfolio imbalance positions and accounting posting remain outside
+this bounded consumer; new permissions require explicit grants.
+
+D329 adds [final daily gas cash determinations](gas-cash-billing.md): an explicit
+completed-day/fixed-delivery consumer with original and correcting contributions,
+exact accepted source links and reviewed native/agent operations. It reuses swap
+cash-restatement arithmetic while preserving crude's cumulative invoice contract.
+Migration 0200 and assistant `turns_v17` require separate release qualification;
+invoices, payments, accounting journals and contractual PV changes are excluded.
+
+D328 records the [accounting policy and standards-update boundary](accounting-policy-boundary.md).
+This is a design contract: exact reference/policy versions, separate posting
+periods and reviewed adoption. Its first proposed consumer is a synthetic gas
+billing correction; no journal engine, accounting policy or compliance claim is
+implemented by this record.
+
 D327 connects [native physical operations to the assistant](physical-workspace.md#physical-assistant-operations).
 Facility questions retain an explicit operating date and certified knowledge cutoff
 without inventing a pricing frame. Native authoring and quantity changes retain

@@ -250,7 +250,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var materializationWork=new ScenarioWork(0,0,0,0);var materializationScenarios=0;
         var evidence=ImmutableArray.CreateBuilder<PortfolioPositionEvidence>();
         var gas=await GasPortfolio.Prepare(connection,database,frame,
-            await GasPositions.ReadRisk(connection,database.Manifest,bookIds,ct,selection?.Ids),
+            await GasPositions.ReadComplete(connection,database.Manifest,bookIds,[],ct,selection?.Ids),
             [(data,frame),..supplemental.IsDefault?[]:supplemental],retainedGraphs is not null,ct);
         foreach(var market in gas)
         {

@@ -9,6 +9,8 @@ if(args is ["--crude-inventory-sales"]){CrudeInventorySalesChecks.Run();return;}
 if(args is ["--crude-receipt-cash"]){CrudeReceiptCashChecks.Run();return;}
 if(args is ["--physical-crude-side"]){PhysicalCrudeSideChecks.Run();return;}
 if(args is ["--lng-cargo"]){LngCargoChecks.Run();return;}
+if(args is ["--gas-delivery-operations"]){GasDeliveryOperationsChecks.Run();return;}
+if(args is ["--gas-cash-billing"]){GasCashBillingChecks.Run();return;}
 if(args is ["--gas-daily-quantities"]){GasDailyQuantityChecks.Run();return;}
 if(args is ["--physical-gas-quantities"]){PhysicalGasQuantityChecks.Run();return;}
 if(args is ["--physical-gas-side"]){PhysicalGasSideChecks.Run();return;}
@@ -527,6 +529,8 @@ passed += CommodityLookupChecks.Run();
 PhysicalGasQuantityChecks.Run();passed++;
 PhysicalGasSideChecks.Run();passed++;
 GasDailyQuantityChecks.Run();passed++;
+GasCashBillingChecks.Run();passed++;
+GasDeliveryOperationsChecks.Run();passed++;
 ScheduleViewChecks.Run();passed++;
 passed += SnapshotInputChecks.Run();
 passed += MonthlySwapChecks.Run();

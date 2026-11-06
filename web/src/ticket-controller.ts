@@ -12,7 +12,7 @@ type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 type Opened={tradeId:string;bindingId:string;revision:number};
 type NewEntry={booked:(receipt:{tradeId:string})=>void};
 // instant is the page's formatter for the instants the ticket shows.
-export type TicketOptions={api:Api;context:()=>Record<string,unknown>;product:string;instant:(at:string)=>string;zone:()=>string;actor:()=>string;readOnly?:boolean}&({opened:Opened}|({opened?:undefined}&NewEntry));
+export type TicketOptions={api:Api;context:()=>Record<string,unknown>;product:string;instant:(at:string)=>string;zone:()=>string;actor:()=>string;readOnly?:boolean;presentation?:'schedules'}&({opened:Opened}|({opened?:undefined}&NewEntry));
 export type TicketHandle={unsaved():boolean;pending():boolean;destroy():void};
 
 /** Edits settle this long before the draft is previewed and its lookups read. */
@@ -90,7 +90,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  function draw(){
   queued=false;
   if(!current()||!d||!state)return;
-  const shown:TicketView={state,mode,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,instant:o.instant,zone:o.zone(),previous:panel.previous,summaries:panel.summaries,links:panel.links,facilityAllocations,entry:entryView(),status:panel.status,
+  const shown:TicketView={state,mode,presentation:o.presentation,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,instant:o.instant,zone:o.zone(),previous:panel.previous,summaries:panel.summaries,links:panel.links,facilityAllocations,entry:entryView(),status:panel.status,
    fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on};
   // An answer that changes nothing on screen draws nothing again, so the person keeps their place in the ticket and its schedule.
   // The schedules are compared by the preview they came from; everything else by its content.
@@ -292,7 +292,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   // A trade that records day quantities names the selection its schedule shows, whether or not this reader may record one here.
   if(r.actions.record.allowed&&!(typeof r.quantityPolicy==='string'&&r.quantityPolicy))throw Error('A booked read that offers day entries must name the quantity selection its schedule shows.');
   state=ticketOf(d!,r.draft);actions=o.readOnly?{...r.actions,record:{allowed:false,reason:'This trade window is read only.'}}:r.actions;quantityPolicy=r.quantityPolicy??undefined;
-  facilityAllocations=r.facilityAllocations;panel=previewed(panel,{preview:r});
+  facilityAllocations=o.presentation?[]:r.facilityAllocations;panel=previewed(panel,{preview:r});
   if(panel.status.kind==='current')panel={...panel,status:{kind:'current',text:'Booked terms and their retained schedule.'}};
   draw();
  }

@@ -1,5 +1,32 @@
 # Current implementation record
 
+D331 moves physical work into **Operations → Physical operations**. The Blotter
+keeps pricing, retained instrument overviews and read-only Side schedules. The
+operations directory reads exact booked metadata without PV, refuses missing held
+source metadata and follows the header context. Gas and crude reuse their native
+workflows; gas billing has its own tab. Gas/crude/LNG overview presenters share a
+physical outline with commodity-specific saved conventions. LNG operational
+actuals and other unsupported commodity workflows remain explicitly TBD.
+Migration 0202 / assistant `turns_v19` add page admission and native discovery;
+financial contracts, permissions and persistence remain their existing owners.
+
+D330 adds [manual gas delivery operations](gas-delivery-operations.md): versioned
+service accounts, nomination/retro requests, separate external acknowledgments,
+reviewed schedule adoption, signed operator statements and paired imbalance
+agreements. The dedicated gas workflow groups before flow, scheduling,
+after flow and reconciliation. It reuses native daily quantities, facility
+allocations, gas billing and the Blotter's retained-command transport. Migration
+0201 and assistant `turns_v18` require separate release qualification. Live
+connectivity, portfolio imbalance positions and accounting posting remain outside
+this bounded consumer; new permissions require explicit grants.
+
+D329 adds [final daily gas cash determinations](gas-cash-billing.md): an explicit
+completed-day/fixed-delivery consumer with original and correcting contributions,
+exact accepted source links and reviewed native/agent operations. It reuses swap
+cash-restatement arithmetic while preserving crude's cumulative invoice contract.
+Migration 0200 and assistant `turns_v17` require separate release qualification;
+invoices, payments, accounting journals and contractual PV changes are excluded.
+
 Status: local synthetic preview. This is a bounded
 foundation with runnable market-data, trading and operational workflows. No
 existing application or production resource is used by its checks.
@@ -3221,3 +3248,14 @@ D321 implements the opt-in [gas basis demo](gas-basis-demo.md), including explic
 benchmark/basis data, dated history, immutable whole-plan final-input adoption,
 withdrawal and read-only own-trade projections. Migration 0197 is local schema
 work; hosted qualification and settlement integration remain separate.
+
+
+## Common physical delivery view (D334)
+
+The operations grid consumes a managed interval/track/capability contract from
+native gas, crude and LNG reads. Gas's day projection shares the retained literal
+quantity extractor with whole-window crude and LNG. Rows preserve exact booked
+scope, direction, unit/reference versions and schedule source addresses. Crude's
+existing operations remain separate; LNG actuals stay TBD. See
+[the adapter contract](physical-delivery-view.md) for extension responsibilities
+and the boundary around dynamic inputs and additional commodities.

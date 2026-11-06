@@ -40,6 +40,11 @@ def run_checks(url, run_id, root, query, manifest):
         assert Fraction(int(normalized['numerator']),int(normalized['denominator']))*100==int(amount)
         manual = c.call('gas/quantities/read', dict(context=quantity_context, tradeId=trade, selectionPolicy='operational_projection_v1'))
         assert manual['rows'][0]['selected'] == dict(numerator='80', denominator='1')
+    billing_preview=dict(context=quantity_context,tradeId=demo['trades'][0],expectedRevision=1,cashSlot=1,day='2021-01-01',selectionPolicy='final_facility_allocated_billing_v1',profile='gas_final_daily_fixed_cash_v1',decimalPlaces=2,roundingPolicy='currency_minor_units_to_even_v1')
+    billed=c.call('gas/billing/preview',billing_preview)
+    assert billed['amount']=='-180' and billed['contribution']=='-180'
+    billing_request=dict(preview=billing_preview,operationId=str(uuid4()),previewHash=billed['previewHash'],sourceId=billed['sourceId'],expectedPreviousId=None,correctionDueAt=None,reason=None,evidence='Synthetic accepted facility billing')
+    billing_original=c.call('gas/billing/determine',billing_request)
     repriced=c.call('gas/composition/editor',dict(context={**demo['bookingContext'],'snapshotId':frame},tradeId=demo['trades'][0]))
     assert repriced['valuation']['presentValue']==priced['valuation']['presentValue']
     # The normal history endpoint must expose the synthetic marks, not only a fixture table.
@@ -67,6 +72,11 @@ def run_checks(url, run_id, root, query, manifest):
     check_integrity(query,manifest,demo['ledgerId'],p2)
     a2=accept(p2,adopted['outcome']['adoptionId'])
     assert final(0)['rows'][0]['selected']==dict(numerator='55',denominator='1')
+    billing_correction=c.call('gas/billing/preview',billing_preview)
+    assert billing_correction['amount']=='-165' and billing_correction['contribution']=='15'
+    billing_adjustment=dict(preview=billing_preview,operationId=str(uuid4()),previewHash=billing_correction['previewHash'],sourceId=billing_correction['sourceId'],expectedPreviousId=billing_original['determinationId'],correctionDueAt='2021-03-02T00:00:00Z',reason='allocation_correction',evidence='Synthetic reviewed facility allocation correction')
+    c.call('gas/billing/determine',billing_adjustment)
+
     assert final(0,selected_context=retained)['rows'][0]['selected']==dict(numerator='60',denominator='1')
     # Concurrent approvals of one predecessor cannot both advance the whole-plan head.
     from concurrent.futures import ThreadPoolExecutor
@@ -95,6 +105,10 @@ def run_checks(url, run_id, root, query, manifest):
     record(dict(kind='source',ledgerId=demo['ledgerId'],expectedPreviousId=changed_source,quantity='80',evidence='Synthetic later source correction'))
     record(dict(kind='retract_adoption',ledgerId=demo['ledgerId'],planRevisionId=p5,sourceRevisionId=changed_source,expectedPreviousId=a5,evidence='Synthetic acceptance withdrawal'))
     for n in range(3):final(n,expected=422)
+    c.call('gas/billing/preview',billing_preview,expected=422)
+    billing_history=c.call('gas/billing/read',dict(context=quantity_context,tradeId=demo['trades'][0]))
+    assert [r['rounded_total'] for r in billing_history['determinations']]==['-180','-165']
+    assert c.call('gas/billing/determine',billing_request)==billing_original
     past=record(command)['outcome']
     assert past['adoptionId']==adopted['outcome']['adoptionId']
     for n in range(3):final(n,expected=422)

@@ -45,15 +45,15 @@ internal static class GasPositions
 {
  internal const string Type="physical_gas";
  internal const string Measure="gas_contractual_present_value";
- internal static async Task<ImmutableArray<GasPosition>> ReadRisk(NpgsqlConnection connection,PreviewManifest manifest,
-  ImmutableArray<Guid> books,CancellationToken ct,ImmutableHashSet<Guid>? trades=null)
+ internal static async Task<ImmutableArray<GasPosition>> ReadComplete(NpgsqlConnection connection,PreviewManifest manifest,
+  ImmutableArray<Guid> books,ImmutableArray<Guid> portfolios,CancellationToken ct,ImmutableHashSet<Guid>? trades=null)
  {
-  var args=new object[]{manifest.CatalogId,books.ToArray(),Array.Empty<Guid>()};
+  var args=new object[]{manifest.CatalogId,books.ToArray(),portfolios.ToArray()};
   var scope=await PreviewDatabase.Rows(connection,trades is null?
    "SELECT value::text FROM jsonb_array_elements(security.gas_position_scope($1,$2::uuid[],$3::uuid[]))":
    "SELECT value::text FROM jsonb_array_elements(security.gas_position_scope($1,$2::uuid[],$3::uuid[],$4::uuid[]))",
    trades is null?args:[..args,trades.ToArray()],ct);
-  var positions=await Read(connection,manifest,books,[],ct,trades:trades);
+  var positions=await Read(connection,manifest,books,portfolios,ct,trades:trades);
   if(scope.Length!=positions.Length||!scope.Select(p=>(p.Id("trade_id"),p.Id("binding_id"),p.Id("book_id"))).ToHashSet()
    .SetEquals(positions.Select(p=>(p.Trade,p.Binding,p.Book.Id("id")))))
    throw new MarketDataException("risk_contract","Every held gas position must have its exact visible retained valuation inputs.");

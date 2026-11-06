@@ -45,17 +45,6 @@ export function crudePayment(base:Base,fields:{invoiceId:string;amount:string;di
  return{...base,invoiceId:required(fields.invoiceId,'an invoice'),amount:required(fields.amount,'payment amount'),direction:fields.direction};
 }
 
-/** Acceptance is durable even when the separate contractual valuation is unavailable. */
-export async function refreshAcceptedCrudeOperation(valuation:()=>Promise<void>,ledger:()=>Promise<void>):Promise<unknown>{
- let failure:unknown;try{await valuation();}catch(error){failure=error;}
- await ledger();return failure;
-}
-// A facts read establishes a real position mode; a mounted form alone has a hidden ancestor.
-export async function openCrudeOperationPanel(selected:{tradeId:string;bindingId:string;revision:number},show:(mode:{kind:'position';tradeId:string;bindingId:string;revision:number})=>Promise<boolean>,open:()=>Promise<boolean>,current:()=>boolean,reveal:()=>void){
- if(!await show({kind:'position',...selected})||!current())return false;
- if(!await open()||!current())return false;
- reveal();return true;
-}
 export const crudeRecordCorrectionPolicy='crude_record_correction_v1';
 /** Corrections identify an eligible native record; they do not create an opposite cash movement. */
 export function crudeRecordCorrection(base:Base,kind:'payment'|'invoice',policy:string,target?:{id:string;canReverse?:boolean;canVoid?:boolean}){

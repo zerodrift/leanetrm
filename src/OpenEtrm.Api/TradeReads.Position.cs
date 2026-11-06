@@ -42,7 +42,7 @@ public sealed partial class TradeReads
             var position=positions[0];
             if(revision is {} requested&&requested!=int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture))
                 throw new MarketDataException("position_revision","The selected context does not contain the requested LNG revision.");
-            return new{head=position.Head,physical=position.Physical};
+            return new{head=position.Head,physical=position.Physical,delivery=await LngDelivery(connection,view,position,ct)};
         },ct);
     public Task<object> LngTrade(NpgsqlConnection connection,TradingView view,TradePositionReadRequest request,CancellationToken ct)
     {
@@ -51,7 +51,7 @@ public sealed partial class TradeReads
         return ReadBound(connection,view,async()=>
         {
             var position=(await LngPositions.Read(connection,database.Manifest,[],[],ct,selected)).Single();
-            return new{head=position.Head,physical=position.Physical};
+            return new{head=position.Head,physical=position.Physical,delivery=await LngDelivery(connection,view,position,ct)};
         },ct);
     }
     // A read of one position needs current trading authority before any frame or trade is selected, so that a principal without it is
@@ -69,7 +69,7 @@ public sealed partial class TradeReads
         return ReadBound(connection,view,async()=>
         {
             var position=(await CrudePositions.Read(connection,database.Manifest,[],[],ct,selected)).Single();
-            return new{head=position.Head,physical=position.Physical,profileName=CrudeProfileName(position)};
+            return new{head=position.Head,physical=position.Physical,profileName=CrudeProfileName(position),delivery=await CrudeDelivery(connection,view,position,ct)};
         },ct);
     }
     public Task<object> CrudeTrade(NpgsqlConnection connection,TradingView view,Guid trade,int? revision,CancellationToken ct)=>
@@ -80,8 +80,14 @@ public sealed partial class TradeReads
             var position=positions[0];
             if(revision is {} requested&&requested!=int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture))
                 throw new MarketDataException("position_revision","The selected context does not contain the requested crude revision.");
-            return new{head=position.Head,physical=position.Physical,profileName=CrudeProfileName(position)};
+            return new{head=position.Head,physical=position.Physical,profileName=CrudeProfileName(position),delivery=await CrudeDelivery(connection,view,position,ct)};
         },ct);
+    Task<PhysicalDeliveryView> CrudeDelivery(NpgsqlConnection connection,TradingView view,CrudePosition position,CancellationToken ct)=>
+        PhysicalDeliveryViews.Contract(connection,database,view.CalculationFrame,position.Fact(),position.TotalQuantity,position.Head.Text("direction"),
+            "delivery","custody",position.Physical.Text("custody_point_name"),[new("crude_delivery_cash_v1","Delivery & cash",true)],ct);
+    Task<PhysicalDeliveryView> LngDelivery(NpgsqlConnection connection,TradingView view,LngPosition position,CancellationToken ct)=>
+        PhysicalDeliveryViews.Contract(connection,database,view.CalculationFrame,position.Fact(),position.TotalQuantity,position.Head.Text("direction"),
+            "cargo","lng_custody",position.Physical.Text("discharge_custody_name"),[new("lng_actuals","Cargo actuals & reconciliation",false)],ct);
     static string CrudeProfileName(CrudePosition position)=>PhysicalCrudeStore.ProfileName(
         position.Head.TryGetProperty("request",out var request)&&request.TryGetProperty("profile",out var profile)?profile.GetString():null);
     public Task<object> GasTrade(NpgsqlConnection connection,TradingView view,TradePositionReadRequest request,CancellationToken ct)

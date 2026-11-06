@@ -17,16 +17,9 @@ public static class GasDailyQuantitySelection
  public static ImmutableArray<GasDailyContract> ReadContract(BookedSideProgram program,ExactRatio scale)
  {
   if(program.Document.Family!="gas"||scale is null||scale.Numerator<=0)throw Invalid("Select a retained gas program and its positive absolute membership scale.");
-  var rows=ImmutableArray.CreateBuilder<GasDailyContract>();
-  foreach(var root in program.Document.Roots.Where(r=>r.Measure=="schedule_quantity"))
-  {
-   var instruction=program.Document.Instructions[root.Row].Output;
-   if(instruction.Operation!="quantity_literal"||instruction.Grid is not {} grid||instruction.Unit is not {} unit)throw Invalid("This profile requires retained literal daily gas quantities.");
-   var g=program.Document.Grids[grid];if(g.CellCount!=1)throw Invalid("This profile requires one retained gas day per quantity root.");
-   var interval=g.Interval(0);var q=new ExactQuantity(BigInteger.Parse(instruction.Parameters["numerator"]),BigInteger.Parse(instruction.Parameters["denominator"]),unit).Scale(scale);
-   rows.Add(new(root.Name,root.Row,grid,interval.OperatingDate,interval.Start,interval.End,q));
-  }
-  if(rows.Count is <1 or >31||rows.Select(r=>r.Day).Distinct().Count()!=rows.Count)throw Invalid("Select a unique retained daily gas grid of one to 31 days.");
+  var intervals=Physical.PhysicalDeliverySchedule.ReadLiteralQuantities(program,scale);
+  var rows=intervals.Select(r=>new GasDailyContract(r.Root,r.Instruction,r.Grid,r.OperatingDate,r.Start,r.End,r.Quantity)).ToArray();
+  if(rows.Length is <1 or >31||intervals.Any(r=>program.Document.Grids[r.Grid].CellCount!=1)||rows.Select(r=>r.Day).Distinct().Count()!=rows.Length)throw Invalid("Select a unique retained daily gas grid of one to 31 days.");
   return [..rows.OrderBy(r=>r.Start)];
  }
  public static GasSelectedQuantity Select(GasDailyContract contract,ImmutableArray<GasQuantityObservation> heads,string policy,DateTimeOffset at,ExactRatio scale)

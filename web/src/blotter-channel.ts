@@ -49,7 +49,7 @@ const pageStates:Record<string,Parse<object>>={
   reference:shape({table:str,search:str}),parties:shape({kind:str}),
   futures:shape({risk:bool,trade:orNull(tradeShown),entry:orNull(shape({product:orNull(oneOf('futures','options','swaps','ppa','gas','crude'))})),lens:oneOf('values','risk'),view:selection,pane:shape({details:bool,charts:bool}),poppedOut:bool}),
   jobs:shape({job:orNull(str)}),ppa:shape({trade:orNull(shape({tradeId:str,revision})),book:orNull(str)}),'custom-curves':shape({curve:orNull(str),unsaved:bool}),
-  delivery:shape({}),'interval-series':shape({}),'interval-curves':shape({}),admin:shape({}),ai:shape({})};
+  'physical-operations':shape({}),delivery:shape({}),'interval-series':shape({}),'interval-curves':shape({}),admin:shape({}),ai:shape({})};
 function pageState(state:unknown):PageState{
   if(!isObject(state)||typeof state.page!=='string'||!Object.hasOwn(pageStates,state.page))refuse('the page state is unknown');
   const reported=state as Record<string,unknown>;
