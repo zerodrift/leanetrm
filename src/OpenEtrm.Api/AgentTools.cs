@@ -33,7 +33,7 @@ public sealed record ReadAccess(string Access,Guid? CatalogId,string Permission)
 sealed record ToolCall(ToolOperation Operation,ToolArguments Arguments);
 abstract record ToolArguments;
 sealed record NoArguments:ToolArguments;
-sealed record DigestArguments:ToolArguments;
+sealed record DigestArguments(string Mode):ToolArguments;
 sealed record PrepareCurveArguments(string Code,string Name,string Formula,string Engine):ToolArguments;
 // Save curve draft's request: the curve as it was prepared, and the assistant's own draft it revises, or none for a new curve.
 sealed record SaveCurveArguments(PrepareCurveArguments Curve,Guid? CurveId):ToolArguments;
@@ -267,7 +267,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         switch(tool)
         {
             case "present_walkthrough":return ParseWalkthrough(members);
-            case "read_page_digest":members.Exactly();return new(Operations["workspace.digest_v1"],new DigestArguments());
+            case "read_page_digest":members.Exactly("mode");return new(Operations["workspace.digest_v1"],new DigestArguments(members.Choice("mode","overview","controls")));
             case "read_workspace_page":
             case "discover_page_operations":
             case "read_page_operation":
@@ -474,7 +474,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         // explicit refusal and must prepare an ordinary command for a separate human approval.
         if(call.Arguments is SaveCurveArguments)return Before("approval_required",input);
         if(call.Arguments is WorkspaceArguments workspace)return await RunWorkspace(turn,targets,tool,input!.Value,call,workspace,ct);
-        if(call.Arguments is DigestArguments)return await RunDigest(turn,targets,request,ct);
+        if(call.Arguments is DigestArguments digest)return await RunDigest(turn,targets,request,digest,ct);
         var operation=call.Operation;
         var access=operation.Access(database.Manifest);
         DateTimeOffset? readAt=null;

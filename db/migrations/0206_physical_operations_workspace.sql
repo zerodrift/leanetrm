@@ -10,9 +10,9 @@ BEGIN
   'assistant.ask_turn(uuid,text,uuid,uuid,integer,text,jsonb,uuid,text,uuid,uuid,text,text,timestamptz,text,bigint,text,integer,integer,integer)',
   'assistant.record_tool_step(uuid,bytea,text,text,jsonb,text,timestamptz,jsonb,jsonb,jsonb)'
  ] LOOP
-  definition=pg_get_functiondef(signature::regprocedure);before='runtime_set<>''turns_v18''';
+  definition=pg_get_functiondef(signature::regprocedure);before='runtime_set<>''turns_v19''';
   IF(length(definition)-length(replace(definition,before,'')))/length(before)<>1 THEN RAISE EXCEPTION 'physical_operations_runtime_guard';END IF;
-  EXECUTE replace(definition,before,'runtime_set<>''turns_v19''');
+  EXECUTE replace(definition,before,'runtime_set<>''turns_v20''');
  END LOOP;
  definition=pg_get_functiondef('assistant.is_prompt_page(text)'::regprocedure);before='''facility_quantities'');';
  IF(length(definition)-length(replace(definition,before,'')))/length(before)<>1 THEN RAISE EXCEPTION 'physical_operations_report_guard';END IF;

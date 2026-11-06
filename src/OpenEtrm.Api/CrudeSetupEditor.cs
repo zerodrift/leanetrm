@@ -49,7 +49,7 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
   if((manifest.SwapMarkets??[]).Any(m=>m.RevisionId==revision))
    return frame.ForSwapMarket(pins,contracts) with{SwapMarketSelections=null,PpaBundle=null};
   return frame with{ObservationIds=pins,CurveContracts=contracts,
-   FrozenObservationIds=selected.FrozenObservationIds is {} frozen?[..frozen]:[],OriginCloseId=null,SwapMarketSelections=null,PpaBundle=null};
+   FrozenObservationIds=selected.FrozenObservationIds is {} frozen?[..frozen]:[],OriginCloseId=null,Close=null,SwapMarketSelections=null,PpaBundle=null};
  }
  internal async Task<ReferenceRevision> DeliveryRevision(NpgsqlConnection c,CancellationToken ct)
  {

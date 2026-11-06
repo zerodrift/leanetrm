@@ -1,6 +1,6 @@
 # Local verification and continuous integration
 
-D332 local UI qualification passed 1,379 web checks, including stage/day dirty
+D340 local UI qualification passed 1,379 web checks, including stage/day dirty
 rollback, explicit historical action gates, failed-refresh identity clearing and
 compact phone headers. The fresh stock PostgreSQL demo passed native manual gas
 and billing scenarios; owned browser checks passed 10 scheduling/recovery and
@@ -9,17 +9,17 @@ Independent adversarial review verified the repaired context/refresh guards and
 reran the focused controller, presenter and billing checks. No native financial
 contract, schema, authorization policy or agent operation changed in this layout.
 
-D331 moves physical work into **Operations → Physical operations**. The Blotter
+D339 moves physical work into **Operations → Physical operations**. The Blotter
 keeps pricing, retained instrument overviews and read-only Side schedules. The
 operations directory reads exact booked metadata without PV, refuses missing held
 source metadata and follows the header context. Gas and crude reuse their native
 workflows; gas billing has its own tab. Gas/crude/LNG overview presenters share a
 physical outline with commodity-specific saved conventions. LNG operational
 actuals and other unsupported commodity workflows remain explicitly TBD.
-Migration 0202 / assistant `turns_v19` add page admission and native discovery;
+Migration 0206 / assistant `turns_v20` add page admission and native discovery;
 financial contracts, permissions and persistence remain their existing owners.
 
-D331 local qualification passed 1,376 web checks, 85 Python tooling checks and
+D339 local qualification passed 1,376 web checks, 85 Python tooling checks and
 managed API schedule/page checks. A fresh stock PostgreSQL fixture passed 36
 physical assistant scenarios, including captured-context metadata-only discovery
 and approved native service configuration from the new page. Independent review
@@ -31,17 +31,17 @@ authority after observed storage waits. The relocated crude browser suite passed
 operations, cash billing and read-only ticket inspection passed another 10, 15
 and 23 owned browser checks, including a separate trade window.
 
-D330 adds [manual gas delivery operations](gas-delivery-operations.md): versioned
+D338 adds [manual gas delivery operations](gas-delivery-operations.md): versioned
 service accounts, nomination/retro requests, separate external acknowledgments,
 reviewed schedule adoption, signed operator statements and paired imbalance
 agreements. The dedicated gas workflow groups before flow, scheduling,
 after flow and reconciliation. It reuses native daily quantities, facility
 allocations, gas billing and the Blotter's retained-command transport. Migration
-0201 and assistant `turns_v18` require separate release qualification. Live
+0205 and assistant `turns_v19` require separate release qualification. Live
 connectivity, portfolio imbalance positions and accounting posting remain outside
 this bounded consumer; new permissions require explicit grants.
 
-D330 local qualification uses stock disposable PostgreSQL and synthetic contracts.
+D338 local qualification uses stock disposable PostgreSQL and synthetic contracts.
 The native scenario verifies service setup, before/intra/retro classification,
 100 requested / 95 confirmed / 90 scheduled adoption, stale heads, canonical
 semantic retries, signed statements, explicit movement coverage, paired concurrent
@@ -62,12 +62,32 @@ checks, managed core/API checks and v18 turn/tool/stream/usage regressions pass.
 These are bounded local results; production pipeline connectivity, portfolio
 imbalance positions and accounting posting are not qualified by these checks.
 
-D329 adds [final daily gas cash determinations](gas-cash-billing.md): an explicit
+D337 adds [final daily gas cash determinations](gas-cash-billing.md): an explicit
 completed-day/fixed-delivery consumer with original and correcting contributions,
 exact accepted source links and reviewed native/agent operations. It reuses swap
 cash-restatement arithmetic while preserving crude's cumulative invoice contract.
-Migration 0200 and assistant `turns_v17` require separate release qualification;
+Migration 0204 and assistant `turns_v18` require separate release qualification;
 invoices, payments, accounting journals and contractual PV changes are excluded.
+
+D335's owned workspace checks cover controls-only digests without record/pivot
+evidence, native swap entry without portfolio valuation, explicit unsaved swap
+fields and human-only Preview/Book/Authorize. Browser checks cover aim before
+mutation, missing/covered controls, late overlays, Stop during aim/read, nested
+inline controls in native sheets/modals and confirmed navigation. The final
+control remains briefly visible; panel close stops the run. The 0203 upgrade
+checks refuse changed bodies, owners, ACLs and configuration for all three
+replaced assistant helpers. Run the workspace and runtime preview flags
+separately; use the complete command below for release qualification.
+
+
+D328's managed workspace regression uses real grouped ASP.NET routes and bounds
+route construction independently of elapsed time: one metadata snapshot and one
+build per registered operation. It fails on the prior repeated enumeration. It
+also checks fresh permissions/endpoints and cancellation before metadata work.
+The owned workspace HTTP fixture discovers the full authorized catalog while
+retaining command approval effects; its browser follows full discovery with
+native New swap navigation. Use the existing `--assistant-workspace-check
+--browser-check` command below. These checks use synthetic disposable resources.
 
 D325–D326 add actual frontend-report / prompt-API / SQL catalog parity, empty
 identity-only asks and immutable prompt pins for Dashboard, crude setup and Vol
@@ -3344,7 +3364,7 @@ completion; D201 has separate actual-worker evidence below.
 
 `tools/run_preview.py --close-risk-lease-check --pg-bin <stock-PG-bin> --dotnet
 <pinned-dotnet> --no-build` uses this repository and a fresh disposable database.
-It admits actual ten-year hourly PPA risk, runs isolated scheduler/runtime worker
+It admits actual twelve-month quarter-hour PPA risk, runs isolated scheduler/runtime worker
 logins, and covers failed renewal, cancellation, current authority loss, overall
 deadline expiry, real worker death and natural replacement. A PostgreSQL wire
 proxy drops a committed report's acknowledgement; it first independently confirms
@@ -3354,8 +3374,24 @@ terminal outcome replay/conflict/authority, and original legacy claim gates.
 Independent count assertions can also be applied directly to the captured complete
 worker receipt, without repeating valuation.
 
-The actual long completion measured 326.922 seconds; replacement and lost-ack
-recovery measured 329.441 seconds, both over 120 seconds. Exact numerical/work and
+The deadline case suspends only its owned worker after observing its durable claim
+and confirms that publication has not begun. Native renewal requests
+cap at the original deadline before expiry and refuse after PostgreSQL's clock
+passes it; the resumed worker must publish no report. This scheduling-stall fault
+does not rely on cold preparation taking longer than five seconds or alter clocks.
+The process is always resumed during cleanup.
+
+The replacement must publish after its original lease would have expired, with
+observed native renewals. If calculation reaches its transaction-free phase
+before that boundary, a brief owned-process scheduling stall crosses it while
+the renewed lease remains live. The receipt records this stall separately from
+elapsed completion time; no computation-speed claim includes it. The native
+publisher, calculation inputs, clocks and lease duration remain unchanged.
+
+The historical ten-year hourly, five-side workload with a fifteen-second lease
+measured 326.922 seconds for completion and 329.441 seconds for replacement and
+lost-ack recovery, both over 120 seconds. These are not measurements of the current
+twelve-month fixture. Exact numerical/work and
 renewal/lock measurements and remaining limits are recorded in the
 [implementation qualification](implementation.md#renewable-existing-close-completion-qualification).
 The new stage is included in `tools/check_all.py`; this bounded change ran that
@@ -3982,7 +4018,7 @@ Independent adversarial review found no outstanding material issue. Public
 source excludes local configuration, generated assets, logs and private review
 artifacts. Hosted schema/API activation remains a separate qualification.
 
-## Physical operations grids (D333, local)
+## Physical operations grids (D341, local)
 
 The frontend build and all 1,384 web checks pass. Focused checks cover exact
 binding selection after sorting, global/column filters, all native side/day
@@ -4003,7 +4039,7 @@ This qualifies presentation and selection over the existing manual operations.
 It adds no live operator interface, new financial policy, throughput claim or
 hosted deployment qualification.
 
-## Common physical delivery view (D334, local)
+## Common physical delivery view (D342, local)
 
 The frontend build, all 1,388 web checks and 659 managed core checks pass.
 Independent quantity/geometry assertions qualify the shared retained-output
@@ -4021,5 +4057,5 @@ unit-label query wait while ReadTrades remains granted. That source recheck
 precedes classification of labels filtered out by row security.
 
 Desktop and 390-pixel gas grid inspection passes. Independent adversarial review
-has no outstanding material findings. D334 adds no schema migration or financial
+has no outstanding material findings. D342 adds no schema migration or financial
 write policy; existing operational and release qualifications remain applicable.

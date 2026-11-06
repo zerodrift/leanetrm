@@ -1,4 +1,4 @@
-import {openPhysicalTrade} from './physical-operations-grid.mjs';
+import {openPhysicalTrade,selectDeliveryFrame} from './physical-operations-grid.mjs';
 // Full inventory-to-sale workflow over native operations in the owned crude fixture.
 export async function run(actions){
  const {command,evaluate,wait,click,set,submit,check,shot,idle,fitsWidth,url}=actions;
@@ -15,8 +15,7 @@ export async function run(actions){
  })()`);
  const open=async id=>{
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#snapshot')&&"+idle);
-  const january=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-15T08:')).id;})()");
-  await set('#snapshot',january);await wait(idle);await click('#nav-physical-operations');await wait("(!document.querySelector('#physical-operations-refresh').disabled||!document.querySelector('#physical-operations-pending').hidden)&&"+idle);
+  await selectDeliveryFrame(actions,'2021-01-15T08:');await click('#nav-physical-operations');await wait("(!document.querySelector('#physical-operations-refresh').disabled||!document.querySelector('#physical-operations-pending').hidden)&&"+idle);
   if(!await evaluate("document.querySelector('#physical-operations-pending').hidden"))return;
   await openPhysicalTrade(actions,id);await wait("!document.querySelector('#physical-operations-tabs-delivery').disabled&&"+idle);await click('#physical-operations-tabs-delivery');await wait(visible+'&&'+idle);
  };

@@ -2,6 +2,7 @@
 import json
 from uuid import uuid4
 from preview_client import PreviewClient
+from close_session_fixture import draft, grant, publish
 
 
 def prepare(query,manifest):
@@ -30,13 +31,18 @@ def run_checks(url, query, manifest,psql,environment):
     prepare(query,manifest)
     editor, approver, viewer=(client(p) for p in ('editor','approver','viewer'))
     workspace=approver.call('workspace')
-    assert workspace['frames'], 'The fixture must contain actual retained inputs'
+    snapshots=sorted(workspace['frames'],key=lambda f:f['at'])
+    assert snapshots, 'The fixture must contain actual retained inputs'
+    # D334: the pilot records into a UTC 16:00 session that closes every calendar day, as its generator does.
+    publish(editor,approver,draft('test_pilot_utc','test_utc_every_day','16:00',sorted(snapshots[0]['curveContracts'])))
+    admin=client('admin')
+    for login in ('approver','pilot_fixture_worker'):grant(admin,query,manifest,login,'test_pilot_utc')
     # A persistent close is registered from the exact selected snapshot. It does
     # not backdate knowledge or import a manifest-specific compatibility branch.
-    frame=workspace['frames'][0]
+    frame=snapshots[0]
     earlier=client('approver')
     earlier.call('market/context',{'effectiveOn':frame['at'][:10],'knownAt':None,'mode':'current','selection':'latest_correction'})
-    body={'requestId':str(uuid4()),'snapshotId':frame['id'],'name':'Synthetic retained close'}
+    body={'requestId':str(uuid4()),'snapshotId':frame['id'],'name':'Synthetic retained close','session':'test_pilot_utc','businessDate':frame['at'][:10]}
     viewer.call('market/closes/register',body,expected=403)
     editor.call('market/closes/register',body,expected=403)
     result=approver.call('market/closes/register',body)
@@ -63,18 +69,23 @@ def run_checks(url, query, manifest,psql,environment):
     full=fresh.call('workspace/catalog')
     assert next(f for f in full['frames'] if f['id']==result['id'])['observationIds']==[row['observation_id'] for row in json.loads(query(f"SELECT jsonb_agg(jsonb_build_object('observation_id',observation_id) ORDER BY series_id,input_use) FROM market_data.market_close_pins WHERE close_id='{result['id']}';"))]
     assert result['id'] not in {f['id'] for f in fresh.bootstrap()['frames']}, 'Bootstrap exposed cached durable financial headers without a fresh read check'
-    dates=fresh.call('market/dates',{'curve':next(iter(frame['curveContracts'])),'timeZone':'UTC'})
+    dates=fresh.call('market/dates',{'curve':next(iter(frame['curveContracts'])),'timeZone':'UTC','session':'test_pilot_utc'})
     assert result['id'] in {f['id'] for day in dates['dates'] for f in day['frames']}
     selected=max((saved for saved in full['frames'] if saved['id'] in full['initialFrameIds']),key=lambda saved:saved['at'])
     curve=next(iter(frame['curveContracts']));contract=frame['curveContracts'][curve][0]
+    # A close's history is its own session's (D334): pinned at the built-in close it omits the pilot session's close of the
+    # same instant, and pinned at the pilot close it lists that close.
     history=fresh.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':selected['id'],'curve':curve,'contractId':contract})
+    assert all(point['snapshotId']!=result['id'] for point in history['points']), 'History mixed another session\'s close'
+    history=fresh.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':result['id'],'curve':curve,'contractId':contract})
     stored_point=next((point for point in history['points'] if point['snapshotId']==result['id']),None)
-    assert stored_point, 'Current price history omitted an unselected durable close'
-    assert len({point['snapshotId'] for point in history['points'] if point['at']==frame['at']})==2, 'Distinct same-instant close identities were merged'
+    assert stored_point, 'Current price history omitted its own session\'s durable close'
+    assert len({point['snapshotId'] for point in history['points'] if point['at']==frame['at']})==1, 'A session day offered two closes'
     exact=fresh.call('evaluate',{'snapshotId':result['id'],'curve':curve})
     point=next(point for point in exact['points'] if point['contractId']==contract)
     assert stored_point['value']==point['value'] and set(stored_point['observationIds'])==set(point['lineage'])
-    assert result['id'] not in {f.get('originCloseId') for f in earlier.call('workspace/navigation')['frames']}, 'A close published after the certified cutoff leaked into history'
+    # Always latest (D334): the view captured before the close was recorded still reads it, as the close in force for its day.
+    assert result['id'] in {f.get('originCloseId') for f in earlier.call('workspace/navigation')['frames']}, 'A close in force was hidden by an earlier cutoff'
     current=fresh.call('market/context',{'effectiveOn':frame['at'][:10],'knownAt':None,'mode':'current','selection':'latest_correction'})
     retained=fresh.call('workspace/navigation')
     alias=next(f for f in retained['frames'] if f.get('originCloseId')==result['id'])

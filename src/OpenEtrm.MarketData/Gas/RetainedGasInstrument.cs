@@ -33,26 +33,30 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
 {
     [IdentityField] public override ImmutableArray<RetainedGasMember> Members { get; }
     [IdentityField] public ImmutableArray<GasValuationAssignment> Assignments { get; }
-    public ImmutableArray<SchedulePriceTerm> ActivePrices => [..Assignments.Select(a => new SchedulePriceTerm(ExactDecimal.Parse("1"), null, a.Lookup)).Distinct()];
+    public ImmutableArray<IndexPriceLookup> PriceLookups { get; }
+    public ImmutableArray<SchedulePriceTerm> ActivePrices => [..PriceLookups.Select(lookup => new SchedulePriceTerm(ExactDecimal.Parse("1"), null, lookup))];
     public override ReferenceKey Currency => Assignments[0].Quote.Currency;
     public override Quantity UnitQuantity => new(ExactDecimal.Parse("1"), Assignments[0].Quote.Quantity);
 
     public RetainedGasInstrument(Guid id, ImmutableArray<RetainedGasMember> members,
-        ImmutableArray<GasValuationAssignment> assignments) : base(id)
+        ImmutableArray<GasValuationAssignment> assignments, ImmutableArray<IndexPriceLookup> priceLookups=default) : base(id)
     {
         if (members.IsDefaultOrEmpty || members.Any(m => m is null) || assignments.IsDefaultOrEmpty || assignments.Any(a => a is null) ||
             !members.Any(m => m.Program.Document.Family == "gas") ||
             members.Any(m => m.Program.Document.Family is not ("gas" or "fixed")) ||
             assignments.Select(a => (a.Quote.Currency, a.Quote.Quantity)).Distinct().Count() != 1)
             throw new MarketDataException("gas_membership", "Select complete retained gas and fixed cash programs with their exact compatible assignments.");
+        if(priceLookups.IsDefault&&members.Any(m=>m.Program.Document.Instructions.Any(i=>i.Output.Operation==CurvePriceScheduleSource.Operation)))
+            throw new MarketDataException("side_market_sources","Bound programs require their exact authorized retained price lookups.");
         Members = members; Assignments = assignments.Distinct().ToImmutableArray();
+        PriceLookups=priceLookups.IsDefault?[..Assignments.Select(a=>a.Lookup).Distinct()]:priceLookups.Distinct().ToImmutableArray();
     }
 
     public override UnitPricingContract Declare(UnitValuationContext context) => new(Id, "retained_gas_unit_pv_v1",
-        [..Assignments.Select(a => PeriodPriceSelector.ProjectionAt(a.Lookup, context.Snapshot)).OfType<CurveRequest>().Distinct()],
+        [..PriceLookups.Select(lookup => PeriodPriceSelector.ProjectionAt(lookup, context.Snapshot)).OfType<CurveRequest>().Distinct()],
         UnitQuantity.Specification, Currency) { ScheduleIdentity = RetainedScheduleIdentity };
 
     protected override ScheduleMarketSources Sources(CurveBuild basis) => new(basis.Graph.Plan.Context, basis, null, null,
         IntervalKnowledgePolicy.ResolvedCutoff, PendingActualsPolicy.RequireActuals,
-        [..Assignments.Select(a => a.Lookup).Distinct()], [], Assignments);
+        PriceLookups, [], Assignments);
 }

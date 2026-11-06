@@ -1,3 +1,4 @@
+from check_physical_operations import january_delivery_frame
 """Synthetic native-day cash determinations, immutable corrections and recovery."""
 from uuid import uuid4
 from preview_client import PreviewClient, initial_frame
@@ -8,7 +9,7 @@ def run_checks(url, query=None, manifest=None):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
     workspace=c.call('workspace')
     before={'snapshotId':initial_frame(workspace,'2020-12-18')['id'],'convention':'physical_gas_fixed_quantity_v4','knowledgeMode':'current'}
-    after={**before,'snapshotId':next(f['id'] for f in workspace['frames'] if f['at'].startswith('2021-01-15T08:'))}
+    after={**before,'snapshotId':january_delivery_frame(workspace)}
     catalog=c.call('gas/catalog',before)
     point=next(p for p in catalog['locations'] if p['deliveryPoint']=='synthetic_gas_point_a')
     terms={**before,**trade_booking(),'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],'definitionRevisionId':point['definitionRevisionId'],'gasSetupId':catalog['gasSetupId'],'discounting':False,'profile':'fixed_gas_composition_v1',
@@ -43,7 +44,7 @@ def run_checks(url, query=None, manifest=None):
     from concurrent.futures import ThreadPoolExecutor
     other=PreviewClient(url);other.bootstrap();other.call('profile',{'profile':'trader'})
     other_workspace=other.call('workspace')
-    other_context={**after,'snapshotId':next(f['id'] for f in other_workspace['frames'] if f['at'].startswith('2021-01-15T08:'))}
+    other_context={**after,'snapshotId':january_delivery_frame(other_workspace)}
     other_preview={**preview,'context':other_context}
     other_review=other.call('gas/billing/preview',other_preview)
     clients=[c,other]

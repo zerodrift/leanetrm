@@ -33,7 +33,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     if(path==='/api/futures/amend'&&window.__loseAmend){window.__loseAmend=false;return new Response('incomplete',{status:502});}return response;
   });})()`);
   await persona('trader');
-  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
+  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
   await check('Power TOUs and Reference data are in Settings',"document.querySelector('#nav-group-settings #nav-power')&&document.querySelector('#nav-group-settings #nav-reference')&&!document.querySelector('#nav-group-markets #nav-reference')");
   await click('#nav-power');await check('Power TOUs header identifies Settings',"document.querySelector('#page-section').textContent==='SETTINGS'");await click('#nav-reference');await check('Reference data header identifies Settings',"document.querySelector('#page-section').textContent==='SETTINGS'");await click('#nav-futures');

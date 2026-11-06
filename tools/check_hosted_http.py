@@ -225,11 +225,12 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         from check_power_history_http import run_checks as check_power_history
         check_power_history(client,query,manifest)
         from check_trading_compression import run_hosted_checks as check_hosted_compression
-        check_hosted_compression(client,origin,cert,boot)
+        # Built-in frames are recorded closes, which the workspace discovers; a bootstrap lists working snapshots only (D334).
+        check_hosted_compression(client,origin,cert,workspace)
         from check_blotter_stream import run_hosted_checks as check_hosted_stream
-        ending = Client(); ending.login('invalid', password)
+        ending = Client(); ending.login('invalid', password); ending.bootstrap()
         check_hosted_stream(ending, first, query, psql, psql_environment,
-                            next(f for f in ending.bootstrap()['frames'] if f['at'].startswith('2020-12-18') and not f.get('contextId')))
+                            next(f for f in ending.call('/api/workspace')[0]['frames'] if f['at'].startswith('2020-12-18') and not f.get('contextId')))
         client.call('/api/market/current', {}, headers={'Origin': 'https://attacker.invalid'}, expected=403)
         client.call('/api/bootstrap', headers={'Host': 'attacker.invalid'}, expected=403)
         assert query("SELECT count(*)>0 FROM security.request_contexts WHERE hosted_session_digest IS NOT NULL;") == 't'

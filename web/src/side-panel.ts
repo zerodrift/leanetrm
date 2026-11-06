@@ -125,14 +125,14 @@ export function clearTabs(list:HTMLElement,panel:HTMLElement){
  * Returns what gives the page back.
  */
 export function isolate(host:HTMLElement):()=>void{
-  const made:HTMLElement[]=[];
+  const made:HTMLElement[]=[],marked=host.hasAttribute('data-assistant-presentation-sheet');host.setAttribute('data-assistant-presentation-sheet','');
   for(let node:HTMLElement=host;node.parentElement;node=node.parentElement){
     for(const sibling of Array.from(node.parentElement.children) as HTMLElement[]){
       if(sibling===node||sibling.localName==='dialog'||sibling.classList.contains('assistant-walkthrough')||sibling.classList.contains('assistant-walkthrough-cursor')||sibling.inert)continue;
       sibling.inert=true;made.push(sibling);
     }
   }
-  return ()=>{for(const node of made)node.inert=false;};
+  return ()=>{for(const node of made)node.inert=false;if(!marked)host.removeAttribute('data-assistant-presentation-sheet');};
 }
 
 /**

@@ -124,6 +124,12 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.MessageText=="curve_activation_conflict" => (409,p.MessageText,"The activation timeline or request changed. Reload or retry the exact original request."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("curve_activation_",StringComparison.Ordinal) => (422,p.MessageText,"Supply disjoint effective intervals and exact published outputs under the complete timeline policy."),
     PostgresException p when p.MessageText is "job_conflict" => (409,p.MessageText,"The job or request changed. Refresh or reconcile the original request."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="close_conflict" => (409,p.MessageText,"This close session, grant or request changed. Reload it or retry the exact original request."),
+    PostgresException p when p.SqlState=="42501" && p.MessageText is "close_denied" or "close_grant" => (403,p.MessageText=="close_grant"?"close_grant":"access_denied",
+        p.MessageText=="close_grant"?"Recording this session's close needs a grant for the session.":"The selected test identity cannot perform this operation."),
+    // A close refusal may name what it found after its code: "close_incomplete: missing curves future".
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("close_",StringComparison.Ordinal) && p.MessageText.Split(':',2) is var parts
+        => (422,parts[0],CloseSessions.Refusal(parts[0])+(parts.Length>1?" ("+parts[1].Trim()+")":"")),
     PostgresException p when p.MessageText is "pilot_close_conflict" => (409,p.MessageText,"This close request already has different retained inputs. Reconcile the original request."),
     PostgresException p when p.SqlState is "23503" or "23514" && apiPath.StartsWithSegments("/api/jobs/pilot-close") => (422,"pilot_profile","Choose supported exact books, curves, sources, policies and schedule terms."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("pilot_",StringComparison.Ordinal) => (422,p.MessageText,"Choose complete explicit pilot close inputs, supported policies and an available exact anchor."),
@@ -431,7 +437,9 @@ PinnedContext Pin(PreviewSession session,Guid? frame=null)
     var selected=frame is {} id?Frame(session,id):null;
     return session.MarketContext is {} context?PinnedContext.Retained(context,selected):PinnedContext.Current(selected);
 }
-InputFrame PpaFrame(PreviewSession session,Guid id)=>Pin(session).Require(session.Frames.GetValueOrDefault(id));
+// An identity that could not discover the session's closes holds no market inputs: an unknown frame is then a denial (D334).
+InputFrame PpaFrame(PreviewSession session,Guid id)=>session.Frames.GetValueOrDefault(id) is {} frame||session.HasDiscoveredFrames
+    ?Pin(session).Require(session.Frames.GetValueOrDefault(id)):throw new PreviewDeniedException();
 InputFrame Frame(PreviewSession session,Guid id)
 {
     var frame=PpaFrame(session,id);
@@ -458,6 +466,30 @@ api.MapMarketDates(database,(c,work)=>Locked(c,async session=>
     await RefreshFrames(session,c.RequestAborted);
     return await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>work(connection,Pin(session),session.VisibleFrames,session.FrameCatalog,ct),c.RequestAborted);
 }));
+api.MapGet("/close-sessions/catalog",(Func<HttpContext,Task<IResult>>)(c=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
+    Results.Ok(await CloseSessions.Catalog(connection,database.Manifest.CatalogId,ct)))));
+api.MapPost("/close-sessions/save",(HttpContext c,CloseSessionSave body)=>DateOperation(c,"WriteMarketDefinitions",async(session,connection,ct)=>
+    Results.Ok(await CloseSessions.Save(connection,database,body,ct))));
+api.MapPost("/close-sessions/publish",(HttpContext c,CloseSessionPublish body)=>DateOperation(c,"SealMarketDefinitions",async(session,connection,ct)=>
+    Results.Ok(await CloseSessions.Publish(connection,database.Manifest.CatalogId,body,ct))));
+api.MapGet("/close-sessions/choice",(Func<HttpContext,Task<IResult>>)(c=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
+    Results.Ok(await CloseSessions.Choice(connection,database.Manifest.CatalogId,ct)))));
+api.MapPost("/close-sessions/choice",(HttpContext c,CloseSessionChoice body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+    Results.Ok(await CloseSessions.Choose(connection,database.Manifest.CatalogId,body,ct)),c.RequestAborted)));
+Task<IResult> CloseGrantOperation(HttpContext c,Func<NpgsqlConnection,CancellationToken,Task<object>> work)=>Locked(c,session=>
+{
+    c.Items["administration_attempted"]=true;
+    return database.WithIdentity(Profile(session),"ManageAccess",async(connection,ct)=>Results.Ok(await work(connection,ct)),c.RequestAborted,admission:Admission.Administration);
+});
+api.MapGet("/close-sessions/grants/list",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ManageAccess",async(connection,ct)=>
+    Results.Ok(await CloseSessions.Grants(connection,ct)),c.RequestAborted))));
+api.MapPost("/close-sessions/grants",(HttpContext c,CloseSessionGrant body)=>CloseGrantOperation(c,async(connection,ct)=>await CloseSessions.Grant(connection,database.Manifest.CatalogId,body,ct)));
+api.MapPost("/close-sessions/grants/revoke",(HttpContext c,CloseSessionRevoke body)=>CloseGrantOperation(c,async(connection,ct)=>await CloseSessions.Revoke(connection,body,ct)));
+api.MapPost("/market/closes/history",(HttpContext c,MarketCloseHistoryRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    await Pin(session).Bind(connection,database.Manifest.CatalogId,ct);
+    return Results.Ok(await MarketCloses.History(connection,database.Manifest.CatalogId,body,ct));
+},c.RequestAborted)));
 api.MapPost("/market/closes/register",(HttpContext c,MarketCloseRegister body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"PublishMarketData",async(connection,ct)=>
         Results.Ok(await MarketCloses.Register(database,connection,Pin(session),Frame(session,body.SnapshotId),body,ct)),c.RequestAborted)));
@@ -494,7 +526,7 @@ api.MapCustomCurves(database,(c,permission,snapshotId,work)=>Locked(c,session=>
             throw new MarketDataException("custom_curve_historical","Author and publish curves in the current workspace.");
         return await work(connection,pin,ct);
     },c.RequestAborted)));
-api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,session=>
+api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,async session=>
 {
     if(hosted is not null)throw new PreviewDeniedException();
     if (!profiles.Any(p=>p.id==body.Profile) && !session.CustomProfiles.ContainsKey(body.Profile)) throw new PreviewDeniedException();
@@ -505,7 +537,9 @@ api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,session=>
     // (docs/ai-assistant.md §7.2, §8).
     turnStreams.EndSession(session.Digest,left);
     turnWorker.EndSession(session.Digest);
-    return Task.FromResult(Results.Ok(new {profile=session.Profile}));
+    // Closes are the identity's own discovery (D334): one that can read market data holds them at once; one that cannot holds none.
+    try{await RefreshFrames(session,c.RequestAborted);}catch(PreviewDeniedException){}
+    return Results.Ok(new {profile=session.Profile});
 }));
 PreviewSequenceCoverage ScheduleSource(string? code) => (database.Manifest.Schedules ?? []).SingleOrDefault(s=>s.Curve==code)
     ?? throw new MarketDataException("sequence_source","Choose an explicitly configured contract schedule.");
@@ -881,7 +915,9 @@ api.MapPost("/market/context",(HttpContext c,MarketContextRequest body)=>Locked(
 api.MapPost("/market/current",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,async session=>
 {
     await database.WithIdentity(Profile(session),"ReadMarketData",(_,_)=>Task.FromResult(true),c.RequestAborted);
-    session.StopLive();session.ForgetDiscoveredFrames();session.MarketContext=null;return Results.Ok(new {mode="explicit_input_pins"});
+    session.StopLive();session.ForgetDiscoveredFrames();session.MarketContext=null;
+    await RefreshFrames(session,c.RequestAborted);
+    return Results.Ok(new {mode="explicit_input_pins"});
 })));
 api.MapPost("/market/live",(HttpContext c,LiveSelectRequest body)=>Locked(c,async session=>
 {
@@ -913,7 +949,8 @@ object WorkspaceProjection(PreviewSession session,WorkspaceRead read,bool catalo
         return new {referenceRevision=source.Revision,definitionRevisionId=source.Definition};
     });
     return new {referenceSources,unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references=data.References,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
-        frames=prior is null?session.VisibleFrames:[prior],frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:context is null?session.InitialFrames:session.ContextAliases(context).Select(f=>f.Id).ToArray()};
+        // Each offered frame names its recorded close; one without a close is a working snapshot (D334).
+        frames=prior is null?session.VisibleFrames:[prior],frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:session.InitialFrameIds};
 }
 Task<IResult> Workspace(HttpContext c,bool catalogOnly)=>Locked(c,async session=>
 {
@@ -937,8 +974,8 @@ api.MapGet("/workspace/navigation",(Func<HttpContext,Task<IResult>>)(c=>Locked(c
     session.ApplyFrames(read.plan);var frames=session.VisibleFrames;
     return Results.Ok(new MarketNavigation(Profile(session),session.MarketContext,read.navigation.DefinitionRevision,read.navigation.ReferenceRevision,
         database.Manifest.FuturesConvention,database.Manifest.Example,
-        session.MarketContext is null?[..session.InitialFrames]:[..session.ContextAliases(session.MarketContext).Select(f=>f.Id)],
-        [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.OriginCloseId))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog,Live=session.Live?.Summary()});
+        [..session.InitialFrameIds],
+        [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.OriginCloseId,f.Close))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog,Live=session.Live?.Summary()});
 })));
 api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
@@ -1058,7 +1095,9 @@ api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async sessi
     var pin=Pin(session,body.SnapshotId);
     // Current history includes initial inputs and every offered stored close;
     // unselected manual edits remain separate explicit input choices.
-    var frames=session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)).Where(frame=>frame.PpaBundle is null).Concat(session.VisibleFrames.Where(frame=>frame.OriginCloseId is not null)):session.VisibleFrames;
+    var offered=session.MarketContext is null?session.InitialFrames.Select(id=>Frame(session,id)).Where(frame=>frame.PpaBundle is null).Concat(session.VisibleFrames.Where(frame=>frame.OriginCloseId is not null)):session.VisibleFrames;
+    // A close's history is its own session's closes (D334); other regions' closes at the same instants are not its samples.
+    var frames=pin.Frame?.Close is {} pinned?offered.Where(frame=>frame.Close is null||frame.Close.Session==pinned.Session):offered;
     var points=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.History(connection,pin,[..frames],body.Curve,body.ContractId,body.SeriesId,policy,ct,
         session.Live is not null?data=>session.SelectContextAliases(data,pin.Context!):null,
         session.Live is not null?[..session.InitialFrames.SelectMany(id=>session.Frames[id].ObservationIds).Distinct()]:null),c.RequestAborted);
@@ -2153,11 +2192,17 @@ public sealed partial class PreviewSession
     public PreviewShortcutLibrary Shortcuts {get;}=new();
     public DateWorkspace Dates {get;}=new();
     public Guid[] InitialFrames {get;}
+    // The built-in inputs recorded as closes; the session offers them as discovered closes.
+    public ImmutableHashSet<Guid> InitialCloses {get;}
+    // The page's built-in inputs: its remaining built-in working frames (or their aliases under a context) and its built-in closes.
+    public Guid[] InitialFrameIds=>[..(MarketContext is null?InitialFrames:ContextAliases(MarketContext).Select(f=>f.Id))
+        .Concat(VisibleFrames.Where(f=>f.OriginCloseId is {} close&&InitialCloses.Contains(close)).Select(f=>f.Id))];
     public PreviewSession(PreviewManifest manifest,HostedSignIn? signIn=null)
     {
         Ends=signIn?.Ends??Created+Lifetime;
         Digest=signIn?.Digest??Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
-        foreach(var f in manifest.Frames) {
+        InitialCloses=[..manifest.Frames.Select(f=>f.CloseId).OfType<Guid>()];
+        foreach(var f in manifest.Frames.Where(f=>f.CloseId is null)) {
             if(f.CurveContracts is null)throw new MarketDataException("missing_curve_view","Every seed frame requires explicit curve contract selections.");
             var frame=new InputFrame(Guid.NewGuid(),"Initial synthetic inputs",f.At,f.ObservationIds.ToImmutableArray(),
                 f.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()),FrozenObservationIds:(f.FrozenObservationIds??[]).ToImmutableArray()){PpaBundle=f.PpaBundle};Frames.Add(frame.Id,frame);

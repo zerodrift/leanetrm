@@ -325,8 +325,9 @@ internal static class DirectReadChecks
         public ScheduleContext? Context {get;}=view.GetProperty("context").ValueKind==JsonValueKind.Object?view.GetProperty("context").Deserialize<ScheduleContext>(Json):null;
         public ImmutableArray<InputFrame> Frames {get;}=view.GetProperty("frames").Deserialize<ImmutableArray<InputFrame>>(Json);
         public InputFrame Selected=>Frames.Single(f=>f.Id==view.GetProperty("frameId").GetGuid());
-        // The page's initial frames are the frames its history rebuilds.
-        public ImmutableArray<InputFrame> Initial=>[..view.GetProperty("initialFrameIds").EnumerateArray().Select(id=>Frames.Single(f=>f.Id==id.GetGuid()))];
+        // The frames the page's history rebuilds: its remaining built-in frames and every offered recorded close (D334).
+        public ImmutableArray<InputFrame> Initial=>[..view.GetProperty("initialFrameIds").EnumerateArray().Select(id=>Frames.Single(f=>f.Id==id.GetGuid()))
+            .Concat(Frames.Where(f=>f.OriginCloseId is not null)).DistinctBy(f=>f.Id)];
         public PinnedContext Pin(InputFrame? frame=null)=>Context is null?PinnedContext.Current(frame):PinnedContext.Retained(Context,frame);
         public JsonNode Page(string name)=>JsonNode.Parse(view.GetProperty(name).GetRawText())!;
     }

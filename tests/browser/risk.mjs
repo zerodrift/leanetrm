@@ -40,7 +40,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const openReport=async()=>{await click('#blotter-risk');await wait(panelRisk+"&&!document.querySelector('#risk-fields').disabled");};
   await persona('risk');
   // The date's own close, never a close another check registered from it at the same instant.
-  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&!f.originCloseId).id;})()");
+  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled");
   await check('portfolio risk includes a mixed book selection without hiding swap holdings',"(()=>{const holdings=window.__tradingReports(window.__riskReads).at(-1).data.holdings;return !document.querySelector('#blotter-risk').hidden&&document.querySelector('#blotter-risk').textContent==='Run risk'&&holdings.some(row=>row.instrumentType==='future')&&holdings.some(row=>row.instrumentType==='financial_swap');})()");
   await check('Risk Analyst can inspect holdings and run scenarios without booking authority, and is told so rather than offered New trade',"document.querySelector('#profile-label').textContent==='Risk Analyst'&&document.querySelector('#futures-new').disabled&&document.querySelector('#new-trade-availability').textContent.includes('Book Trade permission')&&document.querySelector('#futures-book-submit').disabled&&!document.querySelector('#blotter-risk').disabled");
@@ -437,7 +437,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#risk-export');
   await check('completed job download reads its retained result with current authorization',"(async()=>{const {parts}=JSON.parse(await window.__riskBlob.text()),last=window.__riskReads.at(-1);return parts.length===1&&last.path.startsWith('/api/portfolio/risk/jobs/')&&last.data.state==='completed'&&parts[0].context.contextId===window.__riskJobs.at(-1).request.context.contextId;})()");
   const retainedJob=await evaluate("window.__riskReads.findLast(r=>r.path.startsWith('/api/portfolio/risk/jobs')&&r.data.state==='completed').data.id");
-  const earlier=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-17')).id;})()");
+  const earlier=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-17')&&w.initialFrameIds.includes(f.id)).id;})()");
   await set('#snapshot',earlier);await wait(idle);
   await check('changing the close clears the run and its choices, and the page says so',`document.querySelector('#position-details').hidden&&document.querySelector('#risk-factor').value===''&&${noRun}&&[...document.querySelectorAll('input[name=risk-choice]')].every(c=>!c.checked)&&document.querySelector('#notice').textContent.includes(${JSON.stringify(cleared)})`,
     "document.querySelector('#notice').textContent");
@@ -552,6 +552,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await persona('admin');
   await evaluate(`(async()=>{const b=await(await fetch('/api/bootstrap')).json();const r=await fetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:'context_risk_browser',name:'Synthetic context and risk account',kind:'human',roles:['trader','risk_analyst']})});if(!r.ok)throw Error(await r.text());})()`);
   await persona('context_risk_browser');
+  // A new account chooses its close session before it reads prices (D334).
+  await set('#close-session','demo_close_1600');await wait(idle);
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait("document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')&&!document.querySelector('#blotter-risk').disabled");
   await runOnDesk();
   await pressRow(':has(.desk-pill-fut)');await wait("document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&"+idle);

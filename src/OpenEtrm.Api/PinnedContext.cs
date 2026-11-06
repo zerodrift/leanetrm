@@ -28,8 +28,16 @@ public sealed record PinnedContext
     public InputFrame RequireFrame()=>Frame??throw Missing();
     // A frame belongs to exactly one knowledge view; working frames carry no context.
     public InputFrame Require(InputFrame? frame)=>frame is not null && frame.ContextId==(rereading?null:Context?.ContextId)?frame:throw Missing();
-    public Task Bind(NpgsqlConnection connection,Guid catalog,CancellationToken ct)=>
-        Context is null?Task.CompletedTask:BindExact(connection,catalog,Context,ct);
+    // Binding a recorded close also requires it to be the close in force now: one replaced after it was offered is refused (D334).
+    public async Task Bind(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
+    {
+        if(Context is not null)await BindExact(connection,catalog,Context,ct);
+        if(Frame is {Close:{} session,OriginCloseId:{} close})
+        {
+            await SelectedClose.RequireInForce(connection,catalog,close,ct);
+            await SelectedClose.BindSession(connection,catalog,session.Session,ct);
+        }
+    }
     // A stored context names its id and every coordinate; none is ever filled in later.
     internal static ScheduleContext Exact(ScheduleContext context)=>context is {ContextId:null} or {EffectiveOn:null} or {KnownAt:null} or {KnownThrough:null}
         ?throw new TemporalException("temporal_context","Pin an exact retained context."):context;

@@ -7,9 +7,9 @@ under runtime `turns_v14`; D325 completes identity-only page admission under
 under `turns_v16`. The original workspace contract follows.
 
 D284 extends the assistant with discovery, reads, previews and human-approved
-commands over the application's existing operations. The current runtime `turns_v16`
+commands over the application's existing operations. The current runtime `turns_v17`
 requires the workspace operations in 0162–0164, operating settings in 0181–0183,
-and migrations 0196/0198/0199 with matching API/browser assets. New turns retain the admitted operating policy;
+and migrations 0196/0198/0199/0203 with matching API/browser assets. New turns retain the admitted operating policy;
 older binaries cannot admit new work they cannot enforce. This local
 implementation does not qualify a hosted schema or deployment.
 
@@ -49,6 +49,13 @@ until classified. Schemas use actual request types and explicit query metadata
 for the reference inspector. Dictionaries remain objects; exact decimals remain
 strings. Inputs use `{body, parameters}`, with string query/route parameters.
 There is no arbitrary URL, HTTP client, SQL or execution tool.
+
+Discovery resolves the authorized catalog against one read-local snapshot of the
+application's route metadata (D328). Grouped route sources rebuild endpoints when
+enumerated; reading them once per operation made full discovery repeat that work.
+Each discovery still checks current permissions and reads the turn's retained
+context. Neither authority nor business data is cached. Cancellation is checked
+before metadata work and between operations; the configured read bound is unchanged.
 
 | Area | Operations |
 | --- | --- |

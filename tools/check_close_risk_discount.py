@@ -5,6 +5,7 @@ from fractions import Fraction
 from uuid import uuid4
 from exact_values import fraction, instant, rounded
 from check_ppa_bookings_http import profile_terms
+from close_session_fixture import record
 
 
 def prepare_discount(reference,market,security,manifest):
@@ -38,7 +39,7 @@ def prepare_discount(reference,market,security,manifest):
 def run_checks(owner, fixture, query, manifest, request, due, work):
     frames=owner.call('workspace')['frames']
     frame=next(f for f in frames if instant(f['at']).isoformat()=='2020-12-18T16:00:00+00:00' and set(f['curveContracts'])=={manifest['closeRisk']['discountCurve']} and not f.get('ppaBundle'))
-    close=owner.call('market/closes/register',{'requestId':str(uuid4()),'snapshotId':frame['id'],'name':'Synthetic discounted existing close'})
+    close=record(owner,frame,'Synthetic discounted existing close')
     book=str(uuid4())
     query(f"INSERT INTO trading.books VALUES('{manifest['catalogId']}','{book}','d0000000-0000-0000-0000-000000000001','Synthetic PPA discount receipt',1,'2020-01-01T00:00:00Z');")
     terms=profile_terms(manifest)
@@ -95,7 +96,7 @@ def check_floating_pair(owner,trader,query,manifest,request,due,work):
         'commodity':index['commodity'],'quantity':'10','firstCoefficient':'-1','swapType':'financial_floating_floating','firstFloating':floating,'floating':{**floating,'spread':'0.2'},'discounting':False})
     owner_frame=next(f for f in owner.call('workspace')['frames'] if instant(f['at'])==instant(frame['at']) and f['curveContracts']==frame['curveContracts'] and
         set(f['observationIds'])==set(frame['observationIds']) and set(f.get('frozenObservationIds') or [])==set(frame.get('frozenObservationIds') or []) and not f.get('ppaBundle'))
-    close=owner.call('market/closes/register',{'requestId':str(uuid4()),'snapshotId':owner_frame['id'],'name':'Synthetic floating pair close'})
+    close=record(owner,owner_frame,'Synthetic floating pair close')
     body=deepcopy(request);body['schedule']['requestId']=str(uuid4())
     body['definition'].update(closeId=close['id'],bookIds=[book])
     job=owner.call('jobs/close-book-risk/create',body);due(job);report=work(job)

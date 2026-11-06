@@ -55,6 +55,15 @@ internal static class GasTicketChecks
             Equal(new GasCashRequest("PAY", "consideration", "pay", "RCT", "receipt", "2.5", null, "2027-03-01T00:00:00Z"), r.CashSides[0], "cash side");
             Equal(new GasCashRequest("FEE", "fee", "pay", "DLV", "delivery", null, "TARIFF", "2027-03-01T00:00:00Z"), r.CashSides[1], "fee side");
         });
+        Check("an exact forecast source survives ticket mapping and reopening",()=>
+        {
+            var source=new CustomCurveProjectionInput(Guid.NewGuid(),Guid.NewGuid(),2,"output",null,
+                CustomCurveProjectionBinding.ContainingDeliverySelection,CustomCurveProjectionBinding.SupportedImplementation);
+            var selected=Receipt with{Values=Receipt.Values.Add("forecast_curve",GasTicket.ForecastValue(source))};
+            var mapped=Map(Draft(selected,Cash));
+            Equal(source,mapped.PhysicalSides[0].ForecastCurve,"forecast source");
+            Equal(GasTicket.ForecastValue(source),GasTicket.Reopen(mapped).Sides[0].Values["forecast_curve"],"reopened source");
+        });
         Check("every request property is reachable from one field", () =>
         {
             string[] structural = ["GasPhysicalRequest.Code", "GasPhysicalRequest.Link", "GasCashRequest.Code", "GasCashRequest.Role", "GasCompositionRequest.SnapshotId", "GasCompositionRequest.Convention", "GasCompositionRequest.KnowledgeMode",
@@ -67,7 +76,7 @@ internal static class GasTicketChecks
                 "GasCashRequest.Direction:cash_direction|fee_direction", "GasCashRequest.Source:cash_source|fee_source", "GasCashRequest.Stage:cash_stage|fee_stage", "GasCashRequest.Price:cash_price|fee_price",
                 "GasCashRequest.TariffCode:fee_tariff", "GasCashRequest.PaymentAt:cash_payment_at|fee_payment_at",
                 "GasCompositionRequest.BookId:book", "GasCompositionRequest.GasSetupId:gas_setup", "GasCompositionRequest.LegalEntityId:legal_entity", "GasCompositionRequest.LegalEntityRevision:legal_entity",
-                "GasCompositionRequest.CounterpartyId:counterparty", "GasCompositionRequest.CounterpartyRevision:counterparty"];
+                "GasPhysicalRequest.ForecastCurve:forecast_curve", "GasCompositionRequest.CounterpartyId:counterparty", "GasCompositionRequest.CounterpartyRevision:counterparty"];
             var names = reached.Select(x => x.Split(':')[0]).Order().ToArray();
             if (!parameters.SequenceEqual(names)) throw new Exception($"Request properties and the field map differ: {string.Join(", ", parameters.Except(names).Concat(names.Except(parameters)))}.");
             var editable = GasTicket.Description.TradeFields.Concat(GasTicket.Description.Sides.SelectMany(s => s.Fields)).Where(f => f.State == "editable").Select(f => f.Id).Order().ToArray();

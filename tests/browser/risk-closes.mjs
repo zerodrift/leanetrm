@@ -1,26 +1,19 @@
 import {setupWorkspaceProbe} from './workspace-probe.mjs';
-// A run's results are drawn only against the read of the close, context and books they were run at (D222). In a historical view every
-// close of one date shares the view's market context, so a run made at one of the date's closes, chosen from the job history at another,
-// is made elsewhere. A part the job history no longer lists is said to be missing from it, and what it might move is not known.
+// A run's results are drawn only against the read of the close, context and books they were run at (D222): a run made at one close,
+// chosen from the job history at another, is made elsewhere. A part the job history no longer lists is said to be missing from it, and
+// what it might move is not known.
 export async function run({command,evaluate,wait,click,set,persona,check,idle,url}){
   await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1250,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url});await wait(idle);
-  // A second close of 2020-12-18, registered by a market data approver from the date's close: the same instant, its own identity.
-  await persona('approver');
-  const second=await evaluate(`(async()=>{const boot=await(await fetch('/api/bootstrap')).json(),frame=boot.frames.find(f=>f.at.startsWith('2020-12-18'));
-    const response=await fetch('/api/market/closes/register',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:JSON.stringify({requestId:crypto.randomUUID(),snapshotId:frame.id,name:'Synthetic second close'})});
-    return response.ok?(await response.json()).at:null;})()`);
   await persona('risk');
   // Every risk read, and the job history read without a part when a check asks for it; installed again after each switch of user.
   await setupWorkspaceProbe(evaluate);
  await evaluate(`(()=>{const send=window.fetch;window.__riskReads=[];window.__riskJobs=[];window.fetch=window.__workspaceProbe(send,async(input,init,send)=>{const path=String(input);if(path==='/api/portfolio/risk/jobs'&&init?.method==='POST')window.__riskJobs.push(JSON.parse(init.body));
     let response=await send(input,init);if(path==='/api/portfolio/risk/jobs'&&(init?.method??'GET')==='GET'&&window.__dropFromHistory&&response.ok){const jobs=await response.json();response=new Response(JSON.stringify(jobs.filter(j=>j.id!==window.__dropFromHistory)),{status:200,headers:{'Content-Type':'application/json'}});}
     try{window.__riskReads.push({path,data:await response.clone().json()});}catch{}return response;});})()`);
-  await set('#date-context-on','2020-12-18');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');
-  await wait("document.querySelector('#workspace-mode-label').textContent.startsWith('Historical view')&&"+idle);
-  const closes=await evaluate("[...document.querySelector('#snapshot').options].filter(o=>o.value&&o.textContent.startsWith('Dec 18, 2020')).map(o=>o.value)");
-  // The job checks may have registered another close of the date already: any two of the date's closes share the view's context.
-  await check('a historical view lists the closes of 2020-12-18, the one just registered among them, all at one instant',`${JSON.stringify(closes)}.length>=2&&${JSON.stringify(second)}==='2020-12-18T16:00:00+00:00'`,JSON.stringify([closes,second]));
+  // One session offers one close per business day (D334): the run's close and another close are two days of the session.
+  const closes=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return ['2020-12-18','2020-12-17'].map(day=>w.frames.find(f=>f.at.startsWith(day)&&w.initialFrameIds.includes(f.id)).id);})()");
+  await check('the session offers one close for each of the two business days',`${JSON.stringify(closes)}.every(id=>[...document.querySelectorAll('#snapshot option')].some(o=>o.value===id))`,JSON.stringify(closes));
 
   const panelRisk="(()=>{const panel=document.querySelector('#position-details');return !panel.hidden&&panel.dataset.mode==='risk'&&!document.querySelector('#risk-report').hidden;})()";
   const inline="(()=>{const bar=document.querySelector('#desk-run');return !bar.hidden&&!document.querySelector('#desk-lens').hidden&&document.querySelector('#desk-lens [data-lens=risk]').getAttribute('aria-pressed')==='true';})()";
@@ -30,7 +23,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const openReport=async()=>{await click('#blotter-risk');await wait(panelRisk+"&&!document.querySelector('#risk-fields').disabled&&"+idle);};
   const fromHistory=async value=>{await set('#risk-job-history',value);await wait("!document.querySelector('#desk-run').hidden&&"+idle,60000);};
 
-  // A run made at the date's first close, queued as one job, is drawn there.
+  // A run made at the first close, queued as one job, is drawn there.
   await blotterAt(closes[0]);await openReport();
   await click('input[name=risk-choice][value=custom]');
   await set('#risk-factor',await evaluate("window.__riskReads.findLast(r=>r.path==='/api/portfolio/risk/catalog').data.scenarioTargets.find(t=>t.kind==='contract').id"));await set('#risk-bump','0.1');
@@ -40,15 +33,16 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     JSON.stringify([job.result.snapshotId,closes]));
   const context=job.context.contextId;
 
-  // At the date's other close the view's context is the same, and the run chosen from the history is not this close's risk.
+  // At the other close the run chosen from the history is not this close's risk.
   await blotterAt(closes[1]);
-  await check('the other close of the date is read at the same market context',`${workspace}.at(-1).data.blotter.context.contextId===${JSON.stringify(context)}`);
+  await check('the other close is read at its own market context',`${workspace}.at(-1).data.blotter.context.contextId!==${JSON.stringify(context)}`);
   await openReport();await fromHistory(job.id);
-  await check('a run made at another close of the date, at the same context, is made elsewhere: never drawn as this close\'s risk, and offered for export',elsewhere,
+  await check('a run made at another close is made elsewhere: never drawn as this close\'s risk, and offered for export',elsewhere,
     "[[...document.querySelectorAll('#desk-run-notes li')].map(li=>li.textContent),document.querySelector('#desk-lens').hidden,[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]");
-  // Back at its own close, context and books, the same run from the history is drawn.
+  // Working data captures its context again at each read, so back at its own close the run is still made elsewhere; it is drawn
+  // inline only at the exact read it was made at, as the first check shows.
   await blotterAt(closes[0]);await openReport();await fromHistory(job.id);
-  await check('the run from the history at its own close, context and books is drawn inline',`${inline}&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-label').textContent.split(' · ').at(-1)==='1 shock'`,
+  await check('back at its own close a run from an earlier read of working data is made elsewhere, never drawn as current risk',elsewhere,
     "[[...document.querySelectorAll('#desk-run-notes li')].map(li=>li.textContent),[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' ')]");
 
   // A run of several parts whose part the job history no longer lists: that part is missing from the history, and a position no listed

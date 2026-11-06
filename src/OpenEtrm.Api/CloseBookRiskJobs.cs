@@ -47,6 +47,7 @@ public static class CloseBookRiskJobs
         await using(var replay=ScheduleStore.Command(connection,"SELECT automation.close_risk_replay($1::jsonb)::text",JsonSerializer.Serialize(request,Json)))
             if(await replay.ExecuteScalarAsync(ct) is string prior)return JsonSerializer.Deserialize<JsonElement>(prior);
         var close=await MarketCloses.Read(connection,database.Manifest.CatalogId,request.Definition.CloseId,ct);
+        await SelectedClose.RequireInForce(connection,database.Manifest.CatalogId,close.Id,ct);
         var context=(await new KnowledgeStore(close.Definition.CatalogId).Capture(connection,
             new(DateOnly.FromDateTime(close.At.UtcDateTime).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
         await MarketContextStore.Bind(connection,close.Definition.CatalogId,context,ct);

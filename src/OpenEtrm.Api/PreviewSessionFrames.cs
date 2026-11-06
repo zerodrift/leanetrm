@@ -16,7 +16,8 @@ public sealed partial class PreviewSession
     private Guid aliasNamespace=Guid.NewGuid();
     public FrameCatalogInfo FrameCatalog{get;private set;}=new("exact_recorded_close_pins_v1","preserved_session_plus_latest_visible_closes_v1",MaximumFrames,0,false);
     public ImmutableArray<InputFrame> PersistentFrames=>[..Frames.Values.Where(frame=>!discoveredFrames.Contains(frame.Id)&&!IsLiveFrame(frame.Id))];
-    public ImmutableArray<InputFrame> VisibleFrames=>[..Frames.Values.Where(frame=>frame.PpaBundle is null && frame.ContextId==MarketContext?.ContextId).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)];
+    // A replaced close stays resolvable for what was saved with it, but is never offered again (D334).
+    public ImmutableArray<InputFrame> VisibleFrames=>[..Frames.Values.Where(frame=>frame.PpaBundle is null && frame.ContextId==MarketContext?.ContextId && frame.Close?.ReplacedBy is null).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)];
     public ImmutableArray<InputFrame> ContextAliases(ScheduleContext? context)=>Live?.Frame is {} live&&live.ContextId==context?.ContextId?[live]:context is null?[]:
         [..Frames.Values.Where(frame=>discoveredFrames.Contains(frame.Id)&&frame.OriginCloseId is null&&frame.ContextId==context.ContextId).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)];
     public ImmutableArray<InputFrame> SelectContextAliases(PreviewData data,ScheduleContext context)
@@ -42,8 +43,8 @@ public sealed partial class PreviewSession
     public Guid? ContextFrame(InputFrame? previous,SessionFramePlan plan,ScheduleContext context)
     {
         var day=DateWorkspace.Date(context.EffectiveOn);
-        var candidates=plan.Frames.Where(f=>DateOnly.FromDateTime(f.At.UtcDateTime)==day).ToArray();
-        if(previous is not null&&DateOnly.FromDateTime(previous.At.UtcDateTime)==day)
+        var candidates=plan.Frames.Where(f=>BusinessDay(f)==day).ToArray();
+        if(previous is not null&&BusinessDay(previous)==day)
         {
             if(previous.OriginCloseId is {} close)candidates=candidates.Where(f=>f.OriginCloseId==close).ToArray();
             else
@@ -55,6 +56,8 @@ public sealed partial class PreviewSession
         }
         return candidates.Length==1?candidates[0].Id:null;
     }
+    // A recorded close's business day is its session's; a working snapshot's is the UTC date of its instant (D334).
+    public static DateOnly BusinessDay(InputFrame frame)=>frame.Close?.BusinessDate??DateOnly.FromDateTime(frame.At.UtcDateTime);
     // Session-scoped identity only: no financial values, authority or read
     // results are cached, and different resolved selections get different IDs.
     private Guid AliasId(string sourceKind,Guid source,InputFrame frame)

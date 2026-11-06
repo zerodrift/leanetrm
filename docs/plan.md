@@ -1,53 +1,97 @@
 # Delivery plan and acceptance criteria
 
-D334 adds the [common physical delivery view](physical-delivery-view.md): explicit
+D342 adds the [common physical delivery view](physical-delivery-view.md): explicit
 native intervals, exact membership/source references, quantity tracks and declared
 capabilities. Gas, crude and LNG reuse one grid over their native reads; commodity
 operations retain their own policies and authority. Dynamic quantity resolution
 and additional operational adapters remain separately qualified work.
 
-D333 replaces physical trade and delivery-day pickers with shared sortable,
+D341 replaces physical trade and delivery-day pickers with shared sortable,
 filterable grids. Exact binding/obligation/day identity, recorded source statuses
 and native quantity text remain authoritative; selection preserves context, edit
-and request-recovery guards. See [the operations grid contract](physical-workspace.md#trade-and-delivery-grids-d333).
+and request-recovery guards. See [the operations grid contract](physical-workspace.md#trade-and-delivery-grids-d341).
 
-D332 refines the [physical operations layout](physical-workspace.md#focused-operations-layout-d332):
+D340 refines the [physical operations layout](physical-workspace.md#focused-operations-layout-d340):
 compact instrument context, responsive saved-term cards, focused delivery stages
 and grouped billing inputs. Presentation reuses native operations and existing
 context, permission, edit and request-recovery guards.
 
-D331 moves physical work into **Operations → Physical operations**. The Blotter
+D339 moves physical work into **Operations → Physical operations**. The Blotter
 keeps pricing, retained instrument overviews and read-only Side schedules. The
 operations directory reads exact booked metadata without PV, refuses missing held
 source metadata and follows the header context. Gas and crude reuse their native
 workflows; gas billing has its own tab. Gas/crude/LNG overview presenters share a
 physical outline with commodity-specific saved conventions. LNG operational
 actuals and other unsupported commodity workflows remain explicitly TBD.
-Migration 0202 / assistant `turns_v19` add page admission and native discovery;
+Migration 0206 / assistant `turns_v20` add page admission and native discovery;
 financial contracts, permissions and persistence remain their existing owners.
 
-D330 adds [manual gas delivery operations](gas-delivery-operations.md): versioned
+D338 adds [manual gas delivery operations](gas-delivery-operations.md): versioned
 service accounts, nomination/retro requests, separate external acknowledgments,
 reviewed schedule adoption, signed operator statements and paired imbalance
 agreements. The dedicated gas workflow groups before flow, scheduling,
 after flow and reconciliation. It reuses native daily quantities, facility
 allocations, gas billing and the Blotter's retained-command transport. Migration
-0201 and assistant `turns_v18` require separate release qualification. Live
+0205 and assistant `turns_v19` require separate release qualification. Live
 connectivity, portfolio imbalance positions and accounting posting remain outside
 this bounded consumer; new permissions require explicit grants.
 
-D329 adds [final daily gas cash determinations](gas-cash-billing.md): an explicit
+D337 adds [final daily gas cash determinations](gas-cash-billing.md): an explicit
 completed-day/fixed-delivery consumer with original and correcting contributions,
 exact accepted source links and reviewed native/agent operations. It reuses swap
 cash-restatement arithmetic while preserving crude's cumulative invoice contract.
-Migration 0200 and assistant `turns_v17` require separate release qualification;
+Migration 0204 and assistant `turns_v18` require separate release qualification;
 invoices, payments, accounting journals and contractual PV changes are excluded.
 
-D328 records the [accounting policy and standards-update boundary](accounting-policy-boundary.md).
+D336 records the [accounting policy and standards-update boundary](accounting-policy-boundary.md).
 This is a design contract: exact reference/policy versions, separate posting
 periods and reviewed adoption. Its first proposed consumer is a synthetic gas
 billing correction; no journal engine, accounting policy or compliance claim is
 implemented by this record.
+
+D335 replaces the floating walkthrough box with inline controls and a cursor
+that aims before native presentation actions. Controls-only digests and native
+swap entry avoid full-portfolio valuation for navigation. Unsaved swap setters
+cover explicit structure, quantity, agreed fixed price, fixed-side direction and
+memo. Dynamic book/index/curve/party selection, delivery dates, remaining payment
+terms and par policy need source-bound typed adapters before assisted filling;
+no financial defaults or generic DOM automation are admitted. Numerical overview
+digests can still refuse oversized results and take the underlying pricing time;
+controls mode is not numerical evidence. Model round trips remain part of latency.
+
+
+D333 makes the OTC examples explicit futures-plus-basis curves, using separate
+synthetic spread assessments with a small winter premium. Ordinary graph
+arithmetic and instrument PV preserve independent futures and basis risk.
+
+D332 extends common whole-interval curve binding to mixed grids and the physical
+gas ticket, with retained source/query identity and normal connected PV/risk.
+The shared curve base exposes one enforced `Lookup` contract with explicit
+policies and selected input evidence. Local ticket, booking, inspection and
+retained-worker checks qualify the future-delivery profile; hosted publication
+and indexed-purchase cash lifecycle admission remain
+separate. See [curve evaluation](curve-evaluation.md).
+
+D331 locally implements separate Henry Hub daily/monthly OTC projections and a
+mixed-grid splice through existing saved graphs and exact published-source links.
+The managed physical cash example now consumes that hierarchy through the normal
+daily lookup and PV contracts. Explicit range boundaries do not add automatic
+rollover or full historical coverage. Migration 0200, durable indexed-physical
+booking/payment admission and hosted activation require their own release work.
+
+D330 starts the Henry Hub setup with separate HHD daily and H monthly futures
+curves. A disposable local example qualifies 26 daily contracts, 36 monthly
+contracts and three synthetic closes through existing native pricing and retained
+risk operations. D331 adds the separate OTC projection definitions and explicit
+delivery-range splice retaining source lineage. Automatic rollover, full physical
+booking admission and hosted load remain separate work.
+
+D329 locally qualifies the [daily indexed physical gas cash example](indexed-physical-gas-example.md)
+using shared Side payment behavior and ordinary Instrument PV/risk. Next admission
+requires exact persisted relationships, authorized/idempotent determination and
+allocation operations, certified historical reads, native ticket/inspection and
+retained worker parity. The managed example adds no booking/payment API, schema
+migration or hosted activation and does not broaden existing physical PV.
 
 D327 connects [native physical operations to the assistant](physical-workspace.md#physical-assistant-operations).
 Facility questions retain an explicit operating date and certified knowledge cutoff
@@ -2023,7 +2067,12 @@ remains a later increment; current response paging is not that qualification.
 ### Assistant page catalog and guide follow-up (D325–D326)
 
 Identity-only page asks and dismissible, tracked guide controls are implemented.
-Dashboard widget evidence, crude-setup and volatility reads remain outside the
-assistant until named authorized operation consumers are classified and qualified.
-These pages currently contribute page/context identity only. Arbitrary page
-controls, generated UI and business-effect walkthrough steps remain excluded.
+Dashboard widget evidence and volatility reads remain outside the assistant until
+named authorized operation consumers are classified and qualified. These pages
+currently contribute page/context identity only; D327 adds native physical reads.
+Arbitrary page controls, generated UI and business-effect walkthrough steps remain excluded.
+
+Full operation discovery resolves against one read-local route-metadata snapshot
+(D328), removing repeated grouped-route construction without extending the agent's
+read limit. Other read latency and the security epoch hold described in D245 remain
+separate work; this change is not a general read-performance qualification.

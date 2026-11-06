@@ -9,9 +9,11 @@ using OpenEtrm.Shared.Temporal;
 namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record MarketDatesRequest([property:JsonRequired] string? Curve,[property:JsonRequired] string TimeZone,RecipeDefinition? Definition=null,int? MaximumDates=null);
-public sealed record MarketDateFrame(Guid Id,DateTimeOffset At,string Name,string BusinessDateUTC);
-public sealed record MarketDateChoice(string Date,ImmutableArray<MarketDateFrame> Frames);
+public sealed record MarketDatesRequest([property:JsonRequired] string? Curve,[property:JsonRequired] string TimeZone,[property:JsonRequired] string Session,
+    RecipeDefinition? Definition=null,int? MaximumDates=null);
+public sealed record MarketDateFrame(Guid Id,DateTimeOffset At,string Name,string BusinessDate);
+// A session business day: its one close in force, and how many recorded closes it replaced (D334).
+public sealed record MarketDateChoice(string Date,ImmutableArray<MarketDateFrame> Frames,int Replaced);
 public sealed record UnavailableMarketDate(string Date,string Reason);
 public sealed record MarketDatesResponse(ScheduleContext? Context,string? Curve,string TimeZone,string SelectionPolicy,
     ImmutableArray<MarketDateChoice> Dates,ImmutableArray<UnavailableMarketDate> Unavailable,string? MinDate,string? MaxDate)
@@ -43,8 +45,12 @@ public static class MarketDates
         {throw new TemporalException("time_zone","Choose an available display time zone explicitly.");}
         if(frames.IsDefault||frames.Length>128||frames.Select(frame=>frame.Id).Distinct().Count()!=frames.Length)
             throw new MarketDataException("market_dates_input","Supply at most 128 distinct retained snapshot choices.");
+        if(string.IsNullOrWhiteSpace(request.Session))throw new MarketDataException("market_dates_input","Choose a close session explicitly.");
+        // Only recorded closes of the named session are closes; a day lists the close in force alone (D334).
+        frames=[..frames.Where(frame=>frame.Close?.Session==request.Session&&frame.Close.ReplacedBy is null)];
         foreach(var frame in frames)_=pin.Require(frame);
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        await SelectedClose.BindSession(connection,database.Manifest.CatalogId,request.Session,ct);
         await RequireAccess(database,connection,ct);
         if(request.MaximumDates is <1 or >128)throw new MarketDataException("market_dates_input","Request from one to 128 dates explicitly.");
         var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
@@ -175,8 +181,8 @@ public static class MarketDates
         async Task Qualify(InputFrame frame)
         {
             ct.ThrowIfCancellationRequested();
-            var date=DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(frame.At,zone).DateTime).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
-            var businessDate=DateOnly.FromDateTime(frame.At.UtcDateTime).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
+            var businessDate=Day(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
+            var date=businessDate;
             if(pin.Context is {} context&&businessDate!=context.EffectiveOn)
             {unavailable.Add(new(date,"market_date"));return;}
             try
@@ -200,15 +206,19 @@ public static class MarketDates
             else foreach(var frame in batch){await Qualify(frame);processed++;}
             if(request.MaximumDates is {} maximum&&available.Select(item=>item.Date).Distinct().Count()>=maximum)break;
         }
+        var replaced=await ReplacedCounts(connection,database.Manifest.CatalogId,request.Session,ct);
+        // A day whose close in force this reader cannot see is unavailable, never answered with the close it replaced.
+        unavailable.AddRange((await HiddenDays(connection,database.Manifest.CatalogId,request.Session,ct)).Select(day=>new UnavailableMarketDate(day,"close_not_visible")));
         var dates=available.GroupBy(row=>row.Date,StringComparer.Ordinal).OrderBy(group=>group.Key,StringComparer.Ordinal)
-            .Select(group=>new MarketDateChoice(group.Key,[..group.Select(row=>row.Frame).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)])).ToImmutableArray();
+            .Select(group=>new MarketDateChoice(group.Key,[..group.Select(row=>row.Frame).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)],
+                replaced.GetValueOrDefault(group.Key))).ToImmutableArray();
         var validDates=dates.Select(day=>day.Date).ToHashSet(StringComparer.Ordinal);
         await RequireAccess(database,connection,ct);
         return new(pin.Context,request.Curve,zone.Id,SelectionPolicy,dates,
             [..unavailable.Where(day=>!validDates.Contains(day.Date)).Distinct().OrderBy(day=>day.Date,StringComparer.Ordinal).ThenBy(day=>day.Reason,StringComparer.Ordinal)],
             dates.IsEmpty?null:dates[0].Date,dates.IsEmpty?null:dates[^1].Date){HasMoreCandidates=processed<frames.Length};
 
-        static DateOnly Day(InputFrame frame)=>DateOnly.FromDateTime(frame.At.UtcDateTime);
+        static DateOnly Day(InputFrame frame)=>frame.Close!.BusinessDate;
         async Task<T> AtContext<T>(ScheduleContext context,Func<Task<T>> read)
         {
             await using(var save=ScheduleStore.Command(connection,"SAVEPOINT market_dates_read"))await save.ExecuteNonQueryAsync(ct);
@@ -228,8 +238,20 @@ public static class MarketDates
     internal static IEnumerable<ImmutableArray<InputFrame>> CandidateBatches(ImmutableArray<InputFrame> frames,TimeZoneInfo zone,bool limited)
     {
         if(!limited){yield return [..frames.OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)];yield break;}
-        foreach(var day in frames.GroupBy(frame=>DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(frame.At,zone).DateTime)).OrderByDescending(group=>group.Key))
+        foreach(var day in frames.GroupBy(frame=>frame.Close?.BusinessDate??DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(frame.At,zone).DateTime)).OrderByDescending(group=>group.Key))
             yield return [..day.OrderByDescending(frame=>frame.At).ThenBy(frame=>frame.Id)];
+    }
+    // How many visible recorded closes each business day of the session has beyond its close in force.
+    static async Task<Dictionary<string,int>> ReplacedCounts(NpgsqlConnection connection,Guid catalog,string session,CancellationToken ct)
+    {
+        var rows=await PreviewDatabase.Rows(connection,"SELECT json_build_object('day',business_date,'replaced',count(*)-1)::text FROM market_data.market_closes "+
+            "WHERE catalog_id=$1 AND session_code=$2 GROUP BY business_date",[catalog,session],ct);
+        return rows.ToDictionary(row=>row.Text("day"),row=>int.Parse(row.Text("replaced"),CultureInfo.InvariantCulture),StringComparer.Ordinal);
+    }
+    static async Task<string[]> HiddenDays(NpgsqlConnection connection,Guid catalog,string session,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT array(SELECT to_char(d,'YYYY-MM-DD') FROM unnest(security.close_session_hidden_days($1,$2))d)",catalog,session);
+        return (string[])(await command.ExecuteScalarAsync(ct))!;
     }
     static async Task RequireAccess(PreviewDatabase database,NpgsqlConnection connection,CancellationToken ct)
     {

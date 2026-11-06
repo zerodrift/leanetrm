@@ -23,7 +23,7 @@ type Notice={moved:boolean;key?:string;reason?:string;confirm?:{action:'go'|'bac
 export type PanelOptions={launcherHidden?:()=>boolean;launcherMinimized?:()=>boolean;restoreLauncher?:()=>void;api:Api;root:string;identity:()=>string;zone:()=>string;available:()=>boolean;pageBusy:()=>boolean;
   act:(work:()=>Promise<void>)=>Promise<void>;place:()=>Place;names:()=>Names;trade:()=>string|undefined;unsaved:()=>boolean;
   // Moves the page to a target in the context it shows; selects a target's context, then moves; and restores a place.
-  open:(target:Target)=>Promise<void>;go:(target:Target)=>Promise<void>;restore:(place:Place)=>Promise<void>;changed?:()=>Promise<void>;presentationRevision?:()=>string;presentation?:(step:PresentationStep,signal:AbortSignal)=>Promise<HTMLElement>};
+  open:(target:Target)=>Promise<void>;go:(target:Target)=>Promise<void>;restore:(place:Place)=>Promise<void>;changed?:()=>Promise<void>;presentationRevision?:()=>string;presentationLocate?:(step:PresentationStep)=>HTMLElement|null;presentation?:(step:PresentationStep,signal:AbortSignal)=>Promise<HTMLElement>};
 
 const streamed=['accepted','step','navigation','walkthrough','text','usage','completed','failed','cancelled','interrupted','replaced','refused'];
 const terminal=['completed','failed','cancelled','interrupted'];
@@ -74,10 +74,24 @@ export function setupAssistant(options:PanelOptions){
   const presented=new Set<string>(),progress=new Map<string,number>(),resumeReports=new Map<string,string>(),takenOver=new Set<string>();
   const planKey=(turnId:string,sequence:number)=>JSON.stringify([options.identity(),conversation?.id,turnId,sequence]);
   const reportKey=()=>JSON.stringify([canonical(options.place().report),options.presentationRevision?.()??null]);
-  const walkthrough=setupWalkthrough({identity:options.identity,context:()=>JSON.stringify(options.place().context),
+  async function reviewReady(step:Extract<PresentationStep,{kind:'open'}>,signal:AbortSignal){
+    signal.throwIfAborted();const own=presenting;if(!own)throw Error('The walkthrough ended.');
+    const available=()=>presenting===own&&(options.place().report.page.startsWith('blotter')?'blotter':options.place().report.page)===(step.page.startsWith('blotter')?'blotter':step.page)&&!changesContext(own.value.plan.context,options.place().context);
+    while(!views.find(v=>v.id===own.turnId)?.ending){await reread();signal.throwIfAborted();if(!available())throw Error('The page changed before Review opened.');await new Promise(resolve=>setTimeout(resolve,100));}
+    if(!available()||views.find(v=>v.id===own.turnId)?.ending?.state!=='completed')throw Error('The proposal turn did not complete here.');
+    return {own,available};
+  }
+  const walkthroughHost=el('div','assistant-walkthrough-controls');get('assistant-composer').before(walkthroughHost);
+  const walkthrough=setupWalkthrough({host:walkthroughHost,locate:async(step,signal)=>{
+    if(step.kind==='open'&&step.pane==='review'){
+      const {own}=await reviewReady(step,signal);
+      return [...(items.get(own.turnId)?.querySelectorAll<HTMLElement>('[data-assistant-review-step]')??[])].find(button=>button.dataset.assistantReviewStep===String(step.proposalStep))??null;
+    }
+    return options.presentationLocate?.(step)??null;
+  },identity:options.identity,context:()=>JSON.stringify(options.place().context),
     verify:async()=>{
       const own=presenting,held=conversation;if(!own||!held)return false;
-      const read=await options.api<Read>(`assistant/conversations/${held.id}?after=0`);
+      const read=await options.api<Read>(`assistant/conversations/${held.id}?after=${own.sequence-1}`);
       const event=readEvents(read).find(e=>e.turnId===own.turnId&&e.sequence===own.sequence);
       if(event?.hidden){const view=views.find(v=>v.id===own.turnId);if(view){view.hidden=event.hidden;view.text='';view.targets=[];view.walkthroughs=[];update(view);}}
       return conversation?.id===held.id&&presenting===own&&event?.kind==='walkthrough'&&!event.hidden;
@@ -87,9 +101,7 @@ export function setupAssistant(options:PanelOptions){
       if(step.kind!=='go'){const actual=options.place().report.page,canonical=(page:string)=>page.startsWith('blotter')?'blotter':page;if(canonical(actual)!==canonical(step.page))throw Error('The page changed.');}
       if(step.kind==='open'&&step.pane==='review'){
         // A review is an ordinary owner read. It cannot select consent or invoke authorization.
-        const available=()=>presenting===own&&(options.place().report.page.startsWith('blotter')?'blotter':options.place().report.page)===(step.page.startsWith('blotter')?'blotter':step.page)&&!changesContext(own.value.plan.context,options.place().context);
-        while(!views.find(v=>v.id===own.turnId)?.ending){await reread();signal.throwIfAborted();if(!available())throw Error('The page changed before Review opened.');await new Promise(resolve=>setTimeout(resolve,100));}
-        if(views.find(v=>v.id===own.turnId)?.ending?.state!=='completed')throw Error('The proposal turn did not complete.');
+        const {available}=await reviewReady(step,signal);
         await actions.review({turnId:own.turnId,step:step.proposalStep!},signal,available);signal.throwIfAborted();
         return document.querySelector<HTMLElement>('.assistant-action-review')!;
       }
@@ -139,6 +151,7 @@ export function setupAssistant(options:PanelOptions){
   }
 
   function show(open:boolean,focus=true){
+    if(!open)walkthrough.stop();
     opened=open;panel.hidden=!open;document.body.classList.toggle('assistant-open',open);launcher.setAttribute('aria-expanded',String(open));
     if(open){hideHistory();unread=false;void markRead();void readAgents();}
     persist();sync();
@@ -171,9 +184,11 @@ export function setupAssistant(options:PanelOptions){
 
     if(!view.hidden&&view.ending?.state==='completed')for(const step of view.steps)
       if('tool' in step&&step.tool==='propose_page_action'&&step.code===null)
-        parts.push(button('Review proposed change','Review the exact proposed change before authorization',()=>{
+      {
+        const control=button('Review proposed change','Review the exact proposed change before authorization',()=>{
           void actions.review({turnId:view.id,step:step.ordinal}).catch(error=>announce(error instanceof Error?error.message:'The proposal could not be opened.'));
-        }));
+        });control.dataset.assistantReviewStep=String(step.ordinal);parts.push(control);
+      }
     if(view.ending?.incomplete)parts.push(el('p','assistant-incomplete','Incomplete answer'));
     const ending=view.ending&&endingLine(view.ending);
     if(ending)parts.push(el('p','assistant-ending',ending));
@@ -543,7 +558,7 @@ export function setupAssistant(options:PanelOptions){
 
   launcher.onclick=()=>{if(options.launcherMinimized?.())options.restoreLauncher?.();show(!opened);};
   get('assistant-close').onclick=()=>show(false);
-  panel.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.isComposing&&!get('assistant-history').hidden)closeHistory();else if(event.key==='Escape'&&!event.isComposing)show(false);});
+  panel.addEventListener('keydown',event=>{if(event.defaultPrevented)return;if(event.key==='Escape'&&!event.isComposing&&!get('assistant-history').hidden)closeHistory();else if(event.key==='Escape'&&!event.isComposing)show(false);});
   picker.onchange=()=>{
     const agent=chosen();
     try{if(agent)localStorage.setItem(stored('agent'),JSON.stringify({agentId:agent.id,version:agent.version}));else localStorage.removeItem(stored('agent'));}

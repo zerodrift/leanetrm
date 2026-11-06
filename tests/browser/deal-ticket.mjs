@@ -93,7 +93,7 @@ export async function run(actions){
    return ${q(soonIds)}.every(id=>!sent.includes(id))&&b.draft.sides.every(s=>s.kind!=='floating');})&&${q(soonIds)}.length===10`,`({soon:${q(soonIds)},bodies:ticketBodies.length})`);
  await check('a booking whose response is lost keeps its request and locks the ticket',`document.querySelector('#gas-ticket > div').inert&&document.querySelector('#gas-ticket .ticket-booking').textContent.includes('The booking is not confirmed')`,"document.querySelector('#gas-ticket .ticket-booking').textContent");
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
- await set('#snapshot',frame);await wait(idle);
+ await set('#snapshot',frame.id);await wait(idle);
  await evaluate("window.__pendingChangeWaits=0;{const send=window.fetch;window.fetch=(input,init)=>{if(String(input)==='/api/trading/changes')window.__pendingChangeWaits++;return send(input,init);};}");
  await click('#nav-futures');await wait("document.querySelector('#page-title').textContent==='Blotter'&&"+idle);
  await evaluate('new Promise(resolve=>setTimeout(resolve,1200))');

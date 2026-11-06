@@ -1,3 +1,4 @@
+from check_physical_operations import january_delivery_frame
 """Synthetic manual gas scheduling and independent statement imbalance lifecycle."""
 from uuid import uuid4
 from preview_client import PreviewClient, initial_frame
@@ -11,7 +12,7 @@ def run_checks(url, query, manifest):
         query(f"INSERT INTO security.role_grants SELECT '{uuid4()}','{principal}',id,'{manifest['tenantId']}','{manifest['workspaceId']}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '1 hour',false FROM security.roles WHERE code='{role}';")
     workspace=c.call('workspace')
     before={'snapshotId':initial_frame(workspace,'2020-12-18')['id'],'convention':'physical_gas_fixed_quantity_v4','knowledgeMode':'current'}
-    after={**before,'snapshotId':next(f['id'] for f in workspace['frames'] if f['at'].startswith('2021-01-15T08:'))}
+    after={**before,'snapshotId':january_delivery_frame(workspace)}
     catalog=c.call('gas/catalog',before);point=next(p for p in catalog['locations'] if p['deliveryPoint']=='synthetic_gas_point_a')
     terms={**before,**trade_booking(),'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],'definitionRevisionId':point['definitionRevisionId'],'gasSetupId':catalog['gasSetupId'],'discounting':False,'profile':'fixed_gas_composition_v1',
       'physicalSides':[{'code':'receipt','pipeline':point['pipeline'],'zone':point['zone'],'deliveryPoint':point['deliveryPoint'],'product':point['product'],'direction':'receive','deliveryFrom':'2021-01-01','deliveryTo':'2021-01-03','quantityBasis':'per_operating_day','quantity':'100','link':None}],
@@ -87,7 +88,7 @@ def run_checks(url, query, manifest):
     check_authority(query,manifest,ncommand,command,basis,certificate)
     from concurrent.futures import ThreadPoolExecutor
     other=PreviewClient(url);other.bootstrap();other.call('profile',{'profile':'trader'})
-    other_context={**after,'snapshotId':next(f['id'] for f in other.call('workspace')['frames'] if f['at'].startswith('2021-01-15T08:'))}
+    other_context={**after,'snapshotId':january_delivery_frame(other.call('workspace'))}
     other_preview={**transfer,'context':other_context}
     other_review=other.call('gas/operations/preview',other_preview)
     other_command={**command,'operationId':str(uuid4()),'preview':other_preview,'previewHash':other_review['previewHash']}
@@ -120,7 +121,7 @@ def run_checks(url, query, manifest):
     # Immutable facts, exact prefix FK and independent permissions are exercised on stock PG.
     query("DO $$BEGIN UPDATE trading.gas_balance_statements SET balance=42;RAISE EXCEPTION 'mutable statement';EXCEPTION WHEN SQLSTATE '55000' THEN NULL;END$$;")
     c.call('profile',{'profile':'risk'})
-    public_context={**after,'snapshotId':next(f['id'] for f in c.call('workspace')['frames'] if f['at'].startswith('2021-01-15T08:'))}
+    public_context={**after,'snapshotId':january_delivery_frame(c.call('workspace'))}
     public=c.call('gas/quantities/read',dict(context=public_context,tradeId=trades[0],selectionPolicy='operational_projection_v1'))
     assert all('synthetic-service' not in h['evidence'] and 'Synthetic pipeline response' not in h['evidence'] for row in public['rows'] for h in row['heads'])
     c.call('gas/operations/read',dict(context=public_context,tradeId=trades[0],day=day),expected=403)

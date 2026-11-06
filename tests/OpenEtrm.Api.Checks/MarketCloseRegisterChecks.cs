@@ -9,6 +9,21 @@ internal static class MarketCloseRegisterChecks
     {
         await using var runtime=NpgsqlDataSource.Create(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_RUNTIME")!);
         await using var selectedDatabase=new PreviewDatabase(database.Manifest with{RevisionId=revisionId},runtime);
+        // D334: the close is recorded for a session over its exact bundle, at the frame's instant, by a granted recorder.
+        var cutoff=actualFrame.At.UtcDateTime;
+        var day=DateOnly.FromDateTime(cutoff);
+        var draft=new CloseSessionDraft("test_indexed_close","Synthetic indexed close","test_utc_every_day",cutoff.ToString("HH:mm",System.Globalization.CultureInfo.InvariantCulture),
+            ["daily_gas"],day.AddDays(-1),day.AddDays(1));
+        var saved=await database.WithIdentity("editor","WriteMarketDefinitions",(connection,ct)=>CloseSessions.Save(connection,selectedDatabase,new(Guid.NewGuid(),draft),ct),CancellationToken.None);
+        await database.WithIdentity("approver","SealMarketDefinitions",(connection,ct)=>CloseSessions.Publish(connection,database.Manifest.CatalogId,
+            new(Guid.NewGuid(),draft.Code,saved.GetProperty("version").GetInt32(),saved.GetProperty("generation").GetInt32()),ct),CancellationToken.None);
+        await database.WithIdentity("admin","ManageAccess",async(connection,ct)=>
+        {
+            await using var directory=ScheduleStore.Command(connection,"SELECT security.administration_directory()::text");
+            using var members=System.Text.Json.JsonDocument.Parse((string)(await directory.ExecuteScalarAsync(ct))!);
+            var approver=members.RootElement.GetProperty("members").EnumerateArray().Single(m=>m.GetProperty("login").GetString()=="approver").GetProperty("id").GetGuid();
+            return await CloseSessions.Grant(connection,database.Manifest.CatalogId,new(Guid.NewGuid(),approver,draft.Code,DateTimeOffset.UnixEpoch,new(9999,1,1,0,0,0,TimeSpan.Zero)),ct);
+        },CancellationToken.None,admission:Admission.Administration);
         await database.WithIdentity("approver","PublishMarketData",async(connection,ct)=>
         {
             var data=await selectedDatabase.Read(connection,ct,observationIds:actualFrame.ObservationIds,
@@ -25,7 +40,7 @@ internal static class MarketCloseRegisterChecks
             var actuals=snapshot.Selections.Where(pin=>pin.Observation.Role==ObservationRole.IndexFixing).ToImmutableArray();
             if(actuals.IsEmpty||actuals.Any(pin=>pin.Input.Use!=InputUse.FrozenFact))
                 throw new Exception("The registration fixture must have actual index fixings without explicit frame markers.");
-            var request=new MarketCloseRegister(Guid.NewGuid(),selected.Id,"Synthetic indexed close");
+            var request=new MarketCloseRegister(Guid.NewGuid(),selected.Id,"Synthetic indexed close","test_indexed_close",day);
             var close=await MarketCloses.Register(selectedDatabase,connection,PinnedContext.Current(selected),selected,request,ct);
             var retained=await MarketCloses.Frame(connection,database.Manifest.CatalogId,close.Id,null,ct);
             if(!actuals.All(pin=>retained.FrozenObservationIds.Contains(pin.Observation.Key.Id)))

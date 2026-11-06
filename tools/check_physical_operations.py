@@ -67,3 +67,10 @@ def contract_delivery_checks(client, path, request, quantity, start, end, capabi
     from check_physical_delivery_authority import check
     check(client,path,request,query,manifest)
     print('PASS physical delivery contract: retained window, exact quantity/source/reference scope, capabilities and stale selection refusal',flush=True)
+
+
+def january_delivery_frame(workspace):
+    """The scenarios explicitly operate at the original January 15 08:00 input."""
+    frames=[f for f in workspace['frames'] if f['id'] in workspace['initialFrameIds'] and f['at'].startswith('2021-01-15T08:')]
+    assert len(frames)==1,'Select one exact original January delivery scenario frame'
+    return frames[0]['id']

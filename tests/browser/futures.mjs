@@ -49,7 +49,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate("(async()=>{const b=await(await fetch('/api/bootstrap')).json();sessionStorage.setItem('openetrm.futures.request.'+[b.runId,b.tenantId,b.workspaceId,'trader'].join(':'),JSON.stringify({path:'futures/book',operationId:'00000000-0000-0000-0000-000000000001',body:{executedAt:'2020-12-18T16:00:00Z'}}));})()");
   await persona('trader');
   await check('Trader has Blotter under Trading',"document.querySelector('#nav-futures').textContent.includes('Blotter')");
-  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
+  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
   // Exercise the first valuation after an input change, rather than reopening an unchanged cached read.
   await click('#nav-market');await set('#snapshot',frame);await wait(idle);await evaluate('window.__futuresResponses=[]');const firstRead=0;
   await evaluate("window.__holdWorkspace=true;document.querySelector('#nav-futures').click()");
@@ -370,7 +370,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await click('#blotter-views-reload');
   await check('explicit account reload restores the new layout before further edits',"document.querySelector('#error').hidden&&Math.round(document.querySelector('#desk-positions [role=columnheader][tabulator-field=c1]').getBoundingClientRect().width)===220");
   const latest=await sideApi('table-views/blotter',{layout:{...newer.layout,grid:{...newer.layout.grid,widths:{...newer.layout.grid.widths,market:230}}},expectedVersion:newer.version});
-  const priorFrame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-17')).id;})()");
+  const priorFrame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-17')&&w.initialFrameIds.includes(f.id)).id;})()");
   await set('#snapshot',priorFrame);await wait(idle);await menu('blotter-settings');await click('#blotter-save');
   await check('changing market date preserves the draft revision instead of adopting a concurrent save',"!document.querySelector('#error').hidden&&window.__futuresResponses.at(-1).data.code==='table_view_conflict'");
   const afterDate=await sideApi('table-views/blotter');await check('date changes cannot overwrite another session layout',JSON.stringify(afterDate.find(v=>v.layout.name==='Book A review').version===latest.version));
@@ -439,7 +439,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await persona('admin');
   await evaluate(`(async()=>{const b=await(await fetch('/api/bootstrap')).json();return await(await fetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:'layout_browser',name:'Synthetic layout account',kind:'human',roles:['trader']})})).json();})()`);
   await persona('layout_browser');
-  await check('a new account starts on the Blotter at a market date, with none of the prior account\'s views',"document.querySelector('#snapshot').value!==''&&document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#blotter-saved').options.length===1&&document.querySelector('#blotter-name').value===''");
+  // Nothing chooses a close session for a new account (D334): it shows no close until the person chooses one.
+  await check('a new account has no close session and no market date until it chooses one',"document.querySelector('#close-session').value===''&&document.querySelector('#snapshot').value===''");
+  await set('#close-session','demo_close_1600');await wait(idle);
+  await check('a new account starts on the Blotter at a market date, with none of the prior account\'s views',"document.querySelector('#snapshot').value!==''&&document.querySelector('#page-title').textContent==='Blotter'&&document.querySelector('#blotter-saved').options.length===1&&document.querySelector('#blotter-name').value===''",
+   "({snapshot:document.querySelector('#snapshot').value,options:document.querySelector('#snapshot').options.length,session:document.querySelector('#close-session').value,title:document.querySelector('#page-title').textContent,saved:document.querySelector('#blotter-saved').options.length,error:document.querySelector('#error').textContent})");
   // An account opens on the newest close its calendar offers. Here the calendar offers none, so the account has no market date
   // and no read to replace the layout the page showed before the switch: that layout must clear at the switch itself.
   await persona('admin');

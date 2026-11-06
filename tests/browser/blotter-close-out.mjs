@@ -8,6 +8,12 @@ const menu="document.querySelector('.blotter-row-menu:not([hidden])')";
 const items=`[...(${menu}?.querySelectorAll('[role=menuitem]')??[])]`;
 const labels=`${items}.map(i=>i.firstChild.textContent)`;
 const order=['Close out…','Amend…','Open in its own window','Copy trade ID','Ask the assistant about this position'];
+// Selects the built-in frame at `at` under its own close session: the As of list offers only the chosen session's closes (D334).
+async function selectFrame({evaluate,set,wait,idle},at){
+  const {id,session}=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();const f=w.frames.find(f=>f.at.startsWith(${JSON.stringify(at)}));return {id:f.id,session:f.close?.session??null};})()`);
+  if(session){await set('#close-session',session);await wait(idle,30000);}
+  await set('#snapshot',id);
+}
 const visibleRows="[...document.querySelectorAll('#desk-positions .tabulator-row[data-row-key]')].filter(r=>r.getClientRects().length)";
 
 // Records every trading request and draft the page sends, the holdings each read returns and any request to ask the assistant. On demand
@@ -39,8 +45,7 @@ async function openBlotter({command,evaluate,wait,click,set,persona,idle,url,err
   // What the page showed when it did not settle: its busy state, status line, error and page.
   const observed=async error=>{throw Error(error.message+' · observed '+JSON.stringify(await evaluate("({busy:document.body?.getAttribute('aria-busy'),status:document.querySelector('#status')?.textContent,error:document.querySelector('#error')?.textContent,title:document.querySelector('#page-title')?.textContent,pricing:document.querySelector('#futures-page')?.dataset.pricingState,href:location.href,reads:performance.getEntriesByType('resource').filter(e=>e.name.includes('/api/')).map(e=>e.name.split('/api/')[1]+' '+e.responseStatus+' '+Math.round(e.duration))})").catch(e=>e.message))+' · errors '+JSON.stringify(errors));};
   await command('Page.navigate',{url});await wait(idle,30000).catch(observed);await persona(who);await evaluate(recorder);
-  const frame=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith(${JSON.stringify(at)})).id;})()`);
-  await set('#snapshot',frame);await wait(idle,30000).catch(observed);await click('#nav-futures',30000);
+  await selectFrame({evaluate,set,wait,idle},at);await wait(idle,30000).catch(observed);await click('#nav-futures',30000);
   await wait(`!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`,30000).catch(observed);
 }
 /** Shows only the row of `reference`, and gives its key. */
@@ -210,8 +215,7 @@ export async function run(page){
   await set('#blotter-filters .table-search','');
   await set('#blotter-books',fixture.positions.settled.bookId);await click('#blotter-scope-apply',30000);
   await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`,30000);
-  const february=await evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith(${JSON.stringify(fixture.frames.february.at.slice(0,19))})).id;})()`);
-  await set('#snapshot',february);
+  await selectFrame({evaluate,set,wait,idle},fixture.frames.february.at.slice(0,19));
   await wait(`document.querySelector('#futures-page').dataset.pricingState==='complete'&&${idle}`,30000)
     .catch(async error=>{throw Error(error.message+' · observed '+JSON.stringify(await evaluate("({pricing:document.querySelector('#futures-page').dataset.pricingState,error:document.querySelector('#error').textContent,books:[...document.querySelector('#blotter-books').selectedOptions].map(o=>o.value),snapshot:document.querySelector('#snapshot').value,dialogs:[...document.querySelectorAll('dialog[open],[role=alertdialog]:not([hidden])')].map(d=>d.id+' '+d.textContent.slice(0,200)),status:document.querySelector('#status').textContent})")));});
   const settled=fixture.positions.settled;

@@ -110,8 +110,8 @@ public static class SwapObservationCompatibility
             throw Error("swap_custom_projection_averaging", "This observation convention has no qualified custom-curve projection mapping.");
         if (custom is not null && (custom.Implementation != CustomCurveProjectionBinding.SupportedImplementation ||
             custom.CatalogId != data.DefinitionRevision.CatalogId ||
-            (averaging == FloatingAveraging.MonthlyIndexPrice ? custom.Selection != CustomCurveProjectionBinding.SupportedSelection || custom.Position is null :
-                custom.Selection != CustomCurveProjectionBinding.DeliverySelection || custom.Position is not null)))
+            (averaging == FloatingAveraging.MonthlyIndexPrice ? custom.Selection is not(CustomCurveProjectionBinding.SupportedSelection or CustomCurveProjectionBinding.ContainingDeliverySelection) :
+                custom.Selection is not(CustomCurveProjectionBinding.DeliverySelection or CustomCurveProjectionBinding.ContainingDeliverySelection))))
             throw Error("custom_projection", "Select the qualified custom-curve mapping for this observation convention.");
         if (!SupportedSamplings(data, curve,settlement).Any(candidate => candidate.Averaging == averaging))
             throw Error("index_fixing_cadence", "The selected index has no qualified published observations at the required period or cadence.");

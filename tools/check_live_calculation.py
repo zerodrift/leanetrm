@@ -144,7 +144,9 @@ def run_checks(url, manifest, query):
         paused=risk.call('workspace/navigation')
         assert paused['live'] is None and paused['context']==first['context']
         # The context a pause keeps is a historical view, and is called one.
-        kept=risk.call('futures/catalog',{'snapshotId':paused['frames'][0]['id'],'convention':FUTURES,'knowledgeMode':'retained','contextId':paused['context']['contextId']})
+        # The navigation also offers the closes of other days (D334); the pause kept its own frame.
+        assert first['frame']['id'] in [f['id'] for f in paused['frames']]
+        kept=risk.call('futures/catalog',{'snapshotId':first['frame']['id'],'convention':FUTURES,'knowledgeMode':'retained','contextId':paused['context']['contextId']})
         assert kept['canBook'] is False and kept['bookingUnavailableReason']==HISTORICAL_BOOKING,(kept['canBook'],kept['bookingUnavailableReason'])
     finally:
         risk_stream.close()

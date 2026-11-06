@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from fractions import Fraction
 import json
 from pathlib import Path
+import signal
 import subprocess
 import time
 from uuid import uuid4
@@ -12,6 +13,7 @@ from uuid import uuid4
 from benchmark_ppa_http import HttpFixture, terms, expected_value, midnight
 from exact_values import instant, fraction
 from preview_client import PreviewClient
+from close_session_fixture import record
 
 
 def check_work(work, cells, admission):
@@ -66,7 +68,7 @@ def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, 
         while remaining > 0:
             time.sleep(min(remaining, 30))
             remaining = (instant(manifest['closeRisk']['at']) - datetime.now(timezone.utc)).total_seconds()
-    close = owner.call('market/closes/register', dict(requestId=str(uuid4()), snapshotId=frame['id'], name='Synthetic renewable close'))
+    close = record(owner, frame, 'Synthetic renewable close')
     policy = owner.call('jobs/pilot-close/catalog')['valuationPolicyChoices'][0]['policy']
     now = datetime.now(timezone.utc)
     body = {'schedule': {'requestId': str(uuid4()), 'name': 'Synthetic renewable completion', 'operation': 'close_book_risk_v1',
@@ -142,6 +144,19 @@ def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, 
             run = state(job)
             return run if run and run['fence'] > after_fence else None
         return until(observed)
+    @contextmanager
+    def suspended(worker):
+        worker.send_signal(signal.SIGSTOP)
+        try:
+            def stopped():
+                assert worker.poll() is None, 'Worker exited before suspension was confirmed'
+                status = subprocess.run(['ps', '-o', 'stat=', '-p', str(worker.pid)], capture_output=True, text=True, check=True, timeout=5)
+                return status.stdout.strip().startswith('T')
+            until(stopped, 5)
+            yield
+        finally:
+            if worker.poll() is None:
+                worker.send_signal(signal.SIGCONT)
     def phase(run):
         if run['state'] != 'running':
             return run['state']
@@ -165,12 +180,6 @@ def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, 
             return current if instant(current['lease_until']) > instant(initial['lease_until']) else None
         current = until(observed)
         return current, phase(current)
-    def preparing(job, worker, initial):
-        def observed():
-            assert worker.poll() is None, 'Worker finished before cold preparation was observed'
-            return query("SELECT count(*) FROM pg_stat_activity WHERE application_name='synthetic-renewable-risk' AND usename='pilot_fixture_runtime' AND xact_start IS NOT NULL;") != '0'
-        until(observed)
-        return state(job), 'preparation'
     def calculating(job, worker, initial):
         def prepared():
             assert worker.poll() is None, 'Worker finished before a calculation-phase fault could be observed'
@@ -209,15 +218,13 @@ def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, 
     print('PASS durable completion: success-first cancellation reconciles the completed outcome', flush=True)
 
     # Control and authority mutations retain the transaction-free calculation
-    # gate. The five-second overall deadline expires during cold preparation;
-    # its capped lease cannot extend beyond that deadline.
-    # No delay substitutes for preparation or calculation.
-    for fault in ('renewal_failure', 'cancellation', 'authority_loss', 'overall_deadline'):
-        job = create(5 if fault == 'overall_deadline' else 1800)
+    # gate. No delay substitutes for preparation or calculation.
+    for fault in ('renewal_failure', 'cancellation', 'authority_loss'):
+        job = create()
         original_pins = pins(job)
         with running(fault) as (worker, log):
             started = time.monotonic(); initial = claimed(job, worker)
-            renewed_run, fault_phase = (preparing if fault == 'overall_deadline' else calculating)(job, worker, initial)
+            renewed_run, fault_phase = calculating(job, worker, initial)
             ready_seconds = time.monotonic()-started
             fault_at = time.monotonic()
             if fault == 'renewal_failure':
@@ -233,8 +240,6 @@ def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, 
                 final = state(job)
                 assert final['deadline_at'] == initial['deadline_at'] and pins(job) == original_pins
                 assert instant(final['lease_until']) <= instant(final['deadline_at'])
-                if fault == 'overall_deadline':
-                    assert datetime.now(timezone.utc) >= instant(initial['deadline_at']), 'Worker stopped before its selected overall deadline'
             finally:
                 if fault == 'renewal_failure':
                     query('GRANT EXECUTE ON FUNCTION automation.renew_close_risk_lease(uuid,bigint,uuid,integer) TO openetrm_scheduler;')
@@ -245,6 +250,40 @@ def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, 
                 observedLeaseUntil=renewed_run['lease_until'], mutationSeconds=mutation_seconds, stoppedSeconds=time.monotonic()-fault_at))
             if fault != 'cancellation': cancel(job)
             print(f'PASS durable completion: {fault} during {fault_phase}, no report, unchanged pins/deadline; fault ready {ready_seconds:.3f}s, control {mutation_seconds:.3f}s', flush=True)
+
+    # Suspend only this owned worker after its durable claim, before publication.
+    # This is a scheduling-stall fault, independent of machine valuation speed.
+    # PostgreSQL's clock and the original five-second deadline remain unchanged.
+    job = create(5); original_pins = pins(job)
+    with running('overall-deadline') as (worker, log):
+        started = time.monotonic(); initial = claimed(job, worker)
+        # Renew while running so a stopped client cannot retain an unexpected
+        # ownership transaction. Bounded probes diagnose synchronization errors.
+        renewal_sql = f"SET lock_timeout='1s';SET statement_timeout='2s';SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.renew_close_risk_lease('{initial['id']}',{initial['fence']},'{initial['worker_id']}',120);"
+        lease = query(renewal_sql)
+        capped = state(job)
+        assert instant(lease) == instant(capped['lease_until']) == instant(initial['deadline_at'])
+        assert capped['deadline_at'] == initial['deadline_at'] and pins(job) == original_pins
+        with suspended(worker):
+            current = state(job)
+            fault_phase = phase(current)
+            assert fault_phase in ('preparation', 'calculation'), 'Scheduling stall reached publication instead of preparation/calculation'
+            ready_seconds = time.monotonic()-started
+            no_report(job)
+            until(lambda: query(f"SELECT deadline_at<=clock_timestamp() FROM automation.runs WHERE id='{initial['id']}';") == 't', 10)
+            expired = subprocess.run(psql, input=renewal_sql, env=environment, capture_output=True, text=True, timeout=10)
+            assert expired.returncode != 0 and 'job_fence' in expired.stderr, expired.stderr
+            no_report(job)
+        worker.wait(timeout=60)
+        assert worker.returncode != 0, 'A deadline-expired worker reported completion'
+        no_report(job)
+        final = state(job)
+        assert final['deadline_at'] == initial['deadline_at'] and pins(job) == original_pins
+        assert instant(final['lease_until']) <= instant(final['deadline_at'])
+        evidence['faults'].append(dict(fault='overall_deadline', phase=fault_phase, injection='owned_process_scheduling_stall',
+            faultReadySeconds=ready_seconds, observedLeaseUntil=capped['lease_until'], stoppedSeconds=time.monotonic()-started))
+        cancel(job)
+        print('PASS durable completion: scheduling stall, renewal capped before deadline and refused after expiry, no report, unchanged pins/deadline', flush=True)
 
     # Kill a real worker after an observed renewal, recording its phase. Replace
     # only after natural lease expiry. The admitted cutoff excludes a correction
@@ -275,12 +314,26 @@ def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, 
             assert pins(job) == original_pins
             denied_old(initial, token)
             last_lease = replacement['lease_until']
+            scheduling_stall = 0
             while worker.poll() is None and time.monotonic()-started < 1800:
                 current = state(job)
                 assert current['deadline_at'] == initial['deadline_at']
+                current_phase = phase(current)
                 if current['lease_until'] != last_lease:
-                    evidence['renewals'].append(dict(observedSeconds=time.monotonic()-started, leaseUntil=current['lease_until'], phase=phase(current)))
+                    evidence['renewals'].append(dict(observedSeconds=time.monotonic()-started, leaseUntil=current['lease_until'], phase=current_phase))
                     last_lease = current['lease_until']
+                if current_phase == 'calculation' and query(f"SELECT clock_timestamp()<'{replacement['lease_until']}'::timestamptz;") == 't':
+                    # Fast valuation need not take longer than the first lease.
+                    # A brief scheduling stall crosses that original boundary
+                    # using a genuine worker-renewed lease, before publication.
+                    assert instant(current['lease_until']) > instant(replacement['lease_until'])
+                    stalled_at = time.monotonic()
+                    with suspended(worker):
+                        assert phase(state(job)) == 'calculation', 'Lease-crossing stall reached publication'
+                        no_report(job)
+                        until(lambda: query(f"SELECT clock_timestamp()>='{replacement['lease_until']}'::timestamptz;") == 't', 10)
+                        assert query(f"SELECT state='running' AND lease_until>clock_timestamp() FROM automation.runs WHERE id='{replacement['id']}';") == 't', 'The renewed lease expired during the scheduling stall'
+                    scheduling_stall += time.monotonic()-stalled_at
                 time.sleep(.1)
             worker.wait(timeout=10); log.seek(0)
             assert worker.returncode == 0, {
@@ -289,9 +342,9 @@ def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, 
                 'reportCount': report_count(state(job)),
             }
             elapsed = time.monotonic()-started
-            assert elapsed > evidence['leaseSeconds'] and evidence['renewals'], f'The real preparation/calculation did not cross an observed five-second lease: {elapsed:.3f}s'
+            assert evidence['renewals'] and instant(state(job)['finished_at']) > instant(replacement['lease_until']), 'Report publication did not cross the original five-second lease using renewed ownership'
             assert proxy.dropped.is_set() and not proxy.errors, (proxy.events, proxy.errors)
-            evidence.update(elapsedSeconds=elapsed, commitAcknowledgement=proxy.events)
+            evidence.update(elapsedSeconds=elapsed, schedulingStallSeconds=scheduling_stall, commitAcknowledgement=proxy.events)
     for path in (scheduler, runtime): path.write_text(path.read_text().replace(f'Host={root}/ack-proxy;', f'Host={root};'))
     final = state(job)
     assert final['state'] == 'succeeded' and report_count(final) == 1
@@ -329,7 +382,7 @@ def run_checks(url, query, manifest, dotnet, owned_root, app_environment, psql, 
     check_work(report['work'], cells, job['admission'])
     evidence.update(expectedBase=str(expected), intervalRows=cells, admittedWork=job['admission'], actualWork=report['work'])
     print('DURABLE_COMPLETION_EVIDENCE='+json.dumps(evidence, sort_keys=True), flush=True)
-    print(f'PASS durable completion: real twelve-month quarter-hour preparation/risk {elapsed:.3f}s; independent complete report, replacement, pinned correction and lost COMMIT acknowledgement', flush=True)
+    print(f'PASS durable completion: twelve-month quarter-hour completion {elapsed:.3f}s including {scheduling_stall:.3f}s scheduling stall; independent complete report, replacement, pinned correction and lost COMMIT acknowledgement', flush=True)
     with running('completed-retry') as (worker, log):
         worker.wait(timeout=15); assert worker.returncode == 0
     assert report_count(final) == 1 and state(job) == final

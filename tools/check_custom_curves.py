@@ -73,7 +73,7 @@ def run_checks(url, query=None, manifest=None):
     assert set(navigation_kinds.values())<={'market_settlement','trader_mark','basis_spread','scaled','interest_rate'},navigation_kinds
     templates={row['code']:row for row in catalog['templates']}
     assert {'ng_prompt','ng_balmo','ng_average'} <= templates.keys()
-    frame=next(frame for frame in boot['frames'] if frame['at'].startswith('2020-12-18T16:00:00'))
+    frame=next(frame for frame in client.call('workspace')['frames'] if frame['at'].startswith('2020-12-18T16:00:00'))
     body={'requestId':str(uuid4()),'snapshotId':frame['id'],'definition':templates['ng_prompt']['definition'],'layout':templates['ng_prompt'].get('layout',{})}
     prompt=client.call('custom-curves/preview',{'definition':body['definition'],'snapshotId':frame['id']})
     assert len(prompt['rows'])==1 and prompt['rows'][0][1]=='3.08', prompt['rows']
@@ -140,7 +140,7 @@ def run_checks(url, query=None, manifest=None):
     next(node for node in compound_mean['nodes'] if node['kind']=='dates')['parameters']['count']='2'
     fixed_mean=client.call('custom-curves/preview',{'definition':compound_mean,'snapshotId':frame['id']})
     assert fixed_mean['rows'][0][1]=='4' and fixed_mean['dependencies']==[],fixed_mean
-    missing_final_frame=next(row for row in boot['frames'] if row['at'].startswith('2020-12-17T16:00:00'))
+    missing_final_frame=next(row for row in client.call('workspace')['frames'] if row['at'].startswith('2020-12-17T16:00:00'))
     client.call('custom-curves/preview',{'definition':compound,'snapshotId':missing_final_frame['id']},expected=422)
     if query and manifest:
         # Two independent final events cannot become an implicit latest-time
@@ -278,7 +278,7 @@ def run_checks(url, query=None, manifest=None):
     # A later correction can restate a working historical window, but never a retained earlier knowledge view.
     client.call('profile',{'profile':'editor'})
     observed=next(row for row in average['inputs'] if row['date']=='2020-12-01' and row['contract']['id']=='e0000000-0000-0000-0000-000000000102')
-    past_frame=next(row for row in boot['frames'] if row['at'].startswith('2020-12-01T16:00:00'))
+    past_frame=next(row for row in client.call('workspace')['frames'] if row['at'].startswith('2020-12-01T16:00:00'))
     client.call('corrections',{'snapshotId':past_frame['id'],'observationId':observed['observations'][0]['id'],'value':str(Decimal(observed['price']['value'])+1)})
     restated=client.call('custom-curves/preview',{'definition':templates['ng_average']['definition'],'snapshotId':frame['id']})
     assert Decimal(restated['rows'][0][1])-Decimal(average['rows'][0][1])==Decimal('.05')

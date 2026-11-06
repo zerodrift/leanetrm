@@ -187,7 +187,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D159 | Resolve job-entry wall clocks in the user's display zone and transport UTC instants | Shared managed time inspection handles DST gaps and repeated clocks. Jobs and infrastructure timestamps reformat after a profile-zone change. Fixed intervals retain elapsed UTC recurrence; display preference does not change that business rule. Date-only booking/delivery facts remain literal dates, and explicitly authored contract clocks retain their own convention. Time inspection is an authenticated formatting utility and does not require market-data authority |
 | D160 | Give navigation and trading reads explicit scopes | A distinct typed market-navigation read returns only consumed curve classifications/names, frame summaries and exact revision/context identities under current authority. It never masquerades as a full workspace. Full hydration is explicit, rejects changed identity/selection and precedes pricing/reference presentation. First pricing can include the complete catalog projection from the same bound model read, with catalog observations empty and selected result sources separate; default evaluation and legacy full endpoints remain unchanged. An explicit Blotter directory can skip unused valuation reads only when both raw product revision tables are empty under the bound authorized trading context. Exact sealed bundle/reference visibility, selected observation completeness, view/books and final authority still apply. Any visible revision uses valuation. Both trading workspace catalog modes explicitly consume first/last-trading milestones and exact primary snapshot observations for valuation; requesting the booking directory does not broaden those input reads. They retain the complete catalog/report, required-fact failures and selected historical cutoff. Generic/full metadata reads and supplemental swap correction resolution keep their broader scope. Retained swap projections read each ordered projection row once for both contract and weight arrays (migration 0159), preserving invoker RLS and missing-child refusal. The SQL read retains its dependent join order only within the function, preserving caller settings and function authority. Quote lookup retains its prior join after worker-role qualification exposed excess authorization work in the proposed replacement. Blotter reads select visible latest heads before book scope and term hydration; obsolete and out-of-scope terms do not enter valuation, while editor history remains complete. Only `POST /api/trading/workspace` JSON negotiates gzip (fastest), including HTTPS, after existing request admission; clients that do not accept gzip retain identity transport. Bootstrap and authentication remain outside compression. These projections defer validation of unused economic material rather than inventing financial defaults. Measure first-use hydration and cold API startup separately from warm navigation |
 | D161 | Author custom curves as exact, versioned typed graphs with shared backend evaluation | Visual editing, formulas and qualified SQL transformations consume the same graph contract. Sources/calendars/schedules retain exact-version foreign keys. Prompt ranks before price retrieval and rolls at the recorded last-trading cutoff. The selected `ng_balmo` averages complete daily forwards inclusive of context date and month-end at one observation instant; separately quoted BALMO remains a different observable. Historical windows distinguish rolling ranks from a context-locked dated contract and freeze past samples. Means retain exact rational quote units and live primitive lineage. SQL initially means one registered immutable sum/count transformation over supplied scaled-integer panels, with no market-table reads or arbitrary SQL execution. Current implementation and limits are recorded in [custom curves](custom-curves.md); bookable custom indices and historical VaR/covariance remain later work |
-| D162 | Select exact market snapshots through a scoped availability calendar | As of remains the market valuation context, separate from effective/knowledge-time controls. Managed operations qualify complete inputs for the chosen curve or full custom graph. Unavailable dates are disabled; no alternative close or partial data is chosen. Displayed days and close times follow the user's time zone while exact snapshot identity, UTC instant and financial business date remain unchanged. Multiple closes or correction versions on a displayed day require explicit selection. Availability is authorized under the selected current or certified historical context and rechecked on use |
+| D162 | Select exact market snapshots through a scoped availability calendar | As of remains the market valuation context, separate from effective/knowledge-time controls. Managed operations qualify complete inputs for the chosen curve or full custom graph. Unavailable dates are disabled; no alternative close or partial data is chosen. Displayed days and close times follow the user's time zone while exact snapshot identity, UTC instant and financial business date remain unchanged. Multiple closes or correction versions on a displayed day require explicit selection. Availability is authorized under the selected current or certified historical context and rechecked on use . Refined by D334: a session business day offers one close in force; other closes are history |
 | D163 | Publish the homepage source separately from the authenticated workspace | Buildless HTML/CSS/SVG in `site/` describe the open-source project and a bounded invitation-only pilot. The generic gateway serves exact `/`, `/_landing/site.css` and `/_landing/favicon.svg`; unknown `/_landing/` paths return 404. Public files accept GET/HEAD only. Exact `/app` forwards to the application's native `/` with the original query, `/app/` redirects canonically, and only the exact login endpoint rewrites an upstream `Location: /` success to `/app`. Other authentication, assets and API routes remain upstream-protected. API routes keep the API's body limits, 8 MiB for the interval-series revise route (D173) and 32 KiB otherwise, and the gateway answers a larger API body with 413 and the API's `request_too_large` code and message; a change to an API body limit changes the template with it. The revise route therefore takes anonymous bodies of up to 8 MiB at the gateway, buffered before the application authenticates them. Public headers are confined to the public files. Installation paths, upstream addresses and certificates remain explicit private inputs. The image-only release envelope and automatic updater do not install static content or gateway changes; those need separate operator qualification. Owned stock nginx plus a synthetic upstream qualify routing, not real account authentication or a production deployment |
 | D164 | Edit display metadata through immutable reference versions and explicitly apply it to current presentation | The first editor covers names, descriptions, unit symbols, contract labels and optional location points. It clones a retained reference revision, limits writable fields and requires a separate reviewed apply operation. Activation proves identical reference keys and non-display values. Edit receipts retain typed foreign keys to original and edited item rows; activation pins the same exact source in its foreign key to the edit. Request identity, actor and workspace scope remain explicit. Pricing references, native observations, market bundles, typed units and booked trades retain their original identities. Current presentation receives a separate display revision; historical contexts show the original metadata and cannot inspect later edit requests. Existing write/seal reference permissions authorize the same operations from UI and API. Financial-term editing and curve/price migration require a separate policy and remain outside this workflow |
 | D165 | Resolve swap fixings from exact index observation schedules | Remove the editable first-fixing boundary from new swap entry. A sealed market bundle binds each supported index observation period to its exact quote, source, actual series, dated publication instant and implementation. Pricing projects unresolved observations and consumes exact final `index_fixing` snapshot pins at or after each required publication. Missing due fixings are errors; no forward fallback, skipped dates or changed averaging weights. Actuals are frozen facts with no commodity quote shock. Qualified schedules are installation data, never inferred from curve names, delivery starts, expiry or profile time zones. Existing projection-only sides and their historical identities retain their declared boundary; exact legacy retries remain available but new manual-boundary writes are closed. Payment/settlement state, production index qualification and broader observation-profile authoring remain separate work |
@@ -235,7 +235,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D204 | PPA MVP scope reset and exact draft break-even pricing | The MVP includes settlement calculations, model break-even pricing and the existing-editor graphical workbench. Settlement approvals, accepted-cash accounting, payments, reversals and automated correction adjustments are deferred; no separate approval workflow or persisted proposed/executed state is a pricing prerequisite. Contract amendments remain distinct from versioned market/meter corrections. The [bounded draft solver](ppa-break-even.md) holds every other input fixed, solves one explicit flat strike using two exact engine evaluations, and returns its scope, sensitivity, rounded quote residual and complete temporal receipt. Graphical values and aggregation remain server-owned. |
 | D206 | Numeric blotter columns and managed row/column pivots share typed report measures | Quantity, prices, execution P&L and PV render numeric values with separate unit/currency columns. Grid comparison filters and sorting preserve exact decimal/rational strings. The backend supplies additive quantity/cash totals and explicit price minimum, maximum and unweighted arithmetic mean; means require `arithmetic_price_mean_to_even_18_v1`. Exact quantity/currency references and price multipliers partition cells. Saved layout version 4 retains rows, columns, measures, linked bar/line/heatmap choices and the desk's row grouping. It is the only version: a layout saved in an earlier version is not migrated, is listed as unavailable and must be saved again. Charts use the same retained financial context and backend grouped values; approximate coordinates position pixels while tooltips/export retain exact values. Charts represent the selected report scope before local grid filters. Subtotals, grand totals across axes and cell drill-through remain work |
 | D207 | Swaps compose fixed/floating or floating/floating sides with explicit spreads and reviewed par entry | Extends D14 and refines D04, D97, D165, D172 and D183. Floating/floating uses two independently selected sides with opposite explicit coefficients and an explicit fixed spread on each floating side, including zero. Each side retains its exact index, fixing schedule, projection source, quote unit, delivery and payment rule. Spread is applied once to each resolved reset before schedule aggregation; floating definition v6 retains the new term while absent spreads preserve v3/v4/v5 canonical encodings. Blank fixed price requires an explicit `par_fixed_price_to_even_v1` precision/tie policy; Price solves from connected side PV and fixed-side discounting, displays the concrete rate for review, and Risk/booking use that fixed rate. Explicit zero is a fixed quote. Migration 0101 retains exact side membership, spreads, per-slot fixing evidence and generated/existing-close discount relationships, preserving renewable publication fencing and PPA receipts. Retries preserve their original outcome and recheck current source authority. Published custom projections remain explicit on either side; no index, spread, source or financial fallback is inferred |
-| D219 | The Blotter is the default trading page and opens on the newest close under the rules recorded here | Decided by the owner ([blotter-desk.md](blotter-desk.md), Opening on the newest close); builds on D162 and takes D217's latest instant. Accounts that can read trades open on the Blotter, others on Curves & prices. Pages that read As of start from the authorized availability calendar (`market/dates`), read for the whole workspace in the person's display zone; its newest date (`maxDate`) holds its latest close. The uniquely latest close is selected and the As-of control shows **Latest close**. Several closes at that instant, such as a close and its corrected version, open the calendar on their date and select nothing (D162). Choosing another close replaces the badge with **Selected close**; any close at the latest instant reads **Latest close**, whoever chose it, and an earlier close of the same date does not. A reload, a switch of demo user and a return to working data start from the newest close again, and the page that is showing reads it; a session does not remember a chosen close, so the badge always says which applies. Knowledge mode is unchanged: working data at current knowledge, and a historical or live view selects no close by itself. When the calendar's latest close becomes later than it was when the close shown was selected, the control shows **Newer close available**, whoever selected that close: a button that selects the newer close, or asks when several closes share its instant. A close selected with no later close since stays **Selected close**. Availability is read again when a page opens, after a correction is saved or the display time zone changes, and when the window regains focus, never on a timer, and the close never changes without a click. The As of control and its badge sit in the shared page header, beside a collapsed knowledge-cutoff control whose summary names the knowledge in use and whose expanded content holds its explanation and live corrections (D217). No schema, API or permission change |
+| D219 | The Blotter is the default trading page and opens on the newest close under the rules recorded here | Decided by the owner ([blotter-desk.md](blotter-desk.md), Opening on the newest close); builds on D162 and takes D217's latest instant. Accounts that can read trades open on the Blotter, others on Curves & prices. Pages that read As of start from the authorized availability calendar (`market/dates`), read for the whole workspace in the person's display zone; its newest date (`maxDate`) holds its latest close. The uniquely latest close is selected and the As-of control shows **Latest close**. Several closes at that instant, such as a close and its corrected version, open the calendar on their date and select nothing (D162). Choosing another close replaces the badge with **Selected close**; any close at the latest instant reads **Latest close**, whoever chose it, and an earlier close of the same date does not. A reload, a switch of demo user and a return to working data start from the newest close again, and the page that is showing reads it; a session does not remember a chosen close, so the badge always says which applies. Knowledge mode is unchanged: working data at current knowledge, and a historical or live view selects no close by itself. When the calendar's latest close becomes later than it was when the close shown was selected, the control shows **Newer close available**, whoever selected that close: a button that selects the newer close, or asks when several closes share its instant. A close selected with no later close since stays **Selected close**. Availability is read again when a page opens, after a correction is saved or the display time zone changes, and when the window regains focus, never on a timer, and the close never changes without a click. The As of control and its badge sit in the shared page header, beside a collapsed knowledge-cutoff control whose summary names the knowledge in use and whose expanded content holds its explanation and live corrections (D217). No schema, API or permission change . Refined by D334: a session business day offers one close in force; other closes are history |
 | D220 | Trading reads report positions that cannot be valued at the selected close, with structured reasons; totals exclude them and say so | Decided by the owner ([blotter-desk.md](blotter-desk.md), Positions the close cannot value). Trading workspace, Blotter and pivot reads, with the futures holdings and futures Blotter reads they share, return every position in scope. A position whose valuation at the selected close fails with exactly `source_expired` or `missing_observation` stays in the read with that code as `unavailableReason`; its mark, execution P&L and PV are null, never zero, and its booked facts are unchanged. The backend owns this list; every other failure, including authorization, context, scope and catalog consistency, still fails the read. PV, execution P&L and curve-price statistics add valued positions only and are null where none is valued; trade counts, lots, quantity and execution- and fixed-price statistics count every position, because they are booked facts. Each pivot group, futures book total and report states `unvaluedPositions`, the distinct trades it leaves out. The Blotter shows **Not valued** with the reason in plain words in a position's value cells. Every valuation total excludes such positions and says so: summary tiles, group subtotals, pivots, charts and exports. A portfolio risk run, its catalog and its queued jobs leave out each position whose valuation at the run's base (unshocked) close fails with one of those codes, the same positions and reasons the Blotter reports, and list them as `excludedPositions`, each with the book it is held in; no holding row or total includes them. A queued run leaves out exactly what its submission left out. Any other failure, including one under a shock or stress, still fails the run, and generated pilot close reports still fail whole. The desk's batched curve read follows the same rule per contract: a contract the pinned inputs cannot price with exactly one of those codes has no price and states the code as its `unavailableReason`, while the curve's other contracts keep their prices. A curve the pinned data cannot read at all states, as the curve's `unavailableReason` with no unit or points, the code its own price read raises (`missing_curve` for a rate curve, which has no contract prices), and does not fail the other curves of the request; authorization, pin, context, request-format and catalog-consistency failures still fail the whole request. The pivot conventions keep their meaning for fully valued scopes. Response fields and a retained job-frame entry only; no schema or permission change |
 | D221 | Trade entry and amendment move from modal dialogs into the Blotter's side panel. Refines D191: the page report names the panel's position and mode, and the risk lens state | Decided by the owner ([blotter-desk.md](blotter-desk.md), Side panel). Amend puts the position's form in the panel's Terms tab in place of its read view, with the amendment reason and effective time as before, for the position's own binding or instrument. An earlier revision of the trade can be of another binding, which an amendment of the instrument gives a trade: it is read as it is, names its instrument, and cannot be amended from the position. The amend dialogs are gone, and so is D191's rule that nothing can be asked of the assistant while a trade is open. New trades are entered in the same panel: New trade opens it on a Future | Swap switch with neither chosen, and reads nothing until the person chooses a product, whose form then takes the panel's form part with its Price before booking, the draft valuation with the curve of each market the draft is for and its delivery period marked, drawn from the desk's own read of its curves when the desk holds the curve and from one read of it otherwise. New trade follows the backend: it is offered only where the backend's `canBook` allows booking, a historical view, a live view (which says it is live) and an account without Book Trade permission are told why in words under the toolbar, and no field opens there. A new trade starts empty. A product whose read fails leaves the panel on the Future | Swap choice with the failure said. A booked trade, or one Check status finds committed, appears selected in the grid with the panel on its position, and when a row search or column filter hides its row the table says so and offers to clear the filter; a booking whose outcome is not known is kept in the retained card and its form is not offered again, and a booking or an amendment the backend refused keeps its form and the edits in it, with the reason, to be corrected. What a person types or chooses in the form is an edit, a date chosen in a calendar or applied from the date lookup included, and every way out of the form inside the page asks first, in the panel and before the page is busy: switching to another position or mode, closing the panel or the form, replacing the form's revision, a new read of the Blotter (Save preferences included), a move to another page (the sidebar, Open curve, New trade for a PPA), another As of date, another context, user or live selection, signing out, another market example, and changes in the header's time controls. Revealing those controls alone does not discard edits (D217). A close that is chosen is applied only once the person agrees: the As of select, which every read and command takes its close from, stays on the close the Blotter shows while the question is open, and so do the calendar and the offer of a newer close. Keeping the form puts back what the person had changed, the time controls' inputs exactly and the example select, and over a route of the profile dialog says what was not done. A reload, closing the tab and going back are asked about by the browser while the panel holds the form of an amendment or of a new trade with edits, and the assistant's own moves ask through its Go anyway, after which the forms are given up with the page. A chart's image export that fails reports the error and leaves the Blotter as it is, unless the failure is a denial of access, which clears it as it does for every read. When an amendment is sent or reconciled the panel follows the trade by its id to the binding the amendment produced, which its receipt names, on its Terms, and says so when that is another binding, or that the trade is not in the read at it. A live correction (D188) reads an open panel again unless it holds edits, which it leaves alone, and clears a risk run with the note "Risk results cleared · live corrections changed the inputs"; the note stays if the read then fails. The risk report is the panel's Risk report mode, whose setup's choices and sizes are edits like a form's: a correction, and a settlement record, read it again at the new inputs, so that a run is always made at the inputs on screen, carrying a setup's choices over and naming what the new catalog no longer offers; no live view can book, so no new-trade form is held while corrections arrive. Amend is offered to an account that may amend, and the panel says why when it is not; for a revision that cannot be amended it says why once the editor has been read, and before that Amend opens the form read-only. Every retained trade request, a booking or an amendment of a future or a swap, is shown in a card that names the request, and the trade of an amendment, with its Check status and Retry: in the panel, on whatever tab or form it shows, and on the page while the panel is closed. A swap's read-only Terms show its valuation and schedules. Looking at and the ask's page report name the trade the panel shows, at the revision the Blotter holds or, while its form is open, the one the form shows, or the new trade it holds, by its product, or by none while no product is chosen (`blotter_new_trade`, `blotter_new_future`, `blotter_new_swap`: three more ids of the assistant's closed set of page reports, none of which the assistant reads); a target for a trade is refused in a pivot, the view the Blotter has applied, in words that name the Individual trades view, and a target for another revision than the Blotter holds says which way it differs. History lists every revision with its instrument and facts, each price in the unit of its own contract (the position's contract in the position's unit, whether or not the editor's catalog holds it) and each quantity in the unit of its own index, said to be unavailable when the catalog does not hold it. The page report states the risk lens as D222 records. Presentation and page-report change only; the assistant's closed set of page reports gains three ids for a new trade, and there is no schema or permission change |
 | D222 | Risk reports come back inline: run bar, Values/Risk lens, risk tile and panel detail. Shock sizes are explicit per price unit | Decided by the owner ([blotter-desk.md](blotter-desk.md), Risk report inline). A run's results are shown in the desk and no longer in the side panel, whose Risk report mode keeps the setup, Run now, Queue as job, the retained job history and the work each part's calculation did. A run bar above the tiles states what ran: the report and its size for each price unit, which held prices or curves it does not shock, how many factors it shocked, the close, the knowledge it was read at and when it ran, or how its queued jobs stand; Edit shocks opens the Risk report mode on the run's choices, Export downloads every part's report read again under current authority, and Clear takes the run off the desk. The trade rows get a Values \| Risk lens, which turns to Risk when a run's results first arrive: Risk shows each position's shock, size and unit, its up and down changes with small diverging bars on one scale per currency, and its delta in its unit. A factor moves a position when its up or down change is not zero; a position several factors move shows **n shocks**, and its panel's Risk tab, which says its results come from the risk run on the desk and points to the Risk report, lists each factor with its base, up and down values, changes, delta and gamma, each with its exact amount. Nothing is added across factors, parts or positions: the risk tile shows the largest move in each currency, picked by exact comparison of magnitudes, which position and factor it is, the number of factors, and each position's own largest move as a small bar; the long and short chart becomes **Change if each contract moves up**, a bar for each position one factor moves at its up change, naming the positions several factors move and those none moves. Missing results are never facts: while a part of the run has no results, as it failed or was refused, its submission has no known outcome or the job history no longer lists it, a position no shock with results moves is **Not known**, with the part and why, in the lens, the chart and the tile, never not moved, the chart and the tile say "No known move" when no shock with results moves a position, the tile calls its largest move the largest known one, the run bar and the tile state how many shocks are known, of how many the run ran when that is stated, and a part the job history no longer lists is said to be missing from it. The tile and a position's Risk tab state a run whose results are refused, with why, and one no part of which has results, and the tile says when a run moves no position. The run bar, the tile, the chart and the lens's book headers say what the run leaves out (D220), by the run's own list and the book it names for each position; a row the run leaves out says so with its own reason. Pivot views have no lens: the run bar points to Export, and to the trade rows and a position's Risk tab, which show a run made on trade rows. Results are drawn against the positions only for the read they were run at: the same market context, the same close, by its time and by the frame each part's report names, as every close of one date in a historical view shares the view's context, and the same books and portfolios, which every queued job states; anything else, or a run that does not state its books, is made elsewhere, stated by the run bar with its captured coordinates and exported. A queued run is shown once none of its parts is under way, and its positions, valued and left out, must be those of the read. Every new read of the Blotter clears a run, each read at current knowledge being made at a context of its own: a change of close, context or book scope with the note "Risk results cleared · the close or books changed", any other new read (Refresh, another Display or pivot, the Blotter opened again) with "Risk results cleared · the Blotter was read again", and a change of account with none, whether or not the run has results; a live correction and a settlement record keep their own notes (D221). The parts of a queued run made in parts state the run with each part: the job's retained frame holds the run's identity, the part and the part count, and every queued job's frame the books and portfolios its run was asked for, as chosen; the job store admits each part once, every part of a run at one retained context and one close, for one scope, with one part count, serializing a run's parts sent at once, and every job read states its job's run, or none, its scope and how many shocks it asked for; the job history lists a run as one entry, also after a reload. The page report names the lens: trade rows under the Risk lens are `blotter_risk_lens`, one more id of the assistant's closed set of page reports, which the assistant does not read; the panel's risk report, a new trade and a position it shows are reported first. Shock sizes are entered per price unit and none is built in (blotter-desk.md, Risk report inline). A run for one position alone is not built: the portfolio risk request, its catalog and retained jobs scope a run by books only. Migration 0113 adds an index, a trigger and the run, scope and shock count of each job read, with no table change; the closed set gains one page id; no permission change |
@@ -302,6 +302,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D304 | Fit stored volatility surfaces under an explicit vol model, as risk-queue jobs, for viewing only | Decided by the owner, 2026-11-02 ([vol-surfaces.md](vol-surfaces.md)): rich/cheap is market implied volatility minus the fit, for every solved series; the page shows a heat map, a 3D surface and per-expiry smiles; a vol model is a named, versioned slot (`IVolModel`) with one model now, chosen explicitly by every fit and read, echoed in each response and persisted on each revision with the solver policy `american_futures_option_crr_v1` (an unknown model raises `vol_model_unknown`); surfaces are stored bitemporally; the pilot gets the example data; and fits run as background jobs, because the first synchronous fit took 11.7 s against a 5 s budget. Implementation increment, 2026-11-02, for the rest. The surface is view-only: option valuation, risk and close are unchanged, with no vega, vol shock or surface value. The first model, `smile_quadratic_log_moneyness_v1`, fits σ̂ = a + b·k + c·k² in k = ln(K/F) per expiry by equally weighted least squares in `LatticeDecimal`, from each strike's out-of-the-money solved volatility; fewer than five strikes spanning F, or a smile not positive over the fitted range, is a labelled per-expiry gap. Revisions are immutable and ride the trading publication protocol (`trading.publications`, `trading.knowledge_receipts`, `security.trading_visible`), keyed by exact product version, settlement date and model; a revision's inputs are the frame's valuation instant, stored on the revision, and every observation the calibration consumed, pinned exactly: each series' option and underlying settlements and the discount-curve points behind its discount factor to expiry. D238 recording returns a request's first outcome, keeps the key's latest revision for identical inputs and refuses different content for them as `vol_surface_nondeterministic` (checked against the latest revision only), and records a new revision when the valuation instant or any pinned observation differs; `inputsRevised` covers every pinned observation, discount-curve points included. The stored digest is the worker's SHA-256 of its canonical serialization, compared with the content when a refit is recorded; it is not a digest of the stored `jsonb`. Every listed series is listed, an expired one as `option_expired`; an expiry whose series have all expired is itself `option_expired`, is off the strike axis and is not drawn; a product with no live series is refused with `option_expired`, and one whose live series all fall outside the discount curve with `discount_coverage`. The jobs are kind `vol_surface_fit_v1` on the retained risk-job queue, under its lease, attempt, cancellation and security-generation rules; runtime is recorded, not enforced, and Risk-page job lists exclude fit jobs. Reading needs `ReadMarketData` and `ReadTrades`, since revisions ride trading visibility; submitting needs `PublishMarketData`, `ReadTrades` and `ReadMarketData` in the current workspace, and the submit operation refuses a context not captured from current knowledge with `historical_read_only` and holds a share lock on the knowledge clock until it commits; authority is rechecked by the worker before the fit and at publication; agents cannot fit. The agent option catalog becomes `trades.futures_option_catalog_v2` with required `product` and `expiry` arguments, and v1 is removed, because the example's 141 series no longer fit the unchanged 64 KiB tool-result bound in one result, and one product's series (50,229 bytes for ON) exceeded the check's 75% margin of it. The page's `options/catalog` read is unchanged. |
 | D306 | Let the page assistant set up and run statistical VaR through bounded reads | Owner-directed, 2026-11-03. The Risk page's VaR catalog (695 KB), aligned history (130 KB) and reports (parametric 1.34 MB; historical larger, with its full scenario matrix) for a two-factor synthetic book each exceed the unchanged 64 KiB tool-result bound, so classifying them would only refuse. Four Risk-page reads run the page's own code under the same permissions (`RunScenario`, `ReadTrades`, `ReadMarketData`) and the question's exact context pins. `portfolio/risk/statistical/setup` returns the catalog's history, parametric and historical capabilities and pricing policy for a scope. `portfolio/risk/parametric/summary` runs the same history alignment and delta-normal calculation as the page and returns its exact VaR, ES, deviation and mean per native measure, coverage, each factor's per-session price types, calibration rank and book/factor contributions ranked by size. `portfolio/risk/historical/summary` runs the same full-PV historical simulation and returns, per native measure, base, mean, VaR and ES, tail mass and quantile ties, book and trade allocations, and the scenarios carrying quantile or tail weight with their business dates, largest loss first; an explicitly requested matching parametric comparison adds its exact estimates. `portfolio/risk/historical/sample` returns one scenario of that study: its dates, each factor's from/to price, change and price types, each partition's loss and every holding's base PV, scenario PV and loss. Each amount the page shows becomes `{value, display}` through the tool amount display (D114) at the default money precision; the exact value is kept and the historical report itself carries no display strings. Books are named by id and factors by position, so each label appears once. Every policy stays explicit in the request; a history without a captured manifest is captured first under the same retained pins, and a non-retained context refuses. An unknown scenario refuses with `risk_historical_sample`. The projections are bounded by scope, not by the admission limits: roughly 150 trades in one measure, a 95% tail of 2,048 samples across three measures, or about 150 holdings in one scenario exceed the tool bound, and the assistant then receives the ordinary explicit `result_too_large` refusal after the calculation, never a partial result. The scenario read checks the scenario and the study's availability (`risk_historical_unavailable`) before pricing and does not run a requested comparison. Nothing is written, so none needs approval; queuing a VaR job is unchanged. See [the assistant workspace](assistant-workspace.md). |
 | D318 | Author curves from a rolling date-mapping window with explicit, matching terms | Owner-directed, 2026-11-04 ([curve-definitions.md](curve-definitions.md)). A curve names its commodity, location, quote, delivery profile, contract kind (with an exact futures product for futures), an exact published date-mapping version and how many of its positions it carries, its settlement target, a direct price rule and explicit missing-price and interpolation policies; none is defaulted. Contracts roll because the mapping resolves against the context date; the curve adds no roll rule, and publishers supply each close's marks. Curves are defined on Curves & prices and previewed at the header's selected close, in that close's exact context (current knowledge on its date, or the selected historical context on that date); schedules and date mappings stay on their own Settings page. Terms the contract and the curve both name must be equal: a futures product's and an index target's commodity, location, currency, unit and multiplier, and each futures position matches exactly one series of an executable product by delivery period and known last-trading instant. A preview reads reference terms and resolves its mapping in one exact retained context. Futures settle to their exchange settlement, OTC forwards to one published index. Index spreads, hourly physical settlement (nodal LMP), forwards settling to futures, formula contracts, carry-forward or interpolated prices and linear interpolation are shown as Coming soon and refused. First increment: catalog and read-only preview operations and the Curves step of Schedules & date mappings; durable versions and admission into market revisions remain work |
+| D334 | Close by regional session; the latest close for a session and business day is in force | Owner decisions and implementation recorded in [regional closes](regional-closes.md); design calls await review. Refines D162 and D219: a close names an exact versioned close session (clock, local cutoff, business calendar, curves) and an explicit business day, and its UTC instant is the session cutoff on that day. For each session and business day the close with the highest publication order is in force, evaluated on read; earlier ones are history and are refused for new work (`close_replaced`). A close must carry exactly its session's curves; nothing is carried forward. Recording needs a per-session grant. Every view, historical ones included, reads the close in force; this lifts only the knowledge-time checks on the close and its pins and is a recorded exception to the knowledge-cutoff rule. Saved results keep their exact close and report `replaced`. Each person's chosen session is remembered; no session is chosen for anyone. Only recorded closes are closes; unrecorded snapshots are working data offered separately, and built-in demo frames are seeded as session closes. Existing closes are retired and deployments reseeded (migration 0196 refuses a non-empty close history). Implemented locally; not yet published |
 
 ## Proposed implementation choices
 
@@ -2567,7 +2568,196 @@ and ledger without selecting a price close. Migration 0199 gates new admission
 and tool publication on `turns_v16`; retained request replay remains available.
 Hosted activation remains separate from local qualification.
 
-## D328 — Versioned accounting policy and standards references
+## D328 — Resolve operation discovery against one read-local route snapshot
+
+Full operation discovery takes one snapshot of the application's endpoint metadata
+and resolves each authorized catalog entry by its exact path and method. Grouped
+route sources rebuild endpoint definitions when read: the owned managed regression
+previously built 27,225 routes for its original 165-operation catalog; the check
+now requires one build per registered operation, including later catalog additions.
+The snapshot belongs to that read; later reads obtain fresh endpoints and current
+permissions. Missing routes remain unavailable and command approval flags are
+unchanged. Cancellation is checked before metadata work and between operations.
+The existing read/turn limits, source-access publication checks and retained
+context are unchanged. There is no new tool, result shape, grant, cache of
+authority or business data, runtime version or migration. Owned HTTP and browser
+checks cover full discovery followed by native swap navigation without booking.
+
+## D329 — Daily indexed physical consideration through native PV
+
+The [bounded physical gas example](indexed-physical-gas-example.md) uses the
+existing Instrument/Side valuation boundary, exact daily schedules, fixing
+resolver and saved curve recipe lookup. Shared cash state retains final amounts
+and explicit paid allocations per held binding. The normal cash Side values
+remaining amounts; generic market scenarios and instrument PV determine risk.
+No commodity-specific shock rule or exposure-allocation path is introduced.
+
+`IBindingValuationState` generalizes the existing swap-specific portfolio context
+while the instrument retains admission and interpretation. Separate state
+identities form separate calculation scopes and Side cache entries. The explicit
+`UnpaidCashPresentValue` measure includes fixed unpaid and projected consideration,
+discounts future outstanding cash and keeps due unpaid cash nominal under the
+selected policy. It excludes commodity asset value and does not change existing
+physical-market-value or financial-swap policies. Passing a due date creates no
+payment; supplied final determinations retain exact price evidence and payments
+remove only their explicitly allocated amounts.
+
+This is a locally qualified managed consumer and synthetic native export.
+Durable source/settlement relationships, authorized idempotent writes, corrections,
+ticket/inspection integration, retained worker admission and hosted activation
+remain separately qualified work. No schema migration or public business
+operation is added by the managed proof.
+
+## D330 — Separate Henry Hub daily and monthly futures sources
+
+The daily source is ICE Henry Swing (HHD); the selected monthly source is ICE
+Henry LD1 Fixed Price (H). HHD references daily Gas Daily Henry Hub prices. H
+references the monthly NYMEX Henry Hub settlement. These are distinct settlement
+references; neither an IFERC basis nor a Gas Daily monthly average is inferred.
+Both public products quote USD/MMBtu with a fixed 2,500 MMBtu lot, with quoted
+minimum price increments of 0.0001 and 0.001 respectively. Public specification
+links and the synthetic-data boundary are recorded in the
+[example contract](indexed-physical-gas-example.md#henry-hub-source-curves).
+
+The requested hierarchy is two independent futures sources, separate daily and
+monthly OTC projections, and an explicitly configured synthetic splice associated
+with physical pricing. A splice selects source intervals; it does not add their
+prices, unify their settlement lifecycles, infer an index basis or replace normal
+instrument PV. Market shocks and tenor risk continue through the common engine.
+
+The first locally verified increment is source data only: exact dated futures
+contracts, separate settlement-index metadata, synthetic prices at three closes
+and existing native signed-lot pricing/risk. The disposable example explicitly
+uses synthetic weekday-only calendars and selected cutoffs, not verified exchange
+listings or expiry instants. Operational loaders and generated artifacts remain
+private. OTC conversion terms, splice/roll rules, full historical coverage,
+physical pricing admission and hosted activation remain separate work.
+
+## D331 — Whole-delivery curve splice and separate OTC projections
+
+`splice` selects complete price intervals from `before` over `[from, cutover)`
+and `after` over `[cutover, to)`. All three dates and
+`whole_delivery_intervals_v1` are mandatory. Each selected range must have one
+continuous, non-overlapping cover in identical price units. A crossing interval,
+gap, repeated period or incompatible unit refuses. Prices, delivery boundaries
+and source expressions survive unchanged; the operator creates no observation,
+price aggregation, index basis or independent risk factor.
+
+The current consumer uses separate explicit price projections of HHD daily and H
+monthly futures, then selects the daily front and monthly tail. This is a selected
+forecast-price relationship; Gas Daily daily fixings and NYMEX monthly settlement
+retain distinct reference meanings. The physical cash fixture's ordinary daily
+lookup consumes the mixed grid, and Instrument/Side PV determines every scenario
+result. No special shock, allocation or gas risk policy is added.
+
+Published-source demand includes explicit empty sets for unused branches. Those
+branches keep their complete authorized topology and a bounded flat closure of
+definition receipts, with no numerical points or price observations. Existing
+published-edge manifests commit the receipts; consumer demand does not change
+semantic recipe identity. Compilation validates exact imported declarations,
+calendar/schedule consistency, acyclicity, 32-edge depth, 256-version bounds and
+closure membership. No fictitious zero price substitutes for an unused branch.
+
+The API's operator metadata exposes the same graph contract to the visual and
+formula editors. Migration 0200 admits the node and checks publication policy
+and ports; downstream lookup and weighted-panel guards retain their other rules.
+The migration pins reviewed predecessor bodies, installation ownership, ACLs,
+configuration and node kinds before changing them. Operational setup scripts and
+generated data remain private. Boundaries are explicit dated setup, with no
+automatic month-end roll or futures margining assertion. New indexed physical
+booking/payment operations, retained worker admission for that physical profile
+and hosted activation remain separate work.
+
+
+## D332 — Common curve queries and retained physical source selection
+
+Use one whole-interval published-source binding over mixed daily/monthly outputs.
+Queries retain their own delivery interval separately from native index observation
+periods. Persist the new policy in `curve_price_lookup`; preserve legacy program
+and identity bytes when the new binding is absent. Qualify the complete output
+grid before filtering units, reject gaps/overlaps/crossings and load only demanded
+source intervals. A containing monthly point remains one native factor for daily
+queries; risk still shocks immutable scenarios and calls ordinary instrument PV.
+
+The common `CurveBase<TQuery,TValue,TSelection>` enforces nonvirtual `Lookup`:
+resolve/validate once, declare the selected inputs, evaluate that same selection,
+and return value plus exact curve, policy and dependency details. Price and
+rate implementations supply explicit versioned interpolation/boundary/construction
+policies. Prepared price lookups bind the actual supplied scenario. Analytical
+models and fitters remain producers/evaluators of curve state; no model registry,
+volatility interpolation rule or fitted-surface pricing admission is inferred.
+
+The physical gas ticket selects compatible exact published versions. Its stored
+program retains typed source foreign keys and daily query bounds. Different
+forecast sources distinguish pricing/program identity while native gas assignments,
+fixing metadata and contractual economic identity remain unchanged. Preview,
+booked inspection and portfolio risk use the existing authorized connected market
+preparation. Migration 0201 validates closed query/source contracts and current
+source authority. The admitted application profile remains future physical gas
+value with fixed consideration; it does not admit the separate payment-aware
+indexed purchase lifecycle. Operational setup remains private and hosted
+activation requires separate publication authorization.
+
+
+## D333 — Explicit OTC-minus-futures basis in the gas example
+
+Construct daily OTC prices as HHD plus an independent daily basis curve, and
+monthly OTC prices as H plus an independent monthly basis curve. Combine these
+meaningful OTC outputs directly; retain no plain pass-through OTC definitions.
+Both inputs are declared in existing signed-sum recipes. The spread assessments
+are original synthetic data with a small November–March seasonal premium, not
+inferred index equivalence, observed market prices or a universal pricing rule.
+Outright quote construction remains separately supported by the framework.
+
+The managed cash example and disposable future-delivery ticket example exercise
+both native futures and basis scenarios through unchanged ordinary PV. A monthly
+quote and its monthly basis remain two factors across daily delivery rows. Source
+and fixing identities, business/knowledge times, units and versioned policies
+remain explicit. No pricing adjustment or exposure allocation is added to risk.
+
+
+## D335 — Visible native actions and a controls-only first read
+
+Screen assistance uses the existing turn loop, page tools and workspace consent.
+`read_page_digest` requires an explicit `overview` or `controls` mode. Overview
+retains the pinned numerical digest. Controls reads fresh authorized endpoint
+metadata once for the current page and native entry pages, returning bounded
+capabilities and page handles without pricing positions. It issues no record
+handles or pivot-read certificate; dated facility questions retain their exact
+context and gain no pricing navigation. Every read and publication keeps the
+existing source-access fence. No prompt, model call or browser values are cached
+as authority. Fixed instructions select controls for navigation/form assistance
+and avoid redundant broad discovery.
+
+The floating narration box is removed. Stop, Continue and status live in the
+assistant panel, with a dedicated controls-only root inside a native modal while
+it owns input. Closing the panel stops the run. The labelled cursor uses the
+browser top layer and viewport coordinates, aims before the typed native action,
+then follows the returned control. An intended page transition retires its old
+anchor before awaiting native reads. Stop, Escape, input takeover, account/context
+changes and stale callbacks remain cancellation boundaries. Motion respects the
+operating-system preference; the final pointer lingers briefly. Native swap entry
+reads its directory/catalog without awaiting a full Blotter valuation.
+
+Unsaved swap filling supports explicit structure, quantity, agreed fixed pricing,
+fixed-side direction and memo through closed native setters. A complete literal
+assignment ask, or the bounded affirmative `Fill the swap ticket with ...`
+grammar, supplies every value. Structure and agreed pricing must be stated before
+a fixed price can be presented; conflicting, unsupported, reported or negated
+instructions refuse. Setters dispatch no DOM command/change events, calculate
+nothing and never press Preview, Book, Save, consent or Authorize. Reference
+choices, dates, par pricing and other terms remain the person's controls until
+source-bound adapters are implemented.
+
+Runtime `turns_v17` and migration 0203 protect the changed tool input and stored
+field vocabulary; older binaries refuse new work. No agent version/grant is
+rewritten and no table is added. Migration predecessors are fingerprinted for
+body, owner, ACL and configuration. Independent review must attack metadata as
+financial evidence, retained/date-only context escape, access-change replay,
+field provenance/product compatibility, hidden control targeting, Stop during
+aim/read, modal ownership, stale callbacks and explicitly confirmed navigation.
+
+## D336 — Versioned accounting policy and standards references
 
 Keep physical quantity balances, commercial cash determinations/documents and
 financial accounting as separate responsibilities. An economic Instrument/Side
@@ -2601,7 +2791,7 @@ See [the accounting boundary](accounting-policy-boundary.md) for contracts,
 independent acceptance cases, decisions needing accounting review and sequence.
 
 
-## D329 — Final daily gas commercial cash with shared restatement arithmetic
+## D337 — Final daily gas commercial cash with shared restatement arithmetic
 
 Implement one completed native gas day and independently signed retained fixed
 cash/fee delivery membership under `gas_final_daily_fixed_cash_v1`. Select final
@@ -2618,16 +2808,16 @@ including fresh requests and other authorized actors; a new accepted revision
 records a linked correction with explicit cause, due instant and evidence.
 Storage waits cannot retain expired mutation or recovery authority. Billing needs
 AmendTrade and source reads, not BookTrade. UI and approval-only agent operations
-share the native handlers; migration 0200 gates new tools on `turns_v17`.
+share the native handlers; migration 0204 gates new tools on `turns_v18`.
 
 This consumer neither recognizes title/completion nor issues invoices, records
 payments, posts journals or changes contractual PV. Receipt/fuel stages, monthly
 rounding, price/fee corrections and broader commodities need their own qualified
-contracts. D328 remains an accounting design, not an executable posting policy.
+contracts. D336 remains an accounting design, not an executable posting policy.
 See [the gas cash contract](gas-cash-billing.md) for actual scope and checks.
 
 
-## D330 — Manual delivery desk, retro nominations and imbalance transfers
+## D338 — Manual delivery desk, retro nominations and imbalance transfers
 
 Implement the named manual workflows in [the delivery operations contract](gas-delivery-operations.md).
 Keep submitted requests, external counterparty/pipeline responses and reviewed
@@ -2649,7 +2839,7 @@ instrument, automatic cash-out, invoice/payment execution or accounting is
 introduced by this manual consumer. Qualify the business oracles and complete
 independent review before publication.
 
-## D331 — Separate physical operations and instrument inspection
+## D339 — Separate physical operations and instrument inspection
 
 Physical work belongs in a dedicated Operations sidebar view. Keep the Blotter
 focused on pricing, retained terms and the sides' read-only schedules. Reuse a
@@ -2664,9 +2854,9 @@ transport retains an uncertain command across widget/page/context changes, with
 shared Keep/Discard guards and current native authorization. Gas workflow and
 billing are separate tabs. LNG operational actuals, other commodity adapters and
 live pipeline connectivity retain explicit TBD status. New page/runtime admission
-is migration 0202 / turns_v19; no financial policy or executable commodity is added.
+is migration 0206 / turns_v20; no financial policy or executable commodity is added.
 
-## D332 — Focused physical operations layout
+## D340 — Focused physical operations layout
 
 Use one compact instrument picker and a persistent selected-instrument header.
 Present saved terms in responsive cards. Delivery stage tabs reveal their own
@@ -2680,7 +2870,7 @@ no financial policy or delivery day is inferred. Dirty stage/day changes preserv
 the current form, and a refused directory refresh clears prior identity metadata.
 Native permissions and the shared header context remain authoritative.
 
-## D333 — Physical trade and delivery-row grids
+## D341 — Physical trade and delivery-row grids
 
 Replace the trade/commodity pickers and delivery-day picker with the existing
 sortable, filterable data grid. Trade rows identify exact booked bindings under
@@ -2702,7 +2892,7 @@ compatibility, authority, evidence, version and acceptance decisions; selection
 adds no financial defaults or new write contract.
 
 
-## D334 — Native physical delivery projections
+## D342 — Native physical delivery projections
 
 Use one managed `PhysicalDeliveryView` for retained physical delivery intervals,
 quantity tracks, references and capabilities. Reuse a literal quantity-output

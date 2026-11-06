@@ -3,6 +3,10 @@ import json
 from uuid import UUID,uuid4
 
 
+# Knowledge-time faults: the close in force is read even when its pins or itself became known after the view's cutoff.
+LATEST={'missing one pin event','missing one pin receipt','different publication transaction','pin outside certified prefix','later-known pin','later-known close'}
+
+
 def run_checks(query, claim, profile):
     run,worker=str(UUID(claim['id'])),str(UUID(claim['workerId']))
     fence=int(claim['fence'])
@@ -39,8 +43,10 @@ def run_checks(query, claim, profile):
             result=query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION {login};SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{context}');"
                 f"SELECT security.market_close_visible('{catalog}','{close}');RESET SESSION AUTHORIZATION;SET LOCAL session_replication_role=replica;"+change+
                 f"SET LOCAL session_replication_role=origin;SET LOCAL SESSION AUTHORIZATION {login};SELECT security.market_close_visible('{catalog}','{close}');ROLLBACK;").splitlines()
-            assert result==['t','f'],(login,name,result)
-        print(f'PASS close pin visibility: {login} refuses whole-close missing, mismatched, later-known and out-of-effective-time evidence',flush=True)
+            # Always latest (D334): knowledge-time evidence no longer hides the close in force; time and scope still do.
+            expected=['t','t'] if name in LATEST else ['t','f']
+            assert result==expected,(login,name,result)
+        print(f'PASS close pin visibility: {login} reads the close in force whatever its knowledge evidence, and refuses next-day, ineffective and foreign-catalog evidence',flush=True)
 
         token=issue(login)
         result=query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION {login};SELECT security.use_context('{token}');RESET SESSION AUTHORIZATION;SET LOCAL session_replication_role=replica;DELETE FROM market_data.market_knowledge_receipts WHERE {receipt};SET LOCAL session_replication_role=origin;SET LOCAL SESSION AUTHORIZATION {login};SELECT security.market_close_visible('{catalog}','{close}');ROLLBACK;")

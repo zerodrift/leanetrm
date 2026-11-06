@@ -8,7 +8,7 @@ export async function run({command,evaluate,wait,click,persona,set,check,idle,ur
  // A tab of the curve's dock.
  const openView=view=>click('#custom-curves-dock-'+view);
  const actor=await sideSession(url,'editor'),directory=await actor.call('workspace/navigation');
- const frame=directory.frames.find(f=>f.at.startsWith('2020-12-18'));
+ const frame=directory.frames.find(f=>f.at.startsWith('2020-12-18')&&directory.initialFrameIds.includes(f.id));
  const template=(await actor.call('custom-curves')).templates.find(t=>t.code==='ng_prompt').definition;
  async function save(code,name,first,prior){
   await actor.call('profile',{profile:'editor'});const definition=structuredClone(template);definition.code=code;definition.name=name;definition.nodes.find(n=>n.kind==='select').parameters.first=String(first);

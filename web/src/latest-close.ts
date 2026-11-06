@@ -9,7 +9,8 @@ type Availability=Pick<MarketDates,'dates'|'maxDate'>;
 export type CloseChoice={kind:'single';closeId:string;date:string}|{kind:'choose';date:string}|{kind:'none'};
 // What the As-of control tells the person about the close it shows: the latest, an earlier one with nothing newer
 // since it was selected, that a newer close has become available, or that a close still has to be chosen.
-export type CloseBadge='latest'|'selected'|'newer'|'choose';
+// A working snapshot is no close at all: it names itself as working data (D334).
+export type CloseBadge='latest'|'selected'|'newer'|'choose'|'working';
 
 const inconsistent=()=>Error('The available market dates are inconsistent about their newest date. Reload the calendar.');
 

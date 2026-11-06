@@ -17,7 +17,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     if not(root/'.openetrm-preview').is_file() or not(root/'data/postmaster.pid').is_file():
         raise AssertionError('The worker qualifier requires the matching live owned preview')
     trader=PreviewClient(url);trader.bootstrap();trader.call('profile',{'profile':'trader'})
-    frame=next(f for f in trader.call('workspace')['frames'] if f['at'].startswith('2020-12-18T16:00:00'))
+    listed=trader.call('workspace');frame=next(f for f in listed['frames'] if f['at'].startswith('2020-12-18T16:00:00'))
     swap_context={'snapshotId':frame['id'],'convention':'independent_side_financial_swap_v2','knowledgeMode':'current'}
     catalog=trader.call('swaps/catalog',swap_context);books=[b['id'] for b in catalog['books'][:2]]
     def payment(days):return {'frequency':'monthly','rule':'days_after_period_end','days':days,'dayOfMonth':None,'dayBasis':'calendar_days','shortMonth':None,'adjustment':'unadjusted','calendar':None,'implementation':'monthly_payment_date_rules_v1'}
@@ -41,8 +41,14 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     from pilot_report_fixture import prepare_alias
     prepare_alias(query,manifest,future_trade['tradeId'])
     owner=PreviewClient(url);owner.bootstrap();owner.call('profile',{'profile':'approver'})
-    selected=next(f for f in owner.call('workspace')['frames'] if f['at']==frame['at'])
-    anchor=owner.call('market/closes/register',{'requestId':str(uuid4()),'snapshotId':selected['id'],'name':'Synthetic worker anchor'})
+    listed=owner.call('workspace');selected=next(f for f in listed['frames'] if f['at']==frame['at'])
+    # Generated closes carry only the profile's root curve, so they are recorded for a session of that curve (D334).
+    from close_session_fixture import draft,grant,publish
+    editor=PreviewClient(url);editor.bootstrap();editor.call('profile',{'profile':'editor'})
+    admin=PreviewClient(url);admin.bootstrap();admin.call('profile',{'profile':'admin'})
+    publish(editor,owner,draft('test_pilot_local_power','test_utc_every_day','16:00',['local_power']))
+    for login in ('approver','pilot_fixture_worker'):grant(admin,query,manifest,login,'test_pilot_local_power')
+    anchor=owner.call('market/closes/register',{'requestId':str(uuid4()),'snapshotId':selected['id'],'name':'Synthetic worker anchor','session':'test_pilot_utc','businessDate':'2020-12-18'})
     choices=owner.call('jobs/pilot-close/catalog')
     root_curve=next(c for c in choices['curves'] if c['code']=='local_power')
     source=next(s['code'] for s in choices['sources'] if s['code']=='fixture')
@@ -52,7 +58,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     body={'schedule':{'requestId':str(uuid4()),'name':'Synthetic mixed-book pilot close','operation':choices['operation'],
         'dueAt':(now+timedelta(minutes=10)).isoformat(),'expiresAt':(now+timedelta(hours=1)).isoformat(),'intervalSeconds':None,
         **choices['schedulePolicy'],'timeoutSeconds':120,'maximumAttempts':3,'profileId':None,'profileVersion':None},
-        'definition':{'priorCloseId':anchor['id'],'bookIds':books,'curveCodes':['local_power'],'sourceCode':source,'seed':17,
+        'definition':{'session':'test_pilot_local_power','priorCloseId':anchor['id'],'bookIds':books,'curveCodes':['local_power'],'sourceCode':source,'seed':17,
             'leafMoves':[{'curve':code,'maxTicks':7} for code in root_curve['leafCurves']],**policies,'valuationPolicy':policy}}
     owner.call('jobs/pilot-close/create',{**body,'definition':{k:v for k,v in body['definition'].items() if k!='seed'}},expected=400)
     created=owner.call('jobs/pilot-close/create',body)

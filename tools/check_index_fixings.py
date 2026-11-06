@@ -340,8 +340,9 @@ def run_correction_checks(query, manifest, c, frames):
     print('PASS composed fixing receipts: both slots retain original actuals on corrected replay; a fresh operation records corrected pins and direct subtype conversion rejects',flush=True)
     after=priced(seed)['monthly context']['knownAt']
     aliases=set()
-    for known,result in [(first['monthly context']['knownAt'],original),
-                         (after,{'monthly':(60,['3.6']),'daily':(34,['3.63','3.95'])})]:
+    # The built-in frame is a recorded close, which stays exact (D172, D334): a later correction reaches it only when a close
+    # carrying it is recorded, so both cutoffs read the original prices.
+    for known,result in [(first['monthly context']['knownAt'],original),(after,original)]:
         c.call('market/context',{'effectiveOn':'2021-01-15','knownAt':known,'mode':'at','selection':'latest_correction'})
         workspace=c.call('workspace')
         (alias,)=[f for f in workspace['frames'] if f['at']==seed['at']]
@@ -353,9 +354,10 @@ def run_correction_checks(query, manifest, c, frames):
         aliases.add(alias['id'])
         c.call('market/current',{})
     assert len(aliases)==2 and seed['id'] not in aliases
-    print('PASS certified contexts: the latest correction known at each cutoff resolves both bundles into the context\'s own snapshot, repeatably and read-only',flush=True)
+    print('PASS certified contexts: each cutoff reads the recorded close exactly into the context\'s own snapshot, repeatably and read-only',flush=True)
     c.call('profile',{'profile':'approver'})
-    refused=c.call('market/closes/register',{'requestId':str(uuid4()),'snapshotId':daily['frame']['id'],'name':'Selected daily correction'},expected=422)
+    refused=c.call('market/closes/register',{'requestId':str(uuid4()),'snapshotId':daily['frame']['id'],'name':'Selected daily correction',
+        'session':daily['frame'].get('close',{}).get('session','not_a_session'),'businessDate':daily['frame']['at'][:10]},expected=422)
     assert refused['code']=='close_swap_market_pins',refused
     c.call('profile',{'profile':'trader'})
     print('PASS a close cannot be registered from a snapshot whose separate swap-bundle selections it cannot record',flush=True)

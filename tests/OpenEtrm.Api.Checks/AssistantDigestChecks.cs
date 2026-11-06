@@ -8,7 +8,13 @@ static class AssistantDigestChecks
 {
     public static void Run()
     {
-        var call=AgentTools.Parse("read_page_digest",JsonSerializer.SerializeToElement(new{}));
+        var call=AgentTools.Parse("read_page_digest",JsonSerializer.SerializeToElement(new{mode="overview"}));
+        AgentTools.Parse("read_page_digest",JsonSerializer.SerializeToElement(new{mode="controls"}));
+        foreach(var mode in new[]{"{}","{\"mode\":\"guess\"}","{\"mode\":\"controls\",\"page\":\"blotter\"}"})
+        {
+            try{AgentTools.Parse("read_page_digest",JsonDocument.Parse(mode).RootElement);throw new Exception("Digest mode was defaulted or the admitted page replaced.");}
+            catch(ToolRefusal e) when(e.Code=="tool_arguments_invalid"){}
+        }
         if(call.Operation.Id!="workspace.digest_v1"||
             !AgentTools.Tools.Single(t=>t.Name=="read_page_digest").Permissions.SequenceEqual(["UseAssistantWorkspace"]))
             throw new Exception("A page digest is an explicitly enabled workspace read.");

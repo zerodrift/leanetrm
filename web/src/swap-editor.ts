@@ -344,6 +344,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  let failedLiveSelection:{position:Position;revision:number}|undefined,position:Position|undefined;
  const display=dealFormatEditor(get('swap-amount-format'),{api:options.api,act:options.act,busy:options.busy,changed:async()=>{const value=visibleValuation,version=previewGeneration;if(value){await prepare(value);if(value===visibleValuation&&version===previewGeneration)valuation(value);}}});
  async function prepare(value:Valuation){await display.prepare(value);for(const side of value.sides)await display.prepare(side,side.kind);}
+ let presentationRevision=0;
  let catalog:Catalog|undefined,detail:Detail|undefined,prepared:RequestCommand|undefined,generation=0,previewGeneration=0;
  const dates=createScheduleDatePicker(get('swap-date-tools'),{id:'swap-date-lookup',api:options.api,run:work=>options.act(()=>safe(work)),context:()=>catalog?.context,zone:options.zone,busy:options.busy,enabled:()=>!options.pending()&&!!catalog&&(!detail?!!catalog:detail.canAmend),targets:['fixed','first','floating'].flatMap(side=>['from','to'].map(suffix=>({input:get<HTMLInputElement>(`swap-${side}-${suffix}`),available:()=>!!field('swap-type').value&&activeSides().includes(side),acceptsDate:date=>side==='fixed'||sideDateChoices(side)[suffix==='from'?'starts':'ends'].includes(date),label:`${side==='fixed'?'Fixed':side==='first'?'First floating':'Floating'} side · delivery ${suffix==='from'?'start':'end (exclusive)'}`}))),edited:()=>edits.mark()});
  const key=()=>JSON.stringify(options.context());
@@ -455,7 +456,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  function clearSchedules(){for(const widget of scheduleWidgets)widget.dispose();scheduleWidgets.length=0;get('swap-schedules').replaceChildren();}
  // What was prepared for a booking, its preview and its confirmation, is dropped: the booking has to be prepared again from the form.
  function unprepare(){renderChangeReview(get('swap-change-review'),null);visibleValuation=undefined;previewGeneration++;prepared=undefined;get('swap-result').hidden=true;get('swap-confirmation').hidden=true;get<HTMLInputElement>('swap-confirm').checked=false;sync();}
- function invalidate(){text('swap-par-result','');draft.reset();unprepare();}
+ function invalidate(){presentationRevision++;text('swap-par-result','');draft.reset();unprepare();}
  function sync(){
   const waiting=options.busy()||!!options.pending(),confirmed=get<HTMLInputElement>('swap-confirm').checked;
   settlement.sync();settlementButton.hidden=!detail;settlementButton.disabled=waiting;scheduled.sync();scheduledButton.hidden=!!detail;
@@ -470,7 +471,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   text('swap-action-status',detail&&!detail.canAmend?(detail.amendUnavailableReason??'This revision is read-only.'):prepared?(confirmed?detail?'Ready to save this amendment.':'Ready to book these reviewed terms.':'Review the preview below and tick the confirmation to enable saving.'):detail?'Change the terms, enter an amendment reason, then preview changes.':'Enter the trade terms, then preview the booking.');
   field('swap-revision').disabled=waiting;get<HTMLButtonElement>('swap-latest').disabled=waiting;
  }
- function reset(){settlement.reset();scheduled.reset();resetTicket();}
+ function reset(){presentationRevision++;settlement.reset();scheduled.reset();resetTicket();}
  function resetTicket(){root.querySelectorAll('.booked-value-note').forEach(note=>note.remove());closeOut.replaceChildren();closeOut.hidden=true;priceSource.clear();quoteUnits.clear();text('swap-template-note','Add the two sides of the swap. Each side keeps its own delivery and payment terms.');pendingSideKinds=[];observationOptions={};Object.values(observations).forEach(controls=>controls.reset());Object.values(selections).forEach(controls=>controls.reset());failedLiveSelection=undefined;display.reset();visibleValuation=undefined;annotations.reset();generation++;shelf.append(root);root.hidden=true;position=undefined;detail=undefined;catalog=undefined;dates.reset();invalidate();get<HTMLFormElement>('swap-form').reset();field('swap-revision').value='';edits.clear();for(const id of ['swap-book','swap-commodity','swap-first-commodity','swap-index','swap-projection','swap-reset-frequency','swap-averaging','swap-fixed-currency','swap-floating-currency','swap-quantity-unit','swap-fixed-payment-calendar','swap-floating-payment-calendar','swap-first-index','swap-first-projection','swap-first-reset-frequency','swap-first-averaging','swap-first-currency','swap-first-payment-calendar','swap-price-source','swap-first-price-source'])field(id).replaceChildren();for(const id of ['swap-reference','swap-mode','swap-unit','swap-price-unit','swap-coverage','swap-projection-note','swap-first-projection-note','swap-pv','swap-effective','swap-error'])text(id,'');get('swap-error').hidden=true;clearSchedules();get('swap-revisions').hidden=true;get('swap-amendment').hidden=true;for(const side of ['fixed','first','floating'])paymentControls(side);typeControls();}
  async function safe(work:()=>Promise<void>){const started=generation;try{get('swap-error').hidden=true;await work();}catch(error){if(started!==generation)return;text('swap-error',error instanceof Error?error.message:'The financial swap operation failed.');get('swap-error').hidden=false;get('swap-error').scrollIntoView({block:'nearest'});if((error as {code?:string}).code==='access_denied'){reset();options.onDenied();}throw error;}}
  function choose(id:string,rows:{value:string;label:string}[],value='',retained?:string,linked=false){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option('Choose…',''),...rows.map(r=>new Option(publicText(r.label),r.value)));if(value&&(retained||/-(index|projection|reset-frequency|averaging|price-source)$/.test(id))&&!rows.some(row=>row.value===value)){const option=new Option(publicText(unavailableValueLabel(retained??(id.endsWith('-projection')?projectionKeyLabel(value,curveName):value),!!retained)),value);markUnavailableValue(option,!!retained);select.append(option);}select.value=[...select.options].some(row=>row.value===value)&&value?value:linked?linkedValue(rows.map(row=>row.value)):'';explainUnavailableValue(select);}
@@ -679,7 +680,34 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   void (async()=>{if(await options.leave())await options.act(()=>open(at,revision()));else kept();})();
  }
  get('swap-latest').onclick=()=>replacing(()=>null);
- return{open,openNew,openCloseOut,openSettlement,reset,sync,newTicketOpen:()=>mounted()&&!detail,
+ // Closed unsaved-state adapters do not dispatch change/submit events or invoke booking/preview.
+ function presentationField(key:string):HTMLElement{
+  if(!mounted()||detail||options.busy()||options.pending())throw Error('The unsaved swap ticket is unavailable.');
+  if(key==='swap.structure'){
+   const control=get('swap-type-choices').querySelector<HTMLElement>('button[data-add-side]:not(:disabled)');
+   if(!control)throw Error('The swap structure is already selected.');return control;
+  }
+  const id=({'swap.quantity':'swap-quantity','swap.fixedPrice':'swap-price','swap.memo':'swap-memo','swap.fixedDirection':'swap-direction','swap.priceMode':'swap-price-mode'} as Record<string,string>)[key];
+  const control=id?field(id):null;
+  if(!control||control.disabled||control.closest('[hidden],fieldset[disabled]')||!control.getClientRects().length)throw Error('The swap field is unavailable. Choose its structure first.');
+  return control;
+ }
+ return{open,openNew,openCloseOut,openSettlement,reset,sync,presentationField,presentationRevision:()=>presentationRevision,
+  presentationFill(key:string,value:string){
+   const target=presentationField(key);
+   if(key==='swap.structure'){
+    if(!catalog?.sideStructures.some(s=>s.type===value))throw Error('This swap structure is not offered by the native ticket.');
+    field('swap-type').value=value;typeControls();dates.sync();
+   }else{
+    const control=target as HTMLInputElement|HTMLSelectElement;
+    if(control instanceof HTMLSelectElement&&![...control.options].some(o=>o.value===value&&!o.disabled))throw Error('This choice is not offered by the native ticket.');
+    if(key==='swap.fixedPrice'&&field('swap-price-mode').value!=='agreed')throw Error('Choose agreed fixed pricing explicitly before entering the fixed price.');
+    control.value=value;
+    if(key==='swap.fixedDirection')direction();
+    if(key==='swap.priceMode'){field('swap-price').value='';priceControls();}
+   }
+   presentationRevision++;edits.mark();invalidate();priceSource.clear();sync();return key==='swap.structure'?field('swap-quantity'):target;
+  },newTicketOpen:()=>mounted()&&!detail,
   // A live correction reads again what the panel's form part shows of a position: its settlement view, or its ticket at the revision shown.
   async liveRefresh(){
    if(settlement.isOpen()){await settlement.liveRefresh();return;}

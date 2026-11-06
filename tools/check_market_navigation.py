@@ -43,7 +43,8 @@ def run_checks(c, check, query, manifest):
         return (sorted(nav['curves'], key=lambda r: r['code']) == sorted(expected, key=lambda r: r['code'])
                 and nav['definitionRevision'] == {'catalogId': revision['catalog_id'], 'revisionId': revision['id']}
                 and nav['referenceRevision'] == {'catalogId': revision['reference_catalog_id'], 'revisionId': revision['reference_revision_id']}
-                and nav['frames'] == [{**{key: frame[key] for key in ['id', 'name', 'at']},'originCloseId':frame.get('originCloseId')} for frame in workspace['frames']]
+                and nav['frames'] == [{**{key: frame[key] for key in ['id', 'name', 'at']},'originCloseId':frame.get('originCloseId'),'close':frame.get('close')}
+                                      for frame in workspace['frames']]
                 and all(nav[key] == workspace[key] for key in ['profile', 'context', 'example', 'futuresConvention', 'initialFrameIds','referenceDisplay','frameCatalog'])
                 and nav['curveNames'] == c.call('curve-names'))
 
@@ -52,13 +53,18 @@ def run_checks(c, check, query, manifest):
                               'example', 'futuresConvention', 'initialFrameIds', 'frames', 'curveNames', 'curves','referenceDisplay','frameCatalog','live'}
           and navigation['live'] is None
           and navigation['kind'] == 'market_navigation' and navigation['kindsVersion'] == 'curve_kinds_v1'
-          and all(set(frame) == {'id', 'name', 'at','originCloseId'} and frame['originCloseId'] is None for frame in navigation['frames']))
+          # Built-in frames are recorded session closes (D334): each names its stored close and its session day. A frame a
+          # fixture never records stays a working snapshot, with neither.
+          and all(set(frame) == {'id', 'name', 'at','originCloseId','close'} and (frame['originCloseId'] == frame['id']
+                  and frame['close']['session'] and frame['close']['businessDate'] or frame['originCloseId'] is None and frame['close'] is None)
+                  for frame in navigation['frames'])
+          and any(frame['close'] for frame in navigation['frames']))
     # PPA-only configured frames consume retained session capacity but are not listed here.
-    ppa_frames = sum(bool(frame.get('ppaBundle')) for frame in manifest['frames'])
     check('ordinary navigation declares its bounded exact stored-close discovery policy',
           navigation['frameCatalog']=={'durableSelection':'exact_recorded_close_pins_v1',
                                       'selectionPolicy':'preserved_session_plus_latest_visible_closes_v1',
-                                      'maximumFrames':128,'durableLimit':128-len(navigation['frames'])-ppa_frames,
+                                      # Recorded closes are discovered, not retained: only the manifest's remaining frames use capacity.
+                                      'maximumFrames':128,'durableLimit':128-sum('closeId' not in f for f in manifest['frames']),
                                       'hasMoreDurableCloses':False})
     check('working navigation supplies only its exact unapplied display-metadata identity',
           navigation['referenceDisplay'] == {'sourceRevision':navigation['referenceRevision'],

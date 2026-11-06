@@ -20,7 +20,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   async function block(path){await evaluate(`window.__block=${JSON.stringify(path)}`);await press('Enter',13);await wait('!!window.__release');}
   async function release(){await evaluate('window.__release()');await wait(idle);}
   await persona('trader');
-  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')).id;})()");
+  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
   await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
   await click('#profile-open');
   // Invalid nonempty preference still passes native required-field validation,

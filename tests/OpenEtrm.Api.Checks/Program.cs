@@ -45,6 +45,7 @@ if(args is ["--booked-schedule-lookups"]){BookedScheduleLookupChecks.Run();retur
 if(args is ["--contract-observation-authoring"]){ContractObservationAuthoringChecks.Run();return;}
 if(args is ["--side-observation-compatibility"]){SideObservationCompatibilityChecks.Run();return;}
 if(args is ["--curve-activation-inputs"]){CurveActivationInputChecks.Run();return;}
+if(args is ["--curve-projection-shape"]){CurveProjectionShapeChecks.Run();return;}
 if(args is ["--connected-samples"]){ConnectedSampleChecks.Run();return;}
 if(args is ["--live-calculation"]){LiveContextChecks.Run();return;}
 if(args is ["--history-chart"]){HistoryChartChecks.Run();return;}

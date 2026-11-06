@@ -556,7 +556,7 @@ operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
   and separate trade windows mount booked tickets read-only. Side schedules
   contains schedule inspection only. Daily quantity entry, current source-head
   review and retained-command recovery belong in **Operations → Physical
-  operations → Gas workflow**. The native `gas/quantities` operations retain
+  operations → Delivery**. The native `gas/quantities` operations retain
   their explicit revision, kind, status, evidence and historical-write checks.
 - The preview and the booked read return `links`: for each linked physical
   side its source, target, formula, fraction and the receipt, delivery and fuel
@@ -675,7 +675,7 @@ not production activation.
 ## Facility allocation plan on a booked physical Side
 
 A booked gas Side with a [facility allocation](facility-quantity-ledger.md) shows a
-read-only delivery-day track in Physical operations → Gas workflow → After flow,
+read-only delivery-day track in Physical operations → Delivery → After flow,
 including when post-delivery contractual PV is unavailable. It projects the Side's own planned
 quantity and unit from the shared facility ledger, with explicit removal/null
 state. It does not expose shared pool totals, residuals, other counterparties or

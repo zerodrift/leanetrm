@@ -33,7 +33,8 @@ def run_checks(query,manifest,psql,environment,close_id,context):
     DO $$BEGIN PERFORM security.read_market_close_parts('{catalog}',ARRAY['{close_id}'::uuid],'{uuid4()}');
     RAISE EXCEPTION 'A close read mislabeled its bound context';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;END$$;ROLLBACK;""")
     def attempt(expect_refusal,direct=False):
-        table='market_close_receipts' if direct else 'market_close_members'
+        # A close in force is qualified from its pins, whatever the cutoff (D334), so the direct read waits on them.
+        table='market_close_pins' if direct else 'market_close_members'
         read=(f"IF security.market_close_visible('{catalog}','{close_id}') THEN RAISE EXCEPTION 'Expired close reader returned financial parts';END IF;" if direct else
               f"PERFORM security.read_market_close_parts('{catalog}',ARRAY['{close_id}'::uuid],'{context['contextId']}');RAISE EXCEPTION 'Expired close reader returned financial parts';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;")
         locker=subprocess.Popen(psql,env=environment,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
@@ -77,7 +78,7 @@ def run_checks(query,manifest,psql,environment,close_id,context):
         query(visibility)
         query(original)
         query(f"DELETE FROM security.request_contexts WHERE actor_id='{principal}';DELETE FROM security.role_grants WHERE id='{grant}';DELETE FROM security.workspace_memberships WHERE principal_id='{principal}';DELETE FROM security.identity_bindings WHERE principal_id='{principal}';DELETE FROM security.principals WHERE id='{principal}';DELETE FROM security.role_permissions WHERE role_id='{role}';DELETE FROM security.roles WHERE id='{role}';")
-    print('PASS direct close visibility: missing helper final guard detected; natural expiry while waiting for the exact close receipt refuses visibility',flush=True)
+    print('PASS direct close visibility: missing helper final guard detected; natural expiry while waiting for the exact close pins refuses visibility',flush=True)
     print('PASS close-parts guard: missing final guard detected, natural expiry after content wait rejected, wrong context refused, recent-header index usable',flush=True)
 
 
@@ -85,10 +86,10 @@ def check_generated_history(url,query,manifest,run_id,curve,contract_id):
     reader=PreviewClient(url);reader.bootstrap();reader.call('profile',{'profile':'viewer'})
     navigation=reader.call('workspace/navigation')
     generated=next(frame for frame in navigation['frames'] if frame.get('originCloseId')==run_id)
-    older=max((frame for frame in navigation['frames'] if frame['id'] in navigation['initialFrameIds'] and frame['at']<generated['at']),key=lambda frame:frame['at'])
-    history=reader.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':older['id'],'curve':curve,'contractId':contract_id})
+    # A close's history is its own session's (D334): the generated close's history, read at that close, lists it.
+    history=reader.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':generated['id'],'curve':curve,'contractId':contract_id})
     point=next((point for point in history['points'] if point['snapshotId']==run_id),None)
-    assert point,'History omitted a later generated close while an older initial snapshot remained selected'
+    assert point,'History omitted the generated close it was read at'
     native=json.loads(query(f"""SELECT jsonb_build_object('id',o.id,'value',o.value::text) FROM market_data.market_close_pins p
      JOIN market_data.observations o ON(o.catalog_id,o.id)=(p.catalog_id,p.observation_id)
      JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.id)=(o.catalog_id,o.definition_revision_id,o.series_id)

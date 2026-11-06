@@ -4,7 +4,9 @@ import {validFrameCatalog,type FrameCatalog} from './frame-catalog.js';
 import type {LiveSelection} from './live-context.js';
 import {isCurveKind,kindsVersion,type CurveKind} from './curve-kinds.js';
 
-export type FrameSummary={id:string;name:string;at:string;originCloseId?:string|null};
+import type {FrameClose} from './close-sessions.js';
+// close names a recorded close's session and business day (D334); a working snapshot has none.
+export type FrameSummary={id:string;name:string;at:string;originCloseId?:string|null;close?:FrameClose|null};
 export type NavigationCategory={code:string;name:string};
 // A commodity curve names its commodity. An interest-rate curve has none; its market type identifies it. Its kind is the backend's (D259).
 export type NavigationCurve={code:string;name:string;marketType:MarketType;category:NavigationCategory|null;kind:CurveKind};
@@ -25,7 +27,7 @@ export function validateMarketNavigation(value:MarketNavigation){
    (c.marketType==='rates'?c.category!==null:!c.category||!text(c.category.code)||!text(c.category.name)))||
   new Set(value.curves.map(c=>c.code)).size!==value.curves.length||conflictingLabels(value.curves)||
   !Array.isArray(value.curveNames)||value.curveNames.some(c=>!c||!text(c.code)||!text(c.name))||
-  !Array.isArray(value.frames)||value.frames.some(f=>!f||!text(f.id)||!text(f.name)||!text(f.at)||f.originCloseId!=null&&!text(f.originCloseId)||Object.keys(f).some(k=>!['at','id','name','originCloseId'].includes(k)))||
+  !Array.isArray(value.frames)||value.frames.some(f=>!f||!text(f.id)||!text(f.name)||!text(f.at)||f.originCloseId!=null&&!text(f.originCloseId)||f.close!=null&&(!text(f.close.session)||!text(f.close.businessDate)||!f.originCloseId)||Object.keys(f).some(k=>!['at','id','name','originCloseId','close'].includes(k)))||
   new Set(value.frames.map(f=>f.id)).size!==value.frames.length||
   (value.frameCatalog!==undefined&&!validFrameCatalog(value.frameCatalog))||value.frames.some(f=>!!f.originCloseId)&&!validFrameCatalog(value.frameCatalog!)||
   !Array.isArray(value.initialFrameIds)||value.initialFrameIds.some(id=>!value.frames.some(f=>f.id===id)))

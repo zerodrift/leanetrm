@@ -163,7 +163,10 @@ public static class PilotCloseReports
         if(positions.IsEmpty||totals.IsEmpty||models.IsEmpty)throw Invalid();
         var dependenciesByModel=dependencies.ToLookup(d=>d.Id("model_id"));
         var observationsByDiscount=discountObservations.ToLookup(o=>o.Text("discount_ordinal"),StringComparer.Ordinal);
-        var result=new{reportId=runId,runId,state="report_published",mode=h.Text("mode"),close=new{id=h.Id("close_id"),name=h.Text("close_name"),at=h.Instant("close_at"),kind=h.Text("close_kind")},
+        // A report keeps the exact close it valued; it says when that close has since been replaced (D334).
+        var recorded=await MarketCloses.Read(connection,catalog,h.Id("close_id"),ct);
+        var result=new{reportId=runId,runId,state="report_published",mode=h.Text("mode"),close=new{id=h.Id("close_id"),name=h.Text("close_name"),at=h.Instant("close_at"),kind=h.Text("close_kind"),
+            session=recorded.Session,businessDate=recorded.BusinessDate,replaced=recorded.ReplacedBy is not null,inForce=recorded.ReplacedBy??recorded.Id},
             context=new ScheduleContext(h.Text("effective_on"),int.Parse(h.Text("known_through")),h.Instant("known_at").ToString("O"),h.Id("context_id")),policy=h.GetProperty("policy"),work=h.GetProperty("work"),
             model=new DefinitionRevision(catalog,h.Id("definition_revision_id")),reference,
             modelContracts=models.Select(m=>new{id=m.Id("id"),modelVersion=m.Text("model_version"),quantity=Key(m.Text("quantity_code")),currency=Key(m.Text("currency_code")),

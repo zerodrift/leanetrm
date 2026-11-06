@@ -13,7 +13,8 @@ namespace OpenEtrm.Api;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PilotLeafMove(string Curve,int MaxTicks);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record PilotCloseDefinition(Guid PriorCloseId,ImmutableArray<Guid> BookIds,ImmutableArray<string> CurveCodes,
+// Session names the close session its generated closes are recorded for (D334).
+public sealed record PilotCloseDefinition([property:JsonRequired] string Session,Guid PriorCloseId,ImmutableArray<Guid> BookIds,ImmutableArray<string> CurveCodes,
     string SourceCode,[property:JsonRequired]int Seed,ImmutableArray<PilotLeafMove> LeafMoves,string Generator,string TickBasis,
     string ParameterPolicy,string FrozenPolicy,string MembershipPolicy,string CalendarPolicy,string ClosePolicy,
     PortfolioValuationPolicy ValuationPolicy);
@@ -35,7 +36,7 @@ public static class PilotCloseJobs
         if(pin.Context is not null)throw new MarketDataException("historical_read_only","Configure generated pilot jobs in the current workspace.");
         foreach(var permission in Permissions)if(!await PreviewDatabase.HasPermission(connection,permission,ct))throw new PreviewDeniedException();
         var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
-        var closeRows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT id,name,at,kind FROM market_data.market_closes WHERE catalog_id=$1 AND definition_revision_id=$2 ORDER BY at DESC,id LIMIT 128)t",[database.Manifest.CatalogId,database.Manifest.RevisionId],ct);
+        var closeRows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT id,name,at,kind FROM market_data.market_closes WHERE catalog_id=$1 AND definition_revision_id=$2 AND id=security.close_in_force(catalog_id,session_code,business_date) ORDER BY at DESC,id LIMIT 128)t",[database.Manifest.CatalogId,database.Manifest.RevisionId],ct);
         await using var clock=ScheduleStore.Command(connection,"SELECT clock_timestamp()");
         var observed=new DateTimeOffset((DateTime)(await clock.ExecuteScalarAsync(ct))!);
         var current=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,
@@ -89,7 +90,7 @@ public static class PilotCloseJobs
         // own exact typed profile rather than a Swarm execution profile.
         (schedule with{Operation="worker_check"}).Validate();
         if(schedule.Operation!=Operation||schedule.ProfileId is not null||schedule.ProfileVersion is not null||schedule.IntervalSeconds is not(null or 86400)||schedule.DueAt.Ticks%10!=0||schedule.ExpiresAt.Ticks%10!=0||schedule.DueAt.Year is <1901 or >2199||
-            definition.PriorCloseId==Guid.Empty||definition.BookIds.IsDefaultOrEmpty||definition.BookIds.Length>128||definition.BookIds.Any(id=>id==Guid.Empty)||definition.BookIds.Distinct().Count()!=definition.BookIds.Length||
+            string.IsNullOrWhiteSpace(definition.Session)||definition.PriorCloseId==Guid.Empty||definition.BookIds.IsDefaultOrEmpty||definition.BookIds.Length>128||definition.BookIds.Any(id=>id==Guid.Empty)||definition.BookIds.Distinct().Count()!=definition.BookIds.Length||
             definition.CurveCodes.IsDefaultOrEmpty||definition.CurveCodes.Length>128||definition.CurveCodes.Distinct(StringComparer.Ordinal).Count()!=definition.CurveCodes.Length||
             string.IsNullOrWhiteSpace(definition.SourceCode)||definition.Seed<0||definition.LeafMoves.IsDefaultOrEmpty||definition.LeafMoves.Length>128||
             definition.LeafMoves.Any(m=>m is null||string.IsNullOrWhiteSpace(m.Curve)||m.MaxTicks is <1 or >PilotMarkGenerator.MaximumTickMove)||

@@ -72,6 +72,7 @@ def main():
     parser.add_argument('--usage-benchmark',action='store_true',help='Measure a year of page-assistant usage at a stated volume in an owned fixture and print a JSON report')
     parser.add_argument('--index-fixing-check',action='store_true',help='Qualify published monthly and partially fixed daily index observations')
     parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
+    parser.add_argument('--regional-closes-check',action='store_true',help='Qualify D334 regional close sessions, grants and the close in force')
     parser.add_argument('--pilot-close-check',action='store_true',help='Qualify explicitly generated pilot closes in an owned fixture')
     parser.add_argument('--swap-risk-holdings-check',action='store_true',help='Qualify stored swap risk materialization in an owned fixture')
     parser.add_argument('--close-out-drafts-check',action='store_true',help='Qualify Blotter close-out drafts of futures and swaps, settled periods and refusals in an owned fixture')
@@ -157,7 +158,7 @@ def main():
         if args.example != 'standard' or args.interval_series_benchmark+args.usage_benchmark+args.blotter_stream_benchmark>1 or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
-    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
+    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.regional_closes_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -244,6 +245,15 @@ def main():
             date_plan=compile_plan(dotnet,dll,temporary) if not args.check and not gas_demo else None
             reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan,window_frames=args.contract_dates_check)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if migration.name=='0203_assistant_presentation_controls.sql':
+                from check_assistant_presentation_upgrade import run_checks as check_presentation_upgrade
+                check_presentation_upgrade(query,migration)
+            if migration.name=='0201_shared_curve_price_queries.sql':
+                from check_curve_binding_upgrade import run_checks as check_curve_binding_upgrade
+                check_curve_binding_upgrade(query,migration)
+            if migration.name=='0200_curve_delivery_splice.sql':
+                from check_curve_splice_upgrade import run_checks as check_curve_splice_upgrade
+                check_curve_splice_upgrade(query,migration)
             if args.lng_cargo_check and migration.name=='0176_lng_cargo_references.sql':
                 from check_lng_upgrade import run_checks as check_lng_upgrade
                 check_lng_upgrade(query,ROOT,manifest,[reference,market,security,trading_fixture(manifest['catalogId'])])
@@ -457,7 +467,7 @@ def main():
                 from check_swap_settlement_selection import prepare_daily
                 swap_market=prepare_daily(swap_market,swap_manifest)
             query(swap_market)
-            if args.connected_portfolio_check or args.valuation_status_check or args.with_custom_curves:
+            if args.connected_portfolio_check or args.valuation_status_check or args.live_calculation_check or args.with_custom_curves:
                 # The primary custom-curve fixture visits closes beyond the four standard weekdays.
                 # Its unrelated secondary bundle explicitly supplies no inputs there.
                 times={f['at'] for f in swap_manifest['frames']}
@@ -552,6 +562,10 @@ def main():
             # One owned test date deliberately has no admitted demo input frame.
             reference_demo['omittedAt']=max(f['at'] for f in reference_demo['frames'] if not f['at'].startswith('2020-12-18'))
             manifest['swapMarkets'][-1]['frames']=[f for f in reference_demo['frames'] if f['at']!=reference_demo['omittedAt']]
+        # Only recorded closes are closes (D334): the built-in frames are recorded as synthetic session closes.
+        from seed_session_closes import seed as seed_session_closes
+        # The aligned-history check reads a correction through a working frame of its day, which a close's exact pins never take.
+        seed_session_closes(query,manifest,working=('2020-12-18',) if args.factor_history_check else ())
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         # Freeze assets for this owned instance; a later web build must not change
         # another running preview's presentation while it is being used.
@@ -987,6 +1001,14 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'closeOut':close_out_fixture}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--close-out'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=240):raise RuntimeError('Owned Blotter close-out browser checks failed')
+            elif args.regional_closes_check:
+                from check_close_sessions import run_checks as check_close_sessions
+                check_close_sessions(url,query,manifest)
+                from check_regional_closes import run_checks as check_regional_closes
+                check_regional_closes(url,query,manifest)
+                # Last: it records bare closes directly in SQL, which no later read could qualify.
+                from check_regional_closes_sql import run_checks as check_regional_closes_sql
+                check_regional_closes_sql(url,query,manifest)
             elif args.pilot_close_check:
                 from check_pilot_close import run_checks as check_pilot_close
                 check_pilot_close(url,query,manifest,psql,app_env)

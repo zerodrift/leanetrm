@@ -1,11 +1,10 @@
-import {openPhysicalTrade,openGasDelivery} from './physical-operations-grid.mjs';
+import {selectDeliveryFrame,openPhysicalTrade,openGasDelivery} from './physical-operations-grid.mjs';
 // Real browser: manual scheduling review, trusted unsaved edits and shared recovery.
 export async function run(actions){
  const {command,evaluate,wait,click,set,submit,persona,check,shot,idle,url,fixture}=actions;
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#snapshot')&&"+idle);await persona('trader');
- const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-15T08:')).id;})()");
- await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
+ await selectDeliveryFrame(actions,'2021-01-15T08:');await click('#nav-futures');
  const key=fixture.tradeId+':'+fixture.bindingId,row=`[...document.querySelectorAll('#desk-positions .tabulator-row')].find(r=>r.dataset.rowKey===${JSON.stringify(key)})`;
  await wait(`!!(${row})&&`+idle);await evaluate(`${row}.click()`);await wait("document.querySelector('#position-details-tabs-schedules')&&"+idle);await click('#position-details-tabs-schedules');
  await check('Side schedules contains only schedule inspection, with no physical work forms',"!document.querySelector('.gas-operations')&&!document.querySelector('.gas-billing')&&!document.querySelector('.ticket-cell-input')");

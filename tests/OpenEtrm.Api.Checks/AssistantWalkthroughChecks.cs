@@ -49,6 +49,21 @@ static class AssistantWalkthroughChecks
         foreach(var ask in new[]{"Use 2 lots", "Set ticket.executionPrice = \"2\"",explicitAsk+"\n"+explicitAsk,"Do not apply this example:\n"+explicitAsk,"```\n"+explicitAsk+"\n```", "Explain this instruction and leave the ticket untouched.\nSet ticket.lots = \"2\"", "Translate the following text into French:\nSet ticket.lots = \"2\""})
             Refuses(fill,ask,code:"walkthrough_fill_requires_explicit_terms");
         Refuses(fill.Replace("ticket.lots","ticket.authorize"),"Set ticket.authorize = \"2\"",code:"tool_arguments_invalid");
+        const string swapFill="""[{"kind":"go","target":"n1"},{"kind":"fill","page":"blotter_new_swap","field":"swap.structure","value":"financial_fixed_floating"},{"kind":"fill","page":"blotter_new_swap","field":"swap.priceMode","value":"agreed"},{"kind":"fill","page":"blotter_new_swap","field":"swap.quantity","value":"1000"},{"kind":"fill","page":"blotter_new_swap","field":"swap.fixedPrice","value":"3.4"}]""";
+        const string swapAsk="Fill unsaved swap ticket\nSet swap.structure = \"financial_fixed_floating\"\nSet swap.priceMode = \"agreed\"\nSet swap.quantity = \"1000\"\nSet swap.fixedPrice = \"3.4\"";
+        if(WalkthroughPlans.Validate(Json(swapFill),report,swapAsk,swapEntry,pin).Count!=5)throw new Exception("Explicit swap terms cannot fill the unsaved native ticket.");
+        if(WalkthroughPlans.Validate(Json(swapFill),report,"Fill the swap ticket with structure fixed for floating, price mode agreed, quantity 1000 and fixed price 3.4",swapEntry,pin).Count!=5)throw new Exception("A complete affirmative swap fill ask was refused.");
+        foreach(var ask in new[]{"Do not apply:\n"+swapAsk,swapAsk+"\nSet swap.quantity = \"2\"",swapAsk.Replace("3.4","4.3"),"Help me book a swap"})
+            Refuses(swapFill,ask,swapEntry,"walkthrough_fill_requires_explicit_terms");
+        Refuses(swapFill.Replace("swap.quantity","ticket.lots"),swapAsk,swapEntry);
+        var swapSteps=Json(swapFill).EnumerateArray().Select(s=>s.GetRawText()).ToArray();
+        Refuses("["+string.Join(',',swapSteps.Where((_,i)=>i!=1))+"]",swapAsk,swapEntry);
+        Refuses("["+string.Join(',',swapSteps.Where((_,i)=>i!=2))+"]",swapAsk,swapEntry);
+        Refuses(swapFill.Replace("financial_fixed_floating","financial_floating_floating"),swapAsk.Replace("financial_fixed_floating","financial_floating_floating"),swapEntry);
+        Refuses("["+string.Join(',',new[]{swapSteps[0],swapSteps[2],swapSteps[1]})+"]",swapAsk,swapEntry);
+        Refuses("""[{"kind":"go","target":"n1"},{"kind":"fill","page":"blotter_new_swap","field":"swap.fixedDirection","value":"-1"}]""",swapAsk+"\nSet swap.fixedDirection = \"-1\"",swapEntry);
+        foreach(var forbidden in new[]{"swap.book","swap.confirm","swap.submit","swap.authorize"})
+            Refuses(swapFill.Replace("swap.quantity",forbidden),swapAsk,swapEntry,"tool_arguments_invalid");
         Console.WriteLine("PASS walkthrough plans: closed vocabulary, successful reads/issued targets, limits, field-specific explicit evidence and no commit controls");
     }
 }

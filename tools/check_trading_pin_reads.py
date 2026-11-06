@@ -156,12 +156,16 @@ def run_supplemental_checks(c, check, query, manifest):
         c.call('market/context', {'effectiveOn': '2020-12-18', 'knownAt': current['catalog']['context']['knownAt'],
                                   'mode': 'at', 'selection': 'latest_correction'})
         historical = c.call('workspace')
-        alias = next(f for f in historical['frames'] if f['at'] == frame['at'] and 'originCloseId' not in f)
+        # Built-in frames are recorded closes (D334); the view offers the close under its own frame identity.
+        alias = next(f for f in historical['frames'] if f['at'] == frame['at'] and f.get('originCloseId') == frame.get('originCloseId', frame['id']))
         certified = {'snapshotId': alias['id'], 'convention': 'trading_workspace_v1', 'knowledgeMode': 'retained',
                      'contextId': historical['context']['contextId']}
         resolved = trading_workspace(c, certified)
-        check('a certified context after a supplemental correction resolves it identically through scoped and legacy reads',
-              resolved == legacy_trading_reads(c, certified, data['futuresConvention']) and held_value(resolved) != held['presentValue'])
+        check('a certified context reads the close identically through scoped and legacy reads',
+              resolved == legacy_trading_reads(c, certified, data['futuresConvention']))
+        # A recorded close stays exact (D172): the supplemental correction reaches it only when a close carrying it is recorded.
+        check('a certified context keeps a recorded close exact after a later supplemental correction',
+              held_value(resolved) == held['presentValue'])
         check('the valued directory resolves the same certified supplemental corrections',
               trading_workspace(c, certified, 'directory')['blotter'] == resolved['blotter'])
     finally:

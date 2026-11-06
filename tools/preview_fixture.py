@@ -89,6 +89,18 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
             text = text.replace(old, new)
         return text
     reference = historical((root / 'tests/fixtures/reference-synthetic.sql').read_text())
+    # D334 close sessions keep their business days on these synthetic regional clocks and calendars.
+    head, tail = reference.rsplit('COMMIT;', 1)
+    reference = head + ''.join(
+        f"INSERT INTO ref_data.clock_rules(catalog_id,revision_id,code,kind,iana_zone,tzdb_version) VALUES ({R},'{clock}','iana','{zone}','{installed_tzdb()}');\n"
+        for clock, zone in [('test_london_clock', 'Europe/London'), ('test_new_york_clock', 'America/New_York')]) + (
+        # A clock eighteen hours behind UTC: its 22:00 cutoff falls on the next UTC date, so business day and UTC date differ.
+        f"INSERT INTO ref_data.clock_rules(catalog_id,revision_id,code,kind,fixed_offset_seconds) VALUES ({R},'test_minus_18_clock','fixed_offset',-64800);\n") + ''.join(
+        f"INSERT INTO ref_data.calendars VALUES ({R},'{calendar}','{clock}',{weekend},'2020-01-01','{until}');\n"
+        for calendar, clock, weekend, until in [('test_london_days', 'test_london_clock', 96, '2023-01-01'), ('test_new_york_days', 'test_new_york_clock', 96, '2023-01-01'),
+                                                ('test_london_every_day', 'test_london_clock', 0, '2023-01-01'), ('test_minus_18_days', 'test_minus_18_clock', 96, '2023-01-01'),
+                                                # Checks also close at real and far-future instants.
+                                                ('test_utc_every_day', 'test_utc', 0, '2100-01-01')]) + 'COMMIT;' + tail
     market = historical((root / 'tests/fixtures/market-synthetic.sql').read_text())
     if date_plan is not None:
         from demo_date_plan import schedule_sql

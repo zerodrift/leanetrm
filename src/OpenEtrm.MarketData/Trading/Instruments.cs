@@ -59,7 +59,16 @@ public abstract record Instrument
     public abstract UnitPricingContract Declare(UnitValuationContext context);
     // Common black-box entry point. The denominator remains explicit until the
     // trade's typed quantity is applied. Value preserves existing pricer adapters.
-    public virtual UnitValuation PV(UnitValuationContext context)=>new(context,Value(context),UnitQuantity.Specification);
+    public virtual UnitValuation PV(UnitValuationContext context)
+    {
+        ValidateValuationState(context.BindingState);
+        return new(context,Value(context),UnitQuantity.Specification);
+    }
+    public virtual void ValidateValuationState(IBindingValuationState? state)
+    {
+        if(state is not null)
+            throw new MarketDataException("settlement_scope","This instrument does not support the supplied binding valuation state.");
+    }
     public virtual void ValidateBinding(Quantity quantity,DeliveryCoverage? coverage)
     {
         if(!SupportsQuantityScaling)
@@ -106,10 +115,17 @@ public abstract record SidedInstrument : Instrument
     }
     public override UnitValuation PV(UnitValuationContext context)
     {
-        if(context.Settlement is not {} lifecycle)return base.PV(context);
+        ValidateValuationState(context.BindingState);
+        if(context.BindingState is not SwapBindingValuation lifecycle)return base.PV(context);
         if(context.Measure!=ValuationMeasure.PresentValue)
             throw new MarketDataException("valuation_measure","Settlement valuation requires the explicit present-value measure.");
         return new(context,lifecycle.Settlement.UnitValue(this,context.SideContext(lifecycle.Discounting)),UnitQuantity.Specification);
+    }
+    public override void ValidateValuationState(IBindingValuationState? state)
+    {
+        if(state is null)return;
+        if(state is not SwapBindingValuation { Settlement: not null, Discounting: not null } || !SupportsSettlement)
+            throw new MarketDataException("settlement_scope","This instrument does not support the supplied binding valuation state.");
     }
     [IdentityField]
     public ImmutableArray<SideMembership> Sides { get; internal init; }

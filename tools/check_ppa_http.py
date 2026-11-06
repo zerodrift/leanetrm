@@ -92,8 +92,8 @@ def run_checks(url, query, manifest):
         retained=cutoff()
         try:
             query(f"DELETE FROM security.{table} WHERE {where};")
-            status,code=(403,'access_denied') if table=='market_catalog_scopes' else (422,'ambiguous_reference')
-            check('current '+table+' revocation refuses already selected inputs',quantity(start,end,known=retained,expected=status)['code']==code)
+            # The selected frame is a recorded close, which either revocation hides before any reference is resolved (D334).
+            check('current '+table+' revocation refuses already selected inputs',quantity(start,end,known=retained,expected=403)['code']=='access_denied')
         finally:
             encoded=saved.replace("'","''")
             query(f"INSERT INTO security.{table} SELECT(json_populate_record(NULL::security.{table},'{encoded}'::json)).*;")

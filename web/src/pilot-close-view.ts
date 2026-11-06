@@ -34,8 +34,11 @@ export function setupPilotClose(options:{api:<T>(path:string,body?:unknown)=>Pro
  }
  async function load(){
   const request=++generation,identity=options.identity();catalog=undefined;get('pilot-close-form').hidden=true;get('pilot-close-anchor-form').hidden=true;
-  const result=await options.api<Catalog>('jobs/pilot-close/catalog');
+  const [result,sessions]=await Promise.all([options.api<Catalog>('jobs/pilot-close/catalog'),options.api<{sessions:{code:string;name:string;state:string}[]}>('close-sessions/catalog')]);
   if(request!==generation||identity!==options.identity())return;
+  // A retained or generated close is recorded for a session chosen explicitly (D334).
+  const published=sessions.sessions.filter(s=>s.state==='published').map(s=>({value:s.code,label:s.name}));
+  choices('session',published);choices('anchor-session',published);
   if(!result||!Array.isArray(result.valuationPolicyChoices)||!policies.every(p=>Array.isArray(result.policies?.[p])))throw Error('Pilot policies are incomplete. Reload before configuring a job.');
   catalog=result;get('pilot-close-warning').textContent=result.warning;
   choices('prior',result.priorCloses.map(c=>({value:c.id,label:`${c.name} · ${options.instant(c.at)}`})));
@@ -53,7 +56,8 @@ export function setupPilotClose(options:{api:<T>(path:string,body?:unknown)=>Pro
  get<HTMLFormElement>('pilot-close-anchor-form').onsubmit=event=>{event.preventDefault();void options.act(async()=>{
   const identity=options.identity(),request=generation;
   const frame=catalog?.anchorFrames.find(f=>f.id===input('anchor').value);if(!frame)throw Error('Choose an exact existing market close.');
-  await options.mutate('market/closes/register',{snapshotId:frame.id,name:input('anchor-name').value});
+  if(!input('anchor-session').value)throw Error('Choose the close session to record this close for.');
+  await options.mutate('market/closes/register',{snapshotId:frame.id,name:input('anchor-name').value,session:input('anchor-session').value,businessDate:frame.at.slice(0,10)});
   if(identity!==options.identity()||request!==generation)return;
   await load();if(identity===options.identity()&&request+1===generation)get('pilot-close-status').textContent='The exact existing inputs are retained. Choose the new anchor close explicitly before creating a job.';
  });};
@@ -64,7 +68,8 @@ export function setupPilotClose(options:{api:<T>(path:string,body?:unknown)=>Pro
   if(!policy||!source.priorCloses.some(c=>c.id===input('prior').value)||!source.sources.some(s=>s.code===input('source').value)||
     policies.some(p=>!source.policies[p].some(c=>c.value===input(p).value)))throw Error('Select every required close and calculation policy.');
   const frequency=source.scheduleChoices.find(c=>c.value===input('frequency').value);if(!frequency)throw Error('Choose an explicit frequency.');
-  const definition={priorCloseId:input('prior').value,bookIds:selected('books'),curveCodes:selected('curves'),sourceCode:input('source').value,
+  if(!input('session').value)throw Error('Choose the close session generated closes are recorded for.');
+  const definition={session:input('session').value,priorCloseId:input('prior').value,bookIds:selected('books'),curveCodes:selected('curves'),sourceCode:input('source').value,
    seed:number('seed'),leafMoves:[...get('pilot-close-moves').querySelectorAll<HTMLInputElement>('input')].map(f=>{if(!f.value.trim())throw Error('Specify every maximum price move.');return{curve:f.dataset.curve!,maxTicks:Number(f.value)};}),
    ...Object.fromEntries(policies.map(p=>[p,input(p).value])),valuationPolicy:{...policy.policy,bumpTicks:number('bump-ticks')}};
   const schedule={name:input('name').value,operation:source.operation,intervalSeconds:frequency.intervalSeconds,...source.schedulePolicy,

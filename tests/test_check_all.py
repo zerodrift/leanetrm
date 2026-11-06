@@ -51,6 +51,15 @@ class CheckAllTests(unittest.TestCase):
         self.assertIn('--browser-check',cargo[0])
         self.assertEqual(cargo[0][cargo[0].index('--browser')+1],'/browser executable')
 
+    def test_manual_gas_operations_and_billing_recovery_run_in_trading_partition(self):
+        commands=[]
+        run_checks(Path('/stock postgres/bin'),Path('/managed sdk/dotnet'),Path('/browser executable'),group='trading',run=lambda command,**options:commands.append(command))
+        for flag in ('--gas-operations-check','--gas-billing-check'):
+            selected=[command for command in commands if flag in command]
+            self.assertEqual(len(selected),1)
+            self.assertIn('--browser-check',selected[0])
+            self.assertEqual(selected[0][selected[0].index('--browser')+1],'/browser executable')
+
     def test_physical_crude_lifecycle_and_recovery_are_qualified_in_trading_partition(self):
         commands=[]
         run_checks(Path('/stock postgres/bin'),Path('/managed sdk/dotnet'),Path('/browser executable'),group='trading',run=lambda command,**options:commands.append(command))

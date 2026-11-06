@@ -12,7 +12,7 @@ internal static class BookedScheduleLookups
     internal static ImmutableArray<IndexPriceLookup> Dated(PreviewData data,BookedSideProgram program)
     {
         var result=ImmutableArray.CreateBuilder<IndexPriceLookup>();
-        foreach(var instruction in program.Document.Instructions.Where(instruction=>instruction.Output is{Operation:"price_lookup",Grid:null}))
+        foreach(var instruction in program.Document.Instructions.Where(instruction=>instruction.Output.Grid is null&&CurvePriceScheduleSource.IsLookup(instruction.Output.Operation)))
         {
             var row=instruction.Output;var bindings=instruction.Bindings.ToDictionary(binding=>binding.Port);
             if(!bindings.TryGetValue("market",out var market)||market.Market is not {} request||request.Curve.Revision!=data.DefinitionRevision||
@@ -50,10 +50,13 @@ internal static class BookedScheduleLookups
                 if(projection.EntityCatalog is not {} catalog||projection.Entity is not {} curve||projection.Version is not {} version||projection.Coordinate is not {} output)
                     throw Invalid("The custom projection requires its exact published identity and output coordinate.");
                 custom=new(catalog,curve,version,output,projection.Position,
-                    projection.Position is null?CustomCurveProjectionBinding.DeliverySelection:CustomCurveProjectionBinding.SupportedSelection,
+                    row.Operation==CurvePriceScheduleSource.Operation?CustomCurveProjectionBinding.ContainingDeliverySelection:
+                        projection.Position is null?CustomCurveProjectionBinding.DeliverySelection:CustomCurveProjectionBinding.SupportedSelection,
                     CustomCurveProjectionBinding.SupportedImplementation);
             }
-            result.Add(new(selection,quotes[0],request,contracts[0],null,fixing,custom));
+            var interval=row.Operation==CurvePriceScheduleSource.Operation?CurvePriceScheduleSource.Interval(row):null;
+            if(interval==new ProjectionDelivery(contracts[0].DeliveryFrom,contracts[0].DeliveryTo))interval=null;
+            result.Add(new(selection,quotes[0],request,contracts[0],null,fixing,custom,interval));
         }
         return result.Distinct().ToImmutableArray();
     }

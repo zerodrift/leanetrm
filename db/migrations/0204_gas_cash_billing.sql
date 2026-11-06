@@ -206,7 +206,7 @@ REVOKE ALL ON FUNCTION security.gas_billing_status(uuid,uuid,jsonb),security.rep
 GRANT EXECUTE ON FUNCTION security.gas_billing_status(uuid,uuid,jsonb),security.replay_gas_billing(uuid,uuid,jsonb),security.record_gas_billing(uuid,jsonb,timestamptz,uuid,jsonb) TO openetrm_runtime;
 -- Existing turns retain replay; new admission/execution requires this tool catalog.
 DO $upgrade$
-DECLARE signature text;definition text;before text:='runtime_set<>''turns_v16''';
+DECLARE signature text;definition text;before text:='runtime_set<>''turns_v17''';
 BEGIN
  FOREACH signature IN ARRAY ARRAY[
   'assistant.ask_turn(uuid,text,uuid,uuid,integer,text,jsonb,uuid,text,uuid,uuid,text,text,timestamptz,text,bigint,text,integer,integer,integer)',
@@ -214,7 +214,7 @@ BEGIN
  ] LOOP
   definition:=pg_get_functiondef(signature::regprocedure);
   IF (length(definition)-length(replace(definition,before,'')))/length(before)<>1 THEN RAISE EXCEPTION 'gas_billing_runtime_guard';END IF;
-  EXECUTE replace(definition,before,'runtime_set<>''turns_v17''');
+  EXECUTE replace(definition,before,'runtime_set<>''turns_v18''');
  END LOOP;
 END $upgrade$;
 COMMIT;

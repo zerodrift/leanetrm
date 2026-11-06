@@ -19,7 +19,8 @@ def run_checks(url,query,manifest,direct_reads,after_browser):
     compact=c.call('bootstrap?includeFrames=false')
     check('identity bootstrap can omit unused frame payload without changing session metadata',compact['frames']==[] and
           all(compact[key]==boot[key] for key in ['mode','runId','profiles','profile','customProfiles','catalogId','tenantId','workspaceId']) and
-          bool(compact['csrfToken']) and bool(boot['frames']))
+          bool(compact['csrfToken']) and boot['frames']==[])
+    # Every built-in frame is a recorded close (D334), which only an identity's fresh read can discover.
     check('full bootstrap remains compatible and compact reads preserve exact retained frames',
           c.call('bootstrap?includeFrames=true')['frames']==boot['frames']==c.call('bootstrap')['frames'])
     c.call('bootstrap?includeFrames=unknown',expected=400);check('invalid bootstrap frame selection is rejected')

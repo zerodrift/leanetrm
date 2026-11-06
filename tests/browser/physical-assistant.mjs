@@ -11,6 +11,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await evaluate(`window.__physicalAsks=[];{const send=window.fetch;window.fetch=async(path,options)=>{if(String(path).endsWith('/assistant/turns/ask'))window.__physicalAsks.push(JSON.parse(options.body));return send(path,options);};}`);
  const frames=await evaluate("(async()=>{const w=await(await fetch('/api/workspace/navigation')).json();return w.frames;})()");
  const before=frames.find(f=>f.at.startsWith('2020-12-18')),after=frames.find(f=>f.at.startsWith('2021-01-15T08:'));
+ if(before.close){await set('#close-session',before.close.session);await wait(idle);}
  await set('#snapshot',before.id);await wait(idle);await open('gas-setup');
  await click('#assistant-launcher');await wait("!document.querySelector('#assistant-panel').hidden");
  await wait(`[...document.querySelector('#assistant-agent').options].some(o=>o.value===${JSON.stringify(agent.id+':1')})`);
@@ -18,18 +19,36 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await script([{hold:'physical_old_navigation',tools:[['physical_nav','navigate',{page:'gas_setup',target:null}]]},{text:'Synthetic earlier setup answer.'}]);
  await set('#assistant-question','Open this gas setup.');await submit('#assistant-composer');await wait("!document.querySelector('#assistant-consent').hidden");await click('#assistant-allow');
  await wait("document.querySelector('#assistant-send').textContent==='Stop'");
+ // A close of another session is offered once that session is chosen (D334).
+ if(after.close&&after.close.session!==before.close?.session){await set('#close-session',after.close.session);await wait(idle);}
  await set('#snapshot',after.id);await wait(idle);await open('facilities');await set('#facility-ledger',fixture.ledgerId);await wait(idle);
  await fetch(new URL('/release/physical_old_navigation',control),{method:'POST'});
  await wait("document.querySelector('#assistant-turns').textContent.includes('Synthetic earlier setup answer.')&&document.querySelector('#assistant-send').textContent==='Send'");
  await check('an older framed answer does not automatically replace the facility operating context',
   "!document.querySelector('#facilities-page').hidden&&document.querySelector('#date-context-on').value==='2021-01-15'&&[...document.querySelectorAll('.assistant-target button')].some(b=>b.textContent==='Go')");
- await evaluate("[...document.querySelectorAll('.assistant-target button')].find(b=>b.textContent==='Go').click()");
+ const go="[...document.querySelectorAll('.assistant-target button')].find(b=>b.textContent==='Go').click()";
+ const place="({date:document.querySelector('#date-context-on').value,ledger:document.querySelector('#facility-ledger').value})";
+ let origin={date:'2021-01-15',ledger:fixture.ledgerId};
+ if(before.close&&before.close.session!==after.close?.session){
+  // Go never changes the remembered session (D334): it names the one the answer used, and the person chooses it.
+  await evaluate(go);await wait(idle);
+  await check('Go to a close of another session names that session and leaves the facility context',
+   "!document.querySelector('#facilities-page').hidden&&document.querySelector('#error').textContent.includes('close session. Choose that session to open its As of date.')&&document.querySelector('#close-session').value==="+JSON.stringify(after.close.session));
+  // Choosing it opens that session's newest close, the place Back then returns to.
+  await set('#close-session',before.close.session);await wait(idle);await open('facilities');
+  origin=await evaluate(place);
+ }
+ await evaluate(go);
  await wait("!document.querySelector('#gas-setup-page').hidden&&"+idle);
  await check('explicit Go opens the earlier setup context',"document.querySelector('#date-context-on').value==='2020-12-18'&&[...document.querySelectorAll('.assistant-target button')].some(b=>b.textContent==='Back')");
  await evaluate("[...document.querySelectorAll('.assistant-target button')].find(b=>b.textContent==='Back').click()");
  await wait("!document.querySelector('#facilities-page').hidden&&"+idle);
- await check('Back restores the operating date and selected ledger without selecting a pricing close',
-  `document.querySelector('#date-context-on').value==='2021-01-15'&&document.querySelector('#snapshot').value===''&&document.querySelector('#facility-ledger').value===${JSON.stringify(fixture.ledgerId)}&&document.querySelector('#error').hidden`);
+ await check('Back restores the operating date and selected ledger the move left, without selecting a pricing close',
+  `JSON.stringify(${place})===${JSON.stringify(JSON.stringify(origin))}&&document.querySelector('#snapshot').value===''&&document.querySelector('#error').hidden`,place);
+ if(origin.date!=='2021-01-15'){
+  // The facility questions below ask at the January operating date again.
+  await set('#close-session',after.close.session);await wait(idle);await set('#snapshot',after.id);await wait(idle);await open('facilities');await set('#facility-ledger',fixture.ledgerId);await wait(idle);
+ }
  await check('Looking at describes the facility date as an askable context',"document.querySelector('#assistant-looking-context').textContent.includes('Operating date 2021-01-15')");
  await script([{tools:[['physical_read','read_workspace_page',{page:'facility_quantities'}]]},{text:'Synthetic facility quantities read at the operating context.'}]);
  await set('#assistant-question','Explain this facility allocation.');await wait("!document.querySelector('#assistant-send').disabled");await submit('#assistant-composer');

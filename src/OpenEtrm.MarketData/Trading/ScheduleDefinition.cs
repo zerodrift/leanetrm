@@ -127,6 +127,7 @@ public static class ScheduleOperations
     public static IReadOnlyDictionary<string,string[]> Parameters { get; }=new Dictionary<string,string[]>(StringComparer.Ordinal)
     {
         ["constant_price"]=["numerator","denominator"], ["price_lookup"]=["selection"],
+        [CurvePriceScheduleSource.Operation]=["selection","policy","from","to"],
         [ContractObservationScheduleSource.Operation]=["selectionAt","sampleAt","observationOrdinal","expiryPolicy","implementation"],
         ["quantity_input"]=["stage"], ["quantity_literal"]=["numerator","denominator"],
         ["asset_capacity"]=["measure"], ["quantity_normalize"]=[],["quantity_add"]=[],
@@ -146,6 +147,7 @@ public static class ScheduleOperations
             !row.Parameters.Keys.Order(StringComparer.Ordinal).SequenceEqual(keys.Order(StringComparer.Ordinal))||row.Parameters.Values.Any(value=>value is null))
             throw ScheduleDefinition.Error("A row has an unsupported operation or a missing/unknown parameter.");
         if(row.Operation==ContractObservationScheduleSource.Operation)ContractObservationScheduleSource.Require(row);
+        if(row.Operation==CurvePriceScheduleSource.Operation)_=CurvePriceScheduleSource.Interval(row);
         if(row.Parameters.TryGetValue("numerator",out var numerator))
         {
             var n=Integer(numerator);var d=Integer(row.Parameters["denominator"]);

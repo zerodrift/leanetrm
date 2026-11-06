@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {newestClose,closeBadge,latestInstant} from '../dist/latest-close.js';
 
 // Closes of one display date. Each close is an id, closed at 21:00 UTC, or [id, time] for another time that day.
-const day=(date,...closes)=>({date,frames:closes.map(close=>{const [id,time]=Array.isArray(close)?close:[close,'21:00'];return {id,at:`${date}T${time}:00Z`,name:id,businessDateUTC:date};})});
+const day=(date,...closes)=>({date,frames:closes.map(close=>{const [id,time]=Array.isArray(close)?close:[close,'21:00'];return {id,at:`${date}T${time}:00Z`,name:id,businessDate:date};})});
 const at=(date,time='21:00')=>`${date}T${time}:00Z`;
 
 test('the newest date with one close is chosen',()=>{
@@ -40,7 +40,7 @@ test('a catalog that disagrees about its newest date is refused, never read as e
  ])for(const read of [()=>newestClose(catalog),()=>closeBadge('a',at('2026-10-15'),catalog),()=>latestInstant(catalog)])assert.throws(read,/inconsistent/);
 });
 test('a close on the newest date whose time cannot be read is refused, never compared',()=>{
- const catalog={maxDate:'2026-10-16',dates:[{date:'2026-10-16',frames:[{id:'b',at:'not a time',name:'b',businessDateUTC:'2026-10-16'},{id:'c',at:at('2026-10-16'),name:'c',businessDateUTC:'2026-10-16'}]}]};
+ const catalog={maxDate:'2026-10-16',dates:[{date:'2026-10-16',frames:[{id:'b',at:'not a time',name:'b',businessDate:'2026-10-16'},{id:'c',at:at('2026-10-16'),name:'c',businessDate:'2026-10-16'}]}]};
  for(const read of [()=>newestClose(catalog),()=>closeBadge('c',at('2026-10-16'),catalog),()=>latestInstant(catalog)])assert.throws(read,/inconsistent/);
 });
 test('any close at the latest instant is the latest close, even when several share it',()=>{

@@ -84,6 +84,11 @@ choices. Update the decision record when a decision changes.
 - Retain independent, reusable sides and explicit instrument memberships.
 - Apply shocks to immutable market scenarios, never to individual trades.
 - Treat pricers as black boxes with declared dependencies and explicit inputs.
+- This valuation boundary is non-negotiable: Instruments and Sides resolve their
+  prices from the supplied scenario context and implement their inherited PV
+  contracts. Risk applies generic market shocks, invokes those contracts and
+  buckets the resulting PV differences by the shocked factor/tenor. Never add
+  commodity-specific shock handling or assign exposure outside that repricing.
 - Quantity scaling is a declared capability, separate from market linearity.
 - Futures are baseline products; preserve variation-margin state and outstanding
   exposure separately. A forward valuation alone does not implement futures.
@@ -97,6 +102,10 @@ choices. Update the decision record when a decision changes.
 - Historical context carries business/effective time and a resolved knowledge
   cutoff through every business read, join, calculation and agent operation.
   Never silently substitute current data or historical permissions.
+  Exception (D334): market closes are always latest. A historical view reads
+  the close in force for its session and business day, and that close's pinned
+  prices, even when they were recorded after the view's knowledge cutoff, and
+  says so; every other read keeps the cutoff.
 - Make every write idempotent (D238). Recording a fact that already exists
   (the same business key, value and effective time) is a no-op that returns
   the existing record, never a second row; this covers imports, scrapes,

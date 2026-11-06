@@ -19,7 +19,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await size(1440,1050);
   await command('Page.navigate',{url});await wait(idle);
   await persona('risk');
-  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&!f.originCloseId).id;})()");
+  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");
   const open=async()=>{await set('#snapshot',frame);await wait(idle);await click('#nav-futures');await wait(loaded);await evaluate(frames);};
   await open();
   const defaultShape=await evaluate(drawn);

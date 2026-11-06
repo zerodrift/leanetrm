@@ -4,6 +4,15 @@ import {browserAvailable,browserTestTimeout,withBrowserPage} from './browser-pag
 const page='<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:900px"></div>';
 const ready="while(!grid.ready())await new Promise(r=>setTimeout(r,10));await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));";
 
+test('presentation filters resolve the exact native column control without applying a filter',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async evaluate=>{
+ const result=await evaluate(`(async()=>{
+  const {renderDataGrid,emptyGridLayout}=await import('/data-grid.js'),host=document.querySelector('#host');
+  const grid=renderDataGrid(host,'presentation-filter','synthetic',['Book','Quantity'],[['Synthetic A','1'],['Synthetic B','2']],[1],()=>false,{keys:['book','quantity'],rowKeys:['a','b'],layout:emptyGridLayout(),onLayout(){}});${ready}
+  const before=grid.state(),control=grid.presentationFilter('book'),result={label:control.getAttribute('aria-label'),kind:control.tagName,visible:control.getClientRects().length>0,before,after:grid.state(),unknown:grid.presentationFilter('missing')};grid.destroy();return result;
+ })()`);
+ assert.equal(result.label,'Filter Book');assert.equal(result.kind,'SELECT');assert.equal(result.visible,true);assert.deepEqual(result.before,result.after);assert.equal(result.unknown,null);
+}));
+
 test('revealing an open row clears its lost-selection notice and restores selection and focus',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async evaluate=>{
  const result=await evaluate(`(async()=>{
   const {renderDataGrid,emptyGridLayout}=await import('/data-grid.js'),host=document.querySelector('#host');

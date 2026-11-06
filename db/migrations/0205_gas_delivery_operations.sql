@@ -472,7 +472,7 @@ DO $$DECLARE f record;BEGIN
 END$$;
 -- Existing turns retain replay; new admission/execution requires this tool catalog.
 DO $upgrade$
-DECLARE signature text;definition text;before text:='runtime_set<>''turns_v17''';
+DECLARE signature text;definition text;before text:='runtime_set<>''turns_v18''';
 BEGIN
  FOREACH signature IN ARRAY ARRAY[
   'assistant.ask_turn(uuid,text,uuid,uuid,integer,text,jsonb,uuid,text,uuid,uuid,text,text,timestamptz,text,bigint,text,integer,integer,integer)',
@@ -480,7 +480,7 @@ BEGIN
  ] LOOP
   definition:=pg_get_functiondef(signature::regprocedure);
   IF (length(definition)-length(replace(definition,before,'')))/length(before)<>1 THEN RAISE EXCEPTION 'gas_operations_runtime_guard';END IF;
-  EXECUTE replace(definition,before,'runtime_set<>''turns_v18''');
+  EXECUTE replace(definition,before,'runtime_set<>''turns_v19''');
  END LOOP;
 END $upgrade$;
 COMMIT;

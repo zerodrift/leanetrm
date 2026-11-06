@@ -8,7 +8,7 @@ from urllib.request import Request, build_opener, HTTPCookieProcessor
 
 
 def initial_frame(workspace, effective_on):
-    """Select one exact original fixture frame, excluding saved current variants."""
+    """Select one exact original fixture frame, a built-in close or working frame, excluding saved variants."""
     initial_ids = set(workspace['initialFrameIds'])
     frames = [frame for frame in workspace['frames']
               if frame['id'] in initial_ids and frame['at'].startswith(effective_on + 'T')]

@@ -32,7 +32,7 @@ internal static class AssistantOperations
                     result.Add(new(id,page,get?"GET":"POST",path,write,[..permissions.Split('|',StringSplitOptions.RemoveEmptyEntries)],current));
                 }
         }
-        Add("curves","ReadMarketData",false,"!workspace/navigation !workspace/catalog !curve-names evaluate history market/dates market/curve-shapes !analytics/overlays !curve-definitions/catalog curve-definitions/preview");
+        Add("curves","ReadMarketData",false,"!workspace/navigation !workspace/catalog !curve-names evaluate history market/dates market/curve-shapes !analytics/overlays !curve-definitions/catalog curve-definitions/preview !close-sessions/catalog");
         Add("curves","ImportObservations",true,"","corrections");
         Add("curves","ReadMarketData",true,"","market/closes/register");
         Add("custom_curves","ReadMarketData",false,"!custom-curves !custom-curves/activation custom-curves/preview custom-curves/compile custom-curves/format custom-curves/compose custom-curves/effective-preview");

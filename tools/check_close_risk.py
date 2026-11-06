@@ -10,6 +10,7 @@ from uuid import uuid4
 from benchmark_ppa_http import HttpFixture,terms
 from exact_values import fraction,instant
 from preview_client import PreviewClient
+from close_session_fixture import record
 
 
 def run_checks(url,query,manifest,dotnet,owned_root,app_environment,psql,environment):
@@ -95,8 +96,8 @@ def run_checks(url,query,manifest,dotnet,owned_root,app_environment,psql,environ
     # This correction is known to the later admission certificate but was not
     # known at the close. valuation_instant_v1 must still use the original 0.5.
     fixture.revise(config['forecast'],'2031-11-02T04:00:00Z',['0.7']*25)
-    close=owner.call('market/closes/register',dict(requestId=str(uuid4()),snapshotId=live_owner['id'],name='Synthetic existing close'))
-    held_close=owner.call('market/closes/register',dict(requestId=str(uuid4()),snapshotId=held_frame['id'],name='Synthetic retained holdings close'))
+    close=record(owner,live_owner,'Synthetic existing close')
+    held_close=record(owner,held_frame,'Synthetic retained holdings close')
     now=datetime.now(timezone.utc)
     body={'schedule':{'requestId':str(uuid4()),'name':'Synthetic read-only existing-close risk','operation':'close_book_risk_v1',
         'dueAt':(now+timedelta(minutes=10)).isoformat(),'expiresAt':(now+timedelta(hours=1)).isoformat(),
@@ -221,10 +222,10 @@ def run_checks(url,query,manifest,dotnet,owned_root,app_environment,psql,environ
 
     choices=owner.call('jobs/pilot-close/catalog')
     original_frame=next(f for f in owner.call('workspace')['frames'] if instant(f['at']).isoformat()=='2020-12-18T16:00:00+00:00' and set(f['curveContracts'])=={'local_power','local_power_all_in'} and not f.get('ppaBundle'))
-    original_close=owner.call('market/closes/register',dict(requestId=str(uuid4()),snapshotId=original_frame['id'],name='Synthetic legacy worker anchor'))
+    original_close=record(owner,original_frame,'Synthetic legacy worker anchor')
     root_curve=next(c for c in choices['curves'] if c['code']=='local_power')
     legacy=deepcopy(body);legacy['schedule'].update(requestId=str(uuid4()),operation='generated_pilot_close_v1')
-    legacy['definition']={'priorCloseId':original_close['id'],'bookIds':[book],'curveCodes':['local_power'],'sourceCode':'fixture','seed':17,
+    legacy['definition']={'session':original_close['session'],'priorCloseId':original_close['id'],'bookIds':[book],'curveCodes':['local_power'],'sourceCode':'fixture','seed':17,
         'leafMoves':[{'curve':code,'maxTicks':7} for code in root_curve['leafCurves']],
         **{key:values[0]['value'] for key,values in choices['policies'].items()},'valuationPolicy':policy}
     for signature in ('',',true',",ARRAY['generated_pilot_close_v1']::text[]"):

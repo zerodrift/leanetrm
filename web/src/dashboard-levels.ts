@@ -47,7 +47,8 @@ export function levelsTiles(shapes:ReadonlyMap<string,CurveShape|string>,configC
  */
 export function levelsFreshness(badge:CloseBadge|'historical',closeAt:string,label?:string|null):Freshness{
   if(badge==='choose')throw Error('Choose a close to read the dashboard at.');
-  const state={latest:'latest',newer:'newer_available',selected:'newer_available',historical:'historical'}[badge] as Freshness['state'];
+  // A working snapshot is inputs the person chose, not a close (D334).
+  const state={latest:'latest',newer:'newer_available',selected:'newer_available',working:'chosen',historical:'historical'}[badge] as Freshness['state'];
   return {state,observedAt:closeAt,source:label||'Settlement close'};
 }
 export function closeFreshness(market:DashboardMarket):Freshness{

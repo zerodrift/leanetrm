@@ -154,7 +154,10 @@ def run_checks(url, session=None):
           Fraction(held['executionPnl']) == (Fraction(held['mark'])-Fraction('3.05'))*Fraction(held['quoteMultiplier'])*Fraction(held['quantity']))
     check('only the valued futures market counts as an evaluated price', late['evaluatedContracts'] == 1)
     # The curves read for the desk's sparklines state what the close cannot price per contract, and which curves it cannot read.
-    priced, unavailable, unpriced = c.call('market/curve-shapes', {'snapshotId': dec31['id'], 'curves': ['ng_monthly', 'future', 'ng_fixed_bridge']})['curves']
+    priced, unavailable = c.call('market/curve-shapes', {'snapshotId': dec31['id'], 'curves': ['ng_monthly', 'future']})['curves']
+    # A recorded close freezes the final settlement the bridge needs (D334); the Dec 17 close records none.
+    dec17 = initial_frame(workspace, '2020-12-17')
+    unpriced, = c.call('market/curve-shapes', {'snapshotId': dec17['id'], 'curves': ['ng_fixed_bridge']})['curves']
     check('a curve the close prices is shaped exactly as /evaluate prices it',
           priced['curve'] == 'ng_monthly' and priced['points'] and [(p['contractId'], p['price'], p['unavailableReason']) for p in priced['points']]
           == [(p['contractId'], p['value'], None) for p in c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'ng_monthly'})['points']])
@@ -165,7 +168,7 @@ def run_checks(url, session=None):
     check('a curve whose one contract the close cannot price states that reason for the contract, where /evaluate fails the curve',
           unpriced['curve'] == 'ng_fixed_bridge' and [(p['price'], p['unavailableReason']) for p in unpriced['points']] == [(None, 'missing_observation')]
           and unpriced['contractCount'] == 1 and unpriced['front'] is None and unpriced['availability'] == 'no_priced_contract'
-          and c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'ng_fixed_bridge'}, expected=422)['code'] == 'missing_observation')
+          and c.call('evaluate', {'snapshotId': dec17['id'], 'curve': 'ng_fixed_bridge'}, expected=422)['code'] == 'missing_observation')
     check('a curve the close selects no contracts for is stated unavailable with the code /evaluate raises, and does not fail the curves beside it',
           unavailable == {'curve': 'future', 'unit': None, 'points': None, 'unavailableReason': 'missing_curve_view', 'contractCount': None, 'front': None, 'availability': None}
           and c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'future'}, expected=422)['code'] == 'missing_curve_view')

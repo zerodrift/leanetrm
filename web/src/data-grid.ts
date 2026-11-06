@@ -74,10 +74,10 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // Rows kept on screen while they no longer state the current read, with the reason.
   const staleNote=el('p');staleNote.className='table-stale-note';staleNote.setAttribute('role','status');staleNote.hidden=true;
   const filterPanel=el('div');filterPanel.className='grid-column-filters';filterPanel.hidden=true;filterPanel.id='column-filters-'+key;toggle.setAttribute('aria-controls',filterPanel.id);
-  let selects:(HTMLSelectElement|HTMLInputElement)[]=[];
+  let selects=new Map<number,HTMLSelectElement|HTMLInputElement>();
   // The column filters offer the values of the rows the grid holds, so they are drawn again whenever its rows or visible columns change.
   function drawFilters(){
-    selects=[];
+    selects.clear();
     filterPanel.replaceChildren();
     headers.forEach((header,i)=>{
       if(options.visual?.includes(i))return;
@@ -85,12 +85,12 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
         const label=el('label',header+(options.visible?.[i]===false?' (hidden)':'')),input=el('input');input.type='text';input.maxLength=200;input.placeholder='e.g. >= 100';input.setAttribute('aria-label','Filter '+header);input.title='Use =, !=, <, <=, > or >= with an exact number.';input.value=state.columns[i]??'';
         const mark=()=>{input.setCustomValidity(validNumericFilter(input.value.trim())?'':'Enter a number with =, !=, <, <=, > or >=.');input.setAttribute('aria-invalid',String(!validNumericFilter(input.value.trim())));};
         if(input.value)mark();
-        input.oninput=()=>{if(!current())return;state.columns[i]=input.value.trim()?input.value:null;mark();apply();};label.append(input);filterPanel.append(label);selects.push(input);return;
+        input.oninput=()=>{if(!current())return;state.columns[i]=input.value.trim()?input.value:null;mark();apply();};label.append(input);filterPanel.append(label);selects.set(i,input);return;
       }
       const label=el('label',header+(options.visible?.[i]===false?' (hidden)':'')),select=el('select');select.setAttribute('aria-label','Filter '+header);select.append(new Option('All values',''));
       const choices=columnValues(values.map(row=>row[i]));if(state.columns[i]!==null&&!choices.includes(state.columns[i]!))choices.push(state.columns[i]!);
       choices.forEach((value,index)=>select.append(new Option(value||'(Blank)',String(index))));select.value=state.columns[i]===null?'':String(choices.indexOf(state.columns[i]!));
-      select.onchange=()=>{if(!current())return;state.columns[i]=select.value===''?null:choices[Number(select.value)];apply();};label.append(select);filterPanel.append(label);selects.push(select);
+      select.onchange=()=>{if(!current())return;state.columns[i]=select.value===''?null:choices[Number(select.value)];apply();};label.append(select);filterPanel.append(label);selects.set(i,select);
     });
   }
   drawFilters();
@@ -630,6 +630,14 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     },
     /** Selects the row of a key, or none, without reporting it back as the person's selection. */
     select(key:string|null){if(options.onMultiSelection)setMulti(key?[key]:[]);selected=key;selectionLost=false;markRows();report();},
+    presentationFilter(key:string){
+      if(!current()||!ready)return null;if(key==='query')return search;
+      const control=selects.get(options.keys.indexOf(key));if(!control)return null;
+      filterPanel.hidden=false;toggle.setAttribute('aria-expanded','true');return control;
+    },
+    presentationColumn(key:string){const index=options.keys.indexOf(key);if(index<0)return null;const column=table.getColumn(field(index));return column?column.getElement():null;},
+    presentationRow(key:string){const row=table.getRow(key);return row?row.getElement():null;},
+    presentationCell(row:number,column:number){const key=keyAt(row),record=key===null?false:table.getRow(key),cell=record&&record.getCell(field(column));return cell?cell.getElement():null;},
     selectCell(row:number,column:number){if(!current()||!options.onCellPick)throw Error('This grid has no selectable cells.');const key=keyAt(row),record=key===null?false:table.getRow(key),cell=record&&record.getCell(field(column));if(!cell)throw Error('The selected cell is unavailable.');pickCell(cell);return cell.getElement();},
     selected:()=>selected,
     selectedKeys:()=>options.onMultiSelection?[...multiSelected]:selected?[selected]:[],

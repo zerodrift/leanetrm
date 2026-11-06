@@ -1586,3 +1586,11 @@ builder rather than a `draft` target. A saved draft's result carries the curve
 `assistant/curve-draft`, which returns the curve and version that step saved as
 the person's own context can read it, behind the page's ordinary leave prompt.
 The turn's token reaches only the claim and the step record.
+
+
+D335 updates screen assistance to runtime `turns_v17` / migration 0203. The first
+digest explicitly chooses controls (authorized screen/entry metadata, no pricing)
+or overview (pinned numerical digest). The floating box is replaced by inline
+Stop/Continue; the cursor aims before typed actions. Unsaved swap setters require
+explicit compatible terms and never submit. See [the contract](assistant-walkthroughs.md#native-cursor-and-entry-assistance-d335)
+for the bounded fill grammar, remaining fields and verification boundaries.

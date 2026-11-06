@@ -17,6 +17,15 @@ def run_checks(url,query,manifest,run_id,owner_profile='admin',*,psql,environmen
     owner=PreviewClient(url);owner.bootstrap();owner.call('profile',{'profile':owner_profile})
     report=owner.call('jobs/pilot-close/results?runId='+run_id)
     assert report['reportId']==report['runId']==report['close']['id']==run_id
+    assert (report['close']['session'],report['close']['replaced'],report['close']['inForce'])==('test_pilot_local_power',False,run_id),report['close']
+    # A person's close for the same session day replaces the generated one; the saved report keeps its numbers and says so.
+    listed=owner.call('workspace');generated=next(f for f in listed['frames'] if f.get('originCloseId',f['id'])==run_id)
+    replacement=owner.call('market/closes/register',{'requestId':str(uuid4()),'snapshotId':generated['id'],'name':'Synthetic replacement',
+        'session':'test_pilot_local_power','businessDate':report['close']['businessDate']})
+    again=owner.call('jobs/pilot-close/results?runId='+run_id)
+    assert (again['close']['replaced'],again['close']['inForce'])==(True,replacement['id']) and again['totals']==report['totals'],again['close']
+    print('PASS a saved report keeps its exact close and reports when a recorded close has replaced it',flush=True)
+    report=again
     assert report['state']=='report_published' and report['positions'] and report['totals'] and report['risk']
     assert report['context']['contextId'] and report['context']['knownAt']
     for total in report['totals']:

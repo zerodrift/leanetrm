@@ -3,6 +3,7 @@ from copy import deepcopy
 from datetime import datetime,timedelta,timezone
 import json
 from uuid import uuid4
+from close_session_fixture import sql_session
 
 
 def run_checks(query,manifest,choices):
@@ -29,9 +30,10 @@ def run_checks(query,manifest,choices):
       AND k.delivery_from='2021-02-01' AND o.observed_at='2020-12-18T16:00:00Z';"""))
     members=[{'curve':'future','contractId':native.pop('contractId'),'ordinal':0}]
     pins=[{'seriesId':native['seriesId'],'observationId':native['anchorObservationId'],'inputUse':'variable'},fixed]
-    def register(candidate,expected=None):
+    sql_session(query,manifest,'test_pilot_morning','test_utc_every_day','08:00',['future'],['approver','pilot_fixture_worker'])
+    def register(candidate,expected=None,day='2021-01-01'):
         token=human_token()
-        invocation=f"security.register_market_close('{catalog}','{revision}','{uuid4()}','Synthetic exact frozen facts','2021-01-01T08:00:00Z','{json.dumps(candidate)}'::jsonb,'{json.dumps(members)}'::jsonb)"
+        invocation=f"security.register_market_close('{catalog}','{revision}','{uuid4()}','Synthetic exact frozen facts','test_pilot_morning','{day}','{day}T08:00:00Z','{json.dumps(candidate)}'::jsonb,'{json.dumps(members)}'::jsonb)"
         if expected:
             statement=f"DO $$BEGIN PERFORM {invocation};RAISE EXCEPTION 'Unqualified actual was registered';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'{expected}' THEN RAISE;END IF;END$$;"
         else:statement=f'SELECT {invocation};'
@@ -41,7 +43,7 @@ def run_checks(query,manifest,choices):
     register([pins[0],{**fixed,'observationId':preliminary}],'pilot_close_inputs')
     anchor=register(pins)
     now=datetime.now(timezone.utc)
-    definition={'priorCloseId':anchor,'bookIds':[query(f"SELECT id FROM trading.books WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1")],
+    definition={'session':'test_pilot_morning','priorCloseId':anchor,'bookIds':[query(f"SELECT id FROM trading.books WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1")],
         'curveCodes':['future'],'sourceCode':'fixture','seed':17,'leafMoves':[{'curve':'future','maxTicks':7}],
         **{key:values[0]['value'] for key,values in choices['policies'].items()},'valuationPolicy':choices['valuationPolicyChoices'][0]['policy']}
     schedule={'requestId':str(uuid4()),'name':'Synthetic frozen carry qualification','operation':choices['operation'],
@@ -62,6 +64,7 @@ def run_checks(query,manifest,choices):
         else:
             statement+=f"""IF NOT EXISTS(SELECT 1 FROM market_data.market_close_pins WHERE catalog_id='{catalog}' AND close_id='{claim['id']}' AND observation_id='{actual}' AND input_use='frozen')
              OR EXISTS(SELECT 1 FROM market_data.observations WHERE catalog_id='{catalog}' AND role='index_fixing' AND source_event_id LIKE 'pilot:%')
+             OR NOT EXISTS(SELECT 1 FROM market_data.market_closes WHERE id='{claim['id']}' AND(session_code,business_date,at)=('test_pilot_morning','2021-01-02','{due}'))
              THEN RAISE EXCEPTION 'Exact actual identity was replaced or generated';END IF;"""
         query(f"""SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{service}');
          SELECT security.use_market_context('{catalog}',security.capture_date_context('{catalog}','2021-01-02',NULL));
@@ -71,6 +74,18 @@ def run_checks(query,manifest,choices):
     publish([{**fixed,'inputUse':'variable'}],expected='pilot_close_inputs')
     publish([{**fixed,'observationId':preliminary}],expected='pilot_close_inputs')
     publish([fixed],[native,{'seriesId':fixed['seriesId'],'anchorObservationId':actual,'moveTicks':0,'value':'3.5'}],'pilot_close_inputs')
+    # D334: automation never replaces a recorded close for its session day, and never follows a replaced anchor.
+    register(pins,day='2021-01-02')
+    publish([fixed],expected='close_exists')
+    register(pins)
+    publish([fixed],expected='close_replaced')
     query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.finish_run('{claim['id']}',{claim['fence']},'{claim['workerId']}',false,'synthetic_qualification',NULL);")
     assert query(f"SELECT count(*) FROM market_data.market_closes WHERE run_id='{claim['id']}';")=='0'
     print('PASS frozen actual carry: final exact index fact retained, variable/preliminary/missing/substituted/generated actuals rejected, no durable generated writes',flush=True)
+    # A replaced close is not offered for new work, so no job is admitted on it as an anchor.
+    retry={**schedule,'requestId':str(uuid4()),'name':'Synthetic replaced anchor'}
+    refused=query(f"""SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{human_token()}');
+     DO $$BEGIN PERFORM automation.create_pilot_close_job('{json.dumps(retry)}'::jsonb,'{json.dumps(definition)}'::jsonb);RAISE EXCEPTION 'accepted';
+     EXCEPTION WHEN SQLSTATE 'P0001' THEN PERFORM set_config('openetrm.check_refusal',SQLERRM,false);END$$;SELECT current_setting('openetrm.check_refusal');ROLLBACK;""").splitlines()[-1]
+    assert refused=='close_replaced',refused
+    print('PASS generated closes join their anchor session at its cutoff, never replace a recorded close and never follow a replaced anchor',flush=True)

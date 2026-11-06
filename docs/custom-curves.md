@@ -69,6 +69,23 @@ resolved context. The resulting formula retains connected parent references;
 shocking a primitive quote or a parent output propagates to the child, while a
 child-output offset holds its upstream inputs constant.
 
+`splice` selects complete intervals from its `before` panel over `[from, cutover)`
+and `after` panel over `[cutover, to)`. Specify all three YYYY-MM-DD dates and
+`implementation: whole_delivery_intervals_v1`. Start, cutover and exclusive end
+must be strictly ordered. Selected intervals must cover each range exactly once
+and retain identical currency, quantity and quote multiplier. Gaps, overlaps,
+repeated periods and intervals crossing a boundary reject. Source points outside
+their selected ranges are explicitly excluded. The operator neither changes
+prices nor shapes monthly intervals into days; a downstream `lookup` supplies
+an explicit daily-query policy when needed. The operator is available through
+the same visual/formula graph and save/publication operations (migration 0200).
+
+Demand planning retains full source shapes and exact publication authority even
+when a consumer needs only one branch. Empty observation demand produces no
+price points. Flat, bounded parent-definition receipts retain the exact declared
+source closure without fabricating prices; published manifest commitments and
+semantic recipe identities remain independent of consumer demand.
+
 Preparation bounds cumulative native samples and combination sample references
 at 50,000 per recipe; shared formula traversal visits each formula once. Repeated
 parent branches retain their declared sample-reference counts and either fit
@@ -337,3 +354,20 @@ the existing kind badge (including Interest rate when supplied by the catalog).
 These labels distinguish object shape from financial kind; they do not infer an
 asset class from a name or introduce rate-curve operators that the backend does
 not support. Browser code only presents the supplied types.
+
+
+## Binding mixed delivery grids
+
+A published output with disjoint compatible delivery intervals can be selected
+using `containing_delivery_interval_v1`. Each query must fit wholly within one
+source interval; gaps, overlaps and crossed boundaries reject. A monthly output
+may serve many daily queries while remaining one graph coordinate and native
+factor. There is no inferred interpolation or separate daily wrapper definition.
+
+Financial reset schedules and the future-delivery physical gas ticket qualify
+choices under the same exact authorized context. Native index/fixing metadata
+remains contractual; the forecast source is a separately retained exact published
+reference. Stored `curve_price_lookup` rows carry the policy and query bounds.
+Common preparation discovers these sources from schedule price terms, including
+retained program lookups, and loads only their demanded closure. Normal
+instrument PV and immutable shared scenarios determine risk.

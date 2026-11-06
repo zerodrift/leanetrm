@@ -5,7 +5,7 @@ Developer guide for the D303 object-oriented reuse direction and proposed
 no APIs and does not approve the proposed financial policies. Read the current
 source before treating a design name as an existing class.
 
-The implemented [common delivery view](physical-delivery-view.md) (D334) supplies
+The implemented [common delivery view](physical-delivery-view.md) (D342) supplies
 the interval/track grid contract and retained literal-output projection for gas,
 crude and LNG. Reuse it for presentation when extending a native adapter; it does
 not implement the broader lifecycle objects or operational policies proposed here.
