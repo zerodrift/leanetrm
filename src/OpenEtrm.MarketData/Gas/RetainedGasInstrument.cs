@@ -43,9 +43,9 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     {
         if (members.IsDefaultOrEmpty || members.Any(m => m is null) || assignments.IsDefaultOrEmpty || assignments.Any(a => a is null) ||
             !members.Any(m => m.Program.Document.Family == "gas") ||
-            members.Any(m => m.Program.Document.Family is not ("gas" or "fixed")) ||
+            members.Any(m => m.Program.Document.Family is not ("gas" or "fixed" or "floating")) ||
             assignments.Select(a => (a.Quote.Currency, a.Quote.Quantity)).Distinct().Count() != 1)
-            throw new MarketDataException("gas_membership", "Select complete retained gas and fixed cash programs with their exact compatible assignments.");
+            throw new MarketDataException("gas_membership", "Select complete retained physical, fixed or indexed cash programs with their exact compatible assignments.");
         if(priceLookups.IsDefault&&members.Any(m=>m.Program.Document.Instructions.Any(i=>i.Output.Operation==CurvePriceScheduleSource.Operation)))
             throw new MarketDataException("side_market_sources","Bound programs require their exact authorized retained price lookups.");
         Members = members; Assignments = assignments.Distinct().ToImmutableArray();

@@ -180,7 +180,8 @@ internal static class IndependentSideChecks
     {public override ImmutableArray<CurveRequest> Dependencies=>[];public override IReadOnlyList<ScheduleRow> Rows=>[];
         public override SideValuation Evaluate(SideValuationContext context)=>throw new MarketDataException("synthetic_schedule_probe","This probe supplies its explicit physical value through Side.PV.");}
     private sealed record PhysicalValue(SideSchedule OwnSchedule,SideValuationContext OwnContext,ExactMoney Amount)
-        : SideValuation(OwnSchedule,OwnContext,Amount);
+        : SideValuation(OwnSchedule,OwnContext,Amount)
+    {public override SideScheduleSnapshot InspectSchedule(string manifest,ExactDecimal scale,OpenEtrm.Shared.Numerics.SignedRatio coefficient,Func<DateOnly,DateTimeOffset> boundary)=>throw new MarketDataException("synthetic_invalid","Invalid valuation cannot be inspected.");}
     private sealed record PhysicalProbe(Guid Identity,ReferenceKey Money,Quantity Unit,ExactDecimal Amount) : Side(Identity)
     {
         public override ImmutableArray<CurveRequest> Dependencies=>[];

@@ -18,10 +18,17 @@ internal static class BookScope
 
     internal static void Validate(ImmutableArray<JsonElement> books, ImmutableArray<Guid> bookIds, ImmutableArray<Guid> portfolioIds)
     {
-        if (books.IsDefault || bookIds.IsDefault || portfolioIds.IsDefault ||
-            bookIds.Distinct().Count() != bookIds.Length || portfolioIds.Distinct().Count() != portfolioIds.Length ||
+        RequireSelection(bookIds, portfolioIds);
+        if (books.IsDefault ||
             bookIds.Any(id => !books.Any(book => book.Id("id") == id)) ||
             portfolioIds.Any(id => !books.Any(book => book.Id("portfolio_id") == id)))
+            throw new MarketDataException("blotter_view", "Choose explicit available exact books and portfolios.");
+    }
+
+    internal static void RequireSelection(ImmutableArray<Guid> bookIds, ImmutableArray<Guid> portfolioIds)
+    {
+        if (bookIds.IsDefault || portfolioIds.IsDefault ||
+            bookIds.Distinct().Count() != bookIds.Length || portfolioIds.Distinct().Count() != portfolioIds.Length)
             throw new MarketDataException("blotter_view", "Choose explicit available exact books and portfolios.");
     }
 

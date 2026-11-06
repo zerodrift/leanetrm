@@ -12,13 +12,14 @@ public sealed record TicketDraft(string Product,int Version,ImmutableDictionary<
 public sealed record TicketChoice(string Value,string Label);
 public sealed record TicketSource(string Kind,string Label);
 public sealed record TicketLookup(string Value,TicketSource Source);
+public sealed record TicketChoices(ImmutableArray<TicketChoice> Choices,TicketLookup? StartingValue);
 
 public static class GasTicket
 {
  const string Physical="physical";
  public static TicketChoice AssignedForecastChoice{get;}=new("assigned","Assigned index forward");
  // The composition role each side kind books as.
- static readonly ImmutableDictionary<string,string> Roles=new Dictionary<string,string>{[Physical]="physical",["cash"]="consideration",["fee"]="fee"}.ToImmutableDictionary();
+ static readonly ImmutableDictionary<string,string> Roles=new Dictionary<string,string>{[Physical]="physical",["cash"]="consideration",["fee"]="fee",["floating"]="indexed_consideration"}.ToImmutableDictionary();
  public static TicketDescription Description{get;}=TicketDescriptions.Validate(new("physical_gas",1,"flow",
   [Trade("book","Book","Book that holds the trade.","choice",choices:"books"),
    Trade("legal_entity","Legal entity","Our legal entity on the trade.","choice",choices:"legal_entities",required:false),
@@ -30,10 +31,10 @@ public static class GasTicket
    Soon("credit_terms","Credit terms","Credit terms of the master agreement the trade is under.","text","Will show the master agreement's credit terms, read-only. Agreement terms are not stored yet.")],
   [new(Physical,"Physical","gas",GasCompositionInstrument.MinPhysicalSides,1,GasCompositionInstrument.MaxPhysicalSides,
     [Field("direction","Direction","Whether gas is delivered or received.","choice","direction",choices:"physical_direction"),
-     Field("delivery_from","From","First gas day of delivery.","date","start"),
-     Field("delivery_to","To · exclusive","End of delivery, exclusive.","date","end"),
+     Field("delivery_from","From","First gas day of delivery.","date","start") with{Lookup="entry_from"},
+     Field("delivery_to","To · exclusive","End of delivery, exclusive.","date","end") with{Lookup="entry_to"},
      Field("product","Product","Service level of the gas.","choice","product",choices:"gas_products"),
-     Field("quantity","Quantity","Quantity per the chosen basis, in the unit the side's gas path is quoted in. Taken from the link when the side is linked.","decimal","quantity",unit:"quantity",required:false,rule:"Derived from the link source when a link is set."),
+     Field("quantity","Quantity","Quantity per the chosen basis, in the unit the side's gas path is quoted in. Taken from the link when the side is linked.","decimal","quantity",unit:"quantity",required:false,rule:"Derived from the link source when a link is set.") with{Lookup="entry_quantity"},
      Field("forecast_curve","Forecast curve","Published curve used for future prices; the assigned index and fixing source remain contractual.","choice",choices:"forecast_curves",required:false) with{DependsOn=["delivery_from","delivery_to","product","delivery_point"]},
      Info("price","Price","Market price at the delivery point.","price","market_price"),
      Info("payment","Payment","Sides that pay for this gas.","payment","paid_through"),
@@ -60,13 +61,12 @@ public static class GasTicket
    // A new trade opens with the payment for its gas; a fee is added when one applies.
    CashKind("cash","Cash","cash",false,1),
    CashKind("fee","Fee","fee",true,0),
-   // An index price is the existing floating side (FloatingSide, D84 and D93), offered greyed until gas booking takes it.
-   new("floating","Floating","neutral",0,0,0,[],[],"Index price: pays for the gas at a published index, the same floating side swaps book. Gas booking does not accept it yet.")],
+   IndexedCashKind()],
   // Payment and fee sides are the composition's cash sides.
-  [new(["cash","fee"],GasCompositionInstrument.MaxCashSides)],
+  [new(["cash","fee","floating"],GasCompositionInstrument.MaxCashSides)],
   [new("net_cash","Net cash",null,"money",[]),new("payment_at","Payment at",null,"time",[])],
-  ["month","day"],[new("links","Quantity links"),
-   new("imbalance","Imbalance","Will compare each gas day's nominated and actual quantities, with the imbalance, its cash-out price and its amount.")],["new","booked"]));
+  ["term","month","day"],[new("links","Quantity links"),
+   new("imbalance","Imbalance","Will compare each gas day's nominated and actual quantities, with the imbalance, its cash-out price and its amount.")],["new","booked","amend"]));
 
  public static TicketSideKind SideKind(string role)=>Description.Sides.SingleOrDefault(kind=>Roles.GetValueOrDefault(kind.Kind)==role)??
   throw new MarketDataException("ticket_description",$"No {Description.Product} side kind books as role '{role}'.");
@@ -86,14 +86,24 @@ public static class GasTicket
    new($"{kind}_{id}",label,meaning,type,null,"editable",required,band,choices,[],lookup,null,null);
   TicketField Follows(string id,string label)=>new($"{kind}_{id}",label,follows,"date",null,"derived",false,id,null,[],null,null,follows);
   return new(kind,pill,colour,0,initial,GasCompositionInstrument.MaxCashSides,
-   [Own("direction","Direction","Whether we pay or receive.","choice","direction","cash_direction"),
+   [Own("direction","Direction","Whether we pay or receive.","choice","direction","cash_direction") with{RefreshOn=[$"{kind}_source","direction"]},
     Follows("start","From"),Follows("end","To"),
     Own("source","Quantity source","Physical side whose quantity this amount is charged on.","choice","quantity","physical_sides"),
     Own("stage","Quantity stage","Receipt, delivery or fuel quantity of the source side.","choice",choices:"quantity_stages"),
-    Own("price","Price","Price per unit of the source quantity.","decimal","price",required:!fee),
-    Own("payment_at","Payment at","When the amount is paid.","datetime","payment"),
+    Own("price","Price","Price per unit of the source quantity.","decimal","price",required:!fee,lookup:fee?null:"entry_price"),
+    Own("payment_at","Payment at","When the amount is paid.","datetime","payment",lookup:"entry_payment"),
     ..fee?[Own("tariff","Tariff","Configured usage tariff that sets the price.","choice",choices:"usage_tariffs",required:false,lookup:"eligible_tariff")]:Array.Empty<TicketField>()],
    [new("quantity","Quantity","quantity","quantity",[]),new("price","Price",null,"price",[]),new("amount","Amount",null,"money",[])]);
+ }
+
+ static TicketSideKind IndexedCashKind()
+ {
+  var cash=CashKind("floating","Index payment","floating",false,0);
+  return cash with{Fields=[..cash.Fields.Where(f=>f.Id is not("floating_price" or "floating_payment_at")),
+   Field("floating_index","Pricing index","Published index that determines the payment price.","choice",choices:"pricing_indices",dependsOn:"floating_source"),
+   Field("floating_forecast_curve","Forecast curve","Published curve used for unfixed daily index prices.","choice",choices:"forecast_curves") with{DependsOn=["floating_source","delivery_from","delivery_to","delivery_point","product"],RefreshOn=["forecast_curve"]},
+   Field("floating_spread","Index spread","Contractual adder to the index in the source quote units.","decimal","price") with{Lookup="entry_spread"},
+   Field("floating_payment_day","Payment day","Calendar day in the following month, at 00:00 UTC, without a holiday adjustment.","choice","payment",choices:"payment_days")]};
  }
 
  public static GasCompositionRequest Request(TicketDraft draft,Guid snapshotId,string knowledgeMode,Guid operationId,Guid definitionRevisionId)
@@ -123,10 +133,14 @@ public static class GasTicket
   string Source(TicketSideDraft side,string id)=>codes.Contains(side.Values[id])?side.Values[id]:throw On(side.Code,id,$"{side.Kind} side '{side.Code}' names '{side.Values[id]}', which is not a physical side code.");
   var t=draft.Trade;
   var (entity,entityRevision)=Versioned(t,"legal_entity");var (party,partyRevision)=Versioned(t,"counterparty");
-  return new(snapshotId,PhysicalGasStore.Convention,knowledgeMode,GasCompositionStore.Profile,operationId,Id(t,"book")!.Value,definitionRevisionId,Id(t,"gas_setup"),false,entity,entityRevision,party,partyRevision,
+  return new(snapshotId,PhysicalGasStore.Convention,knowledgeMode,draft.Sides.Any(s=>s.Kind=="floating")?GasCompositionStore.IndexedProfile:GasCompositionStore.Profile,operationId,Id(t,"book")!.Value,definitionRevisionId,Id(t,"gas_setup"),false,entity,entityRevision,party,partyRevision,
    [..physical.Select(s=>PhysicalRequest(s,Source))],
-   [..draft.Sides.Where(s=>s.Kind!=Physical).Select(s=>new GasCashRequest(s.Code,Roles[s.Kind],s.Values[$"{s.Kind}_direction"],Source(s,$"{s.Kind}_source"),s.Values[$"{s.Kind}_stage"],s.Values.GetValueOrDefault($"{s.Kind}_price"),s.Values.GetValueOrDefault($"{s.Kind}_tariff"),s.Values[$"{s.Kind}_payment_at"]))]);
+   [..draft.Sides.Where(s=>s.Kind!=Physical).Select(s=>new GasCashRequest(s.Code,Roles[s.Kind],s.Values[$"{s.Kind}_direction"],Source(s,$"{s.Kind}_source"),s.Values[$"{s.Kind}_stage"],s.Values.GetValueOrDefault($"{s.Kind}_price"),s.Values.GetValueOrDefault($"{s.Kind}_tariff"),s.Values.GetValueOrDefault($"{s.Kind}_payment_at"),
+    s.Kind=="floating"?new(s.Values["floating_index"],GasIndexedCash.Observation,GasIndexedCash.Payment,PaymentDay(s),s.Values["floating_spread"],Forecast(s.Values["floating_forecast_curve"])):null))]);
  }
+
+ static int PaymentDay(TicketSideDraft side)=>int.TryParse(side.Values["floating_payment_day"],NumberStyles.None,CultureInfo.InvariantCulture,out var day)&&day is >=1 and <=28?day:
+  throw On(side.Code,"floating_payment_day","Choose a following-month UTC payment day from 1 through 28.");
 
  static GasPhysicalRequest PhysicalRequest(TicketSideDraft side,Func<TicketSideDraft,string,string> source)
  {
@@ -199,7 +213,8 @@ public static class GasTicket
   var physical=terms.PhysicalSides.Select(p=>new TicketSideDraft(Physical,p.Code,Values(("direction",p.Direction),("delivery_from",p.DeliveryFrom),("delivery_to",p.DeliveryTo),("product",p.Product),("quantity",p.Quantity),
    ("forecast_curve",p.ForecastCurve is {} curve?ForecastValue(curve):null),("quantity_basis",p.QuantityBasis),("pipeline",p.Pipeline),("zone",p.Zone),("delivery_point",p.DeliveryPoint),("link_source",p.Link?.Source),("link_formula",p.Link?.Formula),("link_fraction",p.Link?.Fraction))));
   var cash=terms.CashSides.Select(s=>{var kind=SideKind(s.Role).Kind;
-   return new TicketSideDraft(kind,s.Code,Values(($"{kind}_direction",s.Direction),($"{kind}_source",s.Source),($"{kind}_stage",s.Stage),($"{kind}_price",s.Price),($"{kind}_payment_at",s.PaymentAt),($"{kind}_tariff",s.TariffCode)));});
+   return new TicketSideDraft(kind,s.Code,Values(($"{kind}_direction",s.Direction),($"{kind}_source",s.Source),($"{kind}_stage",s.Stage),($"{kind}_price",s.Price),($"{kind}_payment_at",s.PaymentAt),($"{kind}_tariff",s.TariffCode),
+    ("floating_index",s.Indexed?.Index),("floating_forecast_curve",s.Indexed is {} index?index.ForecastCurve is {} forecast?ForecastValue(forecast):"assigned":null),("floating_payment_day",s.Indexed?.PaymentDay.ToString(CultureInfo.InvariantCulture)),("floating_spread",s.Indexed?.Spread)));});
   return new(Description.Product,Description.Version,trade.ToImmutableDictionary(),[..physical,..cash]);
  }
 
@@ -208,7 +223,8 @@ public static class GasTicket
  public static TicketDraft Reopen(GasCompositionRequest terms)
  {
   var draft=Draft(terms);
-  var mapped=Request(draft,terms.SnapshotId,terms.KnowledgeMode,terms.OperationId,terms.DefinitionRevisionId);
+  var mapped=Request(draft,terms.SnapshotId,terms.KnowledgeMode,terms.OperationId,terms.DefinitionRevisionId) with
+  {TradeId=terms.TradeId,BindingId=terms.BindingId,ExpectedRevision=terms.ExpectedRevision,Reason=terms.Reason,AmendmentPolicy=terms.AmendmentPolicy};
   return JsonSerializer.Serialize(mapped)==JsonSerializer.Serialize(terms)?draft:throw Bad("The booked terms hold values the deal ticket cannot express, so the trade does not open in it.");
  }
 
@@ -230,6 +246,7 @@ public static class GasTicket
  // Fixed lists the booking contract admits, and the lists read from the context's gas catalog.
  static readonly ImmutableDictionary<string,ImmutableArray<TicketChoice>> Fixed=new Dictionary<string,ImmutableArray<TicketChoice>>{
   ["forecast_curves"]=[AssignedForecastChoice],
+  ["payment_days"]=[..Enumerable.Range(1,28).Select(n=>new TicketChoice(n.ToString(CultureInfo.InvariantCulture),n.ToString(CultureInfo.InvariantCulture)))],
   ["physical_direction"]=[new("receive","Receive"),new("deliver","Deliver")],["cash_direction"]=[new("pay","Pay"),new("receive","Receive")],
   ["quantity_basis"]=[new("per_operating_day","Per operating day"),new("period_total_equal_days","Period total over equal days")],
   ["quantity_stages"]=[new("receipt","Receipt"),new("delivery","Delivery"),new("fuel","Fuel")],
@@ -237,6 +254,21 @@ public static class GasTicket
 
  public static bool PhysicalReferenceField(TicketDraft draft,string? side,string field)=>
   Field(draft,side,field).Field.Choices is "pipelines" or "zones" or "delivery_points" or "gas_products";
+
+ // Visible editable suggestions under the gas ticket entry contract. Book/import
+ // validation still requires the resulting explicit terms and never applies defaults.
+ public static TicketChoices ChoiceSet(TicketDraft draft,string? side,string field,ImmutableArray<TicketChoice> choices)
+ {
+  var (target,f)=Field(draft,side,field);
+  string? value=choices.Length==1&&(f.Required||side is null||f.Id=="forecast_curve")?choices[0].Value:null;
+  value??=f.Choices switch{
+   "physical_direction"=>"receive","quantity_basis"=>"per_operating_day","quantity_stages"=>"delivery","payment_days"=>"10",
+   "forecast_curves" when target?.Kind=="floating"&&target.Values.TryGetValue("floating_source",out var linked)=>draft.Sides.SingleOrDefault(s=>s.Code==linked)?.Values.GetValueOrDefault("forecast_curve")??"assigned",
+   "cash_direction" when target is not null&&target.Values.TryGetValue($"{target.Kind}_source",out var source)=>
+    draft.Sides.SingleOrDefault(s=>s.Code==source)?.Values.GetValueOrDefault("direction") switch{"receive"=>"pay","deliver"=>"receive",_=>null},
+   _=>null};
+  return new(choices,value is not null&&choices.Any(c=>c.Value==value)?new(value,new("suggestion",choices.Length==1?"Only eligible choice":"Suggested starting value")):null);
+ }
 
  // Physical choices use reference relationships, independently of valuation coverage.
  public static ImmutableArray<TicketChoice> Choices(TicketDraft draft,string? side,string field,JsonElement catalog)
@@ -253,6 +285,7 @@ public static class GasTicket
    "books"=>catalog.GetProperty("books").EnumerateArray().Select(b=>new TicketChoice(b.Text("id"),b.Text("name"))),
    "legal_entities"=>Parties("legalEntities"),"counterparties"=>Parties("counterparties"),
    "gas_setups"=>catalog.OptionalText("gasSetupId") is {} setup?[new TicketChoice(setup,$"Published setup {catalog.Text("gasSetupPublication")}")]:[],
+   "pricing_indices"=>IndexChoices(draft,target!,catalog),
    "pipelines"=>Distinct(paths,"pipeline","pipelineName"),
    "zones"=>Distinct(paths.Where(p=>p.Text("pipeline")==Term(target!,"pipeline",Bad)),"zone","zoneName"),
    "delivery_points"=>Distinct(paths.Where(p=>p.Text("pipeline")==Term(target!,"pipeline",Bad)&&p.Text("zone")==Term(target!,"zone",Bad)),"deliveryPoint","deliveryPointName"),
@@ -260,6 +293,17 @@ public static class GasTicket
    "usage_tariffs"=>Tariffs(draft,target!,catalog,Bad).Select(t=>new TicketChoice(t.Text("code"),t.Text("name"))),
    _=>throw new MarketDataException("ticket_description",$"Field '{field}' names choice list '{f.Choices}', which {Description.Product} does not serve.")}];
  }
+
+ static ImmutableArray<TicketChoice> IndexChoices(TicketDraft draft,TicketSideDraft target,JsonElement catalog)
+ {
+  var source=QuantitySource(draft,target);
+  var path=Path(source,catalog,Unresolved);
+  var valuation=path.GetProperty("valuation");
+  if(valuation.ValueKind!=JsonValueKind.Object)throw Unresolved("This path has no pricing index assignment.");
+  return [new(valuation.Text("index"),valuation.Text("index"))];
+ }
+ static TicketSideDraft QuantitySource(TicketDraft draft,TicketSideDraft target)=>target.Kind==Physical?target:
+  draft.Sides.SingleOrDefault(s=>s.Kind==Physical&&s.Code==target.Values.GetValueOrDefault($"{target.Kind}_source"))??throw Unresolved("Choose the physical quantity source first.");
 
  // Values a lookup proposes, in the shape the booking contract admits. Market prices are evaluated by the store from PriceProbe.
  public static TicketLookup Lookup(TicketDraft draft,string? side,string field,JsonElement catalog)
@@ -291,7 +335,8 @@ public static class GasTicket
  // Price does not depend on the quantity, direction or basis, so the probe states them only to make a complete side.
  public static GasCompositionRequest PriceProbe(TicketDraft draft,string side,JsonElement catalog,Guid snapshot,Guid definition)
  {
-  var (target,_)=Field(draft,side,"price");
+  var target=QuantitySource(draft,draft.Sides.SingleOrDefault(s=>s.Code==side)??throw Bad("Choose an existing Side."));
+  _=Field(draft,target.Code,"price");
   RequireSetup(draft,catalog);
   var (from,to)=(Term(target!,"delivery_from",Unresolved),Term(target!,"delivery_to",Unresolved));var path=Path(target!,catalog,Unresolved);
   return new(snapshot,PhysicalGasStore.Convention,"current",GasCompositionStore.Profile,Guid.Empty,Guid.Empty,definition,Id(draft.Trade,"gas_setup"),false,null,null,null,null,

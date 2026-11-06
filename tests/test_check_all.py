@@ -42,6 +42,14 @@ class CheckAllTests(unittest.TestCase):
         self.assertIn('--browser-check',demo[0])
         for argument in ('--facility-quantity-check','--gas-composition-check','--gas-setup-check','--browser-check','--browser'):
             self.assertIn(argument,gas[0])
+        amendments=[c for c in commands if '--gas-amendments-check' in c]
+        self.assertEqual(len(amendments),1)
+        self.assertIn('--browser-check',amendments[0])
+        self.assertIn('--browser',amendments[0])
+        indexed=[c for c in commands if '--gas-indexed-check' in c]
+        self.assertEqual(len(indexed),1)
+        self.assertIn('--browser-check',indexed[0])
+        self.assertIn('--browser',indexed[0])
 
     def test_lng_booking_upgrade_recovery_and_worker_checks_run_in_trading_partition(self):
         commands=[]

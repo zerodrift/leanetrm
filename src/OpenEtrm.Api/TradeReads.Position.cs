@@ -18,7 +18,7 @@ internal sealed record TradePositionSelection(Guid TradeId,Guid BindingId,int Re
     internal static TradePositionSelection From(TradePositionReadRequest request)
     {
         if(request.Context is null||request.TradeId==Guid.Empty||request.BindingId==Guid.Empty||request.Revision is <1 or >256||
-            request.InstrumentType is not("future" or "financial_swap" or "heat_rate" or "ppa" or "physical_gas" or "physical_crude" or "physical_lng" or FuturesOptionPositions.Type))
+            string.IsNullOrWhiteSpace(request.InstrumentType)||request.InstrumentType.Length>64||request.InstrumentType.Any(c=>!(char.IsAsciiLetterOrDigit(c)||c=='_')))
             throw new MarketDataException("position_request","Select an exact trade, binding, revision and supported instrument type.");
         return new(request.TradeId,request.BindingId,request.Revision,request.InstrumentType);
     }
@@ -97,7 +97,7 @@ public sealed partial class TradeReads
         return ReadBound(connection,view,async()=>
         {
             var position=(await GasPositions.Read(connection,database.Manifest,[],[],ct,selected)).Single();
-            return await GasTerms(connection,position,ct);
+            return await GasTerms(connection,view,position,ct);
         },ct);
     }
     public Task<object> GasTrade(NpgsqlConnection connection,TradingView view,Guid trade,int? revision,CancellationToken ct)=>
@@ -108,15 +108,20 @@ public sealed partial class TradeReads
             var position=positions[0];
             if(revision is {} requested&&requested!=int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture))
                 throw new MarketDataException("position_revision","The selected context does not contain the requested gas revision.");
-            return await GasTerms(connection,position,ct);
+            return await GasTerms(connection,view,position,ct);
         },ct);
-    async Task<object> GasTerms(NpgsqlConnection connection,GasPosition position,CancellationToken ct)
+    async Task<object> GasTerms(NpgsqlConnection connection,TradingView view,GasPosition position,CancellationToken ct)
     {
         var components=await PreviewDatabase.Rows(connection,"SELECT row_to_json(m)::text FROM trading.gas_component_terms m WHERE(catalog_id,instrument_id)=($1,$2) ORDER BY slot",[database.Manifest.CatalogId,position.Binding],ct);
+        var indexedCash=await PreviewDatabase.Rows(connection,"SELECT (to_jsonb(i)||jsonb_build_object('spread',trim_scale(i.spread)::text))::text FROM trading.gas_index_cash_terms i WHERE(catalog_id,instrument_id)=($1,$2) ORDER BY slot",[database.Manifest.CatalogId,position.Binding],ct);
+        if(components.Any(m=>m.Text("role")=="indexed_consideration"&&!indexedCash.Any(i=>i.Text("slot")==m.Text("slot"))))
+            throw new MarketDataException("position_facts","The indexed gas component requires its exact retained pricing and payment terms.");
         var facilityAllocations=position.Head.GetProperty("composition").GetBoolean()
             ?await new FacilityQuantityStore(database).TradeAllocations(connection,position.Head.Id("trade_id"),ct)
             :JsonSerializer.SerializeToElement(Array.Empty<object>());
-        return new{head=position.Head,physical=position.Physical,components,facilityAllocations,amend=new{allowed=false,reason=GasTicketStore.AmendReason}};
+        var history=await PreviewDatabase.Rows(connection,"SELECT row_to_json(x)::text FROM(SELECT r.revision,r.instrument_id,r.actor_id,r.effective_at,a.reason FROM trading.gas_trade_revisions r LEFT JOIN trading.gas_amendment_commands a ON(a.catalog_id,a.operation_id,a.changed)=(r.catalog_id,r.operation_id,true) WHERE(r.catalog_id,r.trade_id)=($1,$2) ORDER BY r.revision DESC)x",[database.Manifest.CatalogId,position.Trade],ct);
+        return new{head=position.Head,physical=position.Physical,components,indexedCash,facilityAllocations,history,
+            amend=await GasAmendments.Action(connection,database.Manifest.CatalogId,position.Trade,position.Binding,int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture),view.CalculationFrame.At,view.Working,ct)};
     }
     public Task<object> Position(NpgsqlConnection connection,TradingView view,TradePositionReadRequest request,CancellationToken ct)
     {

@@ -1,5 +1,37 @@
 # Whole-term side schedules
 
+## Implementer contract (D353)
+
+Every `SideValuation` implements `InspectSchedule(manifest, scale, coefficient,
+boundary)`. It returns an immutable `SideScheduleSnapshot` with exact Side,
+retained manifest, snapshot, context, valuation and knowledge coordinates.
+`Read(offset, limit)` exposes native evaluated rows; `Calculation(key, offset,
+limit)` exposes that evaluation's evidence. `FromRows` covers dated payments and
+interval measures. `FromProgramValue` covers compiled execution columns and
+rejects a different resolved context or market cutoff. Neither factory reprices. Row-backed and program-backed inspection both refuse shocked scenario values under the base-only inspection contract.
+Independent memberships remain ordered, including repeated use of one Side.
+
+The native booking/storage integration registers an `IBookedScheduleSource`.
+It authorizes and resolves the exact trade revision/binding, supplies retained Side
+headers and any bounded opaque window choices, evaluates with the ordinary native
+path, then rechecks current authority. The shared `BookedScheduleReader` validates
+the exact selected membership and evaluated coordinates and dispatches pages and
+calculation requests. It contains no product switch. A new registered source needs
+no schedule route or UI branch. `withSideSchedules` adds the lazy renderer to any
+position view without an integrated editor; an unknown product gets a generic
+position view. A new product still needs normal booking and position integration.
+
+PPA windows are declared monthly by its native source; TypeScript performs no
+delivery calendar arithmetic. PPA, swap, gas, crude and LNG use the same page and
+calculation contracts. Editable booking reviews remain separate. Futures and
+options retain their leaf behavior; this contract does not fabricate Sides.
+
+Paid/outstanding evidence renders when the native evaluator supplies it. A swap
+with recorded binding settlement cash currently exposes only its retained plan
+and `swap_binding_cash_inspection_unavailable`; use its settlement/P&L operation
+for the ledger. Due ordinary payments expose the native refusal with null values.
+No lifecycle or payment fact is inferred to make a row render successfully.
+
 Status: local implementation trial; full integration and storage qualification are
 in progress. No hosted release is qualified by this record.
 
@@ -72,6 +104,57 @@ for every read, including cached schedule reuse. PPA reads isolate other trades
 but preserve existing whole-trade sibling admission; they do not silently price
 only one binding of an otherwise incompatible PPA trade. The futures product form
 still requires its complete priced catalog.
+
+## Pricing and lifecycle inspection (D352)
+
+Gas booked Side tabs use one pricing/lifecycle grid in the existing deal ticket,
+replacing the summary Side grid. There is no second schedule grid, disclosure or
+Side chooser beneath it. The Instrument aggregate and quantity links remain
+separate tabs. Exact backend membership slots select the displayed Side;
+daily quantity entry uses the existing record/status workflow in Physical operations.
+Crude, LNG and unavailable gas plans use the same read-only inspector directly.
+Opening a displayed Side reads its authorized directory and 32 contribution rows. The API caps pages at
+128. Calculation inputs load only after selecting **Calculation**, following
+stored typed operand addresses rather than generating another schedule. A
+reduction includes its actual averaging/application inputs. An input-page read
+is bounded to 65,536 discovered cells and supports cancellation.
+
+The common managed projection carries dated delivery windows or exact native
+start/end instants, operating date, observation windows, value/payment instants,
+quantity specification, currency, quote multiplier, quantity/price states, amount,
+DF and PV. Native interval bounds are never replaced with whole operating days.
+Schedule quantities and money include the booked scale and signed membership;
+prices and DF do not. Calculation rows explicitly declare unit-Side values and
+the signed holding scale. Native source receipts retain their exact program and
+resolved calculation context, fixing/contract coordinates, observation lineage
+and actual batch/revision/knowledge evidence where provided.
+
+Delivery progress, payment due status, cash state, fulfillment and economic
+classification are separate facts. Passing a delivery or payment date cannot
+establish acceptance, determination or payment. `ScheduleRowValue` inspection
+preserves supplied paid/outstanding balances and classifications; program-only
+profiles explicitly report cash/fulfillment as `NotTracked`. Values outside a
+measure remain null. A profile that cannot value its period can expose its
+authorized retained plan with null figures and a reason. Unevaluated contribution
+cells refuse rather than becoming ordinary empty rows.
+
+Every page binds the exact trade revision, binding, Side membership, manifest,
+snapshot and certified effective/knowledge context. The first directory pins the
+context for later pages. An inline ticket Side uses the ticket read's exact
+certified snapshot and context, so its operational quantities and pricing rows
+cannot silently come from different knowledge cutoffs. Current authority is rechecked on every request and
+before returning the result. UI cancellation and request epochs fence late replies;
+loss of position/artifact visibility clears retained values and controls and
+invalidates the parent view.
+
+The gas valuation selection remains contractual net MTM: physical market value
+plus signed consideration. This view does not admit started gas valuation,
+create determinations/payments or introduce another financial measure. The
+separate managed indexed-purchase example qualifies 31 paid, four fixed-unpaid
+and 57 projected rows through the same evaluated-row projection; it does not
+supply a durable booking/payment workflow. PPA and swap application inspection
+continues through its existing native readers pending deliberate consolidation.
+No new schedule tables or risk logic are introduced.
 
 ## Stored definitions
 

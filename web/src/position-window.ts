@@ -1,3 +1,4 @@
+import {withSideSchedules,genericPositionView} from './position-schedules.js';
 import {readLngView} from './lng-trade-view.js';
 import {requestDeadlines} from './request-deadline.js';
 import {readCrudeView} from './crude-trade-view.js';
@@ -18,17 +19,18 @@ const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementByI
 const error=get('position-window-error'),detail=get('position-window-detail'),retry=get<HTMLButtonElement>('position-window-retry');
 type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 // The window reads its trade; of writes it records only an option holding's lifecycle events, through their own authorized operations.
-const operations=new Set(['bootstrap?includeFrames=false&includeAccess=true','options/holding','options/exercise','options/assignment','options/instruction','tickets/description','tickets/trade','tickets/choices','trading/crude','trading/lng','trading/gas','gas/quantities/read','trading/position','futures/editor','swaps/editor','swaps/quantity-schedule','trade-formats/read','ppa/editor','ppa/preview','ppa/inspect','amounts/display']);
+const operations=new Set(['bootstrap?includeFrames=false&includeAccess=true','options/holding','options/exercise','options/assignment','options/instruction','tickets/description','tickets/trade','tickets/choices','trading/crude','trading/lng','trading/gas','trading/position','trading/side-schedules','futures/editor','swaps/editor','swaps/quantity-schedule','trade-formats/read','ppa/editor','ppa/preview','ppa/inspect','amounts/display']);
 let controller:AbortController|undefined,generation=0,loading=false,selection:PositionWindowSelection|undefined,reader:Api,readerActor='';
 const panel=setupPositionPanel({element:name=>get('position-window-'+name),form:on=>{if(on)throw Error('This trade window is read only.');},reveal(){},focusForm(){}},
  {zone:()=>selection!.zone,busy:()=>loading,canAmend:()=>false,tabs:['terms','schedules','history'],curveListed:()=>false,context:()=>JSON.stringify(selection),
   read:async(h,formats)=>{
    const api=reader,actor=readerActor,context={...positionWindowRequest(selection!).context,
     convention:h.instrumentType==='future'?'contract_lot_execution_pnl_v2':'independent_side_financial_swap_v2'};
-   const value:DetailRead=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:()=>actor,recorded,surface:null}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{actor:()=>actor,readOnly:true}):h.instrumentType==='ppa'?readPpaView(api,context,h,selection!.context.knownAt):h.instrumentType==='future'?
-    readTradeView(api,context,h,formats):readSwapView(api,context,h,formats,{busy:()=>loading,act:async work=>{await work();},settle(){throw Error('This trade window is read only.');}}));
-   return {...value,view:zone=>({...value.view(zone),actions:undefined})};
-  },amendment:{open(){throw Error('This trade window is read only.');},shown:()=>false,close:async()=>{}},onDenied:()=>fail('Current authority no longer permits this trade read.')});
+   const value:DetailRead=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:()=>actor,recorded,surface:null}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:denied,actor:()=>actor,readOnly:true}):h.instrumentType==='ppa'?readPpaView(api,context,h,selection!.context.knownAt):h.instrumentType==='future'?
+    readTradeView(api,context,h,formats):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy:()=>loading,act:async work=>{await work();},settle(){throw Error('This trade window is read only.');}}):genericPositionView(h));
+   const read=withSideSchedules(value,api,context,h,denied);
+   return {...read,view:zone=>({...read.view(zone),actions:undefined})};
+  },amendment:{open(){throw Error('This trade window is read only.');},shown:()=>false,close:async()=>{}},onDenied:denied});
 
 // An event is recorded at current knowledge, which this window, reading at the knowledge it was opened with, does not show: once one is,
 // the window says so, once, and offers no further event until the trade is opened again from the Blotter.
@@ -43,6 +45,7 @@ async function optionWrites(){
  const canBook=!!access.access&&access.access.profile===readerActor&&access.access.permissions.includes('BookTrade');
  return lifecycleWrites({view:selection!.lifecycle,canBook,reason:canBook?null:'Your current role does not have Book Trade permission.',contextDirty:false,recorded:recordedHere});
 }
+function denied(){fail('Current authority no longer permits this trade read.');}
 function clearTrade(){
  panel.clear();detail.hidden=true;setCurveNames([]);document.title='Trade details · LeanETRM';get('position-window-title').textContent='Trade details';get('position-window-context').textContent='';
  for(const name of ['context','knownAt','asOf'])delete detail.dataset[name];

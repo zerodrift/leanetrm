@@ -4,6 +4,75 @@ import {readFileSync} from 'node:fs';
 import {browserAvailable,withBrowserPage,browserTestTimeout} from './browser-page.mjs';
 
 const index=readFileSync(new URL('../src/index.html',import.meta.url),'utf8');
+const blotterPage=index.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace('</body>','<div id="host" hidden></div></body>');
+
+// The actual page, table and dock, with synthetic rows and no application/API.
+async function blotterFixture(work){
+ await withBrowserPage(blotterPage,async(evaluate,command)=>{
+  await command('Emulation.setDeviceMetricsOverride',{width:2560,height:1200,deviceScaleFactor:1,mobile:false});
+  await evaluate(`(async()=>{
+   const {setupDock}=await import('/dock.js'),{defaultBlotterArrangement,blotterDockRules}=await import('/blotter-layout.js');
+   const {createTableWorkspace}=await import('/table-workspace.js'),{setupDetailsPane}=await import('/details-pane.js');
+   const get=id=>document.getElementById(id);
+   for(const section of document.querySelectorAll('main>section'))section.hidden=section.id!=='futures-page';
+   document.body.classList.add('blotter-shown');get('page-title').textContent='Blotter';get('desk').hidden=false;
+   get('blotter-strip').innerHTML='<li class="strip-item"><span class="strip-label">Positions</span><strong class="strip-value">100</strong></li>';
+   get('workspace-footer').textContent='Synthetic local workspace';
+   window.workspace=createTableWorkspace(get('blotter-workspace'),{key:'blotter',rowMode:'trades',rowLabel:'Positions',dimensions:[['book','Book']],measures:[['value','Value']],scopes:[['books','Books']],
+    actions:[['risk','Run risk'],['refresh','Refresh'],['export','Export'],['new','New trade'],['popout','Pop out']],rowGroups:[['book','Book']],pivotHelp:'Synthetic units',onApply(){},onScope(){},body:get('blotter-dock'),rows:get('blotter-pane-grid')});
+   get('blotter-rows').id='desk-positions';
+   window.dock=setupDock(get('blotter-dock'),{label:'Blotter panes',rules:blotterDockRules,narrow:()=>false,initial:defaultBlotterArrangement(),maximizable:true,ownCollapse:['details'],
+    tabs:['summary','grid','details','charts'].map((id,i)=>({id,label:['Summary','Positions','Details','Charts'][i],body:get('blotter-pane-'+id)})),changed(){}});
+   dock.collapse('charts');
+   window.pane=setupDetailsPane(get('blotter-pane-details'),{unsaved:()=>false,busy:()=>false,step(){},collapsed:()=>dock.collapse('details'),expand:()=>dock.reveal('details'),changed(){}});
+   await pane.show({kind:'new',product:'gas'});pane.shell.form(true);
+   pane.shell.element('form').innerHTML='<label>Synthetic edit<input value="keep this edit"></label>'+Array.from({length:40},(_,i)=>'<p>Schedule detail '+i+'</p>').join('');
+   window.grid=workspace.update('blotter','synthetic',['Trade','Quantity'],Array.from({length:100},(_,i)=>['TR-'+String(i).padStart(6,'0'),'100']),[1],()=>false,{keys:['trade','quantity'],rowKeys:Array.from({length:100},(_,i)=>'trade-'+i),layout:{order:[],widths:{},sort:[]},onLayout(){}});
+   window.settle=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+   window.box=selector=>{const e=typeof selector==='string'?document.querySelector(selector):selector,r=e.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,height:r.height,width:r.width,client:e.clientHeight,scroll:e.scrollHeight};};
+   await document.fonts.ready;await settle();
+  })()`);
+  await work(evaluate,command);
+  await evaluate('workspace.clear();dock.destroy()');
+ });
+}
+
+test('the Blotter fills a wide window and uses the space above its compact footer',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await blotterFixture(async evaluate=>{
+  const geometry=await evaluate("({frame:box('#blotter-workspace'),footer:box('#workspace-footer'),width:innerWidth,height:innerHeight,scroll:document.documentElement.scrollHeight})");
+  assert.ok(geometry.width-geometry.frame.right<=32,JSON.stringify(geometry));
+  assert.ok(geometry.height-geometry.frame.bottom<=48,JSON.stringify(geometry));
+  assert.ok(geometry.scroll<=geometry.height+1,'the workbench scrolls within panes instead of growing the page');
+  await evaluate("document.getElementById('assistant-launcher').hidden=false;document.getElementById('assistant-hide').hidden=false;settle()");
+  const footer=await evaluate("({frame:box('#blotter-workspace'),launcher:box('#assistant-launcher'),minimize:box('#assistant-hide'),height:innerHeight})");
+  assert.ok(footer.frame.bottom<=Math.min(footer.launcher.top,footer.minimize.top),JSON.stringify(footer));
+  assert.ok(footer.height-footer.frame.bottom<=84,JSON.stringify(footer));
+  await evaluate("document.body.classList.add('assistant-open');document.documentElement.style.setProperty('--assistant-width','560px');settle()");
+  const beside=await evaluate("({frame:box('#blotter-workspace'),width:innerWidth,height:innerHeight})");
+  assert.ok(Math.abs(beside.frame.right-(beside.width-560-32))<=1,JSON.stringify(beside));
+  assert.ok(beside.height-beside.frame.bottom<=48,JSON.stringify(beside));
+ });
+});
+
+test('maximized Positions and Details fill the available dock and retain their own scrolling',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await blotterFixture(async(evaluate,command)=>{
+  for(const [width,height] of [[2560,1200],[1440,900]]){
+   await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+   for(const id of ['grid','details']){
+    await evaluate(`dock.maximize('${id}');grid.relayout();settle()`);
+    const geometry=await evaluate(`(()=>{const panels=document.querySelector('#blotter-pane-${id}').closest('.dock-panels');return {dock:box('#blotter-dock'),panel:box(panels),scroll:document.documentElement.scrollHeight,height:innerHeight,
+     content:box(${id==='grid'?"'#desk-positions .tabulator-tableholder'":"panels"})};})()`);
+    assert.ok(geometry.panel.height>=geometry.dock.height-80,JSON.stringify({id,...geometry}));
+    assert.ok(geometry.panel.bottom<=geometry.dock.bottom,JSON.stringify({id,...geometry}));
+    assert.ok(geometry.content.height>=geometry.dock.height-(id==='grid'?160:80),JSON.stringify({id,...geometry}));
+    assert.ok(geometry.content.scroll>geometry.content.client,JSON.stringify({id,...geometry}));
+    assert.ok(geometry.scroll<=geometry.height+1,JSON.stringify({id,...geometry}));
+   }
+   await evaluate("dock.restore();settle()");
+   assert.equal(await evaluate("pane.shell.element('form').querySelector('input').value"),'keep this edit');
+  }
+ });
+});
 
 test('a narrow desktop risk pane keeps its radio choices and labels inside their borders',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage('<meta charset="utf-8"><link rel="stylesheet" href="/app.css"><main style="width:1100px;margin:0;padding:0"><div id="host" class="dock-panels" style="width:430px"><div class="details-form"></div></div></main>',async(evaluate,command)=>{

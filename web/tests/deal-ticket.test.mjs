@@ -69,7 +69,7 @@ test('every card has one row per band row, in order, and an unused slot is drawn
  assert.ok(all(cash).find(n=>n.dataset.band==='quantity').classList.contains('ticket-slot-empty'));
  assert.equal(all(leg).find(n=>n.dataset.band==='price').dataset.state,'info');
  assert.equal(byClass(leg,'ticket-band-title')[0].textContent,'Common to all sides');
- assert.deepEqual(all(byClass(leg,'ticket-own')[0]).filter(n=>n.dataset.field).map(n=>n.dataset.field),['point','meter'],'the side\'s own fields follow the band');
+ assert.deepEqual(all(byClass(leg,'ticket-own')[0]).filter(n=>n.dataset.field).map(n=>n.dataset.field),['point'],'supported side fields follow the band');
 });
 
 test('a coming-soon field is a disabled control with a Coming soon tag, its hover text and no value',()=>{
@@ -80,7 +80,7 @@ test('a coming-soon field is a disabled control with a Coming soon tag, its hove
  assert.equal(control.disabled,true);assert.equal(control.getAttribute('aria-disabled'),'true');assert.equal(control.value,'');
  assert.equal(control.title,'Will name the meter.');
  assert.equal(one(meter,'ticket-soon-tag').textContent,'Coming soon');
- const agreement=all(one(host,'ticket-strip')).find(n=>n.dataset.field==='agreement');
+ const agreement=all(one(host,'ticket-upcoming')).find(n=>n.dataset.field==='agreement');
  assert.equal(controls(agreement)[0].title,'Will name the master agreement.');
 });
 
@@ -91,7 +91,7 @@ test('a coming-soon side kind and tab are greyed, disabled and tagged, with thei
   assert.ok(node.classList.contains('ticket-soon'));assert.equal(node.disabled,true);assert.equal(node.getAttribute('aria-disabled'),'true');
   assert.equal(node.title,text);assert.equal(one(node,'ticket-soon-tag').textContent,'Coming soon');node.onclick?.();
  };
- soon(all(one(host,'ticket-add')).filter(n=>n.tagName==='BUTTON')[2],'Will price the gas at an index.');
+ soon(all(one(host,'ticket-upcoming')).find(n=>n.tagName==='BUTTON'&&n.textContent.startsWith('Floating')),'Will price the gas at an index.');
  soon(all(host).find(n=>n.dataset.tab==='balance'),'Will compare nominated and actual days.');
  assert.equal(all(host).find(n=>n.dataset.tab==='notes').disabled,false);
 });
@@ -134,7 +134,7 @@ test('clicking a card selects its side, and the selected side\'s tab is marked s
  assert.deepEqual(selected,['cash-1']);
  host=draw({selectedSide:'cash-1',tab:'cash-1'});
  const tabs=all(host).filter(n=>n.getAttribute('role')==='tab');
- assert.deepEqual(tabs.map(t=>[t.dataset.tab,t.getAttribute('aria-selected')]),[['instrument','false'],['leg-1','false'],['cash-1','true'],['notes','false'],['balance','false']]);
+ assert.deepEqual(tabs.map(t=>[t.dataset.tab,t.getAttribute('aria-selected')]),[['instrument','false'],['leg-1','false'],['cash-1','true'],['notes','false']]);
  assert.ok(byClass(host,'ticket-card')[1].classList.contains('selected'));
  assert.deepEqual(byClass(one(host,'ticket-chips'),'ticket-side-chip').map(c=>c.textContent),['Physical · leg-1','Cash · cash-1']);
 });
@@ -165,7 +165,7 @@ test('the strip shows the status and the model\'s notices, and the ghost card of
  const line=one(host,'ticket-status');assert.equal(line.dataset.kind,'refused');assert.equal(line.textContent,'Preview refused: no point.');
  assert.deepEqual(byClass(host,'ticket-notice').map(n=>n.textContent),['Point was cleared because Zone changed.']);
  const offers=all(one(host,'ticket-add')).filter(n=>n.tagName==='BUTTON');
- assert.deepEqual(offers.map(b=>[b.textContent,b.disabled]),[['Physical',false],['Cash',false],['FloatingComing soon',true]]);
+ assert.deepEqual(offers.map(b=>[b.textContent,b.disabled]),[['Physical',false],['Cash',false]]);
  offers[1].onclick();assert.deepEqual(added,['cash']);
  const full=draw({state:{...state,sides:[...state.sides,{kind:'cash',code:'cash-2',values:{}}]}});
  const payment=all(one(full,'ticket-add')).filter(n=>n.tagName==='BUTTON')[1];
@@ -202,10 +202,24 @@ test('a booked date-time shows through the page\'s instant formatter, never as i
  assert.equal(one(row,'ticket-value').textContent,'shown 2026-12-28T18:00:00Z');
 });
 
+
+test('unfinished ticket fields, side kinds and views stay inside one closed disclosure',()=>{
+ const host=draw(),upcoming=one(host,'ticket-upcoming');
+ assert.equal(upcoming.tagName,'DETAILS');assert.equal(upcoming.getAttribute('open'),null);
+ assert.equal(upcoming.children[0].textContent,'Coming soon');
+ assert.deepEqual(all(one(host,'ticket-strip')).filter(n=>n.dataset.state==='soon'),[]);
+ assert.deepEqual(byClass(host,'ticket-card').flatMap(c=>all(c).filter(n=>n.dataset.state==='soon')),[]);
+ assert.deepEqual(all(one(host,'ticket-add')).filter(n=>n.className.split(' ').includes('ticket-soon')),[]);
+ assert.deepEqual(all(one(host,'ticket-tabs')).filter(n=>n.dataset.tab==='balance'),[]);
+ assert.deepEqual(all(upcoming).filter(n=>n.dataset.field).map(n=>n.dataset.field),['agreement','meter']);
+ assert.equal(all(upcoming).filter(n=>n.tagName==='BUTTON').length,2);
+});
+
 test('the side-schedule presentation contains no instrument editor or operational entry controls',()=>{
  const host=draw({mode:'booked',presentation:'schedules',actions:{amend:{allowed:false,reason:'Retained'},closeOut:{allowed:false,reason:'Retained'},record:{allowed:false,reason:'Read only'}}});
  assert.equal(byClass(host,'ticket-schedule').length,1);
  assert.equal(byClass(host,'ticket-card').length,0);
  assert.equal(byClass(host,'ticket-strip').length,0);
  assert.equal(byClass(host,'ticket-record').length,0);
+
 });

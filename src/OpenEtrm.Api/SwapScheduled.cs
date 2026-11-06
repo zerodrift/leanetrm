@@ -180,6 +180,7 @@ public sealed partial class SwapStore
         var mapping=body.Discounting==true?await Discount(connection,data,frame,resolved.Instrument.Currency,ct):null;
         if(frame.ContextId is not {} contextId)throw Error("swap_context","Pricing requires the exact retained context.");
         var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,contextId,ct)).Context;
+        snapshot=snapshot.WithKnowledge(contextId,SchedulePreview.ParseAt(context.KnownAt));
         var connected=await CustomCurves.PrepareMarket(connection,database,data,frame,snapshot,context,[resolved.Instrument],resolved.Instrument.DependenciesAt(snapshot),CustomCurves.MarketPreparation.ValuationDependencies,ct,sourceHistories:sourceHistories,preparationScope:preparationScope);
         var evaluated=resolved.Instrument switch {
             ScheduledFinancialSwap swap=>FinancialSwapValuation.Evaluate(swap,connected.Valuation,connected.Bindings,connected.Authority,mapping,ct),

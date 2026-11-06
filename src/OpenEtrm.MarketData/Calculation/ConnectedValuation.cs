@@ -172,8 +172,8 @@ public sealed class ConnectedValuation
         }
         internal override SideValuationContext Context(ISideDiscounting? discounting,ImmutableArray<CurveRequest> dependencies,CancellationToken cancellation)
         {
-            SideValuationContext context=authority is null?new(Snapshot,discounting,dependencies,request=>Price(request,cancellation),NumericalPolicy,ScenarioId):
-                new(authority,discounting,dependencies,request=>Price(request,cancellation),request=>Lineage(request,cancellation),NumericalPolicy,ScenarioId);
+            SideValuationContext context=authority is null?new(Snapshot,discounting,dependencies,request=>Price(request,cancellation),NumericalPolicy,ScenarioId,valuation.Scenario.ParentId is null):
+                new(authority,discounting,dependencies,request=>Price(request,cancellation),request=>Lineage(request,cancellation),NumericalPolicy,ScenarioId,valuation.Scenario.ParentId is null);
             return valuation.ContractObservations is {} observations?context.WithContractObservations(observations,valuation.Scenario):context;
         }
     }

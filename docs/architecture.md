@@ -1,5 +1,56 @@
 # Architecture and domain contracts
 
+D353 makes inspection a required `SideValuation.InspectSchedule` contract.
+Evaluators expose native rows or compiled executions through one immutable,
+context-bound snapshot. One registered authorized source per native storage family
+supplies position membership; the common reader owns exact selection, paging and
+publication checks. The position panel supplies the common lazy renderer when a
+product has no integrated schedule editor. Product implementers retain pricing,
+source selection and lifecycle admission. No shared risk behavior changes.
+
+D352 adds shared read-only Side schedule inspection. Gas, crude and LNG adapters
+project native evaluated rows with exact delivery/payment coordinates, signed
+holding quantities and money, price state, DF/PV and independent lifecycle facts.
+Calculation detail follows retained operands and context-bound source evidence.
+The selected gas measure remains contractual net MTM; inspection introduces no
+new lifecycle or risk behavior. See [Side schedules](side-schedules.md#pricing-and-lifecycle-inspection-d352).
+
+D350 admits daily indexed consideration as an ordinary independent `FloatingSide`
+in future gas compositions. Exact daily index contracts/fixings, physical quantity
+allocations, explicit spread, selected projection and monthly UTC payment terms
+are retained through native admission and the common Instrument/Side PV path.
+This contractual MTM includes the physical asset and signed cash payment; the
+separate paid/unpaid cash lifecycle remains outside this booking profile.
+
+D351 reconciles ticket choices through shared presentation code. Managed choices
+and labelled entry suggestions provide eligible starting values; valid manual
+terms and explicit clears survive refreshes. Pricing and imports still require
+explicit terms and receive no calculation fallback.
+
+D349 adds an explicit future gas composition amendment profile. The ordinary
+ticket delegates to the same native booking builder with exact expected head,
+retained definition, reason and immutable command identity. Changed terms retain
+new revision-owned physical occurrences; they never inherit operational identity
+from matching codes or dates. Original booking facts and certified old heads stay
+unchanged. Daily quantity, service or facility relationships require a continuity contract
+and currently refuse amendments. Risk still reprices the retained Instrument and
+Side contracts under generic scenarios.
+
+D347 carries a physical gas Side's full term through composition booking and
+retained inspection. Each day resolves its exact native monthly assignment;
+published mixed-grid forecasts remain an independent explicit selection. A
+whole-term scalar payment stays on a whole-term schedule row without inferred
+monthly allocation. Generic PV and scenario risk remain unchanged.
+
+D346 keeps unfinished ticket features in a closed disclosure and displays supported
+trade terms compactly. Native Side memberships and calculation contracts remain
+unchanged. D347 subsequently removes the composition adapter's monthly restriction.
+
+D345 consolidates contract prices, computed curve construction/inspection and
+hourly prices in one Curves & prices workspace. Existing view adapters and
+financial contexts are preserved; the shared navigation remembers the last view
+and uses the ordinary unsaved-edit and request guards.
+
 D343 adds the [common physical delivery view](physical-delivery-view.md): explicit
 native intervals, exact membership/source references, quantity tracks and declared
 capabilities. Gas, crude and LNG reuse one grid over their native reads; commodity
@@ -48,6 +99,7 @@ This is a design contract: exact reference/policy versions, separate posting
 periods and reviewed adoption. Its first proposed consumer is a synthetic gas
 billing correction; no journal engine, accounting policy or compliance claim is
 implemented by this record.
+
 
 D333 makes the OTC examples explicit futures-plus-basis curves, using separate
 synthetic spread assessments with a small winter premium. Ordinary graph

@@ -128,9 +128,9 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
   }).ToArray();
   var books=await PreviewDatabase.Rows(c,"SELECT row_to_json(b)::text FROM trading.books b WHERE catalog_id=$1 ORDER BY name",[Catalog],ct);
   return new{gasSetupId=setup,gasSetupPublication=publication,physicalReferences=referencePaths.Select(ReferencePath).ToArray(),locations,tariffs=(await Tariffs(c,data,setup,ct)).Select(t=>new{code=t.Text("code"),name=t.OptionalText("logical_code")??t.Text("code"),pipeline=t.Text("pipeline_code"),product=t.Text("product_code"),quote=t.Text("quote_code"),rate=t.Text("rate"),validFrom=t.Text("valid_from"),validTo=t.Text("valid_to"),basis="contractual_delivery_quantity"}),books,legalEntities=await TradeParties.Catalog(c,Catalog,true,ct),counterparties=await TradeParties.Catalog(c,Catalog,false,ct),
-   scope="Future physical gas delivery with fixed contractual quantities, separate fixed consideration and optional usage fee. This profile admits up to 31 days within one forward month, fixed-offset gas days and no discounting. Actuals and settlement remain unavailable."};
+   scope="Future physical gas delivery with fixed contractual quantities, separate fixed consideration and optional usage fee. This profile admits up to 1200 operating days with exact monthly index coverage, fixed-offset gas days and no discounting. Actuals and settlement remain unavailable."};
  }
- internal async Task<(GasValuationAssignment Assignment,GasDayClock Clock,JsonElement Mapping)> Metadata(NpgsqlConnection c,PreviewData data,PhysicalGasTerms body,CancellationToken ct)
+ internal async Task<(ImmutableArray<GasValuationAssignment> Assignments,GasDayClock Clock,JsonElement Mapping)> Metadata(NpgsqlConnection c,PreviewData data,PhysicalGasTerms body,CancellationToken ct)
  {
   if(body.Convention!=Convention||body.KnowledgeMode!="current"||body.Discounting!=false||body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
    throw Invalid("Select current exact gas inputs and explicit no-discounting policy.");
@@ -139,23 +139,28 @@ public sealed class PhysicalGasStore(PreviewDatabase database)
   var row=One(matched);
   if(row.Id("reference_catalog_id")!=data.ReferenceRevision.CatalogId||row.Id("reference_revision_id")!=data.ReferenceRevision.RevisionId)throw Invalid("The assignment requires its exact reference revision.");
   var from=Day(body.DeliveryFrom);var to=Day(body.DeliveryTo);
-  if(from>=to||to.DayNumber-from.DayNumber>31)throw Invalid("Choose a gas delivery period of 1–31 operating days within one supported forward month.");
+  if(from>=to||from<new DateOnly(2000,1,1)||to>new DateOnly(2100,1,1)||to.DayNumber-from.DayNumber>GasQuantityTerms.MaximumOperatingDays)throw Invalid($"Choose a gas delivery period of 1–{GasQuantityTerms.MaximumOperatingDays} operating days within the supported horizon.");
   var curve=One(data.Definitions["curves"].Where(x=>x.Text("code")==row.Text("curve_code")));
   if(curve.Text("commodity_code")!=row.Text("product_code"))throw Invalid("The selected gas product must match its mapped valuation curve.");
   var quote=One(data.Quotes.Where(x=>x.Key.Code==curve.Text("quote_code")));
   var target=One(data.References["settlement_targets"].Where(x=>x.Text("code")==curve.Text("settlement_target_code")));
   if(quote.Kind!=QuoteKind.Outright||target.Text("kind")!="index")throw Invalid("Gas valuation requires an outright index forward.");
   var members=data.Definitions["curve_members"].Where(x=>x.Text("curve_code")==row.Text("curve_code")).Select(x=>x.Id("contract_id")).ToHashSet();
-  var contract=One(data.Contracts.Where(x=>members.Contains(x.Key.Id)&&x.Kind==ContractKind.Forward&&x.DeliveryFrom<=from&&x.DeliveryTo>=to&&x.DeliveryFrom.Day==1&&x.DeliveryFrom.AddMonths(1)==x.DeliveryTo));
   ReferenceKey R(string code)=>new(data.ReferenceRevision,code);
   var selection=PriceSettlementSelection.CurveTarget(R(target.Text("index_a_code")));
-  var fixing=One(PriceSettlementInputs.Fixings(data,selection,quote,[contract]));
-  var assignment=new GasValuationAssignment(R(row.Text("code")),new(R(row.Text("pipeline_code")),R(row.Text("zone_code")),R(row.Text("point_code"))),R(row.Text("product_code")),contract.DeliveryFrom,contract.DeliveryTo,selection,quote,
-   new(new(new(data.DefinitionRevision,row.Text("curve_code")),contract.Key),contract),fixing,new(ExactDecimal.Parse(row.Text("adjustment")),quote));
+  var assignments=ImmutableArray.CreateBuilder<GasValuationAssignment>();
+  for(var month=new DateOnly(from.Year,from.Month,1);month<to;month=month.AddMonths(1))
+  {
+   var end=month.AddMonths(1);
+   var contract=One(data.Contracts.Where(x=>members.Contains(x.Key.Id)&&x.Kind==ContractKind.Forward&&x.DeliveryFrom==month&&x.DeliveryTo==end));
+   var fixing=One(PriceSettlementInputs.Fixings(data,selection,quote,[contract]));
+   assignments.Add(new(R(row.Text("code")),new(R(row.Text("pipeline_code")),R(row.Text("zone_code")),R(row.Text("point_code"))),R(row.Text("product_code")),contract.DeliveryFrom,contract.DeliveryTo,selection,quote,
+    new(new(new(data.DefinitionRevision,row.Text("curve_code")),contract.Key),contract),fixing,new(ExactDecimal.Parse(row.Text("adjustment")),quote)));
+  }
   var clockCode=row.Text("clock_code");
   if(One(data.References["clock_rules"].Where(x=>x.Text("code")==clockCode)).Text("kind")!="fixed_offset")throw Invalid("This booking profile requires a fixed-offset delivery clock.");
   var clock=new GasDayClock(R(clockCode),PpaQuantitiesStore.Clock(data,clockCode).Rules,int.Parse(row.Text("day_start_minute"),CultureInfo.InvariantCulture));
-  return(assignment,clock,row);
+  return(assignments.ToImmutable(),clock,row);
  }
  internal static async Task RequirePortfolioScope(NpgsqlConnection c,Guid catalog,ImmutableArray<Guid> books,ImmutableArray<Guid> portfolios,CancellationToken ct)
  {

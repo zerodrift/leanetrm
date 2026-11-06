@@ -1,3 +1,4 @@
+import {withSideSchedules,genericPositionView} from './position-schedules.js';
 import {watchVersions} from './version-updates.js';
 import type {PresentationStep} from './assistant-walkthroughs.js';
 import {validateMonteCarlo} from './monte-carlo-risk.js';
@@ -188,7 +189,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   let view=newBlotterView(),savedViews:BlotterView[]=[],table:ReturnType<typeof renderDataGrid>|undefined,tableColumns:string[]=[];
   // The trade rows and summary strip of the previous read, kept on screen, stale, while the Blotter is read again or after that read failed.
   // A position is opened only from the read on screen, so these rows open nothing.
-  let kept:{strip:StripItem[]|undefined}|undefined,strip:StripItem[]|undefined;
+  let kept:{strip:StripItem[]|undefined;context:Catalog['context']|undefined}|undefined,strip:StripItem[]|undefined;
   // The delta ladder (D230) the Ladder lens draws in place of the trade rows, by the value it shows, with what an export of it states.
   let ladderTable:ReturnType<typeof renderDataGrid>|undefined,ladderValue:LadderValue='delta',ladderShown:{headers:string[];rows:string[][];numeric:number[]}|undefined;
   // Columns the current read shows that a saved view never keeps: each pivot group's count of positions it leaves out, and the desk's curve shapes.
@@ -292,6 +293,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     for(const button of values.querySelectorAll<HTMLButtonElement>('[data-ladder-value]')){button.setAttribute('aria-pressed',String(button.dataset.ladderValue===ladderValue));button.disabled=busy();}
   }
   function readContext(){const source=options.source();return {snapshotId:source.snapshotId,convention:source.convention,knowledgeMode:source.context?'retained' as const:'current' as const,...(source.context?{contextId:source.context.contextId}:{})};}
+  const displayedContext=()=>holdings?.context??kept?.context??catalog?.context;
   // The main window's tie to the Blotter popped out of it (blotter-popout.ts), which follows what the header selects: the close, the
   // knowledge and the account. Its convention is not a selection, and the pop-out reads its own; a selection the header cannot state now,
   // an unapplied context or no close, leaves the pop-out where it is.
@@ -354,17 +356,21 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // the open details' room again.
   let mainWidth=main.clientWidth;
   new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;placeDock();}else fitRoom();}).observe(main);
-  position=setupPositionPanel(panel,{zone:options.zone,busy,leave:()=>panel.leave(),canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,shape:shapeOf,context:()=>JSON.stringify(readContext()),onDenied:clear,
+  position=setupPositionPanel(panel,{zone:options.zone,busy,leave:()=>panel.leave(),canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,shape:shapeOf,context:()=>JSON.stringify([readContext(),displayedContext()?.contextId]),onDenied:clear,
     read:async(h,formats)=>{
       const stale=!holdings,context=readContext();
-      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:options.profile,recorded:()=>void act(load),surface:options.volSurface}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{actor:options.profile,readOnly:stale}):h.instrumentType==='ppa'?readPpaView(api,context,h,catalog!.context.knownAt,()=>void manage('ppa',h.tradeId)):h.instrumentType!=='future'?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):readTradeView(api,context,h,formats));
+      const displayed=displayedContext();if(!displayed?.contextId)throw Error('Read the Blotter before inspecting its Side schedules.');
+      const inspectionContext={...context,knowledgeMode:'retained',contextId:displayed.contextId};
+      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:options.profile,recorded:()=>void act(load),surface:options.volSurface}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:clear,actor:options.profile,readOnly:stale,amend:options.window.kind==='main'?()=>void perform({kind:'amend',key:rowKey(h)}):undefined}):h.instrumentType==='ppa'?readPpaView(api,context,h,displayed.knownAt,()=>void manage('ppa',h.tradeId)):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):h.instrumentType==='future'?readTradeView(api,context,h,formats):genericPositionView(h));
+
       // Details kept on screen while the Blotter is read again do not transition into a working settlement editor.
-      return {...read,view:zone=>{const detail=read.view(zone);return stale?{...detail,actions:undefined}:!options.assistant.available()?detail:{...detail,actions:[...(detail.actions??[]),{id:'position-ask-assistant',label:'Ask about this position',run:()=>{if(busy())return;pivotFocus=null;if(view.mode==='trades')table?.select(rowKey(h));options.reported();options.assistant.about({key:rowKey(h),reference:h.tradeReference,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]});}}]};}};
+      const scheduled=withSideSchedules(read,api,inspectionContext,h,clear);
+      return {...scheduled,view:zone=>{const detail=scheduled.view(zone);return stale?{...detail,actions:undefined}:!options.assistant.available()?detail:{...detail,actions:[...(detail.actions??[]),{id:'position-ask-assistant',label:'Ask about this position',run:()=>{if(busy())return;pivotFocus=null;if(view.mode==='trades')table?.select(rowKey(h));options.reported();options.assistant.about({key:rowKey(h),reference:h.tradeReference,bookIds:[...view.bookIds],portfolioIds:[...view.portfolioIds]});}}]};}};
     },
     amendment:{
       open:h=>void perform({kind:'amend',key:rowKey(h)}),
       // A future's form is open for its binding, a swap's for its instrument.
-      shown:h=>{const future=editor.shown(),swap=swapEditor.shown();return !!future&&future.tradeId===h.tradeId&&future.bindingId===h.bindingId||!!swap&&swap.tradeId===h.tradeId&&swap.contractId===h.contractId;},
+      shown:h=>{const future=editor.shown(),swap=swapEditor.shown();return options.tickets.active()==='gas'&&options.tickets.trade()===h.tradeId||!!future&&future.tradeId===h.tradeId&&future.bindingId===h.bindingId||!!swap&&swap.tradeId===h.tradeId&&swap.contractId===h.contractId;},
       close:async()=>{await leave();},
     },
     openCurve:(curve,contractId)=>asked(()=>options.openCurve(curve,contractId))});
@@ -959,7 +965,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function clearRead(keepGrid:boolean){
     resetFullReport();fullReportPanel.open=false;fullReportPanel.hidden=true;
     cachedRead=undefined;pendingRiskNotice=undefined;pendingShapes.clear();
-    kept=keepGrid?{strip:strip??kept?.strip}:undefined;strip=undefined;
+    kept=keepGrid?{strip:strip??kept?.strip,context:displayedContext()}:undefined;strip=undefined;
     // A read again keeps the position the details show, which the read arriving draws again (deskPanel.sync) or, when it no longer holds it,
     // closes; anything else the details hold closes now.
     const keepDetails=keepGrid&&panel.current()?.kind==='position';
@@ -1641,6 +1647,11 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       if(!h)throw refuse('that position is not among the rows on screen');
       if(!shown||rowKey(shown)!==key)throw refuse('a position is amended from its details, which do not show it');
       const why=amendRefusal(h.instrumentType,!!catalog?.canAmendTrades,position.amendState(h));if(why)throw Error(why);
+      if(h.instrumentType==='physical_gas'){
+        if(options.window.kind!=='main')throw Error('Open the Blotter in the main window to amend this gas trade.');
+        await guarded(async()=>{await options.tickets.open('gas',panel.element('form'),h.tradeId,{bindingId:h.bindingId,revision:Number(h.revision)});panel.form(true);panel.reveal();});
+        position.sync();return;
+      }
       await acting(act,()=>h.instrumentType!=='future'?swapEditor.open(h,Number(h.revision)):editor.open(h,Number(h.revision)));
     }},{busy});
   // The person's own actions: each takes away what an earlier refusal said, and one refused, before its handler or by it, says why as any

@@ -86,6 +86,8 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    "(()=>{const cards=[...document.querySelectorAll('.market-card')].filter(c=>c.dataset.state!=='rates');return cards.length>0&&cards.every(c=>c.dataset.state==='unread'||c.dataset.state==='failed'&&c.querySelector('.market-card-reason').textContent==='Curve shape unavailable · the curve read failed'&&!c.querySelector('.kpi-figure,.sparkline'))&&!document.querySelector('.curve-button .sparkline');})()");
   const readsBeforeRetry=await evaluate('window.__shapeReads.length');
   await click('#nav-market');
+  await check('the active workspace entry keeps the current read instead of reloading it',`window.__shapeReads.length===${readsBeforeRetry}`);
+  await click('#nav-schedules');await click('#nav-market');
   for(let attempt=0;attempt<20&&await evaluate("!!document.querySelector('.market-card[data-state=failed]')");attempt++){
     const code=await evaluate("(()=>{const card=document.querySelector('.market-card[data-state=failed]');card.scrollIntoView({block:'center'});return card.dataset.curve;})()");
     await wait(`[...document.querySelectorAll('.market-card')].find(card=>card.dataset.curve===${JSON.stringify(code)}).dataset.state!=='failed'`);

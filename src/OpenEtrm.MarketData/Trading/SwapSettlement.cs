@@ -128,7 +128,7 @@ public static class SwapSettlement
         if (market is null) throw new MarketDataException("settlement_context", "Supply the exact final-fixing market authority.");
         var context = new SideValuationContext(market, null, [],
             _ => throw new MarketDataException("settlement_not_final", "A projection cannot determine cash."),
-            _ => [], market.Pricing.NumericalPolicy, market.Pricing.ScenarioId);
+            _ => [], market.Pricing.NumericalPolicy, market.Pricing.ScenarioId,market.Graph.ParentId is null);
         return Calculate(instrument, membershipOrdinal, paymentOrdinal, bookedQuantity, occurrence, context, rounding);
     }
 

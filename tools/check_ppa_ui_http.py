@@ -113,6 +113,8 @@ def run_checks(url, query, manifest, **_):
     assert all(page['valueExcludingOverdue']==pages[0]['valueExcludingOverdue'] for page in pages)
     assert inspect(offset=25)['detail']['rows']==[]
     print('PASS PPA UI: exact DST schedule detail pages, units and price provenance',flush=True)
+    from check_side_schedule_inspection import check_ppa
+    check_ppa(client,frame,trade,binding,rows)
     old=cutoff();change=deepcopy(body);change.update(operationId=str(uuid4()),tradeId=trade,expectedRevision=1,boundaryAt='2031-11-02T06:00:00Z',coverageFrom='2031-11-02T06:00:00Z',quantity='60');client.call('ppa/amend',change)
     latest=client.call('ppa/editor',dict(snapshotId=frame,tradeId=trade,knownAt=cutoff()))
     prior=client.call('ppa/editor',dict(snapshotId=frame,tradeId=trade,knownAt=old))

@@ -1,5 +1,6 @@
 import {openPhysical} from './physical-workspace.mjs';
 import {openBookedSchedules} from './gas-ticket.mjs';
+import {inspectPositionSide} from './position-schedules.mjs';
 import {openPhysicalTrade,openGasDelivery} from './physical-operations-grid.mjs';
 const q=JSON.stringify;
 
@@ -82,16 +83,17 @@ export async function run(actions){
  await click('#nav-futures');
  const inspectionFrame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-31T08:')&&w.initialFrameIds.includes(f.id)).id;})()");
  await set('#snapshot',inspectionFrame);await wait(idle);await open();
- await evaluate(`window.facilityTicketPayload=null;window.facilityTradeFetch=window.fetch;window.fetch=async(...args)=>{const response=await facilityTradeFetch(...args);if(String(args[0]).endsWith('/trading/gas')&&response.ok)window.facilityTicketPayload=await response.clone().json();return response;};
+ await evaluate(`window.facilityTicketPayload=null;window.facilityTradeFetch=window.fetch;window.fetch=async(...args)=>{const response=await facilityTradeFetch(...args);if(String(args[0]).endsWith('/trading/gas')&&response.ok)window.facilityTicketPayload=await response.clone().json();if(String(args[0]).endsWith('/trading/side-schedules')&&response.ok)window.facilityScheduleRead=await response.clone().json();return response;};
   const row=[...document.querySelectorAll('#facility-allocation-table tbody tr')].find(r=>r.querySelector('input')?.value==='60');row.querySelector('[data-facility-trade]').click();`);
  await openBookedSchedules({wait,click});
- await wait("[...document.querySelectorAll('#position-details tbody tr')].some(r=>r.cells[0]?.textContent==='receipt'&&r.cells[1]?.textContent==='2021-01-01'&&r.cells[4]?.textContent==='1000/1')&&"+idle);
+ await inspectPositionSide(actions,0);
+ await check('an unavailable historical Side retains dated rows and explicit valuation refusal',"facilityScheduleRead.page.rows.some(r=>r.operatingDate==='2021-01-01')&&facilityScheduleRead.page.rows.every(r=>r.presentValue===null&&r.lifecycle.unavailableReason)&&[...document.querySelectorAll('#position-details .inspection-rows tbody tr')].some(r=>r.textContent.includes('2021-01-01'))");
  await check('a historical allocation opens read-only Side schedules and retains only its own allocation evidence',
   "!document.querySelector('#position-details .ticket-facility-track,#position-details .ticket-cell-input')&&facilityTicketPayload.facilityAllocations.length===1&&facilityTicketPayload.facilityAllocations[0].quantity==='60'&&Object.keys(facilityTicketPayload.facilityAllocations[0]).sort().join()==='day,finalQuantity,finalState,obligationId,quantity,sideCode,state,unit'&&facilityTicketPayload.facilityAllocations[0].finalQuantity===null&&facilityTicketPayload.facilityAllocations[0].finalState==='missing'");
  const inspection=await evaluate('({tradeId:facilityTicketPayload.head.trade_id,contextId:facilityTicketPayload.context.contextId})');
  await click('#nav-physical-operations');await openPhysicalTrade(actions,inspection.tradeId);await click('#physical-operations-tabs-delivery');await openGasDelivery(actions,'2021-01-01','receipt');await click('.gas-operations [data-stage="2"]');
  await check('Operations shows the historical planned share without accepting it as final or allowing writes',
-  `(()=>{const rows=[...document.querySelectorAll('#physical-operations-view .ticket-facility-track tbody tr')];return rows.length===1&&rows[0].textContent.includes('receipt')&&rows[0].textContent.includes('2021-01-01')&&rows[0].textContent.includes('60 MMBtu')&&rows[0].textContent.includes('Planned')&&rows[0].textContent.includes('Not accepted')&&[...document.querySelectorAll('.gas-operations [data-operation]')].every(b=>b.disabled)&&document.querySelector('#snapshot').value===${q(inspectionFrame)}&&facilityTicketPayload.context.contextId===${q(inspection.contextId)};})()`);
+  `(()=>{const rows=[...document.querySelectorAll('#physical-operations-view .ticket-facility-track tbody tr')];const contract=[...document.querySelectorAll('.gas-operations [data-ops=rows] .tabulator-row')].find(r=>r.dataset.rowKey.endsWith(':2021-01-01')&&r.querySelector('[tabulator-field=c1]').textContent==='receipt');return contract?.querySelector('[tabulator-field=c3]').textContent==='1000'&&rows.length===1&&rows[0].textContent.includes('receipt')&&rows[0].textContent.includes('2021-01-01')&&rows[0].textContent.includes('60 MMBtu')&&rows[0].textContent.includes('Planned')&&rows[0].textContent.includes('Not accepted')&&[...document.querySelectorAll('.gas-operations [data-operation]')].every(b=>b.disabled)&&document.querySelector('#snapshot').value===${q(inspectionFrame)}&&facilityTicketPayload.context.contextId===${q(inspection.contextId)};})()`);
  await evaluate('window.fetch=window.facilityTradeFetch');await open();await click('#current-view-context');
  await check('Working data reloads the facility independently of a market close choice',"!document.querySelector('#facility-source-fields').disabled&&!document.querySelector('#facility-editor').hidden");
  await persona('viewer');

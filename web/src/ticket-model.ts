@@ -1,4 +1,4 @@
-import type {TicketDescription,TicketDraft,TicketField} from './ticket-types.js';
+import type {TicketChoice,TicketDescription,TicketDraft,TicketField,TicketLookup} from './ticket-types.js';
 
 // The state of one deal ticket: the user's values, drawn from a backend description. Every function
 // returns a new state; the description alone says which fields exist, which are editable and what depends on what.
@@ -53,9 +53,23 @@ export function setValue(s:TicketState,side:string|null,field:string,value:strin
  const changed=fieldOf(s,side,field);
  if(changed.state!=='editable')throw new Error(`Field '${field}' is not editable.`);
  const values={...valuesOf(s,side),[field]:{value}};
+ if(valuesOf(s,side)[field]?.value===value)return withValues(s,side,values);
  const notices=[...s.notices];
  clearDependents(fieldsOf(s,side),values,changed,notices);
  return withValues(s,side,values,notices);
+}
+
+// Reconcile a refreshed list with its retained choice and backend starting value.
+// The backend decides which suggestions are suitable; the UI only checks membership.
+export function resolveChoice(s:TicketState,side:string|null,field:string,choices:TicketChoice[],previous?:FieldValue,starting?:TicketLookup|null):TicketState{
+ const spec=fieldOf(s,side,field),current=valuesOf(s,side)[field];
+ if(spec.choices===null)throw Error(`Field '${field}' has no choice list.`);
+ const listed=(v:FieldValue|undefined)=>!!v?.value&&choices.some(c=>c.value===v.value);
+ if(starting&&!choices.some(c=>c.value===starting.value))throw Error(`The starting value for '${field}' is not an eligible choice.`);
+ const suggestion=starting?{value:starting.value,looked:starting.source}:undefined;
+ const candidate=listed(current)?current:listed(previous)?previous:undefined;
+ const next=suggestion&&candidate?.looked?.kind==='suggestion'?suggestion:candidate??suggestion??{value:''};
+ return withValues(s,side,{...valuesOf(s,side),[field]:next});
 }
 
 // A draft the backend returned, such as a booked trade's, as a ticket whose every value is the person's.

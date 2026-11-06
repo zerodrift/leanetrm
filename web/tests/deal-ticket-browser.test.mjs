@@ -399,3 +399,50 @@ test('a local time still resolving or refused blocks booking, and a late answer 
   await evaluate('ticket.destroy()');
  });
 });
+
+
+test('unfinished features start collapsed and expanding them performs no ticket action',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage('<link rel="stylesheet" href="/app.css"><div id="host" style="width:1100px"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {renderTicket}=await import('/deal-ticket.js'),{newTicket}=await import('/ticket-model.js');
+   const field=(id,over={})=>({id,label:id,meaning:id,type:'text',unit:null,state:'editable',required:false,band:null,choices:null,dependsOn:[],lookup:null,soon:null,rule:null,...over});
+   const planned=id=>field(id,{state:'soon',soon:'Not implemented.'});
+   const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[...['book','entity','counterparty','setup','trade_date'].map(id=>field(id)),planned('force_majeure'),planned('credit_terms')],sideLimits:[],levels:['month'],modes:['new'],tradeColumns:[],tabs:[{id:'imbalance',label:'Imbalance',soon:'Not implemented.'}],
+    sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,initial:1,max:2,soon:null,fields:[field('quantity',{band:'quantity'}),planned('quality')],columns:[{id:'volume',label:'Volume',unit:null,measure:'quantity',input:[],soon:'Not implemented.'}]},
+     {kind:'floating',pill:'Floating',colour:'neutral',min:0,initial:0,max:0,soon:'Not implemented.',fields:[],columns:[]}]};
+   window.actions=[];const on=new Proxy({},{get:(_,name)=>(...args)=>actions.push([name,...args])});
+   renderTicket(document.querySelector('#host'),{state:newTicket(d),mode:'new',actions:null,schedule:null,quantityUnit:'MMBtu',instant:at=>at,zone:'UTC',previous:null,summaries:[],links:[],entry:null,status:{kind:'current',text:'Ready'},fieldErrors:{},choices:{},selectedSide:null,tab:'instrument',level:'month',closed:new Set(),on});
+  })()`);
+  assert.equal(await evaluate("document.querySelector('.ticket-upcoming').open"),false);
+  assert.equal(await evaluate("document.querySelector('[data-field=force_majeure]').getBoundingClientRect().height"),0);
+  assert.equal(await evaluate("document.querySelectorAll('.ticket-strip .ticket-soon,.ticket-deck .ticket-soon,.ticket-tabs .ticket-soon').length"),0);
+  assert.equal(await evaluate("new Set([...document.querySelectorAll('.ticket-trade-fields>.ticket-field')].map(n=>n.getBoundingClientRect().top)).size"),1,'trade terms use one row in a wide ticket');
+  await evaluate("document.querySelector('.ticket-upcoming>summary').click()");
+  assert.equal(await evaluate("document.querySelector('[data-field=force_majeure]').getBoundingClientRect().height>0"),true);
+  assert.equal(await evaluate("[...document.querySelectorAll('.ticket-upcoming input,.ticket-upcoming button')].every(n=>n.disabled)"),true);
+  assert.deepEqual(await evaluate('actions'),[],'expansion performs no read, edit or booking event');
+  assert.match(await evaluate("document.querySelector('.ticket-upcoming').textContent"),/Volume/);
+  await evaluate("document.querySelector('.ticket-upcoming>summary').click();document.querySelector('#host').style.width='320px'");
+  assert.equal(await evaluate("document.querySelector('.ticket-trade-fields').scrollWidth<=document.querySelector('.ticket-trade-fields').clientWidth+1"),true);
+ });
+});
+
+test('a native booked Side renderer replaces the old Side grid and keeps the ordinary quantity entry operation',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage('<div id="host"></div>',async evaluate=>{
+  await evaluate(`(async()=>{
+   const {renderTicket}=await import('/deal-ticket.js'),{newTicket}=await import('/ticket-model.js');
+   const d={product:'synthetic_flow',version:1,rowShape:'flow',tradeFields:[],sideLimits:[],levels:['month','day'],modes:['booked'],tabs:[],tradeColumns:[],
+    sides:[{kind:'physical',pill:'Physical',colour:'gas',min:1,initial:1,max:1,fields:[],columns:[{id:'quantity',label:'Quantity',unit:'quantity',measure:'quantity',input:['booked']}]}]};
+   window.rendered=[];window.disposed=0;window.entered=[];
+   const on=new Proxy({},{get:(_,name)=>name==='enter'?(...args)=>entered.push(args):()=>{}});
+   window.ticket=renderTicket(document.querySelector('#host'),{state:newTicket(d),mode:'booked',actions:{amend:{allowed:false,reason:''},closeOut:{allowed:false,reason:''},record:{allowed:true,reason:''}},
+    schedule:null,quantityUnit:'MMBtu',instant:at=>at,zone:'UTC',previous:null,summaries:[],links:[],entry:null,status:{kind:'current',text:'Current'},fieldErrors:{},choices:{},selectedSide:'physical-1',tab:'physical-1',level:'day',closed:new Set(),on,
+    sideSchedule:(host,side)=>{rendered.push(side.code);const table=document.createElement('table');table.className='native-side-grid';table.textContent='Delivery · Payment · DF · PV · Lifecycle';host.append(table);return()=>{disposed++;table.remove();};}});
+  })()`);
+  assert.equal(await evaluate("document.querySelectorAll('.ticket-grid table').length"),1);
+  assert.equal(await evaluate("document.querySelectorAll('.ticket-grid .tabulator').length"),0);
+  assert.equal(await evaluate("document.querySelectorAll('.ticket-level').length"),0);
+  assert.deepEqual(await evaluate('rendered'),['physical-1']);
+  await evaluate('ticket.destroy()');assert.equal(await evaluate('disposed'),1);
+ });
+});

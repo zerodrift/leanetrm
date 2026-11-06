@@ -2958,3 +2958,232 @@ checks construct canonical plans from the advertised mappings alone, validate
 both supported ask forms, preserve refusal cases and bound the unchanged
 capability shape. Native workspace/browser and runtime checks cover consumers;
 real-model GUI verification remains separate from deterministic qualification.
+
+## D345 — One curve workspace for prices and construction
+
+Curves & prices is the single Markets entry for contract prices, Curve builder
+and hourly/sub-hourly prices. The workspace switch opens the existing managed
+read/editor adapters under their existing leave, context, authority and retained
+request guards. Existing catalog, selection and read behavior is retained. Returning
+to the workspace opens its last view; clicking an already active entry with an
+unchanged context performs no read. A pending header context passes through the
+ordinary context/leave guard even on a same-view click. Switching views does not
+publish, change prices, choose another close or admit an incomplete definition.
+Saved page/assistant identities remain exact.
+Explicit sample-close selection within the curve workspace refreshes its active
+view through the existing selected-close loader. Other pages retain their sample
+price read behavior.
+No pricing, schema or financial model change is introduced by this consolidation.
+
+
+## D346 — Collapse unfinished ticket features
+
+Group description-declared planned fields, side types, schedule columns and views
+under one closed Coming soon disclosure. Supported trade terms, side cards and
+schedules retain their native values and edit/booking behavior. Opening the
+disclosure performs no read or business action; placeholders remain disabled
+and value-free. Planned columns do not occupy the live schedule or read values
+from its cells. Trade terms use the available width before wrapping.
+
+This presentation change does not alter instrument memberships or financial
+contracts. At this decision the gas domain Side supports multi-month assignment schedules, while
+the application booking adapter still requires a single monthly
+assignment and at most 31 days. Splitting the local example into monthly sides
+reflects that adapter boundary; a daily/monthly curve cutover does not itself
+define another economic Side. Consolidating booking onto the general Side
+contract and admitting indexed purchase payment state remain separate work.
+
+## D347 — Whole-term physical gas composition booking
+
+Use one physical Side for its selected delivery term, independent of the forecast
+curve's daily/monthly cutover. Resolve every intersecting calendar month to one
+exact native index-forward contract and fixing. A persisted assignment key may
+repeat across distinct exact periods; overlap, gaps, ambiguity and unused
+assignments refuse. Carry all assignments through ordinary market preparation,
+retained programs, inspection and risk, with the existing 1200 operating-day
+quantity bound. No risk-specific exposure allocation or shock behavior is added.
+
+Migration 0205 expands composition admission and proves each retained daily
+source against its native period while preserving unit, quantity, geometry,
+lifecycle and graph validation. Predecessor helper bodies, ownership, ACLs,
+configuration and the original geometry constraint are pinned. The private
+legacy physical booking ABI retains single-month admission; stored trades and
+programs are not rewritten. Fixed cash still uses its selected whole-term
+quantity and explicit payment instant.
+
+The generic schedule view adds a whole-term aggregate only when a scalar spans
+calendar months. That scalar is blank on monthly/day children; totals count it
+once. Independent scalar spans and differing payment dates are not prorated or
+collapsed to a guessed payment date. One-month schedules retain their old keys
+and levels. Qualification includes independent date/quantity/PV oracles,
+wrong-month contract/fixing/assignment refusals, missing/duplicate coverage,
+idempotent booking, daily reads, mixed-grid curve binding and retained worker
+scenario parity. Indexed-purchase payment state and counterparty agreement/credit
+administration remain separate work.
+
+## D348 — Use the available Blotter workspace
+
+Remove the ordinary page-width cap while the Blotter is shown. Use the desktop
+viewport above a compact footer, sharing its space with visible Assistant
+controls rather than retaining a second unused footer band. Existing dock splits,
+maximization, pane/grid scrolling and unsaved controls remain in place. This is
+presentation only; saved arrangements and business reads do not change. Browser
+checks cover wide and ordinary desktop sizes, docked Assistant clearance and
+maximized Positions/Details content and scrolling.
+
+## D349 — Amend future physical gas compositions through the ordinary ticket
+
+Use the common Blotter Amend workflow with the explicit
+`future_gas_composition_replace_v1` contract. Keep the selected trade's exact
+definition revision; require its latest binding/revision, current authority,
+working context and an amendment reason. Both original and replacement delivery
+must be future. Legacy single-point trades, daily quantity commands/series and
+facility origin/target references refuse until their continuity is supported.
+
+Reuse the pinned composition admission builder and existing retained schedule
+request protocol under their shared publication lock. A change appends an
+immutable instrument/revision with new owned physical occurrences, preserving
+the original booking facts. Identical typed terms retain the existing revision
+without a financial publication. Every command retains its own first outcome,
+including unchanged commands and retries after a successor revision. Publication
+requires the exact changed revision operation; no-op commands cannot publish an
+old instrument. Current reads resolve the temporal head before source authority,
+so an inaccessible latest revision cannot resurrect an older contract.
+
+The main-window ticket keeps its normal edit guard, preview and original request
+recovery. Other trade windows inspect gas read-only. History and risk consume the
+selected retained revision through existing contracts; no commodity-specific
+shock allocation is introduced. This is local implementation, not hosted release.
+
+Local qualification covers historical heads and original facts, unchanged
+publication counts, replay after a successor, concurrent head conflicts, facility
+and daily-quantity refusals, worker claim scope and interactive/worker risk parity.
+Browser checks exercise the actual Blotter amendment, edit guard, lost response
+recovery and reopened terms, including a retained mixed-curve physical example.
+
+## D350 — Independent indexed consideration in future gas compositions
+
+Admit the existing `FloatingSide` as `indexed_consideration` under the explicit
+`indexed_gas_composition_v1` profile. Each payment row corresponds exactly to a
+source physical gas day and its declared quantity allocation. Resolve its exact
+daily index contract and published-fixing definition; retain the independent
+forecast selection, explicit additional spread and next-month UTC payment day
+(1–28, no holiday adjustment). Ordinary fixed cash remains unchanged. The ticket
+exposes this as **Index payment** and uses the same published-curve eligibility
+resolver for physical and indexed forecast fields.
+
+Migration 0207 pins the predecessor writer, seal, publisher and component
+constraints, adds exact typed index/projection relationships, and proves the
+retained daily schedule graph, quantities, source bindings and payment geometry.
+Fixing publication must precede payment and payment cannot precede the native
+gas-day end. Existing common atomic booking/amendment and request-replay behavior
+remain in use. Instruments and Sides consume scenario prices through their
+ordinary PV contracts; risk receives no commodity-specific changes.
+
+This profile measures contractual MTM: signed physical market value plus signed
+payment value. Identical zero-adder forecasts offset before fixing. Future gross
+payment PV is available as its Side contribution. A lifecycle-aware unpaid-cash
+measure, settled-but-unpaid cash and paid realization require the separately
+specified cash lifecycle; this admission does not implement that lifecycle or admit
+started delivery. The managed lifecycle example remains separately qualified.
+
+Local checks use 59 varying daily forecasts and two monthly physical marks with
+independent PV and 61-factor delta oracles, raw schedule/payment/source refusals,
+retained ticket reads, spread/payment amendment and unchanged/retried commands,
+and interactive/claimed-worker parity. Synthetic operational loaders stay private.
+
+## D351 — Shared ticket choices and visible entry suggestions
+
+Reconcile refreshed choice lists in common ticket presentation code. Preserve a
+valid manually selected value; replace an untouched suggestion when its explicit
+source changes; select a backend-provided eligible starting value when empty.
+Retain still-valid child selections across parent changes. Required dependencies
+control readiness; optional refresh dependencies invalidate their consumers
+without pretending the optional parent is required. Ignore stale responses using
+request epochs, actor identity and cancellation.
+
+Managed gas entry helpers propose labelled, editable values: sole eligible
+required choices, independent native quantity 100, first unambiguous available
+future delivery period, quantity basis per operating day, opposite payment
+direction, explicit zero additional index spread, monthly payment day 10 and
+fixed payment after delivery. A blank fixed price can receive the selected
+market price rounded to the quote's decimal precision with ties to even. Optional
+physical quantity links are never selected automatically. Existing supplied
+terms are preserved; an unsuitable payment date receives a visible offer.
+
+Explicit clears survive later choices and editable lookup refreshes. Calculations,
+imports and native booking receive the resulting explicit terms, with no missing
+input fallback. Browser checks cover valid term extensions, singleton cascades,
+stale responses and cleared fields; exact arithmetic tests cover quote precision.
+
+
+## D352 — Shared Side pricing and lifecycle inspection
+
+Keep the selected gas measure as contractual net MTM. Expose pricing rows and
+lifecycle evidence through a common managed inspection projection, without
+changing Instrument/Side valuation, payment admission or generic scenario risk.
+Separate delivery progress, fixing/quantity state, payment due status, cash
+allocation state, fulfillment, economic class and measure coverage. Dates alone
+never create paid, accepted or final states; unsupported evidence is explicit.
+
+Gas, crude and LNG application adapters read the exact selected native Side
+under the certified position context. Gas integrates this into the existing Side
+tabs as their single read-only schedule grid, keeping the Instrument aggregate
+in its separate tab. Daily quantity recording uses Physical operations (D340).
+Exact native code-to-slot metadata selects the Side; its ticket snapshot and
+certified context bind both operational quantities and pricing. A metadata
+directory precedes bounded row pages. Calculation detail traverses retained operand addresses and projects
+the same execution's context/program-bound source receipts. Holding rows are
+signed and scaled; calculation cells declare their unit-Side basis and exact
+holding multiplier. Retained dates remain inspectable with null financial
+values and a refusal when the native profile cannot value the period.
+
+This is local read-only implementation. Native HTTP qualification covers each
+connected product, signed PV, source tenors/fixings, bounded pages, started-plan
+refusals and current authority. Managed checks cover rational scaling, complete
+averaging inputs, published fixings, actual provenance, outside-measure values,
+certificate holdings, cancellation, context mismatches and the separate paid gas
+cash example. Existing PPA/swap application readers and durable started gas
+lifecycle admission remain separate; no universal paid-cash ledger is implied.
+
+## D353 — Required Side inspection and registered native readers
+
+Make `SideValuation.InspectSchedule` required. Shared factories project native
+evaluated rows and compiled program values without pricing again. Immutable
+snapshots retain exact identity, context and temporal coordinates; typed native
+calculation records retain weights, applications, selected sources and cash
+balance ancestry. Ordered memberships preserve reuse of one Side with different
+signed coefficients.
+
+Replace the physical-product dispatch in the schedule endpoint with registered
+authorized native position sources. A source owns normal storage admission,
+valuation and final authority recheck. The shared reader owns exact membership,
+manifest/context/snapshot validation and bounded pages. PPA sources declare their
+monthly windows explicitly. Ordinary swap valuation retains the already selected
+certified knowledge context on its snapshot. The position panel supplies a shared
+lazy renderer; remove the separate PPA position grid and read-only swap grid
+hookup. The generic inspector captures the displayed Blotter's certified context
+before awaiting detail reads; it never opens a newer working context in its place.
+Position detail caches include that context and discard late reads from a replaced
+context. Unchanged read-only terms retain their nodes during refresh; pending
+operational widgets retain their inputs until released. Indexed gas overviews
+render retained index, spread and payment conventions instead of fixed cash terms.
+Editable booking reviews
+retain their own inputs and authorized writes.
+
+New implementers supply their native values and normal storage integration;
+they do not implement a separate schedule API or UI. Instrument/Side pricing and
+generic immutable-scenario risk remain unchanged. Unsupported native profiles
+show retained dates, null values and an explicit reason. Recorded swap binding
+cash remains plan-only in this inspector; its existing settlement/P&L operation
+remains authoritative. No universal ledger or new lifecycle admission is implied.
+
+Local qualification includes a new synthetic instrument with no product dispatch,
+repeated Side memberships, exact signed scaling, base-scenario fencing, native
+cash-balance provenance, and a new registered source through the common reader
+and browser. Owned native HTTP checks cover ordinary/monthly/scheduled swaps,
+cross-commodity ratios, PPA daylight-saving intervals, gas pricing/risk parity,
+due-plan refusal and selective denial of a successor's required instrument while
+an exact prior-knowledge context still reads its original head. The public test
+harness creates and removes disposable stock PostgreSQL clusters. No hosted
+deployment or production qualification follows from these local checks.

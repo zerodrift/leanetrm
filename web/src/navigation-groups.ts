@@ -1,7 +1,7 @@
 import {aiTabs} from './agent-settings.js';
 
 // The sidebar's groups in order, each with the pages it lists. A page is named by the id of its entry (`nav-<page>`),
-// a sidebar button, or for the hourly prices of Curves & prices the switch beside its contract prices; its group's
+// a sidebar button or a view inside its workspace; the group's
 // label is the eyebrow above the page title. `opened` are a group's pages that another page opens instead of the sidebar:
 // Product bookings, from the Blotter's new trade panel and its positions.
 export type NavigationGroup={id:'overview'|'trading'|'markets'|'operations'|'settings'|'admin';label:string;pages:readonly string[];opened?:readonly string[]};

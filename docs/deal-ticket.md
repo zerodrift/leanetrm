@@ -305,8 +305,8 @@ preview never books and never writes.
 | Amend | Amend… in the row menu or the ticket | The fields the amendment operation admits at the valuation date; others show a lock with the reason |
 | Close-out | Close out… in the row menu | The close-out draft's fields, pre-filled by the backend close-out draft |
 
-A mode is offered only where the product has the operation. Today physical gas
-has no amendment beyond its daily quantity records, and the Blotter workbench's
+A mode is offered only where the product has the operation. Physical gas supports
+the future composition replacement profile below. The Blotter workbench's
 close-out draft refuses heat-rate swaps and PPAs; the ticket shows those actions
 unavailable with the backend's reason rather than building new operations.
 Product-specific actions the backend offers (PPA terminate) appear as their own
@@ -398,21 +398,34 @@ page's separate daily quantity panel are removed (D281); so are the single-point
 operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
 `gas/directory` and `gas/editor`). Stored single-point trades stay readable.
 
+D347 permits one composition physical Side to span up to 1200 operating days,
+with exactly one compatible native monthly contract and fixing for every day.
+The native monthly assignments can share one persisted location mapping key;
+the exact period is also part of their identity. Daily/monthly forecast cutovers
+do not split economic Sides. A selected published curve must cover the complete
+delivery term. Preview, booking and retained reads use the same Side programs.
+Whole-term scalar cash appears only at the **Whole term** level and in totals,
+with its explicit payment date. No monthly/day cash allocation is inferred.
+One-month schedules keep their existing levels and keys. The future-delivery
+profile's lifecycle and explicit no-discounting policy are unchanged.
+
 - Coming soon (D279) is declared by the description: a field, a side kind, a side
   column or a tab may carry `soon` hover text. Validation refuses one without it,
   a required soon field, a soon field naming choices or a lookup, a soon side kind
   that opens or admits a side or has fields, columns or a side limit, a soon column
   that takes entries or names a unit, and a soon trade column. A soon column is not
-  a schedule view column. The ticket draws each greyed and hatched, disabled and
-  `aria-disabled`, with a *Coming soon* tag and the text as its hover; none holds a
-  value or is sent, and the booking refuses a soon side or a value for a soon field.
+  a schedule view column. D346 groups these items in one closed **Coming soon**
+  disclosure below the working schedule. Planned fields, side kinds and views
+  remain disabled and tagged with explanatory hover text. Planned columns appear
+  as descriptions there, without blank columns in the live schedule. Opening the
+  disclosure performs no read or business action. None holds a value or is sent,
+  and booking refuses a soon side or a value for a soon field.
   Physical gas declares the owner's set: on the physical side, swing (daily minimum
   and maximum, swing range as a percentage of the base quantity, swing notice
   deadline), nomination (cycle, nominating party), heat content in Btu per cubic
   foot and quality specification; in the strip, the master agreement's force
   majeure and credit terms, read-only, which no agreement table stores yet; the
-  existing floating side (D84, D93) as a soon Add side kind that gas booking does
-  not accept yet; a soon Volume column beside the physical quantity; and a soon
+  a soon Volume column beside the physical quantity; and a soon
   Imbalance tab (nominated against actual, the imbalance, its cash-out price and
   amount). New trade lists Transport, Park and loan and Storage as coming-soon
   instruments, which cannot be opened. They are presentation copy in New trade,
@@ -456,10 +469,10 @@ operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
   schedule headers, and none before a preview.
 - The description reads its side caps from the composition contract
   (`GasCompositionInstrument`): one to four physical sides, and up to four
-  cash and fee sides together.
+  fixed cash, fee and indexed payment sides together.
 - Current gas limits: no delivered/remaining split once delivery has started
-  (a started delivery is refused), one forward month, and fixed-offset gas-day
-  clocks.
+  (a started delivery is refused), up to 1200 operating days with exact monthly
+  source coverage, and fixed-offset gas-day clocks.
 - The preview and the booked read (`trade`) return `schedule`, `summaries`,
   `scheduleRefusal` and `quantityUnit` at the top level. The composition
   editor read (`gas/composition/editor`) nests them under `valuation`, beside
@@ -495,12 +508,25 @@ operations (`gas/preview`, `gas/instructions`, `gas/book`, `gas/status`,
 - `trade` opens a booked gas trade by trade, binding and revision as a draft
   (refusing `ticket_input` when that draft does not map back to exactly the
   stored terms), with `schedule`, `summaries`, `scheduleRefusal`,
-  `quantityUnit`, `links` and `quantityPolicy` at the top level. Amend and
-  close-out are unavailable with a reason; `actions.record` says whether the
+  `quantityUnit`, `links`, `definitionRevisionId` and `quantityPolicy` at the top level.
+  `actions.amend` reports the future composition replacement rule; close-out
+  remains unavailable with a reason. `actions.record` says whether the
   person may record day quantities here, by the record operation's own rule: a
   composed trade, on working data, to a role the trading authority lets amend
   trades, else not allowed with that rule's reason. A composed trade opens as
   the draft that booked it.
+- `amend-preview` and `amend` accept the exact selected trade/binding/revision,
+  retained definition revision, reason and explicit
+  `future_gas_composition_replace_v1` policy alongside the draft and working
+  context. Save adds its operation ID. Both original and replacement delivery
+  terms must be wholly future; legacy single-point trades and trades with daily
+  quantity or facility references refuse. Changed terms append an immutable
+  revision and new owned physical occurrences. Original booking facts remain
+  intact. Unchanged terms return `unchanged:true` without a business revision or
+  publication. The original request ID recovers its first outcome after later
+  amendments. The main-window Blotter opens this mode through Amend and follows
+  the saved revision; pending requests retain Check/Retry even when metadata
+  cannot load. Other trade windows inspect gas read-only.
 - There is one gas ticket. A single-point trade opens as the composition of one
   physical side it is: `physical-1` with its retained path, term, direction,
   quantity and basis; `cash-1`, paid by the side that receives the gas; and,
@@ -682,3 +708,29 @@ state. It does not expose shared pool totals, residuals, other counterparties or
 source/plan head identifiers. Changing another target's allocation alone does not
 change this response. This operational plan stays separate from direct daily
 quantity inputs and contractual billing/valuation.
+
+## Indexed consideration and refreshed entry fields
+
+D350 adds **Index payment**, an independent existing FloatingSide linked to one
+physical Side's quantity/stage. Its selected index has exact daily published
+fixing definitions. Its forecast curve is independently selected from eligible
+published whole-interval outputs; a stitched daily/monthly output is eligible
+when it covers the selected term and matches units. An explicit additional trade
+spread is separate from basis already embedded in the curve. Payment day 1–28
+means that UTC day in the following month, without a holiday adjustment.
+
+The future-delivery composition reports physical market value plus signed
+consideration, rather than gross unpaid cash alone. Equal forecasts with zero
+additional spread offset. Started delivery and the separate paid/unpaid cash
+lifecycle are not admitted by this profile.
+
+D351 shares dependency refresh and choice reconciliation across described tickets.
+A valid manual selection survives a parent refresh, a prior suggestion follows
+its new source, and the backend can supply a sole eligible required choice or
+labelled starting value. Optional quantity links stay empty. Entry suggestions
+include native quantity, first available future delivery dates, zero additional
+index spread, monthly payment day and a quote-precision market price for blank
+fixed consideration. Each is visible and editable. Existing valid terms and
+explicit clears survive refreshes; imports and pricing still require explicit
+terms. A selected curve is filtered by coverage and units; the current picker
+does not impose an additional location whitelist.

@@ -183,14 +183,16 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
   if(body.HandlingFee is null&&body.HandlingFeeDirection is not null)throw Invalid("A handling-fee direction requires a handling fee.");
   return(new(Guid.NewGuid(),physical,Cash(Required(body.FixedPrice)),body.HandlingFee is {} fee?Cash(fee):null,Sign(body.Direction,true),Sign(body.ConsiderationDirection),body.HandlingFee is null?null:Sign(body.HandlingFeeDirection)),assignment,quantity);
  }
- private async Task<object> Value(NpgsqlConnection c,PreviewData data,InputFrame frame,PhysicalCrudeWriteRequest body,PhysicalCrudeInstrument? draft,CrudeValuationAssignment assignment,ExactDecimal quantity,ImmutableArray<RetainedSideProgram>? retained,CancellationToken ct)
+ private async Task<object> Value(NpgsqlConnection c,PreviewData data,InputFrame frame,PhysicalCrudeWriteRequest body,PhysicalCrudeInstrument? draft,CrudeValuationAssignment assignment,ExactDecimal quantity,ImmutableArray<RetainedSideProgram>? retained,CancellationToken ct,Action<int,SideViewInput>? inspect=null,int? inspectSlot=null)
  {
   if(frame.ContextId is not {} contextId)throw Invalid("Crude valuation requires a certified calculation context.");
   if(frame.At>=Instant(body.DeliveryFrom))throw new MarketDataException("crude_lifecycle","This valuation profile applies only before delivery starts. Use Delivery and cash to inspect accepted receipts, invoices and payments.");
   var programs=retained??[..draft!.Sides.Select((m,n)=>{var d=ScheduleDefinitionCompiler.Generate(m.Side,ct);var p=BookedSideProgram.Compile(d);return new RetainedSideProgram(n,m.Side.Id,Guid.Empty,new(BookedSideProgram.Digest(p.Write()),d.Manifest,d.Family,d.EconomicIdentity,d.PricingBindingIdentity),p);})];
+  if(inspectSlot is not null&&inspect is null)throw Invalid("A selected schedule inspection requires an evaluation consumer.");
+  if(inspectSlot is {} selectedSlot)programs=[programs.Single(p=>p.Slot==selectedSlot)];
   var context=(await new KnowledgeStore(Catalog).Read(c,contextId,ct)).Context;
   var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),contextId,SchedulePreview.ParseAt(context.KnownAt));
-  var deps=new[]{assignment.Lookup}.Select(x=>PeriodPriceSelector.ProjectionAt(x,snapshot)).OfType<CurveRequest>().Distinct().ToImmutableArray();
+  var deps=(programs.Any(p=>p.Program.Document.Instructions.Any(i=>i.Output.Operation=="price_lookup"))?new[]{assignment.Lookup}:[]).Select(x=>PeriodPriceSelector.ProjectionAt(x,snapshot)).OfType<CurveRequest>().Distinct().ToImmutableArray();
   var market=data.Model.Build(snapshot,deps,ct);var sources=ScheduleMarketSources.ForPhysicalCrude(market,[assignment]);
   var discount=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted);
   var sides=new List<object>();ExactMoney? total=null;
@@ -198,6 +200,7 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
   {
    var coefficient=program.Slot switch{0=>Sign(body.Direction,true),1=>Sign(body.ConsiderationDirection),2 when body.HandlingFee is not null=>Sign(body.HandlingFeeDirection),_=>throw Invalid("Unexpected retained crude membership.")};
    var result=sources.Evaluate(program.Program,program.SideId,market,discount,ct);
+   inspect?.Invoke(program.Slot,new($"side_{program.Slot}",result,program.Program,quantity,new(coefficient.Power(1).Numerator,coefficient.Power(1).Denominator),[]));
    var amount=result.PresentValue.Scale(quantity*coefficient);total=total is null?amount:total.Add(amount);
    sides.Add(new{role=program.Slot switch{0=>"delivery",1=>"consideration",_=>"handling_fee"},direction=program.Slot switch{0=>body.Direction,1=>body.ConsiderationDirection,_=>body.HandlingFeeDirection},presentValue=amount.ToExactString(),quantity=quantity.ToString()});
   }
@@ -221,13 +224,13 @@ public sealed class PhysicalCrudeStore(PreviewDatabase database)
  {await using var q=ScheduleStore.Command(c,"SELECT security.crude_operation_status($1,$2)::text",Catalog,operation);return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);}
  public async Task<JsonElement> Save(NpgsqlConnection c,InputFrame frame,PhysicalCrudeWriteRequest body,CancellationToken ct)
  {await using var q=ScheduleStore.Command(c,"SELECT security.book_physical_crude($1,$2::jsonb,$3)::text",Catalog,JsonSerializer.Serialize(body,Json),frame.At);return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);}
- public async Task<object> Editor(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)
+ public async Task<object> Editor(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct,Action<int,SideViewInput>? inspect=null,int? inspectSlot=null)
  {
   var row=One(await PreviewDatabase.Rows(c,"SELECT json_build_object('request',t.request,'instrument_id',r.instrument_id,'revision',r.revision)::text FROM trading.crude_trade_revisions r JOIN trading.trades t ON(t.catalog_id,t.id)=(r.catalog_id,r.trade_id) WHERE(r.catalog_id,r.trade_id)=($1,$2)",[Catalog,trade],ct));
   var body=row.GetProperty("request").Deserialize<PhysicalCrudeWriteRequest>(Json)! with{SnapshotId=frame.Id};
   var assignment=await Metadata(c,data,body,ct);
   var programs=await new RetainedScheduleStore(database).LoadPrograms(c,row.Id("instrument_id"),frame.ContextId,frame.ContextId is null?null:frame.At,ct);
-  return new{tradeId=trade,revision=int.Parse(row.Text("revision"),CultureInfo.InvariantCulture),terms=body,valuation=await Value(c,data,frame,body,null,assignment,ExactDecimal.Parse(Required(body.Quantity)),programs,ct)};
+  return new{tradeId=trade,revision=int.Parse(row.Text("revision"),CultureInfo.InvariantCulture),terms=body,valuation=await Value(c,data,frame,body,null,assignment,ExactDecimal.Parse(Required(body.Quantity)),programs,ct,inspect,inspectSlot)};
  }
  internal static async Task RequireCloseScope(NpgsqlConnection connection,Guid catalog,ImmutableArray<Guid> books,ImmutableArray<Guid> portfolios,CancellationToken ct)
  {

@@ -79,6 +79,12 @@ internal static class PhysicalGasSideChecks
         var composedContext=Context(market,[assignment,assignmentB]);
         Equal(composition.PV(composedContext).PresentValue.Scale(composition.BaseQuantity),"64");
         Equal(new GasCompositionInstrument(Guid.NewGuid(),[receipts,deliveries],[linkedFee with{Stage=GasQuantityStage.Receipt}]).PV(composedContext).PresentValue.Scale(composition.BaseQuantity),"62");
+        var indexedCash=new FloatingSide(Guid.NewGuid(),lookup.Settlement,f.Quote,physical.UnitQuantity,
+            [new(from,to,lookup.Fixing!.FixingAt,clock.Boundary(to).AddDays(2),FloatingAveraging.CalendarDayArithmetic,
+                [new(lookup.Market,lookup.Contract)],[lookup.Fixing],null,null,null,null,OpenEtrm.Shared.Numerics.ExactRatio.One,FloatingSide.IndexedImplementation)]);
+        var indexedPurchase=new GasCompositionInstrument(Guid.NewGuid(),[receipts],
+            [new("index_payment",indexedCash,"indexed_consideration","receipt",GasQuantityStage.Delivery,ExactDecimal.Parse("-1"))]);
+        Equal(indexedPurchase.PV(context).PresentValue.Scale(indexedPurchase.BaseQuantity),"0");
         Equal(new GasCompositionInstrument(Guid.NewGuid(),[receipts,deliveries with{Link=new("receipt",GasFuelConvention.NetEqualsGrossDividedByOnePlusFuel,ExactDecimal.Parse("0.02"))}],[linkedFee]).PV(composedContext).PresentValue.Scale(composition.BaseQuantity),"3200/51");
         var thirdRatio=new GasCompositionInstrument(Guid.NewGuid(),[receipts with{Quantity=ExactDecimal.Parse("3")},deliveries with{Quantity=ExactDecimal.Parse("1"),Link=null}],[]);
         Equal(thirdRatio.PV(composedContext).PresentValue.Scale(thirdRatio.BaseQuantity),"6.5");
@@ -104,6 +110,13 @@ internal static class PhysicalGasSideChecks
             new(laterLookup.Market, laterLookup.Contract), laterLookup.Fixing, new(default, f.Quote));
         var twoDays = new GasQuantityTerms(clock, from, to.AddDays(1), GasQuantityBasis.PeriodTotalEqualOperatingDays,
             quantity.Receipt, GasFuelConvention.None, default);
+        // One persisted location mapping may cover several distinct native periods.
+        var sameMapping = new GasValuationAssignment(assignment.Key, laterAssignment.Location, laterAssignment.Product,
+            laterAssignment.From, laterAssignment.To, laterAssignment.Settlement, laterAssignment.Quote, laterAssignment.Projection,
+            laterAssignment.Fixing, laterAssignment.Adjustment);
+        var sharedMappingSide = Side(twoDays, [assignment, sameMapping]);
+        if(sharedMappingSide.GenerateSchedule().Rows.Count!=2||sharedMappingSide.Assignments.Length!=2)
+            throw new Exception("A whole-term Side must retain every native period of the same explicit mapping.");
         var termSide = Side(twoDays, [assignment, laterAssignment]);
         var twoDayMarket = f.Model.Build(snapshot, termSide.DependenciesAt(snapshot));
         Equal(termSide.PV(SideValuationContext.ForPhysicalGas(twoDayMarket, twoDayMarket, df, [assignment, laterAssignment])).PresentValue, "3.2");

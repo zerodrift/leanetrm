@@ -131,7 +131,7 @@ internal sealed class TradePositionFacts(PreviewManifest manifest)
     private async Task<ImmutableArray<(int Reference,TradePositionFact Position)>> PhysicalFacts(NpgsqlConnection connection,ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct)
     {
         var facts=ImmutableArray.CreateBuilder<(int Reference,TradePositionFact Position)>();
-        foreach(var gas in await GasPositions.ReadComplete(connection,manifest,bookIds,portfolioIds,ct))
+        foreach(var gas in await GasPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
             facts.Add((Integer(gas.Head,"trade_reference"),gas.Fact()));
         foreach(var lng in await LngPositions.Read(connection,manifest,bookIds,portfolioIds,ct))
             facts.Add((Integer(lng.Head,"trade_reference"),lng.Fact()));

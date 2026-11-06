@@ -34,7 +34,7 @@ def directory_checks(client, context, query, expected_trade, manifest):
     query('CREATE POLICY physical_ops_hide_gas_metadata ON trading.gas_instruments AS RESTRICTIVE FOR SELECT TO openetrm_runtime USING(false);')
     try:
         refused=client.call('physical/operations/directory',request,expected=422)
-        assert refused['code']=='risk_contract',refused
+        assert refused['code']=='position_facts',refused
     finally:
         query('DROP POLICY physical_ops_hide_gas_metadata ON trading.gas_instruments;')
     assert client.call('physical/operations/directory',request)['positions']==directory['positions']

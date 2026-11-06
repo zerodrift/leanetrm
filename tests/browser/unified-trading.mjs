@@ -46,13 +46,13 @@ export async function run(a){
  await evaluate(`[...document.querySelectorAll('#futures-retained button')].find(b=>b.textContent==='Reconcile physical gas request').click()`);await wait(`!!${reconcile}&&${idle}`);
  await check('reopening restores the same pending request with storage unavailable',`document.querySelector('#position-details-form').contains(document.querySelector('#gas-page'))&&document.querySelector('#gas-ticket > div').inert`);
  await evaluate(`${reconcile}.click()`);
- const booked=bookedTicket,opened=gasTicket(a,booked);
+ const booked=bookedTicket;
  await openBookedSchedules(a);
- await opened.until(`!!document.querySelector(${q(booked)})&&`+opened.current(booked));
+ await wait(`!!document.querySelector(${q(booked+' .inspection-rows tbody tr')})`);
  await check('confirmed booking opens common retained side schedules exactly once',`window.bookRequests.length===1&&window.tradeReads.at(-1).blotter.holdings.filter(h=>h.tradeId===window.bookReceipt.tradeId).length===1&&document.querySelector('#position-details-tabs-schedules').getAttribute('aria-selected')==='true'`, `({error:document.querySelector('#error').textContent,details:document.querySelector('#position-details').textContent.slice(0,300)})`);
  // Side schedules inspect the immutable contract; manual nominations belong in Operations.
- await set(`${booked} .ticket-level`,'day');await click(`${booked} .ticket-tab[data-tab="physical-1"]`);
- await check('booked Side schedules keep the original contract read only',`!document.querySelector(${q(booked+' .ticket-cell-input')})&&${opened.row('2021-01-05',booked)}.includes('1,000')`);
+ await click(`${booked} .ticket-tab[data-tab="physical-1"]`);
+ await check('booked Side schedules keep the original contract read only',`!document.querySelector(${q(booked+' .ticket-cell-input')})&&[...document.querySelectorAll(${q(booked+' .inspection-rows tbody tr')})].some(r=>r.textContent.includes('2021-01-05')&&r.textContent.includes('1,000'))`);
  const tradeId=await evaluate('window.bookReceipt.tradeId');
  await click('#nav-physical-operations');await selectDeliveryFrame(a,'2021-01-15T08:');await openPhysicalTrade(a,tradeId);await click('#physical-operations-tabs-delivery');
  const root='.gas-operations',field=name=>root+' [name="'+name+'"]';
@@ -70,6 +70,7 @@ export async function run(a){
  await record('nomination',[['externalReference','synthetic-unified-nomination'],['quantity','990'],['submittedAt','2021-01-06T00:00:00'],['channel','manual_import'],['reason','Synthetic agreed retro nomination'],['evidence','Synthetic external nomination record']]);
  const dayRow=`[...document.querySelectorAll('${root} [data-ops=rows] .tabulator-row')].find(r=>r.dataset.rowKey.endsWith(':2021-01-05')&&r.querySelector('[tabulator-field=c1]').textContent==='physical-1')`;
  await check('a recorded nomination keeps the 1,000 contract and selects the provisional 990 operational quantity',`(()=>{const r=${dayRow};return r.querySelector('[tabulator-field=c3]').textContent==='1000'&&r.querySelector('[tabulator-field=c4]').textContent==='990'&&r.querySelector('[tabulator-field=c8]').textContent==='990'&&r.querySelector('[tabulator-field=c9]').textContent==='Nominated'&&r.querySelector('[tabulator-field=c10]').textContent==='Provisional';})()`,`${dayRow}?.textContent`);
+
  await check('all integrated forms fit the desktop viewport',`document.documentElement.scrollWidth<=innerWidth`);
  await capture('unified-trading');
 }

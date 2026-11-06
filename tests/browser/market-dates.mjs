@@ -180,7 +180,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await click('#market-date-close');await click('#custom-curves-preview');
  await evaluate('window.denyCalendar=true');await click('.custom-curve-node[data-node-id=select] button');await set('#custom-curve-property-count','2');await click('#custom-curves-preview');await click('#market-date-open');
  await check('an authorization denial removes custom results and available-date state',"window.marketDateRequests.at(-1).status===403&&document.querySelector('#custom-curves-result').hidden&&document.querySelectorAll('.custom-curve-node').length===0&&document.querySelectorAll('#market-date-grid button').length===0&&!document.querySelector('#error').hidden");
- await click('#nav-market');await wait(settled);await click('#example');await evaluate('window.denyCalendar=true');await click('#market-date-open');
+ await click('#curve-price-contracts');await wait(settled);await click('#example');await evaluate('window.denyCalendar=true');await click('#market-date-open');
  await check('an authorization denial clears previously displayed market prices',"window.marketDateRequests.at(-1).status===403&&document.querySelector('#contracts').children.length===0&&document.querySelectorAll('#market-date-grid button').length===0&&!document.querySelector('#market-date-dialog').open&&!document.querySelector('#error').hidden");
  await click('#market-date-open');
  await check('availability can be retried explicitly after a denial without restoring old prices',"window.marketDateRequests.at(-1).status===200&&document.querySelector('#market-date-dialog').open&&document.querySelector('#contracts').children.length===0");

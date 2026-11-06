@@ -68,6 +68,14 @@ Operational loaders remain private; no production load or deployment is implied.
 
 ## Valuation boundary
 
+D350 additionally admits future-delivery indexed consideration through the
+ordinary gas composition ticket: one PhysicalGasSide and an independent
+FloatingSide with exact daily index inputs, explicit additional spread and
+monthly UTC payment terms. That application profile reports contractual MTM,
+including the physical asset and signed payment. It does not persist the
+started-delivery cash state described below; its equal zero-adder forecasts
+offset before fixing. See [the deal ticket](deal-ticket.md#indexed-consideration-and-refreshed-entry-fields).
+
 `IndexedPhysicalGasPurchase` is a normal `SidedInstrument` with an independent
 `PhysicalGasSide` and `FloatingSide`. It implements the common unit `PV` contract
 for the explicitly selected `UnpaidCashPresentValue` measure. Its cash Side owns

@@ -113,7 +113,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await click('#position-details-tabs-terms');await evaluate("document.querySelector('#position-details-tabs-terms').focus()");
   await press('ArrowRight','ArrowRight',39);
   await check('Side schedules is a separate tab and never substitutes a curve',
-    "document.activeElement.id==='position-details-tabs-schedules'&&!document.querySelector('#position-details-view .chart')&&document.querySelector('#position-details-view').textContent.includes('No side schedule view')");
+    "document.activeElement.id==='position-details-tabs-schedules'&&!document.querySelector('#position-details-view .chart')&&document.querySelector('#position-details-view .side-schedule-inspection summary')?.textContent==='Pricing & lifecycle details'&&!document.querySelector('#position-details-view .side-schedule-inspection').open");
   await press('ArrowRight','ArrowRight',39);
   await check('Risk says its results come from the risk run on the desk, without claiming one, and points to the Risk report',`document.activeElement.id==='position-details-tabs-risk'&&document.querySelector('#position-details-view').textContent==="This position's risk comes from the risk run on the desk, and there is none yet. Run one from the Risk report."`);
   await press('ArrowRight','ArrowRight',39);
@@ -142,7 +142,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await evaluate("document.querySelector('#trade-lots').value='11'");
   await click('#position-details-tabs-schedules');
   await check('another tab shows its own view, and keeps the form and what it holds out of sight',
-    `document.querySelector('#position-details-form').hidden&&!document.querySelector('#position-details-view').hidden&&document.querySelector('#position-details-view').textContent.includes('No side schedule view is available for this instrument.')&&document.querySelector('#position-details-form')?.contains(document.querySelector('#trade-editing'))&&document.querySelector('#trade-lots').value==='11'&&document.querySelector('#side-panel-amend').textContent==='Close editor'`);
+    `document.querySelector('#position-details-form').hidden&&!document.querySelector('#position-details-view').hidden&&!!document.querySelector('#position-details-view .side-schedule-inspection')&&document.querySelector('#position-details-form')?.contains(document.querySelector('#trade-editing'))&&document.querySelector('#trade-lots').value==='11'&&document.querySelector('#side-panel-amend').textContent==='Close editor'`);
   await click('#position-details-tabs-terms');
   await check('and Terms shows the form again as it was left',`${formShown}&&document.querySelector('#trade-lots').value==='11'`);
   await click('#side-panel-amend');

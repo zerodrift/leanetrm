@@ -1,5 +1,17 @@
 # Markets desk
 
+D345 groups the existing views under one **Curves & prices** Markets entry.
+Its workspace switch offers **Contract prices**, **Curve builder** and
+**Hourly / sub-hourly prices**. The builder retains its saved-curve library,
+Outputs, Graph, Configuration, Versions, Lineage and History views, visual/formula
+authoring and native save/publish controls. Views load
+on demand and keep their existing context and unsaved-edit guards. Returning
+from another page restores the last curve view; clicking the active workspace
+entry does not reload it. Native agent/page identities remain distinct beneath
+the shared navigation. Owned browser checks cover the three view switches, exact
+selected close, active-entry no-op, remembered view, computed preview/graph and
+both keep/discard outcomes of the real unsaved-edit guard.
+
 Status: implemented in the local mainline preview, with the follow-ups listed
 under [Remaining work](#remaining-work). The decisions it introduces are D231 to
 D235 in [decisions.md](decisions.md). Its capability is recorded in

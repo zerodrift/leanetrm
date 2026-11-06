@@ -125,6 +125,13 @@ The default arrangement, top to bottom:
 | Details | The selected position | Collapsed until a row is opened |
 | Charts | The desk charts (PV by market, position by delivery month) | Open, bottom |
 
+- On desktop, the workbench fills the width beside navigation and a docked
+  Assistant, without the ordinary page-width cap. Its panes use the height above
+  a compact footer. Visible Assistant launch/minimize controls share that footer
+  space; with them hidden, the panes extend farther down. Maximizing Positions
+  or Details fills that available dock area and retains scrolling within the
+  grid or pane. Phone pages retain their normal page scrolling (D348).
+
 - The summary strip replaces the large tiles. It shows the same backend
   figures with the same rules (separate currencies, swap PV and futures P&L
   never added, pending/unavailable flagged with reason). The tiles' per-book
@@ -405,3 +412,14 @@ D272 (grid and details pane), D273 (saved layout), D274 (pop-out), D275
 - **Hedge…** is not in the menu (owner, 2026-10-30). Close-out covers the full
   offset; hedging with a different instrument or quantity belongs with the
   assistant work that suggests hedges.
+
+
+## Side pricing details
+
+The existing gas Side tabs use one [shared pricing/lifecycle grid](side-schedules.md#pricing-and-lifecycle-inspection-d352).
+It replaces the old summary Side grid, with no additional disclosure or selector.
+Crude and LNG use the same inspector in their schedule views. Select
+**Calculation** for averaging,
+source contract/fixing, amount and discount inputs. Schedule values include the
+signed booked scale; calculation cells declare their unit-Side basis. Lifecycle
+facts remain independent of the selected contractual MTM measure.

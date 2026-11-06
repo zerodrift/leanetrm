@@ -43,6 +43,27 @@ test('equal schedules materialize after an authorized context change and retain 
  assert.deepEqual(result,{text:'Payment schedule',draws:2,retained:true});
 }));
 
+for(const protectedWidget of [false,true])test(protectedWidget?'a pending operational widget survives a context replacement until its command releases it':'an unchanged read-only section keeps its node while a newer context is read',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"><div id="head"></div><div id="tabs"></div><div id="body"><div id="view"></div></div></div>',async evaluate=>{
+ const result=await evaluate(`(async()=>{
+  const {setupPositionPanel}=await import('/position-panel.js'),{positionRows}=await import('/desk-model.js'),{setCurveNames}=await import('/market-view.js');
+  const fixture=${JSON.stringify(fixture)};setCurveNames(fixture.curveNames);const holding=fixture.holdings[0],row=positionRows([holding])[0],requests=[];
+  const formats=Object.fromEntries(['money','quantity','price','mark','markMinusPrice'].map(k=>[k,v=>v]));let context='first',blocked=${protectedWidget};
+  const input={holding,row,formats,color:'#123456',risk:{state:'none'}},native=at=>({updatesBlocked:()=>blocked,view:()=>({terms:[{title:'Retained terms',rows:[['Trade','Synthetic contract']]}],history:[],actions:[{id:'manage',label:'Manage',run(){}}],...(${protectedWidget}?{termsContent:host=>{const entry=document.createElement('input');entry.id='operational';entry.value=at;host.append(entry);return()=>entry.remove();}}:{})})});
+  const panel=setupPositionPanel({element:part=>document.querySelector('#'+part),form(){},reveal(){},focusForm(){}},{zone:()=> 'UTC',busy:()=>false,canAmend:()=>false,curveListed:()=>false,context:()=>context,read:()=>new Promise(resolve=>requests.push({at:context,resolve:()=>resolve(native(context))})),amendment:{shown:()=>false,open(){},close:async()=>{}},onDenied(){throw Error('Unexpected denial');}});
+  const tick=()=>new Promise(resolve=>setTimeout(resolve,0));panel.show(input,'terms');requests[0].resolve();await tick();
+  const section=document.querySelector('#view .side-panel-section'),entry=document.querySelector('#operational');if(entry)entry.value='Keep this entered note';
+  context='second';panel.update(input);await tick();
+  const during={same:section===document.querySelector('#view .side-panel-section'),retained:!entry||entry===document.querySelector('#operational')&&entry.value==='Keep this entered note',reads:requests.length,refreshing:document.querySelector('#view').textContent.includes('Refreshing position details')};
+  if(${protectedWidget}){blocked=false;panel.update(input);await tick();}
+  requests[1]?.resolve();await tick();
+  return {during,reads:requests.map(r=>r.at),same:section===document.querySelector('#view .side-panel-section'),refreshing:document.querySelector('#view').textContent.includes('Refreshing position details'),widget:document.querySelector('#operational')?.value??null};
+ })()`);
+ assert.deepEqual(result.during,{same:true,retained:true,reads:protectedWidget?1:2,refreshing:!protectedWidget});
+ assert.deepEqual(result.reads,['first','second']);
+ assert.equal(result.same,true);assert.equal(result.refreshing,false);
+ assert.equal(result.widget,protectedWidget?'second':null);
+}));
+
 test('operational schedule edits keep their widget until the shared leave guard allows a tab change',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"><div id="head"></div><div id="tabs"></div><div id="body"><div id="view"></div></div></div>',async evaluate=>{
  const result=await evaluate(`(async()=>{
   const {setupPositionPanel}=await import('/position-panel.js'),{positionRows}=await import('/desk-model.js'),{setCurveNames}=await import('/market-view.js');
@@ -56,4 +77,5 @@ test('operational schedule edits keep their widget until the shared leave guard 
   return {asks,held,kept,destroyed,selected:document.querySelector('#tabs-terms').getAttribute('aria-selected')};
  })()`);
  assert.deepEqual(result,{asks:2,held:true,kept:true,destroyed:1,selected:'true'});
+
 }));

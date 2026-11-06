@@ -298,13 +298,8 @@ export async function readSwapView(api:Api,context:Record<string,unknown>,h:Pick
  const valuation=detail.valuation,scheduled=detail.state.terms.scheduled;
  if(valuation){await deal.prepare(valuation);for(const side of valuation.sides)await deal.prepare(side,side.kind);}
  const actions=[{id:'side-panel-settlement',label:'Settlement and P&L',run:o.settle}];
- const schedules=(zone:string)=>!valuation?undefined:scheduled?(host:HTMLElement)=>{
-  const review=document.createElement('section');review.className='side-panel-section scheduled-review';host.append(review);
-  renderScheduledReview(review,valuation,detail.quantityInputs,{indices:detail.catalog.indices.filter(i=>i.definitionRevisionId===detail.state.terms.definitionRevisionId),clocks:(marketReferenceChoices(detail.catalog.referenceChoices,detail.state.terms.definitionRevisionId)??detail.catalog.scheduledOptions)?.clocks??[],text:deal.text,zone,busy:o.busy,act:o.act,
-   intervals:scheduled.first.power||scheduled.second.power?retainedIntervals(api,{...context,convention},detail):undefined});
-  return()=>review.remove();
- }:(host:HTMLElement)=>renderValuation(host,detail,valuation,deal,zone,o.busy);
- return {amend:swapAmendState(detail),view:zone=>({...swapDetailView(detail,zone,formats,schedules(zone)),actions,
+
+ return {amend:swapAmendState(detail),view:zone=>({...swapDetailView(detail,zone,formats),actions,
   scheduleKey:JSON.stringify([valuation,detail.quantityInputs,detail.state.terms,detail.catalog.indices,display,zone,scheduled?.first.power||scheduled?.second.power?detail.catalog.context:null])})};
 }
 type Position=Pick<Holding,'tradeId'|'contractId'|'revision'>;

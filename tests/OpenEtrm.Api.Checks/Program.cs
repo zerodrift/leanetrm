@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--generic-schedules"]){await BookedScheduleReaderChecks.Run();return;}
 if(args is ["--delivery-setup-defaults"]){DeliverySetupDefaultsChecks.Run();return;}
 if(args is ["--market-calendar-demand"]){await MarketCalendarDemandChecks.Run();return;}
 if(args is ["--historical-risk"]){HistoricalRiskContractChecks.Run();return;}
@@ -118,6 +119,7 @@ if (args is ["--schedules"])
     WholeTermSwapAssemblyChecks.Run();
     RetainedScheduleLimitChecks.Run();
     TradingReadSelectionChecks.Run();
+    await BookedScheduleReaderChecks.Run();
     GasMarketSelectionChecks.Run();
     CrudeMarketSelectionChecks.Run();
     CrudePositionChecks.Run();

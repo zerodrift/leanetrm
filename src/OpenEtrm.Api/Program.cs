@@ -157,8 +157,11 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("lng_",StringComparison.Ordinal) => (422,p.MessageText,"The LNG operation requires compatible exact physical, pricing, quantity and Incoterms terms. Preview the complete current terms again."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="crude_conflict" => (409,p.MessageText,"This crude operation already belongs to different terms or ownership."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("crude_",StringComparison.Ordinal) => (422,p.MessageText,"The crude operation requires complete compatible terms and retained schedules."),
+    MarketDataException m when m.Code=="gas_revision_conflict" => (409,m.Code,m.Message),
+    PostgresException p when p.SqlState=="P0001" && GasAmendments.Message(p.MessageText) is {} message => (p.MessageText=="gas_revision_conflict"?409:422,p.MessageText,message),
     PostgresException p when p.MessageText is "gas_conflict" or "gas_setup_conflict" or "gas_quantity_conflict" or "gas_billing_conflict" => (409,p.MessageText,"This operation already belongs to different terms or ownership."),
     PostgresException p when p.SqlState is "23505" or "23514" or "23503" or "22P02" or "22003" or "22007" or "22008" && apiPath.StartsWithSegments("/api/gas/billing") => (422,"gas_billing_input","Supply compatible exact source, cash terms and a new correction occurrence."),
+
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("gas_",StringComparison.Ordinal) => (422,p.MessageText,"The gas operation requires complete compatible terms and retained schedules."),
     MarketDataException m when m.Code is "gas_billing_conflict" or "gas_billing_stale_preview" or "gas_operations_conflict" or "gas_operations_stale_preview" => (409,m.Code,m.Message),
     MarketDataException m => (422,m.Code,m.Message),
@@ -1544,26 +1547,29 @@ api.MapPost("/gas/composition/editor",(HttpContext c,PhysicalGasEditorRequest bo
 // A gas booking's outcome by its operation id, for the person who sent it; the composition and ticket bookings share it.
 Task<IResult> GasBookingStatus(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await gasStore.Status(connection,body.OperationId,ct)),c.RequestAborted));
 api.MapPost("/gas/composition/status",GasBookingStatus);
-api.MapPost("/gas/composition/book",(HttpContext c,GasCompositionRequest body)=>Locked(c,session=>BookGasComposition(c,session,body)));
+api.MapPost("/gas/composition/book",(HttpContext c,GasCompositionRequest body)=>Locked(c,session=>{
+ if(body.TradeId is not null||body.ExpectedRevision is not null||body.BindingId is not null||body.Reason is not null||body.AmendmentPolicy is not null)throw new MarketDataException("gas_composition_input","Use the explicit gas amendment operation to amend a trade.");
+ return BookGasComposition(c,session,body);
+}));
 // Booking takes working data only: no selected historical context, current knowledge and no captured context.
 void RequireGasBooking(PreviewSession session,string? knowledgeMode,Guid? contextId=null)
 {
- if(session.MarketContext is not null||knowledgeMode!="current"||contextId is not null)throw new MarketDataException("historical_read_only","Return to working data to book.");
+ if(session.MarketContext is not null||knowledgeMode!="current"||contextId is not null)throw new MarketDataException("historical_read_only","Return to working data to book or amend.");
 }
 // Books one composition under the session's gate: staging, locking and publication are idempotent by operation id (D238).
 async Task<IResult> BookGasComposition(HttpContext c,PreviewSession session,GasCompositionRequest body)
 {
  RequireGasBooking(session,body.KnowledgeMode);
- var profile=Profile(session);var frame=Frame(session,body.SnapshotId);var retained=new RetainedScheduleStore(database);
- var terms=await database.WithIdentity(profile,"BookTrade",async(connection,ct)=>{
+ var profile=Profile(session);var frame=Frame(session,body.SnapshotId);var retained=new RetainedScheduleStore(database);var permission=body.TradeId is null?"BookTrade":"AmendTrade";
+ var terms=await database.WithIdentity(profile,permission,async(connection,ct)=>{
   var status=await gasStore.Status(connection,body.OperationId,ct);
   return status.TryGetProperty("tradeId",out _)?null:await gasComposition.Prepare(connection,frame,body,ct);
  },c.RequestAborted);
- if(terms is not null)await retained.Stage(profile,body.OperationId,body,"BookTrade",null,null,terms.Generate(c.RequestAborted),c.RequestAborted);
- return await database.WithIdentity(profile,"BookTrade",async(connection,ct)=>{
+ if(terms is not null)await retained.Stage(profile,body.OperationId,body,permission,body.TradeId,body.ExpectedRevision,terms.Generate(c.RequestAborted),c.RequestAborted);
+ return await database.WithIdentity(profile,permission,async(connection,ct)=>{
   if(terms is not null)await retained.Lock(connection,body.OperationId,ct);
   var result=await gasComposition.Save(connection,frame,body,ct);
-  if(terms is not null)await retained.Publish(connection,body.OperationId,ct);
+  if(terms is not null&&!(result.TryGetProperty("unchanged",out var unchanged)&&unchanged.GetBoolean()))await retained.Publish(connection,body.OperationId,ct);
   return Results.Ok(result);
  },c.RequestAborted);
 }
@@ -1586,6 +1592,14 @@ api.MapPost("/tickets/preview",(HttpContext c,TicketPreviewRequest body)=>Future
 api.MapPost("/tickets/trade",(HttpContext c,TicketTradeRequest body)=>FuturesRead(c,TicketContext(body.Context),
  (connection,data,frame,ct)=>gasTicket.Trade(connection,data,frame,body,TradingReadSelection.IsWorking(Session(c),body.Context),ct),expectedConvention:PhysicalGasStore.Convention,gasTrade:body.TradeId));
 api.MapPost("/tickets/status",GasBookingStatus);
+api.MapPost("/tickets/amend-preview",(HttpContext c,TicketAmendRequest body)=>FuturesRead(c,TicketContext(body.Context),
+ (connection,data,frame,ct)=>gasComposition.Preview(connection,data,frame,GasAmendments.Terms(body,Guid.Empty),ct),
+ expectedConvention:PhysicalGasStore.Convention,gasTrade:body.TradeId,amendmentPreview:true));
+api.MapPost("/tickets/amend",(HttpContext c,TicketAmendRequest body)=>Locked(c,async session=>{
+ var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode,context.ContextId);RequireConvention(context,PhysicalGasStore.Convention);
+ if(body.OperationId is not {} operation||operation==Guid.Empty)throw new MarketDataException("gas_amendment_input","Supply the amendment request identity.");
+ return await BookGasComposition(c,session,GasAmendments.Terms(body,operation));
+}));
 // Booking maps the draft against the definition revision its booking read resolves for the selected frame.
 api.MapPost("/tickets/book",(HttpContext c,TicketBookRequest body)=>Locked(c,session=>{
  var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode,context.ContextId);RequireConvention(context,PhysicalGasStore.Convention);
@@ -1643,6 +1657,8 @@ api.MapPost("/trading/directory",(HttpContext c,FuturesReadRequest body)=>Tradin
  (connection,view,ct)=>tradeReads.Directory(connection,view,ct),expectedConvention:TradingBlotter.Convention));
 api.MapPost("/trading/gas",(HttpContext c,TradePositionReadRequest body)=>TradingRead(c,body.Context,
     (connection,view,ct)=>tradeReads.GasTrade(connection,view,body,ct),expectedConvention:TradingBlotter.Convention));
+api.MapPost("/trading/side-schedules",(HttpContext c,SideScheduleReadRequest body)=>TradingRead(c,body.Position?.Context??throw new MarketDataException("side_schedule_inspection","Select the exact position context."),
+    (connection,view,ct)=>tradeReads.SideSchedule(connection,view,body,ct),expectedConvention:TradingBlotter.Convention));
 api.MapPost("/trading/crude",(HttpContext c,TradePositionReadRequest body)=>TradingRead(c,body.Context,
     (connection,view,ct)=>tradeReads.CrudeTrade(connection,view,body,ct),expectedConvention:TradingBlotter.Convention));
 api.MapPost("/trading/lng",(HttpContext c,TradePositionReadRequest body)=>TradingRead(c,body.Context,

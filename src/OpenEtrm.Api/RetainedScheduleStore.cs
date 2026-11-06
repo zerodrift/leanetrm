@@ -277,6 +277,8 @@ internal sealed partial class RetainedScheduleStore
         }
         return result.ToImmutable();
     }
+    internal Task<ImmutableArray<JsonElement>> Directory(NpgsqlConnection connection,Guid instrument,Guid? context,DateTimeOffset? asOf,CancellationToken ct)=>
+        ReadHeaders(connection,instrument,context,asOf,ct,contentIdentity:true);
     private async Task<ImmutableArray<JsonElement>> ReadHeaders(NpgsqlConnection connection,Guid instrument,
         Guid? context,DateTimeOffset? asOf,CancellationToken cancellation,bool recoverMissing=false,bool contentIdentity=false)
     {

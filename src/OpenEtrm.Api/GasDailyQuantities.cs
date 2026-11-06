@@ -33,8 +33,8 @@ public sealed class GasDailyQuantities(PreviewDatabase database)
   var obligations=await PreviewDatabase.Rows(c,"""
    SELECT row_to_json(x)::text FROM(SELECT o.*,m.code,m.ratio_n::text,m.ratio_d::text,m.pipeline_code,m.zone_code,m.point_code
    FROM trading.gas_delivery_obligations o JOIN trading.gas_component_terms m USING(catalog_id,instrument_id,slot)
-   WHERE(o.catalog_id,o.trade_id)=($1,$2) ORDER BY slot)x
-   """,[database.Manifest.CatalogId,trade],ct);
+   WHERE(o.catalog_id,o.trade_id,o.instrument_id)=($1,$2,$3) ORDER BY slot)x
+   """,[database.Manifest.CatalogId,trade,header.Id("instrument_id")],ct);
   Mark();
   var facility=policy==GasDailyQuantitySelection.FacilityBillingPolicy;
   var heads=await QuantityRows(c,trade,"heads",facility,ct);

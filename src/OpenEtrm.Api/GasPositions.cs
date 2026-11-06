@@ -48,23 +48,24 @@ internal static class GasPositions
  internal static async Task<ImmutableArray<GasPosition>> ReadComplete(NpgsqlConnection connection,PreviewManifest manifest,
   ImmutableArray<Guid> books,ImmutableArray<Guid> portfolios,CancellationToken ct,ImmutableHashSet<Guid>? trades=null)
  {
-  var args=new object[]{manifest.CatalogId,books.ToArray(),portfolios.ToArray()};
-  var scope=await PreviewDatabase.Rows(connection,trades is null?
-   "SELECT value::text FROM jsonb_array_elements(security.gas_position_scope($1,$2::uuid[],$3::uuid[]))":
-   "SELECT value::text FROM jsonb_array_elements(security.gas_position_scope($1,$2::uuid[],$3::uuid[],$4::uuid[]))",
-   trades is null?args:[..args,trades.ToArray()],ct);
-  var positions=await Read(connection,manifest,books,portfolios,ct,trades:trades);
-  if(scope.Length!=positions.Length||!scope.Select(p=>(p.Id("trade_id"),p.Id("binding_id"),p.Id("book_id"))).ToHashSet()
-   .SetEquals(positions.Select(p=>(p.Trade,p.Binding,p.Book.Id("id")))))
-   throw new MarketDataException("risk_contract","Every held gas position must have its exact visible retained valuation inputs.");
-  return positions;
+  try{return await Read(connection,manifest,books,portfolios,ct,trades:trades);}
+  catch(MarketDataException error)when(error.Code=="position_facts")
+  {throw new MarketDataException("risk_contract","Every held gas position must have its exact visible retained valuation inputs.");}
  }
  internal static async Task<ImmutableArray<GasPosition>> Read(NpgsqlConnection connection,PreviewManifest manifest,
   ImmutableArray<Guid> bookIds,ImmutableArray<Guid> portfolioIds,CancellationToken ct,TradePositionSelection? position=null,Guid? trade=null,ImmutableHashSet<Guid>? trades=null)
  {
   var books=await BookScope.Read(connection,manifest.CatalogId,ct);
-  var selected=BookScope.Select(books,bookIds,portfolioIds)
-   .ToImmutableDictionary(b=>b.Id("id"));
+  BookScope.RequireSelection(bookIds,portfolioIds);
+  // Resolve the temporal head before source-authority filtering. An inaccessible
+  // latest revision must never resurrect an earlier authorized contract.
+  var selectedTrades=trades??((position?.TradeId??trade) is {} id?ImmutableHashSet.Create(id):null);
+  var args=new object[]{manifest.CatalogId,bookIds.ToArray(),portfolioIds.ToArray()};
+  var scope=await PreviewDatabase.Rows(connection,selectedTrades is null?
+   "SELECT value::text FROM jsonb_array_elements(security.gas_position_scope($1,$2::uuid[],$3::uuid[]))":
+   "SELECT value::text FROM jsonb_array_elements(security.gas_position_scope($1,$2::uuid[],$3::uuid[],$4::uuid[]))",
+   selectedTrades is null?args:[..args,selectedTrades.ToArray()],ct);
+  var selected=BookScope.Select(books,bookIds,portfolioIds).ToImmutableDictionary(b=>b.Id("id"));
   if(selected.IsEmpty)return [];
   var heads=await PreviewDatabase.Rows(connection,"""
    WITH heads AS(SELECT DISTINCT ON(trade_id) * FROM trading.gas_trade_revisions WHERE catalog_id=$1 ORDER BY trade_id,revision DESC)
@@ -81,6 +82,9 @@ internal static class GasPositions
     JOIN trading.counterparties p ON(p.catalog_id,p.id,p.revision)=(r.catalog_id,r.counterparty_id,r.counterparty_revision)
     WHERE r.book_id=ANY($2::uuid[]) AND($3::uuid IS NULL OR r.trade_id=$3) AND($4::uuid[] IS NULL OR r.trade_id=ANY($4::uuid[])) ORDER BY tr.reference_number,r.instrument_id)x
    """,[manifest.CatalogId,selected.Keys.ToArray(),(position?.TradeId??trade) is {} tradeId?(object)tradeId:DBNull.Value,(object?)trades?.ToArray()??DBNull.Value],ct);
+  if(scope.Length!=heads.Length||!scope.Select(p=>(p.Id("trade_id"),p.Id("binding_id"),p.Id("book_id"))).ToHashSet()
+   .SetEquals(heads.Select(p=>(p.Id("trade_id"),p.Id("instrument_id"),p.Id("book_id")))))
+   throw new MarketDataException("position_facts","Every held gas position requires its exact authorized temporal head and sources.");
   if(position is not null)position.Require(heads);
   if(heads.IsEmpty)return [];
   var physical=await PreviewDatabase.Rows(connection,"""

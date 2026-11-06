@@ -1,7 +1,7 @@
 import {renderTicket,type TicketEntry,type TicketEvents,type TicketView} from './deal-ticket.js';
 import {quantityRecord,quantityRecordChoices,quantityRecordFields,recordedBy,type GasQuantityReceipt,type GasQuantityView} from './gas-daily-quantities.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
-import {acceptOffer,acceptPreview,addSide,applyLookup,draftOf,dropLookup,newTicket,nextPreview,removeSide,setValue,ticketOf,type TicketState} from './ticket-model.js';
+import {acceptOffer,acceptPreview,addSide,applyLookup,draftOf,dropLookup,newTicket,nextPreview,removeSide,resolveChoice,setValue,ticketOf,type FieldValue,type TicketState,type TicketSide} from './ticket-model.js';
 import {previewed,reasonOf,type SchedulePanel} from './ticket-preview.js';
 import type {FacilityAllocationTrack,ScheduleView,TicketChoice,TicketDescription,TicketDraft,TicketField,TicketLookup,TicketPreview,TicketReceipt,TicketTrade,TradeActions} from './ticket-types.js';
 
@@ -10,9 +10,10 @@ import type {FacilityAllocationTrack,ScheduleView,TicketChoice,TicketDescription
 // Every value, choice, lookup and schedule is the backend's; the controller only keeps what the person sees in step with what they did.
 type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
 type Opened={tradeId:string;bindingId:string;revision:number};
-type NewEntry={booked:(receipt:{tradeId:string})=>void};
+type NewEntry={booked:(receipt:{tradeId:string})=>void;amending?:Opened};
 // instant is the page's formatter for the instants the ticket shows.
-export type TicketOptions={api:Api;context:()=>Record<string,unknown>;product:string;instant:(at:string)=>string;zone:()=>string;actor:()=>string;readOnly?:boolean;presentation?:'schedules'}&({opened:Opened}|({opened?:undefined}&NewEntry));
+export type TicketOptions={api:Api;context:()=>Record<string,unknown>;product:string;instant:(at:string)=>string;zone:()=>string;actor:()=>string;readOnly?:boolean;presentation?:'schedules';onAmend?:()=>void;sideSchedule?:(host:HTMLElement,side:TicketSide,slot:number,view:TicketView,context:Record<string,unknown>)=>()=>void}&({opened:Opened}|({opened?:undefined}&NewEntry));
+
 export type TicketHandle={unsaved():boolean;pending():boolean;destroy():void};
 
 /** Edits settle this long before the draft is previewed and its lookups read. */
@@ -32,7 +33,7 @@ function requests(product:string,actor:()=>string){
 // is open, per product and trade, so a redrawn ticket offers to check or retry it.
 type Entry={side:string;day:string;values:Record<string,string>;pending:PendingCommand;text:string};
 const entries=new Map<string,Entry>();
-const retainedBooking=(product:string,actor:()=>string)=>{const saved=restoreTradeRequest(requests(product,actor).read());return saved?.path==='tickets/book'?saved:undefined;};
+const retainedBooking=(product:string,actor:()=>string)=>{const saved=restoreTradeRequest(requests(product,actor).read());return saved&&['tickets/book','tickets/amend'].includes(saved.path)?saved:undefined;};
 /** Whether a booking of this product by this person awaits its outcome, whether or not its ticket is open. */
 export const ticketBookingRetained=(product:string,actor:()=>string)=>retainedBooking(product,actor)!==undefined;
 
@@ -52,19 +53,32 @@ function refocus(root:HTMLElement,at:Focus|undefined){
 }
 
 export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
- const entry:NewEntry|undefined=o.opened?undefined:o,mode=entry?'new':'booked';
  const owner=o.actor();
+ const entry:NewEntry|undefined=o.opened?undefined:o,saved=entry?retainedBooking(o.product,()=>owner):undefined;
+ const prior=saved?.path==='tickets/amend'?saved.body:undefined;
+ const retained=prior&&typeof prior.tradeId==='string'&&typeof prior.bindingId==='string'&&typeof prior.expectedRevision==='number'
+  ?{tradeId:prior.tradeId,bindingId:prior.bindingId,revision:prior.expectedRevision}:undefined;
+ const amendment=retained??entry?.amending,mode=entry?amendment?'amend':'new':'booked';
+ let reason=typeof prior?.reason==='string'?prior.reason:'';
+ let definitionRevisionId=typeof prior?.definitionRevisionId==='string'?prior.definitionRevisionId:undefined;
  const view=document.createElement('div'),booking=document.createElement('section');
  booking.className='ticket-booking';booking.setAttribute('role','status');booking.hidden=true;
  const loading=document.createElement('p');loading.className='side-panel-status';loading.textContent='Loading the ticket…';view.append(loading);
- host.replaceChildren(view,booking);
+ const reasonLabel=document.createElement('label'),reasonField=document.createElement('input');
+ reasonLabel.className='trade-editor-actions';reasonLabel.append('Amendment reason',reasonField);reasonField.dataset.role='amendment-reason';reasonField.maxLength=500;reasonField.required=true;reasonField.value=reason;
+ reasonField.oninput=()=>{reason=reasonField.value;change(s=>s,[]);};
+ host.replaceChildren(...mode==='amend'?[reasonLabel]:[],view,booking);
  const transport=entry&&requests(o.product,()=>owner);
  const pending=new PendingCommand(definite);
+ if(saved)pending.command={...saved,uncertain:true};
+ reasonField.disabled=!!saved;
  let alive=true,d:TicketDescription|undefined,state:TicketState|undefined,actions:TradeActions|null=null,drawn:ReturnType<typeof renderTicket>|undefined;
  const current=()=>alive&&o.actor()===owner;
  let drawnKey='',drawnSchedules:[ScheduleView|null,ScheduleView|null]=[null,null];
  let panel:SchedulePanel={schedule:null,quantityUnit:null,previous:null,summaries:[],links:[],errors:{},status:{kind:'current',text:entry?'Not previewed yet. The ticket previews the trade after each change.':'Reading the booked trade…'}};
  const choices:Record<string,TicketChoice[]>={},choiceErrors:Record<string,string>={},lookupErrors:Record<string,string>={},asked=new Map<string,number>();
+ const retainedChoices=new Map<string,FieldValue>(),choiceEdits=new Map<string,number>();
+ const clearedChoices=new Set<string>();
  // Local date-times whose resolution is out or was refused, by field, with the latest entry's number: none may be booked as an earlier instant.
  const unresolved=new Set<string>(),entered=new Map<string,number>();
  const lifetime=new AbortController(),choiceReads=new Map<string,AbortController>();
@@ -76,7 +90,8 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   fieldReads=result.then(()=>{},()=>{});return result;
  }
  function cancelPreview(){previewRead?.abort();lookupRead?.abort();lookupRead=undefined;looked=undefined;}
- let selectedSide:string|null=null,tab='instrument',level='',closed=new Set<string>();
+ let sideSlots:Record<string,number>|undefined,scheduleContext:Record<string,unknown>|undefined;
+ let selectedSide:string|null=null,tab=mode==='booked'&&o.sideSchedule?'':'instrument',level='',closed=new Set<string>();
  // The selection the booked schedule shows, as the trade read reports it, and the day entry open, if any.
  const entryKey=o.opened&&!o.readOnly?JSON.stringify([o.product,owner,o.opened.tradeId]):undefined;
  let facilityAllocations:FacilityAllocationTrack[]=[];
@@ -85,13 +100,27 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  let opened='',bookable:string|undefined,looked:string|undefined;
  let settling:ReturnType<typeof setTimeout>|undefined,queued=false,sending=false,booked:string|undefined,said='';
  const draft=()=>draftOf(state!),sent=()=>JSON.stringify(draft());
+ const previewIdentity=(value:TicketDraft=draft())=>JSON.stringify(mode==='amend'?[value,reason]:value);
+ const amendmentTerms=()=>{
+  if(!amendment)return {};
+  if(!definitionRevisionId)throw Error('The amendment requires its exact retained gas definition revision.');
+  return {tradeId:amendment.tradeId,bindingId:amendment.bindingId,expectedRevision:amendment.revision,definitionRevisionId,reason,policy:'future_gas_composition_replace_v1'};
+ };
  const blocked=()=>!current()||o.readOnly||!entry||!state||!!pending.command||sending||booked!==undefined;
 
  function draw(){
   queued=false;
   if(!current()||!d||!state)return;
+  const levels=panel.schedule?.levels??d.levels;
+  if(!levels.includes(level)){level=levels[0];closed=new Set();}
   const shown:TicketView={state,mode,presentation:o.presentation,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,instant:o.instant,zone:o.zone(),previous:panel.previous,summaries:panel.summaries,links:panel.links,facilityAllocations,entry:entryView(),status:panel.status,
+
    fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on};
+  if(mode==='booked'&&o.sideSchedule)shown.sideSchedule=(target,side)=>{
+   const slot=sideSlots?.[side.code];if(slot===undefined)throw Error('The selected Side has no exact native membership.');
+   if(!scheduleContext)throw Error('The Side schedule requires its certified ticket context.');
+   return o.sideSchedule!(target,side,slot,shown,scheduleContext);
+  };
   // An answer that changes nothing on screen draws nothing again, so the person keeps their place in the ticket and its schedule.
   // The schedules are compared by the preview they came from; everything else by its content.
   // Booked choices label retained fields; only the read-only links grid also consumes those labels.
@@ -107,6 +136,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   }
   if(labelsOnly)drawn?.updateBookedChoiceLabels(choices);
   view.inert=!!entry&&blocked();
+  reasonField.disabled=blocked();
   drawBooking();
  }
  // Answers that arrive together are drawn once.
@@ -116,15 +146,15 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   const note=document.createElement('p');note.className='side-panel-status side-panel-error';note.setAttribute('role','alert');note.textContent=reasonOf(error);view.replaceChildren(note);
  }
  function drawBooking(){
-  const command=pending.command,text=command?`${said?said+' ':''}The booking request is kept with its original terms until its outcome is known.`:said;
+  const command=pending.command,noun=command?.path==='tickets/amend'?'amendment':'booking',text=command?`${said?said+' ':''}The ${noun} request is kept with its original terms until its outcome is known.`:said;
   booking.hidden=!text;booking.replaceChildren();if(!text)return;
   const line=document.createElement('p');line.textContent=text;booking.append(line);
   if(!command)return;
-  for(const [label,run] of [['Check booking status',check],['Retry the original booking',send]] as const){
+  for(const [label,run] of [[`Check ${noun} status`,check],[`Retry the original ${noun}`,send]] as const){
    const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent=label;button.disabled=sending;button.onclick=()=>void run();booking.append(button);
   }
  }
- function say(text:string){said=text;draw();}
+ function say(text:string){said=text;draw();drawBooking();}
 
  // The fields that list choices: in a booked ticket only those holding a value, whose labels it shows.
  function fieldsOf(side:string|null){return side===null?d!.tradeFields:d!.sides.find(k=>k.kind===state!.sides.find(s=>s.code===side)!.kind)!.fields;}
@@ -135,21 +165,35 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  const listed=()=>everyField((f,side)=>f.choices!==null&&(entry?f.state==='editable':!!valuesOf(side)[f.id]?.value));
  // The fields that depend on a field of the same side, however indirectly: their lists change with it.
  function dependents(side:string|null,field:string):[string|null,TicketField][]{
-  const fields=fieldsOf(side),found:TicketField[]=[];
-  for(const parents=[field];parents.length;){
-   const parent=parents.shift()!;
-   for(const child of fields.filter(f=>f.dependsOn.includes(parent)&&!found.includes(f))){found.push(child);parents.push(child.id);}
+  const found=new Map<string,[string|null,TicketField]>(),all=everyField(()=>true);
+  for(const parents:[string|null,string][]=[[side,field]];parents.length;){
+   const [scope,parent]=parents.shift()!;
+   for(const [at,child] of all.filter(([at,f])=>[...f.dependsOn,...f.refreshOn??[]].includes(parent)&&(!fieldsOf(at).some(f=>f.id===parent)||at===scope))){
+    const key=keyOf(at,child.id);if(found.has(key))continue;found.set(key,[at,child]);parents.push([at,child.id]);
+   }
   }
-  return found.filter(f=>f.choices!==null).map(f=>[side,f]);
+  return [...found.values()].filter(([,f])=>f.choices!==null);
+ }
+ function dependencyFilled(side:string|null,parent:string){
+  if(fieldsOf(side).some(f=>f.id===parent))return !!valuesOf(side)[parent]?.value;
+  return everyField(f=>f.id===parent).some(([at,f])=>!!valuesOf(at)[f.id]?.value);
  }
  async function readChoices(targets:[string|null,TicketField][]){
   await Promise.all(targets.map(async([side,f])=>{
-   const key=keyOf(side,f.id),values=valuesOf(side),n=(asked.get(key)??0)+1;asked.set(key,n);
+   const key=keyOf(side,f.id),n=(asked.get(key)??0)+1;asked.set(key,n);
    choiceReads.get(key)?.abort();choiceReads.delete(key);
    // A list whose parent has no value yet lists nothing and is not asked for.
-   if(f.dependsOn.some(parent=>!values[parent]?.value)){delete choices[key];delete choiceErrors[key];return;}
-   const controller=new AbortController(),signal=AbortSignal.any([lifetime.signal,controller.signal]);choiceReads.set(key,controller);
-   try{const r=await readField<{choices:TicketChoice[]}>('tickets/choices',{context:o.context(),draft:draft(),side,field:f.id},signal);if(signal.aborted||asked.get(key)!==n)return;choices[key]=r.choices;delete choiceErrors[key];}
+   if(f.dependsOn.some(parent=>!dependencyFilled(side,parent))){delete choices[key];delete choiceErrors[key];return;}
+   const controller=new AbortController(),signal=AbortSignal.any([lifetime.signal,controller.signal]),edit=choiceEdits.get(key);choiceReads.set(key,controller);
+   try{
+    const r=await readField<{choices:TicketChoice[];startingValue?:TicketLookup|null}>('tickets/choices',{context:o.context(),draft:draft(),side,field:f.id},signal);
+    if(signal.aborted||asked.get(key)!==n||!current())return;
+    choices[key]=r.choices;delete choiceErrors[key];
+    if(entry&&state&&choiceEdits.get(key)===edit&&!blocked()){
+     const before=sent();state=resolveChoice(state,side,f.id,r.choices,retainedChoices.get(key),clearedChoices.has(key)?null:r.startingValue);retainedChoices.delete(key);
+     if(sent()!==before){state=nextPreview(state).state;bookable=undefined;cancelPreview();settle();void readChoices(dependents(side,f.id));}
+    }
+   }
    catch(error){if(signal.aborted||asked.get(key)!==n)return;choices[key]=[];choiceErrors[key]=reasonOf(error);}
    finally{if(choiceReads.get(key)===controller)choiceReads.delete(key);}
    later();
@@ -159,7 +203,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  async function readLookups(){
   const asking=sent();if(asking===looked)return;looked=asking;
   lookupRead?.abort();const controller=lookupRead=new AbortController(),signal=AbortSignal.any([lifetime.signal,controller.signal]),context=o.context();
-  const answers=await Promise.all(everyField(f=>f.lookup!==null).map(async([side,f])=>{
+  const answers=await Promise.all(everyField(f=>f.lookup!==null).filter(([side,f])=>f.state!=='editable'||!clearedChoices.has(keyOf(side,f.id))).map(async([side,f])=>{
    try{return {side,f,found:await readField<TicketLookup>('tickets/lookup',{context,draft:JSON.parse(asking),side,field:f.id},signal)};}
    catch(error){return {side,f,found:undefined,refused:reasonOf(error)};}
   }));
@@ -167,13 +211,19 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   if(signal.aborted||lookupRead!==controller)return;
   lookupRead=undefined;
   if(!alive||!state||sent()!==asking){if(looked===asking)looked=undefined;return;}
+  const refresh=new Map<string,[string|null,TicketField]>();
   for(const a of answers){
    const key=keyOf(a.side,a.f.id);
-   if(a.found){state=applyLookup(state,a.side,a.f.id,a.found);delete lookupErrors[key];}
+   if(a.found){
+    const before=valuesOf(a.side)[a.f.id]?.value,children=dependents(a.side,a.f.id).map(([at,f])=>({at,f,value:valuesOf(at)[f.id]}));
+    state=applyLookup(state,a.side,a.f.id,a.found);delete lookupErrors[key];
+    if(a.f.state==='editable'&&before!==valuesOf(a.side)[a.f.id]?.value)for(const child of children){const key=keyOf(child.at,child.f.id);if(child.value?.value)retainedChoices.set(key,child.value);refresh.set(key,[child.at,child.f]);}
+   }
    else{state=dropLookup(state,a.side,a.f.id);lookupErrors[key]=a.refused!;}
   }
   // A lookup that filled a term changed the draft, which is previewed in turn.
-  if(sent()!==asking)settle();
+  if(sent()!==asking){state=nextPreview(state).state;bookable=undefined;previewRead?.abort();panel={...panel,status:{kind:'updating',text:'Updating…'}};settle();}
+  if(refresh.size)void readChoices([...refresh.values()]);
   draw();
  }
  function settle(){clearTimeout(settling);settling=setTimeout(()=>void preview(),settleMs);}
@@ -181,11 +231,11 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   clearTimeout(settling);settling=undefined;
   if(!state||blocked())return;
   previewRead?.abort();const controller=previewRead=new AbortController(),signal=AbortSignal.any([lifetime.signal,controller.signal]);
-  const next=nextPreview(state),body={context:o.context(),draft:draftOf(next.state)},asking=JSON.stringify(body.draft);
+  const next=nextPreview(state),body={context:o.context(),draft:draftOf(next.state),...amendmentTerms()},asking=previewIdentity(body.draft);
   state=next.state;panel={...panel,status:{kind:'updating',text:'Updating…'}};draw();
   void readLookups();
   let outcome:{preview:TicketPreview}|{refused:unknown};
-  try{outcome={preview:await o.api<TicketPreview>('tickets/preview',body,signal)};}catch(error){outcome={refused:error};}
+  try{outcome={preview:await o.api<TicketPreview>(amendment?'tickets/amend-preview':'tickets/preview',body,signal)};}catch(error){outcome={refused:error};}
   // Only the latest preview is drawn: an answer that arrives after a newer edit or preview is discarded.
   if(signal.aborted||!alive||!state||!acceptPreview(state,next.serial))return;
   try{panel=previewed(panel,outcome);bookable='preview' in outcome?asking:undefined;}
@@ -197,13 +247,19 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   if(!state||blocked())return;
   try{state=nextPreview(apply({...state,notices:[]})).state;}
   catch(error){state={...state,notices:[reasonOf(error)]};draw();return;}
-  cancelPreview();
+  bookable=undefined;cancelPreview();
   said='';panel={...panel,status:{kind:'updating',text:'Updating…'}};draw();settle();
   void readChoices(lists==='all'?listed():lists);
  }
  const retry=()=>listed().filter(([side,f])=>keyOf(side,f.id) in choiceErrors);
  const on:TicketEvents={
-  edit:(side,field,value)=>change(s=>setValue(s,side,field,value),side===null?'all':[...dependents(side,field),...retry()]),
+  amend:o.onAmend,
+  edit:(side,field,value)=>{
+   const key=keyOf(side,field);choiceEdits.set(key,(choiceEdits.get(key)??0)+1);retainedChoices.delete(key);
+   if(value)clearedChoices.delete(key);else clearedChoices.add(key);
+   if(state)for(const [at,f] of dependents(side,field)){const prior=valuesOf(at)[f.id];if(prior?.value)retainedChoices.set(keyOf(at,f.id),prior);}
+   change(s=>setValue(s,side,field,value),side===null?'all':[...dependents(side,field),...retry()]);
+  },
   // A local date-time is resolved in the user's zone by the managed resolver; a time the clock repeats or skips is refused, not guessed.
   editLocal:(side,field,local)=>{
    const key=keyOf(side,field),zone=o.zone(),n=(entered.get(key)??0)+1;entered.set(key,n);delete lookupErrors[key];
@@ -287,13 +343,26 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   try{await readTrade();}catch(error){fail(error);}
  }
  async function readTrade(){
-  const r=await o.api<TicketTrade>('tickets/trade',{context:o.context(),...o.opened!},lifetime.signal);
+  const r=await o.api<TicketTrade>('tickets/trade',{context:o.context(),...(o.opened??amendment)!},lifetime.signal);
   if(!current())return;
+  if(amendment&&!r.actions.amend.allowed)throw Error(r.actions.amend.reason);
+  if(amendment){if(typeof r.definitionRevisionId!=='string'||!r.definitionRevisionId)throw Error('The amendment requires its exact retained gas definition revision.');definitionRevisionId=r.definitionRevisionId;}
   // A trade that records day quantities names the selection its schedule shows, whether or not this reader may record one here.
   if(r.actions.record.allowed&&!(typeof r.quantityPolicy==='string'&&r.quantityPolicy))throw Error('A booked read that offers day entries must name the quantity selection its schedule shows.');
   state=ticketOf(d!,r.draft);actions=o.readOnly?{...r.actions,record:{allowed:false,reason:'This trade window is read only.'}}:r.actions;quantityPolicy=r.quantityPolicy??undefined;
+  if(mode==='booked'&&o.sideSchedule){
+   const requested=o.context();
+   if(r.snapshotId!==requested.snapshotId||!r.context?.contextId||!r.context.effectiveOn||!r.context.knownAt||requested.knowledgeMode==='retained'&&r.context.contextId!==requested.contextId)
+    throw Error('The booked schedule response does not match its certified snapshot and context.');
+   scheduleContext={...requested,snapshotId:r.snapshotId,knowledgeMode:'retained',contextId:r.context.contextId};
+   sideSlots=r.sideSlots;
+   if(!sideSlots||Object.keys(sideSlots).length!==state.sides.length||state.sides.some(s=>!Number.isInteger(sideSlots![s.code])||sideSlots![s.code]<0)||new Set(Object.values(sideSlots)).size!==state.sides.length)
+    throw Error('The booked Side schedules require their exact native membership slots.');
+   if(tab===''){if(!state.sides.length)throw Error('This trade has no Side schedules.');selectedSide=tab=state.sides[0].code;}
+  }
   facilityAllocations=o.presentation?[]:r.facilityAllocations;panel=previewed(panel,{preview:r});
-  if(panel.status.kind==='current')panel={...panel,status:{kind:'current',text:'Booked terms and their retained schedule.'}};
+  if(panel.status.kind==='current')panel={...panel,status:{kind:'current',text:amendment?'Edit the retained terms, enter a reason and preview before saving a new revision.':'Booked terms and their retained schedule.'}};
+
   draw();
  }
 
@@ -301,14 +370,14 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  async function book(){
   if(!state||blocked())return;
   if(unresolved.size){say('Book once every local time you entered resolves to one instant.');return;}
-  if(settling!==undefined||bookable!==sent()){say('Book once the preview of your latest change is up to date.');return;}
-  pending.begin('tickets/book',{context:o.context(),draft:draft()});retain();
+  if(settling!==undefined||bookable!==previewIdentity()){say('Save once the preview of your latest change is up to date.');return;}
+  pending.begin(amendment?'tickets/amend':'tickets/book',{context:o.context(),draft:draft(),...amendmentTerms()});retain();
   await send();
  }
  async function send(){
   const command=pending.command;if(!current()||!command||sending)return;
   const uncertain=pending.sending();retain();sending=true;said='';draw();
-  try{const r=await o.api<TicketReceipt>('tickets/book',{...command.body,operationId:command.operationId});sending=false;receipt(command,r);}
+  try{const r=await o.api<TicketReceipt>(command.path,{...command.body,operationId:command.operationId});sending=false;receipt(command,r);}
   catch(error){
    sending=false;if(!current())return;pending.failed((error as {code?:string}).code,uncertain);retain();
    say(pending.command?`The booking is not confirmed: ${reasonOf(error)}`:`Booking refused: ${reasonOf(error)}`);
@@ -325,8 +394,9 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   // A remounted ticket reconciles the retained request itself. An old reply
   // cannot clear or overwrite a newer request owned by that same actor.
   if(!current())return;
-  if(r.operationId!==command.operationId||r.revision!==1||typeof r.tradeId!=='string'){say('The booking response could not be reconciled with its request. Check its status.');return;}
-  pending.clear();retain();booked=r.tradeId;say('Trade booked.');
+  const expected=command.path==='tickets/amend'?Number(command.body.expectedRevision)+(r.unchanged?0:1):1;
+  if(r.operationId!==command.operationId||r.revision!==expected||typeof r.tradeId!=='string'||command.path==='tickets/amend'&&r.tradeId!==command.body.tradeId){say('The trade response could not be reconciled with its request. Check its status.');return;}
+  pending.clear();retain();booked=r.tradeId;say(command.path==='tickets/amend'?r.unchanged?`No contract changes · revision ${r.revision} retained.`:`Amendment saved · revision ${r.revision}.`:'Trade booked.');
   entry!.booked({tradeId:r.tradeId});
  }
 
@@ -338,20 +408,21 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
    if(o.opened)await readTrade();
    else{
     // A booking whose outcome is unknown opens with the exact terms it was sent with, to be checked or retried, never edited.
-    const saved=retainedBooking(o.product,()=>owner);
     if(saved){
-     pending.command={...saved,uncertain:true};
      // Terms the ticket cannot show still leave the request to be checked or retried.
      try{state=ticketOf(d,saved.body.draft as TicketDraft);}catch(error){fail(error);drawBooking();return;}
-    }else state=newTicket(d);
+    }else if(amendment){if(!d.modes.includes('amend'))throw Error('This ticket does not support amendments.');await readTrade();}
+    else state=newTicket(d);
     opened=sent();
    }
    draw();void readChoices(listed());
-  }catch(error){fail(error);}
+  }catch(error){fail(error);drawBooking();}
  }
+ view.inert=!!entry&&blocked();
+ drawBooking();
  void load();
  return {
-  unsaved:()=>!!day||!!entry&&!!state&&booked===undefined&&(!!pending.command||sent()!==opened),
+  unsaved:()=>!!day||!!entry&&!!state&&booked===undefined&&(!!pending.command||sent()!==opened||!!amendment&&!!reason),
   pending:()=>recording||!!pending.command||!!day?.pending.command,
   destroy(){alive=false;lifetime.abort();clearTimeout(settling);drawn?.destroy();host.replaceChildren();},
  };

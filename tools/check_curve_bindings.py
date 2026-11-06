@@ -35,6 +35,17 @@ def run_checks(client, manifest, query, run_worker, frame, mixed, daily_graph, p
     opened=client.call('gas/composition/editor',{'context':context,'tradeId':booked['tradeId']})
     assert opened['valuation']=={key:valued[key] for key in opened['valuation']}
     assert opened['terms']['physicalSides']==terms['physicalSides']
+    # A curve's daily/monthly cutover does not create another physical Side.
+    whole_book=str(uuid4())
+    query(f"INSERT INTO trading.books SELECT catalog_id,'{whole_book}',portfolio_id,'Synthetic whole-term mixed curve gas',publication_order,effective_at FROM trading.books LIMIT 1;")
+    whole={**deepcopy(terms),'operationId':str(uuid4()),'bookId':whole_book,'physicalSides':[physical('gas','2021-01-01','2021-03-01')]}
+    assert Fraction(client.call('gas/composition/preview',whole)['presentValue'])==expected
+    whole_saved=client.call('gas/composition/book',whole)
+    whole_ticket=client.call('tickets/trade',{'context':context,'tradeId':whole_saved['tradeId'],'bindingId':whole_saved['instrumentId'],'revision':1})
+    assert whole_ticket['scheduleRefusal'] is None and len(whole_ticket['draft']['sides'])==1
+    assert Fraction(whole_ticket['schedule']['totals']['gas.quantity']['value'])==59
+    assert len([r for r in whole_ticket['schedule']['rows'] if r['level']=='day'])==59
+    print('PASS one whole-term physical Side uses a mixed daily/monthly published curve and reopens all59days without a curve-driven Side split',flush=True)
     shared={**context,'convention':'trading_workspace_v1'}
     facts=client.call('trading/positions',{'context':shared,'bookIds':[book],'portfolioIds':[],'offset':0,'limit':64})
     selected=next(p for p in facts['positions'] if p['tradeId']==booked['tradeId'])

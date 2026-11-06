@@ -25,11 +25,11 @@ export async function run(actions){
  await evaluate(`{const original=window.fetch;window.ticketBodies=[];window.fetch=async(...args)=>{const sent=/[/]tickets[/](preview|book)$/.exec(String(args[0]));if(sent)ticketBodies.push({path:sent[1],draft:JSON.parse(args[1].body).draft});return original(...args);};}`);
  const soonIds=await evaluate(`[...document.querySelectorAll(${q(ticket+' .ticket-field[data-state=soon]')})].map(f=>f.dataset.field)`);
  await check('a coming-soon field is disabled, tagged Coming soon and says what it will do on hover',
-  `(()=>{const f=document.querySelector(${q(field('physical-1','heat_content'))}),c=f?.querySelector('.ticket-control');
+  `(()=>{const f=document.querySelector(${q(ticket+' .ticket-upcoming [data-field=heat_content]')}),c=f?.querySelector('.ticket-control');
    return !!c&&c.disabled&&c.getAttribute('aria-disabled')==='true'&&f.title===c.title&&/Btu per cubic foot/.test(c.title)&&f.querySelector('.ticket-soon-tag')?.textContent==='Coming soon';})()`,q(soonIds));
- await check('the floating side and the Imbalance tab are offered as coming soon, and cannot be chosen',
-  `(()=>{const add=[...document.querySelectorAll(${q(ticket+' .ticket-add-kind')})].find(b=>b.textContent.startsWith('Floating')),tab=document.querySelector(${q(ticket+' .ticket-tab[data-tab="imbalance"]')});
-   return add.disabled&&/does not accept it yet/.test(add.title)&&tab.disabled&&tab.getAttribute('aria-disabled')==='true'&&/cash-out/.test(tab.title);})()`);
+ await check('Index payment is available while the Imbalance tab remains coming soon',
+  `(()=>{const add=[...document.querySelectorAll(${q(ticket+' .ticket-add-kind')})].find(b=>b.textContent==='Index payment'),tab=document.querySelector(${q(ticket+' .ticket-tab[data-tab="imbalance"]')});
+   return !!add&&!add.disabled&&tab.disabled&&tab.getAttribute('aria-disabled')==='true'&&/cash-out/.test(tab.title);})()`);
 
  await tradeTerms();await physicalTerms('physical-1','deliver','5000');
  await wait(`!!document.querySelector(${q(field('physical-1','gas_day_start')+' .ticket-chip')})&&!!document.querySelector(${q(field('physical-1','price')+' .ticket-chip')})`);
@@ -127,6 +127,7 @@ export async function run(actions){
  await check('booked side schedules fit the viewport and expose no instrument editor',`document.documentElement.scrollWidth<=innerWidth&&!document.querySelector(${q(booked+' .ticket-card')})`);
  await set(`${booked} .ticket-level`,'day');await click(`${booked} .ticket-tab[data-tab="physical-1"]`);
  await check('physical schedule inspection is read-only; daily work belongs to Operations',`!document.querySelector(${q(booked+' .ticket-cell-input')})&&!document.querySelector(${q(booked+' .ticket-record')})&&!document.querySelector('.gas-operations')`);
+
 
  // A linked side's receipt, delivery and fuel are drawn in the Quantity links tab exactly as the preview returned them.
  await newTrade(actions,'gas');

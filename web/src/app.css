@@ -639,7 +639,7 @@ dialog label{margin-top:16px}
 .ticket-strip{display:flex;flex-direction:column;align-items:stretch;gap:14px}
 .ticket-strip>.ticket-title{display:flex;flex-direction:column;gap:2px;flex:none}
 .ticket-state{font-size:14px;font-weight:650;color:var(--text)}
-.ticket-trade-fields{display:flex;flex-direction:column;gap:14px}
+.ticket-trade-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:12px 18px}
 .ticket-trade-fields .ticket-field{padding:0;background:none}
 .ticket-progress{display:flex;align-items:center;gap:8px;color:var(--text-2);font-variant-numeric:tabular-nums}
 .ticket-progress progress{width:120px;accent-color:var(--accent)}
@@ -693,6 +693,13 @@ dialog label{margin-top:16px}
 .ticket-number{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .ticket-add{grid-row:1/-1;display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:8px;padding:10px;border:1.5px dashed var(--border-strong);border-radius:var(--radius-lg);color:var(--text-3);font-weight:600;text-align:center}
 .deal-ticket .ticket-add-kind{border-left:4px solid var(--side-colour)}
+.ticket-upcoming{border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;color:var(--text-3)}
+.ticket-upcoming>summary{cursor:pointer;font-weight:600}
+.ticket-upcoming:not([open])>.ticket-upcoming-group{display:none}
+.ticket-upcoming-group{margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}
+.ticket-upcoming-group>h4{flex-basis:100%;margin:0;font-size:12px}
+.ticket-upcoming-group>.ticket-field{flex:1 1 200px;padding:0}
+.ticket-upcoming-column{display:flex;gap:8px;align-items:center;margin:0}
 .ticket-schedule-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:8px}
 .ticket-tabs{display:flex;flex-wrap:wrap;gap:2px;margin-right:auto}
 .deal-ticket .ticket-tab{padding:6px 10px;border:0;border-bottom:2px solid transparent;border-radius:0;background:none;color:var(--text-2);font-weight:500}
@@ -1774,6 +1781,12 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 /* A PPA's side schedules: a status line, the side totals, the side and month to inspect, then the month's and its intervals' rows. */
 .position-schedules .schedule-note{margin:0 0 12px;padding:8px 12px;border-left:3px solid var(--accent-border);background:var(--surface-2);border-radius:0 var(--radius-sm) var(--radius-sm) 0;font-size:12.5px;color:var(--text-2)}
 .position-schedules .schedule-block:not(:empty){margin-top:12px}
+.side-schedule-inspection{margin-top:16px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface)}
+.side-schedule-inspection>summary{cursor:pointer;font-weight:650}.side-schedule-inspection[open]>summary{margin-bottom:12px}
+.inspection-controls,.inspection-pager{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0}.inspection-controls label{display:flex;align-items:center;gap:8px}
+.side-schedule-inspection p{color:var(--text-2);font-size:12px;line-height:1.5}.side-schedule-inspection .table-wrap{overflow:auto;max-height:30rem}
+.side-schedule-inspection th{position:sticky;top:0;background:var(--surface-2);white-space:nowrap}.side-schedule-inspection td{white-space:nowrap;font-size:12px;padding:8px 10px}
+.inspection-evidence:not(:empty){margin-top:16px;border-top:1px solid var(--border);padding-top:8px}
 .position-schedules .schedule-block:first-of-type{margin-top:0}
 .position-schedules h4{margin:0 0 6px;font-size:11px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3)}
 .position-schedules .schedule-fields{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 12px;margin:12px 0 0;padding:10px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm)}
@@ -1813,8 +1826,12 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
    dock's own height. The page marks the body while the Blotter shows (blotter-shown): a :has() over the whole body made every change
    anywhere on a large page check it again. */
 @media(min-width:481px){
-  body.blotter-shown main{box-sizing:border-box;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+  body.blotter-shown main{box-sizing:border-box;display:flex;flex-direction:column;height:100vh;max-width:none;padding-bottom:12px;overflow:hidden}
   body.blotter-shown main>:not(#futures-page){flex:none}
+  body.blotter-shown #workspace-footer{margin-top:8px}
+  /* Share the footer with the launcher instead of reserving a second empty band.
+     The direct-child check does not search the changing rows within the dock. */
+  body.blotter-shown:not(.assistant-open):has(>#assistant-launcher:not([hidden])) #workspace-footer{display:flex;align-items:center;min-height:64px;padding-right:var(--launcher-room)}
   #futures-page:not([hidden]){display:flex;flex:1 1 0;flex-direction:column;min-height:0}
   #futures-page>:not(#blotter-workspace){flex:none}
   #blotter-workspace{flex:1 1 0;min-height:0}
@@ -2355,6 +2372,9 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .physical-type-card:disabled{background:var(--surface-3);color:var(--text-3);border-color:var(--border);opacity:1;cursor:not-allowed}
 .physical-type-card:disabled span{color:var(--text-3)}
 
+.inspection-value{display:flex;flex-direction:column;gap:4px}.inspection-value>small{font-size:10px;color:var(--text-3);font-weight:400}.side-schedule-inspection td{vertical-align:top}
+
+.side-schedule-inspection.inspection-inline{margin:0;padding:0;border:0;background:transparent}.inspection-inline>.inspection-controls{display:none}
 /* Physical operations: one instrument, one stage, one reviewed action. */
 .physical-operations{min-width:0;max-width:1440px;margin-inline:auto}
  .operations-directory{min-width:0;padding:20px 22px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}

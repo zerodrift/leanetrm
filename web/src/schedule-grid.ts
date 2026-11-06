@@ -41,19 +41,15 @@ export function scheduleGridData(view:ScheduleView,d:TicketDescription,sides:Sch
  const depth=view.levels.indexOf(level);
  if(depth<0)throw Error(`The schedule has no ${level} rows.`);
  const groups:{title:string;colour:string;columns:{key:string;column:TicketColumn}[]}[]=[];
- const sideGroup=(s:ScheduleSide)=>{const kind=sideKind(d,s.kind);return {title:s.name,colour:kind.colour,columns:kind.columns.map(column=>({key:`${s.code}.${column.id}`,column}))};};
+ const sideGroup=(s:ScheduleSide)=>{const kind=sideKind(d,s.kind);return {title:s.name,colour:kind.colour,columns:kind.columns.filter(column=>!column.soon).map(column=>({key:`${s.code}.${column.id}`,column}))};};
  if(tab==='instrument')groups.push(...sides.map(sideGroup),{title:'Trade',colour:neutral,columns:d.tradeColumns.map(column=>({key:`trade.${column.id}`,column}))});
  else{const side=sides.find(s=>s.code===tab);if(!side)throw Error(`Tab '${tab}' does not show a schedule.`);groups.push(sideGroup(side));}
  const columns=groups.flatMap(g=>g.columns);
  const headers=['Period',...columns.map(({column})=>{const unit=resolvedUnit(column.unit,display.quantityUnit);return unit?`${column.label} (${unit})`:column.label;})];
  let at=1;
  const headerGroups:HeaderGroup[]=tab==='instrument'?groups.map(g=>({title:g.title,colour:g.colour,columns:g.columns.map(()=>at++)})):[];
- // A coming-soon column is drawn blank, with its hover text, and reads nothing from the view.
- const soon=Object.fromEntries(columns.flatMap(({column},i)=>column.soon?[[i+1,column.soon]]:[]));
- const numeric=columns.flatMap(({column},i)=>numericMeasures.includes(column.measure)&&!column.soon?[i+1]:[]);
- const blank:ScheduleViewCell={value:null,sources:[]},later=new Set(columns.filter(c=>c.column.soon).map(c=>c.key));
+ const numeric=columns.flatMap(({column},i)=>numericMeasures.includes(column.measure)?[i+1]:[]);
  const valueOf=(cells:Record<string,ScheduleViewCell>,key:string)=>{
-  if(later.has(key))return blank;
   const found=cells[key];if(!found)throw Error(`The schedule view has no '${key}' value.`);
   for(const source of found.sources)if(!Object.hasOwn(sourceLabels,source))throw Error(`Unknown value source: ${source}`);
   return found;
@@ -65,12 +61,12 @@ export function scheduleGridData(view:ScheduleView,d:TicketDescription,sides:Sch
   const found=columns.map(({key})=>valueOf(r.cells,key)),prior=before.get(r.key);
   const values=found.map(c=>c.value??'');
   rows.push([r.key,...values]);
-  displayRows.push([r.key,...values.map((v,i)=>displayText(columns[i].column,v,display))]);
-  decorations.push([null,...found.map((c,i)=>columns[i].column.soon?null:({sources:c.sources.map(s=>sourceLabels[s]),changed:previous!==undefined&&(prior?.[columns[i].key]?.value??null)!==c.value,delivered:r.delivered}))]);
+  displayRows.push([r.level==='term'?'Whole term':r.key,...values.map((v,i)=>displayText(columns[i].column,v,display))]);
+  decorations.push([null,...found.map((c,i)=>({sources:c.sources.map(s=>sourceLabels[s]),changed:previous!==undefined&&(prior?.[columns[i].key]?.value??null)!==c.value,delivered:r.delivered}))]);
  }
  // In delivery the backend splits its totals into delivered and remaining; the grid pins them above the total, in that order.
  if((view.delivered===null)!==(view.remaining===null))throw Error('The schedule view reports delivered and remaining together or not at all.');
  const totalRow=(label:string,cells:Record<string,ScheduleViewCell>)=>[label,...columns.map(({key,column})=>displayText(column,valueOf(cells,key).value??'',display))];
  const totals=[...view.delivered&&view.remaining?[totalRow('Delivered',view.delivered),totalRow('Remaining',view.remaining)]:[],totalRow('Total',view.totals)];
- return {headers,rows,displayRows,parents:shown.map(r=>r.parent),keys:shown.map(r=>r.key),levels:shown.map(r=>r.level),columns:['period',...columns.map(c=>c.key)],numeric,headerGroups,totals,decorations,soon};
+ return {headers,rows,displayRows,parents:shown.map(r=>r.parent),keys:shown.map(r=>r.key),levels:shown.map(r=>r.level),columns:['period',...columns.map(c=>c.key)],numeric,headerGroups,totals,decorations};
 }

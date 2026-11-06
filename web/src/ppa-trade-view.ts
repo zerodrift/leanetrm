@@ -3,7 +3,6 @@ import type {Holding} from './desk-model.js';
 import type {DetailRead,TermSection} from './position-panel.js';
 import {displayInstant} from './market-view.js';
 import type {Terms} from './ppa-contract.js';
-import {mountPpaPositionSchedule} from './ppa-position-schedule.js';
 
 // Retained database cutoffs have seven fractional digits, with an exact trailing zero.
 export const ppaCutoff=(value:string)=>value.replace(/(\.\d{6})0(?=Z$|\+00:00$)/,'$1');
@@ -26,7 +25,7 @@ export async function readPpaView(api:Api,context:Record<string,unknown>,h:Holdi
   for(const m of instrument.terms.memberships)terms.push({title:ppaSideLabel(m.role),rows:[['Direction',m.coefficient==='1'?'Receive':'Pay'],['Side kind',m.side.kind],['Quantity rule',m.side.quantity.kind],
    ...(m.side.location?[["Location",m.side.location] as const]:[]),...(m.side.indexPrice?[["Price curve",m.side.indexPrice.curve] as const]:[]),
    ...(m.side.fixedPrice?[["Fixed price",`${m.side.fixedPrice.price} / ${m.side.fixedPrice.quantity}`] as const]:[])]});
-  return{termsLabel:instrument.terms.memberships.some(m=>m.role==='energy_delivery')?'Physical overview':undefined,terms,actions:manage?[{id:'ppa-manage',label:'Manage PPA',run:manage}]:[],history:detail.history.map(r=>({title:`Revision ${r.revision} · ${r.event_kind}`,rows:[['Effective at',displayInstant(r.effective_at,zone)],['Reason',r.reason]]})),
-   schedules:host=>mountPpaPositionSchedule(host,api,context,h,instrument.terms,ppaCutoff(knownAt),zone)};
+  return{termsLabel:instrument.terms.memberships.some(m=>m.role==='energy_delivery')?'Physical overview':undefined,terms,actions:manage?[{id:'ppa-manage',label:'Manage PPA',run:manage}]:[],history:detail.history.map(r=>({title:`Revision ${r.revision} · ${r.event_kind}`,rows:[['Effective at',displayInstant(r.effective_at,zone)],['Reason',r.reason]]}))};
+
  }};
 }

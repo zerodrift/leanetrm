@@ -19,7 +19,7 @@ public static class GasDailyQuantitySelection
   if(program.Document.Family!="gas"||scale is null||scale.Numerator<=0)throw Invalid("Select a retained gas program and its positive absolute membership scale.");
   var intervals=Physical.PhysicalDeliverySchedule.ReadLiteralQuantities(program,scale);
   var rows=intervals.Select(r=>new GasDailyContract(r.Root,r.Instruction,r.Grid,r.OperatingDate,r.Start,r.End,r.Quantity)).ToArray();
-  if(rows.Length is <1 or >31||intervals.Any(r=>program.Document.Grids[r.Grid].CellCount!=1)||rows.Select(r=>r.Day).Distinct().Count()!=rows.Length)throw Invalid("Select a unique retained daily gas grid of one to 31 days.");
+  if(rows.Length<1||rows.Length>GasQuantityTerms.MaximumOperatingDays||intervals.Any(r=>program.Document.Grids[r.Grid].CellCount!=1)||rows.Select(r=>r.Day).Distinct().Count()!=rows.Length)throw Invalid($"Select a unique retained daily gas grid of one to {GasQuantityTerms.MaximumOperatingDays} days.");
   return [..rows.OrderBy(r=>r.Start)];
  }
  public static GasSelectedQuantity Select(GasDailyContract contract,ImmutableArray<GasQuantityObservation> heads,string policy,DateTimeOffset at,ExactRatio scale)

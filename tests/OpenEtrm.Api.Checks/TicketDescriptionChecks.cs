@@ -47,10 +47,13 @@ internal static class TicketDescriptionChecks
         Reject("a band outside the ticket band", WithTrade(Field("book", band: "footer")));
         Reject("two fields of one side kind on a band row", WithBuy(Field("a", band: "price"), Field("b", band: "price")));
         Reject("a dependency on an unknown field", WithTrade(Field("book", dependsOn: "missing")));
+        Reject("a refresh dependency on an unknown field", WithTrade(Field("book") with { RefreshOn = ["missing"] }));
         Reject("a row shape other than flow", valid with { RowShape = "cargo" });
         Reject("empty levels", valid with { Levels = [] });
         Reject("levels out of order", valid with { Levels = ["day", "month"] });
-        Reject("a level outside month, day, hour", valid with { Levels = ["week"] });
+        Check("whole-term rows precede monthly and daily rows", () => TicketDescriptions.Validate(valid with { Levels = ["term", "month", "day"] }));
+        Reject("term after month", valid with { Levels = ["month", "term"] });
+        Reject("a level outside term, month, day, hour", valid with { Levels = ["week"] });
         Reject("a minimum above the maximum", valid with { Sides = [valid.Sides[0] with { Min = 3, Initial = 2, Max = 2 }] });
         Reject("a maximum below one", valid with { Sides = [valid.Sides[0] with { Min = 0, Initial = 0, Max = 0 }] });
         Reject("a side limit naming an unknown kind", valid with { SideLimits = [new(["buy", "swap"], 3)] });
