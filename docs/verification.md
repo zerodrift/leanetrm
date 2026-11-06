@@ -9,7 +9,9 @@ role without a live claim, invalid unrequested close pins, fallback to an older
 close and expiry while results buffer. After 4096 unrelated later facts, bulk
 observation tuple work equals the archived reader (420/420 in both plans), and
 exact reads still do not invoke broad enumeration. The 0204 guards reject helper
-and complete policy drift. This fixture runs in the complete gate's workspace
+and complete policy drift. The standard HTTP fixture also forbids broad
+enumeration while the actual single-bundle futures catalog reads its exact pins.
+The regional-close fixture runs in the complete gate's workspace
 partition. Standard browser, assistant workspace/runtime and risk/close worker
 suites qualify their native consumers. These are synthetic disposable checks;
 production GUI observations are not public fixtures or performance claims.

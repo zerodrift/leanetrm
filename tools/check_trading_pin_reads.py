@@ -75,6 +75,16 @@ def run_checks(c, check, query, manifest):
         c.call('trading/workspace', {'context': trading_context(changed['frame'], old_cut),
                'view': VIEW, 'bookingCatalog': 'priced_contracts'}, expected=422)
         check('a later corrected pin cannot enter an earlier trading cutoff')
+        # This single-bundle native catalog has no supplemental history. Keep
+        # the route-level work boundary observable, not only the point helper.
+        visibility=query("SELECT pg_get_functiondef('security.visible_observations()'::regprocedure);")
+        try:
+            query("CREATE OR REPLACE FUNCTION security.visible_observations() RETURNS TABLE(catalog uuid,revision uuid,observation uuid) LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN RAISE EXCEPTION 'Synthetic broad catalog read' USING ERRCODE='42501';END$$;")
+            c.call('workspace',expected=403)
+            check('the native futures catalog reads exact pins while broad enumeration is forbidden',
+                  c.call('futures/catalog',{**old_pin,'convention':data['futuresConvention']})==old_result['catalog'])
+        finally:
+            query(visibility)
         # A new policy must refuse the exact reader even if it only targets an
         # unselected successor. The managed broad-scan fault separately proves
         # bounded exact reads under the canonical policy contract.
