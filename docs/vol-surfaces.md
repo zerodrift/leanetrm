@@ -2,7 +2,7 @@
 
 Status: local implementation, verified as recorded in
 [verification](verification.md#volatility-surfaces-d304). This is not a production
-activation record. The decision is [D304](decisions.md); D354 keys each surface to
+activation record. The decision is [D304](decisions.md); D356 keys each surface to
 its close and adds the surface library.
 
 A volatility surface shows, for one listed futures option product at one close, the
@@ -143,7 +143,7 @@ A surface is stored as an immutable, bitemporal revision (migration
 
 - **Business key.** The exact product version (reference catalog, reference revision
   and code, by foreign key), the settlement business date and the vol model.
-- **Location (D354, migration `0211_vol_surface_closes.sql`).** The recorded close the
+- **Location (D356, migration `0212_vol_surface_closes.sql`).** The recorded close the
   surface was fitted at (`close_id`, by foreign key to `market_data.market_closes`,
   which names its session and business day), or none for a working snapshot, and the
   valuation instant. A frame id is session-scoped (each sign-in sees a close under

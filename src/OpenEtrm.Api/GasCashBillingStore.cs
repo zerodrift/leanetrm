@@ -37,17 +37,26 @@ public sealed class GasCashBillingStore(PreviewDatabase database)
     {
         await using (var check = ScheduleStore.Command(c, "SELECT security.require_gas_quantity_trade($1,$2,false)", database.Manifest.CatalogId, trade))
             await check.ExecuteNonQueryAsync(ct);
+        // Keep exact selected keys ahead of expensive RLS joins. Every relation
+        // still uses its ordinary read policy; all visible revisions are retained.
         return await PreviewDatabase.Rows(c, """
             SELECT row_to_json(x)::text FROM(
             SELECT r.revision,r.instrument_id,m.slot,m.code,m.role,m.stage,m.direction,m.price::text,m.payment_at,o.id obligation_id,
             q.catalog_id reference_catalog_id,q.revision_id reference_revision_id,q.quantity_code,q.currency_code,q.multiplier::text,cur.display_minor_units
-            FROM trading.gas_trade_revisions r JOIN trading.gas_component_terms m USING(catalog_id,instrument_id)
-            JOIN trading.gas_delivery_obligations o ON(o.catalog_id,o.instrument_id,o.slot)=(m.catalog_id,m.instrument_id,m.source_slot)
-            JOIN market_data.gas_valuation_assignments a ON(a.catalog_id,a.revision_id,a.code)=(m.catalog_id,m.definition_revision_id,m.assignment_code)
-            JOIN market_data.curves curve ON(curve.catalog_id,curve.revision_id,curve.code)=(a.catalog_id,a.revision_id,a.curve_code)
-            JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)=(a.reference_catalog_id,a.reference_revision_id,curve.quote_code)
-            JOIN ref_data.currencies cur ON(cur.catalog_id,cur.revision_id,cur.code)=(q.catalog_id,q.revision_id,q.currency_code)
-            WHERE(r.catalog_id,r.trade_id)=($1,$2) AND m.role IN('consideration','fee') ORDER BY m.slot)x
+            FROM(SELECT * FROM trading.gas_trade_revisions WHERE(catalog_id,trade_id)=($1,$2) OFFSET 0)r
+            CROSS JOIN LATERAL(SELECT * FROM trading.gas_component_terms
+                WHERE(catalog_id,instrument_id)=(r.catalog_id,r.instrument_id) AND role IN('consideration','fee') OFFSET 0)m
+            CROSS JOIN LATERAL(SELECT * FROM trading.gas_delivery_obligations
+                WHERE(catalog_id,instrument_id,slot)=(m.catalog_id,m.instrument_id,m.source_slot) OFFSET 0)o
+            CROSS JOIN LATERAL(SELECT * FROM market_data.gas_valuation_assignments
+                WHERE(catalog_id,revision_id,code)=(m.catalog_id,m.definition_revision_id,m.assignment_code) OFFSET 0)a
+            CROSS JOIN LATERAL(SELECT * FROM market_data.curves
+                WHERE(catalog_id,revision_id,code)=(a.catalog_id,a.revision_id,a.curve_code) OFFSET 0)curve
+            CROSS JOIN LATERAL(SELECT * FROM ref_data.quote_specifications
+                WHERE(catalog_id,revision_id,code)=(a.reference_catalog_id,a.reference_revision_id,curve.quote_code) OFFSET 0)q
+            CROSS JOIN LATERAL(SELECT * FROM ref_data.currencies
+                WHERE(catalog_id,revision_id,code)=(q.catalog_id,q.revision_id,q.currency_code) OFFSET 0)cur
+            ORDER BY m.slot)x
             """, [database.Manifest.CatalogId, trade], ct);
     }
     async Task<ImmutableArray<JsonElement>> History(NpgsqlConnection c, Guid trade, CancellationToken ct) =>

@@ -97,6 +97,7 @@ def main():
     parser.add_argument('--custom-curves-check',action='store_true',help='Qualify custom curve definitions and calculations in an owned synthetic fixture')
     parser.add_argument('--market-read-check',action='store_true',help='Qualify per-row market authority in the owned standard fixture')
     parser.add_argument('--market-dates-check',action='store_true',help='Qualify scoped market-close availability and the calendar in an owned fixture')
+    parser.add_argument('--context-read-check',action='store_true',help='Qualify bounded historical context, close calendar and header recovery')
     parser.add_argument('--valuation-status-check',action='store_true',help='Qualify Blotter reads and risk runs at closes that cannot value every seeded position')
     parser.add_argument('--desk-fields-check',action='store_true',help='Qualify the commodity, swap direction and mark minus price of Blotter rows, commodity pivots, and the desk\'s summary groupings and curve shapes, in the seeded standard example')
     parser.add_argument('--with-custom-curves',action='store_true',help='Load synthetic monthly and daily NG panels for the custom curve editor')
@@ -162,6 +163,9 @@ def main():
         if args.example != 'standard' or args.interval_series_benchmark+args.usage_benchmark+args.blotter_stream_benchmark>1 or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
+    if args.context_read_check:
+        args.check=True
+        if args.example!='standard':parser.error('--context-read-check requires the standard fixture')
     if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.regional_closes_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
@@ -393,6 +397,9 @@ def main():
             if args.check and migration.name=='0204_exact_observation_reads.sql':
                 from check_exact_pin_upgrade import run_checks as check_exact_pin_upgrade
                 check_exact_pin_upgrade(query,migration)
+            if args.check and migration.name=='0211_selected_observation_facts.sql':
+                from check_observation_fact_upgrade import run_checks as check_observation_fact_upgrade
+                check_observation_fact_upgrade(query,migration)
             query(migration.read_text())
         if args.check:
             from check_whole_term_swap_schema import run_checks as check_whole_term_swap_schema
@@ -584,7 +591,7 @@ def main():
         # Only recorded closes are closes (D334): the built-in frames are recorded as synthetic session closes.
         from seed_session_closes import seed as seed_session_closes
         # The aligned-history check reads a correction through a working frame of its day, which a close's exact pins never take.
-        seed_session_closes(query,manifest,working=('2020-12-18',) if args.factor_history_check else ())
+        seed_session_closes(query,manifest,working=('2020-12-18',) if args.factor_history_check or args.context_read_check else ())
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         # Freeze assets for this owned instance; a later web build must not change
         # another running preview's presentation while it is being used.
@@ -702,7 +709,19 @@ def main():
         print(f'PREVIEW_URL={url}',flush=True)
         print('Private synthetic database. Ctrl+C stops the app and removes its owned database.',flush=True)
         if args.check:
-            if args.unified_trading_check:
+            if args.context_read_check:
+                from check_context_read_demand import run_checks as check_context_read_demand
+                check_context_read_demand(url,query,manifest)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--context'],cwd=ROOT,env=env,start_new_session=True)
+                    browser_process.wait(timeout=240)
+                    if evidence:=os.environ.get('OPENETRM_CONTEXT_BROWSER_EVIDENCE'):
+                        destination=Path(evidence).resolve();destination.mkdir(parents=True,exist_ok=True)
+                        for screenshot in temporary.glob('*context*.png'):shutil.copy2(screenshot,destination/screenshot.name)
+                    if browser_process.returncode:raise RuntimeError('Owned context header browser checks failed')
+            elif args.unified_trading_check:
                 from check_demo_instruments import run_checks as check_demo
                 run_demo_worker=risk_worker_runner()
                 check_demo(url,manifest,query,run_worker=run_demo_worker,owned_root=temporary,run_id=run_id,psql=psql,environment=env)
@@ -771,7 +790,7 @@ def main():
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--crude-setup' if args.crude_setup_check else '--physical-crude'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},check=True,timeout=900)
             elif args.physical_assistant_check:
                 from check_physical_assistant import run_checks as check_physical_assistant
-                physical_assistant=check_physical_assistant(url,query,manifest,fake_provider,gas_demo_fixture)
+                physical_assistant=check_physical_assistant(url,query,manifest,fake_provider,gas_demo_fixture,dotnet,app_env,temporary)
                 if args.browser_check:
                     target=temporary/'physical-assistant-browser.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'provider':fake_provider.control(),'facility':physical_assistant}))
@@ -1053,7 +1072,7 @@ def main():
                 from check_regional_closes_sql import run_checks as check_regional_closes_sql
                 check_regional_closes_sql(url,query,manifest)
                 from check_exact_pin_reads import run_checks as check_exact_pin_reads
-                check_exact_pin_reads(query,manifest,dotnet,app_env,temporary)
+                check_exact_pin_reads(query,manifest,dotnet,app_env,temporary,psql,env)
             elif args.pilot_close_check:
                 from check_pilot_close import run_checks as check_pilot_close
                 check_pilot_close(url,query,manifest,psql,app_env)

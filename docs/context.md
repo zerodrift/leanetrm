@@ -404,3 +404,30 @@ and future valuation regimes require supported typed contracts before execution.
 Frozen observation uses are retained alongside exact observation IDs. Workers read
 those pins under the captured financial context and current authority; they never
 resolve latest corrections again. See [risk scenarios and jobs](risk-engine.md).
+
+## Shared context header and selected fact reads (D354)
+
+The header groups **Close session** with **As of**, then names **Knowledge**
+separately. The session selects the published closing calendar/cutoff; choosing
+it does not run a close. As of chooses recorded price inputs and their business
+date. Pages that use effective records show Business date instead of market-close
+controls. Knowledge selects the information cutoff; changing it requires Apply.
+Working data returns to current knowledge and the latest available close.
+
+The help disclosure is keyboard accessible, remains in document flow and explains
+the close-in-force exception: a recorded close uses the close currently in force
+for its session/day, while other records respect the knowledge cutoff. The header
+uses the person's display time zone. Its controls retain native edit guards,
+explicit context capture, source authority and read-only historical behavior.
+
+While knowledge edits are unapplied, Dashboard widgets discard prior visible
+values and say to Apply or return to Working data. A failed Apply retains that
+guidance rather than mislabelling the draft as a missing latest-close calendar.
+Returning to a selected curve after a context change must read that curve at the
+new context before displaying prices.
+
+Context aliases need only selected facts and their corrections. Their managed
+read uses the [bounded observation contract](exact-observation-reads.md#selected-fact-history-and-calendar-frames-d354)
+instead of enumerating unrelated history. The close calendar uses exact frame
+pins under the same point-reader authority. No values or close availability are
+calculated in the browser.

@@ -295,7 +295,7 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     grant = str(uuid4())
     query(f"INSERT INTO security.role_grants VALUES('{grant}','{trader}','{role}','{tenant}','{workspace}',clock_timestamp(),'9999-12-31',false);")
 
-    # A surface belongs to the exact close it was fitted at (D354). The latest close's frame, recorded as the close of two
+    # A surface belongs to the exact close it was fitted at (D356). The latest close's frame, recorded as the close of two
     # synthetic sessions with the same cutoff: a fit at one session's close is not the other's, nor the working snapshot's at the
     # same instant, and a close that replaces it starts without one. No member chooses these sessions, so the browser checks
     # that follow still open on working snapshots.

@@ -5,7 +5,7 @@ import subprocess
 from uuid import UUID
 
 
-def run_checks(query, manifest, dotnet, environment, owned_root):
+def run_checks(query, manifest, dotnet, environment, owned_root, psql, psql_environment):
     root=Path(owned_root).resolve()
     assert (root/'.openetrm-preview').is_file()
     catalog,revision,tenant,workspace=(str(UUID(manifest[k])) for k in ('catalogId','revisionId','tenantId','workspaceId'))
@@ -23,19 +23,26 @@ def run_checks(query, manifest, dotnet, environment, owned_root):
             token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
             bind='' if retained is None else f"SELECT security.use_market_context('{catalog}','{retained}');"
             expected=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{bind}SELECT security.use_close_session('{catalog}','{session}');SELECT coalesce(json_agg(to_jsonb(t)||jsonb_build_object('value',t.value::text) ORDER BY t.observed_at,t.received_at,t.id),'[]')::text FROM market_data.observations t WHERE catalog_id='{catalog}' AND definition_revision_id='{revision}' AND id=ANY({selected});ROLLBACK;")
-            samples.append(dict(contextId=retained,session=session,pins=pins,expectedJson=expected))
+            facts=query(f"""SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{bind}SELECT security.use_close_session('{catalog}','{session}');
+              WITH anchors AS MATERIALIZED(SELECT DISTINCT series_id,source_code,source_event_id,observed_at,role
+                FROM market_data.observations WHERE catalog_id='{catalog}' AND definition_revision_id='{revision}' AND id=ANY({selected}))
+              SELECT coalesce(json_agg(to_jsonb(o)||jsonb_build_object('value',o.value::text) ORDER BY o.observed_at,o.received_at,o.id),'[]')::text
+              FROM market_data.observations o JOIN anchors a USING(series_id,source_code,source_event_id,observed_at,role)
+              WHERE o.catalog_id='{catalog}' AND o.definition_revision_id='{revision}';ROLLBACK;""")
+            samples.append(dict(contextId=retained,session=session,pins=pins,expectedJson=expected,expectedFactsJson=facts))
     finally:
         query(original)
     fixture=root/'exact-pin-reads.json';fixture.write_text(json.dumps(samples))
-    def managed():
+    def managed(mode='--exact-pin-reads'):
         try:
             query("CREATE OR REPLACE FUNCTION security.visible_observations() RETURNS TABLE(catalog uuid,revision uuid,observation uuid) LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN RAISE EXCEPTION 'synthetic_broad_observation_scan';END$$;")
-            result=subprocess.run([str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks','--','--exact-pin-reads',str(fixture)],cwd=Path(__file__).resolve().parents[1],env=environment,capture_output=True,text=True,timeout=120)
+            result=subprocess.run([str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks','--',mode,str(fixture)],cwd=Path(__file__).resolve().parents[1],env=environment,capture_output=True,text=True,timeout=120)
             assert result.returncode==0,result.stdout+result.stderr
         finally:
             query(original)
         print(result.stdout.strip(),flush=True)
     managed()
+    managed('--observation-fact-reads')
     stats = "SELECT 'CLOSE_CALLS|'||coalesce(sum(calls),0) FROM pg_stat_xact_user_functions WHERE schemaname='security' AND funcname='market_close_visible';"
     for mode in ('force_custom_plan','force_generic_plan'):
         token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
@@ -50,4 +57,8 @@ def run_checks(query, manifest, dotnet, environment, owned_root):
     from check_exact_pin_authority import run_checks as authority
     authority(query,manifest,context,pins,legacy,original)
     managed()
+    managed('--observation-fact-reads')
     print('PASS later unrelated history does not add a broad scan to native exact-pin retrieval',flush=True)
+    from check_observation_fact_authority import run_checks as fact_authority,run_frame_checks
+    run_frame_checks(query,manifest,context,pins,psql,environment,owned_root,dotnet)
+    fact_authority(query,manifest,context,pins,psql,psql_environment,owned_root)

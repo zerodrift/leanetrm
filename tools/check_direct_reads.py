@@ -76,20 +76,21 @@ def run_checks(views, trades, dotnet, environment, directory, query):
     fixture.write_text(json.dumps({'profile': PROFILE, 'views': views, 'trades': trades}))
     command=[str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--']
     subprocess.run([*command,'--direct-reads',str(fixture)],cwd=Path(__file__).resolve().parents[1],env=environment,check=True,timeout=120)
-    # This restrictive fixture gate can only refuse a selected pin. It never grants
-    # access, and stays inactive outside the transaction that chooses its test pin.
-    query("""CREATE FUNCTION public.synthetic_frame_read_fault(id uuid) RETURNS boolean
-        LANGUAGE plpgsql VOLATILE SET search_path=pg_catalog AS $$BEGIN
-          IF id::text=current_setting('openetrm.synthetic_frame_read_fault',true) THEN
-            RAISE EXCEPTION 'synthetic_frame_read_fault' USING ERRCODE='P0001';
-          END IF;RETURN true;END$$;
-        REVOKE ALL ON FUNCTION public.synthetic_frame_read_fault(uuid) FROM PUBLIC;
-        GRANT EXECUTE ON FUNCTION public.synthetic_frame_read_fault(uuid) TO openetrm_runtime;
-        CREATE POLICY synthetic_frame_read_fault ON market_data.observations AS RESTRICTIVE
-          FOR SELECT TO openetrm_runtime USING(public.synthetic_frame_read_fault(id));""")
+    # Exact frame reads reject unknown SELECT policies. Inject the later read
+    # failure at their native point-reader boundary without changing that policy
+    # contract. The owned gate only raises, and the original body is restored.
+    signature='security.read_observation_pins(uuid,uuid,uuid[])'
+    original=query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+    marker='\nBEGIN\n'
+    assert original.count(marker)==1
+    injected=original.replace(marker,marker+""" IF nullif(current_setting('openetrm.synthetic_frame_read_fault',true),'')::uuid=ANY(requested_pins)
+ THEN RAISE EXCEPTION 'synthetic_frame_read_fault' USING ERRCODE='P0001';END IF;
+""",1)
     try:
+        query(injected)
         subprocess.run([*command,'--stream-read-faults',str(fixture)],
                        cwd=Path(__file__).resolve().parents[1], env=environment, check=True,
                        timeout=120)
     finally:
-        query('DROP POLICY synthetic_frame_read_fault ON market_data.observations;DROP FUNCTION public.synthetic_frame_read_fault(uuid);')
+        query(original)
+    assert query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")==original

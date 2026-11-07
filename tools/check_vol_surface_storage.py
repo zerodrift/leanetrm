@@ -1,5 +1,5 @@
 """Stored volatility surfaces in the owned exchange example: immutable revisions recorded once per request and per
-valuation instant and pinned input set (D238) at one close or working snapshot (D354), published through the trading
+valuation instant and pinned input set (D238) at one close or working snapshot (D356), published through the trading
 knowledge protocol and read at a certified cutoff."""
 import hashlib
 import json

@@ -1,4 +1,4 @@
--- A volatility surface belongs to the exact close it was fitted at (D354). A frame identity is session-scoped, so the stored
+-- A volatility surface belongs to the exact close it was fitted at (D356). A frame identity is session-scoped, so the stored
 -- key is the recorded close (which names its session and business day) or, for a working snapshot, none, with the valuation
 -- instant in both cases. A read, the fit-job status and the recording's no-op test all name that close and instant, and a
 -- read or fit-job status also the frame's pins: a surface fitted at one session's close is not shown at another session's

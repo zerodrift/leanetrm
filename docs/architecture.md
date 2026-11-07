@@ -1,10 +1,22 @@
 # Architecture and domain contracts
 
-D354 keys each stored [volatility surface](vol-surfaces.md) to the recorded close
+D356 keys each stored [volatility surface](vol-surfaces.md) to the recorded close
 (session and business day) or working-snapshot instant it was fitted at, never to
 a session-scoped frame id, and lists stored surfaces in a library the Vol surfaces
 page offers instead of product search. A close without a surface offers
 calibration there or a close that has one; no surface is carried to another close.
+
+D355 bounds repeated gas billing metadata authorization work by following the
+selected trade's exact relational keys. Native read policies, visible revisions,
+context and cash terms remain unchanged; the ordinary read deadline stays in
+force. See [gas billing](gas-cash-billing.md#selected-metadata-reads-d355).
+
+D354 groups the shared view context and bounds selected-frame correction reads.
+The close session and recorded date remain separate from the knowledge cutoff;
+help explains their meanings and the close-in-force exception. One authorized
+observation set decides both requested anchors and their correction siblings.
+Calendar frame reads reuse the existing exact-pin reader. No financial policy,
+tool shape, assistant runtime or grant changes. See [historical context](context.md#shared-context-header-and-selected-fact-reads-d354).
 
 D353 makes inspection a required `SideValuation.InspectSchedule` contract.
 Evaluators expose native rows or compiled executions through one immutable,

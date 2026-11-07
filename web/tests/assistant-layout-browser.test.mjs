@@ -19,8 +19,8 @@ async function fixture(work){
     names:()=>({}),trade:()=>undefined,unsaved:()=>false,open:async()=>{},go:async()=>{},restore:async()=>{}});
    assistant.draft('Synthetic layout question');
    window.press=key=>document.getElementById('assistant-resize').dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}));
-   window.geometry=()=>{const main=document.querySelector('main'),panel=document.getElementById('assistant-panel');return {
-    main:main.getBoundingClientRect().width,panel:panel.getBoundingClientRect().width,margin:parseFloat(getComputedStyle(main).marginRight),
+   window.geometry=()=>{const main=document.querySelector('main'),panel=document.getElementById('assistant-panel'),bounds=panel.getBoundingClientRect();return {
+    main:main.getBoundingClientRect().width,panel:bounds.width,right:bounds.right,margin:parseFloat(getComputedStyle(main).marginRight),
     max:Number(document.getElementById('assistant-resize').getAttribute('aria-valuemax')),saved:localStorage.getItem('openetrm.assistant.width')};};
   })()`);
   await work(evaluate,viewport,command);
@@ -29,23 +29,24 @@ async function fixture(work){
 
 test('the widest docked assistant preserves a usable workspace and follows navigation width',{skip:!browserAvailable},async()=>{
  await fixture(async(evaluate,viewport,command)=>{
+  await evaluate("(()=>{const style=document.createElement('style');style.textContent='html{overflow-y:scroll}::-webkit-scrollbar{width:15px}';document.head.append(style);})();"+settle);
   await evaluate("press('End')");
   const expanded=await evaluate('geometry()');
   assert.ok(expanded.main>=640,`workspace squeezed to ${expanded.main}px`);
   assert.equal(expanded.margin,expanded.panel);
-  const edge=1440-expanded.panel;
+  const edge=expanded.right-expanded.panel,first=expanded.right-440,second=expanded.right-340;
   await command('Input.dispatchMouseEvent',{type:'mousePressed',x:edge,y:400,button:'left',clickCount:1});
-  await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:1000,y:400,button:'left',buttons:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:first,y:400,button:'left',buttons:1});
   await evaluate(settle);
   assert.equal((await evaluate('geometry()')).panel,440,'dragging remains at the pointer between frames');
-  await command('Input.dispatchMouseEvent',{type:'mouseReleased',x:1000,y:400,button:'left',clickCount:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseReleased',x:first,y:400,button:'left',clickCount:1});
   assert.equal((await evaluate('geometry()')).saved,'440','releasing remembers the dragged width');
-  await command('Input.dispatchMouseEvent',{type:'mousePressed',x:1000,y:400,button:'left',clickCount:1});
-  await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:1100,y:400,button:'left',buttons:1});
+  await command('Input.dispatchMouseEvent',{type:'mousePressed',x:first,y:400,button:'left',clickCount:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:second,y:400,button:'left',buttons:1});
   await evaluate(settle);
   assert.equal((await evaluate('geometry()')).panel,340);
   await evaluate("document.getElementById('assistant-resize').dispatchEvent(new PointerEvent('pointercancel',{bubbles:true}))");
-  await command('Input.dispatchMouseEvent',{type:'mouseReleased',x:1100,y:400,button:'left',clickCount:1});
+  await command('Input.dispatchMouseEvent',{type:'mouseReleased',x:second,y:400,button:'left',clickCount:1});
   const canceled=await evaluate('geometry()');
   assert.equal(canceled.panel,440,'canceling a drag restores the previous width');
   assert.equal(canceled.saved,'440','canceling a drag preserves the preference');
