@@ -61,6 +61,28 @@ static class RateCurveMathChecks
             if (RateCurveMath.Interpolate(RateNode.Anchor, monday, 0, continuous) != D("1")) throw new Exception("t_0 must discount at exactly 1.");
         });
 
+        Check("a payment uses only the pillars its bracket needs, and those alone reproduce it", () =>
+        {
+            var reference = new DateOnly(2030, 1, 1);
+            System.Collections.Immutable.ImmutableArray<RatePillarRate> pillars = [new(reference.AddDays(365), D("0.0430")), new(reference.AddDays(730), D("0.0410"))];
+            void Expect(int days, RateConventionSet terms, string? factor, int[] used)
+            {
+                var result = RateCurveMath.Discount(reference, pillars, reference.AddDays(days), terms);
+                if (!result.UsedPillars.SequenceEqual(used)) throw new Exception($"Day {days} used [{string.Join(",", result.UsedPillars)}].");
+                if (factor is not null) Near(result.Factor, factor);
+                var subset = RateCurveMath.Discount(reference, [..used.Select(i => pillars[i])], reference.AddDays(days), terms);
+                if (used.Length > 0 && subset.Factor != result.Factor) throw new Exception($"Day {days}: its used pillars alone give {subset.Factor}.");
+            }
+            if (RateCurveMath.Discount(reference, pillars, reference, continuous) is not { UsedPillars.Length: 0 } same || same.Factor != D("1"))
+                throw new Exception("t_0 must discount at exactly 1 from no pillars.");
+            Expect(100, continuous, null, [0]);
+            Expect(500, continuous, "0.944193025537330858", [0, 1]);
+            Expect(730, continuous, null, [1]);
+            Expect(900, Terms("actual_365_fixed", "continuous", extrapolation: "flat_forward"), "0.904688689863042511", [0, 1]);
+            Expect(900, Terms("actual_365_fixed", "continuous", extrapolation: "flat_zero"), "0.903846358531547477", [1]);
+            Reject("discount_coverage", () => RateCurveMath.Discount(reference, pillars, reference.AddDays(900), continuous));
+        });
+
         Check("percent and decimal marks give identical factors", () =>
         {
             if (RateCurveMath.DecimalRate(D("4.25"), "percent_per_year") != RateCurveMath.DecimalRate(D("0.0425"), "decimal_per_year"))

@@ -24,8 +24,10 @@ public static class SelectedClose
         return pin;
     }
     // Current knowledge captured on the close's date and left unbound, so that a write in the same request remains a current write.
-    public static async Task<ScheduleContext> Capture(NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,CancellationToken ct)=>
-        (await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,new(PreviewSession.BusinessDay(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
+    public static Task<ScheduleContext> Capture(NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,CancellationToken ct)=>
+        Capture(connection,database.Manifest.CatalogId,frame,ct);
+    public static async Task<ScheduleContext> Capture(NpgsqlConnection connection,Guid catalog,InputFrame frame,CancellationToken ct)=>
+        (await new KnowledgeStore(catalog).Capture(connection,new(PreviewSession.BusinessDay(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
     // The session a request reads: "always latest" releases only that session's pinned prices (D334).
     public static async Task BindSession(NpgsqlConnection connection,Guid catalog,string session,CancellationToken ct)
     {

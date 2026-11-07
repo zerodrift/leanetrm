@@ -163,14 +163,14 @@ public static class MarketDates
                     references.Sources,references.Calendars,references.Schedules,selected,cancellation,retainedObservations:retainedSamples,sourceFrame:sourceFrame,calendarReads:calendarReads);
             }
         }
-        else qualify=(frame,cancellation)=>
+        else qualify=async(frame,cancellation)=>
         {
             cancellation.ThrowIfCancellationRequested();
-            if(request.Curve is {} selected){QualifyCurve(data,frame,selected);return Task.CompletedTask;}
+            if(request.Curve is {} selected){await QualifyCurve(connection,database,data,frame,selected,cancellation);return;}
             foreach(var code in frame.CurveContracts.Keys.Where(curveCodes.Contains).Concat(rateCodes).Order(StringComparer.Ordinal))
             {
                 cancellation.ThrowIfCancellationRequested();
-                try{QualifyCurve(data,frame,code);return Task.CompletedTask;}
+                try{await QualifyCurve(connection,database,data,frame,code,cancellation);return;}
                 catch(MarketDataException){/* One unsupported curve does not qualify or hide another curve's explicit data. */}
             }
             throw new MarketDataException("market_data_unavailable","No complete curve can be evaluated from this exact snapshot.");
@@ -260,11 +260,11 @@ public static class MarketDates
             manifest.CatalogId,manifest.RevisionId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId);
         if(!Equals(await command.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
     }
-    static void QualifyCurve(PreviewData data,InputFrame frame,string code)
+    static async Task QualifyCurve(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,InputFrame frame,string code,CancellationToken ct)
     {
         if(data.IsRateCurve(code))
         {
-            if(data.BuildRates(frame,code).Values.IsEmpty)throw new MarketDataException("market_data_unavailable","This exact snapshot has no rate points.");
+            if(data.BuildRates(frame,await RateCurveResolver.Resolve(connection,data,frame,code,ct)).Values.IsEmpty)throw new MarketDataException("market_data_unavailable","This exact snapshot has no rate points.");
         }
         else if(data.Build(frame,code).Values.IsEmpty)throw new MarketDataException("market_data_unavailable","This exact snapshot has no live curve points.");
     }

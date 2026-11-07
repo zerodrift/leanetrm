@@ -215,3 +215,20 @@ def run_checks(url, query, manifest):
     assert editor.call('curve-definitions/admit', {**admit, 'requestId': str(uuid4()), 'revisionId': draft_revision(), 'version': pending['version']},
                        expected=422)['code'] == 'rate_admission'
     print('PASS published rate definitions admit one stable series per tenor, idempotently and with the unit range')
+
+    # D359: an admitted curve rolls with each close's t_0: its tenors keep their series and marks, and their maturities move.
+    from decimal import Decimal, getcontext, ROUND_HALF_EVEN
+    getcontext().prec = 50
+    def factor(mark, days):  # continuous compounding, ACT/365 Fixed, from a percent mark; rounded once to 18 places
+        return str((-(Decimal(mark) / 100) * days / Decimal(365)).exp().quantize(Decimal('1e-18'), ROUND_HALF_EVEN))
+    for day, maturities, marks in [('2021-01-15', ['2021-02-14', '2022-01-15'], ['4.10', '4.30']),
+                                   ('2021-02-15', ['2021-03-17', '2022-02-15'], ['4.20', '4.40'])]:
+        shown = viewer.call('evaluate', {'snapshotId': close(viewer, day), 'curve': 'usd_rolling'})
+        days = [30, 365]
+        assert [(p['label'], p['maturity'], Decimal(p['mark']), p['actualDays']) for p in shown['points']] == list(zip(['1M', '1Y'], maturities, map(Decimal, marks), days)), shown['points']
+        assert [p['discountFactor'] for p in shown['points']] == [factor(m, d) for m, d in zip(marks, days)], shown['points']
+        assert shown['markUnitLabel'] == '% per year' and shown['definition']['version'] == 1 and shown['currency'] == 'usd', shown
+    january = viewer.call('evaluate', {'snapshotId': close(viewer, '2021-01-15'), 'curve': 'usd_rolling'})['points']
+    february = viewer.call('evaluate', {'snapshotId': close(viewer, '2021-02-15'), 'curve': 'usd_rolling'})['points']
+    assert [p['seriesId'] for p in january] == [p['seriesId'] for p in february], 'A tenor changed series between closes'
+    print('PASS a definition-driven rate curve rolls its tenors with each close, in its own unit and conventions')

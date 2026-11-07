@@ -164,7 +164,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   if(await command.ExecuteScalarAsync(ct) is not string text)return null;
   var row=JsonSerializer.Deserialize<JsonElement>(text);
   if(row.Id("definition_revision_id")!=data.DefinitionRevision.RevisionId)throw Error("discount_curve","The configured currency default has a different exact definition revision.");
-  return new(row.Id("id"),currency,data.RateDefinition(row.Text("curve_code")),row.Text("interpolation_policy"));
+  return new(row.Id("id"),currency,await RateCurveResolver.Resolve(connection,data,frame,row.Text("curve_code"),ct));
  }
  private async Task<FinancialSwapEvaluation> Evaluate(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,
   Guid? instrumentId,Guid? fixedId,Guid? floatingId,CancellationToken ct,ImmutableArray<(PreviewData Data,InputFrame Frame)>? markets=null,FinancialSwapInstrument? retained=null,CustomCurves.PreparationScope? preparationScope=null)
@@ -209,7 +209,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
     tradeCashAmount=Exact(p.Cashflow.CashAmount.Scale(s.Contribution.QuantityRatio).Scale(s.Contribution.Coefficient).Scale(quantity.Amount)),
     tradePresentValue=Exact(p.Cashflow.RequirePresentValue().Scale(s.Contribution.QuantityRatio).Scale(s.Contribution.Coefficient).Scale(quantity.Amount)),
     cashAmount=Exact(p.Cashflow.CashAmount),discountFactor=p.Discount.Factor.ToString(),presentValue=Exact(p.Cashflow.RequirePresentValue()),
-    discountMappingId=p.Discount.MappingId,discountCurve=p.Discount.Curve,discountPolicy=p.Discount.InterpolationPolicy,pillars=p.Discount.Pillars,
+    discountMappingId=p.Discount.MappingId,discountCurve=p.Discount.Curve,discountConventions=p.Discount.Conventions,pillars=p.Discount.Pillars,
     observationSchedule=ObservationInspection(p.Cashflow),
     resets=p.Cashflow.Resets.Select(reset=>new{cashContribution=Exact(reset.CashContribution),fixingState=reset.Price.State.ToString(),fixingAt=reset.Price.Term.ContractObservation?.FixingAt??reset.Price.Term.Lookup?.Fixing?.FixingAt,fixing=reset.Price.Term.Lookup?.Fixing,from=reset.Price.Term.ContractObservation is {} observation?Date(observation.From):reset.Price.Term.Lookup is {} l?Date(l.Contract.DeliveryFrom):Date(p.Cashflow.Plan.DeliveryFrom),
      to=reset.Price.Term.ContractObservation is {} endObservation?Date(endObservation.To):reset.Price.Term.Lookup is {} e?Date(e.Contract.DeliveryTo):Date(p.Cashflow.Plan.DeliveryTo),weight=reset.Price.Term.Weight.ToString(),price=ExactPrice(reset.Price.ExactPrice),

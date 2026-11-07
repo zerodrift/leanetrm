@@ -268,6 +268,12 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
         # Closes either side of the 202102 last trading day (2021-01-28), for curve windows that roll with the selected
         # close. They repeat 18 December's prices; only their dates are read.
         frames.extend({**frames[3],'at':at} for at in ('2021-01-15T16:00:00Z','2021-02-15T16:00:00Z'))
+        # D359: a definition-driven rate curve whose tenors roll with these two closes, marked at each.
+        from rate_curve_fixture import rolling_curve
+        definitions,marks,pins=rolling_curve(CAT,REV,R,'usd_rolling','Synthetic rolling USD zero rates',[('1M',30),('1Y',365)],
+            {'2021-01-15T16:00:00Z':['4.10','4.30'],'2021-02-15T16:00:00Z':['4.20','4.40']})
+        extra_market.append(definitions);extra_obs.append(marks)
+        for frame in frames[-2:]:frame['observationIds']=[*frame['observationIds'],*pins[frame['at']]]
     extra_ref.append(f"DO $$ BEGIN IF to_regclass('ref_data.futures_product_terms') IS NOT NULL THEN INSERT INTO ref_data.futures_product_terms VALUES({R},'test_gas_future','test_uniform',NULL); END IF; END $$;")
     extra_ref.append(f"""DO $policy$ BEGIN
  IF to_regclass('ref_data.futures_execution_policies') IS NOT NULL THEN

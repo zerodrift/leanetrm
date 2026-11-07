@@ -8,8 +8,7 @@ namespace OpenEtrm.Rates;
 // The service supplies this exact version after resolving the configured currency
 // default under its authorized effective/knowledge context. This type does not
 // select a current mapping or confer authority to read a curve.
-public sealed record CurrencyDiscountCurve(Guid Id, ReferenceKey Currency,
-    ZeroRateDefinition Definition, string InterpolationPolicy);
+public sealed record CurrencyDiscountCurve(Guid Id, ReferenceKey Currency, RateCurveDefinition Definition);
 
 public sealed record PaymentDiscount
 {
@@ -18,13 +17,13 @@ public sealed record PaymentDiscount
     public Guid? MappingId { get; }
     public CurveKey? Curve { get; }
     public ReferenceKey Currency { get; }
-    public ZeroRateDefinition? Definition { get; }
+    public RateCurveDefinition? Definition { get; }
     public DateOnly PaymentDate { get; }
     public MarketSnapshot Snapshot { get; }
     public ImmutableArray<ZeroRateValue> Pillars { get; }
     public ImmutableArray<ObservationKey> Observations => Pillars.Select(p => p.Observation).ToImmutableArray();
     public string? RateNumericalPolicy { get; }
-    public string? InterpolationPolicy { get; }
+    public RateConventionSet? Conventions { get; }
 
     private PaymentDiscount(bool enabled, ExactDecimal factor, ReferenceKey currency, CurrencyDiscountCurve? mapping,
         DateOnly paymentDate, MarketSnapshot snapshot, ImmutableArray<ZeroRateValue> pillars)
@@ -33,7 +32,7 @@ public sealed record PaymentDiscount
         Currency = currency; Definition = mapping?.Definition;
         PaymentDate = paymentDate; Snapshot = snapshot; Pillars = pillars;
         RateNumericalPolicy = enabled ? ZeroRateCurve.Policy : null;
-        InterpolationPolicy = mapping?.InterpolationPolicy;
+        Conventions = mapping?.Definition.Conventions;
     }
 
     public static PaymentDiscount Resolve(bool discounting, ReferenceKey currency, DateOnly paymentDate,
@@ -71,12 +70,12 @@ public sealed record PaymentDiscount
                 throw new MarketDataException("discount_curve_missing", "The selected currency has no configured default discount curve in this context.");
             var mapping = currencyDefault;
             if (mapping.Id == Guid.Empty || mapping.Definition is null || mapping.Currency != currency ||
-                mapping.Definition.Currency != currency || mapping.InterpolationPolicy != DiscountInterpolation.Policy)
-                throw new MarketDataException("discount_curve", "The exact configured currency, curve definition and interpolation policy must agree.");
+                mapping.Definition.Currency != currency)
+                throw new MarketDataException("discount_curve", "The configured default's currency and its curve's currency must both be the payment currency.");
             if (resolved.TryGetValue(paymentDate, out var cached)) return cached;
             if (rates is null)
             {
-                rates = new(mapping.Definition,snapshot,mapping.InterpolationPolicy);
+                rates = new(mapping.Definition,snapshot);
             }
             var factor=rates.Lookup(paymentDate).Value;
             var value=new PaymentDiscount(true,factor.Value,currency,mapping,paymentDate,snapshot,factor.Pillars);
@@ -155,9 +154,8 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
         var factor=new SidePaymentFactor(key,input.Factor,Snapshot,input.Enabled?DiscountFactorSource.CurrencyDefault:DiscountFactorSource.Undiscounted);
         if(!input.Enabled)return factor;
         var definition=input.Definition!;
-        return factor with { RateDefinition=new(input.MappingId!.Value,definition.Key,definition.Specification,definition.Currency,definition.Source,
-            DateOnly.FromDateTime(Snapshot.ValuationAt.UtcDateTime),input.PaymentDate,definition.DayCount,definition.Compounding,definition.Implementation,
-            definition.DateBasis,input.RateNumericalPolicy!,input.InterpolationPolicy!,
+        return factor with { RateDefinition=new(input.MappingId!.Value,definition.Key,definition.Currency,definition.Source,
+            DateOnly.FromDateTime(Snapshot.ValuationAt.UtcDateTime),input.PaymentDate,definition.Conventions,input.RateNumericalPolicy!,
             [..input.Pillars.Select(p=>new RateDiscountPillar(p.Maturity,Snapshot.Selections.Single(s=>s.Input==new InputKey(p.Series,InputUse.Variable) && s.Observation.Key==p.Observation).Observation))]) };
     }
     public ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot)

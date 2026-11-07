@@ -29,13 +29,20 @@ ALTER TABLE market_data.curve_definition_versions
    AND (kind='future')=(futures_product_code IS NOT NULL) END);
 GRANT UPDATE(currency_code,mark_unit,day_count,compounding,extrapolation) ON market_data.curve_definition_versions TO openetrm_runtime;
 
--- 2. A rate curve is an admitted published interest-rate definition with one stable series per tenor label. Literal-maturity
--- rate curves remain readable until the cutover that removes them; a row is exactly one of the two shapes.
+-- 2. A rate curve is an admitted published interest-rate definition with one stable series per tenor label. The revision pins
+-- the definition version and carries its terms, so valuation reads them from the revision itself; sealing checks they are equal.
+-- Literal-maturity rate curves remain readable until the cutover that removes them; a row is exactly one of the two shapes.
 ALTER TABLE market_data.rate_curves ALTER COLUMN interest_rate_code DROP NOT NULL,ALTER COLUMN date_basis DROP NOT NULL,
- ADD COLUMN definition_id uuid,ADD COLUMN definition_version integer,
+ ADD COLUMN definition_id uuid,ADD COLUMN definition_version integer,ADD COLUMN currency_code text,ADD COLUMN mark_unit text,
+ ADD COLUMN day_count text,ADD COLUMN compounding text,ADD COLUMN interpolation text,ADD COLUMN extrapolation text,
+ ADD COLUMN mapping_definition_id uuid,ADD COLUMN mapping_version integer,
  ADD FOREIGN KEY(catalog_id,definition_id,definition_version) REFERENCES market_data.curve_definition_versions(catalog_id,definition_id,version),
- ADD CONSTRAINT rate_curve_shape CHECK(num_nulls(interest_rate_code,date_basis)=2 AND num_nulls(definition_id,definition_version)=0
-  OR num_nulls(interest_rate_code,date_basis)=0 AND num_nulls(definition_id,definition_version)=2);
+ ADD FOREIGN KEY(catalog_id,mapping_definition_id,mapping_version) REFERENCES market_data.contract_date_versions(catalog_id,definition_id,version),
+ ADD FOREIGN KEY(reference_catalog_id,reference_revision_id,currency_code) REFERENCES ref_data.currencies(catalog_id,revision_id,code),
+ ADD CONSTRAINT rate_curve_shape CHECK(num_nulls(interest_rate_code,date_basis)=2
+   AND num_nulls(definition_id,definition_version,currency_code,mark_unit,day_count,compounding,interpolation,extrapolation,mapping_definition_id,mapping_version)=0
+  OR num_nulls(interest_rate_code,date_basis)=0
+   AND num_nonnulls(definition_id,definition_version,currency_code,mark_unit,day_count,compounding,interpolation,extrapolation,mapping_definition_id,mapping_version)=0);
 CREATE TABLE market_data.rate_curve_tenors (
  catalog_id uuid NOT NULL,revision_id uuid NOT NULL,curve_code ref_data.code NOT NULL,
  ordinal integer NOT NULL CHECK(ordinal BETWEEN 0 AND 119),label text NOT NULL CHECK(length(label) BETWEEN 1 AND 80),series_id uuid NOT NULL,
@@ -99,8 +106,11 @@ BEGIN
  IF EXISTS(SELECT 1 FROM market_data.rate_curves r LEFT JOIN market_data.curve_definition_versions v
   ON(v.catalog_id,v.definition_id,v.version)=(r.catalog_id,r.definition_id,r.definition_version)
   WHERE r.catalog_id=cat AND r.revision_id=rev AND r.definition_id IS NOT NULL AND(v.state IS DISTINCT FROM 'published' OR v.kind<>'interest_rate'
-   OR(v.reference_catalog_id,v.reference_revision_id)<>(r.reference_catalog_id,r.reference_revision_id) OR v.mark_source_code<>r.source_code)) THEN
-  RAISE EXCEPTION 'Rate curves admit a published interest-rate definition on the same reference revision and source' USING ERRCODE='23514';
+   OR(v.reference_catalog_id,v.reference_revision_id,v.mark_source_code,v.name,v.currency_code,v.mark_unit,v.day_count,v.compounding,v.interpolation,
+      v.extrapolation,v.mapping_definition_id,v.mapping_version)
+    IS DISTINCT FROM(r.reference_catalog_id,r.reference_revision_id,r.source_code,r.name,r.currency_code,r.mark_unit,r.day_count,r.compounding,r.interpolation,
+      r.extrapolation,r.mapping_definition_id,r.mapping_version))) THEN
+  RAISE EXCEPTION 'Rate curves carry exactly the terms of the published interest-rate definition they admit' USING ERRCODE='23514';
  END IF;
  IF EXISTS(SELECT 1 FROM market_data.rate_curves r WHERE r.catalog_id=cat AND r.revision_id=rev AND
   NOT EXISTS(SELECT 1 FROM market_data.rate_curve_tenors t WHERE(t.catalog_id,t.revision_id,t.curve_code)=(r.catalog_id,r.revision_id,r.code))

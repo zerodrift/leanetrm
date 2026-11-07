@@ -1,8 +1,7 @@
 using System.Collections.Immutable;
-using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Options;
 
-namespace OpenEtrm.Rates;
+namespace OpenEtrm.MarketData;
 
 public sealed record RateChoice(string Field, string Code, string Label, bool Offered);
 
@@ -17,6 +16,9 @@ public sealed record RateConventionSet(string DayCount, string Compounding, stri
         RateCurveMath.Choices.Any(c => c.Field == field && c.Code == code && c.Offered) ? code! :
             throw new MarketDataException("unsupported_rate_convention", $"Choose a supported {field}; '{code}' is not offered.");
 }
+
+public sealed record RatePillarRate(DateOnly Maturity, ExactDecimal DecimalRate);
+public sealed record RateDiscount(ExactDecimal Factor, ImmutableArray<int> UsedPillars);
 
 // A discount node: days after t_0, its decimal annual zero rate and its discount factor.
 public sealed record RateNode(int Days, ExactDecimal DecimalRate, ExactDecimal Factor)
@@ -105,6 +107,35 @@ public static class RateCurveMath
                 Ratio(days - last.Days, last.Days - beforeLast.Days)).Exp().ToExact(),
             _ => throw Unsupported(c.Extrapolation),
         };
+    }
+
+    // A payment date's discount factor from a curve's pillars (each a maturity and its decimal annual zero rate) at referenceDate,
+    // and the pillars it used. t_0 discounts at exactly 1; before the first pillar the t_0 anchor is the left bracket.
+    public static RateDiscount Discount(DateOnly referenceDate, ImmutableArray<RatePillarRate> pillars, DateOnly payment, RateConventionSet c)
+    {
+        if (pillars.IsDefaultOrEmpty || payment < referenceDate)
+            throw new MarketDataException("discount_context", "Discount a payment on or after the reference date from at least one pillar.");
+        var nodes = pillars.Select((p, i) =>
+        {
+            var days = p.Maturity.DayNumber - referenceDate.DayNumber;
+            if (days <= 0 || i > 0 && p.Maturity <= pillars[i - 1].Maturity)
+                throw new MarketDataException("rate_maturity", "Pillars must follow the reference date in strictly increasing order.");
+            return new RateNode(days, p.DecimalRate, Factor(p.DecimalRate, days, c));
+        }).ToImmutableArray();
+        var target = payment.DayNumber - referenceDate.DayNumber;
+        if (target == 0) return new(ExactDecimal.Parse("1"), []);
+        var right = nodes.TakeWhile(n => n.Days < target).Count();
+        if (right < nodes.Length)
+        {
+            if (nodes[right].Days == target) return new(nodes[right].Factor, [right]);
+            return right == 0
+                ? new(Interpolate(RateNode.Anchor, nodes[0], target, c), [0])
+                : new(Interpolate(nodes[right - 1], nodes[right], target, c), [right - 1, right]);
+        }
+        var last = nodes.Length - 1;
+        var before = last == 0 ? RateNode.Anchor : nodes[last - 1];
+        var factor = Extrapolate(before, nodes[last], target, c);
+        return new(factor, c.Extrapolation == "flat_forward" && last > 0 ? [last - 1, last] : [last]);
     }
 
     private static readonly DateOnly Epoch = new(2000, 1, 1);

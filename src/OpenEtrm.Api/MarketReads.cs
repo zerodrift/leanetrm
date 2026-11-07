@@ -135,7 +135,7 @@ public sealed class MarketReads(PreviewDatabase database)
     public async Task<PriceRead> Evaluate(NpgsqlConnection connection,PinnedContext pin,string curve,CancellationToken ct,bool includeWorkspace=false)
     {
         var (frame,data)=await Pinned(connection,pin,ct);
-        var result=data.Result(frame,curve);
+        var result=data.IsRateCurve(curve)?data.Result(frame,curve,await RateCurveResolver.Resolve(connection,data,frame,curve,ct)):data.Result(frame,curve);
         return new(result,data.Observations,includeWorkspace?await WorkspaceMetadata(connection,data,true,ct):null);
     }
 

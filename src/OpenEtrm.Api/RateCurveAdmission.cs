@@ -50,9 +50,10 @@ public sealed class RateCurveAdmission(Guid catalog)
             if(reader.GetString(2)!="draft")throw Invalid("Admit a rate curve into a draft definition revision.");
             referenceCatalog=reader.GetGuid(0);referenceRevision=reader.GetGuid(1);
         }
-        string curve,name,source,unit;Guid mapping;int mappingVersion;
+        string curve,name,source,unit;Guid mapping;int mappingVersion;object[] terms;
         await using(var definition=ScheduleStore.Command(connection,"""
-SELECT d.code,v.name,v.mark_source_code,v.mark_unit,v.mapping_definition_id,v.mapping_version,v.state,v.kind,v.reference_catalog_id,v.reference_revision_id
+SELECT d.code,v.name,v.mark_source_code,v.mark_unit,v.mapping_definition_id,v.mapping_version,v.state,v.kind,v.reference_catalog_id,v.reference_revision_id,
+ v.currency_code,v.day_count,v.compounding,v.interpolation,v.extrapolation
  FROM market_data.curve_definition_versions v JOIN market_data.curve_definitions d ON(d.catalog_id,d.id)=(v.catalog_id,v.definition_id)
  WHERE(v.catalog_id,v.definition_id,v.version)=($1,$2,$3)
 """,catalog,body.DefinitionId,body.Version))
@@ -63,6 +64,7 @@ SELECT d.code,v.name,v.mark_source_code,v.mark_unit,v.mapping_definition_id,v.ma
             if(reader.GetGuid(8)!=referenceCatalog||reader.GetGuid(9)!=referenceRevision)
                 throw Invalid("The definition and the definition revision must name the same reference revision.");
             (curve,name,source,unit,mapping,mappingVersion)=(reader.GetString(0),reader.GetString(1),reader.GetString(2),reader.GetString(3),reader.GetGuid(4),reader.GetInt32(5));
+            terms=[reader.GetString(10),unit,reader.GetString(11),reader.GetString(12),reader.GetString(13),reader.GetString(14),mapping,mappingVersion];
         }
         await using(var specification=ScheduleStore.Command(connection,"SELECT kind,minimum::text,maximum::text FROM ref_data.value_specifications WHERE(catalog_id,revision_id,code)=($1,$2,$3)",
             referenceCatalog,referenceRevision,body.ValueSpecification))
@@ -82,9 +84,10 @@ SELECT d.code,v.name,v.mark_source_code,v.mark_unit,v.mapping_definition_id,v.ma
         await using(var reader=await existing.ExecuteReaderAsync(ct))
             if(await reader.ReadAsync(ct)&&(reader.IsDBNull(0)||reader.GetGuid(0)!=body.DefinitionId||reader.GetInt32(1)!=body.Version))throw Conflict();
         await using(var insert=ScheduleStore.Command(connection,"""
-INSERT INTO market_data.rate_curves(catalog_id,revision_id,code,reference_catalog_id,reference_revision_id,source_code,name,definition_id,definition_version)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING
-""",catalog,body.RevisionId,curve,referenceCatalog,referenceRevision,source,name,body.DefinitionId,body.Version))
+INSERT INTO market_data.rate_curves(catalog_id,revision_id,code,reference_catalog_id,reference_revision_id,source_code,name,definition_id,definition_version,
+ currency_code,mark_unit,day_count,compounding,interpolation,extrapolation,mapping_definition_id,mapping_version)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT DO NOTHING
+""",[catalog,body.RevisionId,curve,referenceCatalog,referenceRevision,source,name,body.DefinitionId,body.Version,..terms]))
             await insert.ExecuteNonQueryAsync(ct);
         for(var ordinal=0;ordinal<labels.Count;ordinal++)
         {
