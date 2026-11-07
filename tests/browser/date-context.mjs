@@ -2,7 +2,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#market-date-open')&&!document.querySelector('#date-context').hidden&&"+idle);
- await check('the header keeps As of visible and knowledge collapsed in one compact row',"(()=>{const bar=document.querySelector('header #context-toolbar'),knowledge=document.querySelector('#knowledge-context');return bar&&knowledge&&!knowledge.open&&getComputedStyle(bar).position==='static'&&bar.getBoundingClientRect().height<=34&&bar.getBoundingClientRect().width<440&&document.querySelector('#market-date-open').getClientRects().length>0&&!document.querySelector('#date-context-view').checkVisibility()&&!document.querySelector('#context-dock-move,#context-dock-minimize,#context-dock-restore');})()","({size:document.querySelector('#context-toolbar').getBoundingClientRect().toJSON(),position:getComputedStyle(document.querySelector('#context-toolbar')).position,open:document.querySelector('#knowledge-context').open,cutoffVisible:document.querySelector('#date-context-view').checkVisibility(),summary:document.querySelector('#knowledge-summary').textContent})");
+ await check('the header groups session and close date separately from knowledge',"(()=>{const bar=document.querySelector('header #context-toolbar'),close=bar.querySelector('#market-close-controls'),knowledge=document.querySelector('#knowledge-context');return close?.contains(document.querySelector('#close-session'))&&close.contains(document.querySelector('#market-date-open'))&&bar.contains(knowledge)&&!knowledge.open&&getComputedStyle(bar).position==='static'&&document.querySelector('#close-session').labels[0].checkVisibility()&&!document.querySelector('#date-context-view').checkVisibility();})()");
+ await click('#context-help>summary');
+ await check('context help explains the session, close and knowledge without changing them',"document.querySelector('#context-help').open&&document.querySelector('#close-session-help').checkVisibility()&&document.querySelector('#knowledge-context-help').textContent.includes('cutoff')&&document.querySelector('#context-help').textContent.includes('recorded close')&&document.querySelector('#error').hidden");
+ await click('#context-help>summary');
  await check('market pages show only one date selector',"document.querySelector('#date-context-on').type==='hidden'&&document.querySelector('#market-date-open').getClientRects().length>0");
  const chooseDay=async day=>{
   await click('#market-date-open');
@@ -36,7 +39,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
  await check('the header controls fit a narrow screen',fitsWidth);
  await check('knowledge stays collapsed and reachable on a narrow screen',"!document.querySelector('#knowledge-context').open&&document.querySelector('#knowledge-context>summary').getClientRects().length>0");
- await check('the collapsed date controls use at most two rows on a narrow screen',"document.querySelector('#context-toolbar').getBoundingClientRect().height<=60","document.querySelector('#context-toolbar').getBoundingClientRect().toJSON()");
+ await check('the grouped context stays compact on a narrow screen',"document.querySelector('#context-toolbar').getBoundingClientRect().height<=180","document.querySelector('#context-toolbar').getBoundingClientRect().toJSON()");
  await shot('date-context-mobile');
  await click('#knowledge-context>summary');
  await check('expanded knowledge fits a narrow screen without overlay positioning',fitsWidth+"&&getComputedStyle(document.querySelector('#knowledge-context .knowledge-panel')).position==='static'&&document.querySelector('#date-context-view').checkVisibility()");

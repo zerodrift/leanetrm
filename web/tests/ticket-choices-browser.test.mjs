@@ -63,9 +63,10 @@ test('a late forecast suggestion marks the amendment preview updating before its
    releaseForecast();await until(()=>changedChoiceStatus!==null);
   })()`);
   assert.equal(await evaluate('changedChoiceStatus'),'updating','the old successful preview must stop claiming to match changed terms');
+  assert.equal(await evaluate("document.querySelector('.ticket-book').disabled"),true,'Save waits for a preview matching the changed draft');
   await evaluate(`(async()=>{await until(()=>typeof releasePreview==='function');document.querySelector('.ticket-book').click();})()`);
   assert.equal(await evaluate("calls.filter(c=>c.path==='tickets/amend').length"),0,'saving cannot reuse the preview from before the choice changed');
-  await evaluate(`(async()=>{releasePreview();await until(()=>document.querySelector('.ticket-status')?.dataset.kind==='current');document.querySelector('.ticket-book').click();await until(()=>calls.some(c=>c.path==='tickets/amend'));})()`);
+  await evaluate(`(async()=>{releasePreview();await until(()=>document.querySelector('.ticket-status')?.dataset.kind==='current'&&!document.querySelector('.ticket-book').disabled);document.querySelector('.ticket-book').click();await until(()=>calls.some(c=>c.path==='tickets/amend'));})()`);
   assert.equal(await evaluate("calls.filter(c=>c.path==='tickets/amend').length"),1);
   assert.equal(await evaluate("calls.find(c=>c.path==='tickets/amend').body.draft.sides[0].values.forecast"),'assigned');
   assert.equal(await evaluate("calls.find(c=>c.path==='tickets/amend').body.reason"),'Synthetic choice correction');

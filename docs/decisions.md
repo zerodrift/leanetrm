@@ -3187,3 +3187,67 @@ due-plan refusal and selective denial of a successor's required instrument while
 an exact prior-knowledge context still reads its original head. The public test
 harness creates and removes disposable stock PostgreSQL clusters. No hosted
 deployment or production qualification follows from these local checks.
+
+## D354 — Explicit shared context and bounded selected-fact history
+
+Group the close session with its recorded As of date and label knowledge
+separately. Inline, keyboard-accessible help explains the calendar/cutoff,
+effective date, information cutoff, display time zone and D334 close-in-force
+exception. Business-date pages omit the market-close group. These presentation
+changes preserve explicit choices, edit guards and native context operations.
+Unapplied Dashboard context discards previous figures and names the Apply or
+Working data recovery action; a failed context read does not become a claim that
+an unloaded calendar is latest. A selected curve is read when reopened after a
+context change.
+
+Migration 0211 adds a named consumer for native selected-frame correction
+history. Private candidate construction follows the exact catalog/revision and
+five-part fact key. A single materialized existing point-reader result authorizes
+both requested anchors and returned siblings. A hidden anchor cannot re-anchor
+to an independently visible correction. Pre/post checks reuse the exact reader's
+policy, privilege, source, cutoff, latest-close and live-worker enforcement, and
+the invocation keeps its original authority deadline. Calendar frame reads also
+use that reader, preserving complete-pin checks before optional series filtering.
+Its final identity fetch uses a guarded parameterized lookup rather than a scan
+of unrelated rows. Exact-frame batches retain one database authority deadline
+and check it after each payload, before yielding; successor grants require a
+fresh batch. This does not assert one latest-close snapshot across volatile
+helper calls.
+No financial selection policy, endpoint/tool/event shape, runtime or existing
+agent version/grant is widened. Bulk history and observation-window consumers
+remain separate; no general latency or production qualification is implied.
+
+Independent adversarial review must challenge policy/dependency drift, expiry and
+grant chaining, hidden anchors, wrong scopes, incomplete and hidden newest
+closes, concurrent correction/close publication and worker custody. Managed/SQL
+checks compare native RLS rows and ordering, refuse broad enumeration and measure
+selected work under unrelated history; browser checks cover grouping, mobile
+layout, explanations, failed Apply and cross-page recovery. Production activation
+is a separately qualified schema release.
+
+## D355 — Follow exact gas billing metadata before authorization joins
+
+Keep the native gas billing read on the selected trade's exact relational chain.
+Parameterized joins with flattening barriers retain every visible trade revision,
+the original predicates and slot ordering, native numeric text, ordinary RLS and
+the surrounding trading-context access recheck. No latest-revision reduction,
+financial policy, endpoint, grant, schema or read-deadline change is introduced.
+
+The named managed consumer is the owned physical assistant billing scenario,
+after a reviewed synthetic determination. It invokes the actual native read with
+the ordinary five-second command timeout at one certified context. Complete
+result/order equality and per-relation work limits cover fresh and analyzed
+growth by 512 unrelated curves under custom and generic plans. Per-table limits
+prevent improvements elsewhere from concealing extra authorization work. One
+physical curve scan remains possible with stale small-table estimates; this is
+not a claim of constant raw scan work or a reproduced production latency bound.
+The fixture removes only its own added rows and verifies the original curve
+inventory. Independent review must challenge visibility, pin propagation,
+cardinality/order, current access, counter cancellation and fault cleanup.
+
+Work measurements compare stable planner inputs. The owned fixture temporarily
+pauses its tables' automatic maintenance, waits for existing workers, and checks
+non-curve relation/statistic fingerprints across each pair. Its analyzed layout
+maintains the full dependency database before recording the baseline at the same
+original context and expected result. Finally restores every original maintenance
+option as well as the curve inventory. Production retains its maintenance policy.

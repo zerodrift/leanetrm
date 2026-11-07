@@ -1,10 +1,38 @@
 """Authorized, exact-snapshot date availability for the header calendar."""
 from copy import deepcopy
+from contextlib import contextmanager
 from uuid import uuid4
 from preview_client import PreviewClient
 
 # The built-in frames are recorded as closes of one synthetic UTC session per cutoff time (tools/seed_session_closes.py).
 SESSION='demo_close_1600'
+
+
+@contextmanager
+def visibility_probe(query,predicate):
+    """Observe or subtract native visibility tuples without changing SELECT policies."""
+    signature='security.observation_visibility_scope(uuid,uuid,uuid[])'
+    original=query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+    header='FUNCTION security.observation_visibility_scope('
+    assert original.count(header)==1
+    assert query("SELECT to_regprocedure('public.synthetic_calendar_visibility_source(uuid,uuid,uuid[])') IS NULL;")=='t'
+    source=original.replace(header,'FUNCTION public.synthetic_calendar_visibility_source(',1)
+    prefix,separator,_=original.partition('AS $function$')
+    assert separator
+    wrapper=prefix+separator+f"""
+BEGIN
+ RETURN QUERY SELECT v.catalog,v.revision,v.observation
+ FROM public.synthetic_calendar_visibility_source(requested_catalog,requested_revision,requested_pins)v
+ WHERE {predicate};
+END;
+$function$;
+"""
+    try:
+        query('BEGIN;'+source+";ALTER FUNCTION public.synthetic_calendar_visibility_source(uuid,uuid,uuid[]) OWNER TO openetrm_security_owner;REVOKE ALL ON FUNCTION public.synthetic_calendar_visibility_source(uuid,uuid,uuid[]) FROM PUBLIC;"+wrapper+'COMMIT;')
+        yield
+    finally:
+        query('BEGIN;'+original+';DROP FUNCTION IF EXISTS public.synthetic_calendar_visibility_source(uuid,uuid,uuid[]);COMMIT;')
+        assert query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")==original
 
 
 def run_checks(url,query=None,manifest=None):
@@ -42,16 +70,17 @@ def run_checks(url,query=None,manifest=None):
         newest={frame['id'] for frame in workspace['dates'][-1]['frames']}
         latest_pins={pin for frame in offered if frame['id'] in newest for pin in frame['observationIds']}
         old_pin=next(pin for frame in offered for pin in frame['observationIds'] if pin not in latest_pins)
-        query(f"""CREATE FUNCTION public.synthetic_older_candidate(id uuid) RETURNS boolean LANGUAGE plpgsql VOLATILE AS $$BEGIN
-          IF id='{old_pin}'::uuid THEN RAISE EXCEPTION 'Synthetic older candidate read' USING ERRCODE='42501';END IF;
-          RETURN true;END$$;
-          CREATE POLICY synthetic_older_candidate ON market_data.observations AS RESTRICTIVE
-           FOR SELECT TO openetrm_runtime USING(public.synthetic_older_candidate(id));""")
+        signature='security.read_observation_pins(uuid,uuid,uuid[])'
+        original=query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+        assert original.count('\nBEGIN\n')==1
+        injected=original.replace('\nBEGIN\n',f"\nBEGIN\n IF '{old_pin}'::uuid=ANY(requested_pins) THEN RAISE EXCEPTION 'Synthetic older candidate read' USING ERRCODE='42501';END IF;\n",1)
         try:
+            query(injected)
             assert client.call('market/dates',{'session':SESSION,'curve':None,'timeZone':'UTC','maximumDates':1})['dates']==workspace['dates'][-1:]
             client.call('market/dates',{'session':SESSION,'curve':None,'timeZone':'UTC'},expected=403)
         finally:
-            query('DROP POLICY synthetic_older_candidate ON market_data.observations;DROP FUNCTION public.synthetic_older_candidate(uuid);')
+            query(original)
+            assert query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")==original
         print('PASS latest-date availability never reads an older candidate after its newest date qualifies',flush=True)
     client.call('market/dates',{'session':SESSION,'curve':'missing_curve','timeZone':'UTC'},expected=422)
     client.call('market/dates',{'session':SESSION,'curve':'ng_monthly','timeZone':'Not/AZone'},expected=422)
@@ -59,8 +88,10 @@ def run_checks(url,query=None,manifest=None):
     client.call('market/dates',{'session':SESSION,'definition':templates['ng_prompt']['definition'],'timeZone':'UTC'},expected=400)
     average_request={'curve':None,'definition':templates['ng_average']['definition'],'timeZone':'UTC','session':SESSION}
     if query and manifest:
-        # Count reads of one retained fact under a bound financial context.
-        # Qualifying many dates must not reload the complete history per date.
+        # Count native visibility visits for one retained fact under a bound
+        # context. This detects repeated history visibility work; physical row
+        # work is measured separately by the regional-close checks.
+        baseline_average=client.call('market/dates',average_request)
         anchor=query(f"SELECT id FROM market_data.observations WHERE catalog_id='{manifest['catalogId']}' AND definition_revision_id='{manifest['revisionId']}' AND role='daily_settlement' ORDER BY observed_at,id LIMIT 1;")
         query(f"""CREATE SEQUENCE public.synthetic_calendar_history_reads;
           CREATE FUNCTION public.synthetic_calendar_history_read(observation uuid) RETURNS boolean
@@ -70,19 +101,21 @@ def run_checks(url,query=None,manifest=None):
               AND c.runtime_login=session_user AND c.market_context_id IS NOT NULL) THEN
             PERFORM nextval('public.synthetic_calendar_history_reads');
            END IF;
-           RETURN true;END$$;
-          CREATE POLICY synthetic_calendar_history_read ON market_data.observations AS RESTRICTIVE
-           FOR SELECT TO openetrm_runtime USING(public.synthetic_calendar_history_read(id));""")
+          RETURN true;END$$;
+          REVOKE ALL ON FUNCTION public.synthetic_calendar_history_read(uuid) FROM PUBLIC;
+          GRANT EXECUTE ON FUNCTION public.synthetic_calendar_history_read(uuid) TO openetrm_security_owner;""")
         try:
             before_cutoff=query(f"SELECT coalesce(max(known_at),'-infinity'::timestamptz)::text FROM market_data.temporal_contexts WHERE catalog_id='{manifest['catalogId']}';")
-            average=client.call('market/dates',average_request)
+            with visibility_probe(query,'public.synthetic_calendar_history_read(v.observation)'):
+                average=client.call('market/dates',average_request)
+            assert average['dates']==baseline_average['dates'], 'Visibility instrumentation changed native calendar availability'
             reads=query('SELECT CASE WHEN is_called THEN last_value ELSE 0 END FROM public.synthetic_calendar_history_reads;')
-            assert reads in ('1','2'), f'Custom date availability reloaded history beyond the shared samples and one exact frame: {reads}'
+            assert reads in ('1','2'), f'Custom date availability repeated history visibility beyond shared samples and one exact frame: {reads}'
             coordinates=query(f"SELECT count(DISTINCT known_at),count(DISTINCT effective_on) FROM market_data.temporal_contexts WHERE catalog_id='{manifest['catalogId']}' AND known_at>'{before_cutoff}'::timestamptz;").split('|')
             assert coordinates[0]=='1' and int(coordinates[1])>1, 'Working date availability must resolve each effective date at one certified knowledge cutoff'
             assert client.call('custom-curves')['context'] is None, 'Availability changed the working header context'
         finally:
-            query('DROP POLICY synthetic_calendar_history_read ON market_data.observations;DROP FUNCTION public.synthetic_calendar_history_read(uuid);DROP SEQUENCE public.synthetic_calendar_history_reads;')
+            query('DROP FUNCTION public.synthetic_calendar_history_read(uuid);DROP SEQUENCE public.synthetic_calendar_history_reads;')
     else:
         average=client.call('market/dates',average_request)
     assert '2020-11-18' not in {row['date'] for row in average['dates']}
@@ -194,16 +227,17 @@ def run_checks(url,query=None,manifest=None):
           LANGUAGE plpgsql VOLATILE AS $$BEGIN
           IF id='{unused}'::uuid THEN RAISE EXCEPTION 'Synthetic unused calendar observation read' USING ERRCODE='42501';END IF;
           RETURN true;END$$;
-          CREATE POLICY synthetic_unused_calendar_observation ON market_data.observations AS RESTRICTIVE
-          FOR SELECT TO openetrm_runtime USING(public.synthetic_unused_calendar_observation(id));""")
+          REVOKE ALL ON FUNCTION public.synthetic_unused_calendar_observation(uuid) FROM PUBLIC;
+          GRANT EXECUTE ON FUNCTION public.synthetic_unused_calendar_observation(uuid) TO openetrm_security_owner;""")
         try:
-            for body,expected in zip(requests,before):
-                assert client.call('market/dates',{'session':SESSION,**body})==expected, 'Built-in availability must use only all offered frame pins.'
-            # PostgreSQL may inspect broader RLS candidates even when returned
-            # observations are window-scoped. A native policy error still fails.
-            client.call('market/dates',{'session':SESSION,'curve':None,'definition':templates['ng_average']['definition'],'timeZone':'UTC'},expected=403)
+            with visibility_probe(query,'public.synthetic_unused_calendar_observation(v.observation)'):
+                for body,expected in zip(requests,before):
+                    assert client.call('market/dates',{'session':SESSION,**body})==expected, 'Built-in availability must use only all offered frame pins.'
+                # History still has a broader native visibility scope even when
+                # its returned observations are window-scoped. A refusal fails.
+                client.call('market/dates',{'session':SESSION,'curve':None,'definition':templates['ng_average']['definition'],'timeZone':'UTC'},expected=403)
         finally:
-            query('DROP POLICY synthetic_unused_calendar_observation ON market_data.observations;DROP FUNCTION public.synthetic_unused_calendar_observation(uuid);')
+            query('DROP FUNCTION public.synthetic_unused_calendar_observation(uuid);')
         # A required pin for any offered frame cannot be silently substituted,
         # including when the selected curve would not itself consume that fact.
         anchor=query(f"SELECT id FROM market_data.observations WHERE catalog_id='{manifest['catalogId']}' AND id=ANY(ARRAY[{','.join(repr(identifier)+'::uuid' for identifier in frame['observationIds'])}]) AND series_id IN(SELECT series_id FROM market_data.rate_curve_points WHERE catalog_id='{manifest['catalogId']}' AND revision_id='{manifest['revisionId']}') ORDER BY id LIMIT 1;")
@@ -212,12 +246,17 @@ def run_checks(url,query=None,manifest=None):
         prompt_before=client.call('market/dates',prompt_body)
         query(f"CREATE POLICY synthetic_hidden_calendar_observation ON market_data.observations AS RESTRICTIVE FOR SELECT TO openetrm_runtime USING(id<>'{anchor}'::uuid);")
         try:
+            for body in [*requests,prompt_body]:
+                client.call('market/dates',{'session':SESSION,**body},expected=403)
+        finally:
+            query('DROP POLICY synthetic_hidden_calendar_observation ON market_data.observations;')
+        # A separate subtract-only visibility fault retains the endpoint's
+        # complete-pin check without asking it to accept an unknown policy.
+        with visibility_probe(query,f"v.observation<>'{anchor}'::uuid"):
             for body,expected in [*zip(requests,before),(prompt_body,prompt_before)]:
                 actual=client.call('market/dates',{'session':SESSION,**body})
                 expected_ids={saved['id'] for day in expected['dates'] for saved in day['frames']}-affected
                 assert {saved['id'] for day in actual['dates'] for saved in day['frames']}==expected_ids
-        finally:
-            query('DROP POLICY synthetic_hidden_calendar_observation ON market_data.observations;')
         assert all(client.call('market/dates',{'session':SESSION,**body})==expected for body,expected in zip(requests,before))
         print('PASS built-in calendar reads exact pins across all frames, rates and corrections; hidden pins never fall back and recipes read only their declared sample windows',flush=True)
     print('PASS market calendar availability: exact curve dependencies, complete recipe windows, session business days, one close per day, certified context and current reference authority',flush=True)

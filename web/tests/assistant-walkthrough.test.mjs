@@ -176,8 +176,9 @@ test('inline controls track their control and Stop releases stale highlights',{s
     await command('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
     await evaluate(`(async()=>{window.runner=(await import('/assistant-walkthroughs.js')).setupWalkthrough({identity:()=> 'synthetic',context:()=> 'pin',verify:async()=>true,perform:async()=>document.querySelector('#target')});
       window.plan={agentLabel:'Synthetic guide',ordinal:1,plan:{pageReport:{page:'blotter',selection:{}},context:{},steps:[{kind:'scroll_to',page:'blotter',widget:'positions'},{kind:'pause',page:'blotter'}]}};
-      void runner.start(plan);await new Promise(r=>setTimeout(r,60));})()`);
+      void runner.start(plan);})()`);
     const pointsAtTarget=()=>evaluate(`(()=>{const c=document.querySelector('.assistant-walkthrough-cursor'),p=c.getBoundingClientRect(),t=document.querySelector('#target').getBoundingClientRect();return !c.hidden&&p.left>=t.left&&p.left<t.right&&p.top>=t.top&&p.top<t.bottom;})()`);
+    for(let attempt=0;attempt<100&&!await pointsAtTarget();attempt++)await new Promise(resolve=>setTimeout(resolve,10));
     assert.equal(await pointsAtTarget(),true);
     await evaluate(`(async()=>{document.querySelector('#target').style.top='280px';document.querySelector('#target').style.left='500px';for(let n=0;n<100;n++){await new Promise(r=>setTimeout(r,10));const c=document.querySelector('.assistant-walkthrough-cursor').getBoundingClientRect(),t=document.querySelector('#target').getBoundingClientRect();if(c.left>=t.left&&c.left<t.right&&c.top>=t.top&&c.top<t.bottom)return;}})()`);
     assert.equal(await pointsAtTarget(),true,JSON.stringify(await evaluate("({cursor:document.querySelector('.assistant-walkthrough-cursor').outerHTML,target:document.querySelector('#target').getBoundingClientRect().toJSON(),status:document.querySelector('.assistant-walkthrough-status').textContent})")));

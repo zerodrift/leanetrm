@@ -42,22 +42,32 @@
   <header>
     <div><div id="page-section" class="eyebrow">MARKETS</div><h1 id="page-title">Curves & prices</h1></div>
     <div class="header-actions">
-      <div id="context-toolbar" class="context-toolbar" role="group" aria-label="Date context" hidden>
-        <div class="date-control"><label for="market-date-open">As of</label><div id="market-date-calendar"></div><select id="snapshot" hidden aria-hidden="true" tabindex="-1"><option value="">Choose a date…</option></select>
-          <details id="close-history" class="close-history" hidden><summary>Earlier closes for this day</summary><ul id="close-history-list"></ul></details></div>
+      <div id="context-toolbar" class="context-toolbar" role="group" aria-label="View context" hidden>
+        <div id="market-close-controls" class="context-market" role="group" aria-label="Market close">
+          <div class="date-control session-control"><label for="close-session">Close session</label><select id="close-session" title="Choose the calendar and cutoff used for recorded closes" aria-describedby="close-session-help"><option value="">Choose a session…</option></select>
+            <span id="close-session-status" class="field-help" role="status" hidden>Your chosen close session is no longer available. Choose a session to see prices.</span></div>
+          <div class="date-control"><label for="market-date-open" title="Choose the recorded prices and business date for this view">As of</label><div id="market-date-calendar"></div><select id="snapshot" hidden aria-hidden="true" tabindex="-1"><option value="">Choose a date…</option></select>
+            <details id="close-history" class="close-history" hidden><summary>Earlier closes for this day</summary><ul id="close-history-list"></ul></details></div>
+        </div>
         <div id="date-context" class="context-controls" hidden>
           <div id="business-date-field" class="context-field" hidden><label for="date-context-on">Business date</label><input id="date-context-on" data-context-coordinate="Business date" type="hidden"></div>
-          <details id="knowledge-context" class="knowledge-context"><summary id="knowledge-context-summary"><span id="knowledge-summary">Current knowledge</span></summary><div class="knowledge-panel">
+          <div class="context-knowledge-choice"><span class="context-control-label">Knowledge</span>
+          <details id="knowledge-context" class="knowledge-context"><summary id="knowledge-context-summary" aria-describedby="knowledge-context-help"><span id="knowledge-summary">Current knowledge</span></summary><div class="knowledge-panel">
             <div class="context-field context-knowledge"><label for="date-context-view">As known on · <span data-user-time-zone></span></label><input id="date-context-view" data-context-coordinate="As known on" type="datetime-local" step="1" required></div>
             <p id="context-date-help" class="field-help"></p><p id="workspace-mode-label" role="status" class="field-help">Working data</p><p id="header-calculation-time" class="field-help context-read"></p><p id="environment-context-note" role="status" class="field-help">Current workspace · exact selected inputs</p>
             <div class="schedule-actions"><button id="date-context-latest" type="button" class="text-button">Use current knowledge</button><button id="follow-live" type="button" class="text-button" title="Follow committed corrections to these selected facts. Effective date, market date, observation times and contracts stay fixed.">Follow live corrections</button></div>
-          </div></details>
+          </div></details></div>
           <div id="context-actions" class="context-actions" hidden><button id="apply-view-context" type="button">Apply</button><button id="current-view-context" type="button" class="secondary" title="Return to working data">Working data</button></div>
         </div>
         <span id="live-status" class="live-status" role="status" aria-live="polite" hidden></span><button id="live-retry" type="button" class="secondary" hidden>Retry refresh</button>
+        <details id="context-help" class="context-help"><summary aria-label="Explain view context" title="Explain view context">?</summary><div class="context-help-panel" role="note">
+          <p id="close-session-help"><strong>Close session</strong> defines the calendar and cutoff for a recorded close. Selecting a session does not run a close.</p>
+          <p><strong>As of</strong> selects recorded prices and their business date. Pages with a <strong>Business date</strong> use it to select effective records.</p>
+          <p id="knowledge-context-help"><strong>Knowledge</strong> sets the information cutoff. Current knowledge includes records available now; an earlier cutoff excludes later corrections.</p>
+          <p>A recorded close uses the close currently in force for its session and day, with its original price inputs. Other records respect the knowledge cutoff.</p>
+          <p>Times are shown in <span data-user-time-zone></span>. Changes to knowledge take effect when you choose <strong>Apply</strong>. <strong>Working data</strong> returns to current knowledge and the latest available close.</p>
+        </div></details>
       </div>
-      <div class="date-control session-control"><label for="close-session" class="sr-only">Close session</label><select id="close-session" title="Close session"><option value="">Choose a session…</option></select>
-          <span id="close-session-status" class="field-help" role="status" hidden>Your chosen close session is no longer available. Choose a session to see prices.</span></div>
       <button id="profile-open" class="profile-button" aria-haspopup="dialog"><span id="profile-avatar" class="avatar" aria-hidden="true">U</span><span id="profile-label">Profile</span></button></div>
   </header>
   <div id="error" role="alert" hidden></div><div id="notice" role="status" hidden></div>

@@ -9,7 +9,7 @@ from fake_model_provider import recording, stream, tool_use
 from preview_client import PreviewClient, initial_frame
 
 
-def run_checks(url, query, manifest, fake, demo):
+def run_checks(url, query, manifest, fake, demo, dotnet, environment, owned_root):
     def client(profile):
         c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':profile});return c
     admin=client('admin');writer=client('trader');stamp=uuid4().hex[:8]
@@ -217,6 +217,8 @@ def run_checks(url, query, manifest, fake, demo):
     check('gas billing proposals leave cash history unchanged',owner.call('gas/billing/read',dict(context=daily_current,tradeId=demo['trades'][0]))['determinations']==[])
     cash_reference={'turnId':cash_turn['id'],'step':1}
     cash_receipt=owner.call('assistant/actions/authorize',cash_reference)
+    from check_gas_billing_reads import run_checks as check_billing_reads
+    check_billing_reads(query,manifest,owner,login,dict(context=daily_current,tradeId=demo['trades'][0]),dotnet,environment,owned_root)
     check('authorized gas cash uses the native handler and retains its first outcome',owner.call('assistant/actions/authorize',cash_reference)==cash_receipt and
         owner.call('gas/billing/read',dict(context=daily_current,tradeId=demo['trades'][0]))['determinations'][0]['rounded_total']=='-300')
 
