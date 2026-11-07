@@ -72,14 +72,8 @@ internal static class ScheduleProgramDemandChecks
             d.Edges,d.Bindings,d.Roots,d.Ports,d.Grids);
         static ResolvedCalculationContext At(DateTimeOffset at)=>new(Guid.NewGuid(),"synthetic_started_delivery_v1",at,at,at,at);
         static void Reject(string code,Action action){try{action();}catch(MarketDataException e)when(e.Code==code){return;}throw new Exception("Expected structured refusal:"+code);}
-        var f=new CommodityLookupFixture(31);ReferenceKey R(string code)=>new(f.Quote.Key.Revision,code);
-        var lookups=f.Swap().Floating.GenerateSchedule().Rows[0].Prices.Take(3).Select(p=>p.Lookup!).ToArray();
-        var from=lookups[0].Contract.DeliveryFrom;var clock=GasDayClock.Capture(R("gas_clock"),TimeZoneInfo.Utc,0);
-        var location=new GasDeliveryLocation(R("pipeline"),R("zone"),R("delivery_point"));
-        var assignments=lookups.Select(l=>new GasValuationAssignment(R("gas_value_"+l.Contract.DeliveryFrom.Day),location,R("gas_product"),l.Contract.DeliveryFrom,l.Contract.DeliveryTo,
-            l.Settlement,l.Quote,new(l.Market,l.Contract),l.Fixing,new UnitPrice(default,f.Quote))).ToImmutableArray();
-        var terms=new GasQuantityTerms(clock,from,from.AddDays(3),GasQuantityBasis.PerOperatingDay,new(ExactDecimal.Parse("1"),f.Quote.Quantity),GasFuelConvention.None,default);
-        var gas=ScheduleDefinitionCompiler.Generate(new PhysicalGasSide(Guid.NewGuid(),location,R("gas_product"),terms,assignments));
+        var (f,clock,from,gasSide,cashSide,crudeSide)=Sides();
+        var gas=ScheduleDefinitionCompiler.Generate(gasSide);
         var future=BookedSideProgram.Compile(gas);var started=BookedSideProgram.Compile(Relabel(gas,ScheduleLifecycles.WholeGasDayDelivery));
         var dayEnd=clock.Boundary(from.AddDays(1));var before=future.Inputs(At(clock.Boundary(from).AddDays(-1))).Sources;
         var after=started.Inputs(At(dayEnd)).Sources;
@@ -100,9 +94,7 @@ internal static class ScheduleProgramDemandChecks
         if(whole!="111"||remaining!="110")throw new Exception($"Ended gas days must contribute nothing: expected 111 then 110, received {whole} then {remaining}.");
         Reject("gas_delivery_lifecycle",()=>future.Inputs(At(dayEnd)));
 
-        FixedSidePeriod Period(int day)=>new(from.AddDays(day),from.AddDays(day+1),clock.Boundary(from.AddDays(day+1)),new(1,1),null);
-        var cash=ScheduleDefinitionCompiler.Generate(new FixedSide(Guid.NewGuid(),new FlatPrice(new UnitPrice(ExactDecimal.Parse("3"),f.Quote)),f.Quote,
-            new(ExactDecimal.Parse("1"),f.Quote.Quantity),[Period(0),Period(1),Period(2)]));
+        var cash=ScheduleDefinitionCompiler.Generate(cashSide);
         var undue=BookedSideProgram.Compile(cash);var accrued=BookedSideProgram.Compile(Relabel(cash,ScheduleLifecycles.AccruedPayment));
         var paid=clock.Boundary(from.AddDays(3));
         if(accrued.Document.Instructions.Count(i=>i.Output is{Operation:"output_guard",Grid:null})!=3)
@@ -123,6 +115,24 @@ internal static class ScheduleProgramDemandChecks
         Reject("side_due_leg_unresolved",()=>indexed.Execute(due,"base","base",ScheduleProgramExecutionChecks.Sources(indexed,due,"base","base",Projected)));
 
         Reject("physical_lifecycle_unsupported",()=>BookedSideProgram.Compile(Relabel(gas,ScheduleLifecycles.WholeGasDayDelivery,"lng")));
+        var crude=ScheduleDefinitionCompiler.Generate(crudeSide);
+        Reject("physical_lifecycle_unsupported",()=>BookedSideProgram.Compile(Relabel(crude,ScheduleLifecycles.WholeGasDayDelivery)));
+        Console.WriteLine("PASS started delivery lifecycles: ended gas days drop out at their end, due accrued cash stays nominal, old lifecycles still refuse");
+    }
+
+    internal static (CommodityLookupFixture F,GasDayClock Clock,DateOnly From,PhysicalGasSide Gas,FixedSide Cash,PhysicalCrudeSide Crude) Sides()
+    {
+        var f=new CommodityLookupFixture(31);ReferenceKey R(string code)=>new(f.Quote.Key.Revision,code);
+        var lookups=f.Swap().Floating.GenerateSchedule().Rows[0].Prices.Take(3).Select(p=>p.Lookup!).ToArray();
+        var from=lookups[0].Contract.DeliveryFrom;var clock=GasDayClock.Capture(R("gas_clock"),TimeZoneInfo.Utc,0);
+        var location=new GasDeliveryLocation(R("pipeline"),R("zone"),R("delivery_point"));
+        var assignments=lookups.Select(l=>new GasValuationAssignment(R("gas_value_"+l.Contract.DeliveryFrom.Day),location,R("gas_product"),l.Contract.DeliveryFrom,l.Contract.DeliveryTo,
+            l.Settlement,l.Quote,new(l.Market,l.Contract),l.Fixing,new UnitPrice(default,f.Quote))).ToImmutableArray();
+        var terms=new GasQuantityTerms(clock,from,from.AddDays(3),GasQuantityBasis.PerOperatingDay,new(ExactDecimal.Parse("1"),f.Quote.Quantity),GasFuelConvention.None,default);
+        var gas=new PhysicalGasSide(Guid.NewGuid(),location,R("gas_product"),terms,assignments);
+        FixedSidePeriod Period(int day)=>new(from.AddDays(day),from.AddDays(day+1),clock.Boundary(from.AddDays(day+1)),new(1,1),null);
+        var cash=new FixedSide(Guid.NewGuid(),new FlatPrice(new UnitPrice(ExactDecimal.Parse("3"),f.Quote)),f.Quote,
+            new(ExactDecimal.Parse("1"),f.Quote.Quantity),[Period(0),Period(1),Period(2)]);
         var crudeFixture=new CommodityLookupFixture(31,monthly:true,volume:true);
         var crudeLookup=crudeFixture.Swap(true,0).Floating.GenerateSchedule().Rows[0].Prices[0].Lookup!;
         ReferenceKey C(string code)=>new(crudeFixture.Quote.Key.Revision,code);
@@ -130,8 +140,7 @@ internal static class ScheduleProgramDemandChecks
         var crudeAssignment=new CrudeValuationAssignment(C("crude_assignment"),crudeQuantity.Commodity,C("test_grade"),new(C("test_terminal"),C("test_custody_point")),
             crudeQuantity,C("utc"),ExactDecimal.Parse("60"),"fahrenheit",crudeLookup.Settlement,crudeFixture.Quote,new(crudeLookup.Market,crudeLookup.Contract),crudeLookup.Fixing!);
         var crudeFrom=new DateTimeOffset(2041,1,10,12,0,0,TimeSpan.Zero);
-        var crude=ScheduleDefinitionCompiler.Generate(new PhysicalCrudeSide(Guid.NewGuid(),crudeAssignment,crudeFrom,crudeFrom.AddDays(3),default));
-        Reject("physical_lifecycle_unsupported",()=>BookedSideProgram.Compile(Relabel(crude,ScheduleLifecycles.WholeGasDayDelivery)));
-        Console.WriteLine("PASS started delivery lifecycles: ended gas days drop out at their end, due accrued cash stays nominal, old lifecycles still refuse");
+        var crude=new PhysicalCrudeSide(Guid.NewGuid(),crudeAssignment,crudeFrom,crudeFrom.AddDays(3),default);
+        return (f,clock,from,gas,cash,crude);
     }
 }

@@ -125,7 +125,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  {
   if(frame.ContextId is not {} contextId)throw Invalid("Use a certified calculation context.");
   var unit=QuantityUnit(data,members.Select(m=>m.Assignments[0].Quote.Quantity));
-  var programs=retained??[..draft!.Sides.Select((m,n)=>{var d=ScheduleDefinitionCompiler.Generate(m.Side,ct);var p=BookedSideProgram.Compile(d);return new RetainedSideProgram(n,m.Side.Id,Guid.Empty,new(BookedSideProgram.Digest(p.Write()),d.Manifest,d.Family,d.EconomicIdentity,d.PricingBindingIdentity),p);})];
+  var programs=retained??[..draft!.Sides.Select((m,n)=>{var d=ScheduleDefinitionCompiler.Generate(m.Side,ct,ScheduleLifecycleSelection.StartedPhysicalDelivery);var p=BookedSideProgram.Compile(d);return new RetainedSideProgram(n,m.Side.Id,Guid.Empty,new(BookedSideProgram.Digest(p.Write()),d.Manifest,d.Family,d.EconomicIdentity,d.PricingBindingIdentity),p);})];
   var knowledge=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,contextId,ct)).Context;
   var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),contextId,SchedulePreview.ParseAt(knowledge.KnownAt));
   var assignments=members.SelectMany(m=>m.Assignments).Distinct().ToImmutableArray();

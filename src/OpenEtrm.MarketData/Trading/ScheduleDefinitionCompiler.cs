@@ -8,14 +8,18 @@ using OpenEtrm.MarketData.Lng;
 
 namespace OpenEtrm.MarketData.Trading;
 
+public enum ScheduleLifecycleSelection{FutureDelivery,StartedPhysicalDelivery}
+
 public static partial class ScheduleDefinitionCompiler
 {
-    public static ScheduleDefinition Generate(Side side,CancellationToken cancellationToken=default)
+    public static ScheduleDefinition Generate(Side side,CancellationToken cancellationToken=default,ScheduleLifecycleSelection lifecycle=ScheduleLifecycleSelection.FutureDelivery)
     {
         ArgumentNullException.ThrowIfNull(side);
         cancellationToken.ThrowIfCancellationRequested();
         if(side.RetainedSchedule is {} retained)return retained;
-        var builder=new Builder(side,cancellationToken);
+        if(lifecycle==ScheduleLifecycleSelection.StartedPhysicalDelivery&&side is PhysicalCrudeSide or PhysicalLngCargoSide)
+            throw new MarketDataException("physical_lifecycle_unsupported","Only gas compositions have a started-delivery lifecycle.");
+        var builder=new Builder(side,cancellationToken,lifecycle);
         switch(side.GenerateSchedule())
         {
             case SidePaymentSchedule dated:builder.Dated(dated);break;
@@ -27,7 +31,7 @@ public static partial class ScheduleDefinitionCompiler
         }
         return builder.Finish();
     }
-    private sealed class Builder(Side side,CancellationToken cancellationToken)
+    private sealed class Builder(Side side,CancellationToken cancellationToken,ScheduleLifecycleSelection selection)
     {
         private readonly List<ScheduleDefinitionRow> rows=[];
         private readonly List<ScheduleDefinitionEdge> edges=[];
@@ -137,7 +141,7 @@ public static partial class ScheduleDefinitionCompiler
             var terms=native?null:Digest(new{plan.DeliveryWindow,plan.Currency,Quantity=Closure(quantity:cash)});
             var guard=Row(key+"/value","root","output_guard","money",plan,currency:plan.Currency,
                 parameters:P(("measure",native?"value_excluding_overdue_v1":"present_value_v1"),
-                    ("lifecycle",native?side switch {PhysicalGasSide=>"future_gas_delivery_v1",PhysicalCrudeSide=>"future_crude_delivery_v1",PhysicalLngCargoSide=>"future_lng_cargo_v1",CertificateDeliverySide=>"certificate_holding_v1",FixedSide or FloatingSide=>"interval_payment_v1",_=>"interval_delivery_v1"}:"undue_payment_v1"),
+                    ("lifecycle",native?side switch {PhysicalGasSide=>selection==ScheduleLifecycleSelection.StartedPhysicalDelivery?ScheduleLifecycles.WholeGasDayDelivery:"future_gas_delivery_v1",PhysicalCrudeSide=>"future_crude_delivery_v1",PhysicalLngCargoSide=>"future_lng_cargo_v1",CertificateDeliverySide=>"certificate_holding_v1",FixedSide or FloatingSide=>"interval_payment_v1",_=>"interval_delivery_v1"}:selection==ScheduleLifecycleSelection.StartedPhysicalDelivery?ScheduleLifecycles.AccruedPayment:"undue_payment_v1"),
                     ("pricePolicy","selected_context_v1"),
                     ("averaging",native?"none":plan.Averaging?.ToString()??"none"),
                     ("firstFixingAt",native?"none":plan.FirstFixingAt?.ToString("O",System.Globalization.CultureInfo.InvariantCulture)??"none"),

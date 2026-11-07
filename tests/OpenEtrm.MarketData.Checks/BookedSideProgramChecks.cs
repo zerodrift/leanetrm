@@ -7,6 +7,7 @@ internal static class BookedSideProgramChecks
 {
     internal static void Run()
     {
+        StartedLifecycleCompilation();
         var f=new CommodityLookupFixture(2,monthly:true);
         var swap=f.Swap(monthly:true,monthOrdinal:0);var next=f.Swap(monthly:true,monthOrdinal:1);
         var wholeFixed=new FixedSide(Guid.NewGuid(),swap.Fixed.Price,f.Quote,swap.Fixed.UnitQuantity,[swap.Fixed.Periods[0],next.Fixed.Periods[0]]);
@@ -128,6 +129,27 @@ internal static class BookedSideProgramChecks
             catch(MarketDataException e)when(e.Code=="side_schedule_program"){}
         }
         Console.WriteLine("PASS booked Side program: dated/native instructions, operand addresses, sources, roots and scenario adjacency survive storage");
+    }
+
+    // The default selection must stay byte-identical to the compilation before
+    // lifecycle selection existed; the digest below was recorded from that code.
+    private static void StartedLifecycleCompilation()
+    {
+        static string[] Lifecycles(ScheduleDefinition d)=>[..d.Rows.Where(r=>r.Operation=="output_guard").Select(r=>r.Parameters["lifecycle"]).Distinct()];
+        var (_,_,_,gas,cash,crude)=ScheduleProgramDemandChecks.Sides();
+        var future=ScheduleDefinitionCompiler.Generate(gas);
+        if(BookedSideProgram.Digest(BookedSideProgram.Compile(future).Write())!="c6e17d3a3118516b39fd43d5ea94f0e26c6d92cfdda98ba11a16032688722ae6"||
+            Lifecycles(future).Single()!="future_gas_delivery_v1")
+            throw new Exception("The default lifecycle selection must reproduce the pre-selection gas program byte for byte.");
+        var started=ScheduleDefinitionCompiler.Generate(gas,lifecycle:ScheduleLifecycleSelection.StartedPhysicalDelivery);
+        if(Lifecycles(started).Single()!=ScheduleLifecycles.WholeGasDayDelivery)
+            throw new Exception("A started gas side must compile the whole gas-day delivery lifecycle.");
+        if(Lifecycles(ScheduleDefinitionCompiler.Generate(cash)).Single()!="undue_payment_v1"||
+            Lifecycles(ScheduleDefinitionCompiler.Generate(cash,lifecycle:ScheduleLifecycleSelection.StartedPhysicalDelivery)).Single()!=ScheduleLifecycles.AccruedPayment)
+            throw new Exception("Dated cash must compile undue by default and accrued once physical delivery has started.");
+        try{ScheduleDefinitionCompiler.Generate(crude,lifecycle:ScheduleLifecycleSelection.StartedPhysicalDelivery);throw new Exception("Crude has no started-delivery lifecycle.");}
+        catch(MarketDataException e)when(e.Code=="physical_lifecycle_unsupported"){}
+        Console.WriteLine("PASS booked Side program: started-delivery lifecycle selection");
     }
 
     private static void PublicationFidelity(ScheduleDefinition definition)
