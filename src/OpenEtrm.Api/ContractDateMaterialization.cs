@@ -50,7 +50,7 @@ public sealed class ContractDateMaterialization(Guid catalog,ContractDateStore m
         // current-write binding. Historical read authority never grants a write.
         BoundContractDefinition mapping;
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT contract_date_source"))await save.ExecuteNonQueryAsync(ct);
-        try{mapping=await mappings.Resolve(connection,new(body.MappingId,body.MappingVersion,body.Context),null,ct);}
+        try{mapping=await mappings.Resolve(connection,new(body.MappingId,body.MappingVersion,body.Context),null,includeDrafts:false,ct);}
         finally
         {
             await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT contract_date_source;RELEASE SAVEPOINT contract_date_source");

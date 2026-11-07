@@ -14,7 +14,7 @@ public sealed record CurveDefinitionDraft(string? Code,string? Name,string? Comm
     string? ContractKind,string? FuturesProduct,CurveContractWindow? Contracts,string? SettlementTarget,
     string? PriceRule,string? MarkRole,string? MarkSource,string? MissingPrice,string? Interpolation,string? InterestRate=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record CurveDefinitionPreviewRequest(CurveDefinitionDraft? Definition,Guid? SnapshotId);
+public sealed record CurveDefinitionPreviewRequest(CurveDefinitionDraft? Definition,Guid? SnapshotId,CurveMappingEdit? Mapping=null);
 
 public sealed record CurveCommodityLocation(string Commodity,string Location);
 public sealed record CurveQuoteTerms(string Commodity,string Currency,string Unit,ExactDecimal Multiplier);

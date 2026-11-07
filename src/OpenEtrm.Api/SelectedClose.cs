@@ -15,7 +15,7 @@ public static class SelectedClose
         var frame=pin.RequireFrame();
         if(pin.Context is null)
         {
-            var captured=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,new(PreviewSession.BusinessDay(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
+            var captured=await Capture(connection,database,frame,ct);
             pin=PinnedContext.Retained(captured,frame with{ContextId=captured.ContextId});
             await pin.Bind(connection,database.Manifest.CatalogId,ct);
         }
@@ -23,6 +23,9 @@ public static class SelectedClose
             throw new TemporalException("market_date","Choose a close on the selected effective date.");
         return pin;
     }
+    // Current knowledge captured on the close's date and left unbound, so that a write in the same request remains a current write.
+    public static async Task<ScheduleContext> Capture(NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,CancellationToken ct)=>
+        (await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,new(PreviewSession.BusinessDay(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),ct)).Context;
     // The session a request reads: "always latest" releases only that session's pinned prices (D334).
     public static async Task BindSession(NpgsqlConnection connection,Guid catalog,string session,CancellationToken ct)
     {

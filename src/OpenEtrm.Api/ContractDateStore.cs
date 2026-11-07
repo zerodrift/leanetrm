@@ -244,24 +244,25 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
         if(value.EngineVersion!=Engine)throw Invalid("This exact retained engine is unavailable.");
         return Compile(value.Definition,await PinnedSources(connection,value,ct),context,value.Bindings);
     }
-    public async Task<BoundDateList> ResolveDateList(NpgsqlConnection connection,ContractDateResolveRequest body,ScheduleContext? selectedContext,CancellationToken ct)
+    // Readers resolve published versions; a curve author may also resolve the draft a curve draft pins.
+    public async Task<BoundDateList> ResolveDateList(NpgsqlConnection connection,ContractDateResolveRequest body,ScheduleContext? selectedContext,bool includeDrafts,CancellationToken ct)
     {
-        var (value,context)=await Published(connection,body,selectedContext,ct);
+        var (value,context)=await Retained(connection,body,selectedContext,includeDrafts,ct);
         if(value.EngineVersion!=DateListEngine)throw Invalid("This mapping names contracts, not a date list.");
         return CompileDateList(value.Definition,await PinnedSources(connection,value,ct),context,value.Bindings) with{DefinitionId=value.Id,Version=value.Version};
     }
-    async Task<(ContractDateVersion Value,ScheduleContext Context)> Published(NpgsqlConnection connection,ContractDateResolveRequest body,ScheduleContext? selectedContext,CancellationToken ct)
+    async Task<(ContractDateVersion Value,ScheduleContext Context)> Retained(NpgsqlConnection connection,ContractDateResolveRequest body,ScheduleContext? selectedContext,bool includeDrafts,CancellationToken ct)
     {
         var context=await new KnowledgeStore(catalog).Retained(connection,body.Context??throw Invalid("Choose an exact retained date context."),ct);
         if(selectedContext is null)await MarketContextStore.Bind(connection,catalog,context,ct);
         else if(selectedContext.ContextId!=context.ContextId)throw Invalid("Resolve in the selected exact market context, or explicitly change that selection first.");
-        var value=(await Read(connection,ct)).SingleOrDefault(v=>v.Id==body.Id&&v.Version==body.Version&&v.State=="published")
+        var value=(await Read(connection,ct)).SingleOrDefault(v=>v.Id==body.Id&&v.Version==body.Version&&(includeDrafts||v.State=="published"))
             ??throw Invalid("This exact published definition is unavailable in the selected knowledge view.");
         return (value,context);
     }
-    public async Task<BoundContractDefinition> Resolve(NpgsqlConnection connection,ContractDateResolveRequest body,ScheduleContext? selectedContext,CancellationToken ct)
+    public async Task<BoundContractDefinition> Resolve(NpgsqlConnection connection,ContractDateResolveRequest body,ScheduleContext? selectedContext,bool includeDrafts,CancellationToken ct)
     {
-        var (value,context)=await Published(connection,body,selectedContext,ct);
+        var (value,context)=await Retained(connection,body,selectedContext,includeDrafts,ct);
         if(value.EngineVersion!=Engine)throw Invalid("This mapping is a date list, not contracts.");
         return (await ResolveRule(connection,value,context,ct)) with{DefinitionId=value.Id,Version=value.Version,EngineVersion=value.EngineVersion};
     }
