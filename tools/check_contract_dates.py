@@ -38,6 +38,17 @@ def run_checks(url, query, manifest, psql, environment):
     assert editor.call('date-schedules/import',plain)==plain_saved
     assert viewer.call('date-schedules/resolve',{'expression':'oe.plain_dates[0]','context':context()})['date']=='2021-01-19'
     viewer.call('date-schedules/resolve',{'expression':'oe.plain_dates[0] + 1bd','context':context()},expected=422)
+    # A daily rule stores no dates; each context selects its own first day, and +Nbd counts on the bound calendar.
+    daily={'definition':{'name':'Synthetic calendar days','symbol':'oe.days','daily':{'days':'calendar','firstDate':'2021-01-01','lastDate':'2021-12-31'}},
+        'calendar':calendar,'selection':'on_or_after','effectiveFrom':'2021-01-01','effectiveTo':'2022-01-01'}
+    viewer.call('date-schedules/save',daily,expected=403)
+    editor.call('date-schedules/save',{**daily,'selection':'context_month'},expected=422)
+    days=editor.call('date-schedules/save',daily)
+    assert days['engineVersion']=='date_schedule_v4' and 'dates' not in days['definition'], days
+    approver.call('date-schedules/publish',{k:days[k] for k in ('id','version','generation')})
+    resolve=lambda expression,day:viewer.call('date-schedules/resolve',{'expression':expression,'context':context(day)})['date']
+    assert (resolve('oe.days[1]','2021-01-15'),resolve('oe.days[1]','2021-01-16'))==('2021-01-16','2021-01-17')
+    assert resolve('oe.days + 1bd','2021-01-15')!='2021-01-16', 'A business-day offset landed on a Saturday'
     before = context()
     body = {'requestId':str(uuid4()),'code':'shared_delivery','name':'Synthetic monthly delivery dates','context':before,
             'contracts':[{'label':'Month one','start':'oe.shared_dates[0]','end':'oe.shared_dates[1]',

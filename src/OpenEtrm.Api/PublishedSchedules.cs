@@ -48,9 +48,10 @@ public static class PublishedSchedules
     // Each engine version has one calendar source; an unknown engine is never reinterpreted.
     public static MonthlySaved Compile(MonthlyDraft definition,string engineVersion,ReferenceCalendar? calendar) => engineVersion switch
     {
-        "date_schedule_v3" when definition.Dates is not null=>DateWorkspace.Compile(definition,calendar),
-        "date_schedule_v1"=>DateWorkspace.Compile(definition),
-        "date_schedule_v2"=>DateWorkspace.Compile(definition,calendar??throw Error("calendar_reference","The schedule's reference calendar is unavailable in this view.")),
+        "date_schedule_v4" when definition.Daily is not null=>DateWorkspace.Compile(definition,calendar),
+        "date_schedule_v3" when definition is {Dates:not null,Daily:null}=>DateWorkspace.Compile(definition,calendar),
+        "date_schedule_v1" when definition.Daily is null=>DateWorkspace.Compile(definition),
+        "date_schedule_v2" when definition.Daily is null=>DateWorkspace.Compile(definition,calendar??throw Error("calendar_reference","The schedule's reference calendar is unavailable in this view.")),
         _=>throw Error("schedule_engine","This retained schedule engine version is unavailable.")
     };
     public static void Validate(ScheduleSaveRequest request,string engineVersion,ReferenceCalendar? calendar)
@@ -58,7 +59,8 @@ public static class PublishedSchedules
         if(request.Definition is null)throw Error("schedule_definition","Supply an explicit schedule definition.");
         var compiled=Compile(request.Definition,engineVersion,calendar);
         DateOccurrences.ValidateSelection(compiled.Dates,request.Selection!);
-        if(!DateWorkspace.SelectionRules.Any(r=>r.Code==request.Selection) || DateWorkspace.Date(request.EffectiveFrom)>=DateWorkspace.Date(request.EffectiveTo))
+        if(!DateWorkspace.SelectionRules.Any(r=>r.Code==request.Selection) || engineVersion=="date_schedule_v4"&&request.Selection!="on_or_after" ||
+            DateWorkspace.Date(request.EffectiveFrom)>=DateWorkspace.Date(request.EffectiveTo))
             throw Error("schedule_definition","Choose an occurrence selection rule and nonempty effective interval.");
     }
     public static DateReceipt Resolve(IEnumerable<ScheduleVersion> versions,string? expression,ScheduleContext? context)=>

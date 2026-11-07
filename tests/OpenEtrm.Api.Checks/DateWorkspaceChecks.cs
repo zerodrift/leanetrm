@@ -83,6 +83,40 @@ internal static class DateWorkspaceChecks
             Reject("schedule_example",()=>ScheduleExamples.Contracts(new("missing",null,context),[],context));
             Reject("schedule_example",()=>ScheduleExamples.Contracts(new("daily_power","oe.ng",context),[],context));
         });
+        // Daily schedules (engine v4): generated in memory, always selected from the first date on or after the context.
+        var business=new ReferenceCalendar(new(Guid.Empty,Guid.Empty,"synthetic_business"),new(2026,1,1),new(2027,1,1),96,[(new DateOnly(2026,11,26),false)]);
+        ScheduleVersion Daily(string symbol,string days,string first,string last,ReferenceCalendar? calendar)=>
+            new(Guid.NewGuid(),1,1,"published",new("Synthetic days",symbol,null,null,null,null,null,null,null,Daily:new(days,first,last)),"on_or_after",
+                new(2020,1,1),new(2040,1,1),1,new DateTimeOffset(2020,1,1,0,0,0,TimeSpan.Zero),"date_schedule_v4",Calendar:calendar?.Reference,ResolvedCalendar:calendar);
+        var days=Daily("oe.days","calendar","2026-01-01","2030-12-31",business);
+        DateOnly At(ScheduleVersion version,string day,string expression)=>PublishedSchedules.Resolve([version],expression,new(day,1)).Date;
+        Check("a calendar daily schedule resolves t0 plus n days on or after the context",()=>{
+            if(At(days,"2026-11-03","oe.days")!=new DateOnly(2026,11,3)||At(days,"2026-11-03","oe.days[1461]")!=new DateOnly(2030,11,3)||At(days,"2026-11-07","oe.days[1]")!=new DateOnly(2026,11,8))
+                throw new Exception("Calendar days must count every day from the context date");
+        });
+        Check("a business-day offset on a calendar daily schedule uses its bound calendar",()=>{
+            if(At(days,"2026-11-03","oe.days + 1bd")!=new DateOnly(2026,11,4)||At(days,"2026-11-06","oe.days + 1bd")!=new DateOnly(2026,11,9)||At(days,"2026-11-25","oe.days + 1bd")!=new DateOnly(2026,11,27))
+                throw new Exception("Business-day offsets must skip weekends and the calendar's closures");
+        });
+        Check("a business-day offset without a bound calendar is refused",()=>
+            Reject("calendar_reference",()=>At(Daily("oe.days","calendar","2026-01-01","2030-12-31",null),"2026-11-03","oe.days + 1bd")));
+        Check("a business daily schedule starts at the first open day on or after the context",()=>{
+            var open=Daily("oe.bdays","business","2026-01-01","2026-12-31",business);
+            if(At(open,"2026-11-07","oe.bdays")!=new DateOnly(2026,11,9)||At(open,"2026-11-25","oe.bdays[1]")!=new DateOnly(2026,11,27))throw new Exception("Business daily dates must be the calendar's open days");
+            Reject("daily_definition",()=>PublishedSchedules.Compile(Daily("oe.bdays","business","2026-01-01","2026-12-31",null)));
+        });
+        Check("daily schedules only use next-date selection",()=>{
+            var draft=days.Definition;
+            ScheduleSaveRequest Save(string selection,MonthlyDraft definition)=>new(null,null,null,definition,selection,"2020-01-01","2040-01-01");
+            PublishedSchedules.Validate(Save("on_or_after",draft),"date_schedule_v4",business);
+            Reject("schedule_definition",()=>PublishedSchedules.Validate(Save("context_month",draft),"date_schedule_v4",business));
+            Reject("schedule_definition",()=>PublishedSchedules.Validate(Save("absolute_index",draft),"date_schedule_v4",business));
+            Reject("schedule_definition",()=>DateWorkspace.Compile(draft with{Dates=["2026-01-01"]},business));
+            Reject("schedule_definition",()=>DateWorkspace.Compile(draft with{FirstMonth="2026-01"},business));
+            Reject("daily_definition",()=>DateWorkspace.Compile(draft with{Daily=new("weekly","2026-01-01","2026-12-31")},business));
+            Reject("calendar_definition",()=>DateWorkspace.Compile(draft with{Daily=new("calendar","2026-01-01",null)},business));
+        });
+        Check("resolving past a daily schedule's last date fails",()=>Reject("date_index",()=>At(days,"2030-12-30","oe.days[2]")));
         Console.WriteLine($"{passed} date workspace checks passed.");
     }
 }
