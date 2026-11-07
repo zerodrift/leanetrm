@@ -16,7 +16,8 @@ public sealed record SchedulePublishRequest(Guid Id,int Version,int Generation);
 public sealed record PublishedDateRequest(string? Expression,ScheduleContext? Context);
 public sealed record ScheduleCatalogRequest(ScheduleContext? Context);
 public sealed record ScheduleReferenceChoice(string Symbol,string Name,int Version,string Selection);
-public sealed record PublishedContractRequest(string? Code,string? Name,ScheduleContext? Context,ContractFieldDraft[]? Contracts);
+// A mapping names contracts (start, end and last trading per row) or a date list (one date per row), never both.
+public sealed record PublishedContractRequest(string? Code,string? Name,ScheduleContext? Context,ContractFieldDraft[]? Contracts,DateListRowDraft[]? Dates=null);
 public sealed record PublishedDateSource(Guid ScheduleId,int Version,int Generation,int PublicationOrder,
     string Symbol,string Name,string Selection,string EngineVersion,int Occurrence,ScheduleContext Context,MonthlyDraft Definition,BitemporalRange? Temporal=null);
 
@@ -48,9 +49,10 @@ public static class PublishedSchedules
     // Each engine version has one calendar source; an unknown engine is never reinterpreted.
     public static MonthlySaved Compile(MonthlyDraft definition,string engineVersion,ReferenceCalendar? calendar) => engineVersion switch
     {
-        "date_schedule_v3" when definition.Dates is not null=>DateWorkspace.Compile(definition,calendar),
-        "date_schedule_v1"=>DateWorkspace.Compile(definition),
-        "date_schedule_v2"=>DateWorkspace.Compile(definition,calendar??throw Error("calendar_reference","The schedule's reference calendar is unavailable in this view.")),
+        "date_schedule_v4" when definition.Daily is not null=>DateWorkspace.Compile(definition,calendar),
+        "date_schedule_v3" when definition is {Dates:not null,Daily:null}=>DateWorkspace.Compile(definition,calendar),
+        "date_schedule_v1" when definition.Daily is null=>DateWorkspace.Compile(definition),
+        "date_schedule_v2" when definition.Daily is null=>DateWorkspace.Compile(definition,calendar??throw Error("calendar_reference","The schedule's reference calendar is unavailable in this view.")),
         _=>throw Error("schedule_engine","This retained schedule engine version is unavailable.")
     };
     public static void Validate(ScheduleSaveRequest request,string engineVersion,ReferenceCalendar? calendar)
@@ -60,6 +62,10 @@ public static class PublishedSchedules
         DateOccurrences.ValidateSelection(compiled.Dates,request.Selection!);
         if(!DateWorkspace.SelectionRules.Any(r=>r.Code==request.Selection) || DateWorkspace.Date(request.EffectiveFrom)>=DateWorkspace.Date(request.EffectiveTo))
             throw Error("schedule_definition","Choose an occurrence selection rule and nonempty effective interval.");
+        // A daily rule's [0] is the context date itself, so every context it applies to lies within its generated days.
+        if(engineVersion=="date_schedule_v4"&&(request.Selection!="on_or_after"||DateWorkspace.Date(request.EffectiveFrom)<DateWorkspace.Date(request.Definition.Daily!.FirstDate)||
+            DateWorkspace.Date(request.EffectiveTo)>DateWorkspace.Date(request.Definition.Daily.LastDate).AddDays(1)))
+            throw Error("schedule_definition","A daily schedule selects the next date on or after the context, and applies only within its first and last dates.");
     }
     public static DateReceipt Resolve(IEnumerable<ScheduleVersion> versions,string? expression,ScheduleContext? context)=>
         new PublishedScheduleResolver(versions,context).Resolve(expression);
@@ -67,6 +73,11 @@ public static class PublishedSchedules
 }
 
 public sealed record ContractFieldDraft(string? Label,string? Start,string? End,string? LastTrading,string? CutoffUtc);
+public sealed record DateListRowDraft(string? Label,string? Date);
+public sealed record DateListEntry(int Position,string Label,DateOnly Date,DateReceipt Reference);
+public sealed record BoundDateList(string Code,string Name,ScheduleContext Context,ImmutableArray<DateListEntry> Dates,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Guid? DefinitionId=null,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] int? Version=null);
 public sealed record DatedContractDefinition(string Label,DateOnly Start,DateOnly End,DateTimeOffset LastTradingAt,
     DateReceipt StartReference,DateReceipt EndReference,DateReceipt LastTradingReference,string CutoffUtc);
 public sealed record BoundContractDefinition(string Code,string Name,ScheduleContext Context,ImmutableArray<DatedContractDefinition> Contracts,

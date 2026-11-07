@@ -17,7 +17,10 @@ public sealed record ReferenceCalendar(CalendarReference Reference,DateOnly Cove
         .Select(bit=>((DayOfWeek)((bit+1)%7)).ToString());
 }
 public sealed record MonthlyDraft(string? Name,string? Symbol,string? FirstMonth,string? LastMonth,string? Anchor,
-    int? Day,string? ShortMonth,string? Adjustment,CalendarDraft? Calendar,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ImmutableList<string>? Dates=null);
+    int? Day,string? ShortMonth,string? Adjustment,CalendarDraft? Calendar,[property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ImmutableList<string>? Dates=null,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] DailyRule? Daily=null);
+// Every calendar day, or every open day of the bound calendar, between inclusive bounds (engine v4).
+public sealed record DailyRule(string? Days,string? FirstDate,string? LastDate);
 public sealed record MonthlySaved(MonthlyDraft Definition,ImmutableList<MonthlyOccurrence> Dates,[property: System.Text.Json.Serialization.JsonIgnore] DateSet? BusinessDays);
 public sealed record DateExpressionRequest(string? Expression,string? At,CalendarDraft? RollingCalendar);
 public sealed record DateReceipt(string Expression,DateOnly Date,string Symbol,int? Index,int? BusinessDays,
@@ -75,10 +78,11 @@ public sealed class DateWorkspace
         ("clamp","Use that month’s last day",ShortMonth.Clamp),("not_applicable","Not applicable · month-end anchor",ShortMonth.NotApplicable)];
     private static readonly (string Code,string Name,DateRoll Value)[] AdjustmentRules=[("unadjusted","Unadjusted",DateRoll.Unadjusted),("following","Following",DateRoll.Following),
         ("preceding","Preceding",DateRoll.Preceding),("modified_following","Modified following",DateRoll.ModifiedFollowing),("modified_preceding","Modified preceding",DateRoll.ModifiedPreceding)];
+    private static readonly (string Code,string Name,DailyDays Value)[] DailyRules=[("calendar","Every calendar day",DailyDays.Calendar),("business","Every business day of the calendar",DailyDays.Business)];
     public static readonly (string Code,string Name)[] SelectionRules=[("on_or_after","Next date · [0] = first date on or after context"),("context_month","Context month · [0] = this month"),("absolute_index","Fixed occurrences · [0] = first date")];
     public static object Choices => new {
         anchors=AnchorRules.Select(r=>new {code=r.Code,name=r.Name}),shortMonths=ShortMonthRules.Select(r=>new {code=r.Code,name=r.Name}),
-        adjustments=AdjustmentRules.Select(r=>new {code=r.Code,name=r.Name}),selections=SelectionRules.Select(r=>new {code=r.Code,name=r.Name})};
+        adjustments=AdjustmentRules.Select(r=>new {code=r.Code,name=r.Name}),days=DailyRules.Select(r=>new {code=r.Code,name=r.Name}),selections=SelectionRules.Select(r=>new {code=r.Code,name=r.Name})};
     private static T Rule<T>(IEnumerable<(string Code,string Name,T Value)> rules,string? code,string error,string message)
     {
         foreach(var rule in rules)if(rule.Code==code)return rule.Value;
@@ -93,9 +97,17 @@ public sealed class DateWorkspace
         if(string.IsNullOrWhiteSpace(request.Name)||request.Name.Length>80 || request.Symbol is null ||
             !Regex.IsMatch(request.Symbol,@"\Aoe\.[a-z][a-z0-9_]{0,31}\z",RegexOptions.CultureInvariant))
             throw Error("monthly_definition","Name the schedule and give it a lowercase oe.shortcut.");
+        bool Generated()=>!string.IsNullOrEmpty(request.FirstMonth)||!string.IsNullOrEmpty(request.LastMonth)||!string.IsNullOrEmpty(request.Anchor)||request.Day is not null||!string.IsNullOrEmpty(request.ShortMonth)||!string.IsNullOrEmpty(request.Adjustment);
+        if(request.Daily is {} daily)
+        {
+            if(request.Dates is not null||Generated())throw Error("schedule_definition","Choose a daily rule, a date list or monthly rules, not more than one.");
+            var rule=Rule(DailyRules,daily.Days,"daily_definition","Choose calendar days or business days.");
+            var businessDays=reference is null?(request.Calendar is null?null:Calendar(request.Calendar)):Calendar(reference);
+            return new(request,DailyDates.Generate(Date(daily.FirstDate),Date(daily.LastDate),rule,businessDays).ToImmutableList(),businessDays);
+        }
         if(request.Dates is {} explicitDates)
         {
-            if(!string.IsNullOrEmpty(request.FirstMonth)||!string.IsNullOrEmpty(request.LastMonth)||!string.IsNullOrEmpty(request.Anchor)||request.Day is not null||!string.IsNullOrEmpty(request.ShortMonth)||!string.IsNullOrEmpty(request.Adjustment))
+            if(Generated())
                 throw Error("schedule_definition","Choose a date list or generation rules, not both.");
             if(explicitDates.Count is <1 or >2000)throw Error("schedule_definition","Supply 1–2,000 dates.");
             var dates=explicitDates.Select(Date).ToArray();

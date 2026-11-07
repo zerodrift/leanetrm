@@ -143,6 +143,8 @@ const string malformed="The request is incomplete or malformed.";
     MarketDataException m when m.Code is "shortcut_conflict" or "tou_conflict" or "table_view_conflict" or "dashboard_layout_conflict" or "dashboard_request_conflict" or "risk_definition_conflict" or "risk_definition_request_conflict" or "futures_revision_conflict" or "swap_revision_conflict" or "custom_curve_conflict" or "contract_date_conflict" => (409,m.Code,m.Message),
     PostgresException p when p.MessageText.StartsWith("gas_operations_") => (p.MessageText.Contains("denied")?403:p.MessageText.Contains("conflict")||p.MessageText.Contains("stale")?409:422,p.MessageText,"The manual operation requires compatible current service terms, explicit evidence and the reviewed source heads. Refresh and review the operation."),
     PostgresException p when apiPath.StartsWithSegments("/api/gas/operations") && p.SqlState is "23505" or "23514" or "23503" or "22P02" or "22003" or "22007" or "22008" or "P0002" => (422,"gas_operations_input","Supply the complete explicit manual operation with exact sources, canonical dates and evidence."),
+    PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/curve-definitions") => (409,"curve_definition_conflict","This curve definition or its mapping changed. Reload or retry the exact original command."),
+    MarketDataException m when m.Code=="curve_definition_conflict" => (409,m.Code,m.Message),
     PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/custom-curves") => (409,"custom_curve_conflict","This curve or request changed. Reload or reconcile the original request."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="party_conflict" => (409,p.MessageText,"This party or request changed. Reload the latest revision or retry the original request."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "party_input" or "party_limit" => (422,p.MessageText,"Supply a stable code, name and an effective time at or after the preceding version. Party codes cannot change."),
@@ -800,6 +802,7 @@ api.MapPost("/schedules/contracts/keep",(HttpContext c,CurveDatesRequest body)=>
 var scheduleStore=new ScheduleStore(database.Manifest.CatalogId,database.Manifest.ReferenceCatalogId,database.Manifest.ReferenceRevisionId);
 var knowledgeStore=new KnowledgeStore(database.Manifest.CatalogId);
 var contractDateStore=new ContractDateStore(database.Manifest.CatalogId,scheduleStore);
+var curveDefinitionStore=new CurveDefinitionStore(database.Manifest.CatalogId,contractDateStore);
 Task<IResult> DateOperation(HttpContext c,string permission,Func<PreviewSession,NpgsqlConnection,CancellationToken,Task<IResult>> work)=>Locked(c,session=>
     database.WithIdentity(Profile(session),permission,async(connection,ct)=>
     {
@@ -868,7 +871,15 @@ api.MapPost("/date-schedules/contracts/save",(HttpContext c,ContractDateSaveRequ
 api.MapPost("/date-schedules/contracts/publish",(HttpContext c,ContractDatePublishRequest body)=>DateOperation(c,"SealMarketDefinitions",async(session,connection,ct)=>
     Results.Ok(await contractDateStore.Publish(connection,body,ct))));
 api.MapPost("/date-schedules/contracts/resolve",(HttpContext c,ContractDateResolveRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
-    Results.Ok(await contractDateStore.Resolve(connection,body,session.MarketContext,ct))));
+    Results.Ok(await contractDateStore.Resolve(connection,body,session.MarketContext,includeDrafts:false,ct))));
+// D357: a date list is one labelled date per row; it saves and publishes through the contract routes above.
+api.MapPost("/date-schedules/date-lists/preview",(HttpContext c,PublishedContractRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
+{
+    var view=await ScheduleView(connection,body.Context,ct);
+    return Results.Ok(ContractDateStore.CompileDateList(body,view.Versions,view.Context));
+}));
+api.MapPost("/date-schedules/date-lists/resolve",(HttpContext c,ContractDateResolveRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
+    Results.Ok(await contractDateStore.ResolveDateList(connection,body,session.MarketContext,includeDrafts:false,ct))));
 var contractDateMaterialization=new ContractDateMaterialization(database.Manifest.CatalogId,contractDateStore);
 api.MapPost("/date-schedules/contracts/materialize",(HttpContext c,ContractMaterializationRequest body)=>DateOperation(c,"WriteMarketDefinitions",async(session,connection,ct)=>
     Results.Ok(await contractDateMaterialization.Materialize(connection,body,ct))));
@@ -881,18 +892,56 @@ api.MapGet("/curve-definitions/catalog",(Func<HttpContext,Task<IResult>>)(c=>Loc
     var data=await marketReads.Data(connection,Pin(session),ct,ImmutableArray<Guid>.Empty,ReferenceReadScope.AllVisible);
     return Results.Ok(new{choices=CurveDefinitions.Choices,maximumContracts=CurveDefinitions.MaximumContracts,references=CurveReferenceTerms.From(data.References),data.ReferenceRevision});
 },c.RequestAborted))));
-// The window resolves at the header's selected close: its date, under the session's current or historical knowledge.
-api.MapPost("/curve-definitions/preview",(HttpContext c,CurveDefinitionPreviewRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+// D318/D358: a definition's preview at the header's selected close, in that close's one exact context. Its mapping is the stored version
+// it names (an author's draft included), or the rows being edited, compiled in memory and never saved here. Authoring validates in the
+// current workspace at current knowledge on the close's date, captured without binding it so the request can still write.
+async Task<(object Preview,ScheduleContext Context,ReferenceRevision Reference)> CurvePreview(NpgsqlConnection connection,PreviewSession session,Guid? snapshotId,
+    CurveDefinitionDraft? definition,CurveMappingEdit? edit,bool authoring,CancellationToken ct)
 {
-    var definition=body.Definition??throw new MarketDataException("curve_definition","Supply a complete curve definition.");
+    if(definition is null)throw new MarketDataException("curve_definition","Supply a complete curve definition.");
     var window=CurveDefinitions.Window(definition);
-    var pin=Pin(session,body.SnapshotId);
+    if(edit is not null&&edit.Id!=window.MappingId)throw new MarketDataException("curve_definition","Edit the rows of the mapping this curve names.");
+    var pin=Pin(session,snapshotId);
     await pin.Bind(connection,database.Manifest.CatalogId,ct);
-    var context=(await SelectedClose.Pin(connection,database,pin,ct)).Context!;
+    if(authoring&&pin.Context is not null)throw new MarketDataException("curve_definition_historical","Author and publish curve definitions in the current workspace.");
+    var context=authoring?await SelectedClose.Capture(connection,database,pin.RequireFrame(),ct):(pin=await SelectedClose.Pin(connection,database,pin,ct)).Context!;
     var data=await database.Read(connection,ct,observationIds:[],referenceScope:ReferenceReadScope.AllVisible);
-    var mapping=await contractDateStore.Resolve(connection,new(window.MappingId,window.MappingVersion,context),context,ct);
-    return Results.Ok(CurveDefinitions.Preview(definition,CurveReferenceTerms.From(data.References),mapping));
-},c.RequestAborted)));
+    var terms=CurveReferenceTerms.From(data.References);
+    async Task<(ImmutableArray<ScheduleVersion> Versions,PublishedContractRequest Rows)> Edited()=>
+        ((await ScheduleView(connection,context,ct)).Versions,new(edit!.Code,edit.Name,context,edit.Contracts,edit.Dates));
+    if(definition.ContractKind=="interest_rate")
+    {
+        // t0 is the close's date: the date list's context date and the rate engine's valuation UTC date must agree, never be chosen between.
+        var valuation=DateOnly.FromDateTime(pin.RequireFrame().At.UtcDateTime);
+        if(valuation!=DateWorkspace.Date(context.EffectiveOn))
+            throw new MarketDataException("rate_context",$"This close values on {valuation:yyyy-MM-dd} UTC but belongs to business date {context.EffectiveOn}; choose a close whose dates agree.");
+        BoundDateList tenors;
+        if(edit is null)tenors=await contractDateStore.ResolveDateList(connection,new(window.MappingId,window.MappingVersion,context),context,includeDrafts:true,ct);
+        else {var (versions,rows)=await Edited();tenors=ContractDateStore.CompileDateList(rows,versions,context);}
+        return (CurveDefinitions.PreviewRates(definition,terms,tenors,valuation),context,data.ReferenceRevision);
+    }
+    BoundContractDefinition mapping;
+    if(edit is null)mapping=await contractDateStore.Resolve(connection,new(window.MappingId,window.MappingVersion,context),context,includeDrafts:true,ct);
+    else {var (versions,rows)=await Edited();mapping=ContractDateStore.Compile(rows,versions,context);}
+    return (CurveDefinitions.Preview(definition,terms,mapping),context,data.ReferenceRevision);
+}
+api.MapPost("/curve-definitions/preview",(HttpContext c,CurveDefinitionPreviewRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+    Results.Ok((await CurvePreview(connection,session,body.SnapshotId,body.Definition,body.Mapping,authoring:false,ct)).Preview),c.RequestAborted)));
+// D358: saved curve definitions. Readers see published versions; authors and publishers also see drafts.
+api.MapGet("/curve-definitions",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    if(session.MarketContext is {} selected)await MarketContextStore.Bind(connection,database.Manifest.CatalogId,selected,ct);
+    return Results.Ok(new{definitions=await curveDefinitionStore.Read(connection,ct),canEdit=await PreviewDatabase.HasPermission(connection,"WriteMarketDefinitions",ct),
+        canPublish=await PreviewDatabase.HasPermission(connection,"SealMarketDefinitions",ct)});
+},c.RequestAborted))));
+api.MapPost("/curve-definitions/save",(HttpContext c,CurveDefinitionSaveRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"WriteMarketDefinitions",async(connection,ct)=>
+    Results.Ok(await curveDefinitionStore.Save(connection,body,async()=>
+    {
+        var (_,context,reference)=await CurvePreview(connection,session,body.SnapshotId,body.Definition,body.Mapping,authoring:true,ct);
+        return (context,reference);
+    },ct)),c.RequestAborted)));
+api.MapPost("/curve-definitions/publish",(HttpContext c,CurveDefinitionPublishRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"SealMarketDefinitions",async(connection,ct)=>
+    Results.Ok(await curveDefinitionStore.Publish(connection,body,ct)),c.RequestAborted)));
 // Selects a historical view: binds the context, under the explicit latest-known correction policy, and shows its frames.
 async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? selection,Func<NpgsqlConnection,CancellationToken,Task<KnowledgeSnapshot>> resolve,Guid? selectedSnapshot=null,string? framePolicy=null)
 {

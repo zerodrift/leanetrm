@@ -42,6 +42,8 @@ public sealed class PublishedScheduleResolver
             var origin=DateOccurrences.Origin(schedule.Dates,selected.Selection,day);
             compiled[pin]=prepared=(schedule,origin);
         }
+        // A daily rule never moves a context before its first date onto that date: [n] must stay the context date plus n.
+        if(selected.Definition.Daily is {} daily&&day<DateWorkspace.Date(daily.FirstDate))throw Error("date_index","The context date precedes this daily schedule's first date.");
         var offset=reference.Index??(selected.Selection!="absolute_index"?0:throw Error("date_index","Fixed schedules need an explicit zero-based occurrence index."));
         var index=prepared.Origin+offset;
         if(prepared.Origin<0||index<0||index>=prepared.Schedule.Dates.Count)throw Error("date_index","The context-relative occurrence is outside the published schedule.");

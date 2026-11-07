@@ -33,6 +33,27 @@ internal static class ScheduleChecks
                 }
             }
         });
+        Check("daily calendar dates include every day inclusively",()=>{
+            var days=DailyDates.Generate(new(2026,1,1),new(2026,1,10),DailyDays.Calendar,null);
+            Eq(days.Length,10);Eq(days[0].Date,new DateOnly(2026,1,1));Eq(days[^1].Date,new DateOnly(2026,1,10));
+            if(!days.Any(d=>d.Date==new DateOnly(2026,1,3)))throw new Exception("A calendar daily rule skipped a weekend day");
+        });
+        Check("daily business dates follow the calendar's open days",()=>{
+            var days=DailyDates.Generate(new(2026,1,1),new(2026,1,31),DailyDays.Business,calendar);
+            if(!days.Select(d=>d.Date).SequenceEqual(calendar.Dates.Where(d=>d<=new DateOnly(2026,1,31))))throw new Exception("Business days differ from the calendar");
+            if(days.Any(d=>d.Date==new DateOnly(2026,1,19)))throw new Exception("A closed day was generated");
+        });
+        Check("a business daily rule needs a calendar covering its range",()=>{
+            Reject("no_business_day",()=>DailyDates.Generate(new(2026,1,1),new(2026,6,30),DailyDays.Business,calendar));
+            Reject("no_business_day",()=>DailyDates.Generate(new(2025,12,1),new(2026,1,30),DailyDays.Business,calendar));
+            Reject("daily_definition",()=>DailyDates.Generate(new(2026,1,1),new(2026,1,30),DailyDays.Business,null));
+        });
+        Check("daily bounds are explicit and at most 100 years",()=>{
+            Reject("daily_definition",()=>DailyDates.Generate(new(2026,1,2),new(2026,1,1),DailyDays.Calendar,null));
+            Eq(DailyDates.Generate(new(2000,1,1),new DateOnly(2000,1,1).AddDays(DailyDates.MaximumDays-1),DailyDays.Calendar,null).Length,DailyDates.MaximumDays);
+            Reject("daily_definition",()=>DailyDates.Generate(new(2000,1,1),new DateOnly(2000,1,1).AddDays(DailyDates.MaximumDays),DailyDays.Calendar,null));
+            Reject("daily_definition",()=>DailyDates.Generate(new(2026,1,1),new(2026,1,2),(DailyDays)9,null));
+        });
         Check("unadjusted and modified preceding retain their explicit semantics",()=>{
             Eq(DateRolling.Adjust(new(2026,2,1),calendar,DateRoll.Unadjusted),new DateOnly(2026,2,1));
             Reject("date_coverage",()=>DateRolling.Adjust(to,calendar,DateRoll.Unadjusted));
@@ -54,7 +75,7 @@ internal static class ScheduleChecks
         Check("date references parse only the bounded explicit grammar",()=>{
             var p=DateReference.Parse("oe.ng[2] - 3bd");Eq(p.Symbol,"oe.ng");Eq(p.Index,2);Eq(p.BusinessDays,-3);
             Eq(DateReference.Parse("oe.ng1 + 1bd").Index,null);Eq(DateReference.Parse("oe.ng1").BusinessDays,null);
-            foreach(var text in new[]{"oe.ng1+0bd","oe.ng1+10001bd","oe.ng1[99999]","oe.ng1 + 1","oe.ng1 + 1bd junk","today","oe.ng1[-1]"}) Reject("date_expression",()=>DateReference.Parse(text));
+            foreach(var text in new[]{"oe.ng1+0bd","oe.ng1+10001bd","oe.ng1[100000]","oe.ng1 + 1","oe.ng1 + 1bd junk","today","oe.ng1[-1]"}) Reject("date_expression",()=>DateReference.Parse(text));
         });
         return passed;
     }

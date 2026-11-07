@@ -67,9 +67,9 @@ WHERE(v.catalog_id,v.schedule_id,v.version)=($1,$2,$3) AND v.state='published'
     }
     public async Task<ScheduleVersion> Save(NpgsqlConnection connection,ScheduleSaveRequest body,CancellationToken ct)
     {
-        // Generated schedules require a calendar; date lists bind one only when explicitly supplied.
-        var engine=body.Definition is not {Dates:not null}?"date_schedule_v2":"date_schedule_v3";
-        var calendar=body.Calendar is null&&engine=="date_schedule_v3"?null:await Calendar(connection,body.Calendar,ct);
+        // Monthly rules require a calendar; date lists and calendar-day rules bind one only when explicitly supplied.
+        var engine=body.Definition switch{{Daily:not null}=>"date_schedule_v4",{Dates:not null}=>"date_schedule_v3",_=>"date_schedule_v2"};
+        var calendar=body.Calendar is null&&engine!="date_schedule_v2"?null:await Calendar(connection,body.Calendar,ct);
         PublishedSchedules.Validate(body,engine,calendar);
         // One catalog lock serializes create/fork and quota admission across sessions.
         await using(var gate=Command(connection,"SELECT pg_advisory_xact_lock(730849103)"))await gate.ExecuteNonQueryAsync(ct);
