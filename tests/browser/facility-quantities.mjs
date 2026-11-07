@@ -80,9 +80,9 @@ export async function run(actions){
   "!document.querySelector('#facility-editor').hidden&&document.querySelector('#facility-source-fields').disabled&&document.querySelector('#facility-plan-save').disabled&&document.querySelector('#workspace-mode-label').textContent.includes('Historical')&&document.querySelector('#snapshot').value!==''&&[...document.querySelectorAll('[data-facility-trade]')].every(n=>!n.disabled&&!n.closest('fieldset').disabled)");
  // Historical writes remain disabled. Trade inspection retains its contextual
  // close; choose the later valuation date for the following read.
- await click('#nav-futures');
+ await click('#nav-futures',30000);
  const inspectionFrame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-31T08:')&&w.initialFrameIds.includes(f.id)).id;})()");
- await set('#snapshot',inspectionFrame);await wait(idle);await open();
+ await set('#snapshot',inspectionFrame);await wait(idle,30000);await open();
  await evaluate(`window.facilityTicketPayload=null;window.facilityTradeFetch=window.fetch;window.fetch=async(...args)=>{const response=await facilityTradeFetch(...args);if(String(args[0]).endsWith('/trading/gas')&&response.ok)window.facilityTicketPayload=await response.clone().json();if(String(args[0]).endsWith('/trading/side-schedules')&&response.ok)window.facilityScheduleRead=await response.clone().json();return response;};
   const row=[...document.querySelectorAll('#facility-allocation-table tbody tr')].find(r=>r.querySelector('input')?.value==='60');row.querySelector('[data-facility-trade]').click();`);
  await openBookedSchedules({wait,click});
