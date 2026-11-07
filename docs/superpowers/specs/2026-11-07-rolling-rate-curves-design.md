@@ -33,12 +33,13 @@ from interpolating between the pillars on either side. The pillars must roll wit
      (`log_discount_geometric_root_to_even_18_v1`), with its existing maximum
      pillar span.
    - No default: a definition without a policy is refused.
-3. **Every rate consumer reads the definition-driven curve.**
-   - The market board and the curve page show it, along with discount factors and
-     the interpolated line between pillars.
-   - Payment discounting (the currency discount default) uses it, as do valuation
-     and closes.
+3. **Payment discounting is the purpose (owner-directed).**
+   - The curve exists to look up discount factors on payment dates, through the
+     currency discount default.
+   - The market board and the curve page show it only for inspection: each label's
+     resolved maturity, zero rate and discount factor at the selected close.
    - The curve page offers a link to the curve's definition and no edit control.
+
 4. **The literal-maturity rate path is removed.**
    - Removed: `rate_curve_points`, the code that builds pillars from stored dates,
      and every curve, default and fixture that uses them.
@@ -131,11 +132,11 @@ from interpolating between the pillars on either side. The pillars must roll wit
 ### Consumers
 
 - **Market board and curve page.**
-  - One card and one page per admitted rate curve.
+  - One card and one page per admitted rate curve, for inspection.
   - The page lists each label with its resolved maturity, days, zero rate and
-    discount factor.
-  - The chart plots the pillars and the interpolated discount-implied zero line
-    between them.
+    discount factor, and plots the pillars.
+  - No interpolated line, per-date lookup tool or per-label history view
+    (no consumer).
   - Historical views resolve against the selected close's own `t_0`, and use the
     D334 close rule.
 - **Payment discounting.**
@@ -144,8 +145,6 @@ from interpolating between the pillars on either side. The pillars must roll wit
     curve's.
   - One default per currency now serves every close, because the curve rolls.
     Per-day defaults are no longer needed.
-- **History** for a label reads that label's series across closes. Each point is
-  labelled by tenor, not by a maturity date.
 
 ### Removal
 
@@ -203,8 +202,6 @@ from interpolating between the pillars on either side. The pillars must roll wit
 - How series identity is reused across revisions, provided it is deterministic
   and exact (for example, derived from catalog, curve code and label).
 - API route and payload names for admission and for the discount default.
-- How the chart renders the interpolated line, provided the values come from the
-  backend.
 - Error codes beyond those named, following existing naming.
 
 ## Verification
@@ -222,7 +219,7 @@ from interpolating between the pillars on either side. The pillars must roll wit
   independent calculation. The default's policy must equal the curve's.
 - **Removal:** no reader of `rate_curve_points` remains; the migration refuses to
   run with literal rate curves present.
-- Browser checks for the curve page (pillars, interpolated line, definition link,
+- Browser checks for the curve page (pillars, discount factors, definition link,
   no edit control) and for the policy field in the editor.
 - Twin rehearsal of the private seed before the pilot window.
 
