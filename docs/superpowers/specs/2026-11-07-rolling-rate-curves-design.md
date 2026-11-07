@@ -124,7 +124,7 @@ from interpolating between the pillars on either side. The pillars must roll wit
   payment the day after a Friday close still discounts against a 1D pillar dated
   Monday. This is exact, not extrapolation, and is recorded in the build's lineage
   as the anchor.
-  *(Author's call; it changes today's behaviour, which refuses those dates.)*
+  *(Owner-decided, 2026-11-07; today's code refuses those dates.)*
 - Dates after the last pillar are refused (`discount_coverage`).
 - A bracket wider than the maximum pillar span is refused
   (`discount_interpolation`), as today.
