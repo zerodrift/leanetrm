@@ -153,11 +153,9 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    if(member.Role=="physical")
    {
     var meters=await gas.Meters(c,data,member.Assignment,setup,ct);
-    foreach(var root in result.Roots.Where(r=>r.Measure=="schedule_quantity"))
-    {
-     var values=result.QuantityValues(root.Name,quantity);var grid=p.Program.Document.Grids[result.Values[root.Row].Scenario.Grid!.Value];
-     for(var n=0;n<values.Length;n++){var q=values[n].Scale(member.Ratio);qtotal=qtotal is null?q:qtotal.Add(q);var interval=grid.Interval(n);rows.Add(new{day=interval.OperatingDate.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),interval.Start,interval.End,quantity=Ratio(q),quantitySource="contractual",meter=PhysicalGasStore.Meter(data,meters,interval.OperatingDate,setup)});}
-    }
+    // Contractual rows come from the retained quantities, so an ended gas day outside the measure keeps its row.
+    foreach(var day in OpenEtrm.MarketData.Physical.PhysicalDeliverySchedule.ReadLiteralQuantities(p.Program,ExactRatio.One))
+    {var q=day.Quantity.Scale(quantity).Scale(member.Ratio);qtotal=qtotal is null?q:qtotal.Add(q);rows.Add(new{day=day.OperatingDate.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),day.Start,day.End,quantity=Ratio(q),quantitySource="contractual",meter=PhysicalGasStore.Meter(data,meters,day.OperatingDate,setup)});}
     quantities.Add(member.Code,qtotal!);
    }
    else

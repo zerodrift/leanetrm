@@ -45,6 +45,7 @@ def main():
     parser.add_argument('--gas-composition-check',action='store_true',help='Qualify multiple gas sides and explicit quantity links')
     parser.add_argument('--gas-amendments-check',action='store_true',help='Qualify retained physical gas trade amendments')
     parser.add_argument('--gas-indexed-check',action='store_true',help='Qualify separate physical and daily indexed payment Sides')
+    parser.add_argument('--gas-in-term-check',action='store_true',help='Qualify in-term gas admission, recorded payments and the owner-only in-term load')
     parser.add_argument('--deal-ticket-check',action='store_true',help='Qualify the deal ticket schedule view of composed gas trades')
     parser.add_argument('--crude-setup-check',action='store_true',help='Qualify exact crude delivery-to-market bindings')
     parser.add_argument('--gas-setup-check',action='store_true',help='Qualify versioned gas setup authoring and trade pins')
@@ -147,8 +148,8 @@ def main():
     if args.gas_quantity_benchmark: args.gas_daily_quantity_check=True
     if args.with_gas_operations_demo: args.with_gas_basis_demo=True
     if args.gas_billing_check or args.gas_operations_check: args.physical_gas_check=True
-    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.facility_quantity_check: args.physical_gas_check=True
-    if args.demo_instruments_check or args.gas_indexed_check: args.check=True
+    if args.gas_setup_check or args.gas_composition_check or args.gas_amendments_check or args.gas_indexed_check or args.gas_in_term_check or args.deal_ticket_check or args.gas_daily_quantity_check or args.facility_quantity_check: args.physical_gas_check=True
+    if args.demo_instruments_check or args.gas_indexed_check or args.gas_in_term_check: args.check=True
 
     if args.retained_schedule_check or args.physical_gas_check or args.physical_crude_check or args.lng_cargo_check: args.check=True
     if args.gas_basis_demo_check: args.check=True
@@ -255,10 +256,16 @@ def main():
             if args.gas_indexed_check:
                 from gas_indexed_fixture import add_fixture
                 reference,market,security,manifest=add_fixture(reference,market,security,manifest)
+            if args.gas_in_term_check:
+                from gas_in_term_fixture import add_fixture as add_in_term_fixture
+                reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             if migration.name=='0203_assistant_presentation_controls.sql':
                 from check_assistant_presentation_upgrade import run_checks as check_presentation_upgrade
                 check_presentation_upgrade(query,migration)
+            if migration.name=='0215_in_term_gas_lifecycle.sql':
+                from check_gas_in_term import upgrade_checks as check_in_term_upgrade
+                check_in_term_upgrade(query,migration)
             if migration.name=='0210_indexed_gas_consideration.sql':
                 from check_gas_index_upgrade import run_checks as check_gas_index_upgrade
                 check_gas_index_upgrade(query,migration)
@@ -493,7 +500,7 @@ def main():
                 from check_swap_settlement_selection import prepare_daily
                 swap_market=prepare_daily(swap_market,swap_manifest)
             query(swap_market)
-            if args.connected_portfolio_check or args.valuation_status_check or args.live_calculation_check or args.with_custom_curves:
+            if args.connected_portfolio_check or args.valuation_status_check or args.live_calculation_check or args.with_custom_curves or args.gas_in_term_check:
                 # The primary custom-curve fixture visits closes beyond the four standard weekdays.
                 # Its unrelated secondary bundle explicitly supplies no inputs there.
                 times={f['at'] for f in swap_manifest['frames']}
@@ -802,6 +809,9 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':gas_demo_fixture}))
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-basis-demo'],cwd=ROOT,env=env,check=True,timeout=300)
+            elif args.gas_in_term_check:
+                from check_gas_in_term import run_checks as check_gas_in_term
+                check_gas_in_term(url,query,manifest)
             elif args.gas_indexed_check:
                 from check_gas_indexed import run_checks as check_gas_indexed
                 indexed_fixture=check_gas_indexed(url,query,manifest,risk_worker_runner())
