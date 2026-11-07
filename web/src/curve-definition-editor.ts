@@ -9,7 +9,7 @@ type Product={commodity:string|null;location:string|null;currency:string|null;un
 type References={commodityLocations:{commodity:string;location:string}[];quotes:Record<string,Quote>;profiles:Record<string,Profile>;
   targets:Record<string,Target>;futuresProducts:Record<string,Product>;sources:string[]};
 type Catalog={choices:Choice[];maximumContracts:number;references:References};
-type Mapping={id:string;version:number;state:string;definition:{code:string;name:string;contracts:unknown[]}};
+type Mapping={id:string;version:number;state:string;definition:{code:string;name:string;contracts:unknown[]|null}};
 type Receipt={expression:string};
 type Position={position:number;label:string;start:string;end:string;lastTradingAt:string;futuresSeries:string|null;startReference:Receipt;endReference:Receipt;lastTradingReference:Receipt};
 type Preview={code:string;name:string;mapping:string;context:{effectiveOn:string};terms:{currency:string;unit:string;multiplier:string;timeZone:string;intervalMinutes:number;
@@ -79,7 +79,7 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
     options('product',Object.entries(r.futuresProducts).map(([code,p])=>({value:code,label:`${code} · ${p.commodity??'no commodity'} at ${p.location??'no location'}`})));
     options('quote',Object.entries(r.quotes).map(([code,q])=>({value:code,label:`${code} · ${q.currency} per ${q.multiplier==='1'?'':q.multiplier+' '}${q.unit}`})));
     options('profile',Object.entries(r.profiles).map(([code,p])=>({value:code,label:`${code} · ${p.timeZone}, ${p.intervalMinutes} min`})));
-    options('mapping',mappings.map(m=>({value:m.id+'|'+m.version,label:`${m.definition.name} (${m.definition.code}) v${m.version} · ${m.definition.contracts.length} contracts`})));
+    options('mapping',mappings.map(m=>({value:m.id+'|'+m.version,label:`${m.definition.name} (${m.definition.code}) v${m.version} · ${m.definition.contracts!.length} contracts`})));
     // Targets are grouped by the served settlement case their kind selects; a case no target kind expresses is shown, disabled, so it stays visible.
     const settlements=catalog.choices.filter(c=>c.field==='settlement');
     options('target',[...Object.entries(r.targets).map(([code,t])=>{const kind=settlements.find(c=>c.targetKind===t.kind);
@@ -113,7 +113,7 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
     const started=++generation;
     const [read,library]=await Promise.all([api<Catalog>('curve-definitions/catalog'),api<{contractDefinitions:Mapping[]}>('date-schedules')]);
     if(started!==generation)return;
-    catalog=read;mappings=library.contractDefinitions.filter(m=>m.state==='published');render();
+    catalog=read;mappings=library.contractDefinitions.filter(m=>m.state==='published'&&m.definition.contracts);render();
   }
 
   return {element,load,
