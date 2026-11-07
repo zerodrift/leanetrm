@@ -898,8 +898,18 @@ api.MapPost("/curve-definitions/preview",(HttpContext c,CurveDefinitionPreviewRe
     await pin.Bind(connection,database.Manifest.CatalogId,ct);
     var context=(await SelectedClose.Pin(connection,database,pin,ct)).Context!;
     var data=await database.Read(connection,ct,observationIds:[],referenceScope:ReferenceReadScope.AllVisible);
+    var terms=CurveReferenceTerms.From(data.References);
+    if(definition.ContractKind=="interest_rate")
+    {
+        // t0 is the close's date: the date list's context date and the rate engine's valuation UTC date must agree, never be chosen between.
+        var valuation=DateOnly.FromDateTime(pin.RequireFrame().At.UtcDateTime);
+        if(valuation!=DateWorkspace.Date(context.EffectiveOn))
+            throw new MarketDataException("rate_context",$"This close values on {valuation:yyyy-MM-dd} UTC but belongs to business date {context.EffectiveOn}; choose a close whose dates agree.");
+        var tenors=await contractDateStore.ResolveDateList(connection,new(window.MappingId,window.MappingVersion,context),context,ct);
+        return Results.Ok(CurveDefinitions.PreviewRates(definition,terms,tenors,valuation));
+    }
     var mapping=await contractDateStore.Resolve(connection,new(window.MappingId,window.MappingVersion,context),context,ct);
-    return Results.Ok(CurveDefinitions.Preview(definition,CurveReferenceTerms.From(data.References),mapping));
+    return Results.Ok(CurveDefinitions.Preview(definition,terms,mapping));
 },c.RequestAborted)));
 // Selects a historical view: binds the context, under the explicit latest-known correction policy, and shows its frames.
 async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? selection,Func<NpgsqlConnection,CancellationToken,Task<KnowledgeSnapshot>> resolve,Guid? selectedSnapshot=null,string? framePolicy=null)

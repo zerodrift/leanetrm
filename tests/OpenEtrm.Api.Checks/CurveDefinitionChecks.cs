@@ -10,6 +10,7 @@ internal static class CurveDefinitionChecks
         var passed=0;
         void Check(string name,Action work){work();passed++;Console.WriteLine($"PASS {name}");}
         void Reject(string code,Action work){try{work();}catch(MarketDataException e)when(e.Code==code){return;}throw new Exception($"Expected {code}");}
+        void RejectMentioning(string code,string text,Action work){try{work();}catch(MarketDataException e)when(e.Code==code&&e.Message.Contains(text)){return;}throw new Exception($"Expected {code} naming {text}");}
         var one=ExactDecimal.Parse("1");
         var terms=new CurveReferenceTerms(
             [new("natural_gas","hub_a"),new("natural_gas","hub_b")],
@@ -23,7 +24,9 @@ internal static class CurveDefinitionChecks
                 .Add("syn_placeholder",new("placeholder","natural_gas","hub_a","usd","mmbtu",one)),
             [new("syn_gas_2021_01","syn_gas",new(2021,1,1),new(2021,2,1),new(2020,12,29,15,30,0,TimeSpan.Zero)),
                 new("syn_gas_2021_02","syn_gas",new(2021,2,1),new(2021,3,1),new(2021,1,29,15,30,0,TimeSpan.Zero)),new("syn_gas_placeholder","syn_gas",null,null,null)],
-            ["synthetic_marks"]);
+            ["synthetic_marks"],
+            ImmutableDictionary<string,CurveRateTerms>.Empty.Add("test_interest",new("usd","actual_365_fixed","simple",OpenEtrm.MarketData.RateConventions.Implementation))
+                .Add("test_continuous",new("usd","actual_365_fixed","continuous",OpenEtrm.MarketData.RateConventions.Implementation)));
         var forward=new CurveDefinitionDraft("hub_a_fwd","Hub A forward","natural_gas","hub_a","usd_mmbtu","gas_day","forward",null,
             new(Guid.NewGuid(),1,2),"hub_a_index","direct","trader_mark","synthetic_marks","reject","none");
         var future=forward with{Code="syn_gas_fut",ContractKind="future",FuturesProduct="syn_gas",SettlementTarget="exchange_settlement",MarkRole="daily_settlement"};
@@ -95,6 +98,37 @@ internal static class CurveDefinitionChecks
         Check("positions are in increasing, non-overlapping delivery order",()=>{
             Reject("curve_contract_order",()=>CurveDefinitions.Preview(forward,terms,Mapping(("Feb 21",new(2021,2,1),new(2021,3,1)),("Jan 21",new(2021,1,1),new(2021,2,1)))));
             Reject("curve_contract_order",()=>CurveDefinitions.Preview(forward,terms,Mapping(("Q1 21",new(2021,1,1),new(2021,4,1)),("Feb 21",new(2021,2,1),new(2021,3,1)))));
+        });
+        // D357: an interest-rate curve carries every label of a date list; each resolved maturity must follow the valuation date.
+        var valuation=new DateOnly(2026,11,3);
+        DateListEntry Tenor(int position,string label,DateOnly date)=>new(position,label,date,new($"oe.days[{date.DayNumber-valuation.DayNumber}]",date,"oe.days",null,null,null,"synthetic"));
+        BoundDateList Tenors(params (string Label,DateOnly Date)[] rows)=>new("usd_tenors","USD tenors",new("2026-11-03",1),[..rows.Select((r,i)=>Tenor(i+1,r.Label,r.Date))]);
+        var usd=Tenors(("1D",new(2026,11,4)),("4Y",new(2030,11,3)));
+        var rates=new CurveDefinitionDraft("usd_zero","USD zero rates",null,null,null,null,"interest_rate",null,new(Guid.NewGuid(),1,2),null,null,null,"synthetic_marks",null,null,InterestRate:"test_interest");
+        Check("a rate curve previews each label's maturity and day count",()=>{
+            var preview=CurveDefinitions.PreviewRates(rates,terms,usd,valuation);
+            if(preview.Maturities is not [{Position:1,Label:"1D",Days:1},{Position:2,Label:"4Y",Days:1461} last]||last.Maturity!=new DateOnly(2030,11,3)||
+               preview.Terms.Currency!="usd"||preview.ValuationDate!=valuation||preview.Mapping!="usd_tenors")throw new Exception("Wrong rate preview");
+        });
+        Check("a rate maturity on the valuation date is refused by label",()=>
+            RejectMentioning("rate_maturity","0D",()=>CurveDefinitions.PreviewRates(rates with{Contracts=rates.Contracts! with{Count=2}},terms,Tenors(("0D",valuation),("4Y",new(2030,11,3))),valuation)));
+        Check("a rate curve refuses contract-only terms",()=>{
+            foreach(var draft in new[]{rates with{Commodity="natural_gas"},rates with{Quote="usd_mmbtu"},rates with{SettlementTarget="hub_a_index"},rates with{Interpolation="none"},
+                rates with{Location="hub_a"},rates with{Profile="gas_day"},rates with{FuturesProduct="syn_gas"},rates with{PriceRule="direct"},rates with{MarkRole="trader_mark"},rates with{MissingPrice="reject"}})
+                Reject("curve_definition",()=>CurveDefinitions.PreviewRates(draft,terms,usd,valuation));
+        });
+        Check("a rate curve needs a supported specification and a known source",()=>{
+            Reject("curve_definition",()=>CurveDefinitions.PreviewRates(rates with{InterestRate=null},terms,usd,valuation));
+            Reject("curve_reference",()=>CurveDefinitions.PreviewRates(rates with{InterestRate="other"},terms,usd,valuation));
+            Reject("curve_reference",()=>CurveDefinitions.PreviewRates(rates with{MarkSource="other"},terms,usd,valuation));
+            Reject("unsupported_rate_convention",()=>CurveDefinitions.PreviewRates(rates with{InterestRate="test_continuous"},terms,usd,valuation));
+        });
+        Check("a rate curve carries every row of its date list",()=>
+            Reject("curve_contract_count",()=>CurveDefinitions.PreviewRates(rates with{Contracts=rates.Contracts! with{Count=1}},terms,usd,valuation)));
+        Check("a contract curve refuses an interest-rate specification, and a rate curve is not previewed as contracts",()=>{
+            Reject("curve_definition",()=>CurveDefinitions.Preview(forward with{InterestRate="test_interest"},terms,months));
+            Reject("curve_definition",()=>CurveDefinitions.Preview(rates,terms,months));
+            Reject("curve_definition",()=>CurveDefinitions.PreviewRates(forward,terms,usd,valuation));
         });
         Console.WriteLine($"PASS {passed} curve definition checks");
     }
