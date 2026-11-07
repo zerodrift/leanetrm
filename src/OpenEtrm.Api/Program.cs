@@ -869,6 +869,14 @@ api.MapPost("/date-schedules/contracts/publish",(HttpContext c,ContractDatePubli
     Results.Ok(await contractDateStore.Publish(connection,body,ct))));
 api.MapPost("/date-schedules/contracts/resolve",(HttpContext c,ContractDateResolveRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
     Results.Ok(await contractDateStore.Resolve(connection,body,session.MarketContext,ct))));
+// D356: a date list is one labelled date per row; it saves and publishes through the contract routes above.
+api.MapPost("/date-schedules/date-lists/preview",(HttpContext c,PublishedContractRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
+{
+    var view=await ScheduleView(connection,body.Context,ct);
+    return Results.Ok(ContractDateStore.CompileDateList(body,view.Versions,view.Context));
+}));
+api.MapPost("/date-schedules/date-lists/resolve",(HttpContext c,ContractDateResolveRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
+    Results.Ok(await contractDateStore.ResolveDateList(connection,body,session.MarketContext,ct))));
 var contractDateMaterialization=new ContractDateMaterialization(database.Manifest.CatalogId,contractDateStore);
 api.MapPost("/date-schedules/contracts/materialize",(HttpContext c,ContractMaterializationRequest body)=>DateOperation(c,"WriteMarketDefinitions",async(session,connection,ct)=>
     Results.Ok(await contractDateMaterialization.Materialize(connection,body,ct))));

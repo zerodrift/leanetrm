@@ -85,6 +85,24 @@ def run_checks(url, query, manifest, psql, environment):
     approver.call('date-schedules/contracts/publish',{'requestId':str(uuid4()),**{key:late_receipt[key] for key in ('id','version','generation')}})
     late_rows=viewer.call('date-schedules/contracts/resolve',{'id':late_receipt['id'],'version':late_receipt['version'],'context':context()})['contracts']
     assert [row['lastTradingAt'] for row in late_rows]==['2021-01-06T04:00:00+00:00','2021-01-08T04:00:00+00:00']
+    # A date list is one labelled date per row over the daily rule; it rolls with the context and is never read as contracts.
+    list_before=context()
+    tenors={'requestId':str(uuid4()),'code':'synthetic_tenors','name':'Synthetic tenors','context':list_before,'contracts':None,
+        'dates':[{'label':'1D','date':'oe.days + 1bd'},{'label':'6M','date':'oe.days[181]'}]}
+    preview=viewer.call('date-schedules/date-lists/preview',{key:tenors[key] for key in ('code','name','context','contracts','dates')})
+    assert [d['label'] for d in preview['dates']]==['1D','6M'] and preview['dates'][1]['date']=='2021-07-15', preview
+    viewer.call('date-schedules/contracts/save',tenors,expected=403)
+    editor.call('date-schedules/contracts/save',{**tenors,'requestId':str(uuid4()),'dates':[{'label':'A','date':'oe.days[2]'},{'label':'B','date':'oe.days[1]'}]},expected=422)
+    tenor_receipt=editor.call('date-schedules/contracts/save',tenors)
+    assert tenor_receipt==editor.call('date-schedules/contracts/save',tenors), 'A retried date-list save changed its receipt'
+    assert sum(v['id']==tenor_receipt['id'] for v in approver.call('date-schedules')['contractDefinitions'])==1
+    approver.call('date-schedules/contracts/publish',{'requestId':str(uuid4()),**{key:tenor_receipt[key] for key in ('id','version','generation')}})
+    tenor_read={'id':tenor_receipt['id'],'version':tenor_receipt['version']}
+    rolled=[viewer.call('date-schedules/date-lists/resolve',{**tenor_read,'context':context(day)})['dates'] for day in ('2021-01-15','2021-02-15')]
+    assert [d['date'] for d in rolled[1]][1]=='2021-08-15' and rolled[0][1]['date']=='2021-07-15', rolled
+    viewer.call('date-schedules/contracts/resolve',{**tenor_read,'context':context()},expected=422)
+    viewer.call('date-schedules/date-lists/resolve',{**resolution,'context':context()},expected=422)
+    viewer.call('date-schedules/date-lists/resolve',{**tenor_read,'context':list_before},expected=422)
     later = viewer.call('date-schedules/contracts/resolve', {**resolution,'context':context('2021-02-15')})
     assert later['contracts'][0]['start']=='2021-02-01'
     # A new publication of the symbolic source must not reinterpret this definition.

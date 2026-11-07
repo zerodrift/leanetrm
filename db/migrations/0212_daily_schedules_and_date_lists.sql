@@ -15,4 +15,33 @@ ALTER TABLE market_data.date_schedule_versions ADD CONSTRAINT schedule_engine_ca
  AND ((definition->'daily'->>'days'='business' AND calendar_catalog_id IS NOT NULL AND calendar_revision_id IS NOT NULL AND calendar_code IS NOT NULL)
   OR (definition->'daily'->>'days'='calendar' AND ((calendar_catalog_id IS NULL AND calendar_revision_id IS NULL AND calendar_code IS NULL)
    OR (calendar_catalog_id IS NOT NULL AND calendar_revision_id IS NOT NULL AND calendar_code IS NOT NULL))))));
+-- Date lists (engine date_list_v1) are contract-date mappings with one 'date' field and no trading cutoff per row.
+ALTER TABLE market_data.contract_date_versions DROP CONSTRAINT contract_date_versions_engine_version_check;
+ALTER TABLE market_data.contract_date_versions ADD CONSTRAINT contract_date_versions_engine_version_check CHECK(engine_version IN('contract_dates_v1','date_list_v1'));
+ALTER TABLE market_data.contract_date_contracts ALTER COLUMN cutoff_utc DROP NOT NULL;
+ALTER TABLE market_data.contract_date_fields DROP CONSTRAINT contract_date_fields_role_check;
+ALTER TABLE market_data.contract_date_fields ADD CONSTRAINT contract_date_fields_role_check CHECK(role IN('start','end','last_trading','date'));
+-- Publication requires each row's complete field set for its engine: a cutoff and start, end and last trading for contracts;
+-- no cutoff and exactly one date for a date list.
+CREATE OR REPLACE FUNCTION security.publish_contract_dates(catalog uuid,definition uuid,requested_version integer,expected_generation integer) RETURNS integer
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE row market_data.contract_date_versions;ordinal integer;
+BEGIN
+ IF NOT security.current_write_context() OR NOT security.market_access(catalog,'SealMarketDefinitions') THEN RAISE EXCEPTION 'No current publishing authority' USING ERRCODE='42501';END IF;
+ PERFORM pg_advisory_xact_lock(730849102);
+ SELECT * INTO row FROM market_data.contract_date_versions WHERE(catalog_id,definition_id,version)=(catalog,definition,requested_version) FOR UPDATE;
+ IF NOT FOUND OR row.generation IS DISTINCT FROM expected_generation THEN RAISE EXCEPTION 'Stale definition generation' USING ERRCODE='40001';END IF;
+ IF NOT security.contract_date_visible(catalog,definition,requested_version) OR NOT security.market_access(catalog,'SealMarketDefinitions') THEN RAISE EXCEPTION 'Publishing authority expired' USING ERRCODE='42501';END IF;
+ IF row.state='published' THEN RETURN row.publication_order;END IF;
+ IF NOT EXISTS(SELECT 1 FROM market_data.contract_date_contracts WHERE(catalog_id,definition_id,version)=(catalog,definition,requested_version))
+ OR EXISTS(SELECT 1 FROM market_data.contract_date_contracts c WHERE(c.catalog_id,c.definition_id,c.version)=(catalog,definition,requested_version)
+  AND (CASE row.engine_version WHEN 'date_list_v1' THEN c.cutoff_utc IS NOT NULL ELSE c.cutoff_utc IS NULL END
+   OR (SELECT array_agg(f.role ORDER BY f.role) FROM market_data.contract_date_fields f WHERE(f.catalog_id,f.definition_id,f.version,f.ordinal)=(c.catalog_id,c.definition_id,c.version,c.ordinal))
+    IS DISTINCT FROM (CASE row.engine_version WHEN 'date_list_v1' THEN ARRAY['date'] ELSE ARRAY['end','last_trading','start'] END))) THEN
+  RAISE EXCEPTION 'Incomplete definition fields' USING ERRCODE='23514';END IF;
+ SELECT coalesce(max(publication_order),0)+1 INTO ordinal FROM market_data.contract_date_versions WHERE catalog_id=catalog;
+ UPDATE market_data.contract_date_versions SET state='published',publication_order=ordinal,published_at=clock_timestamp(),publication_xid=pg_current_xact_id()
+ WHERE(catalog_id,definition_id,version)=(catalog,definition,requested_version);
+ RETURN ordinal;
+END;$$;
 COMMIT;

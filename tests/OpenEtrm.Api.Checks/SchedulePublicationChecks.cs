@@ -50,5 +50,42 @@ internal static class SchedulePublicationChecks
         Eq(PublishedSchedules.Resolve([uploaded],"oe.ng[0]",context with{EffectiveOn="2021-01-19"}).Date,new DateOnly(2021,1,19));
         Reject("date_index",()=>PublishedSchedules.Resolve([uploaded],"oe.ng[0]",context with{EffectiveOn="2021-03-01"}));
         Console.WriteLine("Published schedule resolution and repeated lookup checks passed.");
+        DateLists();
+    }
+
+    // Date-list mappings: a label and one date expression per row, resolved against the context date.
+    static void DateLists()
+    {
+        void Check(string name,Action work){work();Console.WriteLine($"PASS {name}");}
+        void Reject(string code,Action work,string? mentions=null)
+        {
+            try{work();}
+            catch(TemporalException e)when(e.Code==code){if(mentions is not null&&!mentions.Split(',').All(e.Message.Contains))throw new Exception($"{code} must name {mentions}: {e.Message}");return;}
+            throw new Exception($"Expected {code}");
+        }
+        var calendar=new ReferenceCalendar(new(Guid.Empty,Guid.Empty,"synthetic_business"),new(2026,1,1),new(2027,1,1),96,[]);
+        var days=new ScheduleVersion(Guid.NewGuid(),1,1,"published",new("Synthetic days","oe.days",null,null,null,null,null,null,null,Daily:new("calendar","2026-01-01","2030-12-31")),
+            "on_or_after",new(2020,1,1),new(2040,1,1),1,new DateTimeOffset(2020,1,1,0,0,0,TimeSpan.Zero),"date_schedule_v4",Calendar:calendar.Reference,ResolvedCalendar:calendar);
+        var context=new ScheduleContext("2026-11-03",1);
+        BoundDateList Compile(params (string Label,string Date)[] rows)=>
+            ContractDateStore.CompileDateList(new("usd_tenors","Synthetic USD tenors",context,null,[..rows.Select(r=>new DateListRowDraft(r.Label,r.Date))]),[days],context);
+        Check("a date list resolves each label against the context",()=>{
+            var list=Compile(("1D","oe.days + 1bd"),("4Y","oe.days[1461]"));
+            if(list.Dates is not [{Position:1,Label:"1D"} first,{Position:2,Label:"4Y"} last]||first.Date!=new DateOnly(2026,11,4)||last.Date!=new DateOnly(2030,11,3)||
+               first.Reference.Symbol!="oe.days"||last.Reference.Expression!="oe.days[1461]")throw new Exception("Wrong resolved date list");
+        });
+        Check("date-list dates must strictly increase",()=>Reject("date_list_order",()=>Compile(("A","oe.days[2]"),("B","oe.days[1]")),"A,B"));
+        Check("date-list labels are unique and at most 120 rows",()=>{
+            Reject("contract_dates",()=>Compile(("A","oe.days[1]"),("A","oe.days[2]")));
+            Reject("contract_dates",()=>Compile([..Enumerable.Range(1,121).Select(i=>($"D{i}",$"oe.days[{i}]"))]));
+            Reject("contract_dates",()=>Compile(("",  "oe.days[1]")));
+        });
+        Check("a literal date row is retained as a literal",()=>{
+            if(Compile(("Fixed","2027-01-15")).Dates.Single() is not {Date:var date,Reference.Symbol:"literal"}||date!=new DateOnly(2027,1,15))throw new Exception("Literal row changed");
+        });
+        Check("a request names contracts or dates, not both",()=>{
+            Reject("contract_dates",()=>ContractDateStore.CompileDateList(new("usd_tenors","Tenors",context,[new("M1","oe.days[1]","oe.days[2]","oe.days[1]","15:30")],[new("1D","oe.days[1]")]),[days],context));
+            Reject("contract_dates",()=>ContractDateStore.Compile(new("usd_tenors","Tenors",context,null,[new("1D","oe.days[1]")]),[days],context));
+        });
     }
 }

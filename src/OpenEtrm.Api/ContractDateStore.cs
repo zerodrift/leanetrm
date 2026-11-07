@@ -11,8 +11,8 @@ using OpenEtrm.Shared.Temporal;
 namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record ContractDateSaveRequest(Guid RequestId,string Code,string Name,ScheduleContext Context,ContractFieldDraft[] Contracts,
-    Guid? Id=null,int? Version=null,int? Generation=null,string? ExpectedState=null);
+public sealed record ContractDateSaveRequest(Guid RequestId,string Code,string Name,ScheduleContext Context,ContractFieldDraft[]? Contracts,
+    Guid? Id=null,int? Version=null,int? Generation=null,string? ExpectedState=null,DateListRowDraft[]? Dates=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ContractDatePublishRequest(Guid RequestId,Guid Id,int Version,int Generation);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -28,6 +28,8 @@ public sealed record ContractDateVersion(Guid Id,int Version,int Generation,stri
 public sealed class ContractDateStore(Guid catalog,ScheduleStore schedules)
 {
     const string Engine="contract_dates_v1";
+    // A date list is a mapping of one labelled date per row (D356); it shares this library's storage and publication.
+    const string DateListEngine="date_list_v1";
     static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     static TemporalException Invalid(string message)=>new("contract_dates",message);
     static MarketDataException Conflict()=>new("contract_date_conflict","This definition or request changed. Reload it or retry the exact original command.");
@@ -37,7 +39,7 @@ public sealed class ContractDateStore(Guid catalog,ScheduleStore schedules)
         ImmutableArray<ContractDateBinding>? pinned=null)
     {
         if(body.Code is null||!System.Text.RegularExpressions.Regex.IsMatch(body.Code,@"\A[a-z][a-z0-9_]{0,31}\z")||
-            string.IsNullOrWhiteSpace(body.Name)||body.Name.Length>80||body.Contracts is null||body.Contracts.Length is <1 or >120||
+            string.IsNullOrWhiteSpace(body.Name)||body.Name.Length>80||body.Dates is not null||body.Contracts is null||body.Contracts.Length is <1 or >120||
             body.Contracts.Any(c=>c is null)||body.Contracts.Select(c=>c.Label).Distinct().Count()!=body.Contracts.Length)
             throw Invalid("Name the definition and supply uniquely named contracts.");
         var resolver=new PublishedScheduleResolver(versions,context);
@@ -53,10 +55,31 @@ public sealed class ContractDateStore(Guid catalog,ScheduleStore schedules)
         return new(body.Code,body.Name,context,[..rows.Select(c=>new DatedContractDefinition(c.Label,c.DeliveryFrom,c.DeliveryTo,c.Expiry,c.DeliveryStart,c.DeliveryEnd,c.LastTrading,c.CutoffUtc))]);
     }
 
+    public static BoundDateList CompileDateList(PublishedContractRequest body,IEnumerable<ScheduleVersion> versions,ScheduleContext context,
+        ImmutableArray<ContractDateBinding>? pinned=null)
+    {
+        if(body.Code is null||!System.Text.RegularExpressions.Regex.IsMatch(body.Code,@"\A[a-z][a-z0-9_]{0,31}\z")||
+            string.IsNullOrWhiteSpace(body.Name)||body.Name.Length>80||body.Contracts is not null||body.Dates is null||body.Dates.Length is <1 or >120||
+            body.Dates.Any(d=>d is null||string.IsNullOrWhiteSpace(d.Label)||d.Label.Length>80)||body.Dates.Select(d=>d.Label).Distinct().Count()!=body.Dates.Length)
+            throw Invalid("Name the date list and supply 1 to 120 uniquely labelled dates.");
+        var resolver=new PublishedScheduleResolver(versions,context);
+        var bindings=pinned?.ToDictionary(b=>b.Ordinal);
+        var dates=body.Dates.Select((row,ordinal)=>
+        {
+            var binding=bindings?.GetValueOrDefault(ordinal);
+            if(pinned is not null&&(binding is null||binding.Role!="date"||binding.Expression!=row.Date))throw Invalid("The exact retained date-field binding is missing or inconsistent.");
+            var receipt=resolver.Resolve(row.Date,binding?.ScheduleId,binding?.ScheduleVersion);
+            return new DateListEntry(ordinal+1,row.Label!,receipt.Date,receipt);
+        }).ToImmutableArray();
+        for(var i=1;i<dates.Length;i++)if(dates[i].Date<=dates[i-1].Date)
+            throw new TemporalException("date_list_order",$"'{dates[i].Label}' resolves to {dates[i].Date:yyyy-MM-dd}, not after '{dates[i-1].Label}' on {dates[i-1].Date:yyyy-MM-dd}. Dates must strictly increase.");
+        return new(body.Code,body.Name,context,dates);
+    }
+
     public async Task<ImmutableArray<ContractDateVersion>> Read(NpgsqlConnection connection,CancellationToken ct)
     {
         var headers=new List<(Guid Id,int Version,int Generation,string State,string Code,string Name,ScheduleContext Context,int? Order,DateTimeOffset? At,string Engine)>();
-        var contracts=new Dictionary<(Guid,int),List<(int Ordinal,string Label,string Cutoff)>>();
+        var contracts=new Dictionary<(Guid,int),List<(int Ordinal,string Label,string? Cutoff)>>();
         var fields=new Dictionary<(Guid,int),List<ContractDateBinding>>();var seen=new HashSet<(Guid,int)>();
         // One statement pins headers, contracts and source fields to one MVCC
         // snapshot, including concurrent authorized raw draft updates.
@@ -79,7 +102,7 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
             if(reader.IsDBNull(13))continue;
             var ordinal=reader.GetInt32(13);
             if(!contracts.TryGetValue(key,out var contractRows))contracts[key]=contractRows=[];
-            if(!contractRows.Any(c=>c.Ordinal==ordinal))contractRows.Add((ordinal,reader.GetString(14),reader.GetFieldValue<TimeOnly>(15).ToString("HH:mm",CultureInfo.InvariantCulture)));
+            if(!contractRows.Any(c=>c.Ordinal==ordinal))contractRows.Add((ordinal,reader.GetString(14),reader.IsDBNull(15)?null:reader.GetFieldValue<TimeOnly>(15).ToString("HH:mm",CultureInfo.InvariantCulture)));
             if(reader.IsDBNull(16))continue;
             if(!fields.TryGetValue(key,out var fieldRows))fields[key]=fieldRows=[];
             DateOnly? literal=reader.IsDBNull(17)?null:reader.GetFieldValue<DateOnly>(17);
@@ -101,8 +124,10 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
             string Field(int ordinal,string role)=>bindings.SingleOrDefault(b=>b.Ordinal==ordinal&&b.Role==role)?.Expression
                 ??throw Invalid("A retained definition is missing a required date field.");
             if(!contracts.TryGetValue(key,out var savedContracts)||savedContracts.Count==0)throw Invalid("A retained definition has no contract rows.");
-            var rows=savedContracts.Select(c=>new ContractFieldDraft(c.Label,Field(c.Ordinal,"start"),Field(c.Ordinal,"end"),Field(c.Ordinal,"last_trading"),c.Cutoff)).ToArray();
-            return new ContractDateVersion(h.Id,h.Version,h.Generation,h.State,new(h.Code,h.Name,h.Context,rows),[..bindings],h.Order,h.At,h.Engine);
+            PublishedContractRequest definition=h.Engine==DateListEngine
+                ?new(h.Code,h.Name,h.Context,null,[..savedContracts.Select(c=>new DateListRowDraft(c.Label,Field(c.Ordinal,"date")))])
+                :new(h.Code,h.Name,h.Context,[..savedContracts.Select(c=>new ContractFieldDraft(c.Label,Field(c.Ordinal,"start"),Field(c.Ordinal,"end"),Field(c.Ordinal,"last_trading"),c.Cutoff))]);
+            return new ContractDateVersion(h.Id,h.Version,h.Generation,h.State,definition,[..bindings],h.Order,h.At,h.Engine);
         })];
     }
     async Task Lock(NpgsqlConnection connection,CancellationToken ct)
@@ -132,7 +157,13 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
         await Lock(connection,ct);var payload=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(body,Json))));
         if(await Replay(connection,body.RequestId,"save",payload,"WriteMarketDefinitions",ct) is {} replay)return replay;
         var context=await new KnowledgeStore(catalog).Retained(connection,body.Context??throw Invalid("Choose an exact retained date context."),ct);
-        var compiled=Compile(new(body.Code,body.Name,context,body.Contracts),await schedules.ReadAt(connection,context,ct),context);
+        var request=new PublishedContractRequest(body.Code,body.Name,context,body.Contracts,body.Dates);var versions=await schedules.ReadAt(connection,context,ct);
+        var engine=body.Dates is null?Engine:DateListEngine;
+        // Each saved row: its label, its UTC cutoff (contracts only) and its date fields by role.
+        var saved=engine==Engine
+            ?Compile(request,versions,context).Contracts.Select(c=>(c.Label,(TimeOnly?)TimeOnly.ParseExact(c.CutoffUtc,"HH:mm",CultureInfo.InvariantCulture),
+                new[]{("start",c.StartReference),("end",c.EndReference),("last_trading",c.LastTradingReference)})).ToArray()
+            :CompileDateList(request,versions,context).Dates.Select(d=>(d.Label,(TimeOnly?)null,new[]{("date",d.Reference)})).ToArray();
         var all=await Read(connection,ct);Guid id;int version,generation;
         if(body.Id is null)
         {
@@ -144,6 +175,7 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
         {
             id=body.Id.Value;var old=all.SingleOrDefault(v=>v.Id==id&&v.Version==body.Version);
             if(old is null||old.Generation!=body.Generation||old.State!=body.ExpectedState||old.Definition.Code!=body.Code)throw Conflict();
+            if(old.EngineVersion!=engine)throw Invalid("A mapping keeps its type: contracts stay contracts and a date list stays a date list.");
             if(old.State=="published")
             {
                 if(all.Any(v=>v.Id==id&&v.State=="draft"))throw Conflict();
@@ -160,13 +192,13 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
         }
         else
         {
-            await using var insert=ScheduleStore.Command(connection,"INSERT INTO market_data.contract_date_versions(catalog_id,definition_id,version,generation,state,name,engine_version,validation_context_id) VALUES($1,$2,$3,$4,'draft',$5,$6,$7)",catalog,id,version,generation,body.Name,Engine,context.ContextId!.Value);await insert.ExecuteNonQueryAsync(ct);
+            await using var insert=ScheduleStore.Command(connection,"INSERT INTO market_data.contract_date_versions(catalog_id,definition_id,version,generation,state,name,engine_version,validation_context_id) VALUES($1,$2,$3,$4,'draft',$5,$6,$7)",catalog,id,version,generation,body.Name,engine,context.ContextId!.Value);await insert.ExecuteNonQueryAsync(ct);
         }
-        for(var ordinal=0;ordinal<compiled.Contracts.Length;ordinal++)
+        for(var ordinal=0;ordinal<saved.Length;ordinal++)
         {
-            var row=compiled.Contracts[ordinal];
-            await using(var insert=ScheduleStore.Command(connection,"INSERT INTO market_data.contract_date_contracts VALUES($1,$2,$3,$4,$5,$6)",catalog,id,version,ordinal,row.Label,TimeOnly.ParseExact(row.CutoffUtc,"HH:mm",CultureInfo.InvariantCulture)))await insert.ExecuteNonQueryAsync(ct);
-            foreach(var (role,field) in new[]{("start",row.StartReference),("end",row.EndReference),("last_trading",row.LastTradingReference)})
+            var (label,cutoff,fields)=saved[ordinal];
+            await using(var insert=ScheduleStore.Command(connection,"INSERT INTO market_data.contract_date_contracts VALUES($1,$2,$3,$4,$5,$6)",catalog,id,version,ordinal,label,(object?)cutoff??DBNull.Value))await insert.ExecuteNonQueryAsync(ct);
+            foreach(var (role,field) in fields)
             {
                 var source=field.Source as PublishedDateSource;var reference=source is null?null:DateReference.Parse(field.Expression);
                 await using var insert=ScheduleStore.Command(connection,"INSERT INTO market_data.contract_date_fields VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",catalog,id,version,ordinal,role,
@@ -186,30 +218,51 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
         if(await Replay(connection,body.RequestId,"publish",payload,"SealMarketDefinitions",ct) is {} replay)return replay;
         var value=(await Read(connection,ct)).SingleOrDefault(v=>v.Id==body.Id&&v.Version==body.Version);
         if(value is null||value.Generation!=body.Generation)throw Conflict();
-        await ResolveRule(connection,value,value.Definition.Context!,ct);
+        await Validate(connection,value,value.Definition.Context!,ct);
         await using(var command=ScheduleStore.Command(connection,"SELECT security.publish_contract_dates($1,$2,$3,$4)",catalog,body.Id,body.Version,body.Generation))await command.ExecuteScalarAsync(ct);
         var receipt=Receipt(body.RequestId,(await Read(connection,ct)).Single(v=>v.Id==body.Id&&v.Version==body.Version));
         await Record(connection,body.RequestId,"publish",payload,receipt,"SealMarketDefinitions",ct);return receipt;
     }
-    async Task<BoundContractDefinition> ResolveRule(NpgsqlConnection connection,ContractDateVersion value,ScheduleContext context,CancellationToken ct)
+    async Task Validate(NpgsqlConnection connection,ContractDateVersion value,ScheduleContext context,CancellationToken ct)
     {
-        if(value.EngineVersion!=Engine)throw Invalid("This exact retained engine is unavailable.");
-        // Exact pinned versions remain eligible even when a newer symbolic version exists.
+        if(value.EngineVersion==DateListEngine)CompileDateList(value.Definition,await PinnedSources(connection,value,ct),context,value.Bindings);
+        else await ResolveRule(connection,value,context,ct);
+    }
+    // Exact pinned versions remain eligible even when a newer symbolic version exists.
+    async Task<ImmutableArray<ScheduleVersion>> PinnedSources(NpgsqlConnection connection,ContractDateVersion value,CancellationToken ct)
+    {
         var versions=await schedules.Read(connection,ct);
         foreach(var binding in value.Bindings.Where(b=>b.ScheduleId is not null))
         {
             await using var visible=ScheduleStore.Command(connection,"SELECT security.contract_date_schedule_visible($1,$2,$3)",binding.ScheduleCatalogId!.Value,binding.ScheduleId!.Value,binding.ScheduleVersion!.Value);
             if(!Equals(await visible.ExecuteScalarAsync(ct),true))throw Invalid("An exact source schedule is unavailable in this view.");
         }
-        return Compile(value.Definition,versions,context,value.Bindings);
+        return [..versions];
     }
-    public async Task<BoundContractDefinition> Resolve(NpgsqlConnection connection,ContractDateResolveRequest body,ScheduleContext? selectedContext,CancellationToken ct)
+    async Task<BoundContractDefinition> ResolveRule(NpgsqlConnection connection,ContractDateVersion value,ScheduleContext context,CancellationToken ct)
+    {
+        if(value.EngineVersion!=Engine)throw Invalid("This exact retained engine is unavailable.");
+        return Compile(value.Definition,await PinnedSources(connection,value,ct),context,value.Bindings);
+    }
+    public async Task<BoundDateList> ResolveDateList(NpgsqlConnection connection,ContractDateResolveRequest body,ScheduleContext? selectedContext,CancellationToken ct)
+    {
+        var (value,context)=await Published(connection,body,selectedContext,ct);
+        if(value.EngineVersion!=DateListEngine)throw Invalid("This mapping names contracts, not a date list.");
+        return CompileDateList(value.Definition,await PinnedSources(connection,value,ct),context,value.Bindings) with{DefinitionId=value.Id,Version=value.Version};
+    }
+    async Task<(ContractDateVersion Value,ScheduleContext Context)> Published(NpgsqlConnection connection,ContractDateResolveRequest body,ScheduleContext? selectedContext,CancellationToken ct)
     {
         var context=await new KnowledgeStore(catalog).Retained(connection,body.Context??throw Invalid("Choose an exact retained date context."),ct);
         if(selectedContext is null)await MarketContextStore.Bind(connection,catalog,context,ct);
         else if(selectedContext.ContextId!=context.ContextId)throw Invalid("Resolve in the selected exact market context, or explicitly change that selection first.");
         var value=(await Read(connection,ct)).SingleOrDefault(v=>v.Id==body.Id&&v.Version==body.Version&&v.State=="published")
             ??throw Invalid("This exact published definition is unavailable in the selected knowledge view.");
+        return (value,context);
+    }
+    public async Task<BoundContractDefinition> Resolve(NpgsqlConnection connection,ContractDateResolveRequest body,ScheduleContext? selectedContext,CancellationToken ct)
+    {
+        var (value,context)=await Published(connection,body,selectedContext,ct);
+        if(value.EngineVersion!=Engine)throw Invalid("This mapping is a date list, not contracts.");
         return (await ResolveRule(connection,value,context,ct)) with{DefinitionId=value.Id,Version=value.Version,EngineVersion=value.EngineVersion};
     }
 }

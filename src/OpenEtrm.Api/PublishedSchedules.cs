@@ -16,7 +16,8 @@ public sealed record SchedulePublishRequest(Guid Id,int Version,int Generation);
 public sealed record PublishedDateRequest(string? Expression,ScheduleContext? Context);
 public sealed record ScheduleCatalogRequest(ScheduleContext? Context);
 public sealed record ScheduleReferenceChoice(string Symbol,string Name,int Version,string Selection);
-public sealed record PublishedContractRequest(string? Code,string? Name,ScheduleContext? Context,ContractFieldDraft[]? Contracts);
+// A mapping names contracts (start, end and last trading per row) or a date list (one date per row), never both.
+public sealed record PublishedContractRequest(string? Code,string? Name,ScheduleContext? Context,ContractFieldDraft[]? Contracts,DateListRowDraft[]? Dates=null);
 public sealed record PublishedDateSource(Guid ScheduleId,int Version,int Generation,int PublicationOrder,
     string Symbol,string Name,string Selection,string EngineVersion,int Occurrence,ScheduleContext Context,MonthlyDraft Definition,BitemporalRange? Temporal=null);
 
@@ -69,6 +70,11 @@ public static class PublishedSchedules
 }
 
 public sealed record ContractFieldDraft(string? Label,string? Start,string? End,string? LastTrading,string? CutoffUtc);
+public sealed record DateListRowDraft(string? Label,string? Date);
+public sealed record DateListEntry(int Position,string Label,DateOnly Date,DateReceipt Reference);
+public sealed record BoundDateList(string Code,string Name,ScheduleContext Context,ImmutableArray<DateListEntry> Dates,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Guid? DefinitionId=null,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] int? Version=null);
 public sealed record DatedContractDefinition(string Label,DateOnly Start,DateOnly End,DateTimeOffset LastTradingAt,
     DateReceipt StartReference,DateReceipt EndReference,DateReceipt LastTradingReference,string CutoffUtc);
 public sealed record BoundContractDefinition(string Code,string Name,ScheduleContext Context,ImmutableArray<DatedContractDefinition> Contracts,
