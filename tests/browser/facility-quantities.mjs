@@ -80,14 +80,15 @@ export async function run(actions){
   "!document.querySelector('#facility-editor').hidden&&document.querySelector('#facility-source-fields').disabled&&document.querySelector('#facility-plan-save').disabled&&document.querySelector('#workspace-mode-label').textContent.includes('Historical')&&document.querySelector('#snapshot').value!==''&&[...document.querySelectorAll('[data-facility-trade]')].every(n=>!n.disabled&&!n.closest('fieldset').disabled)");
  // Historical writes remain disabled. Trade inspection retains its contextual
  // close; choose the later valuation date for the following read.
- // The Blotter prices the whole book under the historical view before it is idle, again when the As of changes: about 4 s
- // on a workstation, so the default 10 s action wait is too tight on a hosted runner, as the first close change above allows.
- await click('#nav-futures',30000);
+ // Under the historical view the Blotter prices the whole book before it is idle, on opening, on each As of change and on
+ // opening a trade: about 4 s on a workstation, so these steps take the 30 s wait the first close change above uses.
+ const blotter={wait:(expression,milliseconds=30000)=>wait(expression,milliseconds),click:(selector,milliseconds=30000)=>click(selector,milliseconds)};
+ await blotter.click('#nav-futures');
  const inspectionFrame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2021-01-31T08:')&&w.initialFrameIds.includes(f.id)).id;})()");
- await set('#snapshot',inspectionFrame);await wait(idle,30000);await open();
+ await set('#snapshot',inspectionFrame);await blotter.wait(idle);await open();
  await evaluate(`window.facilityTicketPayload=null;window.facilityTradeFetch=window.fetch;window.fetch=async(...args)=>{const response=await facilityTradeFetch(...args);if(String(args[0]).endsWith('/trading/gas')&&response.ok)window.facilityTicketPayload=await response.clone().json();if(String(args[0]).endsWith('/trading/side-schedules')&&response.ok)window.facilityScheduleRead=await response.clone().json();return response;};
   const row=[...document.querySelectorAll('#facility-allocation-table tbody tr')].find(r=>r.querySelector('input')?.value==='60');row.querySelector('[data-facility-trade]').click();`);
- await openBookedSchedules({wait,click});
+ await openBookedSchedules(blotter);
  await inspectPositionSide(actions,0);
  await check('an unavailable historical Side retains dated rows and explicit valuation refusal',"facilityScheduleRead.page.rows.some(r=>r.operatingDate==='2021-01-01')&&facilityScheduleRead.page.rows.every(r=>r.presentValue===null&&r.lifecycle.unavailableReason)&&[...document.querySelectorAll('#position-details .inspection-rows tbody tr')].some(r=>r.textContent.includes('2021-01-01'))");
  await check('a historical allocation opens read-only Side schedules and retains only its own allocation evidence',
