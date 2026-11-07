@@ -245,6 +245,14 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
         return Compile(value.Definition,await PinnedSources(connection,value,ct),context,value.Bindings);
     }
     // Readers resolve published versions; a curve author may also resolve the draft a curve draft pins.
+    // An exact published date list and its exact pinned schedule versions, read once under the bound context, to compile at many dates.
+    public async Task<(PublishedContractRequest Definition,ImmutableArray<ScheduleVersion> Sources,ImmutableArray<ContractDateBinding> Bindings,ScheduleContext Context)>
+        PinnedDateList(NpgsqlConnection connection,ContractDateResolveRequest body,CancellationToken ct)
+    {
+        var (value,context)=await Retained(connection,body,null,includeDrafts:false,ct);
+        if(value.EngineVersion!=DateListEngine)throw Invalid("This mapping names contracts, not a date list.");
+        return (value.Definition,await PinnedSources(connection,value,ct),value.Bindings,context);
+    }
     public async Task<BoundDateList> ResolveDateList(NpgsqlConnection connection,ContractDateResolveRequest body,ScheduleContext? selectedContext,bool includeDrafts,CancellationToken ct)
     {
         var (value,context)=await Retained(connection,body,selectedContext,includeDrafts,ct);

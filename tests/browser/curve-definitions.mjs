@@ -34,6 +34,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  // D358: saved definitions are listed and edited here; tools/check_curve_definitions.py published usd_zero over rate_tenors.
  await set('#snapshot',await close('2021-01-15T16:00:00'));await wait(idle,30000);
  await persona('editor');await click('#curve-define');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
+ // Changing persona selects the newest available close; the rate curve marked there makes that 15 February, so return to 15 January.
+ await set('#snapshot',await close('2021-01-15T16:00:00'));await wait(idle,30000);
  const open=code=>evaluate(`[...document.querySelectorAll('#curve-definition-list .shortcut-saved-row')].find(r=>r.textContent.includes(${JSON.stringify(code)})).querySelector('button').click()`);
  await check('Curve definitions lists saved definitions and opens one',
   "(()=>{const list=document.querySelector('#curve-definition-list').textContent;return list.includes('usd_zero')&&list.includes('test_gas_curve');})()");
@@ -43,11 +45,17 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await evaluate(choose('kind','Interest rate curve'));await wait(idle);
  const hidden=id=>`document.querySelector('#curve-definition-${id}').closest('div').hidden`;
  await check('choosing Interest rate curve shows only rate terms',
-  `${['location','product','quote','profile','target','rule','role','missing','interpolation','count'].map(hidden).join('&&')}&&!${hidden('rate')}&&!${hidden('source')}&&!${hidden('mapping')}`);
+  `${['location','product','quote','profile','target','rule','role','missing','interpolation','count'].map(hidden).join('&&')}&&${['currency','unit','daycount','compounding','rate-interpolation','extrapolation','source','mapping'].map(id=>'!'+hidden(id)).join('&&')}`);
+ // D359: a rate curve names its own currency, mark unit and conventions; none is preselected and later conventions are Coming soon.
+ await check('a rate curve shows required currency, mark unit, day count, compounding, interpolation and extrapolation selects',
+  ['currency','unit','daycount','compounding','rate-interpolation','extrapolation'].map(id=>`document.querySelector('#curve-definition-${id}').required&&document.querySelector('#curve-definition-${id}').value===''`).join('&&'));
+ await check('coming-soon conventions are disabled',
+  "[...document.querySelector('#curve-definition-compounding').options].some(o=>o.disabled&&o.textContent.includes('Semi-annual'))&&[...document.querySelector('#curve-definition-daycount').options].some(o=>o.disabled&&o.textContent.includes('30/360'))");
+ await check('the interest-rate specification select is gone',"!document.querySelector('#curve-definition-rate')");
  await set('#curve-definition-code','browser_zero');await set('#curve-definition-name','Synthetic browser zero rates');
- for(const [id,text] of [['rate','test_interest'],['source','fixture'],['mapping','rate_tenors']])await evaluate(choose(id,text));
+ for(const [id,text] of [['currency','usd'],['unit','Percent per year'],['daycount','ACT/365 Fixed'],['compounding','Continuous'],
+  ['rate-interpolation','Log-linear discount factor'],['extrapolation','Flat forward'],['source','fixture'],['mapping','rate_tenors']])await evaluate(choose(id,text));
  await wait("document.querySelectorAll('#curve-definition-rows tr').length===3&&"+idle);
- await check('the currency comes from the interest-rate specification',"document.querySelector('#curve-definition-currency').textContent.includes('Currency usd')","({currency:document.querySelector('#curve-definition-currency').textContent,rate:document.querySelector('#curve-definition-rate').value,options:[...document.querySelector('#curve-definition-rate').options].map(o=>o.value).join()})");
  await click('#curve-definition-add');await wait("document.querySelectorAll('#curve-definition-rows tr').length===4");
  await evaluate(`(()=>{const r=document.querySelectorAll('#curve-definition-rows tr')[3];for(const [f,v] of [['label','9M'],['date','oe.rate_days[273]']]){const n=r.querySelector('[data-field="'+f+'"]');n.value=v;n.dispatchEvent(new Event('input',{bubbles:true}));}})()`);
  const maturities="[...document.querySelectorAll('.curve-definition-editor #curve-definition-result tbody tr')].map(r=>r.cells[2].textContent).join()";
@@ -95,5 +103,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await click('#curve-definition-back');await wait(idle);
  // Recorded prices keep their own correction workflow; a rendered curve offers no way to change what defines it.
  await check('rendered curves have no definition edit control',
-  "!document.querySelector('#market-board').hidden&&!document.querySelector('#market-board [id^=curve-definition-],#curve-detail [id^=curve-definition-]')&&![...document.querySelectorAll('#market-board button,#curve-detail button')].some(b=>/definition|tenor|publish/i.test(b.textContent))");
+  "!document.querySelector('#market-board').hidden&&!document.querySelector('#market-board [id^=curve-definition-],#curve-detail [id^=curve-definition-]:not(#curve-definition-link)')&&![...document.querySelectorAll('#market-board button,#curve-detail button:not(#curve-definition-link)')].some(b=>/definition|tenor|publish/i.test(b.textContent))");
+ // D359: an admitted rate curve is shown by tenor, in its own mark unit, with a link to (not an editor for) its definition.
+ await evaluate("document.querySelector('.curve-button[data-curve=\"usd_rolling\"]').click()");await wait("document.querySelectorAll('#contracts tbody tr').length===2&&"+idle,30000);
+ const rateTable="({head:[...document.querySelectorAll('#contracts thead th')].map(c=>c.textContent).join('|'),rows:[...document.querySelectorAll('#contracts tbody tr')].map(r=>r.textContent).join('|'),unit:document.querySelector('#unit').textContent})";
+ await check('a rate curve page lists tenor, maturity, mark and discount factor',
+  "document.querySelector('#contracts thead').textContent.includes('Zero rate (% per year)')&&/^1M · .*4\\.\\d+0\\.99\\d{4}$/.test(document.querySelector('#contracts tbody tr').textContent)",rateTable);
+ await check('the unit label comes from the server',"document.querySelector('#unit').textContent.endsWith('% per year')",rateTable);
+ await check('the page links to the curve\u2019s definition',"!document.querySelector('#curve-definition-link').hidden");
+ await click('#curve-definition-link');await wait("!document.querySelector('#curve-definition').hidden&&"+idle,30000);
+ await check('the link opens the curve definition the curve pins',"document.querySelector('#curve-definition-code').value==='usd_rolling'&&document.querySelector('#curve-definition-code').readOnly");
 }

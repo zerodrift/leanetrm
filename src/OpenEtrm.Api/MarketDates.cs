@@ -60,6 +60,15 @@ public static class MarketDates
         if(request.Curve is {} curve&&!curveCodes.Contains(curve)&&!rateCodes.Contains(curve))
             throw new MarketDataException("missing_curve","Choose an exact visible curve from the selected definition bundle.");
         Func<InputFrame,CancellationToken,Task> qualify;
+        // Rate curves' pinned date lists load once, before frames stream: each close's tenors then resolve in memory (D359).
+        var rateSources=new Dictionary<string,RateTenorSource>(StringComparer.Ordinal);
+        if(request.Definition is null&&frames.Length>0)
+            foreach(var code in rateCodes.Where(code=>request.Curve is null||request.Curve==code).Order(StringComparer.Ordinal))
+            {
+                // A curve whose date list cannot load here is unavailable on every date; it does not fail the others.
+                try{if(await RateCurveResolver.Load(connection,data,frames[0],code,ct) is {} source)rateSources[code]=source;}
+                catch(Exception error) when(error is MarketDataException or TemporalException){}
+            }
         if(request.Definition is {} definition)
         {
             CustomCurves.Validate(definition);
@@ -163,14 +172,14 @@ public static class MarketDates
                     references.Sources,references.Calendars,references.Schedules,selected,cancellation,retainedObservations:retainedSamples,sourceFrame:sourceFrame,calendarReads:calendarReads);
             }
         }
-        else qualify=async(frame,cancellation)=>
+        else qualify=(frame,cancellation)=>
         {
             cancellation.ThrowIfCancellationRequested();
-            if(request.Curve is {} selected){await QualifyCurve(connection,database,data,frame,selected,cancellation);return;}
+            if(request.Curve is {} selected){QualifyCurve(data,frame,selected,rateSources);return Task.CompletedTask;}
             foreach(var code in frame.CurveContracts.Keys.Where(curveCodes.Contains).Concat(rateCodes).Order(StringComparer.Ordinal))
             {
                 cancellation.ThrowIfCancellationRequested();
-                try{await QualifyCurve(connection,database,data,frame,code,cancellation);return;}
+                try{QualifyCurve(data,frame,code,rateSources);return Task.CompletedTask;}
                 catch(MarketDataException){/* One unsupported curve does not qualify or hide another curve's explicit data. */}
             }
             throw new MarketDataException("market_data_unavailable","No complete curve can be evaluated from this exact snapshot.");
@@ -260,11 +269,11 @@ public static class MarketDates
             manifest.CatalogId,manifest.RevisionId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId);
         if(!Equals(await command.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
     }
-    static async Task QualifyCurve(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,InputFrame frame,string code,CancellationToken ct)
+    static void QualifyCurve(PreviewData data,InputFrame frame,string code,IReadOnlyDictionary<string,RateTenorSource> rateSources)
     {
         if(data.IsRateCurve(code))
         {
-            if(data.BuildRates(frame,await RateCurveResolver.Resolve(connection,data,frame,code,ct)).Values.IsEmpty)throw new MarketDataException("market_data_unavailable","This exact snapshot has no rate points.");
+            if(data.BuildRates(frame,RateCurveResolver.At(data,frame,code,rateSources.GetValueOrDefault(code))).Values.IsEmpty)throw new MarketDataException("market_data_unavailable","This exact snapshot has no rate points.");
         }
         else if(data.Build(frame,code).Values.IsEmpty)throw new MarketDataException("market_data_unavailable","This exact snapshot has no live curve points.");
     }

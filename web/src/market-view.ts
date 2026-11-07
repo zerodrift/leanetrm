@@ -7,11 +7,12 @@ export type Workspace = {referenceSources?:Record<string,ReferenceSource>;future
 import type {PricingNode} from './pricing-view.js';
 import type {FrameSummary} from './market-navigation.js';
 
-export type Point = {priceTick?:string;contractId?:string; seriesId?:string; maturity?:string; deliveryFrom?:string; deliveryTo?:string; expiry?:string; value:string; quote?:string; lineage:string[]; discountFactor?:string; displayDiscountFactor?:string; annualRate?:string; actualDays?:number};
+export type Point = {priceTick?:string;contractId?:string; seriesId?:string; maturity?:string; deliveryFrom?:string; deliveryTo?:string; expiry?:string; value:string; quote?:string; lineage:string[]; discountFactor?:string; displayDiscountFactor?:string; label?:string; mark?:string; actualDays?:number};
 export type CurveFront={contractId:string;deliveryFrom:string;deliveryTo:string;price:string};
 /** A curve's counts and front, stated by the backend (D233): contracts for futures and forwards, maturities for rates. */
-export type CurveSummary={kind:'contracts';contractCount:number;front:CurveFront|null;availability:'no_remaining_contracts'|'no_priced_contract'|null}|{kind:'rates';maturityCount:number;firstMaturity:string|null;firstZeroRate:string|null;dayCount:string};
-export type CurveResult = {summary?:CurveSummary;kind?:'rates';convention?:{dayCount:string;compounding:string};availability?:'no_remaining_contracts';trace?:PricingNode[];observationScope?:'selected_frame';observations?:Row[];snapshotId:string; curve:string; at:string; points:Point[]; evaluated:number; numericalPolicy:string};
+export type CurveSummary={kind:'contracts';contractCount:number;front:CurveFront|null;availability:'no_remaining_contracts'|'no_priced_contract'|null}|{kind:'rates';maturityCount:number;firstMaturity:string|null;firstMark:string|null;markUnitLabel:string;dayCount:string};
+export type CurveResult = {summary?:CurveSummary;kind?:'rates';convention?:{dayCount:string;compounding:string;interpolation:string;extrapolation:string};
+  markUnitLabel?:string;currency?:string;definition?:{id:string;version:number}|null;availability?:'no_remaining_contracts';trace?:PricingNode[];observationScope?:'selected_frame';observations?:Row[];snapshotId:string; curve:string; at:string; points:Point[]; evaluated:number; numericalPolicy:string};
 /** A close's sample of a contract's history, with the observations behind it and when they were known (null until certified). */
 export type HistoryPoint = {at:string; value:string|null; snapshotId:string;observationIds:string[];unavailableReason?:string|null;knownAt:string|null};
 export const val = (row:Row,key:string) => String(row[key] ?? '—');
@@ -135,7 +136,7 @@ export function summaryTiles(result:Pick<CurveResult,'summary'>,settlement:strin
   const summary=summaryOf(result),tiles:{name:string;value:string;numeric?:boolean}[]=[];
   if(summary.kind==='rates'){
     tiles.push({name:'Maturities',value:String(summary.maturityCount)});
-    if(summary.firstMaturity!==null&&summary.firstZeroRate!==null)tiles.push({name:'First maturity',value:displayDate(summary.firstMaturity)},{name:'First zero rate (%)',value:summary.firstZeroRate,numeric:true});
+    if(summary.firstMaturity!==null&&summary.firstMark!==null)tiles.push({name:'First maturity',value:displayDate(summary.firstMaturity)},{name:`First zero rate (${summary.markUnitLabel})`,value:summary.firstMark,numeric:true});
     return [...tiles,{name:'Day count',value:summary.dayCount}];
   }
   if(summary.front)tiles.push({name:'Contracts',value:String(summary.contractCount)},{name:'Front contract',value:deliveryLabel(summary.front.deliveryFrom,summary.front.deliveryTo)},{name:'Front price',value:summary.front.price,numeric:true});

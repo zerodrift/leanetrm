@@ -6,28 +6,30 @@ type Quote={commodity:string;currency:string;unit:string;multiplier:string};
 type Profile={clock:string;timeZone:string;intervalMinutes:number};
 type Target={kind:string;index:string|null;secondIndex:string|null};
 type Product={commodity:string|null;location:string|null;currency:string|null;unit:string|null;multiplier:string|null};
-type RateTerms={currency:string;dayCount:string;compounding:string;implementation:string};
 type References={commodityLocations:{commodity:string;location:string}[];quotes:Record<string,Quote>;profiles:Record<string,Profile>;
-  targets:Record<string,Target>;futuresProducts:Record<string,Product>;sources:string[];interestRates:Record<string,RateTerms>};
+  targets:Record<string,Target>;futuresProducts:Record<string,Product>;sources:string[];currencies:string[]};
 type Catalog={choices:Choice[];maximumContracts:number;references:References};
 type Row=Record<string,string>;
 type Mapping={id:string;version:number;generation:number;state:'draft'|'published';definition:{code:string;name:string;contracts:Row[]|null;dates?:Row[]|null}};
 type Window={mappingId:string;mappingVersion:number;count:number};
 type Draft={code:string;name:string;commodity:string|null;location:string|null;quote:string|null;profile:string|null;contractKind:string|null;futuresProduct:string|null;
-  contracts:Window|null;settlementTarget:string|null;priceRule:string|null;markRole:string|null;markSource:string|null;missingPrice:string|null;interpolation:string|null;interestRate:string|null};
+  contracts:Window|null;settlementTarget:string|null;priceRule:string|null;markRole:string|null;markSource:string|null;missingPrice:string|null;interpolation:string|null;
+  currency:string|null;markUnit:string|null;dayCount:string|null;compounding:string|null;extrapolation:string|null};
 type Saved={id:string;version:number;generation:number;state:'draft'|'published';definition:Draft;mappingGeneration:number};
 type Library={definitions:Saved[];canEdit:boolean;canPublish:boolean};
 type Receipt={expression:string};
 type Position={position:number;label:string;start:string;end:string;lastTradingAt:string;futuresSeries:string|null;startReference:Receipt};
 type Maturity={position:number;label:string;maturity:string;days:number;reference:Receipt};
 type Preview={code:string;name:string;mapping:string;context:{effectiveOn:string};terms:{currency:string;unit:string;multiplier:string;timeZone:string;intervalMinutes:number;
-  settlementKind:string;settlementIndex:string|null};contracts?:Position[];maturities?:Maturity[];valuationDate?:string;interestRate?:string};
+  settlementKind:string;settlementIndex:string|null};contracts?:Position[];maturities?:Maturity[];valuationDate?:string};
 type CommandReceipt={id:string;version:number;generation:number;state:'draft'|'published'};
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 
 const comingSoon=' · Coming soon';
 // Fields an interest-rate curve does not take: they are hidden, not disabled, since busy work re-enables page controls.
 const CONTRACT_FIELDS=['location','product','quote','profile','target','rule','role','missing','interpolation','count'];
+// An interest-rate curve's own currency, mark unit and conventions (D359), each required with no default.
+const RATE_FIELDS=['currency','unit','daycount','compounding','rate-interpolation','extrapolation'];
 const ROW_FIELDS={dates:[['label','Label'],['date','Date · date or reference']],
   contracts:[['label','Contract'],['start','Start · date or reference'],['end','End · date or reference'],['lastTrading','Last trading · date or reference'],['cutoffUtc','Last trading time · UTC']]} as const;
 
@@ -68,8 +70,8 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
   }
   const choices=(name:string)=>(catalog?.choices??[]).filter(c=>c.field===name).map(c=>({value:c.code,label:c.label+(c.supported?'':comingSoon),disabled:!c.supported}));
 
-  const list=el('div'),currency=el('p'),rows=el('tbody'),head=el('thead'),add=el('button','Add row'),newer=el('div'),stale=el('div'),status=el('p');
-  list.id='curve-definition-list';list.className='muted';currency.id='curve-definition-currency';currency.className='field-help';
+  const list=el('div'),rows=el('tbody'),head=el('thead'),add=el('button','Add row'),newer=el('div'),stale=el('div'),status=el('p');
+  list.id='curve-definition-list';list.className='muted';
   rows.id='curve-definition-rows';add.type='button';add.id='curve-definition-add';add.className='secondary';newer.id='curve-definition-newer';newer.className='profile-note';newer.hidden=true;stale.id='curve-definition-stale';stale.className='profile-note';stale.hidden=true;
   status.id='curve-definition-status';status.setAttribute('role','status');
   const rowTable=el('table');rowTable.className='contract-date-inputs';rowTable.append(head,rows);const rowScroll=el('div');rowScroll.className='regular-table-scroll';rowScroll.append(rowTable);
@@ -78,14 +80,15 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
       field('kind','Curve kind',el('select'))),
     section('What it prices',field('location','Commodity at location',el('select')),
       field('product','Futures product',el('select'),'Futures only. Each contract must match exactly one series of this product by delivery period.'),
-      field('rate','Interest-rate specification',el('select'),'Rates are spot zero rates under this specification’s conventions.')),
+      field('currency','Currency',el('select')),field('unit','Marks quoted in',el('select'),'Each tenor is marked as a spot zero rate in this unit.')),
     section('Quote and delivery',field('quote','Quote · currency and unit',el('select')),field('profile','Delivery profile · time zone and interval',el('select'))),
     section('Contracts or tenors',field('mapping','Date mapping · version',el('select'),'Each row resolves against the close selected above, so the curve rolls with it.'),
       newer,stale,rowScroll,add,field('count','Number of contracts',input({type:'number',min:'1',step:'1'}))),
     section('Settlement',field('target','Settles to',el('select'))),
     section('Pricing',field('rule','Price rule',el('select')),field('role','Mark role',el('select')),field('source','Mark source',el('select')),
-      field('missing','If a contract has no price',el('select')),field('interpolation','Interpolation',el('select'))));
-  fields.get('rate')!.parentElement!.append(currency);
+      field('missing','If a contract has no price',el('select')),field('interpolation','Interpolation',el('select'))),
+    section('Rate conventions',field('daycount','Day count',el('select')),field('compounding','Compounding',el('select')),
+      field('rate-interpolation','Between tenors',el('select')),field('extrapolation','After the last tenor',el('select'),'Before the first tenor, the as-of date discounts at exactly 1.')));
   const actions=el('div'),preview=el('button','Preview'),save=el('button','Save draft'),publish=el('button','Publish');
   actions.className='schedule-actions';preview.type='submit';save.type='button';save.id='curve-definition-save';save.className='secondary';
   publish.type='button';publish.id='curve-definition-publish';publish.hidden=true;
@@ -102,14 +105,13 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
     const rate=isRate(),future=value('kind')==='future';
     for(const id of CONTRACT_FIELDS){const control=fields.get(id)!;control.closest('div')!.hidden=rate;control.required=!rate;}
     const product=fields.get('product')!;product.closest('div')!.hidden=!future;product.required=future;if(!future)product.value='';
-    const rateField=fields.get('rate')!;rateField.closest('div')!.hidden=!rate;rateField.required=rate;if(!rate)rateField.value='';
+    for(const id of RATE_FIELDS){const control=fields.get(id)!;control.closest('div')!.hidden=!rate;control.required=rate;if(!rate)control.value='';}
     for(const section of form.querySelectorAll<HTMLFieldSetElement>('.curve-definition-section'))
       section.hidden=[...section.querySelectorAll(':scope>div')].every(div=>(div as HTMLElement).hidden);
     options('mapping',mappings.filter(m=>!!m.definition.dates===rate).map(m=>({value:m.id+'|'+m.version,
       label:`${m.definition.name} (${m.definition.code}) v${m.version} · ${m.state} · ${(m.definition.dates??m.definition.contracts??[]).length} ${rate?'dates':'contracts'}`})));
-    rateTerms();showRows(selectedMapping());
+    showRows(selectedMapping());
   }
-  function rateTerms(){const terms=catalog?.references.interestRates[value('rate')];currency.textContent=terms?publicText(`Currency ${terms.currency} · ${terms.dayCount} · ${terms.compounding}`):'';}
   // The mapping's rows, editable in place; edited rows are saved as that mapping's draft with the curve.
   function showRows(mapping:Mapping|undefined){
     const columns=ROW_FIELDS[mappingType()],headings=el('tr');for(const [,label] of columns)headings.append(el('th',label));headings.append(el('th'));head.replaceChildren(headings);
@@ -143,7 +145,8 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
     options('kind',choices('contractKind'));
     options('location',r.commodityLocations.map(p=>({value:p.commodity+'|'+p.location,label:`${p.commodity} at ${p.location}`})));
     options('product',Object.entries(r.futuresProducts).map(([code,p])=>({value:code,label:`${code} · ${p.commodity??'no commodity'} at ${p.location??'no location'}`})));
-    options('rate',Object.keys(r.interestRates).map(code=>({value:code,label:code})));
+    options('currency',r.currencies.map(code=>({value:code,label:code})));options('unit',choices('rate.markUnit'));options('daycount',choices('rate.dayCount'));
+    options('compounding',choices('rate.compounding'));options('rate-interpolation',choices('rate.interpolation'));options('extrapolation',choices('rate.extrapolation'));
     options('quote',Object.entries(r.quotes).map(([code,q])=>({value:code,label:`${code} · ${q.currency} per ${q.multiplier==='1'?'':q.multiplier+' '}${q.unit}`})));
     options('profile',Object.entries(r.profiles).map(([code,p])=>({value:code,label:`${code} · ${p.timeZone}, ${p.intervalMinutes} min`})));
     // Targets are grouped by the served settlement case their kind selects; a case no target kind expresses is shown, disabled, so it stays visible.
@@ -169,9 +172,11 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
   function open(version:Saved){
     opened=version;const d=version.definition;clear();status.textContent='';
     set('code',d.code);set('name',d.name);set('kind',d.contractKind);(fields.get('code') as HTMLInputElement).readOnly=true;
-    set('location',d.commodity&&d.location?d.commodity+'|'+d.location:'');set('product',d.futuresProduct);set('rate',d.interestRate);
+    set('location',d.commodity&&d.location?d.commodity+'|'+d.location:'');set('product',d.futuresProduct);
     set('quote',d.quote);set('profile',d.profile);set('target',d.settlementTarget);set('rule',d.priceRule);set('role',d.markRole);set('source',d.markSource);
-    set('missing',d.missingPrice);set('interpolation',d.interpolation);set('count',d.contracts?String(d.contracts.count):'');
+    set('missing',d.missingPrice);set('interpolation',d.contractKind==='interest_rate'?'':d.interpolation);set('count',d.contracts?String(d.contracts.count):'');
+    set('currency',d.currency);set('unit',d.markUnit);set('daycount',d.dayCount);set('compounding',d.compounding);set('extrapolation',d.extrapolation);
+    set('rate-interpolation',d.contractKind==='interest_rate'?d.interpolation:'');
     kindChanged();if(d.contracts)set('mapping',d.contracts.mappingId+'|'+d.contracts.mappingVersion);showRows(selectedMapping());staleRows();renderList();
   }
   // The opened draft pinned its mapping draft at one generation; rows changed since then (in Settings) are shown but adopted only on request.
@@ -186,17 +191,18 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
   fresh.onclick=()=>{if(!isBusy())startNew();};
   const clear=()=>{shown=undefined;result.hidden=true;};
   form.addEventListener('input',clear);form.addEventListener('change',clear);
-  fields.get('kind')!.addEventListener('change',kindChanged);fields.get('rate')!.addEventListener('change',rateTerms);
+  fields.get('kind')!.addEventListener('change',kindChanged);
   fields.get('mapping')!.addEventListener('change',()=>{showRows(selectedMapping());stale.hidden=true;});
 
   function draft():Draft{
     const [commodity,location]=value('location').split('|'),mapping=selectedMapping(),rate=isRate();
-    const optional=(id:string)=>rate?null:value(id)||null;
+    const optional=(id:string)=>rate?null:value(id)||null,rated=(id:string)=>rate?value(id)||null:null;
     return {code:value('code'),name:value('name'),commodity:rate?null:commodity||null,location:rate?null:location||null,quote:optional('quote'),profile:optional('profile'),
       contractKind:value('kind')||null,futuresProduct:value('product')||null,
       contracts:mapping?{mappingId:mapping.id,mappingVersion:mapping.version,count:rate?rows.children.length:Number(value('count'))}:null,
       settlementTarget:optional('target'),priceRule:optional('rule'),markRole:optional('role'),markSource:value('source')||null,
-      missingPrice:optional('missing'),interpolation:optional('interpolation'),interestRate:rate?value('rate')||null:null};
+      missingPrice:optional('missing'),interpolation:rate?value('rate-interpolation')||null:optional('interpolation'),
+      currency:rated('currency'),markUnit:rated('unit'),dayCount:rated('daycount'),compounding:rated('compounding'),extrapolation:rated('extrapolation')};
   }
   // Edited rows travel with the curve as its mapping's next draft; unedited rows are the stored version itself.
   function mappingEdit(){
@@ -208,7 +214,7 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
     shown=p;
     if(p.maturities){
       title.textContent=publicText(`${p.name} · ${p.maturities.length} tenors from ${p.mapping}`);
-      summary.textContent=publicText(`${p.interestRate} · spot zero rates · valued ${displayDate(p.valuationDate!)} · context ${displayDate(p.context.effectiveOn)}`);
+      summary.textContent=publicText(`${p.terms.currency} · spot zero rates · valued ${displayDate(p.valuationDate!)} · context ${displayDate(p.context.effectiveOn)}`);
       renderRegularTable(table,'curve-definition-tenors',JSON.stringify(p),['Position','Tenor','Maturity','Days','Reference'],
         p.maturities.map(m=>[String(m.position),m.label,displayDate(m.maturity),String(m.days),m.reference.expression]),[0,3],isBusy);
     }else{
@@ -243,6 +249,8 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
   }
 
   return {element,load,
+    // A rendered curve's link to its definition (D359): opens the definition, at the version that curve pins.
+    async openDefinition(id:string,version:number){await load();const saved=library.definitions.find(d=>d.id===id&&d.version===version);if(!saved)throw Error('This curve\u2019s definition is not available to you.');open(saved);},
     // Reads the catalog whenever the editor opens, so a mapping published meanwhile is listed.
     shown(){void run(load);},
     // A changed close or market context makes the shown window and the pinned choices stale; the next opening reads them again.

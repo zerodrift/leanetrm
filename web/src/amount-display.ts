@@ -15,7 +15,7 @@ export function selectDisplayPrecision(value:DisplayPrecision){precision=display
 const key=(value:string,kind:Kind,tick?:string,policy=precision)=>JSON.stringify([value,policy[kind],tick??null,kind!=='money']);
 export function amountText(value:string,kind:Kind,tick?:string,policy=precision){return rendered.get(key(value,kind,tick,policy))??value;}
 const money=new Set(['valueAtRisk','expectedShortfall','standardDeviation','mean','valueExcludingOverdue','completePv','overdueKnownBalance','overdueEstimated','amount','tradeCashAmount','tradePresentValue','presentValue','instrumentPresentValue','cashAmount','contribution','cashContribution','executionPnl','upPnl','downPnl','basePv','upPv','downPv','change','base','baseValue','loss','losses','scenarioValues','lower','upper','fullValueAtRisk','fullExpectedShortfall','candidateValueAtRisk','candidateExpectedShortfall','hybridValueAtRisk','hybridExpectedShortfall','maximumCandidateError','maximumCandidateTailError','maximumAbsoluteError','maximumTailError','maximumResidualLinearPnl']);
-const prices=new Set(['price','fixedPrice','executionPrice','mark','markMinusPrice','value','annualRate',...priceMeasureChoices.map(c=>c[0])]);
+const prices=new Set(['price','fixedPrice','executionPrice','mark','markMinusPrice','value',...priceMeasureChoices.map(c=>c[0])]);
 const quantities=new Set(['resolvedQuantity','quantity','physicalQuantity','totalQuantity','weight']);
 const factors=new Set(['discountFactor','factor','multiplier','delta','gamma','retainedVarianceShare','reconstructionError','orthogonalityError','eigenResidual','eigenvalues','varianceShares']);
 /** The part of an API read whose amounts a page shows, by the read's path; undefined for a read whose amounts no page shows. A workspace
