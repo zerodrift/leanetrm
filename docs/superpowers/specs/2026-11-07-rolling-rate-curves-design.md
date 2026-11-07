@@ -27,12 +27,12 @@ from interpolating between the pillars on either side. The pillars must roll wit
      creates one stable price series per tenor label.
    - At a close, each label resolves to a pillar date from that close's `t_0`, and
      that close's mark for the label's series is its zero rate.
-2. **Interpolation is part of the definition.**
-   - An interest-rate definition names its interpolation policy explicitly.
-   - The one supported policy is today's log-discount policy
-     (`log_discount_geometric_root_to_even_18_v1`), with its existing maximum
-     pillar span.
-   - No default: a definition without a policy is refused.
+2. **The curve owns its currency, units and conventions (owner-directed).** Each
+   is a required, explicit choice on the definition, with no default:
+   - **currency:** an exact currency reference;
+   - **mark unit:** how tenor marks are quoted;
+   - **day count**, **compounding**, **interpolation**, and **extrapolation** after
+     the last pillar.
 3. **Payment discounting is the purpose (owner-directed).**
    - The curve exists to look up discount factors on payment dates, through the
      currency discount default.
@@ -61,14 +61,16 @@ from interpolating between the pillars on either side. The pillars must roll wit
   market instruments.
 - Contract-curve admission (D318 futures and forward definitions). This design
   covers rate curves only.
-- Interpolation policies other than the existing log-discount policy.
+- Conventions beyond the offered set below. They show as disabled "Coming soon".
 
 ## Anti-goals
 
 - Any default: a missing definition, policy, mapping version, tenor series, or
   mark at a close is a structured error naming the missing item. Never skip a
   tenor or substitute another curve.
-- Extrapolation before `t_0` or beyond the last pillar.
+- Extrapolation before `t_0`, or beyond the last pillar unless the definition chose
+  an extrapolation method.
+- A unit or convention inferred from a value, a currency or another curve.
 - A tenor's mark attached to a date. Marks belong to the tenor's series; the date
   is resolved at each close.
 - Rebinding a curve to a newer definition or mapping version without a new
@@ -78,14 +80,45 @@ from interpolating between the pillars on either side. The pillars must roll wit
 
 ### Definition
 
-- D358's interest-rate definition gains `interpolation`. It is required, and its
-  only allowed value is the log-discount policy above.
-- The editor shows it as a required select. Draft, save, publish and edit
-  semantics are unchanged.
-- Already-published D358 versions have no policy and cannot be admitted. The
+- D358's interest-rate definition stops referencing an interest-rate
+  specification. It owns these terms instead, each required and validated:
+
+  | Term | Offered | Coming soon |
+  |---|---|---|
+  | Currency | any exact currency in reference data | |
+  | Mark unit | Percent per year (4.25), Decimal per year (0.0425) | Basis points |
+  | Day count | ACT/365 Fixed, ACT/360 | 30/360, ACT/ACT ISDA |
+  | Compounding | Simple, Continuous, Annual | Semi-annual, Quarterly |
+  | Interpolation | Log-linear discount factor, Linear zero rate | Cubic spline, Monotone convex |
+  | Extrapolation after the last pillar | None (refuse), Flat zero rate, Flat forward | |
+
+  It keeps its code, name, mark source and date-list version.
+- **Mark unit.**
+  - Marks are recorded in the declared unit and validated against that unit's
+    explicit allowed range. The unit is never guessed from a value.
+  - The backend converts exactly to a decimal annual rate only inside the
+    calculation.
+  - Labels come from the backend: zero rates as "% per year" or "per year";
+    discount factors as dimensionless, marked with the curve's currency. The page's
+    hard-coded "% per year" label is removed.
+- **Calculations.**
+  - Each offered convention is a project-owned implementation with independent
+    numerical oracle tests, recorded with an implementation version
+    (`AGENTS.md`: units, day count and compounding stay small and project-owned).
+  - Continuous and annual compounding, and linear-zero interpolation, involve
+    exponentials, logarithms or fractional powers. They run under one explicit,
+    versioned numerical policy (fixed precision and rounding), pinned in each build
+    and stated in the result.
+  - Flat zero-rate extrapolation holds the last pillar's zero rate. Flat-forward
+    extrapolation holds the last interval's continuously compounded forward rate.
+    The maximum pillar span applies between pillars, not to extrapolation.
+- The editor shows each term as a required select (one field per row). Draft,
+  save, publish and edit semantics are unchanged.
+- Already-published D358 versions lack these terms and cannot be admitted. The
   author edits them and publishes a new version. There are none in production, so
   no migration of versions is needed.
-
+- `ref_data.interest_rate_definitions` stays only for any other consumer that
+  still names it. If none remains after the removal, it is dropped too.
 ### Admission
 
 - **Operation.** Admitting an exact published interest-rate definition version
@@ -112,7 +145,8 @@ from interpolating between the pillars on either side. The pillars must roll wit
   close's exact context (as the D358 preview does). Each label becomes a pillar
   dated on its resolved date.
 - The pillar's zero rate is the close's pinned observation for that label's
-  series. The rest is today's exact simple ACT/365F arithmetic.
+  series, converted from the declared mark unit. Discount factors at pillars use
+  the definition's day count and compounding.
 - Refusals:
   - **`rate_maturity`:** a resolved pillar falls on or before `t_0`.
   - **`date_list_order`:** dates are out of order.
@@ -125,7 +159,9 @@ from interpolating between the pillars on either side. The pillars must roll wit
   Monday. This is exact, not extrapolation, and is recorded in the build's lineage
   as the anchor.
   *(Owner-decided, 2026-11-07; today's code refuses those dates.)*
-- Dates after the last pillar are refused (`discount_coverage`).
+- Dates between pillars use the chosen interpolation.
+- Dates after the last pillar use the chosen extrapolation; with None they are
+  refused (`discount_coverage`).
 - A bracket wider than the maximum pillar span is refused
   (`discount_interpolation`), as today.
 
@@ -141,8 +177,9 @@ from interpolating between the pillars on either side. The pillars must roll wit
     D334 close rule.
 - **Payment discounting.**
   - The currency discount default references an admitted rate curve (exact
-    revision and code) with an explicit interpolation policy, which must equal the
-    curve's.
+    revision and code). Its currency must equal the curve's currency; a mismatch
+    is refused. Its separate interpolation column is removed: the curve owns
+    interpolation.
   - One default per currency now serves every close, because the curve rolls.
     Per-day defaults are no longer needed.
 
@@ -169,7 +206,9 @@ from interpolating between the pillars on either side. The pillars must roll wit
   These are calendar-day approximations of the tenors, labelled as such. Every
   adjacent gap is within the maximum pillar span.
 - One published interest-rate definition, "Synthetic USD zero rates", admitted and
-  published into the demo's market definitions. The USD discount default points
+  published into the demo's market definitions. Its terms: USD, percent per year,
+  ACT/365 Fixed, continuous compounding, log-linear discount factor, flat
+  forward (author's call for the demo). The USD discount default points
   at it.
 - **Synthetic marks** for every tenor at every demo close (about 522 closes):
   - an upward-then-flat shape around 3.9–4.4%;
@@ -209,9 +248,17 @@ from interpolating between the pillars on either side. The pillars must roll wit
 - **Build:** pillars roll between two closes with the same marks; a label without
   a mark; a resolved date on `t_0`; order violations; historical views and a later
   correction.
-- **Interpolation:** between `t_0` and the first pillar (the anchor); between
-  pillars; beyond the last pillar refused; brackets wider than the maximum span
-  refused. Independent numerical oracle values.
+- **Conventions:** every offered day count × compounding × interpolation ×
+  extrapolation combination against independent oracle values. Covers:
+  - the `t_0` anchor;
+  - between pillars;
+  - after the last pillar, for each extrapolation choice;
+  - brackets wider than the maximum span refused;
+  - percent and decimal marks giving identical discount factors.
+- **Units:** an out-of-range mark for the declared unit is refused; labels come
+  from the backend.
+- **Currency:** a discount default whose currency differs from the curve's is
+  refused.
 - **Admission:** retries; a different payload under the same request id;
   unpublished or policy-less versions refused; series reuse across revisions and
   versions; permissions.
