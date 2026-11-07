@@ -1,6 +1,8 @@
-// Vol surfaces (Markets): the stored volatility surface of one option product at the selected context, drawn as a rich/cheap heat
-// map and one smile per expiry that highlight the same series together, and a fit submitted as a risk-queue job that the page
-// checks back on until it finishes, and a rotatable 3D view of the fitted surface with each market point on a stalk. Runs after the HTTP checks of the exchange example, which leave the trader's own failed fit of
+// Vol surfaces (Markets): a shelf of option products that says where each is calibrated, the chosen product's closes and its
+// stored volatility surface at the selected close, drawn as a rich/cheap heat map and one smile per expiry that highlight the same
+// series together, a calibration submitted as a risk-queue job that the page checks back on until it finishes, and a rotatable 3D
+// view of the fitted surface with each market point on a stalk. A close without a surface offers to calibrate it or to open one
+// that has one. Runs after the HTTP checks of the exchange example, which leave the trader's own failed fit of
 // nymex_lo at the latest close and fitted surfaces of nymex_on there and of both products at the close that leaves one option
 // underlying unsettled. The preview grants the trader PublishMarketData and serves a risk worker for this suite.
 import {mkdtemp,writeFile} from 'node:fs/promises';
@@ -61,10 +63,16 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
  // A wait that, should it time out, says what the page showed and what the surface reads answered.
  const settled=(expression,ms)=>wait(expression,ms).catch(async error=>{throw Error(error.message+' · observed '+q(await evaluate(
   `({state:${ready},status:document.querySelector('#vol-fit-status')?.textContent,error:document.querySelector('#vol-surface-error')?.textContent,calls:window.surfaceCalls.slice(-3).map(c=>[c.path,c.status,c.answer?.state??c.answer?.code,c.answer?.job])})`)));});
- // Choosing a product reads its surface afresh; the read answered and drawn is the newest.
+ const card=product=>`document.querySelector('.vol-product-card[data-product=${product}]')`;
+ const answered=product=>`${calls('vol-surfaces/read')}.at(-1)?.status!==undefined&&${calls('vol-surfaces/read')}.at(-1).body.product===${q(product)}&&${ready}!=='loading'`;
+ // Choosing a product's card reads its surface afresh; the read answered and drawn is the newest. A card already chosen is read again
+ // by the page itself when the close changes.
  async function choose(product){
-  const reads=await evaluate(`${calls('vol-surfaces/read')}.length`);await set('#vol-product',product);
-  await settled(`${calls('vol-surfaces/read')}.length>${reads}&&${calls('vol-surfaces/read')}.at(-1).status!==undefined&&${calls('vol-surfaces/read')}.at(-1).body.product===${q(product)}&&${ready}!=='loading'`,30000);
+  await settled(`!!${card(product)}&&${idle}`,30000);
+  const reads=await evaluate(`${calls('vol-surfaces/read')}.length`);
+  if(await evaluate(`${card(product)}.getAttribute('aria-pressed')==='true'`))return settled(answered(product),30000);
+  await click(`.vol-product-card[data-product=${product}]`);
+  await settled(`${calls('vol-surfaces/read')}.length>${reads}&&${answered(product)}`,30000);
  }
  try{
   await command('Page.navigate',{url:url+'/?example=exchange'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle,60000);
@@ -78,61 +86,83 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   await persona('risk');
   await check('the page is listed in Markets for a reader of market data and trades',listed);
   await click('#example');await click('#nav-vol-surfaces');
- await evaluate("window.__productPaging=true;window.__productPages=[]");await evaluate("[...document.querySelectorAll('.vol-field button')].find(button=>button.textContent==='Search').click()");await wait(idle);
- await wait("[...document.querySelectorAll('.vol-field button')].some(button=>button.textContent==='More products'&&!button.hidden&&!button.disabled)");
- await check('option products read only the first page until More is requested',"JSON.stringify(window.__productPages)==='[0]'");
- await evaluate("window.__holdProductPage=true;[...document.querySelectorAll('.vol-field button')].find(button=>button.textContent==='More products').click()");
- await wait("typeof window.__releaseProductPage==='function'");
- await set('#vol-product','nymex_on');await wait(idle);
- await evaluate('window.__releaseProductPage();window.__releaseProductPage=null');await wait('window.__productPageReleased');
- await check('changing product during a page read leaves More usable',"![...document.querySelectorAll('.vol-field button')].find(button=>button.textContent==='More products').disabled");
- await evaluate("window.__productPaging=false");await evaluate("[...document.querySelectorAll('.vol-field button')].find(button=>button.textContent==='Search').click()");await wait(idle);
-
-  await settled(`document.querySelector('#vol-product').options.length>1&&${idle}`,30000);
-  await set('#vol-product','');
-  await check('the page is titled Vol surfaces under Markets, with a product picker that chooses nothing and the read-only model',
+  await settled(`document.querySelectorAll('.vol-product-card').length>1&&${idle}`,30000);
+  const cards="[...document.querySelectorAll('.vol-product-card')].map(c=>[c.dataset.product,c.dataset.state,c.getAttribute('aria-pressed'),c.textContent])";
+  await check('the page is titled Vol surfaces under Markets, names the working snapshot it reads, chooses no product and shows the read-only model',
    `document.querySelector('#page-title').textContent==='Vol surfaces'&&document.querySelector('#page-section').textContent==='MARKETS'&&
-    [...document.querySelector('#vol-product').options].map(o=>o.value).filter(Boolean).sort().join()==='nymex_lo,nymex_on'&&document.querySelector('#vol-product').value===''&&
-    document.querySelector('#vol-model').textContent===${q(model)}&&!document.querySelector('#vol-model').matches('input,select')`,
-   "[document.querySelector('#page-title').textContent,[...document.querySelector('#vol-product').options].map(o=>o.value),document.querySelector('#vol-model')?.textContent]");
-  await check('a short legend says what rich and cheap mean',"/rich/i.test(document.querySelector('#vol-legend').textContent)&&/cheap/i.test(document.querySelector('#vol-legend').textContent)");
+    document.querySelector('.vol-hero .vol-eyebrow').textContent==='Working snapshot'&&/2026/.test(document.querySelector('#vol-here').textContent)&&
+    [...document.querySelectorAll('.vol-product-card')].map(c=>c.dataset.product).sort().join()==='nymex_lo,nymex_on'&&!document.querySelector('.vol-product-card[aria-pressed=true]')&&
+    !!document.querySelector('#vol-placeholder').offsetParent&&document.querySelector('#vol-model').textContent===${q(model)}&&!document.querySelector('#vol-model').matches('input,select')`,
+   `[document.querySelector('#page-title').textContent,document.querySelector('.vol-hero').textContent,${cards},document.querySelector('#vol-model')?.textContent]`);
+  // The HTTP checks left nymex_on calibrated at this working snapshot, and nymex_lo only at earlier ones.
+  await check('each product card says whether it is calibrated here, or where it last was, calibrated here first',
+   `(c=>c[0][0]==='nymex_on'&&c[0][1]==='here'&&/Calibrated here/.test(c[0][3])&&/expiries fitted/.test(c[0][3])&&c[1][0]==='nymex_lo'&&c[1][1]==='elsewhere'&&/Latest/.test(c[1][3])
+    &&/1 of 2 calibrated here/.test(document.querySelector('#vol-library-count').textContent))(${cards})`,cards);
+  await check('the library is read once for the context, with the model and no product',
+   `(l=>l.length===1&&l[0].status===200&&l[0].body.model===${q(model)}&&l[0].body.offset===0&&!('product' in l[0].body)&&l[0].body.context.convention==='futures_option_premium_v1')(${calls('vol-surfaces/library')})`,
+   calls('vol-surfaces/library'));
+ await evaluate("window.__productPaging=true;window.__productPages=[]");await click('#nav-vol-surfaces');await wait(idle);
+ await wait("!document.querySelector('#vol-more-products').hidden&&!document.querySelector('#vol-more-products').disabled");
+ await check('option products read only the first page until More is requested',"JSON.stringify(window.__productPages)==='[0]'");
+ await evaluate("window.__holdProductPage=true;document.querySelector('#vol-more-products').click()");
+ await wait("typeof window.__releaseProductPage==='function'");
+ await click('.vol-product-card[data-product=nymex_on]');await wait(idle);
+ await evaluate('window.__releaseProductPage();window.__releaseProductPage=null');await wait('window.__productPageReleased');
+ await check('changing product during a page read leaves More usable',"!document.querySelector('#vol-more-products').disabled");
+ await evaluate("window.__productPaging=false");await click('#nav-vol-surfaces');await wait(idle);
+  await settled(`!!${card('nymex_on')}&&${idle}`,30000);
+  // Searching narrows the cards by the catalog's own search, and clearing it lists them all again.
+  await evaluate("(i=>{i.value='zz_no_such_product';i.dispatchEvent(new Event('input'))})(document.querySelector('#vol-search'))");
+  await settled(`!document.querySelector('.vol-product-card')&&/No option product matches/.test(document.querySelector('#vol-products').textContent)`,10000);
+  await evaluate("(i=>{i.value='';i.dispatchEvent(new Event('input'))})(document.querySelector('#vol-search'))");
+  await settled(`document.querySelectorAll('.vol-product-card').length===2`,10000);
+  await check('a search that matches nothing says so, and clearing it lists every product again',"document.querySelectorAll('.vol-product-card').length===2");
   await choose('nymex_lo');
   const unfitted=await lastRead();
   await check('the read names the product, the model and the selected context, and its snapshot is top-level',
    q(unfitted.status===200&&unfitted.body.product==='nymex_lo'&&unfitted.body.model===model&&unfitted.body.context.convention==='futures_option_premium_v1'&&
     unfitted.body.context.knowledgeMode==='current'&&!('snapshotId' in unfitted.body)&&unfitted.answer.state==='notFitted'&&unfitted.answer.canFit===false));
-  await check('a reader who may not fit sees Not fitted for this date and no Fit now',
-   `document.querySelector('#vol-fit-status').textContent.includes('Not fitted for this date')&&!document.querySelector('#vol-fit')?.offsetParent`);
+  await settled(`!!document.querySelector('#vol-missing').offsetParent&&!!document.querySelector('#vol-open-latest')`,30000);
+  await check('a reader who may not calibrate is told this close is not calibrated, why they cannot, and offered the newest close that is',
+   `document.querySelector('#vol-fit-status').textContent.includes('Not calibrated at Working snapshot')&&!document.querySelector('#vol-fit')?.offsetParent&&!document.querySelector('#vol-fit-here')&&
+    /Calibrating needs Publish market data and Read trades/.test(document.querySelector('#vol-missing').textContent)&&/^Open .*→$/.test(document.querySelector('#vol-open-latest').textContent)`,
+   "[document.querySelector('#vol-fit-status')?.textContent,document.querySelector('#vol-missing')?.textContent]");
+  // Opening that close is the header's own move: the As of changes, and the page reads the same product there.
+  const shownBefore=await evaluate("document.querySelector('#snapshot').value");
+  await click('#vol-open-latest');
+  await settled(`document.querySelector('#snapshot').value!==${q(shownBefore)}&&${ready}==='fitted'&&${calls('vol-surfaces/read')}.at(-1).body.context.snapshotId===document.querySelector('#snapshot').value&&${idle}`,30000);
+  await check('opening the newest calibrated close selects it in the header and shows its surface',
+   `${calls('vol-surfaces/read')}.at(-1).body.product==='nymex_lo'&&document.querySelector('.vol-close-chip[aria-current=true]')&&!document.querySelector('#vol-missing').offsetParent`);
 
   // The trader may fit; the trader's own last fit of this key failed, and its code is shown next to the button.
   await persona('trader');await click('#example');await click('#nav-vol-surfaces');
-  await settled(`document.querySelector('#vol-product').options.length>1&&${idle}`,30000);
   await choose('nymex_lo');
   const failed=await lastRead();
-  await check('a fitter sees Not fitted for this date, Fit now, and the failed job\'s code beside it',
-   `${q(failed.answer.canFit===true&&failed.answer.job?.state==='failed')}&&document.querySelector('#vol-fit-status').textContent.includes('Not fitted for this date')&&
-    document.querySelector('#vol-fit')?.textContent==='Fit now'&&document.querySelector('#vol-fit-failure').textContent.includes(${q(failed.answer.job?.errorCode??'')})&&
-    document.querySelector('#vol-fit-failure').parentElement===document.querySelector('#vol-fit').parentElement`,
-   "[document.querySelector('#vol-fit-status')?.textContent,document.querySelector('#vol-fit')?.textContent,document.querySelector('#vol-fit-failure')?.textContent]");
+  await check('a calibrator is offered Calibrate at this close, with the failed job\'s code shown',
+   `${q(failed.answer.canFit===true&&failed.answer.job?.state==='failed')}&&document.querySelector('#vol-fit-status').textContent.includes('Not calibrated at Working snapshot')&&
+    /^Calibrate at Working snapshot · /.test(document.querySelector('#vol-fit-here')?.textContent)&&!document.querySelector('#vol-fit').offsetParent&&
+    !!document.querySelector('#vol-fit-failure').offsetParent&&document.querySelector('#vol-fit-failure').textContent.includes(${q(failed.answer.job?.errorCode??'')})`,
+   "[document.querySelector('#vol-fit-status')?.textContent,document.querySelector('#vol-fit-here')?.textContent,document.querySelector('#vol-fit-failure')?.textContent]");
 
-  // Fit now submits a job. Its response is lost after the backend queued it: the request is kept and retried under its own id.
-  await evaluate('window.loseNextFit=true');await click('#vol-fit');
+  // Calibrating submits a job. Its response is lost after the backend queued it: the request is kept and retried under its own id.
+  await evaluate('window.loseNextFit=true');await click('#vol-fit-here');
   await settled(`${calls('vol-surfaces/fit')}.length===1&&!document.querySelector('#vol-fit-retry').hidden`,30000);
   const lost=await evaluate(`${calls('vol-surfaces/fit')}.at(-1)`);
-  await check('Fit now submits the product and model at the selected close under a fresh request id',
+  await check('Calibrate submits the product and model at the selected close under a fresh request id',
    q(Object.keys(lost.body).sort().join()==='model,product,requestId,snapshotId'&&lost.body.product==='nymex_lo'&&lost.body.model===model&&
     lost.body.snapshotId===unfitted.body.context.snapshotId&&/^[0-9a-f-]{36}$/.test(lost.body.requestId)&&lost.status===200&&['queued','running'].includes(lost.answer.state)));
-  await check('a lost fit response keeps the request to retry, and offers no fresh fit meanwhile',
-   "!!document.querySelector('#vol-fit-retry').offsetParent&&!document.querySelector('#vol-fit').offsetParent&&/not confirmed/.test(document.querySelector('#vol-fit-failure').textContent)",
-   "[document.querySelector('#vol-fit-retry').hidden,document.querySelector('#vol-fit').hidden,document.querySelector('#vol-fit-failure').textContent]");
+  await check('a lost calibration response keeps the request to retry, and offers no fresh calibration meanwhile',
+   "!!document.querySelector('#vol-fit-retry').offsetParent&&!document.querySelector('#vol-fit').offsetParent&&document.querySelector('#vol-fit-here')?.disabled===true&&/not confirmed/.test(document.querySelector('#vol-fit-failure').textContent)",
+   "[document.querySelector('#vol-fit-retry').hidden,document.querySelector('#vol-fit').hidden,document.querySelector('#vol-fit-here')?.disabled,document.querySelector('#vol-fit-failure').textContent]");
   await click('#vol-fit-retry');
   await settled(`${calls('vol-surfaces/fit')}.length===2&&${calls('vol-surfaces/fit')}.at(-1).status===200`,30000);
   const submitted=await evaluate(`${calls('vol-surfaces/fit')}.at(-1)`);
   await check('the retry sends the original request under its own id and the backend answers its first job',
    q(JSON.stringify(submitted.body)===JSON.stringify(lost.body)&&submitted.answer.jobId===lost.answer.jobId),q([lost.body,submitted.body,lost.answer,submitted.answer]));
   await settled(`/queued|running/i.test(document.querySelector('#vol-fit-status').textContent)&&!document.querySelector('#vol-fit')?.offsetParent`,30000);
-  await check('the queued or running job is shown with its state, and nothing offers a second fit meanwhile',
-   `/Fit (queued|running)/.test(document.querySelector('#vol-fit-status').textContent)&&!document.querySelector('#vol-fit')?.offsetParent&&document.querySelector('#vol-fit-retry').hidden`,
+  await check('the queued or running job is shown with its state, and nothing offers a second calibration meanwhile',
+   `/^Calibrating at Working snapshot · .* · (queued|running) · /.test(document.querySelector('#vol-fit-status').textContent)&&!document.querySelector('#vol-fit')?.offsetParent&&
+    !document.querySelector('#vol-missing').offsetParent&&document.querySelector('#vol-fit-retry').hidden`,
    "document.querySelector('#vol-fit-status').textContent");
   const sinceRetry=`${calls('vol-surfaces/read')}.filter(c=>c.sent>${q(submitted.sent)})`;
   await settled(`${sinceRetry}.length>=3&&${sinceRetry}.at(-1).answer!==undefined`,15000);
@@ -162,8 +192,13 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   await new Promise(resolve=>setTimeout(resolve,3500));
   await check('once the job finished the page stops checking back',`${calls('vol-surfaces/read')}.length===${before}`);
   const fitted=(await lastRead()).answer;
-  await check('the fitted surface offers Refit and states when it became known',
-   `document.querySelector('#vol-fit')?.textContent==='Refit'&&document.querySelector('#vol-fit-status').textContent.startsWith('Fitted')&&!document.querySelector('#vol-fit-failure')?.textContent`);
+  await check('the fitted surface offers Recalibrate and states where it was calibrated and when it became known',
+   `document.querySelector('#vol-fit')?.textContent==='Recalibrate'&&/^Calibrated at Working snapshot · .* · known from /.test(document.querySelector('#vol-fit-status').textContent)&&!document.querySelector('#vol-fit-failure')?.textContent`);
+  // The finished calibration adds this close to the product's closes and the library: its chip is the current one, and its card is calibrated here.
+  await settled(`!!document.querySelector('.vol-close-chip[aria-current=true]')&&${card('nymex_lo')}.dataset.state==='here'`,15000);
+  await check('the new surface is the current chip of the product\'s closes, and its card says calibrated here',
+   `document.querySelectorAll('.vol-close-chip[aria-current=true]').length===1&&document.querySelectorAll('.vol-close-chip').length>1&&/2 of 2 calibrated here/.test(document.querySelector('#vol-library-count').textContent)`,
+   "[[...document.querySelectorAll('.vol-close-chip')].map(c=>[c.textContent,c.dataset.reach]),document.querySelector('#vol-library-count').textContent]");
 
   // The heat map: one row per expiry and one column per strike of the backend's axis, each split into a call and a put half.
   const chart=selector=>`(await import('/vendor/echarts.js')).getInstanceByDom(document.querySelector(${q(selector)}))`;
@@ -272,14 +307,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   await picture('vol-surface-fitted');
   // A refit's job is checked on only while its product is shown; the next product's stored revision is flagged as having revised inputs.
   await click('#vol-fit');
-  await settled(`/Fit (queued|running)/.test(document.querySelector('#vol-fit-status').textContent)`,30000);
+  await settled(`/^Calibrating at .* · (queued|running) · /.test(document.querySelector('#vol-fit-status').textContent)`,30000);
   await check('a later fit is a new request with an id of its own',`${calls('vol-surfaces/fit')}.length===3&&${calls('vol-surfaces/fit')}.at(-1).body.requestId!==${q(submitted.body.requestId)}`);
   await evaluate('window.reviseNextRead=true');await choose('nymex_on');
   const switched=await evaluate('performance.now()');
   await new Promise(resolve=>setTimeout(resolve,3500));
   await check('choosing another product while a refit runs stops checking on the first',`!${calls('vol-surfaces/read')}.some(c=>c.sent>${switched}&&c.body.product==='nymex_lo')`);
-  await check('a surface whose inputs were revised after its fit says so and offers Refit',
-   "document.querySelector('#vol-fit-status').textContent.includes('Inputs revised after this fit')&&document.querySelector('#vol-fit')?.textContent==='Refit'");
+  await check('a surface whose inputs were revised after its fit says so and offers Recalibrate',
+   "document.querySelector('#vol-fit-status').textContent.includes('Inputs revised after this fit')&&document.querySelector('#vol-fit')?.textContent==='Recalibrate'");
   const on=(await lastRead()).answer;
   // The deep in-the-money series settles at intrinsic: a gap with its reason; a strike an expiry does not list is not a gap.
   const intrinsic=on.surface.series.find(s=>s.series.outcome==='at_intrinsic');
@@ -292,11 +327,13 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
    `${q(/intrinsic/i.test(gapTip)&&/not listed/i.test(unlistedTip)&&!/intrinsic/i.test(unlistedTip))}&&(async()=>{const s=${heat}.getOption().series;
     const gap=s.find(x=>x.id==='gaps'),none=s.find(x=>x.id==='unlisted');return !!gap&&!!none&&gap.itemStyle.color!==none.itemStyle.color;})()`,q([gapTip,unlistedTip]));
 
-  // The close that leaves one underlying unsettled: that expiry of nymex_lo has no fit, and says why in both views.
-  const frames=await evaluate("fetch('/examples/exchange/api/workspace/navigation').then(r=>r.json()).then(d=>d.frames)");
-  const unsettled=frames.find(f=>new Date(f.at).getTime()===Date.parse(unsettledAt));
-  await set('#snapshot',unsettled.id);
-  await settled(`${calls('vol-surfaces/read')}.at(-1)?.body.context.snapshotId===${q(unsettled.id)}&&${ready}!=='loading'&&${idle}`,30000);
+  // The close that leaves one underlying unsettled: that expiry of nymex_lo has no fit, and says why in both views. It is opened
+  // from nymex_lo's own chip, which selects it in the header.
+  await choose('nymex_lo');
+  const chip=`[...document.querySelectorAll('.vol-close-chip')].find(c=>Date.parse(c.dataset.at)===${Date.parse(unsettledAt)})`;
+  await settled(`${chip}?.dataset.reach==='open'`,15000);
+  await evaluate(`${chip}.click()`);
+  await settled(`${chip}?.getAttribute('aria-current')==='true'&&${calls('vol-surfaces/read')}.at(-1)?.body.context.snapshotId===document.querySelector('#snapshot').value&&${ready}==='fitted'&&${idle}`,30000);
   await choose('nymex_lo');
   const gapped=(await lastRead()).answer;
   const gap=gapped.surface.expiries.findIndex(e=>e.status!=='fitted');
@@ -338,9 +375,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   // A product the context's reference data does not list is said by name, never swapped for another or for none.
   await evaluate("window.unlistedProduct='nymex_lo'");await click('#nav-vol-surfaces');
   await settled(`${ready}==='error'`,30000);
-  await check('a chosen product the context does not list is a stated error naming it',
-   "document.querySelector('#vol-surface-error').textContent==='Option product nymex_lo is not in the reference data at this context.'&&document.querySelector('#vol-product').value===''",
-   "[document.querySelector('#vol-surface-error').textContent,document.querySelector('#vol-product').value]");
+  await check('a chosen product the context does not list is a stated error naming it, and no surface is drawn',
+   "document.querySelector('#vol-surface-error').textContent==='Option product nymex_lo is not in the reference data at this context.'&&!document.querySelector('#vol-surfaces-page .vol-views').offsetParent",
+   "[document.querySelector('#vol-surface-error').textContent,!!document.querySelector('#vol-surfaces-page .vol-views').offsetParent]");
   await evaluate('window.unlistedProduct=null');
 
   // A historical view reads the stored surface known at its cutoff and offers no fit, which is admitted only in the current workspace.
@@ -353,13 +390,13 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
    // A historical view the session kept chooses no close; the person chooses one of its date's closes.
    if(!await evaluate("!!document.querySelector('#snapshot').value"))await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.value).value"));
    await wait(idle,30000);
-   await click('#nav-vol-surfaces');await settled(`document.querySelector('#vol-product').options.length>1&&${idle}`,30000);
+   await click('#nav-vol-surfaces');
    await choose('nymex_on');
    const retained=await lastRead();
-   await check('a historical view reads at its retained context and says to fit in the current workspace, with no fit button',
+   await check('a historical view reads at its retained context and says to calibrate in the current workspace, with no calibrate button',
     `${q(retained.body.context.knowledgeMode==='retained'&&!!retained.body.context.contextId&&retained.answer.canFit===true&&retained.answer.state==='fitted')}&&
-     document.querySelector('.vol-fit-note').textContent==='Fit in the current workspace'&&!document.querySelector('#vol-fit').offsetParent`,
-    "[document.querySelector('.vol-fit-note')?.textContent,document.querySelector('#vol-fit')?.hidden]");
+     document.querySelector('.vol-product-head .vol-fit-note').textContent==='Calibrate in the current workspace'&&!document.querySelector('#vol-fit').offsetParent`,
+    "[document.querySelector('.vol-product-head .vol-fit-note')?.textContent,document.querySelector('#vol-fit')?.hidden]");
   }finally{await send('market/current',{});}
  }finally{
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});

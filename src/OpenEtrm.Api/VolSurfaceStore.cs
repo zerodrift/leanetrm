@@ -21,6 +21,10 @@ public sealed record VolSurfaceFitRequest(Guid RequestId,Guid SnapshotId,string 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record VolSurfaceReadRequest(FuturesReadRequest Context,string Product,string Model);
 
+/// <summary>A page of the surfaces stored at or before a trading context, under an explicit vol model.</summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record VolSurfaceLibraryRequest(FuturesReadRequest Context,string Model,int Offset,string? Product=null);
+
 // A fitted surface as its job's completion records it: the pinned inputs, the canonical bytes and their digest, and the work done.
 internal sealed record VolSurfaceFitOutcome(ImmutableArray<Guid> Inputs,string Surface,string Digest,int Series,int Solves,long ElapsedMs);
 
@@ -41,6 +45,8 @@ internal static class VolSurfaceStore
         if(body.RequestId==Guid.Empty)throw new MarketDataException("vol_surface_input","Supply a stable request identity for the fit.");
         VolModels.Require(body.Model);
         var contextId=view.Context.ContextId??throw new MarketDataException("vol_surface_context","The fit requires its captured trading context.");
+        // A fit is new work: at a recorded close it requires the close in force for its session and business day (D334).
+        if(view.Frame.OriginCloseId is {} close)await SelectedClose.RequireInForce(connection,manifest.CatalogId,close,ct);
         var request=new JsonObject{["convention"]=Convention,["engineVersion"]=RiskJobs.EngineVersion,["product"]=Product(manifest,body.Product),
             ["businessDate"]=BusinessDate(view),["model"]=body.Model,["solverPolicy"]=SolverPolicy,["futuresConvention"]=manifest.FuturesConvention};
         var frame=RiskJobs.PinFrame(view.CalculationFrame with{SwapMarketSelections=null});
@@ -50,8 +56,8 @@ internal static class VolSurfaceStore
         return new{jobId=job["jobId"]!.GetValue<Guid>(),state=job["state"]!.GetValue<string>()};
     }
 
-    // The stored surface of a key at the view's bound context, whether its inputs were revised since, the caller's newest fit job
-    // for the key and whether the caller may fit.
+    // The stored surface of a key fitted at the view's own close (or working snapshot), instant and pins, known at its bound
+    // context, whether its inputs were revised since, the caller's newest fit job for the key there and whether the caller may fit.
     internal static async Task<object> Read(NpgsqlConnection connection,PreviewManifest manifest,TradingView view,VolSurfaceReadRequest body,CancellationToken ct)
     {
         VolModels.Require(body.Model);
@@ -61,8 +67,9 @@ internal static class VolSurfaceStore
             await using var command=ScheduleStore.Command(connection,sql,arguments);
             return await command.ExecuteScalarAsync(ct) is string text?JsonNode.Parse(text):null;
         }
-        var stored=await Value("SELECT security.read_vol_surface($1,$2::jsonb,$3,$4)::text",manifest.CatalogId,product,date,body.Model);
-        var job=await Value("SELECT risk.vol_surface_fit_job($1,$2::jsonb,$3,$4)::text",manifest.CatalogId,product,date,body.Model);
+        var (close,at,pins)=Location(view);
+        var stored=await Value("SELECT security.read_vol_surface($1,$2::jsonb,$3,$4,$5::uuid,$6,$7)::text",manifest.CatalogId,product,date,body.Model,close,at,pins);
+        var job=await Value("SELECT risk.vol_surface_fit_job($1,$2::jsonb,$3,$4,$5::uuid,$6,$7)::text",manifest.CatalogId,product,date,body.Model,close,at,pins);
         JsonObject? revision=null;
         if(stored is not null)
         {
@@ -76,6 +83,27 @@ internal static class VolSurfaceStore
             ["solverPolicy"]=stored?["solverPolicy"]?.DeepClone()??SolverPolicy,["state"]=stored is null?"notFitted":"fitted",
             ["revision"]=revision,["job"]=job,["canFit"]=canFit,["surface"]=stored?["content"]?.DeepClone()};
     }
+
+    // The surfaces stored at or before the view's bound context, the view's own first and then newest business date first, each
+    // with the close it belongs to, and whether the caller may fit, a page at a time, for every product or one.
+    internal static async Task<object> Library(NpgsqlConnection connection,PreviewManifest manifest,TradingView view,VolSurfaceLibraryRequest body,CancellationToken ct)
+    {
+        VolModels.Require(body.Model);
+        var (close,at,pins)=Location(view);
+        await using var command=ScheduleStore.Command(connection,"SELECT security.vol_surface_library($1,$2,$3,$4::text,$5,$6::uuid,$7,$8,$9,$10)::text",
+            manifest.CatalogId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId,(object?)body.Product??DBNull.Value,body.Model,close,at,pins,body.Offset,LibraryPage);
+        var page=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
+        var canFit=await PreviewDatabase.HasPermission(connection,"PublishMarketData",ct)&&await PreviewDatabase.HasPermission(connection,"ReadTrades",ct);
+        return new JsonObject{["snapshotId"]=view.Frame.Id,["model"]=body.Model,["product"]=body.Product,["offset"]=body.Offset,["pageSize"]=LibraryPage,
+            ["surfaces"]=page["surfaces"]!.DeepClone(),["hasMore"]=page["hasMore"]!.DeepClone(),["canFit"]=canFit};
+    }
+    private const int LibraryPage=48;
+
+    // Where the view reads. A frame id is session-scoped, so a surface is located by the close the frame is, or for a working
+    // snapshot by none, and its valuation instant; a surface is the frame's only when every input is one of its pins, since
+    // working snapshots of one instant can pin different observations.
+    private static (object Close,DateTimeOffset At,Guid[] Pins) Location(TradingView view)=>
+        ((object?)view.Frame.OriginCloseId??DBNull.Value,view.Frame.At,[..view.Frame.ObservationIds]);
 
     // Fits a claimed job from its pinned frame in the worker: the actor's retained authority is bound to the read, which the
     // fit's discount-default lookup also uses, and the attempt is rechecked again when the job completes.

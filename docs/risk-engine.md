@@ -511,7 +511,7 @@ risk worker is not a general code execution service.
 
 ### Guided statistical runs (D301)
 
-**Parametric VaR** uses the same portfolio/book/trade scope. Its visible starting
+**VaR / ES** (parametric by default) uses the same portfolio/book/trade scope. Its visible starting
 profile and end-of-day price-type controls are documented in the
 [VaR walkthrough](risk-factor-history.md#guided-var-setup-d301). A Run click prepares
 aligned history automatically and reuses only an exact matching prepared input.

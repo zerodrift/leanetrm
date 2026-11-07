@@ -22,7 +22,7 @@ import {setupPpa} from './ppa-editor.js';
 import {setupCustomCurves} from './custom-curves-view.js';
 import {LiveUpdates,liveContextUpdate,type LiveSelection,type LiveContextUpdate,type LiveStatus} from './live-context.js';
 import {setupMarketCalendar,type MarketDates} from './market-calendar.js';
-import {otherSessionRefusal,sessionOffer} from './close-sessions.js';
+import {otherSessionRefusal,sessionOffer,type FrameClose} from './close-sessions.js';
 import {newestDate,newestClose,closeBadge,latestInstant,type CloseBadge,type CloseChoice} from './latest-close.js';
 import {setupPowerImports} from './power-imports-view.js';
 import {setupIntervalSeries} from './interval-series-view.js';
@@ -1101,7 +1101,15 @@ const gas=setupGasTicket({api,source:()=>({snapshotId:frame().id}),historical:()
 // Vol surfaces read the option product's stored surface at the applied context; a fit is admitted only in the current workspace.
 const volSurfaces=setupVolSurfaces({api,zone:()=>prefs.timeZone,historical:()=>contextDirty||!!historicalContext(),context:()=>{
  if(contextDirty)throw Error('Apply the changed market context first.');
- const view=historicalContext();return {snapshotId:frame().id,convention:optionConvention,...(view?{knowledgeMode:'retained' as const,contextId:view.contextId!}:{knowledgeMode:'current' as const})};}});
+ const view=historicalContext();return {snapshotId:frame().id,convention:optionConvention,...(view?{knowledgeMode:'retained' as const,contextId:view.contextId!}:{knowledgeMode:'current' as const})};},
+ // The page opens another close only as the header does: an offered one is chosen there, so every page reads it.
+ // A frame's id is session-scoped, so a stored surface is found by its close, or for a working snapshot by its instant.
+ frames:{here:()=>{const f=frame() as Frame&{close?:FrameClose|null};return {closeId:f.close?f.originCloseId??null:null,at:f.at,close:f.close?{session:f.close.session,businessDate:f.close.businessDate}:null};},
+  sessionName:code=>closeSessionNames.get(code)??code,open:chooseClose,
+  // A working snapshot has no identity beyond its instant here, so one is offered only when no other working snapshot shares it.
+  offered:surface=>{const matches=offeredFrames().filter(f=>{const close=(f as Frame&{close?:FrameClose|null}).close;
+   return surface.closeId?!!close&&f.originCloseId===surface.closeId:!close&&Date.parse(f.at)===Date.parse(surface.valuationAt);});
+   return matches.length===1?matches[0].id:null;}}});
 // An option links to its product's surface: Vol surfaces opens on that product as its navigation opens the page, at the applied context.
 const openVolSurface=(product:string)=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('vol-surfaces');await volSurfaces.open(product);},contextDirty?'discards':'page');
 const optionTicket=setupOptionTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked,surface:openVolSurface});
