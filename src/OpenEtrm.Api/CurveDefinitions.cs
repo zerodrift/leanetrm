@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using OpenEtrm.MarketData;
+using OpenEtrm.Rates;
 
 namespace OpenEtrm.Api;
 
@@ -12,7 +13,8 @@ public sealed record CurveContractWindow(Guid MappingId,int MappingVersion,int C
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CurveDefinitionDraft(string? Code,string? Name,string? Commodity,string? Location,string? Quote,string? Profile,
     string? ContractKind,string? FuturesProduct,CurveContractWindow? Contracts,string? SettlementTarget,
-    string? PriceRule,string? MarkRole,string? MarkSource,string? MissingPrice,string? Interpolation,string? InterestRate=null);
+    string? PriceRule,string? MarkRole,string? MarkSource,string? MissingPrice,string? Interpolation,
+    string? Currency=null,string? MarkUnit=null,string? DayCount=null,string? Compounding=null,string? Extrapolation=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CurveDefinitionPreviewRequest(CurveDefinitionDraft? Definition,Guid? SnapshotId,CurveMappingEdit? Mapping=null);
 
@@ -23,15 +25,15 @@ public sealed record CurveTargetTerms(string Kind,string? Index,string? SecondIn
 public sealed record CurveIndexTerms(string Commodity,string Location,string Currency,string Unit,ExactDecimal Multiplier);
 public sealed record CurveFuturesProductTerms(string State,string? Commodity,string? Location,string? Currency,string? Unit,ExactDecimal? Multiplier);
 // A series' known last-trading instant, when its milestone is known.
-// An interest-rate specification's currency and conventions (D358).
-public sealed record CurveRateTerms(string Currency,string DayCount,string Compounding,string Implementation);
+// An interest-rate curve's own currency and conventions (D359).
+public sealed record CurveRateTerms(string Currency,RateConventionSet Conventions);
 public sealed record CurveSeriesTerms(string Code,string Product,DateOnly? DeliveryFrom,DateOnly? DeliveryTo,DateTimeOffset? LastTradingAt);
 // The reference terms a curve definition is checked against, from one pinned reference revision.
 public sealed record CurveReferenceTerms(ImmutableArray<CurveCommodityLocation> CommodityLocations,ImmutableDictionary<string,CurveQuoteTerms> Quotes,
     ImmutableDictionary<string,CurveProfileTerms> Profiles,ImmutableDictionary<string,CurveTargetTerms> Targets,ImmutableDictionary<string,CurveIndexTerms> Indices,
     ImmutableDictionary<string,CurveFuturesProductTerms> FuturesProducts,
     // Previews match series; the editor never lists them, and a product can have many.
-    [property:JsonIgnore] ImmutableArray<CurveSeriesTerms> Series,ImmutableArray<string> Sources,ImmutableDictionary<string,CurveRateTerms> InterestRates)
+    [property:JsonIgnore] ImmutableArray<CurveSeriesTerms> Series,ImmutableArray<string> Sources,ImmutableArray<string> Currencies)
 {
     public static CurveReferenceTerms From(IReadOnlyDictionary<string,ImmutableArray<JsonElement>> references)
     {
@@ -52,7 +54,7 @@ public sealed record CurveReferenceTerms(ImmutableArray<CurveCommodityLocation> 
                 r.OptionalText("quote_unit_code"),Number(r,"quote_multiplier"))),
             [..Rows("futures_series").Select(r=>new CurveSeriesTerms(r.Text("code"),r.Text("product_code"),Date(r,"delivery_from"),Date(r,"delivery_to"),lastTrading.GetValueOrDefault(r.Text("code"))))],
             [..Rows("sources").Select(r=>r.Text("code"))],
-            ByCode("interest_rate_definitions",r=>new CurveRateTerms(r.Text("currency_code"),r.Text("day_count"),r.Text("compounding"),r.Text("implementation"))));
+            [..Rows("currencies").Select(r=>r.Text("code"))]);
     }
     static string Offset(int seconds)=>seconds==0?"UTC":$"UTC{(seconds<0?'-':'+')}{TimeSpan.FromSeconds(Math.Abs(seconds)):hh\\:mm}";
 }
@@ -66,7 +68,7 @@ public sealed record CurveTermsView(string Commodity,string Location,string Quot
 public sealed record CurveWindowContract(int Position,string Label,DateOnly Start,DateOnly End,DateTimeOffset LastTradingAt,string? FuturesSeries,
     DateReceipt StartReference,DateReceipt EndReference,DateReceipt LastTradingReference);
 public sealed record RateMaturityPreview(int Position,string Label,DateOnly Maturity,int Days,DateReceipt Reference);
-public sealed record RateCurveDefinitionPreview(string Code,string Name,string InterestRate,CurveRateTerms Terms,string MarkSource,string Mapping,
+public sealed record RateCurveDefinitionPreview(string Code,string Name,CurveRateTerms Terms,string MarkSource,string Mapping,
     ScheduleContext Context,DateOnly ValuationDate,ImmutableArray<RateMaturityPreview> Maturities);
 public sealed record CurveDefinitionPreview(string Code,string Name,CurveTermsView Terms,string Mapping,ScheduleContext Context,ImmutableArray<CurveWindowContract> Contracts);
 
@@ -83,7 +85,9 @@ public static partial class CurveDefinitions
         new("markRole","trader_mark","Trader mark",true),new("markRole","daily_settlement","Daily settlement",true),
         new("missingPrice","reject","Refuse and name the contract",true),new("missingPrice","carry_forward","Carry the last price forward",false),
         new("missingPrice","interpolate","Interpolate from neighbours",false),
-        new("interpolation","none","None: contract prices only",true),new("interpolation","linear","Linear between contracts",false)];
+        new("interpolation","none","None: contract prices only",true),new("interpolation","linear","Linear between contracts",false),
+        // An interest-rate curve's conventions (D359), under their own fields.
+        ..RateCurveMath.Choices.Select(c=>new CurveChoice("rate."+c.Field,c.Code,c.Label,c.Offered))];
     public const int MaximumContracts=120;
 
     [GeneratedRegex(@"\A[a-z][a-z0-9_.-]{0,63}\z",RegexOptions.CultureInvariant)]
@@ -130,20 +134,20 @@ public static partial class CurveDefinitions
         return new(draft.Code!,draft.Name!,view,mapping.Code,mapping.Context,contracts.MoveToImmutable());
     }
 
-    // D358: an interest-rate curve takes every label of an exact date list as a tenor. Its rates are spot zero rates under the
-    // specification's conventions; the preview states each maturity and its day count from the valuation date.
+    // D358/D359: an interest-rate curve takes every label of an exact date list as a tenor. Its rates are spot zero rates under the
+    // curve's own currency, mark unit and conventions; the preview states each maturity and its day count from the valuation date.
     public static RateCurveDefinitionPreview PreviewRates(CurveDefinitionDraft draft,CurveReferenceTerms terms,BoundDateList mapping,DateOnly valuationDate)
     {
         var code=Required(draft.Code,"curve code");
         if(!CodeSyntax().IsMatch(code))throw Definition("Use a code of lowercase letters, digits, '_', '.' or '-', starting with a letter.");
         if(Required(draft.Name,"curve name").Length>80)throw Definition("Use a curve name of at most 80 characters.");
         if(Choose("contractKind",draft.ContractKind,"contract kind")!="interest_rate")throw Definition("Preview a contract curve with its contract mapping.");
-        if(new[]{draft.Commodity,draft.Location,draft.Quote,draft.Profile,draft.FuturesProduct,draft.SettlementTarget,draft.PriceRule,draft.MarkRole,draft.MissingPrice,draft.Interpolation}.Any(t=>t is not null))
-            throw Definition("An interest-rate curve takes only its specification, mark source and date list; contract terms do not apply.");
-        var specification=Required(draft.InterestRate,"interest-rate specification");
-        var rate=terms.InterestRates.GetValueOrDefault(specification)??throw Reference("interest-rate specification",specification);
-        if(rate.DayCount!="actual_365_fixed"||rate.Compounding!="simple"||rate.Implementation!=RateConventions.Implementation)
-            throw new MarketDataException("unsupported_rate_convention",$"Interest-rate specification '{specification}' uses conventions the rate engine does not support.");
+        if(new[]{draft.Commodity,draft.Location,draft.Quote,draft.Profile,draft.FuturesProduct,draft.SettlementTarget,draft.PriceRule,draft.MarkRole,draft.MissingPrice}.Any(t=>t is not null))
+            throw Definition("An interest-rate curve takes its currency, mark unit, conventions, mark source and date list; contract terms do not apply.");
+        var currency=Required(draft.Currency,"currency");
+        var rate=new CurveRateTerms(currency,RateConventionSet.Parse(Required(draft.DayCount,"day count"),Required(draft.Compounding,"compounding"),
+            Required(draft.Interpolation,"interpolation"),Required(draft.Extrapolation,"extrapolation"),Required(draft.MarkUnit,"mark unit")));
+        if(!terms.Currencies.Contains(currency))throw Reference("currency",currency);
         var source=Required(draft.MarkSource,"mark source");
         if(!terms.Sources.Contains(source))throw Reference("mark source",source);
         if(Window(draft).Count!=mapping.Dates.Length)
@@ -154,7 +158,7 @@ public static partial class CurveDefinitions
             if(tenor.Date<=valuationDate)throw new MarketDataException("rate_maturity",$"Tenor '{tenor.Label}' matures on {tenor.Date:yyyy-MM-dd}, which must follow the valuation date {valuationDate:yyyy-MM-dd}.");
             maturities.Add(new(tenor.Position,tenor.Label,tenor.Date,tenor.Date.DayNumber-valuationDate.DayNumber,tenor.Reference));
         }
-        return new(code,draft.Name!,specification,rate,source,mapping.Code,mapping.Context,valuationDate,maturities.MoveToImmutable());
+        return new(code,draft.Name!,rate,source,mapping.Code,mapping.Context,valuationDate,maturities.MoveToImmutable());
     }
 
     static CurveTermsView Validate(CurveDefinitionDraft draft,CurveReferenceTerms terms)
@@ -166,7 +170,8 @@ public static partial class CurveDefinitions
         var (quoteCode,profileCode)=(Required(draft.Quote,"quote"),Required(draft.Profile,"delivery profile"));
         var kind=Choose("contractKind",draft.ContractKind,"contract kind");
         if(kind=="interest_rate")throw Definition("Preview an interest-rate curve with its date list.");
-        if(draft.InterestRate is not null)throw Definition("Only an interest-rate curve names an interest-rate specification.");
+        if(new[]{draft.Currency,draft.MarkUnit,draft.DayCount,draft.Compounding,draft.Extrapolation}.Any(t=>t is not null))
+            throw Definition("Only an interest-rate curve names a currency, mark unit, day count, compounding or extrapolation.");
         if(kind=="future"!=draft.FuturesProduct is not null)throw Definition("Name a futures product for a futures curve, and none for a forward curve.");
         if(Window(draft).Count>MaximumContracts)throw new MarketDataException("curve_contract_count",$"A curve carries at most {MaximumContracts} contracts.");
         var targetCode=Required(draft.SettlementTarget,"settlement target");

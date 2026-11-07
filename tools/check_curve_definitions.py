@@ -38,6 +38,8 @@ def run_checks(url, query, manifest):
     catalog = viewer.call('curve-definitions/catalog')
     coming_soon = {(c['field'], c['code']) for c in catalog['choices'] if not c['supported']}
     assert ('settlement', 'hourly_physical') in coming_soon and ('priceRule', 'formula') in coming_soon, coming_soon
+    assert {('rate.dayCount', 'thirty_360'), ('rate.compounding', 'semi_annual'), ('rate.markUnit', 'basis_points')} <= coming_soon, coming_soon
+    assert ('rate.extrapolation', 'flat_forward') in {(c['field'], c['code']) for c in catalog['choices'] if c['supported']}
     assert catalog['references']['futuresProducts']['test_gas_future']['commodity'] == 'test_gas'
     assert 'series' not in catalog['references'], 'The catalog returns futures series only through previews'
 
@@ -105,12 +107,16 @@ def run_checks(url, query, manifest):
     tenors = editor.call('date-schedules/contracts/save', {'requestId': str(uuid4()), 'code': 'rate_tenors', 'name': 'Synthetic rate tenors',
         'context': context('2021-01-15'), 'contracts': None, 'dates': [{'label': '1D', 'date': 'oe.rate_days + 1bd'}, {'label': '3M', 'date': 'oe.rate_days[90]'}]})
     tenors = approver.call('date-schedules/contracts/publish', {'requestId': str(uuid4()), **{k: tenors[k] for k in ('id', 'version', 'generation')}})
-    blank = {k: None for k in ('commodity', 'location', 'quote', 'profile', 'futuresProduct', 'settlementTarget', 'priceRule', 'markRole', 'missingPrice', 'interpolation')}
+    blank = {k: None for k in ('commodity', 'location', 'quote', 'profile', 'futuresProduct', 'settlementTarget', 'priceRule', 'markRole', 'missingPrice')}
     rates = {**blank, 'code': 'usd_zero', 'name': 'Synthetic zero rates', 'contractKind': 'interest_rate', 'markSource': 'fixture',
-             'interestRate': 'test_interest', 'contracts': {'mappingId': tenors['id'], 'mappingVersion': 1, 'count': 2}}
+             'interpolation': 'log_linear_discount', 'currency': 'usd', 'markUnit': 'percent_per_year', 'dayCount': 'actual_365_fixed',
+             'compounding': 'continuous', 'extrapolation': 'flat_forward', 'contracts': {'mappingId': tenors['id'], 'mappingVersion': 1, 'count': 2}}
     shown = preview(rates)
     assert [(m['label'], m['maturity'], m['days']) for m in shown['maturities']] == [('1D', '2021-01-18', 3), ('3M', '2021-04-15', 90)], shown
-    assert shown['valuationDate'] == '2021-01-15' and shown['terms']['dayCount'] == 'actual_365_fixed', shown
+    assert shown['valuationDate'] == '2021-01-15' and shown['terms']['currency'] == 'usd', shown
+    assert shown['terms']['conventions'] == {'dayCount': 'actual_365_fixed', 'compounding': 'continuous', 'interpolation': 'log_linear_discount',
+                                             'extrapolation': 'flat_forward', 'markUnit': 'percent_per_year'}, shown
+    assert preview({**rates, 'compounding': 'semi_annual'}, expected=422)['code'] == 'unsupported_rate_convention'
     assert [m['maturity'] for m in preview(rates, '2021-02-15')['maturities']] == ['2021-02-16', '2021-05-16'], 'The tenors did not roll'
     assert preview({**rates, 'quote': 'test_gas_outright'}, expected=422)['code'] == 'curve_definition'
 
