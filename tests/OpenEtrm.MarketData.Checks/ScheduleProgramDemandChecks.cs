@@ -1,4 +1,7 @@
+using System.Collections.Immutable;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Crude;
+using OpenEtrm.MarketData.Gas;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.MarketData.Calculation;
 
@@ -56,5 +59,79 @@ internal static class ScheduleProgramDemandChecks
         try{BookedSideProgram.Compile(unsupported).Inputs(shared.Context);throw new Exception("An unsupported selection policy must refuse before any source reads.");}
         catch(MarketDataException e)when(e.Code=="side_schedule_program"){}
         Console.WriteLine("PASS common source demand: future DF, holding and overdue DF omission, frozen/live lanes and due dated refusal");
+        StartedGasDelivery();
+    }
+
+    // Three gas days priced 1, 10 and 100 with unit daily quantity and unit
+    // discount factors: before start the side is worth 111, and once day 1 has
+    // ended (its end equals the valuation instant) only 110 remains.
+    private static void StartedGasDelivery()
+    {
+        static ScheduleDefinition Relabel(ScheduleDefinition d,string lifecycle,string? family=null)=>new(d.SideId,family??d.Family,d.EconomicIdentity,d.PricingBindingIdentity,
+            d.SchemaVersion,d.GeneratorVersion,d.Rows.Select(r=>r.Operation=="output_guard"?r with{Parameters=r.Parameters.SetItem("lifecycle",lifecycle)}:r).ToArray(),
+            d.Edges,d.Bindings,d.Roots,d.Ports,d.Grids);
+        static ResolvedCalculationContext At(DateTimeOffset at)=>new(Guid.NewGuid(),"synthetic_started_delivery_v1",at,at,at,at);
+        static void Reject(string code,Action action){try{action();}catch(MarketDataException e)when(e.Code==code){return;}throw new Exception("Expected structured refusal:"+code);}
+        var f=new CommodityLookupFixture(31);ReferenceKey R(string code)=>new(f.Quote.Key.Revision,code);
+        var lookups=f.Swap().Floating.GenerateSchedule().Rows[0].Prices.Take(3).Select(p=>p.Lookup!).ToArray();
+        var from=lookups[0].Contract.DeliveryFrom;var clock=GasDayClock.Capture(R("gas_clock"),TimeZoneInfo.Utc,0);
+        var location=new GasDeliveryLocation(R("pipeline"),R("zone"),R("delivery_point"));
+        var assignments=lookups.Select(l=>new GasValuationAssignment(R("gas_value_"+l.Contract.DeliveryFrom.Day),location,R("gas_product"),l.Contract.DeliveryFrom,l.Contract.DeliveryTo,
+            l.Settlement,l.Quote,new(l.Market,l.Contract),l.Fixing,new UnitPrice(default,f.Quote))).ToImmutableArray();
+        var terms=new GasQuantityTerms(clock,from,from.AddDays(3),GasQuantityBasis.PerOperatingDay,new(ExactDecimal.Parse("1"),f.Quote.Quantity),GasFuelConvention.None,default);
+        var gas=ScheduleDefinitionCompiler.Generate(new PhysicalGasSide(Guid.NewGuid(),location,R("gas_product"),terms,assignments));
+        var future=BookedSideProgram.Compile(gas);var started=BookedSideProgram.Compile(Relabel(gas,ScheduleLifecycles.WholeGasDayDelivery));
+        var dayEnd=clock.Boundary(from.AddDays(1));var before=future.Inputs(At(clock.Boundary(from).AddDays(-1))).Sources;
+        var after=started.Inputs(At(dayEnd)).Sources;
+        // Oracle: the pre-start demand without the first day's own price and
+        // value-date rows; nothing else may change. A day still in progress
+        // keeps its complete pre-start demand.
+        static bool Same(ScheduleInputDemand[] a,ScheduleInputDemand[] b)=>a.Length==b.Length&&a.Zip(b).All(p=>p.First.Instruction==p.Second.Instruction&&p.First.Uses.SequenceEqual(p.Second.Uses));
+        var expected=before.Where(input=>future.Document.Instructions[input.Instruction].Output.ValueAt>dayEnd).ToArray();
+        if(expected.Length!=4||expected.Count(input=>future.Document.Instructions[input.Instruction].Output.Operation=="discount")!=2||!Same([..after],expected)||
+            !Same([..started.Inputs(At(dayEnd.AddTicks(-1))).Sources],[..before]))
+            throw new Exception("An ended gas day must read no inputs while remaining and in-progress days keep their pre-start price and discount demand.");
+        (ScheduleNumber,ScheduleCellState) Price(ScheduleDefinitionRow row,int cell,string id)=>row.Operation=="discount"?(ScheduleNumber.Parse("1"),default):
+            row.Operation is "price_lookup" or CurvePriceScheduleSource.Operation?(ScheduleNumber.Parse(((int)Math.Pow(10,(row.ValueAt!.Value-clock.Boundary(from)).Days-1)).ToString()),ScheduleCellState.From(null,RowPriceState.Projected)):
+            throw new Exception("Unexpected gas input "+row.Operation);
+        var beforeDemand=future.Inputs(At(clock.Boundary(from).AddDays(-1)));var afterDemand=started.Inputs(At(dayEnd));
+        var whole=future.Execute(beforeDemand,"base","base",ScheduleProgramExecutionChecks.Sources(future,beforeDemand,"base","base",Price)).PresentValue.ToExactString();
+        var remaining=started.Execute(afterDemand,"base","base",ScheduleProgramExecutionChecks.Sources(started,afterDemand,"base","base",Price)).PresentValue.ToExactString();
+        if(whole!="111"||remaining!="110")throw new Exception($"Ended gas days must contribute nothing: expected 111 then 110, received {whole} then {remaining}.");
+        Reject("gas_delivery_lifecycle",()=>future.Inputs(At(dayEnd)));
+
+        FixedSidePeriod Period(int day)=>new(from.AddDays(day),from.AddDays(day+1),clock.Boundary(from.AddDays(day+1)),new(1,1),null);
+        var cash=ScheduleDefinitionCompiler.Generate(new FixedSide(Guid.NewGuid(),new FlatPrice(new UnitPrice(ExactDecimal.Parse("3"),f.Quote)),f.Quote,
+            new(ExactDecimal.Parse("1"),f.Quote.Quantity),[Period(0),Period(1),Period(2)]));
+        var undue=BookedSideProgram.Compile(cash);var accrued=BookedSideProgram.Compile(Relabel(cash,ScheduleLifecycles.AccruedPayment));
+        var paid=clock.Boundary(from.AddDays(3));
+        if(accrued.Document.Instructions.Count(i=>i.Output is{Operation:"output_guard",Grid:null})!=3)
+            throw new Exception("The cash fixture must retain three dated payment rows.");
+        var dueDemand=accrued.Inputs(At(paid));
+        if(dueDemand.Sources.Any(input=>accrued.Document.Instructions[input.Instruction].Output.Operation=="discount")||
+            dueDemand.Sources.Any(input=>input.Uses.Any(use=>use!=ScheduleInputLanes.Base&&use!=ScheduleInputLanes.None)))
+            throw new Exception("Due accrued cash requires base-lane amounts and zero discount-factor reads.");
+        Reject("side_payment_due",()=>undue.Inputs(At(paid)));
+        var dueStates=accrued.Execute(dueDemand,"base","base",ScheduleProgramExecutionChecks.Sources(accrued,dueDemand,"base","base",(row,cell,id)=>throw new Exception("Fixed cash reads no inputs.")))
+            .Contributions.SelectMany(c=>c.States).ToArray();
+        if(dueStates.Length!=3||dueStates.Any(state=>state.Coverage!=ValueCoverage.OverdueBalance||state.Kind!=ComponentKind.Payment))
+            throw new Exception("Due accrued cash with a fixed price must remain an overdue balance.");
+        var floating=ScheduleDefinitionCompiler.Generate(new CommodityLookupFixture(2,monthly:true).Swap(monthly:true,monthOrdinal:0).Floating);
+        var indexed=BookedSideProgram.Compile(Relabel(floating,ScheduleLifecycles.AccruedPayment));
+        var due=indexed.Inputs(At(indexed.Document.Instructions.Single(i=>i.Output.Operation=="output_guard").Output.ValueAt!.Value));
+        (ScheduleNumber,ScheduleCellState) Projected(ScheduleDefinitionRow row,int cell,string id)=>(ScheduleNumber.Parse("4"),ScheduleCellState.From(null,RowPriceState.Projected));
+        Reject("side_due_leg_unresolved",()=>indexed.Execute(due,"base","base",ScheduleProgramExecutionChecks.Sources(indexed,due,"base","base",Projected)));
+
+        Reject("physical_lifecycle_unsupported",()=>BookedSideProgram.Compile(Relabel(gas,ScheduleLifecycles.WholeGasDayDelivery,"lng")));
+        var crudeFixture=new CommodityLookupFixture(31,monthly:true,volume:true);
+        var crudeLookup=crudeFixture.Swap(true,0).Floating.GenerateSchedule().Rows[0].Prices[0].Lookup!;
+        ReferenceKey C(string code)=>new(crudeFixture.Quote.Key.Revision,code);
+        var crudeQuantity=new QuantitySpecification(crudeFixture.Quote.Quantity,C("test_crude"),C("standard_volume"),C("unit"),C("volume"));
+        var crudeAssignment=new CrudeValuationAssignment(C("crude_assignment"),crudeQuantity.Commodity,C("test_grade"),new(C("test_terminal"),C("test_custody_point")),
+            crudeQuantity,C("utc"),ExactDecimal.Parse("60"),"fahrenheit",crudeLookup.Settlement,crudeFixture.Quote,new(crudeLookup.Market,crudeLookup.Contract),crudeLookup.Fixing!);
+        var crudeFrom=new DateTimeOffset(2041,1,10,12,0,0,TimeSpan.Zero);
+        var crude=ScheduleDefinitionCompiler.Generate(new PhysicalCrudeSide(Guid.NewGuid(),crudeAssignment,crudeFrom,crudeFrom.AddDays(3),default));
+        Reject("physical_lifecycle_unsupported",()=>BookedSideProgram.Compile(Relabel(crude,ScheduleLifecycles.WholeGasDayDelivery)));
+        Console.WriteLine("PASS started delivery lifecycles: ended gas days drop out at their end, due accrued cash stays nominal, old lifecycles still refuse");
     }
 }
