@@ -1,7 +1,8 @@
 # Rolling date lists and a curve editor that saves
 
-Status: design for owner review. Nothing here is implemented. Examples are
-synthetic.
+Status: approved 2026-11-06 and implemented locally as D356 and D357; see
+[curve definitions](../../curve-definitions.md) and
+[schedules](../../schedules-and-contract-sequences.md). Examples are synthetic.
 
 This is the first of four related projects. It covers projects 1 and 2:
 

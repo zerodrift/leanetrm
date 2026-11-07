@@ -1,9 +1,10 @@
 # Native curve definitions
 
-Status: D318, owner-directed design (2026-11-04). The first increment, a curve
-editor that validates a definition and previews its rolling contract window, is
-implemented locally. Saving, publishing and pricing from native definitions
-remain work, listed at the end. Examples are synthetic.
+Status: D318, owner-directed design (2026-11-04), extended by D357 (2026-11-06).
+Curves & prices → Curve definitions validates, previews, saves, publishes and
+edits definitions locally, including interest-rate curves. Admitting published
+definitions into market revisions and pricing from them remain work, listed at
+the end. Examples are synthetic.
 
 ## Intent
 
@@ -97,6 +98,46 @@ selected historical context, whose effective date must be the close's
 (`market_date` otherwise). Choosing another close in the header clears the
 shown window; previewing again rolls it.
 
+## Interest-rate curves (D357)
+
+An interest-rate curve names an exact interest-rate specification, a mark source
+and an exact published version of a date-list mapping (D356). Every label of the
+list is one tenor, such as `1D → oe.days + 1bd` or `4Y → oe.days[1461]`, so the
+curve's maturities roll with the context date instead of being stored as dates.
+The currency, day count and compounding come from the specification; only the
+simple ACT/365F spot zero-rate convention the rate engine implements is accepted.
+Contract terms (commodity, location, quote, delivery profile, futures product,
+settlement target, price rule, mark role, missing price and interpolation) do
+not apply and are refused.
+
+A preview resolves the list at the header's selected close. `t_0` is that close's
+date, which must equal its valuation UTC date; otherwise the preview is refused
+(`rate_context`). Each tenor shows its maturity and day count from `t_0`; a
+maturity on or before `t_0` is refused by label (`rate_maturity`). Rates and
+discount factors per tenor arrive when a published definition creates its tenor
+series (remaining work); the preview never reads them from other series.
+Bootstrapping from par or swap quotes is not part of this design.
+
+## Saving, publishing and editing (D357)
+
+A definition has a stable code and up to 64 versions: at most one draft, then
+immutable published versions. Save requires `WriteMarketDefinitions`, publish
+`SealMarketDefinitions`. Each command carries a request id; a retry with the same
+payload returns its first outcome and a different payload is refused. Saving
+validates exactly as Preview does, at current knowledge on the selected close's
+date, and records that context; historical views cannot author. A version pins
+its reference revision with exact foreign keys and its mapping by version and
+generation. Publication is certified by its own knowledge receipt, so an earlier
+knowledge view does not see it.
+
+The editor holds everything that defines a curve. Its contracts or tenors are its
+mapping's rows and are edited in place; saving the curve saves edited rows as the
+mapping's draft and pins it. Publishing publishes that mapping draft first, in the
+same transaction: if the curve's publication fails, neither is published, and a
+mapping draft changed in Settings after the curve was saved makes the curve's
+pinned generation stale. A newer published mapping version is offered, never
+adopted silently. Rendered curves offer no way to change a definition.
+
 ## Implemented increment
 
 - `GET /api/curve-definitions/catalog` (`ReadMarketData`): reference choices from
@@ -108,26 +149,26 @@ shown window; previewing again rolls it.
   structured refusal (`curve_definition`, `curve_reference`,
   `curve_terms_mismatch`, `curve_unsupported`, `curve_contract_count`,
   `curve_contract_series`, `curve_contract_order`).
-- **Curves & prices → Define a curve**: the editor takes the place of the
-  market board or a curve and previews at the header's selected close. Schedules
-  and date mappings stay on Settings → Schedules & date mappings. It previews
-  only; it does not save.
-
-No table, migration or dependency is added. The preview is read-only.
+- **Curves & prices → Curve definitions**: lists saved definitions and edits one
+  in place of the market board or a curve. Schedules and date mappings stay on
+  Settings → Schedules & date mappings.
+- D357: `GET /api/curve-definitions`, `POST /api/curve-definitions/save` and
+  `POST /api/curve-definitions/publish`; a preview or save may carry the curve's
+  edited mapping rows. Migration `0213_curve_definitions.sql` adds the versions,
+  request ledger and knowledge receipts.
 
 ## Remaining work
 
-1. Durable drafts and immutable published curve-definition versions with
-   request identities, generations and certified knowledge receipts, following
-   the contract-date library (D167, D238).
-2. Admitting a published definition into a draft market revision: materialize
+1. Admitting a published definition into a draft market revision: materialize
    the window's contracts (extending D283's admission beyond absolute indexes)
    and create the curve, its members and its direct source, so closes and
-   pricing consume it.
-3. The Coming soon cases above, each with its own consumer and checks.
-4. Not yet compared: the delivery profile's calendar and clock against a futures
+   pricing consume it. For an interest-rate curve this creates one rate series
+   per tenor label and replaces today's literal-maturity rate curves; rendered
+   curves then link to their definition.
+2. The Coming soon cases above, each with its own consumer and checks.
+3. Not yet compared: the delivery profile's calendar and clock against a futures
    product's delivery calendar and market clock; the mark role and source
    against futures execution policies (a forward may currently name a daily
    settlement role).
-5. The catalog and preview read every visible reference table; a targeted read
+4. The catalog and preview read every visible reference table; a targeted read
    of the terms they use would be smaller.

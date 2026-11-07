@@ -563,6 +563,21 @@ explicit context date. Absolute indexing and generated anchor-month selection
 remain explicit alternatives. Resolution retains the exact publication and
 historical context. No hourly behavior is added.
 
+D356 adds a daily rule (engine `date_schedule_v4`): every calendar day, or every
+open day of an exact bound calendar, between explicit inclusive first and last
+dates spanning at most 100 years. It always uses `on_or_after`, so `oe.days[n]`
+is the nth day after the context date and `oe.days + 1bd` counts on the bound
+calendar; without one a business-day offset is refused. The rule is stored, its
+dates are generated in memory when a resolver first uses the schedule, and
+resolution beyond its bounds or the calendar's coverage fails.
+
+D356 also adds a date-list mapping (engine `date_list_v1` of the contract-date
+library): up to 120 uniquely labelled rows, each one literal date or schedule
+reference, whose resolved dates must strictly increase (`date_list_order`). It
+shares the library's drafts, publication, request ledger and knowledge receipts,
+and is resolved by `POST /api/date-schedules/date-lists/resolve`. A mapping keeps
+its type once saved. Migration `0212_daily_schedules_and_date_lists.sql` adds both.
+
 One request-scoped resolver indexes authorized versions, compiles each used
 schedule once and caches parsed expressions and receipts. It does not cache
 permissions across requests. Curve schedule selection shares the ordered-date
