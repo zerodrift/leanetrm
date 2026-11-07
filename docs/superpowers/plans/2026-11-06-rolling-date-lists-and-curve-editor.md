@@ -12,6 +12,8 @@
 
 ## Global Constraints
 
+- Commands use `$DOTNET` (the SDK matching `global.json`), `$PG_BIN` (stock PostgreSQL 16 binaries) and `$BROWSER` (a Chromium-compatible executable).
+
 - `AGENTS.md` applies: TDD, no silent defaults, idempotent writes (D238), historical context on every read, exact-version foreign keys, presentation-only TypeScript.
 - Date expressions stay data references; no executable expressions.
 - Daily rule: `days` is `"calendar"` or `"business"`; selection is always `on_or_after`; explicit inclusive `firstDate`/`lastDate`; maximum span 100 years (36,525 days); dates never stored.
@@ -46,7 +48,7 @@
   - `"daily business dates follow the calendar's open days"`: `Generate(2026-01-01, 2026-01-10, Business, calendar)` equals `calendar`'s open days in that range.
   - `"a business daily rule needs a calendar covering its range"`: `Reject("no_business_day", ...)` for last 2026-06-30 with `calendar`; `Reject("daily_definition", ...)` for `Business` with `null`.
   - `"daily bounds are explicit and at most 100 years"`: `Reject("daily_definition", ...)` for last before first and for a span of 36,526 days; undefined `DailyDays` value rejected.
-- [ ] **Step 2: Run** `~/.openetrm-tools/dotnet-10.0.402/dotnet run --project tests/OpenEtrm.Shared.Checks/OpenEtrm.Shared.Checks.csproj`. Expected: build fails, `DailyDates` undefined.
+- [ ] **Step 2: Run** `"$DOTNET" run --project tests/OpenEtrm.Shared.Checks/OpenEtrm.Shared.Checks.csproj`. Expected: build fails, `DailyDates` undefined.
 - [ ] **Step 3: Implement `DailyDates.Generate`.** Business days: every `businessDays` date in `[first,last]`; fail `no_business_day` when `first` or `last` is outside the calendar's known coverage.
 - [ ] **Step 4: Run Step 2's command.** Expected: all `PASS`.
 - [ ] **Step 5: Commit** `git commit -s -m "Generate daily calendar and business dates"`
@@ -71,12 +73,12 @@
   - `"a business daily schedule starts at the first open day on or after the context"`: `days:"business"`, context Saturday 2026-11-07 → `oe.bdays` 2026-11-09.
   - `"daily schedules only use next-date selection"`: saving v4 with `context_month` or `absolute_index` → `Reject("schedule_definition", ...)`; a draft with both `Daily` and `Dates`, or `Daily` and monthly fields → `schedule_definition`.
   - `"resolving past a daily schedule's last date fails"`: `oe.days[2000]` near `lastDate` → `date_index`.
-- [ ] **Step 2: Run** `~/.openetrm-tools/dotnet-10.0.402/dotnet run --project tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj`. Expected: compile failure on `DailyRule`.
+- [ ] **Step 2: Run** `"$DOTNET" run --project tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj`. Expected: compile failure on `DailyRule`.
 - [ ] **Step 3: Implement.** `DateWorkspace.Compile` handles `Daily` (exclusive with `Dates` and monthly fields); `PublishedSchedules.Compile` maps `"date_schedule_v4"`; `Validate` requires `on_or_after` for v4; `ScheduleStore` picks v4 when `Daily` is set, binding a calendar only if supplied; `Choices` adds `days` choices `calendar` ("Every calendar day") and `business` ("Every business day of the calendar").
 - [ ] **Step 4: Migration.** In `0212`, extend `schedule_engine_calendar` with `date_schedule_v4`: `definition->'daily'` is an object, `definition->'dates'` null, calendar columns all set when `daily->>'days'='business'`, all set or all null for `calendar`; add a check that `engine_version='date_schedule_v4'` implies `selection='on_or_after'`. Extend `engine_version` checks wherever 0007/0160 restrict them.
 - [ ] **Step 5: Run Step 2's command.** Expected: all `PASS`.
 - [ ] **Step 6: Integration check.** In `tools/check_contract_dates.py`, publish `oe.days` (calendar, bound to the fixture calendar) through `date-schedules/save` and `publish`, then assert `date-schedules/resolve` of `oe.days[1]` at two contexts one day apart differ by one day, and that a viewer cannot save (403).
-- [ ] **Step 7: Run** `LC_ALL=en_US.UTF-8 python3 tools/run_preview.py --contract-dates-check --pg-bin /opt/homebrew/opt/postgresql@16/bin --dotnet ~/.openetrm-tools/dotnet-10.0.402/dotnet`. Expected: exits 0.
+- [ ] **Step 7: Run** `LC_ALL=en_US.UTF-8 python3 tools/run_preview.py --contract-dates-check --pg-bin "$PG_BIN" --dotnet "$DOTNET"`. Expected: exits 0.
 - [ ] **Step 8: Commit** `git commit -s -m "Publish generated daily schedules"`
 
 ### Task 3: Date-list mappings
@@ -124,7 +126,7 @@
   - `"daily schedules offer only next-date selection"`: the selection control has one enabled option, `on_or_after`.
   - `"a date-list mapping is authored with a label and one date per row"`: choose mapping type **Date list**; the row editor has Label and Date columns only; add `1D`=`oe.days + 1bd` and `4Y`=`oe.days[1461]`; preview shows two resolved dates at the selected context; save and publish.
   - `"a date-list order error names both rows"`: swapped rows show the `date_list_order` message.
-- [ ] **Step 2: Run** `LC_ALL=en_US.UTF-8 python3 tools/run_preview.py --contract-dates-check --browser-check --browser "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --pg-bin /opt/homebrew/opt/postgresql@16/bin --dotnet ~/.openetrm-tools/dotnet-10.0.402/dotnet`. Expected: browser check fails on the missing Daily rule.
+- [ ] **Step 2: Run** `LC_ALL=en_US.UTF-8 python3 tools/run_preview.py --contract-dates-check --browser-check --browser "$BROWSER" --pg-bin "$PG_BIN" --dotnet "$DOTNET"`. Expected: browser check fails on the missing Daily rule.
 - [ ] **Step 3: Implement** the editors. One field per row, stacked sections; error copy for `date_list_order` added beside the existing `contract_dates` copy in `web/src/shortcut-view.ts`.
 - [ ] **Step 4: Run** `npm run build --prefix web && npm test --prefix web`, then Step 2's command. Expected: both pass.
 - [ ] **Step 5: Commit** `git commit -s -m "Author daily schedules and date lists in Settings"`
