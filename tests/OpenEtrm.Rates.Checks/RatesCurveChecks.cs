@@ -26,6 +26,21 @@ internal static class RatesCurveChecks
         if(curve.Lookup(date) is not {Inputs.Length:0,Value.Value:var today}||today.ToString()!="1"||curve.Lookup(date.AddDays(9)).Inputs.Length!=1)
             throw new Exception("The t_0 anchor must bracket the first pillar from no inputs of its own.");
         try{curve.Lookup(date.AddDays(21));throw new Exception("Unsupported extrapolation succeeded.");}catch(MarketDataException e)when(e.Code=="discount_coverage"){}
-        Console.WriteLine("PASS rates curve: shared typed evaluator, exact factors, log-discount brackets, the t_0 anchor and coverage rejection");return 1;
+        Console.WriteLine("PASS rates curve: shared typed evaluator, exact factors, log-discount brackets, the t_0 anchor and coverage rejection");
+
+        // D359: a payment discounts from a definition's own conventions; the factor is an independent 50-digit oracle.
+        var continuous=RateConventionSet.Parse("actual_365_fixed","continuous","log_linear_discount","flat_forward","percent_per_year");
+        var rolling=new RateCurveDefinition(new(revision,"usd_rolling"),R("usd"),R("source"),continuous,[new("1Y",a,date.AddDays(365)),new("2Y",b,date.AddDays(730))]);
+        var marks=snapshot with{Selections=[new(new(a,InputUse.Variable),Observation(a,"4.30")),new(new(b,InputUse.Variable),Observation(b,"4.10"))]};
+        var mapping=new CurrencyDiscountCurve(Guid.NewGuid(),R("usd"),rolling);
+        var payment=PaymentDiscount.Resolve(true,R("usd"),date.AddDays(500),marks,mapping);
+        if(payment.Factor.ToString()!="0.944193025537330858"||payment.Conventions!=continuous||payment.Pillars.Length!=2)
+            throw new Exception($"A rolling-curve payment factor {payment.Factor} differs from the oracle.");
+        var extrapolated=PaymentDiscount.Resolve(true,R("usd"),date.AddDays(900),marks,mapping).Factor-ExactDecimal.Parse("0.904688689863042511");
+        if(extrapolated.CompareTo(ExactDecimal.Parse("0.000000000000000001"))>0||extrapolated.CompareTo(ExactDecimal.Parse("-0.000000000000000001"))<0)
+            throw new Exception("Flat-forward extrapolation after the last pillar is not within one unit of the 18th place of the oracle.");
+        try{PaymentDiscount.Resolve(true,R("usd"),date.AddDays(500),marks,mapping with{Definition=rolling with{Currency=R("eur")}});throw new Exception("A curve in another currency discounted a USD payment.");}
+        catch(MarketDataException e)when(e.Code=="discount_curve"){}
+        Console.WriteLine("PASS rates curve: a payment discounts from its definition's own conventions and currency");return 2;
     }
 }
