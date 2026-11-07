@@ -14,6 +14,13 @@ internal static class CashAllocationBalance
             applied.CompareTo(zero)<0&&amount.CompareTo(applied)>0))
             throw new MarketDataException("settlement_conservation","Cash allocations must retain contribution direction and cannot exceed its amount.");
     }
+    // The sign rule alone: a later revision may lower the amount below what was already paid.
+    internal static void RequireDirection(ExactMoney amount, ExactMoney applied)
+    {
+        var zero=ExactMoney.Parse("0",amount.Currency);
+        if(applied.Currency!=amount.Currency||amount.CompareTo(zero)==0||applied.CompareTo(zero)!=amount.CompareTo(zero))
+            throw new MarketDataException("settlement_conservation","A cash allocation must be nonzero and retain its accrued amount's direction.");
+    }
 }
 
 public sealed record FinalSidePayment

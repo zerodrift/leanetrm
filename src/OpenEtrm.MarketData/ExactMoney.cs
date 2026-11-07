@@ -38,6 +38,15 @@ public sealed record ExactMoney
     }
     public ExactMoney Scale(ExactDecimal factor) => new(value * new SignedRatio(factor.ScaledValue, ExactDecimal.WorkingScale), Currency);
     public ExactMoney Scale(OpenEtrm.Shared.Numerics.ExactRatio ratio)=>new(value * new SignedRatio(ratio.Numerator, ratio.Denominator), Currency);
+    internal ExactMoney Scale(SignedRatio factor)=>new(value * factor, Currency);
+    // The exact quotient of two amounts in one currency, such as a factor implied by one evaluation.
+    internal SignedRatio Over(ExactMoney divisor)
+    {
+        if(divisor is null||divisor.Currency!=Currency||divisor.numerator.IsZero)
+            throw new MarketDataException("numeric_division","An exact cash quotient requires a nonzero divisor in the same currency.");
+        var sign=divisor.numerator.Sign;
+        return new(numerator*divisor.denominator*sign,denominator*divisor.numerator*sign);
+    }
     internal ExactMoney Scale(ExactQuantity quantity,ReferenceKey denominatorQuantity)
     {
         if(quantity.Specification!=denominatorQuantity)
