@@ -23,7 +23,7 @@ public sealed record CurveTargetTerms(string Kind,string? Index,string? SecondIn
 public sealed record CurveIndexTerms(string Commodity,string Location,string Currency,string Unit,ExactDecimal Multiplier);
 public sealed record CurveFuturesProductTerms(string State,string? Commodity,string? Location,string? Currency,string? Unit,ExactDecimal? Multiplier);
 // A series' known last-trading instant, when its milestone is known.
-// An interest-rate specification's currency and conventions (D357).
+// An interest-rate specification's currency and conventions (D358).
 public sealed record CurveRateTerms(string Currency,string DayCount,string Compounding,string Implementation);
 public sealed record CurveSeriesTerms(string Code,string Product,DateOnly? DeliveryFrom,DateOnly? DeliveryTo,DateTimeOffset? LastTradingAt);
 // The reference terms a curve definition is checked against, from one pinned reference revision.
@@ -130,7 +130,7 @@ public static partial class CurveDefinitions
         return new(draft.Code!,draft.Name!,view,mapping.Code,mapping.Context,contracts.MoveToImmutable());
     }
 
-    // D357: an interest-rate curve takes every label of an exact date list as a tenor. Its rates are spot zero rates under the
+    // D358: an interest-rate curve takes every label of an exact date list as a tenor. Its rates are spot zero rates under the
     // specification's conventions; the preview states each maturity and its day count from the valuation date.
     public static RateCurveDefinitionPreview PreviewRates(CurveDefinitionDraft draft,CurveReferenceTerms terms,BoundDateList mapping,DateOnly valuationDate)
     {

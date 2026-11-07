@@ -9,7 +9,7 @@ engine does that after alignment.
 ## Guided VaR setup (D301)
 
 1. In **Risk**, choose the portfolio, book(s), and optionally individual trades.
-2. Open **Parametric VaR**. Starting settings are **99% confidence**, a
+2. Open **VaR / ES**. Starting settings are **99% confidence**, a
    **six-month history window**, **one business-day horizon**, **zero drift**, and
    at least **60 complete common daily changes**. A sole calendar is selected
    automatically; choose a calendar when more than one is offered.

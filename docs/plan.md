@@ -1968,7 +1968,7 @@ shared context resolution are implemented; full demo provenance and editable
 native curve definitions remain to be completed and qualified.
 D318 starts native curve authoring: Define a curve on Curves & prices validates a
 definition and previews its rolling contract window at the header's selected close ([curve definitions](curve-definitions.md)).
-D356 adds generated daily schedules and date-list mappings; D357 saves, publishes
+D357 adds generated daily schedules and date-list mappings; D358 saves, publishes
 and edits definitions, including interest-rate curves whose tenors roll with the
 context date. Remaining, in order: admit published definitions into market
 revisions and price from them (including one rate series per tenor), then migrate

@@ -1,4 +1,4 @@
--- Current consumer: Curves & prices → Curve definitions (D357) saves, publishes and edits curve definitions.
+-- Current consumer: Curves & prices → Curve definitions (D358) saves, publishes and edits curve definitions.
 -- A version names exact reference terms and one exact date-mapping version and generation; publication is immutable,
 -- certified by its own knowledge receipt and follows the contract-date library's request and guard pattern (0054).
 BEGIN;

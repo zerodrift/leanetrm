@@ -1,6 +1,6 @@
 """Stored volatility surfaces in the owned exchange example: immutable revisions recorded once per request and per
-valuation instant and pinned input set (D238), published through the trading knowledge protocol and read at a certified
-cutoff."""
+valuation instant and pinned input set (D238) at one close or working snapshot (D356), published through the trading
+knowledge protocol and read at a certified cutoff."""
 import hashlib
 import json
 import threading
@@ -9,7 +9,7 @@ from uuid import uuid4
 
 MODEL = 'smile_quadratic_log_moneyness_v1'
 POLICY = 'american_futures_option_crr_v1'
-RECORD = 'trading.record_vol_surface_revision(uuid,uuid,uuid,jsonb,date,text,text,uuid,timestamptz,uuid[],jsonb,text)'
+RECORD = 'trading.record_vol_surface_revision(uuid,uuid,uuid,jsonb,date,text,text,uuid,uuid,timestamptz,uuid[],jsonb,text)'
 
 
 def run_checks(query, manifest):
@@ -33,11 +33,12 @@ def run_checks(query, manifest):
     def digest(surface):
         return hashlib.sha256(json.dumps(surface, sort_keys=True).encode()).hexdigest()
 
-    def record(request, inputs, surface, sha=None, frame=first_frame, valuation=frame_at, model=MODEL, null=None):
-        """The internal recording a risk worker's finish path makes, run here as the owning connection; `null` names
-        one argument passed as SQL NULL."""
+    def record(request, inputs, surface, sha=None, frame=first_frame, close=None, valuation=frame_at, model=MODEL, null=None):
+        """The internal recording a risk worker's finish path makes, run here as the owning connection, at a working
+        snapshot unless a close is named; `null` names one argument passed as SQL NULL."""
         arguments = {'catalog': f"'{catalog}'", 'actor': f"'{actor}'", 'request': f"'{request}'", 'product': f"'{product}'::jsonb",
                      'business_date': f"'{day}'", 'model': f"'{model}'", 'policy': f"'{POLICY}'", 'frame': f"'{frame}'",
+                     'close': f"'{close}'" if close else 'NULL',
                      'valuation_at': f"'{valuation}'::timestamptz",
                      'inputs': 'ARRAY[' + ','.join(f"'{o}'" for o in inputs) + ']::uuid[]', 'surface': f"'{json.dumps(surface)}'::jsonb",
                      'digest': f"'{sha or digest(surface)}'"}
@@ -70,8 +71,11 @@ def run_checks(query, manifest):
     def bound(context):
         return f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{frame_at}');"
 
-    def reading(key=None, date=None, model=MODEL):
-        return f"security.read_vol_surface('{catalog}','{key or product}'::jsonb,'{date or day}','{model}')"
+    def reading(key=None, date=None, model=MODEL, close=None, valuation=frame_at, pins=observations):
+        """A read at a close, or at a working snapshot when none is named, a valuation instant and the frame's pins."""
+        located = f"'{close}'" if close else 'NULL'
+        pinned = 'ARRAY[' + ','.join(f"'{o}'" for o in pins) + ']::uuid[]'
+        return f"security.read_vol_surface('{catalog}','{key or product}'::jsonb,'{date or day}','{model}',{located}::uuid,'{valuation}'::timestamptz,{pinned})"
 
     def read(context, **key):
         return trader(bound(context) + f"SELECT {reading(**key)};", 'ROLLBACK')
@@ -129,6 +133,11 @@ def run_checks(query, manifest):
     settled = counts()
     check('at that instant, the same observations with different content are refused as nondeterministic',
           refused(record(uuid4(), first_inputs, first_surface, valuation=later_at), 'vol_surface_nondeterministic') and counts() == settled)
+    # The no-op test compares the latest revision at the same instant, not the latest of the day.
+    refit = json.loads(query(record(uuid4(), first_inputs, first_surface) + ';'))
+    check('a refit at an earlier instant of the day, after a later instant was fitted, records nothing new',
+          refit == {**first, 'created': False} and counts() == settled
+          and refused(record(uuid4(), first_inputs, second_surface), 'vol_surface_nondeterministic'), (refit, counts()))
     for table in ('vol_surface_revisions', 'vol_surface_inputs', 'vol_surface_commands'):
         check(f'{table} rows are immutable', all(query(f"BEGIN;{rejection(change, None, '55000')}ROLLBACK;") is not None
                                                  for change in (f'UPDATE trading.{table} SET catalog_id=catalog_id', f'DELETE FROM trading.{table}')))
@@ -139,8 +148,10 @@ def run_checks(query, manifest):
           and refused(record(uuid4(), first_inputs, first_surface, sha='not-a-digest'), 'vol_surface_input')
           and refused(record(uuid4(), first_inputs, first_surface, valuation='infinity'), 'vol_surface_input')
           and refused(record(uuid4(), first_inputs, first_surface, model='smile_unknown_v1'), 'vol_model_unknown')
-          and refused(record(uuid4(), first_inputs, first_surface).replace('nymex_on', 'nymex_unlisted'), 'vol_surface_product'))
+          and refused(record(uuid4(), first_inputs, first_surface).replace('nymex_on', 'nymex_unlisted'), 'vol_surface_product')
+          and refused(record(uuid4(), first_inputs, first_surface, close=uuid4()), 'vol_surface_input'))
     null_codes = {'product': 'vol_surface_product', 'model': 'vol_model_unknown'}
+    # A null close is a working snapshot's, so it is not among the refused nulls.
     for argument in ('catalog', 'actor', 'request', 'product', 'business_date', 'model', 'policy', 'frame', 'valuation_at', 'inputs', 'surface', 'digest'):
         check(f'a recording with a null {argument} is refused', refused(record(uuid4(), first_inputs, first_surface, null=argument),
                                                                         null_codes.get(argument, 'vol_surface_input')))
@@ -156,14 +167,19 @@ def run_checks(query, manifest):
           second['created'] and second['revision'] != first['revision'] and second['publicationOrder'] > first['publicationOrder'], second)
     later = capture()
     seen_earlier, seen_later = json.loads(read(earlier)), json.loads(read(later))
-    check('earlier cutoff does not see later revision', seen_earlier['revision'] == moved['revision'] and seen_later['revision'] == second['revision'],
+    check('earlier cutoff does not see later revision', seen_earlier['revision'] == first['revision'] and seen_later['revision'] == second['revision'],
           (seen_earlier, seen_later))
+    check('a read names its valuation instant: another instant of the day reads that instant\'s revision',
+          json.loads(read(later, valuation=later_at))['revision'] == moved['revision'], read(later, valuation=later_at))
     check('a read returns the revision with its inputs, valuation instant, knowledge time, actor and content',
           seen_later['inputs'] == second_inputs and seen_later['actor'] == actor and seen_later['content'] == second_surface
           and seen_later['valuationAt'].replace('+00:00', 'Z') == frame_at
           and seen_later['knownFrom'] is not None and seen_earlier['knownFrom'] <= seen_later['knownFrom']
           and (seen_later['model'], seen_later['solverPolicy'], seen_later['effectiveOn']) == (MODEL, POLICY, day), seen_later)
     check('a product never fitted for the date reads as not fitted', read(later, key=other_product) == '')
+    check('a frame that does not pin every input of the latest revision reads the latest one it does pin',
+          json.loads(read(later, pins=first_inputs))['revision'] == first['revision'] and read(later, pins=observations[:1]) == '',
+          read(later, pins=first_inputs))
     check('a read for another business date than its context is refused', read_refused(later, 'vol_surface_context', date='2026-10-15'))
     check('a read for an unknown model is refused', read_refused(later, 'vol_model_unknown', model='smile_unknown_v1'))
     check('a read without a trading context is refused',

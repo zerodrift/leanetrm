@@ -1,6 +1,6 @@
 # Rolling date lists and a curve editor that saves
 
-Status: approved 2026-11-06 and implemented locally as D356 and D357; see
+Status: approved 2026-11-06 and implemented locally as D357 and D358; see
 [curve definitions](../../curve-definitions.md) and
 [schedules](../../schedules-and-contract-sequences.md). Examples are synthetic.
 

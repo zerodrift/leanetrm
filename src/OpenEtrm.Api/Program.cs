@@ -872,7 +872,7 @@ api.MapPost("/date-schedules/contracts/publish",(HttpContext c,ContractDatePubli
     Results.Ok(await contractDateStore.Publish(connection,body,ct))));
 api.MapPost("/date-schedules/contracts/resolve",(HttpContext c,ContractDateResolveRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
     Results.Ok(await contractDateStore.Resolve(connection,body,session.MarketContext,includeDrafts:false,ct))));
-// D356: a date list is one labelled date per row; it saves and publishes through the contract routes above.
+// D357: a date list is one labelled date per row; it saves and publishes through the contract routes above.
 api.MapPost("/date-schedules/date-lists/preview",(HttpContext c,PublishedContractRequest body)=>DateOperation(c,"ReadMarketData",async(session,connection,ct)=>
 {
     var view=await ScheduleView(connection,body.Context,ct);
@@ -892,7 +892,7 @@ api.MapGet("/curve-definitions/catalog",(Func<HttpContext,Task<IResult>>)(c=>Loc
     var data=await marketReads.Data(connection,Pin(session),ct,ImmutableArray<Guid>.Empty,ReferenceReadScope.AllVisible);
     return Results.Ok(new{choices=CurveDefinitions.Choices,maximumContracts=CurveDefinitions.MaximumContracts,references=CurveReferenceTerms.From(data.References),data.ReferenceRevision});
 },c.RequestAborted))));
-// D318/D357: a definition's preview at the header's selected close, in that close's one exact context. Its mapping is the stored version
+// D318/D358: a definition's preview at the header's selected close, in that close's one exact context. Its mapping is the stored version
 // it names (an author's draft included), or the rows being edited, compiled in memory and never saved here. Authoring validates in the
 // current workspace at current knowledge on the close's date, captured without binding it so the request can still write.
 async Task<(object Preview,ScheduleContext Context,ReferenceRevision Reference)> CurvePreview(NpgsqlConnection connection,PreviewSession session,Guid? snapshotId,
@@ -927,7 +927,7 @@ async Task<(object Preview,ScheduleContext Context,ReferenceRevision Reference)>
 }
 api.MapPost("/curve-definitions/preview",(HttpContext c,CurveDefinitionPreviewRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
     Results.Ok((await CurvePreview(connection,session,body.SnapshotId,body.Definition,body.Mapping,authoring:false,ct)).Preview),c.RequestAborted)));
-// D357: saved curve definitions. Readers see published versions; authors and publishers also see drafts.
+// D358: saved curve definitions. Readers see published versions; authors and publishers also see drafts.
 api.MapGet("/curve-definitions",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
     if(session.MarketContext is {} selected)await MarketContextStore.Bind(connection,database.Manifest.CatalogId,selected,ct);
@@ -2018,7 +2018,8 @@ api.MapPost("/options/expiry",(HttpContext c,FuturesOptionExpiryRequest body)=>O
 api.MapPost("/options/holding",(HttpContext c,FuturesOptionHoldingRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("option_context","Supply the selected context."),
     (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>optionStore.Holding(connection,body.TradeId,ct),ct),expectedConvention:FuturesOptionStore.Convention));
 // Volatility surfaces: a fit is a job on the retained risk queue, admitted over working data by those who may publish market data
-// and read trades; the read returns the stored revision known at the selected context. No agent tool fits.
+// and read trades; the read returns the stored revision fitted at the selected close and known at the selected context, and the
+// library lists the stored surfaces with the close each belongs to. No agent tool fits.
 api.MapPost("/vol-surfaces/fit",(HttpContext c,VolSurfaceFitRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data to fit a volatility surface.");
@@ -2032,6 +2033,8 @@ api.MapPost("/vol-surfaces/fit",(HttpContext c,VolSurfaceFitRequest body)=>Locke
 }));
 api.MapPost("/vol-surfaces/read",(HttpContext c,VolSurfaceReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("vol_surface_context","Supply the selected context."),
     (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Read(connection,database.Manifest,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
+api.MapPost("/vol-surfaces/library",(HttpContext c,VolSurfaceLibraryRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("vol_surface_context","Supply the selected context."),
+    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Library(connection,database.Manifest,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
 api.MapGet("/jobs",(HttpContext c,int? page,int? collectionPage)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
     async(connection,ct)=>Results.Ok(await CollectionJobs.Directory(connection,ct,page??0,collectionPage??0)),c.RequestAborted)));
 api.MapPost("/jobs/collection/update",(HttpContext c,CollectionJobUpdate body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,

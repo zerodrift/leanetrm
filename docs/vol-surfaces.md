@@ -2,10 +2,11 @@
 
 Status: local implementation, verified as recorded in
 [verification](verification.md#volatility-surfaces-d304). This is not a production
-activation record. The decision is [D304](decisions.md).
+activation record. The decision is [D304](decisions.md); D356 keys each surface to
+its close and adds the surface library.
 
-A volatility surface shows, for one listed futures option product on one settlement
-date, the implied volatility of every series, a fitted smile per expiry, and how far
+A volatility surface shows, for one listed futures option product at one close, the
+implied volatility of every series, a fitted smile per expiry, and how far
 each series sits from that smile (its rich/cheap). It is a view: option valuation,
 risk and close do not read it. Each option series is still calibrated to its own
 settlement and held under `option_implied_volatility_held_v1`, as described in
@@ -14,14 +15,31 @@ settlement and held under `option_implied_volatility_held_v1`, as described in
 ## The page
 
 **Vol surfaces** is a page in the Markets group of the sidebar. It is listed for a
-person holding `ReadMarketData` and `ReadTrades`. It reads at the date and knowledge
-context selected in the shared header, and has:
+person holding `ReadMarketData` and `ReadTrades`. It reads at the close (or working
+snapshot) and knowledge context selected in the shared header, and has:
 
-- an option product picker, listing the `futures_option_products` rows of the
-  reference data in force at the context; nothing is chosen for the person;
-- the vol model, shown read-only;
-- a legend for rich/cheap;
-- the fit state, with *Fit now* or *Refit* where allowed.
+- a header naming that close by its session and business day, for example
+  *Houston EOD · Fri, Oct 16, 2026*, or a working snapshot by its instant, with the
+  vol model shown read-only;
+- a shelf of product cards, one per `futures_option_products` row of the reference
+  data in force at the context, each saying **Calibrated here** (with its fitted
+  expiries and series), **Latest ·** the newest close it is calibrated at, or **Not
+  calibrated yet**. Products calibrated here come first. A search box narrows the
+  cards through the catalog's own search, and **More products** reads the next page.
+  Nothing is chosen for the person;
+- for the chosen product, its calibration state with *Recalibrate* where allowed,
+  and **Calibrated at**: a chip per close the product has a surface at, newest first;
+- a legend for rich/cheap.
+
+A surface belongs to the close it was fitted at, so the page never shows another
+close's surface in place of the selected one. When the selected close has none, a
+panel says so and offers *Calibrate at* that close to a person who may fit, and
+*Open* the newest close this product is calibrated at. Opening a close, from that
+panel or from a chip, is the header's own move: an offered close is chosen in the As
+of control, so every page reads it. A close of another session is not switched to
+for the person (D334): the page names the session to choose in the header. A
+replaced close is history, and a historical view offers only its own business day;
+the page says so rather than moving.
 
 A fitted surface is drawn three ways, linked so that hovering or focusing a series
 in one view highlights it in the others and in a shared readout (series, right,
@@ -125,6 +143,15 @@ A surface is stored as an immutable, bitemporal revision (migration
 
 - **Business key.** The exact product version (reference catalog, reference revision
   and code, by foreign key), the settlement business date and the vol model.
+- **Location (D356, migration `0212_vol_surface_closes.sql`).** The recorded close the
+  surface was fitted at (`close_id`, by foreign key to `market_data.market_closes`,
+  which names its session and business day), or none for a working snapshot, and the
+  valuation instant. A frame id is session-scoped (each sign-in sees a close under
+  its own alias), so it is kept only as provenance and never locates a surface. A
+  recorded close must be a close at the revision's valuation instant that pins every
+  input of the revision. Working snapshots of one instant can pin different
+  observations, so a read or fit-job status also takes the frame's pins: a revision
+  is the frame's only when every input is one of them.
 - **Business time.** The settlement business date (`effective_on`). For visibility
   it is the start of that UTC date, the date convention of trading contexts.
 - **Knowledge time.** The trading publication protocol: each new revision takes the
@@ -152,17 +179,20 @@ Recording follows D238:
 - A request identity returns its first outcome; the same identity with different
   contents is refused with `vol_surface_input`.
 - The inputs of a revision are its valuation instant and its pinned observations.
-  If the key's latest revision has the same inputs and the same content, it is
-  returned and nothing new is stored. The same inputs with different content are
+  If the key's latest revision at the same close (or working snapshot) and valuation
+  instant has the same inputs and the same content, it is returned and nothing new is
+  stored. The same inputs with different content are
   refused with `vol_surface_nondeterministic`.
 - Different inputs, for example after a settlement or a discount-curve point is
   revised, or a fit at another valuation instant, record a new revision with its
   own knowledge time. Earlier revisions stay readable at earlier
   cutoffs.
 
-A read returns the latest revision of the key visible at the bound context, ordered
-by publication order, never by row order. It never falls back to another date or
-another model. It also states whether any pinned observation, settlement or
+A read returns the latest revision of the key at the context's close (or working
+snapshot) and valuation instant, whose inputs the frame pins, visible at the bound
+context, ordered by publication
+order, never by row order. It never falls back to another date, another session's
+close, the close a newer one replaced, another instant of the day or another model. It also states whether any pinned observation, settlement or
 discount-curve point, has a newer revision known at that context (`inputsRevised`);
 the read never refits.
 
@@ -211,7 +241,22 @@ is the trading read context the option operations use (`snapshotId`, convention
 `notFitted`), the `revision` (`id`, `knownFrom`, `actor`, `inputsRevised`), the
 caller's newest fit `job` for the key (`id`, `state`, `errorCode`), `canFit` and the
 `surface`. The business date is always the context's own; the database refuses any
-other date with `vol_surface_context`.
+other date with `vol_surface_context`. The close and instant are those of the
+context's frame. A replaced close stays readable as history and reads its own
+surface; the header never offers it, and a fit there is new work, refused with
+`close_replaced` (D334).
+
+**`POST /api/vol-surfaces/library`** takes `{context, model, offset}` and, optionally,
+`product`. It lists, newest business date first, the latest revision of each product
+at each close (or working snapshot) and instant on or before the context's business
+date and known at its cutoff: `revision`, `product`, `productName`, `closeId`,
+`businessDate`, `valuationAt`, `knownFrom`, `close` (`session`, `businessDate`,
+`inForce`, or null for a working snapshot), `here`, and `expiries`, `fittedExpiries`
+and `series` counts. `here` marks the surface a read at the context's own close,
+instant and pins returns; those rows come first, so a page shows them whatever the
+library's size. A surface whose close the reader cannot see is left out. Pages hold
+48 surfaces; `hasMore` says whether more follow. It also returns `canFit`. The page
+reads it whole for the cards, and per product for the chips.
 
 ## Permissions
 
@@ -231,22 +276,27 @@ one the assistant does not read.
 
 The page states:
 
-- **No option products** at the context, or **choose a product**.
+- **No option products** at the context, **no product matches** a search, or
+  **choose an option product**.
 - **Reading the surface…**
-- **Not fitted for this date**, with *Fit now* for a person who may fit in the
-  current workspace. Others see that fitting needs Publish market data and Read
-  trades; a historical view says to fit in the current workspace.
-- **Fit queued or running**, checking back every 1.5 seconds while the page is
-  shown. A hidden page sends no reads and reads at once when shown again.
-- **Fitted**, with its knowledge time, or **Inputs revised after this fit** with
-  *Refit*. A failed or cancelled last job is shown with its code.
+- **Not calibrated at** the close, with *Calibrate at* that close for a person who
+  may fit in the current workspace, and *Open* the newest close the product is
+  calibrated at. Others see that calibrating needs Publish market data and Read
+  trades; a historical view says to calibrate in the current workspace.
+- **Calibrating at** the close, queued or running, checking back every 1.5 seconds
+  while the page is shown. A hidden page sends no reads and reads at once when shown
+  again. When the job finishes, the product's chips and the cards are read again.
+- **Calibrated at** the close, with its knowledge time, or **Inputs revised after
+  this fit** with *Recalibrate*. A failed or cancelled last job is shown with its
+  code.
 - **Each gap expiry** names its reason, and each cell without rich/cheap names its
   series' outcome.
 - **A structured error**, for example a product that the context's reference data
   does not list, which is named rather than replaced by another product or by none.
 
-A fit request whose outcome is unknown keeps its request identity, and *Retry the
-fit request* sends the same request.
+A calibration request whose outcome is unknown keeps its request identity, and
+*Retry the calibration request* sends the same request; no fresh calibration is
+offered meanwhile.
 
 Request-level codes:
 
@@ -254,7 +304,7 @@ Request-level codes:
 | --- | --- |
 | `vol_model_unknown` | The model is not a supported vol model |
 | `vol_surface_product` | The product is not an option product of this market, or not readable |
-| `vol_surface_context` | The context states no business date or was not captured, or the read's date is not the context's |
+| `vol_surface_context` | The context states no business date or was not captured, the read's date is not the context's, or it names no valuation instant |
 | `vol_surface_no_settlements` | The frame has no settlement of any live listed series of the product |
 | `option_expired` | Every listed series of the product is at or past its expiry |
 | `discount_coverage` | No live listed series' expiry is covered by the discount curve |
@@ -281,7 +331,13 @@ observations, not a performance qualification; see
 - **Valuing options from the surface.** No interpolated value for an unsettled
   series, and no change to option valuation, Risk or close.
 - **Vega and volatility shocks.**
-- **Scheduled fitting** after each close.
+- **Scheduled fitting** after each close: a fit triggered by a close being recorded,
+  for an explicitly configured, versioned list of products and model per session,
+  run as a named service principal. A session with nothing configured fits nothing.
+- **Reusing a surface at another close.** Not supported: carrying a smile to another
+  day or session needs an explicit sticky-strike or sticky-moneyness policy and
+  time decay, and rich/cheap against another day's smile measures the market's move,
+  not mispricing.
 - **Heavier vol models**, such as SABR, local or stochastic volatility, vol dynamics
   and arbitrage-free fitting across expiries.
 - **Agent fit access.** Agents cannot submit fits, and the assistant does not read

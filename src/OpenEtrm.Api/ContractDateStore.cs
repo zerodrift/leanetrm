@@ -28,7 +28,7 @@ public sealed record ContractDateVersion(Guid Id,int Version,int Generation,stri
 public sealed class ContractDateStore(Guid catalog,ScheduleStore schedules)
 {
     const string Engine="contract_dates_v1";
-    // A date list is a mapping of one labelled date per row (D356); it shares this library's storage and publication.
+    // A date list is a mapping of one labelled date per row (D357); it shares this library's storage and publication.
     const string DateListEngine="date_list_v1";
     static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     static TemporalException Invalid(string message)=>new("contract_dates",message);

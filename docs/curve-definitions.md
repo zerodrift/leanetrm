@@ -1,6 +1,6 @@
 # Native curve definitions
 
-Status: D318, owner-directed design (2026-11-04), extended by D357 (2026-11-06).
+Status: D318, owner-directed design (2026-11-04), extended by D358 (2026-11-06).
 Curves & prices → Curve definitions validates, previews, saves, publishes and
 edits definitions locally, including interest-rate curves. Admitting published
 definitions into market revisions and pricing from them remain work, listed at
@@ -98,10 +98,10 @@ selected historical context, whose effective date must be the close's
 (`market_date` otherwise). Choosing another close in the header clears the
 shown window; previewing again rolls it.
 
-## Interest-rate curves (D357)
+## Interest-rate curves (D358)
 
 An interest-rate curve names an exact interest-rate specification, a mark source
-and an exact published version of a date-list mapping (D356). Every label of the
+and an exact published version of a date-list mapping (D357). Every label of the
 list is one tenor, such as `1D → oe.days + 1bd` or `4Y → oe.days[1461]`, so the
 curve's maturities roll with the context date instead of being stored as dates.
 The currency, day count and compounding come from the specification; only the
@@ -118,7 +118,7 @@ discount factors per tenor arrive when a published definition creates its tenor
 series (remaining work); the preview never reads them from other series.
 Bootstrapping from par or swap quotes is not part of this design.
 
-## Saving, publishing and editing (D357)
+## Saving, publishing and editing (D358)
 
 A definition has a stable code and up to 64 versions: at most one draft, then
 immutable published versions. Save requires `WriteMarketDefinitions`, publish
@@ -152,9 +152,9 @@ adopted silently. Rendered curves offer no way to change a definition.
 - **Curves & prices → Curve definitions**: lists saved definitions and edits one
   in place of the market board or a curve. Schedules and date mappings stay on
   Settings → Schedules & date mappings.
-- D357: `GET /api/curve-definitions`, `POST /api/curve-definitions/save` and
+- D358: `GET /api/curve-definitions`, `POST /api/curve-definitions/save` and
   `POST /api/curve-definitions/publish`; a preview or save may carry the curve's
-  edited mapping rows. Migration `0213_curve_definitions.sql` adds the versions,
+  edited mapping rows. Migration `0214_curve_definitions.sql` adds the versions,
   request ledger and knowledge receipts.
 
 ## Remaining work

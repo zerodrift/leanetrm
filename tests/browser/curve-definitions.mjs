@@ -31,7 +31,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('the curve form stays inside the market content',"(()=>{const content=document.querySelector('.market-content');return content.scrollWidth<=content.clientWidth+1;})()");
  await click('#curve-definition-back');await wait(idle);
  await check('All markets returns to the board',"document.querySelector('#curve-definition').hidden&&!document.querySelector('#market-board').hidden");
- // D357: saved definitions are listed and edited here; tools/check_curve_definitions.py published usd_zero over rate_tenors.
+ // D358: saved definitions are listed and edited here; tools/check_curve_definitions.py published usd_zero over rate_tenors.
  await set('#snapshot',await close('2021-01-15T16:00:00'));await wait(idle,30000);
  await persona('editor');await click('#curve-define');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
  const open=code=>evaluate(`[...document.querySelectorAll('#curve-definition-list .shortcut-saved-row')].find(r=>r.textContent.includes(${JSON.stringify(code)})).querySelector('button').click()`);

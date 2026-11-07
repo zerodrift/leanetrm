@@ -1,5 +1,11 @@
 # Architecture and domain contracts
 
+D356 keys each stored [volatility surface](vol-surfaces.md) to the recorded close
+(session and business day) or working-snapshot instant it was fitted at, never to
+a session-scoped frame id, and lists stored surfaces in a library the Vol surfaces
+page offers instead of product search. A close without a surface offers
+calibration there or a close that has one; no surface is carried to another close.
+
 D355 bounds repeated gas billing metadata authorization work by following the
 selected trade's exact relational keys. Native read policies, visible revisions,
 context and cash terms remain unchanged; the ordinary read deadline stays in

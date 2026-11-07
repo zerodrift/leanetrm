@@ -21,7 +21,7 @@ public sealed record CurveDefinitionCommandReceipt(Guid RequestId,Guid Id,int Ve
 public sealed record CurveDefinitionVersion(Guid Id,int Version,int Generation,string State,CurveDefinitionDraft Definition,int MappingGeneration,
     ScheduleContext Context,int? PublicationOrder,DateTimeOffset? PublishedAt);
 
-// D357: durable curve definitions. A version pins exact reference terms and one exact mapping version and generation. Saving
+// D358: durable curve definitions. A version pins exact reference terms and one exact mapping version and generation. Saving
 // with edited rows saves them as the mapping's draft first; publishing publishes that draft first, in the same transaction.
 public sealed class CurveDefinitionStore(Guid catalog,ContractDateStore mappings)
 {

@@ -99,7 +99,7 @@ internal static class CurveDefinitionChecks
             Reject("curve_contract_order",()=>CurveDefinitions.Preview(forward,terms,Mapping(("Feb 21",new(2021,2,1),new(2021,3,1)),("Jan 21",new(2021,1,1),new(2021,2,1)))));
             Reject("curve_contract_order",()=>CurveDefinitions.Preview(forward,terms,Mapping(("Q1 21",new(2021,1,1),new(2021,4,1)),("Feb 21",new(2021,2,1),new(2021,3,1)))));
         });
-        // D357: an interest-rate curve carries every label of a date list; each resolved maturity must follow the valuation date.
+        // D358: an interest-rate curve carries every label of a date list; each resolved maturity must follow the valuation date.
         var valuation=new DateOnly(2026,11,3);
         DateListEntry Tenor(int position,string label,DateOnly date)=>new(position,label,date,new($"oe.days[{date.DayNumber-valuation.DayNumber}]",date,"oe.days",null,null,null,"synthetic"));
         BoundDateList Tenors(params (string Label,DateOnly Date)[] rows)=>new("usd_tenors","USD tenors",new("2026-11-03",1),[..rows.Select((r,i)=>Tenor(i+1,r.Label,r.Date))]);

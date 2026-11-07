@@ -56,7 +56,7 @@
 ### Task 2: Daily schedule engine
 
 **Files:**
-- Create: `db/migrations/0212_daily_schedules_and_date_lists.sql` (schedule half; Task 3 adds the date-list half to this file)
+- Create: `db/migrations/0213_daily_schedules_and_date_lists.sql` (schedule half; Task 3 adds the date-list half to this file)
 - Modify: `src/OpenEtrm.Api/DateWorkspace.cs` (`MonthlyDraft`, `Compile`, `Choices`)
 - Modify: `src/OpenEtrm.Api/PublishedSchedules.cs` (`Compile` engine switch, `Validate`)
 - Modify: `src/OpenEtrm.Api/ScheduleStore.cs:71` (engine selection)
@@ -75,7 +75,7 @@
   - `"resolving past a daily schedule's last date fails"`: `oe.days[2000]` near `lastDate` → `date_index`.
 - [ ] **Step 2: Run** `"$DOTNET" run --project tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj`. Expected: compile failure on `DailyRule`.
 - [ ] **Step 3: Implement.** `DateWorkspace.Compile` handles `Daily` (exclusive with `Dates` and monthly fields); `PublishedSchedules.Compile` maps `"date_schedule_v4"`; `Validate` requires `on_or_after` for v4; `ScheduleStore` picks v4 when `Daily` is set, binding a calendar only if supplied; `Choices` adds `days` choices `calendar` ("Every calendar day") and `business` ("Every business day of the calendar").
-- [ ] **Step 4: Migration.** In `0212`, extend `schedule_engine_calendar` with `date_schedule_v4`: `definition->'daily'` is an object, `definition->'dates'` null, calendar columns all set when `daily->>'days'='business'`, all set or all null for `calendar`; add a check that `engine_version='date_schedule_v4'` implies `selection='on_or_after'`. Extend `engine_version` checks wherever 0007/0160 restrict them.
+- [ ] **Step 4: Migration.** In `0213`, extend `schedule_engine_calendar` with `date_schedule_v4`: `definition->'daily'` is an object, `definition->'dates'` null, calendar columns all set when `daily->>'days'='business'`, all set or all null for `calendar`; add a check that `engine_version='date_schedule_v4'` implies `selection='on_or_after'`. Extend `engine_version` checks wherever 0007/0160 restrict them.
 - [ ] **Step 5: Run Step 2's command.** Expected: all `PASS`.
 - [ ] **Step 6: Integration check.** In `tools/check_contract_dates.py`, publish `oe.days` (calendar, bound to the fixture calendar) through `date-schedules/save` and `publish`, then assert `date-schedules/resolve` of `oe.days[1]` at two contexts one day apart differ by one day, and that a viewer cannot save (403).
 - [ ] **Step 7: Run** `LC_ALL=en_US.UTF-8 python3 tools/run_preview.py --contract-dates-check --pg-bin "$PG_BIN" --dotnet "$DOTNET"`. Expected: exits 0.
@@ -84,7 +84,7 @@
 ### Task 3: Date-list mappings
 
 **Files:**
-- Modify: `db/migrations/0212_daily_schedules_and_date_lists.sql` (date-list half)
+- Modify: `db/migrations/0213_daily_schedules_and_date_lists.sql` (date-list half)
 - Modify: `src/OpenEtrm.Api/ContractDateStore.cs`, `src/OpenEtrm.Api/PublishedSchedules.cs` (request records), `src/OpenEtrm.Api/Program.cs` (one route)
 - Test: `tests/OpenEtrm.Api.Checks/SchedulePublicationChecks.cs`, `tools/check_contract_dates.py`
 
@@ -106,7 +106,7 @@
   - `"a request names contracts or dates, not both"` → `contract_dates`.
 - [ ] **Step 2: Run** the Api checks command from Task 2. Expected: compile failure.
 - [ ] **Step 3: Implement** `CompileDateList`, the engine branch in `Save` (engine `date_list_v1`, one `"date"` field per row, null cutoff) and in `Publish`/`Read`, and `ResolveDateList`.
-- [ ] **Step 4: Migration** (date-list half of 0212): `contract_date_versions.engine_version IN ('contract_dates_v1','date_list_v1')`; `contract_date_contracts.cutoff_utc` nullable; `contract_date_fields.role` adds `'date'`; a deferred constraint trigger requiring, per version, `contract_dates_v1` rows to have a cutoff and exactly the three contract roles, and `date_list_v1` rows to have no cutoff and exactly one `date` role; replace `security.publish_contract_dates` so its completeness test follows the engine. Read the latest definitions of these functions before replacing them.
+- [ ] **Step 4: Migration** (date-list half of 0213): `contract_date_versions.engine_version IN ('contract_dates_v1','date_list_v1')`; `contract_date_contracts.cutoff_utc` nullable; `contract_date_fields.role` adds `'date'`; a deferred constraint trigger requiring, per version, `contract_dates_v1` rows to have a cutoff and exactly the three contract roles, and `date_list_v1` rows to have no cutoff and exactly one `date` role; replace `security.publish_contract_dates` so its completeness test follows the engine. Read the latest definitions of these functions before replacing them.
 - [ ] **Step 5: Run Step 2's command.** Expected: all `PASS`.
 - [ ] **Step 6: Integration check** in `tools/check_contract_dates.py`: save and publish a date list over `oe.days`; a retry of the save with the same request id returns the same receipt and no new version; resolve at two closes and assert the dates roll; resolving it through `/date-schedules/contracts/resolve` fails with `contract_dates`; a knowledge context captured before its publication cannot see it.
 - [ ] **Step 7: Run** Task 2 Step 7's command. Expected: exits 0.
@@ -162,7 +162,7 @@
 ### Task 6: Durable curve definitions
 
 **Files:**
-- Create: `db/migrations/0213_curve_definitions.sql`, `src/OpenEtrm.Api/CurveDefinitionStore.cs`
+- Create: `db/migrations/0214_curve_definitions.sql`, `src/OpenEtrm.Api/CurveDefinitionStore.cs`
 - Modify: `src/OpenEtrm.Api/Program.cs` (routes), `src/OpenEtrm.Api/ContractDateStore.cs` (expose `Save`/`Publish` for use inside an open transaction if not already)
 - Test: `tools/check_curve_definitions.py`, `tests/test_migration_identity.py` expectations if it enumerates migrations
 
@@ -218,7 +218,7 @@
 ### Task 8: Documentation, decisions and full verification
 
 **Files:**
-- Modify: `docs/curve-definitions.md`, `docs/schedules-and-contract-sequences.md`, `docs/implementation.md`, `docs/market-data.md` (rate maturities), `docs/decisions.md` (new D356 daily schedules and date lists; D357 saved curve definitions and the interest-rate kind; D318's remaining work), `docs/plan.md` (bootstrapped curves as unfunded future work; projects 3 and 4)
+- Modify: `docs/curve-definitions.md`, `docs/schedules-and-contract-sequences.md`, `docs/implementation.md`, `docs/market-data.md` (rate maturities), `docs/decisions.md` (new D357 daily schedules and date lists; D358 saved curve definitions and the interest-rate kind; D318's remaining work), `docs/plan.md` (bootstrapped curves as unfunded future work; projects 3 and 4)
 - Modify: `docs/superpowers/specs/2026-11-06-rolling-date-lists-and-curve-editor-design.md` status line
 
 - [ ] **Step 1: Update the documents** to state what is implemented and what remains (admission, pricing from definitions, demo cleanup).
