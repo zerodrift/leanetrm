@@ -134,6 +134,7 @@ if (args is ["--schedules"])
     PortfolioJointRiskChecks.Run();
     BookedScheduleLookupChecks.Run();
     SideObservationCompatibilityChecks.Run();
+    SwapPriceSourceChecks.Run();
     ContractObservationAuthoringChecks.Run();
     SchedulePreviewChecks.Run();
     TicketDescriptionChecks.Run();
