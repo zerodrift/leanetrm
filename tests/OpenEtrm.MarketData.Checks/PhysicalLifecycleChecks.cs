@@ -23,7 +23,7 @@ internal static class PhysicalLifecycleChecks
         Require(undiscounted.Rows.Count(Cash)==122&&undiscounted.Rows.Count(r=>!Cash(r))==122,"Every gas day keeps one physical and one cash row.");
         var cash=undiscounted.Rows.Where(Cash).ToDictionary(r=>r.DeliveryFrom);
         DeliveryState Delivery(int month,int day)=>cash[new(2026,month,day)].Delivery;
-        SettlementState Settled(int month,int day)=>cash[new(2026,month,day)].Settlement;
+        SettlementState? Settled(int month,int day)=>cash[new(2026,month,day)].Settlement;
         Require(Days(9).All(d=>cash[d].Delivery==DeliveryState.Ended&&cash[d].Settlement==SettlementState.Paid&&cash[d].Outstanding.ToExactString()=="0"&&
             cash[d].Paid.ToExactString()=="-290"),"September is paid and leaves both measures.");
         Require(Days(10).Concat(Days(11).Take(5)).All(d=>cash[d].Delivery==DeliveryState.Ended&&cash[d].Settlement==SettlementState.AccruedUnpaid&&
@@ -37,7 +37,7 @@ internal static class PhysicalLifecycleChecks
         Require(november.Contributions.Skip(6).Take(3).All(c=>c.Amount.States[0].Prices==(SchedulePriceFacts.PublishedFixing|SchedulePriceFacts.Fixed))&&
             november.Contributions[9].Amount.States[0].Prices==(SchedulePriceFacts.Projected|SchedulePriceFacts.Fixed),"Nov 7-9 carry Friday's published fixing; Nov 10 is forecast.");
         var physical=undiscounted.Rows.Where(r=>!Cash(r)).ToDictionary(r=>r.DeliveryFrom);
-        Require(physical.Values.All(r=>r.QuantityBasis==(r.Delivery==DeliveryState.Ended?PhysicalLifecycle.EstimatedQuantity:PhysicalLifecycle.ContractQuantity))&&
+        Require(physical.Values.All(r=>r.Settlement is null&&r.QuantityBasis==(r.Delivery==DeliveryState.Ended?PhysicalLifecycle.EstimatedQuantity:PhysicalLifecycle.ContractQuantity))&&
             physical.Values.Count(r=>r.Delivery==DeliveryState.Ended)==66&&physical.Values.Where(r=>r.Delivery==DeliveryState.Ended).All(r=>r.RemainingPv.ToExactString()=="0"),
             "The 66 ended gas days leave the physical measure, labelled as contract estimates pending allocation.");
         // Undiscounted remaining legs: Nov 6 318 + Nov 7-9 966 + Nov 10-30 6,809 + December 10,912.
@@ -52,14 +52,13 @@ internal static class PhysicalLifecycleChecks
         Equal(discounted.OutstandingSettlement,"-10843.9431");
         Equal(demo.Headline(Demo.Close,paid,new DatedFactors()),discounted.Total.ToExactString());
 
-        // -4,000 against October: thirteen whole days and 100 of Oct 14.
-        var october=paid.AddRange(Days(10).Take(14).Select((d,n)=>demo.Payment(Demo.Months+1,n,Fixture.Utc("2026-11-05T00:00:00Z"),Demo.Close,n<13?"-300":"-100")));
+        // -4,000 allocated across all 31 October days: 30 x -129 and one -130.
+        var october=paid.AddRange(Days(10).Select((d,n)=>demo.Payment(Demo.Months+1,n,Fixture.Utc("2026-11-05T00:00:00Z"),Demo.Close,n<30?"-129":"-130")));
         var part=demo.Value(Demo.Close,october,new DatedFactors());
         Equal(part.OutstandingSettlement,"-6845.9031");
         var partRows=part.Rows.Where(Cash).ToDictionary(r=>r.DeliveryFrom);
-        Require(Days(10).Take(13).All(d=>partRows[d].Settlement==SettlementState.Paid)&&partRows[new(2026,10,14)].Settlement==SettlementState.PartPaid&&
-            partRows[new(2026,10,14)].Outstanding.ToExactString()=="-200"&&Days(10).Skip(14).All(d=>partRows[d].Settlement==SettlementState.AccruedUnpaid),
-            "A partial payment pays whole days and leaves the rest of its allocation outstanding.");
+        Require(Days(10).All(d=>partRows[d].Settlement==SettlementState.PartPaid)&&Days(10).Take(30).All(d=>partRows[d].Outstanding.ToExactString()=="-171")&&
+            partRows[new(2026,10,31)].Outstanding.ToExactString()=="-170","A payment allocated across every October day leaves each day part paid.");
 
         var hidden=demo.Value(Demo.Close,demo.SeptemberPaid(Demo.Close.AddHours(1)),Demo.Undiscounted);
         Equal(hidden.OutstandingSettlement,"-19555");
@@ -71,6 +70,9 @@ internal static class PhysicalLifecycleChecks
         var first=corrected.Rows.Single(r=>Cash(r)&&r.DeliveryFrom==new DateOnly(2026,10,1));
         Require(first.Settlement==SettlementState.Overpaid&&first.Accrued.ToExactString()=="-290"&&first.Outstanding.ToExactString()=="10"&&
             first.OutstandingPv.ToExactString()=="10","A lower corrected fixing after a full payment shows the overpayment instead of refusing.");
+
+        var zeroed=demo.Value(Demo.Close,paid,Demo.Undiscounted,revised:new(new(2026,10,2),"0")).Rows.Single(r=>Cash(r)&&r.DeliveryFrom==new DateOnly(2026,10,2));
+        Require(zeroed.Settlement==SettlementState.NoAmountDue&&zeroed.Accrued.ToExactString()=="0","An ended day fixed at zero has no amount due, and is not paid.");
 
         var later=Fixture.Utc("2026-11-11T21:00:00Z");var watched=new DatedFactors();
         var due=demo.Value(later,demo.SeptemberPaid(Demo.Close),watched);
@@ -96,6 +98,11 @@ internal static class PhysicalLifecycleChecks
         Equal(fixedValue.OutstandingSettlement,"-1550");Equal(fixedValue.RemainingDeliveryMtm,"343");
 
         // A retained program whose first November day carries twice the contract quantity cannot accrue a month pro rata.
+        // One fixed 3.00 row over Oct 1-Dec 1 across the October and November members: 36 of 61 days ended.
+        var spanning=demo.Term(Demo.Close,[demo.Physical[1],demo.Physical[2]],"3");
+        Equal(spanning.Rows.Single(r=>r.Slot==2).Accrued,"-10800");Equal(spanning.OutstandingSettlement,"-10800");
+        // A November calendar average with Nov 1-9 published and the rest forecast cannot accrue its ended days.
+        Reject("side_due_leg_unresolved",()=>demo.Term(Demo.Close,[demo.Physical[2]],null));
         Reject("physical_lifecycle_quantity",()=>demo.FixedNovember(Demo.Close,d=>new(d.SideId,d.Family,d.EconomicIdentity,d.PricingBindingIdentity,d.SchemaVersion,d.GeneratorVersion,
             d.Rows.Select(r=>r.Key=="gas/0/quantity"?r with{Parameters=r.Parameters.SetItem("numerator","2")}:r).ToArray(),d.Edges,d.Bindings,d.Roots,d.Ports,d.Grids)));
 
@@ -228,15 +235,20 @@ internal static class PhysicalLifecycleChecks
             var member=Instrument.Members[Months+month-9];
             return sources.Evaluate(member.Program,member.SideId,market,Undiscounted);
         }
-        internal PhysicalLifecycleValue FixedNovember(DateTimeOffset at,Func<ScheduleDefinition,ScheduleDefinition>? physical=null)
+        internal PhysicalLifecycleValue FixedNovember(DateTimeOffset at,Func<ScheduleDefinition,ScheduleDefinition>? physical=null)=>Term(at,[Physical[2]],"3.10",physical);
+        // One dated cash row over the whole term of the selected physical members, paid Dec 10.
+        internal PhysicalLifecycleValue Term(DateTimeOffset at,ImmutableArray<PhysicalGasSide> members,string? fixedPrice,Func<ScheduleDefinition,ScheduleDefinition>? physical=null)
         {
-            var november=Physical[2];var quantity=november.GenerateSchedule().Quantities.TotalDelivery;
-            var price=new FixedSide(Guid.NewGuid(),new FlatPrice(new UnitPrice(ExactDecimal.Parse("3.10"),quote)),quote,november.UnitQuantity,
-                [new(november.Quantities.From,november.Quantities.To,Fixture.Utc("2026-12-10T00:00:00Z"),new(System.Numerics.BigInteger.Parse(quantity.Numerator),System.Numerics.BigInteger.Parse(quantity.Denominator)),null)]);
+            var from=members[0].Quantities.From;var to=members[^1].Quantities.To;var count=to.DayNumber-from.DayNumber;var payment=Fixture.Utc("2026-12-10T00:00:00Z");
+            var term=Enumerable.Range(0,days.Length).Where(n=>days[n].DeliveryFrom>=from&&days[n].DeliveryFrom<to).ToArray();
+            Side price=fixedPrice is null?new FloatingSide(Guid.NewGuid(),PriceSettlementSelection.CurveTarget(f.R("index")),quote,members[0].UnitQuantity,
+                    [new(from,to,fixings[term[0]].FixingAt,payment,FloatingAveraging.CalendarDayArithmetic,[..term.Select(n=>new SwapProjection(new(curve.Key,days[n].Key),days[n]))],
+                        [..term.Select(n=>fixings[n])],null,new UnitPrice(default,quote),null,null,new(count,1),FloatingSide.IndexedImplementation)]):
+                new FixedSide(Guid.NewGuid(),new FlatPrice(new UnitPrice(ExactDecimal.Parse(fixedPrice),quote)),quote,members[0].UnitQuantity,[new(from,to,payment,new(count,1),null)]);
             BookedSideProgram Book(Side side)=>BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(side,default,ScheduleLifecycleSelection.StartedPhysicalDelivery));
-            var delivery=ScheduleDefinitionCompiler.Generate(november,default,ScheduleLifecycleSelection.StartedPhysicalDelivery);
-            var instrument=new RetainedGasInstrument(Guid.NewGuid(),[new(november.Id,ExactDecimal.Parse("1"),ExactRatio.One,BookedSideProgram.Compile(physical?.Invoke(delivery)??delivery)),
-                new(price.Id,ExactDecimal.Parse("-1"),ExactRatio.One,Book(price))],november.Assignments);
+            var instrument=new RetainedGasInstrument(Guid.NewGuid(),[..members.Select(m=>{var d=ScheduleDefinitionCompiler.Generate(m,default,ScheduleLifecycleSelection.StartedPhysicalDelivery);
+                    return new RetainedGasMember(m.Id,ExactDecimal.Parse("1"),ExactRatio.One,BookedSideProgram.Compile(physical?.Invoke(d)??d));}),
+                new(price.Id,ExactDecimal.Parse("-1"),ExactRatio.One,Book(price))],[..members.SelectMany(m=>m.Assignments)]);
             var binding=Guid.NewGuid();var trade=new Trade(Guid.NewGuid(),Guid.NewGuid(),[new(binding,instrument,Held)]);
             return Lifecycle(trade,instrument,new(trade.Id,binding,Held,[],PhysicalCashState.Policy),at,Undiscounted,null,null);
         }

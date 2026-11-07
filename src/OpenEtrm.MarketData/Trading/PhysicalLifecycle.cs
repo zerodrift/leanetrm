@@ -41,9 +41,10 @@ public sealed class PhysicalCashState:IBindingValuationState
 }
 
 public enum DeliveryState { NotStarted=1,InProgress,Ended }
-public enum SettlementState { Remaining=1,AccruedUnpaid,PartPaid,Paid,Overpaid }
+public enum SettlementState { Remaining=1,AccruedUnpaid,PartPaid,Paid,Overpaid,NoAmountDue }
 public enum LifecycleMeasure { RemainingDeliveryMtm=1,OutstandingSettlement }
-public sealed record PhysicalLifecycleRow(int Slot,int Occurrence,DateOnly DeliveryFrom,DateOnly DeliveryTo,DeliveryState Delivery,SettlementState Settlement,
+// Settlement is null on physical rows: delivery is not cash and is never settled by a date.
+public sealed record PhysicalLifecycleRow(int Slot,int Occurrence,DateOnly DeliveryFrom,DateOnly DeliveryTo,DeliveryState Delivery,SettlementState? Settlement,
     ExactMoney Accrued,ExactMoney Paid,ExactMoney Outstanding,ExactMoney RemainingPv,ExactMoney OutstandingPv,string QuantityBasis);
 public sealed record PhysicalLifecycleValue(ExactMoney RemainingDeliveryMtm,ExactMoney OutstandingSettlement,ExactMoney Total,ImmutableArray<PhysicalLifecycleRow> Rows);
 
@@ -61,20 +62,22 @@ public static class PhysicalLifecycle
         if(snapshot.Knowledge is null)throw new MarketDataException("payment_state","Payment visibility requires an explicit resolved knowledge cutoff.");
         var at=snapshot.ValuationAt;var zero=ExactMoney.Parse("0",currency);
         var days=new Dictionary<DateOnly,(DateTimeOffset Start,DateTimeOffset End)>();
-        var quantities=new List<Dictionary<DateOnly,ExactQuantity>>();
+        var quantities=new Dictionary<DateOnly,ExactQuantity>();
         foreach(var member in members.Where(m=>m.Physical))
         {
-            var daily=new Dictionary<DateOnly,ExactQuantity>();
+            var seen=new HashSet<DateOnly>();
             foreach(var day in PhysicalDeliverySchedule.ReadLiteralQuantities(member.Program,ExactRatio.One))
             {
-                if(days.TryGetValue(day.OperatingDate,out var known)&&known!=(day.Start,day.End)||!daily.TryAdd(day.OperatingDate,day.Quantity))
+                if(days.TryGetValue(day.OperatingDate,out var known)&&known!=(day.Start,day.End)||!seen.Add(day.OperatingDate))
                     throw Unsupported("Every physical member must share one whole gas-day boundary per operating day.");
                 days[day.OperatingDate]=(day.Start,day.End);
+                quantities[day.OperatingDate]=quantities.TryGetValue(day.OperatingDate,out var sum)?sum.Add(day.Quantity):day.Quantity;
             }
-            quantities.Add(daily);
         }
         DeliveryState Delivery(DateTimeOffset start,DateTimeOffset end)=>end<=at?DeliveryState.Ended:start<=at?DeliveryState.InProgress:DeliveryState.NotStarted;
-        ExactMoney Held(LifecycleMember member,ScheduleValueColumn column)=>member.Held(ExactMoney.FromFraction(column.Values[0].Numerator,column.Values[0].Denominator,currency));
+        ExactMoney Held(LifecycleMember member,ScheduleValueColumn column)=>column.Presence[0]==ScheduleCellPresence.Resolved?
+            member.Held(ExactMoney.FromFraction(column.Values[0].Numerator,column.Values[0].Denominator,currency)):
+            throw Unsupported("A lifecycle amount requires its resolved evaluated value.");
         static void RequireOutside(ScheduleContribution contribution)
         {
             if(contribution.PresentValue.Presence[0]!=ScheduleCellPresence.OutsideMeasure)
@@ -94,7 +97,7 @@ public static class PhysicalLifecycle
                     if(row.Grid is not {} grid||document.Grids[grid].CellCount!=1)throw Unsupported("Physical lifecycle rows require whole gas days.");
                     var interval=document.Grids[grid].Interval(0);var delivery=Delivery(interval.Start,interval.End);
                     if(delivery==DeliveryState.Ended)RequireOutside(contribution);
-                    rows.Add(new(slot,occurrence,interval.OperatingDate,interval.OperatingDate.AddDays(1),delivery,Settle(delivery==DeliveryState.Ended,zero,zero),
+                    rows.Add(new(slot,occurrence,interval.OperatingDate,interval.OperatingDate.AddDays(1),delivery,null,
                         zero,zero,zero,delivery==DeliveryState.Ended?zero:Held(member,contribution.PresentValue),zero,
                         delivery==DeliveryState.Ended?EstimatedQuantity:ContractQuantity));
                     continue;
@@ -103,11 +106,13 @@ public static class PhysicalLifecycle
                     throw Unsupported("Cash lifecycle rows require their retained dated delivery term.");
                 var covered=Enumerable.Range(0,to.DayNumber-from.DayNumber).Select(from.AddDays).ToArray();
                 if(covered.Any(day=>!days.ContainsKey(day)))throw Unsupported("Every cash day requires its retained physical gas day.");
-                if(covered.Length>1&&quantities.Any(daily=>covered.Any(daily.ContainsKey)&&covered.Select(day=>daily.GetValueOrDefault(day)).Distinct().Count()!=1))
+                // Pro rata by day is exact only when the total physical quantity of every covered day is equal.
+                if(covered.Select(day=>quantities[day]).Distinct().Count()!=1)
                     throw new MarketDataException("physical_lifecycle_quantity","Whole-day accrual of a multi-day payment requires equal daily contract quantities.");
                 var ended=covered.Count(day=>days[day].End<=at);var started=covered.Any(day=>days[day].Start<=at);
                 var due=valueAt<=at;
-                if(ended>0&&(contribution.Amount.States[0].Prices&~(SchedulePriceFacts.Fixed|SchedulePriceFacts.Actual|SchedulePriceFacts.PublishedFixing))!=0)
+                var prices=contribution.Amount.States[0].Prices;
+                if(ended>0&&(prices==SchedulePriceFacts.None||(prices&~(SchedulePriceFacts.Fixed|SchedulePriceFacts.Actual|SchedulePriceFacts.PublishedFixing))!=0))
                     throw new MarketDataException("side_due_leg_unresolved","Accrued cash requires its fixed, actual or published price.");
                 if(due&&ended<covered.Length)throw Unsupported("A due payment requires every gas day it covers to have ended.");
                 var amount=Held(member,contribution.Amount);
@@ -126,12 +131,13 @@ public static class PhysicalLifecycle
         var remaining=result.Aggregate(zero,(sum,r)=>sum.Add(r.RemainingPv));var settlement=result.Aggregate(zero,(sum,r)=>sum.Add(r.OutstandingPv));
         return new(remaining,settlement,remaining.Add(settlement),result);
     }
-    // A row with nothing accrued or ended still has value to come; otherwise paid against accrued.
+    // A row with no ended day still has value to come; otherwise visible payments against accrued.
+    // Paid only when visible payments cover a nonzero accrual.
     private static SettlementState Settle(bool accruing,ExactMoney accrued,ExactMoney paid)
     {
         if(!accruing)return SettlementState.Remaining;
         var zero=ExactMoney.Parse("0",accrued.Currency);var sign=accrued.CompareTo(zero);
-        if(paid.CompareTo(zero)==0)return sign==0?SettlementState.Paid:SettlementState.AccruedUnpaid;
+        if(paid.CompareTo(zero)==0)return sign==0?SettlementState.NoAmountDue:SettlementState.AccruedUnpaid;
         return (paid.CompareTo(accrued)*sign) switch{<0=>SettlementState.PartPaid,0=>SettlementState.Paid,_=>SettlementState.Overpaid};
     }
     private static MarketDataException Unsupported(string message)=>new("physical_lifecycle_unsupported",message);
