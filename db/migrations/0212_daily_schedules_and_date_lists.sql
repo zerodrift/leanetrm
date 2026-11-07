@@ -20,6 +20,13 @@ ALTER TABLE market_data.contract_date_versions DROP CONSTRAINT contract_date_ver
 ALTER TABLE market_data.contract_date_versions ADD CONSTRAINT contract_date_versions_engine_version_check CHECK(engine_version IN('contract_dates_v1','date_list_v1'));
 ALTER TABLE market_data.contract_date_contracts ALTER COLUMN cutoff_utc DROP NOT NULL;
 ALTER TABLE market_data.contract_date_fields DROP CONSTRAINT contract_date_fields_role_check;
+-- A thirty-year calendar-day tenor is occurrence 10957, so occurrences take five digits.
+ALTER TABLE market_data.contract_date_fields DROP CONSTRAINT contract_date_fields_check;
+ALTER TABLE market_data.contract_date_fields ADD CONSTRAINT contract_date_fields_check CHECK(
+ (literal_date IS NOT NULL AND isfinite(literal_date) AND literal_date>=DATE '0001-01-01' AND literal_date<DATE '9999-12-31'
+  AND schedule_catalog_id IS NULL AND schedule_id IS NULL AND schedule_version IS NULL AND occurrence IS NULL AND business_days IS NULL)
+ OR(literal_date IS NULL AND schedule_catalog_id IS NOT NULL AND schedule_catalog_id=catalog_id AND schedule_id IS NOT NULL AND schedule_version IS NOT NULL
+  AND occurrence IS NOT NULL AND occurrence BETWEEN 0 AND 99999 AND (business_days IS NULL OR business_days BETWEEN -10000 AND 10000 AND business_days<>0)));
 ALTER TABLE market_data.contract_date_fields ADD CONSTRAINT contract_date_fields_role_check CHECK(role IN('start','end','last_trading','date'));
 -- Publication requires each row's complete field set for its engine: a cutoff and start, end and last trading for contracts;
 -- no cutoff and exactly one date for a date list.

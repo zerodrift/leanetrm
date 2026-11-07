@@ -75,7 +75,7 @@ internal static class ScheduleChecks
         Check("date references parse only the bounded explicit grammar",()=>{
             var p=DateReference.Parse("oe.ng[2] - 3bd");Eq(p.Symbol,"oe.ng");Eq(p.Index,2);Eq(p.BusinessDays,-3);
             Eq(DateReference.Parse("oe.ng1 + 1bd").Index,null);Eq(DateReference.Parse("oe.ng1").BusinessDays,null);
-            foreach(var text in new[]{"oe.ng1+0bd","oe.ng1+10001bd","oe.ng1[99999]","oe.ng1 + 1","oe.ng1 + 1bd junk","today","oe.ng1[-1]"}) Reject("date_expression",()=>DateReference.Parse(text));
+            foreach(var text in new[]{"oe.ng1+0bd","oe.ng1+10001bd","oe.ng1[100000]","oe.ng1 + 1","oe.ng1 + 1bd junk","today","oe.ng1[-1]"}) Reject("date_expression",()=>DateReference.Parse(text));
         });
         return passed;
     }

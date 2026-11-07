@@ -144,11 +144,13 @@ GRANT UPDATE ON market_data.curve_definition_versions TO openetrm_security_owner
 GRANT INSERT ON market_data.curve_definition_knowledge_receipts TO openetrm_security_owner;
 -- Capturing a knowledge context first certifies new curve-definition publications, then runs the earlier capture chain.
 ALTER FUNCTION security.capture_date_context(uuid,date,timestamptz) RENAME TO capture_pre_curve_definitions_context;
-REVOKE ALL ON FUNCTION security.capture_pre_curve_definitions_context(uuid,date,timestamptz) FROM openetrm_runtime;
+REVOKE ALL ON FUNCTION security.capture_pre_curve_definitions_context(uuid,date,timestamptz) FROM openetrm_runtime,openetrm_risk_worker;
 CREATE FUNCTION security.capture_date_context(catalog uuid,effective_date date,requested_at timestamptz) RETURNS uuid
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE row record;last_commit timestamptz;commit_at timestamptz;certified timestamptz;token uuid;
 BEGIN
+ -- The risk worker captures through the earlier chain, as it has since 0117; only runtime captures certify publications.
+ IF pg_has_role(session_user,'openetrm_risk_worker','MEMBER') THEN RETURN security.capture_pre_curve_definitions_context(catalog,effective_date,requested_at);END IF;
  IF NOT security.market_access(catalog,'ReadMarketData') THEN RAISE EXCEPTION 'No current temporal read authority' USING ERRCODE='42501';END IF;
  PERFORM pg_advisory_xact_lock(730849102);
  SELECT certified_through INTO certified FROM market_data.knowledge_clocks WHERE catalog_id=catalog;
@@ -172,5 +174,6 @@ DO $$DECLARE f record;BEGIN
   EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f.signature);
  END LOOP;
 END$$;
+GRANT EXECUTE ON FUNCTION security.capture_date_context(uuid,date,timestamptz) TO openetrm_risk_worker;
 REVOKE ALL ON FUNCTION market_data.guard_curve_definitions() FROM PUBLIC;
 COMMIT;

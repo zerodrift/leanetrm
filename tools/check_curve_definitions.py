@@ -174,4 +174,7 @@ def run_checks(url, query, manifest):
     historical.call('market/context/retained', {'contextId': selected['contextId'], 'selection': 'latest_correction'})
     assert historical.call('curve-definitions/save', {'requestId': str(uuid4()), 'definition': {**rates, 'code': 'usd_zero_historical'},
         'snapshotId': close(historical, '2021-01-15')}, expected=422)['code'] == 'curve_definition_historical'
+    # Risk workers keep capturing through the outer function only; the renamed inner capture is not theirs to call.
+    assert query("SELECT has_function_privilege('openetrm_risk_worker','security.capture_date_context(uuid,date,timestamptz)','EXECUTE'),"
+                 "has_function_privilege('openetrm_risk_worker','security.capture_pre_curve_definitions_context(uuid,date,timestamptz)','EXECUTE');") == 't|f'
     print('PASS curve definitions save, publish and edit with inline tenors, atomically and idempotently')

@@ -68,9 +68,9 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
   }
   const choices=(name:string)=>(catalog?.choices??[]).filter(c=>c.field===name).map(c=>({value:c.code,label:c.label+(c.supported?'':comingSoon),disabled:!c.supported}));
 
-  const list=el('div'),currency=el('p'),rows=el('tbody'),head=el('thead'),add=el('button','Add row'),newer=el('div'),status=el('p');
+  const list=el('div'),currency=el('p'),rows=el('tbody'),head=el('thead'),add=el('button','Add row'),newer=el('div'),stale=el('div'),status=el('p');
   list.id='curve-definition-list';list.className='muted';currency.id='curve-definition-currency';currency.className='field-help';
-  rows.id='curve-definition-rows';add.type='button';add.id='curve-definition-add';add.className='secondary';newer.id='curve-definition-newer';newer.className='profile-note';newer.hidden=true;
+  rows.id='curve-definition-rows';add.type='button';add.id='curve-definition-add';add.className='secondary';newer.id='curve-definition-newer';newer.className='profile-note';newer.hidden=true;stale.id='curve-definition-stale';stale.className='profile-note';stale.hidden=true;
   status.id='curve-definition-status';status.setAttribute('role','status');
   const rowTable=el('table');rowTable.className='contract-date-inputs';rowTable.append(head,rows);const rowScroll=el('div');rowScroll.className='regular-table-scroll';rowScroll.append(rowTable);
   form.append(
@@ -81,7 +81,7 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
       field('rate','Interest-rate specification',el('select'),'Rates are spot zero rates under this specification’s conventions.')),
     section('Quote and delivery',field('quote','Quote · currency and unit',el('select')),field('profile','Delivery profile · time zone and interval',el('select'))),
     section('Contracts or tenors',field('mapping','Date mapping · version',el('select'),'Each row resolves against the close selected above, so the curve rolls with it.'),
-      newer,rowScroll,add,field('count','Number of contracts',input({type:'number',min:'1',step:'1'}))),
+      newer,stale,rowScroll,add,field('count','Number of contracts',input({type:'number',min:'1',step:'1'}))),
     section('Settlement',field('target','Settles to',el('select'))),
     section('Pricing',field('rule','Price rule',el('select')),field('role','Mark role',el('select')),field('source','Mark source',el('select')),
       field('missing','If a contract has no price',el('select')),field('interpolation','Interpolation',el('select'))));
@@ -172,14 +172,22 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
     set('location',d.commodity&&d.location?d.commodity+'|'+d.location:'');set('product',d.futuresProduct);set('rate',d.interestRate);
     set('quote',d.quote);set('profile',d.profile);set('target',d.settlementTarget);set('rule',d.priceRule);set('role',d.markRole);set('source',d.markSource);
     set('missing',d.missingPrice);set('interpolation',d.interpolation);set('count',d.contracts?String(d.contracts.count):'');
-    kindChanged();if(d.contracts)set('mapping',d.contracts.mappingId+'|'+d.contracts.mappingVersion);showRows(selectedMapping());renderList();
+    kindChanged();if(d.contracts)set('mapping',d.contracts.mappingId+'|'+d.contracts.mappingVersion);showRows(selectedMapping());staleRows();renderList();
   }
-  function startNew(){opened=undefined;form.reset();(fields.get('code') as HTMLInputElement).readOnly=false;status.textContent='';clear();kindChanged();renderList();}
+  // The opened draft pinned its mapping draft at one generation; rows changed since then (in Settings) are shown but adopted only on request.
+  function staleRows(){
+    const pinned=opened?.definition.contracts,current=selectedMapping();
+    stale.hidden=!(opened&&pinned&&current?.id===pinned.mappingId&&current.version===pinned.mappingVersion&&current.generation!==opened.mappingGeneration);
+    if(stale.hidden)return;
+    const use=el('button','Use the changed rows');use.type='button';use.className='secondary';use.onclick=()=>{stale.hidden=true;clear();};
+    stale.replaceChildren(el('p',`The rows of ${current!.definition.code} v${current!.version} changed in Settings after this curve was saved. Review them before saving the curve.`),use);
+  }
+  function startNew(){opened=undefined;stale.hidden=true;form.reset();(fields.get('code') as HTMLInputElement).readOnly=false;status.textContent='';clear();kindChanged();renderList();}
   fresh.onclick=()=>{if(!isBusy())startNew();};
   const clear=()=>{shown=undefined;result.hidden=true;};
   form.addEventListener('input',clear);form.addEventListener('change',clear);
   fields.get('kind')!.addEventListener('change',kindChanged);fields.get('rate')!.addEventListener('change',rateTerms);
-  fields.get('mapping')!.addEventListener('change',()=>showRows(selectedMapping()));
+  fields.get('mapping')!.addEventListener('change',()=>{showRows(selectedMapping());stale.hidden=true;});
 
   function draft():Draft{
     const [commodity,location]=value('location').split('|'),mapping=selectedMapping(),rate=isRate();
@@ -220,8 +228,10 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
     await load();const saved=library.definitions.find(d=>d.id===receipt.id&&d.version===receipt.version);if(saved)open(saved);
     status.textContent=`${receipt.state==='published'?'Published':'Saved draft'} · version ${receipt.version}.`;
   }
-  save.onclick=()=>{if(isBusy()||!form.reportValidity())return;void run(()=>command('curve-definitions/save',{definition:draft(),snapshotId:close(),mapping:mappingEdit(),
-    id:opened?.id??null,version:opened?.version??null,generation:opened?.generation??null,expectedState:opened?.state??null}));};
+  save.onclick=()=>{if(isBusy()||!form.reportValidity())return;void run(async()=>{
+    if(!stale.hidden)throw Error('The mapping rows changed after this curve was saved. Review them, then choose to use them before saving.');
+    await command('curve-definitions/save',{definition:draft(),snapshotId:close(),mapping:mappingEdit(),
+    id:opened?.id??null,version:opened?.version??null,generation:opened?.generation??null,expectedState:opened?.state??null});});};
   publish.onclick=()=>{if(isBusy()||!opened)return;const target=opened;void run(()=>command('curve-definitions/publish',{id:target.id,version:target.version,generation:target.generation}));};
   async function load(){
     const started=++generation;

@@ -107,7 +107,7 @@ internal static class DateWorkspaceChecks
         });
         Check("daily schedules only use next-date selection",()=>{
             var draft=days.Definition;
-            ScheduleSaveRequest Save(string selection,MonthlyDraft definition)=>new(null,null,null,definition,selection,"2020-01-01","2040-01-01");
+            ScheduleSaveRequest Save(string selection,MonthlyDraft definition)=>new(null,null,null,definition,selection,"2026-01-01","2031-01-01");
             PublishedSchedules.Validate(Save("on_or_after",draft),"date_schedule_v4",business);
             Reject("schedule_definition",()=>PublishedSchedules.Validate(Save("context_month",draft),"date_schedule_v4",business));
             Reject("schedule_definition",()=>PublishedSchedules.Validate(Save("absolute_index",draft),"date_schedule_v4",business));
@@ -117,6 +117,18 @@ internal static class DateWorkspaceChecks
             Reject("calendar_definition",()=>DateWorkspace.Compile(draft with{Daily=new("calendar","2026-01-01",null)},business));
         });
         Check("resolving past a daily schedule's last date fails",()=>Reject("date_index",()=>At(days,"2030-12-30","oe.days[2]")));
+        Check("a context before a daily schedule's first date is refused, never moved to that first date",()=>{
+            Reject("date_index",()=>At(days with{EffectiveFrom=new(2025,12,1)},"2025-12-15","oe.days[1]"));
+            ScheduleSaveRequest Save(string from,string to)=>new(null,null,null,days.Definition,"on_or_after",from,to);
+            Reject("schedule_definition",()=>PublishedSchedules.Validate(Save("2025-12-01","2027-01-01"),"date_schedule_v4",business));
+            Reject("schedule_definition",()=>PublishedSchedules.Validate(Save("2026-01-01","2031-01-02"),"date_schedule_v4",business));
+            PublishedSchedules.Validate(Save("2026-01-01","2031-01-01"),"date_schedule_v4",business);
+        });
+        Check("a thirty-year calendar-day tenor can be written",()=>{
+            var long_=Daily("oe.days","calendar","2026-01-01","2060-12-31",null);
+            if(At(long_,"2026-11-03","oe.days[10957]")!=new DateOnly(2056,11,2))throw new Exception("A thirty-year tenor must resolve");
+            Reject("date_expression",()=>DateReference.Parse("oe.days[100000]"));
+        });
         Console.WriteLine($"{passed} date workspace checks passed.");
     }
 }

@@ -103,6 +103,12 @@ def run_checks(url, query, manifest, psql, environment):
     viewer.call('date-schedules/contracts/resolve',{**tenor_read,'context':context()},expected=422)
     viewer.call('date-schedules/date-lists/resolve',{**resolution,'context':context()},expected=422)
     viewer.call('date-schedules/date-lists/resolve',{**tenor_read,'context':list_before},expected=422)
+    # A thirty-year calendar-day tenor is stored as its occurrence, beyond four digits.
+    long_days=editor.call('date-schedules/save',{'definition':{'name':'Synthetic long days','symbol':'oe.long_days','daily':{'days':'calendar','firstDate':'2021-01-01','lastDate':'2060-12-31'}},
+        'calendar':None,'selection':'on_or_after','effectiveFrom':'2021-01-01','effectiveTo':'2022-01-01'})
+    approver.call('date-schedules/publish',{k:long_days[k] for k in ('id','version','generation')})
+    editor.call('date-schedules/contracts/save',{'requestId':str(uuid4()),'code':'long_tenors','name':'Synthetic long tenors','context':context(),'contracts':None,
+        'dates':[{'label':'30Y','date':'oe.long_days[10957]'}]})
     later = viewer.call('date-schedules/contracts/resolve', {**resolution,'context':context('2021-02-15')})
     assert later['contracts'][0]['start']=='2021-02-01'
     # A new publication of the symbolic source must not reinterpret this definition.

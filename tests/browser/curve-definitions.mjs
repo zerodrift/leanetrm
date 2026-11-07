@@ -73,6 +73,25 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   "document.querySelector('#curve-definition-newer').textContent");
  await click('#curve-definition-newer button');await wait(idle);
  await check('accepting the offer shows the newer version\'s tenors',"document.querySelectorAll('#curve-definition-rows tr').length===4&&document.querySelector('#curve-definition-newer').hidden");
+ // A mapping draft changed in Settings after the curve pinned it is shown, and adopting it is an explicit choice.
+ await open('browser_zero');await wait(idle);
+ await click('#curve-definition-add');await wait("document.querySelectorAll('#curve-definition-rows tr').length===5");
+ await evaluate(`(()=>{const r=document.querySelectorAll('#curve-definition-rows tr')[4];for(const [f,v] of [['label','10M'],['date','oe.rate_days[300]']]){const n=r.querySelector('[data-field="'+f+'"]');n.value=v;n.dispatchEvent(new Event('input',{bubbles:true}));}})()`);
+ await click('#curve-definition-save');await wait(idle);
+ await check('a curve draft pins its edited tenors',"document.querySelector('#error').hidden&&document.querySelector('#curve-definition-status').textContent.includes('Saved draft')");
+ await evaluate(`(async()=>{const token=(await(await fetch('/api/bootstrap')).json()).csrfToken;
+  const m=(await(await fetch('/api/date-schedules')).json()).contractDefinitions.filter(v=>v.definition.code==='rate_tenors').sort((a,b)=>b.version-a.version)[0];
+  const r=await fetch('/api/date-schedules/contracts/save',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify({requestId:crypto.randomUUID(),
+   code:'rate_tenors',name:'Synthetic rate tenors changed in Settings',context:m.definition.context,contracts:null,dates:m.definition.dates,id:m.id,version:m.version,generation:m.generation,expectedState:m.state})});
+  if(!r.ok)throw Error(await r.text());})()`);
+ await click('#curve-define');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
+ await open('browser_zero');await wait(idle);
+ await check('a mapping draft changed after the curve was saved is shown',"!document.querySelector('#curve-definition-stale').hidden");
+ await click('#curve-definition-save');await wait(idle);
+ await check('saving does not adopt the changed rows unreviewed',"!document.querySelector('#error').hidden&&!document.querySelector('#curve-definition-stale').hidden");
+ await click('#curve-definition-stale button');await click('#curve-definition-save');await wait(idle);
+ await check('reviewed changed rows are adopted on save',"document.querySelector('#error').hidden&&document.querySelector('#curve-definition-stale').hidden&&document.querySelector('#curve-definition-status').textContent.includes('Saved draft')",
+  "({error:document.querySelector('#error').textContent,status:document.querySelector('#curve-definition-status').textContent})");
  await click('#curve-definition-back');await wait(idle);
  // Recorded prices keep their own correction workflow; a rendered curve offers no way to change what defines it.
  await check('rendered curves have no definition edit control',

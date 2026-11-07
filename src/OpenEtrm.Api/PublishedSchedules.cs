@@ -60,9 +60,12 @@ public static class PublishedSchedules
         if(request.Definition is null)throw Error("schedule_definition","Supply an explicit schedule definition.");
         var compiled=Compile(request.Definition,engineVersion,calendar);
         DateOccurrences.ValidateSelection(compiled.Dates,request.Selection!);
-        if(!DateWorkspace.SelectionRules.Any(r=>r.Code==request.Selection) || engineVersion=="date_schedule_v4"&&request.Selection!="on_or_after" ||
-            DateWorkspace.Date(request.EffectiveFrom)>=DateWorkspace.Date(request.EffectiveTo))
+        if(!DateWorkspace.SelectionRules.Any(r=>r.Code==request.Selection) || DateWorkspace.Date(request.EffectiveFrom)>=DateWorkspace.Date(request.EffectiveTo))
             throw Error("schedule_definition","Choose an occurrence selection rule and nonempty effective interval.");
+        // A daily rule's [0] is the context date itself, so every context it applies to lies within its generated days.
+        if(engineVersion=="date_schedule_v4"&&(request.Selection!="on_or_after"||DateWorkspace.Date(request.EffectiveFrom)<DateWorkspace.Date(request.Definition.Daily!.FirstDate)||
+            DateWorkspace.Date(request.EffectiveTo)>DateWorkspace.Date(request.Definition.Daily.LastDate).AddDays(1)))
+            throw Error("schedule_definition","A daily schedule selects the next date on or after the context, and applies only within its first and last dates.");
     }
     public static DateReceipt Resolve(IEnumerable<ScheduleVersion> versions,string? expression,ScheduleContext? context)=>
         new PublishedScheduleResolver(versions,context).Resolve(expression);
