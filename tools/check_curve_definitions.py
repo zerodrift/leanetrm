@@ -184,3 +184,34 @@ def run_checks(url, query, manifest):
     assert query("SELECT has_function_privilege('openetrm_risk_worker','security.capture_date_context(uuid,date,timestamptz)','EXECUTE'),"
                  "has_function_privilege('openetrm_risk_worker','security.capture_pre_curve_definitions_context(uuid,date,timestamptz)','EXECUTE');") == 't|f'
     print('PASS curve definitions save, publish and edit with inline tenors, atomically and idempotently')
+
+    # D359: admitting a published rate definition into a draft definition revision creates one series per tenor label.
+    def draft_revision():
+        revision = str(uuid4())
+        query(f"INSERT INTO market_data.revisions VALUES('{cat}','{revision}','{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}','draft',0);")
+        return revision
+    def tenors_of(revision):
+        return json.loads(query(f"""SELECT json_agg(json_build_array(t.label,t.series_id,s.value_specification_code) ORDER BY t.ordinal)
+            FROM market_data.rate_curve_tenors t JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.id)=(t.catalog_id,t.revision_id,t.series_id)
+            WHERE t.catalog_id='{cat}' AND t.revision_id='{revision}';"""))
+    first_revision = draft_revision()
+    admit = {'requestId': str(uuid4()), 'revisionId': first_revision, 'definitionId': saved['id'], 'version': 1, 'valueSpecification': 'test_zero_rate_percent'}
+    viewer.call('curve-definitions/admit', admit, expected=403)
+    assert editor.call('curve-definitions/admit', {**admit, 'requestId': str(uuid4()), 'valueSpecification': 'test_zero_rate'},
+                       expected=422)['code'] == 'rate_admission', 'A decimal-range specification admitted a percent curve'
+    admitted = editor.call('curve-definitions/admit', admit)
+    assert [t['label'] for t in admitted['tenors']] == ['1D', '3M'], admitted
+    assert editor.call('curve-definitions/admit', admit) == admitted, 'A retried admission returned a different receipt'
+    assert editor.call('curve-definitions/admit', {**admit, 'version': 2}, expected=409)['code'] == 'rate_admission_conflict'
+    first = tenors_of(first_revision)
+    assert [(label, spec) for label, _, spec in first] == [('1D', 'test_zero_rate_percent'), ('3M', 'test_zero_rate_percent')], first
+    # A later revision reuses each label's series; a new version's added label gets a new series.
+    second_revision = draft_revision()
+    editor.call('curve-definitions/admit', {**admit, 'requestId': str(uuid4()), 'revisionId': second_revision, 'version': 2})
+    second = tenors_of(second_revision)
+    assert [label for label, _, _ in second] == ['1D', '3M', '6M'] and second[:2] == first and second[2][1] not in {s for _, s, _ in first}, second
+    # Only a published version is admitted.
+    pending = save(edit(final, 'published', definition={**rates, 'name': 'Pending', 'contracts': {**rates['contracts'], 'mappingVersion': 2, 'count': 3}}))
+    assert editor.call('curve-definitions/admit', {**admit, 'requestId': str(uuid4()), 'revisionId': draft_revision(), 'version': pending['version']},
+                       expected=422)['code'] == 'rate_admission'
+    print('PASS published rate definitions admit one stable series per tenor, idempotently and with the unit range')

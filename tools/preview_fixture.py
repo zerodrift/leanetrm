@@ -177,6 +177,7 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
     mappings=[('base_forward',2,'future',1,'bridge_basis'),('local_gas',3,'base_forward',2,'gas_basis'),
               ('hub_power',4,'local_gas',3,'power_spread'),('local_power',5,'hub_power',4,'power_basis')]
     extra_ref.append(f"INSERT INTO ref_data.value_specifications VALUES ({R},'test_zero_rate','dimensionless',NULL,NULL,-0.1,1);")
+    extra_ref.append(f"INSERT INTO ref_data.value_specifications VALUES ({R},'test_zero_rate_percent','dimensionless',NULL,NULL,-10,100);")
     extra_market.append(f"INSERT INTO market_data.rate_curves VALUES ({M},'interest_rates',{R},'test_interest','fixture','valuation_utc_date');")
     for ordinal,maturity in enumerate(rate_dates if date_plan is not None else ['2021-01-18','2021-06-18','2021-12-18']):
         sid=identity('9',800+ordinal)

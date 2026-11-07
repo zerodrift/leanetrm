@@ -52,18 +52,21 @@ public static class RateCurveMath
         _ => throw Unsupported(markUnit),
     };
 
-    // A mark in its declared unit becomes a decimal annual rate. Each unit has its own explicit range.
+    // Each mark unit's explicit range; a tenor series' value specification must state exactly this range.
+    public static (ExactDecimal Minimum, ExactDecimal Maximum) MarkRange(string markUnit) => markUnit switch
+    {
+        "percent_per_year" => (ExactDecimal.Parse("-10"), ExactDecimal.Parse("100")),
+        "decimal_per_year" => (ExactDecimal.Parse("-0.1"), ExactDecimal.Parse("1")),
+        _ => throw Unsupported(markUnit),
+    };
+
+    // A mark in its declared unit becomes a decimal annual rate.
     public static ExactDecimal DecimalRate(ExactDecimal mark, string markUnit)
     {
-        var (low, high, scale) = markUnit switch
-        {
-            "percent_per_year" => ("-10", "100", "0.01"),
-            "decimal_per_year" => ("-0.1", "1", "1"),
-            _ => throw Unsupported(markUnit),
-        };
-        if (mark.CompareTo(ExactDecimal.Parse(low)) < 0 || mark.CompareTo(ExactDecimal.Parse(high)) > 0)
+        var (low, high) = MarkRange(markUnit);
+        if (mark.CompareTo(low) < 0 || mark.CompareTo(high) > 0)
             throw new MarketDataException("rate_domain", $"A {MarkUnitLabel(markUnit)} mark must lie from {low} to {high}.");
-        return mark * ExactDecimal.Parse(scale);
+        return mark * ExactDecimal.Parse(markUnit == "percent_per_year" ? "0.01" : "1");
     }
 
     public static ExactDecimal Factor(ExactDecimal decimalRate, int days, RateConventionSet c) =>
