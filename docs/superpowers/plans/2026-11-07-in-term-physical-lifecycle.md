@@ -287,14 +287,14 @@ Note: the load is not owner-only as first planned; D359 records the dedicated lo
   Resolve findings before any publication.
 - [ ] **Step 4: Commit**: `git commit -s -m "Record D359 in-term physical delivery lifecycle"`.
 
-### Task 8: Pilot release and seed (operational; each step needs the owner's approval in chat)
+### Task 8: Operational release and seed
 
-Not repository work: no files in this repo, and the scripts stay in `~/openetrm-private/`.
+Not repository work: the operational release and seed run outside this repository, each step owner-approved.
 
-- [ ] **Step 1:** With the owner's approval to read the pilot, verify the spec's prerequisites: published HHD/H futures, OTC basis and combined curves; the PZL assignment; the 09:00 Central gas-day clock; fixings coverage; the discount curve at the Nov 6 close; the schema head.
-- [ ] **Step 2:** Build the 0215 schema-window package from the latest one (memory: hosted-pilot schema release), rehearse it on the thorp twin, then run the window with approval.
-- [ ] **Step 3:** Seed on the twin first, then the pilot:
+- [ ] **Step 1:** Verify the spec's market prerequisites on the target environment: the published curves, the location assignment, the gas-day clock, fixings coverage, the discount curve at the close and the schema head.
+- [ ] **Step 2:** Release migration 0215 through the environment's schema-release procedure, rehearsed before it runs.
+- [ ] **Step 3:** Seed:
   - synthetic fixings;
-  - `admin-load-gas-in-term` with the spec's trade;
+  - `--admin-load-gas-in-term` with the spec's trade;
   - `security.record_gas_cash_payment` for September, effective Oct 10.
   Rerun the seed to prove it changes nothing. Check the Blotter and inspector at the latest close against an independent recompute.

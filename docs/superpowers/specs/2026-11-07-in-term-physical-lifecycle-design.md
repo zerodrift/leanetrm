@@ -121,9 +121,11 @@ matching these illustrative amounts.
    Unpaid cash past its due date stays at nominal under the existing explicit
    policy. Fully paid occurrences stay in history with zero outstanding.
 6. **Separate measures.** The trade reports remaining delivery MTM and
-   outstanding settlement (PV, discounted to each payment date) separately, plus
-   their labelled sum. Expected cash flows by due date are shown undiscounted and
-   are not added to either. Nothing is labelled trading P&L.
+   outstanding settlement separately, plus their labelled sum. Gas compositions
+   select no discounting, so both are undiscounted and labelled so; discounting
+   outstanding cash to each payment date is later work (D359). Expected cash
+   flows by due date are shown undiscounted and are not added to either. Nothing
+   is labelled trading P&L.
 7. **Side schedules show the states.** The existing Side inspector shows, per
    row: delivery state (ended, in progress, not started); quantity and its basis;
    price state and source (fixed with its publication, or forecast with its curve
@@ -243,11 +245,14 @@ These were settled by the designer, not the owner, after the builder check:
 - **The payment occurrence is the gas day.** `GasIndexedCash` already generates
   one cash period per gas day. A recorded payment is one cash record with
   per-gas-day allocations, each linked by foreign key to the trade revision,
-  binding, cash membership and retained occurrence. Each allocation must not
-  exceed that day's accrued amount and must keep its direction. Allocating to a
-  day that has not ended or has no visible fixing refuses: there is no
-  prepayment in this policy. If a later fixing revision lowers an accrual below
-  what was paid, the row shows an explicit overpaid state rather than refusing.
+  binding, cash membership and retained occurrence. Each allocation must keep its
+  direction. Allocating to a day that has not ended refuses: there is no
+  prepayment in this policy. There is no recording-time cap: accruals are derived
+  at read time, so the database cannot know a day's accrued amount when a payment
+  is recorded. Cash paid beyond the accrued amount, whether over-allocated or left
+  above a fixing revision that lowered the accrual, reads as an explicit overpaid
+  state, visible rather than refused. A recording-time cap belongs with a payment
+  recording operation, later.
 - **Physical marks after publication.** At the November 6 close, the mixed
   location curve must still carry a point for the Nov 6 gas day and one
   weekend interval covering Nov 7–9 (the containing-interval lookup selects

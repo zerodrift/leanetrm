@@ -3355,11 +3355,11 @@ programs; migration 0215 admits the lifecycles only for new gas writes.
 
 **What is built, and where it departs from the design.**
 
-- The physical leg of a fixed-but-undelivered gas day keeps the existing price
-  lookup, which resolves that day's published index observation. The design's
-  call that it never reads the payment fixing is superseded: changing the lookup
-  would alter existing valuations. A fixed price still locks the payment price
-  only.
+- The physical leg of a fixed-but-undelivered gas day follows the location's
+  configured price lookup, as before this branch; there is no separate rule for a
+  day whose index has published. The design's call that it never reads the
+  payment fixing is superseded: changing the lookup would alter existing
+  valuations. A fixed price still locks the payment price only.
 - Gas compositions keep their explicit `discounting: false`. Remaining and
   outstanding measures are therefore undiscounted, are labelled
   `discounting: "undiscounted"` in the API and shown so in the UI, and are never
@@ -3367,18 +3367,26 @@ programs; migration 0215 admits the lifecycles only for new gas writes.
   work.
 - Physical rows carry no settlement (`NotApplicable`); only cash rows settle. An
   ended cash row with zero accrued reads `NoAmountDue` rather than inferring Paid.
-  A payment above the accrued amount reads Overpaid (accrued -290 less paid -300
-  leaves +10 on the pay leg).
+  Cash paid beyond the accrued amount reads Overpaid, visible rather than
+  refused (accrued -290 less paid -300 leaves +10 on the pay leg).
 - Accruals are derived at read time from the published fixing visible at the
   knowledge cutoff; no accrual row, worker or daily command exists. A fixing
   correction is a new revision seen under its knowledge time. Accrual needs a
   resolved, priced cash row; estimated prices are refused for due accrued cash.
+- A started-delivery program valued without its lifecycle state would drop its
+  ended days and due cash, so once its first gas day has started (or its cash is
+  due) it refuses with `gas_delivery_lifecycle`. The ticket's preview, price
+  lookup and booking therefore refuse a started draft before staging anything;
+  the in-term load values its draft with an empty payment state. A missing
+  lifecycle state or knowledge cutoff is a wiring defect,
+  `physical_lifecycle_context`, which fails the read rather than one trade's row.
 - A payment is recorded per gas-day occurrence, linked by foreign key to the
   exact trade revision, binding, membership and occurrence, in
   `trading.gas_cash_payments`, `trading.gas_cash_payment_allocations` and
   `trading.gas_cash_payment_commands`. `paid_at` is business time and knowledge
-  time is real. An allocation may not exceed the day's accrued amount, keeps its
-  direction, and may not target a day that has not ended (no prepayment). A retry
+  time is real. An allocation keeps its direction and may not target a day that
+  has not ended (no prepayment). There is no recording-time cap: accruals are
+  derived at read time, so the database cannot know the accrued amount. A retry
   with the same request identity returns its first outcome; a different value for
   the same business key is a new revision. The recording function is executable
   by the runtime login; no payment API or screen exists.
@@ -3390,10 +3398,16 @@ programs; migration 0215 admits the lifecycles only for new gas writes.
   load. It runs through the CLI `--admin-load-gas-in-term CONFIG REQUEST` with
   private files, names a recorded close for market inputs, and records the named
   administrator as actor. That identity must be an existing enabled identity with
-  the authority a ticket booking requires (booking and its reads); the loader
-  login is the administrative gate. A stricter three-login split is later
-  hardening.
-- Payments and accruals are selected by business time and knowledge cutoff.
+  the authority a ticket booking requires; `BookTrade`, `ReadTrades` and
+  `ReadMarketData` are each checked before the close is read and refused under
+  their own codes. The loader login is the administrative gate. A stricter
+  three-login split is later hardening.
+- A payment revision is visible by knowledge cutoff alone; of the visible
+  revisions of each business key the latest known receipt applies
+  (`latest_known_receipt_v1`), and it counts as paid only from its `paid_at` at
+  the view's business time. A revision that moves `paid_at` later is therefore
+  unpaid before that instant; its earlier revision never shows instead.
+  Accruals are selected by business time and knowledge cutoff.
   Retained risk invokes the same Instrument PV under shared scenarios; accrued
   amounts do not respond to price shocks. No commodity-specific shock handling
   was added.
@@ -3409,15 +3423,13 @@ gas (inventory, resale, consumption); netting; a placeholder for crude or LNG.
 **Remaining work.** The allocated-quantity accrual basis; invoices and true-ups;
 cash and P&L reconciliation; crude and LNG adapters; business-day payment-date
 adjustment (the next-month convention does not adjust for weekends); payment-date
-discounting for compositions; a payment recording API and screen; the stricter
-loader login split. Deferred review items worth tracking: refusal codes in the
-load can name the wrong cause when authority checks overlap; a payment revision
-moving `paid_at` later is hidden by row-level security before the new date;
-payment revisions resolve by revision order rather than an explicit knowledge-time
-policy; the payment fact includes the trade revision; lifecycle selection is
-decided at two call sites; the held-amount mapping is duplicated; the risk measure
-code `gas_contractual_present_value` is unchanged while its Blotter label
-changed; the inspector values the whole instrument per slot request; and a fixing
-corrected to exactly zero after full payment refuses instead of reading Overpaid.
+discounting for compositions; a payment recording API and screen, with a
+recording-time over-allocation cap; the stricter loader login split. Deferred
+review items worth tracking: the payment fact includes the trade revision;
+lifecycle selection is decided at two call sites; the held-amount mapping is
+duplicated; the risk measure code `gas_contractual_present_value` is unchanged
+while its Blotter label changed; the inspector values the whole instrument per
+slot request; and a fixing corrected to exactly zero after full payment refuses
+instead of reading Overpaid.
 
-Local verification on 2026-11-07: `python3 tools/check_all.py --group trading` passed, with 3577 PASS lines, 716 owned browser checks over 20 browser runs and 1476 web unit tests.
+Local verification on 2026-11-07: `python3 tools/check_all.py --group trading` passed, with 3578 PASS lines, 716 owned browser checks over 20 browser runs and 1476 web unit tests.
