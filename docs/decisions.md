@@ -3419,3 +3419,5 @@ decided at two call sites; the held-amount mapping is duplicated; the risk measu
 code `gas_contractual_present_value` is unchanged while its Blotter label
 changed; the inspector values the whole instrument per slot request; and a fixing
 corrected to exactly zero after full payment refuses instead of reading Overpaid.
+
+Local verification on 2026-11-07: `python3 tools/check_all.py --group trading` passed, with 3577 PASS lines, 716 owned browser checks over 20 browser runs and 1476 web unit tests.
