@@ -66,7 +66,7 @@ public static class MarketDates
             foreach(var code in rateCodes.Where(code=>request.Curve is null||request.Curve==code).Order(StringComparer.Ordinal))
             {
                 // A curve whose date list cannot load here is unavailable on every date; it does not fail the others.
-                try{if(await RateCurveResolver.Load(connection,data,frames[0],code,ct) is {} source)rateSources[code]=source;}
+                try{rateSources[code]=await RateCurveResolver.Load(connection,data,frames[0],code,ct);}
                 catch(Exception error) when(error is MarketDataException or TemporalException){}
             }
         if(request.Definition is {} definition)
@@ -273,7 +273,8 @@ public static class MarketDates
     {
         if(data.IsRateCurve(code))
         {
-            if(data.BuildRates(frame,RateCurveResolver.At(data,frame,code,rateSources.GetValueOrDefault(code))).Values.IsEmpty)throw new MarketDataException("market_data_unavailable","This exact snapshot has no rate points.");
+            if(data.BuildRates(frame,RateCurveResolver.At(data,frame,code,rateSources.GetValueOrDefault(code)??
+                throw new MarketDataException("rate_definition","This rate curve's date list is unavailable in this view."))).Values.IsEmpty)throw new MarketDataException("market_data_unavailable","This exact snapshot has no rate points.");
         }
         else if(data.Build(frame,code).Values.IsEmpty)throw new MarketDataException("market_data_unavailable","This exact snapshot has no live curve points.");
     }

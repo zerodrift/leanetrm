@@ -10,7 +10,7 @@ internal static class RatesCurveChecks
         ReferenceKey R(string code)=>new(refs,code);
         var at=new DateTimeOffset(2030,1,1,0,0,0,TimeSpan.Zero);var date=new DateOnly(2030,1,1);
         var a=new SeriesKey(revision,Guid.NewGuid());var b=new SeriesKey(revision,Guid.NewGuid());
-        var definition=new RateCurveDefinition(new(revision,"rates"),R("ccy"),R("source"),RateConventionSet.Parse("actual_365_fixed","simple","log_linear_discount","none","decimal_per_year"),[new("10D",a,date.AddDays(10)),new("20D",b,date.AddDays(20))]);
+        var definition=new RateCurveDefinition(new(revision,"rates"),R("ccy"),R("source"),RateConventionSet.Parse("actual_365_fixed","simple","log_linear_discount","none","decimal_per_year"),[new("10D",a,date.AddDays(10)),new("20D",b,date.AddDays(20))],Guid.NewGuid(),1);
         MarketObservation Observation(SeriesKey series,string rate)=>new(new(revision.CatalogId,Guid.NewGuid()),series,R("source"),ObservationRole.Parameter,PublicationState.Final,at,ExactDecimal.Parse(rate));
         var snapshot=new MarketSnapshot(Guid.NewGuid(),revision,at,at,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,
             [new(new(a,InputUse.Variable),Observation(a,"0")),new(new(b,InputUse.Variable),Observation(b,"0.73"))]);
@@ -30,7 +30,7 @@ internal static class RatesCurveChecks
 
         // D359: a payment discounts from a definition's own conventions; the factor is an independent 50-digit oracle.
         var continuous=RateConventionSet.Parse("actual_365_fixed","continuous","log_linear_discount","flat_forward","percent_per_year");
-        var rolling=new RateCurveDefinition(new(revision,"usd_rolling"),R("usd"),R("source"),continuous,[new("1Y",a,date.AddDays(365)),new("2Y",b,date.AddDays(730))]);
+        var rolling=new RateCurveDefinition(new(revision,"usd_rolling"),R("usd"),R("source"),continuous,[new("1Y",a,date.AddDays(365)),new("2Y",b,date.AddDays(730))],Guid.NewGuid(),1);
         var marks=snapshot with{Selections=[new(new(a,InputUse.Variable),Observation(a,"4.30")),new(new(b,InputUse.Variable),Observation(b,"4.10"))]};
         var mapping=new CurrencyDiscountCurve(Guid.NewGuid(),R("usd"),rolling);
         var payment=PaymentDiscount.Resolve(true,R("usd"),date.AddDays(500),marks,mapping);

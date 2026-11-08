@@ -24,7 +24,7 @@ internal static class DiscountLookupChecks
         var snapshot = new MarketSnapshot(Guid.NewGuid(), revision, at, at,
             InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering, observations);
         var definition = new RateCurveDefinition(new(revision, "discount"), R("USD"), R("source"), RateConventionSet.Parse("actual_365_fixed","simple","log_linear_discount","none","decimal_per_year"),
-            series.Select((s, i) => new RateTenor($"{i + 1}Y", s, dates[i])).ToImmutableArray());
+            series.Select((s, i) => new RateTenor($"{i + 1}Y", s, dates[i])).ToImmutableArray(),Guid.NewGuid(),1);
         var mapping = new CurrencyDiscountCurve(Guid.NewGuid(), R("USD"), definition);
         var quote = new QuoteSpecification(R("quote"), QuoteKind.Outright, R("USD"), R("energy"),
             ExactDecimal.Parse("1"), ExactDecimal.Parse("0.01"), ExactDecimal.Parse("0.01"),
@@ -86,7 +86,7 @@ internal static class DiscountLookupChecks
         {
             Reject("rate_observation", () => new CurrencyDefaultDiscounting([Schedule(dates[0])], snapshot with
             { Selections = observations.SetItem(2, observations[2] with { Observation = observations[2].Observation with { Source = R("other") } }) }, true, mapping));
-            Reject("rate_mark", () => new CurrencyDefaultDiscounting([Schedule(dates[0])], snapshot with { Selections = observations.RemoveAt(2) }, true, mapping));
+            Reject("missing_observation", () => new CurrencyDefaultDiscounting([Schedule(dates[0])], snapshot with { Selections = observations.RemoveAt(2) }, true, mapping));
         });
         Check("new scenarios sharing a snapshot id do not reuse earlier rate values", () =>
         {

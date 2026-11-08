@@ -116,7 +116,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
     public static readonly string[] ReferenceTables = [..ReferenceKeys.Select(r=>r.Table)];
     private static readonly (string Table,string Key)[] DefinitionTables = [("revisions","id"), ("contracts","id"), ("curves","code"), ("series","id"),
         ("curve_members","curve_code,contract_id"), ("curve_inputs","curve_code,slot"), ("constituent_mappings","curve_code,slot,target_contract_id"),
-        ("rate_curves","code"), ("rate_curve_points","curve_code,maturity"), ("rate_curve_tenors","curve_code,ordinal"), ("revision_periods","revision_id"),
+        ("rate_curves","code"), ("rate_curve_tenors","curve_code,ordinal"), ("revision_periods","revision_id"),
         ("index_fixing_observations","index_code,observation_from,observation_to"), ("contract_intervals","contract_id"),
         ("curve_blocks","curve_code"), ("shaped_curves","code"), ("shaped_curve_blocks","shaped_curve_code,block_curve_code"),
         ("curve_expiry_rules","curve_code"), ("generation_assets","code"), ("generation_asset_versions","asset_code,effective_from"),
@@ -799,7 +799,7 @@ public sealed class PreviewData
             ("units","code"),("currencies","code"),("commodities","code"),("exchanges","code"),("sources","code"),("interest_rate_definitions","code"),
             ("delivery_profiles","code"),("clock_rules","code")]);
         definitionRows=IndexRows(Definitions,[("curves","code"),("curve_members","curve_code"),
-            ("curve_inputs","curve_code"),("rate_curves","code"),("rate_curve_points","curve_code"),("rate_curve_tenors","curve_code"),
+            ("curve_inputs","curve_code"),("rate_curves","code"),("rate_curve_tenors","curve_code"),
             ("curve_blocks","curve_code"),("shaped_curves","code"),("shaped_curve_blocks","shaped_curve_code")]);
         contractDefinitions=Definitions["contracts"].ToLookup(row=>row.Id("id"));
         quotedSeriesRows=Definitions["series"].ToLookup(row=>(row.OptionalId("contract_id"),row.OptionalText("quote_code")));
@@ -1007,44 +1007,28 @@ public sealed class PreviewData
         }
         return Model.Build(Snapshot(frame),requests.ToImmutable());
     }
-    // Until the literal-maturity cutover (D359), a literal curve is a definition whose tenors are its stored dated samples,
-    // labelled by maturity, under the one convention those samples were recorded in.
-    static readonly RateConventionSet LiteralRateConventions=RateConventionSet.Parse("actual_365_fixed","simple","log_linear_discount","none","decimal_per_year");
-    // An admitted rate curve's pinned date list (D359), or none for a literal curve.
-    public (Guid Mapping,int Version)? RateDateList(string code)
+    // A rate curve's pinned date list (D359): its tenors' maturities resolve from it at each close.
+    public (Guid Mapping,int Version) RateDateList(string code)
     {
         var curve=Single(DefinitionRows("rate_curves","code",code));
-        return curve.OptionalId("definition_id") is null?null:(curve.Id("mapping_definition_id"),int.Parse(curve.Text("mapping_version"),System.Globalization.CultureInfo.InvariantCulture));
+        return (curve.Id("mapping_definition_id"),int.Parse(curve.Text("mapping_version"),System.Globalization.CultureInfo.InvariantCulture));
     }
     // A rate curve at one close. An admitted curve's tenors take the maturities its date list resolves to there, by label.
-    public RateCurveDefinition RateDefinition(string code,IReadOnlyDictionary<string,DateOnly>? maturities)
+    public RateCurveDefinition RateDefinition(string code,IReadOnlyDictionary<string,DateOnly> maturities)
     {
         var curve=Single(DefinitionRows("rate_curves","code",code));
-        if(curve.OptionalId("definition_id") is {} definition)
-        {
-            if(maturities is null)throw new MarketDataException("rate_definition","Resolve this curve's tenors at the close first.");
-            var rows=DefinitionRows("rate_curve_tenors","curve_code",code).OrderBy(t=>t.GetProperty("ordinal").GetInt32()).ToArray();
-            if(rows.Length!=maturities.Count)throw new MarketDataException("rate_definition","The curve's tenors and its date list's labels differ.");
-            var tenors=rows.Select(t=>new RateTenor(t.Text("label"),S(t.Id("series_id")),maturities.TryGetValue(t.Text("label"),out var date)?date:
-                throw new MarketDataException("rate_definition",$"Tenor '{t.Text("label")}' is not in the curve's date list."))).ToImmutableArray();
-            return new(new(revision,code),R(curve.Text("currency_code")),R(curve.Text("source_code")),
-                RateConventionSet.Parse(curve.Text("day_count"),curve.Text("compounding"),curve.Text("interpolation"),curve.Text("extrapolation"),curve.Text("mark_unit")),
-                tenors,definition,int.Parse(curve.Text("definition_version"),System.Globalization.CultureInfo.InvariantCulture));
-        }
-        var specification=Single(ReferenceRows("interest_rate_definitions","code",curve.Text("interest_rate_code")));
-        var pillars=DefinitionRows("rate_curve_points","curve_code",code).OrderBy(p=>p.GetProperty("ordinal").GetInt32()).Select(p=>
-        {
-            var maturity=DateOnly.ParseExact(p.Text("maturity"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture);
-            return new RateTenor(p.Text("maturity"),S(p.Id("series_id")),maturity);
-        }).ToImmutableArray();
-        return new(new(revision,code),R(specification.Text("currency_code")),R(curve.Text("source_code")),LiteralRateConventions,pillars);
+        var rows=DefinitionRows("rate_curve_tenors","curve_code",code).OrderBy(t=>t.GetProperty("ordinal").GetInt32()).ToArray();
+        if(rows.Length!=maturities.Count)throw new MarketDataException("rate_definition","The curve's tenors and its date list's labels differ.");
+        var tenors=rows.Select(t=>new RateTenor(t.Text("label"),S(t.Id("series_id")),maturities.TryGetValue(t.Text("label"),out var date)?date:
+            throw new MarketDataException("rate_definition",$"Tenor '{t.Text("label")}' is not in the curve's date list."))).ToImmutableArray();
+        return new(new(revision,code),R(curve.Text("currency_code")),R(curve.Text("source_code")),
+            RateConventionSet.Parse(curve.Text("day_count"),curve.Text("compounding"),curve.Text("interpolation"),curve.Text("extrapolation"),curve.Text("mark_unit")),
+            tenors,curve.Id("definition_id"),int.Parse(curve.Text("definition_version"),System.Globalization.CultureInfo.InvariantCulture));
     }
     public ZeroRateBuild BuildRates(InputFrame frame,RateCurveDefinition definition) => new ZeroRateCurve(definition).Build(Snapshot(frame));
     public bool IsRateCurve(string code)=>DefinitionRows("rate_curves","code",code).Any();
     // Every rate curve's tenor series, without resolving maturities: history follows a tenor's own series across closes.
-    ImmutableArray<Guid> RateSeries(string code)=>RateDateList(code) is null
-        ?[..DefinitionRows("rate_curve_points","curve_code",code).Select(p=>p.Id("series_id"))]
-        :[..DefinitionRows("rate_curve_tenors","curve_code",code).Select(t=>t.Id("series_id"))];
+    ImmutableArray<Guid> RateSeries(string code)=>[..DefinitionRows("rate_curve_tenors","curve_code",code).Select(t=>t.Id("series_id"))];
     internal ImmutableArray<Guid> HistorySeries(string code,Guid? contract,Guid? series)
     {
         if(IsRateCurve(code))
@@ -1074,7 +1058,7 @@ public sealed class PreviewData
             if(!RateSeries(code).Contains(series.Value))throw new MarketDataException("missing_rate_point","Rate sample does not belong to this curve.");
             // A tenor's history is its own mark at each close, in the curve's mark unit.
             var mark=Snapshot(frame).Selections.SingleOrDefault(s=>s.Input.Series.Id==series&&s.Input.Use==InputUse.Variable)?.Observation
-                ??throw new MarketDataException("rate_mark","This tenor has no mark at this close.");
+                ??throw new MarketDataException("missing_observation","This tenor has no mark at this close.");
             return (mark.Value.ToString(),[mark.Key.Id]);
         }
         if(series is not null||contract is null)throw new MarketDataException("history_request","Select an exact market contract.");
@@ -1102,7 +1086,7 @@ public sealed class PreviewData
             return new {kind="rates",snapshotId=frame.Id,frame.Name,at=frame.At,curve=code,referenceDate=rates.ReferenceDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),currency=rates.Currency.Code,numericalPolicy=rates.NumericalPolicy,
                 convention=new {dayCount=RateChoiceLabel("dayCount",rates.Conventions.DayCount),compounding=RateChoiceLabel("compounding",rates.Conventions.Compounding),
                     interpolation=RateChoiceLabel("interpolation",rates.Conventions.Interpolation),extrapolation=RateChoiceLabel("extrapolation",rates.Conventions.Extrapolation)},
-                markUnitLabel=rates.MarkUnitLabel,definition=definition.DefinitionId is {} id?new{id,version=definition.DefinitionVersion}:null,
+                markUnitLabel=rates.MarkUnitLabel,definition=new{id=definition.DefinitionId,version=definition.DefinitionVersion},
                 summary=RateSummary(rates),
                 points=rates.Values.Select(p=>new {seriesId=p.Series.Id,label=p.Label,maturity=p.Maturity.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),mark=p.Mark,value=p.Mark,discountFactor=p.DiscountFactor,displayDiscountFactor=p.DisplayDiscountFactor,actualDays=p.Days,lineage=new[]{p.Observation.Id}}).ToArray()};
         }

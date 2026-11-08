@@ -3,6 +3,7 @@ import json
 from decimal import Decimal
 from datetime import datetime, timezone
 from preview_fixture import TENANT, WORKSPACE, security_fixture
+from rate_curve_fixture import dated_curve
 
 
 # Synthetic display names; every exported curve must have exactly one.
@@ -74,12 +75,12 @@ def fixture(export_path):
             for mapping in source['mappings']:
                 m('constituent_mappings',(c['code'],source['slot'],mapping['target'],source['source'],mapping['source']))
     for s in data['series']:m('series',(s['id'],'series_'+s['id'].split('-')[-1],rcat,rrev,s['contractId'],s['quote'],None))
-    m('rate_curves',('interest_rates',rcat,rrev,'basic_rate','synthetic_marks','valuation_utc_date','Interest rates'))
-    rate_series=[]
-    for ordinal,maturity in enumerate(['2026-06-01','2027-01-01','2027-02-28']):
+    pillars=['2026-06-01','2027-01-01','2027-02-28'];rate_series=[]
+    for ordinal,_ in enumerate(pillars):
         sid=f'97000000-0000-0000-0000-{ordinal+1:012d}';rate_series.append(sid)
         m('series',(sid,'rate_'+str(ordinal),rcat,rrev,None,None,'zero_rate'))
-        m('rate_curve_points',('interest_rates',maturity,sid,ordinal))
+    market.append(dated_curve(cat,rev,f"{value(rcat)},{value(rrev)}",'interest_rates','Interest rates',pillars,rate_series,currency='usd',
+                              source='synthetic_marks',interest_rate='basic_rate',specification='zero_rate'))
     m('revision_periods',('2026-01-01','2028-01-01'))
     market.append(f"UPDATE market_data.revisions SET state='sealed' WHERE catalog_id={value(cat)} AND id={value(rev)};")
     now=datetime.now(timezone.utc).isoformat()

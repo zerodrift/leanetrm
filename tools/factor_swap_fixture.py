@@ -2,6 +2,7 @@
 from datetime import date,datetime,timedelta,timezone
 from decimal import Decimal
 from preview_fixture import CAT,RCAT,RREV,CURRENCY,identity,installed_tzdb
+from rate_curve_fixture import dated_curve,discount_default
 
 REFERENCE='20000000-0000-0000-0000-000000000220'
 REVISION='60000000-0000-0000-0000-000000000220'
@@ -42,10 +43,11 @@ def prepare(manifest):
             rows.extend([f"INSERT INTO market_data.contracts VALUES({m},'{cid}',{r},'forward','{start}','{end}','{end}T00:00:00Z',NULL);",f"INSERT INTO market_data.curve_members VALUES({m},'{code}','{cid}',{ordinal});",f"INSERT INTO market_data.series VALUES({m},'{sid}','factor_{commodity}_{ordinal}',{r},'{cid}','{quote}',NULL);",f"INSERT INTO market_data.index_fixing_observations VALUES({m},'{index}','{start}','{end}',{r},'{quote}','{sid}','fixture','{at}','published_index_observations_v1');"])
             series.append(dict(id=sid,fixing=at,price=price,actual=actual))
     rates=[]
-    rows.append(f"INSERT INTO market_data.rate_curves(catalog_id,revision_id,code,reference_catalog_id,reference_revision_id,interest_rate_code,source_code,date_basis,name) VALUES({m},'factor_rates',{r},'test_interest','fixture','valuation_utc_date','Synthetic factor discounting');")
-    for n,maturity in enumerate(('2021-01-18','2021-06-18','2021-12-18')):
+    pillars=('2021-01-18','2021-06-18','2021-12-18')
+    for n,_ in enumerate(pillars):
         sid=identity('9',229000+n);rates.append(sid)
-        rows.extend([f"INSERT INTO market_data.series VALUES({m},'{sid}','factor_rate_{n}',{r},NULL,NULL,'test_zero_rate');",f"INSERT INTO market_data.rate_curve_points VALUES({m},'factor_rates','{maturity}','{sid}',{n});"])
+        rows.append(f"INSERT INTO market_data.series VALUES({m},'{sid}','factor_rate_{n}',{r},NULL,NULL,'test_zero_rate');")
+    rows.append(dated_curve(CAT,REVISION,r,'factor_rates','Synthetic factor discounting',list(pillars),rates,currency=CURRENCY,source='fixture',interest_rate='test_interest'))
     rows.append(f"UPDATE market_data.revisions SET state='sealed' WHERE(catalog_id,id)=({m});")
     now=datetime.now(timezone.utc).isoformat();emitted=set();frames=[]
     for sample,frame in enumerate(manifest['frames']):
@@ -61,5 +63,5 @@ def prepare(manifest):
             oid=identity('7',22800000+sample*10+n);pins.append(oid)
             rows.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REVISION}','{sid}',{r},'fixture','factor_rate_{oid}','1','parameter','final','{frame['at']}','{now}',0.05,NULL);")
         frames.append(dict(at=frame['at'],observationIds=pins,curveContracts=members))
-    rows.append(f"INSERT INTO trading.currency_discount_defaults VALUES('{CAT}','d2000000-0000-0000-0000-000000000220','{REVISION}',{r},'{CURRENCY}','factor_rates','log_discount_geometric_root_to_even_18_v1',1,'2020-01-01T00:00:00Z');")
+    rows.append(discount_default(CAT,'d2000000-0000-0000-0000-000000000220',REVISION,r,CURRENCY,'factor_rates',1,'2020-01-01T00:00:00Z'))
     rows.append('COMMIT;');SQL='\n'.join(rows);manifest['swapMarkets'].append(dict(revisionId=REVISION,frames=frames))

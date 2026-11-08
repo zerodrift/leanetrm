@@ -495,7 +495,7 @@ function renderContext(){
   $('curve-power').hidden=!curve||!workspace?.powerCurveCodes.includes(curve);
   if(curve&&workspace){const c=selectedCurve(),listed=listedCurve(),kind=listed.marketType;renderSummary();text('curve-kind',navigationCurveKind(listed));text('curve-title',curveName(curve));$('curve-kind-badge').replaceChildren(kindBadge(listed.kind,'md'));
     // A rate curve's currency is its own (D359); its mark unit is stated by the evaluated result.
-    const rateCurrency=kind!=='rates'?undefined:c.currency_code?val(c,'currency_code'):val(row('interest_rate_definitions','code',val(c,'interest_rate_code'),true),'currency_code');
+    const rateCurrency=kind==='rates'?val(c,'currency_code'):undefined;
     text('unit',rateCurrency?`${val(row('currencies','code',rateCurrency,true),'display_code')}${result?.kind==='rates'&&result.markUnitLabel?' · '+result.markUnitLabel:''}`:unit(val(c,'quote_code')));
     $('curve-definition-link').hidden=!(result?.kind==='rates'&&result.definition);
     text('chart-title',kind==='rates'?'Zero-rate curve':kind==='futures'?'Futures curve':kind==='forwards'?'Forward curve':'Mixed curve');
@@ -503,15 +503,14 @@ function renderContext(){
     renderDependencies();if(result)renderInputs();}
   showView(prefs.tab);
 }
-const rateTenor=(series:Row)=>(data().definitions.rate_curve_tenors??[]).find(t=>t.curve_code===curve&&t.series_id===series.id);
+const rateTenor=(series:Row)=>data().definitions.rate_curve_tenors.find(t=>t.curve_code===curve&&t.series_id===series.id);
 const rateMarkUnit=()=>result?.kind==='rates'&&result.markUnitLabel?result.markUnitLabel:'per year';
 function inputUnit(series:Row){
-  if(data().definitions.rate_curve_points.some(p=>p.curve_code===curve&&p.series_id===series.id)||rateTenor(series))return `Annual zero rate (${rateMarkUnit()})`;
+  if(rateTenor(series))return `Annual zero rate (${rateMarkUnit()})`;
   if(series.quote_code)return unit(val(series,'quote_code'));const spec=row('value_specifications','code',val(series,'value_specification_code'),true);if(spec.kind==='dimensionless')return 'Ratio';
   const a=row('quantity_specifications','code',val(spec,'numerator_quantity_code'),true),b=row('quantity_specifications','code',val(spec,'denominator_quantity_code'),true);return `${commodityName(val(a,'commodity_code'),data())} ${val(row('units','code',val(a,'unit_code'),true),'symbol')} / ${commodityName(val(b,'commodity_code'),data())} ${val(row('units','code',val(b,'unit_code'),true),'symbol')}`;
 }
 function sourceName(series:Row){
-  const rate=data().definitions.rate_curve_points.find(p=>p.curve_code===curve&&p.series_id===series.id);if(rate)return `Zero rate · ${displayDate(val(rate,'maturity'))}`;
   const tenor=rateTenor(series);if(tenor)return `Zero rate · ${val(tenor,'label')}`;
   if(!series.contract_id)return 'Conversion factor';
   const direct=data().definitions.curves.filter(c=>c.rule==='direct'&&c.quote_code===series.quote_code&&data().definitions.curve_members.some(m=>m.curve_code===c.code&&m.contract_id===series.contract_id));
@@ -630,7 +629,7 @@ async function history(){
 function renderInputs(){
   if(!result||!result.points.length){text('inputs',result?'No price sources are needed for an empty delivery window.':'Choose a market date to view price sources.');text('input-count','');return;}
   const used=new Set(sourcePoints().flatMap(p=>p.lineage));if([...used].some(id=>!pricingFrame().observationIds.includes(id)))throw Error('A required source observation is missing from this market date.');const obs=[...used].map(observation);text('input-count',`${obs.length} prices & factors`);
-  table('inputs',[isRates()?'Maturity':'Delivery period','Input','Source','Value','Units',''],obs.map(o=>{const series=row('series','id',val(o,'series_id')),c=series.contract_id?row('contracts','id',val(series,'contract_id')):undefined;return [c?deliveryLabel(val(c,'delivery_from'),val(c,'delivery_to')):data().definitions.rate_curve_points.some(p=>p.curve_code===curve&&p.series_id===series.id)?displayDate(val(data().definitions.rate_curve_points.find(p=>p.curve_code===curve&&p.series_id===series.id)!,'maturity')):'All months',sourceName(series),referenceName('sources',val(o,'source_code')),val(o,'value'),inputUnit(series),action(canCorrect()?'Correct price':'View versions',async()=>{input=val(o,'id');renderRevisions();})];}),[3]);renderRevisions();
+  table('inputs',[isRates()?'Tenor':'Delivery period','Input','Source','Value','Units',''],obs.map(o=>{const series=row('series','id',val(o,'series_id')),c=series.contract_id?row('contracts','id',val(series,'contract_id')):undefined;return [c?deliveryLabel(val(c,'delivery_from'),val(c,'delivery_to')):rateTenor(series)?val(rateTenor(series)!,'label'):'All months',sourceName(series),referenceName('sources',val(o,'source_code')),val(o,'value'),inputUnit(series),action(canCorrect()?'Correct price':'View versions',async()=>{input=val(o,'id');renderRevisions();})];}),[3]);renderRevisions();
 }
 function renderRevisions(){
   if(!input||!pricingFrame().observationIds.includes(input)||!sourcePoints().some(p=>p.lineage.includes(input))){$('revision-card').hidden=true;return;}

@@ -180,7 +180,7 @@ internal static class MonthlySwapRateChecks
             var payments = fixedPeriods.Select(p => DateOnly.FromDateTime(p.PaymentAt.UtcDateTime)).ToArray();
             Factors = payments.Select(p => decimal.Round(365m / (365m + 0.05m * (p.DayNumber - referenceDate.DayNumber)), 18, MidpointRounding.ToEven)).ToArray();
             Mapping = new(Guid.NewGuid(), Quote.Currency, new(new(definitions, "yield"), Quote.Currency, R("source"), RateConventionSet.Parse("actual_365_fixed","simple","log_linear_discount","none","decimal_per_year"),
-                rateSeries.Select((s, n) => new RateTenor($"P{n}", s, payments[n])).ToImmutableArray()));
+                rateSeries.Select((s, n) => new RateTenor($"P{n}", s, payments[n])).ToImmutableArray(), Guid.NewGuid(), 1));
             Model = new(definitions, references,
                 [new(Quote.Quantity, R("commodity"), R("basis"), R("unit"), R("dimension"))], [Quote], contracts,
                 [new(curve, Quote.Key, R("location"), R("profile"), new(SettlementKind.Index, R("index"), null),

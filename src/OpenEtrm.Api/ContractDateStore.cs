@@ -253,6 +253,15 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
         if(value.EngineVersion!=DateListEngine)throw Invalid("This mapping names contracts, not a date list.");
         return (value.Definition,await PinnedSources(connection,value,ct),value.Bindings,context);
     }
+    // The same, in the market context the request has already bound: its knowledge view decides what is visible.
+    public async Task<(PublishedContractRequest Definition,ImmutableArray<ScheduleVersion> Sources,ImmutableArray<ContractDateBinding> Bindings)>
+        PinnedDateListInView(NpgsqlConnection connection,Guid id,int version,CancellationToken ct)
+    {
+        var value=(await Read(connection,ct)).SingleOrDefault(v=>v.Id==id&&v.Version==version&&v.State=="published")
+            ??throw Invalid("This exact published definition is unavailable in the selected knowledge view.");
+        if(value.EngineVersion!=DateListEngine)throw Invalid("This mapping names contracts, not a date list.");
+        return (value.Definition,await PinnedSources(connection,value,ct),value.Bindings);
+    }
     public async Task<BoundDateList> ResolveDateList(NpgsqlConnection connection,ContractDateResolveRequest body,ScheduleContext? selectedContext,bool includeDrafts,CancellationToken ct)
     {
         var (value,context)=await Retained(connection,body,selectedContext,includeDrafts,ct);

@@ -178,11 +178,14 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
               ('hub_power',4,'local_gas',3,'power_spread'),('local_power',5,'hub_power',4,'power_basis')]
     extra_ref.append(f"INSERT INTO ref_data.value_specifications VALUES ({R},'test_zero_rate','dimensionless',NULL,NULL,-0.1,1);")
     extra_ref.append(f"INSERT INTO ref_data.value_specifications VALUES ({R},'test_zero_rate_percent','dimensionless',NULL,NULL,-10,100);")
-    extra_market.append(f"INSERT INTO market_data.rate_curves VALUES ({M},'interest_rates',{R},'test_interest','fixture','valuation_utc_date');")
-    for ordinal,maturity in enumerate(rate_dates if date_plan is not None else ['2021-01-18','2021-06-18','2021-12-18']):
-        sid=identity('9',800+ordinal)
+    # D359: the dated discount curve is an admitted interest-rate definition whose tenors are these fixed pillar dates.
+    from rate_curve_fixture import dated_curve
+    pillars=rate_dates if date_plan is not None else ['2021-01-18','2021-06-18','2021-12-18']
+    rate_series=[identity('9',800+ordinal) for ordinal in range(len(pillars))]
+    for ordinal,sid in enumerate(rate_series):
         extra_market.append(f"INSERT INTO market_data.series VALUES ({M},'{sid}','zero_rate_{ordinal}',{R},NULL,NULL,'test_zero_rate');")
-        extra_market.append(f"INSERT INTO market_data.rate_curve_points VALUES ({M},'interest_rates','{maturity}','{sid}',{ordinal});")
+    extra_market.append(dated_curve(CAT,REV,R,'interest_rates',CURVE_NAMES['interest_rates'],pillars,rate_series,currency=CURRENCY,source='fixture',
+                                    interest_rate='test_interest',named=current_schema))
     series=[]
     for month in range(6):
         start=date.fromisoformat(gas_dates[month]['start']) if date_plan is not None else date(2021,month+1,1)
@@ -330,7 +333,9 @@ def security_fixture(catalog,reference_catalog):
 
 def trading_fixture(catalog, swap_defaults=False, annotations=True):
     """Immutable synthetic books used by the local futures booking operation."""
-    defaults = f"INSERT INTO trading.currency_discount_defaults VALUES ('{catalog}','d2000000-0000-0000-0000-000000000001','{REV}','{RCAT}','{RREV}','{CURRENCY}','interest_rates','log_discount_geometric_root_to_even_18_v1',1,'2020-01-01 00:00:00+00');" + f"\nINSERT INTO trading.currency_discount_defaults VALUES ('{catalog}','d2000000-0000-0000-0000-000000000002','60000000-0000-0000-0000-000000000002','{RCAT}','{RREV}','{CURRENCY}','interest_rates','log_discount_geometric_root_to_even_18_v1',1,'2020-01-01 00:00:00+00');" if swap_defaults else ''
+    from rate_curve_fixture import discount_default
+    defaults = '\n'.join(discount_default(catalog,f'd2000000-0000-0000-0000-00000000000{n}',revision,f"'{RCAT}','{RREV}'",CURRENCY,'interest_rates',1,'2020-01-01 00:00:00+00')
+                         for n,revision in [(1,REV),(2,'60000000-0000-0000-0000-000000000002')]) if swap_defaults else ''
     parties = '\n'.join(f"INSERT INTO trading.{table} VALUES ('{catalog}','{prefix}000000-0000-0000-0000-00000000000{n}',1,'{code}_{n}','Synthetic {label} {n}',1,'2020-01-01T00:00:00Z');" for table,prefix,code,label in [('legal_entities','d4','entity','entity'),('counterparties','d5','party','party')] for n in (1,2)) if annotations else ''
     return f"""BEGIN;
 INSERT INTO trading.publications VALUES ('{catalog}',1,pg_current_xact_id());

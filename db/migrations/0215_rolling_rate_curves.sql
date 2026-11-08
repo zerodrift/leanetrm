@@ -31,7 +31,7 @@ GRANT UPDATE(currency_code,mark_unit,day_count,compounding,extrapolation) ON mar
 
 -- 2. A rate curve is an admitted published interest-rate definition with one stable series per tenor label. The revision pins
 -- the definition version and carries its terms, so valuation reads them from the revision itself; sealing checks they are equal.
--- Literal-maturity rate curves remain readable until the cutover that removes them; a row is exactly one of the two shapes.
+-- Literal-maturity rate curves are removed in section 4; a hosted window removes them first.
 ALTER TABLE market_data.rate_curves ALTER COLUMN interest_rate_code DROP NOT NULL,ALTER COLUMN date_basis DROP NOT NULL,
  ADD COLUMN definition_id uuid,ADD COLUMN definition_version integer,ADD COLUMN currency_code text,ADD COLUMN mark_unit text,
  ADD COLUMN day_count text,ADD COLUMN compounding text,ADD COLUMN interpolation text,ADD COLUMN extrapolation text,
@@ -54,25 +54,19 @@ CREATE TRIGGER guard_definition BEFORE INSERT OR UPDATE OR DELETE ON market_data
  FOR EACH ROW EXECUTE FUNCTION market_data.guard_definition();
 ALTER TABLE market_data.rate_curve_tenors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE market_data.rate_curve_tenors FORCE ROW LEVEL SECURITY;
-CREATE POLICY scoped_read ON market_data.rate_curve_tenors FOR SELECT TO openetrm_runtime USING(true);
-CREATE POLICY current_authority ON market_data.rate_curve_tenors AS RESTRICTIVE FOR SELECT TO openetrm_runtime
- USING(security.market_access(catalog_id,'ReadMarketData'));
-CREATE POLICY version_scope ON market_data.rate_curve_tenors AS RESTRICTIVE FOR SELECT TO openetrm_runtime
- USING(security.market_fact_visible(catalog_id,revision_id,NULL));
-CREATE POLICY scoped_insert ON market_data.rate_curve_tenors FOR INSERT TO openetrm_runtime
- WITH CHECK(security.market_access(catalog_id,'WriteMarketDefinitions'));
-CREATE POLICY current_insert ON market_data.rate_curve_tenors AS RESTRICTIVE FOR INSERT TO openetrm_runtime
- WITH CHECK(security.current_write_context());
-CREATE POLICY owner_access ON market_data.rate_curve_tenors TO openetrm_security_owner USING(true) WITH CHECK(true);
--- The risk worker reads tenors exactly as the runtime does (0073).
-DO $$DECLARE p record;BEGIN
- FOR p IN SELECT * FROM pg_policies WHERE schemaname='market_data' AND tablename='rate_curve_tenors' AND 'openetrm_runtime'=ANY(roles) AND cmd='SELECT' LOOP
-  EXECUTE format('CREATE POLICY %I ON market_data.rate_curve_tenors AS %s FOR SELECT TO openetrm_risk_worker USING(%s)','risk_worker_'||p.policyname,p.permissive,p.qual);
+-- Tenors take exactly the policies and grants dated rate samples carry (scoped and temporal reads, scoped and current writes,
+-- the risk worker's reads), so the core market definition tables keep one read and write contract.
+DO $$DECLARE p record;r record;BEGIN
+ FOR p IN SELECT * FROM pg_policies WHERE schemaname='market_data' AND tablename='rate_curve_points' LOOP
+  EXECUTE format('CREATE POLICY %I ON market_data.rate_curve_tenors AS %s FOR %s TO %s%s%s',p.policyname,p.permissive,p.cmd,
+   (SELECT string_agg(quote_ident(role),',') FROM unnest(p.roles) role),
+   CASE WHEN p.qual IS NULL THEN '' ELSE ' USING('||p.qual||')' END,CASE WHEN p.with_check IS NULL THEN '' ELSE ' WITH CHECK('||p.with_check||')' END);
+ END LOOP;
+ FOR r IN SELECT grantee,privilege_type FROM information_schema.role_table_grants WHERE table_schema='market_data' AND table_name='rate_curve_points' LOOP
+  EXECUTE format('GRANT %s ON market_data.rate_curve_tenors TO %I',r.privilege_type,r.grantee);
  END LOOP;
 END$$;
 REVOKE ALL ON market_data.rate_curve_tenors FROM PUBLIC;
-GRANT SELECT,INSERT ON market_data.rate_curve_tenors TO openetrm_runtime;
-GRANT SELECT ON market_data.rate_curve_tenors TO openetrm_security_owner,openetrm_risk_worker;
 
 -- Admission requests: a retry with the same request id and payload returns its first receipt (D238).
 CREATE TABLE market_data.rate_curve_admission_requests (
@@ -90,6 +84,8 @@ CREATE POLICY scoped_read ON market_data.rate_curve_admission_requests FOR SELEC
  USING(security.current_write_context() AND security.market_access(catalog_id,'ReadMarketData') AND actor_id=security.custom_curve_actor(catalog_id,'WriteMarketDefinitions'));
 CREATE POLICY scoped_insert ON market_data.rate_curve_admission_requests FOR INSERT TO openetrm_runtime
  WITH CHECK(security.current_write_context() AND actor_id=security.custom_curve_actor(catalog_id,'WriteMarketDefinitions'));
+CREATE POLICY current_insert ON market_data.rate_curve_admission_requests AS RESTRICTIVE FOR INSERT TO openetrm_runtime
+ WITH CHECK(security.current_write_context());
 REVOKE ALL ON market_data.rate_curve_admission_requests FROM PUBLIC;
 GRANT SELECT,INSERT ON market_data.rate_curve_admission_requests TO openetrm_runtime;
 GRANT SELECT ON market_data.rate_curve_admission_requests TO openetrm_security_owner;
@@ -105,7 +101,7 @@ BEGIN
  END IF;
  IF EXISTS(SELECT 1 FROM market_data.rate_curves r LEFT JOIN market_data.curve_definition_versions v
   ON(v.catalog_id,v.definition_id,v.version)=(r.catalog_id,r.definition_id,r.definition_version)
-  WHERE r.catalog_id=cat AND r.revision_id=rev AND r.definition_id IS NOT NULL AND(v.state IS DISTINCT FROM 'published' OR v.kind<>'interest_rate'
+  WHERE r.catalog_id=cat AND r.revision_id=rev AND(v.state IS DISTINCT FROM 'published' OR v.kind<>'interest_rate'
    OR(v.reference_catalog_id,v.reference_revision_id,v.mark_source_code,v.name,v.currency_code,v.mark_unit,v.day_count,v.compounding,v.interpolation,
       v.extrapolation,v.mapping_definition_id,v.mapping_version)
     IS DISTINCT FROM(r.reference_catalog_id,r.reference_revision_id,r.source_code,r.name,r.currency_code,r.mark_unit,r.day_count,r.compounding,r.interpolation,
@@ -113,30 +109,9 @@ BEGIN
   RAISE EXCEPTION 'Rate curves carry exactly the terms of the published interest-rate definition they admit' USING ERRCODE='23514';
  END IF;
  IF EXISTS(SELECT 1 FROM market_data.rate_curves r WHERE r.catalog_id=cat AND r.revision_id=rev AND
-  NOT EXISTS(SELECT 1 FROM market_data.rate_curve_tenors t WHERE(t.catalog_id,t.revision_id,t.curve_code)=(r.catalog_id,r.revision_id,r.code))
-  AND NOT EXISTS(SELECT 1 FROM market_data.rate_curve_points p WHERE(p.catalog_id,p.revision_id,p.curve_code)=(r.catalog_id,r.revision_id,r.code))) THEN
-  RAISE EXCEPTION 'Rate curves require their tenors or dated samples' USING ERRCODE='23514';
+  NOT EXISTS(SELECT 1 FROM market_data.rate_curve_tenors t WHERE(t.catalog_id,t.revision_id,t.curve_code)=(r.catalog_id,r.revision_id,r.code))) THEN
+  RAISE EXCEPTION 'Rate curves require their tenors' USING ERRCODE='23514';
  END IF;
- IF EXISTS(SELECT 1 FROM market_data.rate_curves r WHERE r.catalog_id=cat AND r.revision_id=rev AND
-  (r.definition_id IS NULL)=EXISTS(SELECT 1 FROM market_data.rate_curve_tenors t WHERE(t.catalog_id,t.revision_id,t.curve_code)=(r.catalog_id,r.revision_id,r.code))) THEN
-  RAISE EXCEPTION 'Only admitted rate curves have tenors' USING ERRCODE='23514';
- END IF;
--- Literal-maturity samples keep their checks until the cutover removes them.
-  IF EXISTS (SELECT 1 FROM market_data.rate_curve_points p JOIN market_data.rate_curve_points q
-    ON (p.catalog_id,p.revision_id,p.series_id)=(q.catalog_id,q.revision_id,q.series_id)
-    WHERE p.catalog_id=cat AND p.revision_id=rev AND p.maturity<>q.maturity) THEN
-    RAISE EXCEPTION 'A rate series cannot represent different maturities' USING ERRCODE='23514';
-  END IF;
-  IF EXISTS (SELECT 1 FROM market_data.rate_curve_points p JOIN market_data.series s
-    ON (p.catalog_id,p.revision_id,p.series_id)=(s.catalog_id,s.revision_id,s.id)
-    LEFT JOIN ref_data.value_specifications v ON (s.reference_catalog_id,s.reference_revision_id,s.value_specification_code)=(v.catalog_id,v.revision_id,v.code)
-    WHERE p.catalog_id=cat AND p.revision_id=rev AND (s.contract_id IS NOT NULL OR s.quote_code IS NOT NULL OR v.kind IS DISTINCT FROM 'dimensionless')) THEN
-    RAISE EXCEPTION 'Rate samples require typed non-contract decimal rates' USING ERRCODE='23514';
-  END IF;
-  IF EXISTS (SELECT 1 FROM (SELECT maturity,lag(maturity) OVER(PARTITION BY curve_code ORDER BY ordinal) AS previous
-    FROM market_data.rate_curve_points WHERE catalog_id=cat AND revision_id=rev) p WHERE maturity<=previous) THEN
-    RAISE EXCEPTION 'Rate maturity order must increase' USING ERRCODE='23514';
-  END IF;
  IF EXISTS(SELECT 1 FROM market_data.rate_curve_tenors t JOIN market_data.series s ON(t.catalog_id,t.revision_id,t.series_id)=(s.catalog_id,s.revision_id,s.id)
   LEFT JOIN ref_data.value_specifications v ON(s.reference_catalog_id,s.reference_revision_id,s.value_specification_code)=(v.catalog_id,v.revision_id,v.code)
   WHERE t.catalog_id=cat AND t.revision_id=rev AND(s.contract_id IS NOT NULL OR s.quote_code IS NOT NULL OR v.kind IS DISTINCT FROM 'dimensionless')) THEN
@@ -144,5 +119,43 @@ BEGIN
  END IF;
 END;
 $$;
+
+-- 3. Payment discounting in risk jobs resolves a rate curve's pinned date list (D359): the risk worker reads the contract-date
+-- library as the runtime does, under its own live service authority (0076's pattern; schedules are already readable).
+DO $$DECLARE item text;p record;BEGIN
+ FOREACH item IN ARRAY ARRAY['contract_date_definitions','contract_date_versions','contract_date_contracts','contract_date_fields',
+  'contract_date_knowledge_receipts'] LOOP
+  IF NOT EXISTS(SELECT 1 FROM pg_policies WHERE schemaname='market_data' AND tablename=item AND 'openetrm_runtime'=ANY(roles) AND cmd='SELECT' AND permissive='PERMISSIVE')
+  THEN RAISE EXCEPTION 'risk_worker_policy_missing: market_data.%',item;END IF;
+  FOR p IN SELECT * FROM pg_policies WHERE schemaname='market_data' AND tablename=item AND 'openetrm_runtime'=ANY(roles) AND cmd='SELECT' LOOP
+   EXECUTE format('CREATE POLICY %I ON market_data.%I AS %s FOR SELECT TO openetrm_risk_worker USING(%s)','risk_worker_'||p.policyname,item,p.permissive,p.qual);
+  END LOOP;
+  EXECUTE format('CREATE POLICY risk_worker_service ON market_data.%I AS RESTRICTIVE FOR SELECT TO openetrm_risk_worker USING(risk.worker_read())',item);
+  EXECUTE format('GRANT SELECT ON market_data.%I TO openetrm_risk_worker',item);
+ END LOOP;
+END$$;
+GRANT EXECUTE ON FUNCTION security.contract_date_visible(uuid,uuid,integer),security.contract_date_schedule_visible(uuid,uuid,integer) TO openetrm_risk_worker;
+
+-- Close-risk jobs pin the rate numerical policy their valuations use: rate curves now compute under RateCurveMath's policy.
+DO $$DECLARE d text=pg_get_functiondef('automation.create_close_risk_job(jsonb,uuid,jsonb,bigint,bigint)'::regprocedure);BEGIN
+ IF (length(d)-length(replace(d,'simple_actual365fixed_rational_to_even_18_v1','')))/length('simple_actual365fixed_rational_to_even_18_v1')<>1 THEN
+  RAISE EXCEPTION 'rate_policy_upgrade: unexpected automation.create_close_risk_job' USING ERRCODE='55000';
+ END IF;
+ EXECUTE replace(d,'simple_actual365fixed_rational_to_even_18_v1','rate_curve_lattice30_to_even_18_v1');
+END$$;
+
+-- 4. Literal-maturity rate curves are removed (D359): a rate curve's pillars come only from its definition's date list.
+DO $$BEGIN
+ IF EXISTS(SELECT 1 FROM market_data.rate_curve_points) OR EXISTS(SELECT 1 FROM market_data.rate_curves WHERE definition_id IS NULL) THEN
+  RAISE EXCEPTION 'literal_rate_curves: remove dated rate curves, their discount defaults and observations before this migration' USING ERRCODE='55000';
+ END IF;
+END$$;
+DROP TABLE market_data.rate_curve_points;
+ALTER TABLE market_data.rate_curves DROP CONSTRAINT rate_curve_shape,DROP COLUMN interest_rate_code,DROP COLUMN date_basis,
+ ALTER COLUMN definition_id SET NOT NULL,ALTER COLUMN definition_version SET NOT NULL,ALTER COLUMN currency_code SET NOT NULL,
+ ALTER COLUMN mark_unit SET NOT NULL,ALTER COLUMN day_count SET NOT NULL,ALTER COLUMN compounding SET NOT NULL,ALTER COLUMN interpolation SET NOT NULL,
+ ALTER COLUMN extrapolation SET NOT NULL,ALTER COLUMN mapping_definition_id SET NOT NULL,ALTER COLUMN mapping_version SET NOT NULL;
+-- The curve owns its interpolation; a currency's default names only the curve.
+ALTER TABLE trading.currency_discount_defaults DROP COLUMN interpolation_policy;
 
 COMMIT;

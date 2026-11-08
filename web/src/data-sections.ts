@@ -9,7 +9,7 @@ export const referenceGroups=[
     {value:'price_index_definitions',name:'Price indexes',consumer:'Used by forward settlement targets, floating swaps and the power preview.'},
     {value:'exchanges',name:'Exchanges',consumer:'Used by futures-product venue references.'},
     {value:'clearing_houses',name:'Clearing houses',consumer:'Used by futures-product clearing references and exchange compatibility checks.'},
-    {value:'interest_rate_definitions',name:'Interest rates',consumer:'Used by zero-rate curves, discount factors and discounted swaps.'},
+    {value:'interest_rate_definitions',name:'Interest rates',consumer:'Reference interest-rate specifications. Rate curves state their own currency, unit and conventions (D359).'},
     {value:'sources',name:'Data sources',consumer:'Used to match observation sources and retain product evidence and provenance.'}
   ]},
   {name:'Commodities & units',sections:[

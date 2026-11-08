@@ -68,7 +68,7 @@ def run_checks(query, manifest, psql=None, environment=None):
                                  'riskNumericalPolicy': 'exact_rational_portfolio_repricing_v1',
                                  'futuresConvention': 'contract_lot_execution_pnl_v2',
                                  'swapConvention': 'independent_side_financial_swap_v2',
-                                 'rateNumericalPolicy': 'simple_actual365fixed_rational_to_even_18_v1',
+                                 'rateNumericalPolicy': 'rate_curve_lattice30_to_even_18_v1',
                                  'discountInterpolationPolicy': 'log_discount_geometric_root_to_even_18_v1',
                                  'bumpConvention': 'absolute_quote_v1', 'bumpBasis': 'trading_tick', 'bumpTicks': 1}}
     def literal(value):

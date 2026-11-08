@@ -8,7 +8,7 @@ public sealed record RateTenor(string Label,SeriesKey Series,DateOnly Maturity);
 // A rate curve as resolved for one close: its tenors' maturities follow from that close's t_0 (D359), and its currency, mark unit
 // and conventions are its own. DefinitionId and DefinitionVersion name the published definition an admitted curve pins.
 public sealed record RateCurveDefinition(CurveKey Key,ReferenceKey Currency,ReferenceKey Source,RateConventionSet Conventions,
-    ImmutableArray<RateTenor> Tenors,Guid? DefinitionId=null,int? DefinitionVersion=null);
+    ImmutableArray<RateTenor> Tenors,Guid DefinitionId,int DefinitionVersion);
 public sealed record ZeroRateValue(SeriesKey Series,string Label,DateOnly Maturity,string Mark,ExactDecimal DecimalRate,string DiscountFactor,
     string DisplayDiscountFactor,int Days,ObservationKey Observation);
 public sealed record ZeroRateBuild(Guid SnapshotId,DateOnly ReferenceDate,ReferenceKey Currency,RateConventionSet Conventions,string NumericalPolicy,
@@ -57,7 +57,7 @@ public sealed class ZeroRateCurve
         foreach(var tenor in definition.Tenors)
         {
             if(tenor.Maturity<=date)Fail("rate_maturity",$"Tenor '{tenor.Label}' matures on {tenor.Maturity:yyyy-MM-dd}, which must follow the valuation date {date:yyyy-MM-dd}.");
-            if(!selections.TryGetValue(new(tenor.Series,InputUse.Variable),out var observation))Fail("rate_mark",$"Tenor '{tenor.Label}' has no mark at this close.");
+            if(!selections.TryGetValue(new(tenor.Series,InputUse.Variable),out var observation))Fail("missing_observation",$"Tenor '{tenor.Label}' has no mark at this close.");
             if(observation!.Series!=tenor.Series||observation.Key.CatalogId!=definition.Key.Revision.CatalogId||observation.Key.Id==Guid.Empty||
                observation.Source!=definition.Source||observation.Role!=ObservationRole.Parameter||observation.State!=PublicationState.Final||
                observation.ObservedAt.Offset!=TimeSpan.Zero||observation.ObservedAt>snapshot.MarketCutoff)

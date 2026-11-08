@@ -44,7 +44,7 @@ internal static class SwapValuationChecks
                 [fixing], payment, FloatingAveraging.MonthlyIndexPrice,
                 [new(new(curve.Key, contract.Key), contract)], FloatingSide.IndexedImplementation), ExactDecimal.Parse("1"))], FinancialSwapInstrument.Implementation, true);
         var mapping = new CurrencyDiscountCurve(Guid.NewGuid(), quote.Currency,
-            new(new(revision, "discount"), quote.Currency, R("source"), RateConventionSet.Parse("actual_365_fixed","simple","log_linear_discount","none","decimal_per_year"), [new("Jan", left, new(2021, 1, 18)), new("Mar", right, new(2021, 3, 18))]));
+            new(new(revision, "discount"), quote.Currency, R("source"), RateConventionSet.Parse("actual_365_fixed","simple","log_linear_discount","none","decimal_per_year"), [new("Jan", left, new(2021, 1, 18)), new("Mar", right, new(2021, 3, 18))], Guid.NewGuid(), 1));
         FinancialSwapValue Price(MarketSnapshot context, bool discounting, CurrencyDiscountCurve? selected) =>
             FinancialSwapValuation.Price(new FinancialSwapInstrument(Guid.NewGuid(), instrument.Sides, FinancialSwapInstrument.Implementation, discounting), model.Build(context, instrument.Dependencies),
                 new(ExactDecimal.Parse("100"), quote.Quantity), discounting, selected);

@@ -219,7 +219,8 @@ if(args.Length==1)
             var result=data.Build(frame,"local_power");
             if(result.Values[0].Price.Value.ToString()!="29.1" || data.Definitions["contracts"].Any(c=>c.Text("delivery_from").Length!=10))throw new Exception("Culture changed adapter values");
             Console.WriteLine($"PASS full PostgreSQL adapter fixture under {culture}");passed++;
-            if(data.BuildRates(frame,data.RateDefinition("interest_rates",null)).Values[^1].DisplayDiscountFactor!="0.966184")throw new Exception("Culture changed rate calculation");
+            if(data.BuildRates(frame,data.RateDefinition("interest_rates",data.Definitions["rate_curve_tenors"].Where(t=>t.Text("curve_code")=="interest_rates")
+                .ToDictionary(t=>t.Text("label"),t=>DateOnly.ParseExact(t.Text("label"),"yyyy-MM-dd",CultureInfo.InvariantCulture)))).Values[^1].DisplayDiscountFactor!="0.966184")throw new Exception("Culture changed rate calculation");
             Console.WriteLine($"PASS rate convention adapter under {culture}");passed++;
         }
     }
