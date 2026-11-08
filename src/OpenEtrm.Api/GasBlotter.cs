@@ -20,6 +20,8 @@ internal static class GasBlotter
   public async IAsyncEnumerable<ImmutableArray<JsonObject>> Units([EnumeratorCancellation]CancellationToken ct)
   {
    var sources=new Dictionary<Guid,(PreviewData Data,InputFrame Frame)>();var composition=new GasCompositionStore(database);
+   // The run's positions share one read of the saved custom curve versions their projections and markets qualify against.
+   var savedVersions=new CustomCurves.SavedVersions(database);
    foreach(var position in positions)
    {
     var row=position.Holding();
@@ -34,7 +36,7 @@ internal static class GasBlotter
      // The retained programs, not the valuation's outcome, select the measure: a refusing started trade keeps its own.
      // Started compositions admit only their explicit no-discounting selection, which the label states.
      if(execution.Started){row["measure"]=GasPositions.LifecycleMeasure;row["measureLabel"]=GasPositions.LifecycleLabel;if(execution.Terms.Discounting==false)row["discounting"]="undiscounted";}
-     var valuation=await composition.Value(connection,source.Data,source.Frame,execution,ct);
+     var valuation=await composition.Value(connection,source.Data,source.Frame,execution,ct,savedVersions:savedVersions);
      row["presentValue"]=valuation.PresentValue;
      // A started-delivery trade's headline is its labelled sum, with both components shown.
      if(valuation.Measures is {} measures)
