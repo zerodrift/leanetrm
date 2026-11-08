@@ -492,7 +492,7 @@ def upgrade_checks(query, migration):
     """Before 0216: pinned helpers refuse drift, and stored future-lifecycle rows are neither changed nor re-validated."""
     text = migration.read_text()
     signatures = re.findall(r"^\s*\('([^']+)','[a-f0-9]{64}'", text, re.MULTILINE)
-    assert len(signatures) == 7
+    assert len(signatures) == 8
     changes = [(change, signature) for signature in signatures for change in (
         f"ALTER FUNCTION {signature} SET work_mem='64kB';", f"GRANT EXECUTE ON FUNCTION {signature} TO PUBLIC;",
         f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;",
@@ -517,4 +517,4 @@ def upgrade_checks(query, migration):
  IF (SELECT value FROM in_term_before) IS DISTINCT FROM {stored} OR (SELECT array_agg(parameters->>'lifecycle' ORDER BY ordinal) FROM trading.side_schedule_rows WHERE schedule_id='{schedule}')<>ARRAY['future_gas_delivery_v1','undue_payment_v1']
  THEN RAISE EXCEPTION 'A stored future-lifecycle composition changed during the in-term upgrade';END IF;
 END $check$;ROLLBACK;""")
-    print('PASS in-term upgrade: seven helper bodies, owners, ACLs and configurations are pinned; stored future-lifecycle programs are left unchanged', flush=True)
+    print('PASS in-term upgrade: eight helper bodies, owners, ACLs and configurations are pinned; stored future-lifecycle programs are left unchanged', flush=True)

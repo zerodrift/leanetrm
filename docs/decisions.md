@@ -3378,7 +3378,10 @@ lifecycles instead of refusing with `gas_delivery_lifecycle`:
 `whole_gas_day_delivery_v1` (physical) and `accrued_payment_v1` (cash). Every new
 gas composition, whether booked through the ticket or loaded by an administrator,
 compiles them. Existing trades are not backfilled and keep their refusing
-programs; migration 0216 admits the lifecycles only for new gas writes.
+programs; migration 0216 admits the lifecycles only for new gas writes. Because
+such a program binds custom curve outputs on its gas-day rows, 0216 also makes
+the gas instrument visibility check ask each distinct custom curve version once
+rather than once per binding; what it checks and answers is unchanged.
 
 **Owner decisions.**
 

@@ -9,16 +9,17 @@ SET LOCAL search_path=pg_catalog;
 SELECT pg_advisory_xact_lock(730849102);
 DO $$DECLARE helper record;BEGIN
  FOR helper IN SELECT * FROM(VALUES
-  ('trading.require_side_program_content(uuid,uuid,bytea)','f533002f67994482960679d2cef0228f387a1656087c32766e3c672323f94406','["openetrm_security_owner=X/openetrm_security_owner"]'::jsonb),
-  ('trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamp with time zone,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamp with time zone,jsonb)','14ce43c25adba67bb7955aeff80204779803094a587f2f5217c03eab10debaea','["openetrm_security_owner=X/openetrm_security_owner"]'::jsonb),
-  ('trading.require_gas_index_cash_shape(uuid,uuid,trading.gas_component_terms,market_data.gas_valuation_assignments,jsonb)','03f0ef8ed5b8cb2050f12ce1a9d923668b084bd792587472e800b8b3bb248e41','["openetrm_security_owner=X/openetrm_security_owner"]'::jsonb),
-  ('security.publish_admitted_side_schedules(uuid,uuid,uuid)','25a7e6bdd697ea58a4dccc25a012f431496d9591983e57145bd7d95cd43c26c5','["openetrm_security_owner=X/openetrm_security_owner"]'::jsonb),
-  ('security.write_gas_composition(uuid,jsonb,timestamp with time zone)','33b874fe8a269948522a770b3dd1312078d6b37aad64aa090d5493ea85c7697d','["openetrm_security_owner=X/openetrm_security_owner"]'::jsonb),
-  ('security.book_gas_composition(uuid,jsonb,timestamp with time zone)','71288ce7efbfbd2220ae3988fb63152d6bddb6650c2814cf379d19752ef18f30','["openetrm_security_owner=X/openetrm_security_owner", "openetrm_runtime=X/openetrm_security_owner"]'::jsonb),
-  ('security.amend_gas_composition(uuid,jsonb,timestamp with time zone)','3087a4ee6a998b9ccb2346a6f3e0be4155dabfd175f263164d6fb8e25525270f','["openetrm_security_owner=X/openetrm_security_owner", "openetrm_runtime=X/openetrm_security_owner"]'::jsonb)
- )v(signature,hash,acl) LOOP
+  ('trading.require_side_program_content(uuid,uuid,bytea)','f533002f67994482960679d2cef0228f387a1656087c32766e3c672323f94406','["openetrm_security_owner=X/openetrm_security_owner"]'::jsonb,'["search_path=pg_catalog", "jit=off"]'::jsonb),
+  ('trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamp with time zone,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamp with time zone,jsonb)','14ce43c25adba67bb7955aeff80204779803094a587f2f5217c03eab10debaea','["openetrm_security_owner=X/openetrm_security_owner"]'::jsonb,'["search_path=pg_catalog", "jit=off"]'::jsonb),
+  ('trading.require_gas_index_cash_shape(uuid,uuid,trading.gas_component_terms,market_data.gas_valuation_assignments,jsonb)','03f0ef8ed5b8cb2050f12ce1a9d923668b084bd792587472e800b8b3bb248e41','["openetrm_security_owner=X/openetrm_security_owner"]'::jsonb,'["search_path=pg_catalog", "jit=off"]'::jsonb),
+  ('security.publish_admitted_side_schedules(uuid,uuid,uuid)','25a7e6bdd697ea58a4dccc25a012f431496d9591983e57145bd7d95cd43c26c5','["openetrm_security_owner=X/openetrm_security_owner"]'::jsonb,'["search_path=pg_catalog", "jit=off"]'::jsonb),
+  ('security.write_gas_composition(uuid,jsonb,timestamp with time zone)','33b874fe8a269948522a770b3dd1312078d6b37aad64aa090d5493ea85c7697d','["openetrm_security_owner=X/openetrm_security_owner"]'::jsonb,'["search_path=pg_catalog", "jit=off"]'::jsonb),
+  ('security.book_gas_composition(uuid,jsonb,timestamp with time zone)','71288ce7efbfbd2220ae3988fb63152d6bddb6650c2814cf379d19752ef18f30','["openetrm_security_owner=X/openetrm_security_owner", "openetrm_runtime=X/openetrm_security_owner"]'::jsonb,'["search_path=pg_catalog", "jit=off"]'::jsonb),
+  ('security.amend_gas_composition(uuid,jsonb,timestamp with time zone)','3087a4ee6a998b9ccb2346a6f3e0be4155dabfd175f263164d6fb8e25525270f','["openetrm_security_owner=X/openetrm_security_owner", "openetrm_runtime=X/openetrm_security_owner"]'::jsonb,'["search_path=pg_catalog", "jit=off"]'::jsonb),
+  ('security.gas_component_sources_visible(uuid,uuid)','20ebeea33a8963ac9aaa60276f328fab2ba92963927eb50291fb2453ccc3ca5b','["openetrm_security_owner=X/openetrm_security_owner", "openetrm_runtime=X/openetrm_security_owner", "openetrm_risk_worker=X/openetrm_security_owner"]'::jsonb,'["search_path=pg_catalog"]'::jsonb)
+ )v(signature,hash,acl,config) LOOP
   IF NOT EXISTS(SELECT 1 FROM pg_proc p WHERE p.oid=to_regprocedure(helper.signature) AND p.proowner='openetrm_security_owner'::regrole
-   AND to_jsonb(p.proacl)=helper.acl AND to_jsonb(p.proconfig)='["search_path=pg_catalog", "jit=off"]'::jsonb AND encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')=helper.hash)
+   AND to_jsonb(p.proacl)=helper.acl AND to_jsonb(p.proconfig)=helper.config AND encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')=helper.hash)
   THEN RAISE EXCEPTION 'in_term_upgrade: unexpected helper %',helper.signature USING ERRCODE='55000';END IF;
  END LOOP;
  IF to_regprocedure('security.write_gas_composition(uuid,jsonb,timestamp with time zone,boolean)') IS NOT NULL OR to_regclass('trading.gas_cash_payments') IS NOT NULL
@@ -227,4 +228,18 @@ END$$;
 ALTER FUNCTION security.record_gas_cash_payment(uuid,jsonb,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.record_gas_cash_payment(uuid,jsonb,timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION security.record_gas_cash_payment(uuid,jsonb,timestamptz) TO openetrm_runtime;
+-- A started-delivery program binds custom curve outputs on its gas-day rows. Gas instrument row security asks whether
+-- those outputs' custom curves are visible: once per distinct custom curve version, not once per binding, which
+-- repeated the same closure walk hundreds of times for every instrument row read. What it checks and answers is unchanged.
+-- Its definition is pinned above, so the replaced text is exact.
+DO $patch$ DECLARE definition text=pg_get_functiondef('security.gas_component_sources_visible(uuid,uuid)'::regprocedure);
+ before_text text=$old$ SELECT 1 FROM trading.gas_memberships m JOIN trading.side_schedules h ON(h.catalog_id,h.side_id)=(m.catalog_id,m.side_id)
+ JOIN trading.side_schedule_bindings b ON(b.catalog_id,b.schedule_id)=(h.catalog_id,h.id)
+ WHERE(m.catalog_id,m.instrument_id,b.kind)=(catalog,instrument,'custom_output') AND NOT security.custom_curve_visible(b.custom_catalog_id,b.custom_curve_id,b.custom_version))$old$;
+BEGIN
+ EXECUTE replace(definition,before_text,$new$ SELECT 1 FROM(SELECT DISTINCT b.custom_catalog_id,b.custom_curve_id,b.custom_version
+ FROM trading.gas_memberships m JOIN trading.side_schedules h ON(h.catalog_id,h.side_id)=(m.catalog_id,m.side_id)
+ JOIN trading.side_schedule_bindings b ON(b.catalog_id,b.schedule_id)=(h.catalog_id,h.id)
+ WHERE(m.catalog_id,m.instrument_id,b.kind)=(catalog,instrument,'custom_output'))u WHERE NOT security.custom_curve_visible(u.custom_catalog_id,u.custom_curve_id,u.custom_version))$new$);
+END$patch$;
 COMMIT;
