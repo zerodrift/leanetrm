@@ -17,6 +17,11 @@ public sealed record ScheduleInspectionRow(string Key,string Operation,string Ki
  public DateOnly? OperatingDate{get;init;}
  public string? Paid{get;init;}
  public string? Outstanding{get;init;}
+ // Started-delivery cash: accrued so far, the latest visible payment instant, and a separately recorded
+ // final determination shown beside the accrual, never in place of it.
+ public string? Accrued{get;init;}
+ public DateTimeOffset? PaidAt{get;init;}
+ public string? FinalDetermination{get;init;}
 }
 public sealed record ScheduleInspectionPage(string Side,string Manifest,DateTimeOffset ValuationAt,DateTimeOffset KnownAt,
  int Offset,int Total,ImmutableArray<ScheduleInspectionRow> Rows);

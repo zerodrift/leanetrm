@@ -30,7 +30,19 @@ internal sealed record GasCompositionRow(int Slot,string Code,string Role,int Di
  internal GasValuationAssignment Assignment=>Assignments[0];
 }
 internal sealed record GasCompositionDraft(GasCompositionInstrument Instrument,ImmutableArray<GasCompositionRow> Members);
-internal sealed record GasCompositionValue(string PresentValue,string Currency,string QuantityUnit,List<object> Sides,object[] Links,ScheduleView? Schedule,object[]? Summaries,GasScheduleRefusal? ScheduleRefusal,ImmutableDictionary<string,int> SideSlots);
+internal sealed record GasCompositionValue(string PresentValue,string Currency,string QuantityUnit,List<object> Sides,object[] Links,ScheduleView? Schedule,object[]? Summaries,GasScheduleRefusal? ScheduleRefusal,ImmutableDictionary<string,int> SideSlots,
+ GasLifecycleMeasures? Measures=null)
+{
+ [JsonIgnore]internal PhysicalLifecycleValue? Lifecycle{get;init;}
+}
+// A started-delivery trade's measures. Expected cash is undiscounted, by due date, and is not part of the total.
+internal sealed record GasLifecycleMeasures(string RemainingDeliveryMtm,string OutstandingSettlement,string Total,string Label,ImmutableArray<GasExpectedCash> ExpectedCash)
+{
+ internal const string TotalLabel="Remaining contract value + outstanding settlement";
+ internal static GasLifecycleMeasures From(PhysicalLifecycleValue value)=>new(value.RemainingDeliveryMtm.ToExactString(),value.OutstandingSettlement.ToExactString(),value.Total.ToExactString(),
+  TotalLabel,[..value.ExpectedCash.Select(x=>new GasExpectedCash(x.DueAt,x.Amount.ToExactString()))]);
+}
+internal sealed record GasExpectedCash(DateTimeOffset DueAt,string Amount);
 internal sealed record GasScheduleRefusal(string Code,string Message);
 internal sealed record GasCompositionRead(GasCompositionRequest Terms,GasCompositionValue Valuation);
 internal sealed record GasCompositionExecution
@@ -40,13 +52,17 @@ internal sealed record GasCompositionExecution
  internal ImmutableArray<GasCompositionRow> Members{get;}
  internal ExactDecimal Quantity{get;}
  internal ImmutableArray<RetainedSideProgram> Programs{get;}
- internal GasCompositionExecution(GasCompositionRequest terms,Guid instrumentId,ImmutableArray<GasCompositionRow> members,
+ internal Guid TradeId{get;}
+ // Every retained program selects the started-delivery lifecycles; older or mixed trades keep their own refusals.
+ internal bool Started=>GasCompositionStore.Started(Programs);
+ internal GasCompositionExecution(Guid tradeId,GasCompositionRequest terms,Guid instrumentId,ImmutableArray<GasCompositionRow> members,
   ExactDecimal quantity,ImmutableArray<RetainedSideProgram> programs)
  {
   RequireSlots(members.IsDefault?[]:members.Select(m=>m.Slot),programs);
   if(members.Any(m=>programs.Single(p=>p.Slot==m.Slot).Program.Document.Family!=(m.Role=="physical"?"gas":m.Role=="indexed_consideration"?"floating":"fixed")))
    throw new MarketDataException("gas_program_membership","Every retained gas program requires its exact visible member slot and side family.");
-  Terms=terms;InstrumentId=instrumentId;Members=members;Quantity=quantity;Programs=programs;
+  if(tradeId==Guid.Empty)throw new MarketDataException("gas_program_membership","Every retained gas program requires its exact held trade.");
+  TradeId=tradeId;Terms=terms;InstrumentId=instrumentId;Members=members;Quantity=quantity;Programs=programs;
  }
  internal static void RequireSlots(IEnumerable<int> members,ImmutableArray<RetainedSideProgram> programs)
  {
@@ -76,6 +92,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  static int Sign(string s,bool physical)=>s switch{ "receive"=>1,"pay" when !physical=>-1,"deliver" when physical=>-1,_=>throw Invalid("Choose a direction on each side.")};
  static GasQuantityStage Stage(string s)=>s switch{"receipt"=>GasQuantityStage.Receipt,"delivery"=>GasQuantityStage.Delivery,"fuel"=>GasQuantityStage.Fuel,_=>throw Invalid("Select an explicit receipt, delivery or fuel quantity stage.")};
  static object Ratio(ExactQuantity q)=>new{numerator=q.Numerator,denominator=q.Denominator};
+ internal static bool Started(ImmutableArray<RetainedSideProgram> programs)=>programs.All(p=>p.Program.Document.Instructions.Where(i=>i.Output.Operation=="output_guard")
+  .All(i=>i.Output.Parameters["lifecycle"] is ScheduleLifecycles.WholeGasDayDelivery or ScheduleLifecycles.AccruedPayment));
  // The trade's quantity unit: its sides share one quantity specification, whose unit the reference data names.
  internal static string QuantityUnit(PreviewData data,IEnumerable<ReferenceKey> quantities)=>quantities.Distinct().ToArray() is [var one]?data.QuantityUnit(one.Code):
   throw Invalid("The sides' gas paths are quoted in different quantity specifications; one trade takes one quantity unit.");
@@ -121,7 +139,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  }
  // recorded holds, per physical side code, the days whose operational quantity the view shows in place of the contract's (unsigned, as recorded).
  async Task<GasCompositionValue> Value(NpgsqlConnection c,PreviewData data,InputFrame frame,ImmutableArray<GasCompositionRow> members,ExactDecimal quantity,GasCompositionInstrument? draft,Guid? setup,ImmutableArray<RetainedSideProgram>? retained,bool view,CancellationToken ct,
-  IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,Action<SideViewInput,GasDayClock>? inspect=null)
+  IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,Action<SideViewInput,GasDayClock>? inspect=null,GasCompositionExecution? held=null)
  {
   if(frame.ContextId is not {} contextId)throw Invalid("Use a certified calculation context.");
   var unit=QuantityUnit(data,members.Select(m=>m.Assignments[0].Quote.Quantity));
@@ -136,11 +154,14 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var prepared=await CustomCurves.PrepareMarket(c,database,data,frame,snapshot,knowledge,[],deps,CustomCurves.MarketPreparation.ValuationDependencies,ct,
    activePrices:[..dated.Select(lookup=>SchedulePriceTerm.FromLookup(lookup))]);
   var market=prepared.Valuation.ProgramMarket(prepared.Bindings,prepared.Authority,ct);var sources=new ScheduleMarketSources(market.Graph.Plan.Context,market,null,null,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,dated,[],assignments);
-  var discount=new ExplicitDiscounting(Number("1"),DiscountFactorSource.Undiscounted);ExactMoney? total=null;var sides=new List<object>();var views=view?ImmutableArray.CreateBuilder<SideViewInput>():null;var quantities=new Dictionary<string,ExactQuantity>(StringComparer.Ordinal);
+  var discount=new ExplicitDiscounting(Number("1"),DiscountFactorSource.Undiscounted);ExactMoney? total=null;var views=view?ImmutableArray.CreateBuilder<SideViewInput>():null;var quantities=new Dictionary<string,ExactQuantity>(StringComparer.Ordinal);
+  var valued=new List<(GasCompositionRow Member,ExactMoney Amount,ExactQuantity Quantity,List<object> Rows)>();var evaluations=ImmutableArray.CreateBuilder<LifecycleMember>();
   foreach(var member in members.OrderBy(x=>x.Slot))
   {
    var p=programs.Single(x=>x.Slot==member.Slot);var result=sources.Evaluate(p.Program,p.SideId,market,discount,ct);
-   var amount=result.PresentValue.Scale(member.Ratio).Scale(quantity).Scale(Number(member.Direction.ToString(CultureInfo.InvariantCulture)));total=total is null?amount:total.Add(amount);
+   var direction=Number(member.Direction.ToString(CultureInfo.InvariantCulture));
+   var amount=result.PresentValue.Scale(member.Ratio).Scale(quantity).Scale(direction);total=total is null?amount:total.Add(amount);
+   evaluations.Add(new(p.Program,result,member.Role=="physical",v=>v.Scale(member.Ratio).Scale(quantity).Scale(direction)));
    // The view applies the same booked quantity and signed membership as the present value.
    // A recorded quantity is shown with the side's direction, like the side's other quantities.
    var days=recorded?.GetValueOrDefault(member.Code)?.ToImmutableDictionary(d=>d.Key,d=>new ScheduleViewQuantity(new(BigInteger.Parse(d.Value.Quantity.Numerator)*member.Direction,BigInteger.Parse(d.Value.Quantity.Denominator)),d.Value.Kind));
@@ -162,8 +183,22 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    {
     qtotal=p.Program.Document.Instructions.Where(i=>i.Output.Operation=="quantity_literal").SelectMany(i=>result.QuantityColumn(i.Output.Ordinal,quantity)).Aggregate((a,b)=>a.Add(b)).Scale(member.Ratio);
    }
-   sides.Add(new{member.Code,member.Role,source=member.Source,stage=member.Stage,pipeline=member.Role=="physical"?member.Assignment.Location.Pipeline.Code:null,zone=member.Role=="physical"?member.Assignment.Location.Zone.Code:null,deliveryPoint=member.Role=="physical"?member.Assignment.Point.Code:null,direction=member.Direction==1?"receive":member.Role=="physical"?"deliver":"pay",presentValue=amount.ToExactString(),quantity=Ratio(qtotal!),deliveryRows=rows});
+   valued.Add((member,amount,qtotal!,rows));
   }
+  // Started delivery: the trade's value is remaining delivery MTM plus outstanding settlement of its recorded cash.
+  PhysicalLifecycleValue? lifecycle=null;
+  if(held is {Started:true})
+  {
+   if(held.Members.Length!=members.Length)throw Invalid("Started-delivery valuation requires every member of the held trade.");
+   var state=await GasCashPaymentStore.Read(c,database.Manifest.CatalogId,held.TradeId,held.InstrumentId,new(quantity,members[0].Assignment.Quote.Quantity),ct);
+   // The same admission of the recorded cash as the retained instrument's risk valuation.
+   held.Instrument(dated).ValidateValuationState(state);
+   lifecycle=PhysicalLifecycle.Evaluate(evaluations.ToImmutable(),state,snapshot,members[0].Assignment.Quote.Currency);total=lifecycle.Total;
+  }
+  var sides=valued.Select((v,slot)=>(object)new{v.Member.Code,v.Member.Role,source=v.Member.Source,stage=v.Member.Stage,pipeline=v.Member.Role=="physical"?v.Member.Assignment.Location.Pipeline.Code:null,zone=v.Member.Role=="physical"?v.Member.Assignment.Location.Zone.Code:null,deliveryPoint=v.Member.Role=="physical"?v.Member.Assignment.Point.Code:null,
+   direction=v.Member.Direction==1?"receive":v.Member.Role=="physical"?"deliver":"pay",
+   presentValue=(lifecycle is null?v.Amount:lifecycle.Rows.Where(r=>r.Slot==slot).Aggregate(ExactMoney.Parse("0",v.Amount.Currency),(sum,r)=>sum.Add(r.RemainingPv).Add(r.OutstandingPv))).ToExactString(),
+   quantity=Ratio(v.Quantity),deliveryRows=v.Rows}).ToList();
   var links=!view?Array.Empty<object>():members.Where(m=>m.Role=="physical"&&m.Source is not null).Select(m=>{var receipt=quantities[m.Source!];var delivery=quantities[m.Code];var fuel=receipt.Add(delivery.Scale(Number("-1")));return(object)new{source=m.Source,target=m.Code,m.Formula,m.Fraction,receipt=receipt.ToExactString(),delivery=delivery.ToExactString(),fuel=fuel.ToExactString()};}).ToArray();
   // The schedule is a display projection: a trade it cannot show keeps its valuation and reports why.
   ScheduleView? schedule=null;GasScheduleRefusal? refusal=null;
@@ -177,7 +212,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    catch(MarketDataException error)when(error.Code is "schedule_view" or "gas_day_boundary"){refusal=new(error.Code,error.Message);}
   // No contract-against-market measure is defined for these sides yet, so none is reported.
   var summaries=schedule is null?null:views!.Select(v=>(object)new{side=v.Code,billedQuantity=schedule.Totals[v.Code+".quantity"].Value,amount=schedule.Totals[v.Code+".amount"].Value,againstMarket=(string?)null}).ToArray();
-  return new(total!.ToExactString(),members[0].Assignment.Quote.Currency.Code,unit,sides,links,schedule,summaries,refusal,members.ToImmutableDictionary(m=>m.Code,m=>m.Slot));
+  return new(total!.ToExactString(),members[0].Assignment.Quote.Currency.Code,unit,sides,links,schedule,summaries,refusal,members.ToImmutableDictionary(m=>m.Code,m=>m.Slot),
+   lifecycle is null?null:GasLifecycleMeasures.From(lifecycle)){Lifecycle=lifecycle};
  }
  // A preview and a booking are held to the gas setup their context resolves (GasTicket.RequireSetup).
  async Task RequireSetup(NpgsqlConnection c,PreviewData data,GasCompositionRequest body,CancellationToken ct)=>GasTicket.RequireSetup(body.GasSetupId,(await gas.CurrentSetup(c,data,ct)).Id);
@@ -201,6 +237,20 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  {
   var member=execution.Members.SingleOrDefault(m=>m.Slot==slot)??throw new MarketDataException("side_schedule_inspection","Select one visible Side slot.");
   var program=execution.Programs.Single(p=>p.Slot==member.Slot);SideScheduleSnapshot? result=null;
+  if(execution.Started)
+  {
+   // The Side's rows come from the whole instrument's lifecycle: its cash accrues over its physical gas days.
+   SideViewInput? side=null;
+   var value=await Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,false,ct,
+    inspect:(input,_)=>{if(input.Code==member.Code)side=input;},held:execution);
+   var rows=value.Lifecycle!.Rows.Where(r=>r.Slot==slot).ToImmutableArray();
+   var final=await GasCashPaymentStore.FinalDeterminations(c,database.Manifest.CatalogId,execution.TradeId,execution.InstrumentId,ct);
+   // A cash row shows a final determination when every gas day it covers has one; it never replaces the accrual.
+   var determinations=rows.Where(r=>r.Settlement is not null).Select(r=>(r.Occurrence,Days:Enumerable.Range(0,r.DeliveryTo.DayNumber-r.DeliveryFrom.DayNumber).Select(r.DeliveryFrom.AddDays).ToArray()))
+    .Where(r=>r.Days.All(d=>final.ContainsKey((slot,d))))
+    .ToImmutableDictionary(r=>r.Occurrence,r=>r.Days.Select(d=>final[(slot,d)]).Aggregate((a,b)=>a.Add(b)));
+   return SideScheduleSnapshot.FromLifecycle(program.SideId,frame.Id,side??throw new MarketDataException("side_schedule_inspection","The Side produced no evaluated schedule."),rows,determinations,member.Clock.Boundary);
+  }
   try
   {
    await Value(c,data,frame,[member],execution.Quantity,null,execution.Terms.GasSetupId,[program],false,ct,
@@ -218,7 +268,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  internal async Task<GasCompositionRead> ReadSinglePoint(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)
  {
   var execution=await LoadSinglePoint(c,data,frame,trade,ct);
-  return new(execution.Terms,await Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,true,ct));
+  return new(execution.Terms,await Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,true,ct,held:execution));
  }
  internal async Task<GasCompositionExecution> LoadSinglePoint(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)
  {
@@ -227,14 +277,14 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   ImmutableArray<GasCompositionRow> members=[new(0,physical.Code,"physical",Sign(physical.Direction,true),whole,whole,null,null,null,null,null,null,m.Assignments,m.Clock),
    ..body.CashSides.Select((s,n)=>new GasCompositionRow(n+1,s.Code,s.Role,Sign(s.Direction,false),whole,whole,s.Source,s.Stage,null,null,null,null,m.Assignments,m.Clock))];
   var programs=await new RetainedScheduleStore(database).LoadPrograms(c,instrument,frame.ContextId,frame.ContextId is null?null:frame.At,ct);
-  return new(body,instrument,members,Number(physical.Quantity!),programs);
+  return new(trade,body,instrument,members,Number(physical.Quantity!),programs);
  }
  // programs, when the caller already loaded the trade's retained programs under this frame, are used in place of loading them again.
  internal async Task<GasCompositionRead> Read(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct,
   IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,ImmutableArray<RetainedSideProgram>? programs=null)
  {
   var execution=await Load(c,data,frame,trade,ct,programs);
-  var value=await Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,true,ct,recorded);
+  var value=await Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,true,ct,recorded,held:execution);
   return new(execution.Terms,value);
  }
  internal async Task<GasCompositionExecution> Load(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct,
@@ -262,6 +312,6 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    var slot=int.Parse(r.Text("slot"));var source=r.OptionalText("source_slot") is {} s?int.Parse(s):(int?)null;var a=phys[r.Text("role")=="physical"?slot:source!.Value];
    members.Add(new(slot,r.Text("code"),r.Text("role"),int.Parse(r.Text("direction")),new(BigInteger.Parse(r.Text("ratio_n")),BigInteger.Parse(r.Text("ratio_d"))),new(BigInteger.Parse(r.Text("receipt_n")),BigInteger.Parse(r.Text("receipt_d"))),source is {} si?rows.Single(x=>x.Text("slot")==si.ToString(CultureInfo.InvariantCulture)).Text("code"):null,r.OptionalText("stage"),r.OptionalText("formula"),r.OptionalText("fraction"),null,null,a.Assignments,a.Clock));
   }
-  return new(body,header.Id("instrument_id"),members.ToImmutable(),Number(header.Text("quantity")),programs.Value);
+  return new(trade,body,header.Id("instrument_id"),members.ToImmutable(),Number(header.Text("quantity")),programs.Value);
  }
 }

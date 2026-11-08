@@ -812,7 +812,7 @@ def main():
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-basis-demo'],cwd=ROOT,env=env,check=True,timeout=300)
             elif args.gas_in_term_check:
                 from check_gas_in_term import run_checks as check_gas_in_term
-                check_gas_in_term(url,query,manifest)
+                check_gas_in_term(url,query,manifest,risk_worker_runner())
             elif args.gas_indexed_check:
                 from check_gas_indexed import run_checks as check_gas_indexed
                 indexed_fixture=check_gas_indexed(url,query,manifest,risk_worker_runner())

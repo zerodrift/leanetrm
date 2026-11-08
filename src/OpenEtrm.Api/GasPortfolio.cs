@@ -32,6 +32,7 @@ internal static class GasPortfolio
        [..group.Select(p => p.Reference)], supplied, requirePinnedSources, group.First().Trade, ct);
    var snapshot=MarketSnapshotBinding.Bind(source.Data.Snapshot(source.Frame),contextId,SchedulePreview.ParseAt(context.KnownAt));
    var trades=ImmutableArray.CreateBuilder<Trade>();var evidence=ImmutableArray.CreateBuilder<PortfolioPositionEvidence>();
+   var states=ImmutableDictionary.CreateBuilder<MeasureBinding,IBindingValuationState>();
    foreach(var position in group)
    {
     var execution=position.Head.GetProperty("composition").GetBoolean()
@@ -42,6 +43,8 @@ internal static class GasPortfolio
      execution.Quantity!=ExactDecimal.Parse(position.Head.Text("quantity")))
      throw Invalid("Held quantity, currency and instrument must match the retained gas programs.");
     var quantity=new Quantity(execution.Quantity,position.Quantity);var book=position.Book.Id("id");
+    // A started-delivery trade is valued with its recorded cash; older programs keep their own refusals.
+    if(execution.Started)states.Add(new(position.Trade,position.Binding),await GasCashPaymentStore.Read(connection,database.Manifest.CatalogId,position.Trade,position.Binding,quantity,ct));
     trades.Add(new(position.Trade,book,[new(position.Binding,instrument,quantity)]));
     evidence.Add(new(position.Trade,int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture),position.Binding,
      instrument.Id,instrument.Id,book,GasPositions.Measure,group.Key,int.Parse(position.Head.Text("publication_order"),CultureInfo.InvariantCulture),quantity)
@@ -49,7 +52,7 @@ internal static class GasPortfolio
    }
    // Both admitted fixed gas profiles explicitly select undiscounted contractual PV.
    var portfolio=ValuationPortfolio.FromTrades(trades.ToImmutable(),new(ValuationMeasure.PresentValue,
-    ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+    ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)){BindingStates=states.ToImmutable()});
    result.Add(new(source.Data,source.Frame,snapshot,portfolio,evidence.ToImmutable()));
   }
   return result.ToImmutable();

@@ -1,5 +1,8 @@
 """In-term gas admission, recorded payments and the owner-only load, against the synthetic in-term demo."""
 from copy import deepcopy
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+from fractions import Fraction
 import json
 import re
 from uuid import uuid4
@@ -7,12 +10,12 @@ from assistant_context import check_guard, migration_body
 from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
 from check_booked_side_programs import runtime_query, capture_context
-from gas_in_term_fixture import CLOSE, POINT, custom_curves, trade
+from gas_in_term_fixture import CLOSE, POINT, TERM, custom_curves, fixing, marks, published_at, trade
 
 STARTED = {'whole_gas_day_delivery_v1', 'accrued_payment_v1'}
 
 
-def run_checks(url, query, manifest):
+def run_checks(url, query, manifest, run_worker):
     c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'trader'})
     catalog = manifest['catalogId']
     frame = initial_frame(c.call('workspace'), '2026-11-06')
@@ -43,6 +46,8 @@ def run_checks(url, query, manifest):
     print('PASS a started gas composition is staged by the ticket and still refused by the booking operation', flush=True)
 
     # (b) The administrator load is owner-only and admits the same programs through the same writer.
+    # A context whose knowledge precedes the load.
+    before_load = capture_context(query, manifest, '2026-11-06').splitlines()[-1]
     load = f"SELECT security.load_gas_composition_in_term('{catalog}','{encoded}'::jsonb,'{CLOSE}');"
     refused(load, 'permission denied for function load_gas_composition_in_term')
     assert query("SELECT has_function_privilege('openetrm_runtime','security.load_gas_composition_in_term(uuid,jsonb,timestamptz)','EXECUTE'),"
@@ -136,6 +141,138 @@ def run_checks(url, query, manifest):
         else: raise AssertionError(f'A foreign occurrence was accepted instead of {code}')
     assert query("SELECT has_table_privilege('openetrm_runtime','trading.gas_cash_payments','INSERT'),has_table_privilege('openetrm_runtime','trading.gas_cash_payment_allocations','INSERT');") == 'f|f'
     print('PASS gas payment allocations name only their own trade, membership and retained occurrence', flush=True)
+    valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, loaded['instrumentId'], before_load, owner)
+
+
+def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, binding, before_load, owner):
+    """Measures, Side states, retained risk and history of the loaded in-term composition at the close."""
+    close = datetime(2026, 11, 6, 21, tzinfo=timezone.utc)
+    ended = lambda day: datetime(day.year, day.month, day.day, 15, tzinfo=timezone.utc) + timedelta(days=1) <= close
+    days = [TERM[0] + timedelta(days=n) for n in range((TERM[1] - TERM[0]).days)]
+    location = {}
+    for _, start, end, hub, basis in marks():
+        for n in range((end - start).days): location[start + timedelta(days=n)] = hub + basis
+    fixed = lambda day: published_at(day) <= CLOSE
+    paid = {day: Decimal('-290') for day in days if day.month == 9}
+    # The trade selects no discounting, so every factor is exactly 1 (each inspected row reports it below).
+    remaining_physical = sum(100 * location[d] for d in days if not ended(d))
+    remaining_cash = sum(-100 * (fixing(d) if fixed(d) else location[d]) for d in days if not ended(d))
+    outstanding = sum(-100 * fixing(d) - paid.get(d, 0) for d in days if ended(d))
+    total = remaining_physical + remaining_cash + outstanding
+    due = lambda d: date(d.year + d.month // 12, d.month % 12 + 1, 10)
+    expected = {}
+    for d in days:
+        if d not in paid: expected[due(d)] = expected.get(due(d), 0) - 100 * (fixing(d) if fixed(d) else location[d])
+    assert (outstanding, total) == (Decimal('-10855'), Decimal('-10855')), (outstanding, total)
+    assert expected == {date(2026, 11, 10): Decimal('-9300'), date(2026, 12, 10): Decimal('-9648'), date(2027, 1, 10): Decimal('-10912')}, expected
+    working = dict(snapshotId=frame['id'], convention=context['convention'], knowledgeMode='current')
+    read = c.call('gas/composition/editor', dict(context=working, tradeId=trade_id))['valuation']
+    measures = read['measures']
+    assert measures['label'] == 'Remaining contract value + outstanding settlement', measures
+    assert [Fraction(measures[k]) for k in ('remainingDeliveryMtm', 'outstandingSettlement', 'total')] == [remaining_physical + remaining_cash, outstanding, total], measures
+    assert Fraction(read['presentValue']) == total
+    assert {datetime.fromisoformat(x['dueAt']).date(): Decimal(x['amount']) for x in measures['expectedCash']} == expected, measures['expectedCash']
+    print('PASS the in-term read reports remaining delivery MTM, outstanding settlement, their labelled sum and undiscounted expected cash', flush=True)
+
+    # The Side inspector shows each gas day's delivery, price and settlement state.
+    position = dict(context={**working, 'convention': 'trading_workspace_v1'}, tradeId=trade_id, bindingId=binding, revision=1, instrumentType='physical_gas')
+    def rows(slot):
+        request = dict(position=position, sideSlot=slot, contribution=None, offset=0, limit=128)
+        first = c.call('trading/side-schedules', request)
+        found = first['page']['rows'] + c.call('trading/side-schedules', {**request, 'offset': 128})['page']['rows'] if first['page']['total'] > 128 else first['page']['rows']
+        assert len(found) == first['page']['total'] == 122
+        return {date.fromisoformat((r['deliveryFrom'] or r['operatingDate'])): r for r in found}
+    cash, physical = rows(1), rows(0)
+    assert all(Fraction(r['discountFactor']) == 1 for r in cash.values() if r['discountFactor'] is not None)
+    september = cash[date(2026, 9, 1)]
+    assert (september['lifecycle']['cash'], september['paid'], september['outstanding'], september['paidAt'][:10], september['lifecycle']['coverage']) == ('Paid', '-290', '0', '2026-10-10', None), september
+    october = cash[date(2026, 10, 15)]
+    assert (october['lifecycle']['delivery'], october['lifecycle']['cash'], october['accrued'], october['outstanding'], october['quantityState'], october['lifecycle']['coverage']) == \
+        ('Ended', 'AccruedUnpaid', '-300', '-300', 'contract_estimate_allocation_pending_v1', 'OutstandingSettlement'), october
+    assert Fraction(october['presentValue']) == -300
+    for day in (date(2026, 11, 7), date(2026, 11, 8), date(2026, 11, 9)):
+        row = cash[day]
+        assert (row['lifecycle']['delivery'], row['lifecycle']['cash'], row['lifecycle']['coverage'], row['price']) == ('NotStarted', 'Remaining', 'RemainingDeliveryMtm', '3.22'), row
+        assert 'PublishedFixing' in row['priceStates'] and Fraction(row['presentValue']) == -322, row
+    assert cash[date(2026, 11, 6)]['lifecycle']['delivery'] == 'InProgress' and 'Projected' in cash[date(2026, 11, 10)]['priceStates']
+    assert sum(Fraction(r['presentValue']) for r in cash.values()) == remaining_cash + outstanding
+    gone = physical[date(2026, 10, 15)]
+    assert (gone['lifecycle']['delivery'], gone['lifecycle']['cash'], gone['lifecycle']['coverage'], gone['quantityState'], Fraction(gone['presentValue'])) == \
+        ('Ended', None, None, 'contract_estimate_allocation_pending_v1', 0), gone
+    assert physical[date(2026, 11, 6)]['lifecycle']['cash'] is None and Fraction(physical[date(2026, 11, 6)]['presentValue']) == 318
+    assert sum(Fraction(r['presentValue']) for r in physical.values()) == remaining_physical
+    print('PASS the Side inspector shows paid, accrued and remaining gas days with fixed price states, and physical days with no settlement', flush=True)
+
+    # The retained risk worker reproduces the total; a shock moves only fixed, undelivered physical days.
+    c.call('profile', {'profile': 'risk'})
+    shared = {**working, 'convention': 'trading_workspace_v1'}
+    scope = dict(context=shared, bookIds=[], portfolioIds=[], tradeIds=[trade_id])
+    catalog = c.call('portfolio/risk/catalog', scope)
+    assert not catalog['excludedPositions'], catalog['excludedPositions']
+    def covered(factor):
+        start, end = date.fromisoformat(factor['deliveryFrom']), date.fromisoformat(factor['deliveryTo'])
+        return {start + timedelta(days=n) for n in range((end - start).days)}
+    # Nov 3 has ended: its accrued cash and delivered day must not move under a shock to its marks.
+    probes = [date(2026, 11, 3), date(2026, 11, 6), date(2026, 11, 7), date(2026, 11, 20), date(2026, 12, 15)]
+    selected = [f for f in catalog['factors'] if covered(f) & set(probes)][:16]
+    assert {d for f in selected for d in covered(f) & set(probes)} == set(probes), selected
+    request = {**scope, 'context': {**shared, 'knowledgeMode': 'retained', 'contextId': catalog['context']['contextId']}, 'detail': 'holdings',
+               'convention': catalog['convention'], 'numericalPolicy': catalog['numericalPolicy'], 'pricingPolicy': catalog['pricingPolicy'], 'stress': [],
+               'bumps': [dict(factor=f['factor'], size='1', convention=catalog['bumpConvention']) for f in selected]}
+    result = c.call('portfolio/risk', request)
+    from check_portfolio_risk import financial
+    job = c.call('portfolio/risk/jobs', dict(requestId=str(uuid4()), request=request)); run_worker()
+    done = c.call('portfolio/risk/jobs/' + job['id'])
+    assert done['state'] == 'completed' and financial(done['result']) == financial(result), done
+    for factor in result['factors']:
+        values = factor['positions'][0]['values']
+        moved = covered(factor['factor']) & {d for d in days if fixed(d) and not ended(d)}
+        assert Fraction(values['base']) == total and Fraction(values['delta']) == 100 * len(moved), (factor['factor'], values)
+    c.call('profile', {'profile': 'trader'})
+    # The worker reads payments only within a claimed lease and never writes them.
+    assert query("BEGIN;SET LOCAL SESSION AUTHORIZATION preview_risk_worker;SELECT count(*) FROM trading.gas_cash_payments;ROLLBACK;") == '0'
+    assert query("SELECT has_table_privilege('openetrm_risk_worker','trading.gas_cash_payments','INSERT'),has_table_privilege('openetrm_risk_worker','trading.gas_cash_payment_allocations','SELECT'),"
+                 "has_table_privilege('openetrm_risk_worker','trading.gas_cash_payment_commands','SELECT');") == 'f|t|f'
+    print('PASS retained risk and its worker reproduce the total; accrued days are frozen and only fixed undelivered physical days move', flush=True)
+
+    # A context known before the load sees no trade.
+    refused = c.call('gas/composition/editor', dict(context={**working, 'knowledgeMode': 'retained', 'contextId': before_load}, tradeId=trade_id), expected=422)
+    assert refused['code'] == 'gas_composition_input', refused
+    print('PASS a historical context known before the load reads no in-term trade', flush=True)
+    final_determination(c, query, manifest, frame, context, body, owner)
+
+
+def final_determination(c, query, manifest, frame, context, body, owner):
+    """A fixed-price in-term day with a D338 final determination shows it beside the contract-estimate accrual."""
+    single = deepcopy(body); single.update(operationId=str(uuid4()), profile='fixed_gas_composition_v1')
+    single['physicalSides'][0].update(deliveryFrom='2026-11-01', deliveryTo='2026-11-02')
+    single['cashSides'] = [dict(code='payment', role='consideration', direction='pay', source='gas', stage='delivery', price='3.1', tariffCode=None, paymentAt='2026-12-10T00:00:00Z')]
+    staged = c.call('gas/composition/book', single, expected=422)
+    assert staged['code'] == 'gas_delivery_lifecycle', staged
+    encoded = json.dumps(single).replace("'", "''")
+    loaded = owner(f"SELECT security.load_gas_composition_in_term('{manifest['catalogId']}','{encoded}'::jsonb,'{CLOSE}');"
+                   f"SELECT security.publish_operation_side_schedules('{manifest['catalogId']}','{single['operationId']}');")
+    working = dict(snapshotId=frame['id'], convention=context['convention'], knowledgeMode='current')
+    trade = loaded['tradeId']
+    def inspected():
+        position = dict(context={**working, 'convention': 'trading_workspace_v1'}, tradeId=trade, bindingId=loaded['instrumentId'], revision=1, instrumentType='physical_gas')
+        return c.call('trading/side-schedules', dict(position=position, sideSlot=1, contribution=None, offset=0, limit=8))['page']['rows']
+    before = c.call('gas/composition/editor', dict(context=working, tradeId=trade))['valuation']['measures']
+    assert [Fraction(before[k]) for k in ('remainingDeliveryMtm', 'outstandingSettlement', 'total')] == [0, -310, -310], before
+    assert [r['finalDetermination'] for r in inspected()] == [None]
+    obligation = c.call('gas/quantities/read', dict(context=working, tradeId=trade, selectionPolicy='operational_projection_v1'))['rows'][0]['obligationId']
+    c.call('gas/quantities/record', dict(context=working, tradeId=trade, expectedRevision=1, operationId=str(uuid4()), obligationId=obligation, kind='allocated', status='final',
+                                         day='2026-11-01', quantity='98', evidence='Synthetic final allocation', expectedPreviousId=None))
+    preview = dict(context=working, tradeId=trade, expectedRevision=1, cashSlot=1, day='2026-11-01', selectionPolicy='final_allocated_billing_v1',
+                   profile='gas_final_daily_fixed_cash_v1', decimalPlaces=2, roundingPolicy='currency_minor_units_to_even_v1')
+    determined = c.call('gas/billing/preview', preview)
+    assert determined['amount'] == '-303.8', determined
+    c.call('gas/billing/determine', dict(preview=preview, operationId=str(uuid4()), previewHash=determined['previewHash'], sourceId=determined['sourceId'],
+                                         expectedPreviousId=None, correctionDueAt=None, reason=None, evidence='Synthetic final billing review'))
+    [row] = inspected()
+    assert (row['finalDetermination'], row['accrued'], row['outstanding'], row['lifecycle']['cash']) == ('-303.8', '-310', '-310', 'AccruedUnpaid'), row
+    assert c.call('gas/composition/editor', dict(context=working, tradeId=trade))['valuation']['measures'] == before
+    print('PASS a D338 final determination is shown beside the contract-estimate accrual and changes neither the accrual nor the measures', flush=True)
 
 
 def lifecycles(query, catalog, instrument):

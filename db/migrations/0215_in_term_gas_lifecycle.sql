@@ -135,12 +135,15 @@ DO $$DECLARE t text;payment text;BEGIN
   EXECUTE format('CREATE CONSTRAINT TRIGGER conserved_payment AFTER INSERT ON trading.%I DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION trading.require_gas_cash_payment(%L)',t,payment);
  END LOOP;
 END$$;
--- Reads see a payment only under current authority and within the selected knowledge cutoff.
-CREATE POLICY scoped_read ON trading.gas_cash_payments FOR SELECT TO openetrm_runtime USING(
+-- Reads see a payment only under current authority and within the selected knowledge cutoff. The retained
+-- risk worker values started trades with the same payments, under the same predicates and only within its lease.
+CREATE POLICY scoped_read ON trading.gas_cash_payments FOR SELECT TO openetrm_runtime,openetrm_risk_worker USING(
  security.trading_access(catalog_id,'ReadTrades') AND security.market_access(catalog_id,'ReadMarketData') AND security.trading_visible(catalog_id,publication_order,paid_at));
-CREATE POLICY scoped_read ON trading.gas_cash_payment_allocations FOR SELECT TO openetrm_runtime USING(EXISTS(
+CREATE POLICY scoped_read ON trading.gas_cash_payment_allocations FOR SELECT TO openetrm_runtime,openetrm_risk_worker USING(EXISTS(
  SELECT 1 FROM trading.gas_cash_payments p WHERE(p.catalog_id,p.id)=(gas_cash_payment_allocations.catalog_id,gas_cash_payment_allocations.payment_id)));
-GRANT SELECT ON trading.gas_cash_payments,trading.gas_cash_payment_allocations TO openetrm_runtime;
+CREATE POLICY worker_service ON trading.gas_cash_payments AS RESTRICTIVE FOR SELECT TO openetrm_risk_worker USING(risk.worker_read());
+CREATE POLICY worker_service ON trading.gas_cash_payment_allocations AS RESTRICTIVE FOR SELECT TO openetrm_risk_worker USING(risk.worker_read());
+GRANT SELECT ON trading.gas_cash_payments,trading.gas_cash_payment_allocations TO openetrm_runtime,openetrm_risk_worker;
 
 CREATE FUNCTION security.record_gas_cash_payment(catalog uuid,body jsonb,as_of timestamptz) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET jit=off AS $$

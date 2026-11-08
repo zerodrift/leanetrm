@@ -2,7 +2,7 @@
 from uuid import uuid4
 from decimal import Decimal
 from preview_client import PreviewClient, initial_frame
-from preview_fixture import gas_purchase
+from preview_fixture import gas_purchase, held_gas_measures
 
 
 def run_checks(url):
@@ -55,6 +55,7 @@ def run_checks(url):
     booked = c.call('gas/composition/book', body)
     assert c.call('gas/composition/book', body)==booked
     retained = c.call('gas/composition/editor', {'context':context, 'tradeId':booked['tradeId']})['valuation']
+    retained = held_gas_measures(retained, value)
     assert retained=={k:value[k] for k in retained}, (retained, value)
     c.call('gas/composition/book', gas(body, quantity='1001'), expected=409)
     before_booking = {**context, 'knowledgeMode':'retained', 'contextId':catalog['context']['contextId']}

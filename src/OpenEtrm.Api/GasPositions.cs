@@ -37,7 +37,7 @@ internal sealed record GasPosition(JsonElement Head,JsonElement Book,ImmutableAr
   executedAt=Head.Text("executed_at"),bookingFacts=new{implementation=Head.Text("booking_implementation"),labelCapturedAt=Head.Text("label_captured_at")},
   executionPrice=(string?)null,fixedPrice=(string?)null,mark=(string?)null,markMinusPrice=(string?)null,executionPnl=(string?)null,
   settlement="unprocessed",measure=GasPositions.Measure,measureLabel="Contractual PV",quantityPolicy="contractual_side_schedules_v1",
-  presentValue=(string?)null,unavailableReason=(string?)null
+  presentValue=(string?)null,remainingDeliveryMtm=(string?)null,outstandingSettlement=(string?)null,unavailableReason=(string?)null
  },TradingBlotter.Json)!.AsObject();
 }
 

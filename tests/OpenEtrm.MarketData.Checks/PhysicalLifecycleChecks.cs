@@ -32,6 +32,12 @@ internal static class PhysicalLifecycleChecks
         Require(Days(11).Skip(6).Concat(Days(12)).All(d=>cash[d].Delivery==DeliveryState.NotStarted&&cash[d].Settlement==SettlementState.Remaining&&
             cash[d].Accrued.ToExactString()=="0"&&cash[d].QuantityBasis==PhysicalLifecycle.ContractQuantity),"Nov 7 onward has not started.");
         Equal(Sum(Days(11).Take(5).Select(d=>cash[d].OutstandingPv)),"-1555");
+        // Expected cash is undiscounted, by due date, and never added: Sep is paid; Nov 10 Oct; Dec 10 Nov 1-5 accrued plus Nov 6-30; Jan 10 December.
+        Require(undiscounted.ExpectedCash.Select(x=>(x.DueAt.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),x.Amount.ToExactString())).SequenceEqual(
+            [("2026-11-10","-9300"),("2026-12-10","-9648"),("2027-01-10","-10912")]),"Expected cash groups the unpaid amounts by due date.");
+        Require(cash[new(2026,9,1)].Measures.IsEmpty&&cash[new(2026,9,1)].PaidAt==Fixture.Utc("2026-10-10T00:00:00Z")&&
+            cash[new(2026,10,1)].Measures.SequenceEqual([LifecycleMeasure.OutstandingSettlement])&&cash[new(2026,11,7)].Measures.SequenceEqual([LifecycleMeasure.RemainingDeliveryMtm]),
+            "Paid days are history only; accrued days are outstanding; days to come are remaining value.");
         var november=demo.Evaluate(11,Demo.Close);
         // The fixed 0.00 spread adds its own fixed price fact to each day's index state.
         Require(november.Contributions.Skip(6).Take(3).All(c=>c.Amount.States[0].Prices==(SchedulePriceFacts.PublishedFixing|SchedulePriceFacts.Fixed))&&
@@ -106,6 +112,13 @@ internal static class PhysicalLifecycleChecks
         Reject("physical_lifecycle_quantity",()=>demo.FixedNovember(Demo.Close,d=>new(d.SideId,d.Family,d.EconomicIdentity,d.PricingBindingIdentity,d.SchemaVersion,d.GeneratorVersion,
             d.Rows.Select(r=>r.Key=="gas/0/quantity"?r with{Parameters=r.Parameters.SetItem("numerator","2")}:r).ToArray(),d.Edges,d.Bindings,d.Roots,d.Ports,d.Grids)));
 
+        // October also delivered on a clock an hour later: the cash days are defined once both clocks agree a day has ended.
+        var shifted=demo.Shifted(10,60);
+        Equal(demo.Term(Demo.Close,[demo.Physical[1],shifted],"3").OutstandingSettlement,"-9300");
+        Reject("physical_lifecycle_unsupported",()=>demo.Term(Fixture.Utc("2026-10-02T15:30:00Z"),[demo.Physical[1],shifted],"3"));
+        // Review Focus 5: an old future-lifecycle holding beside the started one refuses the portfolio; it is never omitted.
+        Reject("gas_delivery_lifecycle",()=>demo.MixedPortfolio(Demo.Close,paid));
+
         var before=Fixture.Utc("2026-08-28T21:00:00Z");
         var opening=demo.Value(before,[],Demo.Undiscounted);
         Equal(opening.OutstandingSettlement,"0");Equal(opening.Total,demo.Headline(before,null,Demo.Undiscounted));
@@ -113,7 +126,11 @@ internal static class PhysicalLifecycleChecks
 
         Reject("payment_state",()=>demo.State([demo.Payment(Demo.Months,0,Demo.Close,Demo.Close,"-290") with{Id=Guid.Empty}]));
         var twice=demo.Payment(Demo.Months,0,Demo.Close,Demo.Close,"-145");
-        Reject("payment_state",()=>demo.State([twice,twice with{Occurrence=1}]));
+        // A payment and an occurrence identify one allocation; one payment is one slot, payment and knowledge instant.
+        Reject("payment_state",()=>demo.State([twice,twice]));
+        Reject("payment_state",()=>demo.State([twice,twice with{Occurrence=1,PaidAt=Demo.Close.AddDays(-1)}]));
+        var split=demo.Value(Demo.Close,[twice,twice with{Occurrence=1}],Demo.Undiscounted).Rows.Where(r=>Cash(r)&&r.DeliveryFrom.Month==9&&r.DeliveryFrom.Day<=2).ToArray();
+        Require(split.All(r=>r.Settlement==SettlementState.PartPaid&&r.PaidAt==Demo.Close),"One payment may allocate to several occurrences.");
         Reject("payment_state",()=>new PhysicalCashState(demo.Trade.Id,demo.Binding,demo.Held,[],"explicit_paid_cash_nominal_due_v1"));
         Reject("payment_state",()=>demo.Value(Demo.Close,[demo.Payment(Demo.Months+3,0,Demo.Close,Demo.Close,"-352")],Demo.Undiscounted));
         Reject("payment_state",()=>demo.Value(Demo.Close,[demo.Payment(0,0,Demo.Close,Demo.Close,"-290")],Demo.Undiscounted));
@@ -136,6 +153,7 @@ internal static class PhysicalLifecycleChecks
         private readonly ImmutableArray<GasValuationAssignment> assignments;
         private readonly CurveModel model;
         private readonly ImmutableArray<FloatingSide> payments;
+        private readonly GasDeliveryLocation location;
         internal ImmutableArray<PhysicalGasSide> Physical { get; }
         internal RetainedGasInstrument Instrument { get; }
         internal Trade Trade { get; }
@@ -162,7 +180,7 @@ internal static class PhysicalLifecycleChecks
             model=new(f.Revision,f.Reference,[f.Quantities[0]],[quote],days,[curve],[],[],series);
             fixings=[..days.Select((d,n)=>new IndexFixing(f.R("index"),quote.Key,d.DeliveryFrom,d.DeliveryTo,Published(d.DeliveryFrom),series[n].Key,f.R("synthetic_publisher"),IndexFixing.SupportedImplementation))];
             var settlement=PriceSettlementSelection.CurveTarget(f.R("index"));
-            var location=new GasDeliveryLocation(f.R("pipeline"),f.R("zone"),f.R("henry_hub"));
+            location=new GasDeliveryLocation(f.R("pipeline"),f.R("zone"),f.R("henry_hub"));
             var clock=GasDayClock.Capture(f.R("synthetic_gas_clock"),TimeZoneInfo.CreateCustomTimeZone("synthetic_fixed_minus_six",Central,"synthetic","synthetic"),9*60);
             assignments=[..days.Select((d,n)=>new GasValuationAssignment(f.R("synthetic_day_"+n),location,f.R("gas"),d.DeliveryFrom,d.DeliveryTo,settlement,quote,
                 new(new(curve.Key,d.Key),d),fixings[n],new(default,quote)))];
@@ -181,6 +199,13 @@ internal static class PhysicalLifecycleChecks
             Trade=new(Guid.NewGuid(),Guid.NewGuid(),[new(Binding,Instrument,Held)]);
         }
 
+        // The same month's delivery on a gas-day clock starting `minutes` later.
+        internal PhysicalGasSide Shifted(int month,int minutes)
+        {
+            var side=Physical[month-9];var clock=GasDayClock.Capture(f.R("synthetic_gas_clock_shifted"),TimeZoneInfo.CreateCustomTimeZone("synthetic_fixed_minus_six_shifted",Central,"synthetic","synthetic"),9*60+minutes);
+            var q=side.Quantities;
+            return new(Guid.NewGuid(),location,f.R("gas"),new(clock,q.From,q.To,q.Basis,q.Receipt,q.FuelConvention,q.FuelFraction),side.Assignments);
+        }
         internal CashOccurrencePayment Payment(int slot,int occurrence,DateTimeOffset paidAt,DateTimeOffset knownAt,string amount)=>
             new(Guid.NewGuid(),slot,occurrence,paidAt,knownAt,ExactMoney.Parse(amount,quote.Currency));
         internal ImmutableArray<CashOccurrencePayment> SeptemberPaid(DateTimeOffset knownAt)=>
@@ -198,12 +223,12 @@ internal static class PhysicalLifecycleChecks
             return new MarketSnapshot(Guid.NewGuid(),f.Revision,at,at,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,[..selections]).WithKnowledge(Guid.NewGuid(),at);
         }
 
-        private (PreparedConnectedPortfolioRisk Prepared,ValuationPortfolio Portfolio) Prepare(Trade trade,DateTimeOffset at,IBindingValuationState? state,ISideDiscounting discount,(DateOnly,string)? revised=null)
+        private (PreparedConnectedPortfolioRisk Prepared,ValuationPortfolio Portfolio) Prepare(ImmutableArray<Trade> trades,DateTimeOffset at,IBindingValuationState? state,ISideDiscounting discount,(DateOnly,string)? revised=null)
         {
             var snapshot=Snapshot(at,revised);
             var setup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,discount)
                 {BindingStates=state is null?ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty:ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty.Add(new(state.TradeId,state.BindingId),state)};
-            var portfolio=ValuationPortfolio.FromTrades([trade],setup);
+            var portfolio=ValuationPortfolio.FromTrades(trades,setup);
             var dependencies=portfolio.Declare(snapshot).SelectMany(c=>c.Dependencies).Distinct().ToImmutableArray();
             var market=model.Build(snapshot,dependencies);
             var exported=model.Compile(snapshot,dependencies,false,market.Graph.Plan.Context);
@@ -215,7 +240,7 @@ internal static class PhysicalLifecycleChecks
         // A shock is a +shift scenario on every forecast November daily mark over the unshocked base.
         private PhysicalLifecycleValue Lifecycle(Trade trade,RetainedGasInstrument instrument,PhysicalCashState state,DateTimeOffset at,ISideDiscounting discount,(DateOnly,string)? revised,string? shift)
         {
-            var (prepared,portfolio)=Prepare(trade,at,state,discount,revised);
+            var (prepared,portfolio)=Prepare([trade],at,state,discount,revised);
             if(shift is not null)prepared=RiskEngine.WithShifts(prepared,[..days.Where((d,n)=>d.DeliveryFrom.Month==11&&fixings[n].FixingAt>at).Select(d=>
                 new CurveShift(CurveShockCoordinate.MarketQuote,new ContractCurveTarget(curve.Key,d.Key),PriceUnit.FromQuote(quote),ExactDecimal.Parse(shift),CurveShift.ParentAdditive))]);
             var context=new UnitValuationContext(prepared.Market.Snapshot,portfolio.Setup,prepared.Market).For(prepared.Contracts[0][0],null,state);
@@ -224,8 +249,17 @@ internal static class PhysicalLifecycleChecks
         // The holding's headline is the ordinary unit value scaled by the booked quantity.
         internal string Headline(DateTimeOffset at,ImmutableArray<CashOccurrencePayment>? paid,ISideDiscounting discount)
         {
-            var (prepared,_)=Prepare(Trade,at,paid is {} p?State(p):null,discount);
+            var (prepared,_)=Prepare([Trade],at,paid is {} p?State(p):null,discount);
             return RiskEngine.CalculateExact(prepared,[],RiskEngine.ExactNumericalPolicy).Groups.Single().BaseValues.Single().Value.ToExactString();
+        }
+        // The same terms retained with the future-delivery lifecycles, held beside the started trade with no lifecycle state.
+        internal void MixedPortfolio(DateTimeOffset at,ImmutableArray<CashOccurrencePayment> paid)
+        {
+            BookedSideProgram Old(Side side)=>BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(side,default,ScheduleLifecycleSelection.FutureDelivery));
+            var old=new RetainedGasInstrument(Guid.NewGuid(),[..Physical.Select(s=>new RetainedGasMember(s.Id,ExactDecimal.Parse("1"),ExactRatio.One,Old(s))),
+                ..payments.Select(s=>new RetainedGasMember(s.Id,ExactDecimal.Parse("-1"),ExactRatio.One,Old(s)))],assignments);
+            var (prepared,_)=Prepare([Trade,new(Guid.NewGuid(),Guid.NewGuid(),[new(Guid.NewGuid(),old,Held)])],at,State(paid),Undiscounted);
+            RiskEngine.CalculateExact(prepared,[],RiskEngine.ExactNumericalPolicy);
         }
         // The retained November payment program evaluated through the same sources the instrument uses.
         internal BookedSideEvaluation Evaluate(int month,DateTimeOffset at)

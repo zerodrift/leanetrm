@@ -84,7 +84,9 @@ def run_checks(url,query,manifest,saved):
     first=page['rows'][0]
     assert first['deliveryFrom']=='2021-01-01' and first['deliveryTo']=='2021-01-02' and first['paymentAt'].startswith('2021-02-11T00:00:00')
     assert [Fraction(first[k]) for k in ['quantity','price','amount','discountFactor','presentValue']]==[-100,Fraction('3.02'),-302,1,-302]
-    assert first['lifecycle']['due']=='NotDue' and first['lifecycle']['cash']=='NotTracked' and first['lifecycle']['delivery']=='Scheduled'
+    # A gas composition retains the started-delivery lifecycles: before delivery every day is remaining value.
+    assert first['lifecycle']['due']=='NotDue' and first['lifecycle']['cash']=='Remaining' and first['lifecycle']['delivery']=='NotStarted'
+    assert first['lifecycle']['coverage']=='RemainingDeliveryMtm' and first['quantityState']=='contractual_quantity_v1' and first['paid']=='0'
     second=c.call('trading/side-schedules',{**body,'offset':4})['page']
     assert second['rows'][0]['deliveryFrom']=='2021-01-05' and second['manifest']==page['manifest']
     calculation=c.call('trading/side-schedules',{**body,'contribution':first['key'],'limit':128})['page']
@@ -111,9 +113,11 @@ def run_checks(url,query,manifest,saved):
     assert pinned_directory['contextId']==ticket['context']['contextId'] and ticket['snapshotId']==frame['id']
     later=next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2021-01-15T08:'))
     in_term=deepcopy(body);in_term.update(sideSlot=0);in_term['position']['context']=dict(snapshotId=later['id'],convention='trading_workspace_v1',knowledgeMode='current')
+    # In its term the fixture's ended days have no visible published fixing: the valuation refuses and the
+    # retained plan is shown with the refusal, never a zero or an earlier market.
     plan=c.call('trading/side-schedules',in_term)['page']
     assert plan['rows'][0]['lifecycle']['delivery']=='Elapsed' and plan['rows'][0]['lifecycle']['fulfillment']=='NotTracked'
-    assert all(r['presentValue'] is None and r['lifecycle']['unavailableReason'] for r in plan['rows'])
+    assert all(r['presentValue'] is None and r['lifecycle']['unavailableReason']=='index_fixing_missing' for r in plan['rows'])
     assert Fraction(c.call('trading/side-schedules',body)['page']['rows'][0]['presentValue'])==-302
     for bad in [{**body,'sideSlot':99},{**body,'limit':129},{**body,'contribution':'0:0'},
                 {**body,'position':{**position,'revision':1}},{**body,'position':{**position,'bindingId':str(uuid4())}}]:
