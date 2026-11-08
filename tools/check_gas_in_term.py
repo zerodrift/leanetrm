@@ -80,6 +80,9 @@ def run_checks(url, query, manifest):
 
     # (c) Payments are idempotent by operation and by fact; a changed amount is a later-known revision.
     capture_context(query, manifest, '2026-11-06')
+    # A historical view between payment and recording sees a payment only once its receipt is known.
+    business = '2026-10-20'
+    before_receipts = capture_context(query, manifest, business).splitlines()[-1]
     record = lambda payment: f"SELECT security.record_gas_cash_payment('{catalog}','{json.dumps(payment)}'::jsonb,'{CLOSE}');"
     def september(amount, last):
         return dict(operationId=str(uuid4()), tradeId=trade_id, expectedRevision=1, slot=1, businessKey='synthetic-2026-09-remittance', paidAt='2026-10-10T00:00:00Z',
@@ -94,7 +97,19 @@ def run_checks(url, query, manifest):
     revision = json.loads(sql_value(record(corrected)))
     assert (revision['revision'], revision['previousId']) == (2, original['paymentId']) and revision['paymentId'] != original['paymentId']
     assert json.loads(sql_value(record({**corrected, 'operationId': str(uuid4())})))['paymentId'] == revision['paymentId'] and rows() == '2'
+    # A retried no-op keeps its first outcome after a later revision of the same business key.
+    same = {**corrected, 'operationId': str(uuid4())}
+    assert json.loads(sql_value(record(same)))['paymentId'] == revision['paymentId']
+    later = json.loads(sql_value(record(september('-8650', '-240'))))
+    assert later['revision'] == 3 and json.loads(sql_value(record(same)))['paymentId'] == revision['paymentId'] and rows() == '3'
+    restored = json.loads(sql_value(record(september('-8700', '-290'))))
+    assert (restored['revision'], restored['previousId']) == (4, later['paymentId']) and rows() == '4'
     capture_context(query, manifest, '2026-11-06')
+    after_receipts = capture_context(query, manifest, business).splitlines()[-1]
+    def visible(context):
+        return sql_value(f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{business}T00:00:00Z');"
+                         f"SELECT count(*) FROM trading.gas_cash_payments WHERE(catalog_id,trade_id)=('{catalog}','{trade_id}');")
+    assert (visible(before_receipts), visible(after_receipts)) == ('0', '4')
     known = query(f"SELECT bool_and(later.known_from>earlier.known_from) FROM trading.gas_cash_payments p JOIN trading.knowledge_receipts later ON(later.catalog_id,later.publication_order)=(p.catalog_id,p.publication_order)"
                   f" JOIN trading.gas_cash_payments o ON(o.catalog_id,o.id)=(p.catalog_id,p.previous_id) JOIN trading.knowledge_receipts earlier ON(earlier.catalog_id,earlier.publication_order)=(o.catalog_id,o.publication_order)"
                   f" WHERE(p.catalog_id,p.id)=('{catalog}','{revision['paymentId']}');")
@@ -113,7 +128,7 @@ def run_checks(url, query, manifest):
     # (d) A payment can allocate only to its own membership's retained occurrences.
     other_schedule, other_row = query(f"SELECT s.schedule_id,r.ordinal FROM trading.instrument_side_schedules s JOIN trading.side_schedule_rows r USING(catalog_id,schedule_id)"
                                       f" WHERE(s.catalog_id,s.instrument_id,s.slot,r.local_key)=('{catalog}','{other['instrumentId']}',1,'payment/0/value');").split('|')
-    copy = f"INSERT INTO trading.gas_cash_payments SELECT catalog_id,'{uuid4()}',trade_id,trade_revision,{{instrument}},slot,'synthetic-foreign',1,NULL,paid_at,reference_catalog_id,reference_revision_id,currency_code,-290,'{uuid4()}',actor_id,request,publication_order,effective_at FROM trading.gas_cash_payments WHERE id='{revision['paymentId']}' RETURNING id"
+    copy = f"INSERT INTO trading.gas_cash_payments SELECT catalog_id,'{uuid4()}',trade_id,trade_revision,{{instrument}},slot,'synthetic-foreign',1,NULL,paid_at,reference_catalog_id,reference_revision_id,currency_code,-290,'{uuid4()}',actor_id,publication_order FROM trading.gas_cash_payments WHERE id='{revision['paymentId']}' RETURNING id"
     for statement, code in [(copy.format(instrument=f"'{other['instrumentId']}'") + ';', 'gas_cash_payments_catalog_id_trade_id_trade_revision_instr_fkey'),
                             (f"WITH p AS({copy.format(instrument='instrument_id')}) INSERT INTO trading.gas_cash_payment_allocations SELECT '{catalog}',id,0,'{other_schedule}',{other_row},-290 FROM p;SET CONSTRAINTS ALL IMMEDIATE;", 'gas_payment_allocation')]:
         try: query('BEGIN;' + statement + 'ROLLBACK;')

@@ -40,7 +40,7 @@ DO $patch$ DECLARE target text;definition text;c record;BEGIN
    ('trading.require_side_program_content(uuid,uuid,bytea)',$b$(r.parameters->>'lifecycle'='undue_payment_v1') IS DISTINCT FROM(r.grid_ordinal IS NULL)$b$,
     $a$(r.parameters->>'lifecycle' IN('undue_payment_v1','accrued_payment_v1')) IS DISTINCT FROM(r.grid_ordinal IS NULL)$a$),
    ('trading.require_side_program_content(uuid,uuid,bytea)',$b$ IF document IS DISTINCT FROM trading.side_program_document(catalog,schedule)$b$,
-    $a$ IF document->>'family'<>'gas' AND EXISTS(SELECT 1 FROM trading.side_schedule_rows WHERE(catalog_id,schedule_id,operation)=(catalog,schedule,'output_guard') AND parameters->>'lifecycle'='whole_gas_day_delivery_v1') THEN RAISE EXCEPTION 'side_schedule_program';END IF;
+    $a$ IF document->>'family' IS DISTINCT FROM 'gas' AND EXISTS(SELECT 1 FROM trading.side_schedule_rows WHERE(catalog_id,schedule_id,operation)=(catalog,schedule,'output_guard') AND parameters->>'lifecycle'='whole_gas_day_delivery_v1') THEN RAISE EXCEPTION 'side_schedule_program';END IF;
  IF document IS DISTINCT FROM trading.side_program_document(catalog,schedule)$a$),
    ('trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamp with time zone,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamp with time zone,jsonb)',
     $b$CASE WHEN slot=0 THEN 'future_gas_delivery_v1' ELSE 'undue_payment_v1' END$b$,$a$CASE WHEN slot=0 THEN 'whole_gas_day_delivery_v1' ELSE 'accrued_payment_v1' END$a$),
@@ -76,16 +76,16 @@ END$$;
 ALTER FUNCTION security.load_gas_composition_in_term(uuid,jsonb,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.load_gas_composition_in_term(uuid,jsonb,timestamptz) FROM PUBLIC;
 
--- A recorded payment: one signed cash amount of a held cash membership, effective when paid, known
+-- A recorded payment: one signed cash amount of a held cash membership, effective at paid_at and known
 -- from its publication's receipt. A changed value of the same business key is a new revision.
 CREATE TABLE trading.gas_cash_payments(
  catalog_id uuid NOT NULL,id uuid NOT NULL,trade_id uuid NOT NULL,trade_revision integer NOT NULL,instrument_id uuid NOT NULL,slot integer NOT NULL,
  business_key text NOT NULL CHECK(business_key~'^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,127}$'),revision integer NOT NULL CHECK(revision BETWEEN 1 AND 1000),previous_id uuid,
  paid_at ref_data.instant NOT NULL,reference_catalog_id uuid NOT NULL,reference_revision_id uuid NOT NULL,currency_code ref_data.code NOT NULL,
  amount ref_data.exact_number NOT NULL CHECK(amount<>0),operation_id uuid NOT NULL,actor_id uuid NOT NULL REFERENCES security.principals(id),
- request jsonb NOT NULL CHECK(pg_column_size(request)<=65536),publication_order integer NOT NULL,effective_at ref_data.instant NOT NULL,
+ publication_order integer NOT NULL,
  PRIMARY KEY(catalog_id,id),UNIQUE(catalog_id,operation_id),UNIQUE(catalog_id,trade_id,slot,business_key,revision),UNIQUE(catalog_id,trade_id,slot,business_key,id),
- CHECK((revision=1)=(previous_id IS NULL)),CHECK(paid_at<=effective_at),
+ CHECK((revision=1)=(previous_id IS NULL)),
  FOREIGN KEY(catalog_id,trade_id,trade_revision,instrument_id) REFERENCES trading.gas_trade_revisions(catalog_id,trade_id,revision,instrument_id),
  FOREIGN KEY(catalog_id,instrument_id,slot) REFERENCES trading.gas_component_terms(catalog_id,instrument_id,slot),
  FOREIGN KEY(catalog_id,instrument_id,slot) REFERENCES trading.instrument_side_schedules(catalog_id,instrument_id,slot),
@@ -101,9 +101,16 @@ CREATE TABLE trading.gas_cash_payment_allocations(
  FOREIGN KEY(catalog_id,payment_id) REFERENCES trading.gas_cash_payments(catalog_id,id),
  FOREIGN KEY(catalog_id,schedule_id,row_ordinal) REFERENCES trading.side_schedule_rows(catalog_id,schedule_id,ordinal)
 );
+-- Every recording operation keeps the revision it returned, a new one or an existing same fact,
+-- so a retried operation receives its first outcome whatever was recorded after it.
+CREATE TABLE trading.gas_cash_payment_commands(
+ catalog_id uuid NOT NULL,operation_id uuid NOT NULL,payment_id uuid NOT NULL,actor_id uuid NOT NULL REFERENCES security.principals(id),
+ request jsonb NOT NULL CHECK(pg_column_size(request)<=65536),
+ PRIMARY KEY(catalog_id,operation_id),FOREIGN KEY(catalog_id,payment_id) REFERENCES trading.gas_cash_payments(catalog_id,id)
+);
 -- Conservation and occurrence identity hold at commit for every writer, not only the recording function.
 CREATE FUNCTION trading.require_gas_cash_payment() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET jit=off AS $$
 DECLARE p trading.gas_cash_payments;direction integer;BEGIN
  SELECT * INTO STRICT p FROM trading.gas_cash_payments WHERE(catalog_id,id)=(NEW.catalog_id,(to_jsonb(NEW)->>TG_ARGV[0])::uuid);
  SELECT m.direction INTO STRICT direction FROM trading.gas_component_terms m WHERE(m.catalog_id,m.instrument_id,m.slot)=(p.catalog_id,p.instrument_id,p.slot);
@@ -118,18 +125,19 @@ END$$;
 ALTER FUNCTION trading.require_gas_cash_payment() OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION trading.require_gas_cash_payment() FROM PUBLIC;
 DO $$DECLARE t text;payment text;BEGIN
- FOR t,payment IN SELECT * FROM(VALUES('gas_cash_payments','id'),('gas_cash_payment_allocations','payment_id'))v LOOP
+ FOR t,payment IN SELECT * FROM(VALUES('gas_cash_payments','id'),('gas_cash_payment_allocations','payment_id'),('gas_cash_payment_commands',NULL))v LOOP
   EXECUTE format('ALTER TABLE trading.%I ENABLE ROW LEVEL SECURITY',t);
   EXECUTE format('ALTER TABLE trading.%I FORCE ROW LEVEL SECURITY',t);
   EXECUTE format('CREATE POLICY owner_access ON trading.%I TO openetrm_security_owner USING(true) WITH CHECK(true)',t);
   EXECUTE format('GRANT SELECT,INSERT ON trading.%I TO openetrm_security_owner',t);
   EXECUTE format('CREATE TRIGGER immutable_record BEFORE UPDATE OR DELETE ON trading.%I FOR EACH ROW EXECUTE FUNCTION market_data.guard_knowledge_receipt()',t);
+  CONTINUE WHEN payment IS NULL;
   EXECUTE format('CREATE CONSTRAINT TRIGGER conserved_payment AFTER INSERT ON trading.%I DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION trading.require_gas_cash_payment(%L)',t,payment);
  END LOOP;
 END$$;
 -- Reads see a payment only under current authority and within the selected knowledge cutoff.
 CREATE POLICY scoped_read ON trading.gas_cash_payments FOR SELECT TO openetrm_runtime USING(
- security.trading_access(catalog_id,'ReadTrades') AND security.market_access(catalog_id,'ReadMarketData') AND security.trading_visible(catalog_id,publication_order,effective_at));
+ security.trading_access(catalog_id,'ReadTrades') AND security.market_access(catalog_id,'ReadMarketData') AND security.trading_visible(catalog_id,publication_order,paid_at));
 CREATE POLICY scoped_read ON trading.gas_cash_payment_allocations FOR SELECT TO openetrm_runtime USING(EXISTS(
  SELECT 1 FROM trading.gas_cash_payments p WHERE(p.catalog_id,p.id)=(gas_cash_payment_allocations.catalog_id,gas_cash_payment_allocations.payment_id)));
 GRANT SELECT ON trading.gas_cash_payments,trading.gas_cash_payment_allocations TO openetrm_runtime;
@@ -138,7 +146,7 @@ CREATE FUNCTION security.record_gas_cash_payment(catalog uuid,body jsonb,as_of t
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET jit=off AS $$
 DECLARE trade uuid;operation uuid;slot_number integer;paid timestamptz;total numeric;key text;item jsonb;actor uuid;publication integer;identity uuid=gen_random_uuid();
  head trading.gas_trade_revisions;m trading.gas_component_terms;a market_data.gas_valuation_assignments;quote ref_data.quote_specifications;places integer;
- prior trading.gas_cash_payments;schedule uuid;guard trading.side_schedule_rows;day_end timestamptz;
+ prior trading.gas_cash_payments;command trading.gas_cash_payment_commands;schedule uuid;guard trading.side_schedule_rows;day_end timestamptz;
 BEGIN
  IF jsonb_typeof(body) IS DISTINCT FROM 'object' OR NOT(body?&ARRAY['operationId','tradeId','expectedRevision','slot','businessKey','paidAt','currency','amount','allocations']) OR
  EXISTS(SELECT 1 FROM jsonb_object_keys(body) k WHERE k NOT IN('operationId','tradeId','expectedRevision','slot','businessKey','paidAt','currency','amount','allocations')) OR
@@ -158,9 +166,10 @@ BEGIN
  PERFORM pg_advisory_xact_lock(730849102);
  PERFORM security.require_gas_quantity_trade(catalog,trade,true);
  SELECT actor_id INTO STRICT actor FROM security.request_contexts WHERE backend_pid=pg_backend_pid() AND transaction_id=pg_current_xact_id_if_assigned() AND runtime_login=session_user;
- SELECT * INTO prior FROM trading.gas_cash_payments WHERE(catalog_id,operation_id)=(catalog,operation);
+ SELECT * INTO command FROM trading.gas_cash_payment_commands WHERE(catalog_id,operation_id)=(catalog,operation);
  IF FOUND THEN
-  IF prior.actor_id<>actor OR prior.request IS DISTINCT FROM body THEN RAISE EXCEPTION 'gas_payment_conflict';END IF;
+  IF command.actor_id<>actor OR command.request IS DISTINCT FROM body THEN RAISE EXCEPTION 'gas_payment_conflict';END IF;
+  SELECT * INTO STRICT prior FROM trading.gas_cash_payments WHERE(catalog_id,id)=(catalog,command.payment_id);
   RETURN jsonb_build_object('operationId',operation,'tradeId',prior.trade_id,'paymentId',prior.id,'revision',prior.revision,'previousId',prior.previous_id);
  END IF;
  SELECT * INTO head FROM trading.gas_trade_revisions WHERE(catalog_id,trade_id)=(catalog,trade) ORDER BY revision DESC LIMIT 1;
@@ -191,14 +200,18 @@ BEGIN
    EXCEPT SELECT (x->>'occurrence')::integer,(x->>'amount')::numeric FROM jsonb_array_elements(body->'allocations') x) UNION ALL
   (SELECT (x->>'occurrence')::integer,(x->>'amount')::numeric FROM jsonb_array_elements(body->'allocations') x
    EXCEPT SELECT occurrence,amount FROM trading.gas_cash_payment_allocations WHERE(catalog_id,payment_id)=(catalog,prior.id)))
- THEN RETURN jsonb_build_object('operationId',operation,'tradeId',trade,'paymentId',prior.id,'revision',prior.revision,'previousId',prior.previous_id);END IF;
+ THEN
+  INSERT INTO trading.gas_cash_payment_commands VALUES(catalog,operation,prior.id,actor,body);
+  RETURN jsonb_build_object('operationId',operation,'tradeId',trade,'paymentId',prior.id,'revision',prior.revision,'previousId',prior.previous_id);
+ END IF;
  IF(SELECT count(*) FROM trading.gas_cash_payments WHERE(catalog_id,trade_id)=(catalog,trade))>=10000 THEN RAISE EXCEPTION 'gas_payment_limit';END IF;
  SELECT coalesce(max(publication_order),0)+1 INTO publication FROM trading.publications WHERE catalog_id=catalog;
  INSERT INTO trading.publications VALUES(catalog,publication,pg_current_xact_id());
  INSERT INTO trading.gas_cash_payments VALUES(catalog,identity,trade,head.revision,head.instrument_id,slot_number,key,coalesce(prior.revision,0)+1,prior.id,paid,
-  quote.catalog_id,quote.revision_id,quote.currency_code,total,operation,actor,body,publication,as_of);
+  quote.catalog_id,quote.revision_id,quote.currency_code,total,operation,actor,publication);
  INSERT INTO trading.gas_cash_payment_allocations SELECT catalog,identity,(x->>'occurrence')::integer,schedule,r.ordinal,(x->>'amount')::numeric
   FROM jsonb_array_elements(body->'allocations') x JOIN trading.side_schedule_rows r ON(r.catalog_id,r.schedule_id,r.local_key)=(catalog,schedule,'payment/'||(x->>'occurrence')||'/value');
+ INSERT INTO trading.gas_cash_payment_commands VALUES(catalog,operation,identity,actor,body);
  PERFORM security.require_gas_quantity_trade(catalog,trade,true);
  RETURN jsonb_build_object('operationId',operation,'tradeId',trade,'paymentId',identity,'revision',coalesce(prior.revision,0)+1,'previousId',prior.id);
 END$$;
