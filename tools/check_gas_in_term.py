@@ -184,6 +184,19 @@ def run_checks(url, query, manifest, run_worker, admin_load, browse=None):
     refusal_checks(c, query, manifest, frame, body, trade_id, loaded['instrumentId'], other, revision['paymentId'], load)
 
 
+def without_bulk_observation_visibility(query, reads):
+    """Runs the reads with whole-catalog observation visibility refused: each must read its exact pins, as a large hosted catalog requires."""
+    signature = 'security.visible_observations()'
+    original = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+    query("""CREATE OR REPLACE FUNCTION security.visible_observations() RETURNS TABLE(catalog uuid,revision uuid,observation uuid)
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $gate$BEGIN RAISE EXCEPTION 'synthetic_bulk_observation_visibility' USING ERRCODE='P0001';END$gate$;""")
+    try:
+        reads()
+    finally:
+        query(original)
+    assert query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);") == original
+
+
 def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, binding, before_load, load):
     """Measures, Side states, retained risk and history of the loaded in-term composition at the close."""
     close = datetime(2026, 11, 6, 21, tzinfo=timezone.utc)
@@ -248,6 +261,16 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
         assert 'Projected' in physical[day]['priceStates'] and 'PublishedFixing' not in physical[day]['priceStates'] and Fraction(physical[day]['price']) == location[day], physical[day]
     assert sum(Fraction(r['presentValue']) for r in physical.values()) == remaining_physical
     print('PASS the Side inspector shows paid, accrued and remaining gas days with fixed price states, and physical days with no settlement', flush=True)
+
+    def exact_reads():
+        assert Fraction(c.call('gas/composition/editor', dict(context=working, tradeId=trade_id))['valuation']['presentValue']) == total
+        assert c.call('tickets/trade', dict(context=working, tradeId=trade_id, bindingId=binding, revision=1))['measures'] == measures
+        blotter = dict(context={**working, 'convention': 'trading_workspace_v1'}, view=dict(mode='trades', bookIds=[], portfolioIds=[], groupBy=[], measures=[], pivotConvention=None))
+        held = next(h for h in c.call('trading/blotter', blotter)['holdings'] if h['tradeId'] == trade_id)
+        assert Fraction(held['presentValue']) == total, held
+        assert len(rows(1)) == len(rows(0)) == 122
+    without_bulk_observation_visibility(query, exact_reads)
+    print('PASS the in-term editor, ticket, Blotter and Side inspector value from their exact pins without whole-catalog observation visibility', flush=True)
 
     # The retained risk worker reproduces the total; a shock moves only fixed, undelivered physical days.
     c.call('profile', {'profile': 'risk'})
