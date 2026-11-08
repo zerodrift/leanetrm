@@ -239,6 +239,102 @@ def run_checks(url, query, manifest):
     assert [p['seriesId'] for p in january] == [p['seriesId'] for p in february], 'A tenor changed series between closes'
     print('PASS a definition-driven rate curve rolls its tenors with each close, in its own unit and conventions')
 
+    # D362: admitting a published contract curve materializes the window's contracts at the named close and writes the curve, its
+    # members and its direct source, recording the exact definition version it admits.
+    def admit_contracts(body, who=editor, expected=200):
+        return who.call('curve-definitions/admit-contracts', body, expected=expected)
+    def contract_admission(receipt, revision, day='2021-01-15'):
+        return {'requestId': str(uuid4()), 'revisionId': revision, 'definitionId': receipt['id'], 'version': receipt['version'], 'snapshotId': close(editor, day)}
+    def seal(revision):
+        query(f"INSERT INTO market_data.revision_periods VALUES('{cat}','{revision}','2020-01-01','2022-01-01');")
+        query(f"UPDATE market_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{cat}','{revision}');")
+    def members(revision, curve):
+        return json.loads(query(f"""SELECT json_agg(json_build_array(m.ordinal,k.id,k.kind,k.delivery_from,k.delivery_to,k.expiry_at AT TIME ZONE 'UTC',k.futures_series_code,s.id) ORDER BY m.ordinal)
+            FROM market_data.curve_members m JOIN market_data.contracts k ON(k.catalog_id,k.revision_id,k.id)=(m.catalog_id,m.revision_id,m.contract_id)
+            JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.contract_id)=(k.catalog_id,k.revision_id,k.id) AND s.quote_code='test_gas_outright'
+            WHERE(m.catalog_id,m.revision_id,m.curve_code)=('{cat}','{revision}','{curve}');"""))
+
+    january_revision = draft_revision()
+    future_admit = contract_admission(gas, january_revision)
+    admit_contracts(future_admit, who=viewer, expected=403)
+    admitted_future = admit_contracts(future_admit)
+    assert admitted_future['code'] == 'test_gas_curve' and [(c['position'], c['futuresSeries']) for c in admitted_future['contracts']] == [
+        (1, 'test_gas_202102'), (2, 'test_gas_202103'), (3, 'test_gas_202104')], admitted_future
+    assert admit_contracts(future_admit) == admitted_future, 'A retried admission returned a different receipt'
+    assert admit_contracts({**future_admit, 'snapshotId': close(editor, '2021-02-15')}, expected=409)['code'] == 'contract_curve_admission_conflict'
+    # The same definition at another close names another window, which this revision's curve is not.
+    assert admit_contracts({**future_admit, 'requestId': str(uuid4()), 'snapshotId': close(editor, '2021-02-15')}, expected=409)['code'] == 'contract_curve_admission_conflict'
+    assert query(f"""SELECT definition_id,definition_version,rule,direct_source_code,direct_role,settlement_target_code,name FROM market_data.curves
+        WHERE(catalog_id,revision_id,code)=('{cat}','{january_revision}','test_gas_curve');""") == f"{gas['id']}|1|direct|fixture|daily_settlement|test_future_target|Synthetic gas futures curve"
+    first_window = members(january_revision, 'test_gas_curve')
+    assert [row[0] for row in first_window] == [0, 1, 2] and [row[6] for row in first_window] == ['test_gas_202102', 'test_gas_202103', 'test_gas_202104'], first_window
+    # Materialized contracts carry exactly the terms an existing priced contract of the same series does, so closes and pricing read them alike.
+    seeded = json.loads(query(f"""SELECT json_agg(json_build_array(kind,delivery_from,delivery_to,expiry_at AT TIME ZONE 'UTC',futures_series_code) ORDER BY futures_series_code) FROM market_data.contracts
+        WHERE(catalog_id,revision_id)=('{cat}','{manifest['revisionId']}') AND futures_series_code BETWEEN 'test_gas_202102' AND 'test_gas_202104';"""))
+    assert [row[2:7] for row in first_window] == seeded, (first_window, seeded)
+    assert query(f"SELECT count(*) FROM market_data.contract_date_admissions WHERE(catalog_id,revision_id,mapping_id,mapping_version)=('{cat}','{january_revision}','{mapping['id']}',1);") == '3'
+    # The database recomputes a context-relative occurrence: at 15 February position 0 is March, so February cannot be admitted there.
+    capability = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','editor','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
+    query(f"""SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{capability}');DO $$BEGIN BEGIN
+        INSERT INTO market_data.contract_date_admissions(catalog_id,id,revision_id,contract_id,mapping_id,mapping_version,ordinal,context_id,actor_id) VALUES('{cat}','{uuid4()}','{january_revision}','{first_window[0][1]}','{mapping['id']}',1,0,'{context('2021-02-15')['contextId']}',security.custom_curve_actor('{cat}','WriteMarketDefinitions'));
+        RAISE EXCEPTION 'accepted_wrong_occurrence';EXCEPTION WHEN SQLSTATE '23514' THEN NULL;END;END$$;ROLLBACK;""")
+    # Positions resolve as the date engine's selections do: context-relative from the context date, and none outside the list.
+    occurrence = lambda selection, at, k: query(f"""SELECT market_data.date_list_occurrence('["2021-01-10","2021-02-10","2021-03-10"]','{selection}','{at}',{k});""")
+    assert [occurrence('on_or_after', '2021-02-10', 0), occurrence('on_or_after', '2021-02-11', 0), occurrence('on_or_after', '2021-02-11', -1)] == ['2021-02-10', '2021-03-10', '2021-02-10']
+    assert [occurrence('context_month', '2021-02-28', 0), occurrence('context_month', '2021-02-01', 1), occurrence('context_month', '2021-04-01', 0)] == ['2021-02-10', '2021-03-10', '']
+    assert [occurrence('absolute_index', '2021-03-30', 0), occurrence('absolute_index', '2021-03-30', -1), occurrence('on_or_after', '2021-03-11', 0)] == ['2021-01-10', '', '']
+    # A later close rolls the window: a new revision keeps each kept contract's identity and series.
+    february_revision = draft_revision()
+    admit_contracts(contract_admission(gas, february_revision, '2021-02-15'))
+    second_window = members(february_revision, 'test_gas_curve')
+    assert [row[6] for row in second_window] == ['test_gas_202103', 'test_gas_202104', 'test_gas_202105'], second_window
+    assert [(row[1], row[7]) for row in second_window[:2]] == [(row[1], row[7]) for row in first_window[1:]], 'A kept contract changed identity between revisions'
+    assert not query(f"SELECT 1 FROM market_data.contract_date_admissions WHERE catalog_id='{cat}' AND revision_id='{february_revision}' AND contract_id='{first_window[0][1]}';")
+    seal(january_revision);seal(february_revision)
+    assert admit_contracts(future_admit) == admitted_future, 'A retry after sealing returned a different receipt'
+    admit_contracts({**future_admit, 'requestId': str(uuid4())}, expected=422)
+    # A forward has no exchange series; it settles to its index and is marked by its own role.
+    forward_receipt = publish(save({'requestId': str(uuid4()), 'definition': forward}))
+    forward_revision = draft_revision()
+    assert [c['futuresSeries'] for c in admit_contracts(contract_admission(forward_receipt, forward_revision))['contracts']] == [None, None, None]
+    assert [row[2] for row in members(forward_revision, 'test_gas_forward')] == ['forward', 'forward', 'forward']
+    assert query(f"SELECT direct_role,settlement_target_code FROM market_data.curves WHERE(catalog_id,revision_id,code)=('{cat}','{forward_revision}','test_gas_forward');") == 'trader_mark|test_index_target'
+    # A revision's curve must carry the terms of the version it pins; this one names a definition of another code.
+    query(f"""DO $$BEGIN BEGIN INSERT INTO market_data.curves SELECT catalog_id,revision_id,'test_gas_other',reference_catalog_id,reference_revision_id,commodity_code,location_code,quote_code,profile_code,settlement_target_code,rule,direct_source_code,direct_role,'Synthetic other forward',definition_id,definition_version
+          FROM market_data.curves WHERE(catalog_id,revision_id,code)=('{cat}','{forward_revision}','test_gas_forward');
+        INSERT INTO market_data.curve_members SELECT catalog_id,revision_id,'test_gas_other',contract_id,ordinal FROM market_data.curve_members WHERE(catalog_id,revision_id,curve_code)=('{cat}','{forward_revision}','test_gas_forward');
+        INSERT INTO market_data.revision_periods VALUES('{cat}','{forward_revision}','2020-01-01','2022-01-01');
+        UPDATE market_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{cat}','{forward_revision}');
+        RAISE EXCEPTION 'accepted_changed_terms';EXCEPTION WHEN SQLSTATE '23514' THEN IF SQLERRM NOT LIKE 'Curves carry%' THEN RAISE;END IF;END;END$$;""")
+    seal(forward_revision)
+    # Only an exact published contract-curve version is admitted, and only by date lists the database can recheck.
+    pending_gas = save(edit({**gas, 'state': 'published'}, 'published', definition={**future, 'name': 'Pending gas curve'}))
+    assert admit_contracts(contract_admission(pending_gas, draft_revision()), expected=422)['code'] == 'contract_curve_admission'
+    assert admit_contracts(contract_admission(published, draft_revision()), expected=422)['code'] == 'contract_curve_admission'
+    assert editor.call('curve-definitions/admit', {**admit, 'requestId': str(uuid4()), 'revisionId': draft_revision(), 'definitionId': gas['id'], 'version': 1}, expected=422)['code'] == 'rate_admission'
+    # A curve keeps one display name across revisions: a renamed version is refused by name, and a version restoring the name is admitted.
+    renamed = publish(pending_gas)
+    assert admit_contracts(contract_admission(renamed, draft_revision()), expected=409)['code'] == 'contract_curve_admission_name'
+    restored = publish(save(edit(renamed, 'published', definition=future)))
+    assert admit_contracts(contract_admission(restored, draft_revision()))['code'] == 'test_gas_curve'
+    generated = editor.call('date-schedules/contracts/save', {'requestId': str(uuid4()), 'code': 'curve_generated', 'name': 'Synthetic generated expiry', 'context': context('2021-01-15'),
+        'contracts': [{'label': 'Month 1', 'start': 'oe.curve_starts[0]', 'end': 'oe.curve_starts[1]', 'lastTrading': 'oe.rate_days + 1bd', 'cutoffUtc': '15:30'}]})
+    approver.call('date-schedules/contracts/publish', {'requestId': str(uuid4()), **{k: generated[k] for k in ('id', 'version', 'generation')}})
+    offset_receipt = publish(save({'requestId': str(uuid4()), 'definition': {**forward, 'code': 'test_gas_offset', 'name': 'Synthetic offset forward',
+        'contracts': {'mappingId': generated['id'], 'mappingVersion': 1, 'count': 1}}}))
+    offset_revision = draft_revision()
+    assert admit_contracts(contract_admission(offset_receipt, offset_revision), expected=422)['code'] == 'contract_materialization'
+    assert query(f"SELECT count(*) FROM market_data.curves WHERE catalog_id='{cat}' AND revision_id='{offset_revision}';") == '0', 'A refused admission left a curve'
+    # A historical view cannot admit, and the close is required rather than assumed.
+    assert admit_contracts({**contract_admission(gas, draft_revision()), 'snapshotId': close(historical, '2021-01-15')}, who=historical, expected=422)['code'] == 'curve_definition_historical'
+    assert admit_contracts({**contract_admission(gas, draft_revision()), 'snapshotId': None}, expected=422)['code'] == 'snapshot_missing'
+    # An admitted futures curve in the fixture's primary revision prices at a close from its members' marks: this close repeats 18 December's,
+    # where the direct curve over the same contracts has not yet expired a member.
+    priced = viewer.call('evaluate', {'snapshotId': close(viewer, '2021-01-15'), 'curve': 'rolling_gas'})['points']
+    direct = {p['deliveryFrom']: p['value'] for p in viewer.call('evaluate', {'snapshotId': close(viewer, '2020-12-18'), 'curve': 'future'})['points']}
+    assert [p['deliveryFrom'] for p in priced] == ['2021-02-01', '2021-03-01', '2021-04-01'] and all(p['value'] == direct[p['deliveryFrom']] for p in priced), (priced, direct)
+    print('PASS published contract curves admit their window, members and direct source at a named close, idempotently')
+
     # The curve list offers a curve's own configuration only to someone who may change it.
     def offered(who):
         return who.call('workspace/navigation')['curveConfigurations']
@@ -247,5 +343,7 @@ def run_checks(url, query, manifest):
     configurations = {c['curve']: c for c in offered(editor)}
     assert configurations['usd_rolling'] == {'curve': 'usd_rolling', 'id': pinned['id'], 'version': pinned['version']}, configurations
     listed_rates = {c['code'] for c in editor.call('workspace/navigation')['curves'] if c['marketType'] == 'rates'}
-    assert set(configurations) == listed_rates, (configurations, listed_rates)
+    rolling_gas = next(d for d in listed(editor) if d['definition']['code'] == 'rolling_gas')
+    assert configurations['rolling_gas'] == {'curve': 'rolling_gas', 'id': rolling_gas['id'], 'version': 1}, configurations
+    assert set(configurations) == listed_rates | {'rolling_gas'}, (configurations, listed_rates)
     print('PASS the curve list names a curve\'s configuration only for someone who may edit it')
