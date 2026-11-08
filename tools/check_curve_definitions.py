@@ -210,8 +210,14 @@ def run_checks(url, query, manifest):
     editor.call('curve-definitions/admit', {**admit, 'requestId': str(uuid4()), 'revisionId': second_revision, 'version': 2})
     second = tenors_of(second_revision)
     assert [label for label, _, _ in second] == ['1D', '3M', '6M'] and second[:2] == first and second[2][1] not in {s for _, s, _ in first}, second
+    # A version that changes the mark unit gives every label a new series, so no history mixes percent and decimal marks.
+    decimal = publish(save(edit(final, 'published', definition={**rates, 'markUnit': 'decimal_per_year', 'contracts': {**rates['contracts'], 'mappingVersion': 2, 'count': 3}})))
+    decimal_revision = draft_revision()
+    editor.call('curve-definitions/admit', {**admit, 'requestId': str(uuid4()), 'revisionId': decimal_revision, 'version': decimal['version'],
+                                            'valueSpecification': 'test_zero_rate'})
+    assert not {s for _, s, _ in tenors_of(decimal_revision)} & {s for _, s, _ in second}, 'A kept label kept its series across a mark unit change'
     # Only a published version is admitted.
-    pending = save(edit(final, 'published', definition={**rates, 'name': 'Pending', 'contracts': {**rates['contracts'], 'mappingVersion': 2, 'count': 3}}))
+    pending = save(edit(decimal, 'published', definition={**rates, 'name': 'Pending', 'contracts': {**rates['contracts'], 'mappingVersion': 2, 'count': 3}}))
     assert editor.call('curve-definitions/admit', {**admit, 'requestId': str(uuid4()), 'revisionId': draft_revision(), 'version': pending['version']},
                        expected=422)['code'] == 'rate_admission'
     print('PASS published rate definitions admit one stable series per tenor, idempotently and with the unit range')

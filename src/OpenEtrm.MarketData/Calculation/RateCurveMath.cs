@@ -23,7 +23,8 @@ public sealed record RateDiscount(ExactDecimal Factor, ImmutableArray<int> UsedP
 // A discount node: days after t_0, its decimal annual zero rate and its discount factor.
 public sealed record RateNode(int Days, ExactDecimal DecimalRate, ExactDecimal Factor)
 {
-    public static readonly RateNode Anchor = new(0, default, ExactDecimal.Parse("1"));
+    // t_0 discounts at exactly 1. Its zero rate is the first pillar's, so linear-zero holds that rate flat before the first pillar.
+    public static RateNode Anchor(RateNode first) => new(0, first.DecimalRate, ExactDecimal.Parse("1"));
 }
 
 // Project-owned rate conventions. Exponentials and logarithms use LatticeDecimal (30 digits with
@@ -129,11 +130,11 @@ public static class RateCurveMath
         {
             if (nodes[right].Days == target) return new(nodes[right].Factor, [right]);
             return right == 0
-                ? new(Interpolate(RateNode.Anchor, nodes[0], target, c), [0])
+                ? new(Interpolate(RateNode.Anchor(nodes[0]), nodes[0], target, c), [0])
                 : new(Interpolate(nodes[right - 1], nodes[right], target, c), [right - 1, right]);
         }
         var last = nodes.Length - 1;
-        var before = last == 0 ? RateNode.Anchor : nodes[last - 1];
+        var before = last == 0 ? RateNode.Anchor(nodes[0]) : nodes[last - 1];
         var factor = Extrapolate(before, nodes[last], target, c);
         return new(factor, c.Extrapolation == "flat_forward" && last > 0 ? [last - 1, last] : [last]);
     }

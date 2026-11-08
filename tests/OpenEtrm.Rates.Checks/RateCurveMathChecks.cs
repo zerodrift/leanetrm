@@ -57,8 +57,15 @@ static class RateCurveMathChecks
         Check("the t_0 anchor brackets the first pillar", () =>
         {
             var monday = Node(3, "0.0390", continuous);
-            Near(RateCurveMath.Interpolate(RateNode.Anchor, monday, 1, continuous), "0.999893156393116265");
-            if (RateCurveMath.Interpolate(RateNode.Anchor, monday, 0, continuous) != D("1")) throw new Exception("t_0 must discount at exactly 1.");
+            Near(RateCurveMath.Interpolate(RateNode.Anchor(monday), monday, 1, continuous), "0.999893156393116265");
+            if (RateCurveMath.Interpolate(RateNode.Anchor(monday), monday, 0, continuous) != D("1")) throw new Exception("t_0 must discount at exactly 1.");
+        });
+
+        Check("linear-zero holds the first pillar's zero rate flat from t_0", () =>
+        {
+            var reference = new DateOnly(2030, 1, 1);
+            var terms = Terms("actual_365_fixed", "continuous", "linear_zero");
+            Near(RateCurveMath.Discount(reference, [new(reference.AddDays(30), D("0.042"))], reference.AddDays(15), terms).Factor, "0.998275461331375783");
         });
 
         Check("a payment uses only the pillars its bracket needs, and those alone reproduce it", () =>

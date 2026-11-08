@@ -23,7 +23,8 @@ public sealed class RateCurveAdmission(Guid catalog)
     static MarketDataException Invalid(string message)=>new("rate_admission",message);
     static MarketDataException Conflict()=>new("rate_admission_conflict","The request or the admitted curve has different terms. Retry the original request or admit into a new definition revision.");
 
-    public static Guid TenorSeries(Guid catalog,string code,string label)=>AgentTools.NameUuid(catalog,$"rate_tenor:{code}:{label}");
+    // A label keeps its series, and so its mark history, while the curve's mark unit stays the same.
+    public static Guid TenorSeries(Guid catalog,string code,string label,string markUnit)=>AgentTools.NameUuid(catalog,$"rate_tenor:{code}:{label}:{markUnit}");
 
     public async Task<RateCurveAdmissionReceipt> Admit(NpgsqlConnection connection,RateCurveAdmissionRequest body,CancellationToken ct)
     {
@@ -91,7 +92,7 @@ INSERT INTO market_data.rate_curves(catalog_id,revision_id,code,reference_catalo
             await insert.ExecuteNonQueryAsync(ct);
         for(var ordinal=0;ordinal<labels.Count;ordinal++)
         {
-            var series=TenorSeries(catalog,curve,labels[ordinal]);
+            var series=TenorSeries(catalog,curve,labels[ordinal],unit);
             await using(var insert=ScheduleStore.Command(connection,"""
 INSERT INTO market_data.series(catalog_id,revision_id,id,code,reference_catalog_id,reference_revision_id,value_specification_code)
  VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING

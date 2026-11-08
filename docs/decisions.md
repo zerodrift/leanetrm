@@ -3348,15 +3348,17 @@ against independent 50-digit oracles.
 Admission (`POST /api/curve-definitions/admit`, `WriteMarketDefinitions`,
 idempotent by request id) writes the curve into a draft definition revision with
 its terms and one series per tenor label. A label's series identity derives from
-the catalog, curve code and label, so a re-admitted or edited definition keeps
-each kept label's mark history. Sealing checks the admitted terms equal the
+the catalog, curve code, label and mark unit, so a re-admitted or edited definition
+keeps each kept label's mark history while its unit is unchanged; a unit change
+starts new series, so no history mixes percent and decimal marks. Sealing checks the admitted terms equal the
 pinned definition version's.
 
 At a close, `t_0` is the close's date, which must equal its valuation UTC date.
 The curve's exact pinned date list and schedule versions resolve each label to a
 pillar from `t_0` in memory; a label without a mark at the close is refused by
 name. The discount factor at `t_0` is exactly 1 and is the left bracket before
-the first pillar (owner-decided). After the last pillar the chosen extrapolation
+the first pillar (owner-decided); its zero rate is the first pillar's, so
+linear-zero holds that rate flat before the first pillar. After the last pillar the chosen extrapolation
 applies, or the date is refused. The calculation graph re-derives every payment
 factor from the pillars it used under the same conventions. A currency's
 discount default names only the curve; its interpolation column is removed.

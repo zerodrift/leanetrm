@@ -158,7 +158,8 @@ from interpolating between the pillars on either side. The pillars must roll wit
   is used as the left bracket for dates between `t_0` and the first pillar, so a
   payment the day after a Friday close still discounts against a 1D pillar dated
   Monday. This is exact, not extrapolation, and is recorded in the build's lineage
-  as the anchor.
+  as the anchor. The anchor's zero rate is the first pillar's, so linear-zero
+  interpolation holds that rate flat before the first pillar.
   *(Owner-decided, 2026-11-07; today's code refuses those dates.)*
 - Dates between pillars use the chosen interpolation.
 - Dates after the last pillar use the chosen extrapolation; with None they are

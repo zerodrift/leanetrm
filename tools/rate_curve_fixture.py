@@ -19,9 +19,9 @@ def _id(*parts):
     return str(uuid5(NAMESPACE, ':'.join(parts)))
 
 
-def tenor_series(cat, code, label):
-    """The tenor's series identity, as RateCurveAdmission.TenorSeries derives it: one per catalog, curve code and label."""
-    return str(uuid5(UUID(cat), f'rate_tenor:{code}:{label}'))
+def tenor_series(cat, code, label, unit):
+    """The tenor's series identity, as RateCurveAdmission.TenorSeries derives it: one per catalog, curve code, label and mark unit."""
+    return str(uuid5(UUID(cat), f'rate_tenor:{code}:{label}:{unit}'))
 
 
 def by_schema(admitted, earlier=''):
@@ -75,7 +75,7 @@ def admitted_curve(cat, rev, ref, code, name, tenors, *, currency, unit, specifi
         f"VALUES('{cat}','{rev}','{code}',{ref},'{source}','{name}','{curve}',1,'{currency}','{unit}','{day_count}','{compounding}','{interpolation}',"
         f"'{extrapolation}','{date_list}',1);"]
     owned = series is None
-    series = series or [tenor_series(cat, code, label) for label, _ in tenors]
+    series = series or [tenor_series(cat, code, label, unit) for label, _ in tenors]
     for ordinal, ((label, _), sid) in enumerate(zip(tenors, series)):
         if owned:
             rows.append(f"INSERT INTO market_data.series VALUES('{cat}','{rev}','{sid}','{code}.tenor.{sid.replace('-', '')[:16]}',{ref},NULL,NULL,'{specification}');")
