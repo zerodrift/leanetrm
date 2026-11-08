@@ -10,7 +10,7 @@
   - cash: `accrued_payment_v1`.
 - A new managed binding state, `PhysicalCashState`, carries recorded payments.
 - `RetainedGasInstrument` splits each evaluated contribution into remaining and accrued parts and returns both measures and their sum. Instrument/Side pricing and generic scenario risk are unchanged.
-- One migration admits the new lifecycles for new gas writes. It adds payment tables with an idempotent recording function and an owner-only in-term load.
+- One migration admits the new lifecycles for new gas writes. It adds payment tables with an idempotent recording function and an in-term load (built as a dedicated loader role; see D359).
 - The API, inspector and UI project the measures and row states.
 
 **Tech Stack:** C# (.NET 10, `src/OpenEtrm.MarketData`, `src/OpenEtrm.Api`), PostgreSQL migrations (`db/migrations`), Python preview checks (`tools/`), TypeScript presentation (`web/src`).
@@ -168,7 +168,9 @@ Rules the implementation must follow:
 
 - [ ] **Step 5: Commit**: `git commit -s -m "Value started gas compositions with accrued and remaining measures"`.
 
-### Task 4: Database admission, payment records and owner-only in-term load
+### Task 4: Database admission, payment records and in-term load
+
+Note: the load is not owner-only as first planned; D359 records the dedicated loader role that was built.
 
 **Files:**
 - Create: `db/migrations/0215_in_term_gas_lifecycle.sql`
@@ -278,7 +280,7 @@ Rules the implementation must follow:
 - [ ] **Step 2:** Run `python3 tools/check_all.py --group trading` with the pinned tools and record the actual pass counts in the doc status lines.
 - [ ] **Step 3:** Obtain an independent adversarial review of the branch, as AGENTS.md requires for temporal, numerical and authorization changes, covering:
   - knowledge-time visibility of payments;
-  - owner-only load privilege;
+  - loader-role load privilege (D359);
   - idempotency races;
   - old-program parity;
   - risk freezing.

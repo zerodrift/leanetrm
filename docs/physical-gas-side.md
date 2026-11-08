@@ -216,9 +216,13 @@ be implemented by silently changing these immutable cash allocations.
 The admitted physical measure is future delivery market value, with each day's
 value date at the exclusive end of its gas day. It is not a payable cash flow.
 Its executable roots distinguish `physical_value` from `contractual_amount` and
-its evaluated contribution kind is Delivery. Once any admitted delivery starts,
-the profile refuses with `gas_delivery_lifecycle`. It cannot manufacture actual
-delivery, retirement, inventory or overdue physical treatment.
+its evaluated contribution kind is Delivery. A program compiled with the
+legacy lifecycle refuses with `gas_delivery_lifecycle` once any admitted delivery
+starts. New gas compositions compile `whole_gas_day_delivery_v1`, under which an
+ended gas day leaves remaining delivery value and its fixed cash accrues in the
+outstanding-settlement measure until recorded payments clear it (D359). Neither
+lifecycle manufactures actual delivery, retirement, inventory or overdue physical
+treatment.
 
 The supplied discount operation is explicit. A value-date change can affect
 discounted physical value independently of cash payment dates. Future due cash
