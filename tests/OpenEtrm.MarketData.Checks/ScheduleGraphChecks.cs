@@ -192,8 +192,8 @@ internal static class ScheduleGraphChecks
             [new(new(priceSeries,InputUse.Variable),mark),new(new(leftSeries,InputUse.Variable),left),new(new(rightSeries,InputUse.Variable),right)]);
         var market=model.Build(snapshot,[new(curve.Key,contract.Key)]);var reference=DateOnly.FromDateTime(at.UtcDateTime);var paymentDate=reference.AddDays(730);
         var key=new SidePaymentKey(Guid.NewGuid(),0,new DateTimeOffset(paymentDate.ToDateTime(TimeOnly.MinValue,DateTimeKind.Utc)),quote.Currency);
-        var definition=new RateDiscountDefinition(Guid.NewGuid(),f.C("zero_rates"),rateSpecification,quote.Currency,f.R("source"),reference,paymentDate,
-            "actual_365_fixed","simple",RateConventions.Implementation,"valuation_utc_date",RateConventions.Policy,DiscountInterpolation.Policy,
+        var definition=new RateDiscountDefinition(Guid.NewGuid(),f.C("zero_rates"),quote.Currency,f.R("source"),reference,paymentDate,
+            RateConventionSet.Parse("actual_365_fixed","simple","log_linear_discount","none","decimal_per_year"),RateCurveMath.Policy,
             [new(reference.AddDays(365),left),new(reference.AddDays(1095),right)]);
         var factor=new SidePaymentFactor(key,ExactDecimal.Parse("1"),snapshot,DiscountFactorSource.CurrencyDefault){RateDefinition=definition};
         var builder=new ScheduleGraphBuilder(market.Graph,snapshot,Limits);

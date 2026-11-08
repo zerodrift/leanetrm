@@ -24,7 +24,7 @@ public abstract record ScheduleSourceKey
     internal sealed record FrozenPrice(CurveKey Curve, DateTimeOffset From, DateTimeOffset To,
         string Scenario, DateTimeOffset KnownAt, ImmutableArray<ObservationKey> Observations,
         Guid? ActualBatch, int? ActualRevision) : ScheduleSourceKey;
-    internal sealed record Rate(ReferenceKey Specification, SeriesKey SeriesId, ReferenceKey Source, ObservationKey Observation, DateTimeOffset ObservedAt) : ScheduleSourceKey;
+    internal sealed record Rate(ReferenceKey Currency, SeriesKey SeriesId, ReferenceKey Source, ObservationKey Observation, DateTimeOffset ObservedAt) : ScheduleSourceKey;
 }
 public enum ScheduleAssetMeasure { CapacityBasis = 1, AccreditedCapacity }
 public enum ScheduleInputUse { Frozen = 1, ModelInput }
@@ -569,7 +569,7 @@ internal static class ScheduleGraph
         ScheduleSourceKey.Contract c => new { Kind = "contract", c.Definition.Version, c.Definition.Digest, c.Ordinal },
         ScheduleSourceKey.Shape s => new { Kind = "shape", s.Definitions, s.SeriesId, s.Anchor, s.KnownAt, s.KnowledgeContext, s.Revisions },
         ScheduleSourceKey.FrozenPrice p => new { Kind = "frozen_price", p.Curve, p.From, p.To, p.Scenario, p.KnownAt, p.Observations, p.ActualBatch, p.ActualRevision },
-        ScheduleSourceKey.Rate r => new { Kind="annual_rate", r.Specification, r.SeriesId, r.Source, r.Observation, r.ObservedAt },
+        ScheduleSourceKey.Rate r => new { Kind="annual_rate", r.Currency, r.SeriesId, r.Source, r.Observation, r.ObservedAt },
         _ => throw Error("schedule_graph_input", "Select an exact supported source identity.")
     };
     internal static object ValueEvidence(ScheduleGraphValue value) => value switch
@@ -595,7 +595,7 @@ internal static class ScheduleGraph
         {
             case ScheduleSourceKey.Rate r when use==ScheduleInputUse.ModelInput && grid is null && r.SeriesId.Revision.CatalogId!=Guid.Empty &&
                 r.SeriesId.Revision.RevisionId!=Guid.Empty && r.SeriesId.Id!=Guid.Empty && r.Observation.CatalogId==r.SeriesId.Revision.CatalogId &&
-                r.Observation.Id!=Guid.Empty && r.Specification.Revision==r.Source.Revision && !string.IsNullOrWhiteSpace(r.Specification.Code) &&
+                r.Observation.Id!=Guid.Empty && r.Currency.Revision==r.Source.Revision && !string.IsNullOrWhiteSpace(r.Currency.Code) &&
                 !string.IsNullOrWhiteSpace(r.Source.Code) && TradingInstant.IsSupported(r.ObservedAt) && r.ObservedAt<=context.MarketAsOf: return;
             case ScheduleSourceKey.Series s when s.Definitions.CatalogId != Guid.Empty && s.Definitions.RevisionId != Guid.Empty && s.Id != Guid.Empty && s.Revision > 0 &&
                 TradingInstant.IsSupported(s.From) && TradingInstant.IsSupported(s.To) && s.From < s.To && TradingInstant.IsSupported(s.KnownAt) && s.KnownAt <= context.KnownAt && s.KnowledgeContext != Guid.Empty &&

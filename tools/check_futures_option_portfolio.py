@@ -6,6 +6,7 @@ import os
 import platform
 import time
 from datetime import date
+from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from fractions import Fraction
 from uuid import uuid4
 from preview_client import PreviewClient
@@ -16,7 +17,7 @@ TRADING = 'trading_workspace_v1'
 FALLBACK_SERIES, FALLBACK_MODE = 'nymex_on_20261201_c2.00', 'option_settlement_at_intrinsic_v1'
 # The fixture's synthetic USD zero rate at the premium payment date, simple compounding on ACT/365F (exchange_fixture.py).
 PAYMENT_DATE, PAYMENT_RATE = '2026-10-19', Fraction('0.04')
-# A payment date between the first and last closes, before the fixture's first rate pillar: such cash is only read once settled.
+# A payment date between the first and last closes, before the fixture's first rate pillar: the curve's t_0 anchor discounts it (D359).
 SETTLED_DATE = '2026-10-14'
 TIMEOUT = 300
 
@@ -272,21 +273,25 @@ def run_checks(url, query, manifest, *, run_worker):
           Fraction(settled_risk['values']['base']) == 0 and settled_risk['measureLabel'] == 'Option value excluding settled premium cash'
           and not any(e['tradeId'] == paid['tradeId'] for e in other_report['excludedPositions']), settled_risk)
 
-    # At the first close that premium is still pending, and its payment date lies before the curve's first pillar.
+    # At the first close that premium is still pending and its payment date lies before the curve's first pillar (Oct 19 at 4%
+    # simple ACT/365F). D359 anchors the curve at t_0 with factor 1, so the day's factor is the sixth root of the pillar's.
     c.call('profile', {'profile': 'trader'})
     early = c.call('trading/blotter', dict(context={**booking, 'convention': TRADING}, view=dict(mode='trades', bookIds=[other_book], portfolioIds=[],
                    groupBy=[], measures=[], pivotConvention=None)), timeout=TIMEOUT)
     early_rows = {r['bindingId']: r for r in early['holdings'] if r['tradeId'] == paid['tradeId']}
-    uncovered, covered_option = early_rows[paid['premiumInstrumentId']], early_rows[paid['optionInstrumentId']]
-    check('a pending premium dated before the curve\'s first pillar is unvalued with discount_coverage, and its option is still valued',
-          (uncovered['cashState'], uncovered['unavailableReason'], uncovered['presentValue']) == ('pending', 'discount_coverage', None)
+    pending, covered_option = early_rows[paid['premiumInstrumentId']], early_rows[paid['optionInstrumentId']]
+    with localcontext() as exact_context:
+        exact_context.prec = 60
+        anchored = ((1 / (1 + Decimal('0.04') * 6 / 365)).ln() / 6).exp().quantize(Decimal('1e-18'), ROUND_HALF_EVEN)
+    check('a pending premium dated before the curve\'s first pillar is discounted from the t_0 anchor, and its option is valued',
+          (pending['cashState'], pending['unavailableReason']) == ('pending', None)
+          and Fraction(pending['presentValue']) == paid_cash * Fraction(anchored)
           and covered_option['unavailableReason'] is None and covered_option['presentValue'] is not None, early_rows)
     c.call('profile', {'profile': 'risk'})
     early_excluded = c.call('portfolio/risk/catalog', dict(context={**retained, 'snapshotId': first['id'], 'contextId': early['context']['contextId']}, bookIds=[other_book],
                             portfolioIds=[]), timeout=TIMEOUT)['excludedPositions']
-    check('portfolio risk leaves out only that premium, with discount_coverage',
-          [(e['tradeId'], e['bindingId'], e['reason']) for e in early_excluded if e['tradeId'] == paid['tradeId']]
-          == [(paid['tradeId'], paid['premiumInstrumentId'], 'discount_coverage')], early_excluded)
+    check('portfolio risk leaves out none of that trade',
+          not any(e['tradeId'] == paid['tradeId'] for e in early_excluded), early_excluded)
 
     # A held series whose expiry instant passes with no recorded expiry stays visibly unprocessed: option_expired, no value.
     R, M = f"'{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}'", f"'{manifest['catalogId']}','{manifest['revisionId']}'"

@@ -37,7 +37,8 @@ public sealed class CurveDefinitionStore(Guid catalog,ContractDateStore mappings
         await using var command=ScheduleStore.Command(connection,"""
 SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,v.kind,v.mapping_definition_id,v.mapping_version,v.mapping_generation,v.contract_count,
  v.commodity_code,v.location_code,v.quote_code,v.profile_code,v.futures_product_code,v.settlement_target_code,v.price_rule,v.mark_role,v.mark_source_code,
- v.missing_price,v.interpolation,v.interest_rate_code,t.effective_on,t.known_through,t.known_at,t.id,v.publication_order,v.published_at
+ v.missing_price,v.interpolation,v.currency_code,t.effective_on,t.known_through,t.known_at,t.id,v.publication_order,v.published_at,
+ v.mark_unit,v.day_count,v.compounding,v.extrapolation
  FROM market_data.curve_definition_versions v JOIN market_data.curve_definitions d ON(d.catalog_id,d.id)=(v.catalog_id,v.definition_id)
  JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(v.catalog_id,v.validation_context_id)
  WHERE v.catalog_id=$1 ORDER BY d.code,v.version
@@ -47,7 +48,8 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,v.kind,v.map
         while(await reader.ReadAsync(ct))
         {
             var definition=new CurveDefinitionDraft(reader.GetString(4),reader.GetString(5),Text(11),Text(12),Text(13),Text(14),reader.GetString(6),Text(15),
-                new(reader.GetGuid(7),reader.GetInt32(8),reader.GetInt32(10)),Text(16),Text(17),Text(18),reader.GetString(19),Text(20),Text(21),Text(22));
+                new(reader.GetGuid(7),reader.GetInt32(8),reader.GetInt32(10)),Text(16),Text(17),Text(18),reader.GetString(19),Text(20),Text(21),
+                Text(22),Text(29),Text(30),Text(31),Text(32));
             rows.Add(new(reader.GetGuid(0),reader.GetInt32(1),reader.GetInt32(2),reader.GetString(3),definition,reader.GetInt32(9),
                 new(reader.GetFieldValue<DateOnly>(23).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),reader.GetInt32(24),
                     reader.GetFieldValue<DateTimeOffset>(25).ToString("O",CultureInfo.InvariantCulture),reader.GetGuid(26)),
@@ -101,9 +103,11 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,v.kind,v.map
         object Value(string? text)=>(object?)text??DBNull.Value;
         object[] terms=[definition.Name!,reference.CatalogId,reference.RevisionId,window.MappingId,mappingVersion,mappingGeneration,window.Count,
             Value(definition.Commodity),Value(definition.Location),Value(definition.Quote),Value(definition.Profile),Value(definition.FuturesProduct),Value(definition.SettlementTarget),
-            Value(definition.PriceRule),Value(definition.MarkRole),Value(definition.MissingPrice),Value(definition.Interpolation),Value(definition.InterestRate),definition.MarkSource!,context.ContextId!.Value];
+            Value(definition.PriceRule),Value(definition.MarkRole),Value(definition.MissingPrice),Value(definition.Interpolation),Value(definition.Currency),
+            Value(definition.MarkUnit),Value(definition.DayCount),Value(definition.Compounding),Value(definition.Extrapolation),definition.MarkSource!,context.ContextId!.Value];
         const string Columns="name,reference_catalog_id,reference_revision_id,mapping_definition_id,mapping_version,mapping_generation,contract_count,commodity_code,location_code,"+
-            "quote_code,profile_code,futures_product_code,settlement_target_code,price_rule,mark_role,missing_price,interpolation,interest_rate_code,mark_source_code,validation_context_id";
+            "quote_code,profile_code,futures_product_code,settlement_target_code,price_rule,mark_role,missing_price,interpolation,currency_code,"+
+            "mark_unit,day_count,compounding,extrapolation,mark_source_code,validation_context_id";
         if(all.Any(v=>v.Id==id&&v.Version==version))
         {
             var assignments=string.Join(",",Columns.Split(',').Select((column,i)=>$"{column}=${i+5}"));

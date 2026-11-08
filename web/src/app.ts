@@ -494,20 +494,24 @@ function renderContext(){
   const example=directory().example;$('example').hidden=!example;text('example-help',example?`${curveName(example.curve)} · ${instant(example.at)}`:'No market inputs have been imported.');renderLayout();renderBrowse();renderMarketBoard();$('curve-detail').hidden=!curve||!workspace;
   $('curve-power').hidden=!curve||!workspace?.powerCurveCodes.includes(curve);
   if(curve&&workspace){const c=selectedCurve(),listed=listedCurve(),kind=listed.marketType;renderSummary();text('curve-kind',navigationCurveKind(listed));text('curve-title',curveName(curve));$('curve-kind-badge').replaceChildren(kindBadge(listed.kind,'md'));
-    const specification=kind==='rates'?row('interest_rate_definitions','code',val(c,'interest_rate_code'),true):undefined;
-    text('unit',specification?`${val(row('currencies','code',val(specification,'currency_code'),true),'display_code')} · % per year`:unit(val(c,'quote_code')));
+    // A rate curve's currency is its own (D359); its mark unit is stated by the evaluated result.
+    const rateCurrency=kind==='rates'?val(c,'currency_code'):undefined;
+    text('unit',rateCurrency?`${val(row('currencies','code',rateCurrency,true),'display_code')}${result?.kind==='rates'&&result.markUnitLabel?' · '+result.markUnitLabel:''}`:unit(val(c,'quote_code')));
+    $('curve-definition-link').hidden=!(result?.kind==='rates'&&result.definition);
     text('chart-title',kind==='rates'?'Zero-rate curve':kind==='futures'?'Futures curve':kind==='forwards'?'Forward curve':'Mixed curve');
     text('source-title',kind==='rates'?'Rates behind this curve':'Prices behind this curve');text('source-help',kind==='rates'?'Annual zero rates for the listed maturities.':'Prices and conversion factors for the selected market date.');text('contracts-help',kind==='rates'?'Choose a maturity to see its rate history and how it’s priced.':'Choose a contract to see its price history and how it’s priced.');
     renderDependencies();if(result)renderInputs();}
   showView(prefs.tab);
 }
+const rateTenor=(series:Row)=>data().definitions.rate_curve_tenors.find(t=>t.curve_code===curve&&t.series_id===series.id);
+const rateMarkUnit=()=>result?.kind==='rates'&&result.markUnitLabel?result.markUnitLabel:'per year';
 function inputUnit(series:Row){
-  if(data().definitions.rate_curve_points.some(p=>p.curve_code===curve&&p.series_id===series.id))return 'Annual rate (decimal)';
+  if(rateTenor(series))return `Annual zero rate (${rateMarkUnit()})`;
   if(series.quote_code)return unit(val(series,'quote_code'));const spec=row('value_specifications','code',val(series,'value_specification_code'),true);if(spec.kind==='dimensionless')return 'Ratio';
   const a=row('quantity_specifications','code',val(spec,'numerator_quantity_code'),true),b=row('quantity_specifications','code',val(spec,'denominator_quantity_code'),true);return `${commodityName(val(a,'commodity_code'),data())} ${val(row('units','code',val(a,'unit_code'),true),'symbol')} / ${commodityName(val(b,'commodity_code'),data())} ${val(row('units','code',val(b,'unit_code'),true),'symbol')}`;
 }
 function sourceName(series:Row){
-  const rate=data().definitions.rate_curve_points.find(p=>p.curve_code===curve&&p.series_id===series.id);if(rate)return `Zero rate · ${displayDate(val(rate,'maturity'))}`;
+  const tenor=rateTenor(series);if(tenor)return `Zero rate · ${val(tenor,'label')}`;
   if(!series.contract_id)return 'Conversion factor';
   const direct=data().definitions.curves.filter(c=>c.rule==='direct'&&c.quote_code===series.quote_code&&data().definitions.curve_members.some(m=>m.curve_code===c.code&&m.contract_id===series.contract_id));
   return direct.length===1?curveName(val(direct[0],'code')):'Market price';
@@ -516,9 +520,9 @@ function settlementText(){
   const target=row('settlement_targets','code',val(selectedCurve(),'settlement_target_code'),true);
   return target.kind==='future_series'?'Follows this futures contract':`${referenceName('price_index_definitions',val(target,'index_a_code'))}${target.index_b_code?' less '+referenceName('price_index_definitions',val(target,'index_b_code')):''}`;
 }
-// Convention labels come with the evaluated rate result; the formula below is only drawn for that exact policy.
+// Convention labels come with the evaluated rate result; the browser names them and computes nothing.
 function rateConvention(){
-  if(!result||result.numericalPolicy!=='simple_actual365fixed_rational_to_even_18_v1'||!result.convention)throw Error('This interest-rate convention cannot be displayed yet.');
+  if(!result||!result.convention)throw Error('This interest-rate convention cannot be displayed yet.');
   return result.convention;
 }
 function renderSummary(){
@@ -537,7 +541,7 @@ function renderPrices(){
   text('price-date',`As of: ${instant(result.at)}`);text('build-info',contractCountText(result));
   // A row, chosen or pressed with Enter, opens its contract in the panel, for the result it was drawn from.
   const shown=result;
-  table('contracts',rates?['Maturity','Zero rate (%)','Discount factor']:['Delivery period','Price','Expires'],result.points.map(p=>[contractLabel(p),p.value,rates?p.displayDiscountFactor!:instant(p.expiry!)]),rates?[1,2]:[1],result.points.map(p=>[contractLabel(p),amountText(p.value,'price',p.priceTick),rates?amountText(p.discountFactor!,'factor'):instant(p.expiry!)]),
+  table('contracts',rates?['Maturity',`Zero rate (${rateMarkUnit()})`,'Discount factor']:['Delivery period','Price','Expires'],result.points.map(p=>[contractLabel(p),p.value,rates?p.displayDiscountFactor!:instant(p.expiry!)]),rates?[1,2]:[1],result.points.map(p=>[contractLabel(p),amountText(p.value,'price',p.priceTick),rates?amountText(p.discountFactor!,'factor'):instant(p.expiry!)]),
     index=>void act(async()=>{if(result===shown)await openContract(pointIdentity(shown.points[index]));}));
   $('contracts').querySelector('table')?.setAttribute('aria-describedby','contracts-help');
   renderContract();renderDependencies();renderInputs();
@@ -554,7 +558,7 @@ async function build(){
   try{workspace=hydrated;data().observations=next.observations;result=next;renderContext();renderPrices();}
   catch(error){clearPrices();if(includeWorkspace)workspace=undefined;throw error;}
 }
-const contractLabel=(p:Point)=>result?.kind==='rates'?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!);
+const contractLabel=(p:Point)=>result?.kind==='rates'?(p.label&&p.label!==p.maturity?`${p.label} · ${displayDate(pointDate(p))}`:displayDate(pointDate(p))):deliveryLabel(p.deliveryFrom!,p.deliveryTo!);
 const staleSelection=()=>Error('The account or market selection changed. Reload before continuing.');
 // Closes the contract panel without asking, and forgets the contract it showed and its history choices.
 function closeContract(){contractPanel.reset();forgetContract();}
@@ -592,7 +596,7 @@ function renderHistory(){
   if(!historyData){contractPanel.history({state:historyFailed?'failed':'reading',...choices});$('history-values').replaceChildren();return;}
   const p=result.points.find(p=>pointIdentity(p)===contract)!,points=historyData.points,labels=timeLabels(points.map(p=>p.at),prefs.timeZone);
   contractPanel.history({state:'read',...choices,basis:historyBasis(historyPolicy,historyData,instant),chart:{title:contractLabel(p),unit:$('unit').textContent??'',zone:prefs.timeZone,series:historyChart(historyData),overlays:historySeries}});
-  table('history-values',['Market date',rates?'Zero rate (%)':'Price','Known at'],points.map((p,i)=>[labels[i],historyPriceLabel(p),knownAtText(p,instant)]),[1],
+  table('history-values',['Market date',rates?`Zero rate (${rateMarkUnit()})`:'Price','Known at'],points.map((p,i)=>[labels[i],historyPriceLabel(p),knownAtText(p,instant)]),[1],
     points.map((p,i)=>[labels[i],p.value===null?historyPriceLabel(p):amountText(p.value,'price',decimalTick()),knownAtText(p,instant)]));
 }
 // The overlay catalog, read once for the account on screen.
@@ -625,13 +629,13 @@ async function history(){
 function renderInputs(){
   if(!result||!result.points.length){text('inputs',result?'No price sources are needed for an empty delivery window.':'Choose a market date to view price sources.');text('input-count','');return;}
   const used=new Set(sourcePoints().flatMap(p=>p.lineage));if([...used].some(id=>!pricingFrame().observationIds.includes(id)))throw Error('A required source observation is missing from this market date.');const obs=[...used].map(observation);text('input-count',`${obs.length} prices & factors`);
-  table('inputs',[isRates()?'Maturity':'Delivery period','Input','Source','Value','Units',''],obs.map(o=>{const series=row('series','id',val(o,'series_id')),c=series.contract_id?row('contracts','id',val(series,'contract_id')):undefined;return [c?deliveryLabel(val(c,'delivery_from'),val(c,'delivery_to')):data().definitions.rate_curve_points.some(p=>p.curve_code===curve&&p.series_id===series.id)?displayDate(val(data().definitions.rate_curve_points.find(p=>p.curve_code===curve&&p.series_id===series.id)!,'maturity')):'All months',sourceName(series),referenceName('sources',val(o,'source_code')),val(o,'value'),inputUnit(series),action(canCorrect()?'Correct price':'View versions',async()=>{input=val(o,'id');renderRevisions();})];}),[3]);renderRevisions();
+  table('inputs',[isRates()?'Tenor':'Delivery period','Input','Source','Value','Units',''],obs.map(o=>{const series=row('series','id',val(o,'series_id')),c=series.contract_id?row('contracts','id',val(series,'contract_id')):undefined;return [c?deliveryLabel(val(c,'delivery_from'),val(c,'delivery_to')):rateTenor(series)?val(rateTenor(series)!,'label'):'All months',sourceName(series),referenceName('sources',val(o,'source_code')),val(o,'value'),inputUnit(series),action(canCorrect()?'Correct price':'View versions',async()=>{input=val(o,'id');renderRevisions();})];}),[3]);renderRevisions();
 }
 function renderRevisions(){
   if(!input||!pricingFrame().observationIds.includes(input)||!sourcePoints().some(p=>p.lineage.includes(input))){$('revision-card').hidden=true;return;}
   const o=observation(input),series=row('series','id',val(o,'series_id'));$('revision-card').hidden=false;text('correction-description',`${sourceName(series)} · ${instant(val(o,'observed_at'))} · ${inputUnit(series)}`);
   const editor=canCorrect();$('correction-form').hidden=!editor;text('changes-title',`${editor?'Correct':'Versions of'} this ${isRates()?'rate':'price'}`);
-  text('edit-help',isRates()?'Enter an annual decimal rate: 0.025 means 2.5%. Earlier versions stay available.':'Earlier prices stay available. Saving adds a new version for you to view.');
+  text('edit-help',isRates()?`Enter the annual zero rate in ${rateMarkUnit()}. Earlier versions stay available.`:'Earlier prices stay available. Saving adds a new version for you to view.');
   if(draftFor!==input){$<HTMLInputElement>('correction-value').value=val(o,'value');draftFor=input;}
   const revisions=data().observations.filter(r=>r.series_id===o.series_id&&r.source_code===o.source_code&&r.source_event_id===o.source_event_id&&r.observed_at===o.observed_at&&r.role===o.role);
   table('revisions',['Version','Value','Saved','Context'],revisions.map((r,i)=>[i===0?'Original':`Change ${i}`,val(r,'value'),instant(val(r,'received_at')),r.id===input?'Selected by context':'Recorded history']),[1]);
@@ -650,9 +654,9 @@ function drawPricingGraph(target:HTMLElement,graph:PricingGraph){renderPricingGr
 // A maturity's discount factor from its zero rate, under the convention the evaluated result states.
 function rateFlow(point:Point){
   const convention=rateConvention();
-  if(point.annualRate===undefined||point.actualDays===undefined||point.discountFactor===undefined||point.displayDiscountFactor===undefined)throw Error('The rate calculation details are unavailable.');
+  if(point.mark===undefined||point.actualDays===undefined||point.discountFactor===undefined||point.displayDiscountFactor===undefined)throw Error('The rate calculation details are unavailable.');
   const flow=el('div');flow.className='rate-flow';
-  for(const [title,value,detail] of [['Zero rate',`${point.value}%`,'Annual rate'],['Time to maturity',`${point.actualDays} / 365`,convention.dayCount],['Discount factor',point.displayDiscountFactor,convention.compounding]]){const card=el('div');card.className='rate-step';card.append(el('small',title),el('strong',value),el('span',detail));flow.append(card);}
+  for(const [title,value,detail] of [['Zero rate',`${point.mark} ${rateMarkUnit()}`,'Annual zero rate'],['Time to maturity',`${point.actualDays} days`,convention.dayCount],['Discount factor',point.displayDiscountFactor,convention.compounding]]){const card=el('div');card.className='rate-step';card.append(el('small',title),el('strong',value),el('span',detail));flow.append(card);}
   return flow;
 }
 function renderDependencies(){
@@ -669,10 +673,10 @@ function renderDependencies(){
     rateConvention(); // the formula below is drawn only for the convention it states
     if(showAllContracts){for(const container of [sources,dependencies]){const host=el('section');renderWorkbook(host,rateWorkbook(result));container.append(host);}}
     for(const point of points){
-      if(point.annualRate===undefined||point.actualDays===undefined||point.discountFactor===undefined||point.displayDiscountFactor===undefined)throw Error('The rate calculation details are unavailable.');
-      if(!showAllContracts)for(const container of [sources,dependencies]){const section=el('section');section.className='contract-flow pricing-flow';section.append(el('h4',displayDate(pointDate(point))),rateFlow(point));container.append(section);}
+      if(point.mark===undefined||point.actualDays===undefined||point.discountFactor===undefined||point.displayDiscountFactor===undefined)throw Error('The rate calculation details are unavailable.');
+      if(!showAllContracts)for(const container of [sources,dependencies]){const section=el('section');section.className='contract-flow pricing-flow';section.append(el('h4',contractLabel(point)),rateFlow(point));container.append(section);}
     }
-    table('mappings',['Maturity','Calculation','Discount factor'],points.map(p=>[displayDate(pointDate(p)),`1 ÷ (1 + ${p.annualRate} × ${p.actualDays} / 365)`,p.discountFactor!]),[2]);
+    table('mappings',['Tenor','Maturity','Discount factor'],points.map(p=>[p.label??'',displayDate(pointDate(p)),p.discountFactor!]),[2]);
   }else{
     const graphs=points.map(point=>pricingGraph(result!,point));
     const workbook=showAllContracts||graphs.every(graph=>graph.nodes.length===1)?curveWorkbook(result,unit,curveName):undefined;
@@ -1036,6 +1040,8 @@ const curveDefinitions=setupCurveDefinitionEditor(api,act,()=>{if(contextDirty)t
   ()=>prefs.timeZone,()=>busy,()=>{definingCurve=false;renderMarketBoard();});
 $('curve-definition').append(curveDefinitions.element);
 $('curve-define').onclick=()=>void act(async()=>{await selectCurve('');definingCurve=true;renderMarketBoard();await curveDefinitions.load();});
+// A rendered rate curve is read-only; its definition is changed only in Curve definitions (D359).
+$('curve-definition-link').onclick=()=>void act(async()=>{const pinned=result?.kind==='rates'?result.definition:null;if(!pinned)return;await selectCurve('');definingCurve=true;renderMarketBoard();await curveDefinitions.openDefinition(pinned.id,pinned.version);});
 const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext,()=>administrationScope+':'+currentProfile,{holds:holdsEdits,mayChange:async()=>!busy&&await mayLeave()},work=>act(work,{keepNotice:true}),(title,events,owner)=>{if(events.length)scheduleWorkspace?.calendar.show(title,events,owner);else scheduleWorkspace?.calendar.clear(owner);},()=>{if(contextDirty)throw Error('Apply the changed context first.');return select('snapshot').value;});
 $('date-context').addEventListener('input',dirtyContext);
 $('knowledge-context').addEventListener('toggle',renderWorkspaceMode);

@@ -400,6 +400,9 @@ def main():
             if args.check and migration.name=='0211_selected_observation_facts.sql':
                 from check_observation_fact_upgrade import run_checks as check_observation_fact_upgrade
                 check_observation_fact_upgrade(query,migration)
+            if args.check and migration.name=='0215_rolling_rate_curves.sql':
+                from check_rate_cutover import run_checks as check_rate_cutover
+                check_rate_cutover(query,[reference,market,security],migration)
             query(migration.read_text())
         if args.check:
             from check_whole_term_swap_schema import run_checks as check_whole_term_swap_schema

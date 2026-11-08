@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 import json
+from rate_curve_fixture import dated_curve
 
 
 def install(query, manifest):
@@ -58,12 +59,12 @@ def install(query, manifest):
       f"INSERT INTO market_data.curves VALUES('{cat}','{definition}','demo_forward',{rr},{lit(chosen['commodity_code'])},{lit(chosen['location_code'])},'demo_price','demo_uniform','demo_index_target','direct','demo_reference_marks','trader_mark','Synthetic reference demo forward');",
       f"INSERT INTO market_data.series VALUES('{cat}','{definition}','{series}','demo_forward',{rr},'{contract}','demo_price',NULL);",
       f"INSERT INTO market_data.curve_members VALUES('{cat}','{definition}','demo_forward','{contract}',0);",
-      f"INSERT INTO market_data.index_fixing_observations VALUES('{cat}','{definition}','demo_monthly_index','{delivery}','{end}',{rr},'demo_price','{series}','demo_reference_marks','{fixing}','published_index_observations_v1');",
-      f"INSERT INTO market_data.rate_curves VALUES('{cat}','{definition}','demo_discount_curve',{rr},'demo_simple_rate','demo_reference_marks','valuation_utc_date','Synthetic simple-rate discount curve');"])
+      f"INSERT INTO market_data.index_fixing_observations VALUES('{cat}','{definition}','demo_monthly_index','{delivery}','{end}',{rr},'demo_price','{series}','demo_reference_marks','{fixing}','published_index_observations_v1');"])
     rates=[('0.025',identity('rate-0')),('0.03',identity('rate-1')),('0.035',identity('rate-2'))]
     for i,(_,sid) in enumerate(rates):
-        sql.extend([f"INSERT INTO market_data.series VALUES('{cat}','{definition}','{sid}','demo_rate_{i}',{rr},NULL,NULL,'demo_decimal_rate');",
-          f"INSERT INTO market_data.rate_curve_points VALUES('{cat}','{definition}','demo_discount_curve','{maturities[i]}','{sid}',{i});"])
+        sql.append(f"INSERT INTO market_data.series VALUES('{cat}','{definition}','{sid}','demo_rate_{i}',{rr},NULL,NULL,'demo_decimal_rate');")
+    sql.append(dated_curve(cat,definition,rr,'demo_discount_curve','Synthetic simple-rate discount curve',[str(m) for m in maturities[:len(rates)]],[sid for _,sid in rates],
+                           currency=chosen['currency_code'],source='demo_reference_marks',interest_rate='demo_simple_rate',specification='demo_decimal_rate'))
     sql.append(f"UPDATE market_data.revisions SET state='sealed' WHERE catalog_id='{cat}' AND id='{definition}';")
     frames=[]
     for frame in main:
@@ -74,7 +75,8 @@ def install(query, manifest):
         frames.append({'at':frame['at'],'observationIds':pins,'curveContracts':{'demo_forward':[contract]}})
     mapping=identity('discount-mapping')
     sql.extend([f"INSERT INTO trading.publications SELECT '{cat}',coalesce(max(publication_order),0)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{cat}';",
-      f"INSERT INTO trading.currency_discount_defaults SELECT '{cat}','{mapping}','{definition}',{rr},{lit(chosen['currency_code'])},'demo_discount_curve','log_discount_geometric_root_to_even_18_v1',max(publication_order),{lit(min(f['at'] for f in main))} FROM trading.publications WHERE catalog_id='{cat}';",'COMMIT;'])
+      "INSERT INTO trading.currency_discount_defaults(catalog_id,id,definition_revision_id,reference_catalog_id,reference_revision_id,currency_code,curve_code,publication_order,effective_at) "
+      f"SELECT '{cat}','{mapping}','{definition}',{rr},{lit(chosen['currency_code'])},'demo_discount_curve',max(publication_order),{lit(min(f['at'] for f in main))} FROM trading.publications WHERE catalog_id='{cat}';",'COMMIT;'])
     query('\n'.join(sql))
     manifest.setdefault('swapMarkets',[]).append({'revisionId':definition,'frames':frames})
     manifest['referenceCatalog']={'referenceRevisionId':revision,'definitionRevisionId':definition,'tables':['interest_rate_definitions','value_specifications']}

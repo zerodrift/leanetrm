@@ -68,7 +68,7 @@ def run_checks(query, manifest, psql, environment, dotnet, temporary):
     query("INSERT INTO market_data.interval_series SELECT(jsonb_populate_record(NULL::market_data.interval_series,to_jsonb(s)||"
           f"jsonb_build_object('id','{series}','code','synthetic_finality_meter'))).* FROM market_data.interval_series s WHERE id='{original_series}';")
     inventory = ('revision_periods', 'contracts', 'curves', 'series', 'curve_members', 'curve_inputs', 'constituent_mappings',
-                 'rate_curves', 'rate_curve_points', 'contract_intervals', 'curve_blocks', 'shaped_curves', 'shaped_curve_blocks',
+                 'rate_curves', 'rate_curve_tenors', 'contract_intervals', 'curve_blocks', 'shaped_curves', 'shaped_curve_blocks',
                  'curve_physical_price_sources', 'curve_actual_rules', 'shaped_curve_actual_rules', 'curve_expiry_rules',
                  'index_fixing_observations', 'generation_assets', 'generation_asset_versions', 'location_valuation_assignments', 'volume_sources')
 

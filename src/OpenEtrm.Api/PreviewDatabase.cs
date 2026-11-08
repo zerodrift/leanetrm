@@ -116,7 +116,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
     public static readonly string[] ReferenceTables = [..ReferenceKeys.Select(r=>r.Table)];
     private static readonly (string Table,string Key)[] DefinitionTables = [("revisions","id"), ("contracts","id"), ("curves","code"), ("series","id"),
         ("curve_members","curve_code,contract_id"), ("curve_inputs","curve_code,slot"), ("constituent_mappings","curve_code,slot,target_contract_id"),
-        ("rate_curves","code"), ("rate_curve_points","curve_code,maturity"), ("revision_periods","revision_id"),
+        ("rate_curves","code"), ("rate_curve_tenors","curve_code,ordinal"), ("revision_periods","revision_id"),
         ("index_fixing_observations","index_code,observation_from,observation_to"), ("contract_intervals","contract_id"),
         ("curve_blocks","curve_code"), ("shaped_curves","code"), ("shaped_curve_blocks","shaped_curve_code,block_curve_code"),
         ("curve_expiry_rules","curve_code"), ("generation_assets","code"), ("generation_asset_versions","asset_code,effective_from"),
@@ -799,7 +799,7 @@ public sealed class PreviewData
             ("units","code"),("currencies","code"),("commodities","code"),("exchanges","code"),("sources","code"),("interest_rate_definitions","code"),
             ("delivery_profiles","code"),("clock_rules","code")]);
         definitionRows=IndexRows(Definitions,[("curves","code"),("curve_members","curve_code"),
-            ("curve_inputs","curve_code"),("rate_curves","code"),("rate_curve_points","curve_code"),
+            ("curve_inputs","curve_code"),("rate_curves","code"),("rate_curve_tenors","curve_code"),
             ("curve_blocks","curve_code"),("shaped_curves","code"),("shaped_curve_blocks","shaped_curve_code")]);
         contractDefinitions=Definitions["contracts"].ToLookup(row=>row.Id("id"));
         quotedSeriesRows=Definitions["series"].ToLookup(row=>(row.OptionalId("contract_id"),row.OptionalText("quote_code")));
@@ -1007,21 +1007,34 @@ public sealed class PreviewData
         }
         return Model.Build(Snapshot(frame),requests.ToImmutable());
     }
-    public ZeroRateDefinition RateDefinition(string code)
+    // A rate curve's pinned date list (D359): its tenors' maturities resolve from it at each close.
+    public (Guid Mapping,int Version) RateDateList(string code)
     {
         var curve=Single(DefinitionRows("rate_curves","code",code));
-        var specification=Single(ReferenceRows("interest_rate_definitions","code",curve.Text("interest_rate_code")));
-        var pillars=DefinitionRows("rate_curve_points","curve_code",code).OrderBy(p=>p.GetProperty("ordinal").GetInt32()).Select(p=>new RatePillar(S(p.Id("series_id")),DateOnly.ParseExact(p.Text("maturity"),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture))).ToImmutableArray();
-        return new(new(revision,code),R(specification.Text("code")),R(specification.Text("currency_code")),specification.Text("day_count"),specification.Text("compounding"),specification.Text("implementation"),curve.Text("date_basis"),R(curve.Text("source_code")),pillars);
+        return (curve.Id("mapping_definition_id"),int.Parse(curve.Text("mapping_version"),System.Globalization.CultureInfo.InvariantCulture));
     }
-    public ZeroRateBuild BuildRates(InputFrame frame,string code) => new ZeroRateCurve(RateDefinition(code)).Build(Snapshot(frame));
+    // A rate curve at one close. An admitted curve's tenors take the maturities its date list resolves to there, by label.
+    public RateCurveDefinition RateDefinition(string code,IReadOnlyDictionary<string,DateOnly> maturities)
+    {
+        var curve=Single(DefinitionRows("rate_curves","code",code));
+        var rows=DefinitionRows("rate_curve_tenors","curve_code",code).OrderBy(t=>t.GetProperty("ordinal").GetInt32()).ToArray();
+        if(rows.Length!=maturities.Count)throw new MarketDataException("rate_definition","The curve's tenors and its date list's labels differ.");
+        var tenors=rows.Select(t=>new RateTenor(t.Text("label"),S(t.Id("series_id")),maturities.TryGetValue(t.Text("label"),out var date)?date:
+            throw new MarketDataException("rate_definition",$"Tenor '{t.Text("label")}' is not in the curve's date list."))).ToImmutableArray();
+        return new(new(revision,code),R(curve.Text("currency_code")),R(curve.Text("source_code")),
+            RateConventionSet.Parse(curve.Text("day_count"),curve.Text("compounding"),curve.Text("interpolation"),curve.Text("extrapolation"),curve.Text("mark_unit")),
+            tenors,curve.Id("definition_id"),int.Parse(curve.Text("definition_version"),System.Globalization.CultureInfo.InvariantCulture));
+    }
+    public ZeroRateBuild BuildRates(InputFrame frame,RateCurveDefinition definition) => new ZeroRateCurve(definition).Build(Snapshot(frame));
     public bool IsRateCurve(string code)=>DefinitionRows("rate_curves","code",code).Any();
+    // Every rate curve's tenor series, without resolving maturities: history follows a tenor's own series across closes.
+    ImmutableArray<Guid> RateSeries(string code)=>[..DefinitionRows("rate_curve_tenors","curve_code",code).Select(t=>t.Id("series_id"))];
     internal ImmutableArray<Guid> HistorySeries(string code,Guid? contract,Guid? series)
     {
         if(IsRateCurve(code))
         {
             if(contract is not null||series is null)throw new MarketDataException("history_request","Select an exact rate sample.");
-            return [..RateDefinition(code).Pillars.Select(point=>point.Series.Id)];
+            return RateSeries(code);
         }
         if(series is not null||contract is null)throw new MarketDataException("history_request","Select an exact market contract.");
         return [..Model.RequiredSeries([new(new(revision,code),K(contract.Value))]).Select(key=>key.Id)];
@@ -1042,8 +1055,11 @@ public sealed class PreviewData
         if(IsRateCurve(code))
         {
             if(contract is not null||series is null)throw new MarketDataException("history_request","Select an exact rate sample.");
-            var point=BuildRates(frame,code).Values.SingleOrDefault(p=>p.Series.Id==series)??throw new MarketDataException("missing_rate_point","Rate sample does not belong to this curve.");
-            return (point.RatePercent,[point.Observation.Id]);
+            if(!RateSeries(code).Contains(series.Value))throw new MarketDataException("missing_rate_point","Rate sample does not belong to this curve.");
+            // A tenor's history is its own mark at each close, in the curve's mark unit.
+            var mark=Snapshot(frame).Selections.SingleOrDefault(s=>s.Input.Series.Id==series&&s.Input.Use==InputUse.Variable)?.Observation
+                ??throw new MarketDataException("missing_observation","This tenor has no mark at this close.");
+            return (mark.Value.ToString(),[mark.Key.Id]);
         }
         if(series is not null||contract is null)throw new MarketDataException("history_request","Select an exact market contract.");
         // History follows the exact dated member, even outside another frame's
@@ -1056,16 +1072,23 @@ public sealed class PreviewData
     static object RateSummary(ZeroRateBuild rates)
     {
         var first=rates.Values.OrderBy(p=>p.Maturity).FirstOrDefault();
-        return new{kind="rates",maturityCount=rates.Values.Length,firstMaturity=first?.Maturity.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),firstZeroRate=first?.RatePercent,dayCount=OpenEtrm.MarketData.RateConventions.DayCountName};
+        return new{kind="rates",maturityCount=rates.Values.Length,firstMaturity=first?.Maturity.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),
+            firstMark=first?.Mark,markUnitLabel=rates.MarkUnitLabel,dayCount=RateChoiceLabel("dayCount",rates.Conventions.DayCount)};
     }
-    public object Result(InputFrame frame,string code)
+    static string RateChoiceLabel(string field,string code)=>RateCurveMath.Choices.Single(c=>c.Field==field&&c.Code==code).Label;
+    // A rate curve's inspection view at one close (D359): each tenor's maturity, mark in its declared unit and discount factor.
+    public object Result(InputFrame frame,string code,RateCurveDefinition? rateDefinition=null)
     {
         if(IsRateCurve(code))
         {
-            var rates=BuildRates(frame,code);
-            return new {kind="rates",snapshotId=frame.Id,frame.Name,at=frame.At,curve=code,referenceDate=rates.ReferenceDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),currency=rates.Currency.Code,numericalPolicy=rates.NumericalPolicy,convention=new {dayCount=OpenEtrm.MarketData.RateConventions.DayCountName,compounding=OpenEtrm.MarketData.RateConventions.CompoundingName},
+            var definition=rateDefinition??throw new MarketDataException("rate_definition","Resolve this rate curve at the close first.");
+            var rates=BuildRates(frame,definition);
+            return new {kind="rates",snapshotId=frame.Id,frame.Name,at=frame.At,curve=code,referenceDate=rates.ReferenceDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),currency=rates.Currency.Code,numericalPolicy=rates.NumericalPolicy,
+                convention=new {dayCount=RateChoiceLabel("dayCount",rates.Conventions.DayCount),compounding=RateChoiceLabel("compounding",rates.Conventions.Compounding),
+                    interpolation=RateChoiceLabel("interpolation",rates.Conventions.Interpolation),extrapolation=RateChoiceLabel("extrapolation",rates.Conventions.Extrapolation)},
+                markUnitLabel=rates.MarkUnitLabel,definition=new{id=definition.DefinitionId,version=definition.DefinitionVersion},
                 summary=RateSummary(rates),
-                points=rates.Values.Select(p=>new {seriesId=p.Series.Id,maturity=p.Maturity.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),annualRate=p.AnnualRate,value=p.RatePercent,discountFactor=p.DiscountFactor,displayDiscountFactor=p.DisplayDiscountFactor,actualDays=p.Days,lineage=new[]{p.Observation.Id}}).ToArray()};
+                points=rates.Values.Select(p=>new {seriesId=p.Series.Id,label=p.Label,maturity=p.Maturity.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),mark=p.Mark,value=p.Mark,discountFactor=p.DiscountFactor,displayDiscountFactor=p.DisplayDiscountFactor,actualDays=p.Days,lineage=new[]{p.Observation.Id}}).ToArray()};
         }
         if(frame.CurveContracts.TryGetValue(code,out var selected) && selected.IsEmpty)
         {

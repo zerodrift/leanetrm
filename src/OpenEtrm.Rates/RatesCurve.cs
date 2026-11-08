@@ -5,55 +5,45 @@ using OpenEtrm.MarketData.Curves;
 namespace OpenEtrm.Rates;
 
 public sealed record DiscountFactor(ExactDecimal Value,ReferenceKey Currency,DateOnly ReferenceDate,DateOnly Maturity,
-    Guid SnapshotId,string NumericalPolicy,string InterpolationPolicy,ImmutableArray<ZeroRateValue> Pillars);
+    Guid SnapshotId,string NumericalPolicy,RateConventionSet Conventions,ImmutableArray<ZeroRateValue> Pillars);
 
-// One immutable input build with operation-local lookup reuse. The selected
-// policy is explicit; this adapter introduces no new convention or rate risk.
-public sealed record RatesCurvePolicy(string Interpolation,string DayCount,string Compounding,string Construction,string DateBasis)
-    :CurveEvaluationPolicy(Interpolation,Construction);
-public sealed record RatesCurveSelection(DateOnly Maturity,ImmutableArray<ZeroRateValue> Pillars);
+// One immutable pillar build with operation-local lookup reuse. The curve's own conventions select interpolation between
+// pillars, the exact t_0 anchor before the first, and extrapolation after the last; this adapter adds none of its own.
+public sealed record RatesCurvePolicy(RateConventionSet Conventions)
+    :CurveEvaluationPolicy($"{Conventions.Interpolation}/{Conventions.Extrapolation}",RateCurveMath.Policy);
+public sealed record RatesCurveSelection(DateOnly Maturity,ImmutableArray<ZeroRateValue> Pillars,ExactDecimal Factor);
 
 public sealed class RatesCurve:CurveBase<DateOnly,DiscountFactor,RatesCurveSelection>
 {
-    private readonly ZeroRateLookup rates;
+    private static readonly DateOnly LastSupported=new(2199,12,31);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<DateOnly,DiscountFactor> resolved=new();
-    public string Policy=>DiscountInterpolation.Policy;
+    public ZeroRateBuild Build{get;}
     public override CurveEvaluationPolicy EvaluationPolicy{get;}
-    public ZeroRateBuild Build=>rates.Build;
-    public RatesCurve(ZeroRateDefinition definition,MarketSnapshot snapshot,string interpolationPolicy):base(definition?.Key??throw new MarketDataException("discount_curve","Supply an exact rate definition."))
+    public RatesCurve(RateCurveDefinition definition,MarketSnapshot snapshot):base(definition?.Key??throw new MarketDataException("discount_curve","Supply an exact rate definition."))
     {
-        if(interpolationPolicy!=Policy)throw new MarketDataException("discount_curve","Select the supported explicit log-discount policy.");
-        rates=new(new ZeroRateCurve(definition).Build(snapshot));
-        EvaluationPolicy=new RatesCurvePolicy(interpolationPolicy,definition.DayCount,definition.Compounding,definition.Implementation,definition.DateBasis);
+        Build=new ZeroRateCurve(definition).Build(snapshot);
+        EvaluationPolicy=new RatesCurvePolicy(definition.Conventions);
     }
-    public override ImmutableArray<CurveDomain> Coverage=>[..Build.Values.Select(p=>new CurveDomain(p.Maturity,p.Maturity,true))
-        .Concat(Build.Values.Zip(Build.Values.Skip(1)).Where(p=>p.Second.Maturity.DayNumber-p.First.Maturity.DayNumber<=DiscountInterpolation.MaximumPillarDays)
-            .Select(p=>new CurveDomain(p.First.Maturity,p.Second.Maturity,true)))];
-    private ImmutableArray<ZeroRateValue> Pillars(DateOnly maturity)
+    // From t_0 through each pillar while adjacent brackets stay within the supported span, and after the last pillar when the
+    // curve extrapolates.
+    public override ImmutableArray<CurveDomain> Coverage
     {
-        var index=rates.FindPillar(maturity);
-        if(index>=0)return [Build.Values[index]];
-        var right=~index;
-        if(right==0||right==Build.Values.Length)throw new MarketDataException("discount_coverage","Maturity must be a stored pillar or bracketed by two pillars; extrapolation is unsupported.");
-        return [Build.Values[right-1],Build.Values[right]];
+        get
+        {
+            var dates=Build.Values.Select(p=>p.Maturity).Prepend(Build.ReferenceDate).ToArray();
+            var domains=dates.Zip(dates.Skip(1)).Where(p=>p.Second.DayNumber-p.First.DayNumber<=DiscountInterpolation.MaximumPillarDays)
+                .Select(p=>new CurveDomain(p.First,p.Second,true)).ToImmutableArray();
+            return Build.Conventions.Extrapolation=="none"?domains:domains.Add(new(dates[^1],LastSupported,true));
+        }
     }
     protected override RatesCurveSelection ResolveQuery(DateOnly maturity)
     {
-        var pillars=Pillars(maturity);
-        if(pillars.Length==2&&pillars[1].Maturity.DayNumber-pillars[0].Maturity.DayNumber>DiscountInterpolation.MaximumPillarDays)
-            throw new MarketDataException("discount_interpolation","The requested bracket exceeds the supported interpolation span.");
-        return new(maturity,pillars);
+        var discount=RateCurveMath.Discount(Build.ReferenceDate,[..Build.Values.Select(p=>new RatePillarRate(p.Maturity,p.DecimalRate))],maturity,Build.Conventions);
+        return new(maturity,[..discount.UsedPillars.Select(i=>Build.Values[i])],discount.Factor);
     }
     protected override ImmutableArray<CurveInputReference> RequiredInputs(RatesCurveSelection selection)=>
         [..selection.Pillars.Select(p=>new RatePillarInput(p.Series,p.Maturity,p.Observation))];
-    protected override DiscountFactor EvaluateResolved(RatesCurveSelection selection)
-    {
-        var maturity=selection.Maturity;
-        if(resolved.TryGetValue(maturity,out var prior))return prior;
-        var pillars=selection.Pillars;
-        var factor=pillars.Length==1?ExactDecimal.Parse(pillars[0].DiscountFactor):DiscountInterpolation.Factor(
-            pillars[0].Maturity,ExactDecimal.Parse(pillars[0].DiscountFactor),pillars[1].Maturity,ExactDecimal.Parse(pillars[1].DiscountFactor),maturity,Policy);
-        var result=new DiscountFactor(factor,Build.Currency,Build.ReferenceDate,maturity,Build.SnapshotId,Build.NumericalPolicy,Policy,pillars);
-        return resolved.GetOrAdd(maturity,result);
-    }
+    protected override DiscountFactor EvaluateResolved(RatesCurveSelection selection)=>
+        resolved.GetOrAdd(selection.Maturity,_=>new DiscountFactor(selection.Factor,Build.Currency,Build.ReferenceDate,selection.Maturity,
+            Build.SnapshotId,Build.NumericalPolicy,Build.Conventions,selection.Pillars));
 }

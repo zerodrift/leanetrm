@@ -28,7 +28,7 @@ public static class PilotCloseJobs
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     internal static readonly string[] Permissions=["RunJobs","ReadMarketData","ReadTrades","RunValuation","RunScenario","ImportObservations","PublishMarketData"];
     public static PortfolioValuationPolicy QualifiedPolicy=>new(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,
-        SwapStore.Convention,RateConventions.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
+        SwapStore.Convention,RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
 
     public static async Task<object> Catalog(PreviewDatabase database,NpgsqlConnection connection,PinnedContext pin,
         ImmutableArray<InputFrame> frames,CancellationToken ct)

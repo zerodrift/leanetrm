@@ -120,7 +120,7 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     # One discount-curve point the stored surface pinned, revised by the market data editor: the fit discounts each series to
     # its expiry, so the point is one of its inputs.
     rate = query(f"SELECT o.id||'|'||trim_scale(o.value) FROM trading.vol_surface_inputs i JOIN market_data.observations o ON(o.catalog_id,o.id)=(i.catalog_id,i.observation_id) "
-                 f"JOIN market_data.rate_curve_points p ON(p.catalog_id,p.revision_id,p.series_id)=(o.catalog_id,o.definition_revision_id,o.series_id) "
+                 f"JOIN market_data.rate_curve_tenors p ON(p.catalog_id,p.revision_id,p.series_id)=(o.catalog_id,o.definition_revision_id,o.series_id) "
                  f"WHERE i.revision_id='{current['revision']['id']}' ORDER BY o.id LIMIT 1;")
     check('the stored surface pins the discount-curve points it used', rate != '', current['revision'])
     rate = rate.split('|')

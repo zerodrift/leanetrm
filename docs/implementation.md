@@ -1488,49 +1488,38 @@ to-even and away-from-zero, including negative values. Trading ticks and clearin
 increments are separate metadata. Actual daily/final settlement observations must
 meet their clearing increment; derived curve values are never rounded to it.
 
-## Interest-rate example and numerical policy
+## Interest-rate curves and numerical policy
 
-The synthetic **Interest rates** curve has three dated zero-rate samples and four
-saved market dates. Each maturity has its own generic numeric series and retained
-observation history; it is not a fictional commodity contract. Inputs are annual
-decimal rates (`0.025` means `2.5%`). The screen displays percentages and discount
-factors; corrections retain old selections and affect only the corrected sample.
+Rate curves are admitted published interest-rate curve definitions (D359; see
+[curve definitions](curve-definitions.md)). Each tenor label has its own generic
+numeric series and retained observation history; it is not a fictional commodity
+contract. Marks are recorded in the definition's declared unit (percent or
+decimal per year) and validated against that unit's range. The synthetic
+**Interest rates** fixture curve keeps three fixed dated tenors with decimal marks.
 
-[0006_rate_curves.sql](../db/migrations/0006_rate_curves.sql) adds `rate_curves`
-and `rate_curve_points` with exact interest/source/series links, real maturity
-dates, increasing ordering, immutable sealing and forced RLS. Shared series cannot
-have conflicting maturities. Inputs must be non-price, dimensionless numeric
-series; missing samples never become zero or an interpolated value.
+[0215_rolling_rate_curves.sql](../db/migrations/0215_rolling_rate_curves.sql)
+replaces the dated `rate_curve_points` of
+[0006](../db/migrations/0006_rate_curves.sql) with `rate_curve_tenors`: an admitted
+curve pins its definition version and carries its terms, which sealing checks
+against that version; tenor series must be non-price, dimensionless numeric
+series. Missing marks never become zero or an interpolated value.
 
-The selected specification explicitly stores `actual_365_fixed`, `simple` and
-`openetrm_rates_v1`. The curve explicitly chooses `valuation_utc_date`: its
-reference date is the UTC date of the selected valuation instant. Display zones
-never change it. The direct zero-rate build evaluates exact maturity pillars.
-Payment discounting now uses [RatesCurve](curve-evaluation.md#rate-curves) with
-explicit bounded log-discount interpolation between pillars. Extrapolation,
-holiday adjustment and bootstrapping remain unsupported. Additional construction
-conventions need a concrete consumer and separately qualified behavior.
+At a close, `t_0` is the UTC date of the valuation instant, which must equal the
+close's business date. The curve's pinned date list resolves each tenor to a pillar
+from `t_0`. [RateCurveMath](../src/OpenEtrm.MarketData/Calculation/RateCurveMath.cs)
+is an original, project-owned implementation of the offered conventions: ACT/365
+Fixed and ACT/360 year fractions as exact ratios; simple, continuous and annual
+compounding; log-linear discount-factor (the exact geometric root of
+`DiscountInterpolation`) and linear zero-rate interpolation; no, flat-zero and
+flat-forward extrapolation. The discount factor at `t_0` is exactly 1 and brackets
+the first pillar. Exponentials and logarithms use the 30-digit lattice arithmetic
+with guard digits, and each factor rounds once to 18 places, ties-to-even, under
+policy `rate_curve_lattice30_to_even_18_v1`. Presentation rounds to six places.
 
-[RateConventions.cs](../src/OpenEtrm.MarketData/Calculation/RateConventions.cs) is an original,
-framework-only implementation. Actual days are the half-open DateOnly difference,
-including leap days; Actual/365 Fixed always divides by 365. Simple discounting is
-`1 / (1 + annualRate * actualDays / 365)`. Integer-ratio intermediates are exact,
-with no floating-point conversion, global date state or external financial library.
-
-The numerical policy is `simple_actual365fixed_rational_to_even_18_v1`.
-Discount factors divide once to 18 fractional digits using nearest/ties-to-even;
-trailing zeros are omitted. Presentation independently rounds the original rational
-to six digits using the same tie rule, avoiding double rounding. This explicitly
-selected rate-output policy does not change Money/Quantity arithmetic or choose
-cash rounding. Supported annual rates are [-0.1,1], dates 1901–2199 and maturities
-strictly after the reference date. Nonpositive denominators are rejected.
-
-Twenty-nine rate checks cover known factors, negative/zero rates, actual leap days,
-18-digit and six-digit even ties, avoiding double rounding, the zero-denominator
-boundary, large positive factors near the pole, unsupported conventions and exact
-sources/pins/cutoffs. Independent numerical review covered the original formula
-and its date, domain and rounding boundaries. Future conventions require equally
-specific test vectors and new explicit identifiers where behavior changes.
+Rate checks cover every offered convention against independent 50-digit Decimal
+oracles (within one unit of the 18th place), the `t_0` anchor, extrapolation and
+its refusal, the maximum bracket span, percent and decimal marks, negative rates,
+unsupported conventions and exact sources, pins and cutoffs.
 
 ## Immutable inputs and source expiry
 

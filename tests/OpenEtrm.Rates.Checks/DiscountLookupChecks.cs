@@ -23,10 +23,9 @@ internal static class DiscountLookupChecks
                 PublicationState.Final, at, ExactDecimal.Parse(i == 0 ? "0.04" : i == 1 ? "0.08" : "0.12")))).ToImmutableArray();
         var snapshot = new MarketSnapshot(Guid.NewGuid(), revision, at, at,
             InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering, observations);
-        var definition = new ZeroRateDefinition(new(revision, "discount"), R("simple"), R("USD"),
-            "actual_365_fixed", "simple", RateConventions.Implementation, "valuation_utc_date", R("source"),
-            series.Select((s, i) => new RatePillar(s, dates[i])).ToImmutableArray());
-        var mapping = new CurrencyDiscountCurve(Guid.NewGuid(), R("USD"), definition, DiscountInterpolation.Policy);
+        var definition = new RateCurveDefinition(new(revision, "discount"), R("USD"), R("source"), RateConventionSet.Parse("actual_365_fixed","simple","log_linear_discount","none","decimal_per_year"),
+            series.Select((s, i) => new RateTenor($"{i + 1}Y", s, dates[i])).ToImmutableArray(),Guid.NewGuid(),1);
+        var mapping = new CurrencyDiscountCurve(Guid.NewGuid(), R("USD"), definition);
         var quote = new QuoteSpecification(R("quote"), QuoteKind.Outright, R("USD"), R("energy"),
             ExactDecimal.Parse("1"), ExactDecimal.Parse("0.01"), ExactDecimal.Parse("0.01"),
             ExactDecimal.Parse("-100"), ExactDecimal.Parse("100"));
@@ -61,10 +60,12 @@ internal static class DiscountLookupChecks
                     throw new Exception("Incorrect interval or factor");
             }
         });
-        Check("coverage never extrapolates on either side of the stored curve", () =>
+        Check("before the first pillar the t_0 anchor brackets it; nothing extrapolates after the last", () =>
         {
-            foreach (var day in new[] { dates[0].AddDays(-1), dates[^1].AddDays(1) })
-                Reject("discount_coverage", () => new CurrencyDefaultDiscounting([Schedule(day)], snapshot, true, mapping));
+            var anchored = new CurrencyDefaultDiscounting([Schedule(dates[0].AddDays(-1))], snapshot, true, mapping).Inputs.Values.Single();
+            if (anchored.Pillars.Length != 1 || anchored.Factor.CompareTo(ExactDecimal.Parse("1")) >= 0 || anchored.Factor.CompareTo(ExactDecimal.Parse("0.961538461538461538")) <= 0)
+                throw new Exception("The t_0 anchor did not bracket the first pillar.");
+            Reject("discount_coverage", () => new CurrencyDefaultDiscounting([Schedule(dates[^1].AddDays(1))], snapshot, true, mapping));
         });
         Check("independent sides at the same date retain distinct payment keys and exact factors", () =>
         {
@@ -129,7 +130,7 @@ internal static class DiscountLookupChecks
         Check("far-future supported dates keep exact day counts and no implicit extrapolation", () =>
         {
             var future = new DateOnly(2199, 12, 31);
-            var terms = definition with { Pillars = [new(series[0], future)] };
+            var terms = definition with { Tenors = [new("far", series[0], future)] };
             var selected = snapshot with { Selections = [observations[0] with { Observation = observations[0].Observation with { Value = default } }] };
             var result = PaymentDiscount.Resolve(true, R("USD"), future, selected, mapping with { Definition = terms });
             if (result.Factor.ToString() != "1" || result.Pillars[0].Days != future.DayNumber - start.DayNumber)
@@ -149,14 +150,14 @@ internal static class DiscountLookupChecks
             Reject("discount_context",()=>discounting.Resolve(keys,snapshot with {MarketCutoff=snapshot.MarketCutoff.AddSeconds(-1)}));
             Reject("discount_curve_missing",()=>new CurrencyDefaultDiscounting(keys,snapshot,true,null));
             Reject("side_payment_due",()=>new CurrencyDefaultDiscounting([keys[0] with {PaymentAt=at}],snapshot,false,null));
-            Reject("discount_coverage",()=>new CurrencyDefaultDiscounting([keys[0] with {PaymentAt=at.AddDays(1)}],snapshot,true,mapping));
+            Reject("discount_coverage",()=>new CurrencyDefaultDiscounting([keys[0] with {PaymentAt=new DateTimeOffset(dates[^1].AddDays(1).ToDateTime(TimeOnly.MinValue),TimeSpan.Zero)}],snapshot,true,mapping));
             var empty=new CurrencyDefaultDiscounting(ImmutableArray<SidePaymentKey>.Empty,snapshot,true,null);
             if(!empty.Inputs.IsEmpty || !empty.Resolve(ImmutableArray<SidePaymentKey>.Empty,snapshot).IsEmpty)throw new Exception("No eligible value dates invented rate inputs.");
         });
         Check("a payment date the curve does not cover is left out on its own; the covered dates keep their factors", () =>
         {
             var keys=dates.Select((date,n)=>new SidePaymentKey(Guid.NewGuid(),n,new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero),R("USD"))).ToImmutableArray();
-            var uncovered=new SidePaymentKey(Guid.NewGuid(),0,at.AddDays(1),R("USD"));
+            var uncovered=new SidePaymentKey(Guid.NewGuid(),0,new DateTimeOffset(dates[^1].AddDays(1).ToDateTime(TimeOnly.MinValue),TimeSpan.Zero),R("USD"));
             var covering=CurrencyDefaultDiscounting.Covering([uncovered,..keys],snapshot,true,mapping,out var left);
             if(!left.SequenceEqual([uncovered]) || !covering.Inputs.Keys.ToHashSet().SetEquals(keys) ||
                 !keys.All(k=>covering.Inputs[k].Factor==new CurrencyDefaultDiscounting(keys,snapshot,true,mapping).Inputs[k].Factor))

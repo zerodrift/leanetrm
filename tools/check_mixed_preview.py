@@ -106,7 +106,7 @@ def run_checks(url,export):
     rates=c.evaluate(first,'interest_rates')
     check('basic interest-rate example still evaluates',rates['kind']=='rates' and len(rates['points'])==3)
     check('a rate curve states its maturity count, first maturity and zero rate, and day count',rates['summary']=={'kind':'rates','maturityCount':3,
-          'firstMaturity':rates['points'][0]['maturity'],'firstZeroRate':rates['points'][0]['value'],'dayCount':rates['convention']['dayCount']})
+          'firstMaturity':rates['points'][0]['maturity'],'firstMark':rates['points'][0]['value'],'markUnitLabel':rates['markUnitLabel'],'dayCount':rates['convention']['dayCount']})
     check('a rate curve is named by its stored market type, not a rule',{r['code']:r['kind'] for r in c.call('workspace/navigation')['curves']}['interest_rates']=='interest_rate')
     check('unknown curve remains an error',c.call('evaluate',{'snapshotId':first['id'],'curve':'absent'},status=422)['code']=='missing_curve')
     check('arbitrary dated contract cannot be substituted in history',c.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':first['id'],'curve':'location_delivery',

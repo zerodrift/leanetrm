@@ -1,38 +1,44 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using OpenEtrm.MarketData;
 
 namespace OpenEtrm.Rates;
 
-public sealed record RatePillar(SeriesKey Series,DateOnly Maturity);
-public sealed record ZeroRateDefinition(CurveKey Key,ReferenceKey Specification,ReferenceKey Currency,
-    string DayCount,string Compounding,string Implementation,string DateBasis,ReferenceKey Source,ImmutableArray<RatePillar> Pillars);
-public sealed record ZeroRateValue(SeriesKey Series,DateOnly Maturity,string AnnualRate,string RatePercent,string DiscountFactor,string DisplayDiscountFactor,int Days,ObservationKey Observation);
-public sealed record ZeroRateBuild(Guid SnapshotId,DateOnly ReferenceDate,ReferenceKey Currency,string NumericalPolicy,ImmutableArray<ZeroRateValue> Values);
+public sealed record RateTenor(string Label,SeriesKey Series,DateOnly Maturity);
+// A rate curve as resolved for one close: its tenors' maturities follow from that close's t_0 (D359), and its currency, mark unit
+// and conventions are its own. DefinitionId and DefinitionVersion name the published definition an admitted curve pins.
+public sealed record RateCurveDefinition(CurveKey Key,ReferenceKey Currency,ReferenceKey Source,RateConventionSet Conventions,
+    ImmutableArray<RateTenor> Tenors,Guid DefinitionId,int DefinitionVersion);
+public sealed record ZeroRateValue(SeriesKey Series,string Label,DateOnly Maturity,string Mark,ExactDecimal DecimalRate,string DiscountFactor,
+    string DisplayDiscountFactor,int Days,ObservationKey Observation);
+public sealed record ZeroRateBuild(Guid SnapshotId,DateOnly ReferenceDate,ReferenceKey Currency,RateConventionSet Conventions,string NumericalPolicy,
+    ImmutableArray<ZeroRateValue> Values)
+{
+    public string MarkUnitLabel=>RateCurveMath.MarkUnitLabel(Conventions.MarkUnit);
+}
 
-// Explicit dated zero-rate inputs and conventions. No automatic date adjustment,
-// interpolation, implicit rate convention or global mutable evaluation date.
+// Each tenor's pillar at one close: its pinned mark in the curve's declared unit and its discount factor under the curve's
+// conventions. No automatic date adjustment, implicit convention or global mutable evaluation date.
 public sealed class ZeroRateCurve
 {
-    public const string Policy=RateConventions.Policy;
-    private readonly ZeroRateDefinition definition;
-    public ZeroRateCurve(ZeroRateDefinition definition)
+    public const string Policy=RateCurveMath.Policy;
+    private readonly RateCurveDefinition definition;
+    public ZeroRateCurve(RateCurveDefinition definition)
     {
         this.definition=definition;
-        if(definition.DayCount!="actual_365_fixed"||definition.Compounding!="simple"||definition.Implementation!=RateConventions.Implementation||definition.DateBasis!="valuation_utc_date")
-            Fail("unsupported_rate_convention","The requested rate conventions are not supported.");
         if(definition.Key.Revision.CatalogId==Guid.Empty||definition.Key.Revision.RevisionId==Guid.Empty||string.IsNullOrWhiteSpace(definition.Key.Code)||
-           definition.Specification.Revision!=definition.Currency.Revision||definition.Source.Revision!=definition.Currency.Revision||
-           definition.Currency.Revision.CatalogId==Guid.Empty||definition.Currency.Revision.RevisionId==Guid.Empty||
-           string.IsNullOrWhiteSpace(definition.Specification.Code)||string.IsNullOrWhiteSpace(definition.Currency.Code)||string.IsNullOrWhiteSpace(definition.Source.Code))
-            Fail("rate_definition","The exact rate definition references are incomplete.");
-        if(definition.Pillars.IsDefaultOrEmpty||definition.Pillars.Select(p=>p.Series).Distinct().Count()!=definition.Pillars.Length)
-            Fail("rate_definition","Supply distinct explicit dated rate samples.");
+           definition.Source.Revision!=definition.Currency.Revision||definition.Currency.Revision.CatalogId==Guid.Empty||definition.Currency.Revision.RevisionId==Guid.Empty||
+           string.IsNullOrWhiteSpace(definition.Currency.Code)||string.IsNullOrWhiteSpace(definition.Source.Code)||definition.Conventions is null)
+            Fail("rate_definition","The exact rate definition references and conventions are incomplete.");
+        if(definition.Tenors.IsDefaultOrEmpty||definition.Tenors.Select(p=>p.Series).Distinct().Count()!=definition.Tenors.Length||
+           definition.Tenors.Any(t=>string.IsNullOrWhiteSpace(t.Label))||definition.Tenors.Select(t=>t.Label).Distinct().Count()!=definition.Tenors.Length)
+            Fail("rate_definition","Supply distinct labelled tenors with distinct series.");
         DateOnly? previous=null;
-        foreach(var pillar in definition.Pillars)
+        foreach(var tenor in definition.Tenors)
         {
-            if(pillar.Series.Revision!=definition.Key.Revision||pillar.Series.Id==Guid.Empty||pillar.Maturity.Year is <1901 or >2199||previous is {} date&&pillar.Maturity<=date)
-                Fail("rate_definition","Rate maturities and exact series references must be supported and strictly increasing.");
-            previous=pillar.Maturity;
+            if(tenor.Series.Revision!=definition.Key.Revision||tenor.Series.Id==Guid.Empty||tenor.Maturity.Year is <1901 or >2199||previous is {} date&&tenor.Maturity<=date)
+                Fail("rate_definition",$"Tenor '{tenor.Label}' must have an exact series and mature after the tenor before it.");
+            previous=tenor.Maturity;
         }
     }
     public ZeroRateBuild Build(MarketSnapshot snapshot)
@@ -48,21 +54,23 @@ public sealed class ZeroRateCurve
         foreach(var selection in snapshot.Selections)
             if(!selections.TryAdd(selection.Input,selection.Observation))Fail("observation_conflict","Repeated rate input selection is not allowed.");
         var values=ImmutableArray.CreateBuilder<ZeroRateValue>();
-        foreach(var pillar in definition.Pillars)
+        foreach(var tenor in definition.Tenors)
         {
-            if(pillar.Maturity<=date)Fail("rate_maturity","Rate maturity must follow the selected valuation date.");
-            if(!selections.TryGetValue(new(pillar.Series,InputUse.Variable),out var observation))Fail("missing_observation","A selected rate sample is missing.");
-            if(observation!.Series!=pillar.Series||observation.Key.CatalogId!=definition.Key.Revision.CatalogId||observation.Key.Id==Guid.Empty||
+            if(tenor.Maturity<=date)Fail("rate_maturity",$"Tenor '{tenor.Label}' matures on {tenor.Maturity:yyyy-MM-dd}, which must follow the valuation date {date:yyyy-MM-dd}.");
+            if(!selections.TryGetValue(new(tenor.Series,InputUse.Variable),out var observation))Fail("missing_observation",$"Tenor '{tenor.Label}' has no mark at this close.");
+            if(observation!.Series!=tenor.Series||observation.Key.CatalogId!=definition.Key.Revision.CatalogId||observation.Key.Id==Guid.Empty||
                observation.Source!=definition.Source||observation.Role!=ObservationRole.Parameter||observation.State!=PublicationState.Final||
                observation.ObservedAt.Offset!=TimeSpan.Zero||observation.ObservedAt>snapshot.MarketCutoff)
-                Fail("rate_observation","The rate observation does not match the exact source, time and finality requirements.");
-            if(observation.Value.CompareTo(ExactDecimal.Parse("-0.1"))<0||observation.Value.CompareTo(ExactDecimal.Parse("1"))>0)
-                Fail("rate_domain","The supported annual decimal rate range is -0.1 to 1.");
-            var factor=RateConventions.SimpleActual365Fixed(date,pillar.Maturity,observation.Value);
-            values.Add(new(pillar.Series,pillar.Maturity,observation.Value.ToString(),(observation.Value*ExactDecimal.Parse("100")).ToString(),
-                factor.Factor,factor.DisplayFactor,factor.Days,observation.Key));
+                Fail("rate_observation",$"Tenor '{tenor.Label}''s mark does not match the exact source, time and finality requirements.");
+            var rate=RateCurveMath.DecimalRate(observation.Value,definition.Conventions.MarkUnit);
+            var days=tenor.Maturity.DayNumber-date.DayNumber;
+            var factor=RateCurveMath.Factor(rate,days,definition.Conventions);
+            values.Add(new(tenor.Series,tenor.Label,tenor.Maturity,observation.Value.ToString(),rate,factor.ToString(),Display(factor),days,observation.Key));
         }
-        return new(snapshot.Id,date,definition.Currency,Policy,values.ToImmutable());
+        return new(snapshot.Id,date,definition.Currency,definition.Conventions,Policy,values.ToImmutable());
     }
+    // Six places, half-even, for display only.
+    private static string Display(ExactDecimal factor)=>
+        decimal.Round(decimal.Parse(factor.ToString(),CultureInfo.InvariantCulture),6,MidpointRounding.ToEven).ToString("0.000000",CultureInfo.InvariantCulture);
     private static void Fail(string code,string message)=>throw new MarketDataException(code,message);
 }

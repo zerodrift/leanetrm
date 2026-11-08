@@ -207,7 +207,7 @@ def run_checks(url,query=None,manifest=None):
         offered=client.call('workspace')['frames']
         pins={identifier for saved in offered for identifier in saved['observationIds']}
         selected=','.join("'"+str(identifier)+"'::uuid" for identifier in pins)
-        unused=query(f"SELECT id FROM market_data.observations WHERE catalog_id='{manifest['catalogId']}' AND definition_revision_id='{manifest['revisionId']}' AND series_id IN(SELECT series_id FROM market_data.rate_curve_points WHERE catalog_id='{manifest['catalogId']}' AND revision_id='{manifest['revisionId']}') AND NOT(id=ANY(ARRAY[{selected}])) ORDER BY id LIMIT 1;")
+        unused=query(f"SELECT id FROM market_data.observations WHERE catalog_id='{manifest['catalogId']}' AND definition_revision_id='{manifest['revisionId']}' AND series_id IN(SELECT series_id FROM market_data.rate_curve_tenors WHERE catalog_id='{manifest['catalogId']}' AND revision_id='{manifest['revisionId']}') AND NOT(id=ANY(ARRAY[{selected}])) ORDER BY id LIMIT 1;")
         if not unused:
             # Append a valid same-value correction without adding it to a session
             # frame. Existing immutable observations and prices are unchanged.
@@ -218,7 +218,7 @@ def run_checks(url,query=None,manifest=None):
               SELECT catalog_id,'{unused}',definition_revision_id,series_id,reference_catalog_id,reference_revision_id,source_code,
                source_event_id,'{uuid4()}',role,publication_state,observed_at,clock_timestamp(),value,id
               FROM market_data.observations o WHERE catalog_id='{manifest['catalogId']}' AND definition_revision_id='{manifest['revisionId']}'
-              AND series_id IN(SELECT series_id FROM market_data.rate_curve_points WHERE catalog_id='{manifest['catalogId']}' AND revision_id='{manifest['revisionId']}')
+              AND series_id IN(SELECT series_id FROM market_data.rate_curve_tenors WHERE catalog_id='{manifest['catalogId']}' AND revision_id='{manifest['revisionId']}')
               AND NOT EXISTS(SELECT 1 FROM market_data.observations child WHERE child.catalog_id=o.catalog_id AND child.corrects_id=o.id)
               ORDER BY id LIMIT 1;""")
         requests=[{'curve':code,'timeZone':'UTC'} for code in (None,'ng_monthly','interest_rates')]
@@ -240,7 +240,7 @@ def run_checks(url,query=None,manifest=None):
             query('DROP FUNCTION public.synthetic_unused_calendar_observation(uuid);')
         # A required pin for any offered frame cannot be silently substituted,
         # including when the selected curve would not itself consume that fact.
-        anchor=query(f"SELECT id FROM market_data.observations WHERE catalog_id='{manifest['catalogId']}' AND id=ANY(ARRAY[{','.join(repr(identifier)+'::uuid' for identifier in frame['observationIds'])}]) AND series_id IN(SELECT series_id FROM market_data.rate_curve_points WHERE catalog_id='{manifest['catalogId']}' AND revision_id='{manifest['revisionId']}') ORDER BY id LIMIT 1;")
+        anchor=query(f"SELECT id FROM market_data.observations WHERE catalog_id='{manifest['catalogId']}' AND id=ANY(ARRAY[{','.join(repr(identifier)+'::uuid' for identifier in frame['observationIds'])}]) AND series_id IN(SELECT series_id FROM market_data.rate_curve_tenors WHERE catalog_id='{manifest['catalogId']}' AND revision_id='{manifest['revisionId']}') ORDER BY id LIMIT 1;")
         affected={saved['id'] for saved in offered if anchor in saved['observationIds']}
         prompt_body={'curve':None,'definition':templates['ng_prompt']['definition'],'timeZone':'UTC','session':SESSION}
         prompt_before=client.call('market/dates',prompt_body)

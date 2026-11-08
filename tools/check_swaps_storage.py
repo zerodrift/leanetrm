@@ -84,8 +84,8 @@ def run_checks(query, manifest, psql, environment):
         identities = ','.join(f"'{i}'" for i in ids)
         return f"""SELECT pg_advisory_xact_lock(730849102);
          INSERT INTO trading.publications SELECT '{catalog}',max(publication_order)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';
-         INSERT INTO trading.currency_discount_defaults SELECT d.catalog_id,m.id,d.definition_revision_id,d.reference_catalog_id,d.reference_revision_id,d.currency_code,d.curve_code,d.interpolation_policy,
-          (SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}'),'{effective}'
+         INSERT INTO trading.currency_discount_defaults SELECT(jsonb_populate_record(d,jsonb_build_object('id',m.id,'effective_at','{effective}',
+          'publication_order',(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}')))).*
           FROM trading.currency_discount_defaults d CROSS JOIN unnest(ARRAY[{identities}]::uuid[]) m(id) WHERE d.catalog_id='{catalog}' AND d.id='{source}';"""
     def read_after(owner_sql, sql):
         """Read as the runtime after owner writes in one rolled-back transaction."""
