@@ -210,11 +210,13 @@ infers that a value is actual from its date.
 
 **Ended gas days.** Every day of the term is shown. A gas day that the
 `whole_gas_day_delivery_v1` lifecycle took out of the physical side's measure
-because it ended shows its retained contract quantity under the booked scale and
-signed membership, tagged Contract and Delivered, and no market price or amount;
-none is synthesized. Quantity totals cover the whole term; amount totals and net
-cash hold only priced days, and a month with delivered days shows no single
-price. The cash side keeps its amounts. Any other unresolved cell, including one
+because it ended shows its latest recorded quantity when it has one, tagged with
+the record's kind and Delivered (for example Allocated and Delivered); otherwise
+it shows its retained contract quantity under the booked scale and signed
+membership, tagged Contract and Delivered. Either way it has no market price or
+amount; none is synthesized. Quantity totals sum the shown quantity of every day
+of the term; amount totals and net cash hold only priced days, and a month with
+delivered days shows no single price. The cash side keeps its amounts. Any other unresolved cell, including one
 on a day that has not ended, still refuses the schedule.
 
 ### Footer
@@ -588,6 +590,8 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
   sources are the evaluated contract's (`contract` with its price's), so on a
   recorded day the grid tags the quantity with the record's kind and the amount
   as Contract, and quantity times price need not equal the amount.
+  An ended gas day (see Ended gas days above) is the exception: it has no amount,
+  and its quantity, recorded or contractual, also carries the Delivered tag.
 - The native ticket contract may describe day-entry capabilities, but Blotter
   and separate trade windows mount booked tickets read-only. Side schedules
   contains schedule inspection only. Daily quantity entry, current source-head

@@ -196,6 +196,7 @@ internal static class PhysicalLifecycleChecks
         Reject("physical_lifecycle_unsupported",()=>demo.Constructed(Demo.Close,(slot,n,c)=>slot==Demo.Months+2&&n==9?c with{PresentValue=c.PresentValue with{Presence=[ScheduleCellPresence.NotDemanded]}}:c));
         Console.WriteLine("PASS physical lifecycle: realized unsettled cash and unrealized remaining delivery at the location mark, discounted until due, frozen under shocks");
         DeliveredDays(demo);
+        DeliveredDayBoundary(demo);
     }
 
     private sealed class Demo
@@ -471,13 +472,29 @@ internal static class PhysicalLifecycleChecks
         Require(september.Remaining!["gas.quantity"].Value is null,"Nothing remains of a wholly delivered side.");
 
         // Only an ended day of this lifecycle is exempt: a day to come without its demanded values still refuses the view.
-        static ScheduleValueColumn Undemanded(ScheduleValueColumn column)=>column with{Presence=[..column.Presence.Select(_=>ScheduleCellPresence.NotDemanded)]};
         var unresolved=gas with{Evaluation=gas.Evaluation with{Contributions=[..gas.Evaluation.Contributions.Select((c,n)=>n==19?c with{Amount=Undemanded(c.Amount)}:c)]}};
         Reject("schedule_view",()=>ScheduleViews.Build([unresolved],ViewLevels,demo.Boundary));
         var inProgress=gas with{Evaluation=gas.Evaluation with{Contributions=[..gas.Evaluation.Contributions.Select((c,n)=>n==5?c with{Amount=Undemanded(c.Amount)}:c)]}};
         Reject("schedule_view",()=>ScheduleViews.Build([inProgress],ViewLevels,demo.Boundary));
         Console.WriteLine("PASS physical lifecycle: the schedule shows ended gas days with contract quantity, marked delivered, without a market price or amount");
     }
+    // A gas day is delivered from the exact instant it ends. One microsecond earlier, the closest supported instant
+    // (TradingInstant), it is still valued, and still refuses if unresolved.
+    private static void DeliveredDayBoundary(Demo demo)
+    {
+        var day=new DateOnly(2026,11,3);var end=demo.Boundary(day.AddDays(1));
+        var ended=ScheduleViews.Build(demo.Views(end,("gas",11,true)),ViewLevels,demo.Boundary).Rows.Single(r=>r.Key==Key(day));
+        Require(ended.Delivered&&ended.Cells["gas.quantity"].Value=="100"&&ended.Cells["gas.quantity"].Sources.SequenceEqual(["contract","delivered"])&&
+            ended.Cells["gas.price"].Value is null&&ended.Cells["gas.amount"].Value is null,"At its exact end instant a gas day is delivered at contract quantity with no amount.");
+        var before=demo.Views(end.AddMicroseconds(-1),("gas",11,true))[0];
+        var open=ScheduleViews.Build([before],ViewLevels,demo.Boundary).Rows.Single(r=>r.Key==Key(day));
+        Require(!open.Delivered&&open.Cells["gas.quantity"].Value=="100"&&!open.Cells["gas.quantity"].Sources.Contains("delivered")&&
+            open.Cells["gas.price"].Value=="3.11"&&open.Cells["gas.amount"].Value=="311","Just before its end a gas day is still valued, not delivered.");
+        var unresolved=before with{Evaluation=before.Evaluation with{Contributions=[..before.Evaluation.Contributions.Select((c,n)=>n==2?c with{Amount=Undemanded(c.Amount)}:c)]}};
+        Reject("schedule_view",()=>ScheduleViews.Build([unresolved],ViewLevels,demo.Boundary));
+        Console.WriteLine("PASS physical lifecycle: a gas day becomes delivered at its exact end instant, not just before");
+    }
+    private static ScheduleValueColumn Undemanded(ScheduleValueColumn column)=>column with{Presence=[..column.Presence.Select(_=>ScheduleCellPresence.NotDemanded)]};
     private static readonly ImmutableArray<string> ViewLevels=["month","day"];
     private static string Key(DateOnly day)=>day.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture);
 
