@@ -27,4 +27,19 @@ public static partial class CustomCurves
             ScheduleContext context,ImmutableArray<CurveRequest> dependencies,PreparedMarket market)=>
             entries.Add(new(connection,database,data,snapshot,context,dependencies.ToImmutableHashSet(),market));
     }
+
+    // The saved custom curve versions one authorized read sees, read once on its connection. What a read sees depends only on
+    // the request context its transaction has bound, so the read's valuations share this one read rather than repeating it.
+    internal sealed class SavedVersions(PreviewDatabase database)
+    {
+        private (NpgsqlConnection Connection,ImmutableArray<CustomCurveVersion> Versions)? read;
+
+        internal async Task<ImmutableArray<CustomCurveVersion>> Read(NpgsqlConnection connection,CancellationToken ct)
+        {
+            if(read is {} prior&&ReferenceEquals(prior.Connection,connection))return prior.Versions;
+            var versions=await new CustomCurvesStore(database).Read(connection,ct);
+            read=(connection,versions);
+            return versions;
+        }
+    }
 }

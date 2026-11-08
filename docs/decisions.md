@@ -3381,7 +3381,9 @@ compiles them. Existing trades are not backfilled and keep their refusing
 programs; migration 0216 admits the lifecycles only for new gas writes. Because
 such a program binds custom curve outputs on its gas-day rows, 0216 also makes
 the gas instrument visibility check ask each distinct custom curve version once
-rather than once per binding; what it checks and answers is unchanged.
+rather than once per binding; what it checks and answers is unchanged. For the
+same reason a Blotter run's gas valuations share one read of the saved custom
+curve versions under the run's bound context, instead of one read per position.
 
 **Owner decisions.**
 

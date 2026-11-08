@@ -147,7 +147,8 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  // recorded holds, per physical side code, the days whose operational quantity the view shows in place of the contract's (unsigned, as recorded).
  // A started composition is valued only with its lifecycle state: held, a booked trade's recorded cash; unrecorded, a draft loaded in its term.
  async Task<GasCompositionValue> Value(NpgsqlConnection c,PreviewData data,InputFrame frame,ImmutableArray<GasCompositionRow> members,ExactDecimal quantity,GasCompositionInstrument? draft,Guid? setup,ImmutableArray<RetainedSideProgram>? retained,bool view,CancellationToken ct,
-  IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,Action<SideViewInput,GasDayClock>? inspect=null,GasCompositionExecution? held=null,PhysicalCashState? unrecorded=null)
+  IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,Action<SideViewInput,GasDayClock>? inspect=null,GasCompositionExecution? held=null,PhysicalCashState? unrecorded=null,
+  CustomCurves.SavedVersions? savedVersions=null)
  {
   if(frame.ContextId is not {} contextId)throw Invalid("Use a certified calculation context.");
   var unit=QuantityUnit(data,members.Select(m=>m.Assignments[0].Quote.Quantity));
@@ -158,10 +159,10 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var assignments=members.SelectMany(m=>m.Assignments).Distinct().ToImmutableArray();
   var dated=programs.SelectMany(p=>BookedScheduleLookups.Dated(data,p.Program)).Distinct().ToImmutableArray();
   foreach(var group in dated.Where(lookup=>lookup.CustomProjection is not null).GroupBy(lookup=>lookup.CustomProjection!))
-   await CustomCurves.RequireProjection(c,database,data,frame,CustomCurveProjectionInput.FromBinding(group.Key),PriceUnit.FromQuote(group.First().Quote),[..group.Select(lookup=>lookup.ForecastDelivery)],ct);
+   await CustomCurves.RequireProjection(c,database,data,frame,CustomCurveProjectionInput.FromBinding(group.Key),PriceUnit.FromQuote(group.First().Quote),[..group.Select(lookup=>lookup.ForecastDelivery)],ct,savedVersions);
   var deps=PhysicalLifecycle.PriceDependencies(programs.Select(p=>p.Program),dated,snapshot);
   var prepared=await CustomCurves.PrepareMarket(c,database,data,frame,snapshot,knowledge,[],deps,CustomCurves.MarketPreparation.ValuationDependencies,ct,
-   activePrices:[..dated.Select(lookup=>SchedulePriceTerm.FromLookup(lookup))]);
+   activePrices:[..dated.Select(lookup=>SchedulePriceTerm.FromLookup(lookup))],savedVersions:savedVersions);
   var market=prepared.Valuation.ProgramMarket(prepared.Bindings,prepared.Authority,ct);var sources=new ScheduleMarketSources(market.Graph.Plan.Context,market,null,null,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,dated,[],assignments);
   // Both composition profiles admit only an explicit no-discounting selection (Resolve, and the held terms below).
   const DiscountFactorSource discounting=DiscountFactorSource.Undiscounted;
@@ -314,10 +315,10 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var programs=await new RetainedScheduleStore(database).LoadPrograms(c,instrument,frame.ContextId,frame.ContextId is null?null:frame.At,ct);
   return new(trade,body,instrument,members,Number(physical.Quantity!),programs);
  }
- // The valuation of a loaded trade, as its reads value it.
+ // The valuation of a loaded trade, as its reads value it. A read valuing several trades shares its saved custom curve versions.
  internal Task<GasCompositionValue> Value(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionExecution execution,CancellationToken ct,
-  IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null)=>
-  Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,true,ct,recorded,held:execution);
+  IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,CustomCurves.SavedVersions? savedVersions=null)=>
+  Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,true,ct,recorded,held:execution,savedVersions:savedVersions);
  // programs, when the caller already loaded the trade's retained programs under this frame, are used in place of loading them again.
  internal async Task<GasCompositionRead> Read(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct,
   IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,ImmutableArray<RetainedSideProgram>? programs=null)

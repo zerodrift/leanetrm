@@ -27,11 +27,12 @@ public static partial class CustomCurves
         ImmutableArray<FloatingObservation> observations,CancellationToken ct)=>
         RequireProjection(connection,database,data,frame,projection,unit,[..observations.Select(observation=>new ProjectionDelivery(observation.From,observation.To))],ct);
     internal static async Task RequireProjection(NpgsqlConnection connection,PreviewDatabase database,
-        PreviewData data,InputFrame frame,CustomCurveProjectionInput projection,PriceUnit unit,ImmutableArray<ProjectionDelivery> queries,CancellationToken ct)
+        PreviewData data,InputFrame frame,CustomCurveProjectionInput projection,PriceUnit unit,ImmutableArray<ProjectionDelivery> queries,CancellationToken ct,
+        SavedVersions? savedVersions=null)
     {
         if(frame.ContextId is not {} id)throw Invalid("Published projection qualification requires a retained context.");
         var context=(await new KnowledgeStore(data.DefinitionRevision.CatalogId).Read(connection,id,ct)).Context;
-        var versions=await new CustomCurvesStore(database).Read(connection,ct);
+        var versions=await (savedVersions?.Read(connection,ct)??new CustomCurvesStore(database).Read(connection,ct));
         var resolved=CalculationContext(frame,data.DefinitionRevision,context);
         var preparation=new RecipePreparation(connection,database,data,frame,context,resolved,versions);
         var topology=await preparation.Topology(new(projection.CatalogId,projection.CurveId,projection.Version,projection.OutputNode),ct);

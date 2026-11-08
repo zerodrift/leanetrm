@@ -58,7 +58,8 @@ public static partial class CustomCurves
     internal static async Task<PreparedMarket> PrepareMarket(NpgsqlConnection connection,PreviewDatabase database,
         PreviewData data,InputFrame frame,MarketSnapshot snapshot,ScheduleContext context,
         ImmutableArray<Instrument> instruments,ImmutableArray<CurveRequest> dependencies,MarketPreparation purpose,CancellationToken ct,
-        ConnectedMarketEvidence? retained=null,ImmutableArray<SchedulePriceTerm>? activePrices=null,ContractObservationSamples.History? sourceHistories=null,PreparationScope? preparationScope=null)
+        ConnectedMarketEvidence? retained=null,ImmutableArray<SchedulePriceTerm>? activePrices=null,ContractObservationSamples.History? sourceHistories=null,PreparationScope? preparationScope=null,
+        SavedVersions? savedVersions=null)
     {
         if(purpose is not(MarketPreparation.ValuationDependencies or MarketPreparation.ScenarioUniverse))
             throw Invalid("Select the connected preparation purpose explicitly.");
@@ -114,7 +115,7 @@ public static partial class CustomCurves
                 .Concat(frame.ObservationIds).Distinct().ToImmutableArray();
             var sourceData=await database.Read(connection,ct,data.DefinitionRevision.RevisionId,data,historyPins,
                 includeCalendarDays:false,observationScope:retained is null?ObservationReadScope.FactHistory:ObservationReadScope.ExactPins);
-            var saved=await new CustomCurvesStore(database).Read(connection,ct);
+            var saved=await (savedVersions?.Read(connection,ct)??new CustomCurvesStore(database).Read(connection,ct));
             // Coalesce every exact ancestor's demand before loading any sample.
             // Overlapping historical projections must share the same admitted
             // sample frame, including when a version is also consumed directly.
