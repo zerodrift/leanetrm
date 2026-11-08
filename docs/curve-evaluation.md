@@ -103,16 +103,17 @@ execution are outside this profile.
 ## Rate curves
 
 `RatesCurve` evaluates a typed `DiscountFactor` by maturity, retaining currency,
-reference date, snapshot, numerical/interpolation policies and contributing
-pillars. Payment discounting delegates to it. It reuses the existing direct zero
-rate construction (`actual_365_fixed`, `simple`) and selected log-discount-factor
-interpolation. Exact pillars bypass interpolation. Unbracketed dates reject,
-including the reference date when it has no stored pillar; no factor of one is
-inferred. The supported maximum bracket span remains 3,660 days.
+reference date, snapshot, numerical policy, the curve's conventions and the
+pillars it used. Payment discounting delegates to it. The curve's admitted
+definition (D359) states its day count, compounding, interpolation and
+extrapolation; `RateCurveMath.Discount` selects the pillars a date needs and the
+calculation graph re-derives each payment factor from exactly those. Exact pillars
+bypass interpolation. The reference date discounts at exactly 1 and brackets the
+first pillar; after the last pillar the curve's extrapolation applies or the date
+is refused. The supported maximum bracket span remains 3,660 days.
 
-Rate construction conventions remain on the exact rate definition. The explicit
-interpolation policy remains on the existing versioned currency-discount mapping;
-this increment does not migrate that persisted contract. Asset recipe operators
+A currency's discount default names the curve only; interpolation belongs to the
+curve. Asset recipe operators
 remain price-valued. Rate bootstrap instruments, additional conventions, rate
 scenario coordinates, rate-valued custom recipes and rate interval/profile
 evaluation remain separate work. Whole-delivery price lookup is supported as

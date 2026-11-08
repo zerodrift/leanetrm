@@ -1,6 +1,6 @@
 # Rolling rate curves from published definitions
 
-Status: draft for approval, 2026-11-07. Projects 3 and 4 of
+Status: approved 2026-11-07 and implemented locally as D359; see [curve definitions](../../curve-definitions.md). Projects 3 and 4 of
 [rolling date lists and a curve editor](2026-11-06-rolling-date-lists-and-curve-editor-design.md)
 (D357, D358), narrowed to interest-rate curves. Examples are synthetic.
 
@@ -150,8 +150,9 @@ from interpolating between the pillars on either side. The pillars must roll wit
 - Refusals:
   - **`rate_maturity`:** a resolved pillar falls on or before `t_0`.
   - **`date_list_order`:** dates are out of order.
-  - **`rate_mark`:** a label has no observation at the close; the error names the
-    label.
+  - **`missing_observation`:** a label has no observation at the close; the error
+    names the label. It keeps D220's position-specific code, so a close missing a
+    discount rate leaves out only the positions that need it.
   - Any failure to resolve the date list.
 - **Anchor at `t_0`.** The discount factor at `t_0` is exactly 1 by definition. It
   is used as the left bracket for dates between `t_0` and the first pillar, so a

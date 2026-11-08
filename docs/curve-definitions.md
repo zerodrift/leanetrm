@@ -1,9 +1,10 @@
 # Native curve definitions
 
-Status: D318, owner-directed design (2026-11-04), extended by D358 (2026-11-06).
+Status: D318, owner-directed design (2026-11-04), extended by D358 (2026-11-06) and D359 (2026-11-07).
 Curves & prices → Curve definitions validates, previews, saves, publishes and
-edits definitions locally, including interest-rate curves. Admitting published
-definitions into market revisions and pricing from them remain work, listed at
+edits definitions locally, including interest-rate curves. Published
+interest-rate definitions are admitted into market revisions and priced from
+(D359); admitting contract curves remains work, listed at
 the end. Examples are synthetic.
 
 ## Intent
@@ -98,25 +99,38 @@ selected historical context, whose effective date must be the close's
 (`market_date` otherwise). Choosing another close in the header clears the
 shown window; previewing again rolls it.
 
-## Interest-rate curves (D358)
+## Interest-rate curves (D358, D359)
 
-An interest-rate curve names an exact interest-rate specification, a mark source
-and an exact published version of a date-list mapping (D357). Every label of the
-list is one tenor, such as `1D → oe.days + 1bd` or `4Y → oe.days[1461]`, so the
-curve's maturities roll with the context date instead of being stored as dates.
-The currency, day count and compounding come from the specification; only the
-simple ACT/365F spot zero-rate convention the rate engine implements is accepted.
-Contract terms (commodity, location, quote, delivery profile, futures product,
-settlement target, price rule, mark role, missing price and interpolation) do
-not apply and are refused.
+An interest-rate curve names its currency, mark unit (percent or decimal per
+year), day count, compounding, interpolation and extrapolation, a mark source and
+an exact published version of a date-list mapping (D357). Each term is required
+and none is defaulted; later conventions are shown as Coming soon and refused.
+Every label of the list is one tenor, such as `1D → oe.days + 1bd` or
+`4Y → oe.days[1461]`, so the curve's maturities roll with the context date
+instead of being stored as dates. Contract terms (commodity, location, quote,
+delivery profile, futures product, settlement target, price rule, mark role and
+missing price) do not apply and are refused.
 
 A preview resolves the list at the header's selected close. `t_0` is that close's
 date, which must equal its valuation UTC date; otherwise the preview is refused
 (`rate_context`). Each tenor shows its maturity and day count from `t_0`; a
-maturity on or before `t_0` is refused by label (`rate_maturity`). Rates and
-discount factors per tenor arrive when a published definition creates its tenor
-series (remaining work); the preview never reads them from other series.
+maturity on or before `t_0` is refused by label (`rate_maturity`). The preview
+shows no rates: a tenor's marks belong to the series its admission creates.
 Bootstrapping from par or swap quotes is not part of this design.
+
+## Rate curves at a close (D359)
+
+Admitting a published interest-rate definition into a draft definition revision
+(`POST /api/curve-definitions/admit`, `WriteMarketDefinitions`, idempotent by
+request id) writes the curve with its terms and one series per tenor label; a
+label keeps its series across revisions and definition versions. At each close
+the curve resolves its pinned date list from `t_0`, takes each tenor's mark, and
+gives each payment date a discount factor: exactly 1 at `t_0`, interpolated from
+`t_0` to the first pillar and between pillars, and extrapolated after the last
+pillar only when the definition chooses to. A currency's discount default names
+the curve. Curves & prices shows each tenor's maturity, mark and discount factor
+in the curve's own unit, and links to the definition; nothing on the rendered
+curve changes it. Rate curves are not risk factors.
 
 ## Saving, publishing and editing (D358)
 
@@ -156,15 +170,17 @@ adopted silently. Rendered curves offer no way to change a definition.
   `POST /api/curve-definitions/publish`; a preview or save may carry the curve's
   edited mapping rows. Migration `0214_curve_definitions.sql` adds the versions,
   request ledger and knowledge receipts.
+- D359: `POST /api/curve-definitions/admit`; migration `0215_rolling_rate_curves.sql`
+  gives definitions their own rate terms, adds admitted rate curves and tenors,
+  removes literal-maturity rate curves and the discount default's interpolation
+  column.
 
 ## Remaining work
 
-1. Admitting a published definition into a draft market revision: materialize
-   the window's contracts (extending D283's admission beyond absolute indexes)
-   and create the curve, its members and its direct source, so closes and
-   pricing consume it. For an interest-rate curve this creates one rate series
-   per tenor label and replaces today's literal-maturity rate curves; rendered
-   curves then link to their definition.
+1. Admitting a published contract-curve definition into a draft market
+   revision: materialize the window's contracts (extending D283's admission
+   beyond absolute indexes) and create the curve, its members and its direct
+   source, so closes and pricing consume it. (Interest-rate curves: D359.)
 2. The Coming soon cases above, each with its own consumer and checks.
 3. Not yet compared: the delivery profile's calendar and clock against a futures
    product's delivery calendar and market clock; the mark role and source
