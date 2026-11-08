@@ -471,8 +471,7 @@ client, Python preview integration checks, Node browser checks.
 
 ### Task 10: Private demo seed (outside the repository)
 
-**Files:** `~/openetrm-private/one-dataset/seed-usd-rate-curve.py` (private; never
-committed), using `target.py`.
+**Files:** a private seed script kept outside the repository (never committed).
 
 - [ ] **Step 1: Write the script.** It must be idempotent:
   - delete `usd_zero_*`, `demo_discount_curve`, their per-day defaults and their
