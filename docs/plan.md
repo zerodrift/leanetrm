@@ -1,8 +1,10 @@
 # Delivery plan and acceptance criteria
 
 D359 values started gas compositions under explicit whole gas-day and accrued
-payment lifecycles: remaining delivery MTM and outstanding settlement are reported
-separately, undiscounted and labelled so, with their sum. Ended days accrue on the
+payment lifecycles: unrealized (remaining delivery MTM) and realized unsettled
+(delivered, fixed, not paid) are reported separately, undiscounted and labelled
+so, with their sum, under the risk measure `gas_lifecycle_value_v1`. Undelivered
+physical days read the location curve's mark, never the payment fixing. Ended days accrue on the
 contract quantity (allocation pending), derived at read time; payments are
 recorded per gas day with business and knowledge time and first-outcome retries;
 Side rows show delivery, price and settlement states. An administrator loads

@@ -84,9 +84,9 @@ def run_checks(url,query,manifest,saved):
     first=page['rows'][0]
     assert first['deliveryFrom']=='2021-01-01' and first['deliveryTo']=='2021-01-02' and first['paymentAt'].startswith('2021-02-11T00:00:00')
     assert [Fraction(first[k]) for k in ['quantity','price','amount','discountFactor','presentValue']]==[-100,Fraction('3.02'),-302,1,-302]
-    # A gas composition retains the started-delivery lifecycles: before delivery every day is remaining value.
+    # A gas composition retains the started-delivery lifecycles: before delivery every day is unrealized.
     assert first['lifecycle']['due']=='NotDue' and first['lifecycle']['cash']=='Remaining' and first['lifecycle']['delivery']=='NotStarted'
-    assert first['lifecycle']['coverage']=='RemainingDeliveryMtm' and first['quantityState']=='contractual_quantity_v1' and first['paid']=='0'
+    assert first['lifecycle']['coverage']=='Unrealized' and first['quantityState']=='contractual_quantity_v1' and first['paid']=='0'
     second=c.call('trading/side-schedules',{**body,'offset':4})['page']
     assert second['rows'][0]['deliveryFrom']=='2021-01-05' and second['manifest']==page['manifest']
     calculation=c.call('trading/side-schedules',{**body,'contribution':first['key'],'limit':128})['page']

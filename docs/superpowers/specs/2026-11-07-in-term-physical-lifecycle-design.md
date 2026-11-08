@@ -1,6 +1,6 @@
 # In-term physical delivery: accrued cash, payments and remaining value
 
-Status: design, 2026-11-07; built as recorded in D359, which supersedes this text where they differ (load role, undiscounted compositions, physical price lookup). It selects
+Status: design, 2026-11-07; built as recorded in D359, which supersedes this text where they differ (load role, undiscounted compositions, measure names). The owner's follow-up restored the physical-mark rule below and renamed the measures `unrealized` (remaining delivery MTM) and `realizedUnsettled` (outstanding settlement) under the risk measure `gas_lifecycle_value_v1`. It selects
 the first consumer for the lifecycle valuation slice (L5) of the
 [physical lifecycle design](../../physical-lifecycle-design.md) and records the
 owner's decisions for it. A decision-record entry is added when it is built.

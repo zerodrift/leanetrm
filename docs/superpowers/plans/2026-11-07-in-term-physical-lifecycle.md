@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Owner follow-up (D359):** the measures named below `RemainingDeliveryMtm`/`remainingDeliveryMtm` and `OutstandingSettlement`/`outstandingSettlement` are built as `Unrealized`/`unrealized` and `RealizedUnsettled`/`realizedUnsettled`, labelled "Unrealized + realized unsettled", and started-lifecycle trades report the risk measure `gas_lifecycle_value_v1`. Undelivered physical days read the location curve's mark, never the payment fixing.
+
 **Goal:** Booked gas compositions (indexed or fixed-price consideration) keep valuing after delivery starts. Ended gas days carry accrued, unpaid cash in an outstanding-settlement measure until recorded payments clear it, and remaining days stay in remaining delivery MTM.
 
 **Architecture:**

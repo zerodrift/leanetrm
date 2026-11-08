@@ -45,21 +45,21 @@ public sealed class PhysicalCashState:IBindingValuationState
 
 public enum DeliveryState { NotStarted=1,InProgress,Ended }
 public enum SettlementState { Remaining=1,AccruedUnpaid,PartPaid,Paid,Overpaid,NoAmountDue }
-public enum LifecycleMeasure { RemainingDeliveryMtm=1,OutstandingSettlement }
+public enum LifecycleMeasure { Unrealized=1,RealizedUnsettled }
 // Settlement is null on physical rows: delivery is not cash and is never settled by a date.
 // DueAt, Expected (undiscounted cash still to be paid: amount less visible payments) and PaidAt are cash-only.
 public sealed record PhysicalLifecycleRow(int Slot,int Occurrence,DateOnly DeliveryFrom,DateOnly DeliveryTo,DeliveryState Delivery,SettlementState? Settlement,
-    ExactMoney Accrued,ExactMoney Paid,ExactMoney Outstanding,ExactMoney RemainingPv,ExactMoney OutstandingPv,string QuantityBasis,
+    ExactMoney Accrued,ExactMoney Paid,ExactMoney Outstanding,ExactMoney Unrealized,ExactMoney RealizedUnsettled,string QuantityBasis,
     DateTimeOffset? DueAt=null,ExactMoney? Expected=null,DateTimeOffset? PaidAt=null)
 {
-    // The measures the row contributes to: days still to come are remaining value; accrued cash not yet settled is
-    // outstanding. A fully paid, ended day is history only and contributes to neither.
+    // The P&L explain measures the row contributes to: a day not yet ended is unrealized (remaining delivery MTM); cash
+    // accrued on ended, fixed days and not yet paid is realized unsettled. A fully paid, ended day is history only and contributes to neither.
     public ImmutableArray<LifecycleMeasure> Measures=>[
-        ..Delivery!=DeliveryState.Ended?[LifecycleMeasure.RemainingDeliveryMtm]:Array.Empty<LifecycleMeasure>(),
-        ..Settlement is SettlementState.AccruedUnpaid or SettlementState.PartPaid or SettlementState.Overpaid?[LifecycleMeasure.OutstandingSettlement]:Array.Empty<LifecycleMeasure>()];
+        ..Delivery!=DeliveryState.Ended?[LifecycleMeasure.Unrealized]:Array.Empty<LifecycleMeasure>(),
+        ..Settlement is SettlementState.AccruedUnpaid or SettlementState.PartPaid or SettlementState.Overpaid?[LifecycleMeasure.RealizedUnsettled]:Array.Empty<LifecycleMeasure>()];
 }
 public sealed record ExpectedCashFlow(DateTimeOffset DueAt,ExactMoney Amount);
-public sealed record PhysicalLifecycleValue(ExactMoney RemainingDeliveryMtm,ExactMoney OutstandingSettlement,ExactMoney Total,ImmutableArray<PhysicalLifecycleRow> Rows)
+public sealed record PhysicalLifecycleValue(ExactMoney Unrealized,ExactMoney RealizedUnsettled,ExactMoney Total,ImmutableArray<PhysicalLifecycleRow> Rows)
 {
     // Undiscounted cash still expected, by due date. It is shown beside the measures and never added to them.
     public ImmutableArray<ExpectedCashFlow> ExpectedCash=>[..Rows.Where(r=>r.DueAt is not null).GroupBy(r=>r.DueAt!.Value).OrderBy(g=>g.Key)
@@ -70,8 +70,8 @@ public sealed record PhysicalLifecycleValue(ExactMoney RemainingDeliveryMtm,Exac
 // A member's evaluation and the map from its unscaled amounts to signed held amounts.
 public sealed record LifecycleMember(BookedSideProgram Program,BookedSideEvaluation Evaluation,bool Physical,Func<ExactMoney,ExactMoney> Held);
 
-// Started delivery, whole gas days: ended days leave the delivery measure; their cash accrues
-// on contract quantity and stays outstanding until paid, discounted to its payment date until due.
+// Started delivery, whole gas days: ended days leave the unrealized measure; their cash accrues on contract quantity
+// and stays realized unsettled until paid, discounted to its payment date until due.
 public static class PhysicalLifecycle
 {
     public const string EstimatedQuantity="contract_estimate_allocation_pending_v1",ContractQuantity="contractual_quantity_v1";
@@ -82,6 +82,21 @@ public static class PhysicalLifecycle
 
     // Missing lifecycle wiring is a system defect, not a trade's refusal: it fails the read (TradeRefusal excludes it).
     public const string ContextRefusal="physical_lifecycle_context";
+
+    // Owner decision (D359): a whole gas-day physical program prices each gas day not yet ended at its location curve's own mark.
+    // A published fixing locks only the payment price, so it neither prices nor backs up the physical leg.
+    public static bool ReadsDeliveryMarks(BookedSideProgram program)=>program.Document.Family=="gas"&&program.Document.Instructions.Any(i=>
+        i.Output.Operation=="output_guard"&&i.Output.Parameters.GetValueOrDefault("lifecycle")==ScheduleLifecycles.WholeGasDayDelivery);
+    // The location marks such a program demands at the instant: each dated lookup that still prices a gas day not yet ended.
+    public static IEnumerable<CurveRequest> DeliveryMarks(BookedSideProgram program,IReadOnlyCollection<IndexPriceLookup> lookups,MarketSnapshot snapshot)
+    {
+        if(!ReadsDeliveryMarks(program))return [];
+        var open=PhysicalDeliverySchedule.ReadLiteralQuantities(program,ExactRatio.One).Where(day=>day.End>snapshot.ValuationAt).Select(day=>day.OperatingDate).ToHashSet();
+        return program.Document.Instructions.Where(i=>i.Output.Grid is null&&CurvePriceScheduleSource.IsLookup(i.Output.Operation))
+            .SelectMany(i=>ScheduleMarketSources.DatedCandidates(i,lookups))
+            .Where(lookup=>open.Any(day=>lookup.ForecastDelivery.From<=day&&day<lookup.ForecastDelivery.To))
+            .Select(lookup=>PeriodPriceSelector.DeliveryMarkAt(lookup,snapshot)).Distinct();
+    }
 
     // Valued without its lifecycle state, a started-delivery program would drop its ended gas days and due cash.
     // It values so only before its first gas day starts and while its cash is not yet due.
@@ -168,8 +183,8 @@ public static class PhysicalLifecycle
             }
         }
         var result=rows.ToImmutable();
-        var remaining=result.Aggregate(zero,(sum,r)=>sum.Add(r.RemainingPv));var settlement=result.Aggregate(zero,(sum,r)=>sum.Add(r.OutstandingPv));
-        return new(remaining,settlement,remaining.Add(settlement),result);
+        var unrealized=result.Aggregate(zero,(sum,r)=>sum.Add(r.Unrealized));var unsettled=result.Aggregate(zero,(sum,r)=>sum.Add(r.RealizedUnsettled));
+        return new(unrealized,unsettled,unrealized.Add(unsettled),result);
     }
     // A row with no ended day still has value to come; otherwise visible payments against accrued.
     // Paid only when visible payments cover a nonzero accrual.

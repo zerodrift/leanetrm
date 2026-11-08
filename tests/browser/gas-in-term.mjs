@@ -32,13 +32,13 @@ export async function run(actions){
  await open(fixture);
  await click('#position-details-tabs-terms');await wait("!!document.querySelector('#position-details-view .side-term')",30000);
  await check('the trade overview names its value measure and discounting basis',
-  `(()=>{const row=[...document.querySelectorAll('#position-details-view .side-term')].find(r=>r.querySelector('dt').textContent==='Value measure');return row?.querySelector('dd').textContent==='Remaining contract value + outstanding settlement · undiscounted';})()`,
+  `(()=>{const row=[...document.querySelectorAll('#position-details-view .side-term')].find(r=>r.querySelector('dt').textContent==='Value measure');return row?.querySelector('dd').textContent==='Unrealized + realized unsettled · undiscounted';})()`,
   "[...document.querySelectorAll('#position-details-view .side-term')].slice(0,6).map(r=>r.textContent)");
  await openBookedSchedules(actions);
  await wait("!!document.querySelector('#position-details .ticket-measures')",30000);
- const {currency}=fixture,figures=[`Remaining delivery MTM${fixture.remainingDeliveryMtm} ${currency}`,`Outstanding settlement${fixture.outstandingSettlement} ${currency}`,
-  `Remaining contract value + outstanding settlement${fixture.total} ${currency}`,'Discountingundiscounted'];
- await check('remaining delivery MTM, outstanding settlement and their labelled sum are separate undiscounted figures',
+ const {currency}=fixture,figures=[`Unrealized (remaining delivery)${fixture.unrealized} ${currency}`,`Realized, unsettled (delivered, not paid)${fixture.realizedUnsettled} ${currency}`,
+  `Unrealized + realized unsettled${fixture.total} ${currency}`,'Discountingundiscounted'];
+ await check('unrealized, realized unsettled and their labelled sum are separate undiscounted figures',
   `JSON.stringify([...document.querySelectorAll('#position-details .ticket-measures .ticket-summary-line')].slice(0,4).map(l=>l.textContent))===${q(JSON.stringify(figures))}`,
   "[...document.querySelectorAll('#position-details .ticket-measures .ticket-summary-line')].map(l=>l.textContent)");
  await check('expected cash is listed by due date, labelled as not added, and the measures never call themselves discounted',
@@ -48,12 +48,12 @@ export async function run(actions){
  await sideRows('payment');
  await check('a paid cash day says when it was paid and an accrued unpaid one gives its due date',
   `(()=>{const r=[...document.querySelectorAll(${q(rows)})].map(x=>x.textContent),paid=r.filter(t=>t.includes('Cash: Paid')),unpaid=r.filter(t=>t.includes('Cash: Accrued unpaid'));
-   return paid.length>0&&unpaid.length>0&&paid.every(t=>/Paid on Oct 10, 2026/.test(t)&&!t.includes('Due date'))&&unpaid.every(t=>t.includes('Due date')&&!t.includes('Paid on')&&t.includes('Outstanding settlement'));})()`,
+   return paid.length>0&&unpaid.length>0&&paid.every(t=>/Paid on Oct 10, 2026/.test(t)&&!t.includes('Due date'))&&unpaid.every(t=>t.includes('Due date')&&!t.includes('Paid on')&&t.includes('Realized, unsettled (delivered, not paid)'));})()`,
   `(()=>{const r=[...document.querySelectorAll(${q(rows)})].map(x=>x.textContent);return [r[0],r[r.length-1]];})()`);
  await nextPage();await nextPage();
  await check('undelivered cash days are remaining, due on a date, never paid',
   `(()=>{const r=[...document.querySelectorAll(${q(rows)})].map(x=>x.textContent),remaining=r.filter(t=>t.includes('Cash: Remaining'));
-   return remaining.length>0&&remaining.every(t=>t.includes('Due date')&&!t.includes('Paid on')&&t.includes('Remaining delivery MTM'));})()`);
+   return remaining.length>0&&remaining.every(t=>t.includes('Due date')&&!t.includes('Paid on')&&t.includes('Unrealized (remaining delivery)'));})()`);
  await sideRows('gas');
  await check('the physical Side shows its delivery state and quantity basis, and no settlement state',
   `(()=>{const text=document.querySelector(${q(inspector+' .inspection-rows')}).textContent;

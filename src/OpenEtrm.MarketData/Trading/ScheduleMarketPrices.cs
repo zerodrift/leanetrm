@@ -18,11 +18,25 @@ public sealed partial class ScheduleMarketSources
         return(resolved.Price,resolved.State==SchedulePriceState.Actual?SchedulePriceFacts.PublishedFixing:SchedulePriceFacts.Projected,new ScheduleContractObservationEvidence(candidates[0],resolved));
     }
 
-    private (ExactUnitPrice Price,SchedulePriceFacts State,ScheduleSourceEvidence Evidence) Dated(BookedSideInstruction instruction,CurveBuild market)
+    // The admitted dated lookups exactly matching a stored price row's contract, quote, fixing and projection definition.
+    internal static IndexPriceLookup[] DatedCandidates(BookedSideInstruction instruction,IEnumerable<IndexPriceLookup> dated)
     {
         var row=instruction.Output;var bindings=instruction.Bindings.ToDictionary(binding=>binding.Port);
         if(!bindings.ContainsKey("market")||!bindings.ContainsKey("index")||!bindings.ContainsKey("quote")||!bindings.TryGetValue("fixing",out var fixing))
             throw Invalid("A scalar price requires exact dated market, index, quote and fixing bindings.");
+        return dated.Where(lookup=>lookup.Market==bindings["market"].Market&&lookup.Index==bindings["index"].Reference&&
+            lookup.Quote.Key==bindings["quote"].Reference&&lookup.Contract.DeliveryFrom==row.ObservationFrom&&lookup.Contract.DeliveryTo==row.ObservationTo&&
+            DefinitionIdentity.For(lookup.Settlement).Canonical==row.Parameters["selection"]&&CurvePriceScheduleSource.Matches(row,lookup)&&
+            lookup.Fixing is {} f&&f.Series==fixing.Series&&f.Source==fixing.Reference&&f.Implementation==fixing.Coordinate&&
+            (bindings.TryGetValue("projection",out var projection)?lookup.CustomProjection is {} p&&p.CatalogId==projection.EntityCatalog&&p.CurveId==projection.Entity&&
+                p.Version==projection.Version&&p.OutputNode==projection.Coordinate&&p.Position==projection.Position:lookup.CustomProjection is null)).Distinct().ToArray();
+    }
+
+    // deliveryMark: the row prices undelivered physical gas, which reads its location mark and never the payment fixing (D359).
+    private (ExactUnitPrice Price,SchedulePriceFacts State,ScheduleSourceEvidence Evidence) Dated(BookedSideInstruction instruction,CurveBuild market,bool deliveryMark)
+    {
+        var candidates=DatedCandidates(instruction,dated);
+        var row=instruction.Output;var bindings=instruction.Bindings.ToDictionary(binding=>binding.Port);
         GasValuationAssignment? gasAssignment=null;
         if(bindings.TryGetValue("assignment",out var assignment))
         {
@@ -44,12 +58,6 @@ public sealed partial class ScheduleMarketSources
             if(matching.Length!=1)throw Invalid("The crude price requires its exact admitted grade, custody point and complete assignment.");
             crudeAssignment=matching[0];
         }
-        var candidates=dated.Where(lookup=>lookup.Market==bindings["market"].Market&&lookup.Index==bindings["index"].Reference&&
-            lookup.Quote.Key==bindings["quote"].Reference&&lookup.Contract.DeliveryFrom==row.ObservationFrom&&lookup.Contract.DeliveryTo==row.ObservationTo&&
-            DefinitionIdentity.For(lookup.Settlement).Canonical==row.Parameters["selection"]&&CurvePriceScheduleSource.Matches(row,lookup)&&
-            lookup.Fixing is {} f&&f.Series==fixing.Series&&f.Source==fixing.Reference&&f.Implementation==fixing.Coordinate&&
-            (bindings.TryGetValue("projection",out var projection)?lookup.CustomProjection is {} p&&p.CatalogId==projection.EntityCatalog&&p.CurveId==projection.Entity&&
-                p.Version==projection.Version&&p.OutputNode==projection.Coordinate&&p.Position==projection.Position:lookup.CustomProjection is null)).Distinct().ToArray();
         if(candidates.Length!=1)throw Invalid("A stored dated lookup requires one exact admitted contract, quote, fixing and projection definition.");
         if(gasAssignment is not null&&!CurvePriceScheduleSource.SameObservation(candidates[0],gasAssignment.Lookup))
             throw Invalid("Gas price metadata must retain the complete qualified assignment lookup, including fixing time.");
@@ -62,7 +70,9 @@ public sealed partial class ScheduleMarketSources
                 a.DischargeCustody==bindings["lng_custody"].Reference&&a.Product==bindings["lng_product"].Reference&&a.Lookup==candidates[0]).ToArray();
             if(matches.Length!=1)throw Invalid("The LNG mark requires its complete exact product/discharge custody assignment and price source.");
         }
-        var resolved=PeriodPriceSelector.Resolve(market,candidates[0],request=>market.Pricing.Price(request,default),request=>market.Pricing.Lineage(request,default));
+        if(deliveryMark&&gasAssignment is null)throw Invalid("Undelivered physical gas requires its exact admitted point/product assignment.");
+        var resolved=deliveryMark?PeriodPriceSelector.ResolveDeliveryMark(market,candidates[0],request=>market.Pricing.Price(request,default),request=>market.Pricing.Lineage(request,default)):
+            PeriodPriceSelector.Resolve(market,candidates[0],request=>market.Pricing.Price(request,default),request=>market.Pricing.Lineage(request,default));
         RequireUnit(resolved.Price,row);
         return(resolved.Price,resolved.State==SchedulePriceState.Actual?SchedulePriceFacts.PublishedFixing:SchedulePriceFacts.Projected,new ScheduleDatedPriceEvidence(candidates[0],resolved));
     }

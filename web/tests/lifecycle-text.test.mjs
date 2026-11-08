@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {measureLines,lifecycleLines,quantityBasisText,valueMeasureText} from '../dist/lifecycle-text.js';
 const instant=at=>'@'+at.slice(0,10);
-const measures={remainingDeliveryMtm:'1,445',outstandingSettlement:'-10855',total:'-9410',label:'Remaining contract value + outstanding settlement',discounting:'undiscounted',
+const measures={unrealized:'1,445',realizedUnsettled:'-10855',total:'-9410',label:'Unrealized + realized unsettled',discounting:'undiscounted',
  expectedCash:[{dueAt:'2026-11-10T00:00:00Z',amount:'-9300'},{dueAt:'2026-12-10T00:00:00Z',amount:'-9648'}]};
 const row=patch=>({deliveryFrom:'2026-10-15',paymentAt:'2026-11-10T00:00:00Z',paidAt:null,paid:null,outstanding:null,accrued:null,finalDetermination:null,quantityState:null,
  ...patch,lifecycle:{delivery:'Ended',due:null,cash:null,economicClass:null,coverage:null,unavailableReason:null,fulfillment:null,...patch?.lifecycle}});
 
 test('measures are separate figures with their labelled sum, their discounting basis, and expected cash marked as not added',()=>{
- const lines=measureLines({...measures,remainingDeliveryMtm:'1445'},'USD',instant);
- assert.deepEqual(lines.slice(0,3).map(l=>[l.label,l.value]),[['Remaining delivery MTM','1,445 USD'],['Outstanding settlement','-10,855 USD'],['Remaining contract value + outstanding settlement','-9,410 USD']]);
+ const lines=measureLines({...measures,unrealized:'1445'},'USD',instant);
+ assert.deepEqual(lines.slice(0,3).map(l=>[l.label,l.value]),[['Unrealized (remaining delivery)','1,445 USD'],['Realized, unsettled (delivered, not paid)','-10,855 USD'],['Unrealized + realized unsettled','-9,410 USD']]);
  assert.deepEqual(lines[3],{label:'Discounting',value:'undiscounted'});
  assert.deepEqual(lines.slice(4).map(l=>[l.label,l.value]),[['Expected cash by due date · not added to the total',''],['Due @2026-11-10','-9,300 USD'],['Due @2026-12-10','-9,648 USD']]);
 });
@@ -25,14 +25,14 @@ test('the quantity basis reads as an estimate with its allocation pending; other
 });
 
 test('an unpaid cash row shows its due date and never a payment date; a paid row shows only its recorded payment date',()=>{
- const unpaid=lifecycleLines(row({lifecycle:{cash:'AccruedUnpaid',coverage:'OutstandingSettlement'},accrued:'-300',outstanding:'-300'}),instant);
- assert.ok(unpaid.includes('Due date: @2026-11-10')&&unpaid.includes('Cash: Accrued unpaid')&&unpaid.includes('Outstanding settlement')&&!unpaid.some(l=>l.startsWith('Paid on')),unpaid);
+ const unpaid=lifecycleLines(row({lifecycle:{cash:'AccruedUnpaid',coverage:'RealizedUnsettled'},accrued:'-300',outstanding:'-300'}),instant);
+ assert.ok(unpaid.includes('Due date: @2026-11-10')&&unpaid.includes('Cash: Accrued unpaid')&&unpaid.includes('Realized, unsettled (delivered, not paid)')&&!unpaid.some(l=>l.startsWith('Paid on')),unpaid);
  const paid=lifecycleLines(row({lifecycle:{cash:'Paid'},paid:'-290',outstanding:'0',paidAt:'2026-10-10T00:00:00Z'}),instant);
  assert.ok(paid.includes('Paid on @2026-10-10')&&!paid.some(l=>l.startsWith('Due date')),paid);
  const part=lifecycleLines(row({lifecycle:{cash:'PartPaid'},paid:'-100',outstanding:'-190',paidAt:'2026-10-10T00:00:00Z'}),instant);
  assert.ok(part.includes('Paid on @2026-10-10')&&part.includes('Due date: @2026-11-10')&&part.includes('Cash: Part paid'),part);
- const remaining=lifecycleLines(row({lifecycle:{delivery:'NotStarted',cash:'Remaining',coverage:'RemainingDeliveryMtm'},paidAt:'2026-10-10T00:00:00Z'}),instant);
- assert.ok(remaining.includes('Due date: @2026-11-10')&&remaining.includes('Remaining delivery MTM')&&!remaining.some(l=>l.startsWith('Paid on')),remaining);
+ const remaining=lifecycleLines(row({lifecycle:{delivery:'NotStarted',cash:'Remaining',coverage:'Unrealized'},paidAt:'2026-10-10T00:00:00Z'}),instant);
+ assert.ok(remaining.includes('Due date: @2026-11-10')&&remaining.includes('Unrealized (remaining delivery)')&&!remaining.some(l=>l.startsWith('Paid on')),remaining);
 });
 
 test('a physical in-term row is not cash: settlement is not applicable, never Paid',()=>{
@@ -55,7 +55,7 @@ test('a legacy in-progress row without a cash state renders exactly as before, n
 });
 
 test('the value measure names its discounting basis, or neither; a half-present pair is refused',()=>{
- assert.equal(valueMeasureText('Remaining contract value + outstanding settlement','undiscounted'),'Remaining contract value + outstanding settlement · undiscounted');
+ assert.equal(valueMeasureText('Unrealized + realized unsettled','undiscounted'),'Unrealized + realized unsettled · undiscounted');
  assert.equal(valueMeasureText(undefined,undefined),'Contractual PV');
  assert.throws(()=>valueMeasureText('label',undefined),/come together/);
  assert.throws(()=>valueMeasureText(undefined,'undiscounted'),/come together/);

@@ -51,15 +51,44 @@ public static class PeriodPriceSelector
     internal static bool RequiresProjection(PriceSettlementSelection settlement, MarketContract contract, IndexFixing? fixing,
         DateTimeOffset valuationAt, bool customProjection = false)
     {
+        Qualify(settlement, contract, fixing, customProjection);
+        if (fixing is not null && valuationAt >= fixing.FixingAt) return false;
+        if (valuationAt >= contract.Expiry)
+            throw new MarketDataException("source_expired", "An unfixed period contract requires its live projection; its last mark cannot replace the selected fixing.");
+        return true;
+    }
+    private static void Qualify(PriceSettlementSelection settlement, MarketContract contract, IndexFixing? fixing, bool customProjection)
+    {
         if (settlement.Mode == PriceSettlementMode.Override && (fixing is null || customProjection))
             throw new MarketDataException("price_settlement_selection", "An override requires qualified fixing metadata for every observation and projects only from its curve's forward marks.");
         if (fixing is not null && (fixing.Implementation != IndexFixing.SupportedImplementation || fixing.Index != settlement.SelectedIndex ||
             fixing.From != contract.DeliveryFrom || fixing.To != contract.DeliveryTo || !TradingInstant.IsSupported(fixing.FixingAt)))
             throw new MarketDataException("index_fixing_definition", "The selector requires the selected index's exact qualified publication period and implementation.");
-        if (fixing is not null && valuationAt >= fixing.FixingAt) return false;
-        if (valuationAt >= contract.Expiry)
-            throw new MarketDataException("source_expired", "An unfixed period contract requires its live projection; its last mark cannot replace the selected fixing.");
-        return true;
+    }
+
+    // D359: physical gas still to be delivered is worth the location curve's own mark. A published fixing locks only the
+    // payment price, so a delivery mark never reads it and never falls back to it; a missing or expired mark refuses.
+    public static CurveRequest DeliveryMarkAt(IndexPriceLookup lookup, MarketSnapshot snapshot)
+    {
+        if (lookup is null || lookup.Settlement is null || snapshot is null || !TradingInstant.IsSupported(snapshot.ValuationAt))
+            throw new MarketDataException("price_settlement_selection", "An exact period lookup, settlement selection and valuation instant are required.");
+        Qualify(lookup.Settlement, lookup.Contract, lookup.Fixing, lookup.CustomProjection is not null);
+        if (snapshot.ValuationAt >= lookup.Contract.Expiry)
+            throw new MarketDataException("source_expired", "Undelivered physical gas requires its live location mark; a published fixing cannot replace it.");
+        return lookup.ProjectionRequest;
+    }
+    internal static ResolvedPeriodPrice ResolveDeliveryMark(CurveBuild market, IndexPriceLookup lookup,
+        Func<CurveRequest, ExactUnitPrice> price, Func<CurveRequest, ImmutableHashSet<ObservationKey>> lineage)
+    {
+        if (market is null || lookup is null || lookup.Settlement is null)
+            throw new MarketDataException("price_settlement_selection", "Select an exact market context and explicit period settlement contract.");
+        market.Model.RequireIndexProjection(lookup.Market, lookup.Contract, lookup.Settlement.CurveTargetIndex, lookup.Quote);
+        if (lookup.Fixing is {} fixing) market.Model.RequireIndexFixing(lookup, fixing);
+        var request = DeliveryMarkAt(lookup, market.Snapshot);
+        var value = price(request);
+        if (value.Unit != PriceUnit.FromQuote(lookup.Quote))
+            throw new MarketDataException("custom_projection", "The selected projection must retain the contractual quote unit.");
+        return new(value, SchedulePriceState.Projected, lineage(request), lookup.Settlement);
     }
 
     public static PeriodPriceAdmission Admit(CurveBuild market, IndexPriceLookup lookup)

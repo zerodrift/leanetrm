@@ -219,8 +219,11 @@ Its executable roots distinguish `physical_value` from `contractual_amount` and
 its evaluated contribution kind is Delivery. A program compiled with the
 legacy lifecycle refuses with `gas_delivery_lifecycle` once any admitted delivery
 starts. New gas compositions compile `whole_gas_day_delivery_v1`, under which an
-ended gas day leaves remaining delivery value and its fixed cash accrues in the
-outstanding-settlement measure until recorded payments clear it (D359). Neither
+ended gas day leaves the unrealized measure and its fixed cash accrues in the
+realized unsettled measure until recorded payments clear it (D359). A gas day not
+yet ended values its physical leg at the location curve's own mark even after its
+payment index has published; a missing mark refuses, and the fixing never stands
+in for it. Neither
 lifecycle manufactures actual delivery, retirement, inventory or overdue physical
 treatment.
 
@@ -462,8 +465,8 @@ it read-only through `tickets/trade` and compares its draft and schedule with a
 ticket preview of those terms.
 
 For a held gas composition whose programs all select the started-delivery
-lifecycles, `tickets/trade` also returns `measures` (remaining delivery MTM,
-outstanding settlement, their labelled total, `discounting`, and undiscounted
+lifecycles, `tickets/trade` also returns `measures` (`unrealized`,
+`realizedUnsettled`, their labelled `total`, `label`, `discounting`, and undiscounted
 `expectedCash` by due date, which is not part of the total) and the `currency` of
 those figures; both are `null` or absent for any other trade.
 

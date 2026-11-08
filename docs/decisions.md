@@ -3349,19 +3349,43 @@ programs; migration 0215 admits the lifecycles only for new gas writes.
 - Paid comes only from recorded payments; partial payments are allowed. Passing a
   due date never pays anything, and unpaid cash past its due date stays at nominal
   under the existing explicit policy.
-- The trade reports remaining delivery MTM and outstanding settlement separately,
-  plus their labelled sum. Nothing is labelled trading P&L.
+- The trade reports its two P&L explain measures separately, plus their labelled
+  sum: `unrealized`, the remaining delivery MTM of gas days not yet ended, and
+  `realizedUnsettled`, cash accrued on ended, fixed days and not yet paid. Paid
+  amounts leave both.
 - Crude and LNG keep explicit refusals, `physical_lifecycle_unsupported`.
+
+**Owner follow-up decisions (2026-11-07).** These supersede the earlier
+controller ruling that the physical leg follows the location's configured price
+lookup.
+
+- Physical leg at the location mark. A gas day whose index has published but
+  which has not ended (Nov 6 in progress, Nov 7-9 priced by Friday's
+  publication) values its physical leg at the location curve's own mark for that
+  day, never at the payment fixing; the payment leg stays locked at the fixing. A
+  missing or expired mark refuses; the fixing is never a fallback. This applies
+  to programs that select `whole_gas_day_delivery_v1`: before any publication
+  both legs read the curve as before, and programs with the future-delivery
+  lifecycles keep their lookup.
+- Measure split and code. The measures are renamed for P&L explain (`unrealized`,
+  `realizedUnsettled`, `total`, label "Unrealized + realized unsettled"), and
+  started-lifecycle trades report the new versioned risk measure
+  `gas_lifecycle_value_v1`, valued in their own measure group. Older programs and
+  stored history keep `gas_contractual_present_value`.
 
 **What is built, and where it departs from the design.**
 
-- The physical leg of a fixed-but-undelivered gas day follows the location's
-  configured price lookup, as before this branch; there is no separate rule for a
-  day whose index has published. The design's call that it never reads the
-  payment fixing is superseded: changing the lookup would alter existing
-  valuations. A fixed price still locks the payment price only.
-- Gas compositions keep their explicit `discounting: false`. Remaining and
-  outstanding measures are therefore undiscounted, are labelled
+- A whole gas-day program's dated location prices read the curve projection
+  (`PeriodPriceSelector.DeliveryMarkAt`), and its declared dependencies include
+  the mark of each lookup that still prices a gas day not yet ended
+  (`PhysicalLifecycle.DeliveryMarks`), through both the retained instrument and
+  the composition store. A curve shock to such a day's mark moves its physical
+  leg and not its fixed payment. The managed demo's daily contracts stay marked
+  through their gas day; the preview's physical assignment is the monthly
+  location index, whose fixing publishes after the month, so its physical leg
+  already read the curve.
+- Gas compositions keep their explicit `discounting: false`. Both measures are
+  therefore undiscounted, are labelled
   `discounting: "undiscounted"` in the API and shown so in the UI, and are never
   presented as present values. Payment-date discounting for compositions is later
   work.
@@ -3427,9 +3451,8 @@ discounting for compositions; a payment recording API and screen, with a
 recording-time over-allocation cap; the stricter loader login split. Deferred
 review items worth tracking: the payment fact includes the trade revision;
 lifecycle selection is decided at two call sites; the held-amount mapping is
-duplicated; the risk measure code `gas_contractual_present_value` is unchanged
-while its Blotter label changed; the inspector values the whole instrument per
+duplicated; the inspector values the whole instrument per
 slot request; and a fixing corrected to exactly zero after full payment refuses
 instead of reading Overpaid.
 
-Local verification on 2026-11-07: `python3 tools/check_all.py --group trading` passed, with 3578 PASS lines, 716 owned browser checks over 20 browser runs and 1476 web unit tests.
+Local verification on 2026-11-07, after the owner follow-up: `python3 tools/check_all.py --group trading` passed, with 3579 PASS lines, 716 owned browser checks over 20 browser runs and 1476 web unit tests; the MarketData checks (827 PASS lines, and `--physical-lifecycle`), the Api checks (97 PASS lines), and `run_preview.py --gas-in-term-check --browser-check` (7 browser checks) and `--gas-indexed-check --browser-check` (9 browser checks) passed.

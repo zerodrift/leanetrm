@@ -466,7 +466,9 @@ export function positionRows(holdings:readonly Holding[],zone='UTC'):DeskRow[]{
       if(h.contractIdentityKind!=='crude_instrument'||h.measure!=='crude_contractual_present_value'||h.quantity===null||!['receive','deliver'].includes(h.direction??''))throw Error('The crude position must retain its total volume, physical direction and contractual PV.');
       side=h.direction==='receive'?'Receive':'Deliver';exposure=null;
     }else if(type===instruments.physical_gas){
-      if(h.contractIdentityKind!=='gas_instrument'||h.measure!=='gas_contractual_present_value'||h.quantity!==null)throw Error('The gas position must retain independent side quantities and contractual PV.');
+      if(h.contractIdentityKind!=='gas_instrument'||h.quantity!==null)throw Error('The gas position must retain independent side quantities.');
+      // Started-delivery trades report their own versioned measure (D359); older programs keep contractual PV.
+      if(h.measure!=='gas_contractual_present_value'&&h.measure!=='gas_lifecycle_value_v1')throw Error('The gas position must name its value measure.');
       side='By physical side';exposure=null;
     }else if(type===instruments.ppa){
       if(h.contractIdentityKind!=='ppa_instrument'||h.measure!=='ppa_value_excluding_overdue')throw Error('The Blotter returned a PPA without its valuation measure.');

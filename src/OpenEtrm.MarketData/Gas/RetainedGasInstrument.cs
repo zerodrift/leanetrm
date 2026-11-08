@@ -55,10 +55,11 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     // Started-delivery state selects the lifecycle measure, so it is part of the declared model version.
     public override UnitPricingContract Declare(UnitValuationContext context) => new(Id,
         context.BindingState is PhysicalCashState ? PhysicalCashState.Policy + "/retained_gas_unit_pv_v1" : "retained_gas_unit_pv_v1",
-        [..PriceLookups.Select(lookup => PeriodPriceSelector.ProjectionAt(lookup, context.Snapshot)).OfType<CurveRequest>().Distinct()],
+        [..PriceLookups.Select(lookup => PeriodPriceSelector.ProjectionAt(lookup, context.Snapshot)).OfType<CurveRequest>()
+            .Concat(Members.SelectMany(member => PhysicalLifecycle.DeliveryMarks(member.Program, PriceLookups, context.Snapshot))).Distinct()],
         UnitQuantity.Specification, Currency) { ScheduleIdentity = RetainedScheduleIdentity };
 
-    // Remaining delivery MTM plus outstanding settlement, in the held binding's cash terms.
+    // Unrealized plus realized unsettled, in the held binding's cash terms.
     public PhysicalLifecycleValue EvaluateLifecycle(UnitValuationContext context)
     {
         if (context?.BindingState is not PhysicalCashState state)

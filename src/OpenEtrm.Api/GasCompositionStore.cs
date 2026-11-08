@@ -35,13 +35,13 @@ internal sealed record GasCompositionValue(string PresentValue,string Currency,s
 {
  [JsonIgnore]internal PhysicalLifecycleValue? Lifecycle{get;init;}
 }
-// A started-delivery trade's measures. Expected cash is undiscounted, by due date, and is not part of the total.
+// A started-delivery trade's P&L explain measures: unrealized (remaining delivery MTM, days not yet ended) and realized
+// unsettled (ended, fixed and not yet paid). Expected cash is undiscounted, by due date, and is not part of the total.
 // Discounting names the factor basis of both measures, from the trade's explicit selection.
-internal sealed record GasLifecycleMeasures(string RemainingDeliveryMtm,string OutstandingSettlement,string Total,string Label,string Discounting,ImmutableArray<GasExpectedCash> ExpectedCash)
+internal sealed record GasLifecycleMeasures(string Unrealized,string RealizedUnsettled,string Total,string Label,string Discounting,ImmutableArray<GasExpectedCash> ExpectedCash)
 {
- internal const string TotalLabel="Remaining contract value + outstanding settlement";
- internal static GasLifecycleMeasures From(PhysicalLifecycleValue value,DiscountFactorSource discounting)=>new(value.RemainingDeliveryMtm.ToExactString(),value.OutstandingSettlement.ToExactString(),value.Total.ToExactString(),
-  TotalLabel,discounting switch{DiscountFactorSource.Undiscounted=>"undiscounted",_=>throw new MarketDataException("gas_composition_input","Gas compositions value only under their explicit no-discounting selection.")},
+ internal static GasLifecycleMeasures From(PhysicalLifecycleValue value,DiscountFactorSource discounting)=>new(value.Unrealized.ToExactString(),value.RealizedUnsettled.ToExactString(),value.Total.ToExactString(),
+  GasPositions.LifecycleLabel,discounting switch{DiscountFactorSource.Undiscounted=>"undiscounted",_=>throw new MarketDataException("gas_composition_input","Gas compositions value only under their explicit no-discounting selection.")},
   [..value.ExpectedCash.Select(x=>new GasExpectedCash(x.DueAt,x.Amount.ToExactString()))]);
 }
 internal sealed record GasExpectedCash(DateTimeOffset DueAt,string Amount);
@@ -159,7 +159,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var dated=programs.SelectMany(p=>BookedScheduleLookups.Dated(data,p.Program)).Distinct().ToImmutableArray();
   foreach(var group in dated.Where(lookup=>lookup.CustomProjection is not null).GroupBy(lookup=>lookup.CustomProjection!))
    await CustomCurves.RequireProjection(c,database,data,frame,CustomCurveProjectionInput.FromBinding(group.Key),PriceUnit.FromQuote(group.First().Quote),[..group.Select(lookup=>lookup.ForecastDelivery)],ct);
-  var deps=dated.Select(x=>PeriodPriceSelector.ProjectionAt(x,snapshot)).OfType<CurveRequest>().Distinct().ToImmutableArray();
+  var deps=dated.Select(x=>PeriodPriceSelector.ProjectionAt(x,snapshot)).OfType<CurveRequest>().Concat(programs.SelectMany(p=>PhysicalLifecycle.DeliveryMarks(p.Program,dated,snapshot))).Distinct().ToImmutableArray();
   var prepared=await CustomCurves.PrepareMarket(c,database,data,frame,snapshot,knowledge,[],deps,CustomCurves.MarketPreparation.ValuationDependencies,ct,
    activePrices:[..dated.Select(lookup=>SchedulePriceTerm.FromLookup(lookup))]);
   var market=prepared.Valuation.ProgramMarket(prepared.Bindings,prepared.Authority,ct);var sources=new ScheduleMarketSources(market.Graph.Plan.Context,market,null,null,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,dated,[],assignments);
@@ -209,7 +209,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   if(state is not null){lifecycle=PhysicalLifecycle.Evaluate(evaluations.ToImmutable(),state,snapshot,members[0].Assignment.Quote.Currency);total=lifecycle.Total;}
   var sides=valued.Select(v=>(object)new{v.Member.Code,v.Member.Role,source=v.Member.Source,stage=v.Member.Stage,pipeline=v.Member.Role=="physical"?v.Member.Assignment.Location.Pipeline.Code:null,zone=v.Member.Role=="physical"?v.Member.Assignment.Location.Zone.Code:null,deliveryPoint=v.Member.Role=="physical"?v.Member.Assignment.Point.Code:null,
    direction=v.Member.Direction==1?"receive":v.Member.Role=="physical"?"deliver":"pay",
-   presentValue=(lifecycle is null?v.Amount:lifecycle.Rows.Where(r=>r.Slot==v.Member.Slot).Aggregate(ExactMoney.Parse("0",v.Amount.Currency),(sum,r)=>sum.Add(r.RemainingPv).Add(r.OutstandingPv))).ToExactString(),
+   presentValue=(lifecycle is null?v.Amount:lifecycle.Rows.Where(r=>r.Slot==v.Member.Slot).Aggregate(ExactMoney.Parse("0",v.Amount.Currency),(sum,r)=>sum.Add(r.Unrealized).Add(r.RealizedUnsettled))).ToExactString(),
    quantity=Ratio(v.Quantity),deliveryRows=v.Rows}).ToList();
   var links=!view?Array.Empty<object>():members.Where(m=>m.Role=="physical"&&m.Source is not null).Select(m=>{var receipt=quantities[m.Source!];var delivery=quantities[m.Code];var fuel=receipt.Add(delivery.Scale(Number("-1")));return(object)new{source=m.Source,target=m.Code,m.Formula,m.Fraction,receipt=receipt.ToExactString(),delivery=delivery.ToExactString(),fuel=fuel.ToExactString()};}).ToArray();
   // The schedule is a display projection: a trade it cannot show keeps its valuation and reports why.

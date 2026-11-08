@@ -10,7 +10,7 @@ from assistant_context import check_guard, migration_body
 from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
 from check_booked_side_programs import runtime_query, capture_context
-from gas_in_term_fixture import ADMINISTRATOR, BOOK_ONLY_ADMINISTRATOR, CLOSE, DISABLED_ADMINISTRATOR, POINT, TERM, custom_curves, fixing, marks, published_at, trade
+from gas_in_term_fixture import ADMINISTRATOR, BOOK_ONLY_ADMINISTRATOR, CLOSE, DISABLED_ADMINISTRATOR, POINT, TERM, custom_curves, fixing, marks, premium_curve, published_at, trade
 
 LOADER = 'preview_gas_in_term_loader'
 
@@ -26,7 +26,8 @@ def run_checks(url, query, manifest, run_worker, admin_load, browse=None):
         saved = c.call('custom-curves/save', {'requestId': str(uuid4()), 'snapshotId': frame['id'], 'definition': graph, 'layout': {}})
         c.call('profile', {'profile': 'approver'})
         return c.call('custom-curves/publish', {'requestId': str(uuid4()), 'id': saved['id'], 'version': saved['version'], 'generation': saved['generation']})
-    curve = custom_curves(publish, {s['code']: s for s in c.call('custom-curves')['sources']}, catalog)
+    sources = {s['code']: s for s in c.call('custom-curves')['sources']}
+    curve = custom_curves(publish, sources, catalog)
     c.call('profile', {'profile': 'trader'})
     context = dict(snapshotId=frame['id'], convention='physical_gas_fixed_quantity_v4', knowledgeMode='current')
     gas = c.call('gas/catalog', context)
@@ -177,6 +178,7 @@ def run_checks(url, query, manifest, run_worker, admin_load, browse=None):
     shown = valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, loaded['instrumentId'], before_load, load)
     # The browser reads the Blotter before the refusing trades below are planted: they make the portfolio total refuse, by design.
     if browse: browse(shown)
+    delivery_mark_checks(c, frame, context, body, publish, sources)
     payment_revision_checks(c, query, manifest, frame, context, body, load)
     refusal_checks(c, query, manifest, frame, body, trade_id, loaded['instrumentId'], other, revision['paymentId'], load)
 
@@ -205,14 +207,14 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
     working = dict(snapshotId=frame['id'], convention=context['convention'], knowledgeMode='current')
     read = c.call('gas/composition/editor', dict(context=working, tradeId=trade_id))['valuation']
     measures = read['measures']
-    assert (measures['label'], measures['discounting']) == ('Remaining contract value + outstanding settlement', 'undiscounted'), measures
-    assert [Fraction(measures[k]) for k in ('remainingDeliveryMtm', 'outstandingSettlement', 'total')] == [remaining_physical + remaining_cash, outstanding, total], measures
+    assert (measures['label'], measures['discounting']) == ('Unrealized + realized unsettled', 'undiscounted'), measures
+    assert [Fraction(measures[k]) for k in ('unrealized', 'realizedUnsettled', 'total')] == [remaining_physical + remaining_cash, outstanding, total], measures
     assert Fraction(read['presentValue']) == total
     assert {datetime.fromisoformat(x['dueAt']).date(): Decimal(x['amount']) for x in measures['expectedCash']} == expected, measures['expectedCash']
     # The booked-trade read the ticket and the trade view draw from carries the same measures and their currency.
     booked = c.call('tickets/trade', dict(context=working, tradeId=trade_id, bindingId=binding, revision=1))
     assert (booked['measures'], booked['currency']) == (measures, read['currency']), booked['measures']
-    print('PASS the in-term read reports remaining delivery MTM, outstanding settlement, their labelled sum and undiscounted expected cash', flush=True)
+    print('PASS the in-term read reports unrealized, realized unsettled, their labelled sum and undiscounted expected cash', flush=True)
 
     # The Side inspector shows each gas day's delivery, price and settlement state.
     position = dict(context={**working, 'convention': 'trading_workspace_v1'}, tradeId=trade_id, bindingId=binding, revision=1, instrumentType='physical_gas')
@@ -228,11 +230,11 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
     assert (september['lifecycle']['cash'], september['paid'], september['outstanding'], september['paidAt'][:10], september['lifecycle']['coverage']) == ('Paid', '-290', '0', '2026-10-10', None), september
     october = cash[date(2026, 10, 15)]
     assert (october['lifecycle']['delivery'], october['lifecycle']['cash'], october['accrued'], october['outstanding'], october['quantityState'], october['lifecycle']['coverage']) == \
-        ('Ended', 'AccruedUnpaid', '-300', '-300', 'contract_estimate_allocation_pending_v1', 'OutstandingSettlement'), october
+        ('Ended', 'AccruedUnpaid', '-300', '-300', 'contract_estimate_allocation_pending_v1', 'RealizedUnsettled'), october
     assert Fraction(october['presentValue']) == -300
     for day in (date(2026, 11, 7), date(2026, 11, 8), date(2026, 11, 9)):
         row = cash[day]
-        assert (row['lifecycle']['delivery'], row['lifecycle']['cash'], row['lifecycle']['coverage'], row['price']) == ('NotStarted', 'Remaining', 'RemainingDeliveryMtm', '3.22'), row
+        assert (row['lifecycle']['delivery'], row['lifecycle']['cash'], row['lifecycle']['coverage'], row['price']) == ('NotStarted', 'Remaining', 'Unrealized', '3.22'), row
         assert 'PublishedFixing' in row['priceStates'] and Fraction(row['presentValue']) == -322, row
     assert cash[date(2026, 11, 6)]['lifecycle']['delivery'] == 'InProgress' and 'Projected' in cash[date(2026, 11, 10)]['priceStates']
     assert sum(Fraction(r['presentValue']) for r in cash.values()) == remaining_cash + outstanding
@@ -240,6 +242,9 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
     assert (gone['lifecycle']['delivery'], gone['lifecycle']['cash'], gone['lifecycle']['coverage'], gone['quantityState'], Fraction(gone['presentValue'])) == \
         ('Ended', 'NotApplicable', None, 'contract_estimate_allocation_pending_v1', 0), gone
     assert physical[date(2026, 11, 6)]['lifecycle']['cash'] == 'NotApplicable' and Fraction(physical[date(2026, 11, 6)]['presentValue']) == 318
+    # Undelivered physical days, fixed or not, read the location curve's mark (here equal to the fixing), never the payment fixing.
+    for day in (date(2026, 11, 6), date(2026, 11, 7), date(2026, 11, 9), date(2026, 11, 10)):
+        assert 'Projected' in physical[day]['priceStates'] and 'PublishedFixing' not in physical[day]['priceStates'] and Fraction(physical[day]['price']) == location[day], physical[day]
     assert sum(Fraction(r['presentValue']) for r in physical.values()) == remaining_physical
     print('PASS the Side inspector shows paid, accrued and remaining gas days with fixed price states, and physical days with no settlement', flush=True)
 
@@ -285,8 +290,35 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
             view=dict(mode='trades', bookIds=[], portfolioIds=[], groupBy=[], measures=[], pivotConvention=None)))['holdings']}
     grouped = lambda value: f'{Decimal(value).normalize():,f}'
     return dict(tradeId=trade_id, instrumentId=binding, tradeReference=refs[trade_id], currency=read['currency'],
-                remainingDeliveryMtm=grouped(remaining_physical + remaining_cash), outstandingSettlement=grouped(outstanding), total=grouped(total),
+                unrealized=grouped(remaining_physical + remaining_cash), realizedUnsettled=grouped(outstanding), total=grouped(total),
                 expectedCash=[grouped(expected[d]) for d in sorted(expected)], determined=dict(determined, tradeReference=refs[determined['tradeId']], amount='-303.8'))
+
+
+def delivery_mark_checks(c, frame, context, body, publish, sources):
+    """D359: a fixed gas day not yet delivered values its physical leg at the location curve's own mark and its payment at the fixing."""
+    nov7 = deepcopy(body); nov7.update(operationId=str(uuid4()))
+    nov7['physicalSides'][0].update(deliveryFrom='2026-11-07', deliveryTo='2026-11-08')
+    working = dict(snapshotId=frame['id'], convention=context['convention'], knowledgeMode='current')
+    def priced(curve):
+        nov7['physicalSides'][0]['forecastCurve'] = {**body['physicalSides'][0]['forecastCurve'], 'curveId': curve['id'], 'version': curve['version']}
+        return nov7
+    premium, unmarked = premium_curve(publish, sources), premium_curve(publish, sources, omit='2026-11-07')
+    c.call('profile', {'profile': 'trader'})
+    # Without a mark for the undelivered day the trade refuses; the published 3.22 fixing never stands in for it.
+    gap = c.call('gas/composition/preview', priced(unmarked), expected=422)
+    assert gap['code'] == 'custom_projection', gap
+    booked = c.call('gas/composition/book', priced(premium))
+    read = c.call('gas/composition/editor', dict(context=working, tradeId=booked['tradeId']))['valuation']
+    # 100 MMBtu received at the 3.40 mark against the index paid at its 3.22 fixing: +18.00, undiscounted.
+    assert [Fraction(read['measures'][k]) for k in ('unrealized', 'realizedUnsettled', 'total')] == [18, 0, 18] and Fraction(read['presentValue']) == 18, read['measures']
+    position = dict(context={**working, 'convention': 'trading_workspace_v1'}, tradeId=booked['tradeId'], bindingId=booked['instrumentId'], revision=1, instrumentType='physical_gas')
+    [physical], [cash] = (c.call('trading/side-schedules', dict(position=position, sideSlot=slot, contribution=None, offset=0, limit=8))['page']['rows'] for slot in (0, 1))
+    assert (physical['price'], Fraction(physical['presentValue']), physical['lifecycle']['coverage']) == ('3.4', 340, 'Unrealized') and 'PublishedFixing' not in physical['priceStates'], physical
+    assert (cash['price'], Fraction(cash['presentValue'])) == ('3.22', -322) and 'PublishedFixing' in cash['priceStates'], cash
+    view = dict(mode='trades', bookIds=[], portfolioIds=[], groupBy=[], measures=[], pivotConvention=None)
+    held = next(h for h in c.call('trading/blotter', dict(context={**working, 'convention': 'trading_workspace_v1'}, view=view))['holdings'] if h['tradeId'] == booked['tradeId'])
+    assert (held['measure'], held['presentValue'], held['unrealized'], held['realizedUnsettled']) == ('gas_lifecycle_value_v1', '18', '18', '0'), held
+    print('PASS a fixed, undelivered gas day delivers at its 3.40 location mark against its 3.22 fixing: unrealized +18; with no mark it refuses', flush=True)
 
 
 def final_determination(c, query, manifest, frame, context, body, load):
@@ -303,7 +335,7 @@ def final_determination(c, query, manifest, frame, context, body, load):
         position = dict(context={**working, 'convention': 'trading_workspace_v1'}, tradeId=trade, bindingId=loaded['instrumentId'], revision=1, instrumentType='physical_gas')
         return c.call('trading/side-schedules', dict(position=position, sideSlot=1, contribution=None, offset=0, limit=8))['page']['rows']
     before = c.call('gas/composition/editor', dict(context=working, tradeId=trade))['valuation']['measures']
-    assert [Fraction(before[k]) for k in ('remainingDeliveryMtm', 'outstandingSettlement', 'total')] == [0, -310, -310], before
+    assert [Fraction(before[k]) for k in ('unrealized', 'realizedUnsettled', 'total')] == [0, -310, -310], before
     assert [r['finalDetermination'] for r in inspected()] == [None]
     obligation = c.call('gas/quantities/read', dict(context=working, tradeId=trade, selectionPolicy='operational_projection_v1'))['rows'][0]['obligationId']
     c.call('gas/quantities/record', dict(context=working, tradeId=trade, expectedRevision=1, operationId=str(uuid4()), obligationId=obligation, kind='allocated', status='final',
@@ -343,7 +375,7 @@ def payment_revision_checks(c, query, manifest, frame, context, body, load):
     def shown(view):
         position = dict(context={**view, 'convention': 'trading_workspace_v1'}, tradeId=loaded['tradeId'], bindingId=loaded['instrumentId'], revision=1, instrumentType='physical_gas')
         [row] = c.call('trading/side-schedules', dict(position=position, sideSlot=1, contribution=None, offset=0, limit=8))['page']['rows']
-        outstanding = c.call('gas/composition/editor', dict(context=view, tradeId=loaded['tradeId']))['valuation']['measures']['outstandingSettlement']
+        outstanding = c.call('gas/composition/editor', dict(context=view, tradeId=loaded['tradeId']))['valuation']['measures']['realizedUnsettled']
         return row['lifecycle']['cash'], row['paidAt'] and row['paidAt'][:10], Fraction(outstanding)
     # The close lies between the two paid instants: the latest known revision applies and is not yet paid.
     assert shown(working) == ('AccruedUnpaid', None, -310), shown(working)
@@ -383,8 +415,8 @@ def refusal_checks(c, query, manifest, frame, body, trade_id, binding, forward, 
     assert (rows[old['tradeId']]['unavailableReason'], rows[old['tradeId']]['presentValue']) == ('gas_delivery_lifecycle', None), rows[old['tradeId']]
     assert (rows[forward['tradeId']]['unavailableReason'], rows[forward['tradeId']]['presentValue']) == ('payment_state', None), rows[forward['tradeId']]
     held = rows[trade_id]
-    assert (held['unavailableReason'], held['presentValue'], held['measureLabel'], held['discounting']) == \
-        (None, '-10855', 'Remaining contract value + outstanding settlement', 'undiscounted'), held
+    assert (held['unavailableReason'], held['presentValue'], held['measure'], held['measureLabel'], held['discounting'], held['unrealized'], held['realizedUnsettled']) == \
+        (None, '-10855', 'gas_lifecycle_value_v1', 'Unrealized + realized unsettled', 'undiscounted', '0', '-10855'), held
     # The inspector shows each refusing Side's retained plan with its own reason: the old trade's started
     # physical Side, and either Side of the trade whose recorded cash refuses.
     for selected, slot, code in ((old, 0, 'gas_delivery_lifecycle'), (forward, 0, 'payment_state'), (forward, 1, 'payment_state')):

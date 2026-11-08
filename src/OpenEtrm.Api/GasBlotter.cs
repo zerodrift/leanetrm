@@ -32,9 +32,9 @@ internal static class GasBlotter
       ?await composition.Read(connection,source.Data,source.Frame,position.Trade,ct)
       :await composition.ReadSinglePoint(connection,source.Data,source.Frame,position.Trade,ct);
      row["presentValue"]=read.Valuation.PresentValue;
-     // A started-delivery trade's headline is its labelled sum, with both parts shown.
+     // A started-delivery trade's headline is its labelled sum under its own measure code, with both components shown.
      if(read.Valuation.Measures is {} measures)
-     {row["measureLabel"]=measures.Label;row["remainingDeliveryMtm"]=measures.RemainingDeliveryMtm;row["outstandingSettlement"]=measures.OutstandingSettlement;row["discounting"]=measures.Discounting;}
+     {row["measure"]=GasPositions.LifecycleMeasure;row["measureLabel"]=measures.Label;row["unrealized"]=measures.Unrealized;row["realizedUnsettled"]=measures.RealizedUnsettled;row["discounting"]=measures.Discounting;}
     }
     catch(MarketDataException error)when(ValuationStatus.PositionSpecific(error)||error.Code is "gas_market_context" or "gas_delivery_lifecycle"||PhysicalLifecycle.TradeRefusal(error.Code))
     {row["unavailableReason"]=error.Code;}

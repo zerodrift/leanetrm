@@ -37,7 +37,7 @@ internal sealed record GasPosition(JsonElement Head,JsonElement Book,ImmutableAr
   executedAt=Head.Text("executed_at"),bookingFacts=new{implementation=Head.Text("booking_implementation"),labelCapturedAt=Head.Text("label_captured_at")},
   executionPrice=(string?)null,fixedPrice=(string?)null,mark=(string?)null,markMinusPrice=(string?)null,executionPnl=(string?)null,
   settlement="unprocessed",measure=GasPositions.Measure,measureLabel="Contractual PV",quantityPolicy="contractual_side_schedules_v1",
-  presentValue=(string?)null,remainingDeliveryMtm=(string?)null,outstandingSettlement=(string?)null,discounting=(string?)null,unavailableReason=(string?)null
+  presentValue=(string?)null,unrealized=(string?)null,realizedUnsettled=(string?)null,discounting=(string?)null,unavailableReason=(string?)null
  },TradingBlotter.Json)!.AsObject();
 }
 
@@ -45,6 +45,9 @@ internal static class GasPositions
 {
  internal const string Type="physical_gas";
  internal const string Measure="gas_contractual_present_value";
+ // A started-delivery trade (D359) reports unrealized plus realized unsettled under its own versioned code; older programs keep Measure.
+ internal const string LifecycleMeasure="gas_lifecycle_value_v1";
+ internal const string LifecycleLabel="Unrealized + realized unsettled";
  internal static async Task<ImmutableArray<GasPosition>> ReadComplete(NpgsqlConnection connection,PreviewManifest manifest,
   ImmutableArray<Guid> books,ImmutableArray<Guid> portfolios,CancellationToken ct,ImmutableHashSet<Guid>? trades=null)
  {

@@ -36,7 +36,7 @@ public static partial class SideScheduleInspection
    var measures=row.Measures.IsEmpty?null:string.Join(",",row.Measures);
    rows.Add(new($"{guard.Output.Ordinal}:0",guard.Output.Operation,state.Kind.ToString(),geometry.From,geometry.To,geometry.Start,geometry.End,
     guard.Output.ObservationFrom,guard.Output.ObservationTo,guard.Output.ValueAt,Value(quantity.Column,quantity.Cell,scale),Value(price.Column,price.Cell,one),
-    Value(contribution.Amount,0,scale),Value(discount.Column,discount.Cell,one),row.RemainingPv.Add(row.OutstandingPv).ToExactString(),row.QuantityBasis,prices,
+    Value(contribution.Amount,0,scale),Value(discount.Column,discount.Cell,one),row.Unrealized.Add(row.RealizedUnsettled).ToExactString(),row.QuantityBasis,prices,
     new ScheduleInspectionLifecycle(row.Delivery.ToString(),due,row.Settlement?.ToString()??"NotApplicable",state.Class?.ToString(),measures,null))
     {QuantitySpecification=quantity.Column.Unit,Currency=contribution.Amount.Currency,QuoteMultiplier=price.Column.QuoteMultiplier,OperatingDate=geometry.OperatingDate,
      Accrued=cash?row.Accrued.ToExactString():null,Paid=cash?row.Paid.ToExactString():null,Outstanding=cash?row.Outstanding.ToExactString():null,PaidAt=row.PaidAt,

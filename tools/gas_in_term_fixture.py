@@ -132,15 +132,7 @@ INSERT INTO security.role_grants SELECT gen_random_uuid(),'{principal}',id,'{TEN
 def custom_curves(publish, sources, catalog):
     """Publish the mixed location curve: daily hub plus basis through November, then one monthly December point."""
     def branch(code, name, hub, basis):
-        weights = [{'outputPosition': i + 1, 'sourcePort': port, 'contractId': c['id'], 'weight': '1'}
-                   for i, pair in enumerate(zip(sources[hub]['contracts'], sources[basis]['contracts'])) for port, c in zip(('source_a', 'source_b'), pair)]
-        return publish({'code': code, 'name': name, 'output': 'output', 'nodes': [
-            {'id': 'hub', 'kind': 'source', 'parameters': {'curve': hub}, 'inputs': {}},
-            {'id': 'basis', 'kind': 'source', 'parameters': {'curve': basis}, 'inputs': {}},
-            {'id': 'mapping', 'kind': 'weighted_contracts', 'parameters': {'aggregation': 'signed_sum_v1'}, 'inputs': {'source_a': 'hub', 'source_b': 'basis'}, 'contractWeights': weights},
-            {'id': 'dates', 'kind': 'dates', 'parameters': {'mode': 'context', 'sampling': 'context_utc_time', 'corrections': 'exact_context_frame_history_latest_visible'}, 'inputs': {}},
-            {'id': 'sample', 'kind': 'sample', 'parameters': {}, 'inputs': {'selection': 'mapping', 'dates': 'dates'}},
-            {'id': 'output', 'kind': 'output', 'parameters': {}, 'inputs': {'values': 'sample'}}]})
+        return daily_branch(publish, sources, code, name, hub, basis)
     daily = branch('synthetic_hub_location_daily', 'Synthetic hub location daily', *SOURCES[:2])
     monthly = branch('synthetic_hub_location_monthly', 'Synthetic hub location monthly', *SOURCES[2:])
     published = lambda saved: {'id': None, 'kind': 'published_source', 'parameters': {'selection': 'all_output_points_v1'}, 'inputs': {},
@@ -149,6 +141,25 @@ def custom_curves(publish, sources, catalog):
         {**published(daily), 'id': 'before'}, {**published(monthly), 'id': 'after'},
         {'id': 'splice', 'kind': 'splice', 'parameters': {'from': '2026-09-01', 'cutover': '2026-12-01', 'to': '2027-01-01', 'implementation': 'whole_delivery_intervals_v1'}, 'inputs': {'before': 'before', 'after': 'after'}},
         {'id': 'output', 'kind': 'output', 'parameters': {}, 'inputs': {'values': 'splice'}}]})
+
+
+def daily_branch(publish, sources, code, name, hub, basis, basis_weight='1', omit=None):
+    """A location curve of hub plus basis_weight times basis per source contract pair; omit leaves out the pair starting that day."""
+    pairs = [pair for pair in zip(sources[hub]['contracts'], sources[basis]['contracts']) if pair[0]['deliveryFrom'] != omit]
+    weights = [{'outputPosition': i + 1, 'sourcePort': port, 'contractId': c['id'], 'weight': weight}
+               for i, pair in enumerate(pairs) for port, c, weight in zip(('source_a', 'source_b'), pair, ('1', basis_weight))]
+    return publish({'code': code, 'name': name, 'output': 'output', 'nodes': [
+        {'id': 'hub', 'kind': 'source', 'parameters': {'curve': hub}, 'inputs': {}},
+        {'id': 'basis', 'kind': 'source', 'parameters': {'curve': basis}, 'inputs': {}},
+        {'id': 'mapping', 'kind': 'weighted_contracts', 'parameters': {'aggregation': 'signed_sum_v1'}, 'inputs': {'source_a': 'hub', 'source_b': 'basis'}, 'contractWeights': weights},
+        {'id': 'dates', 'kind': 'dates', 'parameters': {'mode': 'context', 'sampling': 'context_utc_time', 'corrections': 'exact_context_frame_history_latest_visible'}, 'inputs': {}},
+        {'id': 'sample', 'kind': 'sample', 'parameters': {}, 'inputs': {'selection': 'mapping', 'dates': 'dates'}},
+        {'id': 'output', 'kind': 'output', 'parameters': {}, 'inputs': {'values': 'sample'}}]})
+
+
+def premium_curve(publish, sources, omit=None):
+    """A daily location curve at hub plus 3.25 times basis: the Nov 7-9 weekend strip marks 3.14 + 0.26 = 3.40 against its 3.22 fixing."""
+    return daily_branch(publish, sources, 'synthetic_hub_premium' + ('_gap' if omit else ''), 'Synthetic hub premium location', *SOURCES[:2], '3.25', omit)
 
 
 def trade(context, location, books, setup, curve):

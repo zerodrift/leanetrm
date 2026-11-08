@@ -254,7 +254,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             [(data,frame),..supplemental.IsDefault?[]:supplemental],retainedGraphs is not null,ct);
         foreach(var market in gas)
         {
-            materialized.Add((market.Data,market.Frame,market.Snapshot,market.Portfolio,GasPositions.Measure));
+            materialized.Add((market.Data,market.Frame,market.Snapshot,market.Portfolio,market.Measure));
             evidence.AddRange(market.Evidence);
         }
         var lng=await LngPortfolio.Prepare(connection,database,frame,

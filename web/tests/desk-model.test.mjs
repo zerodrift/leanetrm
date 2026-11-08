@@ -543,6 +543,9 @@ test('gas contractual PV shares the desk without adding receipt and delivery qua
  assert.equal(row.exposure,null);assert.equal(quantityText(row,format),'By physical side');assert.match(noteMeaning(row.quantityNote),/not added/);
  assert.throws(()=>positionRows([{...gas,quantity:'1980'}]),/independent side quantities/);
  const [started]=positionRows([{...gas,presentValue:null,unavailableReason:'gas_delivery_lifecycle'}]);assert.match(started.unavailable,/Delivery has started/);
+ // A started-delivery trade reports its own versioned measure; an unnamed measure is refused.
+ assert.equal(positionRows([{...gas,measure:'gas_lifecycle_value_v1',measureLabel:'Unrealized + realized unsettled',discounting:'undiscounted'}])[0].value,'3200/51');
+ assert.throws(()=>positionRows([{...gas,measure:'gas_value'}]),/value measure/);
 });
 
 test('physical crude displays its exact total volume and independent-side contractual PV',()=>{
