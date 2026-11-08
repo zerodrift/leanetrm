@@ -140,9 +140,6 @@ def run_checks(url, query, manifest):
     assert targets[0] not in remaining and set(targets[1:]) <= remaining, remaining
     rejected(f"SELECT security.resolve_facility_gas_targets('{catalog_id}',ARRAY['{targets[0]}']::uuid[],"
              f"ARRAY['2021-01-01']::date[],'{at}');", 'permission denied')
-    # Pages cannot see a quadratic join over the resolver's materialized stages; the bulk path must keep hashing them.
-    settings = query("SELECT array_to_string(proconfig,',') FROM pg_proc WHERE oid='security.resolve_facility_gas_targets_in_bulk(uuid,uuid[],date[],timestamptz)'::regprocedure;")
-    assert 'enable_nestloop=off' in settings and 'plan_cache_mode=force_custom_plan' in settings, settings
     source_body = dict(kind='source', ledgerId=ledger, expectedPreviousId=None, quantity='100',
                        evidence='Synthetic facility statement')
     source_operation = str(uuid4())

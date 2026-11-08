@@ -61,27 +61,23 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN
  schedule_days AS MATERIALIZED(
   SELECT q.schedule_id,g.operating_days,q.unit_catalog_id,q.unit_revision_id,q.unit_code,q.parameters,g.origin,g.selection,g.lengths,g.step_ticks
   FROM quantity_rows q JOIN trading.side_schedule_grids g ON(g.catalog_id,g.schedule_id,g.ordinal)=(catalog,q.schedule_id,q.grid_ordinal)
-  WHERE cardinality(g.selection)=1 AND g.lengths=ARRAY[1])
- SELECT d.id,d.day,ROW(d.trade_id,d.revision,d.instrument_id,g.unit_catalog_id,g.unit_revision_id,g.unit_code::text,d.product_code::text,
+  WHERE cardinality(g.selection)=1 AND g.lengths=ARRAY[1]),
+ -- These stages have no indexes or useful row estimates. A nested loop between them would be quadratic in
+ -- obligation-days, and a full join cannot run as one; the boundary keeps the planner from reducing it.
+ paired AS MATERIALIZED(
+  SELECT d.id,d.day,d.trade_id,d.revision,d.instrument_id,d.legal_entity_id,d.legal_entity_revision,d.quantity,
+   d.product_code,d.pipeline_code,d.zone_code,d.point_code,d.direction,d.ratio_n,d.ratio_d,
+   g.unit_catalog_id,g.unit_revision_id,g.unit_code,g.parameters,g.origin,g.selection,g.lengths,g.step_ticks
+  FROM members d FULL JOIN schedule_days g ON g.schedule_id=d.schedule_id AND g.operating_days=ARRAY[d.day-date '0001-01-01'])
+ SELECT d.id,d.day,ROW(d.trade_id,d.revision,d.instrument_id,d.unit_catalog_id,d.unit_revision_id,d.unit_code::text,d.product_code::text,
   d.pipeline_code::text,d.zone_code::text,d.point_code::text,d.legal_entity_id,d.legal_entity_revision,d.direction,
-  g.origin+(g.selection[1]*g.step_ticks/10)*interval '1 microsecond',
-  g.origin+((g.selection[1]+g.lengths[1])*g.step_ticks/10)*interval '1 microsecond',
-  (g.parameters->>'numerator')::numeric*d.quantity*d.ratio_n,(g.parameters->>'denominator')::numeric*d.ratio_d)::trading.facility_gas_target
- FROM members d JOIN schedule_days g ON g.schedule_id=d.schedule_id AND g.operating_days=ARRAY[d.day-date '0001-01-01'];
+  d.origin+(d.selection[1]*d.step_ticks/10)*interval '1 microsecond',
+  d.origin+((d.selection[1]+d.lengths[1])*d.step_ticks/10)*interval '1 microsecond',
+  (d.parameters->>'numerator')::numeric*d.quantity*d.ratio_n,(d.parameters->>'denominator')::numeric*d.ratio_d)::trading.facility_gas_target
+ FROM paired d WHERE d.id IS NOT NULL AND d.selection IS NOT NULL;
 END$$;
 ALTER FUNCTION security.resolve_facility_gas_targets(uuid,uuid[],date[],timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.resolve_facility_gas_targets(uuid,uuid[],date[],timestamptz) FROM PUBLIC;
-
--- The resolver's materialized stages carry no useful row estimates, and a nested loop over them is
--- quadratic in requested obligation-days. A catalog-wide request hashes them instead, with a custom
--- plan because plans cached by single-target calls ignore this setting. Single-target calls keep their index plans.
-CREATE FUNCTION security.resolve_facility_gas_targets_in_bulk(catalog uuid,obligations uuid[],flow_days date[],as_of timestamptz)
-RETURNS TABLE(obligation_id uuid,native_day date,target trading.facility_gas_target)
-LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog SET enable_nestloop=off SET plan_cache_mode=force_custom_plan AS $$
- SELECT * FROM security.resolve_facility_gas_targets(catalog,obligations,flow_days,as_of);
-$$;
-ALTER FUNCTION security.resolve_facility_gas_targets_in_bulk(uuid,uuid[],date[],timestamptz) OWNER TO openetrm_security_owner;
-REVOKE ALL ON FUNCTION security.resolve_facility_gas_targets_in_bulk(uuid,uuid[],date[],timestamptz) FROM PUBLIC;
 
 DO $patch$ DECLARE change record;definition text;BEGIN
  FOR change IN SELECT * FROM(VALUES
@@ -150,7 +146,7 @@ $b$,
   resolved AS MATERIALIZED(
    SELECT x.obligation_id,x.native_day,x.target,count(*)OVER(PARTITION BY x.obligation_id,x.native_day) matches
    FROM(SELECT array_agg(r.obligation) obligations,array_agg(r.native_day) flow_days FROM requested r WHERE ledger IS NULL)q
-   CROSS JOIN LATERAL security.resolve_facility_gas_targets_in_bulk(catalog,q.obligations,q.flow_days,as_of)x)
+   CROSS JOIN LATERAL security.resolve_facility_gas_targets(catalog,q.obligations,q.flow_days,as_of)x)
   SELECT r.*,x.target,x.matches FROM requested r LEFT JOIN resolved x ON(x.obligation_id,x.native_day)=(r.obligation,r.native_day)
   ORDER BY r.obligation,r.native_day LOOP
   IF ledger IS NULL THEN

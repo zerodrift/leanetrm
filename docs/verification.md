@@ -4115,14 +4115,19 @@ Scaled comparison: the same preview after the facility check, with 40 more 31-ga
 trades (45 obligations, 45 trades, 1,275 candidate obligation-days, results capped at
 1,001), both definitions installed side by side and read as the trader in the same
 context. The catalog-wide read went from 2,989 ms and 1,160,307 pages to 660 ms and
-50,927 pages. Independent review found that this fixture's shared schedules hid a join
-quadratic in the requested obligation-days, which pages do not show, so bulk requests
-run under `resolve_facility_gas_targets_in_bulk` with nested loops disabled and
-custom plans. At the catalog's 256-gas-trade booking limit (about 7,900 candidate
+50,927 pages. Independent review found a join between two materialized stages that was quadratic
+in the requested obligation-days, which pages do not show. A nested loop cannot
+implement a full join, so that join is written as one inside its own stage. At the catalog's 256-gas-trade booking limit (about 7,900 candidate
 obligation-days, results capped at 1,001), the catalog-wide read went from 16.2 s to
-1.07 s and returned byte-identical JSON, as did the ledger read. The resolver still
+1.04 s and returned byte-identical JSON, as did the ledger read. The resolver still
 processes every candidate before the 1,001-result limit applies, so its cost follows
 the catalog's obligation-days.
+
+Do not set `enable_nestloop=off` on this resolver. A plan that must still nest adds
+the planner's disable cost (about 10^10), which exceeds `jit_above_cost`. The first
+version did this, and hosted CI timed out on a three-trade fixture at the 5-second
+limit, while a local server without JIT support read it in 20 ms. JIT was inferred
+from the plan cost; the runner's server log was not available.
 
 Answers and refusals were compared in that database: 360 catalog, ledger and unknown-ledger
 reads and 732 single-target resolutions across trader and risk profiles, dates, instants
