@@ -3383,7 +3383,7 @@ such a program binds custom curve outputs on its gas-day rows, 0216 also makes
 the gas instrument visibility check ask each distinct custom curve version once
 rather than once per binding; what it checks and answers is unchanged. For the
 same reason a Blotter run's gas valuations share one read of the saved custom
-curve versions under the run's bound context, instead of one read per position.
+curve versions in the run's transaction, instead of one read per position.
 
 **Owner decisions.**
 
