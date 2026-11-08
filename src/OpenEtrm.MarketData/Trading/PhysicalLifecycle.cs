@@ -75,6 +75,8 @@ public sealed record LifecycleMember(BookedSideProgram Program,BookedSideEvaluat
 public static class PhysicalLifecycle
 {
     public const string EstimatedQuantity="contract_estimate_allocation_pending_v1",ContractQuantity="contractual_quantity_v1";
+    // The named value components a started-delivery position reports to risk; they sum to its value.
+    public const string UnrealizedComponent="unrealized",RealizedUnsettledComponent="realizedUnsettled";
     // Refusals that belong to one held trade's terms or recorded cash, not to the shared market: a reader reports them on
     // that trade's row and keeps valuing the others.
     public static bool TradeRefusal(string code)=>code is "physical_lifecycle_unsupported" or "physical_lifecycle_quantity" or
@@ -95,7 +97,7 @@ public static class PhysicalLifecycle
         return program.Document.Instructions.Where(i=>i.Output.Grid is null&&CurvePriceScheduleSource.IsLookup(i.Output.Operation))
             .SelectMany(i=>ScheduleMarketSources.DatedCandidates(i,lookups))
             .Where(lookup=>open.Any(day=>lookup.ForecastDelivery.From<=day&&day<lookup.ForecastDelivery.To))
-            .Select(lookup=>PeriodPriceSelector.DeliveryMarkAt(lookup,snapshot)).Distinct();
+            .Select(lookup=>PeriodPriceSelector.DeliveryMarkAt(lookup,snapshot)).OfType<CurveRequest>().Distinct();
     }
 
     // Valued without its lifecycle state, a started-delivery program would drop its ended gas days and due cash.

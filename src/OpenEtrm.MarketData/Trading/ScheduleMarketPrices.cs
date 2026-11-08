@@ -74,7 +74,9 @@ public sealed partial class ScheduleMarketSources
         var resolved=deliveryMark?PeriodPriceSelector.ResolveDeliveryMark(market,candidates[0],request=>market.Pricing.Price(request,default),request=>market.Pricing.Lineage(request,default)):
             PeriodPriceSelector.Resolve(market,candidates[0],request=>market.Pricing.Price(request,default),request=>market.Pricing.Lineage(request,default));
         RequireUnit(resolved.Price,row);
-        return(resolved.Price,resolved.State==SchedulePriceState.Actual?SchedulePriceFacts.PublishedFixing:SchedulePriceFacts.Projected,new ScheduleDatedPriceEvidence(candidates[0],resolved));
+        // A delivery mark's actual is its contract's final settlement, never a published fixing.
+        return(resolved.Price,resolved.State!=SchedulePriceState.Actual?SchedulePriceFacts.Projected:deliveryMark?SchedulePriceFacts.Actual:SchedulePriceFacts.PublishedFixing,
+            new ScheduleDatedPriceEvidence(candidates[0],resolved));
     }
 
     private (ExactUnitPrice Price,SchedulePriceFacts State,ScheduleSourceEvidence Evidence) Native(BookedSideInstruction instruction,ScheduleDefinitionGrid grid,int cell,string family,IntervalPriceResolver resolver,ValuedAttribute? nativePriceAttribute)

@@ -52,9 +52,11 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         PriceLookups=priceLookups.IsDefault?[..Assignments.Select(a=>a.Lookup).Distinct()]:priceLookups.Distinct().ToImmutableArray();
     }
 
-    // Started-delivery state selects the lifecycle measure, so it is part of the declared model version.
+    // Started-delivery state selects the lifecycle measure and whole gas-day programs their delivery mark policy, so both
+    // are part of the declared model version; older programs keep retained_gas_unit_pv_v1.
     public override UnitPricingContract Declare(UnitValuationContext context) => new(Id,
-        context.BindingState is PhysicalCashState ? PhysicalCashState.Policy + "/retained_gas_unit_pv_v1" : "retained_gas_unit_pv_v1",
+        (context.BindingState is PhysicalCashState ? PhysicalCashState.Policy + "/" : "") +
+        (Members.Any(m => PhysicalLifecycle.ReadsDeliveryMarks(m.Program)) ? PeriodPriceSelector.DeliveryMarkPolicy + "/retained_gas_unit_pv_v2" : "retained_gas_unit_pv_v1"),
         [..PriceLookups.Select(lookup => PeriodPriceSelector.ProjectionAt(lookup, context.Snapshot)).OfType<CurveRequest>()
             .Concat(Members.SelectMany(member => PhysicalLifecycle.DeliveryMarks(member.Program, PriceLookups, context.Snapshot))).Distinct()],
         UnitQuantity.Specification, Currency) { ScheduleIdentity = RetainedScheduleIdentity };
@@ -78,8 +80,10 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
             return base.Value(context);
         }
         var held = state.Quantity.Amount; var negative = held.CompareTo(default) < 0;
-        var unit = EvaluateLifecycle(context).Total.DivideBy(negative ? held * ExactDecimal.Parse("-1") : held);
-        return negative ? unit.Scale(ExactDecimal.Parse("-1")) : unit;
+        ExactMoney Unit(ExactMoney value) { var unit = value.DivideBy(negative ? held * ExactDecimal.Parse("-1") : held); return negative ? unit.Scale(ExactDecimal.Parse("-1")) : unit; }
+        var lifecycle = EvaluateLifecycle(context);
+        context.RecordComponents([new(PhysicalLifecycle.UnrealizedComponent, Unit(lifecycle.Unrealized)), new(PhysicalLifecycle.RealizedUnsettledComponent, Unit(lifecycle.RealizedUnsettled))]);
+        return Unit(lifecycle.Total);
     }
 
     public override void ValidateValuationState(IBindingValuationState? state)

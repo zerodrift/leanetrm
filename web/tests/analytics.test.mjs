@@ -140,3 +140,11 @@ test('a commodity pivot tells commodities apart by code and labels them by name'
  assert.equal(new Set(panel.series[0].points.map(p=>p.x)).size,2);
  assert.throws(()=>pivotMatrix([{...groups[0],commodity:undefined}],['commodity','instrumentType'],['instrumentType'],['quantity']));
 });
+test('groups of one instrument type under two value measures stay two named rows, never combined',()=>{
+ const common={bookId:'a',book:'A',instrumentType:'physical_gas',unit:'EA',currency:'TST',currencyReference:{code:'c'},quantitySpecification:{code:'q'}};
+ const groups=[{...common,measure:'gas_contractual_present_value',measureLabel:'Contractual PV',presentValue:'64'},
+  {...common,measure:'gas_lifecycle_value_v1',measureLabel:'Unrealized + realized unsettled',presentValue:'18'}];
+ const result=pivotMatrix(groups,['book','instrumentType'],['instrumentType'],['presentValue']);
+ assert.deepEqual(result.rows.map(r=>[r.measure,r[result.columns.at(-1).key]]),[['Contractual PV','64'],['Unrealized + realized unsettled','18']]);
+ assert.equal(result.columns.find(c=>c.key==='measure').title,'Value measure');
+});

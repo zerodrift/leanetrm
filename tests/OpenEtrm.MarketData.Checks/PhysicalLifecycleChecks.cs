@@ -109,8 +109,25 @@ internal static class PhysicalLifecycleChecks
             "Nov 7 delivers at its 3.40 mark and pays its 3.22 fixing.");
         Equal(demo.Headline(Demo.Close,paid,Demo.Undiscounted,(nov7,"3.4")),"-10837");
         var physicalNovember=demo.Evaluate(11,Demo.Close,physical:true,marked:(nov7,"3.4"));
-        // The location's fixed 0.00 adjustment adds its own fixed price fact.
-        Require(physicalNovember.Contributions.Skip(5).Take(4).All(c=>c.Amount.States[0].Prices==(SchedulePriceFacts.Projected|SchedulePriceFacts.Fixed)),"Nov 6-9 deliver at the curve mark, not the published fixing.");
+        // The location's fixed 0.00 adjustment adds its own fixed price fact. Nov 6's contract expired as its gas day started, so it
+        // delivers at that contract's final settlement (delivery_mark_final_settlement_v1); Nov 7-9 at their live marks.
+        Require(physicalNovember.Contributions[5].Amount.States[0].Prices==(SchedulePriceFacts.Actual|SchedulePriceFacts.Fixed)&&
+            physicalNovember.Contributions.Skip(6).Take(3).All(c=>c.Amount.States[0].Prices==(SchedulePriceFacts.Projected|SchedulePriceFacts.Fixed)),"Nov 6-9 deliver at the curve, not the published fixing.");
+        // Nov 6 settled finally at 3.30 against its 3.18 fixing: +12.00. Without that settlement the in-progress day refuses.
+        var nov6=new DateOnly(2026,11,6);
+        Equal(demo.Value(Demo.Close,paid,Demo.Undiscounted,marked:(nov6,"3.3")).Unrealized,"12");
+        Reject("delivery_mark_final_settlement",()=>demo.Value(Demo.Close,paid,Demo.Undiscounted,marked:(nov6,null)));
+        Reject("delivery_mark_final_settlement",()=>demo.Headline(Demo.Close,paid,Demo.Undiscounted,(nov6,null)));
+        Require(demo.ModelVersion(Demo.Close,paid)=="physical_whole_day_accrual_v1/delivery_mark_final_settlement_v1/retained_gas_unit_pv_v2"&&
+            demo.ModelVersion(Demo.Close,null)=="delivery_mark_final_settlement_v1/retained_gas_unit_pv_v2","The started lifecycle names its delivery mark policy in its model version.");
+        // Retained risk carries both components per position under the same pinned scenarios: a bump to Nov 7's mark moves
+        // unrealized alone, and the components sum to the position's value in base, up and down.
+        var risk=demo.Risk(Demo.Close,paid,nov7);
+        var components=risk.Factors.Single().Positions.Single().Components;var basePosition=risk.BasePositions.Single();
+        Require(components.Select(c=>(c.Name,c.Base.ToExactString(),c.Up.ToExactString(),c.Down.ToExactString())).SequenceEqual(
+            [(PhysicalLifecycle.UnrealizedComponent,"0","100","-100"),(PhysicalLifecycle.RealizedUnsettledComponent,"-10855","-10855","-10855")])&&
+            risk.Factors.Single().Positions.Single().Values is {} v&&v.Up.ToExactString()=="-10755"&&v.Down.ToExactString()=="-10955"&&
+            basePosition.Components.Select(c=>c.Value.ToExactString()).SequenceEqual(["0","-10855"]),"Risk positions carry unrealized and realized unsettled for base and each scenario.");
         // A shock to Nov 7's mark moves its physical day alone; the fixed payment does not move.
         var markShocked=demo.Value(Demo.Close,paid,Demo.Undiscounted,shift:"1",marked:(nov7,"3.4"),shocked:d=>d==nov7);
         Equal(markShocked.Unrealized,"118");
@@ -191,6 +208,7 @@ internal static class PhysicalLifecycleChecks
         private readonly Curve curve;
         private readonly ImmutableArray<MarketContract> days;
         private readonly ImmutableArray<IndexFixing> fixings;
+        private readonly ImmutableArray<MarketSeries> series;
         private readonly ImmutableArray<GasValuationAssignment> assignments;
         private readonly CurveModel model;
         private readonly ImmutableArray<FloatingSide> payments;
@@ -204,6 +222,7 @@ internal static class PhysicalLifecycleChecks
         // Prices per MMBtu chosen to reproduce the table: Nov 10-30 sum to 68.09 and December is 3.52.
         private static string Price(DateOnly day)=>day.Month switch{9=>"2.9",10=>"3",12=>"3.52",_=>day.Day switch{<=5=>"3.11",6=>"3.18",<=9=>"3.22",30=>"3.29",_=>"3.24"}};
         // Synthetic publisher: one final fixing at 12:00 Central on the prior weekday; Friday's prices Saturday to Monday.
+        private static DateTimeOffset GasDayStart(DateOnly day)=>new DateTimeOffset(day.ToDateTime(new TimeOnly(9,0)),Central).ToUniversalTime();
         private static DateTimeOffset Published(DateOnly day)
         {
             var at=day.AddDays(-1);while(at.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday)at=at.AddDays(-1);
@@ -215,12 +234,14 @@ internal static class PhysicalLifecycleChecks
             quote=new(f.R("synthetic_gas_quote"),QuoteKind.Outright,f.R("currency"),f.Quantities[0].Key,ExactDecimal.Parse("1"),
                 ExactDecimal.Parse("0.001"),ExactDecimal.Parse("0.001"),ExactDecimal.Parse("-1000"),ExactDecimal.Parse("1000"));
             var dates=Enumerable.Range(0,122).Select(new DateOnly(2026,9,1).AddDays).ToArray();
-            // Each daily contract stays marked until the day after its delivery, past its gas day on either synthetic clock.
-            days=[..dates.Select((d,n)=>new MarketContract(f.K(100+n),ContractKind.Forward,d,d.AddDays(1),new(d.AddDays(2).ToDateTime(TimeOnly.MinValue),TimeSpan.Zero),null))];
-            var series=days.Select((d,n)=>new MarketSeries(f.S(100+n),d.Key,quote.Key,null)).ToImmutableArray();
+            // Each daily curve contract trades until its gas day starts, then settles finally; the index publishes on its own series.
+            days=[..dates.Select((d,n)=>new MarketContract(f.K(100+n),ContractKind.Forward,d,d.AddDays(1),GasDayStart(d),null))];
+            var index=dates.Select((d,n)=>new MarketContract(f.K(300+n),ContractKind.Forward,d,d.AddDays(1),Published(d),null)).ToArray();
+            series=[..days.Select((d,n)=>new MarketSeries(f.S(100+n),d.Key,quote.Key,null))];
+            var indexSeries=index.Select((d,n)=>new MarketSeries(f.S(300+n),d.Key,quote.Key,null)).ToArray();
             curve=f.Direct("synthetic_daily_gas",days[0].Key,quote.Key,SettlementKind.Index) with{Constituents=[..days.Select(d=>d.Key)]};
-            model=new(f.Revision,f.Reference,[f.Quantities[0]],[quote],days,[curve],[],[],series);
-            fixings=[..days.Select((d,n)=>new IndexFixing(f.R("index"),quote.Key,d.DeliveryFrom,d.DeliveryTo,Published(d.DeliveryFrom),series[n].Key,f.R("synthetic_publisher"),IndexFixing.SupportedImplementation))];
+            model=new(f.Revision,f.Reference,[f.Quantities[0]],[quote],[..days,..index],[curve],[],[],[..series,..indexSeries]);
+            fixings=[..days.Select((d,n)=>new IndexFixing(f.R("index"),quote.Key,d.DeliveryFrom,d.DeliveryTo,Published(d.DeliveryFrom),indexSeries[n].Key,f.R("synthetic_publisher"),IndexFixing.SupportedImplementation))];
             var settlement=PriceSettlementSelection.CurveTarget(f.R("index"));
             location=new GasDeliveryLocation(f.R("pipeline"),f.R("zone"),f.R("henry_hub"));
             var clock=GasDayClock.Capture(f.R("synthetic_gas_clock"),TimeZoneInfo.CreateCustomTimeZone("synthetic_fixed_minus_six",Central,"synthetic","synthetic"),9*60);
@@ -254,17 +275,18 @@ internal static class PhysicalLifecycleChecks
             [..Enumerable.Range(0,30).Select(n=>Payment(Months,n,Fixture.Utc("2026-10-10T00:00:00Z"),knownAt,"-290"))];
         internal PhysicalCashState State(ImmutableArray<CashOccurrencePayment> paid)=>new(Trade.Id,Binding,Held,paid,PhysicalCashState.Policy);
 
-        // Fixings visible at the instant and a mark for every live contract, equal to its fixing unless `marked` sets
-        // one day's mark (a null price leaves that day unmarked); the knowledge cutoff is the close.
+        // Fixings visible at the instant; each curve contract's live mark, or its final settlement once expired, equal to the
+        // fixing unless `marked` sets one day's (a null price leaves that day with neither); the knowledge cutoff is the close.
         private MarketSnapshot Snapshot(DateTimeOffset at,(DateOnly Day,string Price)? revised,(DateOnly Day,string? Price)? marked=null)
         {
-            SelectedObservation Observation(int n,InputUse use,ObservationRole role,DateTimeOffset observed,string value)=>new(new(fixings[n].Series,use),
-                new(new(f.Revision.CatalogId,Guid.NewGuid()),fixings[n].Series,use==InputUse.FrozenFact?f.R("synthetic_publisher"):f.R("source"),role,PublicationState.Final,observed,ExactDecimal.Parse(value)));
+            SelectedObservation Observation(SeriesKey key,InputUse use,ObservationRole role,ReferenceKey source,DateTimeOffset observed,string value)=>new(new(key,use),
+                new(new(f.Revision.CatalogId,Guid.NewGuid()),key,source,role,PublicationState.Final,observed,ExactDecimal.Parse(value)));
             var selections=Enumerable.Range(0,days.Length).SelectMany(n=>
             {
-                var day=days[n].DeliveryFrom;var mark=marked?.Day==day?marked.Value.Price:Price(day);
-                return (fixings[n].FixingAt<=at?[Observation(n,InputUse.FrozenFact,ObservationRole.IndexFixing,fixings[n].FixingAt,revised?.Day==day?revised.Value.Price:Price(day))]:Array.Empty<SelectedObservation>())
-                    .Concat(at<days[n].Expiry&&mark is not null?[Observation(n,InputUse.Variable,ObservationRole.TraderMark,at,mark)]:Array.Empty<SelectedObservation>());
+                var day=days[n].DeliveryFrom;var mark=marked?.Day==day?marked.Value.Price:Price(day);var live=at<days[n].Expiry;
+                return (fixings[n].FixingAt<=at?[Observation(fixings[n].Series,InputUse.FrozenFact,ObservationRole.IndexFixing,f.R("synthetic_publisher"),fixings[n].FixingAt,revised?.Day==day?revised.Value.Price:Price(day))]:Array.Empty<SelectedObservation>())
+                    .Concat(mark is null?[]:[live?Observation(series[n].Key,InputUse.Variable,ObservationRole.TraderMark,f.R("source"),at,mark):
+                        Observation(series[n].Key,InputUse.FrozenFact,ObservationRole.FinalContractSettlement,f.R("source"),days[n].Expiry,mark)]);
             });
             return new MarketSnapshot(Guid.NewGuid(),f.Revision,at,at,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,[..selections]).WithKnowledge(Guid.NewGuid(),at);
         }
@@ -328,6 +350,18 @@ internal static class PhysicalLifecycleChecks
             var future=new Trade(Guid.NewGuid(),Guid.NewGuid(),[new(Guid.NewGuid(),previous,Held)]);
             var (prepared,_)=Prepare([..started?[Trade]:Array.Empty<Trade>(),..old?[future]:Array.Empty<Trade>()],at,started?State(paid):null,Undiscounted);
             return RiskEngine.CalculateExact(prepared,[],RiskEngine.ExactNumericalPolicy).Groups.Single().BaseValues.Single().Value.ToExactString();
+        }
+        internal string ModelVersion(DateTimeOffset at,ImmutableArray<CashOccurrencePayment>? paid)
+        {
+            var snapshot=Snapshot(at,null);var setup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,Undiscounted);
+            return Instrument.Declare(new UnitValuationContext(snapshot,setup).ForCoverage(null,paid is {} p?State(p):null)).ModelVersion;
+        }
+        // One symmetric +/-1 bump to the selected day's curve mark through the connected risk engine.
+        internal ConnectedBookRiskRun Risk(DateTimeOffset at,ImmutableArray<CashOccurrencePayment> paid,DateOnly day)
+        {
+            var (prepared,_)=Prepare([Trade],at,State(paid),Undiscounted);var n=days.IndexOf(days.Single(d=>d.DeliveryFrom==day));
+            return RiskEngine.CalculateExact(prepared,[new ConnectedRiskBump(CurveShockCoordinate.MarketQuote,new ContractCurveTarget(curve.Key,days[n].Key),PriceUnit.FromQuote(quote),
+                ExactDecimal.Parse("1"),ConnectedRiskBump.Convention)],RiskEngine.ExactNumericalPolicy).Groups.Single();
         }
         // The retained November payment program evaluated through the same sources the instrument uses.
         internal BookedSideEvaluation Evaluate(int month,DateTimeOffset at,bool physical=false,(DateOnly,string?)? marked=null)

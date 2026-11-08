@@ -439,7 +439,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                 {
                     contributions.AddRange(group.BaseValues.Select(v=>(measure,v.BookId,Unchanged(v.Value,bump))));
                     holdingRisk.AddRange(group.BasePositions.Select(p=>new PortfolioHoldingRisk(measure,bump.Axis.Id,
-                        new(p.TradeId,p.BindingId,p.BookId,p.ValuationId,Unchanged(p.Value,bump)))));
+                        new(p.TradeId,p.BindingId,p.BookId,p.ValuationId,Unchanged(p.Value,bump))
+                        {Components=[..p.Components.Select(c=>new ComponentRiskValues(c.Name,c.Value,c.Value,c.Value))]})));
                 }
                 else
                 {

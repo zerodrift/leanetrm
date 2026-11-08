@@ -3371,7 +3371,23 @@ lookup.
   `realizedUnsettled`, `total`, label "Unrealized + realized unsettled"), and
   started-lifecycle trades report the new versioned risk measure
   `gas_lifecycle_value_v1`, valued in their own measure group. Older programs and
-  stored history keep `gas_contractual_present_value`.
+  stored history keep `gas_contractual_present_value`. The retained programs, not
+  the valuation's outcome, select the code, so a refusing started trade keeps it.
+  Each risk position under it carries `unrealized` and `realizedUnsettled` for the
+  base and both scenarios of every bump, from the same valuation, summing exactly
+  to its values. The Blotter keeps groups apart by measure code and the desk labels
+  and totals each separately; nothing adds across measure codes.
+
+**Controller ruling, pending owner confirmation.** `delivery_mark_final_settlement_v1`:
+before its curve contract expires, an undelivered gas day's physical mark is that
+contract's live curve mark; after expiry and until the gas day ends, it is that
+contract's own recorded final settlement observation pinned by the context. A
+missing settlement refuses with `delivery_mark_final_settlement`; no earlier mark
+is carried forward and the payment fixing never stands in. A custom-curve
+projection records no contract settlement, so after its lookup contract expires it
+refuses the same way. The policy is named in the model version
+(`delivery_mark_final_settlement_v1/retained_gas_unit_pv_v2`, prefixed by the
+accrual policy with lifecycle state); older programs keep `retained_gas_unit_pv_v1`.
 
 **What is built, and where it departs from the design.**
 
@@ -3380,10 +3396,10 @@ lookup.
   the mark of each lookup that still prices a gas day not yet ended
   (`PhysicalLifecycle.DeliveryMarks`), through both the retained instrument and
   the composition store. A curve shock to such a day's mark moves its physical
-  leg and not its fixed payment. The managed demo's daily contracts stay marked
-  through their gas day; the preview's physical assignment is the monthly
-  location index, whose fixing publishes after the month, so its physical leg
-  already read the curve.
+  leg and not its fixed payment. The managed demo's daily contracts expire as their
+  gas day starts and settle finally, so its in-progress day reads that settlement;
+  the preview's physical assignment is the monthly location index, whose fixing
+  publishes after the month, so its physical leg already read the curve.
 - Gas compositions keep their explicit `discounting: false`. Both measures are
   therefore undiscounted, are labelled
   `discounting: "undiscounted"` in the API and shown so in the UI, and are never
@@ -3455,4 +3471,4 @@ duplicated; the inspector values the whole instrument per
 slot request; and a fixing corrected to exactly zero after full payment refuses
 instead of reading Overpaid.
 
-Local verification on 2026-11-07, after the owner follow-up: `python3 tools/check_all.py --group trading` passed, with 3579 PASS lines, 716 owned browser checks over 20 browser runs and 1476 web unit tests; the MarketData checks (827 PASS lines, and `--physical-lifecycle`), the Api checks (97 PASS lines), and `run_preview.py --gas-in-term-check --browser-check` (7 browser checks) and `--gas-indexed-check --browser-check` (9 browser checks) passed.
+Local verification on 2026-11-08, after the owner follow-up and review round 1: `python3 tools/check_all.py --group trading` passed, with 3580 PASS lines, 716 owned browser checks over 20 browser runs and 1478 web unit tests; the MarketData checks (827 PASS lines, and `--physical-lifecycle`), the Api checks (98 PASS lines), and `run_preview.py --gas-in-term-check --browser-check` (7 browser checks) and `--gas-indexed-check --browser-check` (9 browser checks) passed.

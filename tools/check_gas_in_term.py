@@ -269,10 +269,17 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
     job = c.call('portfolio/risk/jobs', dict(requestId=str(uuid4()), request=request)); run_worker()
     done = c.call('portfolio/risk/jobs/' + job['id'])
     assert done['state'] == 'completed' and financial(done['result']) == financial(result), done
-    for factor in result['factors']:
-        values = factor['positions'][0]['values']
+    for factor, worked in zip(result['factors'], done['result']['factors']):
+        [position] = factor['positions']; values = position['values']
         moved = covered(factor['factor']) & {d for d in days if fixed(d) and not ended(d)}
         assert Fraction(values['base']) == total and Fraction(values['delta']) == 100 * len(moved), (factor['factor'], values)
+        # Each position carries both components under the same scenarios; they sum to its values, and only unrealized moves.
+        parts = position['components']
+        assert position['measure'] == 'gas_lifecycle_value_v1' and set(parts) == {'unrealized', 'realizedUnsettled'}, position
+        assert all(sum(Fraction(parts[k][s]) for k in parts) == Fraction(values[s]) for s in ('base', 'up', 'down')), position
+        assert {s: Fraction(parts['realizedUnsettled'][s]) for s in ('base', 'up', 'down')} == dict.fromkeys(('base', 'up', 'down'), outstanding), parts
+        assert Fraction(parts['unrealized']['base']) == remaining_physical + remaining_cash, parts
+        assert worked['positions'][0]['components'] == parts, 'The risk worker reports the same components'
     c.call('profile', {'profile': 'trader'})
     # The worker reads payments only within a claimed lease and never writes them.
     assert query("BEGIN;SET LOCAL SESSION AUTHORIZATION preview_risk_worker;SELECT count(*) FROM trading.gas_cash_payments;ROLLBACK;") == '0'
@@ -414,6 +421,14 @@ def refusal_checks(c, query, manifest, frame, body, trade_id, binding, forward, 
     rows = {h['tradeId']: h for h in c.call('trading/blotter', dict(context=working, view=view))['holdings']}
     assert (rows[old['tradeId']]['unavailableReason'], rows[old['tradeId']]['presentValue']) == ('gas_delivery_lifecycle', None), rows[old['tradeId']]
     assert (rows[forward['tradeId']]['unavailableReason'], rows[forward['tradeId']]['presentValue']) == ('payment_state', None), rows[forward['tradeId']]
+    # The retained programs select the measure, so a refusing started trade keeps its own; the old programs keep contractual PV.
+    assert (rows[forward['tradeId']]['measure'], rows[forward['tradeId']]['measureLabel']) == ('gas_lifecycle_value_v1', 'Unrealized + realized unsettled'), rows[forward['tradeId']]
+    assert (rows[old['tradeId']]['measure'], rows[old['tradeId']]['measureLabel']) == ('gas_contractual_present_value', 'Contractual PV'), rows[old['tradeId']]
+    # Totals never add across measure codes: each instrument-type group names its own.
+    pivot = dict(mode='pivot', bookIds=[], portfolioIds=[], groupBy=['instrumentType'], measures=['presentValue', 'tradeCount'], pivotConvention='trading_blotter_money_totals_v1')
+    groups = [g for g in c.call('trading/blotter', dict(context=working, view=pivot))['groups'] if g['instrumentType'] == 'physical_gas']
+    assert sorted(g['measure'] for g in groups) == ['gas_contractual_present_value', 'gas_lifecycle_value_v1'], groups
+
     held = rows[trade_id]
     assert (held['unavailableReason'], held['presentValue'], held['measure'], held['measureLabel'], held['discounting'], held['unrealized'], held['realizedUnsettled']) == \
         (None, '-10855', 'gas_lifecycle_value_v1', 'Unrealized + realized unsettled', 'undiscounted', '0', '-10855'), held

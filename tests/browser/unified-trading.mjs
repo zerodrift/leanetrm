@@ -15,7 +15,8 @@ export async function run(a){
  await evaluate(workspaceProbeScript+`{const original=window.fetch;window.tradeReads=[];window.fetch=window.__workspaceProbe(original,async(input,init,original)=>{const args=[input,init];const r=await original(...args);if(String(args[0]).endsWith('/trading/workspace')&&r.ok)window.tradeReads.push(await r.clone().json());return r;});}`);
  await selectDeliveryFrame(a,'2020-12-18');await click('#nav-futures');
  await check('one blotter includes futures, financial swaps, heat rates, PPAs and physical gas',`['future','financial_swap','heat_rate','ppa','physical_gas'].every(t=>window.tradeReads.at(-1)?.blotter.holdings.some(h=>h.instrumentType===t))`,`({types:window.tradeReads.at(-1)?.blotter.holdings.map(h=>h.instrumentType),error:document.querySelector('#error').textContent})`);
- await check('gas has an explicit contractual PV measure in the common workspace',`[...document.querySelectorAll('#blotter-strip .strip-item .strip-label')].some(l=>l.textContent==='Gas contractual PV')`);
+ // Its gas compositions select the started-delivery lifecycles, so their total is their own measure (D359), apart from contractual PV.
+ await check('gas has an explicit lifecycle value measure in the common workspace',`[...document.querySelectorAll('#blotter-strip .strip-item .strip-label')].some(l=>l.textContent==='Gas unrealized + realized unsettled')`);
  await capture('unified-blotter');
  for(const [product,selector] of [['futures','#futures-new-trade'],['swaps','#swap-editing'],['ppa','#ppa-page'],['gas','#gas-page']]){
   await newTrade(a,product);

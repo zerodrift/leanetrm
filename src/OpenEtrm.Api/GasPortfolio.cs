@@ -51,7 +51,7 @@ internal static class GasPortfolio
      instrument.Id,instrument.Id,book,measure,group.Key,int.Parse(position.Head.Text("publication_order"),CultureInfo.InvariantCulture),quantity)
      {TradeReference=TradingReference.Trade(position.Head),InstrumentReference=TradingReference.Instrument(position.Head),InstrumentType=GasPositions.Type}));
    }
-   // Both admitted fixed gas profiles explicitly select undiscounted contractual PV.
+   // Both admitted gas profiles explicitly select no discounting; each measure code is its own portfolio group.
    foreach(var measured in held.GroupBy(h=>h.Measure).OrderBy(g=>g.Key,StringComparer.Ordinal))
    {
     var portfolio=ValuationPortfolio.FromTrades([..measured.Select(h=>h.Trade)],new(ValuationMeasure.PresentValue,

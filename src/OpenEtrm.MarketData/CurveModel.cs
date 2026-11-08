@@ -145,6 +145,8 @@ public sealed partial class CurveModel
             curve.Settlement.IndexB is not null || quote.Kind != QuoteKind.Outright || contract.Kind != ContractKind.Forward)
             Fail("swap_definition", "A floating projection requires the exact model-owned outright index contract and quote.");
     }
+    internal SeriesKey PriceSeries(ContractKey contract, ReferenceKey quote) => priceSeries.TryGetValue((contract, quote), out var key) ? key :
+        throw new MarketDataException("missing_series", "The contract requires its exact price series.");
     internal void RequireIndexFixing(IndexPriceLookup lookup, IndexFixing fixing)
     {
         if (fixing.Index != lookup.Index || fixing.Quote != lookup.Quote.Key ||

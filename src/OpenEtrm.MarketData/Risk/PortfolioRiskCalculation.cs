@@ -75,7 +75,7 @@ public static partial class RiskEngine
         }
     }
     private static ImmutableArray<ExactRiskPositionValue> BasePositions(ValuationPortfolio portfolio,PortfolioValue value,RiskDetail detail)=>
-        detail==RiskDetail.Books?[]:portfolio.Positions.Select((position,n)=>new ExactRiskPositionValue(position.TradeId,position.BindingId,position.BookId,position.ValuationId,value.Positions[n])).ToImmutableArray();
+        detail==RiskDetail.Books?[]:portfolio.Positions.Select((position,n)=>new ExactRiskPositionValue(position.TradeId,position.BindingId,position.BookId,position.ValuationId,value.Positions[n]){Components=value.PositionComponents[n]}).ToImmutableArray();
     private static (ImmutableArray<ExactRiskBookTotal> Totals,ImmutableArray<ExactRiskPositionResult> Positions) MeasurePortfolio(
         ValuationPortfolio portfolio,PortfolioValue basis,PortfolioValue up,PortfolioValue down,ExactDecimal size,PriceUnit unit,RiskDetail detail,CancellationToken cancellation)
     {
@@ -90,7 +90,8 @@ public static partial class RiskEngine
         {
             cancellation.ThrowIfCancellationRequested();var position=portfolio.Positions[n];
             positions.Add(new(position.TradeId,position.BindingId,position.BookId,position.ValuationId,
-                ExactRepricing.Measure(basis.Positions[n],up.Positions[n],down.Positions[n],size,unit)));
+                ExactRepricing.Measure(basis.Positions[n],up.Positions[n],down.Positions[n],size,unit))
+                {Components=[..basis.PositionComponents[n].Select((c,k)=>new ComponentRiskValues(c.Name,c.Value,up.PositionComponents[n][k].Value,down.PositionComponents[n][k].Value))]});
         }
         return(totals.MoveToImmutable(),positions.MoveToImmutable());
     }

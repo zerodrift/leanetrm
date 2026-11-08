@@ -28,13 +28,17 @@ internal static class GasBlotter
      if(!sources.TryGetValue(position.Definition,out var source))
      {source=await PhysicalMarketSelection.Gas.Read(database,connection,frame,ct,position.Trade);sources.Add(position.Definition,source);}
      // A single-point trade is valued as the composition it is, from its own retained programs (GasCompositionStore.ReadSinglePoint).
-     var read=position.Head.GetProperty("composition").GetBoolean()
-      ?await composition.Read(connection,source.Data,source.Frame,position.Trade,ct)
-      :await composition.ReadSinglePoint(connection,source.Data,source.Frame,position.Trade,ct);
-     row["presentValue"]=read.Valuation.PresentValue;
-     // A started-delivery trade's headline is its labelled sum under its own measure code, with both components shown.
-     if(read.Valuation.Measures is {} measures)
-     {row["measure"]=GasPositions.LifecycleMeasure;row["measureLabel"]=measures.Label;row["unrealized"]=measures.Unrealized;row["realizedUnsettled"]=measures.RealizedUnsettled;row["discounting"]=measures.Discounting;}
+     var execution=position.Head.GetProperty("composition").GetBoolean()
+      ?await composition.Load(connection,source.Data,source.Frame,position.Trade,ct)
+      :await composition.LoadSinglePoint(connection,source.Data,source.Frame,position.Trade,ct);
+     // The retained programs, not the valuation's outcome, select the measure: a refusing started trade keeps its own.
+     // Started compositions admit only their explicit no-discounting selection, which the label states.
+     if(execution.Started){row["measure"]=GasPositions.LifecycleMeasure;row["measureLabel"]=GasPositions.LifecycleLabel;if(execution.Terms.Discounting==false)row["discounting"]="undiscounted";}
+     var valuation=await composition.Value(connection,source.Data,source.Frame,execution,ct);
+     row["presentValue"]=valuation.PresentValue;
+     // A started-delivery trade's headline is its labelled sum, with both components shown.
+     if(valuation.Measures is {} measures)
+     {row["unrealized"]=measures.Unrealized;row["realizedUnsettled"]=measures.RealizedUnsettled;}
     }
     catch(MarketDataException error)when(ValuationStatus.PositionSpecific(error)||error.Code is "gas_market_context" or "gas_delivery_lifecycle"||PhysicalLifecycle.TradeRefusal(error.Code))
     {row["unavailableReason"]=error.Code;}

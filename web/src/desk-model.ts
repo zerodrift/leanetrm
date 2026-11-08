@@ -76,7 +76,7 @@ const commodityOf=(group:PivotGroup)=>{const named=group.commodity as {code?:unk
 const byText=(a:string,b:string)=>a<b?-1:a>b?1:0;
 
 // The measure, labels and pill of each instrument type the Blotter holds.
-const instruments:Readonly<Record<string,{measure:'presentValue'|'executionPnl';label:'PV'|'P&L'|'Value excl. overdue'|'Contractual PV';pill:DeskRow['pill'];plural:string;price:'executionPrice'|'fixedPrice'|'premium';priceLabel:DeskRow['priceLabel']}>>={
+const instruments:Readonly<Record<string,{measure:'presentValue'|'executionPnl';label:'PV'|'P&L'|'Value excl. overdue'|'Contractual PV'|'Unrealized + realized unsettled';pill:DeskRow['pill'];plural:string;price:'executionPrice'|'fixedPrice'|'premium';priceLabel:DeskRow['priceLabel']}>>={
   future:{measure:'executionPnl',label:'P&L',pill:'FUT',plural:'Futures',price:'executionPrice',priceLabel:'Executed'},
   heat_rate:{measure:'presentValue',label:'PV',pill:'HEAT',plural:'Heat-rate swaps',price:'fixedPrice',priceLabel:'Fixed'},
   physical_lng:{measure:'presentValue',label:'Contractual PV',pill:'LNG',plural:'Physical LNG',price:'fixedPrice',priceLabel:'Fixed'},
@@ -89,6 +89,10 @@ const instruments:Readonly<Record<string,{measure:'presentValue'|'executionPnl';
 /** The value cells an instrument type shows: its mark and its own value measure; a position the close cannot value says why in them. */
 export const valueFields=(instrumentType:string)=>['mark',instrument(instrumentType).measure];
 function instrument(type:unknown){if(typeof type!=='string'||!Object.hasOwn(instruments,type))throw Error('The Blotter returned an unknown instrument type.');return instruments[type];}
+// Started-delivery gas reports its own value measure (D359): labelled, and totalled by the backend, apart from contractual PV.
+const gasLifecycleMeasure='gas_lifecycle_value_v1';
+const lifecycleOf=(g:{instrumentType?:unknown;measure?:unknown})=>g.instrumentType==='physical_gas'&&g.measure===gasLifecycleMeasure;
+const valueLabel=(g:{instrumentType?:unknown;measure?:unknown})=>lifecycleOf(g)?'Unrealized + realized unsettled' as const:instrument(g.instrumentType).label;
 
 /** The start of each id, at least eight characters and never cut at a separator, that no other id of the set starts with. */
 function shortIds(ids:Iterable<string>):Map<string,string>{
@@ -145,18 +149,19 @@ function statedTotal(group:PivotGroup,measure:string){
 
 export type TileRow={currencyKey:string;currency:string;total:string|null;trades:number;excluded:number;note:string|null;byBook:{bookId:string;book:string;value:string|null;excluded:number}[]};
 /** A money tile: one row per exact currency, never added across currencies. `note` is the tile's own when it has one row. */
-export type Tile={key:'swapPv'|'futuresPnl'|'heatRatePv'|'ppaValue'|'gasPv'|'crudePv'|'lngPv'|'optionPv';rows:TileRow[];note:string|null};
+export type Tile={key:'swapPv'|'futuresPnl'|'heatRatePv'|'ppaValue'|'gasPv'|'gasLifecycleValue'|'crudePv'|'lngPv'|'optionPv';rows:TileRow[];note:string|null};
 /** Swap PV and futures execution P&L, each per currency and split by book, from the money totals (D223). */
 export function summaryTiles(summaries:readonly Summary[]):Tile[]{
   const types=groupsOf(summaries,byType),books=groupsOf(summaries,byBook);
   const labels=currencyLabels([...types,...books]);
-  const extra:('heatRatePv'|'ppaValue'|'gasPv'|'crudePv'|'lngPv'|'optionPv')[]=[];if(types.some(g=>g.instrumentType==='heat_rate'))extra.push('heatRatePv');if(types.some(g=>g.instrumentType==='ppa'))extra.push('ppaValue');if(types.some(g=>g.instrumentType==='physical_gas'))extra.push('gasPv');if(types.some(g=>g.instrumentType==='physical_crude'))extra.push('crudePv');if(types.some(g=>g.instrumentType==='physical_lng'))extra.push('lngPv');if(types.some(g=>g.instrumentType==='futures_option'))extra.push('optionPv');
+  const extra:('heatRatePv'|'ppaValue'|'gasPv'|'gasLifecycleValue'|'crudePv'|'lngPv'|'optionPv')[]=[];if(types.some(g=>g.instrumentType==='heat_rate'))extra.push('heatRatePv');if(types.some(g=>g.instrumentType==='ppa'))extra.push('ppaValue');if(types.some(g=>g.instrumentType==='physical_gas'&&!lifecycleOf(g)))extra.push('gasPv');if(types.some(lifecycleOf))extra.push('gasLifecycleValue');if(types.some(g=>g.instrumentType==='physical_crude'))extra.push('crudePv');if(types.some(g=>g.instrumentType==='physical_lng'))extra.push('lngPv');if(types.some(g=>g.instrumentType==='futures_option'))extra.push('optionPv');
   return (['swapPv','futuresPnl',...extra] as const).map(key=>{
-    const type=({swapPv:'financial_swap',futuresPnl:'future',heatRatePv:'heat_rate',ppaValue:'ppa',gasPv:'physical_gas',crudePv:'physical_crude',lngPv:'physical_lng',optionPv:'futures_option'} as const)[key],{measure,plural}=instrument(type);
-    const own=types.filter(g=>instrument(g.instrumentType)===instrument(type));
+    const type=({swapPv:'financial_swap',futuresPnl:'future',heatRatePv:'heat_rate',ppaValue:'ppa',gasPv:'physical_gas',gasLifecycleValue:'physical_gas',crudePv:'physical_crude',lngPv:'physical_lng',optionPv:'futures_option'} as const)[key],{measure,plural}=instrument(type);
+    const ofTile=(g:PivotGroup)=>instrument(g.instrumentType)===instrument(type)&&lifecycleOf(g)===(key==='gasLifecycleValue');
+    const own=types.filter(ofTile);
     const rows=own.map(group=>{
       const currencyKey=referenceKey(group.currencyReference),{value:total,excluded,note}=statedTotal(group,measure);
-      const byBookRows=books.filter(b=>instrument(b.instrumentType)===instrument(type)&&referenceKey(b.currencyReference)===currencyKey)
+      const byBookRows=books.filter(b=>ofTile(b)&&referenceKey(b.currencyReference)===currencyKey)
         .map(b=>{const {value,excluded}=statedTotal(b,measure);return {bookId:text(b,'bookId'),book:text(b,'book'),value,excluded};})
         .sort((a,b)=>a.book.localeCompare(b.book)||byText(a.bookId,b.bookId));
       if(new Set(byBookRows.map(b=>b.bookId)).size!==byBookRows.length)throw Error(inconsistent);
@@ -181,7 +186,7 @@ export type StripPositions={count:number;unvalued:number|null};
 export type StripRisk={state:'none';reason:string}|{state:'pending'|'unavailable';value:string;reason:string}
   |{state:'results';label:string;moves:readonly {currency:string;text:string;exact:string;sign:'positive'|'negative'|'zero';hint:string}[];empty:string|null;note:string|null};
 /** What each money total is called, on the strip and over its split by book. */
-export const tileLabels:Readonly<Record<Tile['key'],string>>={swapPv:'Swap PV',futuresPnl:'Futures execution P&L',heatRatePv:'Heat-rate PV',ppaValue:'PPA value excluding overdue cash',gasPv:'Gas contractual PV',crudePv:'Crude contractual PV',lngPv:'LNG contractual PV',optionPv:'Option value excluding settled premium'};
+export const tileLabels:Readonly<Record<Tile['key'],string>>={swapPv:'Swap PV',futuresPnl:'Futures execution P&L',heatRatePv:'Heat-rate PV',ppaValue:'PPA value excluding overdue cash',gasPv:'Gas contractual PV',gasLifecycleValue:'Gas unrealized + realized unsettled',crudePv:'Crude contractual PV',lngPv:'LNG contractual PV',optionPv:'Option value excluding settled premium'};
 const stripSign={positive:'pos',negative:'neg',zero:'zero'} as const;
 const reasons=(...parts:(string|null|undefined)[])=>{const text=parts.filter(Boolean).join(' · ');return text?{reason:text}:{};};
 /**
@@ -241,7 +246,7 @@ export function positionsTile(summaries:readonly Summary[],rows:number,unvalued:
   return {count:rows,segments,note:excluded?`Includes ${excluded} position${excluded===1?'':'s'} not valued at this close`:null};
 }
 
-export type Subtotal={measure:'PV'|'P&L'|'Value excl. overdue'|'Contractual PV';amount:string|null;currency:string;excluded:number;note:string|null};
+export type Subtotal={measure:'PV'|'P&L'|'Value excl. overdue'|'Contractual PV'|'Unrealized + realized unsettled';amount:string|null;currency:string;excluded:number;note:string|null};
 export type GroupHeader={key:string;label:string;positions:number;subtotals:Subtotal[]};
 /**
  * How the rows group under `rowGroup`: each holding's group key, and each group's header with the backend subtotals of
@@ -255,7 +260,7 @@ export function deskGroups(rowGroup:RowGroup,summaries:readonly Summary[],holdin
   const labelOf=(g:PivotGroup)=>rowGroup==='book'?text(g,'book'):rowGroup==='market'?markets!.get(keyOf(g))!:instrument(g.instrumentType).plural;
   const headers=new Map<string,GroupHeader>();
   for(const group of groups){
-    const key=keyOf(group),{measure,label}=instrument(group.instrumentType),{value:total,excluded,note}=statedTotal(group,measure);
+    const key=keyOf(group),{measure}=instrument(group.instrumentType),label=valueLabel(group),{value:total,excluded,note}=statedTotal(group,measure);
     const header=headers.get(key)??{key,label:labelOf(group),positions:0,subtotals:[]};
     // The market summary keeps quantity specifications and currencies apart (D98), so a measure of a market that appears twice is
     // one instrument type held in more than one of them, and the header would state that measure twice. That is refused, as the
@@ -268,7 +273,7 @@ export function deskGroups(rowGroup:RowGroup,summaries:readonly Summary[],holdin
   const order=['PV','P&L'],sizes=new Map<string,number>();
   for(const key of keys)sizes.set(key,(sizes.get(key)??0)+1);
   return {keys,headers:[...headers.values()].filter(h=>sizes.has(h.key))
-    .map(h=>({...h,positions:sizes.get(h.key)!,subtotals:h.subtotals.sort((a,b)=>order.indexOf(a.measure)-order.indexOf(b.measure)||a.currency.localeCompare(b.currency))}))
+    .map(h=>({...h,positions:sizes.get(h.key)!,subtotals:h.subtotals.sort((a,b)=>order.indexOf(a.measure)-order.indexOf(b.measure)||a.currency.localeCompare(b.currency)||a.measure.localeCompare(b.measure))}))
     .sort((a,b)=>a.label.localeCompare(b.label)||byText(a.key,b.key))};
 }
 
@@ -387,7 +392,7 @@ type Valuation={value:string;unavailable:null}|{value:null;unavailable:string};
 export type DeskRow={tradeId:string;revision:string;instrumentType:string;pill:'FUT'|'SWAP'|'HEAT'|'PPA'|'GAS'|'CRUDE'|'LNG'|'OPT';reference:string;
   market:string;commodity:string;commodityName:string;curve:string;delivery:string;deliveryFrom:string;deliveryTo:string;
   quantity:string|null;unit:string;quantityKey:string;side:string;exposure:'long'|'short'|'flat'|null;
-  price:string|null;priceLabel:'Executed'|'Fixed'|'Side'|'Premium';priceUnit:string|null;mark:string|null;measure:'P&L'|'PV'|'Value excl. overdue'|'Contractual PV';currency:string;
+  price:string|null;priceLabel:'Executed'|'Fixed'|'Side'|'Premium';priceUnit:string|null;mark:string|null;measure:'P&L'|'PV'|'Value excl. overdue'|'Contractual PV'|'Unrealized + realized unsettled';currency:string;
   /**
    * Why the position has no single quantity, fixed price or mark the backend states, where it has none for a reason of its own: a
    * scheduled swap holds them by period, and a swap valued by its settlement lifecycle states no curve mark.
@@ -497,7 +502,7 @@ export function positionRows(holdings:readonly Holding[],zone='UTC'):DeskRow[]{
     const markNote=valuation.unavailable!==null||mark!==null?null:type===instruments.futures_option?(h.component==='premium'?'Premium cash':'No open lots'):(type===instruments.ppa||type===instruments.physical_gas||type===instruments.physical_crude||type===instruments.physical_lng)?'Independent side schedules':h.settlement==='Active'?'Settlement lifecycle':scheduledSwap?byPeriod:'Several marks';
     return {tradeId:h.tradeId,revision:h.revision,instrumentType:h.instrumentType,pill:type.pill,reference:h.tradeReference,
       market:h.marketLabel??curveName(h.curve),commodity:h.commodity.code,commodityName:h.commodity.name,curve:h.curve,delivery,deliveryFrom:h.deliveryFrom,deliveryTo:h.deliveryTo,
-      quantity:h.quantity,unit:h.unit,quantityKey:referenceKey(h.quantitySpecification),side,exposure,price,priceLabel:type.priceLabel,priceUnit:unitOfPrice,mark,measure:type.label,currency:h.currency,...valuation,
+      quantity:h.quantity,unit:h.unit,quantityKey:referenceKey(h.quantitySpecification),side,exposure,price,priceLabel:type.priceLabel,priceUnit:unitOfPrice,mark,measure:valueLabel(h),currency:h.currency,...valuation,
       quantityNote,priceNote,markNote,severalCurves:projectsFromSeveralCurves(h),
       words:[h.tradeReference,h.instrumentReference,type.pill,delivery,...(quantityNote?[quantityNote]:[]),h.unit,side,...(priceNote?[priceNote]:[]),price===null&&priceNote===null?'No fixed price':[type.priceLabel,unitOfPrice].filter(Boolean).join(' · '),...(markNote?[markNote]:[]),
         valuation.unavailable===null?`${type.label} · ${h.currency}`:`Not valued ${valuation.unavailable}`].join(' ')};

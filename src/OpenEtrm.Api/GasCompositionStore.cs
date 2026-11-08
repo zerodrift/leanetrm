@@ -196,7 +196,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    }
    valued.Add((member,amount,qtotal!,rows));
   }
-  // Started delivery: the trade's value is remaining delivery MTM plus outstanding settlement of its recorded cash.
+  // Started delivery: the trade's value is unrealized plus realized unsettled, with its recorded cash.
   PhysicalLifecycleValue? lifecycle=null;var state=unrecorded;
   if(held is {Started:true})
   {
@@ -303,7 +303,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  internal async Task<GasCompositionRead> ReadSinglePoint(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)
  {
   var execution=await LoadSinglePoint(c,data,frame,trade,ct);
-  return new(execution.Terms,await Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,true,ct,held:execution));
+  return new(execution.Terms,await Value(c,data,frame,execution,ct));
  }
  internal async Task<GasCompositionExecution> LoadSinglePoint(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)
  {
@@ -314,13 +314,16 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var programs=await new RetainedScheduleStore(database).LoadPrograms(c,instrument,frame.ContextId,frame.ContextId is null?null:frame.At,ct);
   return new(trade,body,instrument,members,Number(physical.Quantity!),programs);
  }
+ // The valuation of a loaded trade, as its reads value it.
+ internal Task<GasCompositionValue> Value(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionExecution execution,CancellationToken ct,
+  IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null)=>
+  Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,true,ct,recorded,held:execution);
  // programs, when the caller already loaded the trade's retained programs under this frame, are used in place of loading them again.
  internal async Task<GasCompositionRead> Read(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct,
   IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,ImmutableArray<RetainedSideProgram>? programs=null)
  {
   var execution=await Load(c,data,frame,trade,ct,programs);
-  var value=await Value(c,data,frame,execution.Members,execution.Quantity,null,execution.Terms.GasSetupId,execution.Programs,true,ct,recorded,held:execution);
-  return new(execution.Terms,value);
+  return new(execution.Terms,await Value(c,data,frame,execution,ct,recorded));
  }
  internal async Task<GasCompositionExecution> Load(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct,
   ImmutableArray<RetainedSideProgram>? programs=null)

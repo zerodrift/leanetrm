@@ -126,7 +126,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   string? Identity(JsonObject row,string field)=>row[field] is JsonObject reference?Text(reference,"code"):Text(row,field);
   var partitions=rows.OrderBy(r=>Text(r,"tradeId"),StringComparer.Ordinal).ThenBy(r=>Text(r,"bindingId"),StringComparer.Ordinal).GroupBy(r=>JsonSerializer.Serialize(new{
    dimensions=view.GroupBy.Select(d=>d=="market"?Text(r,"marketKey")??Identity(r,dimensions[d]):Identity(r,dimensions[d])),type=Text(r,"instrumentType"),quantity=byQuantity?Key(r,"quantitySpecification"):(ReferenceKey?)null,currency=Key(r,"currencyReference"),
-   priceMultiplier=hasPrices?Text(r,"quoteMultiplier"):null,definition=byDefinition?Text(r,"definitionRevisionId"):null}));
+   priceMultiplier=hasPrices?Text(r,"quoteMultiplier"):null,definition=byDefinition?Text(r,"definitionRevisionId"):null,measure=Text(r,"measure")}));
   foreach(var partition in partitions)
   {
    var first=partition.First();var group=new JsonObject();
@@ -143,6 +143,8 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
     if(d=="contract"){group["deliveryFrom"]=first["deliveryFrom"]?.DeepClone();group["deliveryTo"]=first["deliveryTo"]?.DeepClone();}
    }
    if(byDefinition)group["definitionRevisionId"]=first["definitionRevisionId"]?.DeepClone();
+   // Values under different measure codes are never added together (D359): each group names its measure.
+   if(first["measure"] is {} code){group["measure"]=code.DeepClone();group["measureLabel"]=first["measureLabel"]?.DeepClone();}
    foreach(var field in byQuantity?new[]{"instrumentType","unit","currency","quantitySpecification","currencyReference"}:new[]{"instrumentType","currency","currencyReference"})
     group[field]=first[field]?.DeepClone();
    if(hasPrices){group["quoteMultiplier"]=first["quoteMultiplier"]?.DeepClone();group["priceUnit"]=PreviewData.PriceUnitLabel(Text(first,"currency")!,Text(first,"unit")!,Text(first,"quoteMultiplier"));}
