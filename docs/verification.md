@@ -4100,25 +4100,26 @@ per-candidate checks, which its one gas day bounds.
 Workload: the owned preview of the trading CI facility step above, with statement
 logging (`log_min_duration_statement=0`), before and after 0217 on the same commit.
 Environment: Apple M4 Pro, 14 cores, 48 GB, macOS, stock PostgreSQL 16.14. Other
-local workloads were running (load average about 5 before, 9 after).
+local workloads were running (load average about 5 before, 12 after).
 
 | Read, median of the calls after the fixtures load | Before | After |
 | --- | --- | --- |
-| `facility_quantity_choices`, catalog-wide | 1,544 ms | 293 ms |
-| `facility_quantity_choices`, one ledger | 41 ms | 80 ms |
+| `facility_quantity_choices`, catalog-wide | 1,544 ms | 297 ms |
+| `facility_quantity_choices`, one ledger | 41 ms | 86 ms |
 
 The ledger-scoped read is slower because each candidate's `facility_gas_target`
 now plans the larger set-based statement. Its pages stayed close in the scaled
-comparison below (50,753 before, 54,459 after).
+comparison below (44,078 before, 49,972 after).
 
 Scaled comparison: the same preview after the facility check, with 40 more 31-gas-day
 trades (45 obligations, 45 trades, 1,275 candidate obligation-days, results capped at
 1,001), both definitions installed side by side and read as the trader in the same
-context. The catalog-wide read went from 2,989 ms and 1,160,307 pages to 660 ms and
-50,927 pages. Independent review found a join between two materialized stages that was quadratic
-in the requested obligation-days, which pages do not show. A nested loop cannot
-implement a full join, so that join is written as one inside its own stage. At the catalog's 256-gas-trade booking limit (about 7,900 candidate
-obligation-days, results capped at 1,001), the catalog-wide read went from 16.2 s to
+context. The catalog-wide read went from 3,059 ms and 935,410 pages to 547 ms and
+48,051 pages. Independent review found a join between two materialized stages that
+was quadratic in the requested obligation-days, which pages do not show. A nested
+loop cannot implement a full join, so that join is written as one inside its own
+stage. At the catalog's 256-gas-trade booking limit (about 7,900 candidate
+obligation-days, results capped at 1,001), the catalog-wide read went from 15.5 s to
 1.04 s and returned byte-identical JSON, as did the ledger read. The resolver still
 processes every candidate before the 1,001-result limit applies, so its cost follows
 the catalog's obligation-days.
