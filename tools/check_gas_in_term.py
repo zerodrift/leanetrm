@@ -142,6 +142,7 @@ def run_checks(url, query, manifest, run_worker):
     assert query("SELECT has_table_privilege('openetrm_runtime','trading.gas_cash_payments','INSERT'),has_table_privilege('openetrm_runtime','trading.gas_cash_payment_allocations','INSERT');") == 'f|f'
     print('PASS gas payment allocations name only their own trade, membership and retained occurrence', flush=True)
     valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, loaded['instrumentId'], before_load, owner)
+    refusal_checks(c, query, manifest, frame, body, trade_id, loaded['instrumentId'], other, revision['paymentId'], owner)
 
 
 def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, binding, before_load, owner):
@@ -168,7 +169,7 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
     working = dict(snapshotId=frame['id'], convention=context['convention'], knowledgeMode='current')
     read = c.call('gas/composition/editor', dict(context=working, tradeId=trade_id))['valuation']
     measures = read['measures']
-    assert measures['label'] == 'Remaining contract value + outstanding settlement', measures
+    assert (measures['label'], measures['discounting']) == ('Remaining contract value + outstanding settlement', 'undiscounted'), measures
     assert [Fraction(measures[k]) for k in ('remainingDeliveryMtm', 'outstandingSettlement', 'total')] == [remaining_physical + remaining_cash, outstanding, total], measures
     assert Fraction(read['presentValue']) == total
     assert {datetime.fromisoformat(x['dueAt']).date(): Decimal(x['amount']) for x in measures['expectedCash']} == expected, measures['expectedCash']
@@ -273,6 +274,61 @@ def final_determination(c, query, manifest, frame, context, body, owner):
     assert (row['finalDetermination'], row['accrued'], row['outstanding'], row['lifecycle']['cash']) == ('-303.8', '-310', '-310', 'AccruedUnpaid'), row
     assert c.call('gas/composition/editor', dict(context=working, tradeId=trade))['valuation']['measures'] == before
     print('PASS a D338 final determination is shown beside the contract-estimate accrual and changes neither the accrual nor the measures', flush=True)
+
+
+def refusal_checks(c, query, manifest, frame, body, trade_id, binding, forward, payment, owner):
+    """Trade-specific refusals stay on their own rows; a portfolio holding a refusing trade refuses its total."""
+    catalog = manifest['catalogId']
+    # Review Focus 5: an equivalent in-term composition whose stored programs keep the future-delivery lifecycles,
+    # as a trade booked before 0215 holds them (content, its digest and its rows rewritten together).
+    # Its own term (from October), so it shares no retained schedule with the in-term fixture.
+    copy = deepcopy(body); copy['operationId'] = str(uuid4()); copy['physicalSides'][0]['deliveryFrom'] = '2026-10-01'
+    assert c.call('gas/composition/book', copy, expected=422)['code'] == 'gas_delivery_lifecycle'
+    encoded = json.dumps(copy).replace("'", "''")
+    old = owner(f"SELECT security.load_gas_composition_in_term('{catalog}','{encoded}'::jsonb,'{CLOSE}');SELECT security.publish_operation_side_schedules('{catalog}','{copy['operationId']}');")
+    schedules = f"(SELECT schedule_id FROM trading.instrument_side_schedules WHERE(catalog_id,instrument_id)=('{catalog}','{old['instrumentId']}'))"
+    query("BEGIN;SET LOCAL session_replication_role=replica;"
+          f"UPDATE trading.side_schedule_programs p SET content=x.content,content_hash=sha256(x.content) FROM(SELECT schedule_id,convert_to(replace(replace(convert_from(content,'UTF8'),"
+          f"'\"whole_gas_day_delivery_v1\"','\"future_gas_delivery_v1\"'),'\"accrued_payment_v1\"','\"undue_payment_v1\"'),'UTF8') content FROM trading.side_schedule_programs"
+          f" WHERE catalog_id='{catalog}' AND schedule_id IN {schedules})x WHERE(p.catalog_id,p.schedule_id)=('{catalog}',x.schedule_id);"
+          f"UPDATE trading.side_schedule_rows SET parameters=jsonb_set(parameters,'{{lifecycle}}',to_jsonb(CASE parameters->>'lifecycle' WHEN 'whole_gas_day_delivery_v1' THEN 'future_gas_delivery_v1' ELSE 'undue_payment_v1' END))"
+          f" WHERE catalog_id='{catalog}' AND schedule_id IN {schedules} AND operation='output_guard';COMMIT;")
+    assert lifecycles(query, catalog, old['instrumentId']) == {0: {'future_gas_delivery_v1'}, 1: {'undue_payment_v1'}}
+    assert set().union(*lifecycles(query, catalog, binding).values()) == STARTED
+    # A forward composition given a recorded payment against a cash day that has not started: its own refusal.
+    other_schedule, other_row = query(f"SELECT s.schedule_id,r.ordinal FROM trading.instrument_side_schedules s JOIN trading.side_schedule_rows r USING(catalog_id,schedule_id)"
+                                      f" WHERE(s.catalog_id,s.instrument_id,s.slot,r.local_key)=('{catalog}','{forward['instrumentId']}',1,'payment/0/value');").split('|')
+    early = str(uuid4())
+    query(f"BEGIN;INSERT INTO trading.gas_cash_payments SELECT catalog_id,'{early}','{forward['tradeId']}',1,'{forward['instrumentId']}',1,'synthetic-early',1,NULL,'2026-11-01T00:00:00Z',"
+          f"reference_catalog_id,reference_revision_id,currency_code,-290,'{uuid4()}',actor_id,publication_order FROM trading.gas_cash_payments WHERE id='{payment}';"
+          f"INSERT INTO trading.gas_cash_payment_allocations VALUES('{catalog}','{early}',0,'{other_schedule}',{other_row},-290);COMMIT;")
+    working = dict(snapshotId=frame['id'], convention='trading_workspace_v1', knowledgeMode='current')
+    view = dict(mode='trades', bookIds=[], portfolioIds=[], groupBy=[], measures=[], pivotConvention=None)
+    rows = {h['tradeId']: h for h in c.call('trading/blotter', dict(context=working, view=view))['holdings']}
+    assert (rows[old['tradeId']]['unavailableReason'], rows[old['tradeId']]['presentValue']) == ('gas_delivery_lifecycle', None), rows[old['tradeId']]
+    assert (rows[forward['tradeId']]['unavailableReason'], rows[forward['tradeId']]['presentValue']) == ('payment_state', None), rows[forward['tradeId']]
+    held = rows[trade_id]
+    assert (held['unavailableReason'], held['presentValue'], held['measureLabel'], held['discounting']) == \
+        (None, '-10855', 'Remaining contract value + outstanding settlement', 'undiscounted'), held
+    # The inspector shows each refusing Side's retained plan with its own reason: the old trade's started
+    # physical Side, and either Side of the trade whose recorded cash refuses.
+    for selected, slot, code in ((old, 0, 'gas_delivery_lifecycle'), (forward, 0, 'payment_state'), (forward, 1, 'payment_state')):
+        position = dict(context=working, tradeId=selected['tradeId'], bindingId=selected['instrumentId'], revision=1, instrumentType='physical_gas')
+        plan = c.call('trading/side-schedules', dict(position=position, sideSlot=slot, contribution=None, offset=0, limit=4))['page']['rows']
+        assert plan and all(r['presentValue'] is None and r['lifecycle']['unavailableReason'] == code for r in plan), plan
+    # A portfolio of the in-term trade and the old one refuses its total rather than omitting the old trade.
+    c.call('profile', {'profile': 'risk'})
+    scope = dict(context=working, bookIds=[], portfolioIds=[], tradeIds=[trade_id, old['tradeId']])
+    mixed = c.call('portfolio/risk/catalog', scope)
+    assert not mixed['excludedPositions'], mixed['excludedPositions']
+    request = {**scope, 'context': {**working, 'knowledgeMode': 'retained', 'contextId': mixed['context']['contextId']}, 'detail': 'holdings', 'convention': mixed['convention'],
+               'numericalPolicy': mixed['numericalPolicy'], 'pricingPolicy': mixed['pricingPolicy'], 'stress': [],
+               'bumps': [dict(factor=mixed['factors'][0]['factor'], size='1', convention=mixed['bumpConvention'])]}
+    refused = c.call('portfolio/risk', request, expected=422)
+    assert refused['code'] == 'gas_delivery_lifecycle', refused
+    assert not c.call('portfolio/risk/catalog', dict(context=working, bookIds=[], portfolioIds=[], tradeIds=[trade_id]))['excludedPositions']
+    c.call('profile', {'profile': 'trader'})
+    print('PASS trade-specific refusals stay on their own Blotter and inspector rows; a portfolio holding an old-lifecycle trade after its start refuses', flush=True)
 
 
 def lifecycles(query, catalog, instrument):

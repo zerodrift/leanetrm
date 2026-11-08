@@ -65,7 +65,7 @@ internal static class BookedScheduleSources
    {
     var side=headers.Single(s=>s.Slot==slot);
     try{return await evaluate(c,view,selected,slot,side,token);}
-    catch(MarketDataException error)when(ValuationStatus.PositionSpecific(error)||error.Code is "crude_lifecycle" or "lng_delivery_lifecycle" or "side_payment_due")
+    catch(MarketDataException error)when(ValuationStatus.PositionSpecific(error)||error.Code is "crude_lifecycle" or "lng_delivery_lifecycle" or "side_payment_due"||PhysicalLifecycle.TradeRefusal(error.Code))
     {
      var program=(await store.LoadPrograms(c,instrument,view.CalculationFrame.ContextId,view.CalculationFrame.At,token)).Single(p=>p.Slot==slot);
      return SideScheduleSnapshot.Plan(program.SideId,view.CalculationFrame.Id,view.CalculationFrame.ContextId!.Value,$"side_{slot}",program.Program,Utc,view.CalculationFrame.At,SchedulePreview.ParseAt(view.Context.KnownAt),error.Code);

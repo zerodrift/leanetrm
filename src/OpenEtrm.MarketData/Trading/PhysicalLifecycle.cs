@@ -75,6 +75,10 @@ public sealed record LifecycleMember(BookedSideProgram Program,BookedSideEvaluat
 public static class PhysicalLifecycle
 {
     public const string EstimatedQuantity="contract_estimate_allocation_pending_v1",ContractQuantity="contractual_quantity_v1";
+    // Refusals that belong to one held trade's terms or recorded cash, not to the shared market: a reader reports them on
+    // that trade's row and keeps valuing the others.
+    public static bool TradeRefusal(string code)=>code is "physical_lifecycle_unsupported" or "physical_lifecycle_quantity" or
+        "side_due_leg_unresolved" or "payment_state" or "settlement_conservation";
 
     public static PhysicalLifecycleValue Evaluate(ImmutableArray<LifecycleMember> members,PhysicalCashState state,MarketSnapshot snapshot,ReferenceKey currency)
     {

@@ -117,7 +117,10 @@ internal static class PhysicalLifecycleChecks
         Equal(demo.Term(Demo.Close,[demo.Physical[1],shifted],"3").OutstandingSettlement,"-9300");
         Reject("physical_lifecycle_unsupported",()=>demo.Term(Fixture.Utc("2026-10-02T15:30:00Z"),[demo.Physical[1],shifted],"3"));
         // Review Focus 5: an old future-lifecycle holding beside the started one refuses the portfolio; it is never omitted.
-        Reject("gas_delivery_lifecycle",()=>demo.MixedPortfolio(Demo.Close,paid));
+        // Each position alone: the started one values, the old one refuses; held together the total refuses.
+        Equal(demo.MixedPortfolio(Demo.Close,paid,started:true,old:false),"-10855");
+        Reject("gas_delivery_lifecycle",()=>demo.MixedPortfolio(Demo.Close,paid,started:false,old:true));
+        Reject("gas_delivery_lifecycle",()=>demo.MixedPortfolio(Demo.Close,paid,started:true,old:true));
 
         var before=Fixture.Utc("2026-08-28T21:00:00Z");
         var opening=demo.Value(before,[],Demo.Undiscounted);
@@ -253,13 +256,14 @@ internal static class PhysicalLifecycleChecks
             return RiskEngine.CalculateExact(prepared,[],RiskEngine.ExactNumericalPolicy).Groups.Single().BaseValues.Single().Value.ToExactString();
         }
         // The same terms retained with the future-delivery lifecycles, held beside the started trade with no lifecycle state.
-        internal void MixedPortfolio(DateTimeOffset at,ImmutableArray<CashOccurrencePayment> paid)
+        internal string MixedPortfolio(DateTimeOffset at,ImmutableArray<CashOccurrencePayment> paid,bool started,bool old)
         {
             BookedSideProgram Old(Side side)=>BookedSideProgram.Compile(ScheduleDefinitionCompiler.Generate(side,default,ScheduleLifecycleSelection.FutureDelivery));
-            var old=new RetainedGasInstrument(Guid.NewGuid(),[..Physical.Select(s=>new RetainedGasMember(s.Id,ExactDecimal.Parse("1"),ExactRatio.One,Old(s))),
+            var previous=new RetainedGasInstrument(Guid.NewGuid(),[..Physical.Select(s=>new RetainedGasMember(s.Id,ExactDecimal.Parse("1"),ExactRatio.One,Old(s))),
                 ..payments.Select(s=>new RetainedGasMember(s.Id,ExactDecimal.Parse("-1"),ExactRatio.One,Old(s)))],assignments);
-            var (prepared,_)=Prepare([Trade,new(Guid.NewGuid(),Guid.NewGuid(),[new(Guid.NewGuid(),old,Held)])],at,State(paid),Undiscounted);
-            RiskEngine.CalculateExact(prepared,[],RiskEngine.ExactNumericalPolicy);
+            var future=new Trade(Guid.NewGuid(),Guid.NewGuid(),[new(Guid.NewGuid(),previous,Held)]);
+            var (prepared,_)=Prepare([..started?[Trade]:Array.Empty<Trade>(),..old?[future]:Array.Empty<Trade>()],at,started?State(paid):null,Undiscounted);
+            return RiskEngine.CalculateExact(prepared,[],RiskEngine.ExactNumericalPolicy).Groups.Single().BaseValues.Single().Value.ToExactString();
         }
         // The retained November payment program evaluated through the same sources the instrument uses.
         internal BookedSideEvaluation Evaluate(int month,DateTimeOffset at)

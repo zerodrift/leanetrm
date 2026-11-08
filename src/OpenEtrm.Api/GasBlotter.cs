@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using Npgsql;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
 
@@ -33,9 +34,9 @@ internal static class GasBlotter
      row["presentValue"]=read.Valuation.PresentValue;
      // A started-delivery trade's headline is its labelled sum, with both parts shown.
      if(read.Valuation.Measures is {} measures)
-     {row["measureLabel"]=measures.Label;row["remainingDeliveryMtm"]=measures.RemainingDeliveryMtm;row["outstandingSettlement"]=measures.OutstandingSettlement;}
+     {row["measureLabel"]=measures.Label;row["remainingDeliveryMtm"]=measures.RemainingDeliveryMtm;row["outstandingSettlement"]=measures.OutstandingSettlement;row["discounting"]=measures.Discounting;}
     }
-    catch(MarketDataException error)when(ValuationStatus.PositionSpecific(error)||error.Code is "gas_market_context" or "gas_delivery_lifecycle")
+    catch(MarketDataException error)when(ValuationStatus.PositionSpecific(error)||error.Code is "gas_market_context" or "gas_delivery_lifecycle"||PhysicalLifecycle.TradeRefusal(error.Code))
     {row["unavailableReason"]=error.Code;}
     yield return [row];
    }
