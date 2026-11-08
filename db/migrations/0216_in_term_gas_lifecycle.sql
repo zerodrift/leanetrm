@@ -237,6 +237,7 @@ DO $patch$ DECLARE definition text=pg_get_functiondef('security.gas_component_so
  JOIN trading.side_schedule_bindings b ON(b.catalog_id,b.schedule_id)=(h.catalog_id,h.id)
  WHERE(m.catalog_id,m.instrument_id,b.kind)=(catalog,instrument,'custom_output') AND NOT security.custom_curve_visible(b.custom_catalog_id,b.custom_curve_id,b.custom_version))$old$;
 BEGIN
+ IF(length(definition)-length(replace(definition,before_text,'')))/length(before_text)<>1 THEN RAISE EXCEPTION 'in_term_upgrade: unexpected definition %','security.gas_component_sources_visible(uuid,uuid)' USING ERRCODE='55000';END IF;
  EXECUTE replace(definition,before_text,$new$ SELECT 1 FROM(SELECT DISTINCT b.custom_catalog_id,b.custom_curve_id,b.custom_version
  FROM trading.gas_memberships m JOIN trading.side_schedules h ON(h.catalog_id,h.side_id)=(m.catalog_id,m.side_id)
  JOIN trading.side_schedule_bindings b ON(b.catalog_id,b.schedule_id)=(h.catalog_id,h.id)
