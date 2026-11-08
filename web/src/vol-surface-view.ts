@@ -211,7 +211,7 @@ export type VolSurfaceFrames={
  /** The frame the header offers in the current view at a stored surface's close or working snapshot, if any. */
  offered(surface:LibrarySurface):string|null;
  /** Selects an offered frame in the header, as choosing it there does. */
- open(frameId:string):void;
+ open(frameId:string,product:string):void;
 };
 
 /**
@@ -428,7 +428,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  // Opening another close is the header's own move: an offered close is selected there, so every page reads it; any other is named.
  function move(surface:LibrarySurface){
   const how=reach(surface,here!,o.frames.offered);
-  if(how==='open'){o.frames.open(o.frames.offered(surface)!);return;}
+  if(how==='open'){o.frames.open(o.frames.offered(surface)!,surface.product);return;}
   moveMessage=how==='otherSession'?`This surface belongs to the ${o.frames.sessionName(surface.close!.session)} session. Choose that session in the header to open it.`
    :how==='replaced'?'That close has been replaced. Its surface is history; calibrate at the close in force for its day.'
    :o.historical()?'This view offers only its own business day. Return to working data to open another day.'

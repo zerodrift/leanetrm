@@ -130,6 +130,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   // Opening that close is the header's own move: the As of changes, and the page reads the same product there.
   const shownBefore=await evaluate("document.querySelector('#snapshot').value");
   await click('#vol-open-latest');
+  await wait("document.querySelector('#close-choice-dialog')?.open");await click('#close-choice-switch');
   await settled(`document.querySelector('#snapshot').value!==${q(shownBefore)}&&${ready}==='fitted'&&${calls('vol-surfaces/read')}.at(-1).body.context.snapshotId===document.querySelector('#snapshot').value&&${idle}`,30000);
   await check('opening the newest calibrated close selects it in the header and shows its surface',
    `${calls('vol-surfaces/read')}.at(-1).body.product==='nymex_lo'&&document.querySelector('.vol-close-chip[aria-current=true]')&&!document.querySelector('#vol-missing').offsetParent`);
@@ -332,7 +333,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   await choose('nymex_lo');
   const chip=`[...document.querySelectorAll('.vol-close-chip')].find(c=>Date.parse(c.dataset.at)===${Date.parse(unsettledAt)})`;
   await settled(`${chip}?.dataset.reach==='open'`,15000);
-  await evaluate(`${chip}.click()`);
+  await evaluate(`${chip}.click()`);await wait("document.querySelector('#close-choice-dialog')?.open");await click('#close-choice-switch');
   await settled(`${chip}?.getAttribute('aria-current')==='true'&&${calls('vol-surfaces/read')}.at(-1)?.body.context.snapshotId===document.querySelector('#snapshot').value&&${ready}==='fitted'&&${idle}`,30000);
   await choose('nymex_lo');
   const gapped=(await lastRead()).answer;

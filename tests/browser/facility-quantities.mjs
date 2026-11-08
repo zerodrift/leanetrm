@@ -75,7 +75,7 @@ export async function run(actions){
  await shot('facility-quantity-ledger-mobile');
  await check('Facilities fits a narrow viewport',fitsWidth,"[...document.querySelectorAll('#facilities-page *')].filter(n=>n.getBoundingClientRect().right>document.documentElement.clientWidth+1).slice(0,15).map(n=>({tag:n.tagName,id:n.id,cl:n.className,width:n.getBoundingClientRect().width,right:n.getBoundingClientRect().right}))");
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
- await click('#knowledge-context-summary');await click('#date-context-latest');await click('#apply-view-context');
+ await click('#as-of-context>summary');await click('#date-context-latest');await click('#apply-view-context');
  await check('Apply replaces working facts with the exact historical view and disables writes',
   "!document.querySelector('#facility-editor').hidden&&document.querySelector('#facility-source-fields').disabled&&document.querySelector('#facility-plan-save').disabled&&document.querySelector('#workspace-mode-label').textContent.includes('Historical')&&document.querySelector('#snapshot').value!==''&&[...document.querySelectorAll('[data-facility-trade]')].every(n=>!n.disabled&&!n.closest('fieldset').disabled)");
  // Historical writes remain disabled. Trade inspection retains its contextual
