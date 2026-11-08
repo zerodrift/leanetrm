@@ -17,7 +17,7 @@ export async function readGasView(api:Api,context:Record<string,unknown>,h:Holdi
  let ticket:TicketHandle|undefined;
  const amend:AmendState=detail.amend.allowed&&(!o.amend||o.readOnly)?{allowed:false,reason:'Open the Blotter in the main window to amend this gas trade.'}:detail.amend;
  return{amend,updatesBlocked:()=>!!ticket&&(ticket.unsaved()||ticket.pending()),view:zone=>{
-  const terms:TermSection[]=[{title:'Physical gas instrument',rows:[['Trade',h.tradeReference],['Instrument',h.instrumentReference],['Book',h.book],['Value measure','Contractual PV']]},...gasInstrumentSections(detail,zone)];
+  const terms:TermSection[]=[{title:'Physical gas instrument',rows:[['Trade',h.tradeReference],['Instrument',h.instrumentReference],['Book',h.book],['Value measure',h.measureLabel&&h.discounting?`${h.measureLabel} · ${h.discounting}`:'Contractual PV']]},...gasInstrumentSections(detail,zone)];
   return{termsLabel:'Physical overview',terms,history:[{title:'Original booking',rows:[['Booked',displayInstant(h.executedAt,zone)],['Booker',h.trader??''],['Trade date',h.booking.tradeDate??'Unavailable']]},
    ...(detail.history??[]).map(row=>({title:`Revision ${row.revision}`,rows:[['Effective',displayInstant(String(row.effective_at),zone)],['Reason',row.reason===null?'Original booking':String(row.reason)],['Actor',String(row.actor_id)]] as [string,string][]}))],
    schedules:(host:HTMLElement)=>{

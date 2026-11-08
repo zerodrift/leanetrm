@@ -59,7 +59,8 @@ export function gasTicket({evaluate,wait,set},ticket=newTicket){
 }
 
 /** The 18 December 2020 close of the seeded workspace, which every gas scenario prices at. */
-export const decemberClose=evaluate=>evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();const f=w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18'));return {id:f.id,session:f.close?.session??null};})()`);
+export const closeOn=(evaluate,day)=>evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();const f=w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith(${q(day)}));return {id:f.id,session:f.close?.session??null};})()`);
+export const decemberClose=evaluate=>closeOn(evaluate,'2020-12-18');
 
 /** Opens the Blotter at the December close, under its own close session: the As of list offers only the chosen session's closes (D334). */
 export async function blotterAt({set,wait,click},{id,session}){

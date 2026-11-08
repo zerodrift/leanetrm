@@ -223,3 +223,12 @@ test('the side-schedule presentation contains no instrument editor or operationa
  assert.equal(byClass(host,'ticket-record').length,0);
 
 });
+
+test('a started-delivery trade draws its measures as separate figures with expected cash marked not added; a trade without them draws none',()=>{
+ const measures={remainingDeliveryMtm:'1445',outstandingSettlement:'-10855',total:'-9410',label:'Remaining contract value + outstanding settlement',discounting:'undiscounted',expectedCash:[{dueAt:'2026-11-10T00:00:00Z',amount:'-9300'}]};
+ const shown=one(draw({mode:'booked',presentation:'schedules',measures,currency:'USD'}),'ticket-measures');
+ assert.deepEqual(byClass(shown,'ticket-summary-line').map(n=>n.textContent),['Remaining delivery MTM1,445 USD','Outstanding settlement-10,855 USD','Remaining contract value + outstanding settlement-9,410 USD',
+  'Discountingundiscounted','Expected cash by due date · not added to the total','Due 2026-11-10T00:00:00Z-9,300 USD']);
+ assert.equal(byClass(draw({mode:'booked',presentation:'schedules',measures:null,currency:'USD'}),'ticket-measures').length,0);
+ assert.equal(byClass(draw(),'ticket-measures').length,0);
+});

@@ -20,7 +20,7 @@ export type Holding={booking:Booking;commodity:{code:string;name:string};priceTi
   executionPnl:string|null;presentValue:string|null;currency:string;currencyReference:Reference;settlement:string;direction:'pay_fixed'|'receive_fixed'|'multi_side'|'receive'|'deliver'|null;unavailableReason:ValuationReason|null;
   /** A swap's instrument kind: a scheduled one (D214) holds its quantities and prices by period. Futures state none. */
   contractIdentityKind?:'swap_instrument'|'scheduled_swap_instrument'|'ppa_instrument'|'gas_instrument'|'crude_instrument'|'lng_instrument'|'futures_option'|'cash_payment';
-  measure?:string;completePv?:string|null;overdueKnown?:string|null;overdueEstimated?:string|null;pendingActuals?:string;coverage?:{from:string;to:string};
+  measure?:string;measureLabel?:string;discounting?:string;completePv?:string|null;overdueKnown?:string|null;overdueEstimated?:string|null;pendingActuals?:string;coverage?:{from:string;to:string};
   /** For a scheduled swap whose periods project from several curves: the markets together, as the backend keys and names them. */
   marketKey?:string|null;marketLabel?:string|null;projectionCurves?:string[]|null}&Partial<OptionFacts>;
 /**

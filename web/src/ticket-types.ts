@@ -1,3 +1,4 @@
+import type {GasMeasures} from './lifecycle-text.js';
 // Mirrors of the deal ticket routes' JSON (System.Text.Json web defaults, nulls written).
 // Numeric schedule values are exact decimal strings or exact "a/b" ratios, never numbers.
 // A field's or column's unit names the unit its values are in, resolved per trade: 'quantity' is the trade's quantity unit, which each preview and
@@ -32,5 +33,5 @@ export type TicketLink={source:string;target:string;formula:string;fraction:stri
 export type TicketPreview={schedule:ScheduleView|null;summaries:TicketSummary[]|null;scheduleRefusal:ScheduleRefusal|null;quantityUnit:string;links:TicketLink[]};
 // quantityPolicy is the daily quantity selection the booked schedule shows, or null for a trade that records no daily quantities.
 export type FacilityAllocationTrack={obligationId:string;sideCode:string;day:string;quantity:string|null;unit:string;state:'planned'|'no_current_allocation';finalQuantity?:string|null;finalState?:string};
-export type TicketTrade=TicketPreview&{draft:TicketDraft;definitionRevisionId:string;snapshotId:string;context:{contextId:string;effectiveOn:string;knownAt:string};sideSlots:Record<string,number>;actions:TradeActions;quantityPolicy:string|null;facilityAllocations:FacilityAllocationTrack[]};
+export type TicketTrade=TicketPreview&{measures?:GasMeasures|null;currency?:string;draft:TicketDraft;definitionRevisionId:string;snapshotId:string;context:{contextId:string;effectiveOn:string;knownAt:string};sideSlots:Record<string,number>;actions:TradeActions;quantityPolicy:string|null;facilityAllocations:FacilityAllocationTrack[]};
 export type TicketReceipt={operationId:string;tradeId:string;instrumentId:string;revision:number;unchanged?:boolean};

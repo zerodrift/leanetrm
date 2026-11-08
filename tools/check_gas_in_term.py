@@ -15,7 +15,7 @@ from gas_in_term_fixture import CLOSE, POINT, TERM, custom_curves, fixing, marks
 STARTED = {'whole_gas_day_delivery_v1', 'accrued_payment_v1'}
 
 
-def run_checks(url, query, manifest, run_worker):
+def run_checks(url, query, manifest, run_worker, browse=None):
     c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'trader'})
     catalog = manifest['catalogId']
     frame = initial_frame(c.call('workspace'), '2026-11-06')
@@ -141,7 +141,9 @@ def run_checks(url, query, manifest, run_worker):
         else: raise AssertionError(f'A foreign occurrence was accepted instead of {code}')
     assert query("SELECT has_table_privilege('openetrm_runtime','trading.gas_cash_payments','INSERT'),has_table_privilege('openetrm_runtime','trading.gas_cash_payment_allocations','INSERT');") == 'f|f'
     print('PASS gas payment allocations name only their own trade, membership and retained occurrence', flush=True)
-    valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, loaded['instrumentId'], before_load, owner)
+    shown = valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, loaded['instrumentId'], before_load, owner)
+    # The browser reads the Blotter before the refusing trades below are planted: they make the portfolio total refuse, by design.
+    if browse: browse(shown)
     refusal_checks(c, query, manifest, frame, body, trade_id, loaded['instrumentId'], other, revision['paymentId'], owner)
 
 
@@ -173,6 +175,9 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
     assert [Fraction(measures[k]) for k in ('remainingDeliveryMtm', 'outstandingSettlement', 'total')] == [remaining_physical + remaining_cash, outstanding, total], measures
     assert Fraction(read['presentValue']) == total
     assert {datetime.fromisoformat(x['dueAt']).date(): Decimal(x['amount']) for x in measures['expectedCash']} == expected, measures['expectedCash']
+    # The booked-trade read the ticket and the trade view draw from carries the same measures and their currency.
+    booked = c.call('tickets/trade', dict(context=working, tradeId=trade_id, bindingId=binding, revision=1))
+    assert (booked['measures'], booked['currency']) == (measures, read['currency']), booked['measures']
     print('PASS the in-term read reports remaining delivery MTM, outstanding settlement, their labelled sum and undiscounted expected cash', flush=True)
 
     # The Side inspector shows each gas day's delivery, price and settlement state.
@@ -240,7 +245,14 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
     refused = c.call('gas/composition/editor', dict(context={**working, 'knowledgeMode': 'retained', 'contextId': before_load}, tradeId=trade_id), expected=422)
     assert refused['code'] == 'gas_composition_input', refused
     print('PASS a historical context known before the load reads no in-term trade', flush=True)
-    final_determination(c, query, manifest, frame, context, body, owner)
+    determined = final_determination(c, query, manifest, frame, context, body, owner)
+    # What the browser check must find on screen, from the oracle above: the figures as the page groups them, the trades by their Blotter reference.
+    refs = {h['tradeId']: h['tradeReference'] for h in c.call('trading/blotter', dict(context={**working, 'convention': 'trading_workspace_v1'},
+            view=dict(mode='trades', bookIds=[], portfolioIds=[], groupBy=[], measures=[], pivotConvention=None)))['holdings']}
+    grouped = lambda value: f'{Decimal(value).normalize():,f}'
+    return dict(tradeId=trade_id, instrumentId=binding, tradeReference=refs[trade_id], currency=read['currency'],
+                remainingDeliveryMtm=grouped(remaining_physical + remaining_cash), outstandingSettlement=grouped(outstanding), total=grouped(total),
+                expectedCash=[grouped(expected[d]) for d in sorted(expected)], determined=dict(determined, tradeReference=refs[determined['tradeId']], amount='-303.8'))
 
 
 def final_determination(c, query, manifest, frame, context, body, owner):
@@ -274,6 +286,7 @@ def final_determination(c, query, manifest, frame, context, body, owner):
     assert (row['finalDetermination'], row['accrued'], row['outstanding'], row['lifecycle']['cash']) == ('-303.8', '-310', '-310', 'AccruedUnpaid'), row
     assert c.call('gas/composition/editor', dict(context=working, tradeId=trade))['valuation']['measures'] == before
     print('PASS a D338 final determination is shown beside the contract-estimate accrual and changes neither the accrual nor the measures', flush=True)
+    return dict(tradeId=trade, instrumentId=loaded['instrumentId'])
 
 
 def refusal_checks(c, query, manifest, frame, body, trade_id, binding, forward, payment, owner):
