@@ -131,6 +131,19 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
         Manifest=manifest;this.runtime=runtime;runtimeLogin="";ownsSources=false;
     }
 
+    // The administrator in-term load's adapter: the authenticator issues the named administrator's context to the
+    // dedicated loader login, which then runs the ticket's booking path. It has no HTTP host or sign-in session.
+    internal PreviewDatabase(PreviewManifest manifest,NpgsqlConnectionStringBuilder authenticatorLogin,NpgsqlConnectionStringBuilder loaderLogin)
+    {
+        Manifest=manifest;authenticator=NpgsqlDataSource.Create(authenticatorLogin.ConnectionString);
+        runtime=NpgsqlDataSource.Create(loaderLogin.ConnectionString);runtimeLogin=loaderLogin.Username!;
+    }
+    internal async Task RequireLoaderBoundary(CancellationToken ct)
+    {
+        await DatabaseLoginBoundary.Require(runtime, DatabaseLoginProfile.GasInTermLoader, ct);
+        await DatabaseLoginBoundary.Require(authenticator!, DatabaseLoginProfile.Authenticator, ct);
+    }
+
     public PreviewDatabase(string root,string manifestName="manifest.json", HostedConfiguration? hosted=null,Func<string>? hostedSession=null)
     {
         var processLimits=hosted?.Limits??ProcessLimits.Read(Path.Combine(root,"process-limits.json"));

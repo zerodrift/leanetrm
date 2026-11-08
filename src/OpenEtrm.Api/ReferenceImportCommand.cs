@@ -55,7 +55,8 @@ public static class ReferenceImportCommand
         using var document=JsonDocument.Parse(File.ReadAllBytes(path));CmeReferenceCapture.RejectDuplicateProperties(document.RootElement);
         return document.RootElement.Deserialize<T>(ReferenceImportProtocol.Json)??throw new JsonException();
     }
-    static void Private(string path)
+    // Operator files are private to their owner; the in-term load holds its files to the same rule.
+    internal static void Private(string path)
     {
         if(OperatingSystem.IsWindows()||!Path.IsPathFullyQualified(path)||new FileInfo(path).LinkTarget is not null||
            (File.GetUnixFileMode(path)&(UnixFileMode.GroupRead|UnixFileMode.GroupWrite|UnixFileMode.GroupExecute|UnixFileMode.OtherRead|UnixFileMode.OtherWrite|UnixFileMode.OtherExecute))!=0)

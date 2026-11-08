@@ -15,6 +15,7 @@ using OpenEtrm.Automation;
 using OpenEtrm.MarketData;
 
 if(args.Length>0&&args[0]=="--import-reference"){Environment.ExitCode=await ReferenceImportCommand.Run(args[1..]);return;}
+if(args.Length>0&&args[0]=="--admin-load-gas-in-term"){Environment.ExitCode=await GasInTermLoad.Run(args[1..]);return;}
 if(args.Length>0&&args[0]=="--capture-reference"){Environment.ExitCode=await ReferenceCaptureCommand.Run(args[1..]);return;}
 
 if(args is ["--compile-date-seed",var dateSeedInput,var dateSeedOutput]){DateSeedCommand.Run(dateSeedInput,dateSeedOutput);return;}
@@ -1597,7 +1598,7 @@ api.MapPost("/gas/composition/editor",(HttpContext c,PhysicalGasEditorRequest bo
 Task<IResult> GasBookingStatus(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>Results.Ok(await gasStore.Status(connection,body.OperationId,ct)),c.RequestAborted));
 api.MapPost("/gas/composition/status",GasBookingStatus);
 api.MapPost("/gas/composition/book",(HttpContext c,GasCompositionRequest body)=>Locked(c,session=>{
- if(body.TradeId is not null||body.ExpectedRevision is not null||body.BindingId is not null||body.Reason is not null||body.AmendmentPolicy is not null)throw new MarketDataException("gas_composition_input","Use the explicit gas amendment operation to amend a trade.");
+ GasCompositionStore.RequireNewTrade(body);
  return BookGasComposition(c,session,body);
 }));
 // Booking takes working data only: no selected historical context, current knowledge and no captured context.
@@ -1605,22 +1606,11 @@ void RequireGasBooking(PreviewSession session,string? knowledgeMode,Guid? contex
 {
  if(session.MarketContext is not null||knowledgeMode!="current"||contextId is not null)throw new MarketDataException("historical_read_only","Return to working data to book or amend.");
 }
-// Books one composition under the session's gate: staging, locking and publication are idempotent by operation id (D238).
+// Books one composition under the session's gate.
 async Task<IResult> BookGasComposition(HttpContext c,PreviewSession session,GasCompositionRequest body)
 {
  RequireGasBooking(session,body.KnowledgeMode);
- var profile=Profile(session);var frame=Frame(session,body.SnapshotId);var retained=new RetainedScheduleStore(database);var permission=body.TradeId is null?"BookTrade":"AmendTrade";
- var terms=await database.WithIdentity(profile,permission,async(connection,ct)=>{
-  var status=await gasStore.Status(connection,body.OperationId,ct);
-  return status.TryGetProperty("tradeId",out _)?null:await gasComposition.Prepare(connection,frame,body,ct);
- },c.RequestAborted);
- if(terms is not null)await retained.Stage(profile,body.OperationId,body,permission,body.TradeId,body.ExpectedRevision,terms.Generate(c.RequestAborted),c.RequestAborted);
- return await database.WithIdentity(profile,permission,async(connection,ct)=>{
-  if(terms is not null)await retained.Lock(connection,body.OperationId,ct);
-  var result=await gasComposition.Save(connection,frame,body,ct);
-  if(terms is not null&&!(result.TryGetProperty("unchanged",out var unchanged)&&unchanged.GetBoolean()))await retained.Publish(connection,body.OperationId,ct);
-  return Results.Ok(result);
- },c.RequestAborted);
+ return Results.Ok(await gasComposition.Book(Profile(session),Frame(session,body.SnapshotId),body,false,c.RequestAborted));
 }
 
 // The deal ticket (docs/deal-ticket.md) runs the gas operations it delegates to, with their permissions and context handling.

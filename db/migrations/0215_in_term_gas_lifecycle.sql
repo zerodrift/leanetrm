@@ -1,6 +1,6 @@
 -- Current consumer: the in-term physical gas lifecycle (D359). New gas compositions retain whole gas-day
 -- delivery and accrued payment programs; recorded payments allocate signed cash to exact retained
--- occurrences under their own knowledge receipts; an owner-only load admits a composition already in term.
+-- occurrences under their own knowledge receipts; a dedicated loader admits a composition already in term.
 -- Stored programs are never re-validated: trades booked earlier keep their future-delivery lifecycles.
 BEGIN;
 SET LOCAL lock_timeout='5s';
@@ -67,7 +67,9 @@ ALTER FUNCTION security.write_gas_composition(uuid,jsonb,timestamptz,boolean) OW
 REVOKE ALL ON FUNCTION security.write_gas_composition(uuid,jsonb,timestamptz,boolean) FROM PUBLIC;
 
 -- An administrator loads a composition already in its delivery term through the same admission.
--- The ticket keeps refusing started deliveries; there is no runtime grant.
+-- The ticket keeps refusing started deliveries; there is no runtime grant. Only the private operator's loader login,
+-- a runtime member that also holds this group role, executes the load under the named administrator's context.
+CREATE ROLE openetrm_gas_in_term_loader NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 CREATE FUNCTION security.load_gas_composition_in_term(catalog uuid,body jsonb,as_of timestamptz) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET jit=off AS $$BEGIN
  IF body ?| ARRAY['tradeId','expectedRevision','bindingId','reason','amendmentPolicy'] THEN RAISE EXCEPTION 'gas_composition_input';END IF;
@@ -75,6 +77,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog SET jit=off AS $$BE
 END$$;
 ALTER FUNCTION security.load_gas_composition_in_term(uuid,jsonb,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.load_gas_composition_in_term(uuid,jsonb,timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION security.load_gas_composition_in_term(uuid,jsonb,timestamptz) TO openetrm_gas_in_term_loader;
 
 -- A recorded payment: one signed cash amount of a held cash membership, effective at paid_at and known
 -- from its publication's receipt. A changed value of the same business key is a new revision.

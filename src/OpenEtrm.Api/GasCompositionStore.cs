@@ -240,8 +240,28 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   return value.Schedule.Totals[$"{code}.market_price"].Value??throw new MarketDataException("ticket_lookup","The side's delivery term has no single market price.");
  }
  internal Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,CancellationToken ct)=>TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,pinned.At,ct);await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,ct);_=await Value(c,data,pinned,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,false,ct);return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,d.Instrument);},ct,physicalMarket:PhysicalMarketSelection.Gas,physicalTrade:body.TradeId);
- internal async Task<JsonElement> Save(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,CancellationToken ct)
- {var operation=body.TradeId is null?"book_gas_composition":"amend_gas_composition";await using var q=ScheduleStore.Command(c,$"SELECT security.{operation}($1,$2::jsonb,$3)::text",database.Manifest.CatalogId,JsonSerializer.Serialize(body,Json),frame.At);return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);}
+ // A new trade names no amended trade; the ticket and the administrator in-term load both book new trades only.
+ internal static void RequireNewTrade(GasCompositionRequest body)
+ {if(body.TradeId is not null||body.ExpectedRevision is not null||body.BindingId is not null||body.Reason is not null||body.AmendmentPolicy is not null)throw Invalid("Use the explicit gas amendment operation to amend a trade.");}
+ // Books, amends or (inTerm) loads one composition as the profile's identity: staging, locking and publication are
+ // idempotent by operation id (D238), so a retried operation receives its first outcome.
+ internal async Task<JsonElement> Book(string profile,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)
+ {
+  var retained=new RetainedScheduleStore(database);var permission=body.TradeId is null?"BookTrade":"AmendTrade";
+  var terms=await database.WithIdentity(profile,permission,async(connection,ct)=>{
+   var status=await gas.Status(connection,body.OperationId,ct);
+   return status.TryGetProperty("tradeId",out _)?null:await Prepare(connection,frame,body,ct);
+  },ct);
+  if(terms is not null)await retained.Stage(profile,body.OperationId,body,permission,body.TradeId,body.ExpectedRevision,terms.Generate(ct),ct);
+  return await database.WithIdentity(profile,permission,async(connection,ct)=>{
+   if(terms is not null)await retained.Lock(connection,body.OperationId,ct);
+   var result=await Save(connection,frame,body,inTerm,ct);
+   if(terms is not null&&!(result.TryGetProperty("unchanged",out var unchanged)&&unchanged.GetBoolean()))await retained.Publish(connection,body.OperationId,ct);
+   return result;
+  },ct);
+ }
+ async Task<JsonElement> Save(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)
+ {var operation=inTerm?"load_gas_composition_in_term":body.TradeId is null?"book_gas_composition":"amend_gas_composition";await using var q=ScheduleStore.Command(c,$"SELECT security.{operation}($1,$2::jsonb,$3)::text",database.Manifest.CatalogId,JsonSerializer.Serialize(body,Json),frame.At);return JsonSerializer.Deserialize<JsonElement>((string)(await q.ExecuteScalarAsync(ct))!);}
  public async Task<object> Editor(NpgsqlConnection c,PreviewData data,InputFrame frame,Guid trade,CancellationToken ct)=>await Read(c,data,frame,trade,ct);
  internal async Task<SideScheduleSnapshot> InspectSchedule(NpgsqlConnection c,PreviewData data,InputFrame frame,GasCompositionExecution execution,int slot,CancellationToken ct)
  {

@@ -1,4 +1,4 @@
-"""In-term gas admission, recorded payments and the owner-only load, against the synthetic in-term demo."""
+"""In-term gas admission, recorded payments and the administrator load, against the synthetic in-term demo."""
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -10,12 +10,14 @@ from assistant_context import check_guard, migration_body
 from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
 from check_booked_side_programs import runtime_query, capture_context
-from gas_in_term_fixture import CLOSE, POINT, TERM, custom_curves, fixing, marks, published_at, trade
+from gas_in_term_fixture import ADMINISTRATOR, CLOSE, DISABLED_ADMINISTRATOR, POINT, TERM, custom_curves, fixing, marks, published_at, trade
+
+LOADER = 'preview_gas_in_term_loader'
 
 STARTED = {'whole_gas_day_delivery_v1', 'accrued_payment_v1'}
 
 
-def run_checks(url, query, manifest, run_worker, browse=None):
+def run_checks(url, query, manifest, run_worker, admin_load, browse=None):
     c = PreviewClient(url); c.bootstrap(); c.call('profile', {'profile': 'trader'})
     catalog = manifest['catalogId']
     frame = initial_frame(c.call('workspace'), '2026-11-06')
@@ -33,6 +35,10 @@ def run_checks(url, query, manifest, run_worker, browse=None):
     encoded = json.dumps(body).replace("'", "''")
     def sql_value(statement, **options):
         return runtime_query(query, manifest, statement, **options).splitlines()[-1]
+    def load(composition):
+        outcome = admin_load({'administrator': ADMINISTRATOR[0], 'composition': composition})
+        assert outcome.returncode == 0, outcome.stderr
+        return json.loads(outcome.stdout)
     def refused(statement, code, **options):
         try: runtime_query(query, manifest, statement, **options)
         except RuntimeError as error: assert code in str(error), error
@@ -45,23 +51,47 @@ def run_checks(url, query, manifest, run_worker, browse=None):
     refused(f"SELECT security.book_gas_composition('{catalog}','{encoded}'::jsonb,'{CLOSE}');", 'gas_delivery_lifecycle')
     print('PASS a started gas composition is staged by the ticket and still refused by the booking operation', flush=True)
 
-    # (b) The administrator load is owner-only and admits the same programs through the same writer.
+    # (b) A named administrator loads the started composition through the dedicated loader login (D359). The
+    # API's runtime login cannot execute the load; the loader holds exactly runtime's privileges plus the load.
     # A context whose knowledge precedes the load.
     before_load = capture_context(query, manifest, '2026-11-06').splitlines()[-1]
-    load = f"SELECT security.load_gas_composition_in_term('{catalog}','{encoded}'::jsonb,'{CLOSE}');"
-    refused(load, 'permission denied for function load_gas_composition_in_term')
+    refused(f"SELECT security.load_gas_composition_in_term('{catalog}','{encoded}'::jsonb,'{CLOSE}');", 'permission denied for function load_gas_composition_in_term')
     assert query("SELECT has_function_privilege('openetrm_runtime','security.load_gas_composition_in_term(uuid,jsonb,timestamptz)','EXECUTE'),"
                  "has_function_privilege('openetrm_runtime','security.write_gas_composition(uuid,jsonb,timestamptz,boolean)','EXECUTE');") == 'f|f'
-    # The administrator binds the booking actor's request context in an owner session, then loads and
-    # publishes the staged programs in one transaction, as the ticket's booking transaction does.
-    def owner(statement):
-        token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_owner',60);")
-        return json.loads(next(line for line in query(f"BEGIN;SELECT security.use_context('{token}');{statement}COMMIT;").splitlines() if line.startswith('{')))
-    loaded = owner(load + f"SELECT security.publish_operation_side_schedules('{catalog}','{body['operationId']}');")
-    assert owner(load) == loaded
+    query(f"CREATE ROLE {LOADER} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT IN ROLE openetrm_runtime,openetrm_gas_in_term_loader;")
+    beyond = lambda kind, objects, selected, privileges: (f"(SELECT count(*) FROM {objects} o CROSS JOIN unnest(ARRAY[{privileges}]) x(p)"
+                                                          f" WHERE {selected} AND has_{kind}_privilege('{LOADER}',o.oid,x.p) AND NOT has_{kind}_privilege('openetrm_runtime',o.oid,x.p))")
+    assert query("SELECT r.rolcanlogin,(SELECT count(*) FROM pg_auth_members WHERE member=r.oid),"
+                 f"(SELECT string_agg(o.oid::regprocedure::text,',') FROM pg_proc o WHERE has_function_privilege('{LOADER}',o.oid,'EXECUTE') AND NOT has_function_privilege('openetrm_runtime',o.oid,'EXECUTE')),"
+                 + beyond('table', 'pg_class', "o.relkind IN('r','v','m','p','f')", "'SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'") + ',' +
+                 beyond('sequence', 'pg_class', "o.relkind='S'", "'USAGE','SELECT','UPDATE'") + ',' + beyond('schema', 'pg_namespace', 'true', "'USAGE','CREATE'") +
+                 ",pg_has_role('preview_runtime','openetrm_gas_in_term_loader','MEMBER') FROM pg_roles r WHERE r.rolname='openetrm_gas_in_term_loader';") == \
+        'f|0|security.load_gas_composition_in_term(uuid,jsonb,timestamp with time zone)|0|0|0|f'
+    print('PASS the runtime login cannot load; the loader login holds runtime privileges plus only the in-term load', flush=True)
+
+    # The request is the ticket's composition naming a recorded close, under its own operation.
+    assert frame.get('originCloseId') == frame['id'], frame
+    def written():
+        return query(f"SELECT (SELECT count(*) FROM trading.trades WHERE catalog_id='{catalog}'),(SELECT count(*) FROM trading.gas_trade_revisions WHERE catalog_id='{catalog}'),"
+                     f"(SELECT count(*) FROM trading.side_schedule_requests WHERE catalog_id='{catalog}'),(SELECT count(*) FROM trading.publications WHERE catalog_id='{catalog}');")
+    in_term = {**body, 'operationId': str(uuid4())}
+    loaded = load(in_term)
+    rows = written()
+    assert load(in_term) == loaded and written() == rows
+    administrator = ADMINISTRATOR[1]
+    assert query(f"SELECT t.actor_id,r.actor_id FROM trading.trades t JOIN trading.gas_trade_revisions r ON(r.catalog_id,r.trade_id)=(t.catalog_id,t.id)"
+                 f" WHERE(t.catalog_id,t.id)=('{catalog}','{loaded['tradeId']}');") == f'{administrator}|{administrator}'
     assert lifecycles(query, catalog, loaded['instrumentId']) == {0: {'whole_gas_day_delivery_v1'}, 1: {'accrued_payment_v1'}}
     trade_id = loaded['tradeId']
-    print('PASS the owner-only in-term load admits the started composition once, with whole gas-day and accrued payment programs', flush=True)
+    print('PASS the named administrator loads the started composition once through the loader, with whole gas-day and accrued payment programs', flush=True)
+    # (d) An unknown or disabled administrator, or one without booking authority, is refused and writes nothing.
+    for login, code in (('in_term_unbound_administrator', 'gas_in_term_identity'), (DISABLED_ADMINISTRATOR[0], 'gas_in_term_identity'), ('admin', 'gas_in_term_authority')):
+        attempt = {**body, 'operationId': str(uuid4())}
+        outcome = admin_load({'administrator': login, 'composition': attempt})
+        assert outcome.returncode == 1 and json.loads(outcome.stderr)['code'] == code, (login, outcome.stdout, outcome.stderr)
+        assert query(f"SELECT count(*) FROM trading.side_schedule_requests WHERE(catalog_id,request_id)=('{catalog}','{attempt['operationId']}');") == '0'
+    assert written() == rows
+    print('PASS an unknown, disabled or unauthorized administrator is refused with a structured error and writes nothing', flush=True)
 
     # A forward composition booked through the ticket now selects the started-delivery lifecycles too.
     forward = deepcopy(body); forward.update(operationId=str(uuid4()), profile='fixed_gas_composition_v1')
@@ -141,13 +171,13 @@ def run_checks(url, query, manifest, run_worker, browse=None):
         else: raise AssertionError(f'A foreign occurrence was accepted instead of {code}')
     assert query("SELECT has_table_privilege('openetrm_runtime','trading.gas_cash_payments','INSERT'),has_table_privilege('openetrm_runtime','trading.gas_cash_payment_allocations','INSERT');") == 'f|f'
     print('PASS gas payment allocations name only their own trade, membership and retained occurrence', flush=True)
-    shown = valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, loaded['instrumentId'], before_load, owner)
+    shown = valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, loaded['instrumentId'], before_load, load)
     # The browser reads the Blotter before the refusing trades below are planted: they make the portfolio total refuse, by design.
     if browse: browse(shown)
-    refusal_checks(c, query, manifest, frame, body, trade_id, loaded['instrumentId'], other, revision['paymentId'], owner)
+    refusal_checks(c, query, manifest, frame, body, trade_id, loaded['instrumentId'], other, revision['paymentId'], load)
 
 
-def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, binding, before_load, owner):
+def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, binding, before_load, load):
     """Measures, Side states, retained risk and history of the loaded in-term composition at the close."""
     close = datetime(2026, 11, 6, 21, tzinfo=timezone.utc)
     ended = lambda day: datetime(day.year, day.month, day.day, 15, tzinfo=timezone.utc) + timedelta(days=1) <= close
@@ -245,7 +275,7 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
     refused = c.call('gas/composition/editor', dict(context={**working, 'knowledgeMode': 'retained', 'contextId': before_load}, tradeId=trade_id), expected=422)
     assert refused['code'] == 'gas_composition_input', refused
     print('PASS a historical context known before the load reads no in-term trade', flush=True)
-    determined = final_determination(c, query, manifest, frame, context, body, owner)
+    determined = final_determination(c, query, manifest, frame, context, body, load)
     # What the browser check must find on screen, from the oracle above: the figures as the page groups them, the trades by their Blotter reference.
     refs = {h['tradeId']: h['tradeReference'] for h in c.call('trading/blotter', dict(context={**working, 'convention': 'trading_workspace_v1'},
             view=dict(mode='trades', bookIds=[], portfolioIds=[], groupBy=[], measures=[], pivotConvention=None)))['holdings']}
@@ -255,16 +285,14 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
                 expectedCash=[grouped(expected[d]) for d in sorted(expected)], determined=dict(determined, tradeReference=refs[determined['tradeId']], amount='-303.8'))
 
 
-def final_determination(c, query, manifest, frame, context, body, owner):
+def final_determination(c, query, manifest, frame, context, body, load):
     """A fixed-price in-term day with a D338 final determination shows it beside the contract-estimate accrual."""
     single = deepcopy(body); single.update(operationId=str(uuid4()), profile='fixed_gas_composition_v1')
     single['physicalSides'][0].update(deliveryFrom='2026-11-01', deliveryTo='2026-11-02')
     single['cashSides'] = [dict(code='payment', role='consideration', direction='pay', source='gas', stage='delivery', price='3.1', tariffCode=None, paymentAt='2026-12-10T00:00:00Z')]
     staged = c.call('gas/composition/book', single, expected=422)
     assert staged['code'] == 'gas_delivery_lifecycle', staged
-    encoded = json.dumps(single).replace("'", "''")
-    loaded = owner(f"SELECT security.load_gas_composition_in_term('{manifest['catalogId']}','{encoded}'::jsonb,'{CLOSE}');"
-                   f"SELECT security.publish_operation_side_schedules('{manifest['catalogId']}','{single['operationId']}');")
+    loaded = load({**single, 'operationId': str(uuid4())})
     working = dict(snapshotId=frame['id'], convention=context['convention'], knowledgeMode='current')
     trade = loaded['tradeId']
     def inspected():
@@ -289,7 +317,7 @@ def final_determination(c, query, manifest, frame, context, body, owner):
     return dict(tradeId=trade, instrumentId=loaded['instrumentId'])
 
 
-def refusal_checks(c, query, manifest, frame, body, trade_id, binding, forward, payment, owner):
+def refusal_checks(c, query, manifest, frame, body, trade_id, binding, forward, payment, load):
     """Trade-specific refusals stay on their own rows; a portfolio holding a refusing trade refuses its total."""
     catalog = manifest['catalogId']
     # Review Focus 5: an equivalent in-term composition whose stored programs keep the future-delivery lifecycles,
@@ -297,8 +325,7 @@ def refusal_checks(c, query, manifest, frame, body, trade_id, binding, forward, 
     # Its own term (from October), so it shares no retained schedule with the in-term fixture.
     copy = deepcopy(body); copy['operationId'] = str(uuid4()); copy['physicalSides'][0]['deliveryFrom'] = '2026-10-01'
     assert c.call('gas/composition/book', copy, expected=422)['code'] == 'gas_delivery_lifecycle'
-    encoded = json.dumps(copy).replace("'", "''")
-    old = owner(f"SELECT security.load_gas_composition_in_term('{catalog}','{encoded}'::jsonb,'{CLOSE}');SELECT security.publish_operation_side_schedules('{catalog}','{copy['operationId']}');")
+    old = load({**copy, 'operationId': str(uuid4())})
     schedules = f"(SELECT schedule_id FROM trading.instrument_side_schedules WHERE(catalog_id,instrument_id)=('{catalog}','{old['instrumentId']}'))"
     query("BEGIN;SET LOCAL session_replication_role=replica;"
           f"UPDATE trading.side_schedule_programs p SET content=x.content,content_hash=sha256(x.content) FROM(SELECT schedule_id,convert_to(replace(replace(convert_from(content,'UTF8'),"

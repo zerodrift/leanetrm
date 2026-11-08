@@ -4,7 +4,7 @@ marks through November and one monthly hub plus basis point for December. Conven
 from datetime import date, timedelta
 from decimal import Decimal
 from uuid import uuid4
-from preview_fixture import CAT, REV, R, M, identity, trade_booking
+from preview_fixture import CAT, REV, R, M, TENANT, WORKSPACE, identity, trade_booking
 
 POINT = 'synthetic_gas_point_hub'
 LOCATION = 'synthetic_hub_location'
@@ -12,6 +12,9 @@ SOURCES = ('synthetic_hub_daily', 'synthetic_hub_daily_basis', 'synthetic_hub_mo
 CLOSE = '2026-11-06T21:00:00Z'
 TERM = (date(2026, 9, 1), date(2027, 1, 1))
 WEEKEND = (date(2026, 11, 7), date(2026, 11, 10))
+# The administrator who loads the in-term trade holds the authority a ticket booking requires (the trader role) beside
+# access administration; a second, disabled one is refused. Both are synthetic identities of the preview issuer.
+ADMINISTRATOR, DISABLED_ADMINISTRATOR = ('in_term_administrator', identity('c', 90)), ('in_term_disabled_administrator', identity('c', 91))
 # The gas day starts 09:00 at a fixed UTC-6 synthetic central clock; publication is 12:00 there.
 DAY_START_MINUTE, OFFSET_SECONDS = 540, -21600
 
@@ -106,6 +109,13 @@ def add_fixture(reference, market, security, manifest):
     market = market.replace('UPDATE ref_data.revisions SET', '\n'.join(refs) + '\nUPDATE ref_data.revisions SET', 1)
     market = market.replace('UPDATE market_data.revisions SET', '\n'.join(definitions) + '\nUPDATE market_data.revisions SET', 1)
     market = market.rsplit('COMMIT;', 1)[0] + '\n'.join(observations) + '\nCOMMIT;\n'
+    for (login, principal), enabled in ((ADMINISTRATOR, 'true'), (DISABLED_ADMINISTRATOR, 'false')):
+        security += f"""
+INSERT INTO security.principals VALUES('{principal}','human',{enabled});
+INSERT INTO security.identity_bindings VALUES('https://preview.invalid','{login}','{principal}','human_interactive');
+INSERT INTO security.workspace_memberships VALUES('{TENANT}','{WORKSPACE}','{principal}','{login}','Synthetic {login.replace('_', ' ')}',true,1);
+INSERT INTO security.role_grants SELECT gen_random_uuid(),'{principal}',id,'{TENANT}','{WORKSPACE}',CURRENT_TIMESTAMP-INTERVAL '1 day',CURRENT_TIMESTAMP+INTERVAL '1 day',false
+ FROM security.roles WHERE code IN('trader','access_administrator');"""
     standard = manifest['frames'][3]
     manifest['frames'].append({**standard, 'at': CLOSE, 'observationIds': standard['observationIds'] + pins})
     return reference, market, security, manifest
