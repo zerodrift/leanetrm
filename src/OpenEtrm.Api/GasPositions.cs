@@ -70,22 +70,28 @@ internal static class GasPositions
    selectedTrades is null?args:[..args,selectedTrades.ToArray()],ct);
   var selected=BookScope.Select(books,bookIds,portfolioIds).ToImmutableDictionary(b=>b.Id("id"));
   if(selected.IsEmpty)return [];
+  // Each gas revision and instrument row costs a row-security evaluation, so both are read once by key: a selected trade's
+  // revisions (its head is still its latest visible one), and the scope's instruments, never every instrument per head.
+  // A visible head whose instrument is outside the scope is kept and refused below, as an earlier revision of a moved trade.
   var heads=await PreviewDatabase.Rows(connection,"""
-   WITH heads AS(SELECT DISTINCT ON(trade_id) * FROM trading.gas_trade_revisions WHERE catalog_id=$1 ORDER BY trade_id,revision DESC)
+   WITH heads AS(SELECT DISTINCT ON(trade_id) * FROM trading.gas_trade_revisions WHERE catalog_id=$1
+    AND($3::uuid IS NULL OR trade_id=$3) AND($4::uuid[] IS NULL OR trade_id=ANY($4::uuid[])) ORDER BY trade_id,revision DESC),
+   instruments AS MATERIALIZED(SELECT * FROM trading.gas_instruments WHERE catalog_id=$1 AND instrument_id=ANY($5::uuid[]))
    SELECT row_to_json(x)::text FROM(
-    SELECT r.*,r.instrument_id binding_id,i.definition_revision_id,i.composition,i.gas_setup_id,i.quantity_basis,i.fixed_price,i.usage_fee,i.usage_tariff_code,i.usage_fee_direction,i.payment_at,
+    SELECT r.*,r.instrument_id binding_id,i.catalog_id IS NOT NULL instrument_in_scope,i.definition_revision_id,i.composition,i.gas_setup_id,i.quantity_basis,i.fixed_price,i.usage_fee,i.usage_tariff_code,i.usage_fee_direction,i.payment_at,
      tr.reference_number trade_reference,ir.reference_number instrument_reference,
      f.trade_date,f.booker_id,f.booker_name,f.booker_login,f.executed_at,f.implementation booking_implementation,f.label_captured_at,
      e.name legal_entity,p.name counterparty
-    FROM heads r JOIN trading.gas_instruments i USING(catalog_id,instrument_id)
+    FROM heads r LEFT JOIN instruments i USING(catalog_id,instrument_id)
     JOIN trading.trade_references tr ON(tr.catalog_id,tr.trade_id)=(r.catalog_id,r.trade_id)
     JOIN trading.instrument_references ir ON(ir.catalog_id,ir.instrument_id)=(r.catalog_id,r.instrument_id)
     JOIN trading.booking_facts f ON(f.catalog_id,f.trade_id)=(r.catalog_id,r.trade_id)
     JOIN trading.legal_entities e ON(e.catalog_id,e.id,e.revision)=(r.catalog_id,r.legal_entity_id,r.legal_entity_revision)
     JOIN trading.counterparties p ON(p.catalog_id,p.id,p.revision)=(r.catalog_id,r.counterparty_id,r.counterparty_revision)
-    WHERE r.book_id=ANY($2::uuid[]) AND($3::uuid IS NULL OR r.trade_id=$3) AND($4::uuid[] IS NULL OR r.trade_id=ANY($4::uuid[])) ORDER BY tr.reference_number,r.instrument_id)x
-   """,[manifest.CatalogId,selected.Keys.ToArray(),(position?.TradeId??trade) is {} tradeId?(object)tradeId:DBNull.Value,(object?)trades?.ToArray()??DBNull.Value],ct);
-  if(scope.Length!=heads.Length||!scope.Select(p=>(p.Id("trade_id"),p.Id("binding_id"),p.Id("book_id"))).ToHashSet()
+    WHERE r.book_id=ANY($2::uuid[]) ORDER BY tr.reference_number,r.instrument_id)x
+   """,[manifest.CatalogId,selected.Keys.ToArray(),(position?.TradeId??trade) is {} tradeId?(object)tradeId:DBNull.Value,(object?)trades?.ToArray()??DBNull.Value,
+    scope.Select(p=>p.Id("binding_id")).Distinct().ToArray()],ct);
+  if(scope.Length!=heads.Length||heads.Any(h=>!h.GetProperty("instrument_in_scope").GetBoolean())||!scope.Select(p=>(p.Id("trade_id"),p.Id("binding_id"),p.Id("book_id"))).ToHashSet()
    .SetEquals(heads.Select(p=>(p.Id("trade_id"),p.Id("instrument_id"),p.Id("book_id")))))
    throw new MarketDataException("position_facts","Every held gas position requires its exact authorized temporal head and sources.");
   if(position is not null)position.Require(heads);
