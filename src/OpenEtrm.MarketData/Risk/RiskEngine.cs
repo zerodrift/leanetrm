@@ -99,8 +99,17 @@ public sealed class PreparedPortfolioRisk
 }
 public sealed record GroupedRiskRun(Guid SnapshotId,ImmutableArray<RiskRun> Groups,RiskWork Work);
 public sealed record ExactRiskBookTotal(Guid BookId,ExactDealRiskValues Values);
-public sealed record ExactRiskPositionValue(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactMoney Value);
-public sealed record ExactRiskPositionResult(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactDealRiskValues Values);
+// Components: the instrument's named parts of Value, which sum to it exactly; empty for an instrument without components.
+public sealed record ExactRiskPositionValue(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactMoney Value)
+{
+    public ImmutableArray<ValueComponent> Components{get;init;}=[];
+}
+public sealed record ExactRiskPositionResult(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactDealRiskValues Values)
+{
+    public ImmutableArray<ComponentRiskValues> Components{get;init;}=[];
+}
+// One named component of a position under the base and the two scenarios of a bump.
+public sealed record ComponentRiskValues(string Name,ExactMoney Base,ExactMoney Up,ExactMoney Down);
 public sealed record ExactBookRiskFactor(QuoteBump Bump,ImmutableArray<ExactRiskBookTotal> Totals,ScenarioWork UpWork,ScenarioWork DownWork)
 {
     public ImmutableArray<ExactRiskPositionResult> Positions{get;init;}=[];

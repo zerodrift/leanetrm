@@ -140,3 +140,20 @@ test('a commodity pivot tells commodities apart by code and labels them by name'
  assert.equal(new Set(panel.series[0].points.map(p=>p.x)).size,2);
  assert.throws(()=>pivotMatrix([{...groups[0],commodity:undefined}],['commodity','instrumentType'],['instrumentType'],['quantity']));
 });
+test('groups of one instrument type under two value measures stay two named rows, never combined',()=>{
+ const common={bookId:'a',book:'A',instrumentType:'physical_gas',unit:'EA',currency:'TST',currencyReference:{code:'c'},quantitySpecification:{code:'q'}};
+ const groups=[{...common,measure:'gas_contractual_present_value',measureLabel:'Contractual PV',presentValue:'64'},
+  {...common,measure:'gas_lifecycle_value_v1',measureLabel:'Unrealized + realized unsettled',presentValue:'18'}];
+ const result=pivotMatrix(groups,['book','instrumentType'],['instrumentType'],['presentValue']);
+ assert.deepEqual(result.rows.map(r=>[r.measure,r[result.columns.at(-1).key]]),[['Contractual PV','64'],['Unrealized + realized unsettled','18']]);
+ assert.equal(result.columns.find(c=>c.key==='measure').title,'Value measure');
+});
+test('the value measure column appears only for two defined measures, and a group without one shows an empty cell',()=>{
+ const common={bookId:'a',book:'A',unit:'EA',currency:'TST',currencyReference:{code:'c'},quantitySpecification:{code:'q'}};
+ const swap={...common,instrumentType:'financial_swap',presentValue:'5'};
+ const gas=(measure,measureLabel,presentValue)=>({...common,instrumentType:'physical_gas',measure,measureLabel,presentValue});
+ const both=pivotMatrix([swap,gas('gas_contractual_present_value','Contractual PV','64'),gas('gas_lifecycle_value_v1','Unrealized + realized unsettled','18')],['book','instrumentType'],['instrumentType'],['presentValue']);
+ assert.deepEqual(both.rows.map(r=>r.measure),['','Contractual PV','Unrealized + realized unsettled']);
+ const one=pivotMatrix([swap,gas('gas_lifecycle_value_v1','Unrealized + realized unsettled','18')],['book','instrumentType'],['instrumentType'],['presentValue']);
+ assert.ok(!one.columns.some(c=>c.key==='measure')&&one.rows.every(r=>!('measure' in r)));
+});

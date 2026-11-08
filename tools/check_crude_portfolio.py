@@ -69,7 +69,7 @@ def run_checks(url, receipt, *, run_worker):
     untouched_crude = next(p for p in report['factors'][1]['positions'] if p['tradeId'] == receipt['tradeId'])
     assert Fraction(untouched_future['values']['upPnl']) == Fraction(untouched_crude['values']['upPnl']) == 0
     gas_risk = next(p for p in report['factors'][2]['positions'] if p['tradeId'] == gas['tradeId'])
-    assert gas_risk['measure'] == 'gas_contractual_present_value'
+    assert gas_risk['measure'] == 'gas_lifecycle_value_v1'
     assert {key: Fraction(gas_risk['values'][key]) for key in ('base', 'up', 'down', 'delta', 'gamma')} == {
         'base': 100, 'up': 200, 'down': 0, 'delta': 1000, 'gamma': 0}
     untouched_gas = next(p for p in report['factors'][0]['positions'] if p['tradeId'] == gas['tradeId'])

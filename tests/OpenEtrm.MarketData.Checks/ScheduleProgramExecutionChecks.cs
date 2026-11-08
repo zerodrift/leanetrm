@@ -16,7 +16,7 @@ internal static class ScheduleProgramExecutionChecks
         return BookedSideProgram.Read(bytes,new(BookedSideProgram.Digest(bytes),definition.Manifest,definition.Family,definition.EconomicIdentity,definition.PricingBindingIdentity));
     }
     private static ResolvedCalculationContext Context(DateTimeOffset at)=>new(Guid.NewGuid(),"synthetic_program_values_v1",at,at,at,at);
-    private static Dictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>> Sources(BookedSideProgram program,ScheduleInputDemandSet demand,string basis,string scenario,
+    internal static Dictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>> Sources(BookedSideProgram program,ScheduleInputDemandSet demand,string basis,string scenario,
         Func<ScheduleDefinitionRow,int,string,(ScheduleNumber Number,ScheduleCellState State)> resolve)
     {
         var result=new Dictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>>();

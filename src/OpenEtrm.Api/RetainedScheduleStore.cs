@@ -25,7 +25,7 @@ internal sealed record RetainedScheduleTerms(DefinitionRevision Definitions,Refe
             cancellation.ThrowIfCancellationRequested();var side=membership.Side;
             var key=(DefinitionIdentity.For(side).Canonical,side.PricingBindingIdentity?.Canonical);
             if(!unique.TryGetValue(key,out var definition))
-                unique.Add(key,definition=ScheduleDefinitionCompiler.Generate(side,cancellation));
+                unique.Add(key,definition=ScheduleDefinitionCompiler.Generate(side,cancellation,Instrument is OpenEtrm.MarketData.Gas.GasCompositionInstrument?ScheduleLifecycleSelection.StartedPhysicalDelivery:ScheduleLifecycleSelection.FutureDelivery));
             definitions.Add(definition.SideId==side.Id?definition:definition.WithSideId(side.Id));
         }
         RetainedScheduleLimits.Require(definitions);

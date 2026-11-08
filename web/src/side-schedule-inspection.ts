@@ -1,9 +1,10 @@
 import {numberText,sourceLabels} from './schedule-grid.js';
+import {lifecycleLines,quantityBasisText,words as text} from './lifecycle-text.js';
 type Api=<T>(path:string,body:unknown,signal?:AbortSignal)=>Promise<T>;
 export type SchedulePosition={context:Record<string,unknown>;tradeId:string;bindingId:string;revision:number;instrumentType:string};
 type Lifecycle={delivery:string;due:string|null;cash:string|null;economicClass:string|null;coverage:string|null;unavailableReason:string|null;fulfillment:string|null};
 export type InspectedScheduleRow={key:string;kind:string;deliveryFrom:string|null;deliveryTo:string|null;start:string|null;end:string|null;valueAt:string|null;paymentAt:string|null;
- quantity:string|null;price:string|null;amount:string|null;discountFactor:string|null;presentValue:string|null;quantityState:string|null;priceStates:string[];lifecycle:Lifecycle;paid:string|null;outstanding:string|null;quantitySpecification:{code:string}|null;currency:{code:string}|null;quoteMultiplier:string|null;operatingDate:string|null};
+ quantity:string|null;price:string|null;amount:string|null;discountFactor:string|null;presentValue:string|null;quantityState:string|null;priceStates:string[];lifecycle:Lifecycle;paid:string|null;outstanding:string|null;accrued?:string|null;paidAt?:string|null;finalDetermination?:string|null;quantitySpecification:{code:string}|null;currency:{code:string}|null;quoteMultiplier:string|null;operatingDate:string|null};
 type Step={key:string;role:string;operation:string;kind:string;value:string|null;presence:string;deliveryFrom:string|null;deliveryTo:string|null;start:string|null;end:string|null;observationFrom:string|null;observationTo:string|null;valueAt:string|null;
  contractFrom:string|null;contractTo:string|null;fixingAt:string|null;priceStates:string[];inputs:{port:string;key:string}[];bindings:{kind:string;market?:{curve:{code:string}}|null;code?:string|null}[];lineage:{id:string}[];actualBatch?:string|null;actualRevision?:number|null;actualKnownAt?:string|null;parameters?:Record<string,string>};
 type Page={side:string;manifest:string;valuationAt:string;knownAt:string;offset:number;total:number;rows:InspectedScheduleRow[]};
@@ -12,7 +13,6 @@ type Side={slot:number;sideId:string;family:string;manifest:string;windows:{id:s
 type Identity={tradeId:string;bindingId:string;revision:number;contextId:string;snapshotId:string};
 type Directory=Identity&{sides:Side[]};
 type Reply<T>=Identity&{sideSlot:number;sideId:string;manifest:string;window?:string|null;page:T};
-const text=(value:string|null|undefined)=>{if(!value)return '—';const words=value.replace(/_/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2');return words[0]+words.slice(1).toLowerCase();};
 const invalidates=(error:unknown)=>['access_denied','position_unavailable','position_facts','side_schedule_missing'].includes((error as {code?:string})?.code??'');
 const number=(value:string|null)=>value===null?'—':numberText(value);
 const element=<K extends keyof HTMLElementTagNameMap>(tag:K,value?:string)=>{const node=document.createElement(tag);if(value!==undefined)node.textContent=value;return node;};
@@ -78,16 +78,14 @@ export function mountSideScheduleInspection(host:HTMLElement,o:{api:Api;position
      const inspect=element('button','Calculation');inspect.type='button';inspect.className='inspection-calculation';inspect.disabled=row.lifecycle.unavailableReason!==null;
      inspect.onclick=()=>void calculation(row,0);
      const state=row.lifecycle,currency=row.currency?.code??'';
-     const quantity=lines(number(row.quantity),[row.quantitySpecification?.code??'',text(row.quantityState)]);
+     const quantity=lines(number(row.quantity),[row.quantitySpecification?.code??'',quantityBasisText(row.quantityState)]);
      const day=row.operatingDate,recorded=day?o.quantityEntry?.days.get(day):undefined;
      if(day&&recorded&&o.quantityEntry){
       const input=element('input');input.className='ticket-cell-input';input.inputMode='decimal';input.placeholder=number(recorded.value);input.disabled=o.quantityEntry.disabled;
       input.setAttribute('aria-label',`Record quantity · ${day}`);input.onchange=()=>o.quantityEntry!.enter(day,input.value);
       quantity.append(element('small',`Operational view: ${number(recorded.value)} · ${recorded.sources.map(s=>sourceLabels[s]??s).join(', ')}`),input);
      }
-     const lifecycle=[state.due&&`Payment: ${text(state.due)}`,state.cash&&`Cash: ${text(state.cash)}`,
-      row.paid!==null&&`Paid: ${number(row.paid)}`,row.outstanding!==null&&`Outstanding: ${number(row.outstanding)}`,
-      state.fulfillment&&`Fulfillment: ${text(state.fulfillment)}`,state.economicClass&&text(state.economicClass),state.coverage&&text(state.coverage)].filter((v):v is string=>!!v);
+     const lifecycle=lifecycleLines(row,instant);
      return [lines(row.start===null?row.deliveryFrom??'—':instant(row.start),[text(row.kind),row.operatingDate?`Operating day: ${row.operatingDate}`:'']),
       row.end===null?row.deliveryTo??'—':instant(row.end),instant(row.paymentAt),
       quantity,

@@ -90,7 +90,14 @@ export async function run(actions){
   const row=[...document.querySelectorAll('#facility-allocation-table tbody tr')].find(r=>r.querySelector('input')?.value==='60');row.querySelector('[data-facility-trade]').click();`);
  await openBookedSchedules(blotter);
  await inspectPositionSide(actions,0);
- await check('an unavailable historical Side retains dated rows and explicit valuation refusal',"facilityScheduleRead.page.rows.some(r=>r.operatingDate==='2021-01-01')&&facilityScheduleRead.page.rows.every(r=>r.presentValue===null&&r.lifecycle.unavailableReason)&&[...document.querySelectorAll('#position-details .inspection-rows tbody tr')].some(r=>r.textContent.includes('2021-01-01'))");
+ // The 2021-01-01 gas day has ended by the 2021-01-31 view (D360): the physical day contributes nothing further and never settles,
+ // and its 1000 MMBtu at 3 USD is accrued, unpaid cash that is not yet due on 2021-02-02.
+ const lifecycle="JSON.stringify(facilityScheduleRead.page.rows.map(r=>({day:r.operatingDate,from:r.deliveryFrom,due:r.valueAt,pv:r.presentValue,accrued:r.accrued,paid:r.paid,outstanding:r.outstanding,lifecycle:r.lifecycle})))";
+ await check('a historical physical Side retains its dated ended row, with no further value and no settlement',
+  "facilityScheduleRead.page.rows.length===1&&(r=>r.operatingDate==='2021-01-01'&&r.presentValue==='0'&&r.lifecycle.delivery==='Ended'&&r.lifecycle.cash==='NotApplicable'&&r.lifecycle.unavailableReason===null&&r.accrued===null)(facilityScheduleRead.page.rows[0])&&[...document.querySelectorAll('#position-details .inspection-rows tbody tr')].some(r=>r.textContent.includes('2021-01-01'))",lifecycle);
+ await inspectPositionSide(actions,1);
+ await check('its cash Side accrues the ended day as realized unsettled cash before the due date',
+  "facilityScheduleRead.page.rows.length===1&&(r=>r.deliveryFrom==='2021-01-01'&&r.valueAt.startsWith('2021-02-02')&&r.presentValue==='-3000'&&r.accrued==='-3000'&&r.paid==='0'&&r.outstanding==='-3000'&&r.lifecycle.delivery==='Ended'&&r.lifecycle.due==='NotDue'&&r.lifecycle.cash==='AccruedUnpaid'&&r.lifecycle.coverage==='RealizedUnsettled'&&r.lifecycle.unavailableReason===null)(facilityScheduleRead.page.rows[0])",lifecycle);
  await check('a historical allocation opens read-only Side schedules and retains only its own allocation evidence',
   "!document.querySelector('#position-details .ticket-facility-track,#position-details .ticket-cell-input')&&facilityTicketPayload.facilityAllocations.length===1&&facilityTicketPayload.facilityAllocations[0].quantity==='60'&&Object.keys(facilityTicketPayload.facilityAllocations[0]).sort().join()==='day,finalQuantity,finalState,obligationId,quantity,sideCode,state,unit'&&facilityTicketPayload.facilityAllocations[0].finalQuantity===null&&facilityTicketPayload.facilityAllocations[0].finalState==='missing'");
  const inspection=await evaluate('({tradeId:facilityTicketPayload.head.trade_id,contextId:facilityTicketPayload.context.contextId})');

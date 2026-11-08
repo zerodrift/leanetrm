@@ -190,6 +190,12 @@ public sealed partial class BookedSideProgram
     private ScheduleContributionState Classify(ScheduleDefinitionRow row,int cell,ScheduleCellState state,DateTimeOffset valuation,bool holding)
     {
         var modeled=(state.Prices&SchedulePriceFacts.Modeled)!=0;
+        if(row.Parameters["lifecycle"]==ScheduleLifecycles.AccruedPayment&&row.ValueAt<=valuation)
+        {
+            if((state.Prices&~(SchedulePriceFacts.Fixed|SchedulePriceFacts.Actual|SchedulePriceFacts.PublishedFixing))!=0)
+                throw new MarketDataException("side_due_leg_unresolved","Due accrued cash requires its fixed, actual or published price.");
+            return new(ComponentKind.Payment,null,null,ValueCoverage.OverdueBalance,false,null);
+        }
         if(row.Grid is null)return new(ComponentKind.Payment,null,null,ValueCoverage.Discounted,modeled,null);
         var delivered=Document.Grids[row.Grid.Value].EndTicks(cell)<=valuation.Ticks;
         var payment=row.Parameters["lifecycle"]=="interval_payment_v1";

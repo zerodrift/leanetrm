@@ -3,7 +3,7 @@ from copy import deepcopy
 from decimal import Decimal
 from uuid import uuid4
 from preview_client import PreviewClient, initial_frame
-from preview_fixture import gas_purchase
+from preview_fixture import gas_purchase, held_gas_measures
 
 
 def run_checks(url,query,manifest):
@@ -70,7 +70,7 @@ def run_checks(url,query,manifest):
     assert Decimal(preview(tariffed)['presentValue'])==-20
     second=c.call('gas/composition/book',new_body)
     assert Decimal(reopened(second['tradeId'])['presentValue'])==0
-    first=reopened(booked['tradeId']);assert first=={k:before[k] for k in first},(first,before)
+    first=held_gas_measures(reopened(booked['tradeId']),before);assert first=={k:before[k] for k in first},(first,before)
     c.call('profile',{'profile':'editor'})
     bad=deepcopy(changed);bad['meters'].append(deepcopy(bad['meters'][0]));bad['meters'][-1]['code']='synthetic_duplicate'
     invalid=c.call('gas-setup/save',{'operationId':str(uuid4()),'baseSetupId':new['setupId'],'configuration':bad})

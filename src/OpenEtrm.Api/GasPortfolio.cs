@@ -8,8 +8,9 @@ using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
 
+// Measure: started-delivery trades and older programs are separate groups, each under its own measure code.
 internal sealed record GasPortfolioInput(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,
- ValuationPortfolio Portfolio,ImmutableArray<PortfolioPositionEvidence> Evidence)
+ ValuationPortfolio Portfolio,ImmutableArray<PortfolioPositionEvidence> Evidence,string Measure)
 {
  internal ImmutableArray<SchedulePriceTerm> ActivePrices=>[..Portfolio.Instruments.Cast<RetainedGasInstrument>().SelectMany(i=>i.ActivePrices).Distinct()];
 }
@@ -31,7 +32,8 @@ internal static class GasPortfolio
    var source = await PhysicalMarketSelection.Gas.PortfolioSource(database, connection, frame, group.Key,
        [..group.Select(p => p.Reference)], supplied, requirePinnedSources, group.First().Trade, ct);
    var snapshot=MarketSnapshotBinding.Bind(source.Data.Snapshot(source.Frame),contextId,SchedulePreview.ParseAt(context.KnownAt));
-   var trades=ImmutableArray.CreateBuilder<Trade>();var evidence=ImmutableArray.CreateBuilder<PortfolioPositionEvidence>();
+   var held=new List<(string Measure,Trade Trade,PortfolioPositionEvidence Evidence)>();
+   var states=ImmutableDictionary.CreateBuilder<MeasureBinding,IBindingValuationState>();
    foreach(var position in group)
    {
     var execution=position.Head.GetProperty("composition").GetBoolean()
@@ -42,15 +44,20 @@ internal static class GasPortfolio
      execution.Quantity!=ExactDecimal.Parse(position.Head.Text("quantity")))
      throw Invalid("Held quantity, currency and instrument must match the retained gas programs.");
     var quantity=new Quantity(execution.Quantity,position.Quantity);var book=position.Book.Id("id");
-    trades.Add(new(position.Trade,book,[new(position.Binding,instrument,quantity)]));
-    evidence.Add(new(position.Trade,int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture),position.Binding,
-     instrument.Id,instrument.Id,book,GasPositions.Measure,group.Key,int.Parse(position.Head.Text("publication_order"),CultureInfo.InvariantCulture),quantity)
-     {TradeReference=TradingReference.Trade(position.Head),InstrumentReference=TradingReference.Instrument(position.Head),InstrumentType=GasPositions.Type});
+    // A started-delivery trade is valued with its recorded cash; older programs keep their own refusals.
+    if(execution.Started)states.Add(new(position.Trade,position.Binding),await GasCashPaymentStore.Read(connection,database.Manifest.CatalogId,position.Trade,position.Binding,quantity,GasCashPaymentStore.LatestKnownRevision,ct));
+    var measure=execution.Started?GasPositions.LifecycleMeasure:GasPositions.Measure;
+    held.Add((measure,new(position.Trade,book,[new(position.Binding,instrument,quantity)]),new(position.Trade,int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture),position.Binding,
+     instrument.Id,instrument.Id,book,measure,group.Key,int.Parse(position.Head.Text("publication_order"),CultureInfo.InvariantCulture),quantity)
+     {TradeReference=TradingReference.Trade(position.Head),InstrumentReference=TradingReference.Instrument(position.Head),InstrumentType=GasPositions.Type}));
    }
-   // Both admitted fixed gas profiles explicitly select undiscounted contractual PV.
-   var portfolio=ValuationPortfolio.FromTrades(trades.ToImmutable(),new(ValuationMeasure.PresentValue,
-    ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
-   result.Add(new(source.Data,source.Frame,snapshot,portfolio,evidence.ToImmutable()));
+   // Both admitted gas profiles explicitly select no discounting; each measure code is its own portfolio group.
+   foreach(var measured in held.GroupBy(h=>h.Measure).OrderBy(g=>g.Key,StringComparer.Ordinal))
+   {
+    var portfolio=ValuationPortfolio.FromTrades([..measured.Select(h=>h.Trade)],new(ValuationMeasure.PresentValue,
+     ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)){BindingStates=states.Where(s=>measured.Any(h=>h.Trade.Id==s.Key.TradeId)).ToImmutableDictionary()});
+    result.Add(new(source.Data,source.Frame,snapshot,portfolio,[..measured.Select(h=>h.Evidence)],measured.Key));
+   }
   }
   return result.ToImmutable();
  }

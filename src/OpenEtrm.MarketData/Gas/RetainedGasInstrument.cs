@@ -52,9 +52,47 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
         PriceLookups=priceLookups.IsDefault?[..Assignments.Select(a=>a.Lookup).Distinct()]:priceLookups.Distinct().ToImmutableArray();
     }
 
-    public override UnitPricingContract Declare(UnitValuationContext context) => new(Id, "retained_gas_unit_pv_v1",
-        [..PriceLookups.Select(lookup => PeriodPriceSelector.ProjectionAt(lookup, context.Snapshot)).OfType<CurveRequest>().Distinct()],
+    // Started-delivery state selects the lifecycle measure and whole gas-day programs their delivery mark policy, so both
+    // are part of the declared model version; older programs keep retained_gas_unit_pv_v1.
+    public override UnitPricingContract Declare(UnitValuationContext context) => new(Id,
+        (context.BindingState is PhysicalCashState ? PhysicalCashState.Policy + "/" : "") +
+        (Members.Any(m => PhysicalLifecycle.ReadsDeliveryMarks(m.Program)) ? PeriodPriceSelector.DeliveryMarkPolicy + "/retained_gas_unit_pv_v2" : "retained_gas_unit_pv_v1"),
+        PhysicalLifecycle.PriceDependencies(Members.Select(member => member.Program), PriceLookups, context.Snapshot),
         UnitQuantity.Specification, Currency) { ScheduleIdentity = RetainedScheduleIdentity };
+
+    // Unrealized plus realized unsettled, in the held binding's cash terms.
+    public PhysicalLifecycleValue EvaluateLifecycle(UnitValuationContext context)
+    {
+        if (context?.BindingState is not PhysicalCashState state)
+            throw new MarketDataException(PhysicalLifecycle.ContextRefusal, "Lifecycle valuation requires the held binding's explicit physical cash state.");
+        ValidateValuationState(state);
+        var evaluations = EvaluateMembers(context);
+        return PhysicalLifecycle.Evaluate([..Members.Select((member, n) => new LifecycleMember(member.Program, evaluations[n],
+            member.Program.Document.Family == "gas", value => Signed(member, value).Scale(state.Quantity.Amount)))], state, context.Snapshot, Currency);
+    }
+
+    public override ExactMoney Value(UnitValuationContext context)
+    {
+        if (context.BindingState is not PhysicalCashState state)
+        {
+            PhysicalLifecycle.RequireUnstarted(Members.Select(m => m.Program), context.Snapshot.ValuationAt);
+            return base.Value(context);
+        }
+        var held = state.Quantity.Amount; var negative = held.CompareTo(default) < 0;
+        ExactMoney Unit(ExactMoney value) { var unit = value.DivideBy(negative ? held * ExactDecimal.Parse("-1") : held); return negative ? unit.Scale(ExactDecimal.Parse("-1")) : unit; }
+        var lifecycle = EvaluateLifecycle(context);
+        context.RecordComponents([new(PhysicalLifecycle.UnrealizedComponent, Unit(lifecycle.Unrealized)), new(PhysicalLifecycle.RealizedUnsettledComponent, Unit(lifecycle.RealizedUnsettled))]);
+        return Unit(lifecycle.Total);
+    }
+
+    public override void ValidateValuationState(IBindingValuationState? state)
+    {
+        if (state is not PhysicalCashState cash) { base.ValidateValuationState(state); return; }
+        if (cash.Quantity.Specification != UnitQuantity.Specification || cash.Payments.Any(p => p.Slot >= Members.Length ||
+                Members[p.Slot].Program.Document.Family == "gas" || p.Amount.Currency != Currency ||
+                !Members[p.Slot].Program.Document.Instructions.Any(i => i.Output is { Operation: "output_guard", Grid: null } && i.Output.PaymentOrdinal == p.Occurrence)))
+            throw new MarketDataException("payment_state", "Each payment allocation must name a retained cash occurrence of this instrument in its currency and quantity.");
+    }
 
     protected override ScheduleMarketSources Sources(CurveBuild basis) => new(basis.Graph.Plan.Context, basis, null, null,
         IntervalKnowledgePolicy.ResolvedCutoff, PendingActualsPolicy.RequireActuals,

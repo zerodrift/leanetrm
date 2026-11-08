@@ -99,6 +99,7 @@ public sealed partial class ScheduleMarketSources
         var baseResolver=!needsNativePrices||read is null?null:new IntervalPriceResolver(basis,read.Curves);
         var scenarioResolver=ReferenceEquals(scenario,basis)?baseResolver:!needsNativePrices||read is null?null:new IntervalPriceResolver(scenario,read.Curves,baseResolver);
         var currency=program.Document.Instructions[program.Document.Roots.Single(root=>root.Name=="pv").Row].Output.Currency!.Value;
+        var deliveryMarks=PhysicalLifecycle.ReadsDeliveryMarks(program);
         SidePaymentKey Key(ScheduleDefinitionRow row)=>new(sideId,row.PaymentOrdinal!.Value,row.ValueAt!.Value,currency);
         var keys=demand.Sources.Select(source=>program.Document.Instructions[source.Instruction].Output)
             .Where(row=>row.Operation=="discount").Select(Key).Distinct().ToImmutableArray();
@@ -166,7 +167,7 @@ public sealed partial class ScheduleMarketSources
                             evidence.Add(new(source.Instruction,cell,id),sampled.Evidence);break;
                         case "price_lookup":
                         case CurvePriceScheduleSource.Operation:
-                            var price=grid is null?Dated(instruction,market):Native(instruction,grid,cell,program.Document.Family,resolver!,nativePriceAttribute);
+                            var price=grid is null?Dated(instruction,market,deliveryMarks):Native(instruction,grid,cell,program.Document.Family,resolver!,nativePriceAttribute);
                             Set(cell,new(price.Price.NumeratorValue,price.Price.DenominatorValue),new(null,price.State));
                             evidence.Add(new(source.Instruction,cell,id),price.Evidence);break;
                         default:throw Invalid("The program requested an unsupported dynamic source.");

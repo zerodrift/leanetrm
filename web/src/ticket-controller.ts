@@ -3,6 +3,7 @@ import {quantityRecord,quantityRecordChoices,quantityRecordFields,recordedBy,typ
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import {acceptOffer,acceptPreview,addSide,applyLookup,draftOf,dropLookup,newTicket,nextPreview,removeSide,resolveChoice,setValue,ticketOf,type FieldValue,type TicketState,type TicketSide} from './ticket-model.js';
 import {previewed,reasonOf,type SchedulePanel} from './ticket-preview.js';
+import type {GasMeasures} from './lifecycle-text.js';
 import type {FacilityAllocationTrack,ScheduleView,TicketChoice,TicketDescription,TicketDraft,TicketField,TicketLookup,TicketPreview,TicketReceipt,TicketTrade,TradeActions} from './ticket-types.js';
 
 // Runs one deal ticket against the ticket routes (docs/deal-ticket.md). A new ticket reads the choices each field lists, previews the whole
@@ -95,7 +96,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  // The selection the booked schedule shows, as the trade read reports it, and the day entry open, if any.
  const entryKey=o.opened&&!o.readOnly?JSON.stringify([o.product,owner,o.opened.tradeId]):undefined;
  let facilityAllocations:FacilityAllocationTrack[]=[];
- let quantityPolicy:string|undefined,day=entryKey?entries.get(entryKey):undefined,recording=false;
+ let measures:GasMeasures|null=null,currency:string|undefined,quantityPolicy:string|undefined,day=entryKey?entries.get(entryKey):undefined,recording=false;
  // The draft the ticket opened with, the last one previewed without refusal, and the one whose lookups were read last.
  let opened='',bookable:string|undefined,looked:string|undefined;
  let settling:ReturnType<typeof setTimeout>|undefined,queued=false,sending=false,booked:string|undefined,said='';
@@ -114,7 +115,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   if(!current()||!d||!state)return;
   const levels=panel.schedule?.levels??d.levels;
   if(!levels.includes(level)){level=levels[0];closed=new Set();}
-  const shown:TicketView={state,mode,presentation:o.presentation,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,instant:o.instant,zone:o.zone(),previous:panel.previous,summaries:panel.summaries,links:panel.links,facilityAllocations,entry:entryView(),status:panel.status,
+  const shown:TicketView={state,mode,presentation:o.presentation,actions,schedule:panel.schedule,quantityUnit:panel.quantityUnit,instant:o.instant,zone:o.zone(),previous:panel.previous,summaries:panel.summaries,links:panel.links,facilityAllocations,measures,currency,entry:entryView(),status:panel.status,
 
    fieldErrors:entry?{...choiceErrors,...lookupErrors,...panel.errors}:{},choices,selectedSide,tab,level,closed,on};
   if(mode==='booked'&&o.sideSchedule)shown.sideSchedule=(target,side)=>{
@@ -363,6 +364,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
     throw Error('The booked Side schedules require their exact native membership slots.');
    if(tab===''){if(!state.sides.length)throw Error('This trade has no Side schedules.');selectedSide=tab=state.sides[0].code;}
   }
+  measures=r.measures??null;currency=r.currency;
   facilityAllocations=o.presentation?[]:r.facilityAllocations;panel=previewed(panel,{preview:r});
   if(panel.status.kind==='current')panel={...panel,status:{kind:'current',text:amendment?'Edit the retained terms, enter a reason and preview before saving a new revision.':'Booked terms and their retained schedule.'}};
 

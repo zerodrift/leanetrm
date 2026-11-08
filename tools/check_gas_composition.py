@@ -4,7 +4,7 @@ from decimal import Decimal
 from fractions import Fraction
 from uuid import uuid4
 from preview_client import PreviewClient, initial_frame
-from preview_fixture import trade_booking
+from preview_fixture import held_gas_measures, trade_booking
 
 
 def run_checks(url,query=None,manifest=None,run_worker=None):
@@ -29,6 +29,7 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
     booked=c.call('gas/composition/book',body)
     assert c.call('gas/composition/book',body)==booked
     reopened=c.call('gas/composition/editor',{'context':context,'tradeId':booked['tradeId']})
+    reopened['valuation']=held_gas_measures(reopened['valuation'],value)
     expected={k:value[k] for k in reopened['valuation']}
     assert reopened['valuation']==expected
     assert sum(len(s['deliveryRows']) for s in reopened['valuation']['sides'])==62
@@ -43,7 +44,7 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
     report=c.call('trading/blotter',{'context':shared,'view':view})
     holding=next(h for h in report['holdings'] if h['tradeId']==booked['tradeId'])
     assert Decimal(holding['presentValue'])==64 and holding['quantity'] is None
-    assert holding['measure']=='gas_contractual_present_value'
+    assert holding['measure']=='gas_lifecycle_value_v1'
     retained={**shared,'knowledgeMode':'retained','contextId':report['context']['contextId']}
     selected={'context':retained,'tradeId':fact['tradeId'],'bindingId':fact['bindingId'],'revision':fact['revision'],'instrumentType':'physical_gas'}
     assert c.call('trading/position',selected)['holding']==holding

@@ -4,6 +4,7 @@ import {addSide,removeSide,type FieldValue,type TicketSide,type TicketState} fro
 import {numberText,resolvedUnit,scheduleGridData,scheduleTabs,sideKind,type ScheduleSide} from './schedule-grid.js';
 import {emptyGridLayout,renderDataGrid,sideColour,type GridHandle} from './data-grid.js';
 import {reasonOf} from './ticket-preview.js';
+import {measureLines,type GasMeasures} from './lifecycle-text.js';
 import {sideCardHeader} from './side-card.js';
 import {localTimeValue} from './user-time.js';
 
@@ -22,6 +23,8 @@ export type TicketEntry={side:string;day:string;fields:TicketField[];values:Reco
 // and instant the page's formatter for the instants the ticket shows. links are the schedule's quantity links, and entry the day entry open, if any.
 export type TicketView={state:TicketState;mode:'new'|'booked'|'amend';presentation?:'schedules';actions:TradeActions|null;schedule:ScheduleView|null;quantityUnit:string|null;instant:(at:string)=>string;zone:string;previous:ScheduleView|null;summaries:TicketSummary[];
  links:TicketLink[];entry:TicketEntry|null;sideSchedule?:(host:HTMLElement,side:TicketSide)=>()=>void;facilityAllocations?:FacilityAllocationTrack[];
+ // A booked started-delivery gas trade's measures, with the currency its figures are in; none for any other trade.
+ measures?:GasMeasures|null;currency?:string;
 
  status:TicketStatus;fieldErrors:Record<string,string>;choices:Record<string,TicketChoice[]>;selectedSide:string|null;tab:string;level:string;closed:ReadonlySet<string>;on:TicketEvents};
 
@@ -101,6 +104,12 @@ function summary(s:TicketSummary){
  const box=el('div','ticket-summary');box.append(el('span','ticket-summary-title','Side summary · from preview'));
  for(const [label,value] of [['Billed quantity',s.billedQuantity],['Amount',s.amount],['Against market',s.againstMarket]] as const)
   if(value!==null){const line=el('div','ticket-summary-line');line.append(el('span',undefined,label),el('span','ticket-number',numberText(value)));box.append(line);}
+ return box;
+}
+
+function measures(m:GasMeasures,currency:string,instant:(at:string)=>string){
+ const box=el('div','ticket-summary ticket-measures');box.append(el('span','ticket-summary-title','Measures'));
+ for(const {label,value} of measureLines(m,currency,instant)){const line=el('div','ticket-summary-line');line.append(el('span',undefined,label));if(value)line.append(el('span','ticket-number',value));box.append(line);}
  return box;
 }
 
@@ -260,6 +269,7 @@ export function renderTicket(host:HTMLElement,o:TicketView){
  const {panel,content}=schedulePanel(o,named);
  if(o.presentation!=='schedules')root.append(strip(o),...o.state.notices.length?[notices]:[],chips,deck);
  if(o.presentation==='schedules'){const state=el('p','ticket-status',o.status.text);state.dataset.kind=o.status.kind;root.append(state);}
+ if(o.measures){if(!o.currency)throw Error('The trade measures require their currency.');root.append(measures(o.measures,o.currency,o.instant));}
  root.append(panel);
  const planned=upcoming(o);
  if(!o.presentation)root.append(...planned?[planned]:[],foot(o));

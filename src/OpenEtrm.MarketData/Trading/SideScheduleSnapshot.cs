@@ -36,6 +36,19 @@ public abstract partial class SideScheduleSnapshot
   return new ProgramValues(side,snapshot,input,boundary);
  }
 
+ // A started-delivery Side: its evaluated cells beside the instrument's lifecycle rows for this Side, one per contribution.
+ public static SideScheduleSnapshot FromLifecycle(Guid side,Guid snapshot,SideViewInput input,ImmutableArray<PhysicalLifecycleRow> rows,
+  ImmutableDictionary<int,ExactMoney> determinations,Func<DateOnly,DateTimeOffset> boundary)
+ {
+  if(input.Evaluation.SourceReceipt is {} receipt&&receipt.SideId!=side)throw new MarketDataException("side_schedule_inspection","Source evidence belongs to another Side.");
+  return new Lifecycle(side,snapshot,input,rows,determinations,boundary);
+ }
+ sealed class Lifecycle(Guid side,Guid snapshot,SideViewInput input,ImmutableArray<PhysicalLifecycleRow> rows,ImmutableDictionary<int,ExactMoney> determinations,Func<DateOnly,DateTimeOffset> boundary)
+  :SideScheduleSnapshot(side,snapshot,input.Evaluation.Context.ContextId,input.Program.Document.ScheduleManifest,input.Evaluation.Context.ValuationAt,input.Evaluation.Context.KnownAt)
+ {
+  public override ScheduleInspectionPage Read(int offset,int limit,CancellationToken ct=default)=>SideScheduleInspection.Lifecycle(input,rows,determinations,boundary,offset,limit,ct);
+  public override ScheduleCalculationPage Calculation(string key,int offset,int limit,CancellationToken ct=default)=>SideScheduleInspection.Calculation(input,boundary,key,offset,limit,ct);
+ }
  public static SideScheduleSnapshot Plan(Guid side,Guid snapshot,Guid context,string label,BookedSideProgram program,Func<DateOnly,DateTimeOffset> boundary,DateTimeOffset at,DateTimeOffset known,string refusal)=>new Unavailable(side,snapshot,context,label,program,boundary,at,known,refusal);
  sealed class Unavailable(Guid side,Guid snapshot,Guid context,string label,BookedSideProgram program,Func<DateOnly,DateTimeOffset> boundary,DateTimeOffset at,DateTimeOffset known,string refusal):SideScheduleSnapshot(side,snapshot,context,program.Document.ScheduleManifest,at,known)
  {

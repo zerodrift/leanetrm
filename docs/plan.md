@@ -1,5 +1,19 @@
 # Delivery plan and acceptance criteria
 
+D360 values started gas compositions under explicit whole gas-day and accrued
+payment lifecycles: unrealized (remaining delivery MTM) and realized unsettled
+(delivered, fixed, not paid) are reported separately, undiscounted and labelled
+so, with their sum, under the risk measure `gas_lifecycle_value_v1`. Undelivered
+physical days read the location curve's mark, never the payment fixing. Ended days accrue on the
+contract quantity (allocation pending), derived at read time; payments are
+recorded per gas day with business and knowledge time and first-outcome retries;
+Side rows show delivery, price and settlement states. An administrator loads
+in-term trades through a dedicated loader role and CLI. Existing trades are not
+backfilled; crude and LNG refuse with `physical_lifecycle_unsupported`. Remaining:
+allocated-quantity basis, invoices and true-ups, cash/P&L reconciliation, crude
+and LNG adapters, business-day payment adjustment, payment-date discounting for
+compositions, and a payment recording API and screen.
+
 D355 follows exact selected gas billing metadata links without reordering the
 authorized chain around unrelated curves. The owned physical assistant consumer
 checks pinned native result/order and per-relation work before and after unrelated

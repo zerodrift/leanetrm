@@ -543,6 +543,9 @@ test('gas contractual PV shares the desk without adding receipt and delivery qua
  assert.equal(row.exposure,null);assert.equal(quantityText(row,format),'By physical side');assert.match(noteMeaning(row.quantityNote),/not added/);
  assert.throws(()=>positionRows([{...gas,quantity:'1980'}]),/independent side quantities/);
  const [started]=positionRows([{...gas,presentValue:null,unavailableReason:'gas_delivery_lifecycle'}]);assert.match(started.unavailable,/Delivery has started/);
+ // A started-delivery trade reports its own versioned measure; an unnamed measure is refused.
+ assert.equal(positionRows([{...gas,measure:'gas_lifecycle_value_v1',measureLabel:'Unrealized + realized unsettled',discounting:'undiscounted'}])[0].value,'3200/51');
+ assert.throws(()=>positionRows([{...gas,measure:'gas_value'}]),/value measure/);
 });
 
 test('physical crude displays its exact total volume and independent-side contractual PV',()=>{
@@ -607,4 +610,22 @@ test('an option row the close cannot value says why in the backend\'s words, and
 test('a mark caption names its price unit where the row states one, and an option says settlement without a unit',()=>{
  assert.equal(markCaption({pill:'FUT',priceUnit:'USD/MMBtu'}),'Mark · USD/MMBtu');
  assert.equal(markCaption({pill:'OPT',priceUnit:null}),'Settlement');
+});
+
+test('started-delivery gas is labelled and totalled under its own measure, never added to contractual PV',()=>{
+ // The backend keeps gas groups apart by measure code; the browser keeps them apart too.
+ const gas=(g,measure,value)=>({...g,instrumentType:'physical_gas',measure,presentValue:value,executionPnl:null});
+ const split=(groups,index)=>groups.flatMap(g=>g.instrumentType==='financial_swap'&&g.currency==='USD'?
+  [gas(g,'gas_lifecycle_value_v1',index===0?'18':'9'),gas(g,'gas_contractual_present_value',index===0?'64':'32')]:[g]);
+ const summaries=fixture.summaries.map((s,i)=>i<2?{...s,groups:split(clone(s.groups),i)}:s);
+ const tiles=summaryTiles(summaries);
+ const lifecycle=tiles.find(t=>t.key==='gasLifecycleValue'),contractual=tiles.find(t=>t.key==='gasPv');
+ assert.deepEqual([lifecycle.rows.map(r=>[r.currency,r.total]),contractual.rows.map(r=>[r.currency,r.total])],[[['USD','18']],[['USD','64']]]);
+ const base={...fixture.holdings[0],instrumentType:'physical_gas',contractIdentityKind:'gas_instrument',direction:'multi_side',quantity:null,lots:null,executionPrice:null,
+  fixedPrice:null,mark:null,markMinusPrice:null,executionPnl:null,presentValue:'18',unavailableReason:null};
+ const holdings=[{...base,measure:'gas_lifecycle_value_v1',measureLabel:'Unrealized + realized unsettled',discounting:'undiscounted'},
+  {...base,tradeId:'t8',bindingId:'b8',measure:'gas_contractual_present_value',presentValue:'64'}];
+ assert.deepEqual(positionRows(holdings).map(r=>r.measure),['Unrealized + realized unsettled','Contractual PV']);
+ const [header]=deskGroups('instrumentType',summaries,holdings).headers;
+ assert.deepEqual(header.subtotals.map(s=>[s.measure,s.amount,s.currency]),[['Contractual PV','64','USD'],['Unrealized + realized unsettled','18','USD']]);
 });

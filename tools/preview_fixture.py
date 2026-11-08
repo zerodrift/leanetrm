@@ -347,6 +347,15 @@ INSERT INTO trading.books VALUES ('{catalog}','d1000000-0000-0000-0000-000000000
 COMMIT;"""
 
 
+def held_gas_measures(read, preview):
+    """A held gas read also reports its started-delivery measures; an unbooked preview has no recorded cash and reports none.
+    Before delivery nothing is realized unsettled and the labelled sum is the contractual PV. Returns the read without them."""
+    held = dict(read); measures = held.pop('measures')
+    assert preview['measures'] is None and (measures['realizedUnsettled'], measures['unrealized'], measures['total']) == \
+        ('0', preview['presentValue'], preview['presentValue']), measures
+    return held
+
+
 def trade_booking():
     """Exact party choices for the standard synthetic trading fixture."""
     return {'legalEntityId': 'd4000000-0000-0000-0000-000000000001', 'legalEntityRevision': 1,

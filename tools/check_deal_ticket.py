@@ -7,7 +7,7 @@ from datetime import datetime
 from fractions import Fraction
 from uuid import uuid4
 from preview_client import PreviewClient, initial_frame
-from preview_fixture import gas_purchase, trade_booking
+from preview_fixture import gas_purchase, held_gas_measures, trade_booking
 
 
 # The side kind each booked composition role is drawn as (GasTicket's role map).
@@ -115,6 +115,7 @@ def run_checks(url,query,manifest):
     mixed_loaded=c.call('gas/composition/editor',{'context':context,'tradeId':mixed_booked['tradeId']})
     assert mixed_loaded['terms']['physicalSides']==clocks['physicalSides'],(mixed_loaded['terms']['physicalSides'],clocks['physicalSides'])
     # The route adds its read context to the preview; the booked valuation carries every valuation field.
+    mixed_loaded['valuation']=held_gas_measures(mixed_loaded['valuation'],mixed)
     assert mixed_loaded['valuation']=={k:mixed[k] for k in mixed_loaded['valuation']} and 'scheduleRefusal' in mixed_loaded['valuation']
     # A linked receipt and delivery on one gas-day clock: the delivery follows the receipt through a fuel rule, so its
     # daily quantity is 1000/1.02 = 50000/51 and its quantities and amounts are exact a/b ratios.

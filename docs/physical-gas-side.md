@@ -216,9 +216,16 @@ be implemented by silently changing these immutable cash allocations.
 The admitted physical measure is future delivery market value, with each day's
 value date at the exclusive end of its gas day. It is not a payable cash flow.
 Its executable roots distinguish `physical_value` from `contractual_amount` and
-its evaluated contribution kind is Delivery. Once any admitted delivery starts,
-the profile refuses with `gas_delivery_lifecycle`. It cannot manufacture actual
-delivery, retirement, inventory or overdue physical treatment.
+its evaluated contribution kind is Delivery. A program compiled with the
+legacy lifecycle refuses with `gas_delivery_lifecycle` once any admitted delivery
+starts. New gas compositions compile `whole_gas_day_delivery_v1`, under which an
+ended gas day leaves the unrealized measure and its fixed cash accrues in the
+realized unsettled measure until recorded payments clear it (D360). A gas day not
+yet ended values its physical leg at the location curve's own mark even after its
+payment index has published; a missing mark refuses, and the fixing never stands
+in for it. Neither
+lifecycle manufactures actual delivery, retirement, inventory or overdue physical
+treatment.
 
 The supplied discount operation is explicit. A value-date change can affect
 discounted physical value independently of cash payment dates. Future due cash
@@ -456,6 +463,12 @@ to a one-physical-side draft is checked without a database (`--gas-ticket`), and
 connection, check-only, from a booked composition's retained programs, then opens
 it read-only through `tickets/trade` and compares its draft and schedule with a
 ticket preview of those terms.
+
+For a held gas composition whose programs all select the started-delivery
+lifecycles, `tickets/trade` also returns `measures` (`unrealized`,
+`realizedUnsettled`, their labelled `total`, `label`, `discounting`, and undiscounted
+`expectedCash` by due date, which is not part of the total) and the `currency` of
+those figures; both are `null` or absent for any other trade.
 
 The multi-side integration runner is `tools/run_preview.py --gas-composition-check`
 with the same explicit SDK/PostgreSQL paths. Add `--browser-check --browser` for

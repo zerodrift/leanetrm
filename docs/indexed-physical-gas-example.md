@@ -1,9 +1,10 @@
 # Indexed physical gas: forwards, daily fixings and unpaid cash
 
 Status: bounded managed calculation and synthetic worked example, locally
-qualified under D329 and extended by D331–D332. The payment-aware purchase profile
-is not admitted by the application ticket, booking/payment APIs, retained worker
-or hosted database. D332 separately qualifies forecast-curve selection on the
+qualified under D329 and extended by D331–D332. The managed payment-aware purchase
+profile itself is not admitted by the ticket or booking APIs. D360 separately
+values started booked gas compositions (accrued and remaining measures, recorded
+payments, in-term Side states) through the retained path, undiscounted. D332 separately qualifies forecast-curve selection on the
 existing future-delivery physical gas profile; its market-value and fixed-cash
 contracts retain their existing meaning.
 

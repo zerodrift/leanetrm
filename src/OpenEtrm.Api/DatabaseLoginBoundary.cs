@@ -2,7 +2,7 @@ using Npgsql;
 
 namespace OpenEtrm.Api;
 
-public enum DatabaseLoginProfile { Runtime, Authenticator, Scheduler, ReferenceImporter, ImportAuthenticator }
+public enum DatabaseLoginProfile { Runtime, Authenticator, Scheduler, ReferenceImporter, ImportAuthenticator, GasInTermLoader }
 
 // Installation checks belong with database infrastructure, not the dependency-free
 // numerical library. Role names here identify PostgreSQL roles, not business references.
@@ -16,6 +16,7 @@ public static class DatabaseLoginBoundary
         DatabaseLoginProfile.Scheduler => new(["openetrm_scheduler"], false, false),
         DatabaseLoginProfile.ReferenceImporter => new(["openetrm_runtime", "openetrm_reference_importer"], true, false),
         DatabaseLoginProfile.ImportAuthenticator => new(["openetrm_authenticator"], true, false),
+        DatabaseLoginProfile.GasInTermLoader => new(["openetrm_runtime", "openetrm_gas_in_term_loader"], true, true),
         _ => throw new ArgumentOutOfRangeException(nameof(profile))
     };
 
@@ -32,7 +33,7 @@ SELECT NOT(rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole)
  AND NOT EXISTS (
      SELECT 1 FROM pg_roles r
      WHERE r.rolname IN('openetrm_runtime','openetrm_authenticator','openetrm_scheduler',
-                       'openetrm_reference_importer','openetrm_collector','openetrm_risk_worker',
+                       'openetrm_reference_importer','openetrm_gas_in_term_loader','openetrm_collector','openetrm_risk_worker',
                        'openetrm_interval_metadata_reader','openetrm_security_owner')
        AND NOT(r.rolname=ANY($1::text[])) AND pg_has_role(current_user,r.oid,'MEMBER'))
  AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace

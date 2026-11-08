@@ -3,7 +3,7 @@ import json
 from copy import deepcopy
 from fractions import Fraction
 from uuid import uuid4
-from preview_fixture import trade_booking
+from preview_fixture import held_gas_measures, trade_booking
 from check_portfolio_risk import financial
 
 
@@ -33,6 +33,7 @@ def run_checks(client, manifest, query, run_worker, frame, mixed, daily_graph, p
     booked=client.call('gas/composition/book',terms)
     assert client.call('gas/composition/book',terms)==booked
     opened=client.call('gas/composition/editor',{'context':context,'tradeId':booked['tradeId']})
+    opened['valuation']=held_gas_measures(opened['valuation'],valued)
     assert opened['valuation']=={key:valued[key] for key in opened['valuation']}
     assert opened['terms']['physicalSides']==terms['physicalSides']
     # A curve's daily/monthly cutover does not create another physical Side.

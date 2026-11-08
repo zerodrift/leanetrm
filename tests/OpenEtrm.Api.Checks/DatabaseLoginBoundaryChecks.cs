@@ -26,12 +26,13 @@ static class DatabaseLoginBoundaryChecks
         await Sql("""
 CREATE ROLE openetrm_runtime; CREATE ROLE openetrm_authenticator;
 CREATE ROLE openetrm_scheduler; CREATE ROLE openetrm_reference_importer;
-CREATE ROLE openetrm_collector; CREATE ROLE openetrm_security_owner;
+CREATE ROLE openetrm_collector; CREATE ROLE openetrm_security_owner; CREATE ROLE openetrm_gas_in_term_loader;
 CREATE ROLE openetrm_risk_worker; CREATE ROLE openetrm_interval_metadata_reader IN ROLE openetrm_runtime;
 CREATE ROLE boundary_runtime LOGIN IN ROLE openetrm_runtime;
 CREATE ROLE boundary_auth LOGIN IN ROLE openetrm_authenticator;
 CREATE ROLE boundary_scheduler LOGIN IN ROLE openetrm_scheduler;
 CREATE ROLE boundary_import LOGIN IN ROLE openetrm_runtime,openetrm_reference_importer;
+CREATE ROLE boundary_loader LOGIN IN ROLE openetrm_runtime,openetrm_gas_in_term_loader;
 CREATE ROLE boundary_none LOGIN;
 """);
         var cases = new[]
@@ -40,12 +41,16 @@ CREATE ROLE boundary_none LOGIN;
             ("boundary_auth", DatabaseLoginProfile.Authenticator, tracking),
             ("boundary_scheduler", DatabaseLoginProfile.Scheduler, true),
             ("boundary_import", DatabaseLoginProfile.ReferenceImporter, true),
-            ("boundary_auth", DatabaseLoginProfile.ImportAuthenticator, true)
+            ("boundary_auth", DatabaseLoginProfile.ImportAuthenticator, true),
+            ("boundary_loader", DatabaseLoginProfile.GasInTermLoader, tracking)
         };
         foreach (var (role, profile, expected) in cases) await Expect(role, profile, expected);
         foreach (var profile in Enum.GetValues<DatabaseLoginProfile>()) await Expect("boundary_none", profile, false);
         await Expect("boundary_import", DatabaseLoginProfile.Runtime, false);
         await Expect("boundary_runtime", DatabaseLoginProfile.ReferenceImporter, false);
+        await Expect("boundary_loader", DatabaseLoginProfile.Runtime, false);
+        await Expect("boundary_import", DatabaseLoginProfile.GasInTermLoader, false);
+        await Expect("boundary_runtime", DatabaseLoginProfile.GasInTermLoader, false);
         if (tracking)
         {
             // Each profile must reject every additional service executor, even through a parent role.
@@ -53,10 +58,11 @@ CREATE ROLE boundary_none LOGIN;
             {
                 var forbidden = profile switch
                 {
-                    DatabaseLoginProfile.Runtime => new[] { "openetrm_authenticator", "openetrm_scheduler", "openetrm_reference_importer", "openetrm_collector", "openetrm_security_owner" },
-                    DatabaseLoginProfile.Scheduler => new[] { "openetrm_runtime", "openetrm_authenticator", "openetrm_reference_importer", "openetrm_collector", "openetrm_security_owner" },
-                    DatabaseLoginProfile.ReferenceImporter => new[] { "openetrm_authenticator", "openetrm_scheduler", "openetrm_collector", "openetrm_security_owner" },
-                    _ => new[] { "openetrm_runtime", "openetrm_scheduler", "openetrm_reference_importer", "openetrm_collector", "openetrm_security_owner" }
+                    DatabaseLoginProfile.Runtime => new[] { "openetrm_authenticator", "openetrm_scheduler", "openetrm_reference_importer", "openetrm_gas_in_term_loader", "openetrm_collector", "openetrm_security_owner" },
+                    DatabaseLoginProfile.Scheduler => new[] { "openetrm_runtime", "openetrm_authenticator", "openetrm_reference_importer", "openetrm_gas_in_term_loader", "openetrm_collector", "openetrm_security_owner" },
+                    DatabaseLoginProfile.ReferenceImporter => new[] { "openetrm_authenticator", "openetrm_scheduler", "openetrm_gas_in_term_loader", "openetrm_collector", "openetrm_security_owner" },
+                    DatabaseLoginProfile.GasInTermLoader => new[] { "openetrm_authenticator", "openetrm_scheduler", "openetrm_reference_importer", "openetrm_collector", "openetrm_security_owner" },
+                    _ => new[] { "openetrm_runtime", "openetrm_scheduler", "openetrm_reference_importer", "openetrm_gas_in_term_loader", "openetrm_collector", "openetrm_security_owner" }
                 };
                 foreach (var other in forbidden.Concat(new[] { "openetrm_risk_worker", "openetrm_interval_metadata_reader" }))
                 {
@@ -87,9 +93,10 @@ CREATE ROLE boundary_none LOGIN;
                 await Sql($"ALTER DATABASE postgres OWNER TO boundary_test_owner; REVOKE boundary_owner FROM {role}; DROP ROLE boundary_owner;");
                 await Expect(role, profile, true);
             }
-            await Sql("ALTER ROLE boundary_import NOINHERIT; ALTER ROLE boundary_auth NOINHERIT;");
+            await Sql("ALTER ROLE boundary_import NOINHERIT; ALTER ROLE boundary_auth NOINHERIT; ALTER ROLE boundary_loader NOINHERIT;");
             await Expect("boundary_import", DatabaseLoginProfile.ReferenceImporter, false);
             await Expect("boundary_auth", DatabaseLoginProfile.ImportAuthenticator, false);
+            await Expect("boundary_loader", DatabaseLoginProfile.GasInTermLoader, false);
         }
         try { await DatabaseLoginBoundary.IsAllowed(connection, (DatabaseLoginProfile)999, CancellationToken.None); throw new Exception("Unknown profile accepted."); }
         catch (ArgumentOutOfRangeException) { }

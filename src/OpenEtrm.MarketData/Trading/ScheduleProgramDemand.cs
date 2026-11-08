@@ -6,6 +6,12 @@ namespace OpenEtrm.MarketData.Trading;
 
 [Flags]
 public enum ScheduleInputLanes:byte { None=0,Base=1,Scenario=2 }
+// Started-delivery lifecycles: ended whole gas days leave the measure, and due
+// accrued cash stays at its nominal fixed, actual or published amount.
+public static class ScheduleLifecycles
+{
+    public const string WholeGasDayDelivery="whole_gas_day_delivery_v1",AccruedPayment="accrued_payment_v1";
+}
 public sealed record ScheduleQuantityDemand(string Output,ImmutableArray<ScheduleInputLanes> Uses);
 public sealed record ScheduleInputDemand(int Instruction,ImmutableArray<ScheduleInputLanes> Uses);
 
@@ -86,6 +92,9 @@ public sealed partial class BookedSideProgram
                         throw new MarketDataException("ppa_segment_boundary","Coverage cannot split a retained contribution interval.");
                 }
             }
+            if(guard.Parameters["lifecycle"]==ScheduleLifecycles.WholeGasDayDelivery)
+                for(var cell=0;cell<selected.Length;cell++)
+                    if(Document.Grids[guard.Grid!.Value].EndTicks(cell)<=context.ValuationAt.Ticks)selected[cell]=false;
             contributions.Add(guard.Ordinal,[..selected]);
             if(guard.Parameters["pricePolicy"]!="selected_context_v1")throw Error("The output price policy is unsupported.");
             if(guard.Parameters["lifecycle"]=="undue_payment_v1"&&context.ValuationAt>=guard.ValueAt)

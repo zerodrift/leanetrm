@@ -54,6 +54,22 @@ internal static class ConnectedPortfolioChecks
             Equal(run.Groups.Single().Factors.Single().Totals.Single(t=>t.BookId==firstBook).Values.Delta.Value,"7");
             Equal(run.Groups.Single().Factors.Single().Totals.Single(t=>t.BookId==secondBook).Values.Delta.Value,"3");
         });
+        Check("value components pair by name across the base and both scenarios, or refuse",()=>
+        {
+            // The first value read is the base; a scenario that moves it names a different part.
+            ExactMoney? first=null;
+            ImmutableArray<ValueComponent> Named(ExactMoney value){first??=value;return [new(value==first?"base":"moved",value)];}
+            var parted=new CurvePv(Guid.NewGuid(),unit,[raw],context=>context.ExactPrice(raw).ExactTimes(new(ExactDecimal.Parse("1"),unit.Quantity)),parts:Named);
+            var held=new ValuationPortfolio([parted],[Holding(parted,firstBook,"1")],new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+            Reject("valuation_components",()=>RiskEngine.CalculateExact(RiskEngine.PrepareConnected(ConnectedValuation.Prepare(scenario,snapshot),bindings,[held]),[bump],RiskEngine.ExactNumericalPolicy));
+            var stable=parted with{Parts=value=>[new("first",value),new("second",value.Subtract(value))]};
+            var kept=new ValuationPortfolio([stable],[Holding(stable,firstBook,"1")],new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+            var position=RiskEngine.CalculateExact(RiskEngine.PrepareConnected(ConnectedValuation.Prepare(scenario,snapshot),bindings,[kept]),[bump],RiskEngine.ExactNumericalPolicy)
+                .Groups.Single().Factors.Single().Positions.Single();
+            if(!position.Components.Select(c=>(c.Name,c.Base,c.Up,c.Down)).SequenceEqual([("first",position.Values.Base,position.Values.Up,position.Values.Down),
+                ("second",ExactMoney.FromMoney(new(default,unit.Currency)),ExactMoney.FromMoney(new(default,unit.Currency)),ExactMoney.FromMoney(new(default,unit.Currency)))]))
+                throw new Exception("Components must carry their base and scenario values by name.");
+        });
         Check("partial source builds share one coherent exact frame",()=>
         {
             var partial=snapshot with{Selections=[snapshot.Selections[0]]};
@@ -204,8 +220,12 @@ internal static class ConnectedPortfolioChecks
         private readonly Action? factorRead;
         public override ReferenceKey Currency{get;}
         public override Quantity UnitQuantity{get;}
-        public CurvePv(Guid id,PriceUnit unit,ImmutableArray<CurveRequest> dependencies,Func<SideValuationContext,ExactMoney> calculate,Action? factorRead=null):base(id)
-        {Currency=unit.Currency;UnitQuantity=new(ExactDecimal.Parse("1"),unit.Quantity);this.dependencies=dependencies;this.calculate=calculate;this.factorRead=factorRead;}
+        // Parts: the named components it records for each unit value, if any.
+        public Func<ExactMoney,ImmutableArray<ValueComponent>>? Parts{get;init;}
+        public CurvePv(Guid id,PriceUnit unit,ImmutableArray<CurveRequest> dependencies,Func<SideValuationContext,ExactMoney> calculate,Action? factorRead=null,
+            Func<ExactMoney,ImmutableArray<ValueComponent>>? parts=null):base(id)
+        {Currency=unit.Currency;UnitQuantity=new(ExactDecimal.Parse("1"),unit.Quantity);this.dependencies=dependencies;this.calculate=calculate;this.factorRead=factorRead;Parts=parts;}
+        public override ExactMoney Value(UnitValuationContext context){var value=base.Value(context);if(Parts is {} parts)context.RecordComponents(parts(value));return value;}
         public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_connected_portfolio_pv_v1",dependencies,UnitQuantity.Specification,Currency);
         public override ImmutableArray<QuoteFactor> MarketFactors(UnitValuationContext context){factorRead?.Invoke();return base.MarketFactors(context);}
         public override InstrumentValuation PV(SideValuationContext context)=>new(this,context,calculate(context),"synthetic_connected_portfolio_pv_v1");

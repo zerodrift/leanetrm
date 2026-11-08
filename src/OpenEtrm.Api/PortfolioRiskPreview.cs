@@ -270,6 +270,9 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
                     var p=r.Position;var evidence=positions[(p.TradeId,p.BindingId)];
                     var position=JsonSerializer.SerializeToNode(new{p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,
                         evidence.InstrumentReference,evidence.InstrumentType,r.Measure,measureLabel=MeasureLabel(r.Measure),values=Values(p.Values)},RiskJobs.Json)!.AsObject();
+                    // A started-delivery gas position reports its named components, which sum to its values, under the same scenarios.
+                    if(!p.Components.IsEmpty)position["components"]=JsonSerializer.SerializeToNode(p.Components.ToDictionary(c=>c.Name,c=>new{
+                        @base=c.Base.ToExactString(),up=c.Up.ToExactString(),down=c.Down.ToExactString()}),RiskJobs.Json);
                     // An option position states the calibration mode it was valued in; no other position has one.
                     if(prepared.Portfolio.OptionModes.TryGetValue((p.TradeId,p.BindingId),out var mode))position["calibrationMode"]=mode;
                     return position;
@@ -280,7 +283,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
     private static string MeasureLabel(string measure)=>measure switch{
         PortfolioValuation.FuturesMeasure=>"Futures execution P&L",PortfolioValuation.SwapMeasure=>"Present value",PortfolioValuation.PpaMeasure=>"Value excluding overdue cash",
         CrudePositions.Measure=>"Crude contractual PV",LngPositions.Measure=>"LNG contractual PV",FuturesOptionPositions.Measure=>FuturesOptionPositions.MeasureLabel,
-        GasPositions.Measure=>"Gas contractual PV",
+        GasPositions.Measure=>"Gas contractual PV",GasPositions.LifecycleMeasure=>"Gas "+GasPositions.LifecycleLabel.ToLowerInvariant(),
         _=>throw new MarketDataException("valuation_measure","The report requires an explicit valuation measure label.")};
     private static string Currency(ImmutableArray<PreviewData> markets,ReferenceKey key)=>Reference(markets,"currencies",key).Text("display_code");
     private static JsonElement Reference(ImmutableArray<PreviewData> markets,string table,ReferenceKey key)=>

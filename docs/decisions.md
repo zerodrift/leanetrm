@@ -3368,3 +3368,158 @@ definition through a private seed in a schema window; migration 0215 refuses to
 run while dated rate curves remain. The interest-rate specification reference
 table keeps its rows but no longer has a consumer; removing it is future work.
 Bootstrapping from instruments remains future work.
+
+## D360 — In-term physical delivery: accrued cash and remaining value
+
+Owner-directed, 2026-11-07. The first consumer of the value/report slice (L5) of
+the [physical lifecycle design](physical-lifecycle-design.md). A booked gas
+composition whose delivery has started values under two explicit, versioned
+lifecycles instead of refusing with `gas_delivery_lifecycle`:
+`whole_gas_day_delivery_v1` (physical) and `accrued_payment_v1` (cash). Every new
+gas composition, whether booked through the ticket or loaded by an administrator,
+compiles them. Existing trades are not backfilled and keep their refusing
+programs; migration 0216 admits the lifecycles only for new gas writes. Because
+such a program binds custom curve outputs on its gas-day rows, 0216 also makes
+the gas instrument visibility check ask each distinct custom curve version once
+rather than once per binding; what it checks and answers is unchanged.
+
+**Owner decisions.**
+
+- In-term trades are loaded by an administrator. The ticket still refuses to book
+  a started delivery.
+- Whole gas-day boundary from the configured gas-day clock: a gas day is remaining
+  until it has ended, a gas day in progress stays remaining, and there is no
+  intraday proration.
+- A price is fixed only by a published observation visible at the valuation
+  instant and knowledge cutoff; nothing is inferred from a date.
+- Ended days accrue on the contract quantity, labelled as estimated from contract
+  with allocation pending. A fixed-price day accrues quantity times fixed price.
+- Paid comes only from recorded payments; partial payments are allowed. Passing a
+  due date never pays anything, and unpaid cash past its due date stays at nominal
+  under the existing explicit policy.
+- The trade reports its two P&L explain measures separately, plus their labelled
+  sum: `unrealized`, the remaining delivery MTM of gas days not yet ended, and
+  `realizedUnsettled`, cash accrued on ended, fixed days and not yet paid. Paid
+  amounts leave both.
+- Crude and LNG keep explicit refusals, `physical_lifecycle_unsupported`.
+
+**Owner follow-up decisions (2026-11-07).** These supersede the earlier
+controller ruling that the physical leg follows the location's configured price
+lookup.
+
+- Physical leg at the location mark. A gas day whose index has published but
+  which has not ended (Nov 6 in progress, Nov 7-9 priced by Friday's
+  publication) values its physical leg at the location curve's own mark for that
+  day, never at the payment fixing; the payment leg stays locked at the fixing. A
+  missing or expired mark refuses; the fixing is never a fallback. This applies
+  to programs that select `whole_gas_day_delivery_v1`: before any publication
+  both legs read the curve as before, and programs with the future-delivery
+  lifecycles keep their lookup.
+- Measure split and code. The measures are renamed for P&L explain (`unrealized`,
+  `realizedUnsettled`, `total`, label "Unrealized + realized unsettled"), and
+  started-lifecycle trades report the new versioned risk measure
+  `gas_lifecycle_value_v1`, valued in their own measure group. Older programs and
+  stored history keep `gas_contractual_present_value`. The retained programs, not
+  the valuation's outcome, select the code, so a refusing started trade keeps it.
+  Each risk position under it carries `unrealized` and `realizedUnsettled` for the
+  base and both scenarios of every bump, from the same valuation, summing exactly
+  to its values. The Blotter keeps groups apart by measure code and the desk labels
+  and totals each separately; nothing adds across measure codes.
+
+**Controller ruling, pending owner confirmation.** `delivery_mark_final_settlement_v1`:
+before its curve contract expires, an undelivered gas day's physical mark is that
+contract's live curve mark; after expiry and until the gas day ends, it is that
+contract's own recorded final settlement observation pinned by the context. A
+missing settlement refuses with `delivery_mark_final_settlement`; no earlier mark
+is carried forward and the payment fixing never stands in. A custom-curve
+projection records no contract settlement, so after its lookup contract expires it
+refuses the same way. That refusal is missing market data for one position, like
+`source_expired`: the Blotter row and the Side inspector show it as the trade's
+own reason, and portfolio risk lists the position as excluded and values the
+rest. The policy is named in the model version
+(`delivery_mark_final_settlement_v1/retained_gas_unit_pv_v2`, prefixed by the
+accrual policy with lifecycle state); older programs keep `retained_gas_unit_pv_v1`.
+
+**What is built, and where it departs from the design.**
+
+- A whole gas-day program's dated location prices read the curve projection
+  (`PeriodPriceSelector.DeliveryMarkAt`), and its declared dependencies include
+  the mark of each lookup that still prices a gas day not yet ended
+  (`PhysicalLifecycle.PriceDependencies`, which no longer selects such a lookup's fixing or ordinary projection), through both the retained instrument and
+  the composition store. A curve shock to such a day's mark moves its physical
+  leg and not its fixed payment. The managed demo's daily contracts expire as their
+  gas day starts and settle finally, so its in-progress day reads that settlement;
+  the preview's physical assignment is the monthly location index, whose fixing
+  publishes after the month, so its physical leg already read the curve.
+- Gas compositions keep their explicit `discounting: false`. Both measures are
+  therefore undiscounted, are labelled
+  `discounting: "undiscounted"` in the API and shown so in the UI, and are never
+  presented as present values. Payment-date discounting for compositions is later
+  work.
+- Physical rows carry no settlement (`NotApplicable`); only cash rows settle. An
+  ended cash row with zero accrued reads `NoAmountDue` rather than inferring Paid.
+  Cash paid beyond the accrued amount reads Overpaid, visible rather than
+  refused (accrued -290 less paid -300 leaves +10 on the pay leg).
+- Accruals are derived at read time from the published fixing visible at the
+  knowledge cutoff; no accrual row, worker or daily command exists. A fixing
+  correction is a new revision seen under its knowledge time. Accrual needs a
+  resolved, priced cash row; estimated prices are refused for due accrued cash.
+- A started-delivery program valued without its lifecycle state would drop its
+  ended days and due cash, so once its first gas day has started (or its cash is
+  due) it refuses with `gas_delivery_lifecycle`. The ticket's preview, price
+  lookup and booking therefore refuse a started draft before staging anything;
+  the in-term load values its draft with an empty payment state. A missing
+  lifecycle state or knowledge cutoff is a wiring defect,
+  `physical_lifecycle_context`, which fails the read rather than one trade's row.
+- A payment is recorded per gas-day occurrence, linked by foreign key to the
+  exact trade revision, binding, membership and occurrence, in
+  `trading.gas_cash_payments`, `trading.gas_cash_payment_allocations` and
+  `trading.gas_cash_payment_commands`. `paid_at` is business time and knowledge
+  time is real. An allocation keeps its direction and may not target a day that
+  has not ended (no prepayment). There is no recording-time cap: accruals are
+  derived at read time, so the database cannot know the accrued amount. A retry
+  with the same request identity returns its first outcome; a different value for
+  the same business key is a new revision. The recording function is executable
+  by the runtime login; no payment API or screen exists.
+- The in-term load is the SQL function `security.load_gas_composition_in_term`,
+  executable only through the dedicated NOLOGIN group role
+  `openetrm_gas_in_term_loader`. The loader login follows the reference-importer
+  pattern: a member of the runtime role, so context issuing and row-level
+  security reads work unchanged, whose only extra privilege is EXECUTE on the
+  load. It runs through the CLI `--admin-load-gas-in-term CONFIG REQUEST` with
+  private files, names a recorded close for market inputs, and records the named
+  administrator as actor. That identity must be an existing enabled identity with
+  the authority a ticket booking requires; `BookTrade`, `ReadTrades` and
+  `ReadMarketData` are each checked before the close is read and refused under
+  their own codes. The loader login is the administrative gate. A stricter
+  three-login split is later hardening.
+- A payment revision is visible by knowledge cutoff alone; of the visible
+  revisions of each business key the latest known receipt applies
+  (`latest_known_receipt_v1`), and it counts as paid only from its `paid_at` at
+  the view's business time. A revision that moves `paid_at` later is therefore
+  unpaid before that instant; its earlier revision never shows instead.
+  Accruals are selected by business time and knowledge cutoff.
+  Retained risk invokes the same Instrument PV under shared scenarios; accrued
+  amounts do not respond to price shocks. No commodity-specific shock handling
+  was added.
+- The Side inspector shows per row the delivery state, quantity and basis, price
+  state, cash amount and due date, settlement state and measure through the
+  shared reader.
+
+**Non-goals.** Booking in-term trades through the ticket and the novation
+workflow; invoices, disputes, credit notes and true-ups; scheduling, fuel,
+imbalances and transport; intraday delivery; physical recognition of delivered
+gas (inventory, resale, consumption); netting; a placeholder for crude or LNG.
+
+**Remaining work.** The allocated-quantity accrual basis; invoices and true-ups;
+cash and P&L reconciliation; crude and LNG adapters; business-day payment-date
+adjustment (the next-month convention does not adjust for weekends); payment-date
+discounting for compositions; a payment recording API and screen, with a
+recording-time over-allocation cap; the stricter loader login split. Deferred
+review items worth tracking: the payment fact includes the trade revision;
+lifecycle selection is decided at two call sites; the held-amount mapping is
+duplicated; the inspector values the whole instrument per
+slot request; and a fixing corrected to exactly zero after full payment refuses
+instead of reading Overpaid.
+
+Local verification on 2026-11-08, after merging D359 (rolling rate curves, migration 0215) and renumbering this work to D360 and migration 0216: `python3 tools/check_all.py --group trading` passed, with 3596 PASS lines, 716 owned browser checks over 20 browser runs and 1480 web unit tests, and `--group workspace` passed, with 3518 PASS lines and 589 owned browser checks over 11 browser runs; the MarketData checks (828 PASS lines, and `--physical-lifecycle`), the Api checks (98 PASS lines), the Rates checks (82 checks) and `run_preview.py --gas-in-term-check --browser-check` (7 browser checks, with the 0216 upgrade guards over the post-0215 schema) passed. A first trading run hit a statement timeout (57014) in one Blotter read of the in-term check under host load; the check passed standalone twice and in the full rerun.

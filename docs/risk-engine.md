@@ -136,7 +136,9 @@ Supported contractual gas profiles enter this same path through retained
 programs, including independent side directions and exact quantity ratios.
 D350 adds future gas compositions with daily indexed consideration under the
 ordinary floating-Side contract; physical and cash dependencies remain independent.
-They report `gas_contractual_present_value`; gas-only scopes and mixed portfolios can
+They report `gas_contractual_present_value`; started-delivery compositions (D360)
+report `gas_lifecycle_value_v1`, unrealized plus realized unsettled, in their own
+measure group. Gas-only scopes and mixed portfolios can
 run immediate and retained risk without a gas product exclusion. Migration 0165
 adds the read-only worker policies needed to load those programs under the same
 history, current-authority and lease checks. Started delivery and missing inputs
