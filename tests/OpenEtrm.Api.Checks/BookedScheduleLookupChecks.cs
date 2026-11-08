@@ -134,7 +134,7 @@ internal static class BookedScheduleLookupChecks
                 ["curve_members"]=[..Contracts.Select((c,n)=>Row(new{curve_code="projection",contract_id=c.Key.Id,ordinal=n}))],
                 ["series"]=[..Fixings.Select((f,n)=>Row(new{id=f.Series.Id,contract_id=Contracts[n].Key.Id,quote_code="price",value_specification_code=(string?)null}))],
                 ["index_fixing_observations"]=[..Fixings.Select(f=>Row(new{index_code=f.Index.Code,quote_code=f.Quote.Code,observation_from=f.From.ToString("yyyy-MM-dd"),observation_to=f.To.ToString("yyyy-MM-dd"),fixing_at=f.FixingAt,series_id=f.Series.Id,source_code=f.Source.Code,implementation=f.Implementation,reference_catalog_id=reference.CatalogId,reference_revision_id=reference.RevisionId}))],
-                ["curve_inputs"]=[],["constituent_mappings"]=[],["rate_curves"]=[],["rate_curve_points"]=[],["revision_periods"]=[],["contract_intervals"]=[],["curve_expiry_rules"]=[]
+                ["curve_inputs"]=[],["constituent_mappings"]=[],["rate_curves"]=[],["rate_curve_tenors"]=[],["revision_periods"]=[],["contract_intervals"]=[],["curve_expiry_rules"]=[]
             };
             Dictionary<string,ImmutableArray<JsonElement>> references=new()
             {

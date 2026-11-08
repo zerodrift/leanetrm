@@ -101,10 +101,10 @@ public static class PilotCloseReports
             if(settlement is null&&!d.Ppa&&!fixedSide&&!firstFloating&&!scheduledFirst&&!scheduledSecond&&d.Payment.SideId!=sides!.Value.Id("floating_side_id")||d.Input.Snapshot.Id!=result.SnapshotId||!d.Input.Snapshot.HasSameInputs(snapshot!))throw Invalid();
             return new{ordinal,instrument=d.InstrumentId,@fixed=fixedSide?(Guid?)d.Payment.SideId:null,floating=settlement is null&&!d.Ppa&&!fixedSide&&!firstFloating&&!scheduledFirst&&!scheduledSecond?(Guid?)d.Payment.SideId:null,first_floating=firstFloating?(Guid?)d.Payment.SideId:null,ppa=d.Ppa?(Guid?)d.Payment.SideId:null,scheduled_first=scheduledFirst?(Guid?)d.Payment.SideId:null,scheduled_second=scheduledSecond?(Guid?)d.Payment.SideId:null,
                 settlement, payment_ordinal=d.Payment.Ordinal,payment_at=d.Payment.PaymentAt,payment_date=d.Input.PaymentDate,enabled=d.Input.Enabled,factor=d.Input.Factor.ToString(),mapping=d.Input.MappingId,
-                curve=d.Input.Curve?.Code,currency=d.Input.Currency.Code,rate_policy=d.Input.RateNumericalPolicy,interpolation_policy=d.Input.InterpolationPolicy};
+                curve=d.Input.Curve?.Code,currency=d.Input.Currency.Code,rate_policy=d.Input.RateNumericalPolicy,interpolation_policy=d.Input.Conventions is {} c?$"{c.Interpolation}/{c.Extrapolation}":null};
         }).ToArray();
         var observations=result.DiscountInputs.SelectMany((d,n)=>d.Input.Pillars.Select((p,ordinal)=>new{discount=n,ordinal,observation=p.Observation.Id,
-            input_use=inputUses![p.Observation]==InputUse.Variable?"variable":"frozen",maturity=p.Maturity,annual_rate=p.AnnualRate,factor=p.DiscountFactor,days=p.Days}));
+            input_use=inputUses![p.Observation]==InputUse.Variable?"variable":"frozen",maturity=p.Maturity,annual_rate=p.DecimalRate.ToString(),factor=p.DiscountFactor,days=p.Days}));
         var ppa=result.PpaReceipt;
         object? ppaReceipt=ppa is null?null:new{ppa.KnownAt,ppa.KnowledgeContext,ppa.Coverage,
             pendingActuals=ppa.Pending==PendingActualsPolicy.RequireActuals?"require_actuals_v1":"estimate_until_actual_v1",

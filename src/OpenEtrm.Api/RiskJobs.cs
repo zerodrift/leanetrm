@@ -33,7 +33,7 @@ public static class RiskJobs
     {
         using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach(var assembly in new[]{typeof(RiskJobs).Assembly,typeof(MarketSnapshot).Assembly,
-            typeof(OpenEtrm.Shared.Temporal.TemporalException).Assembly,typeof(OpenEtrm.Rates.ZeroRateDefinition).Assembly}
+            typeof(OpenEtrm.Shared.Temporal.TemporalException).Assembly,typeof(OpenEtrm.Rates.RateCurveDefinition).Assembly}
             .Distinct().OrderBy(a=>a.GetName().Name,StringComparer.Ordinal))
             hash.AppendData(File.ReadAllBytes(assembly.Location));
         return "risk_job_v1:"+Convert.ToHexStringLower(hash.GetHashAndReset());

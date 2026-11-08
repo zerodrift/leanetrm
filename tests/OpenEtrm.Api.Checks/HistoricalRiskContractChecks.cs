@@ -13,7 +13,7 @@ internal static class HistoricalRiskContractChecks
     {
         var context=new FuturesReadRequest(Guid.NewGuid(),TradingBlotter.Convention,"retained",Guid.NewGuid());
         var pricing=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,SwapStore.Convention,
-            RateConventions.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,"estimate_until_actual_v1",FuturesOptionValuationPolicy.Release1);
+            RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,"estimate_until_actual_v1",FuturesOptionValuationPolicy.Release1);
         var historyPolicy=new RiskHistoryPolicy(RiskHistoryPolicy.Version1,CurveModel.NumericalPolicy,RiskHistoryPolicy.Raw,RiskHistoryPolicy.Heads,
             RiskHistoryPolicy.ExactCloses,RiskHistoryPolicy.Absolute,RiskHistoryPolicy.Complete,RiskHistoryPolicy.Fixed,2);
         var reference=new ReferenceKey(new(Guid.NewGuid(),Guid.NewGuid()),"calendar");

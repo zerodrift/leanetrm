@@ -88,4 +88,6 @@ def run_checks(Client, check):
     literal = {**spec, 'contracts': [{**spec['contracts'][0], 'start': '2021-01-03'}]}
     check('contract date fields accept literal dates and references together', viewer.call('date-schedules/contracts/preview', literal)['contracts'][0]['startReference']['source']['kind'] == 'literal')
     viewer.call('date-schedules/contracts/save', {**spec,'requestId':str(__import__('uuid').uuid4())}, expected=403)
-    check('shared contract-date save requires authoring permission, while preview creates no stored definition', approver.call('date-schedules')['contractDefinitions'] == [])
+    # The fixture's own published rate-curve date lists (D359) are the library's only definitions; previews add none.
+    check('shared contract-date save requires authoring permission, while preview creates no stored definition',
+          all(v['definition']['code'] != spec['code'] and v['definition']['dates'] is not None for v in approver.call('date-schedules')['contractDefinitions']))

@@ -12,11 +12,10 @@ dates share their factor/evidence, and each side retrieves its own factors by ex
 side identity. Each payment still verifies its currency, date and complete context.
 There is no cross-request result cache or implicit discount-curve selection.
 
-`ZeroRateLookup.AtPillar` retrieves a retained exact zero rate, discount factor and
-observation identity. Missing exact pillars fail. It does not invent a zero-rate
-interpolation convention. Payment discount factors retain the existing explicit
-log-linear discount interpolation policy and require bracketing pillars; there
-is no extrapolation. Exact integer bounds accelerate the root search while
+A rate curve's pillar build retains each tenor's mark, decimal rate, discount
+factor and observation identity; a tenor without a mark fails by name. Payment
+discount factors follow the curve's own stated interpolation and extrapolation
+(D359), from exactly 1 at the reference date. Exact integer bounds accelerate the root search while
 preserving its final exact half-integer comparison, rounding policy and maximum
 3,660-day pillar interval. Sparse interpolation still costs more than an indexed
 exact-pillar lookup.

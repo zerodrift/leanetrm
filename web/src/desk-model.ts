@@ -89,7 +89,7 @@ const instruments:Readonly<Record<string,{measure:'presentValue'|'executionPnl';
 /** The value cells an instrument type shows: its mark and its own value measure; a position the close cannot value says why in them. */
 export const valueFields=(instrumentType:string)=>['mark',instrument(instrumentType).measure];
 function instrument(type:unknown){if(typeof type!=='string'||!Object.hasOwn(instruments,type))throw Error('The Blotter returned an unknown instrument type.');return instruments[type];}
-// Started-delivery gas reports its own value measure (D359): labelled, and totalled by the backend, apart from contractual PV.
+// Started-delivery gas reports its own value measure (D360): labelled, and totalled by the backend, apart from contractual PV.
 const gasLifecycleMeasure='gas_lifecycle_value_v1';
 const lifecycleOf=(g:{instrumentType?:unknown;measure?:unknown})=>g.instrumentType==='physical_gas'&&g.measure===gasLifecycleMeasure;
 const valueLabel=(g:{instrumentType?:unknown;measure?:unknown})=>lifecycleOf(g)?'Unrealized + realized unsettled' as const:instrument(g.instrumentType).label;
@@ -472,7 +472,7 @@ export function positionRows(holdings:readonly Holding[],zone='UTC'):DeskRow[]{
       side=h.direction==='receive'?'Receive':'Deliver';exposure=null;
     }else if(type===instruments.physical_gas){
       if(h.contractIdentityKind!=='gas_instrument'||h.quantity!==null)throw Error('The gas position must retain independent side quantities.');
-      // Started-delivery trades report their own versioned measure (D359); older programs keep contractual PV.
+      // Started-delivery trades report their own versioned measure (D360); older programs keep contractual PV.
       if(h.measure!=='gas_contractual_present_value'&&h.measure!=='gas_lifecycle_value_v1')throw Error('The gas position must name its value measure.');
       side='By physical side';exposure=null;
     }else if(type===instruments.ppa){

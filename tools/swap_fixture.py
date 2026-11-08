@@ -1,7 +1,8 @@
 """Separate immutable synthetic daily gas/power market bundle for swap schedules."""
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from preview_fixture import CAT, RCAT, RREV, identity
+from preview_fixture import CAT, RCAT, RREV, CURRENCY, CURVE_NAMES, identity
+from rate_curve_fixture import dated_curve
 
 REVISION = '60000000-0000-0000-0000-000000000002'
 
@@ -24,12 +25,11 @@ def fixture(fixing_frames=False, observation_guards=False, scheduled_periods=Fal
                          f"INSERT INTO market_data.series VALUES ({m},'{sid}','swap_{commodity}_{day}',{r},'{cid}','{quote}',NULL);",
                          f"INSERT INTO market_data.index_fixing_observations (catalog_id,revision_id,index_code,observation_from,observation_to,reference_catalog_id,reference_revision_id,quote_code,series_id,source_code,fixing_at,implementation) VALUES ({m},'{index}','{start}','{end}',{r},'{quote}','{sid}','fixture','{fixing_at}','published_index_observations_v1');"])
             prices.append((2000+n*100+day, sid, Decimal('3')+Decimal(day)/100 if n==0 else Decimal('40')+Decimal(day)/10, 'trader_mark'))
-    rows.append(f"INSERT INTO market_data.rate_curves VALUES ({m},'interest_rates',{r},'test_interest','fixture','valuation_utc_date','Interest rates');")
-    for n, maturity in enumerate(['2021-01-18', '2021-06-18', '2021-12-18']):
-        sid=identity('9', 2800+n)
-        rows.extend([f"INSERT INTO market_data.series VALUES ({m},'{sid}','swap_rate_{n}',{r},NULL,NULL,'test_zero_rate');",
-                     f"INSERT INTO market_data.rate_curve_points VALUES ({m},'interest_rates','{maturity}','{sid}',{n});"])
+    pillars=['2021-01-18', '2021-06-18', '2021-12-18'];rate_series=[identity('9', 2800+n) for n in range(len(pillars))]
+    for n, sid in enumerate(rate_series):
+        rows.append(f"INSERT INTO market_data.series VALUES ({m},'{sid}','swap_rate_{n}',{r},NULL,NULL,'test_zero_rate');")
         prices.append((2800+n,sid,Decimal('.025')+Decimal(n)/200,'parameter'))
+    rows.append(dated_curve(CAT,REVISION,r,'interest_rates',CURVE_NAMES['interest_rates'],pillars,rate_series,currency=CURRENCY,source='fixture',interest_rate='test_interest'))
     boundary=date.fromisoformat(effective_from).isoformat()
     rows.extend([f"INSERT INTO market_data.revision_periods VALUES ({m},'{boundary}','2022-01-01');",
                  f"UPDATE market_data.revisions SET state='sealed' WHERE catalog_id='{CAT}' AND id='{REVISION}';"])

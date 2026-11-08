@@ -38,6 +38,8 @@ def run_checks(url, query, manifest):
     catalog = viewer.call('curve-definitions/catalog')
     coming_soon = {(c['field'], c['code']) for c in catalog['choices'] if not c['supported']}
     assert ('settlement', 'hourly_physical') in coming_soon and ('priceRule', 'formula') in coming_soon, coming_soon
+    assert {('rate.dayCount', 'thirty_360'), ('rate.compounding', 'semi_annual'), ('rate.markUnit', 'basis_points')} <= coming_soon, coming_soon
+    assert ('rate.extrapolation', 'flat_forward') in {(c['field'], c['code']) for c in catalog['choices'] if c['supported']}
     assert catalog['references']['futuresProducts']['test_gas_future']['commodity'] == 'test_gas'
     assert 'series' not in catalog['references'], 'The catalog returns futures series only through previews'
 
@@ -105,12 +107,16 @@ def run_checks(url, query, manifest):
     tenors = editor.call('date-schedules/contracts/save', {'requestId': str(uuid4()), 'code': 'rate_tenors', 'name': 'Synthetic rate tenors',
         'context': context('2021-01-15'), 'contracts': None, 'dates': [{'label': '1D', 'date': 'oe.rate_days + 1bd'}, {'label': '3M', 'date': 'oe.rate_days[90]'}]})
     tenors = approver.call('date-schedules/contracts/publish', {'requestId': str(uuid4()), **{k: tenors[k] for k in ('id', 'version', 'generation')}})
-    blank = {k: None for k in ('commodity', 'location', 'quote', 'profile', 'futuresProduct', 'settlementTarget', 'priceRule', 'markRole', 'missingPrice', 'interpolation')}
+    blank = {k: None for k in ('commodity', 'location', 'quote', 'profile', 'futuresProduct', 'settlementTarget', 'priceRule', 'markRole', 'missingPrice')}
     rates = {**blank, 'code': 'usd_zero', 'name': 'Synthetic zero rates', 'contractKind': 'interest_rate', 'markSource': 'fixture',
-             'interestRate': 'test_interest', 'contracts': {'mappingId': tenors['id'], 'mappingVersion': 1, 'count': 2}}
+             'interpolation': 'log_linear_discount', 'currency': 'usd', 'markUnit': 'percent_per_year', 'dayCount': 'actual_365_fixed',
+             'compounding': 'continuous', 'extrapolation': 'flat_forward', 'contracts': {'mappingId': tenors['id'], 'mappingVersion': 1, 'count': 2}}
     shown = preview(rates)
     assert [(m['label'], m['maturity'], m['days']) for m in shown['maturities']] == [('1D', '2021-01-18', 3), ('3M', '2021-04-15', 90)], shown
-    assert shown['valuationDate'] == '2021-01-15' and shown['terms']['dayCount'] == 'actual_365_fixed', shown
+    assert shown['valuationDate'] == '2021-01-15' and shown['terms']['currency'] == 'usd', shown
+    assert shown['terms']['conventions'] == {'dayCount': 'actual_365_fixed', 'compounding': 'continuous', 'interpolation': 'log_linear_discount',
+                                             'extrapolation': 'flat_forward', 'markUnit': 'percent_per_year'}, shown
+    assert preview({**rates, 'compounding': 'semi_annual'}, expected=422)['code'] == 'unsupported_rate_convention'
     assert [m['maturity'] for m in preview(rates, '2021-02-15')['maturities']] == ['2021-02-16', '2021-05-16'], 'The tenors did not roll'
     assert preview({**rates, 'quote': 'test_gas_outright'}, expected=422)['code'] == 'curve_definition'
 
@@ -178,3 +184,57 @@ def run_checks(url, query, manifest):
     assert query("SELECT has_function_privilege('openetrm_risk_worker','security.capture_date_context(uuid,date,timestamptz)','EXECUTE'),"
                  "has_function_privilege('openetrm_risk_worker','security.capture_pre_curve_definitions_context(uuid,date,timestamptz)','EXECUTE');") == 't|f'
     print('PASS curve definitions save, publish and edit with inline tenors, atomically and idempotently')
+
+    # D359: admitting a published rate definition into a draft definition revision creates one series per tenor label.
+    def draft_revision():
+        revision = str(uuid4())
+        query(f"INSERT INTO market_data.revisions VALUES('{cat}','{revision}','{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}','draft',0);")
+        return revision
+    def tenors_of(revision):
+        return json.loads(query(f"""SELECT json_agg(json_build_array(t.label,t.series_id,s.value_specification_code) ORDER BY t.ordinal)
+            FROM market_data.rate_curve_tenors t JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.id)=(t.catalog_id,t.revision_id,t.series_id)
+            WHERE t.catalog_id='{cat}' AND t.revision_id='{revision}';"""))
+    first_revision = draft_revision()
+    admit = {'requestId': str(uuid4()), 'revisionId': first_revision, 'definitionId': saved['id'], 'version': 1, 'valueSpecification': 'test_zero_rate_percent'}
+    viewer.call('curve-definitions/admit', admit, expected=403)
+    assert editor.call('curve-definitions/admit', {**admit, 'requestId': str(uuid4()), 'valueSpecification': 'test_zero_rate'},
+                       expected=422)['code'] == 'rate_admission', 'A decimal-range specification admitted a percent curve'
+    admitted = editor.call('curve-definitions/admit', admit)
+    assert [t['label'] for t in admitted['tenors']] == ['1D', '3M'], admitted
+    assert editor.call('curve-definitions/admit', admit) == admitted, 'A retried admission returned a different receipt'
+    assert editor.call('curve-definitions/admit', {**admit, 'version': 2}, expected=409)['code'] == 'rate_admission_conflict'
+    first = tenors_of(first_revision)
+    assert [(label, spec) for label, _, spec in first] == [('1D', 'test_zero_rate_percent'), ('3M', 'test_zero_rate_percent')], first
+    # A later revision reuses each label's series; a new version's added label gets a new series.
+    second_revision = draft_revision()
+    editor.call('curve-definitions/admit', {**admit, 'requestId': str(uuid4()), 'revisionId': second_revision, 'version': 2})
+    second = tenors_of(second_revision)
+    assert [label for label, _, _ in second] == ['1D', '3M', '6M'] and second[:2] == first and second[2][1] not in {s for _, s, _ in first}, second
+    # A version that changes the mark unit gives every label a new series, so no history mixes percent and decimal marks.
+    decimal = publish(save(edit(final, 'published', definition={**rates, 'markUnit': 'decimal_per_year', 'contracts': {**rates['contracts'], 'mappingVersion': 2, 'count': 3}})))
+    decimal_revision = draft_revision()
+    editor.call('curve-definitions/admit', {**admit, 'requestId': str(uuid4()), 'revisionId': decimal_revision, 'version': decimal['version'],
+                                            'valueSpecification': 'test_zero_rate'})
+    assert not {s for _, s, _ in tenors_of(decimal_revision)} & {s for _, s, _ in second}, 'A kept label kept its series across a mark unit change'
+    # Only a published version is admitted.
+    pending = save(edit(decimal, 'published', definition={**rates, 'name': 'Pending', 'contracts': {**rates['contracts'], 'mappingVersion': 2, 'count': 3}}))
+    assert editor.call('curve-definitions/admit', {**admit, 'requestId': str(uuid4()), 'revisionId': draft_revision(), 'version': pending['version']},
+                       expected=422)['code'] == 'rate_admission'
+    print('PASS published rate definitions admit one stable series per tenor, idempotently and with the unit range')
+
+    # D359: an admitted curve rolls with each close's t_0: its tenors keep their series and marks, and their maturities move.
+    from decimal import Decimal, getcontext, ROUND_HALF_EVEN
+    getcontext().prec = 50
+    def factor(mark, days):  # continuous compounding, ACT/365 Fixed, from a percent mark; rounded once to 18 places
+        return str((-(Decimal(mark) / 100) * days / Decimal(365)).exp().quantize(Decimal('1e-18'), ROUND_HALF_EVEN))
+    for day, maturities, marks in [('2021-01-15', ['2021-02-14', '2022-01-15'], ['4.10', '4.30']),
+                                   ('2021-02-15', ['2021-03-17', '2022-02-15'], ['4.20', '4.40'])]:
+        shown = viewer.call('evaluate', {'snapshotId': close(viewer, day), 'curve': 'usd_rolling'})
+        days = [30, 365]
+        assert [(p['label'], p['maturity'], Decimal(p['mark']), p['actualDays']) for p in shown['points']] == list(zip(['1M', '1Y'], maturities, map(Decimal, marks), days)), shown['points']
+        assert [p['discountFactor'] for p in shown['points']] == [factor(m, d) for m, d in zip(marks, days)], shown['points']
+        assert shown['markUnitLabel'] == '% per year' and shown['definition']['version'] == 1 and shown['currency'] == 'usd', shown
+    january = viewer.call('evaluate', {'snapshotId': close(viewer, '2021-01-15'), 'curve': 'usd_rolling'})['points']
+    february = viewer.call('evaluate', {'snapshotId': close(viewer, '2021-02-15'), 'curve': 'usd_rolling'})['points']
+    assert [p['seriesId'] for p in january] == [p['seriesId'] for p in february], 'A tenor changed series between closes'
+    print('PASS a definition-driven rate curve rolls its tenors with each close, in its own unit and conventions')

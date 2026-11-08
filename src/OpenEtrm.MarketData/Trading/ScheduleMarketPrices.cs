@@ -32,7 +32,7 @@ public sealed partial class ScheduleMarketSources
                 p.Version==projection.Version&&p.OutputNode==projection.Coordinate&&p.Position==projection.Position:lookup.CustomProjection is null)).Distinct().ToArray();
     }
 
-    // deliveryMark: the row prices undelivered physical gas, which reads its location mark and never the payment fixing (D359).
+    // deliveryMark: the row prices undelivered physical gas, which reads its location mark and never the payment fixing (D360).
     private (ExactUnitPrice Price,SchedulePriceFacts State,ScheduleSourceEvidence Evidence) Dated(BookedSideInstruction instruction,CurveBuild market,bool deliveryMark)
     {
         var candidates=DatedCandidates(instruction,dated);

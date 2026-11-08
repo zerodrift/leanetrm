@@ -101,7 +101,7 @@ internal static class PhysicalLifecycleChecks
         Equal(Sum(moved.Where(p=>!Cash(p.Base)).Select(p=>p.Shock.Unrealized.Subtract(p.Base.Unrealized))),"2100");
         Equal(Sum(moved.Where(p=>Cash(p.Base)).Select(p=>p.Shock.Unrealized.Subtract(p.Base.Unrealized))),"-2100");
 
-        // Owner decision (D359): the physical leg of a fixed gas day not yet delivered reads the location curve's own mark; the payment
+        // Owner decision (D360): the physical leg of a fixed gas day not yet delivered reads the location curve's own mark; the payment
         // stays locked at its fixing. Nov 7 marked 3.40 against its 3.22 fixing, 100 per day received against the index: +18.00.
         var nov7=new DateOnly(2026,11,7);var marked=demo.Value(Demo.Close,paid,Demo.Undiscounted,marked:(nov7,"3.4"));
         Equal(marked.Unrealized,"18");Equal(marked.RealizedUnsettled,"-10855");Equal(marked.Total,"-10837");

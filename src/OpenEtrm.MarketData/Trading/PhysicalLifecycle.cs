@@ -85,7 +85,7 @@ public static class PhysicalLifecycle
     // Missing lifecycle wiring is a system defect, not a trade's refusal: it fails the read (TradeRefusal excludes it).
     public const string ContextRefusal="physical_lifecycle_context";
 
-    // Owner decision (D359): a whole gas-day physical program prices each gas day not yet ended at its location curve's own mark.
+    // Owner decision (D360): a whole gas-day physical program prices each gas day not yet ended at its location curve's own mark.
     // A published fixing locks only the payment price, so it neither prices nor backs up the physical leg.
     public static bool ReadsDeliveryMarks(BookedSideProgram program)=>program.Document.Family=="gas"&&program.Document.Instructions.Any(i=>
         i.Output.Operation=="output_guard"&&i.Output.Parameters.GetValueOrDefault("lifecycle")==ScheduleLifecycles.WholeGasDayDelivery);

@@ -66,7 +66,7 @@ public static class PeriodPriceSelector
             throw new MarketDataException("index_fixing_definition", "The selector requires the selected index's exact qualified publication period and implementation.");
     }
 
-    // D359: physical gas still to be delivered is worth the location curve's own mark. A published fixing locks only the
+    // D360: physical gas still to be delivered is worth the location curve's own mark. A published fixing locks only the
     // payment price, so a delivery mark never reads it and never falls back to it. Under delivery_mark_final_settlement_v1
     // the mark is the contract's live curve mark until it expires; afterwards, until the gas day ends, it is that contract's
     // own recorded final settlement, pinned by the context. A missing mark or settlement refuses.

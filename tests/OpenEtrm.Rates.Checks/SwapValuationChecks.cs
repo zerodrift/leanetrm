@@ -44,8 +44,7 @@ internal static class SwapValuationChecks
                 [fixing], payment, FloatingAveraging.MonthlyIndexPrice,
                 [new(new(curve.Key, contract.Key), contract)], FloatingSide.IndexedImplementation), ExactDecimal.Parse("1"))], FinancialSwapInstrument.Implementation, true);
         var mapping = new CurrencyDiscountCurve(Guid.NewGuid(), quote.Currency,
-            new(new(revision, "discount"), R("simple_rates"), quote.Currency, "actual_365_fixed", "simple",
-                RateConventions.Implementation, "valuation_utc_date", R("source"), [new(left, new(2021, 1, 18)), new(right, new(2021, 3, 18))]), DiscountInterpolation.Policy);
+            new(new(revision, "discount"), quote.Currency, R("source"), RateConventionSet.Parse("actual_365_fixed","simple","log_linear_discount","none","decimal_per_year"), [new("Jan", left, new(2021, 1, 18)), new("Mar", right, new(2021, 3, 18))], Guid.NewGuid(), 1));
         FinancialSwapValue Price(MarketSnapshot context, bool discounting, CurrencyDiscountCurve? selected) =>
             FinancialSwapValuation.Price(new FinancialSwapInstrument(Guid.NewGuid(), instrument.Sides, FinancialSwapInstrument.Implementation, discounting), model.Build(context, instrument.Dependencies),
                 new(ExactDecimal.Parse("100"), quote.Quantity), discounting, selected);
@@ -141,7 +140,7 @@ internal static class SwapValuationChecks
                 var row = side.Payments.Single(); var discount = row.Discount;
                 if (discount.MappingId != mapping.Id || discount.Curve != mapping.Definition.Key || discount.Definition != mapping.Definition ||
                     discount.Currency != quote.Currency || discount.Snapshot != snapshot || discount.Pillars.Length != 2 ||
-                    discount.Pillars[0].Maturity != new DateOnly(2021, 1, 18) || discount.Pillars[0].AnnualRate != "0.1" ||
+                    discount.Pillars[0].Maturity != new DateOnly(2021, 1, 18) || discount.Pillars[0].Mark != "0.1" ||
                     discount.Pillars[0].DiscountFactor != "0.991578375441456126" || discount.Pillars[1].Maturity != new DateOnly(2021, 3, 18) ||
                     discount.Pillars[1].DiscountFactor != "0.953002610966057441" ||
                     discount.Factor.ToString() != "0.971118981067694871" || row.Cashflow.PaymentDiscount.DiscountFactor != discount.Factor)

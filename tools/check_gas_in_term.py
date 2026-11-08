@@ -54,7 +54,7 @@ def run_checks(url, query, manifest, run_worker, admin_load, browse=None):
     refused(f"SELECT security.book_gas_composition('{catalog}','{encoded}'::jsonb,'{CLOSE}');", 'gas_schedule')
     print('PASS a started gas composition is refused by the ticket preview and booking before staging, and the booking operation books nothing', flush=True)
 
-    # (b) A named administrator loads the started composition through the dedicated loader login (D359). The
+    # (b) A named administrator loads the started composition through the dedicated loader login (D360). The
     # API's runtime login cannot execute the load; the loader holds exactly runtime's privileges plus the load.
     # A context whose knowledge precedes the load.
     before_load = capture_context(query, manifest, '2026-11-06').splitlines()[-1]
@@ -304,7 +304,7 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
 
 
 def delivery_mark_checks(c, frame, context, body, publish, sources):
-    """D359: a fixed gas day not yet delivered values its physical leg at the location curve's own mark and its payment at the fixing."""
+    """D360: a fixed gas day not yet delivered values its physical leg at the location curve's own mark and its payment at the fixing."""
     nov7 = deepcopy(body); nov7.update(operationId=str(uuid4()))
     nov7['physicalSides'][0].update(deliveryFrom='2026-11-07', deliveryTo='2026-11-08')
     working = dict(snapshotId=frame['id'], convention=context['convention'], knowledgeMode='current')
@@ -421,7 +421,7 @@ def refusal_checks(c, query, manifest, frame, body, trade_id, binding, forward, 
     """Trade-specific refusals stay on their own rows; a portfolio holding a refusing trade refuses its total."""
     catalog = manifest['catalogId']
     # Review Focus 5: an equivalent in-term composition whose stored programs keep the future-delivery lifecycles,
-    # as a trade booked before 0215 holds them (content, its digest and its rows rewritten together).
+    # as a trade booked before 0216 holds them (content, its digest and its rows rewritten together).
     # Its own term (from October), so it shares no retained schedule with the in-term fixture.
     copy = deepcopy(body); copy['operationId'] = str(uuid4()); copy['physicalSides'][0]['deliveryFrom'] = '2026-10-01'
     assert c.call('gas/composition/book', copy, expected=422)['code'] == 'gas_delivery_lifecycle'
@@ -489,7 +489,7 @@ def lifecycles(query, catalog, instrument):
 
 
 def upgrade_checks(query, migration):
-    """Before 0215: pinned helpers refuse drift, and stored future-lifecycle rows are neither changed nor re-validated."""
+    """Before 0216: pinned helpers refuse drift, and stored future-lifecycle rows are neither changed nor re-validated."""
     text = migration.read_text()
     signatures = re.findall(r"^\s*\('([^']+)','[a-f0-9]{64}'", text, re.MULTILINE)
     assert len(signatures) == 7
@@ -497,12 +497,12 @@ def upgrade_checks(query, migration):
         f"ALTER FUNCTION {signature} SET work_mem='64kB';", f"GRANT EXECUTE ON FUNCTION {signature} TO PUBLIC;",
         f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;",
         f"DO $drift$ DECLARE body text=pg_get_functiondef('{signature}'::regprocedure);BEGIN EXECUTE replace(body,'AS $function$','AS $function$ /* synthetic drift */');END$drift$;")]
-    check_guard(query, text, '0215', 'in_term_upgrade', changes)
+    check_guard(query, text, '0216', 'in_term_upgrade', changes)
     try: query("BEGIN;CREATE FUNCTION security.write_gas_composition(uuid,jsonb,timestamptz,boolean) RETURNS jsonb LANGUAGE sql AS 'SELECT NULL::jsonb';" + migration_body(text) + 'ROLLBACK;')
     except RuntimeError as error: assert 'in_term_upgrade: unexpected private writer' in str(error), error
     else: raise AssertionError('A preexisting private writer was admitted')
-    # A composition stored before 0215: its physical and cash guards keep their future lifecycles.
-    schedule = '7f000000-0000-0000-0000-000000000215'
+    # A composition stored before 0216: its physical and cash guards keep their future lifecycles.
+    schedule = '7f000000-0000-0000-0000-000000000216'
     def guard(ordinal, key, lifecycle, measure, grid):
         parameters = json.dumps(dict(lifecycle=lifecycle, measure=measure, pricePolicy='selected_context_v1', averaging='none', firstFixingAt='none',
                                      paymentRule='explicit_payment_date_v1', unadjustedPayment='none'))

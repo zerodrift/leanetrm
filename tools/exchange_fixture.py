@@ -14,6 +14,7 @@ from decimal import ROUND_HALF_EVEN, localcontext
 import importlib.util
 from zoneinfo import ZoneInfo
 from preview_fixture import fixture as baseline, trading_fixture as baseline_trading, installed_tzdb, tou_products
+from rate_curve_fixture import dated_curve, discount_default
 
 NAMESPACE=UUID('5a935d8a-8e48-43d6-83fd-4b7b7d4f991d')
 def key(name): return str(uuid5(NAMESPACE,name))
@@ -315,15 +316,13 @@ def fixture(root):
           f"INSERT INTO market_data.series VALUES({M},'{sid}','{sc}',{R},'{cid}','{code}_quote',NULL);"])
         option_rows.append((sid,sc,code,underlying,right,strike,local_instant(expiry,OPTION_EXPIRY_CLOSE[code])))
     # One synthetic USD zero-rate curve, the currency's default discounting for option values and premiums.
-    defs.append("INSERT INTO market_data.rate_curves(catalog_id,revision_id,code,reference_catalog_id,reference_revision_id,interest_rate_code,source_code,date_basis,name) "
-                f"VALUES({M},'usd_rates',{R},'test_interest','fixture','valuation_utc_date','Synthetic USD rates');")
     rate_rows=[]
     for n,(maturity,rate) in enumerate(USD_RATES):
         sid=key('rate_'+maturity);rate_rows.append((sid,rate))
-        defs.extend(["INSERT INTO market_data.series(catalog_id,revision_id,id,code,reference_catalog_id,reference_revision_id,contract_id,quote_code,value_specification_code) "
-                     f"VALUES({M},'{sid}','usd_rate_{n}',{R},NULL,NULL,'test_zero_rate');",
-                     "INSERT INTO market_data.rate_curve_points(catalog_id,revision_id,curve_code,maturity,series_id,ordinal) "
-                     f"VALUES({M},'usd_rates','{maturity}','{sid}',{n});"])
+        defs.append("INSERT INTO market_data.series(catalog_id,revision_id,id,code,reference_catalog_id,reference_revision_id,contract_id,quote_code,value_specification_code) "
+                    f"VALUES({M},'{sid}','usd_rate_{n}',{R},NULL,NULL,'test_zero_rate');")
+    defs.append(dated_curve(catalog,revision,R,'usd_rates','Synthetic USD rates',[maturity for maturity,_ in USD_RATES],[sid for sid,_ in rate_rows],
+                            currency='usd',source='fixture',interest_rate='test_interest'))
     unlisted=SMILE_OFFSETS.keys()-{row[1] for row in option_rows}
     if unlisted:raise ValueError(f'Smile offsets name unlisted series: {sorted(unlisted)}')
     if any(row[1] in SMILE_OFFSETS and (row[1]==MISSING_SETTLEMENT[1] or row[3]==MISSING_SETTLEMENT[2]) for row in option_rows):
@@ -368,7 +367,5 @@ def fixture(root):
     trading=baseline_trading(catalog)
     if trading.count('COMMIT;')!=1:raise ValueError('The baseline trading fixture must end in exactly one COMMIT.')
     trading=trading.replace('COMMIT;',
-        "INSERT INTO trading.currency_discount_defaults(catalog_id,id,definition_revision_id,reference_catalog_id,reference_revision_id,currency_code,curve_code,"
-        f"interpolation_policy,publication_order,effective_at) VALUES('{catalog}','{key('usd_discount_default')}','{revision}',{R},'usd','usd_rates',"
-        "'log_discount_geometric_root_to_even_18_v1',1,'2026-10-01 00:00:00+00');\nCOMMIT;")
+        discount_default(catalog,key('usd_discount_default'),revision,R,'usd','usd_rates',1,'2026-10-01 00:00:00+00')+"\nCOMMIT;")
     return remap(reference),remap(sql),remap(security),remap(trading),json.loads(remap(json.dumps(manifest)))

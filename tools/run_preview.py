@@ -264,7 +264,7 @@ def main():
             if migration.name=='0203_assistant_presentation_controls.sql':
                 from check_assistant_presentation_upgrade import run_checks as check_presentation_upgrade
                 check_presentation_upgrade(query,migration)
-            if migration.name=='0215_in_term_gas_lifecycle.sql':
+            if migration.name=='0216_in_term_gas_lifecycle.sql':
                 from check_gas_in_term import upgrade_checks as check_in_term_upgrade
                 check_in_term_upgrade(query,migration)
             if migration.name=='0210_indexed_gas_consideration.sql':
@@ -408,6 +408,9 @@ def main():
             if args.check and migration.name=='0211_selected_observation_facts.sql':
                 from check_observation_fact_upgrade import run_checks as check_observation_fact_upgrade
                 check_observation_fact_upgrade(query,migration)
+            if args.check and migration.name=='0215_rolling_rate_curves.sql':
+                from check_rate_cutover import run_checks as check_rate_cutover
+                check_rate_cutover(query,[reference,market,security],migration)
             query(migration.read_text())
         if args.check:
             from check_whole_term_swap_schema import run_checks as check_whole_term_swap_schema
@@ -815,7 +818,7 @@ def main():
                 def browse_in_term(fixture):
                     target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'facility':fixture}))
                     subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--gas-in-term'],cwd=ROOT,env=env,check=True,timeout=300)
-                # The private administrator command, run with the authenticator and the dedicated loader login (D359).
+                # The private administrator command, run with the authenticator and the dedicated loader login (D360).
                 def admin_load_in_term(request):
                     def private(name,value):
                         path=temporary/name;path.write_text(value);path.chmod(0o600);return str(path)

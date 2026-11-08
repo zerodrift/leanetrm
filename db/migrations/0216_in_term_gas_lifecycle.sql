@@ -1,4 +1,4 @@
--- Current consumer: the in-term physical gas lifecycle (D359). New gas compositions retain whole gas-day
+-- Current consumer: the in-term physical gas lifecycle (D360). New gas compositions retain whole gas-day
 -- delivery and accrued payment programs; recorded payments allocate signed cash to exact retained
 -- occurrences under their own knowledge receipts; a dedicated loader admits a composition already in term.
 -- Stored programs are never re-validated: trades booked earlier keep their future-delivery lifecycles.

@@ -42,7 +42,7 @@ FUTURES, SWAPS = 'contract_lot_execution_pnl_v2', 'independent_side_financial_sw
 # when no deal's applies.
 KINDS = {**dict.fromkeys(('presentValue', 'instrumentPresentValue', 'cashAmount', 'contribution', 'cashContribution', 'executionPnl', 'upPnl',
                           'downPnl', 'basePv', 'upPv', 'downPv', 'change'), 'money'),
-         **dict.fromkeys(('price', 'fixedPrice', 'executionPrice', 'mark', 'value', 'annualRate'), 'price'),
+         **dict.fromkeys(('price', 'fixedPrice', 'executionPrice', 'mark', 'value'), 'price'),
          **dict.fromkeys(('quantity', 'physicalQuantity', 'totalQuantity', 'weight'), 'quantity'),
          **dict.fromkeys(('discountFactor', 'factor', 'multiplier', 'delta', 'gamma'), 'factor')}
 DEFAULT = {'money': 3, 'price': 4, 'quantity': 3, 'factor': 6}

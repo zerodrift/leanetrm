@@ -1,6 +1,6 @@
 # Delivery plan and acceptance criteria
 
-D359 values started gas compositions under explicit whole gas-day and accrued
+D360 values started gas compositions under explicit whole gas-day and accrued
 payment lifecycles: unrealized (remaining delivery MTM) and realized unsettled
 (delivered, fixed, not paid) are reported separately, undiscounted and labelled
 so, with their sum, under the risk measure `gas_lifecycle_value_v1`. Undelivered
@@ -1984,10 +1984,16 @@ D318 starts native curve authoring: Define a curve on Curves & prices validates 
 definition and previews its rolling contract window at the header's selected close ([curve definitions](curve-definitions.md)).
 D357 adds generated daily schedules and date-list mappings; D358 saves, publishes
 and edits definitions, including interest-rate curves whose tenors roll with the
-context date. Remaining, in order: admit published definitions into market
-revisions and price from them (including one rate series per tenor), then migrate
-existing curves and retire literal-maturity rate curves. Bootstrapped rate curves
-from par or swap quotes have no current consumer and are not planned.
+context date. D359 admits published interest-rate definitions into market
+revisions with one series per tenor, gives them their own currency, unit and
+conventions, discounts payment dates from them and removes literal-maturity rate
+curves; the hosted demo's dated curves are replaced in a schema window. Remaining:
+admitting contract-curve definitions; the Coming soon rate conventions (30/360,
+ACT/ACT ISDA, semi-annual and quarterly compounding, cubic-spline and
+monotone-convex interpolation, basis-point marks), each with a consumer and
+independent oracles; removing the now consumer-less interest-rate specification
+table; and bootstrapping zero curves from market instruments (overnight fixings,
+futures, OIS swaps), which has no current consumer and is not planned.
 
 D286 local increment: separate crude reference selection, user-zone instant
 entry/display, and explicitly versioned independent PPA side composition.

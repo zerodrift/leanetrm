@@ -218,7 +218,7 @@ internal sealed class PpaReads
                 {
                     var row=System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(text);
                     if(row.Id("definition_revision_id")!=data.DefinitionRevision.RevisionId)throw PpaCompiler.Error("discount_curve","Discounting retains the selected exact definition revision.");
-                    mapping=new(row.Id("id"),instrument.Currency,data.RateDefinition(row.Text("curve_code")),row.Text("interpolation_policy"));
+                    mapping=new(row.Id("id"),instrument.Currency,await RateCurveResolver.Resolve(connection,data,frame,row.Text("curve_code"),ct));
                 }
             }
             discounts.Add(instrument.Id,new PpaDiscounting(snapshot,instrument.Discounting,mapping));

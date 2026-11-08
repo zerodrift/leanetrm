@@ -26,7 +26,7 @@ export function pivotMatrix(groups:PivotGroup[],dimensions:string[],splitBy:stri
   const splits=new Map<string,{title:string;ids:unknown[];sortKey:string}>();
   for(const group of groups){const ids=splitBy.map(d=>identity(group,d));if(ids.some(v=>v===null||v===undefined))throw Error('A pivot dimension identity is missing.');splits.set(canonical(ids),{title:splitBy.map(d=>groupLabel(group,d,zone)).join(' / '),ids,sortKey:canonical(splitBy.map(d=>d==='contract'?[group.deliveryFrom,group.deliveryTo]:groupLabel(group,d,zone)))});}
   const ordered=[...splits.entries()].sort(([a,x],[b,y])=>x.sortKey.localeCompare(y.sortKey)||a.localeCompare(b));
-  // One instrument type may hold positions under several value measures (D359); the backend keeps them apart, and so do the rows.
+  // One instrument type may hold positions under several value measures (D360); the backend keeps them apart, and so do the rows.
   const measured=new Set(groups.flatMap(g=>g.measure===undefined||g.measure===null?[]:[g.measure])).size>1;
   const columns:MatrixColumn[]=[...new Set([...rowsBy,...(groups.some(g=>g.instrumentType!==undefined)?['instrumentType']:[]),...(measured?['measure']:[]),'unit','currency',...(groups.some(g=>g.priceUnit!==undefined)?['priceUnit']:[])])].map(key=>({key,title:labels[key],numeric:false}));
   for(const [key,split] of ordered)for(const measure of measures)columns.push({key:'pivot:'+canonical([key,measure]),title:split.title+' · '+labels[measure],numeric:true,measure,groupKey:key,groupTitle:split.title,measureTitle:labels[measure]});

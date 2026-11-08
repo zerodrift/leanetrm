@@ -12,7 +12,7 @@ public sealed record GasInTermLoadConfiguration([property:JsonRequired] string M
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record GasInTermLoadRequest([property:JsonRequired] string Administrator,[property:JsonRequired] GasCompositionRequest Composition);
 
-/// <summary>Private operator entry point (D359): a named administrator loads a gas composition already in its delivery
+/// <summary>Private operator entry point (D360): a named administrator loads a gas composition already in its delivery
 /// term through the ticket's booking path, on the dedicated loader login. There is no HTTP route.</summary>
 public static class GasInTermLoad
 {

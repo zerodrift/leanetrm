@@ -143,7 +143,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
     if(d=="contract"){group["deliveryFrom"]=first["deliveryFrom"]?.DeepClone();group["deliveryTo"]=first["deliveryTo"]?.DeepClone();}
    }
    if(byDefinition)group["definitionRevisionId"]=first["definitionRevisionId"]?.DeepClone();
-   // Values under different measure codes are never added together (D359): each group names its measure.
+   // Values under different measure codes are never added together (D360): each group names its measure.
    if(first["measure"] is {} code){group["measure"]=code.DeepClone();group["measureLabel"]=first["measureLabel"]?.DeepClone();}
    foreach(var field in byQuantity?new[]{"instrumentType","unit","currency","quantitySpecification","currencyReference"}:new[]{"instrumentType","currency","currencyReference"})
     group[field]=first[field]?.DeepClone();

@@ -104,7 +104,7 @@ static class TradingBlotterChecks
         Require(Text(Group(groups,"financial_swap","usd",otherRevision:true),"presentValue")=="3","One currency code in two reference revisions was added together");
         Require(Text(Group(groups,"future","usd"),"executionPnl")=="7","Futures execution P&L was not added across quantity units");
         Console.WriteLine("PASS money adds across quantity units within one exact currency and instrument type, and never across currencies, currency revisions or instrument types");
-        // D359: one instrument type under two measure codes is two groups, each naming its measure; values never add across them.
+        // D360: one instrument type under two measure codes is two groups, each naming its measure; values never add across them.
         var measured=Positions().Take(3).Select((row,n)=>{row["measure"]=n<2?"gas_lifecycle_value_v1":"gas_contractual_present_value";row["measureLabel"]=n<2?"Unrealized + realized unsettled":"Contractual PV";return row;}).ToList();
         var split=TradingBlotter.Groups(Pivot(MoneyConvention,["instrumentType"],MoneyMeasures),measured);
         Require(split.Count==2&&split.Select(g=>(Text(g,"measure"),Text(g,"measureLabel"),Text(g,"presentValue"))).Order().SequenceEqual(

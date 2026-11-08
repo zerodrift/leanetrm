@@ -220,7 +220,7 @@ its evaluated contribution kind is Delivery. A program compiled with the
 legacy lifecycle refuses with `gas_delivery_lifecycle` once any admitted delivery
 starts. New gas compositions compile `whole_gas_day_delivery_v1`, under which an
 ended gas day leaves the unrealized measure and its fixed cash accrues in the
-realized unsettled measure until recorded payments clear it (D359). A gas day not
+realized unsettled measure until recorded payments clear it (D360). A gas day not
 yet ended values its physical leg at the location curve's own mark even after its
 payment index has published; a missing mark refuses, and the fixing never stands
 in for it. Neither

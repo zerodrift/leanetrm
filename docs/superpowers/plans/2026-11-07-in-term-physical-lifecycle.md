@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Owner follow-up (D359):** the measures named below `RemainingDeliveryMtm`/`remainingDeliveryMtm` and `OutstandingSettlement`/`outstandingSettlement` are built as `Unrealized`/`unrealized` and `RealizedUnsettled`/`realizedUnsettled`, labelled "Unrealized + realized unsettled", and started-lifecycle trades report the risk measure `gas_lifecycle_value_v1`. Undelivered physical days read the location curve's mark, never the payment fixing.
+> **Owner follow-up (D360):** the measures named below `RemainingDeliveryMtm`/`remainingDeliveryMtm` and `OutstandingSettlement`/`outstandingSettlement` are built as `Unrealized`/`unrealized` and `RealizedUnsettled`/`realizedUnsettled`, labelled "Unrealized + realized unsettled", and started-lifecycle trades report the risk measure `gas_lifecycle_value_v1`. Undelivered physical days read the location curve's mark, never the payment fixing.
 
 **Goal:** Booked gas compositions (indexed or fixed-price consideration) keep valuing after delivery starts. Ended gas days carry accrued, unpaid cash in an outstanding-settlement measure until recorded payments clear it, and remaining days stay in remaining delivery MTM.
 
@@ -12,7 +12,7 @@
   - cash: `accrued_payment_v1`.
 - A new managed binding state, `PhysicalCashState`, carries recorded payments.
 - `RetainedGasInstrument` splits each evaluated contribution into remaining and accrued parts and returns both measures and their sum. Instrument/Side pricing and generic scenario risk are unchanged.
-- One migration admits the new lifecycles for new gas writes. It adds payment tables with an idempotent recording function and an in-term load (built as a dedicated loader role; see D359).
+- One migration admits the new lifecycles for new gas writes. It adds payment tables with an idempotent recording function and an in-term load (built as a dedicated loader role; see D360).
 - The API, inspector and UI project the measures and row states.
 
 **Tech Stack:** C# (.NET 10, `src/OpenEtrm.MarketData`, `src/OpenEtrm.Api`), PostgreSQL migrations (`db/migrations`), Python preview checks (`tools/`), TypeScript presentation (`web/src`).
@@ -172,10 +172,10 @@ Rules the implementation must follow:
 
 ### Task 4: Database admission, payment records and in-term load
 
-Note: the load is not owner-only as first planned; D359 records the dedicated loader role that was built.
+Note: the load is not owner-only as first planned; D360 records the dedicated loader role that was built.
 
 **Files:**
-- Create: `db/migrations/0215_in_term_gas_lifecycle.sql`
+- Create: `db/migrations/0216_in_term_gas_lifecycle.sql`
 - Modify: `tests/test_migration_identity.py` only if it enumerates migrations explicitly
 - Create: `tools/gas_in_term_fixture.py`, `tools/check_gas_in_term.py`
 - Modify: `tools/run_preview.py` (add `--gas-in-term-check`, wired like `--gas-indexed-check` at lines 47, 150–158, 255, 805)
@@ -206,7 +206,7 @@ Note: the load is not owner-only as first planned; D359 records the dedicated lo
   Run: `python3 tools/run_preview.py --pg-bin <pg-bin> --dotnet <dotnet> --gas-in-term-check`
   Expected: failure on the missing function.
 
-- [ ] **Step 3: Write `0215_in_term_gas_lifecycle.sql`** following 0205's table/receipt/grant style. Open it with a `-- Current consumer:` header line naming the in-term gas lifecycle (D359).
+- [ ] **Step 3: Write `0216_in_term_gas_lifecycle.sql`** following 0205's table/receipt/grant style. Open it with a `-- Current consumer:` header line naming the in-term gas lifecycle (D360).
 
 - [ ] **Step 4: Run, confirm pass**, same command.
 
@@ -275,26 +275,26 @@ Note: the load is not owner-only as first planned; D359 records the dedicated lo
 ### Task 7: Decision record, documentation and qualification
 
 **Files:**
-- Modify: `docs/decisions.md` (append `## D359 — In-term physical delivery: accrued cash and remaining value`)
+- Modify: `docs/decisions.md` (append `## D360 — In-term physical delivery: accrued cash and remaining value`)
 - Modify: `docs/physical-lifecycle-design.md` (L5 row: gas consumer implemented for the whole-day policy), `docs/indexed-physical-gas-example.md` (status), `docs/physical-gas-side.md` (lifecycle paragraph at lines 215–224), `docs/plan.md`
 
-- [ ] **Step 1:** Write D359: the owner decisions and the designer's calls from the spec, the non-goals, and what remains (allocated basis, invoices, reconciliation, crude/LNG adapters, business-day payment adjustment).
+- [ ] **Step 1:** Write D360: the owner decisions and the designer's calls from the spec, the non-goals, and what remains (allocated basis, invoices, reconciliation, crude/LNG adapters, business-day payment adjustment).
 - [ ] **Step 2:** Run `python3 tools/check_all.py --group trading` with the pinned tools and record the actual pass counts in the doc status lines.
 - [ ] **Step 3:** Obtain an independent adversarial review of the branch, as AGENTS.md requires for temporal, numerical and authorization changes, covering:
   - knowledge-time visibility of payments;
-  - loader-role load privilege (D359);
+  - loader-role load privilege (D360);
   - idempotency races;
   - old-program parity;
   - risk freezing.
   Resolve findings before any publication.
-- [ ] **Step 4: Commit**: `git commit -s -m "Record D359 in-term physical delivery lifecycle"`.
+- [ ] **Step 4: Commit**: `git commit -s -m "Record D360 in-term physical delivery lifecycle"`.
 
 ### Task 8: Operational release and seed
 
 Not repository work: the operational release and seed run outside this repository, each step owner-approved.
 
 - [ ] **Step 1:** Verify the spec's market prerequisites on the target environment: the published curves, the location assignment, the gas-day clock, fixings coverage, the discount curve at the close and the schema head.
-- [ ] **Step 2:** Release migration 0215 through the environment's schema-release procedure, rehearsed before it runs.
+- [ ] **Step 2:** Release migration 0216 through the environment's schema-release procedure, rehearsed before it runs.
 - [ ] **Step 3:** Seed:
   - synthetic fixings;
   - `--admin-load-gas-in-term` with the spec's trade;

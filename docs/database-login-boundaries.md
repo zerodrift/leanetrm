@@ -33,7 +33,7 @@ permissions remain authoritative.
 ## Administrator in-term gas load
 
 `OpenEtrm.Api --admin-load-gas-in-term CONFIG REQUEST` loads a gas composition
-already in its delivery term (D359). It follows the reference-importer pattern
+already in its delivery term (D360). It follows the reference-importer pattern
 and has no HTTP route. The private configuration names the manifest, an
 authenticator connection file and a loader connection file. These files and the
 request must be private to their owner. The request is the ticket's composition

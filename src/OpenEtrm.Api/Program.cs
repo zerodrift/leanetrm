@@ -145,7 +145,7 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.MessageText.StartsWith("gas_operations_") => (p.MessageText.Contains("denied")?403:p.MessageText.Contains("conflict")||p.MessageText.Contains("stale")?409:422,p.MessageText,"The manual operation requires compatible current service terms, explicit evidence and the reviewed source heads. Refresh and review the operation."),
     PostgresException p when apiPath.StartsWithSegments("/api/gas/operations") && p.SqlState is "23505" or "23514" or "23503" or "22P02" or "22003" or "22007" or "22008" or "P0002" => (422,"gas_operations_input","Supply the complete explicit manual operation with exact sources, canonical dates and evidence."),
     PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/curve-definitions") => (409,"curve_definition_conflict","This curve definition or its mapping changed. Reload or retry the exact original command."),
-    MarketDataException m when m.Code=="curve_definition_conflict" => (409,m.Code,m.Message),
+    MarketDataException m when m.Code is "curve_definition_conflict" or "rate_admission_conflict" => (409,m.Code,m.Message),
     PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/custom-curves") => (409,"custom_curve_conflict","This curve or request changed. Reload or reconcile the original request."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="party_conflict" => (409,p.MessageText,"This party or request changed. Reload the latest revision or retry the original request."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "party_input" or "party_limit" => (422,p.MessageText,"Supply a stable code, name and an effective time at or after the preceding version. Party codes cannot change."),
@@ -943,6 +943,10 @@ api.MapPost("/curve-definitions/save",(HttpContext c,CurveDefinitionSaveRequest 
     },ct)),c.RequestAborted)));
 api.MapPost("/curve-definitions/publish",(HttpContext c,CurveDefinitionPublishRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"SealMarketDefinitions",async(connection,ct)=>
     Results.Ok(await curveDefinitionStore.Publish(connection,body,ct)),c.RequestAborted)));
+// D359: admits a published interest-rate definition into a draft definition revision, one stable series per tenor.
+var rateCurveAdmission=new RateCurveAdmission(database.Manifest.CatalogId);
+api.MapPost("/curve-definitions/admit",(HttpContext c,RateCurveAdmissionRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"WriteMarketDefinitions",async(connection,ct)=>
+    Results.Ok(await rateCurveAdmission.Admit(connection,body,ct)),c.RequestAborted)));
 // Selects a historical view: binds the context, under the explicit latest-known correction policy, and shows its frames.
 async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? selection,Func<NpgsqlConnection,CancellationToken,Task<KnowledgeSnapshot>> resolve,Guid? selectedSnapshot=null,string? framePolicy=null)
 {

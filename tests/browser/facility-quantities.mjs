@@ -90,7 +90,7 @@ export async function run(actions){
   const row=[...document.querySelectorAll('#facility-allocation-table tbody tr')].find(r=>r.querySelector('input')?.value==='60');row.querySelector('[data-facility-trade]').click();`);
  await openBookedSchedules(blotter);
  await inspectPositionSide(actions,0);
- // The 2021-01-01 gas day has ended by the 2021-01-31 view (D359): the physical day contributes nothing further and never settles,
+ // The 2021-01-01 gas day has ended by the 2021-01-31 view (D360): the physical day contributes nothing further and never settles,
  // and its 1000 MMBtu at 3 USD is accrued, unpaid cash that is not yet due on 2021-02-02.
  const lifecycle="JSON.stringify(facilityScheduleRead.page.rows.map(r=>({day:r.operatingDate,from:r.deliveryFrom,due:r.valueAt,pv:r.presentValue,accrued:r.accrued,paid:r.paid,outstanding:r.outstanding,lifecycle:r.lifecycle})))";
  await check('a historical physical Side retains its dated ended row, with no further value and no settlement',

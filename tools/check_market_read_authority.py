@@ -4,7 +4,7 @@ from uuid import UUID
 
 
 TABLES = ('constituent_mappings','contract_intervals','contracts','curve_actual_rules','curve_blocks','curve_inputs','curve_members','curves',
-          'observations','rate_curve_points','rate_curves','revision_periods','revisions','series','shaped_curve_blocks','shaped_curves')
+          'observations','rate_curve_tenors','rate_curves','revision_periods','revisions','series','shaped_curve_blocks','shaped_curves')
 
 
 def run_checks(query, manifest):

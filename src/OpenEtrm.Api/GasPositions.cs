@@ -45,7 +45,7 @@ internal static class GasPositions
 {
  internal const string Type="physical_gas";
  internal const string Measure="gas_contractual_present_value";
- // A started-delivery trade (D359) reports unrealized plus realized unsettled under its own versioned code; older programs keep Measure.
+ // A started-delivery trade (D360) reports unrealized plus realized unsettled under its own versioned code; older programs keep Measure.
  internal const string LifecycleMeasure="gas_lifecycle_value_v1";
  internal const string LifecycleLabel="Unrealized + realized unsettled";
  internal static async Task<ImmutableArray<GasPosition>> ReadComplete(NpgsqlConnection connection,PreviewManifest manifest,

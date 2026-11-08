@@ -33,7 +33,7 @@ def run_checks(query, manifest):
                 + f"SELECT code FROM market_data.generation_assets WHERE revision_id='{draft}';ROLLBACK;") == 'synthetic_asset')
     tables = ('generation_assets', 'generation_asset_versions', 'location_valuation_assignments', 'volume_sources')
     inventory = ('revision_periods', 'contracts', 'curves', 'series', 'curve_members', 'curve_inputs', 'constituent_mappings',
-                 'rate_curves', 'rate_curve_points', 'contract_intervals', 'curve_blocks', 'shaped_curves', 'shaped_curve_blocks',
+                 'rate_curves', 'rate_curve_tenors', 'contract_intervals', 'curve_blocks', 'shaped_curves', 'shaped_curve_blocks',
                  'curve_physical_price_sources', 'curve_actual_rules', 'shaped_curve_actual_rules', 'curve_expiry_rules',
                  'index_fixing_observations', *tables)
 

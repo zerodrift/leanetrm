@@ -33,7 +33,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
     public static object Limits=>new{maxHoldingsBumps=MaxHoldingsBumps,maxBooksBumps=MaxBooksBumps,maxStress=MaxStress,maxParts=RiskJobRun.MaxParts};
     private static readonly AmountFormat Display=new(12,CashTieRule.ToEven,false,true);
     private static PortfolioValuationPolicy PricingPolicy=>new(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,
-        FuturesRisk.Implementation,SwapStore.Convention,RateConventions.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,"estimate_until_actual_v1",
+        FuturesRisk.Implementation,SwapStore.Convention,RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,"estimate_until_actual_v1",
         FuturesOptionValuationPolicy.Release1);
     internal sealed record Prepared(PortfolioRiskRequest Request,RiskDetail Detail,
         ImmutableArray<Guid> BookIds,ImmutableArray<JsonElement> Books,PortfolioValuation.Prepared Portfolio,

@@ -185,7 +185,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             unvalued.AddRange((await ValuationStatus.Qualify(group.ToImmutableArray(),Value,ct))
                 .Select(item=>(item.Position.Row,item.Reason)));
         }
-        // A gas position whose own market data is missing (D359's expired delivery mark among them) is left out; any other refusal fails the run.
+        // A gas position whose own market data is missing (D360's expired delivery mark among them) is left out; any other refusal fails the run.
         async Task ValueGas(ImmutableArray<GasPosition> block)
         {
             foreach(var market in await GasPortfolio.Prepare(connection,database,frame,block,[(data,frame),..supplemental.IsDefault?[]:supplemental],false,ct))

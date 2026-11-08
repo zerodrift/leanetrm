@@ -59,6 +59,6 @@ def verify_instrument_dates(query, plan, catalog, revision):
         if dates not in expected[row['kind']]:
             raise ValueError('Demo contract dates have no source mapping: '+row['id'])
     pillars=next(s['definition']['dates'] for s in plan['schedules'] if s['definition']['symbol']=='oe.rate_pillars')
-    actual=json.loads(query(f"SELECT coalesce(json_agg(DISTINCT maturity ORDER BY maturity),'[]') FROM market_data.rate_curve_points WHERE catalog_id='{catalog}' AND revision_id='{revision}';"))
+    actual=json.loads(query(f"SELECT coalesce(json_agg(DISTINCT label ORDER BY label),'[]') FROM market_data.rate_curve_tenors WHERE catalog_id='{catalog}' AND revision_id='{revision}';"))
     if actual!=pillars:raise ValueError('Demo rate pillars do not match their source schedule.')
     return len(rows)
