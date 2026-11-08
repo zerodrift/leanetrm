@@ -1,12 +1,27 @@
 """Synthetic facility quantity storage, exercised only in an owned preview."""
 from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 import json
+import re
 from uuid import uuid4
 
+from assistant_context import check_guard
 from check_booked_side_programs import runtime_query
 from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
+
+
+def upgrade_checks(query, migration):
+    """Before 0217: the set-based choices refuse a helper whose definition or privileges have drifted."""
+    text = migration.read_text()
+    signatures = re.findall(r"^\s*\('([^']+)','[a-f0-9]{64}'", text, re.MULTILINE)
+    assert len(signatures) == 6
+    changes = [(change, signature) for signature in signatures for change in (
+        f"ALTER FUNCTION {signature} SET work_mem='64kB';", f"GRANT EXECUTE ON FUNCTION {signature} TO PUBLIC;",
+        f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;",
+        f"DO $drift$ DECLARE body text=pg_get_functiondef('{signature}'::regprocedure);BEGIN EXECUTE replace(body,'AS $function$','AS $function$ /* synthetic drift */');END$drift$;")]
+    check_guard(query, text, '0217', 'facility_choices_upgrade', changes)
 
 
 def run_checks(url, query, manifest):
@@ -95,7 +110,39 @@ def run_checks(url, query, manifest):
         return plan['Shared Hit Blocks'] + plan['Shared Read Blocks']
     reads = dict(directory=pages(f"SELECT security.facility_quantity_directory('{catalog_id}');"),
                  choices=pages(f"SELECT security.facility_quantity_choices('{catalog_id}',NULL,'{at}');"))
-    assert reads['directory'] < 20000 and reads['choices'] < 100000, reads
+    # A trade's authority and a schedule's publication are proved once, however many
+    # gas days they carry, so the catalog-wide read stays within a page budget.
+    assert reads['directory'] < 20000 and reads['choices'] < 15000, reads
+
+    def choices(ledger_id=None, as_of=None, prefix=''):
+        scope = 'NULL' if ledger_id is None else f"'{ledger_id}'"
+        bind = (f"SELECT security.use_market_context('{catalog_id}','{capture()}');"
+                f"SELECT security.use_trading_context('{catalog_id}','{at}');")
+        return json.loads(runtime_query(query, manifest, bind + (
+            f"SELECT security.facility_quantity_choices('{catalog_id}',{scope},'{as_of or at}')::text;"),
+            profile='trader', prefix=prefix, commit=False))
+
+    offered = choices()
+    keys = [(row['obligationId'], row['day']) for row in offered]
+    assert keys == sorted(keys) and len(keys) == len(set(keys)), keys
+    assert set(targets) <= {row['obligationId'] for row in offered}, keys
+    first = next(row for row in offered if row['obligationId'] == targets[0])
+    assert (first['day'], first['point_code'], first['trade_id']) == ('2021-01-01', point['deliveryPoint'], trades[0]['tradeId']), first
+    assert Decimal(first['quantity_n']) / Decimal(first['quantity_d']) == 1000, first
+    assert choices(as_of='2020-06-01T00:00:00Z') == []
+    scoped = choices(ledger)
+    assert set(targets) <= {row['obligationId'] for row in scoped} and all(row['day'] == '2021-01-01' for row in scoped), scoped
+    assert choices('00000000-0000-4000-8000-000000000001') == []
+    # A trade that is not visible at this instant drops out on its own; the others are still offered.
+    later = ("SET LOCAL session_replication_role=replica;UPDATE trading.gas_trade_revisions "
+             f"SET effective_at='2030-01-01T00:00:00Z' WHERE trade_id='{trades[0]['tradeId']}';")
+    remaining = {row['obligationId'] for row in choices(prefix=later)}
+    assert targets[0] not in remaining and set(targets[1:]) <= remaining, remaining
+    rejected(f"SELECT security.resolve_facility_gas_targets('{catalog_id}',ARRAY['{targets[0]}']::uuid[],"
+             f"ARRAY['2021-01-01']::date[],'{at}');", 'permission denied')
+    # Pages cannot see a quadratic join over the resolver's materialized stages; the bulk path must keep hashing them.
+    settings = query("SELECT array_to_string(proconfig,',') FROM pg_proc WHERE oid='security.resolve_facility_gas_targets_in_bulk(uuid,uuid[],date[],timestamptz)'::regprocedure;")
+    assert 'enable_nestloop=off' in settings and 'plan_cache_mode=force_custom_plan' in settings, settings
     source_body = dict(kind='source', ledgerId=ledger, expectedPreviousId=None, quantity='100',
                        evidence='Synthetic facility statement')
     source_operation = str(uuid4())
@@ -268,6 +315,17 @@ def run_checks(url, query, manifest):
         assert json.loads(call(source_command)) == source
         rejected(plan_command, 'synthetic_gas_scope_denied')
         rejected(command(allocation([], winner['revisionId'], larger['revisionId']), effective=at), 'synthetic_gas_scope_denied')
+        # The catalog-wide choices drop only the refused trade, and an unexpected failure is not swallowed.
+        offered_now = {row['obligationId'] for row in choices()}
+        assert targets[1] not in offered_now and {targets[0], targets[2]} <= offered_now, offered_now
+        failing = ("CREATE OR REPLACE FUNCTION security.require_gas_quantity_trade(catalog uuid,trade uuid,writing boolean) RETURNS void "
+                   "LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $test$ BEGIN RAISE EXCEPTION 'synthetic_unexpected';END$test$;")
+        try:
+            choices(prefix=failing)
+        except RuntimeError as error:
+            assert 'synthetic_unexpected' in str(error), str(error)
+        else:
+            raise AssertionError('An unexpected authority failure was swallowed')
     finally:
         query("DROP FUNCTION security.require_gas_quantity_trade(uuid,uuid,boolean);"
               "ALTER FUNCTION security.synthetic_original_gas_quantity_guard(uuid,uuid,boolean) RENAME TO require_gas_quantity_trade;")

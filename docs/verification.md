@@ -4087,6 +4087,52 @@ The choices read still proves the trade's authority once for every candidate
 single-day gas targets, up to its 1,001-result limit. No hosted-runner timing is
 claimed here.
 
+### Set-based catalog-wide choices (migration 0217, 2026-11-08, local)
+
+Migration 0217 replaces the per-candidate work in the catalog-wide branch of
+`facility_quantity_choices`. `resolve_facility_gas_targets` resolves all requested
+obligation-days in one statement, deciding each trade's latest visible revision and
+each schedule's publication once. The read then proves each trade's authority once.
+`facility_gas_target` delegates to the same resolver after its unchanged authority
+check, so a target has one definition. The ledger-scoped branch keeps its
+per-candidate checks, which its one gas day bounds.
+
+Workload: the owned preview of the trading CI facility step above, with statement
+logging (`log_min_duration_statement=0`), before and after 0217 on the same commit.
+Environment: Apple M4 Pro, 14 cores, 48 GB, macOS, stock PostgreSQL 16.14. Other
+local workloads were running (load average about 5 before, 9 after).
+
+| Read, median of the calls after the fixtures load | Before | After |
+| --- | --- | --- |
+| `facility_quantity_choices`, catalog-wide | 1,544 ms | 293 ms |
+| `facility_quantity_choices`, one ledger | 41 ms | 80 ms |
+
+The ledger-scoped read is slower because each candidate's `facility_gas_target`
+now plans the larger set-based statement. Its pages stayed close in the scaled
+comparison below (50,753 before, 54,459 after).
+
+Scaled comparison: the same preview after the facility check, with 40 more 31-gas-day
+trades (45 obligations, 45 trades, 1,275 candidate obligation-days, results capped at
+1,001), both definitions installed side by side and read as the trader in the same
+context. The catalog-wide read went from 2,989 ms and 1,160,307 pages to 660 ms and
+50,927 pages. Independent review found that this fixture's shared schedules hid a join
+quadratic in the requested obligation-days, which pages do not show, so bulk requests
+run under `resolve_facility_gas_targets_in_bulk` with nested loops disabled and
+custom plans. At the catalog's 256-gas-trade booking limit (about 7,900 candidate
+obligation-days, results capped at 1,001), the catalog-wide read went from 16.2 s to
+1.07 s and returned byte-identical JSON, as did the ledger read. The resolver still
+processes every candidate before the 1,001-result limit applies, so its cost follows
+the catalog's obligation-days.
+
+Answers and refusals were compared in that database: 360 catalog, ledger and unknown-ledger
+reads and 732 single-target resolutions across trader and risk profiles, dates, instants
+and rolled-back faults (duplicate quantity roots, a late publication, a late trade,
+a missing trade knowledge receipt, no facility read permission, a missing counterparty
+label) returned identical results or errors. Two further faults were refused by table
+constraints before reaching the reads. The facility check bounds the
+catalog-wide read at 15,000 pages (49,921 before 0217) and checks ordering, quantities,
+an unknown ledger and one trade dropping out alone. No hosted-runner timing is claimed.
+
 ## Synthetic gas basis and final facility inputs (D321)
 
 See [the recording guide](gas-basis-demo.md#local-verification) for the owned
