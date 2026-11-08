@@ -57,8 +57,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     public override UnitPricingContract Declare(UnitValuationContext context) => new(Id,
         (context.BindingState is PhysicalCashState ? PhysicalCashState.Policy + "/" : "") +
         (Members.Any(m => PhysicalLifecycle.ReadsDeliveryMarks(m.Program)) ? PeriodPriceSelector.DeliveryMarkPolicy + "/retained_gas_unit_pv_v2" : "retained_gas_unit_pv_v1"),
-        [..PriceLookups.Select(lookup => PeriodPriceSelector.ProjectionAt(lookup, context.Snapshot)).OfType<CurveRequest>()
-            .Concat(Members.SelectMany(member => PhysicalLifecycle.DeliveryMarks(member.Program, PriceLookups, context.Snapshot))).Distinct()],
+        PhysicalLifecycle.PriceDependencies(Members.Select(member => member.Program), PriceLookups, context.Snapshot),
         UnitQuantity.Specification, Currency) { ScheduleIdentity = RetainedScheduleIdentity };
 
     // Unrealized plus realized unsettled, in the held binding's cash terms.

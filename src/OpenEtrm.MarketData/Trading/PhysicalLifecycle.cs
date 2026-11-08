@@ -89,15 +89,28 @@ public static class PhysicalLifecycle
     // A published fixing locks only the payment price, so it neither prices nor backs up the physical leg.
     public static bool ReadsDeliveryMarks(BookedSideProgram program)=>program.Document.Family=="gas"&&program.Document.Instructions.Any(i=>
         i.Output.Operation=="output_guard"&&i.Output.Parameters.GetValueOrDefault("lifecycle")==ScheduleLifecycles.WholeGasDayDelivery);
-    // The location marks such a program demands at the instant: each dated lookup that still prices a gas day not yet ended.
-    public static IEnumerable<CurveRequest> DeliveryMarks(BookedSideProgram program,IReadOnlyCollection<IndexPriceLookup> lookups,MarketSnapshot snapshot)
+    // The curve inputs a set of retained programs demands at the instant from its dated lookups. A lookup that only a whole
+    // gas-day physical program reads is declared by its delivery mark, for each gas day not yet ended; every other lookup
+    // keeps its ordinary fixing-or-projection selection.
+    public static ImmutableArray<CurveRequest> PriceDependencies(IEnumerable<BookedSideProgram> programs,IReadOnlyCollection<IndexPriceLookup> lookups,MarketSnapshot snapshot)
     {
-        if(!ReadsDeliveryMarks(program))return [];
-        var open=PhysicalDeliverySchedule.ReadLiteralQuantities(program,ExactRatio.One).Where(day=>day.End>snapshot.ValuationAt).Select(day=>day.OperatingDate).ToHashSet();
-        return program.Document.Instructions.Where(i=>i.Output.Grid is null&&CurvePriceScheduleSource.IsLookup(i.Output.Operation))
-            .SelectMany(i=>ScheduleMarketSources.DatedCandidates(i,lookups))
-            .Where(lookup=>open.Any(day=>lookup.ForecastDelivery.From<=day&&day<lookup.ForecastDelivery.To))
-            .Select(lookup=>PeriodPriceSelector.DeliveryMarkAt(lookup,snapshot)).OfType<CurveRequest>().Distinct();
+        var held=programs.ToArray();
+        if(!held.Any(ReadsDeliveryMarks))return [..lookups.Select(lookup=>PeriodPriceSelector.ProjectionAt(lookup,snapshot)).OfType<CurveRequest>().Distinct()];
+        // Each price row matches only the lookups of its own market and observation period.
+        var index=lookups.ToLookup(l=>(l.Market,l.Contract.DeliveryFrom,l.Contract.DeliveryTo));
+        IEnumerable<IndexPriceLookup> Read(BookedSideProgram program)=>program.Document.Instructions
+            .Where(i=>i.Output.Grid is null&&CurvePriceScheduleSource.IsLookup(i.Output.Operation))
+            .SelectMany(i=>ScheduleMarketSources.DatedCandidates(i,i.Bindings.Where(b=>b.Port=="market").Select(b=>b.Market).FirstOrDefault() is {} market&&
+                i.Output.ObservationFrom is {} from&&i.Output.ObservationTo is {} to?index[(market,from,to)]:[]));
+        var marked=held.Where(ReadsDeliveryMarks).SelectMany(Read).ToHashSet();
+        var ordinary=held.Where(p=>!ReadsDeliveryMarks(p)).SelectMany(Read).ToHashSet();
+        return [..lookups.Where(lookup=>!marked.Contains(lookup)||ordinary.Contains(lookup)).Select(lookup=>PeriodPriceSelector.ProjectionAt(lookup,snapshot)).OfType<CurveRequest>()
+            .Concat(held.Where(ReadsDeliveryMarks).SelectMany(program=>
+            {
+                var open=PhysicalDeliverySchedule.ReadLiteralQuantities(program,ExactRatio.One).Where(day=>day.End>snapshot.ValuationAt).Select(day=>day.OperatingDate).ToHashSet();
+                return Read(program).Where(lookup=>open.Any(day=>lookup.ForecastDelivery.From<=day&&day<lookup.ForecastDelivery.To))
+                    .Select(lookup=>PeriodPriceSelector.DeliveryMarkAt(lookup,snapshot)).OfType<CurveRequest>();
+            })).Distinct()];
     }
 
     // Valued without its lifecycle state, a started-delivery program would drop its ended gas days and due cash.

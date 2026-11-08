@@ -10,6 +10,9 @@ POINT = 'synthetic_gas_point_hub'
 LOCATION = 'synthetic_hub_location'
 SOURCES = ('synthetic_hub_daily', 'synthetic_hub_daily_basis', 'synthetic_hub_monthly', 'synthetic_hub_monthly_basis')
 CLOSE = '2026-11-06T21:00:00Z'
+# A later frame with the close's prices, after the November location contract expires at month end and before the
+# Nov 30 gas day ends at 15:00 UTC: an undelivered Nov 30 then has no live mark and no recorded final settlement.
+EXPIRED = '2026-12-01T06:00:00Z'
 TERM = (date(2026, 9, 1), date(2027, 1, 1))
 WEEKEND = (date(2026, 11, 7), date(2026, 11, 10))
 # The administrator who loads the in-term trade holds the authority a ticket booking requires (the trader role) beside
@@ -126,6 +129,7 @@ INSERT INTO security.role_grants SELECT gen_random_uuid(),'{principal}',id,'{TEN
  FROM security.roles WHERE code IN({roles});"""
     standard = manifest['frames'][3]
     manifest['frames'].append({**standard, 'at': CLOSE, 'observationIds': standard['observationIds'] + pins})
+    manifest['frames'].append({**standard, 'at': EXPIRED, 'observationIds': standard['observationIds'] + pins})
     return reference, market, security, manifest
 
 

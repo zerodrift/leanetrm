@@ -10,7 +10,7 @@ from assistant_context import check_guard, migration_body
 from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
 from check_booked_side_programs import runtime_query, capture_context
-from gas_in_term_fixture import ADMINISTRATOR, BOOK_ONLY_ADMINISTRATOR, CLOSE, DISABLED_ADMINISTRATOR, POINT, TERM, custom_curves, fixing, marks, premium_curve, published_at, trade
+from gas_in_term_fixture import ADMINISTRATOR, BOOK_ONLY_ADMINISTRATOR, CLOSE, DISABLED_ADMINISTRATOR, EXPIRED, POINT, TERM, custom_curves, fixing, marks, premium_curve, published_at, trade
 
 LOADER = 'preview_gas_in_term_loader'
 
@@ -179,6 +179,7 @@ def run_checks(url, query, manifest, run_worker, admin_load, browse=None):
     # The browser reads the Blotter before the refusing trades below are planted: they make the portfolio total refuse, by design.
     if browse: browse(shown)
     delivery_mark_checks(c, frame, context, body, publish, sources)
+    expired_mark_checks(c, context, body, other)
     payment_revision_checks(c, query, manifest, frame, context, body, load)
     refusal_checks(c, query, manifest, frame, body, trade_id, loaded['instrumentId'], other, revision['paymentId'], load)
 
@@ -257,8 +258,9 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
     def covered(factor):
         start, end = date.fromisoformat(factor['deliveryFrom']), date.fromisoformat(factor['deliveryTo'])
         return {start + timedelta(days=n) for n in range((end - start).days)}
-    # Nov 3 has ended: its accrued cash and delivered day must not move under a shock to its marks.
-    probes = [date(2026, 11, 3), date(2026, 11, 6), date(2026, 11, 7), date(2026, 11, 20), date(2026, 12, 15)]
+    # Nov 3 has ended: nothing it values depends on a mark, so the catalog offers no factor for it and its accrued cash cannot move.
+    assert not [f for f in catalog['factors'] if date(2026, 11, 3) in covered(f)], catalog['factors']
+    probes = [date(2026, 11, 6), date(2026, 11, 7), date(2026, 11, 20), date(2026, 12, 15)]
     selected = [f for f in catalog['factors'] if covered(f) & set(probes)][:16]
     assert {d for f in selected for d in covered(f) & set(probes)} == set(probes), selected
     request = {**scope, 'context': {**shared, 'knowledgeMode': 'retained', 'contextId': catalog['context']['contextId']}, 'detail': 'holdings',
@@ -326,6 +328,30 @@ def delivery_mark_checks(c, frame, context, body, publish, sources):
     held = next(h for h in c.call('trading/blotter', dict(context={**working, 'convention': 'trading_workspace_v1'}, view=view))['holdings'] if h['tradeId'] == booked['tradeId'])
     assert (held['measure'], held['presentValue'], held['unrealized'], held['realizedUnsettled']) == ('gas_lifecycle_value_v1', '18', '18', '0'), held
     print('PASS a fixed, undelivered gas day delivers at its 3.40 location mark against its 3.22 fixing: unrealized +18; with no mark it refuses', flush=True)
+
+
+def expired_mark_checks(c, context, body, forward):
+    """An undelivered day whose contract expired without its final settlement is that trade's own refusal, never the read's."""
+    last = deepcopy(body); last.update(operationId=str(uuid4()), profile='fixed_gas_composition_v1')
+    last['physicalSides'][0].update(deliveryFrom='2026-11-30', deliveryTo='2026-12-01')
+    last['cashSides'] = [dict(code='payment', role='consideration', direction='pay', source='gas', stage='delivery', price='3.1', tariffCode=None, paymentAt='2026-12-10T00:00:00Z')]
+    booked = c.call('gas/composition/book', last)
+    later = initial_frame(c.call('workspace'), EXPIRED[:10])
+    working = dict(snapshotId=later['id'], convention='trading_workspace_v1', knowledgeMode='current')
+    view = dict(mode='trades', bookIds=[], portfolioIds=[], groupBy=[], measures=[], pivotConvention=None)
+    rows = {h['tradeId']: h for h in c.call('trading/blotter', dict(context=working, view=view))['holdings']}
+    assert (rows[booked['tradeId']]['unavailableReason'], rows[booked['tradeId']]['presentValue'], rows[booked['tradeId']]['measure']) == \
+        ('delivery_mark_final_settlement', None, 'gas_lifecycle_value_v1'), rows[booked['tradeId']]
+    assert rows[forward['tradeId']]['unavailableReason'] is None and rows[forward['tradeId']]['presentValue'] is not None, rows[forward['tradeId']]
+    position = dict(context=working, tradeId=booked['tradeId'], bindingId=booked['instrumentId'], revision=1, instrumentType='physical_gas')
+    plan = c.call('trading/side-schedules', dict(position=position, sideSlot=0, contribution=None, offset=0, limit=4))['page']['rows']
+    assert plan and all(r['presentValue'] is None and r['lifecycle']['unavailableReason'] == 'delivery_mark_final_settlement' for r in plan), plan
+    c.call('profile', {'profile': 'risk'})
+    scope = dict(context=working, bookIds=[], portfolioIds=[], tradeIds=[booked['tradeId'], forward['tradeId']])
+    catalog = c.call('portfolio/risk/catalog', scope)
+    assert [(e['tradeId'], e['reason']) for e in catalog['excludedPositions']] == [(booked['tradeId'], 'delivery_mark_final_settlement')], catalog['excludedPositions']
+    c.call('profile', {'profile': 'trader'})
+    print('PASS an undelivered day whose contract expired without its final settlement refuses on its own row, inspector and risk exclusion; other trades value', flush=True)
 
 
 def final_determination(c, query, manifest, frame, context, body, load):

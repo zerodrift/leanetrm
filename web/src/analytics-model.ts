@@ -27,7 +27,7 @@ export function pivotMatrix(groups:PivotGroup[],dimensions:string[],splitBy:stri
   for(const group of groups){const ids=splitBy.map(d=>identity(group,d));if(ids.some(v=>v===null||v===undefined))throw Error('A pivot dimension identity is missing.');splits.set(canonical(ids),{title:splitBy.map(d=>groupLabel(group,d,zone)).join(' / '),ids,sortKey:canonical(splitBy.map(d=>d==='contract'?[group.deliveryFrom,group.deliveryTo]:groupLabel(group,d,zone)))});}
   const ordered=[...splits.entries()].sort(([a,x],[b,y])=>x.sortKey.localeCompare(y.sortKey)||a.localeCompare(b));
   // One instrument type may hold positions under several value measures (D359); the backend keeps them apart, and so do the rows.
-  const measured=new Set(groups.map(g=>g.measure)).size>1;
+  const measured=new Set(groups.flatMap(g=>g.measure===undefined||g.measure===null?[]:[g.measure])).size>1;
   const columns:MatrixColumn[]=[...new Set([...rowsBy,...(groups.some(g=>g.instrumentType!==undefined)?['instrumentType']:[]),...(measured?['measure']:[]),'unit','currency',...(groups.some(g=>g.priceUnit!==undefined)?['priceUnit']:[])])].map(key=>({key,title:labels[key],numeric:false}));
   for(const [key,split] of ordered)for(const measure of measures)columns.push({key:'pivot:'+canonical([key,measure]),title:split.title+' · '+labels[measure],numeric:true,measure,groupKey:key,groupTitle:split.title,measureTitle:labels[measure]});
   if(columns.length>128)throw Error('Choose fewer pivot columns; this view supports up to 128 columns.');
@@ -37,7 +37,7 @@ export function pivotMatrix(groups:PivotGroup[],dimensions:string[],splitBy:stri
     const key=canonical([rowsBy.map(d=>identity(group,d)),group.instrumentType,group.measure??null,group.quantitySpecification,group.currencyReference,group.quoteMultiplier??null]);
     const split=canonical(splitBy.map(d=>identity(group,d)));const cell=canonical([key,split]);
     if(filled.has(cell))throw Error('Duplicate pivot cells cannot be combined in the browser.');filled.add(cell);
-    let row=rows.get(key);if(!row){row=Object.fromEntries(columns.map(c=>[c.key,null]));for(const d of rowsBy)row[d]=groupLabel(group,d,zone);if(group.instrumentType!==undefined)row.instrumentType=friendly(String(group.instrumentType));if(measured)row.measure=String(group.measureLabel??group.measure);row.unit=String(group.unit);row.currency=String(group.currency);if(group.priceUnit!==undefined)row.priceUnit=String(group.priceUnit);rows.set(key,row);}
+    let row=rows.get(key);if(!row){row=Object.fromEntries(columns.map(c=>[c.key,null]));for(const d of rowsBy)row[d]=groupLabel(group,d,zone);if(group.instrumentType!==undefined)row.instrumentType=friendly(String(group.instrumentType));if(measured)row.measure=group.measure===undefined||group.measure===null?'':String(group.measureLabel??group.measure);row.unit=String(group.unit);row.currency=String(group.currency);if(group.priceUnit!==undefined)row.priceUnit=String(group.priceUnit);rows.set(key,row);}
     const source=sources.get(key)??{};sources.set(key,source);for(const measure of measures)source['pivot:'+canonical([split,measure])]=group;
     for(const measure of measures){const value=group[measure];if(value===undefined)throw Error('A selected pivot measure is missing.');row['pivot:'+canonical([split,measure])]=value===null?null:String(value);}
   }

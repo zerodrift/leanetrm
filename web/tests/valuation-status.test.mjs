@@ -54,3 +54,6 @@ test('only valuation measures leave unvalued positions out; booked facts count e
  for(const measure of ['presentValue','executionPnl','markMin','markMax','markMean'])assert.equal(valuationMeasure(measure),true,measure);
  for(const measure of ['tradeCount','lots','quantity','executionPriceMin','executionPriceMean','fixedPriceMax','mark',''])assert.equal(valuationMeasure(measure),false,measure);
 });
+test('an undelivered gas day whose contract expired without its final settlement says so',()=>{
+ assert.equal(valuationReason('delivery_mark_final_settlement','physical_gas'),'Missing final settlement of its expired delivery contract');
+});

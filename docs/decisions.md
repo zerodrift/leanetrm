@@ -3385,7 +3385,10 @@ contract's own recorded final settlement observation pinned by the context. A
 missing settlement refuses with `delivery_mark_final_settlement`; no earlier mark
 is carried forward and the payment fixing never stands in. A custom-curve
 projection records no contract settlement, so after its lookup contract expires it
-refuses the same way. The policy is named in the model version
+refuses the same way. That refusal is missing market data for one position, like
+`source_expired`: the Blotter row and the Side inspector show it as the trade's
+own reason, and portfolio risk lists the position as excluded and values the
+rest. The policy is named in the model version
 (`delivery_mark_final_settlement_v1/retained_gas_unit_pv_v2`, prefixed by the
 accrual policy with lifecycle state); older programs keep `retained_gas_unit_pv_v1`.
 
@@ -3394,7 +3397,7 @@ accrual policy with lifecycle state); older programs keep `retained_gas_unit_pv_
 - A whole gas-day program's dated location prices read the curve projection
   (`PeriodPriceSelector.DeliveryMarkAt`), and its declared dependencies include
   the mark of each lookup that still prices a gas day not yet ended
-  (`PhysicalLifecycle.DeliveryMarks`), through both the retained instrument and
+  (`PhysicalLifecycle.PriceDependencies`, which no longer selects such a lookup's fixing or ordinary projection), through both the retained instrument and
   the composition store. A curve shock to such a day's mark moves its physical
   leg and not its fixed payment. The managed demo's daily contracts expire as their
   gas day starts and settle finally, so its in-progress day reads that settlement;
@@ -3471,4 +3474,4 @@ duplicated; the inspector values the whole instrument per
 slot request; and a fixing corrected to exactly zero after full payment refuses
 instead of reading Overpaid.
 
-Local verification on 2026-11-08, after the owner follow-up and review round 1: `python3 tools/check_all.py --group trading` passed, with 3580 PASS lines, 716 owned browser checks over 20 browser runs and 1478 web unit tests; the MarketData checks (827 PASS lines, and `--physical-lifecycle`), the Api checks (98 PASS lines), and `run_preview.py --gas-in-term-check --browser-check` (7 browser checks) and `--gas-indexed-check --browser-check` (9 browser checks) passed.
+Local verification on 2026-11-08, after the owner follow-up and review round 2: `python3 tools/check_all.py --group trading` passed, with 3582 PASS lines, 716 owned browser checks over 20 browser runs and 1480 web unit tests; the MarketData checks (828 PASS lines, and `--physical-lifecycle`), the Api checks (98 PASS lines), and `run_preview.py --gas-in-term-check --browser-check` (7 browser checks) and `--gas-indexed-check --browser-check` (9 browser checks, round 1) passed.
