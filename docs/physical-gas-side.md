@@ -457,6 +457,12 @@ connection, check-only, from a booked composition's retained programs, then open
 it read-only through `tickets/trade` and compares its draft and schedule with a
 ticket preview of those terms.
 
+For a held gas composition whose programs all select the started-delivery
+lifecycles, `tickets/trade` also returns `measures` (remaining delivery MTM,
+outstanding settlement, their labelled total, `discounting`, and undiscounted
+`expectedCash` by due date, which is not part of the total) and the `currency` of
+those figures; both are `null` or absent for any other trade.
+
 The multi-side integration runner is `tools/run_preview.py --gas-composition-check`
 with the same explicit SDK/PostgreSQL paths. Add `--browser-check --browser` for
 the complete ticket and uncertain-response recovery, and `--gas-setup-check` for

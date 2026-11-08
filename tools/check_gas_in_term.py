@@ -204,8 +204,8 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
     assert sum(Fraction(r['presentValue']) for r in cash.values()) == remaining_cash + outstanding
     gone = physical[date(2026, 10, 15)]
     assert (gone['lifecycle']['delivery'], gone['lifecycle']['cash'], gone['lifecycle']['coverage'], gone['quantityState'], Fraction(gone['presentValue'])) == \
-        ('Ended', None, None, 'contract_estimate_allocation_pending_v1', 0), gone
-    assert physical[date(2026, 11, 6)]['lifecycle']['cash'] is None and Fraction(physical[date(2026, 11, 6)]['presentValue']) == 318
+        ('Ended', 'NotApplicable', None, 'contract_estimate_allocation_pending_v1', 0), gone
+    assert physical[date(2026, 11, 6)]['lifecycle']['cash'] == 'NotApplicable' and Fraction(physical[date(2026, 11, 6)]['presentValue']) == 318
     assert sum(Fraction(r['presentValue']) for r in physical.values()) == remaining_physical
     print('PASS the Side inspector shows paid, accrued and remaining gas days with fixed price states, and physical days with no settlement', flush=True)
 
