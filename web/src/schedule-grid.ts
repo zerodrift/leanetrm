@@ -8,7 +8,7 @@ export type ScheduleSide={kind:string;code:string;name:string};
 export type CellDecoration={sources:string[];changed:boolean;delivered:boolean};
 export type HeaderGroup={title:string;colour:string;columns:number[]};
 export const sourceLabels:Readonly<Record<string,string>>=Object.freeze({contract:'Contract',fwd:'Fwd',fixed:'Fixed',actual:'Actual',meter:'Meter',forecast:'Forecast',estimated:'Estimated',modeled:'Modeled',
- nominated:'Nominated',confirmed:'Confirmed',scheduled:'Scheduled',allocated:'Allocated'});
+ nominated:'Nominated',confirmed:'Confirmed',scheduled:'Scheduled',allocated:'Allocated',delivered:'Delivered'});
 const neutral='neutral',numericMeasures=['quantity','price','money'];
 
 /** The symbol of a field's or column's declared unit (TicketField.unit), from the units the latest preview resolved; null when it declares

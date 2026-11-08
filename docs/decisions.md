@@ -3396,6 +3396,13 @@ curve versions in the run's transaction, instead of one read per position.
   instant and knowledge cutoff; nothing is inferred from a date.
 - Ended days accrue on the contract quantity, labelled as estimated from contract
   with allocation pending. A fixed-price day accrues quantity times fixed price.
+- The deal ticket's schedule shows every day of a started term ("Show days, mark
+  delivered"). An ended gas day shows its retained contract quantity, under the
+  booked scale and signed membership, with the backend's `delivered` value-source
+  tag and no market price or amount, none of which is synthesized or enters
+  amount totals or net cash; billed quantity covers the whole term. The exemption
+  is only for a cell this lifecycle deselected because its day ended; any other
+  unresolved cell refuses the schedule as before.
 - Paid comes only from recorded payments; partial payments are allowed. Passing a
   due date never pays anything, and unpaid cash past its due date stays at nominal
   under the existing explicit policy.

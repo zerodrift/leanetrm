@@ -208,6 +208,15 @@ date, delivered rows are dimmed, and the totals split into delivered, remaining
 and total. The ticket shows a tag only when the backend supplies it; it never
 infers that a value is actual from its date.
 
+**Ended gas days.** Every day of the term is shown. A gas day that the
+`whole_gas_day_delivery_v1` lifecycle took out of the physical side's measure
+because it ended shows its retained contract quantity under the booked scale and
+signed membership, tagged Contract and Delivered, and no market price or amount;
+none is synthesized. Quantity totals cover the whole term; amount totals and net
+cash hold only priced days, and a month with delivered days shows no single
+price. The cash side keeps its amounts. Any other unresolved cell, including one
+on a day that has not ended, still refuses the schedule.
+
 ### Footer
 
 Preview and Book (or Save amendment, Book close-out), with the note that green
@@ -470,9 +479,10 @@ profile's lifecycle and explicit no-discounting policy are unchanged.
 - The description reads its side caps from the composition contract
   (`GasCompositionInstrument`): one to four physical sides, and up to four
   fixed cash, fee and indexed payment sides together.
-- Current gas limits: no delivered/remaining split once delivery has started
-  (a started delivery is refused), up to 1200 operating days with exact monthly
-  source coverage, and fixed-offset gas-day clocks.
+- Current gas limits: a started delivery is refused at booking (an in-term
+  trade is loaded by an administrator and shows its delivered days in the
+  schedule), up to 1200 operating days with exact monthly source coverage, and
+  fixed-offset gas-day clocks.
 - The preview and the booked read (`trade`) return `schedule`, `summaries`,
   `scheduleRefusal` and `quantityUnit` at the top level. The composition
   editor read (`gas/composition/editor`) nests them under `valuation`, beside

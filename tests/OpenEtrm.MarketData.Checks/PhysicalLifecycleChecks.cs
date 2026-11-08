@@ -195,6 +195,7 @@ internal static class PhysicalLifecycleChecks
         Reject("side_due_leg_unresolved",()=>demo.Constructed(Demo.Close,(slot,n,c)=>slot==Demo.Months+1&&n==0?c with{Amount=c.Amount with{States=[c.Amount.States[0] with{Prices=SchedulePriceFacts.None}]}}:c));
         Reject("physical_lifecycle_unsupported",()=>demo.Constructed(Demo.Close,(slot,n,c)=>slot==Demo.Months+2&&n==9?c with{PresentValue=c.PresentValue with{Presence=[ScheduleCellPresence.NotDemanded]}}:c));
         Console.WriteLine("PASS physical lifecycle: realized unsettled cash and unrealized remaining delivery at the location mark, discounted until due, frozen under shocks");
+        DeliveredDays(demo);
     }
 
     private sealed class Demo
@@ -371,6 +372,19 @@ internal static class PhysicalLifecycleChecks
             var member=Instrument.Members[(physical?0:Months)+month-9];
             return sources.Evaluate(member.Program,member.SideId,market,Undiscounted);
         }
+        // Retained months as the ticket's schedule view takes them: under one pinned context, at the booked quantity and each side's own direction.
+        internal ImmutableArray<SideViewInput> Views(DateTimeOffset at,params (string Code,int Month,bool Physical)[] sides)
+        {
+            var snapshot=Snapshot(at,null);var market=model.Build(snapshot,Instrument.Declare(new(snapshot,new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,Undiscounted))).Dependencies);
+            var source=new ScheduleMarketSources(market.Graph.Plan.Context,market,null,null,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,Instrument.PriceLookups,[],assignments);
+            return [..sides.Select(side=>
+            {
+                var member=Instrument.Members[(side.Physical?0:Months)+side.Month-9];
+                return new SideViewInput(side.Code,source.Evaluate(member.Program,member.SideId,market,Undiscounted),member.Program,ExactDecimal.Parse("100"),new(side.Physical?1:-1,1),
+                    [("quantity",ScheduleViewMeasure.Quantity),("price",ScheduleViewMeasure.Price),("amount",ScheduleViewMeasure.Amount)]);
+            })];
+        }
+        internal DateTimeOffset Boundary(DateOnly day)=>Physical[0].Quantities.Clock.Boundary(day);
         internal PhysicalLifecycleValue FixedNovember(DateTimeOffset at,Func<ScheduleDefinition,ScheduleDefinition>? physical=null)=>Term(at,[Physical[2]],"3.10",physical);
         // One dated cash row over the whole term of the selected physical members, paid Dec 10.
         internal PhysicalLifecycleValue Term(DateTimeOffset at,ImmutableArray<PhysicalGasSide> members,string? fixedPrice,Func<ScheduleDefinition,ScheduleDefinition>? physical=null)
@@ -413,6 +427,59 @@ internal static class PhysicalLifecycleChecks
                 {"2026-11-10T00:00"=>"0.99951","2026-12-10T00:00"=>"0.99582","2027-01-10T00:00"=>"0.99202",_=>"1"}),snapshot,DiscountFactorSource.Explicit))];
         }
     }
+
+    // The schedule view of a started trade, at the Friday close: Nov 1-5 ended, Nov 6 in progress, the rest to come.
+    private static void DeliveredDays(Demo demo)
+    {
+        var held=demo.Views(Demo.Close,("gas",11,true),("cash",11,false));var gas=held[0];
+        var view=ScheduleViews.Build(held,ViewLevels,demo.Boundary);
+        var days=view.Rows.Where(r=>r.Level=="day").ToDictionary(r=>r.Key);
+        Require(days.Count==30,"The schedule shows every day of the term.");
+        ScheduleViewCell At(string day,string column)=>days[day].Cells[column];
+        foreach(var day in Days(11).Take(5).Select(Key))
+        {
+            Require(days[day].Delivered,"An ended gas day is a delivered row.");
+            Equal(At(day,"gas.quantity").Value!,"100");
+            Require(At(day,"gas.quantity").Sources.SequenceEqual(["contract","delivered"]),"An ended day's quantity is the contract's, marked delivered.");
+            foreach(var column in new[]{"gas.price","gas.amount"})
+                Require(At(day,column).Value is null&&At(day,column).Sources.SequenceEqual(["delivered"]),"An ended gas day has no market price or amount.");
+            Require(At(day,"cash.amount").Value=="-311"&&At(day,"cash.price").Value=="3.11"&&!At(day,"cash.amount").Sources.Contains("delivered"),"The cash side keeps its accrued amount on an ended day.");
+        }
+        Require(!days[Key(new(2026,11,6))].Delivered&&At(Key(new(2026,11,6)),"gas.amount").Value=="318"&&At(Key(new(2026,11,6)),"gas.price").Value=="3.18","The gas day in progress stays priced.");
+        Require(Days(11).Skip(5).Select(Key).All(day=>At(day,"gas.quantity").Value=="100"&&At(day,"gas.amount").Value is not null&&!At(day,"gas.quantity").Sources.Contains("delivered")),"A day still to deliver is valued.");
+        var month=view.Rows.Single(r=>r.Key=="2026-11");
+        Equal(month.Cells["gas.quantity"].Value!,"3000");Equal(month.Cells["gas.amount"].Value!,"8093");
+        Require(month.Cells["gas.price"].Value is null,"A coarser row shows a price only when every day has it.");
+        Require(!month.Cells["gas.amount"].Sources.Contains("delivered"),"A coarser amount holds only the days it sums.");
+        Equal(view.Totals["gas.quantity"].Value!,"3000");Equal(view.Totals["gas.amount"].Value!,"8093");
+        Equal(view.Totals[ScheduleViews.NetCash].Value!,"-9648");
+        Require(view.DeliveredLeaves==5&&view.Leaves==30,"The delivered count covers the ended days.");
+        Equal(view.Delivered!["gas.quantity"].Value!,"500");Equal(view.Remaining!["gas.quantity"].Value!,"2500");
+        Require(view.Delivered!["gas.amount"].Value is null,"Delivered gas has no market amount.");Equal(view.Remaining!["gas.amount"].Value!,"8093");
+
+        // Scale and signed membership apply as they do to every other quantity; a recorded quantity still replaces the shown one.
+        var sold=ScheduleViews.Build([gas with{Scale=ExactDecimal.Parse("200"),Coefficient=new(-3,2)}],ViewLevels,demo.Boundary);
+        Equal(sold.Rows.Single(r=>r.Key==Key(new(2026,11,2))).Cells["gas.quantity"].Value!,"-300");
+        var recorded=ScheduleViews.Build([gas with{Recorded=ImmutableDictionary<DateOnly,ScheduleViewQuantity>.Empty.Add(new(2026,11,2),new(new(97,1),"allocated"))}],ViewLevels,demo.Boundary).Rows.Single(r=>r.Key==Key(new(2026,11,2)));
+        Equal(recorded.Cells["gas.quantity"].Value!,"97");
+        Require(recorded.Cells["gas.quantity"].Sources.SequenceEqual(["allocated","delivered"])&&recorded.Cells["gas.amount"].Value is null,"A recorded ended day keeps its record, its delivered mark and no amount.");
+
+        // A side wholly delivered still reports its quantity, and no amount.
+        var september=ScheduleViews.Build(demo.Views(Demo.Close,("gas",9,true)),ViewLevels,demo.Boundary);
+        Equal(september.Totals["gas.quantity"].Value!,"3000");
+        Require(september.Totals["gas.amount"].Value is null&&september.Totals[ScheduleViews.NetCash].Value is null,"A wholly delivered side has no amount and no cash.");
+        Require(september.Remaining!["gas.quantity"].Value is null,"Nothing remains of a wholly delivered side.");
+
+        // Only an ended day of this lifecycle is exempt: a day to come without its demanded values still refuses the view.
+        static ScheduleValueColumn Undemanded(ScheduleValueColumn column)=>column with{Presence=[..column.Presence.Select(_=>ScheduleCellPresence.NotDemanded)]};
+        var unresolved=gas with{Evaluation=gas.Evaluation with{Contributions=[..gas.Evaluation.Contributions.Select((c,n)=>n==19?c with{Amount=Undemanded(c.Amount)}:c)]}};
+        Reject("schedule_view",()=>ScheduleViews.Build([unresolved],ViewLevels,demo.Boundary));
+        var inProgress=gas with{Evaluation=gas.Evaluation with{Contributions=[..gas.Evaluation.Contributions.Select((c,n)=>n==5?c with{Amount=Undemanded(c.Amount)}:c)]}};
+        Reject("schedule_view",()=>ScheduleViews.Build([inProgress],ViewLevels,demo.Boundary));
+        Console.WriteLine("PASS physical lifecycle: the schedule shows ended gas days with contract quantity, marked delivered, without a market price or amount");
+    }
+    private static readonly ImmutableArray<string> ViewLevels=["month","day"];
+    private static string Key(DateOnly day)=>day.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture);
 
     private static IEnumerable<DateOnly> Days(int month)=>Enumerable.Range(0,month==9||month==11?30:31).Select(n=>new DateOnly(2026,month,1).AddDays(n));
     private static string Sum(IEnumerable<ExactMoney> values)=>values.Aggregate((a,b)=>a.Add(b)).ToExactString();
