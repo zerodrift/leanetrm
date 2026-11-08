@@ -145,14 +145,16 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   return new(instrument,members.ToImmutable());
  }
  // recorded holds, per physical side code, the days whose operational quantity the view shows in place of the contract's (unsigned, as recorded).
+ // A started composition is valued only with its lifecycle state: held, a booked trade's recorded cash; unrecorded, a draft loaded in its term.
  async Task<GasCompositionValue> Value(NpgsqlConnection c,PreviewData data,InputFrame frame,ImmutableArray<GasCompositionRow> members,ExactDecimal quantity,GasCompositionInstrument? draft,Guid? setup,ImmutableArray<RetainedSideProgram>? retained,bool view,CancellationToken ct,
-  IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,Action<SideViewInput,GasDayClock>? inspect=null,GasCompositionExecution? held=null)
+  IReadOnlyDictionary<string,ImmutableDictionary<DateOnly,(ExactQuantity Quantity,string Kind)>>? recorded=null,Action<SideViewInput,GasDayClock>? inspect=null,GasCompositionExecution? held=null,PhysicalCashState? unrecorded=null)
  {
   if(frame.ContextId is not {} contextId)throw Invalid("Use a certified calculation context.");
   var unit=QuantityUnit(data,members.Select(m=>m.Assignments[0].Quote.Quantity));
   var programs=retained??[..draft!.Sides.Select((m,n)=>{var d=ScheduleDefinitionCompiler.Generate(m.Side,ct,ScheduleLifecycleSelection.StartedPhysicalDelivery);var p=BookedSideProgram.Compile(d);return new RetainedSideProgram(n,m.Side.Id,Guid.Empty,new(BookedSideProgram.Digest(p.Write()),d.Manifest,d.Family,d.EconomicIdentity,d.PricingBindingIdentity),p);})];
   var knowledge=(await new KnowledgeStore(database.Manifest.CatalogId).Read(c,contextId,ct)).Context;
   var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),contextId,SchedulePreview.ParseAt(knowledge.KnownAt));
+  if(held is not {Started:true}&&unrecorded is null)PhysicalLifecycle.RequireUnstarted(programs.Select(p=>p.Program),snapshot.ValuationAt);
   var assignments=members.SelectMany(m=>m.Assignments).Distinct().ToImmutableArray();
   var dated=programs.SelectMany(p=>BookedScheduleLookups.Dated(data,p.Program)).Distinct().ToImmutableArray();
   foreach(var group in dated.Where(lookup=>lookup.CustomProjection is not null).GroupBy(lookup=>lookup.CustomProjection!))
@@ -195,16 +197,16 @@ public sealed class GasCompositionStore(PreviewDatabase database)
    valued.Add((member,amount,qtotal!,rows));
   }
   // Started delivery: the trade's value is remaining delivery MTM plus outstanding settlement of its recorded cash.
-  PhysicalLifecycleValue? lifecycle=null;
+  PhysicalLifecycleValue? lifecycle=null;var state=unrecorded;
   if(held is {Started:true})
   {
    if(held.Members.Length!=members.Length)throw Invalid("Started-delivery valuation requires every member of the held trade.");
    if(held.Terms.Discounting!=false)throw Invalid("A held gas composition requires its explicit no-discounting selection.");
-   var state=await GasCashPaymentStore.Read(c,database.Manifest.CatalogId,held.TradeId,held.InstrumentId,new(quantity,members[0].Assignment.Quote.Quantity),ct);
+   state=await GasCashPaymentStore.Read(c,database.Manifest.CatalogId,held.TradeId,held.InstrumentId,new(quantity,members[0].Assignment.Quote.Quantity),GasCashPaymentStore.LatestKnownRevision,ct);
    // The same admission of the recorded cash as the retained instrument's risk valuation.
    held.Instrument(dated).ValidateValuationState(state);
-   lifecycle=PhysicalLifecycle.Evaluate(evaluations.ToImmutable(),state,snapshot,members[0].Assignment.Quote.Currency);total=lifecycle.Total;
   }
+  if(state is not null){lifecycle=PhysicalLifecycle.Evaluate(evaluations.ToImmutable(),state,snapshot,members[0].Assignment.Quote.Currency);total=lifecycle.Total;}
   var sides=valued.Select(v=>(object)new{v.Member.Code,v.Member.Role,source=v.Member.Source,stage=v.Member.Stage,pipeline=v.Member.Role=="physical"?v.Member.Assignment.Location.Pipeline.Code:null,zone=v.Member.Role=="physical"?v.Member.Assignment.Location.Zone.Code:null,deliveryPoint=v.Member.Role=="physical"?v.Member.Assignment.Point.Code:null,
    direction=v.Member.Direction==1?"receive":v.Member.Role=="physical"?"deliver":"pay",
    presentValue=(lifecycle is null?v.Amount:lifecycle.Rows.Where(r=>r.Slot==v.Member.Slot).Aggregate(ExactMoney.Parse("0",v.Amount.Currency),(sum,r)=>sum.Add(r.RemainingPv).Add(r.OutstandingPv))).ToExactString(),
@@ -239,7 +241,10 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   if(value.Schedule is null)throw new MarketDataException("ticket_lookup",$"The side's schedule cannot be shown, so its market price is not read: {value.ScheduleRefusal!.Message}");
   return value.Schedule.Totals[$"{code}.market_price"].Value??throw new MarketDataException("ticket_lookup","The side's delivery term has no single market price.");
  }
- internal Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,CancellationToken ct)=>TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,pinned.At,ct);await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,ct);_=await Value(c,data,pinned,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,false,ct);return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,d.Instrument);},ct,physicalMarket:PhysicalMarketSelection.Gas,physicalTrade:body.TradeId);
+ // An in-term load (inTerm) values its draft with no recorded cash: there is no trade yet, so the operation that books it keys that state.
+ internal Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)=>TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,pinned.At,ct);await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,ct);
+  var unrecorded=inTerm?new PhysicalCashState(body.OperationId,d.Instrument.Id,new(d.Instrument.BaseQuantity,d.Members[0].Assignment.Quote.Quantity),[],PhysicalCashState.Policy):null;
+  _=await Value(c,data,pinned,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,false,ct,unrecorded:unrecorded);return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,d.Instrument);},ct,physicalMarket:PhysicalMarketSelection.Gas,physicalTrade:body.TradeId);
  // A new trade names no amended trade; the ticket and the administrator in-term load both book new trades only.
  internal static void RequireNewTrade(GasCompositionRequest body)
  {if(body.TradeId is not null||body.ExpectedRevision is not null||body.BindingId is not null||body.Reason is not null||body.AmendmentPolicy is not null)throw Invalid("Use the explicit gas amendment operation to amend a trade.");}
@@ -250,7 +255,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   var retained=new RetainedScheduleStore(database);var permission=body.TradeId is null?"BookTrade":"AmendTrade";
   var terms=await database.WithIdentity(profile,permission,async(connection,ct)=>{
    var status=await gas.Status(connection,body.OperationId,ct);
-   return status.TryGetProperty("tradeId",out _)?null:await Prepare(connection,frame,body,ct);
+   return status.TryGetProperty("tradeId",out _)?null:await Prepare(connection,frame,body,inTerm,ct);
   },ct);
   if(terms is not null)await retained.Stage(profile,body.OperationId,body,permission,body.TradeId,body.ExpectedRevision,terms.Generate(ct),ct);
   return await database.WithIdentity(profile,permission,async(connection,ct)=>{

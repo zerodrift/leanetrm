@@ -45,9 +45,11 @@ command then runs the ticket's booking path: preparation, program staging, lock,
 the load and publication. The trade and its revision record the administrator
 as their actor. A retried request with the same operation id receives its first
 outcome and adds no rows. An unknown or disabled administrator is refused with
-`gas_in_term_identity`; one without the ticket booking's authority (`BookTrade`
-with its reads) is refused with `gas_in_term_authority`. Neither refusal writes
-anything.
+`gas_in_term_identity`. Before the close is read, the administrator's context
+must hold the ticket booking's authority and its reads, each refused under its
+own code: `BookTrade` (`gas_in_term_book_authority`), `ReadTrades`
+(`gas_in_term_trade_read_authority`) and `ReadMarketData`
+(`gas_in_term_market_read_authority`). No refusal writes anything.
 
 `openetrm_gas_in_term_loader` is a NOLOGIN group role. Its only privilege is
 EXECUTE on `security.load_gas_composition_in_term(uuid,jsonb,timestamptz)`.

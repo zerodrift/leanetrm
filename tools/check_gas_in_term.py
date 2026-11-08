@@ -10,7 +10,7 @@ from assistant_context import check_guard, migration_body
 from preview_client import PreviewClient, initial_frame
 from preview_fixture import trade_booking
 from check_booked_side_programs import runtime_query, capture_context
-from gas_in_term_fixture import ADMINISTRATOR, CLOSE, DISABLED_ADMINISTRATOR, POINT, TERM, custom_curves, fixing, marks, published_at, trade
+from gas_in_term_fixture import ADMINISTRATOR, BOOK_ONLY_ADMINISTRATOR, CLOSE, DISABLED_ADMINISTRATOR, POINT, TERM, custom_curves, fixing, marks, published_at, trade
 
 LOADER = 'preview_gas_in_term_loader'
 
@@ -44,12 +44,14 @@ def run_checks(url, query, manifest, run_worker, admin_load, browse=None):
         except RuntimeError as error: assert code in str(error), error
         else: raise AssertionError(f'Accepted instead of {code}')
 
-    # (a) The ticket stages the started composition's programs, then still refuses its booking.
+    # (a) A started draft has no recorded cash to value its ended days with: the ticket's preview and booking refuse it
+    # before staging anything, so the booking operation, which admits only staged programs, books nothing either.
+    assert c.call('gas/composition/preview', body, expected=422)['code'] == 'gas_delivery_lifecycle'
     started = c.call('gas/composition/book', body, expected=422)
     assert started['code'] == 'gas_delivery_lifecycle', started
-    assert query(f"SELECT command_hash=sha256(convert_to('{encoded}'::jsonb::text,'UTF8')) FROM trading.side_schedule_requests WHERE(catalog_id,request_id)=('{catalog}','{body['operationId']}');") == 't'
-    refused(f"SELECT security.book_gas_composition('{catalog}','{encoded}'::jsonb,'{CLOSE}');", 'gas_delivery_lifecycle')
-    print('PASS a started gas composition is staged by the ticket and still refused by the booking operation', flush=True)
+    assert query(f"SELECT count(*) FROM trading.side_schedule_requests WHERE(catalog_id,request_id)=('{catalog}','{body['operationId']}');") == '0'
+    refused(f"SELECT security.book_gas_composition('{catalog}','{encoded}'::jsonb,'{CLOSE}');", 'gas_schedule')
+    print('PASS a started gas composition is refused by the ticket preview and booking before staging, and the booking operation books nothing', flush=True)
 
     # (b) A named administrator loads the started composition through the dedicated loader login (D359). The
     # API's runtime login cannot execute the load; the loader holds exactly runtime's privileges plus the load.
@@ -84,14 +86,15 @@ def run_checks(url, query, manifest, run_worker, admin_load, browse=None):
     assert lifecycles(query, catalog, loaded['instrumentId']) == {0: {'whole_gas_day_delivery_v1'}, 1: {'accrued_payment_v1'}}
     trade_id = loaded['tradeId']
     print('PASS the named administrator loads the started composition once through the loader, with whole gas-day and accrued payment programs', flush=True)
-    # (d) An unknown or disabled administrator, or one without booking authority, is refused and writes nothing.
-    for login, code in (('in_term_unbound_administrator', 'gas_in_term_identity'), (DISABLED_ADMINISTRATOR[0], 'gas_in_term_identity'), ('admin', 'gas_in_term_authority')):
+    # (d) An unknown or disabled administrator, or one without booking authority or its market reads, is refused and writes nothing.
+    for login, code in (('in_term_unbound_administrator', 'gas_in_term_identity'), (DISABLED_ADMINISTRATOR[0], 'gas_in_term_identity'), ('admin', 'gas_in_term_book_authority'),
+                        (BOOK_ONLY_ADMINISTRATOR[0], 'gas_in_term_market_read_authority')):
         attempt = {**body, 'operationId': str(uuid4())}
         outcome = admin_load({'administrator': login, 'composition': attempt})
         assert outcome.returncode == 1 and json.loads(outcome.stderr)['code'] == code, (login, outcome.stdout, outcome.stderr)
         assert query(f"SELECT count(*) FROM trading.side_schedule_requests WHERE(catalog_id,request_id)=('{catalog}','{attempt['operationId']}');") == '0'
     assert written() == rows
-    print('PASS an unknown, disabled or unauthorized administrator is refused with a structured error and writes nothing', flush=True)
+    print('PASS an unknown, disabled or unauthorized administrator, or one without market reads, is refused with its own structured error and writes nothing', flush=True)
 
     # A forward composition booked through the ticket now selects the started-delivery lifecycles too.
     forward = deepcopy(body); forward.update(operationId=str(uuid4()), profile='fixed_gas_composition_v1')
@@ -174,6 +177,7 @@ def run_checks(url, query, manifest, run_worker, admin_load, browse=None):
     shown = valuation_checks(c, query, manifest, run_worker, frame, context, body, trade_id, loaded['instrumentId'], before_load, load)
     # The browser reads the Blotter before the refusing trades below are planted: they make the portfolio total refuse, by design.
     if browse: browse(shown)
+    payment_revision_checks(c, query, manifest, frame, context, body, load)
     refusal_checks(c, query, manifest, frame, body, trade_id, loaded['instrumentId'], other, revision['paymentId'], load)
 
 
@@ -315,6 +319,37 @@ def final_determination(c, query, manifest, frame, context, body, load):
     assert c.call('gas/composition/editor', dict(context=working, tradeId=trade))['valuation']['measures'] == before
     print('PASS a D338 final determination is shown beside the contract-estimate accrual and changes neither the accrual nor the measures', flush=True)
     return dict(tradeId=trade, instrumentId=loaded['instrumentId'])
+
+
+def payment_revision_checks(c, query, manifest, frame, context, body, load):
+    """A later revision that moves a payment's paid instant past the view's business time leaves that view unpaid."""
+    catalog = manifest['catalogId']
+    single = deepcopy(body); single.update(profile='fixed_gas_composition_v1')
+    single['physicalSides'][0].update(deliveryFrom='2026-11-02', deliveryTo='2026-11-03')
+    single['cashSides'] = [dict(code='payment', role='consideration', direction='pay', source='gas', stage='delivery', price='3.1', tariffCode=None, paymentAt='2026-12-10T00:00:00Z')]
+    loaded = load({**single, 'operationId': str(uuid4())})
+    def record(paid, as_of):
+        payment = dict(operationId=str(uuid4()), tradeId=loaded['tradeId'], expectedRevision=1, slot=1, businessKey='synthetic-2026-11-02-remittance', paidAt=paid,
+                       currency='usd', amount='-310', allocations=[dict(occurrence=0, amount='-310')])
+        statement = f"SELECT security.record_gas_cash_payment('{catalog}','{json.dumps(payment)}'::jsonb,'{as_of}');"
+        return json.loads(runtime_query(query, manifest, statement).splitlines()[-1])['revision']
+    # Revision 1 is paid before the close; revision 2, recorded the next day, moves the paid instant past the close.
+    capture_context(query, manifest, '2026-11-06')
+    assert record('2026-11-04T00:00:00Z', CLOSE) == 1
+    before_revision = capture_context(query, manifest, '2026-11-06').splitlines()[-1]
+    assert record('2026-11-07T00:00:00Z', '2026-11-07T12:00:00Z') == 2
+    capture_context(query, manifest, '2026-11-06')
+    working = dict(snapshotId=frame['id'], convention=context['convention'], knowledgeMode='current')
+    def shown(view):
+        position = dict(context={**view, 'convention': 'trading_workspace_v1'}, tradeId=loaded['tradeId'], bindingId=loaded['instrumentId'], revision=1, instrumentType='physical_gas')
+        [row] = c.call('trading/side-schedules', dict(position=position, sideSlot=1, contribution=None, offset=0, limit=8))['page']['rows']
+        outstanding = c.call('gas/composition/editor', dict(context=view, tradeId=loaded['tradeId']))['valuation']['measures']['outstandingSettlement']
+        return row['lifecycle']['cash'], row['paidAt'] and row['paidAt'][:10], Fraction(outstanding)
+    # The close lies between the two paid instants: the latest known revision applies and is not yet paid.
+    assert shown(working) == ('AccruedUnpaid', None, -310), shown(working)
+    # Knowledge before revision 2 sees revision 1, paid before the close.
+    assert shown({**working, 'knowledgeMode': 'retained', 'contextId': before_revision}) == ('Paid', '2026-11-04', 0)
+    print('PASS the latest known payment revision applies by knowledge; one paid after the view stays unpaid there, never its earlier revision', flush=True)
 
 
 def refusal_checks(c, query, manifest, frame, body, trade_id, binding, forward, payment, load):

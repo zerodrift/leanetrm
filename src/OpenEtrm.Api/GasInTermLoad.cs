@@ -17,6 +17,9 @@ public sealed record GasInTermLoadRequest([property:JsonRequired] string Adminis
 public static class GasInTermLoad
 {
     static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
+    // The ticket booking's authority and the reads it values with, each refused under its own code.
+    static readonly (string Permission,string Code)[] Authority=[("BookTrade","gas_in_term_book_authority"),("ReadTrades","gas_in_term_trade_read_authority"),
+        ("ReadMarketData","gas_in_term_market_read_authority")];
     public static async Task<int> Run(string[] args)
     {
         try
@@ -33,8 +36,10 @@ public static class GasInTermLoad
             var auth=HostedConfiguration.Connection(settings.AuthenticatorConnectionFile);var loader=HostedConfiguration.Connection(settings.LoaderConnectionFile);
             if(auth.Username==loader.Username||auth.Host!=loader.Host||auth.Port!=loader.Port||auth.Database!=loader.Database)throw new InvalidOperationException();
             await using var database=new PreviewDatabase(manifest,auth,loader);await database.RequireLoaderBoundary(ct);
-            var frame=await database.WithIdentity(request.Administrator,"BookTrade",async(connection,ct)=>
+            var frame=await database.WithIdentity(request.Administrator,null,async(connection,ct)=>
             {
+                foreach(var(permission,code) in Authority)
+                    if(!await PreviewDatabase.HasPermission(connection,permission,ct))throw new MarketDataException(code,$"The named administrator does not hold {permission}, which the in-term load requires.");
                 try{return await MarketCloses.Frame(connection,manifest.CatalogId,body.SnapshotId,null,ct);}
                 catch(PreviewDeniedException){throw new MarketDataException("gas_in_term_close","Name a recorded close as the composition's snapshot.");}
             },ct);

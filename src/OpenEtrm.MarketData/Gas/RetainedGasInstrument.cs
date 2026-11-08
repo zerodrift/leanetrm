@@ -62,7 +62,7 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
     public PhysicalLifecycleValue EvaluateLifecycle(UnitValuationContext context)
     {
         if (context?.BindingState is not PhysicalCashState state)
-            throw new MarketDataException("payment_state", "Lifecycle valuation requires the held binding's explicit physical cash state.");
+            throw new MarketDataException(PhysicalLifecycle.ContextRefusal, "Lifecycle valuation requires the held binding's explicit physical cash state.");
         ValidateValuationState(state);
         var evaluations = EvaluateMembers(context);
         return PhysicalLifecycle.Evaluate([..Members.Select((member, n) => new LifecycleMember(member.Program, evaluations[n],
@@ -71,7 +71,11 @@ public sealed record RetainedGasInstrument : RetainedProgramInstrument<RetainedG
 
     public override ExactMoney Value(UnitValuationContext context)
     {
-        if (context.BindingState is not PhysicalCashState state) return base.Value(context);
+        if (context.BindingState is not PhysicalCashState state)
+        {
+            PhysicalLifecycle.RequireUnstarted(Members.Select(m => m.Program), context.Snapshot.ValuationAt);
+            return base.Value(context);
+        }
         var held = state.Quantity.Amount; var negative = held.CompareTo(default) < 0;
         var unit = EvaluateLifecycle(context).Total.DivideBy(negative ? held * ExactDecimal.Parse("-1") : held);
         return negative ? unit.Scale(ExactDecimal.Parse("-1")) : unit;

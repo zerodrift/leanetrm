@@ -71,6 +71,12 @@ internal static class PhysicalLifecycleChecks
         Require(hidden.Rows.Where(Cash).Where(r=>r.DeliveryFrom.Month==9).All(r=>r.Settlement==SettlementState.AccruedUnpaid&&r.OutstandingPv==r.Outstanding),
             "A payment known after the cutoff is invisible: September stays due at nominal.");
 
+        // A payment whose paid instant follows the valuation is not yet paid there, and is paid at that instant afterwards.
+        var octoberPaidLater=demo.Payment(Demo.Months+1,0,Fixture.Utc("2026-11-08T00:00:00Z"),Demo.Close,"-300");
+        Require(demo.Value(Demo.Close,[octoberPaidLater],Demo.Undiscounted).Rows.Single(r=>Cash(r)&&r.DeliveryFrom==new DateOnly(2026,10,1)) is {Settlement:SettlementState.AccruedUnpaid,PaidAt:null}&&
+            demo.Value(Fixture.Utc("2026-11-09T21:00:00Z"),[octoberPaidLater],Demo.Undiscounted).Rows.Single(r=>Cash(r)&&r.DeliveryFrom==new DateOnly(2026,10,1)) is {Settlement:SettlementState.Paid} paidRow&&
+            paidRow.PaidAt==Fixture.Utc("2026-11-08T00:00:00Z"),"A payment is visible from its paid instant.");
+
         var corrected=demo.Value(Demo.Close,paid.Add(demo.Payment(Demo.Months+1,0,Fixture.Utc("2026-11-05T00:00:00Z"),Demo.Close,"-300")),Demo.Undiscounted,
             revised:new(new(2026,10,1),"2.90"));
         var first=corrected.Rows.Single(r=>Cash(r)&&r.DeliveryFrom==new DateOnly(2026,10,1));
@@ -103,12 +109,12 @@ internal static class PhysicalLifecycleChecks
         Equal(fixedRow.Accrued,"-1550");Equal(fixedRow.RemainingPv,"-7750");
         Equal(fixedValue.OutstandingSettlement,"-1550");Equal(fixedValue.RemainingDeliveryMtm,"343");
 
-        // A retained program whose first November day carries twice the contract quantity cannot accrue a month pro rata.
         // One fixed 3.00 row over Oct 1-Dec 1 across the October and November members: 36 of 61 days ended.
         var spanning=demo.Term(Demo.Close,[demo.Physical[1],demo.Physical[2]],"3");
         Equal(spanning.Rows.Single(r=>r.Slot==2).Accrued,"-10800");Equal(spanning.OutstandingSettlement,"-10800");
         // A November calendar average with Nov 1-9 published and the rest forecast cannot accrue its ended days.
         Reject("side_due_leg_unresolved",()=>demo.Term(Demo.Close,[demo.Physical[2]],null));
+        // A retained program whose first November day carries twice the contract quantity cannot accrue a month pro rata.
         Reject("physical_lifecycle_quantity",()=>demo.FixedNovember(Demo.Close,d=>new(d.SideId,d.Family,d.EconomicIdentity,d.PricingBindingIdentity,d.SchemaVersion,d.GeneratorVersion,
             d.Rows.Select(r=>r.Key=="gas/0/quantity"?r with{Parameters=r.Parameters.SetItem("numerator","2")}:r).ToArray(),d.Edges,d.Bindings,d.Roots,d.Ports,d.Grids)));
 
@@ -125,6 +131,10 @@ internal static class PhysicalLifecycleChecks
         var before=Fixture.Utc("2026-08-28T21:00:00Z");
         var opening=demo.Value(before,[],Demo.Undiscounted);
         Equal(opening.OutstandingSettlement,"0");Equal(opening.Total,demo.Headline(before,null,Demo.Undiscounted));
+        // Once its first gas day has started, a started-lifecycle program valued with no lifecycle state would drop its
+        // ended days and due cash, so it refuses instead.
+        Reject("gas_delivery_lifecycle",()=>demo.Headline(Fixture.Utc("2026-09-01T15:00:00Z"),null,Demo.Undiscounted));
+        Equal(demo.Headline(Fixture.Utc("2026-09-01T14:59:59Z"),null,Demo.Undiscounted),demo.Value(Fixture.Utc("2026-09-01T14:59:59Z"),[],Demo.Undiscounted).Total.ToExactString());
         Reject("gas_delivery_lifecycle",()=>new Demo(ScheduleLifecycleSelection.FutureDelivery).Headline(Demo.Close,null,Demo.Undiscounted));
 
         Reject("payment_state",()=>demo.State([demo.Payment(Demo.Months,0,Demo.Close,Demo.Close,"-290") with{Id=Guid.Empty}]));
@@ -139,6 +149,14 @@ internal static class PhysicalLifecycleChecks
         Reject("payment_state",()=>demo.Value(Demo.Close,[demo.Payment(0,0,Demo.Close,Demo.Close,"-290")],Demo.Undiscounted));
         Reject("settlement_conservation",()=>demo.Value(Demo.Close,[demo.Payment(Demo.Months,0,Demo.Close,Demo.Close,"290")],Demo.Undiscounted));
         Reject("physical_lifecycle_unsupported",demo.Crude);
+        // Missing wiring is a system defect that fails the read, never one trade's refusal.
+        Reject("physical_lifecycle_context",()=>demo.Unstated(Demo.Close));
+        Reject("physical_lifecycle_context",()=>demo.Constructed(Demo.Close,null,knowledge:false));
+        Require(!PhysicalLifecycle.TradeRefusal("physical_lifecycle_context"),"A missing lifecycle context is not a trade refusal.");
+        Equal(demo.Constructed(Demo.Close,null).Total,"-19555");
+        // An ended day's cash with no price fact, or a remaining day whose value is not resolved, has no lifecycle amount.
+        Reject("side_due_leg_unresolved",()=>demo.Constructed(Demo.Close,(slot,n,c)=>slot==Demo.Months+1&&n==0?c with{Amount=c.Amount with{States=[c.Amount.States[0] with{Prices=SchedulePriceFacts.None}]}}:c));
+        Reject("physical_lifecycle_unsupported",()=>demo.Constructed(Demo.Close,(slot,n,c)=>slot==Demo.Months+2&&n==9?c with{PresentValue=c.PresentValue with{Presence=[ScheduleCellPresence.NotDemanded]}}:c));
         Console.WriteLine("PASS physical lifecycle: accrued, paid and outstanding cash with remaining delivery MTM, discounted until due, frozen under shocks");
     }
 
@@ -248,6 +266,26 @@ internal static class PhysicalLifecycleChecks
                 new CurveShift(CurveShockCoordinate.MarketQuote,new ContractCurveTarget(curve.Key,d.Key),PriceUnit.FromQuote(quote),ExactDecimal.Parse(shift),CurveShift.ParentAdditive))]);
             var context=new UnitValuationContext(prepared.Market.Snapshot,portfolio.Setup,prepared.Market).For(prepared.Contracts[0][0],null,state);
             return instrument.EvaluateLifecycle(context);
+        }
+        // Lifecycle valuation of the held binding with no binding state.
+        internal void Unstated(DateTimeOffset at)
+        {
+            var (prepared,portfolio)=Prepare([Trade],at,null,Undiscounted);
+            Instrument.EvaluateLifecycle(new UnitValuationContext(prepared.Market.Snapshot,portfolio.Setup,prepared.Market).For(prepared.Contracts[0][0],null,null));
+        }
+        // The lifecycle of every member's own evaluation, unpaid, after an optional change to contribution n of a slot.
+        internal PhysicalLifecycleValue Constructed(DateTimeOffset at,Func<int,int,ScheduleContribution,ScheduleContribution>? change,bool knowledge=true)
+        {
+            var snapshot=Snapshot(at,null);var market=model.Build(snapshot,Instrument.Declare(new(snapshot,new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,Undiscounted))).Dependencies);
+            var sources=new ScheduleMarketSources(market.Graph.Plan.Context,market,null,null,IntervalKnowledgePolicy.ResolvedCutoff,PendingActualsPolicy.RequireActuals,Instrument.PriceLookups,[],assignments);
+            var members=Instrument.Members.Select((m,slot)=>
+            {
+                var evaluation=sources.Evaluate(m.Program,m.SideId,market,Undiscounted);
+                if(change is not null)evaluation=evaluation with{Contributions=[..evaluation.Contributions.Select((c,n)=>change(slot,n,c))]};
+                return new LifecycleMember(m.Program,evaluation,slot<Months,v=>v.Scale(m.Direction).Scale(Held.Amount));
+            });
+            var valued=knowledge?snapshot:new MarketSnapshot(snapshot.Id,f.Revision,at,at,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,snapshot.Selections);
+            return PhysicalLifecycle.Evaluate([..members],State([]),valued,quote.Currency);
         }
         // The holding's headline is the ordinary unit value scaled by the booked quantity.
         internal string Headline(DateTimeOffset at,ImmutableArray<CashOccurrencePayment>? paid,ISideDiscounting discount)

@@ -80,9 +80,23 @@ public static class PhysicalLifecycle
     public static bool TradeRefusal(string code)=>code is "physical_lifecycle_unsupported" or "physical_lifecycle_quantity" or
         "side_due_leg_unresolved" or "payment_state" or "settlement_conservation";
 
+    // Missing lifecycle wiring is a system defect, not a trade's refusal: it fails the read (TradeRefusal excludes it).
+    public const string ContextRefusal="physical_lifecycle_context";
+
+    // Valued without its lifecycle state, a started-delivery program would drop its ended gas days and due cash.
+    // It values so only before its first gas day starts and while its cash is not yet due.
+    public static void RequireUnstarted(IEnumerable<BookedSideProgram> programs,DateTimeOffset at)
+    {
+        foreach(var document in programs.Select(p=>p.Document))
+            foreach(var row in document.Instructions.Select(i=>i.Output).Where(o=>o.Operation=="output_guard"))
+                if(row.Parameters.GetValueOrDefault("lifecycle") switch
+                    {ScheduleLifecycles.WholeGasDayDelivery=>document.Grids[row.Grid!.Value].Interval(0).Start<=at,ScheduleLifecycles.AccruedPayment=>row.ValueAt<=at,_=>false})
+                    throw new MarketDataException("gas_delivery_lifecycle","A started gas delivery is valued only with its held lifecycle state.");
+    }
+
     public static PhysicalLifecycleValue Evaluate(ImmutableArray<LifecycleMember> members,PhysicalCashState state,MarketSnapshot snapshot,ReferenceKey currency)
     {
-        if(snapshot.Knowledge is null)throw new MarketDataException("payment_state","Payment visibility requires an explicit resolved knowledge cutoff.");
+        if(snapshot.Knowledge is null)throw new MarketDataException(ContextRefusal,"Payment visibility requires an explicit resolved knowledge cutoff.");
         var at=snapshot.ValuationAt;var zero=ExactMoney.Parse("0",currency);
         DeliveryState Delivery(DateTimeOffset start,DateTimeOffset end)=>end<=at?DeliveryState.Ended:start<=at?DeliveryState.InProgress:DeliveryState.NotStarted;
         // Each operating day's state across the physical members. Members on different gas-day clocks may deliver the

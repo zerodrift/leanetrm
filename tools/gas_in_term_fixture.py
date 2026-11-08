@@ -13,8 +13,11 @@ CLOSE = '2026-11-06T21:00:00Z'
 TERM = (date(2026, 9, 1), date(2027, 1, 1))
 WEEKEND = (date(2026, 11, 7), date(2026, 11, 10))
 # The administrator who loads the in-term trade holds the authority a ticket booking requires (the trader role) beside
-# access administration; a second, disabled one is refused. Both are synthetic identities of the preview issuer.
+# access administration; a second, disabled one is refused, and a third books trades without reading market data.
+# All are synthetic identities of the preview issuer.
 ADMINISTRATOR, DISABLED_ADMINISTRATOR = ('in_term_administrator', identity('c', 90)), ('in_term_disabled_administrator', identity('c', 91))
+BOOK_ONLY_ADMINISTRATOR = ('in_term_book_only_administrator', identity('c', 92))
+BOOK_ONLY_ROLE = identity('c', 93)
 # The gas day starts 09:00 at a fixed UTC-6 synthetic central clock; publication is 12:00 there.
 DAY_START_MINUTE, OFFSET_SECONDS = 540, -21600
 
@@ -109,13 +112,18 @@ def add_fixture(reference, market, security, manifest):
     market = market.replace('UPDATE ref_data.revisions SET', '\n'.join(refs) + '\nUPDATE ref_data.revisions SET', 1)
     market = market.replace('UPDATE market_data.revisions SET', '\n'.join(definitions) + '\nUPDATE market_data.revisions SET', 1)
     market = market.rsplit('COMMIT;', 1)[0] + '\n'.join(observations) + '\nCOMMIT;\n'
-    for (login, principal), enabled in ((ADMINISTRATOR, 'true'), (DISABLED_ADMINISTRATOR, 'false')):
+    security += f"""
+INSERT INTO security.roles(id,code,name) VALUES('{BOOK_ONLY_ROLE}','synthetic_in_term_book_only','Synthetic booking without market reads');
+INSERT INTO security.role_permissions SELECT '{BOOK_ONLY_ROLE}',p.permission FROM security.role_permissions p JOIN security.roles r ON r.id=p.role_id
+ WHERE r.code='trader' AND p.permission<>'ReadMarketData';"""
+    for (login, principal), enabled, roles in ((ADMINISTRATOR, 'true', "'trader','access_administrator'"), (DISABLED_ADMINISTRATOR, 'false', "'trader','access_administrator'"),
+                                               (BOOK_ONLY_ADMINISTRATOR, 'true', "'synthetic_in_term_book_only'")):
         security += f"""
 INSERT INTO security.principals VALUES('{principal}','human',{enabled});
 INSERT INTO security.identity_bindings VALUES('https://preview.invalid','{login}','{principal}','human_interactive');
 INSERT INTO security.workspace_memberships VALUES('{TENANT}','{WORKSPACE}','{principal}','{login}','Synthetic {login.replace('_', ' ')}',true,1);
 INSERT INTO security.role_grants SELECT gen_random_uuid(),'{principal}',id,'{TENANT}','{WORKSPACE}',CURRENT_TIMESTAMP-INTERVAL '1 day',CURRENT_TIMESTAMP+INTERVAL '1 day',false
- FROM security.roles WHERE code IN('trader','access_administrator');"""
+ FROM security.roles WHERE code IN({roles});"""
     standard = manifest['frames'][3]
     manifest['frames'].append({**standard, 'at': CLOSE, 'observationIds': standard['observationIds'] + pins})
     return reference, market, security, manifest
