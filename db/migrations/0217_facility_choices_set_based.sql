@@ -40,13 +40,18 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN
    ORDER BY r.revision DESC LIMIT 1)h
   WHERE h.effective_at<=as_of
   AND EXISTS(SELECT 1 FROM trading.knowledge_receipts k WHERE(k.catalog_id,k.publication_order)=(h.catalog_id,h.publication_order))),
+ -- These stages have no indexes or useful row estimates. A nested loop between two of them would be quadratic
+ -- in obligation-days, and a full join cannot run as one; each boundary keeps the planner from reducing it.
+ held AS MATERIALIZED(
+  SELECT d.id,d.day,d.slot,h.trade_id,h.revision,h.instrument_id,h.legal_entity_id,h.legal_entity_revision,h.quantity
+  FROM requested d FULL JOIN heads h ON(h.trade_id,h.instrument_id)=(d.trade_id,d.instrument_id)),
  members AS MATERIALIZED(
-  SELECT d.id,d.day,h.trade_id,h.revision,h.instrument_id,h.legal_entity_id,h.legal_entity_revision,h.quantity,s.schedule_id,
+  SELECT d.id,d.day,d.trade_id,d.revision,d.instrument_id,d.legal_entity_id,d.legal_entity_revision,d.quantity,s.schedule_id,
    m.product_code,m.pipeline_code,m.zone_code,m.point_code,m.direction,m.ratio_n,m.ratio_d
-  FROM requested d JOIN heads h ON(h.trade_id,h.instrument_id)=(d.trade_id,d.instrument_id)
+  FROM held d
   JOIN trading.gas_component_terms m ON(m.catalog_id,m.instrument_id,m.slot)=(catalog,d.instrument_id,d.slot)
   JOIN trading.instrument_side_schedules s ON(s.catalog_id,s.instrument_id,s.slot)=(m.catalog_id,m.instrument_id,m.slot)
-  WHERE m.role='physical'),
+  WHERE d.id IS NOT NULL AND m.role='physical'),
  schedules AS MATERIALIZED(
   SELECT p.schedule_id FROM(SELECT DISTINCT v.schedule_id FROM members v)v
   JOIN trading.side_schedule_publications p ON(p.catalog_id,p.schedule_id)=(catalog,v.schedule_id)
@@ -62,8 +67,6 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$BEGIN
   SELECT q.schedule_id,g.operating_days,q.unit_catalog_id,q.unit_revision_id,q.unit_code,q.parameters,g.origin,g.selection,g.lengths,g.step_ticks
   FROM quantity_rows q JOIN trading.side_schedule_grids g ON(g.catalog_id,g.schedule_id,g.ordinal)=(catalog,q.schedule_id,q.grid_ordinal)
   WHERE cardinality(g.selection)=1 AND g.lengths=ARRAY[1]),
- -- These stages have no indexes or useful row estimates. A nested loop between them would be quadratic in
- -- obligation-days, and a full join cannot run as one; the boundary keeps the planner from reducing it.
  paired AS MATERIALIZED(
   SELECT d.id,d.day,d.trade_id,d.revision,d.instrument_id,d.legal_entity_id,d.legal_entity_revision,d.quantity,
    d.product_code,d.pipeline_code,d.zone_code,d.point_code,d.direction,d.ratio_n,d.ratio_d,
@@ -150,13 +153,14 @@ $b$,
   SELECT r.*,x.target,x.matches FROM requested r LEFT JOIN resolved x ON(x.obligation_id,x.native_day)=(r.obligation,r.native_day)
   ORDER BY r.obligation,r.native_day LOOP
   IF ledger IS NULL THEN
-   IF candidate.matches IS DISTINCT FROM 1 OR candidate.trade_id=ANY(refused) THEN CONTINUE;END IF;
+   IF candidate.trade_id=ANY(refused) THEN CONTINUE;END IF;
    IF NOT candidate.trade_id=ANY(allowed) THEN
     BEGIN PERFORM security.require_gas_quantity_trade(catalog,candidate.trade_id,false);allowed=allowed||candidate.trade_id;
     EXCEPTION WHEN insufficient_privilege THEN refused=refused||candidate.trade_id;CONTINUE;
      WHEN raise_exception THEN IF SQLERRM='gas_quantity_trade' THEN refused=refused||candidate.trade_id;CONTINUE;ELSE RAISE;END IF;
     END;
    END IF;
+   IF candidate.matches IS DISTINCT FROM 1 THEN CONTINUE;END IF;
    t=candidate.target;
   ELSE
    BEGIN
