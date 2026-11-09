@@ -92,9 +92,8 @@ public sealed partial class BookedSideProgram
                         throw new MarketDataException("ppa_segment_boundary","Coverage cannot split a retained contribution interval.");
                 }
             }
-            if(guard.Parameters["lifecycle"]==ScheduleLifecycles.WholeGasDayDelivery)
-                for(var cell=0;cell<selected.Length;cell++)
-                    if(Document.Grids[guard.Grid!.Value].EndTicks(cell)<=context.ValuationAt.Ticks)selected[cell]=false;
+            for(var cell=0;cell<selected.Length;cell++)
+                if(EndedWholeGasDay(guard,cell,context.ValuationAt))selected[cell]=false;
             contributions.Add(guard.Ordinal,[..selected]);
             if(guard.Parameters["pricePolicy"]!="selected_context_v1")throw Error("The output price policy is unsupported.");
             if(guard.Parameters["lifecycle"]=="undue_payment_v1"&&context.ValuationAt>=guard.ValueAt)
@@ -150,6 +149,10 @@ public sealed partial class BookedSideProgram
             }
         return new(this,context,result.ToImmutable(),coverage,quantities is null?["pv"]:[..quantities.Value.Select(output=>output.Output)],quantities??[],frozen,contributions.ToImmutable());
     }
+
+    // Whether this contribution cell is a gas day the whole-gas-day lifecycle has taken out of the measure at the instant.
+    internal bool EndedWholeGasDay(ScheduleDefinitionRow guard,int cell,DateTimeOffset at)=>
+        guard.Parameters["lifecycle"]==ScheduleLifecycles.WholeGasDayDelivery&&Document.Grids[guard.Grid!.Value].EndTicks(cell)<=at.Ticks;
 
     private int CellCount(ScheduleDefinitionRow row)=>row.Operation=="discount"?1:row.Grid is {} grid?Document.Grids[grid].CellCount:1;
 }
