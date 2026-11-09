@@ -4100,12 +4100,12 @@ per-candidate checks, which its one gas day bounds.
 Workload: the owned preview of the trading CI facility step above, with statement
 logging (`log_min_duration_statement=0`), before and after 0217 on the same commit.
 Environment: Apple M4 Pro, 14 cores, 48 GB, macOS, stock PostgreSQL 16.14. Other
-local workloads were running (load average about 5 before, 12 after).
+local workloads were running (load average about 5 before, 10 after).
 
 | Read, median of the calls after the fixtures load | Before | After |
 | --- | --- | --- |
-| `facility_quantity_choices`, catalog-wide | 1,544 ms | 297 ms |
-| `facility_quantity_choices`, one ledger | 41 ms | 86 ms |
+| `facility_quantity_choices`, catalog-wide | 1,544 ms | 282 ms |
+| `facility_quantity_choices`, one ledger | 41 ms | 77 ms |
 
 The ledger-scoped read is slower because each candidate's `facility_gas_target`
 now plans the larger set-based statement. Its pages stayed close in the scaled
@@ -4115,14 +4115,24 @@ Scaled comparison: the same preview after the facility check, with 40 more 31-ga
 trades (45 obligations, 45 trades, 1,275 candidate obligation-days, results capped at
 1,001), both definitions installed side by side and read as the trader in the same
 context. The catalog-wide read went from 3,059 ms and 935,410 pages to 547 ms and
-48,051 pages. Independent review found a join between two materialized stages that
-was quadratic in the requested obligation-days, which pages do not show. A nested
-loop cannot implement a full join, so that join is written as one inside its own
-stage. At the catalog's 256-gas-trade booking limit (about 7,900 candidate
+48,051 pages. Independent review found joins between two materialized stages that
+were quadratic in the requested obligation-days, which pages do not show. A nested
+loop cannot implement a full join, so each of those joins is written as one inside
+its own stage. At the catalog's 256-gas-trade booking limit (about 7,900 candidate
 obligation-days, results capped at 1,001), the catalog-wide read went from 15.5 s to
 1.04 s and returned byte-identical JSON, as did the ledger read. The resolver still
 processes every candidate before the 1,001-result limit applies, so its cost follows
 the catalog's obligation-days.
+
+The scaled figures above predate the second full-join stage. An independent
+synthetic fixture at the same limit (256 trades of 31 days, with stubbed authority
+helpers) then showed the generic plan on unanalyzed tables, reached after five calls
+in one backend, falling from about 21 s to under 2 s. No plan across 34 combinations
+of scale, statistics and forced custom or generic planning nested two stages. With
+analyzed statistics, the read's candidate statement can also change to a generic plan
+after five calls: on that fixture it read about 1.58 million pages against 228,000
+for the old definition, while taking less time. The check file pins the answers but
+cannot detect a return of the quadratic plans, because they give the same answers.
 
 Do not set `enable_nestloop=off` on this resolver. A plan that must still nest adds
 the planner's disable cost (about 10^10), which exceeds `jit_above_cost`. The first
