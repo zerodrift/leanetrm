@@ -6,6 +6,9 @@ from check_reference_editing import main
 
 def run_checks(query,manifest):
     catalog,source_revision,tenant,workspace,reference_catalog,reference_revision=[manifest[k] for k in ['catalogId','revisionId','tenantId','workspaceId','referenceCatalogId','referenceRevisionId']]
+    # Exact lookups gain nothing from JIT, and loading LLVM on a cold host can consume the read's deadline.
+    for signature in ['security.read_observation_facts(uuid,uuid,uuid[])','security.observation_visibility_scope(uuid,uuid,uuid[])']:
+        assert query(f"SELECT 'jit=off'=ANY(proconfig) FROM pg_proc WHERE oid='{signature}'::regprocedure;")=='t',signature
     # Numeric inputs give the close distinct, valid series identities.
     revision,close_id=str(uuid4()),str(uuid4());count=32768
     original=query(f"SELECT o.id FROM market_data.observations o JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.id)=(o.catalog_id,o.definition_revision_id,o.series_id) WHERE o.catalog_id='{catalog}' AND o.definition_revision_id='{source_revision}' AND s.contract_id IS NULL AND o.observed_at::date='2020-12-17' LIMIT 1;")

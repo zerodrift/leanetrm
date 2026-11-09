@@ -56,7 +56,9 @@ in the retained functions.
 Migration 0225 also drives close-pin, knowledge-event and knowledge-receipt matching
 from each admitted candidate through their existing exact indexes, and deduplicates
 requested IDs once for the visible anchor gate. It retains the complete-close check
-and the single authorized sibling set. The owned batch regression compares complete ordered rows to ordinary RLS
+and the single authorized sibling set. Both functions pin `jit=off`, because a large
+request's custom plan is otherwise JIT-eligible and first-use loading of LLVM on a
+cold host can consume the read's deadline. The owned batch regression compares complete ordered rows to ordinary RLS
 for 32,768 distinct pins, corrections and duplicate requests under custom and
 generic plans, within a five-second statement deadline. This is a synthetic
 correctness and scaling check, not a hosted latency qualification.

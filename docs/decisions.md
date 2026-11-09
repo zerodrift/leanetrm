@@ -3257,7 +3257,10 @@ Migration 0225 extends this evaluation bound to candidate-to-close-pin,
 knowledge-event and knowledge-receipt matching, and the requested-anchor
 membership gate. It uses existing exact indexes and one deduplicated requested
 set; the same complete-close, correction, current
-authority, knowledge and final publication checks remain in force.
+authority, knowledge and final publication checks remain in force. It also pins
+`jit=off` on the selected-fact reader and its visibility scope: their real row
+estimates cross the JIT cost threshold, exact lookups gain nothing from it, and
+first-use loading of LLVM on a cold host took several seconds of the read's deadline.
 
 ## D355 — Follow exact gas billing metadata before authorization joins
 

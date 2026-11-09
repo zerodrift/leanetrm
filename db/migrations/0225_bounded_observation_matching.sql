@@ -70,6 +70,8 @@ BEGIN
    body=replace(body,needle,'FROM authorized o JOIN requested p ON p.id=o.id');
   END IF;
   EXECUTE body;
+  -- Exact lookups gain nothing from JIT; loading LLVM on a cold host can consume the read's deadline.
+  EXECUTE format('ALTER FUNCTION %s SET jit=off',item.signature);
  END LOOP;
 END $upgrade$;
 COMMIT;
