@@ -158,7 +158,7 @@ internal static class ContractPriceTermsChecks
             if(plan.Evaluate(export.Points[(request,InputUse.Variable)]).ToExactString()!="4"||plan.Primitives.Single().Source.Observation.Role!=ObservationRole.FinalContractSettlement)
                 throw new Exception("Official final settlement source was lost.");
         });
-        return count;
+        return count+PublicationPriceResolutionChecks.Run();
     }
     sealed class Visible:ICurveBindingResolver
     {

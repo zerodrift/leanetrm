@@ -28,7 +28,7 @@ test('Objects edits retained graph operations, exact contract mappings and publi
   let id=0;const pending=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){pending.get(m.id)(m);pending.delete(m.id);}};
   const command=(method,params={})=>new Promise(r=>{pending.set(++id,r);ws.send(JSON.stringify({id,method,params}));});
   const evaluate=async expression=>{const reply=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});assert.ok(!reply.error&&!reply.result.exceptionDetails,JSON.stringify(reply));return reply.result.result.value;};
-  await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
+  await command('Page.enable');await command('Emulation.setFocusEmulationEnabled',{enabled:true});await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
   for(let i=0;i<100&&!await evaluate('!!document.querySelector("#host")');i++)await new Promise(r=>setTimeout(r,20));
   await evaluate(`(async()=>{
@@ -44,7 +44,7 @@ test('Objects edits retained graph operations, exact contract mappings and publi
    definition.nodes[0].contractTerms=structuredClone(retainedTerms);
    const op=(kind,label,inputPorts,outputType,fields=[],dynamicInputs)=>({kind,label,inputPorts,outputType,fields,...(dynamicInputs?{dynamicInputs}:{})});
    window.reference={catalogId:'catalog-exact',curveId:'published-parent',version:4,outputNode:'published-out'};
-   window.catalog={kindsVersion:'curve_kinds_v1',canEdit:true,canPublish:false,recipes:[],contextRecipes:[],contextSchedules:[],contextSourceStatus:[],schedules:[],calendars:[],formulaSupported:false,
+   window.catalog={marketRevisionId:'source-bundle',markets:[{revisionId:'source-bundle',name:'Synthetic source market'}],kindsVersion:'curve_kinds_v1',canEdit:true,canPublish:false,recipes:[],contextRecipes:[],contextSchedules:[],contextSourceStatus:[],schedules:[],calendars:[],formulaSupported:false,
     sources:[{code:'gas',name:'Synthetic gas',kind:'market_settlement',contracts:[{id:'contract-jan-exact',label:'January',deliveryFrom:'2027-01-01',deliveryTo:'2027-02-01'}]},{code:'power',name:'Synthetic power',kind:'market_settlement',contracts:[]}],
     publishedSources:[{label:'Synthetic published parent with a long exact version and output label',kind:'custom',reference}],contextSources:[{label:'Synthetic published parent with a long exact version and output label',kind:'custom',reference}],
     templates:[{code:'fixture',name:'Synthetic fixture',definition}],operators:[
@@ -57,12 +57,14 @@ test('Objects edits retained graph operations, exact contract mappings and publi
      op('published_source','Published curve',[],'panel',[{key:'reference',label:'Published output',type:'published_source'},{key:'selection',label:'Selection',type:'select',options:[{value:'all_output_points_v1',label:'All output points'}]}])]};
    window.requests=[];window.failures=[];window.terms=[];window.running=Promise.resolve();window.busyState=false;
    const api=async(path,body)=>{requests.push({path,body:structuredClone(body)});if(path.startsWith('custom-curves?'))return structuredClone(catalog);
-    if(path==='custom-curves/preview')return {columns:['Label','Price'],rows:[['Server supplied fixture','7.125']],summary:{points:1,unavailablePoints:0,firstPeriod:null,lastPeriod:null,unit:'Synthetic'}};
-    if(path==='custom-curves/save'){const recipe={id:'saved-exact',version:1,generation:1,state:'draft',kind:'custom',definition:body.definition};catalog.recipes=[recipe];catalog.contextRecipes=[recipe];return structuredClone(recipe);}throw Error('Unexpected API '+path);};
+    if(path==='custom-curves/preview'){if(window.awaiting)throw Object.assign(Error('Synthetic awaiting publication'),{code:'awaiting_publication'});return {columns:['Label','Price'],rows:[['Server supplied fixture','7.125']],summary:{points:1,unavailablePoints:0,firstPeriod:null,lastPeriod:null,unit:'Synthetic'}};}
+    if(path.startsWith('contract-price-terms/status?'))return {snapshotId:'synthetic-close',curveId:'saved-exact',version:1,rows:[{nodeId:'gas',curveCode:'gas',targetContractId:'contract-jan-exact',sourceContractId:'contract-jan-exact',deliveryFrom:'2027-01-01',deliveryTo:'2027-02-01',expiry:'2026-12-29T00:00:00Z',state:'awaiting_publication',publicationId:'gas-publication',publicationVersion:2,index:'gas-index',occurrenceId:'january',expectedPublicationAt:'2027-01-04T15:00:00Z',publishedAt:null,releaseId:null,fixingPrice:null,selectedAsDependency:false,price:null,pricingError:'Awaiting final'}]};
+    if(path==='custom-curves/save'){const recipe={id:'saved-exact',version:1,generation:1,state:'draft',kind:'custom',definition:body.definition,marketRevisionId:body.marketRevisionId};catalog.recipes=[recipe];catalog.contextRecipes=[recipe];return {...structuredClone(recipe),...(window.wrongMarket?{marketRevisionId:'another-source-bundle'}:{})};}throw Error('Unexpected API '+path);};
    window.editor=setupCustomCurves(document.querySelector('#host'),{api,act:work=>{running=work().catch(e=>failures.push(String(e)));return running;},busy:()=>busyState,zone:()=> 'UTC',identity:()=> 'synthetic-objects-test',source:()=>({snapshotId:'synthetic-close'}),historical:()=>false,narrow:()=>false,openContractTerms:selection=>terms.push(selection),assistant:{available:()=>false,draft:()=>{}}});
    await editor.load();document.querySelector('[data-template=fixture]').click();document.querySelector('#custom-curves-dock-graph').click();
   })()`);
   assert.equal(await evaluate("document.querySelector('#custom-curves-mode-objects').getAttribute('aria-pressed')"),'true');
+  assert.equal(await evaluate('editor.dateMarketRevision()'),'source-bundle','shared date availability uses the editor\'s exact source market');
   assert.deepEqual(await evaluate("[...document.querySelectorAll('.curve-object-card')].map(c=>c.dataset.objectId)"),['gas','set','out']);
   assert.equal(await evaluate("document.querySelectorAll('.curve-object-operation').length"),2);
   assert.equal(await evaluate("document.querySelector('[data-object-id=gas] .curve-object-terms').disabled"),true,'terms require an exact saved version');
@@ -78,16 +80,35 @@ test('Objects edits retained graph operations, exact contract mappings and publi
   assert.equal(await evaluate("requests.find(r=>r.path==='custom-curves/preview').body.definition.nodes.find(n=>n.id==='set').parameters.count"),'3');
   assert.deepEqual(await evaluate('failures'),[]);
   assert.equal(await evaluate("document.querySelector('#custom-curves-values').textContent.includes('7.125')"),true,'the view displays the API answer');
-  await evaluate("document.querySelector('#custom-curves-save').click();running");
+  await evaluate("window.wrongMarket=true;document.querySelector('#custom-curves-save').click();running");
+  await evaluate('editor.sync()');
+  assert.equal(await evaluate("document.querySelector('#custom-curves-retry').closest('section,div').hidden"),false,'a different source-market receipt cannot acknowledge the command');
+  assert.equal(await evaluate("document.querySelector('#custom-curves-market').disabled"),true,'an uncorrelated receipt retains the original source-market scope');
+  await evaluate("window.wrongMarket=false;document.querySelector('#custom-curves-retry').click();running");
+  await evaluate('editor.sync()');
+  const savedRequests=await evaluate("requests.filter(r=>r.path==='custom-curves/save').map(r=>r.body)");
+  assert.equal(savedRequests.length,2);assert.deepEqual(savedRequests[1],savedRequests[0],'the exact source market and operation id survive retry');
+  assert.equal(await evaluate("document.querySelector('#custom-curves-market').value"),'source-bundle');
+  assert.equal(await evaluate('failures.length'),1);await evaluate('failures.length=0');
   assert.equal(await evaluate("requests.find(r=>r.path==='custom-curves/save').body.definition.nodes.find(n=>n.id==='set').parameters.count"),'3');
   assert.equal(await evaluate("requests.find(r=>r.path==='custom-curves/save').body.snapshotId"),'synthetic-close');
   assert.equal(await evaluate("JSON.stringify(requests.find(r=>r.path==='custom-curves/save').body.definition.nodes.find(n=>n.id==='gas').contractTerms)===JSON.stringify(retainedTerms)"),true,'normal graph save retains exact publication terms and mapping identities');
+  await evaluate("window.awaiting=true;document.querySelector('#custom-curves-preview').click();running");
+  assert.equal(await evaluate("document.querySelector('#custom-curves-values').textContent.includes('Awaiting publication')"),true,'a clean saved graph retains its exact pending contract row');
+  assert.equal(await evaluate("document.querySelector('#custom-curves-chart').hidden"),true,'saved price states do not reserve a blank valuation chart above their rows');
+  assert.equal(await evaluate('failures.length'),1);await evaluate('failures.length=0;window.awaiting=false');
   await evaluate("document.querySelector('[data-object-id=gas] .curve-object-terms').click();document.querySelector('[data-contract-terms=contract-jan-exact]').click()");
-  assert.deepEqual(await evaluate('terms'),[{curveId:'saved-exact',version:1,nodeId:'gas'},{curveId:'saved-exact',version:1,nodeId:'gas',contractId:'contract-jan-exact'}]);
+  assert.deepEqual(await evaluate('terms'),[{curveId:'saved-exact',version:1,nodeId:'gas',marketRevisionId:'source-bundle'},{curveId:'saved-exact',version:1,nodeId:'gas',marketRevisionId:'source-bundle',contractId:'contract-jan-exact'}]);
   await evaluate('busyState=true;editor.sync()');
   assert.equal(await evaluate("[...document.querySelectorAll('#custom-curves-objects button')].every(b=>b.disabled)"),true,'busy synchronization disables all object actions');
   await evaluate('busyState=false;editor.sync()');
   assert.equal(await evaluate("[...document.querySelectorAll('#custom-curves-objects button')].some(b=>b.disabled)"),false,'actions recover after the page request ends');
+  await evaluate("document.querySelector('#custom-curves-dock-graph').click();new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))");
+  await evaluate("document.querySelector('[data-object-id=gas] .curve-object-title').focus()");
+  assert.equal(await evaluate("document.activeElement?.closest('[data-object-id]')?.dataset.objectId"),'gas');
+  await evaluate("document.querySelector('.custom-curve-centre').style.width='800px';new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))");
+  assert.equal(await evaluate("document.activeElement?.closest('[data-object-id]')?.dataset.objectId"),'gas','resizing the object canvas preserves its focused control');
+  await evaluate("document.querySelector('.custom-curve-centre').style.width='';new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))");
   await evaluate("document.querySelector('#custom-curves-dock-graph').click();[...document.querySelectorAll('#custom-curves-operators button')].find(b=>b.textContent==='Contract mappings').click();document.querySelector('[data-contract-id=contract-jan-exact]').click()");
   assert.equal(await evaluate("document.querySelector('#custom-curves-object-target').options.length"),2);
   assert.equal(await evaluate("document.activeElement?.id"),'custom-curves-object-target','opening a connection moves keyboard focus to its explicit target');

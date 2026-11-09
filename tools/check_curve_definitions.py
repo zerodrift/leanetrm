@@ -374,17 +374,24 @@ def run_checks(url, query, manifest):
     assert [p['deliveryFrom'] for p in priced] == ['2021-02-01', '2021-03-01', '2021-04-01'] and all(p['value'] == direct[p['deliveryFrom']] for p in priced), (priced, direct)
     print('PASS published contract curves admit their window, members and direct source at a named close, idempotently')
 
-    # The curve list offers a curve's own configuration only to someone who may change it.
+    # Every listed curve has a configuration destination. Read-only destinations
+    # retain exact identities and say why editing is unavailable.
     def offered(who):
         return who.call('workspace/navigation')['curveConfigurations']
     pinned = viewer.call('evaluate', {'snapshotId': close(viewer, '2021-01-15'), 'curve': 'usd_rolling'})['definition']
-    assert offered(viewer) == [] and not viewer.call('curve-definitions')['canEdit'], offered(viewer)
+    viewer_configurations = offered(viewer)
+    assert viewer_configurations and all(not c['canEdit'] and 'permission' in c['reason'] for c in viewer_configurations), viewer_configurations
+    assert not viewer.call('curve-definitions')['canEdit']
     configurations = {c['curve']: c for c in offered(editor)}
-    assert configurations['usd_rolling'] == {'curve': 'usd_rolling', 'id': pinned['id'], 'version': pinned['version']}, configurations
+    assert configurations['usd_rolling'] == {'curve': 'usd_rolling', 'id': pinned['id'], 'version': pinned['version'], 'kind': 'definition', 'canEdit': True, 'reason': None}, configurations
     listed_rates = {c['code'] for c in editor.call('workspace/navigation')['curves'] if c['marketType'] == 'rates'}
     rolling_gas = next(d for d in listed(editor) if d['definition']['code'] == 'rolling_gas')
-    assert configurations['rolling_gas'] == {'curve': 'rolling_gas', 'id': rolling_gas['id'], 'version': 1}, configurations
-    assert set(configurations) == listed_rates | {'rolling_gas'}, (configurations, listed_rates)
-    print('PASS the curve list names a curve\'s configuration only for someone who may edit it')
+    assert configurations['rolling_gas'] == {'curve': 'rolling_gas', 'id': rolling_gas['id'], 'version': 1, 'kind': 'definition', 'canEdit': True, 'reason': None}, configurations
+    assert {c['curve'] for c in configurations.values() if c['canEdit']} == listed_rates | {'rolling_gas'}, (configurations, listed_rates)
+    assert set(configurations) == {c['code'] for c in editor.call('workspace/navigation')['curves']}
+    assert configurations['future']['kind'] == 'native' and configurations['future']['id'] is None and not configurations['future']['canEdit'] and 'immutable' in configurations['future']['reason']
+    retained = offered(historical)
+    assert retained and all(not c['canEdit'] and 'Historical' in c['reason'] for c in retained), retained
+    print('PASS every curve retains an exact edit or inspection destination with permission, history and immutable-native reasons')
     from check_contract_curve_integrity import run_checks as check_native_admission
     check_native_admission(query, manifest)

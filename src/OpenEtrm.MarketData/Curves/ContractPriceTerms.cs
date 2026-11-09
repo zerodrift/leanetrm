@@ -59,14 +59,15 @@ public static class ContractPriceMappings
 public sealed record ContractPriceTerms(string Settlement,PricePublicationKey? Publication,ReferenceKey? Index,
     string ObservationRule,string PendingPolicy,string? ProjectionPolicy)
 {
-    public const string ExchangeFinal="exchange_final_v1",PublishedIndex="published_index_v1",Derived="derived_inputs_v1";
+    public const string ExchangeFinal="exchange_final_v1",PublishedIndex="published_index_v1",PublishedRelease="published_release_v1",Derived="derived_inputs_v1";
+    [JsonIgnore] public bool UsesPublication=>Settlement is PublishedIndex or PublishedRelease;
     public const string SingleAssessment="single_assessment_v1",RequireFinal="require_final_v1";
     public void Validate()
     {
-        if(Settlement is not(ExchangeFinal or PublishedIndex or Derived)||PendingPolicy!=RequireFinal||ObservationRule!=SingleAssessment||
-            (Settlement==PublishedIndex)!=(Publication is not null&&Index is not null)||
-            Settlement!=PublishedIndex&&(Publication is not null||Index is not null||ProjectionPolicy is not null)||
-            Settlement==PublishedIndex&&ProjectionPolicy is not(null or PriceSettlementSelection.ForwardCurveNoBasis))throw Invalid();
+        if(Settlement is not(ExchangeFinal or PublishedIndex or PublishedRelease or Derived)||PendingPolicy!=RequireFinal||ObservationRule!=SingleAssessment||
+            UsesPublication!=(Publication is not null&&Index is not null)||
+            !UsesPublication&&(Publication is not null||Index is not null||ProjectionPolicy is not null)||
+            UsesPublication&&ProjectionPolicy is not(null or PriceSettlementSelection.ForwardCurveNoBasis))throw Invalid();
         if(Publication is {} publication&&(publication.CatalogId==Guid.Empty||publication.Id==Guid.Empty||publication.Version<1))throw Invalid();
         if(Index is {} index)Money.RequireKey(index);
     }
@@ -88,4 +89,8 @@ public sealed record ContractPriceTermsSet(ContractPriceTerms Default,ImmutableA
     public ContractKey SourceFor(ContractKey target)=>Mappings.SingleOrDefault(m=>m.Target==target)?.Source??
         throw new MarketDataException("contract_price_mapping","The exact target contract has no authored source mapping.");
 }
-public sealed record ContractPriceTermsBinding(ContractPriceTerms Terms,PricePublicationDefinition? Publication,ReferenceKey Commodity,IndexFixing? Fixing);
+public sealed record PublicationPriceEvidence(PricePublicationRelease Release,ObservationKey Observation);
+public sealed record PublicationPriceBinding(Guid OccurrenceId,PricePublicationOccurrence Occurrence,
+    DateTimeOffset KnownAt,ImmutableArray<PublicationPriceEvidence> Releases);
+public sealed record ContractPriceTermsBinding(ContractPriceTerms Terms,PricePublicationDefinition? Publication,ReferenceKey Commodity,IndexFixing? Fixing)
+{ public PublicationPriceBinding? PublicationPrices { get; init; } }

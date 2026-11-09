@@ -140,3 +140,86 @@ backend wiring with synthetic data; they do not qualify every possible graph or
 external feed. For focused reproduction, add `--authoring-browser-suite` with
 `curve-objects`, `contract-pricing-controls`, `publication-controls` or
 `price-authoring-recovery` to the appropriate owned fixture command.
+
+## Publication release resolution and existing curve repair (D364)
+
+`published_release_v1` is an explicit settlement choice. A live contract resolves
+its configured forward source. An expired contract without an eligible final
+returns `awaiting_publication` with no price. Source-row inspection can display
+that state beside other priced contracts; whole-curve valuation still refuses an
+incomplete price set. There is no implicit last-price carry or interim estimate.
+
+A final must match the exact publication version, index, observation source and
+covered period. Its actual publication instant and certified receipt knowledge
+must both be visible in the selected context. Preliminary releases never satisfy
+this mode. Corrections become eligible only at their own publication and knowledge
+coordinates. The selected final is an immutable dependency of that evaluation,
+independent of the recorded forward close; the close itself remains unchanged.
+Forward shocks therefore reprice live dependencies while selected finals stay fixed.
+
+Native curves expose Edit or Inspect with the applicable restriction. Inspecting
+an immutable native definition can start a separately named derived graph.
+Published synthetic versions open their exact saved graph. Historical context and
+missing permissions explain read-only controls. The canvas, Price setup and
+calendar share an explicit source-market selector. Unsupported or unavailable
+source frames refuse rather than silently using primary prices.
+
+Shock targets retain their exact source revision and contract identity. A shock
+to H in the admitted support market reaches that graph's live H dependents.
+Matching codes in the original primary market do not establish a cross-revision
+risk relationship; no such relationship is inferred.
+
+The Henry Hub repair tools retain the existing custom curve ID and code, its
+layout and graph operations, and publish a new version. Daily physical contracts
+select the synthetic Platts Gas Daily example; monthly physical contracts select
+the synthetic Platts IFERC example. Their configured HHD/H forward inputs remain
+separate from their publication settlements. Seven clearly labelled publication
+examples cover gas, crude, NGL, power and LNG. Unsupported methods are placeholders
+and refuse execution. No vendor data or licensed feed is included.
+
+### Qualified installation boundary
+
+The repair does not replace the primary market or rewrite earlier graph versions
+or holdings. An operator prepares a new exact reference revision and six-curve
+support bundle using `henry_hub_support.prepare_sql`. Every contract's coverage,
+expiry and fixing instant must be supplied explicitly. Forward-input capture and
+`henry_hub_forward_inputs.prepare` copy only explicitly pinned synthetic raw
+observations, retaining values and source times. Review the SQL and manifest
+fragment before a qualified schema/data window; neither preparer executes them.
+
+Admit the resulting `CurveMarkets` entry and its exact frames in the private
+manifest while retaining the primary revision. Apply the release migrations using
+the existing qualified migration process. A normal application restart alone
+does not install these data or authorize a schema change.
+
+The private API command `--admin-load-curve-examples CONFIG inspect REQUEST OUTPUT`
+reads authorized catalogs into a new private file. CONFIG names private
+`manifestFile`, `authenticatorConnectionFile` and `runtimeConnectionFile` files;
+REQUEST names `administrator`, `snapshotId` and `marketRevisionId`. The named
+administrator needs current access-management and business-operation authority.
+The command uses the normal database login boundary and stores, without an owner
+or authorization bypass.
+
+Prepare a reviewable command plan with `tools/prepare_henry_hub_example_plan.py`,
+passing the captured catalogs, explicit calendar, exact publication/source bindings,
+named administrator, snapshot, source market, existing curve code and original
+version. All input files and the new output path must be absolute and private.
+Optional final prices require explicit synthetic source facts and publication
+times; the planner generates none. Review the plan before running
+`--admin-load-curve-examples CONFIG PLAN`. Reuse that exact file after an uncertain
+outcome: each command retains its original request ID and immutable receipt.
+Conflicting successors refuse instead of overwriting another edit.
+
+Rehearse against a disposable database with Python 3.13, the installed SDK,
+stock PostgreSQL and Chromium:
+
+```sh
+python3.13 tools/run_preview.py --pg-bin /path/to/postgres/bin \
+  --dotnet /path/to/dotnet --henry-hub-wiring-check \
+  --browser-check --browser /path/to/chromium
+```
+
+This checks normal installation authority, exact replay, same-identity saved
+readback, primary preservation, daily pending/monthly forward states, editor
+controls and final-release refresh. Production activation remains a separate
+reviewed operator action.

@@ -44,7 +44,7 @@ def run_checks(query,manifest):
     token=issue();context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.capture_date_context('{catalog}','2020-12-17',NULL);COMMIT;")
     def read(expression,plan,selected_context,deadline='5s'):
         token=issue()
-        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SET LOCAL plan_cache_mode={plan};SET LOCAL statement_timeout='{deadline}';SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{selected_context}');SELECT security.use_close_session('{catalog}','scale_close');{expression};ROLLBACK;")
+        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SET LOCAL plan_cache_mode={plan};SET LOCAL statement_timeout='{deadline}';SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{selected_context}');SELECT security.use_close_session('{catalog}','scale_close');{expression};DO $mode$BEGIN IF current_setting('plan_cache_mode')<>'{plan}' THEN RAISE EXCEPTION 'Fact read changed caller planning mode';END IF;END$mode$;ROLLBACK;")
     # Compare complete ordered rows against ordinary RLS, including duplicates and corrections.
     # The deadline covers the read and its delivery; the comparison happens here.
     for plan in ['force_generic_plan','force_custom_plan']:

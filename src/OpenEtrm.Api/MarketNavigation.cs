@@ -8,8 +8,9 @@ namespace OpenEtrm.Api;
 public sealed record NavigationCategory(string Code,string Name);
 // A commodity curve names its commodity. An interest-rate curve has none; its market type identifies it.
 public sealed record NavigationCurve(string Code,string Name,string MarketType,NavigationCategory? Category,string Kind);
-// The exact definition version a listed curve is configured by.
-public sealed record CurveConfiguration(string Curve,Guid Id,int Version);
+// Every listed curve has an honest authoring destination. Native terms without an
+// admitted definition are inspectable; this metadata never admits a financial rewrite.
+public sealed record CurveConfiguration(string Curve,Guid? Id,int? Version,string Kind,bool CanEdit,string? Reason);
 public sealed record NavigationFrame(Guid Id,string Name,DateTimeOffset At,Guid? OriginCloseId=null,FrameClose? Close=null);
 public sealed record NavigationRead(DefinitionRevision DefinitionRevision,ReferenceRevision ReferenceRevision,
     ImmutableArray<NavigationCurve> Curves,ImmutableArray<CurveName> CurveNames,ReferenceDisplayData? ReferenceDisplay=null);
@@ -21,7 +22,7 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
     public string KindsVersion=>CurveKinds.Version;
     public FrameCatalogInfo? FrameCatalog{get;init;}
     public object? Live{get;init;}
-    // Only the configurations this person may change, so a curve is offered as editable by this read alone.
+    // Read-only entries retain their destination and explain why authoring is unavailable.
     public ImmutableArray<CurveConfiguration> CurveConfigurations{get;init;}=[];
 
     // Interval curves are listed by the interval-curve screen, and futures-option settlement curves by their options,
@@ -69,12 +70,24 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
     }
 
     // A curve is configured by a definition only once one is admitted: interest-rate curves (D359) and contract curves (D362).
-    internal static async Task<ImmutableArray<CurveConfiguration>> ReadConfigurations(NpgsqlConnection connection,PreviewManifest manifest,CancellationToken ct)
+    internal static async Task<ImmutableArray<CurveConfiguration>> ReadConfigurations(NpgsqlConnection connection,PreviewManifest manifest,
+        ImmutableArray<NavigationCurve> listed,bool historical,bool mayWrite,CancellationToken ct)
     {
         var configurations=ImmutableArray.CreateBuilder<CurveConfiguration>();
-        await using var command=ScheduleStore.Command(connection,"SELECT code,definition_id,definition_version FROM market_data.rate_curves WHERE catalog_id=$1 AND revision_id=$2 UNION ALL SELECT code,definition_id,definition_version FROM market_data.curves WHERE catalog_id=$1 AND revision_id=$2 AND definition_id IS NOT NULL ORDER BY code",manifest.CatalogId,manifest.RevisionId);
+        await using var command=ScheduleStore.Command(connection,"SELECT code,definition_id,definition_version FROM market_data.rate_curves WHERE catalog_id=$1 AND revision_id=$2 UNION ALL SELECT code,definition_id,definition_version FROM market_data.curves WHERE catalog_id=$1 AND revision_id=$2 ORDER BY code",manifest.CatalogId,manifest.RevisionId);
         await using var reader=await command.ExecuteReaderAsync(ct);
-        while(await reader.ReadAsync(ct))configurations.Add(new(reader.GetString(0),reader.GetGuid(1),reader.GetInt32(2)));
+        var codes=listed.Select(c=>c.Code).ToHashSet(StringComparer.Ordinal);
+        while(await reader.ReadAsync(ct))
+        {
+            var code=reader.GetString(0);if(!codes.Contains(code))continue;
+            Guid? id=reader.IsDBNull(1)?null:reader.GetGuid(1);int? version=reader.IsDBNull(2)?null:reader.GetInt32(2);
+            if((id is null)!=(version is null))throw Invalid();
+            var reason=historical?"Historical view is read-only. Return to current knowledge to edit.":!mayWrite?
+                "Editing requires market-definition authoring permission.":id is null?
+                "This curve belongs to an immutable market definition revision and has no saved curve definition. Inspect its terms or create a separate derived curve.":null;
+            configurations.Add(new(code,id,version,id is null?"native":"definition",reason is null,reason));
+        }
+        if(configurations.Count!=codes.Count||configurations.Select(c=>c.Curve).Distinct().Count()!=codes.Count)throw Invalid();
         return configurations.ToImmutable();
     }
 

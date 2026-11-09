@@ -93,7 +93,8 @@ def run_checks(url, manifest, query):
     query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{publisher}');SELECT security.publish_custom_curve('{catalog}','{other_curve}',1,1);COMMIT;")
     client.call('custom-curves/activation', {**request, 'requestId': str(uuid4()), 'curveId': other_curve})
     mismatch = client.call('custom-curves/effective-preview', {**selected, 'curveId': other_curve}, expected=422)
-    assert mismatch['code'] == 'custom_curve_definition', mismatch
+    # The cloned revision is deliberately absent from the admitted authoring markets.
+    assert mismatch['code'] == 'curve_market', mismatch
     foreign_catalog, foreign_curve = str(uuid4()), str(uuid4())
     authentication = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','approver','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120);")
     accepted=[]

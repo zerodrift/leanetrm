@@ -90,8 +90,12 @@ the complete native result and bounds work per relation so reductions elsewhere
 cannot conceal repeated authorization work. The disposable fixture freezes automatic
 table maintenance during each comparison, checks unchanged non-curve planner
 statistics and restores original maintenance settings, including after refusal.
-The analyzed layout covers the full database's RLS dependencies before recording
-its baseline. Stale small-table estimates can still cause one physical curve scan;
+The certified context is captured once before measuring either planning mode;
+all baselines and growth reads reuse it, and the three context-table populations
+must remain unchanged. Capturing a second view during baseline setup would
+otherwise enlarge an earlier measurement's RLS inputs. The analyzed layout
+covers the full database's RLS dependencies before recording its baseline.
+Stale small-table estimates can still cause one physical curve scan;
 this is not a history-independent scan or
 latency claim. The ordinary five-second command deadline is unchanged.
 

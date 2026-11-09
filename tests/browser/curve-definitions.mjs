@@ -101,9 +101,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('reviewed changed rows are adopted on save',"document.querySelector('#error').hidden&&document.querySelector('#curve-definition-stale').hidden&&document.querySelector('#curve-definition-status').textContent.includes('Saved draft')",
   "({error:document.querySelector('#error').textContent,status:document.querySelector('#curve-definition-status').textContent})");
  await click('#curve-definition-back');await wait(idle);
- // Recorded prices keep their own correction workflow; a rendered curve offers no way to change what defines it.
- await check('rendered curves have no definition edit control',
-  "!document.querySelector('#market-board').hidden&&!document.querySelector('#market-board [id^=curve-definition-],#curve-detail [id^=curve-definition-]:not(#curve-definition-link)')&&![...document.querySelectorAll('#market-board button,#curve-detail button:not(#curve-definition-link)')].some(b=>/definition|tenor|publish/i.test(b.textContent))");
+ // Editing is an explicit destination, separate from the recorded-price surface.
+ await check('market cards offer a separate configuration destination',
+  "!document.querySelector('#market-board').hidden&&document.querySelectorAll('#market-board [data-curve-configure]').length===document.querySelectorAll('#market-board .market-card').length&&!document.querySelector('#market-board [id^=curve-definition-]')");
  // D359: an admitted rate curve is shown by tenor, in its own mark unit, with a link to (not an editor for) its definition.
  await evaluate("document.querySelector('.curve-button[data-curve=\"usd_rolling\"]').click()");await wait("document.querySelectorAll('#contracts tbody tr').length===2&&"+idle,30000);
  const rateTable="({head:[...document.querySelectorAll('#contracts thead th')].map(c=>c.textContent).join('|'),rows:[...document.querySelectorAll('#contracts tbody tr')].map(r=>r.textContent).join('|'),unit:document.querySelector('#unit').textContent})";
@@ -113,12 +113,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('the page links to the curve\u2019s definition',"!document.querySelector('#curve-definition-link').hidden");
  await click('#curve-definition-link');await wait("!document.querySelector('#curve-definition').hidden&&"+idle,30000);
  await check('the link opens the curve definition the curve pins',"document.querySelector('#curve-definition-code').value==='usd_rolling'&&document.querySelector('#curve-definition-code').readOnly");
- // The gear on a listed curve opens that curve's own configuration, and only for someone the backend says may change it.
+ // Every curve retains its inspection destination; editability is the backend's.
  const gear='#curves [data-curve-configure="usd_rolling"]';
  await click('#curve-definition-back');await wait(idle);
- await check('only a curve with a configuration this person may edit has a gear',
-  `document.querySelector(${JSON.stringify(gear)})&&document.querySelectorAll('#curves [data-curve-configure]').length<document.querySelectorAll('#curves .curve-button[data-curve]').length`);
- await check('the gear names the curve it configures',`document.querySelector(${JSON.stringify(gear)}).getAttribute('aria-label').startsWith('Configure ')`);
+ await check('every listed curve has a configuration action',
+  `document.querySelector(${JSON.stringify(gear)})&&document.querySelectorAll('#curves [data-curve-configure]').length===document.querySelectorAll('#curves .curve-button[data-curve]').length`);
+ await check('the gear names its actual editing action',`document.querySelector(${JSON.stringify(gear)}).getAttribute('aria-label').startsWith('Edit definition:')`);
  await check('the gear is not nested in the button that opens the curve',`!document.querySelector(${JSON.stringify(gear)}).closest('.curve-button')`);
  await click(gear);await wait("!document.querySelector('#curve-definition').hidden&&document.querySelector('#curve-definition-code').value==='usd_rolling'&&"+idle,30000);
  await check('the gear opens that curve’s configuration',"document.querySelector('#curve-definition-code').readOnly&&document.querySelector('#curve-definition-code').value==='usd_rolling'");
@@ -130,10 +130,21 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('the gear opens the futures curve\u2019s definition',"document.querySelector('#curve-definition-code').readOnly&&document.querySelector('#curve-definition-kind').value==='future'&&document.querySelectorAll('#curve-definition-rows tr').length===3",
   "({kind:document.querySelector('#curve-definition-kind').value,rows:document.querySelectorAll('#curve-definition-rows tr').length,error:document.querySelector('#error').textContent})");
  await click('#curve-definition-back');await wait(idle);
+ await click('#curves [data-curve-configure="future"]');await wait("!document.querySelector('#native-curve-inspector').hidden&&"+idle);
+ await check('a seeded native curve shows its retained terms and immutable editing limit',
+  "document.querySelector('#native-curve-inspector-reason').textContent.includes('immutable')&&document.querySelector('#native-curve-inspector').textContent.includes('daily_settlement')&&!document.querySelector('#native-curve-derive').hidden&&document.querySelector('#error').hidden");
+ await click('#native-curve-derive');await wait("!document.querySelector('#custom-curves-page').hidden&&document.querySelector('[data-object-id=source]')&&"+idle);
+ await check('a derived curve starts with the exact source and a distinct unset identity',
+  "document.querySelector('#custom-curves-code').value===''&&document.querySelector('[data-object-id=source]').dataset.role==='curve'&&document.querySelector('#custom-curves-page').textContent.includes('New derived curve')&&document.querySelector('#error').hidden");
+ await click('#curve-price-contracts');await wait("!document.querySelector('#custom-curves-page-prompt').hidden");await click('#custom-curves-page-prompt button:last-child');await wait(idle);
  await persona('viewer');await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
- await check('a reader sees no gear',"document.querySelectorAll('#curves [data-curve-configure]').length===0");
+ await check('a reader retains inspection actions with an authoring permission reason',"document.querySelectorAll('#curves [data-curve-configure]').length===document.querySelectorAll('#curves .curve-button[data-curve]').length&&[...document.querySelectorAll('#curves [data-curve-configure]')].every(b=>b.dataset.canEdit==='false'&&b.title.includes('permission'))");
+ await click(gear);await wait("!document.querySelector('#curve-definition').hidden&&"+idle);
+ await check('read-only definition inspection preserves its exact pin and explains access',"document.querySelector('#curve-definition-code').value==='usd_rolling'&&document.querySelector('#curve-definition-status').textContent.includes('permission')&&document.querySelector('#curve-definition-save').hidden");
  await persona('editor');await wait(`document.querySelector(${JSON.stringify(gear)})&&`+idle);
  await click('#as-of-context>summary');await click('#date-context-latest');await click('#apply-view-context');await wait("document.querySelector('#date-context').dataset.contextMode==='retained'&&"+idle,30000);
- await check('a historical view offers no gear, as it cannot author',"document.querySelectorAll('#curves .curve-button[data-curve]').length>0&&document.querySelectorAll('#curves [data-curve-configure]').length===0",
+ await check('a historical view retains inspection actions with a read-only reason',"document.querySelectorAll('#curves .curve-button[data-curve]').length>0&&[...document.querySelectorAll('#curves [data-curve-configure]')].every(b=>b.dataset.canEdit==='false'&&b.title.includes('Historical'))",
   "({error:document.querySelector('#error').textContent,buttons:document.querySelectorAll('#curves .curve-button[data-curve]').length,gears:document.querySelectorAll('#curves [data-curve-configure]').length,mode:document.querySelector('#date-context').dataset.contextMode,known:document.querySelector('#date-context-view').value})");
+ await click(gear);await wait("!document.querySelector('#curve-definition').hidden&&"+idle);
+ await check('historical definition inspection exposes its reason and no save or publish action',"document.querySelector('#curve-definition-status').textContent.includes('Historical')&&document.querySelector('#curve-definition-save').hidden&&document.querySelector('#curve-definition-publish').hidden");
 }

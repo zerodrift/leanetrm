@@ -38,7 +38,7 @@ const ROW_FIELDS={dates:[['label','Label'],['date','Date · date or reference']]
  * names its reference terms and an exact mapping version; its contracts or tenors are that mapping's rows, edited in place and saved as
  * the mapping's draft with the curve. The server validates, resolves at the header's selected close and publishes; this view only presents.
  */
-export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=>Promise<void>,close:()=>string,zone:()=>string,isBusy:()=>boolean,leave:()=>void){
+export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=>Promise<void>,close:()=>string,zone:()=>string,isBusy:()=>boolean,leave:()=>void,authoringUnavailable:()=>string|null=()=>null){
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=publicText(text);return n;};
   const element=el('div');element.className='card curve-definition-editor';
   const form=el('form'),result=el('div'),title=el('h3'),summary=el('p'),table=el('div');
@@ -167,10 +167,10 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
       label.append(el('strong',`${version.definition.name} · ${version.definition.code}`),el('span',`Version ${version.version} · ${version.state} · ${version.definition.contractKind==='interest_rate'?'interest rate':version.definition.contractKind}`));
       openButton.onclick=()=>{if(!isBusy())open(version);};row.append(label,openButton);list.append(row);
     }
-    save.hidden=!library.canEdit;publish.hidden=!library.canPublish||opened?.state!=='draft';
+    save.hidden=!library.canEdit||!!authoringUnavailable();publish.hidden=!library.canPublish||!!authoringUnavailable()||opened?.state!=='draft';
   }
   function open(version:Saved){
-    opened=version;const d=version.definition;clear();status.textContent='';
+    opened=version;const d=version.definition;clear();status.textContent=authoringUnavailable()??(!library.canEdit?'Editing requires market-definition authoring permission.':'');
     set('code',d.code);set('name',d.name);set('kind',d.contractKind);(fields.get('code') as HTMLInputElement).readOnly=true;
     set('location',d.commodity&&d.location?d.commodity+'|'+d.location:'');set('product',d.futuresProduct);
     set('quote',d.quote);set('profile',d.profile);set('target',d.settlementTarget);set('rule',d.priceRule);set('role',d.markRole);set('source',d.markSource);
@@ -234,11 +234,11 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
     await load();const saved=library.definitions.find(d=>d.id===receipt.id&&d.version===receipt.version);if(saved)open(saved);
     status.textContent=`${receipt.state==='published'?'Published':'Saved draft'} · version ${receipt.version}.`;
   }
-  save.onclick=()=>{if(isBusy()||!form.reportValidity())return;void run(async()=>{
+  save.onclick=()=>{if(isBusy()||authoringUnavailable()||!library.canEdit||!form.reportValidity())return;void run(async()=>{
     if(!stale.hidden)throw Error('The mapping rows changed after this curve was saved. Review them, then choose to use them before saving.');
     await command('curve-definitions/save',{definition:draft(),snapshotId:close(),mapping:mappingEdit(),
     id:opened?.id??null,version:opened?.version??null,generation:opened?.generation??null,expectedState:opened?.state??null});});};
-  publish.onclick=()=>{if(isBusy()||!opened)return;const target=opened;void run(()=>command('curve-definitions/publish',{id:target.id,version:target.version,generation:target.generation}));};
+  publish.onclick=()=>{if(isBusy()||authoringUnavailable()||!library.canPublish||!opened)return;const target=opened;void run(()=>command('curve-definitions/publish',{id:target.id,version:target.version,generation:target.generation}));};
   async function load(){
     const started=++generation;
     const [read,dates,saved]=await Promise.all([api<Catalog>('curve-definitions/catalog'),api<{contractDefinitions:Mapping[]}>('date-schedules'),api<Library>('curve-definitions')]);
@@ -250,7 +250,7 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
 
   return {element,load,
     // A rendered curve's link to its definition (D359): opens the definition, at the version that curve pins.
-    async openDefinition(id:string,version:number){await load();const saved=library.definitions.find(d=>d.id===id&&d.version===version);if(!saved)throw Error('This curve\u2019s definition is not available to you.');open(saved);},
+    async openDefinition(id:string,version:number,reason:string|null=null){await load();const saved=library.definitions.find(d=>d.id===id&&d.version===version);if(!saved)throw Error('This curve\u2019s definition is not available to you.');open(saved);if(reason)status.textContent=reason;},
     // Reads the catalog whenever the editor opens, so a mapping published meanwhile is listed.
     shown(){void run(load);},
     // A changed close or market context makes the shown window and the pinned choices stale; the next opening reads them again.

@@ -51,6 +51,11 @@ def run_checks(query, manifest, owner, profile, request, dotnet, environment, ow
 
     modes = ('force_custom_plan', 'force_generic_plan')
 
+    def context_rows():
+        return query("SELECT (SELECT count(*) FROM trading.contexts),"
+                     "(SELECT count(*) FROM market_data.market_contexts),"
+                     "(SELECT count(*) FROM market_data.temporal_contexts);")
+
     def grow():
         # Add only unrelated synthetic definition rows, never rewrite a source.
         # The owned fault bypasses immutable-publication triggers, not read RLS.
@@ -71,7 +76,14 @@ def run_checks(query, manifest, owner, profile, request, dotnet, environment, ow
         while query("SELECT count(*) FROM pg_stat_activity WHERE backend_type='autovacuum worker' AND datname=current_database();") != '0':
             assert time.monotonic() < deadline, 'Owned table maintenance did not finish'
             time.sleep(.1)
-        baseline = {mode: measure(mode) for mode in modes}
+        # Capturing a view inserts into all three context tables. Seed it before
+        # measuring either mode so later captures cannot enlarge an earlier
+        # baseline's RLS inputs independently of the unrelated curve growth.
+        seed = measure(modes[0])
+        held_context_rows = context_rows()
+        baseline = {mode: measure(mode, seed) for mode in modes}
+        assert all(result['context'] == seed['context'] for result in baseline.values()), 'Planner comparisons require one shared certified context'
+        assert context_rows() == held_context_rows, 'Baseline measurement created another context'
         for layout in ('fresh_growth', 'analyzed_growth'):
             if layout == 'analyzed_growth':
                 query('VACUUM(ANALYZE);')
@@ -85,6 +97,7 @@ def run_checks(query, manifest, owner, profile, request, dotnet, environment, ow
             for mode in modes:
                 measured = measure(mode, baseline[mode])
                 assert statistics() == held_statistics, 'Non-curve planner statistics changed during the billing work comparison'
+                assert context_rows() == held_context_rows, 'Billing work comparison created another context'
                 before, after = baseline[mode]['tables'], measured['tables']
                 # Stale small-table estimates may still choose one raw curve scan.
                 # Unrelated rows must not fan out the authorized metadata chain.

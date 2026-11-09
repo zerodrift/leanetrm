@@ -2,10 +2,10 @@
 from assistant_context import check_guard
 
 
-def run_checks(query, migration, *, number='0223', guard='fact_anchor_upgrade'):
+def run_checks(query, migration, *, number='0223', guard='fact_anchor_upgrade', signatures=None):
     changes = []
-    for signature in ('security.read_observation_facts(uuid,uuid,uuid[])',
-                      'security.observation_visibility_scope(uuid,uuid,uuid[])'):
+    for signature in signatures or ('security.read_observation_facts(uuid,uuid,uuid[])',
+                                    'security.observation_visibility_scope(uuid,uuid,uuid[])'):
         for change in (f"ALTER FUNCTION {signature} SET work_mem='64kB';",
                        f"ALTER FUNCTION {signature} STRICT;",
                        f"ALTER FUNCTION {signature} LEAKPROOF;",

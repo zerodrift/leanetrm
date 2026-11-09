@@ -9,6 +9,7 @@ import {sameReferenceSource} from './reference-scope.js';
 import {setupCrudeConfiguration} from './crude-setup-editor.js';
 import {setupScheduleWorkspace} from './schedule-workspace.js';
 import {setupCurveDefinitionEditor} from './curve-definition-editor.js';
+import {setupNativeCurveInspector} from './native-curve-inspector.js';
 import {askCloseChoice,closeLink,closeLinkHref,type CloseTarget} from './close-choice.js';
 import {streamBlotter} from './blotter-stream.js';
 import {setupPhysicalLng} from './physical-lng-editor.js';
@@ -24,6 +25,7 @@ import {setupCustomCurves} from './custom-curves-view.js';
 import {setupPriceSetup} from './price-setup.js';
 import {LiveUpdates,liveContextUpdate,type LiveSelection,type LiveContextUpdate,type LiveStatus} from './live-context.js';
 import {setupMarketCalendar,type MarketDates} from './market-calendar.js';
+import {acknowledgesAuthoringMarket} from './authoring-market.js';
 import {otherSessionRefusal,sessionOffer,linkedFrame,type FrameClose} from './close-sessions.js';
 import {newestDate,newestClose,closeBadge,latestInstant,type CloseBadge,type CloseChoice} from './latest-close.js';
 import {setupPowerImports} from './power-imports-view.js';
@@ -68,7 +70,7 @@ import {setupOperatingPolicy} from './operating-policies.js';
 import {setupShortcutEditor} from './shortcut-view.js';
 import {apiRefusal} from './api-refusal.js';
 import {setupTouProducts} from './tou-products.js';
-import {validateMarketNavigation,navigationGroups,navigationCategories,navigationCurveKind,type MarketNavigation,type FrameSummary,type CurveConfiguration} from './market-navigation.js';
+import {validateMarketNavigation,navigationGroups,navigationCategories,navigationCurveKind,curveConfigurationAction,type MarketNavigation,type FrameSummary,type CurveConfiguration} from './market-navigation.js';
 import {navigationGroups as sidebarGroups,pageGroup,pageAvailable,firstPage} from './navigation-groups.js';
 import {setupAssistant} from './assistant-panel.js';
 import {pageReport,webPage,type PageState,type PageContext,type Place} from './assistant-pages.js';
@@ -321,7 +323,7 @@ function invalidateMarketDates(){
  marketDateGeneration++;marketDatesLoaded=false;
  marketCalendar.invalidate(contextDirty?'Apply the changed history and knowledge context first.':'Open the calendar to check available closes.');
 }
-type MarketDatesRequest={curve:string|null;timeZone:string;session:string;definition:unknown;maximumDates?:number};
+type MarketDatesRequest={curve:string|null;timeZone:string;session:string;definition:unknown;maximumDates?:number;marketRevisionId?:string};
 const datesMismatch=()=>Error('The available market dates do not match this workspace. Reload the calendar.');
 // What the calendar offers for one scope, checked as describing this workspace. It resolves to nothing when the
 // workspace or the scope changed while it loaded, since that answer no longer applies.
@@ -332,7 +334,7 @@ async function readAvailability(request:MarketDatesRequest):Promise<MarketDates|
  if(stale())return undefined;
  const frames=catalog.dates.flatMap(group=>group.frames);
  // Every close's time must be readable, as the newest close and the badge compare them, before anything keeps the answer.
- if(catalog.selectionPolicy!=='exact_snapshot_no_close_substitution_v1'||catalog.timeZone!==prefs.timeZone||catalog.curve!==request.curve||
+ if(!acknowledgesAuthoringMarket(catalog,request)||catalog.selectionPolicy!=='exact_snapshot_no_close_substitution_v1'||catalog.timeZone!==prefs.timeZone||catalog.curve!==request.curve||
   JSON.stringify(catalog.context??null)!==JSON.stringify(historicalContext()??null)||new Set(frames.map(close=>close.id)).size!==frames.length||
   catalog.dates.some(group=>!/^\d{4}-\d{2}-\d{2}$/.test(group.date)||!group.frames.length)||frames.some(close=>Number.isNaN(Date.parse(close.at))))
   throw datesMismatch();
@@ -359,7 +361,8 @@ async function openMarketCalendar(date?:string):Promise<void>{
  const definition=page==='custom-curves'?customCurves.dateDefinition():undefined;
  if(page==='custom-curves'&&!definition){marketCalendar.unavailable('Complete a curve graph or apply your formula to see available closes.');marketCalendar.show();return;}
  if(closeSession===null){marketCalendar.unavailable('Choose a close session to see its closes.');marketCalendar.show();return;}
- const request={curve:(page==='market'||page==='power')&&curve?curve:null,timeZone:prefs.timeZone,session:closeSession,definition:definition??null};
+ const marketRevisionId=definition?customCurves.dateMarketRevision():undefined;
+ const request={curve:(page==='market'||page==='power')&&curve?curve:null,timeZone:prefs.timeZone,session:closeSession,definition:definition??null,...(marketRevisionId?{marketRevisionId}:{})};
  marketCalendar.loading();
  try{
   const catalog=await readMarketDates(request);
@@ -449,7 +452,7 @@ function renderMarketBoard(){
   text('market-board-status',close?`Prices at the close of ${instant(close.at)}`:'');
   text('market-board-empty-title',contextDirty?'Apply the changed context':'Choose a market date');
   text('market-board-empty-help',contextDirty?'View the changed context, then choose a close in As of to see every curve at it.':'Pick a close in As of above to see every curve at that close, or choose a curve from the list.');
-  if(shown&&close)renderBoard($('market-board-groups'),board(),chooseCurve,busy,curve=>lastCloses.get(curve)?.businessDate??null);else $('market-board-groups').replaceChildren();
+  if(shown&&close)renderBoard($('market-board-groups'),board(),chooseCurve,busy,curve=>lastCloses.get(curve)?.businessDate??null,code=>{const configuration=directory().curveConfigurations.find(c=>c.curve===code);return configuration?curveConfigurationButton(curveName(code),configuration):null;});else $('market-board-groups').replaceChildren();
 }
 // Optional card and library sparklines read only after their element enters the viewport.
 // Every delayed reply is tied to the same account directory, close and context.
@@ -480,7 +483,7 @@ async function loadBoard(){
   };
   boardObserver=observer;observeBoard=observe;boardLoading={owner,generation:started,scope,reading:reader.busy};renderBrowse();renderMarketBoard();observe();
 }
-// The gear beside a listed curve, which the backend names only for someone who may change that curve.
+// Every curve keeps an inspection destination, even when its authoring is unavailable.
 // Each listed curve's newest close in the chosen session, from the backend. A read that fails leaves the curves naming none.
 let lastCloses:ReadonlyMap<string,{curve:string;id:string;businessDate:string;at:string}>=new Map(),lastClosesRead=0;
 const lastCloseText=(code:string)=>{const last=lastCloses.get(code);return last?` · last close ${displayDate(last.businessDate)}`:'';};
@@ -531,9 +534,12 @@ async function selectLinkedClose(id:string):Promise<CloseChoice>{
  text('close-window-note',`Separate window · ${frameName(frame)}. Your other window keeps its own As of.`);
  return {kind:'single',closeId:frame.id,date:frame.close?.businessDate??''};
 }
+function curveConfigurationButton(name:string,configuration:CurveConfiguration,compact=false){
+  const action=curveConfigurationAction(configuration),gear=el('button',compact?'⚙\uFE0E':action);gear.type='button';gear.className=compact?'curve-configure':'secondary';gear.dataset.curveConfigure=configuration.curve;gear.dataset.canEdit=String(configuration.canEdit);
+  gear.title=`${action}: ${name}${configuration.reason?' · '+configuration.reason:''}`;gear.setAttribute('aria-label',`${action}: ${name}`);gear.disabled=busy||contextDirty;gear.onclick=()=>void openCurveConfiguration(configuration);return gear;
+}
 function curveRow(curveButton:HTMLButtonElement,name:string,configuration:CurveConfiguration){
-  const row=el('div'),gear=el('button','⚙\uFE0E');row.className='curve-row';gear.type='button';gear.className='curve-configure';gear.dataset.curveConfigure=configuration.curve;
-  gear.title=`Configure ${name}`;gear.setAttribute('aria-label',gear.title);gear.disabled=busy;gear.onclick=()=>void openCurveConfiguration(configuration);row.append(curveButton,gear);return row;
+  const row=el('div');row.className='curve-row';row.append(curveButton,curveConfigurationButton(name,configuration,true));return row;
 }
 function renderBrowse(){
   const categories=navigationCategories(directory()),commodities=categories.map(c=>c.code);
@@ -558,7 +564,8 @@ function renderContext(){
     // A rate curve's currency is its own (D359); its mark unit is stated by the evaluated result.
     const rateCurrency=kind==='rates'?val(c,'currency_code'):undefined;
     text('unit',rateCurrency?`${val(row('currencies','code',rateCurrency,true),'display_code')}${result?.kind==='rates'&&result.markUnitLabel?' · '+result.markUnitLabel:''}`:unit(val(c,'quote_code')));
-    $('curve-definition-link').hidden=!(result?.kind==='rates'&&result.definition);
+    const configuration=directory().curveConfigurations.find(c=>c.curve===curve),link=$<HTMLButtonElement>('curve-definition-link');link.hidden=!configuration;
+    if(configuration){link.textContent=curveConfigurationAction(configuration);link.title=configuration.reason??'Open the exact saved definition';link.disabled=busy||contextDirty;}
     text('chart-title',kind==='rates'?'Zero-rate curve':kind==='futures'?'Futures curve':kind==='forwards'?'Forward curve':'Mixed curve');
     text('source-title',kind==='rates'?'Rates behind this curve':'Prices behind this curve');text('source-help',kind==='rates'?'Annual zero rates for the listed maturities.':'Prices and conversion factors for the selected market date.');text('contracts-help',kind==='rates'?'Choose a maturity to see its rate history and how it’s priced.':'Choose a contract to see its price history and how it’s priced.');
     renderDependencies();if(result)renderInputs();}
@@ -919,6 +926,7 @@ async function showCloseHistory(){
 }
 async function loadNavigation(){
   riskJobs.contextChanged();
+  if(!nativeCurveInspector.element.hidden){nativeCurveInspector.element.hidden=true;definingCurve=false;}
   const started=++marketGeneration,profile=currentProfile,scope=administrationScope;
   workspace=undefined;navigation=undefined;clearReference();referenceNavigation.clear();setCurveNames([]);$('curves').replaceChildren();
   const next=validateMarketNavigation(await api<MarketNavigation>('workspace/navigation'));
@@ -1109,12 +1117,17 @@ const assistantPolicy=setupOperatingPolicy($('assistant-policy-page'),'assistant
 const aiSettings=setupAiSettings({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,tabs:()=>aiTabs(permissions)});
 // Defining a curve takes the place of the board or a curve; it previews at the header's selected close.
 const curveDefinitions=setupCurveDefinitionEditor(api,act,()=>{if(contextDirty)throw Error('Apply the changed market context first.');return select('snapshot').value;},
-  ()=>prefs.timeZone,()=>busy,()=>{definingCurve=false;renderMarketBoard();});
-$('curve-definition').append(curveDefinitions.element);
-$('curve-define').onclick=()=>void act(async()=>{await selectCurve('');definingCurve=true;renderMarketBoard();await curveDefinitions.load();});
-// A rendered rate curve is read-only; its definition is changed only in Curve definitions (D359).
-function openCurveConfiguration(pinned:{id:string;version:number}){return act(async()=>{await selectCurve('');definingCurve=true;renderMarketBoard();await curveDefinitions.openDefinition(pinned.id,pinned.version);});}
-$('curve-definition-link').onclick=()=>{const pinned=result?.kind==='rates'?result.definition:null;if(pinned)void openCurveConfiguration(pinned);};
+  ()=>prefs.timeZone,()=>busy,()=>{definingCurve=false;renderMarketBoard();},()=>contextDirty?'Apply the changed market context first.':historicalContext()?'Historical view is read-only. Return to current knowledge to edit.':null);
+const nativeCurveInspector=setupNativeCurveInspector(()=>{definingCurve=false;renderMarketBoard();},code=>leaving(async()=>{await setPage('custom-curves');await customCurves.load(directory().definitionRevision.revisionId);await customCurves.openSource(code,directory().definitionRevision.revisionId);}),()=>busy);
+$('curve-definition').append(curveDefinitions.element,nativeCurveInspector.element);nativeCurveInspector.element.hidden=true;
+$('curve-define').onclick=()=>void act(async()=>{await selectCurve('');definingCurve=true;curveDefinitions.element.hidden=false;nativeCurveInspector.element.hidden=true;renderMarketBoard();await curveDefinitions.load();});
+function openCurveConfiguration(configuration:CurveConfiguration){return act(async()=>{
+  if(contextDirty)throw Error('Apply the changed market context first.');
+  await selectCurve('');definingCurve=true;curveDefinitions.element.hidden=configuration.kind==='native';nativeCurveInspector.element.hidden=configuration.kind!=='native';renderMarketBoard();
+  if(configuration.kind==='definition')await curveDefinitions.openDefinition(configuration.id!,configuration.version!,configuration.reason);
+  else{await loadWorkspace();nativeCurveInspector.show(data(),configuration,curveName(configuration.curve),can('WriteMarketDefinitions')&&!historicalContext());}
+});}
+$('curve-definition-link').onclick=()=>{const configuration=directory().curveConfigurations.find(c=>c.curve===curve);if(configuration)void openCurveConfiguration(configuration);};
 const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext,()=>administrationScope+':'+currentProfile,{holds:holdsEdits,mayChange:async()=>!busy&&await mayLeave()},work=>act(work,{keepNotice:true}),(title,events,owner)=>{if(events.length)scheduleWorkspace?.calendar.show(title,events,owner);else scheduleWorkspace?.calendar.clear(owner);},()=>{if(contextDirty)throw Error('Apply the changed context first.');return select('snapshot').value;},()=>{if(initialWorkspaceReady)syncUnloadQuestion();});
 const priceSetup=setupPriceSetup($('price-setup-page'),{api,act,unsavedChanged:()=>{if(initialWorkspaceReady)syncUnloadQuestion();},busy:()=>busy,identity:()=>administrationScope+':'+exampleId+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),snapshot:()=>{if(contextDirty)throw Error('Apply the changed context first.');return select('snapshot').value;}},{open:async()=>{await showPage('schedules');scheduleWorkspace?.show('contracts');}});
 $('date-context').addEventListener('input',dirtyContext);$('business-date-field').addEventListener('input',dirtyContext);
@@ -1413,11 +1426,11 @@ async function showTarget(report:string,selection:Record<string,unknown>|null,ki
         if(requested!==scope())throw Error('The account or financial context changed. Open the saved draft again.');
         signal?.throwIfAborted();await setPage('custom-curves');await customCurves.load();
         if(requested!==scope())throw Error('The account or financial context changed. Open the saved draft again.');
-        customCurves.openSaved(draft,editor);return;
+        await customCurves.openSaved(draft,editor);return;
       }
       const proposal=await api<Parameters<typeof customCurves.openPrepared>[0]>('assistant/curve-proposal',selection);
       if(requested!==scope())throw Error('The account or financial context changed. Review the proposed curve again.');
-      signal?.throwIfAborted();await setPage('custom-curves');await customCurves.load();
+      signal?.throwIfAborted();await setPage('custom-curves');await customCurves.load(directory().definitionRevision.revisionId);
       if(requested!==scope())throw Error('The account or financial context changed. Review the proposed curve again.');
       customCurves.openPrepared(proposal,editor);return;
     }
