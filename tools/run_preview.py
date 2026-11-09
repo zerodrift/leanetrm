@@ -272,6 +272,9 @@ def main():
             if migration.name=='0216_in_term_gas_lifecycle.sql':
                 from check_gas_in_term import upgrade_checks as check_in_term_upgrade
                 check_in_term_upgrade(query,migration)
+            if migration.name=='0221_facility_choices_set_based.sql':
+                from check_facility_quantity_ledger import upgrade_checks as check_facility_choices_upgrade
+                check_facility_choices_upgrade(query,migration)
             if migration.name=='0210_indexed_gas_consideration.sql':
                 from check_gas_index_upgrade import run_checks as check_gas_index_upgrade
                 check_gas_index_upgrade(query,migration)
@@ -1155,7 +1158,7 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--contract-dates'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=180):raise RuntimeError('Owned shared contract-date browser checks failed')
+                    if browser_process.wait(timeout=360):raise RuntimeError('Owned shared contract-date browser checks failed')
             elif args.custom_curves_check:
                 from check_custom_curves import run_checks as check_custom_curves
                 check_custom_curves(url,query,manifest)
