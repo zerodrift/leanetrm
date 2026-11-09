@@ -45,6 +45,11 @@ export async function run(actions){
   `(()=>{const text=document.querySelector('#position-details .ticket-measures').textContent,lines=[...document.querySelectorAll('#position-details .ticket-measures .ticket-summary-line')].map(l=>l.textContent);
    return lines[4]==='Expected cash by due date · not added to the total'&&${q(fixture.expectedCash)}.every((amount,n)=>lines[5+n].endsWith(amount+' '+${q(currency)}))&&lines.length===5+${fixture.expectedCash.length}&&!/(?<!un)discounted|present value/i.test(text);})()`);
 
+ await click('#position-details .ticket-tab[data-tab="instrument"]');
+ const tags="[...document.querySelectorAll('#position-details .ticket-grid .grid-source')].map(tag=>tag.textContent)";
+ await wait(`${tags}.length>0`,30000);
+ await check('the Instrument schedule marks ended gas days delivered',`${tags}.includes('Delivered')`,tags);
+
  await sideRows('payment');
  await check('a paid cash day says when it was paid and an accrued unpaid one gives its due date',
   `(()=>{const r=[...document.querySelectorAll(${q(rows)})].map(x=>x.textContent),paid=r.filter(t=>t.includes('Cash: Paid')),unpaid=r.filter(t=>t.includes('Cash: Accrued unpaid'));

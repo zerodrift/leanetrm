@@ -230,6 +230,29 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
     assert (booked['measures'], booked['currency']) == (measures, read['currency']), booked['measures']
     print('PASS the in-term read reports unrealized, realized unsettled, their labelled sum and undiscounted expected cash', flush=True)
 
+    # The ticket's schedule shows every day of the term: ended days at their contract quantity, marked delivered, with no market price or amount.
+    assert booked['scheduleRefusal'] is None, booked['scheduleRefusal']
+    schedule = booked['schedule']
+    shown_days = {date.fromisoformat(r['key']): r for r in schedule['rows'] if r['level'] == 'day'}
+    assert sorted(shown_days) == days, sorted(shown_days)
+    for day, row in shown_days.items():
+        gas_quantity, gas_price, gas_amount = (row['cells'][f'gas.{column}'] for column in ('quantity', 'market_price', 'amount'))
+        assert Fraction(gas_quantity['value']) == 100, row
+        if ended(day):
+            assert row['delivered'] and 'delivered' in gas_quantity['sources'] and 'contract' in gas_quantity['sources'], row
+            assert gas_price['value'] is None and gas_amount['value'] is None and gas_price['sources'] == gas_amount['sources'] == ['delivered'], row
+        else:
+            assert not row['delivered'] and 'delivered' not in gas_quantity['sources'] and Fraction(gas_price['value']) == location[day] and Fraction(gas_amount['value']) == 100 * location[day], row
+        assert row['cells']['payment.amount']['value'] is not None and 'delivered' not in row['cells']['payment.amount']['sources'], row
+    term_quantity = 100 * len(days)
+    side_quantity = next(s for s in read['sides'] if s['code'] == 'gas')['quantity']
+    assert Fraction(schedule['totals']['gas.quantity']['value']) == term_quantity == Fraction(int(side_quantity['numerator']), int(side_quantity['denominator'])), schedule['totals']
+    assert Fraction(schedule['totals']['gas.amount']['value']) == remaining_physical, schedule['totals']['gas.amount']
+    assert Fraction(next(s for s in booked['summaries'] if s['side'] == 'gas')['billedQuantity']) == term_quantity, booked['summaries']
+    assert Fraction(schedule['totals']['trade.net_cash']['value']) == sum(Fraction(r['cells']['payment.amount']['value']) for r in shown_days.values()), schedule['totals']['trade.net_cash']
+    assert (schedule['deliveredLeaves'], schedule['leaves']) == (sum(map(ended, days)), len(days)), schedule['leaves']
+    print('PASS the booked ticket shows every gas day: ended days at contract quantity marked delivered without a market amount, later days valued, the whole term in the quantity total', flush=True)
+
     # The Side inspector shows each gas day's delivery, price and settlement state.
     position = dict(context={**working, 'convention': 'trading_workspace_v1'}, tradeId=trade_id, bindingId=binding, revision=1, instrumentType='physical_gas')
     def rows(slot):
@@ -369,6 +392,9 @@ def expired_mark_checks(c, context, body, forward):
     position = dict(context=working, tradeId=booked['tradeId'], bindingId=booked['instrumentId'], revision=1, instrumentType='physical_gas')
     plan = c.call('trading/side-schedules', dict(position=position, sideSlot=0, contribution=None, offset=0, limit=4))['page']['rows']
     assert plan and all(r['presentValue'] is None and r['lifecycle']['unavailableReason'] == 'delivery_mark_final_settlement' for r in plan), plan
+    # The ticket exempts only ended days from pricing: an undelivered day with no mark stays that trade's refusal.
+    ticket = c.call('tickets/trade', dict(context={**working, 'convention': context['convention']}, tradeId=booked['tradeId'], bindingId=booked['instrumentId'], revision=1), expected=422)
+    assert ticket['code'] == 'delivery_mark_final_settlement', ticket
     c.call('profile', {'profile': 'risk'})
     scope = dict(context=working, bookIds=[], portfolioIds=[], tradeIds=[booked['tradeId'], forward['tradeId']])
     catalog = c.call('portfolio/risk/catalog', scope)
