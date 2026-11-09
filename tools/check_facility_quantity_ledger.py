@@ -13,7 +13,7 @@ from preview_fixture import trade_booking
 
 
 def upgrade_checks(query, migration):
-    """Before 0217: the set-based choices refuse a helper whose definition or privileges have drifted."""
+    """Before 0221: the set-based choices refuse a helper whose definition or privileges have drifted."""
     text = migration.read_text()
     signatures = re.findall(r"^\s*\('([^']+)','[a-f0-9]{64}'", text, re.MULTILINE)
     assert len(signatures) == 6
@@ -21,7 +21,7 @@ def upgrade_checks(query, migration):
         f"ALTER FUNCTION {signature} SET work_mem='64kB';", f"GRANT EXECUTE ON FUNCTION {signature} TO PUBLIC;",
         f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;",
         f"DO $drift$ DECLARE body text=pg_get_functiondef('{signature}'::regprocedure);BEGIN EXECUTE replace(body,'AS $function$','AS $function$ /* synthetic drift */');END$drift$;")]
-    check_guard(query, text, '0217', 'facility_choices_upgrade', changes)
+    check_guard(query, text, '0221', 'facility_choices_upgrade', changes)
 
 
 def run_checks(url, query, manifest):

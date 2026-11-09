@@ -272,7 +272,7 @@ def main():
             if migration.name=='0216_in_term_gas_lifecycle.sql':
                 from check_gas_in_term import upgrade_checks as check_in_term_upgrade
                 check_in_term_upgrade(query,migration)
-            if migration.name=='0217_facility_choices_set_based.sql':
+            if migration.name=='0221_facility_choices_set_based.sql':
                 from check_facility_quantity_ledger import upgrade_checks as check_facility_choices_upgrade
                 check_facility_choices_upgrade(query,migration)
             if migration.name=='0210_indexed_gas_consideration.sql':

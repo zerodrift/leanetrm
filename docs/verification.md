@@ -4087,9 +4087,9 @@ The choices read still proves the trade's authority once for every candidate
 single-day gas targets, up to its 1,001-result limit. No hosted-runner timing is
 claimed here.
 
-### Set-based catalog-wide choices (migration 0217, 2026-11-08, local)
+### Set-based catalog-wide choices (migration 0221, 2026-11-08, local)
 
-Migration 0217 replaces the per-candidate work in the catalog-wide branch of
+Migration 0221 replaces the per-candidate work in the catalog-wide branch of
 `facility_quantity_choices`. `resolve_facility_gas_targets` resolves all requested
 obligation-days in one statement, deciding each trade's latest visible revision and
 each schedule's publication once. The read then proves each trade's authority once.
@@ -4098,7 +4098,7 @@ check, so a target has one definition. The ledger-scoped branch keeps its
 per-candidate checks, which its one gas day bounds.
 
 Workload: the owned preview of the trading CI facility step above, with statement
-logging (`log_min_duration_statement=0`), before and after 0217 on the same commit.
+logging (`log_min_duration_statement=0`), before and after 0221 on the same commit.
 Environment: Apple M4 Pro, 14 cores, 48 GB, macOS, stock PostgreSQL 16.14. Other
 local workloads were running (load average about 5 before, 10 after).
 
@@ -4146,7 +4146,7 @@ and rolled-back faults (duplicate quantity roots, a late publication, a late tra
 a missing trade knowledge receipt, no facility read permission, a missing counterparty
 label) returned identical results or errors. Two further faults were refused by table
 constraints before reaching the reads. The facility check bounds the
-catalog-wide read at 15,000 pages (49,921 before 0217) and checks ordering, quantities,
+catalog-wide read at 15,000 pages (49,921 before 0221) and checks ordering, quantities,
 an unknown ledger and one trade dropping out alone. No hosted-runner timing is claimed.
 
 ## Synthetic gas basis and final facility inputs (D321)
