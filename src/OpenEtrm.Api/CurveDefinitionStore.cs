@@ -75,7 +75,7 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,v.kind,v.map
         }
         else
         {
-            var pinned=(await mappings.Read(connection,ct)).SingleOrDefault(v=>v.Id==window.MappingId&&v.Version==window.MappingVersion)
+            var pinned=(await mappings.ReadVersion(connection,window.MappingId,window.MappingVersion,ct)).SingleOrDefault()
                 ??throw Invalid("The exact mapping version this curve names is unavailable.");
             (mappingVersion,mappingGeneration)=(pinned.Version,pinned.Generation);
         }
@@ -134,7 +134,7 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,v.kind,v.map
         if(await Replay(connection,body.RequestId,"publish",payload,"SealMarketDefinitions",ct) is {} replay)return replay;
         var value=(await Read(connection,ct)).SingleOrDefault(v=>v.Id==body.Id&&v.Version==body.Version)??throw Conflict();
         var window=value.Definition.Contracts!;
-        var mapping=(await mappings.Read(connection,ct)).Single(v=>v.Id==window.MappingId&&v.Version==window.MappingVersion);
+        var mapping=(await mappings.ReadVersion(connection,window.MappingId,window.MappingVersion,ct)).Single();
         // The pinned mapping draft publishes first; the curve's own publication below fails the whole transaction if it is stale.
         if(mapping.State=="draft")
         {

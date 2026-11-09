@@ -237,7 +237,7 @@ def main():
             raise RuntimeError(initialized.stderr)
         startup_attempted=True
         safe_to_remove=False
-        started_result=run([bins['pg_ctl'],'-D',data,'-w','-t','15','-l',temporary/'postgres.log','-o',shlex.join(['-k',str(temporary),'-h','','-p','55439','-c','track_commit_timestamp=on']),'start'])
+        started_result=run([bins['pg_ctl'],'-D',data,'-w','-t','15','-l',temporary/'postgres.log','-o',shlex.join(['-k',str(temporary),'-h','','-p','55439','-c','track_commit_timestamp=on','-c','track_activity_query_size=16384']),'start'])
         if started_result.returncode:
             raise RuntimeError(started_result.stderr)
         started=True
