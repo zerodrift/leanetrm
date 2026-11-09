@@ -3534,3 +3534,45 @@ slot request; and a fixing corrected to exactly zero after full payment refuses
 instead of reading Overpaid.
 
 Local verification on 2026-11-08, after merging D359 (rolling rate curves, migration 0215) and renumbering this work to D360 and migration 0216: `python3 tools/check_all.py --group trading` passed, with 3596 PASS lines, 716 owned browser checks over 20 browser runs and 1480 web unit tests, and `--group workspace` passed, with 3518 PASS lines and 589 owned browser checks over 11 browser runs; the MarketData checks (828 PASS lines, and `--physical-lifecycle`), the Api checks (98 PASS lines), the Rates checks (82 checks) and `run_preview.py --gas-in-term-check --browser-check` (7 browser checks, with the 0216 upgrade guards over the post-0215 schema) passed. A first trading run hit a statement timeout (57014) in one Blotter read of the in-term check under host load; the check passed standalone twice and in the full rerun.
+
+## D361 — Curves state their closes; a close chosen on a page is asked about
+
+Owner-directed, 2026-11-08.
+
+**Which closes a curve has.** Each listed curve and board card states its last
+close: the newest close in force of the person's chosen session that can price it
+(`POST /api/market/last-closes`, using the calendar's qualification; a curve with
+none names none, and a historical view reads only its own day). A curve's page lists
+up to ten closes it can be priced at (`market/dates`), and a volatility surface keeps
+its **Calibrated at** chips.
+
+**Choosing one on a page.** Nothing moves until the person answers. **Switch As of**
+moves the whole application, as the header control does. **Open in a separate window**
+opens the same application on that curve or product at that recorded close, by close
+id, and leaves this window's As of alone; the window says what it is. **Cancel** changes
+nothing. The owner chose a separate window over a view-only mode on the page, a
+chart overlay and a switch-only prompt. A close a window names but the view no longer offers
+is named as unavailable and nothing is selected for it. Choosing in the header's As of
+is the direct control and is not asked about. A working snapshot has no recorded
+close id, so it offers only Switch or Cancel, and a historical view, which already
+offers only its own business day, offers no separate window. The window relies on the
+close being a per-request input. A historical knowledge context stays per session, so
+entering one in either window also applies to the other's later reads, and a window
+opened while the session is historical says it did not open its close.
+
+**Header.** Close session and knowledge sit in a collapsed **As of details** widget
+beside the visible As of. Its summary names the session and knowledge in use, and it
+opens itself when no session is in force, so a required choice is never hidden.
+
+**Curve configuration.** A gear beside a listed curve opens that curve's definition.
+The navigation read (`curveConfigurations`) names it only for a curve with an admitted
+definition, for a person holding `WriteMarketDefinitions`, outside a historical view.
+Today only interest-rate curves have an admitted definition. The Curve definitions
+button moves above the curve list.
+
+**Remaining work.** Admitting contract curves from their definitions (D318), so that
+futures and forwards have a gear, which the owner has asked for separately. Custom
+curves, interval curves and delivery prices do not state a last close yet.
+
+
+Local verification on 2026-11-08: `python3 tools/check_all.py --group standard` passed with 4847 PASS lines and `--group workspace` with 3538, including the market close calendar, regional close and curve definition browser checks.

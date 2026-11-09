@@ -9,6 +9,11 @@ export function sessionOffer<T extends Offered>(frames:readonly T[],session:stri
   working:frames.filter(frame=>!frame.close&&(effectiveOn===null||frame.at.slice(0,10)===effectiveOn))};
 }
 
+// The frame a separate window's recorded close id names, while that close is offered and still in force. A replaced close is history (D334).
+export function linkedFrame<T extends Offered&{originCloseId?:string|null}>(offered:readonly T[],closeId:string):T|undefined{
+ return offered.find(frame=>frame.originCloseId===closeId&&frame.close?.replacedBy==null);
+}
+
 // A frame that is a close of another session than the chosen one is not opened: the person is told which session it needs, and
 // nothing changes their remembered choice (D334). Null for a frame of the chosen session, a working snapshot or an unknown frame.
 export function otherSessionRefusal(frames:readonly Offered[],frameId:string,session:string|null,names:ReadonlyMap<string,string>):string|null{

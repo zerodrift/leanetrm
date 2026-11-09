@@ -63,6 +63,6 @@ export async function run({command,wait,click,set,submit,persona,check,evaluate,
   const close=await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.value&&o.value!==document.querySelector('#snapshot').value).value");
   await set('#snapshot',close);await wait(idle);
   await check('changing the working close preserves the independent TOU editor and its unsaved fields',`document.querySelector('#tou-name').value==='Synthetic unsaved peak hours'&&document.querySelector('#tou-start').value==='8'&&document.querySelector('#tou-end').value==='20'&&document.querySelector('#tou-version').textContent===${JSON.stringify(version)}&&document.querySelector('#error').hidden`);
-  await click('#knowledge-context > summary');await click('#current-view-context');
+  await click('#as-of-context>summary');await click('#current-view-context');
   await check('reselecting working data preserves the independent TOU editor',`document.querySelector('#tou-name').value==='Synthetic unsaved peak hours'&&document.querySelector('#tou-version').textContent===${JSON.stringify(version)}&&document.querySelector('#error').hidden`);
 }

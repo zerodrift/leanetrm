@@ -4,7 +4,7 @@
 // library its sparklines. Nothing here counts, picks a front or prices: it presents the backend's strings.
 import {availabilityText,commodityColors,curveLine,type CurveShape,type Sparkline} from './desk-model.js';
 import {navigationCurveKind,navigationGroups,type MarketNavigation,type NavigationCurve} from './market-navigation.js';
-import {curveName,deliveryLabel,marketTypeName} from './market-view.js';
+import {curveName,deliveryLabel,displayDate,marketTypeName} from './market-view.js';
 import {drawSparkline} from './mini-chart-view.js';
 import {kpi,node} from './tiles.js';
 import {kindBadge,type CurveKind} from './curve-kinds.js';
@@ -100,7 +100,7 @@ function cardBody(card:BoardCard):HTMLElement[]{
  * surface is that button's target; `open` is the library's own way of choosing a curve. While the page is `busy` the buttons are disabled,
  * as the library's rows are.
  */
-export function renderBoard(target:HTMLElement,groups:readonly BoardGroup[],open:(curve:string)=>void,busy:boolean){
+export function renderBoard(target:HTMLElement,groups:readonly BoardGroup[],open:(curve:string)=>void,busy:boolean,lastClose:(curve:string)=>string|null=()=>null){
   if(!groups.length){target.replaceChildren(node('p','market-board-none','No curves match these choices.'));return;}
   target.replaceChildren(...groups.map(group=>{
     const section=node('section','market-board-group'),heading=node('h3','market-board-group-name',group.name),list=node('ul','market-board-grid');
@@ -109,7 +109,7 @@ export function renderBoard(target:HTMLElement,groups:readonly BoardGroup[],open
       item.dataset.curve=card.curve;item.dataset.state=card.figures.state;
       button.type='button';button.disabled=busy;button.onclick=()=>open(card.curve);title.append(button);
       const commodity=commodityIcon(card);head.append(...commodity?[commodity]:[],kindBadge(card.curveKind),title);
-      item.append(head,node('p','market-card-kind',card.kind),...cardBody(card));
+      const last=lastClose(card.curve);item.append(head,node('p','market-card-kind',card.kind),...last?[node('p','market-card-last-close',`Last close ${displayDate(last)}`)]:[],...cardBody(card));
       return item;
     }));
     section.append(heading,list);return section;

@@ -238,3 +238,14 @@ def run_checks(url, query, manifest):
     february = viewer.call('evaluate', {'snapshotId': close(viewer, '2021-02-15'), 'curve': 'usd_rolling'})['points']
     assert [p['seriesId'] for p in january] == [p['seriesId'] for p in february], 'A tenor changed series between closes'
     print('PASS a definition-driven rate curve rolls its tenors with each close, in its own unit and conventions')
+
+    # The curve list offers a curve's own configuration only to someone who may change it.
+    def offered(who):
+        return who.call('workspace/navigation')['curveConfigurations']
+    pinned = viewer.call('evaluate', {'snapshotId': close(viewer, '2021-01-15'), 'curve': 'usd_rolling'})['definition']
+    assert offered(viewer) == [] and not viewer.call('curve-definitions')['canEdit'], offered(viewer)
+    configurations = {c['curve']: c for c in offered(editor)}
+    assert configurations['usd_rolling'] == {'curve': 'usd_rolling', 'id': pinned['id'], 'version': pinned['version']}, configurations
+    listed_rates = {c['code'] for c in editor.call('workspace/navigation')['curves'] if c['marketType'] == 'rates'}
+    assert set(configurations) == listed_rates, (configurations, listed_rates)
+    print('PASS the curve list names a curve\'s configuration only for someone who may edit it')

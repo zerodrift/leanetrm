@@ -13,7 +13,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   if(String(input)==='/api/market/context'&&window.refuseContextApply)return new Response(JSON.stringify({code:'preview_error',message:'Synthetic context read failed.'}),{status:503,headers:{'Content-Type':'application/json'}});
   return window.contextOriginalFetch(input,init);
  };window.refuseContextApply=true;`);
- await click('#knowledge-context>summary');await set('#date-context-view','2020-12-17T12:00:00');
+ await click('#as-of-context>summary');await set('#date-context-view','2020-12-17T12:00:00');
  await check('an unapplied knowledge edit replaces prior widget values with Apply guidance',"!document.querySelector('.level-tile .kpi-figure')&&document.querySelector('#dashboard-widgets').textContent.includes('Apply the changed context')&&!document.querySelector('#dashboard-widgets').textContent.includes('market calendar is not loaded')");
  await click('#apply-view-context');
  await check('a failed Apply keeps explicit recovery controls and does not blame the calendar',"!document.querySelector('#error').hidden&&document.querySelector('#apply-view-context').checkVisibility()&&!document.querySelector('#current-view-context').disabled&&document.querySelector('#dashboard-widgets').textContent.includes('Apply the changed context')&&!document.querySelector('#dashboard-widgets').textContent.includes('Reload the dashboard')");
@@ -27,7 +27,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await shot('context-header-mobile');await click('#context-help>summary');await check('context explanations remain reachable on a phone',fitsWidth+"&&document.querySelector('#knowledge-context-help').checkVisibility()");
  await shot('context-header-mobile-help');await click('#context-help>summary');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
- await click('#knowledge-context>summary');await click('#date-context-latest');await click('#apply-view-context');
+ await click('#as-of-context>summary');await click('#date-context-latest');await click('#apply-view-context');
  await wait("document.querySelector('.level-tiles-footer')||document.querySelector('.dashboard-refusal')");
  await check('a genuine historical context reads the Dashboard after the injected failure',"document.querySelector('#error').hidden&&document.querySelector('#knowledge-summary').textContent==='Historical · read only'&&document.querySelector('.level-tiles-footer')?.textContent.includes('Historical')","document.querySelector('#dashboard-widgets').textContent");
  for(const page of ['market','risk','physical-operations','jobs']){

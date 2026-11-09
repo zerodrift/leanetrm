@@ -259,4 +259,17 @@ def run_checks(url,query=None,manifest=None):
                 assert {saved['id'] for day in actual['dates'] for saved in day['frames']}==expected_ids
         assert all(client.call('market/dates',{'session':SESSION,**body})==expected for body,expected in zip(requests,before))
         print('PASS built-in calendar reads exact pins across all frames, rates and corrections; hidden pins never fall back and recipes read only their declared sample windows',flush=True)
+    # Every listed curve's last close is its own calendar's newest close, and a curve with no complete close names none.
+    client.call('market/last-closes',{},expected=400)
+    client.call('market/last-closes',{'session':SESSION,'extra':1},expected=400)
+    last=client.call('market/last-closes',{'session':SESSION})
+    assert last['session']==SESSION and last['context'] is None, last
+    named={entry['curve']:entry for entry in last['curves']}
+    for listed in client.call('workspace/navigation')['curves']:
+        calendar=client.call('market/dates',{'session':SESSION,'curve':listed['code'],'timeZone':'UTC'})
+        if calendar['dates']:
+            newest=max(calendar['dates'][-1]['frames'],key=lambda frame:frame['at'])
+            assert named[listed['code']]=={'curve':listed['code'],'id':newest['id'],'businessDate':calendar['maxDate'],'at':named[listed['code']]['at']} and named[listed['code']]['at']==newest['at'],(listed['code'],named.get(listed['code']),newest)
+        else: assert listed['code'] not in named, listed
+    print('PASS the last close of every listed curve is the newest close its own calendar offers',flush=True)
     print('PASS market calendar availability: exact curve dependencies, complete recipe windows, session business days, one close per day, certified context and current reference authority',flush=True)

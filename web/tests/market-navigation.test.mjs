@@ -6,7 +6,7 @@ import {frameCatalogNote} from '../dist/frame-catalog.js';
 const navigation={kind:'market_navigation',kindsVersion:'curve_kinds_v1',profile:'viewer',context:null,
  definitionRevision:{catalogId:'catalog',revisionId:'definitions'},referenceRevision:{catalogId:'reference',revisionId:'revision'},
  futuresConvention:'explicit_convention',example:null,initialFrameIds:['frame'],frames:[{id:'frame',name:'Original',at:'2020-12-18T16:00:00Z'}],
- curveNames:[{code:'future',name:'Stored futures'},{code:'forward',name:'Stored forwards'},{code:'rates',name:'Stored rates'}],
+ curveConfigurations:[],curveNames:[{code:'future',name:'Stored futures'},{code:'forward',name:'Stored forwards'},{code:'rates',name:'Stored rates'}],
  curves:[{code:'future',name:'Stored futures',marketType:'futures',category:{code:'gas',name:'Synthetic gas'},kind:'market_settlement'},
  {code:'forward',name:'Stored forwards',marketType:'forwards',category:{code:'power',name:'Synthetic power'},kind:'basis_spread'},
  {code:'rates',name:'Stored rates',marketType:'rates',category:null,kind:'interest_rate'}]};

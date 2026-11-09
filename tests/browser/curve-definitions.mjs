@@ -113,4 +113,20 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('the page links to the curve\u2019s definition',"!document.querySelector('#curve-definition-link').hidden");
  await click('#curve-definition-link');await wait("!document.querySelector('#curve-definition').hidden&&"+idle,30000);
  await check('the link opens the curve definition the curve pins',"document.querySelector('#curve-definition-code').value==='usd_rolling'&&document.querySelector('#curve-definition-code').readOnly");
+ // The gear on a listed curve opens that curve's own configuration, and only for someone the backend says may change it.
+ const gear='#curves [data-curve-configure="usd_rolling"]';
+ await click('#curve-definition-back');await wait(idle);
+ await check('only a curve with a configuration this person may edit has a gear',
+  `document.querySelector(${JSON.stringify(gear)})&&document.querySelectorAll('#curves [data-curve-configure]').length<document.querySelectorAll('#curves .curve-button[data-curve]').length`);
+ await check('the gear names the curve it configures',`document.querySelector(${JSON.stringify(gear)}).getAttribute('aria-label').startsWith('Configure ')`);
+ await check('the gear is not nested in the button that opens the curve',`!document.querySelector(${JSON.stringify(gear)}).closest('.curve-button')`);
+ await click(gear);await wait("!document.querySelector('#curve-definition').hidden&&document.querySelector('#curve-definition-code').value==='usd_rolling'&&"+idle,30000);
+ await check('the gear opens that curve’s configuration',"document.querySelector('#curve-definition-code').readOnly&&document.querySelector('#curve-definition-code').value==='usd_rolling'");
+ await click('#curve-definition-back');await wait(idle);
+ await persona('viewer');await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
+ await check('a reader sees no gear',"document.querySelectorAll('#curves [data-curve-configure]').length===0");
+ await persona('editor');await wait(`document.querySelector(${JSON.stringify(gear)})&&`+idle);
+ await click('#as-of-context>summary');await click('#date-context-latest');await click('#apply-view-context');await wait("document.querySelector('#date-context').dataset.contextMode==='retained'&&"+idle,30000);
+ await check('a historical view offers no gear, as it cannot author',"document.querySelectorAll('#curves .curve-button[data-curve]').length>0&&document.querySelectorAll('#curves [data-curve-configure]').length===0",
+  "({error:document.querySelector('#error').textContent,buttons:document.querySelectorAll('#curves .curve-button[data-curve]').length,gears:document.querySelectorAll('#curves [data-curve-configure]').length,mode:document.querySelector('#date-context').dataset.contextMode,known:document.querySelector('#date-context-view').value})");
 }

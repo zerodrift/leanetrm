@@ -49,7 +49,7 @@ def run_checks(c, check, query, manifest):
                 and nav['curveNames'] == c.call('curve-names'))
 
     check('navigation explicitly contains only its directory and frame-summary contract',
-          set(navigation) == {'kind', 'kindsVersion', 'profile', 'context', 'definitionRevision', 'referenceRevision',
+          set(navigation) == {'kind', 'kindsVersion', 'curveConfigurations', 'profile', 'context', 'definitionRevision', 'referenceRevision',
                               'example', 'futuresConvention', 'initialFrameIds', 'frames', 'curveNames', 'curves','referenceDisplay','frameCatalog','live'}
           and navigation['live'] is None
           and navigation['kind'] == 'market_navigation' and navigation['kindsVersion'] == 'curve_kinds_v1'

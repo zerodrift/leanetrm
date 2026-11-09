@@ -349,3 +349,11 @@ Implementation calls, recorded for review:
   the header.
 - Independent adversarial review is required for changes to temporal behavior and
   authorization before publication.
+
+## Closes shown on the page (D361)
+
+Curves & prices states each listed curve's last close and lists the closes a curve can
+be priced at, read for the chosen session. Choosing a close there prompts to switch the
+As of or open a separate window at that recorded close; see [decisions](decisions.md).
+The header's **As of details** widget holds the session and knowledge controls, collapsed
+by default, and its summary names what is in use.

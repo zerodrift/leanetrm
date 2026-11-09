@@ -13,7 +13,7 @@ const curves=[
  {code:'power_forward',name:'Power forward',marketType:'forwards',category:{code:'test_power',name:'Synthetic power'},kind:'basis_spread'},
  {code:'usd_rates',name:'USD rates',marketType:'rates',category:null,kind:'interest_rate'},
 ];
-const navigation={kind:'market_navigation',profile:'viewer',context:null,curves,curveNames:curves.map(({code,name})=>({code,name}))};
+const navigation={kind:'market_navigation',profile:'viewer',context:null,curves,curveConfigurations:[],curveNames:curves.map(({code,name})=>({code,name}))};
 setCurveNames(navigation.curveNames);
 const all={by:'commodity',commodity:null,type:'all'};
 const [priced]=fixture.shapes;

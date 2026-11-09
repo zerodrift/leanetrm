@@ -6,7 +6,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   window.marketDateRequests=[];window.marketDateCalls=[];
   const original=window.fetch;window.fetch=async(...args)=>{
    const path=new URL(typeof args[0]==='string'?args[0]:args[0].url,location.href).pathname;
-   window.marketDateCalls.push(path);
+   // A curve's own short list of closes is a separate read from the calendars these counts follow.
+   const curveCloses=path.endsWith('/market/dates')&&(b=>b.curve&&b.maximumDates)(JSON.parse(args[1].body));
+   if(!curveCloses)window.marketDateCalls.push(path);
    let response;if(path.endsWith('/market/dates')&&window.denyCalendar){window.denyCalendar=false;response=new Response(JSON.stringify({code:'access_denied'}),{status:403,headers:{'Content-Type':'application/json'}});}else response=await original(...args);
    // Before its newest date arrives, the workspace calendar ends one date earlier. Showing that to the app stands in for a
    // close that becomes available during a session; every other read, and every frame, is the backend's own.
@@ -26,7 +28,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     if(body.curve!==null){data.dates=[];data.minDate=null;data.maxDate=null;data.unavailable=[{date:'2020-12-17',reason:'source_expired'},{date:'2020-12-18',reason:'missing_observation'}];}
     response=new Response(JSON.stringify(data),{status:response.status,headers:{'Content-Type':'application/json'}});
    }
-   if(path.endsWith('/market/dates')||path.endsWith('/custom-curves/preview'))window.marketDateRequests.push({path,body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
+   if(!curveCloses&&(path.endsWith('/market/dates')||path.endsWith('/custom-curves/preview')))window.marketDateRequests.push({path,body:JSON.parse(args[1].body),status:response.status,payload:await response.clone().json()});
    return response;
   };
  `});
@@ -196,4 +198,30 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await wait(`performance.timeOrigin!==${replaced}&&document.querySelector('#power-page')&&${idle}`);
  await check('reload restores the historical Power page without requiring a selected close',"!document.querySelector('#power-page').hidden&&!document.querySelector('#power-historical').hidden&&document.querySelector('#power-products-card').hidden&&document.querySelector('#power-check-card').hidden&&document.querySelector('#profile-label').textContent==='Market Data Editor'&&document.querySelector('#error').hidden&&!window.marketDateCalls.some(path=>['/api/tou-products','/api/power/catalog'].includes(path))", "({title:document.querySelector('#page-title').textContent,profile:document.querySelector('#profile-label').textContent,error:document.querySelector('#error').textContent,snapshot:document.querySelector('#snapshot').value})");
  await check('starting in a historical view selects no close and claims no newest close',`document.querySelector('#workspace-mode-label').textContent==='Historical view · read only'&&document.querySelector('#snapshot').value===''&&${badge}.hidden&&${dateReads}===0&&document.querySelector('#error').hidden`,`JSON.stringify({mode:document.querySelector('#workspace-mode-label').textContent,snapshot:document.querySelector('#snapshot').value,badge:${badge}?.hidden,reads:${dateReads},error:document.querySelector('#error').textContent,profile:document.querySelector('#profile-label')?.textContent})`);
+
+ // D361: a curve states its last close and the closes it can be priced at. A close chosen on the page is the person's to take: it switches the As of, opens a
+ // separate window at that close, or changes nothing.
+ await click('#current-view-context');await wait("document.querySelector('#date-context').dataset.contextMode==='current'&&document.querySelectorAll('.curve-button').length>0&&document.querySelector('#snapshot').value!==''&&"+idle,30000);
+ await wait("document.querySelector('.curve-button[data-curve=\"ng_monthly\"] small')?.textContent.includes('last close')",30000);
+ await check('a listed curve states its last close, as the backend names it',`(async()=>{const session=document.querySelector('#close-session').value;const read=await(await fetch('/api/market/last-closes',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':(await(await fetch('/api/bootstrap')).json()).csrfToken},body:JSON.stringify({session})})).json();const last=read.curves.find(c=>c.curve==='ng_monthly');const label=new Intl.DateTimeFormat('en',{year:'numeric',month:'short',day:'numeric',timeZone:'UTC'}).format(new Date(last.businessDate+'T00:00:00Z'));return document.querySelector('.curve-button[data-curve="ng_monthly"] small').textContent.includes('last close '+label)&&document.querySelector('.market-card[data-curve="ng_monthly"] .market-card-last-close').textContent.includes(label);})()`);
+ await click('.curve-button[data-curve="ng_monthly"]');await wait("document.querySelectorAll('#curve-closes .vol-close-chip').length>1&&"+idle,30000);
+ await check('a curve lists the closes it can be priced at, the one in view marked',"document.querySelectorAll('#curve-closes .vol-close-chip[aria-current=true]').length===1&&!document.querySelector('#curve-closes').hidden");
+ const older="[...document.querySelectorAll('#curve-closes .vol-close-chip[aria-current=false]')].at(-1)";
+ await evaluate("window.asOfBefore=document.querySelector('#snapshot').value;window.olderClose="+older+".dataset.close");
+ await evaluate(older+".click()");await wait("document.querySelector('#close-choice-dialog')?.open");
+ await check('choosing another close prompts and moves nothing yet',"document.querySelector('#snapshot').value===window.asOfBefore&&document.querySelector('#close-choice-switch').textContent.startsWith('Switch As of')");
+ await check('the separate window is an address at that recorded close, on that curve',`(async()=>{const a=document.querySelector('#close-choice-window'),link=new URL(a.href);const frames=(await(await fetch('/api/workspace')).json()).frames,frame=frames.find(f=>f.id===window.olderClose);return a.target==='_blank'&&a.rel==='noopener'&&link.searchParams.get('close')===frame.originCloseId&&link.searchParams.get('curve')==='ng_monthly'&&link.searchParams.get('page')==='market';})()`);
+ await evaluate("window.windowAddress=document.querySelector('#close-choice-window').href");
+ await click('#close-choice-cancel');
+ await check('cancel leaves the As of unchanged',"!document.querySelector('#close-choice-dialog')&&document.querySelector('#snapshot').value===window.asOfBefore");
+ await evaluate(older+".click()");await wait("document.querySelector('#close-choice-dialog')?.open");await click('#close-choice-switch');await wait("document.querySelector('#snapshot').value===window.olderClose&&"+idle,30000);
+ await check('switching moves the As of to that close and marks it',"document.querySelector('#curve-closes .vol-close-chip[aria-current=true]').dataset.close===window.olderClose&&document.querySelector('#market-date-badge').textContent!=='Latest close'");
+ const address=await evaluate("window.windowAddress");
+ await command('Page.navigate',{url:address});await wait("document.querySelectorAll('.curve-button').length>0&&document.querySelector('#close-window-note').textContent.length>0&&"+idle,30000);
+ await check('a separate window opens at that close, on that curve, and says so',"document.querySelector('#snapshot').value===new URLSearchParams(location.search).get('close')||document.querySelector('#close-window-note').textContent.startsWith('Separate window')");
+ await check('the separate window shows the curve at the linked close',"document.querySelector('#curve-title').textContent.length>0&&document.querySelector('#curve-closes .vol-close-chip[aria-current=true]')!==null");
+ await set('#snapshot',await evaluate("document.querySelector('#curve-closes .vol-close-chip[aria-current=false]').dataset.close"));await wait(idle,30000);
+ await check('choosing another close in that window retires its separate-window note',"document.querySelector('#close-window-note').hidden");
+ await command('Page.navigate',{url:url+'/?page=market&curve=ng_monthly&close=00000000-0000-4000-8000-000000000000'});await wait("document.querySelector('#close-window-note').textContent.length>0&&"+idle,30000);
+ await check('a close this view does not offer is named as unavailable and nothing is chosen for it',"document.querySelector('#close-window-note').textContent.includes('not available')&&document.querySelector('#snapshot').value===''");
 }

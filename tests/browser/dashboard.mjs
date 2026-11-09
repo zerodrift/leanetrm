@@ -197,7 +197,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('selecting the newer close reads every widget at it, and the run valued there is the latest again',
     `/· Latest · Intraday not configured$/.test(document.querySelector('.level-tiles-footer').textContent)&&/Risk run · .+ · Latest$/m.test(${positions}.innerText)`,`${positions}.innerText`);
   // Applying a past effective date resolves its unique eligible close through the shared backend context policy.
-  await click('#market-date-open');await click('#market-date-grid button[data-date="2020-12-17"]');await click('#knowledge-context>summary');await click('#date-context-latest');await click('#apply-view-context');
+  await click('#market-date-open');await click('#market-date-grid button[data-date="2020-12-17"]');await click('#as-of-context>summary');await click('#date-context-latest');await click('#apply-view-context');
   await wait("document.querySelector('#environment-context-note').textContent.startsWith('Historical view')&&"+idle);
   await check('a historical context resolves its unique close without a separate version choice',
     "document.querySelector('#snapshot').value!==''&&document.querySelectorAll('#dashboard-widgets .dashboard-widget').length===3&&document.querySelector('#error').hidden",
