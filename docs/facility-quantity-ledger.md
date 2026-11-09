@@ -92,6 +92,8 @@ current authorization, bound contexts and exact retained references:
   and `allocate` commands. Allocation plans replace the full set of claims.
 - `read_facility_quantity_ledger`, `facility_quantity_directory` and
   `facility_quantity_choices` supply authorized context-bound operations views.
+- `resolve_facility_gas_targets` is the private, set-based definition of a gas
+  target. Its callers prove each trade's authority before returning a target.
 - `facility_quantity_status` recovers the original actor's receipt.
 - `read_trade_facility_allocations` supplies only the selected trade's own
   Side/day/quantity/unit/state. It exposes no pool total, residual, source/plan
