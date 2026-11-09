@@ -236,23 +236,26 @@ context or curve closes the panel.
 
 The page is named **Curve builder** wherever a person or the assistant sees it;
 its identifiers (`custom-curves`, `custom_curves`, the `custom_curves.*_v1`
-operations) are unchanged.
+operations) are unchanged. It sits in the Reference Data console (D364), whose menu
+starts folded here to give the graph its width.
 
 ```
-┌ Custom curve · NG prompt ● Draft v3 ── [Reset layout] [Preview] [Save draft] [Publish] ┐
-│ library               │ ┌ Outputs │ Graph │ Configuration │ Versions │ Lineage ──────┐ │
-│ [✦ Ask the assistant] │ │ ┌ Points ┐┌ First period ┐┌ Last period ┐┌ Unit ┐          │ │
-│ [New curve] Reload    │ │ preview chart (ECharts)                                  │ │
-│ CUSTOM GRAPH          │ │ table                                                    │ │
-│  [~] NG prompt  v3    │ └──────────────────────────────────────────────────────────┘ │
+┌ Reference Data                                                                         ┐
+│ NG prompt ▾  ● Draft v3                                      As of · close · knowledge │
+├ Build │ Details │ Versions │ Lineage │ History ──── [Preview] [Save draft] [Publish] ⋯ ┤
+│ graph board and selected operation                                                     │
+├ Preview ───────────────────────────────────────────────────────────────────────────────┤
+│ tiles, chart and table                                                                 │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Header bar.** The curve's name, its state chip (Draft, Published, Unsaved
-  changes) and version, and the actions on one line, with **Reset layout**. A
+- **Title and actions.** The curve's name, in the app header, with its state chip
+  (Draft, Published, Unsaved changes) and version. The actions sit at the end of the
+  tab row, with **Reset layout** in its overflow menu. A
   **Saved by assistant** chip shows while the open version's generation was saved
   by the page assistant (`saver.savedBy`, D260); a person's Save clears it, and a
   generation with no recorded saver shows none.
-- **Library.** **Ask the assistant to set up a curve** opens the page assistant
+- **Saved curves.** A popover on the title holds the library. **Ask the assistant to set up a curve** opens the page assistant
   with a question to start from, which asks it to prepare the curve, show its key
   values and then save it as a draft. The assistant's saved draft opens from its
   **Open saved draft** notice, never by itself, behind the leave question below.
@@ -265,18 +268,19 @@ operations) are unchanged.
   published curve it reads.
 - **Nothing open.** With no curve open, the main area offers **Ask the
   assistant to set up a curve**, **New curve** and the templates.
-- **Views as tabs in a dock** (`dock.ts`, `dock-model.ts`). The
-  views open as one tab group on **Outputs**:
-  - **Outputs:** the preview's tiles, chart, table and receipt, or a Preview
-    button while there is none. Preview runs only when asked, and shows
-    Outputs.
-  - **Graph:** the Visual or Formula board, with **Add an operation** and the
+- **Views as tabs in a dock** (`dock.ts`, `dock-model.ts`). The views open in two
+  groups, Build and its siblings above **Preview**:
+  - **Preview:** the preview's tiles, chart, table and receipt, or a Preview
+    button while there is none. Preview runs only when asked. After an edit the
+    last chart and tiles stay, subdued and labeled out of date; they are display
+    only, and the values, lineage and history are cleared.
+  - **Build:** the Visual or Formula board, with **Add an operation** and the
     selected operation's inspector beside it (below it where the group is
     narrow). **Hide operations** folds them away to give the board their
     width; selecting a card shows Graph and its inspector again.
-  - **Configuration:** code, name, the saved version's kind, template, the
-    ingredients the graph reads with their kind badges, and Combine curves.
-    New curve opens Configuration.
+  - **Details:** code, name, the saved version's kind, template and the
+    ingredients the graph reads with their kind badges. New curve opens Details.
+    Combine curves is a disclosure beneath Add an operation in Build.
   - **Versions:** the effective versions timeline.
   - **Lineage:** the preview's dependencies, source observations and trace.
 
@@ -287,7 +291,7 @@ operations) are unchanged.
   between a group's tabs. Dividers resize a split by pointer or arrow key.
   Splits nest two levels deep and an emptied group closes. The arrangement is
   this viewer's presentation state in `localStorage`
-  (`openetrm.custom-curves.layout.v1`); an unreadable or outdated arrangement
+  (`openetrm.custom-curves.layout.v2`); an unreadable or outdated arrangement
   opens the default, and **Reset layout** returns to it. Below a 960 px main
   area every tab is shown in one group and the saved arrangement returns when
   the page is wide again.

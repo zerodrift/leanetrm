@@ -26,7 +26,7 @@ async function fixture(work){
    for(const [name,label] of [['from','Delivery date from'],['through','Delivery date to']])createAvailableDatePicker(document.getElementById('delivery-price-'+name+'-calendar'),
     {id:'delivery-price-'+name+'-picker',label,busy:()=>false,onChange:()=>{}}).set(['2031-11-01'],'2031-11-01');
    window.scheduleWorkspace=setupScheduleWorkspace();
-   const custom=setupCustomCurves(document.getElementById('custom-curves-page'),{
+   const custom=setupCustomCurves(document.getElementById('custom-curves-page'),{headingSlot:document.createElement('div'),
     api:async()=>({kindsVersion:'curve_kinds_v1',canEdit:true,canPublish:true,operators:[],templates:[],sources:[],calendars:[],schedules:[],recipes:[]}),
     act:work=>work(),busy:()=>false,zone:()=> 'UTC',identity:()=> 'synthetic-layout',source:()=>({snapshotId:'synthetic'}),historical:()=>false,
     narrow:()=>document.querySelector('main').clientWidth<900,assistant:{available:()=>true,draft:()=>{}}
@@ -109,7 +109,7 @@ test('curve-builder libraries leave usable editor widths beside the assistant',{
  await fixture(async({evaluate,size})=>{
   await size(1440,592);
   await evaluate("showLayoutPage('custom-curves-page')");
-  const [desk,main]=await evaluate("['.custom-curve-desk','.custom-curve-main'].map(layoutBox)");
+  const [desk,main]=await evaluate("['#custom-curves-page','.custom-curve-main'].map(layoutBox)");
   assert.ok(main.width>=desk.width-1,JSON.stringify({desk,main}));
   assert.deepEqual(await evaluate("layoutOverflow('.custom-curve-main')"),[]);
  });
