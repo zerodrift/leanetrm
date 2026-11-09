@@ -1,4 +1,4 @@
-const views=[['market','curve-price-contracts'],['custom-curves','nav-custom-curves'],['interval-curves','nav-interval-curves']] as const;
+const views=[['market','curve-price-contracts'],['custom-curves','nav-custom-curves'],['interval-curves','nav-interval-curves'],['configuration','curve-price-setup']] as const;
 type CurvePage=typeof views[number][0];
 export const isCurvePage=(page:string):page is CurvePage=>views.some(([name])=>name===page);
 

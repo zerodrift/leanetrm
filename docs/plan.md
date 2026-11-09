@@ -1,5 +1,11 @@
 # Delivery plan and acceptance criteria
 
+D363 adds the Objects canvas, explicit source-node contract pricing and
+publication definitions, occurrences and normalized final-price ingestion.
+The bounded gas implementations use supplied publisher-calendar occurrences;
+other commodity placeholders refuse. See [curve authoring](curve-authoring.md)
+for executable behavior, qualification and remaining feed/calendar work.
+
 D360 values started gas compositions under explicit whole gas-day and accrued
 payment lifecycles: unrealized (remaining delivery MTM) and realized unsettled
 (delivered, fixed, not paid) are reported separately, undiscounted and labelled

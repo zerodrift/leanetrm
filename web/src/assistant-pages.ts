@@ -51,7 +51,8 @@ export function pageReport(state:PageState):PageReport{
     case 'facilities':return {page:'facility_quantities',selection:state.businessDate?{ledgerId:state.facilityLedger??null}:{},...(state.businessDate?{businessDate:state.businessDate}:{})};
     case 'market':return {page:'curves',selection:state.curve===null?{view:'curves',curve:null}:{view:state.tab==='inputs'?'observations':'curve',curve:state.curve}};
     case 'power':return {page:'power_tous',selection:{view:state.frame?'power_hours':'tou_products'}};
-    case 'configuration':return {page:'contract_definitions',selection:{view:'contract_definitions',curve:null}};
+    // Price setup has no assistant read contract; the panel stays unavailable on that view.
+    case 'configuration':throw inconsistent();
     // Curve builder names the saved curve it has open, if any, and whether it holds unsaved edits, which the assistant does not save over (D260).
     case 'custom-curves':return {page:'custom_curves',selection:{curve:state.curve,unsaved:state.unsaved}};
     case 'schedules':return {page:'schedules',selection:{view:'library'}};
@@ -166,7 +167,7 @@ export function changesContext(target:TargetContext,page:PageContext){
 // the person reviews: a proposed curve or a saved draft (D260).
 export const targetAction=(target:{live:boolean;changesContext:boolean;unsaved:boolean;review?:boolean})=>target.live&&!target.changesContext&&!target.unsaved&&!target.review?'move':'go';
 
-const webPages:Record<string,string>={physical_operations:'physical-operations',facility_quantities:'facilities',gas_setup:'gas-setup',crude_setup:'crude-setup',curves:'market',contract_definitions:'configuration',schedules:'schedules',power_tous:'power',reference_data:'reference',
+const webPages:Record<string,string>={physical_operations:'physical-operations',facility_quantities:'facilities',gas_setup:'gas-setup',crude_setup:'crude-setup',curves:'market',contract_definitions:'schedules',schedules:'schedules',power_tous:'power',reference_data:'reference',
   parties:'parties',blotter:'futures',custom_curves:'custom-curves',jobs:'jobs',risk_jobs:'risk',delivery_prices:'delivery',interval_series:'interval-series',
   interval_curves:'interval-curves',users_access:'admin',settings_ai:'ai',blotter_risk:'futures',blotter_risk_lens:'futures',blotter_new_trade:'futures',blotter_new_future:'futures',blotter_new_swap:'futures'};
 // The web page a target opens: only one the assistant reads.

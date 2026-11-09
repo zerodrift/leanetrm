@@ -97,6 +97,12 @@ const string malformed="The request is incomplete or malformed.";
     MarketDataException m when m.Code is "swap_conflict" or "ppa_conflict" => (409,m.Code,m.Message),
     MarketDataException m when m.Code=="contract_materialization_conflict" => (409,m.Code,m.Message),
     PostgresException p when p.SqlState is "23503" or "23514" && apiPath.StartsWithSegments("/api/date-schedules/contracts/materialize") => (422,"contract_materialization","Select compatible exact reference terms and published date-list occurrences."),
+    PostgresException p when apiPath.StartsWithSegments("/api/price-publications") && p.SqlState=="40001" && p.MessageText.StartsWith("publication_",StringComparison.Ordinal)
+        => (409,p.MessageText,"The publication, schedule or request changed. Reload its current version or retry the unchanged original request."),
+    PostgresException p when apiPath.StartsWithSegments("/api/price-publications") && p.SqlState=="22023" && p.MessageText.StartsWith("publication_",StringComparison.Ordinal)
+        => (422,p.MessageText,"Check the exact publication references, covered periods and release evidence. The requested change was refused."),
+    PostgresException p when apiPath.StartsWithSegments("/api/price-publications") && p.SqlState=="42501" && p.MessageText.StartsWith("publication_",StringComparison.Ordinal)
+        => (403,p.MessageText,"This publication operation requires current authorization and an editable working context."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("side_schedule_",StringComparison.Ordinal) && p.MessageText.Contains("conflict",StringComparison.Ordinal)
         => (409,p.MessageText,"The request, retained content or trade revision changed. Reconcile the original operation or reload its current revision."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("side_schedule_",StringComparison.Ordinal)
@@ -532,6 +538,17 @@ api.MapCustomCurves(database,(c,permission,snapshotId,work)=>Locked(c,session=>
             throw new MarketDataException("custom_curve_historical","Author and publish curves in the current workspace.");
         return await work(connection,pin,ct);
     },c.RequestAborted)));
+CustomCurveOperation priceAuthoringOperation=(c,permission,snapshotId,work)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),permission,async(connection,ct)=>
+    {
+        var pin=Pin(session,snapshotId);
+        await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        if(permission is "WriteMarketDefinitions" or "SealMarketDefinitions" or "ImportObservations" && pin.Context is not null)
+            throw new MarketDataException("price_authoring_historical","Return to working data to change pricing terms or ingest publication prices.");
+        return await work(connection,pin,ct);
+    },c.RequestAborted));
+api.MapPricePublications(database,priceAuthoringOperation);
+api.MapContractPriceTerms(database,priceAuthoringOperation);
 api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,async session=>
 {
     if(hosted is not null)throw new PreviewDeniedException();

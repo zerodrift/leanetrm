@@ -274,7 +274,11 @@ def run_checks(url, query=None, manifest=None):
         assert recipes[str(legacy)]['saver']=={'savedBy':None} and recipes[str(legacy)]['kind']=='prompt_contract',recipes[str(legacy)]
         # Reads say only who saved a generation (D260).
         assert recipes[saved['id']]['saver']=={'savedBy':'person'},recipes[saved['id']]
-        assert query(f"SELECT count(*) FROM pg_tables WHERE schemaname='market_data' AND tablename LIKE 'custom_curve%' AND rowsecurity;")=='16'
+        protected=set(query("SELECT string_agg(tablename,',' ORDER BY tablename) FROM pg_tables WHERE schemaname='market_data' AND tablename LIKE 'custom_curve%' AND rowsecurity;").split(','))
+        assert protected=={'custom_curves',*(f'custom_curve_{name}' for name in (
+            'versions','nodes','edges','node_sources','node_calendars','node_schedules','requests','knowledge_receipts',
+            'contract_weights','node_published_sources','activation_plans','activation_segments','activation_receipts',
+            'panel_weights','generation_savers','price_terms','price_mappings'))},protected
     # A later correction can restate a working historical window, but never a retained earlier knowledge view.
     client.call('profile',{'profile':'editor'})
     observed=next(row for row in average['inputs'] if row['date']=='2020-12-01' and row['contract']['id']=='e0000000-0000-0000-0000-000000000102')

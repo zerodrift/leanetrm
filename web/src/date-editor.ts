@@ -55,7 +55,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
   guard:{holds:()=>boolean;mayChange:()=>Promise<boolean>}={holds:()=>false,mayChange:async()=>true},
   /** Runs work that completes a change made in these controls, the end-of-day knowledge of a changed effective date, leaving on screen what the change said. */
   complete:(work:()=>Promise<void>)=>Promise<void>=run,
-  calendar:(title:string,events:CalendarEvent[],owner:string)=>void=()=>{},snapshot:()=>string=()=>'' ){
+  calendar:(title:string,events:CalendarEvent[],owner:string)=>void=()=>{},snapshot:()=>string=()=>'',unsavedChanged:()=>void=()=>{} ){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const input=(id:string)=>get<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>(id);
   const value=(id:string)=>input(id).value;
@@ -278,6 +278,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
     get('curve-dates-publish').hidden=!library.canPublish||!current||contractSelected?.state!=='draft';get<HTMLButtonElement>('curve-dates-publish').disabled=contractDirty;
     get('curve-dates-pending').hidden=!pending.command;showKind();
     get<HTMLButtonElement>('curve-dates-retry').disabled=pending.command?.path.endsWith('/publish')?!library.canPublish:!library.canEdit;
+    unsavedChanged();
   }
   function showCurve(c:Candidate){
     const source=(r:Receipt)=>r.source.version?`v${r.source.version}`:'Literal';

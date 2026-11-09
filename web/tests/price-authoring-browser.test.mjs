@@ -1,0 +1,126 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {readFile,mkdtemp,rm,access,writeFile} from 'node:fs/promises';
+import {spawn} from 'node:child_process';
+import {tmpdir} from 'node:os';
+import {join,resolve,extname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {waitForBrowserPage,stopOwnedBrowser} from '../../tests/browser/owned-browser.mjs';
+
+const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const available=await access(browser).then(()=>true,()=>false);
+test('publication and contract terms editors retain exact references, server results and uncertain requests',{skip:!available,timeout:30000},async()=>{
+ const root=fileURLToPath(new URL('../dist/',import.meta.url));
+ const server=createServer(async(req,res)=>{try{
+  if(req.url==='/'){res.setHeader('Content-Type','text/html');res.end('<link rel="stylesheet" href="/app.css"><main style="width:1000px"><section id="publications"></section><section id="terms"></section><section id="session"></section></main>');return;}
+  const file=resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root)){res.writeHead(404).end();return;}
+  res.setHeader('Content-Type',extname(file)==='.js'?'text/javascript':extname(file)==='.css'?'text/css':'application/octet-stream');res.end(await readFile(file));
+ }catch{res.writeHead(404).end();}});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const directory=await mkdtemp(join(tmpdir(),'openetrm-price-authoring-'));
+ const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore'});
+ let ws;
+ try{
+  ws=new WebSocket(await waitForBrowserPage(directory,chrome));await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});
+  let id=0;const pending=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){pending.get(m.id)(m);pending.delete(m.id);}};
+  const command=(method,params={})=>new Promise(r=>{pending.set(++id,r);ws.send(JSON.stringify({id,method,params}));});
+  const evaluate=async expression=>{const reply=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});assert.ok(!reply.error&&!reply.result.exceptionDetails,JSON.stringify(reply));return reply.result.result.value;};
+  const screenshot=async(selector,path)=>{if(!path)return;await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');const clip=await evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return{x:r.x+scrollX,y:r.y+scrollY,width:r.width,height:r.height,scale:1};})()`);const shot=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip});await writeFile(path,Buffer.from(shot.result.data,'base64'));};
+  await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1100,height:1000,deviceScaleFactor:1,mobile:false});await command('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
+  for(let i=0;i<100&&!await evaluate('!!document.querySelector("#terms")');i++)await new Promise(r=>setTimeout(r,20));
+  await evaluate(`(async()=>{
+   const {setupPricePublications}=await import('/price-publications-view.js'),{setupContractPriceTerms}=await import('/contract-price-terms-view.js');
+   const revision={catalogId:'exact-catalog',revisionId:'exact-reference-revision'},ref=code=>({revision,code});
+   const gasIndex={key:ref('gas-hub'),commodity:ref('natural_gas'),location:ref('hub'),quote:ref('usd-mmbtu'),unit:{id:'mmbtu'},name:'Synthetic gas hub'};
+   const powerIndex={key:ref('power-hub'),commodity:ref('power'),location:ref('hub'),quote:ref('usd-mwh'),unit:{id:'mwh'},name:'Synthetic power hub'};
+   const alternateGasIndex={...gasIndex,quote:ref('usd-mmbtu-alternate'),name:'Synthetic gas hub alternate'};
+   window.publicationCatalog={catalogId:'exact-catalog',references:revision,canEdit:true,canIngest:true,publishers:[{key:{catalogId:'exact-catalog',id:'publisher',version:1},name:'Synthetic publisher'}],publications:[],commodities:[{reference:ref('natural_gas'),name:'Natural gas'},{reference:ref('power'),name:'Power'}],indices:[gasIndex,alternateGasIndex,powerIndex],calendars:[{reference:ref('publication-calendar'),name:'Synthetic calendar'}],clocks:[{reference:ref('market-clock'),name:'Synthetic clock'}],sources:[],implementations:['gas_monthly_explicit_v1','power_placeholder_v1']};
+   window.defaultTerms={settlement:'derived_inputs_v1',observationRule:'single_assessment_v1',pendingPolicy:'require_final_v1'};
+   window.termsCatalog={snapshotId:'close',canWrite:true,curves:[{id:'curve',version:3,generation:7,state:'draft',code:'synthetic',name:'Synthetic curve',sources:[{nodeId:'source',curveCode:'gas',commodity:'natural_gas',quote:'usd-mmbtu',contracts:[{id:'jan',label:'January',deliveryFrom:'2027-01-01',deliveryTo:'2027-02-01',expiry:'2026-12-29',kind:'month'},{id:'feb',label:'February',deliveryFrom:'2027-02-01',deliveryTo:'2027-03-01',expiry:'2027-01-27',kind:'month'}],mapping:'same_delivery_period_v1',terms:{default:defaultTerms,replacements:[]}}]}],publications:[{id:'gas-publication',version:2,name:'Synthetic gas publication',implementation:'gas_monthly_explicit_v1',indices:[{code:'gas-hub',commodity:'natural_gas',quote:'usd-mmbtu',symbol:'GAS',statistic:'index'},{code:'wrong-quote',commodity:'natural_gas',quote:'cad-gj',symbol:'CAD',statistic:'index'}]},{id:'power-publication',version:1,name:'Synthetic power publication',implementation:'power_placeholder_v1',indices:[{code:'power-hub',commodity:'power',quote:'usd-mwh',symbol:'PWR',statistic:'index'}]}],mappingRules:['same_delivery_period_v1','explicit_contracts_v1'],settlementSources:['exchange_final_v1','published_index_v1','derived_inputs_v1'],observationRules:['single_assessment_v1'],pendingPolicies:['require_final_v1']};
+   window.requests=[];window.failures=[];window.running=Promise.resolve();window.dropPublication=true;window.dropOccurrence=true;window.snapshot='close';window.actor='editor';
+   window.api=async(path,body)=>{requests.push({path,body:structuredClone(body)});if(path.startsWith('price-publications?'))return structuredClone(publicationCatalog);if(path.startsWith('contract-price-terms?'))return structuredClone(termsCatalog);
+    if(path==='price-publications/preview')return {coveredPeriods:body.occurrence.periods,expectedReleaseAt:body.occurrence.expectedReleaseAt,receipt:'SERVER_PUBLICATION_CHECK'};
+    if(path==='price-publications/save'){if(!publicationCatalog.publications.some(p=>p.key.id===body.definition.key.id&&p.key.version===body.definition.key.version))publicationCatalog.publications.push(body.definition);if(dropPublication){dropPublication=false;throw Error('Synthetic lost response');}return body.definition;}
+    if(path==='price-publications/occurrences/save'){publicationCatalog.occurrences=[{id:body.id,occurrence:body.occurrence}];if(dropOccurrence){dropOccurrence=false;throw Error('Synthetic lost occurrence response');}return {id:body.id,occurrence:body.occurrence};}
+    if(path==='contract-price-terms/preview')return {mappings:[{targetFrom:'2027-01-01',targetTo:'2027-02-01',sourceFrom:'2027-02-01',sourceTo:'2027-03-01',expiry:'2027-01-27T18:30:00Z',fixingAt:'2027-01-27T18:30:00Z',expectedPublicationAt:'2027-02-01T18:00:00Z',settlement:'published_index_v1',index:'gas-hub'}],preview:{columns:['State','Price'],rows:[['pending_publication',null]]}};
+    if(path==='contract-price-terms/save'){const c=termsCatalog.curves[0],s=c.sources[0],t=body.terms;c.generation++;s.mapping=t.mapping;s.mappings=t.mappings;const terms={settlement:t.settlement,publication:t.publicationId?{id:t.publicationId,version:t.publicationVersion}:null,index:t.index?{code:t.index}:null,observationRule:t.observationRule,pendingPolicy:t.pendingPolicy,projectionPolicy:t.projectionPolicy};if(t.scope==='curve')s.terms.default=terms;else s.terms.replacements=[{contract:{id:t.contractId},terms}];return {id:c.id,version:c.version,generation:c.generation,definition:{nodes:[{id:s.nodeId,contractTerms:{...s.terms,mappings:(s.mappings??[]).map(m=>({target:{id:m.targetContractId},source:{id:m.sourceContractId}}))}}]}};}throw Error('Unexpected API '+path);};
+   window.options={api,act:work=>{running=work().catch(e=>failures.push(String(e)));return running;},busy:()=>false,identity:()=>actor,snapshot:()=>snapshot,historical:()=>false};
+   window.publications=setupPricePublications(document.querySelector('#publications'),options);window.terms=setupContractPriceTerms(document.querySelector('#terms'),options);
+   window.set=(selector,value)=>{const c=document.querySelector(selector);c.value=value;c.dispatchEvent(new Event('change',{bubbles:true}));};
+   await publications.load();await terms.load({curveId:'curve',version:3,nodeId:'source'});
+  })()`);
+  await evaluate(`(()=>{set('#price-publications-name','Synthetic monthly publication');set('#price-publications-publisher','publisher:1');set('#price-publications-implementation','gas_monthly_explicit_v1');set('#price-publications-calendar','publication-calendar');set('#price-publications-clock','market-clock');document.querySelector('#price-publications-commodities input[value=natural_gas]').click();document.querySelector('[data-index=gas-hub][data-quote=usd-mmbtu]').click();document.querySelector('[data-index=gas-hub][data-quote=usd-mmbtu-alternate]').click();set('[aria-label="Synthetic gas hub alternate vendor symbol"]','GAS');set('[aria-label="Synthetic gas hub alternate statistic"]','index');})()`);
+  assert.equal(await evaluate("document.querySelector('[data-index=gas-hub][data-quote=usd-mmbtu]').checked"),false,'selecting another quote preserves one exact member per index');
+  assert.equal(await evaluate("document.querySelector('[data-index=power-hub]').closest('tr').hidden"),true);
+  await evaluate(`(()=>{set('#price-publications-assessment-date','2027-01-01');set('#price-publications-assessment-from','2026-12-28T12:00:00Z');set('#price-publications-assessment-to','2026-12-30T22:00:00Z');set('#price-publications-release','2027-01-04T18:00:00Z');set('[data-period=from]','2027-01-01');set('[data-period=to]','2027-02-01');document.querySelector('#price-publications-preview').click();return running;})()`);
+  assert.equal(await evaluate("document.querySelector('#price-publications-preview-result').textContent.includes('SERVER_PUBLICATION_CHECK')"),true);
+  assert.deepEqual(await evaluate("requests.find(r=>r.path==='price-publications/preview').body.definition.indices[0].key"),{revision:{catalogId:'exact-catalog',revisionId:'exact-reference-revision'},code:'gas-hub'});
+  assert.equal(await evaluate("requests.find(r=>r.path==='price-publications/preview').body.definition.indices[0].quote.code"),'usd-mmbtu-alternate','a selected compatible quote is retained, not replaced by the first matching index');
+  await screenshot('#publications',process.env.PRICE_PUBLICATIONS_SCREENSHOT);
+  await evaluate("document.querySelector('#price-publications-form').requestSubmit();running");
+  assert.equal(await evaluate("document.querySelector('#publications .price-authoring-receipt').hidden"),false);
+  assert.equal(await evaluate("document.querySelector('#price-publications-name').matches(':disabled')"),true,'unconfirmed save blocks edits');
+  await evaluate("[...document.querySelectorAll('#publications .price-authoring-receipt button')].find(b=>b.textContent==='Retry original save').click();running");
+  const publicationWrites=await evaluate("requests.filter(r=>r.path==='price-publications/save').map(r=>r.body)");
+  assert.equal(publicationWrites.length,2);assert.deepEqual(publicationWrites[1],publicationWrites[0],'retry retains the exact operation id, definition and assessment-independent payload');
+  assert.equal(await evaluate("document.querySelector('#publications .price-authoring-receipt').hidden"),true);
+  await evaluate("document.querySelector('#price-publications-save-occurrence').click();running");
+  assert.equal(await evaluate("document.querySelector('#price-publications-occurrence .price-authoring-receipt').hidden"),false);
+  assert.equal(await evaluate("document.querySelector('#publications > .price-authoring-receipt').hidden"),true,'definition and occurrence receipts stay independent');
+  await evaluate("[...document.querySelectorAll('#price-publications-occurrence .price-authoring-receipt button')].find(b=>b.textContent==='Retry original save').click();running");
+  const occurrenceWrites=await evaluate("requests.filter(r=>r.path==='price-publications/occurrences/save').map(r=>r.body)");
+  assert.equal(occurrenceWrites.length,2);assert.deepEqual(occurrenceWrites[1],occurrenceWrites[0]);
+  assert.deepEqual(occurrenceWrites[0].occurrence.publication,publicationWrites[0].definition.key,'an occurrence uses the saved version, without inventing a next version');
+  assert.equal(await evaluate("document.querySelector('#price-publications-occurrences').textContent.includes('2027-01-04T18:00:00Z')"),true);
+  await evaluate("set('#price-publications-name','Synthetic monthly publication revised');document.querySelector('#price-publications-form').requestSubmit();running");
+  assert.equal(await evaluate("requests.filter(r=>r.path==='price-publications/save').at(-1).body.definition.key.version"),2);
+  assert.equal(await evaluate("requests.filter(r=>r.path==='price-publications/save').at(-1).body.expectedVersion"),1);
+  await evaluate("set('#contract-terms-settlement','published_index_v1');set('#contract-terms-publication','gas-publication:2');set('#contract-terms-index','gas-hub');set('#contract-terms-mapping','explicit_contracts_v1');document.querySelector('#contract-terms-add-map').click();set('[data-mapping=target]','jan');set('[data-mapping=source]','feb')");
+  await evaluate("document.querySelector('#contract-terms-add-map').click();set('#contract-terms-mappings > :nth-child(2) [data-mapping=target]','feb');set('#contract-terms-mappings > :nth-child(2) [data-mapping=source]','feb');document.querySelector('#contract-terms-preview').click();running");
+  assert.deepEqual(await evaluate("[...document.querySelector('#contract-terms-publication').options].map(o=>o.value)"),['','gas-publication:2']);
+  assert.deepEqual(await evaluate("[...document.querySelector('#contract-terms-index').options].map(o=>o.value)"),['','gas-hub']);
+  const termsPreview=await evaluate("requests.filter(r=>r.path==='contract-price-terms/preview').at(-1).body");
+  assert.equal(termsPreview.curveId,'curve');assert.equal(termsPreview.version,3);assert.equal(termsPreview.terms.publicationVersion,2);
+  assert.deepEqual(termsPreview.terms.mappings,[{targetContractId:'jan',sourceContractId:'feb'},{targetContractId:'feb',sourceContractId:'feb'}]);
+  assert.equal(await evaluate("document.querySelector('#contract-terms-preview-result').textContent.includes('2027-02-01T18:00:00Z')"),true,'the server supplies the release date independently of expiry');
+  assert.equal(await evaluate("document.querySelector('#contract-terms-preview-result').textContent.includes('Unavailable')"),true,'missing server prices are shown as unavailable');
+  await screenshot('#terms',process.env.CONTRACT_TERMS_SCREENSHOT);
+  await evaluate("document.querySelector('#contract-terms-form').requestSubmit();running");
+  assert.equal(await evaluate("requests.filter(r=>r.path==='contract-price-terms/save').at(-1).body.generation"),7);
+  await evaluate("set('#contract-terms-settlement','derived_inputs_v1');set('#contract-terms-source','')");
+  assert.equal(await evaluate("document.querySelector('#terms-prompt').hidden"),false,'changing source asks before discarding terms');
+  await evaluate("document.querySelector('#terms-prompt button.secondary').click();new Promise(r=>setTimeout(r,0))");
+  assert.equal(await evaluate("document.querySelector('#contract-terms-source').value"),'source');
+  assert.equal(await evaluate("document.querySelector('#contract-terms-settlement').value"),'derived_inputs_v1');
+  await evaluate("set('#contract-terms-scope','contract')");
+  assert.equal(await evaluate("document.querySelector('#terms-prompt').hidden"),false,'changing scope also protects unsettled edits');
+  await evaluate("document.querySelector('#terms-prompt button.secondary').click();new Promise(r=>setTimeout(r,0))");
+  assert.equal(await evaluate("document.querySelector('#contract-terms-scope').value"),'curve');
+  await evaluate("set('#contract-terms-scope','contract');document.querySelector('#terms-prompt button:not(.secondary)').click();new Promise(r=>setTimeout(r,0))");
+  await evaluate("set('#contract-terms-contract','jan');new Promise(r=>setTimeout(r,0))");
+  await evaluate("set('#contract-terms-settlement','published_index_v1');set('#contract-terms-publication','gas-publication:2');set('#contract-terms-index','gas-hub');set('#contract-terms-observation','single_assessment_v1');set('#contract-terms-pending','require_final_v1');document.querySelector('#contract-terms-form').requestSubmit();running");
+  assert.equal(await evaluate("requests.filter(r=>r.path==='contract-price-terms/save').at(-1).body.terms.scope"),'contract');
+  assert.equal(await evaluate("requests.filter(r=>r.path==='contract-price-terms/save').at(-1).body.terms.contractId"),'jan');
+  assert.deepEqual(await evaluate("requests.filter(r=>r.path==='contract-price-terms/save').at(-1).body.terms.mappings"),[{targetContractId:'jan',sourceContractId:'feb'}],'an exact-contract exception sends only its own date mapping');
+  assert.equal(await evaluate("requests.filter(r=>r.path==='contract-price-terms/save').at(-1).body.generation"),8);
+  assert.deepEqual(await evaluate('failures'),['Error: Synthetic lost response','Error: Synthetic lost occurrence response']);
+  await evaluate(`(async()=>{const {authoringSession}=await import('/price-authoring-ui.js');window.savedCallbacks=0;window.retainedSession=authoringSession(document.querySelector('#session'),{...options,api:()=>new Promise(resolve=>window.completeSave=resolve)},'synthetic-session');retainedSession.saved(async()=>{savedCallbacks++;});retainedSession.mark();window.waitingSave=retainedSession.save({exact:'original'},'Synthetic');retainedSession.reset();retainedSession.mark();completeSave({ok:true});await waitingSave;})()`);
+  assert.equal(await evaluate('retainedSession.unsaved()'),true,'late completion cannot clean edits made in the new context');
+  assert.equal(await evaluate('savedCallbacks'),0,'late completion cannot reload over the new context');
+  assert.equal(await evaluate('retainedSession.blocked()'),false,'same-actor receipt still reconciles after context changes');
+  await evaluate(`(async()=>{window.confirmedReceipts=0;retainedSession.validateReceipt(value=>value?.receipt==='expected');retainedSession.saved(async()=>{confirmedReceipts++;});window.malformedSave=retainedSession.save({exact:'receipt-test'},'Receipt check').catch(error=>String(error));completeSave({receipt:'wrong'});await malformedSave;})()`);
+  assert.equal(await evaluate('retainedSession.blocked()'),true,'a malformed success cannot discard the original request');
+  assert.equal(await evaluate('confirmedReceipts'),0,'a mismatched receipt cannot report a confirmed save');
+  await evaluate("document.querySelector('#session .price-authoring-receipt button').click();completeSave({receipt:'expected'});running");
+  assert.equal(await evaluate('retainedSession.blocked()'),false,'the exact retry can reconcile a valid receipt');
+  assert.equal(await evaluate('confirmedReceipts'),1);
+  await evaluate(`(async()=>{const {authoringSession}=await import('/price-authoring-ui.js');const host=document.createElement('section');host.id='refusal-session';document.body.append(host);window.authoringRefusalCode='publication_occurrence_ambiguity';window.refusedSession=authoringSession(host,{...options,api:async()=>{throw Object.assign(Error('Ambiguous publication schedule'),{code:window.authoringRefusalCode});}},'contract-price-terms/save');refusedSession.mark();await refusedSession.save({exact:'rejected'},'Refused terms').catch(()=>{});})()`);
+  assert.equal(await evaluate('refusedSession.blocked()'),false,'an ambiguous occurrence is a confirmed validation refusal');
+  assert.equal(await evaluate('refusedSession.unsaved()'),true,'a refused save preserves editable terms');
+  for(const code of ['request_format','request_too_large']){
+   await evaluate(`(async()=>{window.authoringRefusalCode=${JSON.stringify(code)};await refusedSession.save({exact:'pre-handler-refusal'},'Refused terms').catch(()=>{});})()`);
+   assert.equal(await evaluate('refusedSession.blocked()'),false,code+' is a confirmed refusal before the operation runs');
+  }
+ }finally{ws?.close();await stopOwnedBrowser(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
+});

@@ -10,6 +10,24 @@ later [fixed-volume physical crude decision](#d271--fixed-volume-physical-crude)
 References must include the subject to distinguish them; the two contracts are
 independent.
 
+## D363 — Curve objects, explicit contract settlement and price publications
+
+Approved 2026-11-08. Curve builder presents curves and dated contracts as objects,
+with operations and scopes on connections, without a wizard. Whole-curve rules
+and explicit contract exceptions compile to the same managed graph. Published
+synthetics remain reusable exact dependencies.
+
+Contract definitions expose date mappings and settlement sources: official
+exchange settlement, an exact commodity-compatible publication index, or explicit
+derivation from inputs. Price publications own their member indices and assessment,
+coverage, release and revision rules; feed bindings stay separate. Expiry and
+publication do not imply one another. Unsupported commodity implementations
+refuse instead of borrowing gas conventions. See [curve authoring](curve-authoring.md).
+
+This authorizes implementation, not inferred financial defaults, a rewrite of
+retained identities or production data activation. D257 gap refusal remains until
+an explicitly selected estimate policy has a qualified connected consumer.
+
 ## Agreed requirements
 
 D215 authorizes the financial swap settlement MVP through S1–S6, with futures

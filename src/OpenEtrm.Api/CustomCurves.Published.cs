@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Calculation;
+using OpenEtrm.MarketData.Curves;
 using OpenEtrm.MarketData.CustomCurves;
 
 namespace OpenEtrm.Api;
@@ -27,7 +28,7 @@ public static partial class CustomCurves
 
         public async Task CollectObservations(RecipeDefinition definition,
             ImmutableDictionary<string,CurveSourceReference> sources,ImmutableDictionary<string,CalendarReference> calendars,
-            ImmutableDictionary<string,CurveScheduleReference> schedules,Action<InputFrame,ImmutableArray<CurveRequest>,bool> collect,CancellationToken ct)
+            ImmutableDictionary<string,CurveScheduleReference> schedules,Action<InputFrame,ImmutableArray<CurveRequest>,bool,IReadOnlyDictionary<CurveRequest,ContractPriceTermsBinding>> collect,CancellationToken ct)
         {
             var planned=new HashSet<(Guid,int)>();
             await Collect(definition,sources,calendars,schedules);

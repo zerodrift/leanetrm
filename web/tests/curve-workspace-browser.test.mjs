@@ -46,3 +46,15 @@ test('same-view navigation delegates pending context to the existing guard witho
   assert.deepEqual(await evaluate('opened'),['interval-curves','interval-curves']);
  });
 });
+
+test('Price setup shares guarded curve navigation and is remembered without replacing contract prices',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(`(async()=>{window.opened=[];window.blocked=false;window.workspace=(await import('/curve-workspace.js')).setupCurveWorkspace({open:page=>opened.push(page),available:()=>true,busy:()=>blocked});workspace.show('market');})()`);
+  assert.equal(await evaluate("!!document.querySelector('#curve-price-setup')"),true);
+  await evaluate("document.querySelector('#curve-price-setup').click()");
+  assert.deepEqual(await evaluate('opened'),['configuration']);
+  assert.equal(await evaluate("document.querySelector('#curve-price-contracts').getAttribute('aria-pressed')"),'true','the existing guard must accept before the view changes');
+  await evaluate("workspace.show('configuration');workspace.show('dashboard');document.querySelector('#nav-market').click()");
+  assert.deepEqual(await evaluate('opened'),['configuration','configuration']);
+ });
+});

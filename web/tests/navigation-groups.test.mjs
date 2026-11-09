@@ -98,7 +98,7 @@ test('the sidebar markup lists each group and its pages in the navigationGroups 
 });
 test('the pages a switch enters have their entries in that switch, named as the navigation names them',()=>{
  const [,switchMarkup]=markup.match(/<nav id="curve-price-navigation"[^>]*>(.*?)<\/nav>/s);
- assert.deepEqual([...switchMarkup.matchAll(/<button id="(?:nav-|curve-price-)([a-z-]+)"/g)].map(m=>m[1]),['contracts','custom-curves','interval-curves']);
+ assert.deepEqual([...switchMarkup.matchAll(/<button id="(?:nav-|curve-price-)([a-z-]+)"/g)].map(m=>m[1]),['contracts','custom-curves','interval-curves','setup']);
  for(const page of switched)assert.ok(allPages.includes(page));
 });
 

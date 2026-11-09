@@ -20,7 +20,7 @@ type Listed={id:string;agentName:string;unread:boolean;latestTurn:Turn};
 // A target's notice: whether the page moved there, the place Back restores, why it waits, and the action the person was
 // told leaves the unsaved changes of a page, which that page's next click of it then takes.
 type Notice={moved:boolean;key?:string;reason?:string;confirm?:{action:'go'|'back';page:string}};
-export type PanelOptions={launcherHidden?:()=>boolean;launcherMinimized?:()=>boolean;restoreLauncher?:()=>void;api:Api;root:string;identity:()=>string;zone:()=>string;available:()=>boolean;pageBusy:()=>boolean;
+export type PanelOptions={launcherHidden?:()=>boolean;launcherMinimized?:()=>boolean;restoreLauncher?:()=>void;api:Api;root:string;identity:()=>string;zone:()=>string;available:()=>boolean;pageAvailable?:()=>boolean;pageBusy:()=>boolean;
   act:(work:()=>Promise<void>)=>Promise<void>;place:()=>Place;names:()=>Names;trade:()=>string|undefined;unsaved:()=>boolean;
   // Moves the page to a target in the context it shows; selects a target's context, then moves; and restores a place.
   open:(target:Target)=>Promise<void>;go:(target:Target)=>Promise<void>;restore:(place:Place)=>Promise<void>;changed?:()=>Promise<void>;presentationRevision?:()=>string;presentationLocate?:(step:PresentationStep)=>HTMLElement|null;presentation?:(step:PresentationStep,signal:AbortSignal)=>Promise<HTMLElement>};
@@ -38,6 +38,7 @@ const unconfirmedAsk='We could not confirm that your question was received. Retr
 const canonical=(value:unknown):unknown=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,v])=>[key,canonical(v)])):value;
 const reviewed=(target:Target)=>target.kind==='proposal'||target.kind==='draft';
 export function setupAssistant(options:PanelOptions){
+  const available=()=>options.available()&&options.pageAvailable?.()!==false;
   const actions=setupAssistantActions({api:options.api,identity:options.identity,changed:async()=>{await options.changed?.();}});
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const text=(id:string,value:string)=>{get(id).textContent=publicText(value);};
@@ -151,6 +152,7 @@ export function setupAssistant(options:PanelOptions){
   }
 
   function show(open:boolean,focus=true){
+    if(open&&!available())return;
     if(!open)walkthrough.stop();
     opened=open;panel.hidden=!open;document.body.classList.toggle('assistant-open',open);launcher.setAttribute('aria-expanded',String(open));
     if(open){hideHistory();unread=false;void markRead();void readAgents();}
@@ -353,7 +355,7 @@ export function setupAssistant(options:PanelOptions){
   // Asking (§8): a new question has its own request identity; Retry sends the kept one exactly as first sent, whose outcome
   // a repeat answers. grant_required asks for consent; Allow grants and sends the question again as a new request.
   async function ask(retry:boolean){
-    if(working||running())return;
+    if(!available()||working||running())return;
     let command=retry?asking.command:undefined,agent:UsableAgent|undefined;
     // A kept request asks the version it named; consent, if the server asks for it, is for that version.
     if(command){const named=command.body as {agentId:string;version:number};agent=agents.find(a=>a.id===named.agentId&&a.version===named.version);}
@@ -477,7 +479,8 @@ export function setupAssistant(options:PanelOptions){
     }
   }
   function sync(){
-    launcher.hidden=!options.available()||!agents.length||!!options.launcherHidden?.();get('assistant-hide').hidden=launcher.hidden||opened||!!options.launcherMinimized?.();launcher.classList.toggle('is-minimized',!!options.launcherMinimized?.());launcher.disabled=false;get('assistant-dot').hidden=!unread;
+    if(!available()&&opened){show(false,false);return;}
+    launcher.hidden=!available()||!agents.length||!!options.launcherHidden?.();get('assistant-hide').hidden=launcher.hidden||opened||!!options.launcherMinimized?.();launcher.classList.toggle('is-minimized',!!options.launcherMinimized?.());launcher.disabled=false;get('assistant-dot').hidden=!unread;
     launcher.setAttribute('aria-label',unread?'Assistant · a new answer':'Assistant');
     if(panel.hidden)return;
     renderLooking();
@@ -586,7 +589,7 @@ export function setupAssistant(options:PanelOptions){
   return {sync,working:()=>working,
     /** Opens the panel with `text` in the composer to start from, unless it already holds a question. */
     draft(text:string){
-      if(!options.available())return;
+      if(!available())return;
       show(true,false);
       if(!question.value&&!asking.command)question.value=publicText(text);
       sync();question.focus();
