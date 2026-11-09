@@ -171,9 +171,13 @@ def run_checks(url, query, manifest, psql, environment):
             reading.result(timeout=20)
         return statement
     # A sequential scan would count every row after an ANALYZE, whatever the statement's scope.
+    def issued(profile):
+        return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','{profile}','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
+    def binding(statement, *values):
+        return re.sub(r'\$(\d+)',lambda m:f"'{values[int(m[1])-1]}'",statement)
     def visited(statement, profile, *values):
-        token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','{profile}','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
-        bound=re.sub(r'\$(\d+)',lambda m:f"'{values[int(m[1])-1]}'",statement)
+        token=issued(profile)
+        bound=binding(statement,*values)
         output=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SET LOCAL enable_seqscan=off;EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) {bound};ROLLBACK;")
         rows={}
         def walk(node):
@@ -190,6 +194,78 @@ def run_checks(url, query, manifest, psql, environment):
     assert (owned.get('contract_date_contracts'),owned.get('contract_date_fields'))==(2,6),"A definition's save read other definitions: "+repr(owned)
     library=visited(captured(viewer,'date-schedules'),'viewer',catalog)
     assert library.get('contract_date_definitions',0)<=versions_held,'The library checked a definition for each joined row: '+repr(library)
+    # Every secured relation in the statement decides its rows from one set: the count follows the
+    # statement's relations, while a check per row would follow the library's versions, contracts and fields.
+    def decisions(statement, profile, *values):
+        stats="SELECT 'CALLS|'||coalesce(sum(calls) FILTER(WHERE funcname IN('contract_date_visible','contract_date_schedule_visible')),0)||'|'||coalesce(sum(calls) FILTER(WHERE funcname='visible_contract_date_versions'),0) FROM pg_stat_xact_user_functions WHERE schemaname='security';"
+        output=query(f"SET track_functions='all';SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{issued(profile)}');{stats}{binding(statement,*values)};{stats}ROLLBACK;").splitlines()
+        calls=[list(map(int,line.split('|')[1:])) for line in output if line.startswith('CALLS|')]
+        return [end-start for start,end in zip(*calls)]
+    assert versions_held>4,'The library is too small to tell a statement decision from a row decision'
+    for who,profile in ((viewer,'viewer'),(editor,'editor'),(approver,'approver')):
+        per_row,set_based=decisions(captured(who,'date-schedules'),profile,catalog)
+        assert per_row==0 and 1<=set_based<=4,f'{profile} listing did not make one visibility decision per statement: per-row={per_row}, sets={set_based}'
+    rules=query("SELECT string_agg(policyname||':'||tablename||'='||regexp_replace(qual,'\\s+',' ','g'),chr(10) ORDER BY policyname,tablename) FROM pg_policies WHERE schemaname='market_data' AND policyname IN('scoped_read','risk_worker_scoped_read') AND tablename IN('contract_date_versions','contract_date_contracts','contract_date_fields');").splitlines()
+    expected="COALESCE(((clock_timestamp() < ( SELECT security.contract_date_authority_until() AS contract_date_authority_until)) AND ((catalog_id, definition_id, version) IN ( SELECT v.catalog, v.definition, v.version FROM security.visible_contract_date_versions() v(catalog, definition, version)))), false)"
+    assert rules==[f'{policy}:{table}={expected}' for policy in ('risk_worker_scoped_read','scoped_read') for table in ('contract_date_contracts','contract_date_fields','contract_date_versions')],rules
+    # A write's row checks stay per row: the guard's parent lock must not pay for the whole library once per field.
+    fields_in_draft=int(query(f"SELECT count(*) FROM market_data.contract_date_fields WHERE catalog_id='{catalog}' AND definition_id='{definition_id}' AND version=2;"))
+    assert fields_in_draft>=3
+    _,write_sets=decisions(f"DELETE FROM market_data.contract_date_fields WHERE catalog_id='{catalog}' AND definition_id='{definition_id}' AND version=2",'editor')
+    assert write_sets==1,f'A draft write decided the library set {write_sets} times for {fields_in_draft} fields'
+    # Every version in the library, decided both ways under the same request: the set must be exactly what the per-row rule admits.
+    every=query("SELECT string_agg(format('(%L::uuid,%L::uuid,%s)',catalog_id,definition_id,version),',') FROM market_data.contract_date_versions;")
+    def agreed(profile, bind='', setup='', later='', extra=''):
+        admitted=f"SELECT 'SET|'||coalesce(string_agg(k.c||','||k.d||','||k.v,';') FILTER(WHERE security.contract_date_visible(k.c,k.d,k.v)),'') FROM(VALUES {every}{extra})k(c,d,v);"
+        listed="SELECT 'SET|'||coalesce(string_agg(s.catalog||','||s.definition||','||s.version,';'),'') FROM security.visible_contract_date_versions() s;"
+        identity=f"SELECT security.use_context('{issued(profile)}');{bind}" if profile else ''
+        changed=f"SET LOCAL SESSION AUTHORIZATION preview_owner;{later}SET LOCAL SESSION AUTHORIZATION preview_runtime;" if later else ''
+        output=query(f"BEGIN;{setup}SET LOCAL SESSION AUTHORIZATION preview_runtime;{identity}{changed}{admitted}{listed}ROLLBACK;").splitlines()
+        per_row,set_based=[set(filter(None,line[4:].split(';'))) for line in output if line.startswith('SET|')]
+        assert per_row==set_based,f'Set visibility differs from the per-row rule for {profile} {bind} {setup}: only per-row {per_row-set_based}, only set {set_based-per_row}'
+        return set_based
+    def market(view):
+        return f"SELECT security.use_market_context('{catalog}','{view['contextId']}');"
+    def raw(statement):
+        return f"SET LOCAL session_replication_role=replica;{statement}SET LOCAL session_replication_role=origin;"
+    draft_key,published_key,literal_key=f'{catalog},{definition_id},2',f'{catalog},{definition_id},1',f"{catalog},{late_receipt['id']},{late_receipt['version']}"
+    for profile,sees_draft in (('viewer',False),('editor',True),('approver',True)):
+        current=agreed(profile)
+        assert published_key in current and (draft_key in current)==sees_draft,(profile,current)
+        bound=agreed(profile,market(context()))
+        assert published_key in bound and draft_key not in bound,(profile,'historical read',bound)
+        assert published_key not in agreed(profile,market(before)),'A publication was visible before its knowledge cut'
+        assert published_key not in agreed(profile,market(context('2021-06-15'))),'A definition was visible outside its schedule window'
+    assert agreed(None)==set(),'A login with no bound request saw contract dates'
+    unpublished=raw(f"UPDATE market_data.contract_date_fields SET schedule_id='{extended['id']}',schedule_version={extended['version']} WHERE catalog_id='{catalog}' AND definition_id='{definition_id}' AND version=2 AND schedule_id IS NOT NULL;")
+    assert draft_key not in agreed('editor',setup=unpublished),'A definition over an unpublished schedule was admitted'
+    late_schedules=raw(f"UPDATE market_data.knowledge_publications SET known_from=known_from+interval '100 years' WHERE catalog_id='{catalog}';")
+    known_later=agreed('viewer',market(context()),late_schedules)
+    assert published_key not in known_later and literal_key in known_later,'A schedule known after the cut did not hide only its definitions'
+    late_calendars=raw(f"UPDATE market_data.market_knowledge_receipts SET known_from=known_from+interval '100 years' WHERE catalog_id='{catalog}';")
+    assert published_key not in agreed('viewer',market(context()),late_calendars),'A calendar hidden at the cut left its definition visible'
+    viewer_grants="(SELECT principal_id FROM security.identity_bindings WHERE subject='viewer')"
+    assert agreed('viewer',later=f"UPDATE security.role_grants SET revoked=true WHERE principal_id={viewer_grants};")==set(),'A request with no read authority saw contract dates'
+    # The same definition in a second readable catalog: visible now, never through a context bound to the first.
+    sibling=str(uuid4())
+    copies=raw(f"""INSERT INTO security.market_catalog_scopes SELECT(jsonb_populate_record(NULL::security.market_catalog_scopes,to_jsonb(s)||jsonb_build_object('catalog_id','{sibling}'))).* FROM security.market_catalog_scopes s WHERE s.catalog_id='{catalog}';
+      INSERT INTO market_data.contract_date_versions SELECT(jsonb_populate_record(NULL::market_data.contract_date_versions,to_jsonb(v)||jsonb_build_object('catalog_id','{sibling}'))).* FROM market_data.contract_date_versions v WHERE(v.catalog_id,v.definition_id,v.version)=('{catalog}','{definition_id}',1);
+      INSERT INTO market_data.contract_date_knowledge_receipts SELECT(jsonb_populate_record(NULL::market_data.contract_date_knowledge_receipts,to_jsonb(k)||jsonb_build_object('catalog_id','{sibling}'))).* FROM market_data.contract_date_knowledge_receipts k JOIN market_data.contract_date_versions v USING(catalog_id,publication_order) WHERE(v.catalog_id,v.definition_id,v.version)=('{catalog}','{definition_id}',1);""")
+    extra=f",('{sibling}'::uuid,'{definition_id}'::uuid,1)";sibling_key=f'{sibling},{definition_id},1'
+    assert sibling_key in agreed('viewer',setup=copies,extra=extra),'The second catalog was not readable'
+    assert sibling_key not in agreed('viewer',market(context()),copies,extra=extra),'A context admitted another catalog'
+    # A draft is held by authoring authority, so it ends the statement's window when that authority ends first.
+    def grants(subject):
+        return f"(SELECT principal_id FROM security.identity_bindings WHERE subject='{subject}')"
+    ending=raw(f"""INSERT INTO security.role_grants SELECT gen_random_uuid(),{grants('editor')},r.role_id,r.tenant_id,r.workspace_id,r.granted_from,r.granted_to,false FROM security.role_grants r WHERE r.principal_id={grants('viewer')} AND NOT r.revoked;
+      UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '30 seconds' WHERE principal_id={grants('editor')} AND role_id NOT IN(SELECT role_id FROM security.role_grants WHERE principal_id={grants('viewer')});""")
+    windows="SELECT 'UNTIL|'||(security.contract_date_authority_until()=security.authority_until('ReadMarketData'))||'|'||(security.contract_date_authority_until()=greatest(security.authority_until('WriteMarketDefinitions'),security.authority_until('SealMarketDefinitions')));"
+    def window(profile, bind='', setup=''):
+        output=query(f"BEGIN;{setup}SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{issued(profile)}');{bind}{windows}ROLLBACK;").splitlines()
+        return next(line for line in output if line.startswith('UNTIL|'))
+    assert window('viewer')=='UNTIL|true|false',window('viewer')
+    assert window('editor',market(context()),ending).split('|')[1]=='true','A historical read kept the authoring window'
+    assert window('editor',setup=ending)=='UNTIL|false|true','Drafts outlived their authoring authority: '+window('editor',setup=ending)
     # Field mutations must take the same parent row lock as publication. An API
     # advisory gate alone does not protect this authorized raw storage boundary.
     def child_interlock(expired=False):
@@ -240,6 +316,9 @@ def run_checks(url, query, manifest, psql, environment):
         approver.call('date-schedules/publish',{k:extended[k] for k in ('id','version','generation')},expected=422)
         assert viewer.call('date-schedules/resolve',{'expression':'oe.plain_dates[0]','context':resolution['context']})['date']=='2021-01-19'
         assert not any(v['id']==definition_id for v in viewer.call('date-schedules')['contractDefinitions'])
+        assert published_key not in agreed('viewer'),'A definition over a revoked calendar was admitted'
+        locked=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{issued('editor')}');SELECT coalesce(security.lock_contract_date_version('{catalog}','{definition_id}',1),'none');ROLLBACK;").splitlines()[-1]
+        assert locked=='none','An author locked a version it may not see: '+locked
         assert query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT count(*) FROM market_data.contract_date_requests WHERE definition_id='{definition_id}';ROLLBACK;").splitlines()[-1]=='0'
         viewer.call('date-schedules/contracts/resolve', {**resolution,'context':resolution['context']}, expected=422)
         approver.call('date-schedules/contracts/publish', publish, expected=403)

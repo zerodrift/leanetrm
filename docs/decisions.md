@@ -3640,3 +3640,29 @@ expression (`contract_materialization`); they stay work.
 
 The hosted pilot needs a schema window for migration 0217 before this merges. Its
 curves are unchanged: no existing curve names a definition until one is admitted.
+
+## D363 — Contract-date read rules decide once per statement
+
+Decided by the owner (2026-11-08). The read rules on contract-date versions,
+contracts and fields follow D282: migration 0222 adds
+`security.visible_contract_date_versions()`, which returns for the bound request
+exactly the versions `security.contract_date_visible` admits, and each rule tests
+membership in that set. A statement's secured relations each decide once, so the
+count no longer follows the library's rows.
+
+`security.contract_date_authority_until()` is the clock each row compares. It is
+the end of the request's read authority; a request that may author also holds
+drafts by write or seal authority, so its window also ends with the later of those.
+When that authority ends within a statement, its published rows can stop early with
+the drafts, never later. Each row compares that clock before testing the set. The
+risk worker's copies of these rules follow the same form.
+
+Write rules and explicit authority calls keep the per-row function. The write guard
+locks a parent version directly through `security.lock_contract_date_version`, which
+admits only a request with write authority over a version it may see, so a write decides the set once per
+statement rather than once per field; its per-row check after the lock is unchanged.
+The contract-date request and admission read rules are unchanged, so the admission
+guard's reads still decide the set for each admission.
+
+Migration 0222 needs a hosted pilot schema window; the owner placed it in the
+combined window after 0221.
