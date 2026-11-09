@@ -3572,7 +3572,7 @@ Local verification on 2026-11-08: `python3 tools/check_all.py --group standard` 
 Owner-directed, 2026-11-08. Completes D318's first remaining item: a published
 futures or forward definition is admitted into a draft market definition revision
 (`POST /api/curve-definitions/admit-contracts`, `WriteMarketDefinitions`, idempotent
-by request id, migration `0218_admitted_contract_curves.sql`).
+by request id, migration `0217_admitted_contract_curves.sql`).
 
 **What admission writes.** At the close the request names, under current knowledge
 (`curve_definition_historical` in a historical view), the definition's window resolves
@@ -3608,5 +3608,5 @@ contract cannot be admitted at a position another context would give it. Generat
 schedules and business-day offsets have no database recomputation and are refused by
 expression (`contract_materialization`); they stay work.
 
-The hosted pilot needs a schema window for migration 0218 before this merges. Its
+The hosted pilot needs a schema window for migration 0217 before this merges. Its
 curves are unchanged: no existing curve names a definition until one is admitted.

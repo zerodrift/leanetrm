@@ -194,7 +194,7 @@ adopted silently. Rendered curves offer no way to change a definition.
   removes literal-maturity rate curves and the discount default's interpolation
   column.
 - D362: `POST /api/curve-definitions/admit-contracts`; migration
-  `0218_admitted_contract_curves.sql` pins a curve's definition version, adds the
+  `0217_admitted_contract_curves.sql` pins a curve's definition version, adds the
   request ledger, checks context-relative date lists and checks admitted terms at sealing.
 
 ## Remaining work
