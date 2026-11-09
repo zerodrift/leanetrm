@@ -13,6 +13,14 @@ public sealed partial class PreviewDatabase
         ImmutableArray<ObservationWindow> windows,CancellationToken ct,ImmutableArray<Guid> exactPins=default)
     {
         if(windows.Length>MaximumObservationWindows||windows.Any(window=>window.From>window.To))throw new ArgumentException("Observation windows require ordered bounds and at most 16,384 declared samples.");
+        // Exact pins alone go through the point reader, which authorizes only them: reading the table would make its row security
+        // build the whole catalog's visibility first, seconds at hosted scale.
+        if(windows.IsEmpty)
+        {
+            var exact=await ReadObservationPins(connection,metadata.DefinitionRevision.CatalogId,metadata.DefinitionRevision.RevisionId,exactPins.IsDefault?[]:exactPins,ct);
+            Interlocked.Add(ref observationRowsRead,exact.Length);
+            return metadata.WithObservations(exact);
+        }
         var requested=JsonSerializer.Serialize(windows.Distinct().Select(window=>new{series=window.SeriesId,source=window.SourceCode,role=window.Role,from=window.From,to=window.To}));
         var rows=await Rows(connection,"""
             WITH requested AS MATERIALIZED(SELECT * FROM jsonb_to_recordset($3::jsonb)

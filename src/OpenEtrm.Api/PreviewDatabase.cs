@@ -636,7 +636,10 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
         ("measurement_bases",["basis_code"]),("price_index_definitions",["index_a_code","index_b_code"])
     ];
 
-    internal static Task<ImmutableArray<JsonElement>> ReadObservationPins(NpgsqlConnection connection,PreviewManifest manifest,ImmutableArray<Guid> pins,CancellationToken ct)
+    internal static Task<ImmutableArray<JsonElement>> ReadObservationPins(NpgsqlConnection connection,PreviewManifest manifest,ImmutableArray<Guid> pins,CancellationToken ct)=>
+        ReadObservationPins(connection,manifest.CatalogId,manifest.RevisionId,pins,ct);
+
+    private static Task<ImmutableArray<JsonElement>> ReadObservationPins(NpgsqlConnection connection,Guid catalog,Guid revision,ImmutableArray<Guid> pins,CancellationToken ct)
     {
         if(pins.IsEmpty)return Task.FromResult(ImmutableArray<JsonElement>.Empty);
         return Rows(connection,"""
@@ -644,7 +647,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
                 SELECT * FROM security.read_observation_pins($1,$2,$3::uuid[])
                 ORDER BY observed_at,received_at,id
             ) t
-            """,[manifest.CatalogId,manifest.RevisionId,pins.ToArray()],ct);
+            """,[catalog,revision,pins.ToArray()],ct);
     }
 
     private static Task<ImmutableArray<JsonElement>> ReadObservationFacts(NpgsqlConnection connection,PreviewManifest manifest,ImmutableArray<Guid> pins,CancellationToken ct)
