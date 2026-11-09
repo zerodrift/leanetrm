@@ -43,6 +43,16 @@ original requested anchor in that same authorized set can return their siblings.
 An invisible raw anchor never grants access to another visible revision. No
 second visibility algorithm or historical-permission lookup is introduced.
 
+Migration 0223 also keeps each requested anchor lookup parameterized in the
+history wrapper and both exact-input branches of the visibility core. A large
+close must not make those joins switch to scans of unrelated history. The
+2,605-anchor regression checks tuple work under custom and generic plans;
+adding another 2,605 unrelated facts leaves the measured work at 7,855 in both
+cases. This qualifies bounded work for that synthetic request, not a hosted
+latency guarantee. Installation refuses changed helper definitions, owners,
+ACLs or configurations; the visibility predicates and publication checks stay
+in the retained functions.
+
 The existing reader checks its complete policy/SELECT contract, current
 authority, retained context, newest close and worker claim before publication.
 The history wrapper also retains its original authority deadline; a later grant

@@ -3243,6 +3243,16 @@ selected work under unrelated history; browser checks cover grouping, mobile
 layout, explanations, failed Apply and cross-page recovery. Production activation
 is a separately qualified schema release.
 
+**Large selected-fact requests (2026-11-09).**
+
+Migration 0223 keeps the private anchor lookup and the exact-input visibility
+lookups parameterized by each requested identity. The connected Blotter consumer
+can carry thousands of close pins; its query plan must not broaden into unrelated
+history at that cardinality. The retained authority, knowledge, complete-close,
+worker and final publication checks remain the contract. The synthetic 2,605-pin
+regression covers custom and generic plans and refuses work that grows with
+unrelated facts. See [the bounded observation contract](exact-observation-reads.md#selected-fact-history-and-calendar-frames-d354).
+
 ## D355 — Follow exact gas billing metadata before authorization joins
 
 Keep the native gas billing read on the selected trade's exact relational chain.

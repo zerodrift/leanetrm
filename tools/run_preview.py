@@ -419,6 +419,9 @@ def main():
             if args.check and migration.name=='0215_rolling_rate_curves.sql':
                 from check_rate_cutover import run_checks as check_rate_cutover
                 check_rate_cutover(query,[reference,market,security],migration)
+            if args.check and migration.name=='0223_bounded_fact_anchor_reads.sql':
+                from check_fact_anchor_upgrade import run_checks as check_fact_anchor_upgrade
+                check_fact_anchor_upgrade(query,migration)
             query(migration.read_text())
         if args.check:
             from check_whole_term_swap_schema import run_checks as check_whole_term_swap_schema

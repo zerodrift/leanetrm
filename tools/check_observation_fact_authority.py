@@ -181,6 +181,29 @@ def run_checks(query, manifest, context, pins, psql, environment, owned_root):
               f'point={measurements[0][2]}/{measurements[1][2]} '
               'remains bounded after another 4096 unrelated facts', flush=True)
 
+    # A hosted close carries thousands of pins, rather than the single anchor above.
+    # Hidden requested anchors still cost work, but unrelated history must not.
+    for mode in ('force_custom_plan', 'force_generic_plan'):
+        measures = []
+        prefix = 'synthetic_many_pins_' + uuid4().hex
+        seeds = f"""INSERT INTO market_data.observations SELECT(jsonb_populate_record(NULL::market_data.observations,to_jsonb(o)||jsonb_build_object(
+          'id',gen_random_uuid(),'source_event_id','{prefix}_'||n,'source_revision_id','first','corrects_id',NULL,'received_at',clock_timestamp()))).*
+          FROM market_data.observations o CROSS JOIN generate_series(1,2605)n WHERE(o.catalog_id,o.id)=('{catalog}','{known}');"""
+        for extra in (False, True):
+            more = seeds.replace(prefix, prefix + '_unrelated') if extra else ''
+            requested = f"(SELECT array_agg(id) FROM market_data.observations WHERE catalog_id='{catalog}' AND source_event_id LIKE '{prefix}_%' AND source_event_id NOT LIKE '{prefix}_unrelated%')"
+            # Capture the selected array before changing identity; private candidates never grant read authority.
+            setup = seeds + more + f"SELECT set_config('openetrm.synthetic_pins',({requested})::text,true);ANALYZE market_data.observations;"
+            selected_many = "current_setting('openetrm.synthetic_pins')::uuid[]"
+            output = query('BEGIN;' + setup + f'SET LOCAL plan_cache_mode={mode};' + bind(issue()) + stats +
+                           "SELECT 'ROWS|'||" + rows(facts(selected_many)).removeprefix('SELECT ') + stats + 'ROLLBACK;').splitlines()
+            work = [int(line.split('|')[1]) for line in output if line.startswith('WORK|')]
+            assert next(line for line in output if line.startswith('ROWS|')) == 'ROWS|[]'
+            measures.append(work[1] - work[0])
+        assert max(measures) <= 2605 * 64, (mode, 'large close pin work', measures)
+        assert measures[1] <= measures[0] + 128, (mode, 'large close pins', measures)
+        print(f'PASS {mode}: 2605 requested anchors keep fact tuple work bounded {measures}', flush=True)
+
     def stop(child):
         if child is None:
             return
