@@ -218,7 +218,7 @@ existing market definitions while giving the converter its selected catalog.
 
 ## Legal entities and counterparties
 
-**Settings → Entities & counterparties** provides create/edit/history controls
+**Reference Data → Entities & counterparties** provides create/edit/history controls
 for the existing versioned models. Codes are permanent within their party type
 and catalog. Edits append name/effective-time revisions with an expected head;
 equal effective instants remain distinguishable by publication knowledge.
@@ -1266,7 +1266,7 @@ screenshots were inspected. These results are not throughput or production claim
 
 ## Independent schedules, publication and contract dates
 
-**Settings → Schedules** creates date schedules independently of curves. Canonical
+**Reference Data → Schedules & date mappings** creates date schedules independently of curves. Canonical
 references use `oe.name`; configurable namespace aliases remain future authoring
 convenience. A schedule generates monthly anchors with explicit first/last months,
 day-of-month or month-end intent, short-month handling, business-day adjustment
@@ -1301,7 +1301,7 @@ permission is checked again after lock waits. The displayed publication timestam
 is audit metadata. Timestamp-based certification now exists for the schedule path described above;
 broader market/reference temporal context remains unfinished.
 
-**Settings → Market setup → Curve & contract definitions** uses already published
+**Reference Data → Price setup** uses already published
 schedules in `start`, `end` and last-trading fields. `date` is used for a single
 resolved date. No existing curve specification is required. The example explicitly
 binds consecutive months and a last-trading offset of three business days before

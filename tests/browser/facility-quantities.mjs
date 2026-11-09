@@ -44,7 +44,7 @@ export async function run(actions){
  // Browser storage can be unavailable. Navigation still retains the original
  // command in actor-scoped memory and status recovery does not resubmit it.
  await evaluate(`window.fetch=window.originalFacilityFetch;window.facilityStorage={};for(const name of ['getItem','setItem','removeItem']){facilityStorage[name]=Storage.prototype[name];Storage.prototype[name]=function(key,...rest){if(String(key).startsWith('openetrm.facilities.'))throw Error('Synthetic unavailable storage');return facilityStorage[name].call(this,key,...rest);};}`);
- await click('#nav-reference');await open();
+ await click('#nav-reference');await click('#nav-table-currencies');await open();
  await check('an uncertain command survives navigation when browser storage is unavailable',
   "!document.querySelector('#facility-pending').hidden&&document.querySelector('#facility-pending-description').textContent.includes('2021-01-15T17:01')");
  await click('#facility-status');

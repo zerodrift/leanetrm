@@ -34,13 +34,13 @@ risk), which run on the trade reads' shared path. From step 3, `ManageModelProvi
 provider and write-only credential storage with key custody, model identities and
 effective-dated price revisions are implemented, with the Providers and Models & prices
 reads and Replace key, Add model, Rename, Add price and Withdraw price, on those two
-Settings › AI tabs. Step 4 has begun with the provider-neutral boundary (§6.1) and the
+Infrastructure › AI tabs. Step 4 has begun with the provider-neutral boundary (§6.1) and the
 Messages adapter with its usage mapping `messages_v1` (§6.2), which pass the Messages
 conformance suite against a fake provider (§6.3), and with provider qualification: the
 confirmed usage mapping each adapter applies, sourced and dated terms versions,
 attestations bound to the current key and terms, and provider Enable and Disable
 (§6.3), and model capability versions with model Enable and Disable (§5.1, §6.3), each
-through the API and on the Settings › AI tabs: a provider's card records terms,
+through the API and on the Infrastructure › AI tabs: a provider's card records terms,
 attests and enables it, and a model's card records capabilities under the efforts its
 provider's applied mapping states and enables it. Model Enable is the first consumer of
 a provider's enabled state; calls will consume both. Test, through the API, sends one
@@ -52,7 +52,7 @@ it is the check endpoint, and its last test, marked when it ran under a key or
 terms no longer attested. From step 5, agent administration works through the API:
 `ManageAgents` and `UseAgents`, the agent reader role held only by agent principals,
 agents with immutable versions, and create, save, Publish and Retire (§5.4, §9), while
-Users & access no longer creates or changes agents. Settings › AI offers each tab by its
+Users & access no longer creates or changes agents. Infrastructure › AI offers each tab by its
 own permission, and its Agents tab creates agents, saves drafts, publishes, marks an agent
 whose published model version is no longer current, and retires. Users grant an agent
 version its reads and revoke their grants through the API (§7.1): one current grant per
@@ -89,7 +89,7 @@ recheck, then each piece of answer text the worker publishes once its publicatio
 recheck has committed, with every other event, steps included, read the same way,
 through to the turn's terminal event, with resume, heartbeats, one stream per turn and
 the refusals §8 lists; the runtime set is `turns_v10` (D193, D239, D245, D260, D271). `ReadModelUsage` reads usage
-through the API and the Usage tab of Settings › AI (§5.3, §9): calls, tokens and the
+through the API and the Usage tab of Infrastructure › AI (§5.3, §9): calls, tokens and the
 exact cost of priced calls by model, user or agent over a half-open range of local dates
 in a zone prefilled from Profile, a call falling on the day whose bounds hold its start,
 per exact currency reference with provider tests as their own row and a daily chart, and
@@ -116,7 +116,7 @@ enabled.
 
 The page assistant ships in three phases:
 
-1. **Local-preview core** (this document): Settings › AI, model provider adapters,
+1. **Local-preview core** (this document): Infrastructure › AI, model provider adapters,
    usage and cost, agent principals and access grants, context pinning, fixed read
    tools plus Navigate and Show card, an in-process worker, a server-sent event
    stream, the assistant panel, application-drawn cards and conversation memory.
@@ -233,7 +233,7 @@ Facts the body relies on and does not restate:
 
 ## 4. Vocabulary
 
-- **Model provider** ("provider" in this document and in Settings › AI): one of the
+- **Model provider** ("provider" in this document and in Infrastructure › AI): one of the
   five vendors with its adapter, fixed endpoint, credential and enabled state.
   Delivery-price providers are untouched.
 - **Model**: a vendor model identifier an administrator allowed, with immutable
@@ -680,7 +680,7 @@ The tool set is fixed; each tool is switched on per agent version.
 | Curve builder | Read custom curves | `ReadMarketData` | Pinned saved library; unsaved edits are not sent |
 | Jobs & Infrastructure | Read jobs | `ReadJobs` | Current operational records; refused under a historical view |
 | PPA bookings: the inspected PPA, or the listed book's PPA trades (D250) | Read trades | `ReadTrades`, `ReadMarketData` | Pinned, not the page's own market inputs and cutoff; not a Navigate page |
-| The Blotter's Risk report and its trade rows under the Risk lens, a new trade entered in the Blotter's panel, Delivery prices, Interval series, Users & access, Settings › AI | none | | Not supported |
+| The Blotter's Risk report and its trade rows under the Risk lens, a new trade entered in the Blotter's panel, Delivery prices, Interval series, Users & access, Infrastructure › AI | none | | Not supported |
 
 - Read current page has no permissions of its own; if the dispatched tool is off it is
   refused with `tool_not_enabled`. On an unsupported page it returns
@@ -1025,7 +1025,7 @@ The tool set is fixed; each tool is switched on per agent version.
     `Last-Event-ID`.
 - Each scope maps its own stream and commands inside `MapPreview`; no new dependency.
 
-## 9. Settings › AI
+## 9. Infrastructure › AI
 
 Tabs appear by permission (§5.4), use the existing table component and pending-command
 pattern (except Replace key, §5.2), and end with that tab's latest 100 audit entries;
@@ -1184,11 +1184,11 @@ under `--hosted-pilot` as an installation someone else operates runs it. Migrati
 (D135), and the installation's operator adds the key files, `host.json` fields,
 connection limit and firewall rule below in the same window.
 
-- **Routes and worker.** Hosted mode maps the assistant, stream and Settings › AI
+- **Routes and worker.** Hosted mode maps the assistant, stream and Infrastructure › AI
   routes and the panel's selection of a retained context by its id, and runs the
   worker, provider client and agent pools as the local preview does, on the
   installation's own runtime and authenticator logins. The signed-in account takes the
-  place of a preview profile: the launcher, Settings › AI and the grants in Users &
+  place of a preview profile: the launcher, Infrastructure › AI and the grants in Users &
   access appear by permission, as in the preview.
 - **Sessions.** An application session belongs to the sign-in session it was opened
   under: it names itself to the database by that session's digest and ends when that
@@ -1202,7 +1202,7 @@ connection limit and firewall rule below in the same window.
   was revoked elsewhere is refused `session_ended`. The session's end stops its turns
   and streams as in the preview.
 - **Administration.** Providers, keys, models, prices, agents and usage are
-  administered in Settings › AI by holders of their permissions, each change audited,
+  administered in Infrastructure › AI by holders of their permissions, each change audited,
   as in the preview. Enabling a provider is the access administrator's decision there,
   after recording the vendor's terms and attesting; there is no installation-level
   list of vendors.
@@ -1248,7 +1248,7 @@ connection limit and firewall rule below in the same window.
   timeout, which the stream's 15-second heartbeat fits. `tools/check_public_routes.py`
   checks that a stream passes through it unbuffered.
 - **Qualification (O09).** Before anyone else gets the launcher, an installation's
-  owner enters their own vendor key in Settings › AI, records the vendor's terms and
+  owner enters their own vendor key in Infrastructure › AI, records the vendor's terms and
   attests, adds a model with its capabilities and the price they enter, runs Test, and
   asks a scripted question from the panel that reads and navigates. Anything the live
   API sends that the adapter refuses is fixed under a recorded check. O09 then closes
@@ -1352,7 +1352,7 @@ synthetic data and the fake provider. The cases that coverage does not imply:
 - **Changed and hosted checks:** `check_admin_preview.py` expects `agent_managed`;
   `run_preview.py --hosted-check` expects explicit human roles. Under `--hosted-pilot`,
   `check_hosted_http.py` takes the worker generation at start; administers a provider,
-  model, price and agent in Settings › AI against the loopback fake provider; grants;
+  model, price and agent in Infrastructure › AI against the loopback fake provider; grants;
   asks and streams through the hosted proxy; and checks that signing out, a password
   reset and disabling the member each cancel a running turn `session_ended`, that
   signing out ends its stream `session_ended`, that a turn asked under another sign-in
@@ -1382,7 +1382,7 @@ Meta) and their public API identifiers may appear in source, documentation, fixt
 and commits; real prices are not shipped.
 
 **Owner decisions:** the three phases; a docked panel with
-page questions and navigation, more tools later; Settings › AI's four tabs and the
+page questions and navigation, more tools later; Infrastructure › AI's four tabs and the
 Agents form as mocked, with saved drafts and Publish replacing its "Test in pop-up"
 and unsaved definitions refused; four card kinds, no embedded views and no
 agent-written code; server-sent events, not SignalR; P&L comparison next and monthly
@@ -1480,7 +1480,7 @@ and reasons in plain words (§8, §10.1).
 **Hosted decisions** (D192, decided by the owner, superseding P37): phase 1 runs under
 `--hosted-pilot`; an application session belongs to its sign-in session, and revoking or
 ending that session cancels its turns and ends its streams `session_ended`; providers
-are enabled in Settings › AI alone, with no installation list of vendors;
+are enabled in Infrastructure › AI alone, with no installation list of vendors;
 `host.json` names the credential key files, which provisioning generates and no person
 handles; conversations are kept (O11); agents read their workspace's one market and one
 reference catalog (O22, O28); the API reaches only a qualified provider's endpoint, a

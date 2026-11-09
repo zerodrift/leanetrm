@@ -1677,6 +1677,10 @@ consumer; no unused catalog is added in this increment.
 
 ## Later scope
 
+Planned facility and transport delivery workflows, each needing its own supported
+consumer: gas storage, power plants, rail, barges, tankers, trucks, LNG terminals,
+processing plants, terminals and ports, and bulk storage or tank farms.
+
 The [financial swap settlement sequence](swap-settlement.md) is now authorized
 through S1–S6 (D215), with bounded local implementation and executable gates
 recorded there. Futures margining and physical settlement remain later scope.

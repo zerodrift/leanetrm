@@ -6,8 +6,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
    if(path.includes('price-publications')){const data=await response.clone().json();window.authoringRequests.push({path,body:init?.body?JSON.parse(init.body):null,status:response.status,data});
     if(path==='/api/price-publications/save'&&response.ok&&window.loseAuthoringReply){window.loseAuthoringReply=false;throw new TypeError('Synthetic lost response after the server committed');}}
    return response;};}`});
- await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#curve-price-setup')&&"+idle,30000);
- await persona('editor');await click('#curve-price-setup');await click('#price-setup-tabs-publications');
+ await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-configuration')&&"+idle,30000);
+ await persona('editor');await click('#nav-configuration');await click('#price-setup-tabs-publications');
  const choose=async(selector,match)=>{const value=await evaluate(`Array.from(document.querySelector(${JSON.stringify(selector)}).options).find(o=>o.textContent.includes(${JSON.stringify(match)}))?.value`);if(!value)throw Error('Missing authoring choice: '+match);await set(selector,value);await wait(idle);};
  await choose('#price-publications-library','Synthetic API monthly report');
  await set('#price-publications-name','Synthetic recovery control test');

@@ -1,9 +1,9 @@
 // Every fixture and assertion uses this owned preview's authenticated API.
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,url}){
  await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1500,height:1100,deviceScaleFactor:1,mobile:false});
- await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#curve-price-setup')&&"+idle,30000);await persona('editor');
+ await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-configuration')&&"+idle,30000);await persona('editor');
  const live=await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.textContent.includes('Dec 18')&&o.textContent.includes('4:00')).value");
- await set('#snapshot',live);await wait(idle);await click('#curve-price-setup');
+ await set('#snapshot',live);await wait(idle);await click('#nav-configuration');
  await evaluate(`(async()=>{
   const original=window.fetch;window.__contractCalls=[];window.__contractFault='';
   window.fetch=async(input,init)=>{const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;const response=await original(input,init);
@@ -55,13 +55,13 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await evaluate("window.__contractLost=window.__contractCalls.filter(c=>c.path.endsWith('/save')).at(-1)");
  await check('lost accepted response retains the original pending command',"!document.querySelector('#contract-price-terms-editor .price-authoring-receipt').hidden&&window.__contractLost.status===200");
  const switchActor=async(id)=>{await persona(id);if(await evaluate("!document.querySelector('#contract-price-terms-editor-prompt').hidden"))await click('#contract-price-terms-editor-prompt button:last-child');await wait(`!document.querySelector('#profile-dialog').open&&document.querySelector('#profile-label').textContent.toLowerCase().includes(${JSON.stringify(id)})&&${idle}`,30000);};
- await switchActor('viewer');await click('#curve-price-setup');
+ await switchActor('viewer');await click('#nav-configuration');
  await check('another actor cannot inspect or retry the editor pending command',"document.querySelector('#contract-price-terms-editor .price-authoring-receipt').hidden");
- await switchActor('editor');await click('#curve-price-setup');
+ await switchActor('editor');await click('#nav-configuration');
  await check('returning editor recovers the original unresolved command',"!document.querySelector('#contract-price-terms-editor .price-authoring-receipt').hidden");
  await click('#contract-price-terms-editor .price-authoring-receipt button:first-of-type');
  await check('original accepted retry survives actor and snapshot lifecycle changes',"(()=>{const r=window.__contractCalls.filter(c=>c.path.endsWith('/save')).at(-1);return r.status===200&&JSON.stringify(r.body)===JSON.stringify(window.__contractLost.body)&&r.data.generation===window.__contractLost.data.generation&&document.querySelector('#contract-price-terms-editor .price-authoring-receipt').hidden;})()", "window.__contractCalls.filter(c=>c.path.endsWith('/save')).at(-1)");
- const restoredClose=await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.textContent.includes('Dec 18')&&o.textContent.includes('4:00')).value");await choose('#snapshot',restoredClose);await click('#curve-price-setup');
+ const restoredClose=await evaluate("[...document.querySelector('#snapshot').options].find(o=>o.textContent.includes('Dec 18')&&o.textContent.includes('4:00')).value");await choose('#snapshot',restoredClose);await click('#nav-configuration');
  await choose('#contract-terms-curve',await evaluate("window.__contractFixture.id+':1'"));await choose('#contract-terms-source','exchange');await choose('#contract-terms-scope','curve');
  await choose('#contract-terms-mapping','explicit_contracts_v1');
  await check('explicit mapping exposes persisted target and source selectors',"document.querySelectorAll('#contract-terms-mappings .price-authoring-map').length===window.__contractSaved.sources.find(s=>s.nodeId==='exchange').contracts.length&&!document.querySelector('#contract-terms-add-map').hidden");
@@ -120,7 +120,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('retry sends the same accepted command and recovers its original receipt',"(()=>{const r=window.__contractCalls.filter(c=>c.path.endsWith('/save')).at(-1);return r.status===200&&JSON.stringify(r.body)===JSON.stringify(window.__contractAccepted.body)&&r.data.generation===window.__contractAccepted.data.generation&&document.querySelector('#contract-price-terms-editor .price-authoring-receipt').hidden;})()");
  await shot('contract-pricing-controls');
  await evaluate("window.__contractApi('custom-curves').then(c=>{window.__contractFinal=c.recipes.find(v=>v.id===window.__contractFixture.id&&v.version===1);})");
- await persona('approver');await evaluate("window.__contractApi('custom-curves/publish',{requestId:crypto.randomUUID(),id:window.__contractFinal.id,version:1,generation:window.__contractFinal.generation})");await persona('viewer');await click('#curve-price-setup');
+ await persona('approver');await evaluate("window.__contractApi('custom-curves/publish',{requestId:crypto.randomUUID(),id:window.__contractFinal.id,version:1,generation:window.__contractFinal.generation})");await persona('viewer');await click('#nav-configuration');
  await choose('#contract-terms-curve',await evaluate("window.__contractFixture.id+':1'"));await choose('#contract-terms-source','forward');await choose('#contract-terms-scope','curve');
  const writes=await evaluate("window.__contractCalls.filter(c=>c.path.endsWith('/save')).length");await click('#contract-terms-save');
  await check('read-only published source loads saved terms but cannot send a save',`document.querySelector('#contract-terms-save').disabled&&window.__contractCalls.filter(c=>c.path.endsWith('/save')).length===${writes}&&document.querySelector('#contract-terms-index').value==='test_price'&&document.querySelector('#contract-terms-current').textContent.includes('Publication index')`);

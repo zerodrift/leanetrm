@@ -37,7 +37,7 @@ const paths=['create','save','publish','retire'].map(path=>'settings/ai/agents/'
 const roleAdvice='Allow only roles that use agents and hold every permission its tools need.';
 function toolName(code:string){if(!Object.hasOwn(toolNames,code))throw inconsistent();return toolNames[code];}
 
-// The Settings › AI tabs in their order (D152), each offered by its own permission (§9): Usage needs ReadModelUsage,
+// The Infrastructure › AI tabs in their order (D152), each offered by its own permission (§9): Usage needs ReadModelUsage,
 // Models & prices and Providers need ManageModelProviders, and Agents needs ManageAgents.
 const tabPermissions={usage:'ReadModelUsage',models:'ManageModelProviders',providers:'ManageModelProviders',agents:'ManageAgents',prompts:'ManageAssistantPrompts'} as const;
 export type AiTab=keyof typeof tabPermissions;
@@ -123,7 +123,7 @@ export function agentMessage(code:string|undefined,path:string){
   return code&&Object.hasOwn(agentMessages,code)?agentMessages[code]:undefined;
 }
 
-// The Agents tab of Settings › AI (docs/ai-assistant.md §9).
+// The Agents tab of Infrastructure › AI (docs/ai-assistant.md §9).
 export function setupAgentSettings(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const input=(id:string)=>get<HTMLInputElement>(id);

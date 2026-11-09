@@ -1,6 +1,6 @@
 # Model provider adapters
 
-The page assistant and Settings › AI › Test route by the admitted provider and
+The page assistant and Infrastructure › AI › Test route by the admitted provider and
 its exact installed usage mapping. Model names never select a provider. The
 existing key custody, account terms, administrator attestation, model capability
 versions, effective prices and enablement gates remain required.

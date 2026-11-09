@@ -34,11 +34,11 @@ const ROW_FIELDS={dates:[['label','Label'],['date','Date · date or reference']]
   contracts:[['label','Contract'],['start','Start · date or reference'],['end','End · date or reference'],['lastTrading','Last trading · date or reference'],['cutoffUtc','Last trading time · UTC']]} as const;
 
 /**
- * Curve definitions on Curves & prices (D318, D357): saved curves are listed and opened here, and only here are they changed. A curve
+ * Curve definitions in the Reference Data console (D318, D357, D364): saved curves are listed and opened here, and only here are they changed. A curve
  * names its reference terms and an exact mapping version; its contracts or tenors are that mapping's rows, edited in place and saved as
  * the mapping's draft with the curve. The server validates, resolves at the header's selected close and publishes; this view only presents.
  */
-export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=>Promise<void>,close:()=>string,zone:()=>string,isBusy:()=>boolean,leave:()=>void,authoringUnavailable:()=>string|null=()=>null){
+export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=>Promise<void>,close:()=>string,zone:()=>string,isBusy:()=>boolean,authoringUnavailable:()=>string|null=()=>null){
   const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=publicText(text);return n;};
   const element=el('div');element.className='card curve-definition-editor';
   const form=el('form'),result=el('div'),title=el('h3'),summary=el('p'),table=el('div');
@@ -93,10 +93,9 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
   actions.className='schedule-actions';preview.type='submit';save.type='button';save.id='curve-definition-save';save.className='secondary';
   publish.type='button';publish.id='curve-definition-publish';publish.hidden=true;
   actions.append(preview,save,publish);form.append(actions,status);
-  const intro=el('p','A curve changes only here, through a new version of its definition. Contracts and tenors come from a date mapping (Settings › Schedules & date mappings) and can be edited below; preview resolves them at the close selected above.');
-  const back=el('button','‹ All markets');back.type='button';back.className='text-button';back.id='curve-definition-back';back.onclick=leave;
+  const intro=el('p','A curve changes only here, through a new version of its definition. Contracts and tenors come from a date mapping (Reference Data › Schedules & date mappings) and can be edited below; preview resolves them at the close selected above.');
   const fresh=el('button','New definition');fresh.type='button';fresh.id='curve-definition-new';fresh.className='secondary';
-  intro.className='muted';element.append(back,el('h2','Curve definitions'),intro,list,fresh,form,result);
+  intro.className='muted';element.append(el('h2','Curve definitions'),intro,list,fresh,form,result);
 
   const isRate=()=>value('kind')==='interest_rate';
   const mappingType=()=>isRate()?'dates':'contracts';
@@ -179,13 +178,13 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
     set('rate-interpolation',d.contractKind==='interest_rate'?d.interpolation:'');
     kindChanged();if(d.contracts)set('mapping',d.contracts.mappingId+'|'+d.contracts.mappingVersion);showRows(selectedMapping());staleRows();renderList();
   }
-  // The opened draft pinned its mapping draft at one generation; rows changed since then (in Settings) are shown but adopted only on request.
+  // The opened draft pinned its mapping draft at one generation; rows changed since then (in Schedules & date mappings) are shown but adopted only on request.
   function staleRows(){
     const pinned=opened?.definition.contracts,current=selectedMapping();
     stale.hidden=!(opened&&pinned&&current?.id===pinned.mappingId&&current.version===pinned.mappingVersion&&current.generation!==opened.mappingGeneration);
     if(stale.hidden)return;
     const use=el('button','Use the changed rows');use.type='button';use.className='secondary';use.onclick=()=>{stale.hidden=true;clear();};
-    stale.replaceChildren(el('p',`The rows of ${current!.definition.code} v${current!.version} changed in Settings after this curve was saved. Review them before saving the curve.`),use);
+    stale.replaceChildren(el('p',`The rows of ${current!.definition.code} v${current!.version} changed in Schedules & date mappings after this curve was saved. Review them before saving the curve.`),use);
   }
   function startNew(){opened=undefined;stale.hidden=true;form.reset();(fields.get('code') as HTMLInputElement).readOnly=false;status.textContent='';clear();kindChanged();renderList();}
   fresh.onclick=()=>{if(!isBusy())startNew();};

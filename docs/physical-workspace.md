@@ -52,7 +52,7 @@ restores contextual terms without opening the superseded configuration. Exact
 backend version/history operations remain available.
 
 The D327 setup assistant reader uses these same native catalogs and definitions
-under current authority and the selected temporal context. **Settings → AI**
+under current authority and the selected temporal context. **Infrastructure → AI**
 provides Providers, Models & prices, Agents, Page prompts and Usage screens.
 Reviewed page guidance and admitted conversation history remain separate;
 old turns are not verified financial expertise. No new memory table or automatic
@@ -110,20 +110,14 @@ Backend and assistant page identities remain `gas_setup`, `crude_setup` and
 
 ## Facility and transport coverage
 
-The workspace shows an initially open **Facility & transport workflows** panel.
-Pipelines open the existing gas delivery setup and crude delivery sites open the
-existing crude setup, through the same authorized navigation and leave guards.
-The panel can be collapsed while working in an editor.
-
-Gas storage, power plants, rail/trains, barges, tankers, trucks, LNG terminals,
-processing plants, terminals/ports and bulk storage/tank farms are gray disabled
-controls marked **Planned · TBD**. They issue no read or command and remain disabled
-during navigation, busy-state changes and account changes. These are presentation
-placeholders, not executable profiles or reference records.
+Delivery setup is reached from the Reference Data console (D364), with its Natural
+gas / Crude oil switch above the page. Pipelines and crude delivery sites are the
+supported setup views. The other facility and transport workflows are planned and
+are listed in [plan.md](plan.md#later-scope); the interface does not list them.
 
 Existing fixed-location identities and their type relationships remain in
 `ref_data.locations` and `ref_data.location_types`, inspectable through Reference
-data → Locations. Gas paths retain their exact pipeline/zone/delivery-point
+Data → Locations. Gas paths retain their exact pipeline/zone/delivery-point
 relationships. No vehicle, facility master, transport relationship or seeded
 location is invented for a planned workflow. Each future consumer requires its
 own qualified domain contract and exact references.

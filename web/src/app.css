@@ -398,7 +398,6 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 /* Forms */
 .schedule-fields.three{grid-template-columns:repeat(3,minmax(0,1fr))}
 /* Define a curve (D318): one field per row, sections stacked. */
-.curve-define{width:100%}
 .curve-row{display:flex;align-items:center;gap:2px}
 .curve-row .curve-button{flex:1 1 auto;min-width:0}
 .curve-configure{flex:none;width:28px;height:28px;padding:0;border:0;border-radius:var(--radius-sm);background:none;color:var(--text-3);font-size:15px;line-height:1}
@@ -1659,12 +1658,8 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 .page-tabs{gap:24px;margin:0 0 14px;padding:0;background:none}
 .page-tabs .side-panel-tab{padding:10px 0;font-size:14px;font-weight:500}
 /* Reference data: group tabs beside the search of every category, then the chosen group's category tabs. */
-.reference-navigation{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:12px}
-.reference-navigation .page-tabs{border-bottom:0;margin:0;flex-wrap:wrap}
 .reference-search-all{display:flex;gap:8px;padding-bottom:8px;flex:0 1 360px;min-width:0}
 .reference-search-all input{flex:1;min-width:0}
-.reference-sections{gap:18px;flex-wrap:wrap}
-.reference-sections .side-panel-tab{font-size:13px}
 .reference-search-hits{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px 24px;margin:0 0 16px;font-size:13px}
 .reference-search-hits h3{font-size:12px;color:var(--text-3);margin:0 0 4px}
 .reference-search-hits ul{list-style:none;margin:0;padding:0}
@@ -2434,17 +2429,8 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 
 #facility-adoption-fields{display:grid;gap:10px;min-width:0}
 #facility-adoption-evidence{width:100%;box-sizing:border-box}
-.physical-workspace-heading{margin-bottom:1rem}.physical-workspace-nav,.physical-commodity{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem}.physical-workspace-nav{border-bottom:1px solid var(--border);padding-bottom:.75rem}.physical-workspace-nav button,.physical-commodity button{background:transparent;color:var(--text-3);border:1px solid transparent}.physical-workspace-nav button.active,.physical-commodity button.active{background:var(--accent-soft);color:var(--accent-text);border-color:var(--accent-border)}.physical-commodity{padding-top:.75rem}.physical-commodity>span{font-size:.8rem;color:var(--text-3);margin-right:.5rem}
+.physical-commodity{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem}.physical-workspace-nav{border-bottom:1px solid var(--border);padding-bottom:.75rem}.physical-workspace-nav button,.physical-commodity button{background:transparent;color:var(--text-3);border:1px solid transparent}.physical-workspace-nav button.active,.physical-commodity button.active{background:var(--accent-soft);color:var(--accent-text);border-color:var(--accent-border)}.physical-commodity{padding-top:.75rem}.physical-commodity>span{font-size:.8rem;color:var(--text-3);margin-right:.5rem}
 
-.physical-type-coverage{margin:1rem 0 0;padding:14px 16px}
-.physical-type-coverage summary{font-weight:650;cursor:pointer}
-.physical-type-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:8px}
-.physical-type-card{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:5px;min-width:0;padding:12px;text-align:left;background:var(--surface);color:var(--text);border:1px solid var(--border);white-space:normal}
-.physical-type-card strong{font-size:.85rem;overflow-wrap:anywhere}
-.physical-type-card span{font-size:.75rem;color:var(--text-3)}
-.physical-type-card:not(:disabled):hover{background:var(--accent-soft);border-color:var(--accent-border)}
-.physical-type-card:disabled{background:var(--surface-3);color:var(--text-3);border-color:var(--border);opacity:1;cursor:not-allowed}
-.physical-type-card:disabled span{color:var(--text-3)}
 
 .inspection-value{display:flex;flex-direction:column;gap:4px}.inspection-value>small{font-size:10px;color:var(--text-3);font-weight:400}.side-schedule-inspection td{vertical-align:top}
 
@@ -2563,3 +2549,29 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 #price-setup-page .side-panel-prompt{position:relative;margin-bottom:20px}
 @media(max-width:760px){.price-authoring-tabs{overflow:auto}.price-authoring-fields>label{flex-basis:100%}.price-authoring-map>label{flex-basis:100%}}
 #contract-terms-preview-result,#contract-terms-current,#price-publications-occurrences,#price-publications-releases,#price-publications-preview-result{max-width:100%;overflow:auto}
+
+/* The Reference Data console's menu, a second column beside the sidebar. */
+:root{--console-width:188px}
+.reference-console{position:fixed;inset:0 auto 0 var(--sidebar-width);width:var(--console-width);z-index:1;display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--border);padding:16px 10px;overflow-y:auto}
+.reference-console[hidden]{display:none}
+.reference-console.folded{width:44px;padding:16px 8px}
+body.in-console main{margin-left:calc(var(--sidebar-width) + var(--console-width))}
+body.in-console.console-folded main{margin-left:calc(var(--sidebar-width) + 44px)}
+.reference-console-toggle{align-self:flex-end;width:26px;height:26px;padding:0;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text-2);line-height:22px;margin-bottom:8px}
+.reference-console-body[hidden]{display:none}
+.reference-console .reference-search-all{margin-bottom:10px}
+.reference-console .reference-search-all input{width:100%;font-size:12.5px}
+.reference-console-group[hidden]{display:none}
+.reference-console-group summary{display:flex;align-items:center;justify-content:space-between;list-style:none;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--text-2);padding:6px 6px}
+.reference-console-group summary::-webkit-details-marker{display:none}
+.reference-console-group summary::after{content:'›';transition:transform .15s}
+.reference-console-group[open]>summary::after{transform:rotate(90deg)}
+.reference-console-group ul{list-style:none;margin:0 0 6px;padding:0}
+.reference-console-group li[hidden]{display:none}
+.reference-console-group button{display:block;width:100%;text-align:left;background:transparent;border:0;border-radius:6px;padding:5px 6px 5px 12px;font-size:12.5px;font-weight:500;color:var(--text-2);line-height:1.3}
+.reference-console-group button:hover:not(:disabled){background:var(--surface-3)}
+.reference-console-group button[aria-current=page]{background:var(--accent-soft);color:var(--accent-text);font-weight:600}
+@media (max-width:760px){
+ .reference-console,.reference-console.folded{position:static;width:auto;max-height:40vh;border-right:0;border-bottom:1px solid var(--border)}
+ body.in-console main,body.in-console.console-folded main{margin-left:0}
+}

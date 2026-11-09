@@ -195,7 +195,7 @@ export function testRequest(entry:{modelId:string;reasoning:string}){
   return {modelId:entry.modelId,reasoning:entry.reasoning};
 }
 
-// Settings › AI (docs/ai-assistant.md §9): Usage, Models & prices, Providers and Agents, each offered by its own
+// Infrastructure › AI (docs/ai-assistant.md §9): Usage, Models & prices, Providers and Agents, each offered by its own
 // permission. Models & prices and Providers read both their directories, since adding a vendor's first model
 // creates its provider and a model's capabilities draw on the usage mapping its provider's adapter applies.
 export function setupAiSettings(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string;tabs:()=>AiTab[]}){

@@ -1,8 +1,9 @@
 # Markets desk
 
-D345 groups the existing views under one **Curves & prices** Markets entry.
-Its workspace switch offers **Contract prices**, **Curve builder** and
-**Hourly / sub-hourly prices**. The builder retains its saved-curve library,
+D345 grouped the existing views under one **Curves & prices** Markets entry. Its
+workspace switch now offers **Contract prices** and **Hourly / sub-hourly prices**;
+D364 moved **Curve builder** and **Price setup** to the Reference Data console. The
+builder retains its saved-curve library,
 Outputs, Graph, Configuration, Versions, Lineage and History views, visual/formula
 authoring and native save/publish controls. Views load
 on demand and keep their existing context and unsaved-edit guards. Returning

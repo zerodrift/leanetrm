@@ -1,8 +1,8 @@
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,url}){
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
- await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#curve-price-setup')&&"+idle,30000);
- await persona('editor');await click('#curve-price-setup');
+ await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-configuration')&&"+idle,30000);
+ await persona('editor');await click('#nav-configuration');
  await check('contract pricing is the default editor without a wizard',"!document.querySelector('#contract-price-terms-editor').hidden&&document.querySelector('#price-setup-tabs-contracts').getAttribute('aria-selected')==='true'&&document.querySelector('#error').hidden");
  const choose=async(selector,match)=>{const value=await evaluate(`Array.from(document.querySelector(${JSON.stringify(selector)}).options).find(o=>o.textContent.includes(${JSON.stringify(match)}))?.value`);if(!value)throw Error('Missing authoring choice: '+match);await set(selector,value);await wait(idle);};
  // The HTTP fixture saved this exact draft, including its terms and source mappings.
@@ -24,6 +24,6 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await shot('contract-pricing-editor');
  await click('#price-setup-tabs-dates');
  await check('Date rules opens the existing Schedules date-mapping editor',"!document.querySelector('#schedules-page').hidden&&!document.querySelector('#curve-date-editor').hidden&&document.querySelector('#curve-dates-saved').textContent.length>0&&document.querySelector('#error').hidden");
- await persona('viewer');await click('#curve-price-setup');await click('#price-setup-tabs-publications');
+ await persona('viewer');await click('#nav-configuration');await click('#price-setup-tabs-publications');
  await check('readers can inspect publications while writes stay disabled',"document.querySelector('#price-publications-save').disabled&&document.querySelector('#price-publications-new').disabled&&document.querySelector('#error').hidden");
 }

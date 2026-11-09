@@ -1907,7 +1907,7 @@ python3 tools/run_preview.py --pg-bin /path/to/postgresql/bin --dotnet /path/to/
 ```
 
 In an owned standard preview it qualifies a provider and makes three priced models, with
-a published agent on each, through Settings › AI. As the database owner it then writes
+a published agent on each, through Infrastructure › AI. As the database owner it then writes
 one workspace's year in New York, 100,000 calls between 2025-01-01T05:00Z and
 2026-01-02T05:00Z: 50 users each ask one of the agents 980 questions with two calls
 each (49,000 turns), and 2,000 provider tests run beside them. One model prices no cache
@@ -1943,7 +1943,7 @@ streams through as the gateway does:
   provider;
 - Replace key without the installation's key file is `credential_unavailable` and stores
   nothing;
-- Settings › AI qualifies a provider, prices and enables a model and publishes an agent,
+- Infrastructure › AI qualifies a provider, prices and enables a model and publishes an agent,
   which a person grants and asks;
 - the ask's read runs on the hosted agent pools in the agent's own context, its requests
   reach the check endpoint alone, and the turn binds the sign-in session it was asked
@@ -1957,7 +1957,7 @@ streams through as the gateway does:
   assistant routes, and the next bootstrap opens one bound to the current sign-in.
 
 The hosted browser scenario finds the person's grants in the profile dialog and offers a
-provider administrator Settings › AI and the workspace's grants. In SQL,
+provider administrator Infrastructure › AI and the workspace's grants. In SQL,
 `check_agent_turns.py` refuses a hosted ask `turn_input` whose binding names another
 sign-in session or ends after it, and finds that signing out, a password reset and
 disabling the account or its membership each request the cancel of the session's turn
@@ -1988,7 +1988,7 @@ The Messages conformance suite also checks that the adapter's `Validate` refuses
 everything `Stream` refuses before sending, and that the provider endpoint override is
 only a loopback IP-literal origin.
 
-Settings › AI has its own browser scenario, which runs after those HTTP checks in the
+Infrastructure › AI has its own browser scenario, which runs after those HTTP checks in the
 same isolated preview (`--assistant-check --browser-check`). From the page's own
 session it creates an administrator without market-data access and a pricing
 administrator, then enters every choice explicitly: a blank rate, tier choice or end
@@ -2032,9 +2032,9 @@ settings, and hosted mode hides them.
 
 An Agents scenario follows in the same run. Through an independent session it qualifies
 and enables the provider and adds a priced, enabled model, so it relies on no earlier
-state; the launcher adds a role holding each of Settings › AI's three permissions alone.
+state; the launcher adds a role holding each of Infrastructure › AI's three permissions alone.
 A trader is offered no AI settings. An identity holding only `ManageAgents` lands on
-Settings › AI, is offered the Agents tab alone and reads only the agents directory; one
+Infrastructure › AI, is offered the Agents tab alone and reads only the agents directory; one
 holding only `ManageModelProviders` is offered Models & prices and Providers alone; an
 access administrator is offered all four and opens on Models & prices. The tab says
 what a save, Publish and Retire do. A refused create keeps no request; Create lists the agent with
@@ -2087,7 +2087,7 @@ A Usage scenario follows. Through an independent session it prices a model and
 tests it once, so the report holds a priced provider test of this run in a currency
 reference it names; since the preview's other checks also record calls, the page is
 compared with the API's own answers, and the SQL checks own the figures. An identity
-holding only `ReadModelUsage` lands on Settings › AI, is offered the Usage tab alone and
+holding only `ReadModelUsage` lands on Infrastructure › AI, is offered the Usage tab alone and
 reads only its directory; the tab states the 366-day limit the API passes and chooses no
 grouping or day; an access administrator is offered Usage first among four tabs. The
 reporting zone is prefilled from Profile and stays as chosen when Profile changes. A
@@ -3232,15 +3232,15 @@ on a 390 × 844 phone with mobile emulation. Nine of them compared
 `document.documentElement.scrollWidth` with `window.innerWidth`, which mobile
 emulation widened to the content width when content overflowed the
 `width=device-width` layout viewport. With 900 px of content at 390 px both read
-900, and on a Settings › AI price form whose rate table overflowed both read
+900, and on a Infrastructure › AI price form whose rate table overflowed both read
 571, while the root element's `clientWidth` stayed 390, so the width comparison
-passed on those overflowing pages. The Settings › AI checks have since compared
+passed on those overflowing pages. The Infrastructure › AI checks have since compared
 with the client width, and that rate table now scrolls within its form. All ten
 checks now share one expression, `fitsWidth`, that compares `scrollWidth` with
 the root element's `clientWidth`, the layout viewport; the calendar check also
 bounds its dialog by that width.
 
-Corrected, the eight checks outside Settings › AI passed on the existing pages.
+Corrected, the eight checks outside Infrastructure › AI passed on the existing pages.
 Disposable runs then widened `main` to 900 px before each of the ten checks. All
 ten failed while the previous `innerWidth` comparison passed on the same page,
 and each passed once the widening was undone. That temporary code was removed.
@@ -3253,7 +3253,7 @@ These checks establish that each checked page state keeps its scrollable content
 within a 390 px layout viewport in Chrome, to within one pixel. Fixed-position
 content such as an open dialog does not count toward that width; only the
 calendar check bounds its dialog separately. Content inside a scroll container,
-such as the Settings › AI rate table, or clipped by an ancestor is not page
+such as the Infrastructure › AI rate table, or clipped by an ancestor is not page
 overflow. Other widths, page states and browsers remain unchecked; screenshots
 remain the evidence of how a narrow layout looks.
 

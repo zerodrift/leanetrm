@@ -35,7 +35,7 @@ the selected frame; they never substitute current inputs. Facility quantities
 instead require the explicit operating date and the certified knowledge cutoff;
 no pricing frame is synthesized.
 
-**Settings → AI → Page prompts** configures guidance for every recognized page,
+**Infrastructure → AI → Page prompts** configures guidance for every recognized page,
 including Blotter entry/risk views. `ManageAssistantPrompts` is held by the access
 administrator and the separately assignable **Assistant prompt editor** role.
 That role alone does not administer agents, providers, accounts or business data.
