@@ -4174,3 +4174,18 @@ unchanged uncertain determination request across a session switch. The trading
 CI partition now includes both manual gas and billing recovery workflows.
 Independent adversarial review has no outstanding material finding. These are
 local qualification results; hosted rollout remains separate.
+
+## Contract-date set visibility (D363, local)
+
+`tools/check_contract_dates.py` captures the API's real library statement for a
+viewer, editor and approver and counts function calls in its transaction: no
+per-row version or schedule check, and at most one set per secured relation. Over
+every version in the library, the set equals what the per-row function admits for
+each profile: current, bound to a current context, before a publication's knowledge
+cut, and outside a schedule's window. It also covers a login with no bound request,
+a request with no read authority, a draft over an unpublished schedule, a schedule
+or calendar known only after the cut, a revoked calendar scope, and a second readable
+catalog against a bound context. The authority window is checked for read-only,
+historical and authoring authority that ends before read authority. A raw draft
+write decides the set once for its several fields. The check is run locally against
+a disposable database; independent adversarial review findings are resolved.
