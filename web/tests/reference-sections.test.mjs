@@ -18,9 +18,9 @@ test('internal storage does not become a reference category merely because it is
   assert.deepEqual(groups.flatMap(g=>g.sections).map(s=>s.value),['currencies']);
 });
 
-test('categories are grouped in five named groups with futures products as one Futures tab',()=>{
-  assert.deepEqual(referenceGroups.map(g=>g.name),['Markets & contracts','Commodities & units','Locations','Calendars','Conventions']);
-  assert.deepEqual(referenceGroups.map(g=>g.sections.map(s=>s.value)),[['futures_products','price_index_definitions','exchanges','clearing_houses','interest_rate_definitions','sources'],['commodities','units','unit_conversions','currencies','measurement_bases','quantity_specifications','value_specifications'],['locations','location_types'],['calendars','calendar_days','clock_rules'],['quote_specifications','settlement_targets','delivery_profiles']]);
-  assert.equal(referenceGroups[0].sections[0].name,'Futures');
-  assert.match(referenceGroups[0].sections[0].consumer,/contract economics/);
+test('categories are grouped with their setup area and futures products are one Futures entry',()=>{
+  assert.deepEqual(referenceGroups.map(g=>g.name),['Curves & pricing','Time','Products','Commodities & units','Physical']);
+  assert.deepEqual(referenceGroups.map(g=>g.sections.map(s=>s.value)),[['price_index_definitions','interest_rate_definitions','sources'],['calendars','calendar_days','clock_rules'],['futures_products','exchanges','clearing_houses','quote_specifications','settlement_targets'],['commodities','units','unit_conversions','currencies','measurement_bases','quantity_specifications','value_specifications'],['locations','location_types','delivery_profiles']]);
+  assert.equal(referenceGroups[2].sections[0].name,'Futures');
+  assert.match(referenceGroups[2].sections[0].consumer,/contract economics/);
 });
