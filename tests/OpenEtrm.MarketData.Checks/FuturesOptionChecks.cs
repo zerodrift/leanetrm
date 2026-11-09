@@ -16,6 +16,7 @@ internal static class FuturesOptionChecks
         Check("lattice converts to exact decimals with half-even rounding", LatticeExactConversion);
         Check("lattice arithmetic rounds half-even once per operation", LatticeArithmetic);
         Check("backward induction solves the two-step hand tree", TwoStepHandTree);
+        Check("backward induction matches exhaustive multi-state decisions and leaves unreferenced continuations unevaluated", SharedContinuationOracle);
         Check("backward induction rejects invalid contracts with structured errors", InductionContractErrors);
         Check("american futures options at a unit discount equal Black-76 within the relative discretisation bound", ZeroRateCallEqualsBlack76);
         Check("american futures option two-step hand tree exercises at an interior node", TwoStepAmericanPut);
@@ -26,6 +27,7 @@ internal static class FuturesOptionChecks
         Check("american futures options reject valuation at or after expiry", ExpiredValuation);
         Check("american futures options reject unsupported terms, policies and inputs", RejectsUnsupportedTerms);
         Check("american futures option unit price runtime", PrintRuntime);
+        Check("option calibration respects its allocation budget", CalibrationWorkload);
         Check("implied volatility reprices the settlement within half a clearing increment", ImpliedVolatilityRoundTrip);
         Check("implied volatility caps its bracket inside the tree's range", ImpliedVolatilityRangeCap);
         Check("implied volatility falls back to intrinsic only when declared", ImpliedVolatilityFallbackAtIntrinsic);
@@ -229,6 +231,25 @@ internal static class FuturesOptionChecks
         Console.WriteLine($"INFO one UnitPrice at {Policy.Steps} steps: {watch.Elapsed.TotalMilliseconds / runs:F1} ms (mean of {runs})");
     }
 
+    public static void CalibrationWorkload()
+    {
+        _=Price(OptionRight.Call,"3","3","0.4","0.25","0.99");
+        var before=GC.GetAllocatedBytesForCurrentThread();var watch=Stopwatch.StartNew();
+        var result=Calibrate(OptionRight.Call,"3","3","0.25","0.99","0.295","0.001",false);
+        var allocated=GC.GetAllocatedBytesForCurrentThread()-before;
+        if(result is not SolvedVolatility solved)throw new Exception("Expected a solved synthetic settlement.");
+        Equal(solved.Volatility.ToString(),"0.4990869140625");
+        Equal(solved.Residual.ToString(),"0.00022824699970030074018428749");
+        Equal(solved.UpperBound.ToString(),"3");
+        if(solved.Iterations!=11)throw new Exception("The exact calibration iteration receipt changed.");
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new{workload="synthetic_atm_gas_call",uniqueSeries=1,scenarios=0,
+            treePrices=solved.Iterations+2,steps=Policy.Steps,policy=Policy.Id,elapsedMs=watch.Elapsed.TotalMilliseconds,
+            allocatedBytes=allocated,peakWorkingSetBytes=Process.GetCurrentProcess().PeakWorkingSet64 is >0 and var peak?(long?)peak:null,
+            runtime=Environment.Version.ToString(),environment=System.Runtime.InteropServices.RuntimeInformation.OSDescription,processors=Environment.ProcessorCount,
+            calibration=new{volatility=solved.Volatility.ToString(),residual=solved.Residual.ToString(),solved.Iterations,upperBound=solved.UpperBound.ToString()}}));
+        if(allocated>800_000_000)throw new Exception($"A single 400-step calibration allocated {allocated} bytes; budget is 800 MB.");
+    }
+
     private const string TwoDays = "0.005479452054794520547945205479";
 
     private static OptionCalibration Calibrate(OptionRight right, string futures, string strike, string years, string discount,
@@ -422,6 +443,14 @@ internal static class FuturesOptionChecks
         Equal((tiny / LatticeDecimal.Parse("-2")).ToString(), "0");
         Equal((LatticeDecimal.Parse("0.000000000000000000000000000003") / LatticeDecimal.Parse("-2")).ToString(), "-0.000000000000000000000000000002");
         Equal((LatticeDecimal.Parse("0") / LatticeDecimal.Parse("-2")).ToString(), "0");
+        foreach(var text in new[]{"0","-0.000000000000000000000000000001","999999999999999999999999.999999999999999999999999999999"})
+        {
+            var value=LatticeDecimal.Parse(text);var zero=LatticeDecimal.Parse("0");var one=LatticeDecimal.Parse("1");
+            foreach(var same in new[]{value+zero,zero+value,value-zero,value*one,one*value,value/one})
+                Equal(same.ToString(),value.ToString());
+            foreach(var empty in new[]{value*zero,zero*value})Equal(empty.ToString(),"0");
+        }
+        Reject("numeric_division",()=>_=LatticeDecimal.Parse("0")/LatticeDecimal.Parse("0"));
     }
 
     // Hand tree: S0=100, up 1.2, down 0.8, p=0.5; terminal S = 144, 96, 64, so put (K=100)
@@ -452,6 +481,46 @@ internal static class FuturesOptionChecks
         var unrecorded = BackwardInduction.Solve(lattice, new TestPut("100", true), CancellationToken.None, recordDecisions: false);
         Equal(unrecorded.Root.ToString(), "9.81");
         if (unrecorded.Chosen is not null) throw new Exception("Unrecorded decisions must not be kept.");
+    }
+
+    private static void SharedContinuationOracle()
+    {
+        foreach(var discount in new[]{"0.9","2"})
+        {
+            var lattice=new TestLattice(3,discount);var contract=new RepeatedDecisions();
+            (LatticeDecimal Value,string Code) Exhaustive(int step,int node,DecisionState state)
+            {
+                if(step==lattice.Steps)return(contract.Terminal(lattice.Underlying(step,node),state),"");
+                var outcomes=contract.Decisions(step,lattice.Underlying(step,node),state).Select(decision=>
+                {
+                    var total=default(LatticeDecimal);
+                    foreach(var (next,probability) in lattice.Next(step,node))total+=probability*Exhaustive(step+1,next,decision.Next).Value;
+                    return(Value:decision.Immediate+lattice.Discount(step)*total,decision.Code);
+                }).ToArray();
+                return outcomes.Aggregate((best,next)=>next.Value.CompareTo(best.Value)>0?next:best);
+            }
+            foreach(var record in new[]{false,true})
+            {
+                var actual=BackwardInduction.Solve(lattice,contract,CancellationToken.None,record);
+                Equal(actual.Root.ToString(),Exhaustive(0,0,DecisionState.A).Value.ToString());
+                if(!record)continue;
+                for(var step=0;step<lattice.Steps;step++)for(var node=0;node<lattice.Nodes(step);node++)
+                    foreach(var state in contract.States)Equal(actual.Chosen!.Code(step,node,state),Exhaustive(step,node,state).Code);
+            }
+        }
+    }
+
+    private enum DecisionState { A,B,Unused }
+    private sealed class RepeatedDecisions:IInductionContract<DecisionState>
+    {
+        public ImmutableArray<DecisionState> States=>[DecisionState.A,DecisionState.B,DecisionState.Unused];
+        public LatticeDecimal Terminal(LatticeDecimal underlying,DecisionState state)=>state switch
+        {
+            DecisionState.A=>underlying/L("10"),DecisionState.B=>L("12"),_=>L("900000000000000000000000")
+        };
+        public ImmutableArray<InductionDecision<DecisionState>> Decisions(int step,LatticeDecimal underlying,DecisionState state)=>
+            [new("hold",L("0"),DecisionState.A),new("bonus",L("1"),DecisionState.A),
+             new("bonus_tie",L("1"),DecisionState.A),new("switch",L("2"),DecisionState.B)];
     }
 
     private static void InductionContractErrors()

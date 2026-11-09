@@ -52,12 +52,16 @@ public readonly partial record struct LatticeDecimal : IComparable<LatticeDecima
     public ExactDecimal ToExact() =>
         ExactDecimal.FromScaled(Round(scaled, Scale / ExactDecimal.WorkingScale));
 
-    public static LatticeDecimal operator +(LatticeDecimal a, LatticeDecimal b) => new(a.scaled + b.scaled);
-    public static LatticeDecimal operator -(LatticeDecimal a, LatticeDecimal b) => new(a.scaled - b.scaled);
-    public static LatticeDecimal operator *(LatticeDecimal a, LatticeDecimal b) => new(Round(a.scaled * b.scaled, Scale));
+    public static LatticeDecimal operator +(LatticeDecimal a, LatticeDecimal b) =>
+        a.scaled.IsZero?b:b.scaled.IsZero?a:new(a.scaled+b.scaled);
+    public static LatticeDecimal operator -(LatticeDecimal a, LatticeDecimal b) => b.scaled.IsZero?a:new(a.scaled-b.scaled);
+    public static LatticeDecimal operator *(LatticeDecimal a, LatticeDecimal b) =>
+        a.scaled.IsZero||b.scaled.IsZero?default:a.scaled==Scale?b:b.scaled==Scale?a:new(Round(a.scaled*b.scaled,Scale));
     public static LatticeDecimal operator /(LatticeDecimal a, LatticeDecimal b)
     {
         if (b.scaled.IsZero) throw new MarketDataException("numeric_division", "A divisor cannot be zero.");
+        if(a.scaled.IsZero)return default;
+        if(b.scaled==Scale)return a;
         // RoundQuotient needs a positive divisor, so carry the divisor's sign on the numerator.
         return new(Round(a.scaled * Scale * b.scaled.Sign, BigInteger.Abs(b.scaled)));
     }

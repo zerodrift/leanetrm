@@ -9,19 +9,23 @@ namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PricePublicationSaveRequest([property: JsonRequired] Guid RequestId, [property: JsonRequired] Guid SnapshotId,
-    [property: JsonRequired] int ExpectedVersion, [property: JsonRequired] PricePublicationDefinition Definition);
+    [property: JsonRequired] int ExpectedVersion, [property: JsonRequired] PricePublicationDefinition Definition,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] Guid? MarketRevisionId=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PricePublicationPreviewRequest([property: JsonRequired] Guid SnapshotId,
-    [property: JsonRequired] PricePublicationDefinition Definition, [property: JsonRequired] PricePublicationOccurrence Occurrence);
+    [property: JsonRequired] PricePublicationDefinition Definition, [property: JsonRequired] PricePublicationOccurrence Occurrence,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] Guid? MarketRevisionId=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PricePublicationOccurrenceSaveRequest([property: JsonRequired] Guid RequestId, [property: JsonRequired] Guid SnapshotId,
-    [property: JsonRequired] Guid Id, [property: JsonRequired] PricePublicationOccurrence Occurrence);
+    [property: JsonRequired] Guid Id, [property: JsonRequired] PricePublicationOccurrence Occurrence,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] Guid? MarketRevisionId=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PricePublicationFinalIngestRequest([property: JsonRequired] Guid RequestId, [property: JsonRequired] Guid SnapshotId,
     [property: JsonRequired] Guid OccurrenceId, [property: JsonRequired] string IndexCode, [property: JsonRequired] string SourceCode,
     [property: JsonRequired] string SourceEventId, [property: JsonRequired] string SourceRevisionId,
     [property: JsonRequired, JsonConverter(typeof(PublicationInstantConverter))] DateTimeOffset PublishedAt,
-    [property: JsonRequired] string Value, [property: JsonRequired] Guid? CorrectsReleaseId);
+    [property: JsonRequired] string Value, [property: JsonRequired] Guid? CorrectsReleaseId,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] Guid? MarketRevisionId=null);
 public sealed record SavedPricePublicationOccurrence(Guid Id, PricePublicationOccurrence Occurrence);
 public sealed record PricePublicationChoice(ReferenceKey Reference, string Name);
 public sealed record PricePublicationIndexChoice(ReferenceKey Key, ReferenceKey Commodity, ReferenceKey Location,
@@ -31,27 +35,30 @@ public sealed record PricePublicationCatalog(Guid CatalogId, ReferenceRevision R
     ImmutableArray<PricePublicationChoice> Commodities, ImmutableArray<PricePublicationIndexChoice> Indices,
     ImmutableArray<PricePublicationChoice> Calendars, ImmutableArray<PricePublicationChoice> Clocks,
     ImmutableArray<PricePublicationChoice> Sources, ImmutableArray<string> Implementations,
-    ImmutableArray<SavedPricePublicationOccurrence> Occurrences, ImmutableArray<JsonElement> Releases);
+    ImmutableArray<SavedPricePublicationOccurrence> Occurrences, ImmutableArray<JsonElement> Releases)
+{
+    public Guid MarketRevisionId{get;init;}
+    public ImmutableArray<CurveMarketChoice> Markets{get;init;}=[];
+}
 
 public static class PricePublications
 {
     public static void MapPricePublications(this RouteGroupBuilder api, PreviewDatabase database, CustomCurveOperation operation)
     {
-        var store = new PricePublicationStore(database);
         api.MapGet("/price-publications", (HttpContext context, Guid? snapshotId) => operation(context, "ReadMarketData", snapshotId,
-            async (connection, pin, ct) => Results.Ok(await store.Catalog(connection, pin, ct))));
+            async (connection, pin, ct) => Results.Ok(await new PricePublicationStore(database,CurveAuthoringMarket.Query(context)).Catalog(connection, pin, ct))));
         api.MapPost("/price-publications/save", (HttpContext context, PricePublicationSaveRequest request) =>
             operation(context, "WriteMarketDefinitions", request.SnapshotId,
-                async (connection, pin, ct) => Results.Ok(await store.Save(connection, request, ct))));
+                async (connection, pin, ct) => Results.Ok(await new PricePublicationStore(database,request.MarketRevisionId).Save(connection, request, ct))));
         api.MapPost("/price-publications/preview", (HttpContext context, PricePublicationPreviewRequest request) =>
             operation(context, "ReadMarketData", request.SnapshotId,
-                async (connection, pin, ct) => Results.Ok(await store.Preview(connection, request, ct))));
+                async (connection, pin, ct) => Results.Ok(await new PricePublicationStore(database,request.MarketRevisionId).Preview(connection, request, ct))));
         api.MapPost("/price-publications/occurrences/save", (HttpContext context, PricePublicationOccurrenceSaveRequest request) =>
             operation(context, "WriteMarketDefinitions", request.SnapshotId,
-                async (connection, pin, ct) => Results.Ok(await store.SaveOccurrence(connection, request, ct))));
+                async (connection, pin, ct) => Results.Ok(await new PricePublicationStore(database,request.MarketRevisionId).SaveOccurrence(connection, request, ct))));
         api.MapPost("/price-publications/ingest", (HttpContext context, PricePublicationFinalIngestRequest request) =>
             operation(context, "ImportObservations", request.SnapshotId,
-                async (connection, pin, ct) => Results.Ok(await store.IngestFinal(connection, request, ct))));
+                async (connection, pin, ct) => Results.Ok(await new PricePublicationStore(database,request.MarketRevisionId).IngestFinal(connection, request, ct))));
     }
 }
 

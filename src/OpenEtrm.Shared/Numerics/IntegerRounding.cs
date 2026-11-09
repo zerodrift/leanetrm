@@ -14,6 +14,6 @@ public static class IntegerRounding
         var comparison = (2 * remainder).CompareTo(denominator);
         if (comparison > 0 || comparison == 0 && (tieRule == MidpointRounding.AwayFromZero || !quotient.IsEven))
             quotient++;
-        return numerator.Sign * quotient;
+        return numerator.Sign<0?-quotient:quotient;
     }
 }

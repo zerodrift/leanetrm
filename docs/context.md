@@ -431,3 +431,14 @@ read uses the [bounded observation contract](exact-observation-reads.md#selected
 instead of enumerating unrelated history. The close calendar uses exact frame
 pins under the same point-reader authority. No values or close availability are
 calculated in the browser.
+
+## Selected correction-history planning
+
+Migration 0227 gives `security.read_observation_facts` a function-scoped generic
+plan. The 32,768-pin recorded-close check exceeded the ordinary five-second
+deadline under a custom caller plan in CI; the generic plan passed. This reader
+uses indexed exact-identity probes independent of request cardinality. Its body,
+shared authorized anchor/correction set, five-key fact identity and authority
+checks remain unchanged. The caller's planning mode is restored on return.
+The scale check exercises both caller modes, native-RLS row parity and bounded
+knowledge-receipt work with the same deadline.

@@ -59,8 +59,23 @@ public sealed partial class CurveModel
                 var selection=terms.Index==target?new PriceSettlementSelection(PriceSettlementMode.CurveTarget,target,target,terms.ProjectionPolicy):
                     new PriceSettlementSelection(PriceSettlementMode.Override,target,terms.Index!.Value,terms.ProjectionPolicy);
                 var lookup=PeriodLookup(request,contract,selection,binding.Fixing);
-                var admission=PeriodPriceSelector.Admit(Build(snapshot,[],cancellation),lookup);
-                if(admission.Projection is not null){live.Add(request);continue;}
+                if(terms.Settlement==ContractPriceTerms.PublishedRelease)
+                {
+                    RequireIndexFixing(lookup,binding.Fixing);
+                    var status=PublicationPriceResolution.Inspect(contract,binding,snapshot.ValuationAt,snapshot.MarketCutoff,context.KnownAt);
+                    if(status.State==PublicationPriceStatus.Projected){live.Add(request);continue;}
+                    if(status.Final is not {} final)throw new MarketDataException("awaiting_publication",$"Contract {contract.Key.Id} ({contract.DeliveryFrom:yyyy-MM-dd} to {contract.DeliveryTo:yyyy-MM-dd}) has expired and awaits final index {binding.Fixing.Index.Code}; require-final does not estimate a price.");
+                    if(!inputs.TryGetValue(new(binding.Fixing.Series,InputUse.FrozenFact),out var actual)||
+                        actual.Observation.Key!=final.Observation||actual.Observation.Source!=binding.Fixing.Source||
+                        actual.Observation.Role!=ObservationRole.IndexFixing||actual.Observation.State!=PublicationState.Final||
+                        actual.Observation.Value!=final.Release.Price.Value||actual.Observation.ObservedAt>final.Release.PublishedAt)
+                        throw new MarketDataException("publication_fixing_selection","The valuation must select the exact eligible final publication observation as a frozen input.");
+                }
+                else
+                {
+                    var admission=PeriodPriceSelector.Admit(Build(snapshot,[],cancellation),lookup);
+                    if(admission.Projection is not null){live.Add(request);continue;}
+                }
                 input=new(binding.Fixing.Series,InputUse.FrozenFact);actualContract=contracts[series[input.Series].Contract!.Value];
             }
             var sample=new ConnectedSourceSample(snapshot.Id,snapshot.ValuationAt,snapshot.MarketCutoff,snapshot.SelectionPolicy,InputUse.FrozenFact,freezeHistorical);

@@ -152,6 +152,12 @@ prune historical versions or create a partial copy. Because a commit changes one
 item, a product-page Save that changes the product name and 11 contract labels
 uses 12 of the 64 versions, each with its own full copy of the reference rows.
 
+Migration 0224 bounds trading-close validation during that copy by selecting the
+product's exact last-trading milestones before checking their clocks and instants.
+The same mismatch refusals, row permissions and immutable versions apply. The
+owned reference check includes a populated daily-contract catalog, a mismatched
+instant and a save/apply transaction with an exact retry under a statement deadline.
+
 Unit symbols must contain a non-whitespace character, contain no C0/C1 controls and use
 at most 80 Unicode scalar values, matching managed amount labels. Supplementary
 characters count once. Migration 0049 validates existing rows and refuses an

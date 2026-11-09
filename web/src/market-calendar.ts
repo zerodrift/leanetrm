@@ -4,7 +4,7 @@ import type {CloseBadge} from './latest-close.js';
 
 // A session's close in force for its business day, and how many recorded closes it replaced (D334).
 export type MarketClose={id:string;at:string;name:string;businessDate:string};
-export type MarketDates={context:unknown;curve:string|null;timeZone:string;selectionPolicy:string;dates:{date:string;frames:MarketClose[];replaced:number}[];unavailable:{date:string;reason:string}[];minDate:string|null;maxDate:string|null;frameCatalog?:FrameCatalog};
+export type MarketDates={context:unknown;curve:string|null;timeZone:string;selectionPolicy:string;dates:{date:string;frames:MarketClose[];replaced:number}[];unavailable:{date:string;reason:string}[];minDate:string|null;maxDate:string|null;frameCatalog?:FrameCatalog;marketRevisionId?:string};
 
 // Gregorian layout only. Available business dates and exact closes come from
 // the authorized backend; this component never infers a publication calendar.

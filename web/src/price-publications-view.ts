@@ -1,5 +1,6 @@
 import {authoringLabel,publicationVersion} from './price-authoring-model.js';
 import {authoringSession,button,choices,element,field,group,help,input,resultTable,rules,select,type PriceAuthoringOptions} from './price-authoring-ui.js';
+import {authoringMarket,authoringMarketField,type AuthoringMarketCatalog} from './authoring-market.js';
 
 type Revision={catalogId:string;revisionId:string};
 type Reference={revision:Revision;code:string};
@@ -10,13 +11,16 @@ type Definition={key:Key;references:Revision;publisher:Publisher;name:string;com
 type Choice={reference:Reference;name:string};
 type Occurrence={publication:Key;assessmentDate:string;assessmentFrom:string;assessmentTo:string;expectedReleaseAt:string;periods:{from:string;to:string}[]};
 type Release={releaseId:string;occurrenceId:string;publication:Key;indexCode:string;stage:string;publishedAt:string;receivedAt:string;value:string;correctsReleaseId?:string|null};
-type Catalog={catalogId:string;references:Revision;canEdit:boolean;canIngest:boolean;publishers:Publisher[];publications:Definition[];commodities:Choice[];indices:(Omit<Index,'symbol'|'statistic'>&{name:string})[];calendars:Choice[];clocks:Choice[];sources:Choice[];implementations:string[];occurrences?:{id:string;occurrence:Occurrence}[];releases?:Release[]};
+type Catalog=AuthoringMarketCatalog&{catalogId:string;references:Revision;canEdit:boolean;canIngest:boolean;publishers:Publisher[];publications:Definition[];commodities:Choice[];indices:(Omit<Index,'symbol'|'statistic'>&{name:string})[];calendars:Choice[];clocks:Choice[];sources:Choice[];implementations:string[];occurrences?:{id:string;occurrence:Occurrence}[];releases?:Release[]};
 
 export function setupPricePublications(host:HTMLElement,o:PriceAuthoringOptions){
  let catalog:Catalog|undefined,selected:Definition|undefined,acknowledgedPublication:Key|undefined,newId=crypto.randomUUID(),newPublisherId=crypto.randomUUID();
+ let marketRevisionId:string|undefined;
  const session=authoringSession(host,o,'price-publications/save');
  const head=element('div');head.className='card-heading';const title=element('div');title.append(element('h2','Price publications'),help('Keep the publisher, its publication calendar and its exact commodity indices together. Feed sources remain separate.'));
  const reload=button('Reload',()=>void change(load),'price-publications-reload'),create=button('New publication',()=>void change(async()=>choose('')),'price-publications-new');head.append(title,group(create,reload));host.append(head);
+ const market=select('price-publications-market'),marketField=field('Source market',market);host.append(marketField);
+ market.onchange=()=>{const requested=market.value;market.value=marketRevisionId??'';if(!requested||session.blocked()||occurrenceSession.blocked())return;void change(async()=>{marketRevisionId=requested;catalog=undefined;selected=undefined;acknowledgedPublication=undefined;await load();});};
  const library=select('price-publications-library');host.append(field('Saved publication version',library));
  const status=element('p');status.id='price-publications-status';status.setAttribute('role','status');host.append(status);
  const form=element('form');form.id='price-publications-form';const fields=element('fieldset');fields.className='price-authoring-form';form.append(fields);host.append(form);
@@ -38,7 +42,7 @@ export function setupPricePublications(host:HTMLElement,o:PriceAuthoringOptions)
  const preview=button('Check coverage and release',()=>void o.act(previewOccurrence),'price-publications-preview');
  const saveOccurrence=button('Save publication date',()=>void o.act(async()=>{
   if(!selected||session.unsaved()||!catalog?.canEdit||o.historical())throw Error('Save the publication definition first, then add dates to that exact version.');
-  await occurrenceSession.save({snapshotId:o.snapshot(),id:crypto.randomUUID(),occurrence:occurrence(selected.key)},`${selected.name} · ${assessmentDate.value} publication date`);
+  await occurrenceSession.save({snapshotId:o.snapshot(),...authoringMarketField(marketRevisionId),id:crypto.randomUUID(),occurrence:occurrence(selected.key)},`${selected.name} · ${assessmentDate.value} publication date`);
  }),'price-publications-save-occurrence');
  const savedOccurrences=element('div');savedOccurrences.id='price-publications-occurrences';
  previewSection.append(group(field('Assessment label date',assessmentDate),field('Assessment opens · UTC',assessmentFrom),field('Assessment closes · UTC',assessmentTo),field('Expected release · UTC',release)),help('Period ends are exclusive. A weekend package lists each covered flow day. A monthly index lists the complete delivery month.'),periods,group(addPeriod,preview,saveOccurrence),savedOccurrences);host.append(previewSection);
@@ -103,21 +107,22 @@ export function setupPricePublications(host:HTMLElement,o:PriceAuthoringOptions)
   return {key:selected?publicationVersion(selected).key:{catalogId:catalog.catalogId,id:newId,version:1},references:catalog.references,publisher:publisherValue,name:name.value.trim(),implementation:implementation.value,
    commodities:catalog.commodities.filter(c=>commodityCodes().includes(c.reference.code)).map(c=>c.reference),indices,calendar:catalog.calendars.find(c=>c.reference.code===calendar.value)!.reference,clock:catalog.clocks.find(c=>c.reference.code===clock.value)!.reference};
  }
- async function savePublication(){if(!catalog?.canEdit||o.historical())throw Error('Return to working data with publication editing permission.');const d=definition();await session.save({snapshotId:o.snapshot(),expectedVersion:selected?.key.version??0,definition:d},d.name);}
+ async function savePublication(){if(!catalog?.canEdit||o.historical())throw Error('Return to working data with publication editing permission.');const d=definition();await session.save({snapshotId:o.snapshot(),...authoringMarketField(marketRevisionId),expectedVersion:selected?.key.version??0,definition:d},d.name);}
  function occurrence(publication:Key):Occurrence{
   if(!assessmentDate.value||![assessmentFrom,assessmentTo,release].every(i=>i.value.endsWith('Z')))throw Error('Enter the assessment date and explicit UTC instants ending in Z.');
   return {publication,assessmentDate:assessmentDate.value,assessmentFrom:assessmentFrom.value,assessmentTo:assessmentTo.value,expectedReleaseAt:release.value,periods:Array.from(periods.children).map(row=>({from:row.querySelector<HTMLInputElement>('[data-period="from"]')!.value,to:row.querySelector<HTMLInputElement>('[data-period="to"]')!.value}))};
  }
  async function previewOccurrence(){
   const d=selected&&!session.unsaved()?selected:definition(),valid=session.ticket(),occurrenceValid=occurrenceSession.ticket();
-  const response=await o.api<{coveredPeriods?:{from:string;to:string}[];expectedReleaseAt?:string}>('price-publications/preview',{snapshotId:o.snapshot(),definition:d,occurrence:occurrence(d.key)});if(!valid()||!occurrenceValid())return;
+  const response=await o.api<{coveredPeriods?:{from:string;to:string}[];expectedReleaseAt?:string}>('price-publications/preview',{snapshotId:o.snapshot(),...authoringMarketField(marketRevisionId),definition:d,occurrence:occurrence(d.key)});if(!valid()||!occurrenceValid())return;
   resolved.replaceChildren(element('h3','Publication check'));
   if(response.coveredPeriods){const table=element('div');resultTable(table,['Covered from','Covered to · exclusive'],response.coveredPeriods.map(p=>[p.from,p.to]));resolved.append(table);}
   if(response.expectedReleaseAt)resolved.append(help(`Expected release · ${response.expectedReleaseAt}`));
   const details=element('details');details.append(element('summary','Resolved schedule and fixing bindings'),element('pre',JSON.stringify(response,null,2)));resolved.append(details);
  }
  async function load(){
-  const valid=session.ticket(),response=await o.api<Catalog>(`price-publications?snapshotId=${encodeURIComponent(o.snapshot())}`);if(!valid())return;
+  const valid=session.ticket(),response=await o.api<Catalog>(`price-publications?snapshotId=${encodeURIComponent(o.snapshot())}${marketRevisionId?'&marketRevisionId='+encodeURIComponent(marketRevisionId):''}`);if(!valid())return;
+  const selectedMarket=authoringMarket(response,marketRevisionId);marketRevisionId=selectedMarket.revisionId;choices(market,selectedMarket.markets.map(m=>({value:m.revisionId,label:m.name})),marketRevisionId??'');marketField.hidden=!selectedMarket.markets.length;if(market.options[0])market.options[0].disabled=true;
   const draft=occurrenceSession.unsaved()?{assessmentDate:assessmentDate.value,assessmentFrom:assessmentFrom.value,assessmentTo:assessmentTo.value,release:release.value,periods:Array.from(periods.children).map(row=>({from:row.querySelector<HTMLInputElement>('[data-period="from"]')!.value,to:row.querySelector<HTMLInputElement>('[data-period="to"]')!.value}))}:undefined;
   const id=acknowledgedPublication?.id??selected?.key.id??newId;catalog=response;
   choices(library,catalog.publications.map(d=>({value:key(d),label:`${d.publisher.name} / ${d.name} · v${d.key.version}`})),'','New publication…');
@@ -125,6 +130,7 @@ export function setupPricePublications(host:HTMLElement,o:PriceAuthoringOptions)
   if(draft){assessmentDate.value=draft.assessmentDate;assessmentFrom.value=draft.assessmentFrom;assessmentTo.value=draft.assessmentTo;release.value=draft.release;periods.replaceChildren();draft.periods.forEach(periodRow);occurrenceSession.mark();}
  }
  function sync(){
+  market.disabled=o.busy()||session.blocked()||occurrenceSession.blocked();
   const locked=o.busy()||session.blocked()||!catalog;fields.disabled=locked;save.disabled=locked||!catalog?.canEdit||o.historical();library.disabled=o.busy()||session.blocked();create.disabled=o.busy()||session.blocked()||!catalog?.canEdit||o.historical();reload.disabled=o.busy();
   saveOccurrence.disabled=locked||occurrenceSession.blocked()||!selected||session.unsaved()||!catalog?.canEdit||o.historical();preview.disabled=locked||occurrenceSession.blocked();
   for(const control of previewSection.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select'))control.disabled=o.busy()||occurrenceSession.blocked();
@@ -150,7 +156,7 @@ export function setupPricePublications(host:HTMLElement,o:PriceAuthoringOptions)
   if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(response.id)||response.id==='00000000-0000-0000-0000-000000000000'||!same(occurrenceFacts(response.occurrence),occurrenceFacts(command.body.occurrence as Occurrence)))return false;
   return true;
  }catch{return false;}});
- session.changed(sync);session.saved(async value=>{acknowledgedPublication=(value as Definition).key;await load();status.textContent='Publication version saved. Existing curve references keep their original version.';});
- occurrenceSession.changed(sync);occurrenceSession.saved(async value=>{acknowledgedPublication=(value as {occurrence:Occurrence}).occurrence.publication;await load();status.textContent='Publication date saved for this exact version.';});
- return {load,sync(){session.sync();occurrenceSession.sync();},unsaved:()=>session.unsaved()||occurrenceSession.unsaved(),leave,reset(){catalog=undefined;selected=undefined;acknowledgedPublication=undefined;session.reset();occurrenceSession.reset();choices(library,[]);resolved.replaceChildren();releases.replaceChildren();sync();}};
+ session.changed(sync);session.saved(async(value,command)=>{marketRevisionId=typeof command.body.marketRevisionId==='string'?command.body.marketRevisionId:undefined;acknowledgedPublication=(value as Definition).key;await load();status.textContent='Publication version saved. Existing curve references keep their original version.';});
+ occurrenceSession.changed(sync);occurrenceSession.saved(async(value,command)=>{marketRevisionId=typeof command.body.marketRevisionId==='string'?command.body.marketRevisionId:undefined;acknowledgedPublication=(value as {occurrence:Occurrence}).occurrence.publication;await load();status.textContent='Publication date saved for this exact version.';});
+ return {load,sync(){session.sync();occurrenceSession.sync();},unsaved:()=>session.unsaved()||occurrenceSession.unsaved(),leave,reset(){catalog=undefined;selected=undefined;acknowledgedPublication=undefined;marketRevisionId=undefined;choices(market,[]);marketField.hidden=true;session.reset();occurrenceSession.reset();choices(library,[]);resolved.replaceChildren();releases.replaceChildren();sync();}};
 }

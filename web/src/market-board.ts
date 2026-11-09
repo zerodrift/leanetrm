@@ -100,7 +100,7 @@ function cardBody(card:BoardCard):HTMLElement[]{
  * surface is that button's target; `open` is the library's own way of choosing a curve. While the page is `busy` the buttons are disabled,
  * as the library's rows are.
  */
-export function renderBoard(target:HTMLElement,groups:readonly BoardGroup[],open:(curve:string)=>void,busy:boolean,lastClose:(curve:string)=>string|null=()=>null){
+export function renderBoard(target:HTMLElement,groups:readonly BoardGroup[],open:(curve:string)=>void,busy:boolean,lastClose:(curve:string)=>string|null=()=>null,configuration?:(curve:string)=>HTMLElement|null){
   if(!groups.length){target.replaceChildren(node('p','market-board-none','No curves match these choices.'));return;}
   target.replaceChildren(...groups.map(group=>{
     const section=node('section','market-board-group'),heading=node('h3','market-board-group-name',group.name),list=node('ul','market-board-grid');
@@ -110,6 +110,7 @@ export function renderBoard(target:HTMLElement,groups:readonly BoardGroup[],open
       button.type='button';button.disabled=busy;button.onclick=()=>open(card.curve);title.append(button);
       const commodity=commodityIcon(card);head.append(...commodity?[commodity]:[],kindBadge(card.curveKind),title);
       const last=lastClose(card.curve);item.append(head,node('p','market-card-kind',card.kind),...last?[node('p','market-card-last-close',`Last close ${displayDate(last)}`)]:[],...cardBody(card));
+      const action=configuration?.(card.curve);if(action){action.classList.add('market-card-configure');item.append(action);}
       return item;
     }));
     section.append(heading,list);return section;

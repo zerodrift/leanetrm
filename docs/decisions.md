@@ -10,6 +10,28 @@ later [fixed-volume physical crude decision](#d271--fixed-volume-physical-crude)
 References must include the subject to distinguish them; the two contracts are
 independent.
 
+## D364 — Publication release resolution and existing Henry Hub repair
+
+Approved 2026-11-09. Preserve the existing Henry Hub physical curve identity and
+publish a new graph version with explicit daily Gas Daily and monthly Platts
+IFERC physical index references. Monthly forwards retain their configured H
+source; NYMEX final settlement does not substitute for the physical index.
+
+The selected `published_release_v1` policy consumes an exact authorized final
+release known in the selected context. Before expiry it uses configured forward
+inputs. After expiry without a final it returns awaiting publication and refuses
+whole-curve valuation. An expected release or preliminary price never becomes a
+final. Corrections retain their own publication and certified knowledge times.
+Final dependencies are separately pinned immutable inputs; selecting them does
+not rewrite the recorded forward close. Legacy settlement modes retain their
+existing behavior.
+
+New support revisions and explicitly admitted source-market frames preserve the
+primary market, earlier graph versions and existing holdings. Sample calendars
+and observations remain synthetic. Private installation uses normal authorized,
+idempotent stores with a named administrator; it grants no additional authority.
+Implementation and disposable qualification do not authorize production activation.
+
 ## D363 — Curve objects, explicit contract settlement and price publications
 
 Approved 2026-11-08. Curve builder presents curves and dated contracts as objects,
@@ -3242,6 +3264,25 @@ checks compare native RLS rows and ordering, refuse broad enumeration and measur
 selected work under unrelated history; browser checks cover grouping, mobile
 layout, explanations, failed Apply and cross-page recovery. Production activation
 is a separately qualified schema release.
+
+**Large selected-fact requests (2026-11-09).**
+
+Migration 0223 keeps the private anchor lookup and the exact-input visibility
+lookups parameterized by each requested identity. The connected Blotter consumer
+can carry thousands of close pins; its query plan must not broaden into unrelated
+history at that cardinality. The retained authority, knowledge, complete-close,
+worker and final publication checks remain the contract. The synthetic 2,605-pin
+regression covers custom and generic plans and refuses work that grows with
+unrelated facts. See [the bounded observation contract](exact-observation-reads.md#selected-fact-history-and-calendar-frames-d354).
+
+Migration 0225 extends this evaluation bound to candidate-to-close-pin,
+knowledge-event and knowledge-receipt matching, and the requested-anchor
+membership gate. It uses existing exact indexes and one deduplicated requested
+set; the same complete-close, correction, current
+authority, knowledge and final publication checks remain in force. It also pins
+`jit=off` on the selected-fact reader and its visibility scope: their real row
+estimates cross the JIT cost threshold, exact lookups gain nothing from it, and
+first-use loading of LLVM on a cold host took several seconds of the read's deadline.
 
 ## D355 — Follow exact gas billing metadata before authorization joins
 

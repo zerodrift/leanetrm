@@ -16,6 +16,7 @@ using OpenEtrm.MarketData;
 
 if(args.Length>0&&args[0]=="--import-reference"){Environment.ExitCode=await ReferenceImportCommand.Run(args[1..]);return;}
 if(args.Length>0&&args[0]=="--admin-load-gas-in-term"){Environment.ExitCode=await GasInTermLoad.Run(args[1..]);return;}
+if(args.Length>0&&args[0]=="--admin-load-curve-examples"){Environment.ExitCode=await CurveExampleLoad.Run(args[1..]);return;}
 if(args.Length>0&&args[0]=="--capture-reference"){Environment.ExitCode=await ReferenceCaptureCommand.Run(args[1..]);return;}
 
 if(args is ["--compile-date-seed",var dateSeedInput,var dateSeedOutput]){DateSeedCommand.Run(dateSeedInput,dateSeedOutput);return;}
@@ -1051,9 +1052,9 @@ api.MapGet("/workspace/navigation",(Func<HttpContext,Task<IResult>>)(c=>Locked(c
     var read=await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
     {
         var navigation=await marketReads.Navigation(connection,Pin(session),ct);
-        // Definitions are authored only in the current workspace, so a historical view offers none.
-        var configurations=session.MarketContext is null&&await PreviewDatabase.HasPermission(connection,"WriteMarketDefinitions",ct)
-            ?await MarketNavigation.ReadConfigurations(connection,database.Manifest,ct):[];
+        // Keep inspection available when authoring is unavailable, with the exact reason.
+        var configurations=await MarketNavigation.ReadConfigurations(connection,database.Manifest,navigation.Curves,
+            session.MarketContext is not null,await PreviewDatabase.HasPermission(connection,"WriteMarketDefinitions",ct),ct);
         return(navigation,configurations,plan:await DiscoverFrames(connection,session,ct));
     },c.RequestAborted);
     session.ApplyFrames(read.plan);var frames=session.VisibleFrames;

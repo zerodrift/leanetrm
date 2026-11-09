@@ -16,6 +16,7 @@ export function restoreAuthoringRequest(value:unknown,path:string):RequestComman
 export const authoringLabels:Record<string,string>={
  same_delivery_period_v1:'Match the same delivery period',explicit_contracts_v1:'Map individual contracts',
  exchange_final_v1:'Official futures settlement',published_index_v1:'Publication index',derived_inputs_v1:'Derived from inputs',
+ published_release_v1:'Publication release · publisher timing',
  single_assessment_v1:'One final assessment per delivery period',require_final_v1:'Require the final price',
  forward_curve_no_basis_v1:'Use this forward curve before the fixing',
  gas_daily_explicit_v1:'Daily gas · explicit publisher calendar',gas_monthly_explicit_v1:'Monthly gas · explicit publisher calendar',

@@ -9,7 +9,7 @@ using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
 
-internal sealed class ContractPriceTermsStore(PreviewDatabase database)
+internal sealed partial class ContractPriceTermsStore(PreviewDatabase database)
 {
     static MarketDataException Error(string message)=>new("contract_price_terms",message);
     internal static ImmutableArray<MarketContract> Members(PreviewData data,string code)=>[..data.DefinitionRows("curve_members","curve_code",code)
@@ -35,7 +35,7 @@ internal sealed class ContractPriceTermsStore(PreviewDatabase database)
         terms.Validate();var curve=data.DefinitionRows("curves","code",curveCode).Single();var quote=data.QuoteRows(curve.Text("quote_code")).Single();
         var commodity=PpaQuantitiesStore.Quantity(data,quote.Quantity.Code).Commodity;
         PricePublicationDefinition? publication=null;IndexFixing? fixing=null;
-        if(terms.Settlement==ContractPriceTerms.PublishedIndex)
+        if(terms.UsesPublication)
         {
             publication=publications.SingleOrDefault(p=>p.Key==terms.Publication)??throw Error("The exact publication version is unavailable in this context.");
             if(PricePublicationBehavior.Create(publication) is UnsupportedPricePublication)throw new MarketDataException("publication_unsupported","This publication has no executable assessment implementation.");
