@@ -8,3 +8,10 @@ export function sameTradeSelection(a:readonly string[]|null|undefined,b:readonly
 export function sameRiskScope(a:RiskScope,b:RiskScope):boolean{
  return sameIds(a.bookIds,b.bookIds)&&sameIds(a.portfolioIds,b.portfolioIds)&&sameTradeSelection(a.tradeIds,b.tradeIds);
 }
+
+// The scope bar's one line: an empty selection stated as what it means.
+export function riskScopeSummary(scope:{portfolios:readonly string[];books:readonly string[];trades:number|null}):string{
+ const named=(names:readonly string[],all:string,plural:string)=>names.length===0?all:names.length===1?names[0]:`${names.length} ${plural}`;
+ const trades=scope.trades===null?'All trades in these books':scope.trades===0?'No trades chosen':scope.trades===1?'1 trade':`${scope.trades} trades`;
+ return [named(scope.portfolios,'All portfolios','portfolios'),named(scope.books,'All readable books','books'),trades].join(' · ');
+}

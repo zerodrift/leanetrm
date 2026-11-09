@@ -4,6 +4,14 @@ D289 delivers the first report-workspace increment over the existing shared
 market-factor and instrument-PV calculation path. It adds no statistical engine,
 financial policy, permission, storage table or migration.
 
+D364 makes Risk a sidebar section with one entry per function: **Reports**,
+**Scenarios & Greeks**, **VaR / ES** and **Run history**. They are views of one page,
+so moving between them neither reloads nor discards anything and asks no leave
+question. A compact bar states the portfolio, book and trade scope for all four and
+opens the controls below on demand. A finished run or an opened report shows Reports;
+a submission awaiting confirmation shows Scenarios & Greeks. Worker nodes are managed
+from Infrastructure › Jobs.
+
 Risk owns its book/portfolio selection and run editor. The header selects the
 market close and financial context. Empty book and portfolio selections explicitly
 mean all readable books; selecting both uses the same intersection as the Blotter.

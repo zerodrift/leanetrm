@@ -169,5 +169,5 @@ export function setupFactorHistory(o:Options){
  for(const control of [from,to,minimum])control.oninput=invalidate;
  for(const control of [drift,ticks,absolute,relative,customConfidence,validationSeed])control.oninput=describe;
  add.onclick=()=>{if(addType.value){priceTypes.push(addType.value);drawPriceTypes();invalidate();}};
- reset();return {reset,sync};
+ reset();return {prepare(){if(!panel.open)panel.open=true;else if(allowed&&!configuration&&!o.busy())void o.act(configure);},reset,sync};
 }

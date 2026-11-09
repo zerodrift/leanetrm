@@ -20,7 +20,7 @@ test('the groups and their pages keep the sidebar order',()=>{
   ['overview','Overview',['dashboard']],
   ['trading','Trading',['futures']],
   ['markets','Markets',['market','delivery','interval-series','vol-surfaces','interval-curves']],
-  ['risk','Risk',['risk']],
+  ['risk','Risk',['risk','risk-scenarios','risk-var','risk-runs']],
   ['operations','Operations',['physical-operations','facilities']],
   ['reference','Reference Data',['reference']],
   ['infrastructure','Infrastructure',['jobs','admin','ai']]]);
@@ -136,7 +136,7 @@ test('moving pages changes no account’s reach',()=>{
  assert.deepEqual(reach(['ReadMarketData']),[...market].sort());
  assert.deepEqual(reach(['ReadMarketData','ReadTrades']),[...market,'physical-operations','futures','vol-surfaces'].sort());
  assert.deepEqual(reach(['ReadMarketData','ReadTradeParties']),[...market,'parties'].sort());
- assert.deepEqual(reach(['ReadMarketData','ReadTrades','RunScenario']),[...market,'physical-operations','futures','vol-surfaces','risk'].sort());
+ assert.deepEqual(reach(['ReadMarketData','ReadTrades','RunScenario']),[...market,'physical-operations','futures','vol-surfaces','risk','risk-scenarios','risk-var','risk-runs'].sort());
  assert.deepEqual(reach(['ReadMarketData','ReadTrades','ReadFacilityQuantities']),[...market,'physical-operations','futures','vol-surfaces','facilities'].sort());
  assert.deepEqual(reach(['ManageAccess']),['admin','jobs'].sort());
 });

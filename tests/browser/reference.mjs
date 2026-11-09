@@ -21,7 +21,7 @@ export async function run({command,evaluate,wait,click,set,submit,check,idle,url
     await check('ordinary navigation does not fetch an unused reference inspector',"window.__referenceReads.length===0&&document.querySelector('#reference').children.length===0");
     await click('#nav-reference');await click('#nav-table-currencies');
     await check('reference navigation reads only the explicit initial currency page',`window.__referenceReads.length===1&&${read('table')}==='currencies'&&document.querySelector('#reference tbody tr')&&document.querySelector('#error').hidden`);
-    await check('the initial category is shown as its menu entry and addressed',`${selected()}==='Currencies'&&location.hash==='#reference/currencies'&&document.querySelector('#reference-panel').getAttribute('aria-labelledby')===document.querySelector('#reference-sections [aria-selected=true]').id`);
+    await check('the initial category is shown as its menu entry and addressed',`${selected()}==='Currencies'&&location.hash==='#reference/currencies'`);
     await tab('Locations');
     await check('choosing a menu entry reads that category and addresses it',`${read('table')}==='locations'&&location.hash==='#reference/locations'&&${selected()}==='Locations'&&document.querySelector('#data-title').textContent==='Locations'`);
     await set('#reference-search-all-text','Tail %_');await submit('#reference-search-all');

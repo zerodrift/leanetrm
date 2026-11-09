@@ -22,8 +22,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await set('#snapshot',frame);await wait(idle);
  await evaluate('window.__hideWorkspaceHistory=true');
  await click('#nav-risk');await wait("!document.querySelector('#risk-page').hidden&&"+idle);
- await check('Risk opens on report availability and owns Run risk, with worker details collapsed',
-  "document.querySelector('#risk-workspace-results').textContent.includes('No report selected')&&document.querySelector('#risk-workspace-note').textContent.includes('No completed recent report')&&!document.querySelector('#risk-jobs-new').disabled&&!document.querySelector('.risk-report-library').open&&!document.querySelector('#snapshot').closest('.date-control').hidden",
+ await check('Risk opens on report availability and owns Run risk, with run history in its own view',
+  "document.querySelector('#risk-workspace-results').textContent.includes('No report selected')&&document.querySelector('#risk-workspace-note').textContent.includes('No completed recent report')&&!document.querySelector('#risk-jobs-new').disabled&&document.querySelector('.risk-report-library').classList.contains('risk-view-off')&&!document.querySelector('#snapshot').closest('.date-control').hidden",
   "({results:document.querySelector('#risk-workspace-results').innerText,note:document.querySelector('#risk-workspace-note').innerText,disabled:document.querySelector('#risk-jobs-new').disabled,error:document.querySelector('#error').innerText,dateHidden:document.querySelector('#snapshot').closest('.date-control').hidden})");
  await click('#risk-jobs-new');await wait("!document.querySelector('#workspace-risk-fields').disabled&&"+idle);
  await check('the shared run editor opens inside Risk without loading or opening the Blotter',

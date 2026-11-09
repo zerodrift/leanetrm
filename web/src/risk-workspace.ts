@@ -6,7 +6,8 @@ import {recentCompletedRuns,riskAddress} from './risk-results.js';
 import {askInPanel} from './side-panel.js';
 import {prepareAmountDisplay,riskReportRead} from './amount-display.js';
 import {publicText} from './market-view.js';
-import {sameRiskScope} from './risk-scope.js';
+import {riskScopeSummary,sameRiskScope} from './risk-scope.js';
+import type {RiskView} from './risk-views.js';
 import {setupBookScopePicker} from './scope-picker.js';
 
 type Source={snapshotId:string;context?:{contextId?:string}};
@@ -15,7 +16,7 @@ type Trade={tradeId:string;bookId:string;tradeReference:string;product:string;av
 type TradePage={trades:Trade[];selectedTrades:Trade[];total:number;allAvailable:boolean;nextOffset:number|null;contextId:string;snapshotId:string;maxSelectedTrades:number};
 type Directory={kind:string;asOf:string;context:{contextId:string;knownAt:string};books:{id:string;name:string;portfolio_id:string;portfolio:string}[]};
 type Options={api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;
- identity:()=>string;canRun:()=>boolean;instant:(value:string)=>string;source:()=>Source;changed:()=>void};
+ identity:()=>string;canRun:()=>boolean;instant:(value:string)=>string;source:()=>Source;changed:()=>void;view:(view:RiskView)=>void};
 /** Risk owns its setup and report, while using the same editor, request contracts and result widget as the Blotter. */
 export function setupRiskWorkspace(o:Options){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -26,7 +27,7 @@ export function setupRiskWorkspace(o:Options){
  let epoch=0,directory:Directory|undefined,selection:Source|undefined,selectedJob:string|undefined,owner='',engine:ReturnType<typeof setupRisk>|undefined;
  let shown:RunView|undefined,question:AbortController|undefined,scope:Scope={bookIds:[],portfolioIds:[],tradeIds:null},unreadRecovery=false;
  let tradeChoices=new Map<string,Trade>(),tradesReady=false,allTradesAvailable=false,totalTrades=0,nextTradeOffset:number|null=null,maxTrades=256;
- let history:ReturnType<typeof setupFactorHistory>|undefined;
+ let history:ReturnType<typeof setupFactorHistory>|undefined,view:RiskView='risk',entering=false;
  const storedKey=()=>`openetrm.risk.workspace.submission.${o.identity()}`;
  const parentsValid=()=>!!directory&&directory.books.length>0&&scope.bookIds.every(id=>directory!.books.some(b=>b.id===id&&(!scope.portfolioIds.length||scope.portfolioIds.includes(b.portfolio_id))))&&scope.portfolioIds.every(id=>directory!.books.some(b=>b.portfolio_id===id));
  const scopeValid=()=>parentsValid()&&tradesReady&&(scope.tradeIds===null?allTradesAvailable:scope.tradeIds.length>0&&scope.tradeIds.length<=maxTrades&&scope.tradeIds.every(id=>tradeChoices.get(id)?.available));
@@ -67,7 +68,7 @@ export function setupRiskWorkspace(o:Options){
   if(!await leave())return;
   editor.open=true;engine!.mountInto(get('risk-workspace-editor-body'));
   await engine!.calculate({...requestScope(),pricingPolicy:metadata.pricingPolicy,convention:metadata.convention,numericalPolicy:metadata.numericalPolicy,detail:request.historical||request.monteCarlo?'holdings':'books',bumps:[],stress:[],...request},queued,metadata.context,metadata.asOf);
-  changed();get('risk-workspace-results').scrollIntoView({block:'start'});
+  changed();o.view('risk');get('risk-workspace-results').scrollIntoView({block:'start'});
  }});
  const jobs=setupRiskJobs({api:o.api,act:o.act,instant:o.instant,openReport:openJob});
  function clear(){
@@ -84,6 +85,7 @@ export function setupRiskWorkspace(o:Options){
   finally{if(question===asking)question=undefined;host.removeAttribute('tabindex');}
  }
  async function newRun(){
+  o.view('risk-scenarios');
   if(unreadRecovery)throw Error('Inspect Reports and runs before resolving the unreadable retained submission.');
   // A setup with choices holds the run being prepared: show it, rather than ask to discard them.
   editor.open=true;
@@ -100,13 +102,18 @@ export function setupRiskWorkspace(o:Options){
   try{
    await engine!.reviewJob(id,anchor);if(version!==epoch)return;
    selectedJob=id;editor.open=true;engine!.mountInto(get('risk-workspace-editor-body'));
-   window.history.replaceState(null,'',location.pathname+location.search+'#risk/job/'+encodeURIComponent(id));changed();
+   window.history.replaceState(null,'',location.pathname+location.search+'#risk/job/'+encodeURIComponent(id));changed();o.view('risk');
   }catch(error){if(version===epoch){results.reset();get('risk-workspace-note').textContent='The retained report could not be read under current authority. Refresh to try again.';}throw error;}
  }
+ function drawSummary(){
+  const books=directory?.books??[],names=(ids:readonly string[],name:(id:string)=>string|undefined)=>ids.map(id=>name(id)??id);
+  get('risk-scope-summary').textContent=riskScopeSummary({portfolios:names(scope.portfolioIds,id=>books.find(b=>b.portfolio_id===id)?.portfolio),books:names(scope.bookIds,id=>books.find(b=>b.id===id)?.name),trades:scope.tradeIds===null?null:scope.tradeIds.length});
+ }
  function drawScope(){
-  scopePicker.set(directory?.books??[],scope);
+  scopePicker.set(directory?.books??[],scope);drawSummary();
  }
  function drawTrades(){
+  drawSummary();
   get<HTMLSelectElement>('risk-workspace-trade-mode').value=scope.tradeIds===null?'all':'selected';
   const groups=new Map<string,HTMLOptGroupElement>();
   const products:Record<string,string>={future:'Futures',financial_swap:'Swap',ppa:'PPA',physical_gas:'Gas',physical_crude:'Crude',physical_lng:'LNG',futures_option:'Futures option'};
@@ -152,7 +159,7 @@ export function setupRiskWorkspace(o:Options){
   }
   if(version!==epoch)return;
   try{const kept=sessionStorage.getItem(storedKey());if(kept&&!engine!.unconfirmed())engine!.adopt(JSON.parse(kept));}catch(error){unreadRecovery=true;get('risk-workspace-note').textContent='A retained submission could not be read. Inspect Reports and runs before submitting another request.';throw error;}
-  if(engine!.unconfirmed()){editor.open=true;engine!.mountInto(get('risk-workspace-editor-body'));await engine!.open();return;}
+  if(engine!.unconfirmed()){editor.open=true;engine!.mountInto(get('risk-workspace-editor-body'));await engine!.open();o.view('risk-scenarios');return;}
   const address=selectedAddress??riskAddress(location.hash);if(address){await openJob(address);return;}
   if(directory&&selection&&scopeValid()){
    for(const candidate of recentCompletedRuns(jobs.recent(),scope,directory.asOf)){
@@ -174,10 +181,13 @@ export function setupRiskWorkspace(o:Options){
  get('risk-workspace-trades').onchange=()=>void o.act(()=>changeScope({...scope,tradeIds:Array.from(get<HTMLSelectElement>('risk-workspace-trades').selectedOptions).map(o=>o.value)}));
  get('risk-workspace-trades-more').onclick=()=>void o.act(()=>readTrades(false));
  get('risk-jobs-new').onclick=()=>void o.act(newRun);
+ // The view shows its panels at once; what it opens waits for the scope and for the application to be free.
+ function enterView(){entering=false;if(view==='risk-var')history?.prepare();else if(view==='risk-scenarios'&&!editor.open&&!get<HTMLButtonElement>('risk-jobs-new').disabled)void o.act(newRun);}
+ function showView(next:RiskView){view=next;for(const part of host.querySelectorAll<HTMLElement>('[data-risk-view]'))part.classList.toggle('risk-view-off',part.dataset.riskView!==next);entering=true;if(!o.busy()&&directory)enterView();}
  get('risk-workspace-refresh').onclick=()=>void (async()=>{if(!o.busy()&&await leave())await o.act(load);})();
  get('risk-workspace-export').onclick=()=>void o.act(()=>engine!.download());
  return {load,reset,leave,openJob,refresh:()=>{if(!host.hidden)results.refresh();engine!.refresh();},
-  sync(){history?.sync(scopeValid()&&o.canRun());engine!.sync();get<HTMLButtonElement>('risk-jobs-new').disabled=o.busy()||!o.canRun()||!scopeValid()||unreadRecovery;
+  showView,sync(){history?.sync(scopeValid()&&o.canRun());engine!.sync();get<HTMLButtonElement>('risk-jobs-new').disabled=o.busy()||!o.canRun()||!scopeValid()||unreadRecovery;if(entering&&!o.busy()&&directory)enterView();
    for(const id of ['risk-workspace-portfolios','risk-workspace-books','risk-workspace-trade-mode','risk-workspace-trades'])get<HTMLSelectElement>(id).disabled=o.busy()||!directory;
    get<HTMLButtonElement>('risk-workspace-trades-more').disabled=o.busy()||!tradesReady;scopePicker.sync();},
   contextChanged(){epoch++;history?.reset();engine!.inputsChanged(engine!.edited());results.reset();shown=undefined;directory=undefined;selection=undefined;scopePicker.set([],{bookIds:[],portfolioIds:[]});tradesReady=false;tradeChoices.clear();drawTrades();get('risk-workspace-note').textContent='The selected market context changed. Refresh Risk to read the new scope.';},
