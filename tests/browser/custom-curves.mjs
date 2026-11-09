@@ -171,6 +171,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await click('.custom-curve-node[data-node-id=select] button');
  await check('selecting a card shows the operations again',"!document.querySelector('#custom-curves-side').hidden&&document.querySelector('#custom-curves-toggle-side').getAttribute('aria-expanded')==='true'");
  await set('#custom-curve-property-count','2');
+ await check('an out-of-date chart answers no hover or zoom',"getComputedStyle(document.querySelector('#custom-curves-chart')).pointerEvents==='none'");
  await check('editing a node invalidates its previous values',"(document.querySelector('#custom-curves-result').hidden||!document.querySelector('#custom-curves-preview-stale').hidden&&document.querySelector('#custom-curves-values').children.length===0&&document.querySelector('#custom-curves-receipt').textContent==='')");
  await click('#custom-curves-preview');
  await check('the edited graph changes the backend-computed curve',"document.querySelectorAll('#custom-curves-values tbody tr').length===2&&document.querySelector('#error').hidden");

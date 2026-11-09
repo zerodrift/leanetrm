@@ -105,7 +105,7 @@ let sourceOnlyCurve=false;
 let contractOpener:HTMLElement|undefined,contract='',historyPolicy:RevisionPolicy=revisionPolicies[0].policy,overlayRequests:OverlayRequest[]=[],historyData:ContractHistory|undefined,historySeries:OverlaySeries[]=[],historyFailed=false;
 // The overlay catalog, read for one account.
 let overlayCatalog:{scope:string;catalog:OverlayCatalog}|undefined;
-let contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
+let consoleTables:string[]=[],contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
 // The person's remembered close session (D334); null until they choose one, and nothing chooses it for them.
 let closeSession:string|null=null,closeSessionNames:ReadonlyMap<string,string>=new Map();
 let navigation:MarketNavigation|undefined,marketGeneration=0;
@@ -1025,7 +1025,7 @@ async function loadIdentity(initialAccess?:unknown){
   physicalOperations.reset();$('physical-operations-page').hidden=true;deliverySetup.reset();referenceConsole.reset();curveWorkspace.reset();customCurves.reset();$('custom-curves-page').hidden=true;volSurfaces.reset();$('vol-surfaces-page').hidden=true;riskJobs.reset();riskViewsNav.reset();$('risk-page').hidden=true;facilities.reset();$('facilities-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;dashboard.reset();$('dashboard-page').hidden=true;
 
   deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();lng.reset();$('lng-page').hidden=true;gasSetup.reset();crudeSetup.reset();$('crude-setup-page').hidden=true;$('gas-setup-page').hidden=true;$('gas-page').hidden=true;$('crude-page').hidden=true;referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();priceSetup.reset();curveDefinitions.reset();$('curve-definitions-page').hidden=true;scheduleWorkspace?.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('blotter-away').hidden=true;$('no-access-page').hidden=true;
-  $('context-toolbar').hidden=true;curve='';clearPrices();clearReference();referenceTable='';referenceReturn=undefined;referenceNavigation.clear();marketGeneration++;workspace=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('price-setup-page').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;accessPolicy.reset();assistantPolicy.reset();$('date-context').hidden=true;
+  $('context-toolbar').hidden=true;curve='';clearPrices();clearReference();referenceTable='';referenceReturn=undefined;referenceNavigation.clear();marketGeneration++;workspace=undefined;consoleTables=[];navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('price-setup-page').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;accessPolicy.reset();assistantPolicy.reset();$('date-context').hidden=true;
   if(initialAccess===undefined)permissions=(await api<{permissions:string[]}>('access')).permissions;
   else{
     const access=initialAccess as StartupAccess|null;
@@ -1086,7 +1086,7 @@ function closeChanged(){
 }
 async function loadSelectedClose(){
   if(page==='schedules'){await dateEditor.load();return;}
-  if(page==='curve-definitions'){await curveDefinitions.load();return;}
+  if(page==='curve-definitions')return;
   if(page==='configuration'){await priceSetup.load();return;}
   if(page==='physical-operations'){await physicalOperations.load();return;}
  if(page==='gas-setup'){await gasSetup.load();return;}
@@ -1263,7 +1263,8 @@ function openReferenceTable(table:string){
   leaving(async()=>{if(contextDirty)await applyContext();referenceTable=table;await showPage('reference');},contextDirty?'discards':'page');
 }
 const referenceConsole=setupReferenceConsole({host:$('reference-console'),busy:()=>busy,pendingContext:()=>contextDirty,
-  menu:()=>consoleMenu({pageAvailable:next=>pageAvailable(next,permissions),tables:workspace?Object.keys(workspace.references):[]}),
+  // A changed context drops the catalog until it is read again; the menu keeps the tables this account last read.
+  menu:()=>{if(workspace)consoleTables=Object.keys(workspace.references);return consoleMenu({pageAvailable:next=>pageAvailable(next,permissions),tables:consoleTables});},
   open:entry=>{if(entry.table)openReferenceTable(entry.table);else navigate(entry.page)();},
   unfolded:()=>{if(!workspace&&navigation&&!contextDirty)void act(loadWorkspace);},
   search:text=>leaving(async()=>{if(page!=='reference')await showPage('reference');await searchReference(text);},'page')});

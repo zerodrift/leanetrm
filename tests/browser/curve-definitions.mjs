@@ -30,7 +30,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   "!document.querySelector('#error').hidden&&document.querySelector('#curve-definition-result').hidden");
  await check('the curve form stays inside the market content',"(()=>{const content=document.querySelector('.market-content');return content.scrollWidth<=content.clientWidth+1;})()");
  await click('#nav-market');await wait(idle);
- await check('All markets returns to the board',"document.querySelector('#curve-definition').hidden&&!document.querySelector('#market-board').hidden");
+ await check('Curves & prices shows the board again',"document.querySelector('#curve-definitions-page').hidden&&!document.querySelector('#market-board').hidden");
  // D358: saved definitions are listed and edited here; tools/check_curve_definitions.py published usd_zero over rate_tenors.
  await set('#snapshot',await close('2021-01-15T16:00:00'));await wait(idle,30000);
  await persona('editor');await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
@@ -77,6 +77,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   "({error:document.querySelector('#error').textContent,list:document.querySelector('#curve-definition-list').textContent})");
  await persona('editor');await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
  await open('usd_zero');await wait(idle);
+ await set('#curve-definition-name','Edited, not saved');const heldClose=await evaluate("document.querySelector('#snapshot').value");await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].map(o=>o.value).filter(v=>v&&v!==document.querySelector('#snapshot').value)[0]"));await wait(idle,30000);
+ await check('changing the close keeps edits in progress',"document.querySelector('#curve-definition-name').value==='Edited, not saved'");
+ await set('#snapshot',heldClose);await wait(idle,30000);await open('usd_zero');await wait(idle);
  await check('a newer published mapping version is offered to the curve',"!document.querySelector('#curve-definition-newer').hidden",
   "document.querySelector('#curve-definition-newer').textContent");
  await click('#curve-definition-newer button');await wait(idle);

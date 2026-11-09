@@ -4,7 +4,7 @@ D345 grouped the existing views under one **Curves & prices** Markets entry. Its
 workspace switch now offers **Contract prices** and **Hourly / sub-hourly prices**;
 D364 moved **Curve builder** and **Price setup** to the Reference Data console. The
 builder retains its saved-curve library,
-Outputs, Graph, Configuration, Versions, Lineage and History views, visual/formula
+Build, Details, Versions, Lineage, History and Preview views, visual/formula
 authoring and native save/publish controls. Views load
 on demand and keep their existing context and unsaved-edit guards. Returning
 from another page restores the last curve view; clicking the active workspace

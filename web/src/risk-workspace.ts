@@ -52,7 +52,9 @@ export function setupRiskWorkspace(o:Options){
   const different=run?.key!==shown?.key||run?.running!==shown?.running||run?.parts.some((p,i)=>{
    const before=shown?.parts[i];return p.report!==before?.report||p.job?.state!==before?.job?.state||p.failure!==before?.failure||p.unknown!==before?.unknown||p.unlisted!==before?.unlisted;
   });
+  const finished=!!shown?.running&&!!run&&!run.running&&!engine.unconfirmed();
   if(different){shown=run;results.show(run);}
+  if(finished)o.view('risk');
   const first=run?.parts.find(p=>p.report)?.report;
   const differentScope=run?.scope&&!sameRiskScope(run.scope,scope);
   get('risk-workspace-context-note').textContent=first&&selection&&first.snapshotId!==selection.snapshotId?'Retained report from a different close than the header. Its captured inputs are shown below. Run a new calculation to use the header selection.':differentScope?'Retained report from a different portfolio, book or trade selection. Its captured scope is shown in the report; the filters above apply to a new run.':run?.retained?'Retained report: values use the captured context below, independently of the current header.':'';
@@ -96,13 +98,13 @@ export function setupRiskWorkspace(o:Options){
   // The run setup sits below the report; bring it to the person who asked for it.
   editor.scrollIntoView({block:'start',behavior:'smooth'});editor.querySelector<HTMLElement>('summary')?.focus({preventScroll:true});
  }
- async function openJob(id:string,anchor?:RiskJob){
+ async function openJob(id:string,anchor?:RiskJob,chosen=true){
   const version=epoch;if(!await leave()||version!==epoch)return;
   results.reset();shown=undefined;selectedJob=undefined;
   try{
    await engine!.reviewJob(id,anchor);if(version!==epoch)return;
    selectedJob=id;editor.open=true;engine!.mountInto(get('risk-workspace-editor-body'));
-   window.history.replaceState(null,'',location.pathname+location.search+'#risk/job/'+encodeURIComponent(id));changed();o.view('risk');
+   window.history.replaceState(null,'',location.pathname+location.search+'#risk/job/'+encodeURIComponent(id));changed();if(chosen)o.view('risk');
   }catch(error){if(version===epoch){results.reset();get('risk-workspace-note').textContent='The retained report could not be read under current authority. Refresh to try again.';}throw error;}
  }
  function drawSummary(){
@@ -165,10 +167,11 @@ export function setupRiskWorkspace(o:Options){
    for(const candidate of recentCompletedRuns(jobs.recent(),scope,directory.asOf)){
     const job=await o.api<RiskJob>('portfolio/risk/jobs/'+encodeURIComponent(candidate.id));if(version!==epoch)return;
     if(job.result?.snapshotId!==selection.snapshotId)continue;
-    await openJob(job.id,job);return;
+    await openJob(job.id,job,false);return;
    }
    get('risk-workspace-note').textContent='No completed recent report matches these books and this close. Run risk here, or open a retained report from Reports and runs.';
   }
+  entering=true;
  }
  async function changeScope(next:Scope){
   if(!await leave()){drawScope();drawTrades();return;}const version=++epoch;scope=next;history?.reset();engine!.inputsChanged(false);results.show(undefined);shown=undefined;selectedJob=undefined;

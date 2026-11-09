@@ -1,5 +1,6 @@
 // Risk owns its setup; both entry points show the same exact report widget. All data is the owned synthetic preview's.
 import {runJointChecks} from './joint-risk-workspace.mjs';
+const off=id=>`document.querySelector('${id}').classList.contains('risk-view-off')`;
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,fitsWidth,url}){
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1150,deviceScaleFactor:1,mobile:false});
  const hook=`(()=>{const send=window.fetch;window.__workspaceRiskReads=[];window.__workspaceRiskPosts=[];window.fetch=async(input,init)=>{
@@ -22,6 +23,12 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await set('#snapshot',frame);await wait(idle);
  await evaluate('window.__hideWorkspaceHistory=true');
  await click('#nav-risk');await wait("!document.querySelector('#risk-page').hidden&&"+idle);
+ await click('#nav-risk-scenarios');await wait(idle);
+ const otherClose=await evaluate("[...document.querySelector('#snapshot').options].map(o=>o.value).filter(v=>v&&v!==document.querySelector('#snapshot').value)[0]??''");
+ if(otherClose){const here=await evaluate("document.querySelector('#snapshot').value");await set('#snapshot',otherClose);await wait(idle);
+  await check('changing the close on Scenarios & Greeks with no matching report leaves its form open',`document.querySelector('#page-title').textContent==='Scenarios & Greeks'&&document.querySelector('#risk-workspace-editor').open&&!${off('#risk-workspace-editor')}`);
+  await set('#snapshot',here);await wait(idle);}
+ await click('#nav-risk');await wait(idle);
  await check('Risk opens on report availability and owns Run risk, with run history in its own view',
   "document.querySelector('#risk-workspace-results').textContent.includes('No report selected')&&document.querySelector('#risk-workspace-note').textContent.includes('No completed recent report')&&!document.querySelector('#risk-jobs-new').disabled&&document.querySelector('.risk-report-library').classList.contains('risk-view-off')&&!document.querySelector('#snapshot').closest('.date-control').hidden",
   "({results:document.querySelector('#risk-workspace-results').innerText,note:document.querySelector('#risk-workspace-note').innerText,disabled:document.querySelector('#risk-jobs-new').disabled,error:document.querySelector('#error').innerText,dateHidden:document.querySelector('#snapshot').closest('.date-control').hidden})");
@@ -98,7 +105,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await persona('risk');await set('#snapshot',frame);await wait(idle);await click('#nav-risk');await wait(idle);
  await check('Risk automatically opens the recent completed report matching the selected scope and exact close',"!!document.querySelector('#risk-workspace-results canvas')&&location.hash.startsWith('#risk/job/')&&document.querySelector('#risk-workspace-context-note').textContent.startsWith('Retained report:')");
  const book=await evaluate("document.querySelector('#risk-workspace-books option').value");await set('#risk-workspace-books',book);await wait(idle);
+ await click('#nav-risk-scenarios');await wait(idle);
  await click('#workspace-risk-form input[value=custom]');await set('#workspace-risk-factor',await evaluate(`${catalog}.scenarioTargets.find(t=>t.kind==='contract').id`));await set('#workspace-risk-bump','0.05');await click('#workspace-risk-run');await wait(idle);
+ await wait(idle,60000);
+ await check('a finished run shows its report',`document.querySelector('#page-title').textContent==='Reports'&&!${off('#risk-workspace-results')}`);
  await check('a Risk-owned book selection reaches the backend and shows only the selected holdings',`(()=>{const report=window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk').data;return report.factors.some(f=>f.positions.length>0)&&report.factors.every(f=>f.positions.every(p=>p.bookId===${JSON.stringify(book)}));})()`);
  await set('#risk-workspace-books','');await wait(idle);
 
@@ -172,4 +182,6 @@ async function tradeSelection({command,evaluate,wait,click,set,check,shot,idle,u
   "document.querySelector('#risk-workspace-trade-mode').value==='all'&&document.querySelector('#risk-workspace-note').textContent.includes('No completed recent report')&&document.querySelector('#risk-workspace-results').textContent.includes('No report selected')",
   "({mode:document.querySelector('#risk-workspace-trade-mode').value,note:document.querySelector('#risk-workspace-note').textContent,results:document.querySelector('#risk-workspace-results').textContent,hash:location.hash,scope:window.__workspaceRiskReads.filter(r=>r.path==='/api/portfolio/risk/scope').map(r=>({count:r.data.total,ctx:r.data.contextId}))})");
  await set('#risk-workspace-books','');await wait(idle);await set('#risk-workspace-portfolios','');await wait(idle);
+ await click('#nav-market');await wait(idle);await click('#nav-risk-runs');await wait(idle);
+ await check('a Risk view chosen from another page stays when a recent report opens',`document.querySelector('#page-title').textContent==='Run history'&&${off('#risk-workspace-results')}&&!${off('.risk-report-library')}`);
 }

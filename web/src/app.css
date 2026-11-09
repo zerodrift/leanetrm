@@ -2410,7 +2410,7 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 
 #facility-adoption-fields{display:grid;gap:10px;min-width:0}
 #facility-adoption-evidence{width:100%;box-sizing:border-box}
-.physical-commodity{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem}.physical-workspace-nav{border-bottom:1px solid var(--border);padding-bottom:.75rem}.physical-workspace-nav button,.physical-commodity button{background:transparent;color:var(--text-3);border:1px solid transparent}.physical-workspace-nav button.active,.physical-commodity button.active{background:var(--accent-soft);color:var(--accent-text);border-color:var(--accent-border)}.physical-commodity{padding-top:.75rem}.physical-commodity>span{font-size:.8rem;color:var(--text-3);margin-right:.5rem}
+.physical-commodity{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem}.physical-commodity button{background:transparent;color:var(--text-3);border:1px solid transparent}.physical-commodity button.active{background:var(--accent-soft);color:var(--accent-text);border-color:var(--accent-border)}.physical-commodity{padding-top:.75rem}.physical-commodity>span{font-size:.8rem;color:var(--text-3);margin-right:.5rem}
 
 
 .inspection-value{display:flex;flex-direction:column;gap:4px}.inspection-value>small{font-size:10px;color:var(--text-3);font-weight:400}.side-schedule-inspection td{vertical-align:top}
@@ -2567,16 +2567,6 @@ body.in-console.console-folded main{margin-left:calc(var(--sidebar-width) + 44px
 .risk-scope-editor{margin-top:8px}
 .risk-scope-editor>summary{cursor:pointer;font-size:12.5px;color:var(--accent-text)}
 
-/* Risk's views: one page, one set of panels showing at a time. */
-.risk-view-off{display:none!important}
-#risk-page details[data-risk-view]>summary{display:none}
-.risk-scope-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.risk-scope-label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
-#risk-scope-summary{font-size:13.5px;font-weight:500}
-.risk-scope-bar .actions{margin-left:auto}
-.risk-scope-editor{margin-top:8px}
-.risk-scope-editor>summary{cursor:pointer;font-size:12.5px;color:var(--accent-text)}
-
 /* Curve builder's workbench: the title on the app header, the actions on the tab row, and the graph over the prices. */
 .page-heading-slot{position:relative}
 .page-heading-slot[hidden]{display:none}
@@ -2603,6 +2593,7 @@ body.in-console.console-folded main{margin-left:calc(var(--sidebar-width) + 44px
 .custom-curve-stale{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;padding:6px 10px;background:var(--warn-soft);border:1px solid var(--warn-border);border-radius:var(--radius-sm);color:var(--warn);font-size:12.5px}
 .custom-curve-stale[hidden]{display:none}
 .custom-curve-preview.out-of-date .chart,.custom-curve-preview.out-of-date .custom-curve-tiles{opacity:.45}
+.custom-curve-preview.out-of-date .chart{pointer-events:none}
 
 /* One header row: the title never wraps, and the context stays beside it. */
 #page-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
