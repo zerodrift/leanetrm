@@ -39,6 +39,11 @@ public static partial class RecipeEngine
         if(!nodes.TryGetValue(definition.Output??"",out var output)||output.Kind!="output")throw Invalid("Select an output node.");
         foreach(var node in definition.Nodes)
         {
+            if(node.ContractTerms is {} contractTerms)
+            {
+                if(node.Kind!="source")throw Invalid("Contract price terms belong to an exact source node.");
+                _=contractTerms.For(default);
+            }
             var weighted=node.Kind=="weighted_contracts";var panels=node.Kind=="weighted_panels";
             var ports=weighted||panels?node.Inputs.Keys.ToImmutableDictionary(k=>k,_=>panels?"panel":"source"):
                 Ports.GetValueOrDefault(node.Kind)??throw Invalid($"Node {node.Id} has an unsupported kind.");
@@ -161,7 +166,7 @@ public static partial class RecipeEngine
         {
             cancellation.ThrowIfCancellationRequested();if(++work>50000)throw Missing("The recipe exceeds its 50,000-sample preparation limit.");
             var source=inputs.Sources[sourceNode];var key=new SampleKey(source.Key,date,contract.Contract.Key);
-            if(demand is null&&(!available.TryGetValue(key,out var sample)||sample.Snapshot.ValuationAt!=at||contract.EligibleFrom>at||contract.Contract.Expiry<=at))
+            if(demand is null&&(!available.TryGetValue(key,out var sample)||sample.Snapshot.ValuationAt!=at||contract.EligibleFrom>at||contract.Contract.Expiry<=at&&sample.PriceTerms is null))
                 throw Missing("A required exact live contract sample is absent or ineligible at its sampling instant.");
             return new(position,[displayDate],date,source.Unit,[key],new(node,index,key,[],[],SignedSum),contract.Contract.DeliveryFrom,contract.Contract.DeliveryTo);
         }
@@ -277,6 +282,12 @@ public static partial class RecipeEngine
     }
     private static void ValidateSource(RecipeNode node,RecipeSource source)
     {
+        if(node.ContractTerms is {} terms)
+        {
+            var contracts=source.Contracts.Select(c=>c.Contract).ToImmutableArray();
+            var maps=ContractPriceMappings.Resolve(terms.MappingRule,contracts,contracts,terms.MappingRule==ContractPriceMappings.SameDeliveryPeriod?[]:terms.Mappings);
+            if(!maps.ToHashSet().SetEquals(terms.Mappings))throw Missing("The declared convention and exact source mapping pairs differ.");
+        }
         if(source.Key.Code!=node.Parameters["curve"]||source.Key.Revision.CatalogId==Guid.Empty||source.Key.Revision.RevisionId==Guid.Empty||source.Contracts.IsDefaultOrEmpty)
             throw Missing("A source requires an exact retained curve and contract universe.");
         if(source.Contracts.Select(c=>c.Contract.Key).Distinct().Count()!=source.Contracts.Length||source.Contracts.GroupBy(c=>(c.Contract.DeliveryFrom,c.Contract.DeliveryTo)).Any(g=>g.Count()!=1)||

@@ -13,6 +13,7 @@ if(args is ["--tool-output-limits",var toolOutputFile]){ToolOutputLimitChecks.Ru
 if(args is ["--reference-presentation"]){ReferencePresentationChecks.Run();return;}
 if(args is ["--assistant-workspace"]){AssistantWorkspaceChecks.Run();AssistantDigestChecks.Run();AssistantSelectionChecks.Run();AssistantWalkthroughChecks.Run();TradingBlotterChecks.Run();return;}
 if(args is ["--market-preparation-reuse"]){MarketPreparationReuseChecks.Run();return;}
+if(args is ["--publication-inputs"]){PricePublicationInputChecks.Run();return;}
 if(args is ["--crude-instants"]){CrudeInstantChecks.Run();return;}
 if(args is ["--crude-lifecycle"]){CrudeLifecycleChecks.Run();return;}
 if(args is ["--crude-positions"]){CrudePositionChecks.Run();return;}
@@ -127,6 +128,7 @@ if (args is ["--schedules"])
     CrudeMarketSelectionChecks.Run();
     CrudePositionChecks.Run();
     CrudeLifecycleChecks.Run();
+    PricePublicationInputChecks.Run();
     CrudeInstantChecks.Run();
     TradePositionFactsChecks.Run();
     BookScopeChecks.Run();

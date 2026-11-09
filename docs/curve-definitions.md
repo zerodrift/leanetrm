@@ -1,11 +1,11 @@
 # Native curve definitions
 
-Status: D318, owner-directed design (2026-11-04), extended by D358 (2026-11-06) and D359 (2026-11-07).
+Status: D318, owner-directed design (2026-11-04), extended by D358 (2026-11-06), D359 (2026-11-07) and D362 (2026-11-08).
 Curves & prices → Curve definitions validates, previews, saves, publishes and
 edits definitions locally, including interest-rate curves. Published
 interest-rate definitions are admitted into market revisions and priced from
-(D359); admitting contract curves remains work, listed at
-the end. Examples are synthetic.
+(D359), and published futures and forward definitions are admitted into market
+revisions at a named close (D362). Examples are synthetic.
 
 ## Intent
 
@@ -132,6 +132,21 @@ the curve. Curves & prices shows each tenor's maturity, mark and discount factor
 in the curve's own unit, and links to the definition; nothing on the rendered
 curve changes it. Rate curves are not risk factors.
 
+## Contract curves in a revision (D362)
+
+Admitting a published futures or forward definition into a draft definition revision
+(`POST /api/curve-definitions/admit-contracts`, `WriteMarketDefinitions`, idempotent by
+request id) names the close whose window it takes, at current knowledge on that close's
+date. Each position becomes a contract and price series through the verified date-mapping
+admission (D283); the curve records the exact definition version and its direct mark
+source and role. Closes and pricing read it as any direct curve, from its members' marks.
+
+A revision holds the window of the close named when it was admitted, so a later close's
+window is admitted into a new draft revision; a future keeps its identity by exchange
+series and a forward by curve code, delivery period and last-trading instant. Marks are
+recorded against that identity in the revision that uses it. Date fields must be positions in saved date lists, absolute or
+context-relative; generated schedules and business-day offsets are refused by expression.
+
 ## Saving, publishing and editing (D358)
 
 A definition has a stable code and up to 64 versions: at most one draft, then
@@ -168,7 +183,8 @@ adopted silently. Rendered curves offer no way to change a definition.
   Settings → Schedules & date mappings.
 - D361: a gear beside a listed curve opens that curve's definition. The navigation read
   (`curveConfigurations`) names it only for a curve with an admitted definition and a
-  person who may change it outside a historical view; today, interest-rate curves.
+  person who may change it outside a historical view: interest-rate, futures and
+  forward curves.
 - D358: `GET /api/curve-definitions`, `POST /api/curve-definitions/save` and
   `POST /api/curve-definitions/publish`; a preview or save may carry the curve's
   edited mapping rows. Migration `0214_curve_definitions.sql` adds the versions,
@@ -177,13 +193,14 @@ adopted silently. Rendered curves offer no way to change a definition.
   gives definitions their own rate terms, adds admitted rate curves and tenors,
   removes literal-maturity rate curves and the discount default's interpolation
   column.
+- D362: `POST /api/curve-definitions/admit-contracts`; migration
+  `0217_admitted_contract_curves.sql` pins a curve's definition version, adds the
+  request ledger, checks context-relative date lists and checks admitted terms at sealing.
 
 ## Remaining work
 
-1. Admitting a published contract-curve definition into a draft market
-   revision: materialize the window's contracts (extending D283's admission
-   beyond absolute indexes) and create the curve, its members and its direct
-   source, so closes and pricing consume it. (Interest-rate curves: D359.)
+1. Admitting contract windows from generated schedules or business-day offsets,
+   and one revision serving closes across a roll.
 2. The Coming soon cases above, each with its own consumer and checks.
 3. Not yet compared: the delivery profile's calendar and clock against a futures
    product's delivery calendar and market clock; the mark role and source

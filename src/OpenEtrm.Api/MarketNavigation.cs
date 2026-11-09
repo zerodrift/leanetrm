@@ -68,11 +68,11 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
         return curves.ToImmutable();
     }
 
-    // A curve is configured by a definition only once one is admitted, which today only interest-rate curves are (D359).
+    // A curve is configured by a definition only once one is admitted: interest-rate curves (D359) and contract curves (D362).
     internal static async Task<ImmutableArray<CurveConfiguration>> ReadConfigurations(NpgsqlConnection connection,PreviewManifest manifest,CancellationToken ct)
     {
         var configurations=ImmutableArray.CreateBuilder<CurveConfiguration>();
-        await using var command=ScheduleStore.Command(connection,"SELECT code,definition_id,definition_version FROM market_data.rate_curves WHERE catalog_id=$1 AND revision_id=$2 ORDER BY code",manifest.CatalogId,manifest.RevisionId);
+        await using var command=ScheduleStore.Command(connection,"SELECT code,definition_id,definition_version FROM market_data.rate_curves WHERE catalog_id=$1 AND revision_id=$2 UNION ALL SELECT code,definition_id,definition_version FROM market_data.curves WHERE catalog_id=$1 AND revision_id=$2 AND definition_id IS NOT NULL ORDER BY code",manifest.CatalogId,manifest.RevisionId);
         await using var reader=await command.ExecuteReaderAsync(ct);
         while(await reader.ReadAsync(ct))configurations.Add(new(reader.GetString(0),reader.GetGuid(1),reader.GetInt32(2)));
         return configurations.ToImmutable();

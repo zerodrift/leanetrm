@@ -31,7 +31,7 @@ test('Power TOUs reports power hours once an As of frame is chosen, and TOU prod
 });
 
 test('every other page reports the view it shows in its read tool input form, and a page the assistant does not read an empty selection',()=>{
-  assert.deepEqual(pageReport({page:'configuration'}),{page:'contract_definitions',selection:{view:'contract_definitions',curve:null}});
+  assert.throws(()=>pageReport({page:'configuration'}),/page is inconsistent/,'Price setup has no assistant report contract');
   assert.deepEqual(pageReport({page:'schedules'}),{page:'schedules',selection:{view:'library'}});
   assert.deepEqual(pageReport({page:'reference',table:'units',search:'mega'}),{page:'reference_data',selection:{table:'units',search:'mega'}});
   assert.deepEqual(pageReport({page:'parties',kind:'counterparty'}),{page:'parties',selection:{kind:'counterparty'}});
@@ -100,7 +100,7 @@ test('Looking at says what each read page shows in words, never with an identifi
   const shows=state=>lookingAt(pageReport(state),working,names).shows;
   assert.equal(shows({page:'market',curve:null,tab:'prices'}),'Curve directory');
   assert.equal(shows({page:'market',curve:'future',tab:'dependencies'}),'Prices of Synthetic future');
-  assert.equal(shows({page:'configuration'}),'Contract date definitions');
+  assert.equal(lookingAt({page:'contract_definitions',selection:{view:'contract_definitions',curve:null}},working,names).shows,'Contract date definitions');
   assert.equal(shows({page:'power',frame:false}),'TOU products');
   assert.equal(shows({page:'power',frame:true}),'TOU products and power hours');
   assert.equal(shows({page:'reference',table:'units',search:''}),'Units');
@@ -157,7 +157,7 @@ test("Back restores the place a move left, for that move's notice only, and noth
 
 test('a target opens the web page its report names',()=>{
   assert.deepEqual(['curves','contract_definitions','schedules','power_tous','reference_data','parties','blotter'].map(webPage),
-    ['market','configuration','schedules','power','reference','parties','futures']);
+    ['market','schedules','schedules','power','reference','parties','futures']);
   assert.equal(webPage('settings_ai'),'ai');
   assert.throws(()=>webPage('unknown_page'),/page is inconsistent/);
 });

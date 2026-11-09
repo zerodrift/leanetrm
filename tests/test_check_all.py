@@ -51,6 +51,16 @@ class CheckAllTests(unittest.TestCase):
         self.assertIn('--browser-check',indexed[0])
         self.assertIn('--browser',indexed[0])
 
+    def test_publication_and_contract_authoring_are_qualified_in_workspace_partition(self):
+        commands=[]
+        run_checks(Path('/stock postgres/bin'),Path('/managed sdk/dotnet'),Path('/browser executable'),group='workspace',run=lambda command,**options:commands.append(command))
+        selected=[c for c in commands if '--price-authoring-check' in c]
+        self.assertEqual(len(selected),1)
+        self.assertIn('--browser-check',selected[0])
+        self.assertEqual(selected[0][selected[0].index('--browser')+1],'/browser executable')
+        for helper in ('tools/check_price_publications.py','tools/check_contract_price_terms.py'):
+            self.assertTrue(any(helper in command for command in commands),helper)
+
     def test_lng_booking_upgrade_recovery_and_worker_checks_run_in_trading_partition(self):
         commands=[]
         run_checks(Path('/stock postgres/bin'),Path('/managed sdk/dotnet'),Path('/browser executable'),group='trading',run=lambda command,**options:commands.append(command))

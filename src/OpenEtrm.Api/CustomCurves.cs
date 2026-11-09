@@ -6,6 +6,8 @@ using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Calculation;
+using OpenEtrm.MarketData.Curves;
+using OpenEtrm.MarketData.Publications;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.Shared.Temporal;
 
@@ -82,7 +84,7 @@ public static partial class CustomCurves
     static bool Equivalent(RecipeDefinition left,RecipeDefinition right)
     {
         if(left.Code!=right.Code||left.Name!=right.Name||left.Output!=right.Output||left.Nodes.Length!=right.Nodes.Length)return false;
-        return left.Nodes.All(node=>right.Nodes.Any(other=>node.Id==other.Id&&node.Kind==other.Kind&&node.PublishedSource==other.PublishedSource&&node.Parameters.Count==other.Parameters.Count&&node.Parameters.All(p=>other.Parameters.GetValueOrDefault(p.Key)==p.Value)&&Weights(node).SequenceEqual(Weights(other))&&PanelWeights(node).SequenceEqual(PanelWeights(other))&&node.Inputs.Count==other.Inputs.Count&&node.Inputs.All(p=>other.Inputs.GetValueOrDefault(p.Key)==p.Value)));
+        return left.Nodes.All(node=>right.Nodes.Any(other=>node.Id==other.Id&&node.Kind==other.Kind&&node.PublishedSource==other.PublishedSource&&JsonSerializer.Serialize(node.ContractTerms,RiskJobs.Json)==JsonSerializer.Serialize(other.ContractTerms,RiskJobs.Json)&&node.Parameters.Count==other.Parameters.Count&&node.Parameters.All(p=>other.Parameters.GetValueOrDefault(p.Key)==p.Value)&&Weights(node).SequenceEqual(Weights(other))&&PanelWeights(node).SequenceEqual(PanelWeights(other))&&node.Inputs.Count==other.Inputs.Count&&node.Inputs.All(p=>other.Inputs.GetValueOrDefault(p.Key)==p.Value)));
     }
     static IEnumerable<RecipeContractWeight> Weights(RecipeNode node)=>(node.ContractWeights.IsDefault?[]:node.ContractWeights).OrderBy(w=>w.OutputPosition).ThenBy(w=>w.SourcePort,StringComparer.Ordinal).ThenBy(w=>w.ContractId);
     static IEnumerable<RecipePanelWeight> PanelWeights(RecipeNode node)=>(node.PanelWeights.IsDefault?[]:node.PanelWeights).OrderBy(w=>w.SourcePort,StringComparer.Ordinal);
@@ -228,11 +230,12 @@ public static partial class CustomCurves
         PreviewData data,InputFrame frame,ImmutableDictionary<string,CurveSourceReference> sourceReferences,
         ImmutableDictionary<string,CalendarReference> calendarReferences,ImmutableDictionary<string,CurveScheduleReference> scheduleReferences,
         ScheduleContext? context,CancellationToken ct,ImmutableHashSet<RecipeDelivery>? deliveries=null,RecipeTopology? topology=null,bool topologyOnly=false,bool retainedObservations=false,
-        Action<InputFrame,ImmutableArray<CurveRequest>,bool>? collectObservations=null,InputFrame? sourceFrame=null,
+        Action<InputFrame,ImmutableArray<CurveRequest>,bool,IReadOnlyDictionary<CurveRequest,ContractPriceTermsBinding>>? collectObservations=null,InputFrame? sourceFrame=null,
         Dictionary<CalendarReference,ReferenceCalendar>? calendarReads=null)
     {
         if(sourceReferences.Values.Any(source=>source.CatalogId!=data.DefinitionRevision.CatalogId||source.RevisionId!=data.DefinitionRevision.RevisionId))
             throw Invalid("Every native source must use the selected exact market revision.");
+        var publications=definition.Nodes.Any(n=>n.ContractTerms is not null)?await new PricePublicationStore(database).Read(connection,ct):ImmutableArray<PricePublicationDefinition>.Empty;
         var day=DateOnly.FromDateTime(frame.At.UtcDateTime);
         var dates=ImmutableDictionary.CreateBuilder<string,ImmutableArray<DateOnly>>();
         var calendarPins=ImmutableArray.CreateBuilder<ConnectedRecipeCalendarPin>();
@@ -339,7 +342,7 @@ public static partial class CustomCurves
                         RecipeEngine.ResolveContracts(contracts,mode,first,count,resolutionAt,sampleDate,requireLive:deliveries is null);
                     if(admitted is not null)selected=selected.Where(k=>admitted.Contains(new(new(data.DefinitionRevision,reference.Code),observationDate,k.Contract.Key))).ToImmutableArray();
                     else if(deliveries is not null)selected=selected.Where(k=>deliveries.Contains(new(k.Contract.DeliveryFrom,k.Contract.DeliveryTo))).ToImmutableArray();
-                    if(selected.Any(k=>k.EligibleFrom>resolutionAt||k.Contract.Expiry<=resolutionAt))throw Invalid("Every mapped contract must be live at its exact sampling instant.");
+                    if(selected.Any(k=>k.EligibleFrom>resolutionAt||k.Contract.Expiry<=resolutionAt&&sourceNode.ContractTerms is null))throw Invalid("Every mapped contract must be live at its exact sampling instant.");
                     if(selected.IsEmpty)continue;
                     if(!required.TryGetValue(observationDate,out var selectedContracts))required.Add(observationDate,selectedContracts=[]);
                     selectedContracts.UnionWith(selected.Select(c=>c.Contract.Key));
@@ -350,12 +353,25 @@ public static partial class CustomCurves
             {
                 ct.ThrowIfCancellationRequested();
                 var sampleFrame=frames[sampleDay];
-                var requests=requiredContracts.Select(key=>new CurveRequest(new(data.DefinitionRevision,reference.Code),key)).ToImmutableArray();
-                if(collectObservations is not null){collectObservations(sampleFrame,requests,sampleDay==day);continue;}
-                var snapshot=await ReadSourceSnapshot(connection,database,data,sampleFrame,requests,sampleDay==day,retainedObservations,ct,sourceFrame);
+                var selected=requiredContracts.Select(target=>new{Target=target,Source=sourceNode.ContractTerms?.SourceFor(target)??target}).ToArray();
+                var requests=selected.Select(p=>new CurveRequest(new(data.DefinitionRevision,reference.Code),p.Source)).Distinct().ToImmutableArray();
+                var terms=new Dictionary<CurveRequest,ContractPriceTermsBinding>();
+                if(sourceNode.ContractTerms is {} set)
+                foreach(var pair in selected)
+                {
+                    var binding=ContractPriceTermsStore.Binding(data,reference.Code,set.For(pair.Target),data.Contracts.Single(c=>c.Key==pair.Source),publications);
+                    var request=new CurveRequest(new(data.DefinitionRevision,reference.Code),pair.Source);
+                    if(terms.TryGetValue(request,out var prior)&&JsonSerializer.Serialize(prior,RiskJobs.Json)!=JsonSerializer.Serialize(binding,RiskJobs.Json))throw Invalid("One source contract cannot carry conflicting settlement terms.");
+                    terms[request]=binding;
+                }
+                if(collectObservations is not null){collectObservations(sampleFrame,requests,sampleDay==day,terms);continue;}
+                var snapshot=await ReadSourceSnapshot(connection,database,data,sampleFrame,requests,sampleDay==day,retainedObservations,ct,sourceFrame,terms);
                 if(sampleDay!=day)snapshot=snapshot with {Id=StableSampleId(snapshot)};
-                foreach(var request in requests)
-                    connected.Add(new(request.Curve,sampleDay,request.Contract,data.Model,snapshot,sampleDay!=day));
+                foreach(var pair in selected)
+                {
+                    var key=new CurveKey(data.DefinitionRevision,reference.Code);var request=new CurveRequest(key,pair.Source);
+                    connected.Add(new(key,sampleDay,pair.Target,data.Model,snapshot,sampleDay!=day){PriceTerms=terms.GetValueOrDefault(request),MappedContract=sourceNode.ContractTerms is null?null:pair.Source});
+                }
             }
         }
         return new(new(day,frame.At,sources.ToImmutable(),dates.ToImmutable()),connected.ToImmutable(),new(calendarPins.ToImmutable(),schedulePins.ToImmutable()),
@@ -364,7 +380,8 @@ public static partial class CustomCurves
     private sealed record SourceLeaf(SeriesKey Series,ReferenceKey Source,ObservationRole Role,InputUse Use,DateTimeOffset? FinalFrom);
     // Select the exact leaves of requested members, rather than every maturity
     // in their curves. The managed curve model remains the pricing authority.
-    static ImmutableArray<SourceLeaf> SourceLeaves(PreviewData data,InputFrame frame,ImmutableArray<CurveRequest> requests,CancellationToken ct)
+    static ImmutableArray<SourceLeaf> SourceLeaves(PreviewData data,InputFrame frame,ImmutableArray<CurveRequest> requests,CancellationToken ct,
+        IReadOnlyDictionary<CurveRequest,ContractPriceTermsBinding>? priceTerms=null)
     {
         var leaves=new Dictionary<InputKey,SourceLeaf>();var visited=new HashSet<(CurveRequest,InputUse)>();
         ReferenceKey Reference(string code)=>new(data.ReferenceRevision,code);
@@ -380,6 +397,14 @@ public static partial class CustomCurves
             ct.ThrowIfCancellationRequested();if(!visited.Add((request,use)))return;
             var curve=data.DefinitionRows("curves","code",request.Curve.Code).Single();
             var contract=data.ContractRows(request.Contract.Id).Single();
+            if(priceTerms?.TryGetValue(request,out var binding)==true)
+            {
+                if(binding.Fixing is {} fixing&&frame.At>=fixing.FixingAt)
+                {Add(new(fixing.Series,fixing.Source,ObservationRole.IndexFixing,InputUse.FrozenFact,fixing.FixingAt));return;}
+                if(binding.Terms.Settlement==ContractPriceTerms.ExchangeFinal&&frame.At>=contract.Expiry)use=InputUse.FrozenFact;
+                else if(frame.At>=contract.Expiry&&binding.Terms.Settlement!=ContractPriceTerms.Derived)
+                    throw new MarketDataException("source_expired","The contract expired before its exact required publication; require-final does not carry a stale estimate.");
+            }
             if(curve.Text("rule")=="direct")
             {
                 var series=data.QuotedSeries(request.Contract.Id,curve.Text("quote_code")).Single();
@@ -404,19 +429,21 @@ public static partial class CustomCurves
         return [..leaves.Values];
     }
     static async Task<MarketSnapshot> ReadSourceSnapshot(NpgsqlConnection connection,PreviewDatabase database,PreviewData metadata,
-        InputFrame frame,ImmutableArray<CurveRequest> requests,bool exactFrame,bool retainedObservations,CancellationToken ct,InputFrame? sourceFrame=null)
+        InputFrame frame,ImmutableArray<CurveRequest> requests,bool exactFrame,bool retainedObservations,CancellationToken ct,InputFrame? sourceFrame=null,
+        IReadOnlyDictionary<CurveRequest,ContractPriceTermsBinding>? priceTerms=null)
     {
-        if(retainedObservations)return SourceSnapshot(metadata,exactFrame&&sourceFrame is not null?sourceFrame:frame,requests,exactFrame,ct);
-        var leaves=SourceLeaves(metadata,frame,requests,ct);
+        if(retainedObservations)return SourceSnapshot(metadata,exactFrame&&sourceFrame is not null?sourceFrame:frame,requests,exactFrame,ct,priceTerms);
+        var leaves=SourceLeaves(metadata,frame,requests,ct,priceTerms);
         var windows=exactFrame?ImmutableArray<ObservationWindow>.Empty:leaves.Select(leaf=>new ObservationWindow(leaf.Series.Id,
             leaf.Source.Code,PreviewData.RoleCode(leaf.Role),leaf.FinalFrom??frame.At,frame.At)).ToImmutableArray();
-        var selected=await database.ReadObservationWindows(connection,metadata,windows,ct,exactFrame?frame.ObservationIds:[]);
-        return SourceSnapshot(selected,frame,requests,exactFrame,ct);
+        var selected=await database.ReadObservationWindows(connection,metadata,windows,ct,exactFrame?frame.ObservationIds.Concat(frame.FrozenObservationIds.IsDefault?[]:frame.FrozenObservationIds).Distinct().ToImmutableArray():[]);
+        return SourceSnapshot(selected,frame,requests,exactFrame,ct,priceTerms);
     }
-    static MarketSnapshot SourceSnapshot(PreviewData data,InputFrame frame,ImmutableArray<CurveRequest> requests,bool exactFrame,CancellationToken ct)
+    static MarketSnapshot SourceSnapshot(PreviewData data,InputFrame frame,ImmutableArray<CurveRequest> requests,bool exactFrame,CancellationToken ct,
+        IReadOnlyDictionary<CurveRequest,ContractPriceTermsBinding>? priceTerms=null)
     {
-        var leaves=SourceLeaves(data,frame,requests,ct);
-        var available=exactFrame?frame.ObservationIds.Select(data.Observation).ToLookup(row=>row.Id("series_id")):null;
+        var leaves=SourceLeaves(data,frame,requests,ct,priceTerms);
+        var available=exactFrame?frame.ObservationIds.Concat(frame.FrozenObservationIds.IsDefault?[]:frame.FrozenObservationIds).Distinct().Select(data.Observation).ToLookup(row=>row.Id("series_id")):null;
         var selections=ImmutableArray.CreateBuilder<SelectedObservation>();
         foreach(var leaf in leaves)
         {

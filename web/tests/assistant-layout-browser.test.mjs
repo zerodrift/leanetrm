@@ -14,8 +14,9 @@ async function fixture(work){
   await evaluate(`(async()=>{
    document.getElementById('context-toolbar').hidden=false;document.getElementById('date-context').hidden=false;
    const {setupAssistant}=await import('/assistant-panel.js');
-   window.assistant=setupAssistant({api:async()=>({agents:[],vendors:[]}),root:'/api',identity:()=> 'synthetic-layout',zone:()=> 'UTC',
-    available:()=>true,pageBusy:()=>false,act:async work=>work(),place:()=>({report:{page:'curves',selection:{view:'curves',curve:null}},context:{mode:'current',frameId:null,frameLabel:null}}),
+   window.pageAssistantAvailable=true;window.assistantReads=[];
+   window.assistant=setupAssistant({api:async path=>{assistantReads.push(path);return {agents:[],vendors:[]};},root:'/api',identity:()=> 'synthetic-layout',zone:()=> 'UTC',
+    available:()=>true,pageAvailable:()=>pageAssistantAvailable,pageBusy:()=>false,act:async work=>work(),place:()=>({report:{page:'curves',selection:{view:'curves',curve:null}},context:{mode:'current',frameId:null,frameLabel:null}}),
     names:()=>({}),trade:()=>undefined,unsaved:()=>false,open:async()=>{},go:async()=>{},restore:async()=>{}});
    assistant.draft('Synthetic layout question');
    window.press=key=>document.getElementById('assistant-resize').dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true}));
@@ -26,6 +27,22 @@ async function fixture(work){
   await work(evaluate,viewport,command);
  });
 }
+
+test('moving to a page without an assistant report closes the panel and preserves its unsent question',{skip:!browserAvailable},async()=>{
+ await fixture(async evaluate=>{
+  await evaluate('pageAssistantAvailable=false;assistant.sync()');
+  assert.equal(await evaluate("document.getElementById('assistant-panel').hidden"),true);
+  assert.equal(await evaluate("document.getElementById('assistant-launcher').hidden"),true);
+  await evaluate("assistant.draft('Do not replace the existing question')");
+  assert.equal(await evaluate("document.getElementById('assistant-panel').hidden"),true);
+  await evaluate('pageAssistantAvailable=true;assistant.sync();assistant.draft(\'\')');
+  assert.equal(await evaluate("document.getElementById('assistant-panel').hidden"),false);
+  assert.equal(await evaluate("document.getElementById('assistant-question').value"),'Synthetic layout question');
+  await evaluate('pageAssistantAvailable=false;assistantReads=[];assistant.reset()');
+  assert.ok(await evaluate('assistantReads.length>0'),'an identity still loads its agent directory on a page without a report');
+  assert.equal(await evaluate("document.getElementById('assistant-panel').hidden"),true);
+ });
+});
 
 test('the widest docked assistant preserves a usable workspace and follows navigation width',{skip:!browserAvailable},async()=>{
  await fixture(async(evaluate,viewport,command)=>{

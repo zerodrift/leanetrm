@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using OpenEtrm.MarketData.Curves;
 
 namespace OpenEtrm.MarketData.CustomCurves;
 
@@ -9,7 +10,7 @@ public static class RecipeFormula
 {
     public static RecipeDefinition Compile(string formula,string code,string name)
     {
-        if(string.IsNullOrWhiteSpace(formula)||formula.Length>16384)throw Invalid("Supply a formula up to 16,384 characters.");
+        if(string.IsNullOrWhiteSpace(formula)||formula.Length>65536)throw Invalid("Supply a formula up to 65,536 characters.");
         var parser=new Parser(formula);var nodes=ImmutableArray.CreateBuilder<RecipeNode>();
         while(!parser.End)
         {
@@ -18,23 +19,25 @@ public static class RecipeFormula
             var parameters=ImmutableDictionary.CreateBuilder<string,string>();var inputs=ImmutableDictionary.CreateBuilder<string,string>();
             var weights=default(ImmutableArray<RecipeContractWeight>);
             PublishedRecipeReference? published=null;
+            ContractPriceTermsSet? contractTerms=null;
             var panelWeights=default(ImmutableArray<RecipePanelWeight>);
             if(!parser.Peek(')'))
             {
                 do
                 {
                     var key=parser.Identifier();parser.Take('=');
-                    if(parameters.ContainsKey(key)||inputs.ContainsKey(key)||key=="contractWeights"&&!weights.IsDefault||key=="panelWeights"&&!panelWeights.IsDefault||key=="publishedSource"&&published is not null)throw Invalid("Each argument may appear once.");
+                    if(parameters.ContainsKey(key)||inputs.ContainsKey(key)||key=="contractWeights"&&!weights.IsDefault||key=="panelWeights"&&!panelWeights.IsDefault||key=="publishedSource"&&published is not null||key=="contractTerms"&&contractTerms is not null)throw Invalid("Each argument may appear once.");
                     if(key=="contractWeights")weights=parser.Weights();
                     else if(key=="panelWeights")panelWeights=parser.PanelWeights();
                     else if(key=="publishedSource")published=parser.PublishedSource();
+                    else if(key=="contractTerms")contractTerms=parser.ContractTerms();
                     else if(parser.Peek('@')){parser.Take('@');inputs.Add(key,parser.Identifier());}
                     else parameters.Add(key,parser.String());
                     if(!parser.Peek(','))break;parser.Take(',');
                 }while(true);
             }
             parser.Take(')');
-            nodes.Add(new(id,kind,parameters.ToImmutable(),inputs.ToImmutable(),weights,published,panelWeights));
+            nodes.Add(new(id,kind,parameters.ToImmutable(),inputs.ToImmutable(),weights,published,panelWeights,contractTerms));
         }
         var outputs=nodes.Where(n=>n.Kind=="output").ToArray();
         if(outputs.Length!=1)throw Invalid("A formula requires exactly one output node.");
@@ -52,6 +55,7 @@ public static class RecipeFormula
                 .Concat(node.Inputs.OrderBy(p=>p.Key,StringComparer.Ordinal).Select(p=>p.Key+"=@"+p.Value))
                 .Concat(node.ContractWeights.IsDefaultOrEmpty?[]:new[]{"contractWeights="+JsonSerializer.Serialize(node.ContractWeights,new JsonSerializerOptions(JsonSerializerDefaults.Web))})
                 .Concat(node.PanelWeights.IsDefaultOrEmpty?[]:new[]{"panelWeights="+JsonSerializer.Serialize(node.PanelWeights,new JsonSerializerOptions(JsonSerializerDefaults.Web))})
+                .Concat(node.ContractTerms is null?[]:new[]{"contractTerms="+JsonSerializer.Serialize(node.ContractTerms,new JsonSerializerOptions(JsonSerializerDefaults.Web))})
                 .Concat(node.PublishedSource is null?[]:new[]{"publishedSource="+JsonSerializer.Serialize(node.PublishedSource,new JsonSerializerOptions(JsonSerializerDefaults.Web))}))+")"));
     }
     static bool IdentifierValid(string text)=>text.Length is >0 and <=80&&char.IsAsciiLetter(text[0])&&text.All(c=>char.IsAsciiLetterOrDigit(c)||c=='_');
@@ -71,6 +75,7 @@ public static class RecipeFormula
         }
         public ImmutableArray<RecipeContractWeight> Weights()=>Structured<ImmutableArray<RecipeContractWeight>>('[',']',"Contract weights");
         public ImmutableArray<RecipePanelWeight> PanelWeights()=>Structured<ImmutableArray<RecipePanelWeight>>('[',']',"Curve weights");
+        public ContractPriceTermsSet ContractTerms()=>Structured<ContractPriceTermsSet>('{','}',"Contract terms");
         public PublishedRecipeReference PublishedSource()=>Structured<PublishedRecipeReference>('{','}',"Published source");
         T Structured<T>(char opening,char closing,string label)
         {
