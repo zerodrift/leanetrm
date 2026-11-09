@@ -501,7 +501,11 @@ def main():
         if args.price_authoring_check:
             from check_price_publication_http import prepare_market as prepare_publication_market
             market=prepare_publication_market(market,manifest)
-        query(market)
+        if args.contract_dates_check:
+            from contract_curve_fixture import prepare_market as prepare_contract_admissions
+            query(prepare_contract_admissions(market,security,manifest))
+        else:
+            query(market)
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
             # The valuation-status check reads the last custom-curve close, at which the daily bundle publishes.
@@ -523,7 +527,7 @@ def main():
             if args.factor_swap_check:
                 from factor_swap_fixture import prepare as prepare_factor
                 prepare_factor(manifest)
-        query(security)
+        if not args.contract_dates_check:query(security)
         query(f"SELECT security.initialize_operating_policies('{manifest["tenantId"]}','{manifest["workspaceId"]}');")
         if args.example=='standard' and (gas_demo or not args.check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check):
             from factor_history_fixture import seed as seed_history

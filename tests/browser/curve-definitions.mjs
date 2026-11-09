@@ -122,6 +122,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('the gear is not nested in the button that opens the curve',`!document.querySelector(${JSON.stringify(gear)}).closest('.curve-button')`);
  await click(gear);await wait("!document.querySelector('#curve-definition').hidden&&document.querySelector('#curve-definition-code').value==='usd_rolling'&&"+idle,30000);
  await check('the gear opens that curve’s configuration',"document.querySelector('#curve-definition-code').readOnly&&document.querySelector('#curve-definition-code').value==='usd_rolling'");
+ // D362: a futures curve admitted from its definition has a gear too, opening its contract terms.
+ const contractGear='#curves [data-curve-configure="rolling_gas"]';
+ await click('#curve-definition-back');await wait(idle);
+ await check('an admitted futures curve has a gear for someone who may edit it',`!!document.querySelector(${JSON.stringify(contractGear)})`);
+ await click(contractGear);await wait("!document.querySelector('#curve-definition').hidden&&document.querySelector('#curve-definition-code').value==='rolling_gas'&&"+idle,30000);
+ await check('the gear opens the futures curve\u2019s definition',"document.querySelector('#curve-definition-code').readOnly&&document.querySelector('#curve-definition-kind').value==='future'&&document.querySelectorAll('#curve-definition-rows tr').length===3",
+  "({kind:document.querySelector('#curve-definition-kind').value,rows:document.querySelectorAll('#curve-definition-rows tr').length,error:document.querySelector('#error').textContent})");
  await click('#curve-definition-back');await wait(idle);
  await persona('viewer');await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
  await check('a reader sees no gear',"document.querySelectorAll('#curves [data-curve-configure]').length===0");
