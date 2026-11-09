@@ -35,10 +35,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('a second tab click cannot replace the pending navigation or skip its read',"document.querySelector('#price-setup-tabs-contracts').getAttribute('aria-selected')==='true'&&document.querySelector('#schedules-page').hidden&&document.querySelector('#error').hidden");
  await click('#price-setup-tabs-dates');await set('#curve-dates-name','Synthetic unsaved date rule');
  await check('typing into linked Date mappings registers the existing browser-close warning',unload);
- await evaluate("document.querySelector('#nav-market').click()");await wait("!document.querySelector('#schedules-page-prompt').hidden");
+ await evaluate("document.querySelector('#nav-configuration').click()");await wait("!document.querySelector('#schedules-page-prompt').hidden");
  await click('#schedules-page-prompt button:first-child');
  await check('keeping a Date mapping edit retains its Schedules page and browser-close warning',`!document.querySelector('#schedules-page').hidden&&document.querySelector('#curve-dates-name').value==='Synthetic unsaved date rule'&&${unload}`);
- await evaluate("document.querySelector('#nav-market').click()");await wait("!document.querySelector('#schedules-page-prompt').hidden");
+ await evaluate("document.querySelector('#nav-configuration').click()");await wait("!document.querySelector('#schedules-page-prompt').hidden");
  await click('#schedules-page-prompt button:last-child');
  await check('discarding a Date mapping edit returns to Price setup without a browser-close warning',`!${unload}&&!document.querySelector('#price-setup-page').hidden&&!document.querySelector('#contract-price-terms-editor').hidden`);
 }
