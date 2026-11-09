@@ -76,23 +76,32 @@ public sealed class ContractDateStore(Guid catalog,ScheduleStore schedules)
         return new(body.Code,body.Name,context,dates);
     }
 
-    public async Task<ImmutableArray<ContractDateVersion>> Read(NpgsqlConnection connection,CancellationToken ct)
+    public Task<ImmutableArray<ContractDateVersion>> Read(NpgsqlConnection connection,CancellationToken ct)=>Read(connection,"",[catalog],ct);
+    // Row security decides each row a read touches, so an operation on one version or definition reads only that one.
+    public Task<ImmutableArray<ContractDateVersion>> ReadVersion(NpgsqlConnection connection,Guid id,int version,CancellationToken ct)=>
+        Read(connection," AND v.definition_id=$2 AND v.version=$3",[catalog,id,version],ct);
+    Task<ImmutableArray<ContractDateVersion>> ReadDefinition(NpgsqlConnection connection,Guid id,CancellationToken ct)=>
+        Read(connection," AND v.definition_id=$2",[catalog,id],ct);
+    async Task<ImmutableArray<ContractDateVersion>> Read(NpgsqlConnection connection,string scope,object[] arguments,CancellationToken ct)
     {
         var headers=new List<(Guid Id,int Version,int Generation,string State,string Code,string Name,ScheduleContext Context,int? Order,DateTimeOffset? At,string Engine)>();
         var contracts=new Dictionary<(Guid,int),List<(int Ordinal,string Label,string? Cutoff)>>();
         var fields=new Dictionary<(Guid,int),List<ContractDateBinding>>();var seen=new HashSet<(Guid,int)>();
         // One statement pins headers, contracts and source fields to one MVCC
-        // snapshot, including concurrent authorized raw draft updates.
-        await using(var command=ScheduleStore.Command(connection,"""
-SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_on,t.known_through,t.known_at,t.id,v.publication_order,v.published_at,v.engine_version,
- c.ordinal,c.label,c.cutoff_utc,f.role,f.literal_date,f.schedule_catalog_id,f.schedule_id,f.schedule_version,f.occurrence,f.business_days,s.symbol
+        // snapshot, including concurrent authorized raw draft updates. Headers are
+        // materialized first so a definition's row security runs once per version, not per joined field.
+        await using(var command=ScheduleStore.Command(connection,$"""
+WITH h AS MATERIALIZED(SELECT v.catalog_id,v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_on,t.known_through,t.known_at,t.id context_id,v.publication_order,v.published_at,v.engine_version
  FROM market_data.contract_date_versions v JOIN market_data.contract_date_definitions d ON(d.catalog_id,d.id)=(v.catalog_id,v.definition_id)
  JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(v.catalog_id,v.validation_context_id)
- LEFT JOIN market_data.contract_date_contracts c ON(c.catalog_id,c.definition_id,c.version)=(v.catalog_id,v.definition_id,v.version)
+ WHERE v.catalog_id=$1{scope})
+SELECT h.definition_id,h.version,h.generation,h.state,h.code,h.name,h.effective_on,h.known_through,h.known_at,h.context_id,h.publication_order,h.published_at,h.engine_version,
+ c.ordinal,c.label,c.cutoff_utc,f.role,f.literal_date,f.schedule_catalog_id,f.schedule_id,f.schedule_version,f.occurrence,f.business_days,s.symbol
+ FROM h LEFT JOIN market_data.contract_date_contracts c ON(c.catalog_id,c.definition_id,c.version)=(h.catalog_id,h.definition_id,h.version)
  LEFT JOIN market_data.contract_date_fields f ON(f.catalog_id,f.definition_id,f.version,f.ordinal)=(c.catalog_id,c.definition_id,c.version,c.ordinal)
  LEFT JOIN market_data.date_schedules s ON(s.catalog_id,s.id)=(f.schedule_catalog_id,f.schedule_id)
- WHERE v.catalog_id=$1 ORDER BY d.code,v.version,c.ordinal,f.role
-""",catalog))
+ ORDER BY h.code,h.version,c.ordinal,f.role
+""",arguments))
         await using(var reader=await command.ExecuteReaderAsync(ct))while(await reader.ReadAsync(ct))
         {
             var key=(reader.GetGuid(0),reader.GetInt32(1));
@@ -130,6 +139,11 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
             return new ContractDateVersion(h.Id,h.Version,h.Generation,h.State,definition,[..bindings],h.Order,h.At,h.Engine);
         })];
     }
+    async Task<long> DefinitionCount(NpgsqlConnection connection,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT count(DISTINCT v.definition_id) FROM market_data.contract_date_versions v JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(v.catalog_id,v.validation_context_id) WHERE v.catalog_id=$1",catalog);
+        return (long)(await command.ExecuteScalarAsync(ct))!;
+    }
     async Task Lock(NpgsqlConnection connection,CancellationToken ct)
     {
         await using var command=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102);SELECT pg_advisory_xact_lock(730849150)");
@@ -164,10 +178,10 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
             ?Compile(request,versions,context).Contracts.Select(c=>(c.Label,(TimeOnly?)TimeOnly.ParseExact(c.CutoffUtc,"HH:mm",CultureInfo.InvariantCulture),
                 new[]{("start",c.StartReference),("end",c.EndReference),("last_trading",c.LastTradingReference)})).ToArray()
             :CompileDateList(request,versions,context).Dates.Select(d=>(d.Label,(TimeOnly?)null,new[]{("date",d.Reference)})).ToArray();
-        var all=await Read(connection,ct);Guid id;int version,generation;
+        var all=body.Id is {} existing?await ReadDefinition(connection,existing,ct):[];Guid id;int version,generation;
         if(body.Id is null)
         {
-            if(body.Version is not null||body.Generation is not null||body.ExpectedState is not null||all.Select(v=>v.Id).Distinct().Count()>=32)throw Conflict();
+            if(body.Version is not null||body.Generation is not null||body.ExpectedState is not null||await DefinitionCount(connection,ct)>=32)throw Conflict();
             id=Guid.NewGuid();version=1;generation=1;
             await using var identity=ScheduleStore.Command(connection,"INSERT INTO market_data.contract_date_definitions VALUES($1,$2,$3)",catalog,id,body.Code);await identity.ExecuteNonQueryAsync(ct);
         }
@@ -207,7 +221,7 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
                 await insert.ExecuteNonQueryAsync(ct);
             }
         }
-        var receipt=Receipt(body.RequestId,(await Read(connection,ct)).Single(v=>v.Id==id&&v.Version==version));
+        var receipt=Receipt(body.RequestId,(await ReadVersion(connection,id,version,ct)).Single());
         await Record(connection,body.RequestId,"save",payload,receipt,"WriteMarketDefinitions",ct);return receipt;
     }
     public async Task<ContractDateCommandReceipt> Publish(NpgsqlConnection connection,ContractDatePublishRequest body,CancellationToken ct)
@@ -216,11 +230,11 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
         await using(var access=ScheduleStore.Command(connection,"SELECT security.contract_date_visible($1,$2,$3)",catalog,body.Id,body.Version))
             if(!Equals(await access.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
         if(await Replay(connection,body.RequestId,"publish",payload,"SealMarketDefinitions",ct) is {} replay)return replay;
-        var value=(await Read(connection,ct)).SingleOrDefault(v=>v.Id==body.Id&&v.Version==body.Version);
+        var value=(await ReadVersion(connection,body.Id,body.Version,ct)).SingleOrDefault();
         if(value is null||value.Generation!=body.Generation)throw Conflict();
         await Validate(connection,value,value.Definition.Context!,ct);
         await using(var command=ScheduleStore.Command(connection,"SELECT security.publish_contract_dates($1,$2,$3,$4)",catalog,body.Id,body.Version,body.Generation))await command.ExecuteScalarAsync(ct);
-        var receipt=Receipt(body.RequestId,(await Read(connection,ct)).Single(v=>v.Id==body.Id&&v.Version==body.Version));
+        var receipt=Receipt(body.RequestId,(await ReadVersion(connection,body.Id,body.Version,ct)).Single());
         await Record(connection,body.RequestId,"publish",payload,receipt,"SealMarketDefinitions",ct);return receipt;
     }
     async Task Validate(NpgsqlConnection connection,ContractDateVersion value,ScheduleContext context,CancellationToken ct)
@@ -257,7 +271,7 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
     public async Task<(PublishedContractRequest Definition,ImmutableArray<ScheduleVersion> Sources,ImmutableArray<ContractDateBinding> Bindings)>
         PinnedDateListInView(NpgsqlConnection connection,Guid id,int version,CancellationToken ct)
     {
-        var value=(await Read(connection,ct)).SingleOrDefault(v=>v.Id==id&&v.Version==version&&v.State=="published")
+        var value=(await ReadVersion(connection,id,version,ct)).SingleOrDefault(v=>v.State=="published")
             ??throw Invalid("This exact published definition is unavailable in the selected knowledge view.");
         if(value.EngineVersion!=DateListEngine)throw Invalid("This mapping names contracts, not a date list.");
         return (value.Definition,await PinnedSources(connection,value,ct),value.Bindings);
@@ -273,7 +287,7 @@ SELECT v.definition_id,v.version,v.generation,v.state,d.code,v.name,t.effective_
         var context=await new KnowledgeStore(catalog).Retained(connection,body.Context??throw Invalid("Choose an exact retained date context."),ct);
         if(selectedContext is null)await MarketContextStore.Bind(connection,catalog,context,ct);
         else if(selectedContext.ContextId!=context.ContextId)throw Invalid("Resolve in the selected exact market context, or explicitly change that selection first.");
-        var value=(await Read(connection,ct)).SingleOrDefault(v=>v.Id==body.Id&&v.Version==body.Version&&(includeDrafts||v.State=="published"))
+        var value=(await ReadVersion(connection,body.Id,body.Version,ct)).SingleOrDefault(v=>includeDrafts||v.State=="published")
             ??throw Invalid("This exact published definition is unavailable in the selected knowledge view.");
         return (value,context);
     }
