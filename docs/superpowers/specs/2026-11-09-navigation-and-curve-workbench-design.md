@@ -245,7 +245,7 @@ Four independently reviewable changes, in order. Each leaves the application wor
 
 ## Documentation
 
-Add decision D364 to `docs/decisions.md`, renumbering if another decision lands first.
+Add decision D365 to `docs/decisions.md`, renumbering if another decision lands first.
 Update `docs/markets-desk.md`, `docs/risk-workspace.md`, `docs/curve-definitions.md`,
 `docs/physical-workspace.md` and the "Settings ›" references elsewhere. Record the
 planned facility and transport workflows from the removed tiles in `docs/plan.md`, so

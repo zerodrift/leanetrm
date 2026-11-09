@@ -935,7 +935,7 @@ async function showCloseHistory(){
 }
 async function loadNavigation(){
   riskJobs.contextChanged();
-  if(!nativeCurveInspector.element.hidden){nativeCurveInspector.element.hidden=true;definingCurve=false;}
+  if(!nativeCurveInspector.element.hidden){nativeCurveInspector.element.hidden=true;curveDefinitions.element.hidden=false;}
   const started=++marketGeneration,profile=currentProfile,scope=administrationScope;
   workspace=undefined;navigation=undefined;clearReference();referenceNavigation.clear();setCurveNames([]);$('curves').replaceChildren();
   const next=validateMarketNavigation(await api<MarketNavigation>('workspace/navigation'));
@@ -1086,7 +1086,7 @@ function closeChanged(){
 }
 async function loadSelectedClose(){
   if(page==='schedules'){await dateEditor.load();return;}
-  if(page==='curve-definitions')return;
+  if(page==='curve-definitions'){if(!curveDefinitions.read())await curveDefinitions.load();return;}
   if(page==='configuration'){await priceSetup.load();return;}
   if(page==='physical-operations'){await physicalOperations.load();return;}
  if(page==='gas-setup'){await gasSetup.load();return;}

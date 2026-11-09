@@ -178,7 +178,7 @@ adopted silently. Rendered curves offer no way to change a definition.
   structured refusal (`curve_definition`, `curve_reference`,
   `curve_terms_mismatch`, `curve_unsupported`, `curve_contract_count`,
   `curve_contract_series`, `curve_contract_order`).
-- **Reference Data → Curve definitions** (D364): lists saved definitions and edits
+- **Reference Data → Curve definitions** (D365): lists saved definitions and edits
   one on a page of its own. Schedules and date mappings stay on
   Reference Data → Schedules & date mappings.
 - A configuration action appears beside every listed native curve, on its market

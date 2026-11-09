@@ -3708,7 +3708,7 @@ guard's reads still decide the set for each admission.
 Migration 0222 needs a hosted pilot schema window; the owner placed it in the
 combined window after 0221.
 
-## D364 — Setup lives in one Reference Data console
+## D365 — Setup lives in one Reference Data console
 
 Setup screens were spread across a Settings group, tabs inside the Reference data
 page, buttons on Curves & prices and a page in Operations. They now share one

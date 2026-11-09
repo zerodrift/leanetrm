@@ -20,7 +20,7 @@
 - Examples stay synthetic; no customer, company or competing-product names in source, docs or commit messages.
 - Tickets and forms keep one field per row.
 - Commits use `git commit -s` and end with the session's attribution trailer. Nothing is pushed or opened as a PR without the owner's explicit approval.
-- Decision record: D364, renumbered if another decision lands first.
+- Decision record: D365, renumbered if another decision lands first.
 
 ## Commands
 
@@ -101,7 +101,7 @@ Prefix every command with `export LC_ALL=en_US.UTF-8 PATH="$HOME/.openetrm-tools
 - Modify: `web/src/navigation-groups.ts`, `web/src/index.html` (sidebar lines 8-36, `#curve-price-navigation`, `#physical-workspace`, reference page), `web/src/app.ts`, `web/src/curve-workspace.ts`, `web/src/reference-navigation.ts`, `web/src/app.css`
 - Delete: `web/src/physical-workspace.ts`, `web/tests/physical-workspace-browser.test.mjs`
 - Test: `web/tests/navigation-groups.test.mjs`, `web/tests/curve-workspace-browser.test.mjs`
-- Docs: `docs/decisions.md` (D364), `docs/physical-workspace.md`, `docs/plan.md`, `docs/markets-desk.md`, and every "Settings ›" / "Settings →" reference in `docs/` and interface text
+- Docs: `docs/decisions.md` (D365), `docs/physical-workspace.md`, `docs/plan.md`, `docs/markets-desk.md`, and every "Settings ›" / "Settings →" reference in `docs/` and interface text
 
 **Interfaces:**
 - Consumes: Task 1's `consoleMenu`, `consoleEntryFor`.
@@ -142,8 +142,8 @@ Prefix every command with `export LC_ALL=en_US.UTF-8 PATH="$HOME/.openetrm-tools
 - [ ] **Step 7: Trim `setupReferenceNavigation`** to `{showHits,clear}`, dropping the group and section tabs. Keep `groupReferenceHits`. Hits follow menu order.
 - [ ] **Step 8: Add a browser check** in `tests/browser/` for Review Focus 2 and 3: unsaved Schedules edit, choosing another entry and staying; and a `#reference/<unavailable>` address keeping the console usable with today's message.
 - [ ] **Step 9: Update the tests and browser checks** naming old labels, without weakening assertions. Run Unit, all, then App browser checks. Expected: PASS.
-- [ ] **Step 10: Write D364 and the docs,** including the planned workflow list in `docs/plan.md`.
-- [ ] **Step 11: Commit** `Add the Reference Data console and regroup the sidebar (D364)`.
+- [ ] **Step 10: Write D365 and the docs,** including the planned workflow list in `docs/plan.md`.
+- [ ] **Step 11: Commit** `Add the Reference Data console and regroup the sidebar (D365)`.
 
 ### Task 3: Curve definitions page
 

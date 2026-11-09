@@ -110,7 +110,7 @@ Backend and assistant page identities remain `gas_setup`, `crude_setup` and
 
 ## Facility and transport coverage
 
-Delivery setup is reached from the Reference Data console (D364), with its Natural
+Delivery setup is reached from the Reference Data console (D365), with its Natural
 gas / Crude oil switch above the page. Pipelines and crude delivery sites are the
 supported setup views. The other facility and transport workflows are planned and
 are listed in [plan.md](plan.md#later-scope); the interface does not list them.

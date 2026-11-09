@@ -2,7 +2,7 @@
 
 D345 grouped the existing views under one **Curves & prices** Markets entry. Its
 workspace switch now offers **Contract prices** and **Hourly / sub-hourly prices**;
-D364 moved **Curve builder** and **Price setup** to the Reference Data console. The
+D365 moved **Curve builder** and **Price setup** to the Reference Data console. The
 builder retains its saved-curve library,
 Build, Details, Versions, Lineage, History and Preview views, visual/formula
 authoring and native save/publish controls. Views load
@@ -236,7 +236,7 @@ context or curve closes the panel.
 
 The page is named **Curve builder** wherever a person or the assistant sees it;
 its identifiers (`custom-curves`, `custom_curves`, the `custom_curves.*_v1`
-operations) are unchanged. It sits in the Reference Data console (D364), whose menu
+operations) are unchanged. It sits in the Reference Data console (D365), whose menu
 starts folded here to give the graph its width.
 
 ```

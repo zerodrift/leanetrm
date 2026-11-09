@@ -4,7 +4,7 @@ D289 delivers the first report-workspace increment over the existing shared
 market-factor and instrument-PV calculation path. It adds no statistical engine,
 financial policy, permission, storage table or migration.
 
-D364 makes Risk a sidebar section with one entry per function: **Reports**,
+D365 makes Risk a sidebar section with one entry per function: **Reports**,
 **Scenarios & Greeks**, **VaR / ES** and **Run history**. They are views of one page,
 so moving between them neither reloads nor discards anything and asks no leave
 question. A compact bar states the portfolio, book and trade scope for all four and

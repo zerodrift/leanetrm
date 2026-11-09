@@ -34,7 +34,7 @@ const ROW_FIELDS={dates:[['label','Label'],['date','Date · date or reference']]
   contracts:[['label','Contract'],['start','Start · date or reference'],['end','End · date or reference'],['lastTrading','Last trading · date or reference'],['cutoffUtc','Last trading time · UTC']]} as const;
 
 /**
- * Curve definitions in the Reference Data console (D318, D357, D364): saved curves are listed and opened here, and only here are they changed. A curve
+ * Curve definitions in the Reference Data console (D318, D357, D365): saved curves are listed and opened here, and only here are they changed. A curve
  * names its reference terms and an exact mapping version; its contracts or tenors are that mapping's rows, edited in place and saved as
  * the mapping's draft with the curve. The server validates, resolves at the header's selected close and publishes; this view only presents.
  */
@@ -253,7 +253,7 @@ export function setupCurveDefinitionEditor(api:Api,run:(work:()=>Promise<void>)=
     // Reads the catalog whenever the editor opens, so a mapping published meanwhile is listed.
     shown(){void run(load);},
     // A changed close or market context makes the shown window and the pinned choices stale; the next opening reads them again.
-    contextChanged(){generation++;clear();},
+    read:()=>catalog!==undefined,contextChanged(){generation++;clear();},
     reset(){generation++;catalog=undefined;mappings=[];library={definitions:[],canEdit:false,canPublish:false};opened=undefined;pending=undefined;form.reset();clear();},
     refresh(){if(shown)show(shown);}};
 }
