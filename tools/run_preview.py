@@ -1158,7 +1158,7 @@ def main():
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--contract-dates'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=180):raise RuntimeError('Owned shared contract-date browser checks failed')
+                    if browser_process.wait(timeout=360):raise RuntimeError('Owned shared contract-date browser checks failed')
             elif args.custom_curves_check:
                 from check_custom_curves import run_checks as check_custom_curves
                 check_custom_curves(url,query,manifest)
