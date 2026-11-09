@@ -2497,3 +2497,61 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .close-choice-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .button-link{display:inline-flex;align-items:center;padding:6px 12px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);text-decoration:none;color:var(--text)}
 .market-card-last-close{margin:0;font-size:11.5px;color:var(--text-3)}
+
+/* Curve objects are a presentation of the retained graph; operations stay selectable on connections. */
+.curve-object-board{position:relative;min-height:380px;max-height:660px;overflow:auto;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius)}
+.curve-object-scene{position:relative;min-width:100%;min-height:340px}
+.curve-object-card{position:absolute;width:224px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius);box-shadow:var(--shadow);z-index:1;padding:12px}
+.curve-object-card.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.curve-object-card.output{border-top:3px solid var(--accent)}
+.curve-object-kind{display:block;color:var(--text-3);font-size:11px;margin-bottom:5px}
+.curve-object-title{display:block;width:100%;padding:0;background:transparent;border:0;color:var(--text);text-align:left;font-size:14px;font-weight:600;white-space:normal;overflow-wrap:anywhere}
+.curve-object-title:hover{background:transparent;color:var(--accent-text)}
+.curve-object-card>small{display:block;font-family:var(--mono);font-size:11px;color:var(--text-3);margin-top:5px;overflow-wrap:anywhere}
+.curve-object-card>p{font-size:12px;color:var(--text-2);margin:8px 0 0}
+.curve-object-connect{display:block;margin-top:10px;padding:5px 8px;font-size:12px}
+.curve-object-terms{display:block;margin-top:8px;padding:4px 8px;font-size:12px}
+.curve-object-card details{margin-top:12px;border-top:1px solid var(--border);padding-top:8px;font-size:12px}
+.curve-object-contracts{list-style:none;margin:8px 0 0;padding:0;max-height:240px;overflow:auto}
+.curve-object-contracts li{padding:7px 0;border-top:1px solid var(--border)}
+.curve-object-contracts button{padding:4px 0;background:transparent;border:0;color:var(--accent-text);text-align:left;display:block}
+.curve-object-contracts small{display:block;font-size:11px;color:var(--text-3)}
+.curve-object-wires{position:absolute;inset:0;pointer-events:none;z-index:0}
+.curve-object-wires path{fill:none;stroke:var(--text-3);stroke-width:1.5}
+.curve-object-operation{position:absolute;z-index:2;transform:translate(-50%,-50%);max-width:106px;padding:6px 9px;font-size:11px;white-space:normal;color:var(--text);background:var(--surface);border:1px solid var(--border-strong);border-radius:6px}
+.curve-object-operation[aria-pressed=true],.curve-object-steps button[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-text)}
+.curve-object-steps{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 16px}
+.curve-object-empty{padding:24px;color:var(--text-2);max-width:520px}
+.custom-curve-graph-tab:has(#custom-curves-objects:not([hidden])) .custom-curve-side{grid-template-columns:minmax(0,1fr);scrollbar-gutter:stable;padding-bottom:16px}
+.custom-curve-graph-tab:has(#custom-curves-objects:not([hidden])) .custom-curve-side>*{min-width:0}
+.custom-curve-graph-tab:has(#custom-curves-objects:not([hidden])) .custom-curve-side select{min-width:0;max-width:100%}
+.custom-curve-graph-tab:has(#custom-curves-objects:not([hidden])) #custom-curves-operators>label{min-width:0;width:100%}
+
+/* Contract pricing and publication editors share the workspace's existing controls. */
+.price-authoring-tabs{display:flex;gap:6px;padding:0 0 16px;border-bottom:1px solid var(--border);margin-bottom:18px}
+.price-authoring-tabs button{color:var(--text-2);background:transparent;border:1px solid transparent}
+.price-authoring-tabs button[aria-selected=true]{color:var(--accent-text);background:var(--accent-soft);border-color:var(--border)}
+.price-authoring-fields{display:flex;gap:16px;align-items:end;flex-wrap:wrap;margin:14px 0}
+.price-authoring-fields>label{flex:1;min-width:200px}
+.price-authoring-fields>button{flex:none}
+.price-authoring-form{border:0;padding:0;margin:0;min-width:0}
+.price-authoring-form>h3{border-top:1px solid var(--border);padding-top:20px;margin-top:24px}
+.price-authoring-form>label{max-width:640px}
+.price-authoring-form select,.price-authoring-form input:not([type=checkbox]),#contract-price-terms-editor>label select,#price-publications-editor>label select{width:100%;min-width:0}
+.price-authoring-checks{display:flex;gap:12px;flex-wrap:wrap}
+.price-authoring-checks label{display:flex;gap:12px;align-items:center;padding:10px 14px;border:1px solid var(--border);border-radius:8px}
+.price-authoring-map{display:flex;gap:12px;align-items:end;margin:12px 0;flex-wrap:wrap}
+.price-authoring-map>label{flex:1;min-width:180px}
+.price-authoring-map>span{padding-bottom:10px;color:var(--text-3)}
+.price-authoring-table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0}
+.price-authoring-table th,.price-authoring-table td{border-bottom:1px solid var(--border);padding:10px 8px;text-align:left;vertical-align:middle}
+.price-authoring-table th{color:var(--text-2);font-weight:500}
+.price-authoring-table input:not([type=checkbox]){min-width:120px}
+.price-authoring-preview{border-top:1px solid var(--border);margin-top:28px;padding-top:18px}
+.price-authoring-receipt{margin:12px 0}
+.price-authoring-receipt button{margin-right:8px}
+#price-publications-indices{overflow:auto}
+#price-setup-page pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:320px;overflow:auto;padding:12px;background:var(--surface-2)}
+#price-setup-page .side-panel-prompt{position:relative;margin-bottom:20px}
+@media(max-width:760px){.price-authoring-tabs{overflow:auto}.price-authoring-fields>label{flex-basis:100%}.price-authoring-map>label{flex-basis:100%}}
+#contract-terms-preview-result,#contract-terms-current,#price-publications-occurrences,#price-publications-releases,#price-publications-preview-result{max-width:100%;overflow:auto}

@@ -60,7 +60,8 @@ public sealed class ContractDateMaterialization(Guid catalog,ContractDateStore m
         {
             if(row.Ordinal>=mapping.Contracts.Length||mapping.Contracts[row.Ordinal].Label!=row.Label)throw Invalid();
             foreach(var field in new[]{mapping.Contracts[row.Ordinal].StartReference,mapping.Contracts[row.Ordinal].EndReference,mapping.Contracts[row.Ordinal].LastTradingReference})
-                if(field.Source is not PublishedDateSource {Selection:"absolute_index",EngineVersion:"date_schedule_v3"}||field.BusinessDays is not null)throw Invalid();
+                if(field.Source is not PublishedDateSource {Selection:"absolute_index" or "on_or_after" or "context_month",EngineVersion:"date_schedule_v3"}||field.BusinessDays is not null)
+                    throw new MarketDataException("contract_materialization",$"Date '{field.Expression}' is not a position in a saved date list; generated schedules and business-day offsets cannot be admitted yet.");
         }
         var payload=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(body,Json))));
         await using(var prior=ScheduleStore.Command(connection,"SELECT payload_sha256 FROM market_data.contract_date_materialization_requests WHERE catalog_id=$1 AND actor_id=security.custom_curve_actor($1,'WriteMarketDefinitions') AND request_id=$2",catalog,body.RequestId))

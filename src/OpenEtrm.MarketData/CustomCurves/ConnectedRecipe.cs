@@ -4,13 +4,15 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using OpenEtrm.MarketData.Calculation;
+using OpenEtrm.MarketData.Curves;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.Shared.Temporal;
 
 namespace OpenEtrm.MarketData.CustomCurves;
 
 public sealed record ConnectedRecipeIdentity(Guid CatalogId,Guid CurveId,int Version,string EngineVersion);
-public sealed record ConnectedRecipeSample(CurveKey Source,DateOnly Date,ContractKey Contract,CurveModel Model,MarketSnapshot Snapshot,bool FreezeHistorical);
+public sealed record ConnectedRecipeSample(CurveKey Source,DateOnly Date,ContractKey Contract,CurveModel Model,MarketSnapshot Snapshot,bool FreezeHistorical)
+{ public ContractPriceTermsBinding? PriceTerms{get;init;} public ContractKey? MappedContract{get;init;} }
 public sealed record ConnectedRecipeOutput(CurvePointKey Point,int Position,ImmutableArray<DateOnly> Dates,
     ImmutableArray<ContractKey> Contracts,int SampleCount);
 public sealed record ConnectedRecipeSourceReference(string Node,CurveKey Curve);
@@ -52,6 +54,7 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
         // Existing immutable declarations keep their canonical bytes. Only a
         // node that actually declares curve weights gains this evidence field.
         if(!node.PanelWeights.IsDefaultOrEmpty)result["PanelWeights"]=JsonSerializer.SerializeToNode(node.PanelWeights.OrderBy(w=>w.SourcePort,StringComparer.Ordinal).ToArray());
+        if(node.ContractTerms is not null)result["ContractTerms"]=JsonSerializer.SerializeToNode(node.ContractTerms with{Replacements=[..node.ContractTerms.Replacements.OrderBy(r=>r.Contract.Id)],Mappings=[..node.ContractTerms.Mappings.OrderBy(m=>m.Target.Id)]});
         return result;
     }
     internal static object CalendarEvidence(ConnectedRecipeCalendarPin calendar)=>new{calendar.Node,calendar.Reference,
@@ -227,6 +230,10 @@ public static partial class RecipeEngine
                 sample.FreezeHistorical!=(sample.Snapshot.ValuationAt<inputs.ValuationAt))
                 throw Missing("Each exact source/date/contract requires one coherent snapshot and historical-use policy.");
             var key=new SampleKey(sample.Source,sample.Date,sample.Contract);
+            var declared=definition.Nodes.Where(n=>n.Kind=="source"&&inputs.Sources[n.Id].Key==sample.Source).Select(n=>n.ContractTerms?.For(sample.Contract)).ToArray();
+            var mapped=definition.Nodes.Where(n=>n.Kind=="source"&&inputs.Sources[n.Id].Key==sample.Source).Select(n=>n.ContractTerms?.SourceFor(sample.Contract)).ToArray();
+            if(declared.Length==0||declared.Any(t=>t!=declared[0])||declared[0]!=sample.PriceTerms?.Terms||mapped.Any(m=>m!=mapped[0])||mapped[0]!=sample.MappedContract)
+                throw Missing("A source sample must retain its exact declared contract terms; conflicting aliases require separate source identities.");
             retained.Add(key,sample);
         }
         if(samples.Any(s=>!inputs.Sources.Values.Any(v=>v.Key==s.Source)))throw Missing("A sample belongs to an undeclared source.");
@@ -247,22 +254,36 @@ public static partial class RecipeEngine
         {
             var contract=inputs.Sources.Values.First(s=>s.Key==key.Source).Contracts.Single(c=>c.Contract.Key==key.Contract);
             if(!retained.TryGetValue(key,out var sample)||!demand.SamplingInstants.TryGetValue(key.Date,out var at)||
-                sample.Snapshot.ValuationAt!=at||contract.EligibleFrom>at||contract.Contract.Expiry<=at)
+                sample.Snapshot.ValuationAt!=at||contract.EligibleFrom>at||contract.Contract.Expiry<=at&&sample.PriceTerms is null)
                 throw Missing("Every consumed forecast requires its exact live eligible sample; actuals cannot supply forecasts.");
         }
         var exports=new List<ConnectedCurveExport>();var samplePoints=new Dictionary<SampleKey,CurvePointKey>();
         foreach(var group in local.Select(k=>(Key:k,Binding:retained[k])).GroupBy(s=>(s.Binding.Model,s.Binding.Snapshot,s.Binding.FreezeHistorical)))
         {
             cancellation.ThrowIfCancellationRequested();
-            var requests=group.Select(s=>new CurveRequest(s.Key.Source,s.Key.Contract)).Distinct().ToImmutableArray();
-            var export=group.Key.Model.Compile(group.Key.Snapshot,requests,group.Key.FreezeHistorical,context,cancellation);exports.Add(export);
+            var requests=group.Select(s=>new CurveRequest(s.Key.Source,s.Binding.MappedContract??s.Key.Contract)).Distinct().ToImmutableArray();
+            var termGroups=group.Where(s=>s.Binding.PriceTerms is not null).GroupBy(s=>new CurveRequest(s.Key.Source,s.Binding.MappedContract??s.Key.Contract));
+            if(termGroups.Any(g=>g.Select(s=>ConnectedIdentity.Digest(s.Binding.PriceTerms!)).Distinct().Count()!=1))throw Missing("One exact source contract cannot carry conflicting settlement terms in a calculation.");
+            var terms=termGroups.ToDictionary(g=>g.Key,g=>g.First().Binding.PriceTerms!);
+            var export=terms.Count==0?group.Key.Model.Compile(group.Key.Snapshot,requests,group.Key.FreezeHistorical,context,cancellation):
+                group.Key.Model.CompileContractTerms(group.Key.Snapshot,requests,terms,group.Key.FreezeHistorical,context,cancellation);exports.Add(export);
             var exportedPoints=export.Definitions.SelectMany(d=>d.Points).ToDictionary(p=>p.Key);
             foreach(var item in group)
             {
-                var request=new CurveRequest(item.Key.Source,item.Key.Contract);var point=export.Points[(request,InputUse.Variable)];
+                var actual=item.Binding.MappedContract??item.Key.Contract;
+                var request=new CurveRequest(item.Key.Source,actual);var point=export.Points[(request,InputUse.Variable)];
                 var sources=inputs.Sources.Values.Where(v=>v.Key==item.Key.Source).ToArray();
-                if(sources.Any(v=>v.Unit!=exportedPoints[point].Unit||v.Contracts.Single(c=>c.Contract.Key==item.Key.Contract).Contract!=exportedPoints[point].Contract))
+                if(sources.Any(v=>v.Unit!=exportedPoints[point].Unit||v.Contracts.Single(c=>c.Contract.Key==actual).EligibleFrom>item.Binding.Snapshot.ValuationAt||v.Contracts.Single(c=>c.Contract.Key==actual).Contract!=exportedPoints[point].Contract))
                     throw Missing("Recipe source metadata must match its exact compiled curve and contract.");
+                if(actual!=item.Key.Contract)
+                {
+                    var target=sources[0].Contracts.Single(c=>c.Contract.Key==item.Key.Contract).Contract;
+                    var aliasCurve=new CurveKey(new(identity.CatalogId,ConnectedIdentity.Id(new{Version="saved_recipe_mapping_curve_v1",identity})),definition.Code);
+                    var alias=new CurvePointKey(aliasCurve,ConnectedIdentity.Id(new{Version="recipe_contract_sampling_v1",identity,Target=target,Source=point}));
+                    var sampled=new ConnectedCurvePoint(alias,target.DeliveryFrom,target.DeliveryTo,exportedPoints[point].Unit,
+                        new ConnectedWeightedSum([new(CurvePointReference.Exact(point),ExactDecimal.Parse("1"))]),target);
+                    exports.Add(new([new(alias.Curve,[sampled])],ImmutableDictionary<(CurveRequest,InputUse),CurvePointKey>.Empty));point=alias;
+                }
                 samplePoints.Add(item.Key,point);
             }
         }

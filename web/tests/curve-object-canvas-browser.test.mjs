@@ -1,0 +1,111 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {readFile,mkdtemp,rm,access,writeFile} from 'node:fs/promises';
+import {spawn} from 'node:child_process';
+import {tmpdir} from 'node:os';
+import {join,resolve,extname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {waitForBrowserPage,stopOwnedBrowser} from '../../tests/browser/owned-browser.mjs';
+
+const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const available=await access(browser).then(()=>true,()=>false);
+// Exercise the production editor with synthetic catalog/API answers, in a disposable browser.
+// The fixture captures requests; it deliberately supplies no local pricing implementation.
+test('Objects edits retained graph operations, exact contract mappings and published references through the normal API',{skip:!available,timeout:30000},async()=>{
+ const root=fileURLToPath(new URL('../dist/',import.meta.url));
+ const server=createServer(async(req,res)=>{try{
+  if(req.url==='/'){res.setHeader('Content-Type','text/html');res.end('<link rel="stylesheet" href="/app.css"><div id="host" style="width:1400px"></div>');return;}
+  const file=resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root)){res.writeHead(404).end();return;}
+  res.setHeader('Content-Type',extname(file)==='.js'?'text/javascript':extname(file)==='.css'?'text/css':'application/octet-stream');res.end(await readFile(file));
+ }catch{res.writeHead(404).end();}});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const directory=await mkdtemp(join(tmpdir(),'openetrm-objects-'));
+ const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore'});
+ let ws;
+ try{
+  ws=new WebSocket(await waitForBrowserPage(directory,chrome));await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});
+  let id=0;const pending=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){pending.get(m.id)(m);pending.delete(m.id);}};
+  const command=(method,params={})=>new Promise(r=>{pending.set(++id,r);ws.send(JSON.stringify({id,method,params}));});
+  const evaluate=async expression=>{const reply=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});assert.ok(!reply.error&&!reply.result.exceptionDetails,JSON.stringify(reply));return reply.result.result.value;};
+  await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
+  await command('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
+  for(let i=0;i<100&&!await evaluate('!!document.querySelector("#host")');i++)await new Promise(r=>setTimeout(r,20));
+  await evaluate(`(async()=>{
+   const {setupCustomCurves}=await import('/custom-curves-view.js');
+   window.definition={code:'synthetic',name:'Synthetic object fixture',output:'out',nodes:[
+    {id:'gas',kind:'source',parameters:{curve:'gas'},inputs:{},contractWeights:[]},
+    {id:'set',kind:'select',parameters:{count:'2'},inputs:{source:'gas'}},
+    {id:'dates',kind:'dates',parameters:{mode:'context'},inputs:{}},
+    {id:'sample',kind:'sample',parameters:{policy:'strict'},inputs:{selection:'set',dates:'dates'}},
+    {id:'out',kind:'output',parameters:{},inputs:{values:'sample'}}]};
+   const exactContract={revision:{catalogId:'contract-catalog',revisionId:'contract-revision'},id:'contract-jan-exact'};
+   window.retainedTerms={default:{settlement:'published_index_v1',publication:{catalogId:'publication-catalog',id:'gas-publication',version:2},index:{revision:{catalogId:'reference-catalog',revisionId:'reference-revision'},code:'gas-index'},observationRule:'single_assessment_v1',pendingPolicy:'require_final_v1',projectionPolicy:null},replacements:[],mappingRule:'same_delivery_period_v1',mappings:[{target:exactContract,source:exactContract}]};
+   definition.nodes[0].contractTerms=structuredClone(retainedTerms);
+   const op=(kind,label,inputPorts,outputType,fields=[],dynamicInputs)=>({kind,label,inputPorts,outputType,fields,...(dynamicInputs?{dynamicInputs}:{})});
+   window.reference={catalogId:'catalog-exact',curveId:'published-parent',version:4,outputNode:'published-out'};
+   window.catalog={kindsVersion:'curve_kinds_v1',canEdit:true,canPublish:false,recipes:[],contextRecipes:[],contextSchedules:[],contextSourceStatus:[],schedules:[],calendars:[],formulaSupported:false,
+    sources:[{code:'gas',name:'Synthetic gas',kind:'market_settlement',contracts:[{id:'contract-jan-exact',label:'January',deliveryFrom:'2027-01-01',deliveryTo:'2027-02-01'}]},{code:'power',name:'Synthetic power',kind:'market_settlement',contracts:[]}],
+    publishedSources:[{label:'Synthetic published parent with a long exact version and output label',kind:'custom',reference}],contextSources:[{label:'Synthetic published parent with a long exact version and output label',kind:'custom',reference}],
+    templates:[{code:'fixture',name:'Synthetic fixture',definition}],operators:[
+     op('source','Source curve',[],'curve',[{key:'curve',label:'Curve',type:'curve'}]),
+     op('select','Select contracts',[{name:'source',type:'curve'}],'selection',[{key:'count',label:'Count',type:'integer'}]),
+     op('dates','Date mapping',[],'dates',[{key:'mode',label:'Mode',type:'select',options:[{value:'context',label:'Context date'},{value:'explicit',label:'Explicit date'}]}]),
+     op('sample','Sample prices',[{name:'selection',type:'selection'},{name:'dates',type:'dates'}],'panel',[{key:'policy',label:'Observation policy',type:'text'}]),
+     op('output','Curve output',[{name:'values',type:'panel'}],'curve_result'),
+     op('weighted_contracts','Contract mappings',[],'selection',[{key:'weights',label:'Exact mappings',type:'contract_weights'}],{type:'curve',label:'Source',prefix:'source_'}),
+     op('published_source','Published curve',[],'panel',[{key:'reference',label:'Published output',type:'published_source'},{key:'selection',label:'Selection',type:'select',options:[{value:'all_output_points_v1',label:'All output points'}]}])]};
+   window.requests=[];window.failures=[];window.terms=[];window.running=Promise.resolve();window.busyState=false;
+   const api=async(path,body)=>{requests.push({path,body:structuredClone(body)});if(path.startsWith('custom-curves?'))return structuredClone(catalog);
+    if(path==='custom-curves/preview')return {columns:['Label','Price'],rows:[['Server supplied fixture','7.125']],summary:{points:1,unavailablePoints:0,firstPeriod:null,lastPeriod:null,unit:'Synthetic'}};
+    if(path==='custom-curves/save'){const recipe={id:'saved-exact',version:1,generation:1,state:'draft',kind:'custom',definition:body.definition};catalog.recipes=[recipe];catalog.contextRecipes=[recipe];return structuredClone(recipe);}throw Error('Unexpected API '+path);};
+   window.editor=setupCustomCurves(document.querySelector('#host'),{api,act:work=>{running=work().catch(e=>failures.push(String(e)));return running;},busy:()=>busyState,zone:()=> 'UTC',identity:()=> 'synthetic-objects-test',source:()=>({snapshotId:'synthetic-close'}),historical:()=>false,narrow:()=>false,openContractTerms:selection=>terms.push(selection),assistant:{available:()=>false,draft:()=>{}}});
+   await editor.load();document.querySelector('[data-template=fixture]').click();document.querySelector('#custom-curves-dock-graph').click();
+  })()`);
+  assert.equal(await evaluate("document.querySelector('#custom-curves-mode-objects').getAttribute('aria-pressed')"),'true');
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('.curve-object-card')].map(c=>c.dataset.objectId)"),['gas','set','out']);
+  assert.equal(await evaluate("document.querySelectorAll('.curve-object-operation').length"),2);
+  assert.equal(await evaluate("document.querySelector('[data-object-id=gas] .curve-object-terms').disabled"),true,'terms require an exact saved version');
+  assert.equal(await evaluate("document.querySelector('[data-object-id=gas]').textContent.includes('exact contract mappings')"),false,'normalized empty fields do not label a source as a contract mapping');
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('.curve-object-operation')).color===getComputedStyle(document.querySelector('.curve-object-title')).color"),true,'connection labels have readable foreground color');
+  assert.equal(await evaluate("(()=>{const board=document.querySelector('#custom-curves-objects').getBoundingClientRect();return [...document.querySelectorAll('.curve-object-card')].every(c=>c.getBoundingClientRect().right<=board.right);})()"),true,'a three-object graph fits the desktop board');
+  if(process.env.CURVE_OBJECT_SCREENSHOT){await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');const shot=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(process.env.CURVE_OBJECT_SCREENSHOT,Buffer.from(shot.result.data,'base64'));}
+  await evaluate("[...document.querySelectorAll('.curve-object-operation')].find(b=>b.getAttribute('aria-label').includes('from gas to set')).click()");
+  await evaluate("document.querySelector('#custom-curves-mode-visual').click()");
+  assert.equal(await evaluate("document.querySelector('#custom-curves-inspector h3').textContent"),'Selected operation');
+  await evaluate("document.querySelector('#custom-curves-mode-objects').click()");
+  await evaluate("(()=>{const input=document.querySelector('#custom-curve-property-count');input.value='3';input.dispatchEvent(new Event('change'));document.querySelector('#custom-curves-preview').click();return running;})()");
+  assert.equal(await evaluate("requests.find(r=>r.path==='custom-curves/preview').body.definition.nodes.find(n=>n.id==='set').parameters.count"),'3');
+  assert.deepEqual(await evaluate('failures'),[]);
+  assert.equal(await evaluate("document.querySelector('#custom-curves-values').textContent.includes('7.125')"),true,'the view displays the API answer');
+  await evaluate("document.querySelector('#custom-curves-save').click();running");
+  assert.equal(await evaluate("requests.find(r=>r.path==='custom-curves/save').body.definition.nodes.find(n=>n.id==='set').parameters.count"),'3');
+  assert.equal(await evaluate("requests.find(r=>r.path==='custom-curves/save').body.snapshotId"),'synthetic-close');
+  assert.equal(await evaluate("JSON.stringify(requests.find(r=>r.path==='custom-curves/save').body.definition.nodes.find(n=>n.id==='gas').contractTerms)===JSON.stringify(retainedTerms)"),true,'normal graph save retains exact publication terms and mapping identities');
+  await evaluate("document.querySelector('[data-object-id=gas] .curve-object-terms').click();document.querySelector('[data-contract-terms=contract-jan-exact]').click()");
+  assert.deepEqual(await evaluate('terms'),[{curveId:'saved-exact',version:1,nodeId:'gas'},{curveId:'saved-exact',version:1,nodeId:'gas',contractId:'contract-jan-exact'}]);
+  await evaluate('busyState=true;editor.sync()');
+  assert.equal(await evaluate("[...document.querySelectorAll('#custom-curves-objects button')].every(b=>b.disabled)"),true,'busy synchronization disables all object actions');
+  await evaluate('busyState=false;editor.sync()');
+  assert.equal(await evaluate("[...document.querySelectorAll('#custom-curves-objects button')].some(b=>b.disabled)"),false,'actions recover after the page request ends');
+  await evaluate("document.querySelector('#custom-curves-dock-graph').click();[...document.querySelectorAll('#custom-curves-operators button')].find(b=>b.textContent==='Contract mappings').click();document.querySelector('[data-contract-id=contract-jan-exact]').click()");
+  assert.equal(await evaluate("document.querySelector('#custom-curves-object-target').options.length"),2);
+  assert.equal(await evaluate("document.activeElement?.id"),'custom-curves-object-target','opening a connection moves keyboard focus to its explicit target');
+  await command('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+  assert.equal(await evaluate("document.querySelector('#custom-curves-object-target')===null"),true,'Escape removes connection controls');
+  assert.equal(await evaluate("document.activeElement?.closest('[data-object-id]')?.dataset.objectId"),'gas','Escape returns focus to the source');
+  await evaluate("document.querySelector('[data-contract-id=contract-jan-exact]').click()");
+  await evaluate("document.querySelector('#custom-curves-object-target').value='0';document.querySelector('#custom-curves-object-connect').click()");
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"Contract for connection 1\"]').value"),'contract-jan-exact');
+  assert.equal(await evaluate("document.querySelector('[aria-label=\"Weight for connection 1\"]').value"),'','picking a contract never chooses financial weight');
+  assert.equal(await evaluate("document.querySelector('#custom-curves-preview').disabled"),true,'incomplete exact mappings cannot be previewed');
+  await evaluate(`(()=>{for(const [label,value] of [['Output position','1'],['Weight','-0.200000000000000001']]){const input=document.querySelector('[aria-label="'+label+' for connection 1"]');input.value=value;input.dispatchEvent(new Event('input'));}document.querySelector('#custom-curves-preview').click();return running;})()`);
+  assert.deepEqual(await evaluate("requests.filter(r=>r.path==='custom-curves/preview').at(-1).body.definition.nodes.find(n=>n.kind==='weighted_contracts').contractWeights"),[{outputPosition:1,sourcePort:'source_1',contractId:'contract-jan-exact',weight:'-0.200000000000000001'}]);
+  await evaluate("document.querySelector('#custom-curves-dock-graph').click();document.querySelector('#custom-curves-add-published').value='0';[...document.querySelectorAll('#custom-curves-operators button')].find(b=>b.textContent==='Reuse published curve').click()");
+  assert.equal(await evaluate("(()=>{const title=document.querySelector('[data-object-id=published_source_1] .curve-object-title');return title.scrollWidth<=title.clientWidth;})()"),true,'long published names wrap within their object card');
+  assert.equal(await evaluate("document.querySelector('#custom-curve-property-selection').value"),'','published selection policy must be explicit');
+  await evaluate("document.querySelector('#custom-curve-property-selection').value='0';document.querySelector('#custom-curve-property-selection').dispatchEvent(new Event('change'));document.querySelector('#custom-curves-preview').click();running");
+  assert.deepEqual(await evaluate("requests.filter(r=>r.path==='custom-curves/preview').at(-1).body.definition.nodes.find(n=>n.kind==='published_source').publishedSource"),{catalogId:'catalog-exact',curveId:'published-parent',version:4,outputNode:'published-out'});
+  assert.deepEqual(await evaluate('failures'),[]);
+ }finally{ws?.close();await stopOwnedBrowser(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100});}
+});

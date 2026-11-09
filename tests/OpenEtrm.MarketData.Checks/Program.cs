@@ -77,6 +77,8 @@ if(args is ["--interval-price-resolver"]){IntervalPriceResolverChecks.Run();Inte
 if(args is ["--interval-resolver-reuse"]){IntervalResolverReuseChecks.Run();return;}
 if(args is ["--interval-resolver-benchmark",var resolverOutput]){IntervalResolverBenchmark.Run(resolverOutput);return;}
 
+if(args is ["--price-publications"]){PricePublicationChecks.Run();return;}
+if(args is ["--contract-price-terms"]){ContractPriceTermsChecks.Run();return;}
 if(args is ["--custom-curves"]){ComponentHistoryChecks.Run();CustomCurveChecks.Run();return;}
 if(args is ["--curve-kinds"]){CurveKindChecks.Run();return;}
 if(args is ["--exact-curve-prices"]){ExactCurvePriceChecks.Run();ExactArithmeticChecks.Run();return;}
@@ -141,6 +143,8 @@ ScheduleGraphChecks.Run();
 IntervalScheduleChecks.Run();
 IntervalDataChecks.Run();
 PowerHoursChecks.Run();
+PricePublicationChecks.Run();
+ContractPriceTermsChecks.Run();
 CustomCurveChecks.Run();
 CurveKindChecks.Run();
 ExactCurvePriceChecks.Run();

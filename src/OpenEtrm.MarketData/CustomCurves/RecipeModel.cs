@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Curves;
 
 namespace OpenEtrm.MarketData.CustomCurves;
 
@@ -16,7 +17,8 @@ public sealed record PublishedRecipeReference(Guid CatalogId,Guid CurveId,int Ve
 public sealed record RecipeNode(string Id,string Kind,ImmutableDictionary<string,string> Parameters,ImmutableDictionary<string,string> Inputs,
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<RecipeContractWeight> ContractWeights=default,
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PublishedRecipeReference? PublishedSource=null,
-    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<RecipePanelWeight> PanelWeights=default);
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)] ImmutableArray<RecipePanelWeight> PanelWeights=default,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] ContractPriceTermsSet? ContractTerms=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record RecipeDefinition(string Code,string Name,ImmutableArray<RecipeNode> Nodes,string Output)
 {

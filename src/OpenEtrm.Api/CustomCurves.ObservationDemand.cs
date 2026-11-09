@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Npgsql;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Curves;
 using OpenEtrm.MarketData.CustomCurves;
 
 namespace OpenEtrm.Api;
@@ -22,10 +23,10 @@ public static partial class CustomCurves
         await preparation.CollectObservations(definition,sources,calendars,schedules,Collect,ct);
         return([..windows],[..exactSeries]);
 
-        void Collect(InputFrame sample,ImmutableArray<CurveRequest> requests,bool exactFrame)
+        void Collect(InputFrame sample,ImmutableArray<CurveRequest> requests,bool exactFrame,IReadOnlyDictionary<CurveRequest,ContractPriceTermsBinding> priceTerms)
         {
             ct.ThrowIfCancellationRequested();
-            var leaves=SourceLeaves(data,sample,requests,ct);
+            var leaves=SourceLeaves(data,sample,requests,ct,priceTerms);
             if(exactFrame){exactSeries.UnionWith(leaves.Select(leaf=>leaf.Series.Id));return;}
             foreach(var leaf in leaves)windows.Add(new(leaf.Series.Id,leaf.Source.Code,PreviewData.RoleCode(leaf.Role),leaf.FinalFrom??sample.At,sample.At));
         }

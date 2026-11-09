@@ -1,5 +1,9 @@
 # Architecture and domain contracts
 
+D363 adds [curve-object authoring and explicit price publications](curve-authoring.md).
+The editors use the managed graph and exact retained references; publication,
+delivery, expiry and knowledge remain distinct.
+
 D356 keys each stored [volatility surface](vol-surfaces.md) to the recorded close
 (session and business day) or working-snapshot instant it was fitted at, never to
 a session-scoped frame id, and lists stored surfaces in a library the Vol surfaces

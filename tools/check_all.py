@@ -64,6 +64,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     check('owned operating settings database',[sys.executable,'tools/check_operating_settings.py','--pg-bin',str(pg_bin)])
     check('native volatility-fit admission expiry',[sys.executable,'tools/check_vol_surface_admission_expiry.py','--pg-bin',str(pg_bin)])
     check('owned reference metadata database',[sys.executable,'tools/check_reference_editing.py','--pg-bin',str(pg_bin)])
+    check('owned publication definitions and final releases',[sys.executable,'tools/check_price_publications.py','--pg-bin',str(pg_bin)])
+    check('owned contract pricing terms',[sys.executable,'tools/check_contract_price_terms.py','--pg-bin',str(pg_bin)])
     check('owned delivery catalog integrity',[sys.executable,'tools/check_power_integrity.py','--pg-bin',str(pg_bin)])
     check('stock database schema', [sys.executable, 'tools/check_reference_schema.py',
                                    '--pg-bin', str(pg_bin), '--market', '--security'])
@@ -114,6 +116,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('generated pilot close, actual worker and immutable report', [*preview, '--pilot-close-check', '--browser-check', '--browser', str(browser)], suite='portfolio')
     preview_check('connected published portfolio and retained workers', [*preview, '--connected-portfolio-check'], suite='portfolio')
     preview_check('custom curve graphs and editor', [*preview, '--custom-curves-check', '--browser-check', '--browser', str(browser)])
+    preview_check('publication ingestion and contract pricing authoring', [*preview, '--price-authoring-check', '--browser-check', '--browser', str(browser)])
     preview_check('market close calendar', [*preview, '--market-dates-check', '--browser-check', '--browser', str(browser)])
     preview_check('close sessions and bounded observation reads', [*preview, '--regional-closes-check'])
     preview_check('positions a close cannot value', [*preview, '--valuation-status-check', '--browser-check', '--browser', str(browser)], suite='portfolio')

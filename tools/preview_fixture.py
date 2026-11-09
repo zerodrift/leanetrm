@@ -277,6 +277,14 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
             {'2021-01-15T16:00:00Z':['4.10','4.30'],'2021-02-15T16:00:00Z':['4.20','4.40']})
         extra_market.append(definitions);extra_obs.append(marks)
         for frame in frames[-2:]:frame['observationIds']=[*frame['observationIds'],*pins[frame['at']]]
+        # D362: a futures curve admitted from its published definition, over contracts the 'future' curve also carries. A close
+        # names each curve's contracts, so these closes name the admitted curve's as well.
+        from contract_curve_fixture import admitted_future_curve
+        rolling=[identity('5',month*5+1) for month in (1,2,3)]
+        extra_market.append(admitted_future_curve(CAT,REV,R,'rolling_gas','Synthetic admitted gas futures',
+            [(contract,f'2021-{month+1:02d}',f'2021-{month+1:02d}-01',f'2021-{month+2:02d}-01',f'2021-{month:02d}-28') for contract,month in zip(rolling,(1,2,3))],
+            commodity='test_gas',location='test_hub_a',quote='test_gas_outright',profile='test_uniform',product='test_gas_future',target='test_future_target',source='fixture'))
+        for frame in frames[-2:]:frame['curveContracts']={**frame['curveContracts'],'rolling_gas':rolling}
     extra_ref.append(f"DO $$ BEGIN IF to_regclass('ref_data.futures_product_terms') IS NOT NULL THEN INSERT INTO ref_data.futures_product_terms VALUES({R},'test_gas_future','test_uniform',NULL); END IF; END $$;")
     extra_ref.append(f"""DO $policy$ BEGIN
  IF to_regclass('ref_data.futures_execution_policies') IS NOT NULL THEN

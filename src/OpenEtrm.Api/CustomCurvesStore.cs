@@ -68,6 +68,7 @@ SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.l
  ||coalesce((SELECT jsonb_build_object('schedule',s.schedule_id::text||':'||s.schedule_version::text) FROM market_data.custom_curve_node_schedules s WHERE(s.catalog_id,s.curve_id,s.version,s.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'{}'::jsonb),
  'publishedSource',(SELECT jsonb_build_object('catalogId',s.source_catalog_id,'curveId',s.source_curve_id,'version',s.source_version,'outputNode',s.source_output_node) FROM market_data.custom_curve_node_published_sources s WHERE(s.catalog_id,s.curve_id,s.version,s.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),
  'contractWeights',coalesce((SELECT jsonb_agg(jsonb_build_object('outputPosition',w.output_position,'sourcePort',w.source_port,'contractId',w.contract_id,'weight',w.weight::text) ORDER BY w.output_position,w.source_port,w.contract_id) FROM market_data.custom_curve_contract_weights w WHERE(w.catalog_id,w.curve_id,w.version,w.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'[]'::jsonb),
+ 'contractTerms',market_data.read_custom_curve_price_terms(n.catalog_id,n.curve_id,n.version,n.node_id),
  'panelWeights',coalesce((SELECT jsonb_agg(jsonb_build_object('sourcePort',w.source_port,'weight',w.weight::text) ORDER BY w.source_port) FROM market_data.custom_curve_panel_weights w WHERE(w.catalog_id,w.curve_id,w.version,w.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'[]'::jsonb),
  'inputs',coalesce((SELECT jsonb_object_agg(e.port,e.source_node) FROM market_data.custom_curve_edges e WHERE(e.catalog_id,e.curve_id,e.version,e.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'{}'::jsonb)) ORDER BY n.node_id)
  FROM market_data.custom_curve_nodes n WHERE(n.catalog_id,n.curve_id,n.version)=(v.catalog_id,v.curve_id,v.version)),'[]'::jsonb)::text,
@@ -91,12 +92,12 @@ SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.l
             reader.GetString(10)));
         return result.ToImmutable();
     }
-    async Task Lock(NpgsqlConnection connection,CancellationToken ct)
+    internal async Task Lock(NpgsqlConnection connection,CancellationToken ct)
     {
         await using var command=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102);SELECT pg_advisory_xact_lock(730849141)");
         await command.ExecuteNonQueryAsync(ct);
     }
-    async Task<CustomCurveVersion?> Replay(NpgsqlConnection connection,Guid requestId,string operation,string payload,string permission,CancellationToken ct)
+    internal async Task<CustomCurveVersion?> Replay(NpgsqlConnection connection,Guid requestId,string operation,string payload,string permission,CancellationToken ct)
     {
         if(requestId==Guid.Empty)throw Invalid("Supply a stable request identity.");
         await using var bundle=ScheduleStore.Command(connection,"SELECT security.custom_curve_source_visible($1,$2)",Catalog,database.Manifest.RevisionId);
@@ -113,7 +114,7 @@ SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.l
         if(!Equals(await visible.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
         return result;
     }
-    async Task Record(NpgsqlConnection connection,Guid requestId,string operation,string payload,CustomCurveVersion result,string permission,CancellationToken ct)
+    internal async Task Record(NpgsqlConnection connection,Guid requestId,string operation,string payload,CustomCurveVersion result,string permission,CancellationToken ct)
     {
         if(result.Sources.Values.Any(source=>source.CatalogId!=Catalog||source.RevisionId!=database.Manifest.RevisionId))
             throw Invalid("The retained response must use the selected exact definition bundle.");
@@ -177,7 +178,7 @@ INSERT INTO market_data.custom_curve_requests(catalog_id,actor_id,request_id,ope
         {
             await using var update=ScheduleStore.Command(connection,"UPDATE market_data.custom_curve_versions SET generation=$4,name=$5,output_node=$6,layout=$7::jsonb WHERE(catalog_id,curve_id,version)=($1,$2,$3)",Catalog,id,version,generation,body.Definition.Name,body.Definition.Output,JsonSerializer.Serialize(body.Layout,Json));
             await update.ExecuteNonQueryAsync(ct);
-            foreach(var table in new[]{"panel_weights","contract_weights","edges","node_published_sources","node_sources","node_calendars","node_schedules","nodes"})
+            foreach(var table in new[]{"price_terms","price_mappings","panel_weights","contract_weights","edges","node_published_sources","node_sources","node_calendars","node_schedules","nodes"})
             {
                 await using var delete=ScheduleStore.Command(connection,$"DELETE FROM market_data.custom_curve_{table} WHERE(catalog_id,curve_id,version)=($1,$2,$3)",Catalog,id,version);
                 await delete.ExecuteNonQueryAsync(ct);
@@ -243,6 +244,7 @@ INSERT INTO market_data.custom_curve_panel_weights(catalog_id,curve_id,version,n
 """,Catalog,id,version,node.Id,weight.SourcePort,node.Inputs[weight.SourcePort],weight.Weight);
             await insert.ExecuteNonQueryAsync(ct);
         }
+        await new ContractPriceTermsStore(database).Insert(connection,id,version,body.Definition,ct);
         await using(var visible=ScheduleStore.Command(connection,"SELECT security.custom_curve_visible($1,$2,$3)",Catalog,id,version))
             if(!Equals(await visible.ExecuteScalarAsync(ct),true))throw Invalid("The saved dependency chain is unavailable, cyclic or exceeds its explicit bounds.");
         await using(var record=ScheduleStore.Command(connection,"""
@@ -331,6 +333,7 @@ INSERT INTO market_data.custom_curve_generation_savers(catalog_id,curve_id,versi
             if(!data.DefinitionRows("curve_members","curve_code",source.Code).Any(m=>m.Id("contract_id")==weight.ContractId))
                 throw Invalid("Every mapped contract must belong to its declared exact source curve.");
         }
+        await new ContractPriceTermsStore(database).Validate(connection,definition,data,ct);
         return(sources.ToImmutable(),calendars.ToImmutable(),schedules.ToImmutable());
     }
     internal async Task RequirePublishedSource(NpgsqlConnection connection,PublishedRecipeReference source,Guid revision,CancellationToken ct)

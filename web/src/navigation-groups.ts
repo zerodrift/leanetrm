@@ -8,9 +8,9 @@ export type NavigationGroup={id:'overview'|'trading'|'markets'|'operations'|'set
 export const navigationGroups:readonly NavigationGroup[]=[
  {id:'overview',label:'Overview',pages:['dashboard']},
  {id:'trading',label:'Trading',pages:['futures'],opened:['ppa','gas','crude']},
- {id:'markets',label:'Markets',pages:['market','custom-curves','delivery','interval-series','vol-surfaces','interval-curves']},
+ {id:'markets',label:'Markets',pages:['market','custom-curves','delivery','interval-series','vol-surfaces','interval-curves'],opened:['configuration']},
  {id:'operations',label:'Operations',pages:['physical-operations','physical','risk','jobs'],opened:['facilities','gas-setup','crude-setup']},
- {id:'settings',label:'Settings',pages:['schedules','power','reference','parties'],opened:['configuration']},
+ {id:'settings',label:'Settings',pages:['schedules','power','reference','parties']},
  {id:'admin',label:'Admin',pages:['admin','ai']},
 ];
 

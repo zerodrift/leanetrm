@@ -96,7 +96,13 @@ const string malformed="The request is incomplete or malformed.";
     PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
     MarketDataException m when m.Code is "swap_conflict" or "ppa_conflict" => (409,m.Code,m.Message),
     MarketDataException m when m.Code=="contract_materialization_conflict" => (409,m.Code,m.Message),
-    PostgresException p when p.SqlState is "23503" or "23514" && apiPath.StartsWithSegments("/api/date-schedules/contracts/materialize") => (422,"contract_materialization","Select compatible exact reference terms and published date-list occurrences."),
+    PostgresException p when p.SqlState is "23503" or "23514" && (apiPath.StartsWithSegments("/api/date-schedules/contracts/materialize")||apiPath.StartsWithSegments("/api/curve-definitions/admit-contracts")) => (422,"contract_materialization","Select compatible exact reference terms and published date-list occurrences."),
+    PostgresException p when apiPath.StartsWithSegments("/api/price-publications") && p.SqlState=="40001" && p.MessageText.StartsWith("publication_",StringComparison.Ordinal)
+        => (409,p.MessageText,"The publication, schedule or request changed. Reload its current version or retry the unchanged original request."),
+    PostgresException p when apiPath.StartsWithSegments("/api/price-publications") && p.SqlState=="22023" && p.MessageText.StartsWith("publication_",StringComparison.Ordinal)
+        => (422,p.MessageText,"Check the exact publication references, covered periods and release evidence. The requested change was refused."),
+    PostgresException p when apiPath.StartsWithSegments("/api/price-publications") && p.SqlState=="42501" && p.MessageText.StartsWith("publication_",StringComparison.Ordinal)
+        => (403,p.MessageText,"This publication operation requires current authorization and an editable working context."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("side_schedule_",StringComparison.Ordinal) && p.MessageText.Contains("conflict",StringComparison.Ordinal)
         => (409,p.MessageText,"The request, retained content or trade revision changed. Reconcile the original operation or reload its current revision."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("side_schedule_",StringComparison.Ordinal)
@@ -145,7 +151,7 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.MessageText.StartsWith("gas_operations_") => (p.MessageText.Contains("denied")?403:p.MessageText.Contains("conflict")||p.MessageText.Contains("stale")?409:422,p.MessageText,"The manual operation requires compatible current service terms, explicit evidence and the reviewed source heads. Refresh and review the operation."),
     PostgresException p when apiPath.StartsWithSegments("/api/gas/operations") && p.SqlState is "23505" or "23514" or "23503" or "22P02" or "22003" or "22007" or "22008" or "P0002" => (422,"gas_operations_input","Supply the complete explicit manual operation with exact sources, canonical dates and evidence."),
     PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/curve-definitions") => (409,"curve_definition_conflict","This curve definition or its mapping changed. Reload or retry the exact original command."),
-    MarketDataException m when m.Code is "curve_definition_conflict" or "rate_admission_conflict" => (409,m.Code,m.Message),
+    MarketDataException m when m.Code is "curve_definition_conflict" or "rate_admission_conflict" or "contract_curve_admission_conflict" or "contract_curve_admission_name" => (409,m.Code,m.Message),
     PostgresException p when p.SqlState is "23505" or "40001" && apiPath.StartsWithSegments("/api/custom-curves") => (409,"custom_curve_conflict","This curve or request changed. Reload or reconcile the original request."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="party_conflict" => (409,p.MessageText,"This party or request changed. Reload the latest revision or retry the original request."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText is "party_input" or "party_limit" => (422,p.MessageText,"Supply a stable code, name and an effective time at or after the preceding version. Party codes cannot change."),
@@ -532,6 +538,17 @@ api.MapCustomCurves(database,(c,permission,snapshotId,work)=>Locked(c,session=>
             throw new MarketDataException("custom_curve_historical","Author and publish curves in the current workspace.");
         return await work(connection,pin,ct);
     },c.RequestAborted)));
+CustomCurveOperation priceAuthoringOperation=(c,permission,snapshotId,work)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),permission,async(connection,ct)=>
+    {
+        var pin=Pin(session,snapshotId);
+        await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        if(permission is "WriteMarketDefinitions" or "SealMarketDefinitions" or "ImportObservations" && pin.Context is not null)
+            throw new MarketDataException("price_authoring_historical","Return to working data to change pricing terms or ingest publication prices.");
+        return await work(connection,pin,ct);
+    },c.RequestAborted));
+api.MapPricePublications(database,priceAuthoringOperation);
+api.MapContractPriceTerms(database,priceAuthoringOperation);
 api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,async session=>
 {
     if(hosted is not null)throw new PreviewDeniedException();
@@ -947,6 +964,14 @@ api.MapPost("/curve-definitions/publish",(HttpContext c,CurveDefinitionPublishRe
 var rateCurveAdmission=new RateCurveAdmission(database.Manifest.CatalogId);
 api.MapPost("/curve-definitions/admit",(HttpContext c,RateCurveAdmissionRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"WriteMarketDefinitions",async(connection,ct)=>
     Results.Ok(await rateCurveAdmission.Admit(connection,body,ct)),c.RequestAborted)));
+// D362: admits a published futures or forward definition into a draft definition revision, at the window it resolves at the named close.
+var contractCurveAdmission=new ContractCurveAdmission(database.Manifest.CatalogId,curveDefinitionStore,contractDateMaterialization);
+api.MapPost("/curve-definitions/admit-contracts",(HttpContext c,ContractCurveAdmissionRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"WriteMarketDefinitions",async(connection,ct)=>
+    Results.Ok(await contractCurveAdmission.Admit(connection,body,async definition=>
+    {
+        var (preview,_,reference)=await CurvePreview(connection,session,body.SnapshotId,definition,null,authoring:true,ct);
+        return ((CurveDefinitionPreview)preview,reference);
+    },ct)),c.RequestAborted)));
 // Selects a historical view: binds the context, under the explicit latest-known correction policy, and shows its frames.
 async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? selection,Func<NpgsqlConnection,CancellationToken,Task<KnowledgeSnapshot>> resolve,Guid? selectedSnapshot=null,string? framePolicy=null)
 {

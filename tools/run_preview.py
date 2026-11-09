@@ -96,6 +96,7 @@ def main():
     parser.add_argument('--unit-check', action='store_true', help='Run amount/unit integration checks in the owned standard fixture')
     parser.add_argument('--execution-check',action='store_true',help='Qualify standard futures execution policies in an owned synthetic fixture')
     parser.add_argument('--custom-curves-check',action='store_true',help='Qualify custom curve definitions and calculations in an owned synthetic fixture')
+    parser.add_argument('--price-authoring-check',action='store_true',help='Qualify publication schedules, final releases and contract price terms through authenticated HTTP')
     parser.add_argument('--market-read-check',action='store_true',help='Qualify per-row market authority in the owned standard fixture')
     parser.add_argument('--market-dates-check',action='store_true',help='Qualify scoped market-close availability and the calendar in an owned fixture')
     parser.add_argument('--context-read-check',action='store_true',help='Qualify bounded historical context, close calendar and header recovery')
@@ -116,6 +117,7 @@ def main():
     parser.add_argument('--markets-desk-check',action='store_true',help='Run market and delivery desk browser checks in the owned standard fixture')
     parser.add_argument('--browser-check',action='store_true',help='Run checked-in browser scenarios in the newly owned standard fixture')
     parser.add_argument('--browser',type=Path,help='Installed Chromium-compatible executable; used only with --browser-check')
+    parser.add_argument('--authoring-browser-suite',choices=['curve-objects','contract-pricing-controls','publication-controls','price-authoring-recovery'],help='Run one focused authoring control suite in the owned authoring fixture')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
     if args.assistant_browser_check:args.browser_check=True
@@ -157,7 +159,10 @@ def main():
     gas_demo=args.with_gas_basis_demo or args.gas_basis_demo_check or args.physical_assistant_check
     if gas_demo and (args.example!='standard' or any(name.endswith('_check') and value and name not in ('gas_basis_demo_check','physical_assistant_check','browser_check') for name,value in vars(args).items()) or args.check and not (args.gas_basis_demo_check or args.physical_assistant_check) or args.with_ppa or args.with_exchange or args.with_custom_curves):
         parser.error('Run the gas basis demo separately in the standard fixture; use --gas-basis-demo-check for verification')
-    fixing_frames=args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    if args.price_authoring_check: args.custom_curves_check=True
+    if args.authoring_browser_suite and not(args.browser_check and args.custom_curves_check):
+        parser.error('--authoring-browser-suite requires --custom-curves-check or --price-authoring-check, and --browser-check')
+    fixing_frames=args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
 
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
@@ -496,7 +501,14 @@ def main():
         if args.close_out_drafts_check:
             from check_close_out_drafts import prepare as prepare_close_out_drafts
             market=prepare_close_out_drafts(market,manifest)
-        query(market)
+        if args.price_authoring_check:
+            from check_price_publication_http import prepare_market as prepare_publication_market
+            market=prepare_publication_market(market,manifest)
+        if args.contract_dates_check:
+            from contract_curve_fixture import prepare_market as prepare_contract_admissions
+            query(prepare_contract_admissions(market,security,manifest))
+        else:
+            query(market)
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
             # The valuation-status check reads the last custom-curve close, at which the daily bundle publishes.
@@ -518,7 +530,7 @@ def main():
             if args.factor_swap_check:
                 from factor_swap_fixture import prepare as prepare_factor
                 prepare_factor(manifest)
-        query(security)
+        if not args.contract_dates_check:query(security)
         query(f"SELECT security.initialize_operating_policies('{manifest["tenantId"]}','{manifest["workspaceId"]}');")
         if args.example=='standard' and (gas_demo or not args.check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check):
             from factor_history_fixture import seed as seed_history
@@ -1150,10 +1162,20 @@ def main():
             elif args.custom_curves_check:
                 from check_custom_curves import run_checks as check_custom_curves
                 check_custom_curves(url,query,manifest)
+                if args.price_authoring_check:
+                    try:
+                        from check_price_publication_http import run_checks as check_price_publications
+                        check_price_publications(url,query,manifest)
+                        from check_contract_price_terms_http import run_checks as check_contract_price_terms
+                        check_contract_price_terms(url,query,manifest)
+                    except Exception:
+                        print('Owned synthetic authoring API diagnostics:\n'+(temporary/'app.log').read_text()[-8000:],flush=True)
+                        raise
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
-                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--custom-curves'],cwd=ROOT,env=env,start_new_session=True)
+                    browser_suite='--'+args.authoring_browser_suite if args.authoring_browser_suite else '--price-authoring' if args.price_authoring_check else '--custom-curves'
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),browser_suite],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned custom curve browser checks failed')
             elif args.execution_check:
                 from check_futures_execution import run_checks as check_execution

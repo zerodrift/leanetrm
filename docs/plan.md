@@ -1,5 +1,11 @@
 # Delivery plan and acceptance criteria
 
+D363 adds the Objects canvas, explicit source-node contract pricing and
+publication definitions, occurrences and normalized final-price ingestion.
+The bounded gas implementations use supplied publisher-calendar occurrences;
+other commodity placeholders refuse. See [curve authoring](curve-authoring.md)
+for executable behavior, qualification and remaining feed/calendar work.
+
 D360 values started gas compositions under explicit whole gas-day and accrued
 payment lifecycles: unrealized (remaining delivery MTM) and realized unsettled
 (delivered, fixed, not paid) are reported separately, undiscounted and labelled
@@ -1987,8 +1993,9 @@ and edits definitions, including interest-rate curves whose tenors roll with the
 context date. D359 admits published interest-rate definitions into market
 revisions with one series per tenor, gives them their own currency, unit and
 conventions, discounts payment dates from them and removes literal-maturity rate
-curves; the hosted demo's dated curves are replaced in a schema window. Remaining:
-admitting contract-curve definitions; the Coming soon rate conventions (30/360,
+curves; the hosted demo's dated curves are replaced in a schema window. D362 admits
+contract-curve definitions at a named close. Remaining: admitting windows from generated
+schedules or business-day offsets; the Coming soon rate conventions (30/360,
 ACT/ACT ISDA, semi-annual and quarterly compounding, cubic-spline and
 monotone-convex interpolation, basis-point marks), each with a consumer and
 independent oracles; removing the now consumer-less interest-rate specification

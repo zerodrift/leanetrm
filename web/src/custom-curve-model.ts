@@ -6,7 +6,12 @@ import type {TileSpec} from './tiles.js';
 export type ContractWeight={outputPosition:number|null;sourcePort:string;contractId:string;weight:string};
 export type PanelWeight={sourcePort:string;weight:string};
 export type PublishedSourceReference={catalogId:string;curveId:string;version:number;outputNode:string};
-export type CurveNode={id:string;kind:string;parameters:Record<string,unknown>;inputs:Record<string,string>;contractWeights?:ContractWeight[];publishedSource?:PublishedSourceReference;panelWeights?:PanelWeight[]};
+type ExactRevision={catalogId:string;revisionId:string};
+type ExactContract={revision:ExactRevision;id:string};
+export type ContractPriceTerms={settlement:string;publication:{catalogId:string;id:string;version:number}|null;index:{revision:ExactRevision;code:string}|null;observationRule:string;pendingPolicy:string;projectionPolicy:string|null};
+/** Exact server terms are carried through every graph edit. The dedicated terms editor validates and replaces them. */
+export type ContractPriceTermsSet={default:ContractPriceTerms;replacements:{contract:ExactContract;terms:ContractPriceTerms}[];mappingRule:string;mappings:{target:ExactContract;source:ExactContract}[]};
+export type CurveNode={id:string;kind:string;parameters:Record<string,unknown>;inputs:Record<string,string>;contractWeights?:ContractWeight[];publishedSource?:PublishedSourceReference;panelWeights?:PanelWeight[];contractTerms?:ContractPriceTermsSet|null};
 export type CurveDefinition={code:string;name:string;nodes:CurveNode[];output:string};
 export type NodePosition={x:number;y:number};
 export type CurveLayout=Record<string,NodePosition>;
