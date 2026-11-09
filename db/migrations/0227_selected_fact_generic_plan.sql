@@ -9,9 +9,9 @@ DO $upgrade$
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_proc p
   WHERE p.oid='security.read_observation_facts(uuid,uuid,uuid[])'::regprocedure
-   AND encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')='cc37c8fa87c20caf161594c90778c6c500a5dfa2096199b96e25cf356e8de2e0'
+   AND encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')='a15aa1ece0a4de3e7bb86c23d992a0e799d5a7489a0bf66e9a4796d53a7b03d6'
    AND pg_get_userbyid(p.proowner)='openetrm_security_owner' AND p.prosecdef
-   AND p.proconfig=ARRAY['search_path=pg_catalog'] AND p.provolatile='v'
+   AND p.proconfig=ARRAY['search_path=pg_catalog','jit=off'] AND p.provolatile='v'
    AND p.proacl='{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner,openetrm_risk_worker=X/openetrm_security_owner}'::aclitem[])
  THEN RAISE EXCEPTION 'fact_plan_upgrade: unexpected helper security.read_observation_facts(uuid,uuid,uuid[])';END IF;
 END $upgrade$;
