@@ -64,7 +64,7 @@ export function setupRiskWorkspace(o:Options){
   if(!directory||!selection||!scopeValid()||JSON.stringify(o.source())!==JSON.stringify(selection))throw Error('Choose a market close and refresh the Risk scope first.');
   return {...scope,context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:directory.context.contextId}};
  }
- engine=setupRisk({api:reportApi,act:o.act,busy:o.busy,zone:o.zone,profile:o.identity,canRun:o.canRun,prefix,onDenied:reset,onChange:changed,edited:o.changed,scope:requestScope});
+ engine=setupRisk({api:reportApi,act:o.act,busy:o.busy,zone:o.zone,profile:o.identity,canRun:o.canRun,prefix,onDenied:reset,onChange:changed,ranNow:()=>o.view('risk'),edited:o.changed,scope:requestScope});
  history=setupFactorHistory({api:o.api,act:o.act,busy:o.busy,identity:o.identity,scope:requestScope,instant:o.instant,unconfirmed:()=>!!engine?.unconfirmed()||unreadRecovery,async calculate(request,metadata,queued){
   if(unreadRecovery)throw Error('Inspect Reports and runs before resolving the unreadable retained submission.');
   if(!await leave())return;
