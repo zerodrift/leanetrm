@@ -222,6 +222,6 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('the separate window shows the curve at the linked close',"document.querySelector('#curve-title').textContent.length>0&&document.querySelector('#curve-closes .vol-close-chip[aria-current=true]')!==null");
  await set('#snapshot',await evaluate("document.querySelector('#curve-closes .vol-close-chip[aria-current=false]').dataset.close"));await wait(idle,30000);
  await check('choosing another close in that window retires its separate-window note',"document.querySelector('#close-window-note').hidden");
- await command('Page.navigate',{url:url+'/?page=market&curve=ng_monthly&close=00000000-0000-4000-8000-000000000000'});await wait("document.querySelector('#close-window-note').textContent.length>0&&"+idle,30000);
+ await command('Page.navigate',{url:url+'/?page=market&curve=ng_monthly&close=00000000-0000-4000-8000-000000000000'});await wait("document.querySelector('#close-window-note')?.textContent.length>0&&"+idle,30000);
  await check('a close this view does not offer is named as unavailable and nothing is chosen for it',"document.querySelector('#close-window-note').textContent.includes('not available')&&document.querySelector('#snapshot').value===''");
 }
