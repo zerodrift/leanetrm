@@ -201,6 +201,9 @@ internal static class ScheduleViewChecks
         Reject("schedule_view",()=>ScheduleViews.Build([shortQuantity],Levels,Utc));
         var partial=Daily(31,before,_=>(N("10000"),VolumeState.Contractual),_=>(N("3.412"),SchedulePriceFacts.Fixed),new(From,From.AddDays(10)));
         Reject("schedule_view",()=>ScheduleViews.Build([partial],Levels,Utc));
+        // An ended cell left out by coverage, not by the whole-gas-day lifecycle, is unresolved like any other.
+        var endedPartial=Daily(31,From.AddDays(20),_=>(N("10000"),VolumeState.Contractual),_=>(N("3.412"),SchedulePriceFacts.Fixed),new(From.AddDays(10),From.AddDays(31)));
+        Reject("schedule_view",()=>ScheduleViews.Build([endedPartial],Levels,Utc));
         Reject("schedule_view",()=>ScheduleViews.Build([daily,cash],Levels,day=>new(day.ToDateTime(TimeOnly.MinValue),TimeSpan.FromHours(-5))));
         Reject("schedule_view",()=>ScheduleViews.Build([daily,cash,Cash("euro","3.412",1,before,EuroQuote)],Levels,Utc));
         Reject("schedule_view",()=>ScheduleViews.Build([daily,Cash("cash","3.412",1,before,known:before.AddHours(-1))],Levels,Utc));
