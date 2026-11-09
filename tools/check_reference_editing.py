@@ -233,6 +233,10 @@ def main(checks=run_checks, before_migration=None):
                     from check_fact_anchor_upgrade import run_checks as check_fact_upgrade
                     number=migration.name[:4]
                     check_fact_upgrade(query,migration,number=number,guard='fact_anchor_upgrade' if number=='0223' else 'close_pin_upgrade')
+                if migration.name=='0227_selected_fact_generic_plan.sql':
+                    from check_fact_anchor_upgrade import run_checks as check_fact_upgrade
+                    check_fact_upgrade(query,migration,number='0227',guard='fact_plan_upgrade',
+                        signatures=('security.read_observation_facts(uuid,uuid,uuid[])',))
                 if migration.name=='0224_reference_display_close_validation.sql':
                     from check_reference_display_scale import upgrade_checks
                     upgrade_checks(query,migration)
