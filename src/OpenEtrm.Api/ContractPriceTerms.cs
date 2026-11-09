@@ -12,9 +12,10 @@ public sealed record ContractPriceTermsInput(string NodeId,string Scope,Guid? Co
     ImmutableArray<ContractPriceMapInput> Mappings,string Settlement,Guid? PublicationId,int? PublicationVersion,
     string? Index,string ObservationRule,string PendingPolicy,string? ProjectionPolicy);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record ContractPriceTermsPreviewRequest(Guid SnapshotId,Guid CurveId,int Version,ContractPriceTermsInput Terms);
+public sealed record ContractPriceTermsPreviewRequest(Guid SnapshotId,Guid CurveId,int Version,ContractPriceTermsInput Terms,Guid? MarketRevisionId=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record ContractPriceTermsSaveRequest(Guid RequestId,Guid SnapshotId,Guid CurveId,int Version,int Generation,ContractPriceTermsInput Terms);
+public sealed record ContractPriceTermsSaveRequest(Guid RequestId,Guid SnapshotId,Guid CurveId,int Version,int Generation,ContractPriceTermsInput Terms,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] Guid? MarketRevisionId=null);
 public sealed record ContractPriceContractChoice(Guid Id,string Label,DateOnly DeliveryFrom,DateOnly DeliveryTo,DateTimeOffset Expiry,string Kind);
 public sealed record ContractPriceSourceChoice(string NodeId,string CurveCode,string Commodity,string Quote,
     ImmutableArray<ContractPriceContractChoice> Contracts,ContractPriceTermsSet? Terms,string? Mapping,ImmutableArray<ContractPriceMapInput> Mappings);
@@ -25,20 +26,23 @@ public sealed record ContractPricePublicationChoice(Guid Id,int Version,string N
 public sealed record ContractPriceIndexChoice(string Code,string Commodity,string Quote,string Symbol,string Statistic);
 public sealed record ContractPriceTermsCatalog(Guid SnapshotId,bool CanWrite,ImmutableArray<ContractPriceCurveChoice> Curves,
     ImmutableArray<ContractPricePublicationChoice> Publications,ImmutableArray<string> MappingRules,ImmutableArray<string> SettlementSources,
-    ImmutableArray<string> ObservationRules,ImmutableArray<string> PendingPolicies);
+    ImmutableArray<string> ObservationRules,ImmutableArray<string> PendingPolicies)
+{ public Guid MarketRevisionId { get; init; } public ImmutableArray<CurveMarketChoice> Markets { get; init; } }
 
 public static partial class CustomCurves
 {
     public static void MapContractPriceTerms(this RouteGroupBuilder api,PreviewDatabase database,CustomCurveOperation operation)
     {
+        api.MapContractPublicationStatus(database,operation);
         api.MapGet("/contract-price-terms",(HttpContext c,Guid? snapshotId)=>operation(c,"ReadMarketData",snapshotId,async(connection,pin,ct)=>
         {
-            var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
+            var revision=CurveAuthoringMarket.Revision(database,CurveAuthoringMarket.Query(c));
+            var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             var saved=await new CustomCurvesStore(database).Read(connection,ct);
             var publications=await new PricePublicationStore(database).Read(connection,ct);
             await using var permission=ScheduleStore.Command(connection,"SELECT security.market_access($1,'WriteMarketDefinitions') AND security.current_write_context()",database.Manifest.CatalogId);
             var canWrite=Equals(await permission.ExecuteScalarAsync(ct),true);
-            var curves=saved.Where(v=>v.Sources.Values.All(s=>s.CatalogId==data.DefinitionRevision.CatalogId&&s.RevisionId==data.DefinitionRevision.RevisionId))
+            var curves=saved.Where(v=>v.MarketRevisionId==revision)
                 .Select(v=>new ContractPriceCurveChoice(v.Id,v.Version,v.Generation,v.State,v.Definition.Code,v.Definition.Name,
                 v.Definition.Nodes.Where(n=>n.Kind=="source").Select(n=>
                 {
@@ -48,17 +52,18 @@ public static partial class CustomCurves
                         n.ContractTerms?.MappingRule,n.ContractTerms is null?[]:n.ContractTerms.Mappings.Select(m=>new ContractPriceMapInput(m.Target.Id,m.Source.Id)).ToImmutableArray());
                 }).ToImmutableArray())).ToImmutableArray();
             return Results.Ok(new ContractPriceTermsCatalog(pin.RequireFrame().Id,canWrite,curves,
-                publications.Select(p=>new ContractPricePublicationChoice(p.Key.Id,p.Key.Version,p.Name,p.Implementation,
+                publications.Where(p=>p.References==data.ReferenceRevision).Select(p=>new ContractPricePublicationChoice(p.Key.Id,p.Key.Version,p.Name,p.Implementation,
                     p.Indices.Select(i=>new ContractPriceIndexChoice(i.Key.Code,i.Commodity.Code,i.Quote.Code,i.Symbol,i.Statistic)).ToImmutableArray())).ToImmutableArray(),
-                [ContractPriceMappings.SameDeliveryPeriod,ContractPriceMappings.ExplicitContracts],[ContractPriceTerms.ExchangeFinal,ContractPriceTerms.PublishedIndex,ContractPriceTerms.Derived],
-                [ContractPriceTerms.SingleAssessment],[ContractPriceTerms.RequireFinal]));
+                [ContractPriceMappings.SameDeliveryPeriod,ContractPriceMappings.ExplicitContracts],[ContractPriceTerms.ExchangeFinal,ContractPriceTerms.PublishedIndex,ContractPriceTerms.PublishedRelease,ContractPriceTerms.Derived],
+                [ContractPriceTerms.SingleAssessment],[ContractPriceTerms.RequireFinal]){MarketRevisionId=revision,Markets=await CurveAuthoringMarket.Choices(connection,database,ct)});
         }));
         api.MapPost("/contract-price-terms/preview",(HttpContext c,ContractPriceTermsPreviewRequest request)=>operation(c,"ReadMarketData",request.SnapshotId,async(connection,pin,ct)=>
         {
-            var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
+            var revision=await ContractTermsRevision(connection,database,request.CurveId,request.Version,request.MarketRevisionId,ct);
+            var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             var (saved,definition,rows)=await ContractTermsDefinition(connection,database,data,request.CurveId,request.Version,request.Terms,ct);
             pin=await SelectedClose.Pin(connection,database,pin,ct);
-            var preview=await PreviewRead(connection,database,pin,new(definition,request.SnapshotId),ct);
+            var preview=await PreviewRead(connection,database,pin,new(definition,request.SnapshotId,MarketRevisionId:revision),ct);
             return Results.Ok(new{snapshotId=request.SnapshotId,curveId=saved.Id,version=saved.Version,nodeId=request.Terms.NodeId,mapping=definition.Nodes.Single(n=>n.Id==request.Terms.NodeId).ContractTerms!.MappingRule,mappings=rows,definition,preview=preview.Value});
         }));
         api.MapPost("/contract-price-terms/save",(HttpContext c,ContractPriceTermsSaveRequest request)=>operation(c,"WriteMarketDefinitions",request.SnapshotId,async(connection,pin,ct)=>
@@ -66,14 +71,23 @@ public static partial class CustomCurves
             var store=new CustomCurvesStore(database);await store.Lock(connection,ct);
             var payload=System.Text.Json.JsonSerializer.Serialize(request,RiskJobs.Json);
             if(await store.Replay(connection,request.RequestId,"contract_price_terms",payload,"WriteMarketDefinitions",ct) is {} replay)return Results.Ok(replay);
-            var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
+            var revision=await ContractTermsRevision(connection,database,request.CurveId,request.Version,request.MarketRevisionId,ct);
+            var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             var (saved,definition,_)=await ContractTermsDefinition(connection,database,data,request.CurveId,request.Version,request.Terms,ct);
             if(saved.State!="draft"||saved.Generation!=request.Generation)throw new MarketDataException("custom_curve_conflict","Edit an exact current draft generation; published versions remain immutable.");
             var inner=new Guid(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("contract_price_terms_v1:"+request.RequestId.ToString("D"))).AsSpan(0,16));
-            var result=await store.Save(connection,new(inner,definition,saved.Layout,request.SnapshotId,saved.Id,saved.Version,request.Generation,"draft"),data,CurveDraftSaver.Person,ct);
+            var scope=request.MarketRevisionId is null&&revision==database.Manifest.RevisionId?(Guid?)null:revision;
+            var result=await store.Save(connection,new(inner,definition,saved.Layout,request.SnapshotId,saved.Id,saved.Version,request.Generation,"draft",scope),data,CurveDraftSaver.Person,ct);
             await store.Record(connection,request.RequestId,"contract_price_terms",payload,result,"WriteMarketDefinitions",ct);
             return Results.Ok(result);
         }));
+    }
+    static async Task<Guid> ContractTermsRevision(Npgsql.NpgsqlConnection connection,PreviewDatabase database,Guid id,int version,Guid? selected,CancellationToken ct)
+    {
+        var saved=(await new CustomCurvesStore(database).Read(connection,ct)).SingleOrDefault(v=>v.Id==id&&v.Version==version)
+            ??throw Invalid("Select an exact visible authored curve version.");
+        if(selected is not null&&selected!=saved.MarketRevisionId)throw Invalid("Contract terms must retain the saved curve's exact market revision.");
+        return CurveAuthoringMarket.Revision(database,selected??saved.MarketRevisionId);
     }
     static async Task<(CustomCurveVersion Saved,OpenEtrm.MarketData.CustomCurves.RecipeDefinition Definition,object[] Rows)> ContractTermsDefinition(
         Npgsql.NpgsqlConnection connection,PreviewDatabase database,PreviewData data,Guid id,int version,ContractPriceTermsInput input,CancellationToken ct)

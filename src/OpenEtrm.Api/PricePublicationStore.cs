@@ -7,7 +7,7 @@ using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
 
-internal sealed class PricePublicationStore(PreviewDatabase database)
+internal sealed class PricePublicationStore(PreviewDatabase database,Guid? marketRevisionId=null)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new ExactDecimalJsonConverter() } };
     internal async Task<ImmutableArray<PricePublicationDefinition>> Read(NpgsqlConnection connection, CancellationToken ct)
@@ -29,12 +29,12 @@ internal sealed class PricePublicationStore(PreviewDatabase database)
     }
 
     async Task<PreviewData> Data(NpgsqlConnection connection, CancellationToken ct) =>
-        await database.Read(connection, ct, observationIds: [], referenceScope: ReferenceReadScope.AllVisible, includeCalendarDays: false);
+        await database.Read(connection, ct, selectedRevision:CurveAuthoringMarket.Revision(database,marketRevisionId), observationIds: [], referenceScope: ReferenceReadScope.AllVisible, includeCalendarDays: false);
 
     internal async Task<PricePublicationCatalog> Catalog(NpgsqlConnection connection, PinnedContext pin, CancellationToken ct)
     {
         var data = await Data(connection, ct);
-        var publications = await Read(connection, ct);
+        var publications = (await Read(connection, ct)).Where(p=>p.References==data.ReferenceRevision).ToImmutableArray();
         ImmutableArray<PricePublicationChoice> Choices(string table) => [..data.References[table].Select(row =>
             new PricePublicationChoice(new(data.ReferenceRevision, row.Text("code")),
                 row.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString()! : row.Text("code")))];
@@ -44,7 +44,9 @@ internal sealed class PricePublicationStore(PreviewDatabase database)
             [..publications.Select(p => p.Publisher).DistinctBy(p => p.Key)], publications,
             Choices("commodities"), IndexChoices(data), Choices("calendars"), Choices("clock_rules"), Choices("sources"),
             [DatedGasPublication.DailyImplementation, DatedGasPublication.MonthlyImplementation, ..UnsupportedPricePublication.Implementations],
-            await Occurrences(connection, ct), await Releases(connection, pin.RequireFrame().At, ct));
+            [..(await Occurrences(connection, ct)).Where(o=>publications.Any(p=>p.Key==o.Occurrence.Publication))],
+            await Releases(connection, pin.RequireFrame().At, ct))
+        {MarketRevisionId=data.DefinitionRevision.RevisionId,Markets=await CurveAuthoringMarket.Choices(connection,database,ct)};
     }
 
     static ImmutableArray<PricePublicationIndexChoice> IndexChoices(PreviewData data)
@@ -133,6 +135,8 @@ internal sealed class PricePublicationStore(PreviewDatabase database)
             throw new MarketDataException("publication_occurrence", "Supply exact request, occurrence and publication identities.");
         var definition = (await Read(connection, ct)).SingleOrDefault(p => p.Key == request.Occurrence.Publication)
             ?? throw new MarketDataException("publication_missing", "Save and select an exact visible publication version before authoring occurrences.");
+        var data=await Data(connection,ct);
+        if(definition.References!=data.ReferenceRevision)throw new MarketDataException("publication_index","The occurrence must use its publication's exact admitted market.");
         var behavior = PricePublicationBehavior.Create(definition);
         _ = behavior.CoveredPeriods(request.Occurrence);
         var occurrence = request.Occurrence;

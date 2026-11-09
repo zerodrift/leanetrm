@@ -75,3 +75,16 @@ test('stored closes retain their origin and explicit bounded-catalog policy',()=
  assert.match(frameCatalogNote(value.frameCatalog),/recent/);assert.match(frameCatalogNote(value.frameCatalog),/original inputs/);
  const unsupported=structuredClone(value);unsupported.frameCatalog.durableSelection='infer_latest';assert.throws(()=>validateMarketNavigation(unsupported),/navigation/);
 });
+test('curve editor metadata cannot invent editable native terms or omit a read-only reason',()=>{
+ const value=structuredClone(navigation);
+ value.curveConfigurations=[{curve:'future',kind:'native',id:null,version:null,canEdit:false,reason:'This native definition is immutable.'},
+  {curve:'rates',kind:'definition',id:'rate-definition',version:2,canEdit:true,reason:null}];
+ validateMarketNavigation(value);
+ for(const change of [n=>n.curveConfigurations[0].canEdit=true,n=>n.curveConfigurations[0].reason=null,
+  n=>n.curveConfigurations[0].id='invented',n=>n.curveConfigurations[1].version=null,
+  n=>n.curveConfigurations[1].canEdit=false,n=>n.curveConfigurations.push(n.curveConfigurations[0])]){
+  const invalid=structuredClone(value);change(invalid);assert.throws(()=>validateMarketNavigation(invalid),/navigation/);
+ }
+ value.curveConfigurations[1].canEdit=false;value.curveConfigurations[1].reason='Historical view is read-only.';
+ assert.equal(validateMarketNavigation(value).curveConfigurations[1].version,2);
+});

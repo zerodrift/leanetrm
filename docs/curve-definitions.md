@@ -181,10 +181,15 @@ adopted silently. Rendered curves offer no way to change a definition.
 - **Curves & prices → Curve definitions**: lists saved definitions and edits one
   in place of the market board or a curve. Schedules and date mappings stay on
   Settings → Schedules & date mappings.
-- D361: a gear beside a listed curve opens that curve's definition. The navigation read
-  (`curveConfigurations`) names it only for a curve with an admitted definition and a
-  person who may change it outside a historical view: interest-rate, futures and
-  forward curves.
+- A configuration action appears beside every listed native curve, on its market
+  card and in its details. The navigation read (`curveConfigurations`) carries the
+  exact admitted definition when available, whether it is editable and the reason
+  when it is read-only. Readers and historical views can inspect that definition.
+  Seeded native curves without an admitted definition show their exact retained
+  terms and members; their immutable financial terms are not editable here. An
+  authorized author can start a separate derived graph using that source, with
+  its own identity and explicitly selected output operations. Saved synthetic
+  curves have Edit graph or Inspect graph actions in the Curve builder library.
 - D358: `GET /api/curve-definitions`, `POST /api/curve-definitions/save` and
   `POST /api/curve-definitions/publish`; a preview or save may carry the curve's
   edited mapping rows. Migration `0214_curve_definitions.sql` adds the versions,

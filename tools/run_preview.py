@@ -111,6 +111,7 @@ def main():
     parser.add_argument('--assistant-browser-check',action='store_true',help='Run assistant settings and panel browser regressions with an owned provider fixture; requires --browser')
     parser.add_argument('--assistant-runtime-check',action='store_true',help='Run assistant turn, tool, stream and usage regressions without provider-administration scenarios')
     parser.add_argument('--physical-assistant-check',action='store_true',help='Qualify contextual physical assistant reads and approved native writes in an owned fixture')
+    parser.add_argument('--henry-hub-wiring-check',action='store_true',help='Qualify the existing Henry Hub curve repair and synthetic publication workflow in an owned bundle')
     parser.add_argument('--assistant-workspace-check',action='store_true',help='Qualify page operations, user-approved proposals and delegated page prompts in an owned fixture')
     parser.add_argument('--assistant-check',action='store_true',help='Qualify page-assistant provider, model and price administration in an owned fixture')
     parser.add_argument('--blotter-loading-check',action='store_true',help='Run owned Blotter progress, cancellation and admission browser checks')
@@ -120,6 +121,7 @@ def main():
     parser.add_argument('--authoring-browser-suite',choices=['curve-objects','contract-pricing-controls','publication-controls','price-authoring-recovery'],help='Run one focused authoring control suite in the owned authoring fixture')
     parser.add_argument('--example', choices=['standard','mixed-gas'], default='standard', help='Explicit synthetic dataset')
     args = parser.parse_args()
+    if args.henry_hub_wiring_check:args.check=True
     if args.assistant_browser_check:args.browser_check=True
     if args.physical_assistant_check or args.assistant_workspace_check or args.assistant_runtime_check or args.assistant_browser_check:
         args.check=True
@@ -162,7 +164,7 @@ def main():
     if args.price_authoring_check: args.custom_curves_check=True
     if args.authoring_browser_suite and not(args.browser_check and args.custom_curves_check):
         parser.error('--authoring-browser-suite requires --custom-curves-check or --price-authoring-check, and --browser-check')
-    fixing_frames=args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    fixing_frames=args.henry_hub_wiring_check or args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
 
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
@@ -259,6 +261,9 @@ def main():
             from demo_date_plan import compile_plan
             date_plan=compile_plan(dotnet,dll,temporary) if not args.check and not gas_demo else None
             reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan,window_frames=args.contract_dates_check)
+            if args.henry_hub_wiring_check:
+                from henry_hub_fixture import prepare as prepare_henry_hub
+                reference,market,manifest=prepare_henry_hub(reference,market,manifest)
             if args.gas_indexed_check:
                 from gas_indexed_fixture import add_fixture
                 reference,market,security,manifest=add_fixture(reference,market,security,manifest)
@@ -425,6 +430,9 @@ def main():
             if args.check and migration.name=='0225_bounded_observation_matching.sql':
                 from check_fact_anchor_upgrade import run_checks as check_close_pin_upgrade
                 check_close_pin_upgrade(query,migration,number='0225',guard='close_pin_upgrade')
+            if args.check and migration.name=='0226_publication_price_resolution.sql':
+                from check_publication_resolution_upgrade import run_checks as check_publication_resolution_upgrade
+                check_publication_resolution_upgrade(query,migration)
             query(migration.read_text())
         if args.check:
             from check_whole_term_swap_schema import run_checks as check_whole_term_swap_schema
@@ -510,6 +518,8 @@ def main():
         if args.price_authoring_check:
             from check_price_publication_http import prepare_market as prepare_publication_market
             market=prepare_publication_market(market,manifest)
+            from check_publication_release_pricing import prepare_market as prepare_release_market
+            market=prepare_release_market(market,manifest)
         if args.contract_dates_check:
             from contract_curve_fixture import prepare_market as prepare_contract_admissions
             query(prepare_contract_admissions(market,security,manifest))
@@ -544,6 +554,9 @@ def main():
             if gas_demo and not args.physical_assistant_check:
                 from seed_gas_basis_demo import history_frames
                 history_frames(query,manifest)
+        if args.henry_hub_wiring_check:
+            from henry_hub_wiring_fixture import admit as admit_henry_hub
+            manifest=admit_henry_hub(query,manifest)
         if args.hosted_check:
             from check_hosted_auth import run_checks as check_hosted_auth
             check_hosted_auth(query, manifest)
@@ -625,6 +638,7 @@ def main():
         # The aligned-history check reads a correction through a working frame of its day, which a close's exact pins never take.
         seed_session_closes(query,manifest,working=('2020-12-18',) if args.factor_history_check or args.context_read_check else ())
         (temporary/'manifest.json').write_text(json.dumps(manifest))
+        (temporary/'manifest.json').chmod(0o600)
         # Freeze assets for this owned instance; a later web build must not change
         # another running preview's presentation while it is being used.
         shutil.copytree(ROOT/'web/dist',temporary/'web')
@@ -1133,6 +1147,22 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--pilot-close'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=180):raise RuntimeError('Owned pilot close browser checks failed')
+            elif args.henry_hub_wiring_check:
+                from check_henry_hub_wiring import run_checks as check_henry_hub_wiring
+                def private_curve_file(name,value):
+                    path=temporary/name;path.write_text(value);path.chmod(0o600);return str(path)
+                login=lambda user:f'Host={temporary};Port=55439;Database=postgres;Username={user};SSL Mode=Disable;Timeout=5;Command Timeout=30;Maximum Pool Size=2'
+                curve_config=private_curve_file('curve-examples-config.json',json.dumps({'manifestFile':str(temporary/'manifest.json'),
+                    'authenticatorConnectionFile':private_curve_file('curve-examples-authenticator.connection',login('preview_authenticator')),
+                    'runtimeConnectionFile':private_curve_file('curve-examples-runtime.connection',login('preview_runtime'))}))
+                def load_curve_examples(*arguments):
+                    return subprocess.run([str(dotnet),str(frozen_dll),'--admin-load-curve-examples',curve_config,*arguments],
+                        cwd=ROOT,env=app_env,text=True,capture_output=True,timeout=300)
+                check_henry_hub_wiring(url,query,manifest,load_curve_examples,temporary)
+                if args.browser_check:
+                    target=temporary/'browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--henry-hub-wiring'],
+                        cwd=ROOT,env=env,check=True,timeout=360)
             elif args.factor_swap_check:
                 from check_factor_swaps import run_checks as check_factor_swaps
                 worker_env=prepare_risk_worker()
@@ -1174,6 +1204,8 @@ def main():
                         check_price_publications(url,query,manifest)
                         from check_contract_price_terms_http import run_checks as check_contract_price_terms
                         check_contract_price_terms(url,query,manifest)
+                        from check_publication_release_pricing import run_checks as check_publication_release_pricing
+                        check_publication_release_pricing(url,query,manifest)
                     except Exception:
                         print('Owned synthetic authoring API diagnostics:\n'+(temporary/'app.log').read_text()[-8000:],flush=True)
                         raise

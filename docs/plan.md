@@ -2207,3 +2207,18 @@ Full operation discovery resolves against one read-local route-metadata snapshot
 (D328), removing repeated grouped-route construction without extending the agent's
 read limit. Other read latency and the security epoch hold described in D245 remain
 separate work; this change is not a general read-performance qualification.
+
+### Existing Henry Hub publication wiring (D364)
+
+The local implementation preserves the existing synthetic curve identity and
+introduces explicit daily Gas Daily/monthly IFERC final-release resolution,
+source-market selection and private authorized example installation. Disposable
+checks exercise new revisions without changing the primary bundle or earlier
+holdings. See [curve authoring](curve-authoring.md#publication-release-resolution-and-existing-curve-repair-d364).
+
+Production activation still requires reviewed exact support identities, every
+contract's explicit calendar/expiry/fixing instants, retained source-price pins,
+a qualified migration window, manifest admission and the idempotent private
+installation plan. Vendor-calendar generation, licensed feed adapters,
+preliminary-price valuation and interim gap policies remain separate unsupported
+increments. No operator should infer those policies from this sample repair.

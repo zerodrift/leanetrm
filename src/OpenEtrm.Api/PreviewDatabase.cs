@@ -12,7 +12,7 @@ namespace OpenEtrm.Api;
 
 public sealed record PreviewManifest(string Mode, Guid CatalogId, Guid RevisionId, Guid ReferenceCatalogId,
     Guid ReferenceRevisionId, Guid TenantId, Guid WorkspaceId, PreviewSeedFrame[] Frames,PreviewExample? Example,
-    PreviewSequenceCoverage[]? Schedules = null,PreviewSwapMarket[]? SwapMarkets=null, PreviewUnitCatalog? UnitCatalog=null,string IdentityIssuer="https://preview.invalid",[property:System.Text.Json.Serialization.JsonRequired]string FuturesConvention="",PreviewReferenceCatalog? ReferenceCatalog=null,PreviewPhysicalMarket? GasMarket=null,PreviewPhysicalMarket[]? RetainedGasMarkets=null,PreviewPhysicalMarket? CrudeMarket=null,PreviewPhysicalMarket[]? RetainedCrudeMarkets=null,PreviewPhysicalMarket? LngMarket=null,PreviewPhysicalMarket[]? RetainedLngMarkets=null,PreviewLngReferences? LngReferenceCatalog=null);
+    PreviewSequenceCoverage[]? Schedules = null,PreviewSwapMarket[]? SwapMarkets=null, PreviewUnitCatalog? UnitCatalog=null,string IdentityIssuer="https://preview.invalid",[property:System.Text.Json.Serialization.JsonRequired]string FuturesConvention="",PreviewReferenceCatalog? ReferenceCatalog=null,PreviewPhysicalMarket? GasMarket=null,PreviewPhysicalMarket[]? RetainedGasMarkets=null,PreviewPhysicalMarket? CrudeMarket=null,PreviewPhysicalMarket[]? RetainedCrudeMarkets=null,PreviewPhysicalMarket? LngMarket=null,PreviewPhysicalMarket[]? RetainedLngMarkets=null,PreviewLngReferences? LngReferenceCatalog=null,PreviewCurveMarket[]? CurveMarkets=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record PreviewLngReferences(Guid ReferenceRevisionId,Guid DefinitionRevisionId);
 public sealed record PreviewPhysicalMarket(Guid RevisionId,PreviewSeedFrame[] Frames);
@@ -716,7 +716,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
         market.Frames.SingleOrDefault(f=>f.At==frame.At)?.ObservationIds.ToImmutableArray();
 
     // The main market revision or an explicitly allow-listed supplemental swap bundle.
-    private bool DeclaredBundle(Guid revision)=>revision==Manifest.RevisionId||revision==Manifest.CrudeMarket?.RevisionId||(Manifest.RetainedCrudeMarkets??[]).Any(m=>m.RevisionId==revision)||revision==Manifest.LngMarket?.RevisionId||(Manifest.RetainedLngMarkets??[]).Any(m=>m.RevisionId==revision)||revision==Manifest.GasMarket?.RevisionId||(Manifest.RetainedGasMarkets??[]).Any(m=>m.RevisionId==revision)||(Manifest.SwapMarkets??[]).Any(m=>m.RevisionId==revision);
+    private bool DeclaredBundle(Guid revision)=>revision==Manifest.RevisionId||(Manifest.CurveMarkets??[]).Any(m=>m.RevisionId==revision)||revision==Manifest.CrudeMarket?.RevisionId||(Manifest.RetainedCrudeMarkets??[]).Any(m=>m.RevisionId==revision)||revision==Manifest.LngMarket?.RevisionId||(Manifest.RetainedLngMarkets??[]).Any(m=>m.RevisionId==revision)||revision==Manifest.GasMarket?.RevisionId||(Manifest.RetainedGasMarkets??[]).Any(m=>m.RevisionId==revision)||(Manifest.SwapMarkets??[]).Any(m=>m.RevisionId==revision);
 
     public async Task<Guid> Correct(NpgsqlConnection connection, Guid revision, Guid observationId, string value, CancellationToken ct)
     {

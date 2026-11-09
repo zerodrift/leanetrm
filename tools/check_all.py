@@ -118,6 +118,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('connected published portfolio and retained workers', [*preview, '--connected-portfolio-check'], suite='portfolio')
     preview_check('custom curve graphs and editor', [*preview, '--custom-curves-check', '--browser-check', '--browser', str(browser)])
     preview_check('publication ingestion and contract pricing authoring', [*preview, '--price-authoring-check', '--browser-check', '--browser', str(browser)])
+    preview_check('existing Henry Hub curve publication wiring', [*preview, '--henry-hub-wiring-check', '--browser-check', '--browser', str(browser)])
     preview_check('market close calendar', [*preview, '--market-dates-check', '--browser-check', '--browser', str(browser)])
     preview_check('close sessions and bounded observation reads', [*preview, '--regional-closes-check'])
     preview_check('positions a close cannot value', [*preview, '--valuation-status-check', '--browser-check', '--browser', str(browser)], suite='portfolio')

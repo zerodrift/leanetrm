@@ -10,7 +10,8 @@ export type FrameSummary={id:string;name:string;at:string;originCloseId?:string|
 export type NavigationCategory={code:string;name:string};
 // A commodity curve names its commodity. An interest-rate curve has none; its market type identifies it. Its kind is the backend's (D259).
 export type NavigationCurve={code:string;name:string;marketType:MarketType;category:NavigationCategory|null;kind:CurveKind};
-export type CurveConfiguration={curve:string;id:string;version:number};
+export type CurveConfiguration={curve:string;id:string|null;version:number|null;kind:'native'|'definition';canEdit:boolean;reason:string|null};
+export const curveConfigurationAction=(value:CurveConfiguration)=>value.kind==='native'?'Inspect configuration':value.canEdit?'Edit definition':'Inspect definition';
 export type MarketNavigation={kind:'market_navigation';kindsVersion:typeof kindsVersion;profile:string;context:Context|null;live?:LiveSelection|null;
  definitionRevision:{catalogId:string;revisionId:string};referenceRevision:{catalogId:string;revisionId:string};
  futuresConvention:string;example:{at:string;curve:string}|null;initialFrameIds:string[];
@@ -27,7 +28,10 @@ export function validateMarketNavigation(value:MarketNavigation){
   !Array.isArray(value.curves)||value.curves.some(c=>!c||!text(c.code)||!text(c.name)||!['futures','forwards','mixed','rates'].includes(c.marketType)||!isCurveKind(c.kind)||
    (c.marketType==='rates'?c.category!==null:!c.category||!text(c.category.code)||!text(c.category.name)))||
   new Set(value.curves.map(c=>c.code)).size!==value.curves.length||conflictingLabels(value.curves)||
-  !Array.isArray(value.curveConfigurations)||value.curveConfigurations.some(c=>!c||!value.curves.some(listed=>listed.code===c.curve)||!text(c.id)||!Number.isSafeInteger(c.version)||c.version<1)||
+  !Array.isArray(value.curveConfigurations)||value.curveConfigurations.some(c=>!c||!value.curves.some(listed=>listed.code===c.curve)||
+   !['native','definition'].includes(c.kind)||typeof c.canEdit!=='boolean'||(c.canEdit?c.reason!==null:!text(c.reason))||
+   (c.kind==='native'?(c.id!==null||c.version!==null||c.canEdit):(!text(c.id)||!Number.isSafeInteger(c.version)||c.version!<1)))||
+  new Set(value.curveConfigurations.map(c=>c.curve)).size!==value.curveConfigurations.length||
   !Array.isArray(value.curveNames)||value.curveNames.some(c=>!c||!text(c.code)||!text(c.name))||
   !Array.isArray(value.frames)||value.frames.some(f=>!f||!text(f.id)||!text(f.name)||!text(f.at)||f.originCloseId!=null&&!text(f.originCloseId)||f.close!=null&&(!text(f.close.session)||!text(f.close.businessDate)||!f.originCloseId)||Object.keys(f).some(k=>!['at','id','name','originCloseId','close'].includes(k)))||
   new Set(value.frames.map(f=>f.id)).size!==value.frames.length||

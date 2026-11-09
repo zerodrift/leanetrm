@@ -10,7 +10,7 @@ namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record MarketDatesRequest([property:JsonRequired] string? Curve,[property:JsonRequired] string TimeZone,[property:JsonRequired] string Session,
-    RecipeDefinition? Definition=null,int? MaximumDates=null);
+    RecipeDefinition? Definition=null,int? MaximumDates=null,Guid? MarketRevisionId=null);
 public sealed record MarketDateFrame(Guid Id,DateTimeOffset At,string Name,string BusinessDate);
 // A session business day: its one close in force, and how many recorded closes it replaced (D334).
 public sealed record MarketDateChoice(string Date,ImmutableArray<MarketDateFrame> Frames,int Replaced);
@@ -19,6 +19,7 @@ public sealed record MarketDatesResponse(ScheduleContext? Context,string? Curve,
     ImmutableArray<MarketDateChoice> Dates,ImmutableArray<UnavailableMarketDate> Unavailable,string? MinDate,string? MaxDate)
 {
     public FrameCatalogInfo? FrameCatalog{get;init;}
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] public Guid? MarketRevisionId{get;init;}
     public bool HasMoreCandidates{get;init;}
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -52,7 +53,20 @@ public static class MarketDates
         {throw new TemporalException("time_zone","Choose an available display time zone explicitly.");}
         frames=await BindSessionCloses(database,connection,pin,frames,request.Session,ct);
         if(request.MaximumDates is <1 or >128)throw new MarketDataException("market_dates_input","Request from one to 128 dates explicitly.");
-        var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
+        var revision=CurveAuthoringMarket.Revision(database,request.MarketRevisionId);
+        var sourceUnavailable=new List<UnavailableMarketDate>();
+        if(revision!=database.Manifest.RevisionId)
+        {
+            var scoped=ImmutableArray.CreateBuilder<InputFrame>();
+            foreach(var frame in frames)
+            {
+                try{scoped.Add(CurveAuthoringMarket.Frame(database,frame,revision));}
+                catch(MarketDataException error)when(error.Code=="curve_market")
+                {sourceUnavailable.Add(new(Day(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),error.Code));}
+            }
+            frames=scoped.ToImmutable();
+        }
+        var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
         var metadata=data;
         var curveCodes=data.Definitions["curves"].Select(row=>row.Text("code")).ToHashSet(StringComparer.Ordinal);
         var rateCodes=data.Definitions["rate_curves"].Select(row=>row.Text("code")).ToHashSet(StringComparer.Ordinal);
@@ -71,7 +85,7 @@ public static class MarketDates
             var contexts=new Dictionary<DateOnly,ScheduleContext>();
             var planningErrors=new Dictionary<Guid,Exception>();
             var retainedSamples=false;
-            var exactSeries=new HashSet<Guid>();
+            var exactSeries=new HashSet<Guid>();var publicationObservations=new HashSet<Guid>();
             var exactSamples=new Dictionary<Guid,PreviewData>();
             // Exact immutable reference calendars stay inside this authorized
             // operation; each candidate still binds and checks its own context.
@@ -90,7 +104,7 @@ public static class MarketDates
                     contexts.Add(Day(anchor),knowledge);
                     (data,references)=await AtContext(knowledge,async()=>
                     {
-                        var captured=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
+                        var captured=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
                         return(captured,await new CustomCurvesStore(database).References(connection,definition,captured,ct));
                     });
                 }
@@ -117,14 +131,15 @@ public static class MarketDates
                             frame with{ContextId=selected.ContextId},references.Sources,references.Calendars,references.Schedules,selected,ct,calendarReads));
                         windows.UnionWith(demand.Windows);
                         exactSeries.UnionWith(demand.ExactSeries);
-                        if(windows.Count>PreviewDatabase.MaximumObservationWindows){bounded=false;break;}
+                        publicationObservations.UnionWith(demand.ExactObservations);
+                        if(windows.Count>PreviewDatabase.MaximumObservationWindows||publicationObservations.Count>PreviewDatabase.MaximumObservationWindows){bounded=false;break;}
                     }
                     catch(MarketDataException error){planningErrors.Add(frame.Id,error);}
                     catch(TemporalException error){planningErrors.Add(frame.Id,error);}
                 }
                 if(bounded)
                 {
-                    sampledHistory=windows.Count==0?data:await AtContext(knowledge,()=>database.ReadObservationWindows(connection,data,[..windows],ct));
+                    sampledHistory=windows.Count==0&&publicationObservations.Count==0?data:await AtContext(knowledge,()=>database.ReadObservationWindows(connection,data,[..windows],ct,[..publicationObservations]));
                     if(exactSeries.Count>0)await AtContext(knowledge,async()=>
                     {
                         var index=0;
@@ -178,7 +193,7 @@ public static class MarketDates
             throw new MarketDataException("market_data_unavailable","No complete curve can be evaluated from this exact snapshot.");
         };
         var available=new List<(string Date,MarketDateFrame Frame)>();
-        var unavailable=new List<UnavailableMarketDate>();
+        var unavailable=new List<UnavailableMarketDate>(sourceUnavailable);
         var processed=0;
         async Task Qualify(InputFrame frame)
         {
@@ -215,10 +230,10 @@ public static class MarketDates
             .Select(group=>new MarketDateChoice(group.Key,[..group.Select(row=>row.Frame).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)],
                 replaced.GetValueOrDefault(group.Key))).ToImmutableArray();
         var validDates=dates.Select(day=>day.Date).ToHashSet(StringComparer.Ordinal);
-        await RequireAccess(database,connection,ct);
+        await RequireAccess(database,connection,ct,metadata);
         return new(pin.Context,request.Curve,zone.Id,SelectionPolicy,dates,
             [..unavailable.Where(day=>!validDates.Contains(day.Date)).Distinct().OrderBy(day=>day.Date,StringComparer.Ordinal).ThenBy(day=>day.Reason,StringComparer.Ordinal)],
-            dates.IsEmpty?null:dates[0].Date,dates.IsEmpty?null:dates[^1].Date){HasMoreCandidates=processed<frames.Length};
+            dates.IsEmpty?null:dates[0].Date,dates.IsEmpty?null:dates[^1].Date){HasMoreCandidates=processed<frames.Length,MarketRevisionId=request.MarketRevisionId};
 
         async Task<T> AtContext<T>(ScheduleContext context,Func<Task<T>> read)
         {
@@ -226,7 +241,7 @@ public static class MarketDates
             try
             {
                 await PinnedContext.BindExact(connection,database.Manifest.CatalogId,context,ct);
-                await RequireAccess(database,connection,ct);
+                await RequireAccess(database,connection,ct,metadata);
                 return await read();
             }
             finally
@@ -313,11 +328,12 @@ public static class MarketDates
         await using var command=ScheduleStore.Command(connection,"SELECT array(SELECT to_char(d,'YYYY-MM-DD') FROM unnest(security.close_session_hidden_days($1,$2))d)",catalog,session);
         return (string[])(await command.ExecuteScalarAsync(ct))!;
     }
-    static async Task RequireAccess(PreviewDatabase database,NpgsqlConnection connection,CancellationToken ct)
+    static async Task RequireAccess(PreviewDatabase database,NpgsqlConnection connection,CancellationToken ct,PreviewData? selected=null)
     {
         var manifest=database.Manifest;
         await using var command=ScheduleStore.Command(connection,"SELECT security.market_fact_visible($1,$2,NULL) AND security.reference_version_visible($3,$4)",
-            manifest.CatalogId,manifest.RevisionId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId);
+            selected?.DefinitionRevision.CatalogId??manifest.CatalogId,selected?.DefinitionRevision.RevisionId??manifest.RevisionId,
+            selected?.ReferenceRevision.CatalogId??manifest.ReferenceCatalogId,selected?.ReferenceRevision.RevisionId??manifest.ReferenceRevisionId);
         if(!Equals(await command.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
     }
     static void QualifyCurve(PreviewData data,InputFrame frame,string code,IReadOnlyDictionary<string,RateTenorSource> rateSources)

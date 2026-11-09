@@ -403,6 +403,14 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 .curve-row .curve-button{flex:1 1 auto;min-width:0}
 .curve-configure{flex:none;width:28px;height:28px;padding:0;border:0;border-radius:var(--radius-sm);background:none;color:var(--text-3);font-size:15px;line-height:1}
 .curve-configure:hover:not(:disabled),.curve-configure:focus-visible{background:var(--surface-3);color:var(--text)}
+.market-card-configure{position:relative;z-index:1;margin-top:12px;font-size:12px}
+.native-curve-terms{display:grid;grid-template-columns:minmax(130px,1fr) minmax(0,3fr);gap:8px 18px;margin:18px 0}
+.native-curve-terms dt{color:var(--text-3)}
+.native-curve-terms dd{margin:0;overflow-wrap:anywhere}
+.native-curve-inspector .regular-table-scroll{margin:16px 0}
+.custom-curve-edit{margin:0 8px 6px;font-size:12px}
+.custom-curve-market{min-width:180px;max-width:320px;flex:1 1 220px}
+.custom-curve-market select{width:100%}
 .curve-definition-section{min-width:0;border:0;border-top:1px solid #e4ebdf;padding:12px 0 4px;margin:0;display:grid;gap:12px;max-width:560px}.curve-definition-section legend{font-weight:600;padding:0 0 4px}.curve-definition-section input,.curve-definition-section select{width:100%;min-width:0;max-width:100%}
 .form-section{font-size:13px;font-weight:600;color:var(--text-2);margin:20px 0 10px;padding-top:16px;border-top:1px solid var(--border)}
 form>.form-section:first-child{border-top:0;padding-top:0;margin-top:6px}

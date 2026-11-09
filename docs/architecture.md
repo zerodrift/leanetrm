@@ -1,5 +1,9 @@
 # Architecture and domain contracts
 
+D364 connects [publication releases and existing Henry Hub curve repair](curve-authoring.md#publication-release-resolution-and-existing-curve-repair-d364).
+Supplemental source markets are explicit; the original primary market and held
+contract identities remain unchanged.
+
 D363 adds [curve-object authoring and explicit price publications](curve-authoring.md).
 The editors use the managed graph and exact retained references; publication,
 delivery, expiry and knowledge remain distinct.
