@@ -1,6 +1,8 @@
 """Shared contract-date library checks in a newly owned synthetic preview."""
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
+import json
+import re
 import subprocess
 import time
 from preview_client import PreviewClient
@@ -148,6 +150,46 @@ def run_checks(url, query, manifest, psql, environment):
         finally:
             if locker.poll() is None:
                 locker.stdin.write('ROLLBACK;\n\\q\n');locker.stdin.flush();locker.communicate(timeout=10)
+    # Each statement below is the one the API sent, captured behind a controlled lock and planned for the
+    # same reader: row security is paid for what the operation asked about, once per version it visits.
+    def captured(who, path, *request, expected=200):
+        locker=subprocess.Popen(psql,env=environment,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            try:
+                locker.stdin.write('BEGIN;LOCK TABLE market_data.contract_date_contracts IN ACCESS EXCLUSIVE MODE;\n\\echo LOCKED\n');locker.stdin.flush()
+                while locker.stdout.readline().strip()!='LOCKED':
+                    if locker.poll() is not None:raise AssertionError(locker.stderr.read())
+                reading=pool.submit(who.call,path,*request,expected=expected)
+                statement=''
+                for _ in range(500):
+                    statement=query("SELECT query FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE '%market_data.contract_date_contracts%';")
+                    if statement:break
+                    time.sleep(.02)
+                assert statement,'The read did not reach its controlled storage wait'
+            finally:
+                locker.stdin.write('ROLLBACK;\n\\q\n');locker.stdin.flush();locker.communicate(timeout=10)
+            reading.result(timeout=20)
+        return statement
+    # A sequential scan would count every row after an ANALYZE, whatever the statement's scope.
+    def visited(statement, profile, *values):
+        token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','{profile}','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
+        bound=re.sub(r'\$(\d+)',lambda m:f"'{values[int(m[1])-1]}'",statement)
+        output=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SET LOCAL enable_seqscan=off;EXPLAIN(ANALYZE,BUFFERS,FORMAT JSON) {bound};ROLLBACK;")
+        rows={}
+        def walk(node):
+            if 'Relation Name' in node:
+                rows[node['Relation Name']]=rows.get(node['Relation Name'],0)+round((node['Actual Rows']+node.get('Rows Removed by Filter',0))*node['Actual Loops'])
+            for child in node.get('Plans',()):walk(child)
+        walk(json.loads(output[output.index('['):])[0]['Plan'])
+        return rows
+    versions_held=int(query(f"SELECT count(*) FROM market_data.contract_date_versions WHERE catalog_id='{catalog}';"))
+    exact=visited(captured(viewer,'date-schedules/contracts/resolve',{**resolution,'context':context()}),'viewer',catalog,definition_id,1)
+    assert (exact.get('contract_date_contracts'),exact.get('contract_date_fields'))==(1,3),'An exact-version resolve read other versions: '+repr(exact)
+    stale={**fork,'requestId':str(uuid4()),'version':2,'generation':old['generation']+99,'expectedState':'draft'}
+    owned=visited(captured(editor,'date-schedules/contracts/save',stale,expected=409),'editor',catalog,definition_id)
+    assert (owned.get('contract_date_contracts'),owned.get('contract_date_fields'))==(2,6),"A definition's save read other definitions: "+repr(owned)
+    library=visited(captured(viewer,'date-schedules'),'viewer',catalog)
+    assert library.get('contract_date_definitions',0)<=versions_held,'The library checked a definition for each joined row: '+repr(library)
     # Field mutations must take the same parent row lock as publication. An API
     # advisory gate alone does not protect this authorized raw storage boundary.
     def child_interlock(expired=False):
