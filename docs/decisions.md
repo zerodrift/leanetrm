@@ -3253,6 +3253,12 @@ worker and final publication checks remain the contract. The synthetic 2,605-pin
 regression covers custom and generic plans and refuses work that grows with
 unrelated facts. See [the bounded observation contract](exact-observation-reads.md#selected-fact-history-and-calendar-frames-d354).
 
+Migration 0225 extends this evaluation bound to candidate-to-close-pin,
+knowledge-event and knowledge-receipt matching, and the requested-anchor
+membership gate. It uses existing exact indexes and one deduplicated requested
+set; the same complete-close, correction, current
+authority, knowledge and final publication checks remain in force.
+
 ## D355 — Follow exact gas billing metadata before authorization joins
 
 Keep the native gas billing read on the selected trade's exact relational chain.

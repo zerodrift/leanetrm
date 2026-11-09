@@ -130,8 +130,7 @@ public static class AmericanFuturesOptionModel
     private sealed class FuturesLattice : ILattice
     {
         private readonly LatticeDecimal[] levels;
-        private readonly LatticeDecimal up;
-        private readonly LatticeDecimal down;
+        private readonly (int Node,LatticeDecimal Probability)[][] successors;
         private readonly LatticeDecimal discount;
 
         public FuturesLattice(LatticeDecimal futures, LatticeDecimal volatility, LatticeDecimal years, LatticeDecimal discountToExpiry, int steps)
@@ -141,8 +140,12 @@ public static class AmericanFuturesOptionModel
             var spread = volatility * (years / count).Sqrt();
             var u = spread.Exp();
             var d = One / u;
-            up = (One - d) / (u - d);
-            down = One - up;
+            var up = (One - d) / (u - d);
+            var down = One - up;
+            // A recombining node has the same successors at every step where it
+            // occurs. These arrays belong only to this volatility's lattice.
+            successors=new (int Node,LatticeDecimal Probability)[steps][];
+            for(var node=0;node<steps;node++)successors[node]=[(node,up),(node+1,down)];
             discount = (discountToExpiry.Ln() / count).Exp();
             levels = new LatticeDecimal[2 * steps + 1];
             for (var j = -steps; j <= steps; j++)
@@ -152,7 +155,7 @@ public static class AmericanFuturesOptionModel
         public int Steps { get; }
         public int Nodes(int step) => step + 1;
         public LatticeDecimal Underlying(int step, int node) => levels[step - 2 * node + Steps];
-        public (int Node, LatticeDecimal Probability)[] Next(int step, int node) => [(node, up), (node + 1, down)];
+        public (int Node, LatticeDecimal Probability)[] Next(int step, int node) => successors[node];
         public LatticeDecimal Discount(int step) => discount;
     }
 
@@ -162,14 +165,19 @@ public static class AmericanFuturesOptionModel
     {
         private static readonly ImmutableArray<InductionDecision<FuturesOptionState>> Spent = [new("hold", Zero, FuturesOptionState.Exercised)];
         private static readonly InductionDecision<FuturesOptionState> Hold = new("hold", Zero, FuturesOptionState.Alive);
+        private static readonly ImmutableArray<InductionDecision<FuturesOptionState>> ZeroIntrinsic = [Hold,new("exercise",Zero,FuturesOptionState.Exercised)];
 
         public ImmutableArray<FuturesOptionState> States { get; } = [FuturesOptionState.Alive, FuturesOptionState.Exercised];
 
         public LatticeDecimal Terminal(LatticeDecimal underlying, FuturesOptionState state) =>
             state == FuturesOptionState.Alive ? Intrinsic(underlying) : Zero;
 
-        public ImmutableArray<InductionDecision<FuturesOptionState>> Decisions(int step, LatticeDecimal underlying, FuturesOptionState state) =>
-            state == FuturesOptionState.Exercised ? Spent : [Hold, new("exercise", Intrinsic(underlying), FuturesOptionState.Exercised)];
+        public ImmutableArray<InductionDecision<FuturesOptionState>> Decisions(int step, LatticeDecimal underlying, FuturesOptionState state)
+        {
+            if(state==FuturesOptionState.Exercised)return Spent;
+            var intrinsic=Intrinsic(underlying);
+            return intrinsic==Zero?ZeroIntrinsic:[Hold,new("exercise",intrinsic,FuturesOptionState.Exercised)];
+        }
 
         private LatticeDecimal Intrinsic(LatticeDecimal underlying) =>
             LatticeDecimal.Max(right == OptionRight.Call ? underlying - strike : strike - underlying, Zero);

@@ -104,6 +104,17 @@ policy is:
 
 A discount factor above one (a negative rate) is rejected with `option_input`.
 
+The implementation reuses a discounted continuation only within its lattice node
+and next state, resolving it on first use. It retains successor accumulation,
+rounding and first-decision tie order. Each lattice owns its successor arrays;
+zero-intrinsic decisions and exact zero/one arithmetic avoid repeated allocations.
+No calibration is reused across snapshots or scenarios. The owned workload check
+pins the complete calibration receipt and an 800 MB allocation ceiling for one
+synthetic at-the-money gas call: 400 steps, 13 tree prices and no scenarios. The
+independent numerical oracles, recorded decisions and risk digest remain checks
+of the unchanged financial contract; this resource bound is not a hosted latency
+qualification.
+
 **Base value equals settlement.** From the base market only, the implied volatility
 is solved by bisection so that the tree reproduces the option's daily settlement
 within half the series' clearing increment. The option and its underlying are read

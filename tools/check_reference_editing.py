@@ -186,6 +186,8 @@ def run_checks(query, manifest):
         listed = history('currencies','usd')
         assert [h['version'] for h in listed['versions']] == list(range(version, max(version-20, 0), -1)) and listed['truncated'] == (version > 20), listed
     print('PASS reference metadata: immutable rows, compatibility proof, stale/revoked retries, workspace/history isolation and expiry after locks', flush=True)
+    from check_reference_display_scale import run_checks as check_display_scale
+    check_display_scale(query,manifest)
 
 
 def main(checks=run_checks, before_migration=None):
@@ -227,6 +229,13 @@ def main(checks=run_checks, before_migration=None):
             run([binaries/'pg_ctl','-D',directory/'data','-l',directory/'postgres.log','-w','-o',
                  shlex.join(['-k',str(directory),'-h','','-p','55439','-c','track_commit_timestamp=on']),'start'])
             for migration in sorted((root/'db/migrations').glob('*.sql')):
+                if migration.name in('0223_bounded_fact_anchor_reads.sql','0225_bounded_observation_matching.sql'):
+                    from check_fact_anchor_upgrade import run_checks as check_fact_upgrade
+                    number=migration.name[:4]
+                    check_fact_upgrade(query,migration,number=number,guard='fact_anchor_upgrade' if number=='0223' else 'close_pin_upgrade')
+                if migration.name=='0224_reference_display_close_validation.sql':
+                    from check_reference_display_scale import upgrade_checks
+                    upgrade_checks(query,migration)
                 if before_migration is not None:before_migration(query,migration)
                 query(migration.read_text())
             reference,market,security,manifest=fixture(root)

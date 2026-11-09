@@ -53,6 +53,16 @@ latency guarantee. Installation refuses changed helper definitions, owners,
 ACLs or configurations; the visibility predicates and publication checks stay
 in the retained functions.
 
+Migration 0225 also drives close-pin, knowledge-event and knowledge-receipt matching
+from each admitted candidate through their existing exact indexes, and deduplicates
+requested IDs once for the visible anchor gate. It retains the complete-close check
+and the single authorized sibling set. The owned batch regression compares complete ordered rows to ordinary RLS
+for 32,768 distinct pins, corrections and duplicate requests under custom and
+generic plans, within a five-second statement deadline. This is a synthetic
+correctness and scaling check, not a hosted latency qualification.
+The publication-pricing calendar check exercises the same exact-reader path under
+a certified historical context, including the final publication series.
+
 The existing reader checks its complete policy/SELECT contract, current
 authority, retained context, newest close and worker claim before publication.
 The history wrapper also retains its original authority deadline; a later grant

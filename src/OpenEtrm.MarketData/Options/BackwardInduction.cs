@@ -51,6 +51,7 @@ public sealed class InductionChoices<TState> where TState : struct, Enum
 
 public static class BackwardInduction
 {
+    private static readonly LatticeDecimal One=LatticeDecimal.Parse("1");
     // Value = max over decisions of Immediate + Discount(step) * sum(p * value of
     // the decision's next state at each successor). Ties between equal values pick
     // the first decision in declared order. Cancellation is checked once per step.
@@ -79,6 +80,8 @@ public static class BackwardInduction
 
         var codeIds = recordDecisions ? new Dictionary<string, int>() : null;
         var chosen = recordDecisions ? new int[steps][] : null;
+        var continuations=new LatticeDecimal[width];
+        var calculated=new bool[width];
         for (var step = steps - 1; step >= 0; step--)
         {
             ct.ThrowIfCancellationRequested();
@@ -89,6 +92,7 @@ public static class BackwardInduction
             var choices = chosen is null ? null : chosen[step] = new int[nodes * width];
             for (var node = 0; node < nodes; node++)
             {
+                Array.Clear(calculated);
                 var successors = CheckedSuccessors(lattice, step, node, nextNodes);
                 var underlying = lattice.Underlying(step, node);
                 for (var s = 0; s < width; s++)
@@ -101,10 +105,18 @@ public static class BackwardInduction
                     {
                         if (!stateIndex.TryGetValue(decision.Next, out var next))
                             throw Invalid($"Decision {decision.Code} leads to undeclared state {decision.Next}.");
-                        var continuation = default(LatticeDecimal);
-                        foreach (var (successor, probability) in successors)
-                            continuation += probability * values[successor * width + next];
-                        var value = decision.Immediate + discount * continuation;
+                        // Decisions leading to the same next state share its exact
+                        // discounted continuation at this node. Resolve lazily:
+                        // an unreferenced state must not introduce a range error.
+                        if(!calculated[next])
+                        {
+                            var continuation=default(LatticeDecimal);
+                            foreach(var (successor,probability) in successors)
+                                continuation+=probability*values[successor*width+next];
+                            continuations[next]=discount*continuation;
+                            calculated[next]=true;
+                        }
+                        var value = decision.Immediate + continuations[next];
                         if (best is null || value.CompareTo(bestValue) > 0) { best = decision; bestValue = value; }
                     }
                     current[node * width + s] = bestValue;
@@ -136,7 +148,7 @@ public static class BackwardInduction
                 throw Invalid($"Negative probability {probability} at step {step}, node {node}.");
             total += probability;
         }
-        if (total != LatticeDecimal.Parse("1"))
+        if (total != One)
             throw Invalid($"Probabilities at step {step}, node {node} sum to {total}, not 1.");
         return successors;
     }

@@ -422,6 +422,9 @@ def main():
             if args.check and migration.name=='0223_bounded_fact_anchor_reads.sql':
                 from check_fact_anchor_upgrade import run_checks as check_fact_anchor_upgrade
                 check_fact_anchor_upgrade(query,migration)
+            if args.check and migration.name=='0225_bounded_observation_matching.sql':
+                from check_fact_anchor_upgrade import run_checks as check_close_pin_upgrade
+                check_close_pin_upgrade(query,migration,number='0225',guard='close_pin_upgrade')
             query(migration.read_text())
         if args.check:
             from check_whole_term_swap_schema import run_checks as check_whole_term_swap_schema
