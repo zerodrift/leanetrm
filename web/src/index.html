@@ -48,7 +48,7 @@
 </nav>
 <main>
   <header>
-    <div><div id="page-section" class="eyebrow">MARKETS</div><h1 id="page-title">Curves & prices</h1></div>
+    <div><div id="page-section" class="eyebrow">MARKETS</div><h1 id="page-title">Curves & prices</h1><div id="page-heading-slot" class="page-heading-slot" hidden></div></div>
     <div class="header-actions">
       <div id="context-toolbar" class="context-toolbar" role="group" aria-label="View context" hidden>
         <div id="market-close-controls" class="context-market" role="group" aria-label="Market close">
@@ -79,7 +79,7 @@
   </header>
   <div id="error" role="alert" hidden></div><div id="notice" role="status" hidden></div>
   <div id="blotter-window-question" class="blotter-window-question" tabindex="-1" aria-label="The Blotter’s window"><div id="blotter-window-question-prompt" class="side-panel-prompt" role="alertdialog" hidden></div></div>
-  <div class="status-bar"><span id="status" role="status" aria-live="polite">Loading market data…</span></div>
+  <div class="status-bar sr-only"><span id="status" role="status" aria-live="polite">Loading market data…</span></div>
   <section id="physical-operations-page" hidden aria-label="Physical operations"></section>
   <nav id="physical-commodity" class="physical-commodity" aria-label="Delivery setup commodity" hidden><span>Commodity family</span><button id="nav-gas-setup" type="button">Natural gas</button><button id="nav-crude-setup" type="button">Crude oil</button></nav>
     <section id="crude-setup-page" hidden aria-label="Crude delivery setup"></section>
@@ -403,7 +403,7 @@
     </details>
   </section>
   <section id="jobs-page" hidden>
-    <div class="card"><div class="card-heading"><div><h2>Jobs &amp; Infrastructure</h2><p id="jobs-scope"></p></div><button id="jobs-refresh" class="secondary" type="button">Refresh jobs</button></div><div id="jobs-table" class="table-wrap"></div><p id="jobs-page-count"></p><div class="actions"><button id="jobs-previous" type="button" class="secondary" disabled>Previous page</button><button id="jobs-next" type="button" class="secondary" disabled>Next page</button></div></div>
+    <div class="card"><div class="card-heading"><p id="jobs-scope"></p><button id="jobs-refresh" class="secondary" type="button">Refresh jobs</button></div><div id="jobs-table" class="table-wrap"></div><p id="jobs-page-count"></p><div class="actions"><button id="jobs-previous" type="button" class="secondary" disabled>Previous page</button><button id="jobs-next" type="button" class="secondary" disabled>Next page</button></div></div>
     <div class="card"><details id="job-editor" hidden><summary id="job-editor-title">New job</summary><form id="job-create" hidden>
       <div class="schedule-fields"><label>Name<input id="job-name" maxlength="80" required></label><label>Operation<select id="job-operation" required><option value="">Choose an operation…</option><option value="worker_check">Worker readiness check</option><option value="swarm_job">Approved container job</option></select></label><label id="job-profile-field" hidden>Execution profile<select id="job-profile"><option value="">Choose an approved image…</option></select></label></div>
       <div class="schedule-fields"><label>Due at<input id="job-due" type="datetime-local" step="1" required></label><label>Expires at<input id="job-expires" type="datetime-local" step="1" required></label><label>Frequency<select id="job-frequency" required><option value="">Choose frequency…</option><option value="once">Once</option><option value="interval">Fixed interval</option></select></label><label id="job-interval-field" hidden>Interval (seconds)<input id="job-interval" type="number" min="60" max="31536000"></label></div>

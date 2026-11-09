@@ -74,7 +74,7 @@ export async function run({command,evaluate,wait,click,set,submit,check,idle,url
     await check('a row on a later page opens its item page with a breadcrumb to its list',`${itemShown}&&document.querySelector('#reference-item h2').textContent==='Paged item'&&document.querySelector('#reference-item .breadcrumb a').getAttribute('href')==='#reference/locations'`);
     await click('#reference-item .breadcrumb a');await wait(`${read('offset')}==='200'&&${idle}`);
     await check('the breadcrumb returns to the list at the page the item was opened from',`document.querySelector('#reference-item').hidden&&!document.querySelector('#reference-list').hidden&&location.hash==='#reference/locations'&&document.querySelector('#reference').textContent.includes('Paged location 200')`);
-    await evaluate('window.__referenceCeiling=true');await click('#nav-reference');await click('#nav-table-currencies');await click('#reference-next');
+    await evaluate('window.__referenceCeiling=true');await click('#nav-table-locations');await click('#reference-next');
     await check('the server paging ceiling disables Next and asks for a narrower search',`document.querySelector('#reference-next').disabled&&document.querySelector('#reference-page-status').textContent.includes('Refine your search')&&${read('offset')}==='200'`);
     await evaluate('window.__referenceCeiling=false');await click('#reference-previous');
     await set('#reference-search','Tail %_');await submit('#reference-search-form');
@@ -82,15 +82,15 @@ export async function run({command,evaluate,wait,click,set,submit,check,idle,url
     await evaluate("document.querySelector('#reference tbody tr').click()");await wait(`${read('code')}==='page_location_0'&&${idle}`);
     await click('#reference-item .breadcrumb a');await wait(`${read('code')}===null&&${idle}`);
     await check('the breadcrumb returns to the list with its search',`${read('search')}==='Tail %_'&&location.hash==='#reference/locations?q='+encodeURIComponent('Tail %_')&&document.querySelector('#reference-search').value==='Tail %_'&&document.querySelector('#reference').textContent.includes('Tail %_ match')`);
-    await evaluate("window.__referenceFailure='context'");await click('#nav-reference');await click('#nav-table-currencies');
+    await evaluate("window.__referenceFailure='context'");await click('#nav-table-locations');
     await check('an inconsistent reference context clears prior rows visibly',"!document.querySelector('#error').hidden&&document.querySelector('#reference').children.length===0&&document.querySelector('#unit-converter').hidden");
-    await evaluate("window.__referenceFailure='pin'");await click('#nav-reference');await click('#nav-table-currencies');
+    await evaluate("window.__referenceFailure='pin'");await click('#nav-table-locations');
     await check('a mismatched exact reference revision cannot display stale rows',"!document.querySelector('#error').hidden&&document.querySelector('#reference').children.length===0");
-    await evaluate("window.__referenceFailure='bound'");await click('#nav-reference');await click('#nav-table-currencies');
+    await evaluate("window.__referenceFailure='bound'");await click('#nav-table-locations');
     await check('missing reference paging bounds fail without retaining rows',"!document.querySelector('#error').hidden&&document.querySelector('#reference').children.length===0&&document.querySelector('#reference-next').disabled");
-    await evaluate("window.__referenceFailure='denied'");await click('#nav-reference');await click('#nav-table-currencies');
+    await evaluate("window.__referenceFailure='denied'");await click('#nav-table-locations');
     await check('reference navigation rechecks current authority without stale fallback',"!document.querySelector('#error').hidden&&document.querySelector('#reference').children.length===0");
-    await evaluate("window.__referenceFailure='';window.fetch=window.__referenceFetch");await click('#nav-reference');await click('#nav-table-currencies');
+    await evaluate("window.__referenceFailure='';window.fetch=window.__referenceFetch");await click('#nav-table-locations');
     await check('a later authorized reference read restores only its selected page',"document.querySelector('#error').hidden&&document.querySelector('#reference tbody tr')");
   }finally{
     await command('Page.removeScriptToEvaluateOnNewDocument',{identifier:installed.identifier});

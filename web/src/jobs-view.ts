@@ -5,6 +5,9 @@ import {setupPilotClose} from './pilot-close-view.js';
 import {setupPilotCloseReport} from './pilot-close-report.js';
 import {findJob,directoryPage} from './job-target.js';
 
+// Paging controls appear only when there is another page to reach.
+export const pagingNeeded=(page:number,hasNext:boolean)=>page>0||hasNext;
+
 type Job={id:string;name:string;operation:string;operationName?:string;pilotReport?:{runId:string;state:string}|null;state:string;version:number;dueAt:string;expiresAt:string;intervalSeconds:number|null;timeZone:string;misfire:string;overlap:string;timeoutSeconds:number;maximumAttempts:number;profileId:string|null;profileVersion:number|null;profileName:string|null;canEdit:boolean;editReason:string|null;owner:string;mine:boolean;actions:string[];runs:{id?:string;state:string;startedAt:string;attempt:number;observation:string|null;errorCode:string|null}[]};
 type Node={clusterId:string;id:string;version:number;name:string;role:string;state:string;availability:string;cpuNano:number;memoryBytes:number;observedAt:string;stale:boolean;actions:string[]};
 type CollectionJob={id:string;generation:string;name:string;provider:string;operation:string;serviceName:string;state:string;enabled:boolean;scheduleEnabled:boolean;cron:string;scheduleZone:string;cadence:string;fromDay:number;throughDay:number;sourceCount:number;canEdit:boolean;editReason:string|null;lastAttempt:{state:string;startedAt:string;finishedAt:string|null;errorCode:string|null}|null};
@@ -75,6 +78,8 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
     get('job-editor').hidden=!selected&&!directory.canCreate;
     get('jobs-page-count').textContent=`Showing ${directory.jobs.length} of ${directory.total} jobs — page ${directory.page+1}.`;
     get<HTMLButtonElement>('jobs-previous').disabled=directory.page===0;get<HTMLButtonElement>('jobs-next').disabled=(directory.page+1)*directoryPage>=directory.total;
+    for(const id of ['jobs-previous','jobs-next'])get(id).hidden=!pagingNeeded(directory.page,(directory.page+1)*directoryPage<directory.total);
+    for(const id of ['collection-jobs-previous','collection-jobs-next'])get(id).hidden=!pagingNeeded(directory.collectionJobs.page,(directory.collectionJobs.page+1)*directoryPage<directory.collectionJobs.total);
     get('jobs-scope').textContent=(directory.manageAll?'You can manage all jobs in your authorized scope.':'Your jobs and schedules.')+' Jobs and infrastructure show current status; header dates apply to saved valuation reports.';
     get('jobs-infrastructure').textContent=directory.infrastructure.state==='not_configured'?'Swarm is not configured for this workspace.':directory.infrastructure.observedAt?`Latest node snapshot ${options.instant(directory.infrastructure.observedAt)}.`:'No node observation is available.';
     renderRegularTable(get('jobs-nodes'),'jobs-nodes',options.identity(),['Node','Role','Health','Availability','CPUs','Memory (MiB)','Observed','Actions'],directory.infrastructure.nodes.map(n=>{

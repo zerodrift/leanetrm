@@ -2,7 +2,7 @@ import {consoleEntryFor,type ConsoleEntry,type ConsoleGroup} from './console-men
 
 // Navigation owns no reads: the Reference Data console's menu. The existing page controller applies the leave, context and authority
 // guards before calling show after a successful move, so a refused leave keeps the entry shown marked.
-export function setupReferenceConsole(o:{host:HTMLElement;menu:()=>readonly ConsoleGroup[];open:(entry:ConsoleEntry)=>void;search:(text:string)=>void;busy:()=>boolean}){
+export function setupReferenceConsole(o:{host:HTMLElement;menu:()=>readonly ConsoleGroup[];open:(entry:ConsoleEntry)=>void;search:(text:string)=>void;busy:()=>boolean;pendingContext?:()=>boolean;unfolded?:()=>void}){
  const part=<T extends HTMLElement>(id:string)=>o.host.querySelector<T>('#'+id)!;
  const groups=part('reference-console-groups'),form=part<HTMLFormElement>('reference-search-all'),text=part<HTMLInputElement>('reference-search-all-text');
  const toggle=part('reference-console-toggle'),body=part('reference-console-body');
@@ -19,7 +19,7 @@ export function setupReferenceConsole(o:{host:HTMLElement;menu:()=>readonly Cons
    list.append(...group.entries.map(entry=>{
     const item=document.createElement('li'),button=document.createElement('button');
     button.type='button';button.id=domId(entry);button.textContent=entry.name;
-    button.onclick=()=>{if(o.busy()||(shown?.id===entry.id&&!entry.table))return;refocus=entry.id;o.open(entry);};
+    button.onclick=()=>{if(o.busy()||(shown?.id===entry.id&&!entry.table&&!o.pendingContext?.()))return;refocus=entry.id;o.open(entry);};
     item.append(button);buttons.set(entry.id,button);return item;
    }));
    section.append(summary,list);sections.set(group.id,section);return section;
@@ -47,7 +47,7 @@ export function setupReferenceConsole(o:{host:HTMLElement;menu:()=>readonly Cons
  text.oninput=filter;
  form.onsubmit=event=>{event.preventDefault();if(!o.busy())o.search(text.value);};
  function fold(on:boolean){body.hidden=on;o.host.classList.toggle('folded',on);document.body.classList.toggle('console-folded',on);toggle.setAttribute('aria-expanded',String(!on));toggle.setAttribute('aria-label',`${on?'Expand':'Collapse'} the Reference Data menu`);toggle.querySelector('span')!.textContent=on?'›':'‹';}
- toggle.onclick=()=>fold(!body.hidden);
+ toggle.onclick=()=>{const unfolding=body.hidden;fold(!unfolding);if(unfolding)o.unfolded?.();};
  return {sync,fold,
   // `reference` shows the console before its table is known.
   show(page:string,table?:string){

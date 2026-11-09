@@ -9,7 +9,7 @@ const html=`<link rel="stylesheet" href="/app.css">${shell}`;
 const setup=`(async()=>{window.opened=[];window.searched=[];window.blocked=false;
  window.menu=[{id:'curves',name:'Curves & pricing',entries:[{id:'custom-curves',name:'Curve builder',page:'custom-curves'}]},
   {id:'time',name:'Time',entries:[{id:'calendars',name:'Calendars',page:'reference',table:'calendars'},{id:'power',name:'Power TOUs',page:'power'}]}];
- window.console_=(await import('/reference-console.js')).setupReferenceConsole({host:document.querySelector('#reference-console'),menu:()=>menu,open:entry=>opened.push(entry.id),search:text=>searched.push(text),busy:()=>blocked});
+ window.console_=(await import('/reference-console.js')).setupReferenceConsole({host:document.querySelector('#reference-console'),menu:()=>menu,open:entry=>opened.push(entry.id),search:text=>searched.push(text),busy:()=>blocked,pendingContext:()=>!!window.pendingContext,unfolded:()=>window.unfoldings=(window.unfoldings||0)+1});
  console_.show('power');})()`;
 const group=name=>`[...document.querySelectorAll('#reference-console details')].find(d=>d.querySelector('summary').textContent.includes('${name}'))`;
 const current=`document.querySelector('#reference-console [aria-current=page]')?.textContent`;
@@ -30,6 +30,13 @@ test('the shown page is not opened again',browser,async()=>{
   await evaluate(setup);
   await evaluate("document.querySelector('#nav-power').click()");
   assert.deepEqual(await evaluate('opened'),[]);
+ });
+});
+test('a pending context change lets the shown page be opened again, so the existing guard can apply it',browser,async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(setup);
+  await evaluate("window.pendingContext=true;document.querySelector('#nav-power').click()");
+  assert.deepEqual(await evaluate('opened'),['power']);
  });
 });
 test('only the shown group is open and another can be opened by hand',browser,async()=>{
@@ -82,6 +89,15 @@ test('the menu folds to a slim strip and unfolds',browser,async()=>{
   assert.equal(await evaluate("document.querySelector('#reference-console-body').hidden"),true);
   await evaluate(`${toggle}.click()`);
   assert.equal(await evaluate(`${toggle}.getAttribute('aria-expanded')`),'true');
+ });
+});
+test('unfolding the menu reports it, so the page can read what the menu lists; folding does not',browser,async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(setup);
+  await evaluate("document.querySelector('#reference-console-toggle').click()");
+  assert.equal(await evaluate('window.unfoldings||0'),0);
+  await evaluate("document.querySelector('#reference-console-toggle').click()");
+  assert.equal(await evaluate('window.unfoldings||0'),1);
  });
 });
 test('the console shows for its pages and hides elsewhere',browser,async()=>{
