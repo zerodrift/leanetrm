@@ -39,16 +39,17 @@ def run_checks(query,manifest):
     WHERE o.catalog_id='{catalog}' AND o.id=ANY({corrections});""")
     array+='||'+corrections
     token=issue();context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.capture_date_context('{catalog}','2020-12-17',NULL);COMMIT;")
-    def read(expression,plan,selected_context):
+    def read(expression,plan,selected_context,deadline='5s'):
         token=issue()
-        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SET LOCAL plan_cache_mode={plan};SET LOCAL statement_timeout='5s';SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{selected_context}');SELECT security.use_close_session('{catalog}','scale_close');{expression};ROLLBACK;")
+        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SET LOCAL plan_cache_mode={plan};SET LOCAL statement_timeout='{deadline}';SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{selected_context}');SELECT security.use_close_session('{catalog}','scale_close');{expression};ROLLBACK;")
     # Compare complete ordered rows against ordinary RLS, including duplicates and corrections.
+    # The deadline covers the read and its delivery; the comparison happens here.
     for plan in ['force_generic_plan','force_custom_plan']:
-        digest="SELECT count(*)||'|'||encode(sha256(convert_to(coalesce(jsonb_agg(to_jsonb(o) ORDER BY o.observed_at,o.received_at,o.id),'[]')::text,'UTF8')),'hex') FROM "
-        actual=read(digest+f"security.read_observation_facts('{catalog}','{revision}',{array}) o",plan,context)
-        expected=read(f"WITH anchors AS MATERIALIZED(SELECT DISTINCT series_id,source_code,source_event_id,observed_at,role FROM market_data.observations WHERE catalog_id='{catalog}' AND definition_revision_id='{revision}' AND id=ANY({array})) "+digest+f"(SELECT o.* FROM market_data.observations o JOIN anchors a USING(series_id,source_code,source_event_id,observed_at,role) WHERE o.catalog_id='{catalog}' AND o.definition_revision_id='{revision}') o",plan,context)
-        assert actual==expected,(plan,actual,expected)
-        assert int(actual.split('|')[0])==count+16
+        rows="SELECT to_jsonb(o) FROM "
+        actual=read(rows+f"security.read_observation_facts('{catalog}','{revision}',{array}) o",plan,context).splitlines()
+        expected=read(f"WITH anchors AS MATERIALIZED(SELECT DISTINCT series_id,source_code,source_event_id,observed_at,role FROM market_data.observations WHERE catalog_id='{catalog}' AND definition_revision_id='{revision}' AND id=ANY({array})) "+rows+f"(SELECT o.* FROM market_data.observations o JOIN anchors a USING(series_id,source_code,source_event_id,observed_at,role) WHERE o.catalog_id='{catalog}' AND o.definition_revision_id='{revision}' ORDER BY o.observed_at,o.received_at,o.id) o",plan,context,deadline='0').splitlines()
+        assert actual==expected,(plan,len(actual),len(expected))
+        assert len(actual)==count+16
         print(f'PASS {plan}: {count} distinct close pins match complete ordered native-RLS fact rows within the 5-second statement deadline',flush=True)
 
     # The selected close stays fixed while a later certified cutoff includes more
