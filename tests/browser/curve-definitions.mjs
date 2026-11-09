@@ -33,7 +33,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('Curves & prices shows the board again',"document.querySelector('#curve-definitions-page').hidden&&!document.querySelector('#market-board').hidden");
  // D358: saved definitions are listed and edited here; tools/check_curve_definitions.py published usd_zero over rate_tenors.
  await set('#snapshot',await close('2021-01-15T16:00:00'));await wait(idle,30000);
- await persona('editor');await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
+ await persona('editor');await click('#nav-market');await wait(idle);await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
  // Changing persona selects the newest available close; the rate curve marked there makes that 15 February, so return to 15 January.
  await set('#snapshot',await close('2021-01-15T16:00:00'));await wait(idle,30000);
  const open=code=>evaluate(`[...document.querySelectorAll('#curve-definition-list .shortcut-saved-row')].find(r=>r.textContent.includes(${JSON.stringify(code)})).querySelector('button').click()`);
@@ -70,12 +70,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await click('#curve-definition-save');await wait(idle);
  await check('an author saves the definition and its tenors as drafts',"document.querySelector('#error').hidden&&document.querySelector('#curve-definition-status').textContent.includes('Saved draft')",
   "({error:document.querySelector('#error').textContent,status:document.querySelector('#curve-definition-status').textContent})");
- await persona('approver');await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
+ await persona('approver');await click('#nav-market');await wait(idle);await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
  await open('browser_zero');await wait(idle);await click('#curve-definition-publish');await wait(idle);
  await check('save then publish publishes the curve and its tenors',
   "document.querySelector('#error').hidden&&[...document.querySelectorAll('#curve-definition-list .shortcut-saved-row')].some(r=>r.textContent.includes('browser_zero')&&r.textContent.includes('published'))",
   "({error:document.querySelector('#error').textContent,list:document.querySelector('#curve-definition-list').textContent})");
- await persona('editor');await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
+ await persona('editor');await click('#nav-market');await wait(idle);await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
  await open('usd_zero');await wait(idle);
  await set('#curve-definition-name','Edited, not saved');const heldClose=await evaluate("document.querySelector('#snapshot').value");await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].map(o=>o.value).filter(v=>v&&v!==document.querySelector('#snapshot').value)[0]"));await wait(idle,30000);
  await check('changing the close keeps edits in progress',"document.querySelector('#curve-definition-name').value==='Edited, not saved'");
@@ -95,7 +95,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const r=await fetch('/api/date-schedules/contracts/save',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify({requestId:crypto.randomUUID(),
    code:'rate_tenors',name:'Synthetic rate tenors changed in Settings',context:m.definition.context,contracts:null,dates:m.definition.dates,id:m.id,version:m.version,generation:m.generation,expectedState:m.state})});
   if(!r.ok)throw Error(await r.text());})()`);
- await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
+ await click('#nav-market');await wait(idle);await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
  await open('browser_zero');await wait(idle);
  await check('a mapping draft changed after the curve was saved is shown',"!document.querySelector('#curve-definition-stale').hidden");
  await click('#curve-definition-save');await wait(idle);
