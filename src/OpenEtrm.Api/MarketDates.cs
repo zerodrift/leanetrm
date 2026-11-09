@@ -21,6 +21,11 @@ public sealed record MarketDatesResponse(ScheduleContext? Context,string? Curve,
     public FrameCatalogInfo? FrameCatalog{get;init;}
     public bool HasMoreCandidates{get;init;}
 }
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record LastClosesRequest([property:JsonRequired] string Session);
+// The newest close in force of the session that can price a listed curve. A curve with none is left out.
+public sealed record CurveLastClose(string Curve,Guid Id,string BusinessDate,DateTimeOffset At);
+public sealed record LastClosesResponse(ScheduleContext? Context,string Session,ImmutableArray<CurveLastClose> Curves);
 public delegate Task<IResult> MarketDatesOperation(HttpContext context,
     Func<NpgsqlConnection,PinnedContext,ImmutableArray<InputFrame>,FrameCatalogInfo,CancellationToken,Task<IResult>> work);
 
@@ -33,6 +38,8 @@ public static class MarketDates
     {
         api.MapPost("/market/dates",(HttpContext context,MarketDatesRequest body)=>operation(context,async(connection,pin,frames,catalog,ct)=>
             Results.Ok((await Read(database,connection,pin,frames,body,ct)) with{FrameCatalog=catalog})));
+        api.MapPost("/market/last-closes",(HttpContext context,LastClosesRequest body)=>operation(context,async(connection,pin,frames,_,ct)=>
+            Results.Ok(await LastCloses(database,connection,pin,frames,body,ct))));
     }
     public static async Task<MarketDatesResponse> Read(PreviewDatabase database,NpgsqlConnection connection,PinnedContext pin,
         ImmutableArray<InputFrame> frames,MarketDatesRequest request,CancellationToken ct)
@@ -43,15 +50,7 @@ public static class MarketDates
         try{zone=TimeZoneInfo.FindSystemTimeZoneById(request.TimeZone??"");}
         catch(Exception error) when(error is TimeZoneNotFoundException or InvalidTimeZoneException or ArgumentException)
         {throw new TemporalException("time_zone","Choose an available display time zone explicitly.");}
-        if(frames.IsDefault||frames.Length>128||frames.Select(frame=>frame.Id).Distinct().Count()!=frames.Length)
-            throw new MarketDataException("market_dates_input","Supply at most 128 distinct retained snapshot choices.");
-        if(string.IsNullOrWhiteSpace(request.Session))throw new MarketDataException("market_dates_input","Choose a close session explicitly.");
-        // Only recorded closes of the named session are closes; a day lists the close in force alone (D334).
-        frames=[..frames.Where(frame=>frame.Close?.Session==request.Session&&frame.Close.ReplacedBy is null)];
-        foreach(var frame in frames)_=pin.Require(frame);
-        await pin.Bind(connection,database.Manifest.CatalogId,ct);
-        await SelectedClose.BindSession(connection,database.Manifest.CatalogId,request.Session,ct);
-        await RequireAccess(database,connection,ct);
+        frames=await BindSessionCloses(database,connection,pin,frames,request.Session,ct);
         if(request.MaximumDates is <1 or >128)throw new MarketDataException("market_dates_input","Request from one to 128 dates explicitly.");
         var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
         var metadata=data;
@@ -62,13 +61,7 @@ public static class MarketDates
         Func<InputFrame,CancellationToken,Task> qualify;
         // Rate curves' pinned date lists load once, before frames stream: each close's tenors then resolve in memory (D359).
         var rateSources=new Dictionary<string,RateTenorSource>(StringComparer.Ordinal);
-        if(request.Definition is null&&frames.Length>0)
-            foreach(var code in rateCodes.Where(code=>request.Curve is null||request.Curve==code).Order(StringComparer.Ordinal))
-            {
-                // A curve whose date list cannot load here is unavailable on every date; it does not fail the others.
-                try{rateSources[code]=await RateCurveResolver.Load(connection,data,frames[0],code,ct);}
-                catch(Exception error) when(error is MarketDataException or TemporalException){}
-            }
+        if(request.Definition is null)await LoadRateSources(connection,data,frames,rateCodes.Where(code=>request.Curve is null||request.Curve==code),rateSources,ct);
         if(request.Definition is {} definition)
         {
             CustomCurves.Validate(definition);
@@ -227,7 +220,6 @@ public static class MarketDates
             [..unavailable.Where(day=>!validDates.Contains(day.Date)).Distinct().OrderBy(day=>day.Date,StringComparer.Ordinal).ThenBy(day=>day.Reason,StringComparer.Ordinal)],
             dates.IsEmpty?null:dates[0].Date,dates.IsEmpty?null:dates[^1].Date){HasMoreCandidates=processed<frames.Length};
 
-        static DateOnly Day(InputFrame frame)=>frame.Close!.BusinessDate;
         async Task<T> AtContext<T>(ScheduleContext context,Func<Task<T>> read)
         {
             await using(var save=ScheduleStore.Command(connection,"SAVEPOINT market_dates_read"))await save.ExecuteNonQueryAsync(ct);
@@ -244,6 +236,65 @@ public static class MarketDates
             }
         }
     }
+    // Walks the session's closes newest first and stops once every listed curve has one, so a read of current curves touches one close.
+    public static async Task<LastClosesResponse> LastCloses(PreviewDatabase database,NpgsqlConnection connection,PinnedContext pin,
+        ImmutableArray<InputFrame> frames,LastClosesRequest request,CancellationToken ct)
+    {
+        frames=await BindSessionCloses(database,connection,pin,frames,request.Session,ct);
+        var metadata=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
+        var pending=(await MarketNavigation.ReadCurves(connection,database.Manifest,ct)).Select(curve=>curve.Code).ToHashSet(StringComparer.Ordinal);
+        var rateSources=new Dictionary<string,RateTenorSource>(StringComparer.Ordinal);
+        await LoadRateSources(connection,metadata,frames,pending.Where(metadata.IsRateCurve),rateSources,ct);
+        var found=ImmutableArray.CreateBuilder<CurveLastClose>();
+        // A historical view reads only its own business day, as its calendar does.
+        var candidates=pin.Context is {} context?frames.Where(frame=>Day(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)==context.EffectiveOn).ToImmutableArray():frames;
+        foreach(var batch in CandidateBatches(candidates,TimeZoneInfo.Utc,limited:true))
+        {
+            var index=0;
+            await foreach(var selected in database.ReadFrameObservations(connection,metadata,batch,ObservationReadScope.ExactPins,ct))
+            {
+                var frame=batch[index++];
+                foreach(var code in pending.Order(StringComparer.Ordinal).ToArray())
+                {
+                    ct.ThrowIfCancellationRequested();
+                    try{QualifyCurve(selected,frame,code,rateSources);}
+                    catch(Exception error) when(error is MarketDataException or TemporalException){continue;}
+                    found.Add(new(code,frame.Id,Day(frame).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),frame.At));
+                    pending.Remove(code);
+                }
+            }
+            if(pending.Count==0)break;
+        }
+        await RequireAccess(database,connection,ct);
+        return new(pin.Context,request.Session,[..found.OrderBy(curve=>curve.Curve,StringComparer.Ordinal)]);
+    }
+    // Only recorded closes of the named session are closes; a day lists the close in force alone (D334).
+    static async Task<ImmutableArray<InputFrame>> BindSessionCloses(PreviewDatabase database,NpgsqlConnection connection,PinnedContext pin,
+        ImmutableArray<InputFrame> frames,string session,CancellationToken ct)
+    {
+        if(frames.IsDefault||frames.Length>128||frames.Select(frame=>frame.Id).Distinct().Count()!=frames.Length)
+            throw new MarketDataException("market_dates_input","Supply at most 128 distinct retained snapshot choices.");
+        if(string.IsNullOrWhiteSpace(session))throw new MarketDataException("market_dates_input","Choose a close session explicitly.");
+        ImmutableArray<InputFrame> closes=[..frames.Where(frame=>frame.Close?.Session==session&&frame.Close.ReplacedBy is null)];
+        foreach(var frame in closes)_=pin.Require(frame);
+        await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        await SelectedClose.BindSession(connection,database.Manifest.CatalogId,session,ct);
+        await RequireAccess(database,connection,ct);
+        return closes;
+    }
+    // Rate curves' pinned date lists load once, before frames stream. A curve whose date list cannot load here is unavailable on every
+    // date; it does not fail the others.
+    static async Task LoadRateSources(NpgsqlConnection connection,PreviewData data,ImmutableArray<InputFrame> frames,IEnumerable<string> codes,
+        Dictionary<string,RateTenorSource> sources,CancellationToken ct)
+    {
+        if(frames.Length==0)return;
+        foreach(var code in codes.Order(StringComparer.Ordinal))
+        {
+            try{sources[code]=await RateCurveResolver.Load(connection,data,frames[0],code,ct);}
+            catch(Exception error) when(error is MarketDataException or TemporalException){}
+        }
+    }
+    static DateOnly Day(InputFrame frame)=>frame.Close!.BusinessDate;
     internal static IEnumerable<ImmutableArray<InputFrame>> CandidateBatches(ImmutableArray<InputFrame> frames,TimeZoneInfo zone,bool limited)
     {
         if(!limited){yield return [..frames.OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id)];yield break;}

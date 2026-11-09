@@ -35,8 +35,9 @@ A surface belongs to the close it was fitted at, so the page never shows another
 close's surface in place of the selected one. When the selected close has none, a
 panel says so and offers *Calibrate at* that close to a person who may fit, and
 *Open* the newest close this product is calibrated at. Opening a close, from that
-panel or from a chip, is the header's own move: an offered close is chosen in the As
-of control, so every page reads it. A close of another session is not switched to
+panel or from a chip, asks first (D361): switching chooses it in the header's As of
+control, so every page reads it, and a recorded close can instead open in a separate
+window on the same product, leaving this one where it is. A close of another session is not switched to
 for the person (D334): the page names the session to choose in the header. A
 replaced close is history, and a historical view offers only its own business day;
 the page says so rather than moving.

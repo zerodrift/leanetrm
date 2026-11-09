@@ -2,7 +2,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#market-date-open')&&!document.querySelector('#date-context').hidden&&"+idle);
- await check('the header groups session and close date separately from knowledge',"(()=>{const bar=document.querySelector('header #context-toolbar'),close=bar.querySelector('#market-close-controls'),knowledge=document.querySelector('#knowledge-context');return close?.contains(document.querySelector('#close-session'))&&close.contains(document.querySelector('#market-date-open'))&&bar.contains(knowledge)&&!knowledge.open&&getComputedStyle(bar).position==='static'&&document.querySelector('#close-session').labels[0].checkVisibility()&&!document.querySelector('#date-context-view').checkVisibility();})()");
+ await check('the header keeps As of visible and collapses close session and knowledge into the As of widget',"(()=>{const bar=document.querySelector('header #context-toolbar'),widget=document.querySelector('#as-of-context');return bar.contains(widget)&&!widget.open&&widget.contains(document.querySelector('#close-session'))&&widget.contains(document.querySelector('#date-context-view'))&&document.querySelector('#market-date-open').checkVisibility()&&!document.querySelector('#close-session').checkVisibility()&&!document.querySelector('#date-context-view').checkVisibility()&&getComputedStyle(bar).position==='static';})()");
+ await check('the collapsed As of widget names the session and knowledge in use',"(()=>{const select=document.querySelector('#close-session'),summary=document.querySelector('#as-of-context>summary').textContent;return !!select.value&&summary.includes(select.selectedOptions[0].textContent)&&summary.includes('Current knowledge');})()","document.querySelector('#as-of-context>summary').textContent");
+ await click('#as-of-context>summary');
+ await check('opening the As of widget shows close session and the knowledge cutoff',"document.querySelector('#close-session').checkVisibility()&&document.querySelector('#close-session').labels[0].checkVisibility()&&document.querySelector('#date-context-view').checkVisibility()");
+ await click('#as-of-context>summary');
  await click('#context-help>summary');
  await check('context help explains the session, close and knowledge without changing them',"document.querySelector('#context-help').open&&document.querySelector('#close-session-help').checkVisibility()&&document.querySelector('#knowledge-context-help').textContent.includes('cutoff')&&document.querySelector('#context-help').textContent.includes('recorded close')&&document.querySelector('#error').hidden");
  await click('#context-help>summary');
@@ -38,14 +42,14 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await evaluate('window.scrollTo(0,0)');
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
  await check('the header controls fit a narrow screen',fitsWidth);
- await check('knowledge stays collapsed and reachable on a narrow screen',"!document.querySelector('#knowledge-context').open&&document.querySelector('#knowledge-context>summary').getClientRects().length>0");
+ await check('knowledge stays collapsed and reachable on a narrow screen',"!document.querySelector('#as-of-context').open&&document.querySelector('#as-of-context>summary').getClientRects().length>0");
  await check('the grouped context stays compact on a narrow screen',"document.querySelector('#context-toolbar').getBoundingClientRect().height<=180","document.querySelector('#context-toolbar').getBoundingClientRect().toJSON()");
  await shot('date-context-mobile');
- await click('#knowledge-context>summary');
- await check('expanded knowledge fits a narrow screen without overlay positioning',fitsWidth+"&&getComputedStyle(document.querySelector('#knowledge-context .knowledge-panel')).position==='static'&&document.querySelector('#date-context-view').checkVisibility()");
- await shot('date-context-mobile-expanded');await click('#knowledge-context>summary');
+ await click('#as-of-context>summary');
+ await check('expanded knowledge fits a narrow screen without overlay positioning',fitsWidth+"&&getComputedStyle(document.querySelector('#as-of-context .knowledge-panel')).position==='static'&&document.querySelector('#date-context-view').checkVisibility()");
+ await shot('date-context-mobile-expanded');await click('#as-of-context>summary');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
- await click('#knowledge-context>summary');await click('#date-context-latest');await click('#apply-view-context');
+ await click('#as-of-context>summary');await click('#date-context-latest');await click('#apply-view-context');
  await check('the selector identifies the retained business date before an exact historical close is chosen',"document.querySelector('#market-date-open').textContent.includes('Dec 17, 2020')&&document.querySelector('#workspace-mode-label').textContent.includes('Historical view · read only')");
  await click('#current-view-context');
  await check('returning to working data restores the selected close and current knowledge',"(async()=>{const frames=(await(await fetch('/api/workspace')).json()).frames,selected=frames.find(frame=>frame.id===document.querySelector('#snapshot').value);return !!selected&&document.querySelector('#date-context-on').value===selected.at.slice(0,10)&&document.querySelector('#date-context-view').value!==''&&document.querySelector('#workspace-mode-label').textContent.includes('current knowledge');})()");
@@ -66,12 +70,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   }return response;
  };`);
  await click('#nav-jobs');
- await check('Jobs and Infrastructure exposes its report context without another market-date selector',"!document.querySelector('#context-toolbar').hidden&&!document.querySelector('#date-context').hidden&&document.querySelector('#date-context-on').type==='date'&&document.querySelector('#date-context-on').getClientRects().length>0&&document.querySelector('#market-date-calendar').closest('.date-control').hidden&&!document.querySelector('#knowledge-context').open");
+ await check('Jobs and Infrastructure exposes its report context without another market-date selector',"!document.querySelector('#context-toolbar').hidden&&!document.querySelector('#date-context').hidden&&document.querySelector('#date-context-on').type==='date'&&document.querySelector('#date-context-on').getClientRects().length>0&&document.querySelector('#market-date-calendar').closest('.date-control').hidden&&!document.querySelector('#as-of-context').open");
  await check('Jobs explains which dates affect reports and which status stays current',"document.querySelector('#jobs-scope').textContent.includes('current')&&document.querySelector('#jobs-scope').textContent.includes('saved valuation reports')");
  await set('#date-context-on','2020-12-17');await wait(idle);
  await evaluate("[...document.querySelectorAll('#jobs-table button')].find(button=>button.textContent==='View close report').click()");await wait(idle);
  await check('saved reports require Apply before reading under a changed header context',"window.jobsReportReads===0&&document.querySelector('#pilot-report').hidden&&document.querySelector('#error').textContent.includes('Apply the changed date context')&&document.querySelector('#workspace-mode-label').textContent.includes('Unapplied')");
- await click('#knowledge-context>summary');
+ await click('#as-of-context>summary');
  await check('the expanded knowledge control explains which corrections are included',"document.querySelector('#context-date-help').checkVisibility()&&document.querySelector('#context-date-help').textContent.includes('an earlier cutoff excludes later corrections')");
  await click('#date-context-latest');await click('#apply-view-context');
  await evaluate("document.querySelector('button[aria-label=\"View close report for Synthetic report context check\"]').click()");await wait(idle);
@@ -79,7 +83,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await click('#jobs-refresh');
  await check('report date selection preserves the current operational directory contract',"(()=>{const reads=window.jobsContextReads,last=reads.at(-1);return reads.length>=2&&new URL(last.url).searchParams.get('knownAt')===null&&!Object.hasOwn(last.data,'context')&&JSON.stringify(last.data.jobs.map(j=>[j.id,j.state,j.version]))===JSON.stringify(reads[0].data.jobs.map(j=>[j.id,j.state,j.version]))&&document.querySelector('#workspace-mode-label').textContent.includes('Historical view')&&document.querySelector('#error').hidden;})()");
  await click('#current-view-context');await click('#nav-market');await evaluate("window.fetch=window.jobsContextFetch");
- await command('Page.reload');await wait("document.querySelector('#knowledge-context')&&!document.querySelector('#date-context').hidden&&document.querySelectorAll('.curve-button').length>0&&"+idle);
+ await command('Page.reload');await wait("document.querySelector('#as-of-context')&&!document.querySelector('#date-context').hidden&&document.querySelectorAll('.curve-button').length>0&&"+idle);
  await check('ordinary reload keeps the matching script and stylesheet usable',"document.querySelector('script[src^=\"/app.js?v=\"]')&&document.querySelector('link[href^=\"/app.css?v=\"]')&&document.querySelector('#error').hidden");
  // Exercise the inline controls against a real synthetic amendment, independently of desk layout benchmarks.
  await persona('trader');await click('#nav-futures');
@@ -88,7 +92,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await wait("!document.querySelector('#trade-editing').hidden&&"+idle);
  const edited=await evaluate("document.querySelector('#trade-lots').value==='5'?'6':'5'");
  await evaluate("document.querySelector('#trade-lots').focus();document.querySelector('#trade-lots').select()");await command('Input.insertText',{text:edited});
- await click('#knowledge-context>summary');
+ await click('#as-of-context>summary');
  const coordinates=await evaluate("JSON.stringify([document.querySelector('#date-context-on').value,document.querySelector('#date-context-view').value])"),prompt="document.querySelector('#position-details-prompt')";
  await evaluate("document.querySelector('#date-context-view').focus()");
  await check('focusing inline time controls retains an edited amendment without a question',`document.querySelector('#trade-lots').value===${JSON.stringify(edited)}&&!document.querySelector('#trade-editing').hidden&&${prompt}.hidden`);

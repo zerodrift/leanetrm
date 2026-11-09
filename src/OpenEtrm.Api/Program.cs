@@ -1026,13 +1026,16 @@ api.MapGet("/workspace/navigation",(Func<HttpContext,Task<IResult>>)(c=>Locked(c
     var read=await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
     {
         var navigation=await marketReads.Navigation(connection,Pin(session),ct);
-        return(navigation,plan:await DiscoverFrames(connection,session,ct));
+        // Definitions are authored only in the current workspace, so a historical view offers none.
+        var configurations=session.MarketContext is null&&await PreviewDatabase.HasPermission(connection,"WriteMarketDefinitions",ct)
+            ?await MarketNavigation.ReadConfigurations(connection,database.Manifest,ct):[];
+        return(navigation,configurations,plan:await DiscoverFrames(connection,session,ct));
     },c.RequestAborted);
     session.ApplyFrames(read.plan);var frames=session.VisibleFrames;
     return Results.Ok(new MarketNavigation(Profile(session),session.MarketContext,read.navigation.DefinitionRevision,read.navigation.ReferenceRevision,
         database.Manifest.FuturesConvention,database.Manifest.Example,
         [..session.InitialFrameIds],
-        [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.OriginCloseId,f.Close))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog,Live=session.Live?.Summary()});
+        [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.OriginCloseId,f.Close))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog,Live=session.Live?.Summary(),CurveConfigurations=read.configurations});
 })));
 api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {

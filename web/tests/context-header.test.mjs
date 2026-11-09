@@ -7,7 +7,7 @@ test('the shared context groups the session with its close date and provides dis
  const toolbar=html.slice(html.indexOf('id="context-toolbar"'),html.indexOf('id="profile-open"'));
  assert.match(toolbar,/id="market-close-controls"[^>]*aria-label="Market close"/);
  assert.match(toolbar,/id="close-session"[^>]*aria-describedby="close-session-help"/);
- assert.match(toolbar,/id="knowledge-context-summary"[^>]*aria-describedby="knowledge-context-help"/);
+ assert.match(toolbar,/id="as-of-context-summary"[^>]*aria-describedby="knowledge-context-help"/);
  assert.match(toolbar,/id="context-help"/);
  assert.match(toolbar,/id="close-session-help"/);
  assert.match(toolbar,/id="knowledge-context-help"/);

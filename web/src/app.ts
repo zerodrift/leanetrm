@@ -9,6 +9,7 @@ import {sameReferenceSource} from './reference-scope.js';
 import {setupCrudeConfiguration} from './crude-setup-editor.js';
 import {setupScheduleWorkspace} from './schedule-workspace.js';
 import {setupCurveDefinitionEditor} from './curve-definition-editor.js';
+import {askCloseChoice,closeLink,closeLinkHref,type CloseTarget} from './close-choice.js';
 import {streamBlotter} from './blotter-stream.js';
 import {setupPhysicalLng} from './physical-lng-editor.js';
 import {setupPhysicalCrude} from './physical-crude-editor.js';
@@ -22,7 +23,7 @@ import {setupPpa} from './ppa-editor.js';
 import {setupCustomCurves} from './custom-curves-view.js';
 import {LiveUpdates,liveContextUpdate,type LiveSelection,type LiveContextUpdate,type LiveStatus} from './live-context.js';
 import {setupMarketCalendar,type MarketDates} from './market-calendar.js';
-import {otherSessionRefusal,sessionOffer,type FrameClose} from './close-sessions.js';
+import {otherSessionRefusal,sessionOffer,linkedFrame,type FrameClose} from './close-sessions.js';
 import {newestDate,newestClose,closeBadge,latestInstant,type CloseBadge,type CloseChoice} from './latest-close.js';
 import {setupPowerImports} from './power-imports-view.js';
 import {setupIntervalSeries} from './interval-series-view.js';
@@ -66,7 +67,7 @@ import {setupOperatingPolicy} from './operating-policies.js';
 import {setupShortcutEditor} from './shortcut-view.js';
 import {apiRefusal} from './api-refusal.js';
 import {setupTouProducts} from './tou-products.js';
-import {validateMarketNavigation,navigationGroups,navigationCategories,navigationCurveKind,type MarketNavigation,type FrameSummary} from './market-navigation.js';
+import {validateMarketNavigation,navigationGroups,navigationCategories,navigationCurveKind,type MarketNavigation,type FrameSummary,type CurveConfiguration} from './market-navigation.js';
 import {navigationGroups as sidebarGroups,pageGroup,pageAvailable,firstPage} from './navigation-groups.js';
 import {setupAssistant} from './assistant-panel.js';
 import {pageReport,webPage,type PageState,type PageContext,type Place} from './assistant-pages.js';
@@ -164,9 +165,12 @@ function renderWorkspaceMode(){
   text('context-date-help',knowledgeHelp+' '+dateHelp);
   text('knowledge-summary',contextDirty?'Unapplied context':navigation?.live?'Live corrections':historical?'Historical · read only':'Current knowledge');
   const known=historicalContext()?.knownAt;
-  $('knowledge-context-summary').title=(known?'As known on '+instant(known)+'. ':'')+knowledgeHelp;
-  const expanded=$<HTMLDetailsElement>('knowledge-context').open;
-  $('context-actions').hidden=!contextDirty&&!historical&&!expanded;
+  $('as-of-context-summary').title=(known?'As known on '+instant(known)+'. ':'')+knowledgeHelp;
+  // With no session in force the widget is open for that choice alone, so it offers no knowledge action.
+  const expanded=$<HTMLDetailsElement>('as-of-context').open&&closeSession!==null;
+  $('as-of-context').dataset.contextMode=$('date-context').dataset.contextMode;
+  const sessionChoice=select('close-session');text('close-session-summary',$('close-session-control').hidden?'':sessionChoice.value?sessionChoice.selectedOptions[0].textContent!:'Choose a close session');
+  $('context-actions').hidden=!showsContext(page)||!contextDirty&&!historical&&!expanded;
   $('apply-view-context').hidden=!contextDirty&&!expanded;
   $('current-view-context').hidden=!contextDirty&&!historical&&!expanded;
   $('follow-live').hidden=historical||contextDirty||!['market','custom-curves','futures'].includes(page);
@@ -299,7 +303,7 @@ async function setPage(next:string){
   for(const name of ['physical-operations','dashboard','market','custom-curves','delivery','interval-series','vol-surfaces','interval-curves','power','reference','configuration','schedules','admin','ai','parties','risk','jobs'])$('nav-'+name).classList.toggle('active',next===name);
   physicalWorkspace.show(next);curveWorkspace.show(next);
 
-  $('market-close-controls').hidden=usesBusinessDate(next);
+  $('market-close-controls').hidden=$('close-session-control').hidden=usesBusinessDate(next);$('as-of-context').closest<HTMLElement>('.as-of-widget')!.hidden=usesBusinessDate(next)&&!showsContext(next);
   renderBlotterViews();
   text('status',pageStatus());syncControls();
 }
@@ -401,7 +405,7 @@ async function recheckNewestClose(){
  const owner=navigation;checkingCloses=true;
  try{
   const catalog=await readAvailability(workspaceDates(closeSession));
-  if(catalog&&navigation===owner){workspaceCloses=catalog;renderCloseBadge();}
+  if(catalog&&navigation===owner){const before=workspaceCloses&&latestInstant(workspaceCloses);workspaceCloses=catalog;renderCloseBadge();if(before!==latestInstant(catalog)){curveCloses=undefined;void loadLastCloses();void renderCurveCloses();}}
  }catch{/* the badge stays as the last check left it */}
  finally{checkingCloses=false;}
 }
@@ -430,7 +434,7 @@ function readShapes():ReadonlyMap<string,CurveShape|string>{const kept=boardShap
 const board=()=>marketBoard(directory(),{by:prefs.browseBy,commodity:prefs.market,type:prefs.marketType},readShapes());
 // Choosing a curve, from the library or from its card on the board, or no curve, which shows the board again.
 async function selectCurve(code:string){
-  curve=code;definingCurve=false;invalidateMarketDates();clearPrices();
+  curve=code;definingCurve=false;invalidateMarketDates();clearPrices();void renderCurveCloses();
   if(!curve){renderContext();await loadBoard();}
   else if(select('snapshot').value)await build();else{await loadWorkspace();renderContext();}
 }
@@ -443,7 +447,7 @@ function renderMarketBoard(){
   text('market-board-status',close?`Prices at the close of ${instant(close.at)}`:'');
   text('market-board-empty-title',contextDirty?'Apply the changed context':'Choose a market date');
   text('market-board-empty-help',contextDirty?'View the changed context, then choose a close in As of to see every curve at it.':'Pick a close in As of above to see every curve at that close, or choose a curve from the list.');
-  if(shown&&close)renderBoard($('market-board-groups'),board(),chooseCurve,busy);else $('market-board-groups').replaceChildren();
+  if(shown&&close)renderBoard($('market-board-groups'),board(),chooseCurve,busy,curve=>lastCloses.get(curve)?.businessDate??null);else $('market-board-groups').replaceChildren();
 }
 // Optional card and library sparklines read only after their element enters the viewport.
 // Every delayed reply is tied to the same account directory, close and context.
@@ -474,6 +478,61 @@ async function loadBoard(){
   };
   boardObserver=observer;observeBoard=observe;boardLoading={owner,generation:started,scope,reading:reader.busy};renderBrowse();renderMarketBoard();observe();
 }
+// The gear beside a listed curve, which the backend names only for someone who may change that curve.
+// Each listed curve's newest close in the chosen session, from the backend. A read that fails leaves the curves naming none.
+let lastCloses:ReadonlyMap<string,{curve:string;id:string;businessDate:string;at:string}>=new Map(),lastClosesRead=0;
+const lastCloseText=(code:string)=>{const last=lastCloses.get(code);return last?` · last close ${displayDate(last.businessDate)}`:'';};
+async function loadLastCloses(){
+ const started=++lastClosesRead,owner=directory(),session=closeSession;lastCloses=new Map();
+ if(session===null)return;
+ try{const read=await api<{curves:{curve:string;id:string;businessDate:string;at:string}[]}>('market/last-closes',{session});if(started===lastClosesRead&&navigation===owner){lastCloses=new Map(read.curves.map(item=>[item.curve,item]));renderBrowse();renderMarketBoard();}}
+ catch{/* a curve then names no last close */}
+}
+// The closes the curve in view can price, newest first. Reading them is separate from pricing, so a close the curve is missing from still lists the closes it has.
+let curveCloses:{key:string;closes:{id:string;businessDate:string}[]}|undefined;
+async function renderCurveCloses(){
+ const host=$('curve-closes');
+ if(!curve||closeSession===null){host.hidden=true;host.replaceChildren();return;}
+ const code=curve,key=JSON.stringify([code,closeSession,prefs.timeZone,historicalContext()?.contextId??null]);
+ if(curveCloses?.key!==key){
+  let catalog:MarketDates|undefined;
+  // A read that failed or no longer applies is not remembered, so the next render asks again.
+  try{catalog=await readAvailability({curve:code,timeZone:prefs.timeZone,session:closeSession,definition:null,maximumDates:10});}catch{catalog=undefined;}
+  if(curve!==code)return;
+  if(!catalog){host.hidden=true;host.replaceChildren();return;}
+  curveCloses={key,closes:catalog.dates.flatMap(day=>day.frames.map(close=>({id:close.id,businessDate:close.businessDate}))).reverse()};
+ }
+ const list=el('ol');list.className='vol-close-list';
+ for(const close of curveCloses.closes){const current=close.id===select('snapshot').value,chip=el('button');chip.type='button';chip.className='vol-close-chip';chip.dataset.close=close.id;chip.setAttribute('aria-current',String(current));chip.append(el('span',displayDate(close.businessDate)));chip.disabled=busy;if(!current)chip.onclick=()=>void offerClose(close.id,{page:'market',curve:code});const item=el('li');item.append(chip);list.append(item);}
+ const label=el('span','Closes');label.className='vol-closes-label';host.replaceChildren(label,list);host.hidden=!curveCloses.closes.length;
+}
+// A close another page offers, other than the header's As of, is the person's to take: nothing moves until they choose (D361). Only a recorded close has an address a separate window can open.
+const frameName=(f:FrameSummary)=>f.close?`${closeSessionNames.get(f.close.session)??f.close.session} · ${displayDate(f.close.businessDate)}`:`Working snapshot · ${instant(f.at)}`;
+async function offerClose(id:string,target:CloseTarget){
+ if(id===select('snapshot').value)return;
+ // A close recorded after this page listed its closes is in the backend's answer before it is in the directory.
+ if(!directory().frames.some(f=>f.id===id))await act(()=>reload(select('snapshot').value));
+ const frames=directory().frames,chosen=frames.find(f=>f.id===id);
+ if(!chosen){text('error','That close is not available in this view. Choose a date in As of.');$('error').hidden=false;return;}
+ const current=frames.find(f=>f.id===select('snapshot').value);
+ const windowUrl=chosen.originCloseId&&!historicalContext()?closeLinkHref({...target,close:chosen.originCloseId},location.pathname,location.search):null;
+ if(await askCloseChoice({close:frameName(chosen),current:current?frameName(current):'not chosen',windowUrl}))chooseClose(id);
+}
+// Applies to the opening of this window only: switching demo user starts from the newest close, as any opening does (D219).
+let openedLink=closeLink(location.search),linkedFrameId='';
+// A window opened at a named close starts there and says so. A close this view no longer offers is named as gone and nothing is chosen in its place.
+async function selectLinkedClose(id:string):Promise<CloseChoice>{
+ const note=$('close-window-note'),frame=linkedFrame(offeredFrames(),id);note.hidden=false;
+ if(!frame||closeSession===null){text('close-window-note','This window’s close is not available in this view. Choose a date in As of.');return {kind:'none'};}
+ const catalog=await readMarketDates(workspaceDates(closeSession));if(catalog)workspaceCloses=catalog;
+ linkedFrameId=frame.id;select('snapshot').value=frame.id;closeChanged();await initializeContext();
+ text('close-window-note',`Separate window · ${frameName(frame)}. Your other window keeps its own As of.`);
+ return {kind:'single',closeId:frame.id,date:frame.close?.businessDate??''};
+}
+function curveRow(curveButton:HTMLButtonElement,name:string,configuration:CurveConfiguration){
+  const row=el('div'),gear=el('button','⚙\uFE0E');row.className='curve-row';gear.type='button';gear.className='curve-configure';gear.dataset.curveConfigure=configuration.curve;
+  gear.title=`Configure ${name}`;gear.setAttribute('aria-label',gear.title);gear.disabled=busy;gear.onclick=()=>void openCurveConfiguration(configuration);row.append(curveButton,gear);return row;
+}
 function renderBrowse(){
   const categories=navigationCategories(directory()),commodities=categories.map(c=>c.code);
   // No commodity code is empty, so the empty value can only mean All markets.
@@ -486,7 +545,7 @@ function renderBrowse(){
   $('curves').replaceChildren(...groups.map(group=>{const section=el('details'),key=prefs.browseBy+'|'+group.key;section.className='curve-group';section.open=!prefs.collapsedCurveGroups.includes(key);section.append(el('summary',group.name));
     section.ontoggle=()=>{if(!section.isConnected||navigation!==owner)return;const closed=prefs.collapsedCurveGroups.includes(key);if(closed===!section.open)return;prefs.collapsedCurveGroups=section.open?prefs.collapsedCurveGroups.filter(k=>k!==key):[...prefs.collapsedCurveGroups,key].slice(-64);persist();};
     // Named commodity and curve-kind icons distinguish identity; the sparkline is decorative.
-    group.cards.forEach(c=>{const button=el('button'),line=librarySparkline(c),commodity=commodityIcon(c);button.dataset.curve=c.curve;button.className='curve-button'+(c.curve===curve?' selected':'');button.disabled=busy;button.setAttribute('aria-pressed',String(c.curve===curve));button.append(...commodity?[commodity]:[],kindBadge(c.curveKind),el('span',c.name),el('small',c.type),...(line?[line]:[]));button.onclick=()=>chooseCurve(c.curve);section.append(button);});return section;}));
+    group.cards.forEach(c=>{const button=el('button'),line=librarySparkline(c),commodity=commodityIcon(c);button.dataset.curve=c.curve;button.className='curve-button'+(c.curve===curve?' selected':'');button.disabled=busy;button.setAttribute('aria-pressed',String(c.curve===curve));button.append(...commodity?[commodity]:[],kindBadge(c.curveKind),el('span',c.name),el('small',c.type+lastCloseText(c.curve)),...(line?[line]:[]));button.onclick=()=>chooseCurve(c.curve);const configuration=directory().curveConfigurations.find(item=>item.curve===c.curve);section.append(configuration?curveRow(button,c.name,configuration):button);});return section;}));
   if(!groups.length)$('curves').append(el('p','No curves match these choices.'));
   observeBoard();
 }
@@ -843,6 +902,9 @@ async function loadCloseSessions(){
  const withdrawn=choice.session!==null&&closeSession===null;
  choose('close-session',[{value:'',name:withdrawn?'Your session is no longer available · choose one':'Choose a session…'},...[...published].map(([value,name])=>({value,name}))],closeSession??'');
  $('close-session-status').hidden=!withdrawn;
+ // No session in force needs a choice, so its control is shown rather than left collapsed.
+ if(closeSession===null)$<HTMLDetailsElement>('as-of-context').open=true;
+ renderWorkspaceMode();
 }
 // A day's replaced closes are history: listed under the close in force, never offered as a choice.
 async function showCloseHistory(){
@@ -900,7 +962,7 @@ function connectLive(selection:LiveSelection){
  });
  stream.onerror=()=>{if(liveStream===stream)liveUpdates?.disconnected();};
 }
-async function reload(selected:string){await loadNavigation();renderFrames(selected);if(curve)await loadWorkspace();renderContext();await loadBoard();}
+async function reload(selected:string){await loadNavigation();curveCloses=undefined;renderFrames(selected);if(curve)await loadWorkspace();renderContext();await loadBoard();void loadLastCloses();void renderCurveCloses();}
 async function updateFilters(){
   prefs.browseBy=select('browse-by').value as Preferences['browseBy'];prefs.market=select('commodity').value||null;persist();
   if(curve&&!navigationGroups(directory(),prefs.browseBy,prefs.market,prefs.marketType).some(g=>g.curves.some(c=>c.code===curve))){curve='';invalidateMarketDates();clearPrices();}
@@ -959,11 +1021,11 @@ async function loadIdentity(initialAccess?:unknown){
     groupNode(group.id).hidden=group.pages.every(page=>$('nav-'+page).hidden);
   }
   $('schedule-inspector').hidden=true;
-  const first=restoredPage(()=>sessionStorage,administrationScope+':'+exampleId+':'+currentProfile,permissions)??firstPage(permissions);
+  const first=openedLink&&pageAvailable(openedLink.page,permissions)?openedLink.page:restoredPage(()=>sessionStorage,administrationScope+':'+exampleId+':'+currentProfile,permissions)??firstPage(permissions);
   // The newest close is chosen between the directory and the first page, which then reads it. A historical view the session
   // kept is not working data, so it chooses nothing.
   let opening:CloseChoice={kind:'none'};
-  if(read){await loadNavigation();await loadCloseSessions();renderFrames('');renderContext();if(!historicalContext()){opening=await selectNewestClose();await initializeContext();}}else renderLayout();
+  if(read){await loadNavigation();await loadCloseSessions();curveCloses=undefined;renderFrames('');renderContext();if(!historicalContext()){opening=openedLink?await selectLinkedClose(openedLink.close):await selectNewestClose();await initializeContext();}else if(openedLink){$('close-window-note').hidden=false;text('close-window-note','This window’s close was not opened: this session is in a historical view. Return to working data, then choose it in As of.');}}else renderLayout();
   // A reference address in the location opens that page in place of the first; failing to open it keeps the rest of the opening.
   const address=location.hash.startsWith('#reference')&&pageAvailable('reference',permissions)?location.hash:undefined;
   const riskLink=riskAddress(location.hash)&&pageAvailable('risk',permissions);
@@ -972,25 +1034,32 @@ async function loadIdentity(initialAccess?:unknown){
     if(riskLink){await showPage('risk').catch(error=>{unopened=error;});}
     else if(address===undefined){
     await showPage(first);
+    if(openedLink?.page==='market'&&first==='market')await selectCurve(openedLink.curve).catch(error=>{unopened=error;});else if(openedLink?.page==='vol-surfaces'&&first==='vol-surfaces')await volSurfaces.open(openedLink.product).catch(error=>{unopened=error;});
     }else await openReferenceAddress(address).catch(error=>{unopened=error;});
     if(!$('nav-futures').hidden)await futures.views();
     closeCheckDue=false; // the read that chose the close is this page's check for a newer one
     if(opening.kind==='choose')askNewestClose(opening.date);
+    openedLink=null;
   }
   else{$('no-access-page').hidden=false;text('page-title','Workspace access');text('status','This account has no current workspace permissions.');}
+  // Read after the first page, since each request of a session waits for the one before it.
+  if(read)void loadLastCloses();
   if(unopened!==undefined)throw unopened;
 }
 select('close-session').onchange=()=>{
  const chosen=select('close-session').value;select('close-session').value=closeSession??'';
  if(!chosen||chosen===closeSession)return;
  leaving(async()=>{
-  await api('close-sessions/choice',{session:chosen});closeSession=chosen;select('close-session').value=chosen;$('close-session-status').hidden=true;
+  await api('close-sessions/choice',{session:chosen});closeSession=chosen;select('close-session').value=chosen;$('close-session-status').hidden=true;renderWorkspaceMode();
+  void loadLastCloses();
   clearPrices();renderFrames('');await openNewestClose();
  },'closes');
 };
 $('open').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('The user was not switched'))return;await profileAction($('open'),async()=>{text('environment-context-note','Current workspace · exact selected inputs');const next=select('profile').value;futures.ended('account_changed');savedPreferences.invalidate();try{await api('profile',{profile:next});}catch(error){await blotterBack();throw error;}currentProfile=next;await loadIdentity();await profileChoices();$<HTMLDialogElement>('profile-dialog').close();});})();
 // A newly selected As of close replaces what the previous one showed, and the badge takes its basis afresh.
 function closeChanged(){
+  void renderCurveCloses();
+  if(select('snapshot').value!==linkedFrameId)$('close-window-note').hidden=true;
   shownClose=select('snapshot').value;closeBasis=undefined;void showCloseHistory();
   marketCalendar.selectedChanged();dateEditor.contextChanged();curveDefinitions.contextChanged();customCurves.snapshotChanged();riskJobs.contextChanged();gas.reset();crude.reset();parties.reset();futures.reset('inputs');clearPrices();
   // The board and the library show nothing of the previous close while the new one is read.
@@ -1041,10 +1110,11 @@ const curveDefinitions=setupCurveDefinitionEditor(api,act,()=>{if(contextDirty)t
 $('curve-definition').append(curveDefinitions.element);
 $('curve-define').onclick=()=>void act(async()=>{await selectCurve('');definingCurve=true;renderMarketBoard();await curveDefinitions.load();});
 // A rendered rate curve is read-only; its definition is changed only in Curve definitions (D359).
-$('curve-definition-link').onclick=()=>void act(async()=>{const pinned=result?.kind==='rates'?result.definition:null;if(!pinned)return;await selectCurve('');definingCurve=true;renderMarketBoard();await curveDefinitions.openDefinition(pinned.id,pinned.version);});
+function openCurveConfiguration(pinned:{id:string;version:number}){return act(async()=>{await selectCurve('');definingCurve=true;renderMarketBoard();await curveDefinitions.openDefinition(pinned.id,pinned.version);});}
+$('curve-definition-link').onclick=()=>{const pinned=result?.kind==='rates'?result.definition:null;if(pinned)void openCurveConfiguration(pinned);};
 const dateEditor=setupDateEditor(act,api,()=>busy,()=>prefs.timeZone,dirtyContext,()=>administrationScope+':'+currentProfile,{holds:holdsEdits,mayChange:async()=>!busy&&await mayLeave()},work=>act(work,{keepNotice:true}),(title,events,owner)=>{if(events.length)scheduleWorkspace?.calendar.show(title,events,owner);else scheduleWorkspace?.calendar.clear(owner);},()=>{if(contextDirty)throw Error('Apply the changed context first.');return select('snapshot').value;});
-$('date-context').addEventListener('input',dirtyContext);
-$('knowledge-context').addEventListener('toggle',renderWorkspaceMode);
+$('date-context').addEventListener('input',dirtyContext);$('business-date-field').addEventListener('input',dirtyContext);
+$('as-of-context').addEventListener('toggle',renderWorkspaceMode);
 document.addEventListener('input',refreshContextPanels);
 document.addEventListener('change',refreshContextPanels);
 async function applyContext(){
@@ -1054,11 +1124,11 @@ async function applyContext(){
 }
 async function viewContext(snapshot:{context:Context;snapshotId?:string|null;frameSelectionPolicy?:string|null}){
   if(snapshot.snapshotId&&snapshot.frameSelectionPolicy!=='preserve_origin_or_unique_asof_frame_v1')throw Error('The context returned an unsupported frame-selection policy.');
-  physicalOperations.reset();facilities.reset();futures.reset('inputs');dateEditor.setContext(snapshot.context);contextDirty=false;clearPrices();await reload(snapshot.snapshotId??'');$<HTMLDetailsElement>('knowledge-context').open=false;
+  physicalOperations.reset();facilities.reset();futures.reset('inputs');dateEditor.setContext(snapshot.context);contextDirty=false;clearPrices();await reload(snapshot.snapshotId??'');$<HTMLDetailsElement>('as-of-context').open=false;
   text('environment-context-note','Historical view · working snapshots use the latest known corrections; stored closes retain their original inputs. Changes are disabled.');
 }
 $('apply-view-context').onclick=()=>leaving(async()=>{await applyContext();if(page==='facilities')await facilities.load();else if(page==='dashboard')await dashboard.load();else if(page==='reference')await loadReference();else if(page==='power')await loadPowerPage({refreshProducts:false});else if(page==='custom-curves')await customCurves.load();else if(page==='interval-series')await intervalSeries.load();else if(page==='interval-curves')await intervalCurves.load();else if(page==='vol-surfaces')await volSurfaces.refresh();else await loadSelectedClose();});
-async function currentInputs(){physicalOperations.reset();facilities.reset();curveDefinitions.contextChanged();scheduleWorkspace?.calendar.reset();dateEditor.invalidatePreview();jobs.contextChanged();customCurves.contextChanged();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();parties.reset();unitConverter.reset();futures.reset('inputs');power.reset();await api('market/current',{});contextDirty=false;dateEditor.clearContext();clearPrices();await reload('');$<HTMLDetailsElement>('knowledge-context').open=false;text('environment-context-note','Working data uses current knowledge. These controls select a historical context when applied.');}
+async function currentInputs(){physicalOperations.reset();facilities.reset();curveDefinitions.contextChanged();scheduleWorkspace?.calendar.reset();dateEditor.invalidatePreview();jobs.contextChanged();customCurves.contextChanged();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();parties.reset();unitConverter.reset();futures.reset('inputs');power.reset();await api('market/current',{});contextDirty=false;dateEditor.clearContext();clearPrices();await reload('');$<HTMLDetailsElement>('as-of-context').open=false;text('environment-context-note','Working data uses current knowledge. These controls select a historical context when applied.');}
 // Returning to working data opens it on its newest close, as opening the workspace does (D217, D219), and the page that is
 // showing reads it. A latest instant with several closes opens the calendar on its date and selects nothing.
 async function returnToWorking(){
@@ -1111,7 +1181,7 @@ const volSurfaces=setupVolSurfaces({api,zone:()=>prefs.timeZone,historical:()=>c
  // The page opens another close only as the header does: an offered one is chosen there, so every page reads it.
  // A frame's id is session-scoped, so a stored surface is found by its close, or for a working snapshot by its instant.
  frames:{here:()=>{const f=frame() as Frame&{close?:FrameClose|null};return {closeId:f.close?f.originCloseId??null:null,at:f.at,close:f.close?{session:f.close.session,businessDate:f.close.businessDate}:null};},
-  sessionName:code=>closeSessionNames.get(code)??code,open:chooseClose,
+  sessionName:code=>closeSessionNames.get(code)??code,open:(id,product)=>void offerClose(id,{page:'vol-surfaces',product}),
   // A working snapshot has no identity beyond its instant here, so one is offered only when no other working snapshot shares it.
   offered:surface=>{const matches=offeredFrames().filter(f=>{const close=(f as Frame&{close?:FrameClose|null}).close;
    return surface.closeId?!!close&&f.originCloseId===surface.closeId:!close&&Date.parse(f.at)===Date.parse(surface.valuationAt);});

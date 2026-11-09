@@ -8,6 +8,8 @@ namespace OpenEtrm.Api;
 public sealed record NavigationCategory(string Code,string Name);
 // A commodity curve names its commodity. An interest-rate curve has none; its market type identifies it.
 public sealed record NavigationCurve(string Code,string Name,string MarketType,NavigationCategory? Category,string Kind);
+// The exact definition version a listed curve is configured by.
+public sealed record CurveConfiguration(string Curve,Guid Id,int Version);
 public sealed record NavigationFrame(Guid Id,string Name,DateTimeOffset At,Guid? OriginCloseId=null,FrameClose? Close=null);
 public sealed record NavigationRead(DefinitionRevision DefinitionRevision,ReferenceRevision ReferenceRevision,
     ImmutableArray<NavigationCurve> Curves,ImmutableArray<CurveName> CurveNames,ReferenceDisplayData? ReferenceDisplay=null);
@@ -19,6 +21,8 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
     public string KindsVersion=>CurveKinds.Version;
     public FrameCatalogInfo? FrameCatalog{get;init;}
     public object? Live{get;init;}
+    // Only the configurations this person may change, so a curve is offered as editable by this read alone.
+    public ImmutableArray<CurveConfiguration> CurveConfigurations{get;init;}=[];
 
     // Interval curves are listed by the interval-curve screen, and futures-option settlement curves by their options,
     // not here. A curve that mixes option contracts with others has no classification and fails the read.
@@ -62,6 +66,16 @@ public sealed record MarketNavigation(string Profile,ScheduleContext? Context,De
         if(curves.Any(c=>string.IsNullOrWhiteSpace(c.Name)||c.Category is {} category&&string.IsNullOrWhiteSpace(category.Name))||curves.Select(c=>c.Code).Distinct().Count()!=curves.Count)
             throw Invalid();
         return curves.ToImmutable();
+    }
+
+    // A curve is configured by a definition only once one is admitted, which today only interest-rate curves are (D359).
+    internal static async Task<ImmutableArray<CurveConfiguration>> ReadConfigurations(NpgsqlConnection connection,PreviewManifest manifest,CancellationToken ct)
+    {
+        var configurations=ImmutableArray.CreateBuilder<CurveConfiguration>();
+        await using var command=ScheduleStore.Command(connection,"SELECT code,definition_id,definition_version FROM market_data.rate_curves WHERE catalog_id=$1 AND revision_id=$2 ORDER BY code",manifest.CatalogId,manifest.RevisionId);
+        await using var reader=await command.ExecuteReaderAsync(ct);
+        while(await reader.ReadAsync(ct))configurations.Add(new(reader.GetString(0),reader.GetGuid(1),reader.GetInt32(2)));
+        return configurations.ToImmutable();
     }
 
     static MarketDataException Invalid()=>new("market_navigation","The selected curve directory has missing or conflicting classifications.");

@@ -73,17 +73,19 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
   const fence=()=>({generation,identity:identity()});
   const current=(started:ReturnType<typeof fence>)=>started.generation===generation&&started.identity===identity();
   function storePending(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* Retained in memory when storage is unavailable. */}}
+  // The time context's inputs: the business date in the header and the knowledge cutoff in the As of widget.
+  const contextRoots=[get('date-context'),get('business-date-field')];
   const knownInput=zonedInput(get<HTMLInputElement>('date-context-view'),zone,api);
   const clearDates=()=>{calendar('',[],'generator');shownDates=undefined;get('dates-result').hidden=true;};
   const clearCurve=()=>{calendar('',[],'template');shownCurve=undefined;get('curve-dates-result').hidden=true;};
   const clearExpression=()=>{get('date-expression-result').hidden=true;};
   for(const event of ['input','change']){
     form.addEventListener(event,clearDates);curveForm.addEventListener(event,()=>{contractDirty=true;clearCurve();contractState();});get('date-expression-form').addEventListener(event,clearExpression);
-    get('date-context').addEventListener(event,()=>{contextInitialization++;pinnedContext=undefined;clearCurve();clearExpression();settle();});
+    for(const root of contextRoots)root.addEventListener(event,()=>{contextInitialization++;pinnedContext=undefined;clearCurve();clearExpression();settle();});
     get('date-context-view').addEventListener(event,()=>{exactKnownAt=undefined;});
   }
   // The controls of the time context, and the values they held when they last settled: what a change that is not agreed to puts back.
-  const contextControls=()=>Array.from(get('date-context').querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select'));
+  const contextControls=()=>contextRoots.flatMap(root=>Array.from(root.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select')));
   let settled=new Map<Element,string>();
   function settle(){settled=new Map(contextControls().map(control=>[control,control.value]));}
   settle();
@@ -92,7 +94,7 @@ export function setupDateEditor(run:(work:()=>Promise<void>)=>Promise<void>,api:
   // through as if it had just been made, and keeping what the page holds puts the controls back exactly as they were.
   let asking=false,replaying=false;
   const held:{target:EventTarget;type:string}[]=[];
-  for(const event of ['input','change'])get('date-context').addEventListener(event,change=>{
+  for(const event of ['input','change'])for(const root of contextRoots)root.addEventListener(event,change=>{
     if(replaying||!guard.holds())return;
     change.stopPropagation();
     if(!held.some(h=>h.target===change.target&&h.type===event))held.push({target:change.target!,type:event});

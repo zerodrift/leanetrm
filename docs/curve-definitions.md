@@ -166,6 +166,9 @@ adopted silently. Rendered curves offer no way to change a definition.
 - **Curves & prices → Curve definitions**: lists saved definitions and edits one
   in place of the market board or a curve. Schedules and date mappings stay on
   Settings → Schedules & date mappings.
+- D361: a gear beside a listed curve opens that curve's definition. The navigation read
+  (`curveConfigurations`) names it only for a curve with an admitted definition and a
+  person who may change it outside a historical view; today, interest-rate curves.
 - D358: `GET /api/curve-definitions`, `POST /api/curve-definitions/save` and
   `POST /api/curve-definitions/publish`; a preview or save may carry the curve's
   edited mapping rows. Migration `0214_curve_definitions.sql` adds the versions,

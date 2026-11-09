@@ -367,7 +367,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await check('and discarding them opens the curve',`${title}==='Curves & prices'`);
   await back();
   // Revealing the knowledge controls does not change context; editing them still uses the amendment guard.
-  const openTimeControls=async()=>{if(!await evaluate("document.querySelector('#knowledge-context').open"))await click('#knowledge-context>summary');};
+  const openTimeControls=async()=>{if(!await evaluate("document.querySelector('#as-of-context').open"))await click('#as-of-context>summary');};
   await openTimeControls();
   await amend(refB);
   await evaluate("document.querySelector('#date-context-view').focus()");
@@ -421,7 +421,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await openTimeControls();
   await set('#date-context-view',otherKnowledge);await wait(idle);
   await check('a change in the open time controls is made without a question when the form holds no edits',`${prompt}.hidden&&${contextNote}.includes('Context changed')&&document.querySelector('#trade-editing').hidden`,`[${prompt}.textContent,${contextNote}]`);
-  await restoreBlotter();await click('#knowledge-context>summary');
+  await restoreBlotter();await click('#as-of-context>summary');
   // PPA entry shares the product panel and its unsaved-edit guard.
   await amend(refB);
   await startNewTrade({click,wait});await click('#new-trade-ppa');

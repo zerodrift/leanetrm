@@ -33,7 +33,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate(`(()=>{const s=document.querySelector('#snapshot');s.value=[...s.options].find(o=>o.textContent.includes('Dec 17')).value;s.dispatchEvent(new Event('change',{bubbles:true}));})()`);await wait(idle);
   const before=await evaluate("window.__responses.filter(r=>r.path==='/api/evaluate').at(-1).data");
   await check('commodity valuation carries same effective and known context',`JSON.stringify(window.__responses.filter(r=>r.path==='/api/evaluate').at(-1).data.context)===${JSON.stringify(JSON.stringify(first.context))}`);
-  await evaluate("[...document.querySelectorAll('.curve-button')].find(o=>o.textContent==='Interest ratesInterest rates').click()");await wait(idle);
+  await evaluate("[...document.querySelectorAll('.curve-button')].find(o=>o.querySelector('span').textContent==='Interest rates').click()");await wait(idle);
   await check('rate curve uses same context and renders discount factors',`JSON.stringify(window.__responses.filter(r=>r.path==='/api/evaluate').at(-1).data.context)===${JSON.stringify(JSON.stringify(first.context))}&&document.querySelector('#contracts').textContent.includes('Discount factor')&&document.querySelector('#error').hidden`);
   await click('#nav-reference');await check('reference view survives historical context with rows',"document.querySelector('#reference').textContent.length>0&&document.querySelector('#error').hidden");
   await click('#nav-schedules');await click('#nav-market');
@@ -41,7 +41,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const future=await evaluate(`(async()=>{await __api('market/current',{});const w=(await __api('workspace')).data;let f=w.frames.filter(f=>f.at.startsWith('2020-12-17')&&!f.contextId).at(-1);let o=w.observations.find(o=>f.observationIds.includes(o.id)&&o.series_id.endsWith('000000000001'));while(w.observations.some(n=>n.corrects_id===o.id))o=w.observations.find(n=>n.corrects_id===o.id);if(!f.observationIds.includes(o.id))f=(await __api('select-observation',{snapshotId:f.id,observationId:o.id})).data.frame;return await __api('corrections',{snapshotId:f.id,observationId:o.id,value:(Number(o.value)+0.137).toFixed(3)});})()`);
   await check('editor can create a synthetic current-input correction',JSON.stringify(future.status===200));
   await evaluate(`__api('market/context',{effectiveOn:'2020-12-17',knownAt:${JSON.stringify(first.context.knownAt)},mode:'at',selection:'latest_correction'})`);
-  await evaluate("[...document.querySelectorAll('.curve-button')].find(o=>o.textContent==='Local power forwardsForward curves').click()");await wait(idle);
+  await evaluate("[...document.querySelectorAll('.curve-button')].find(o=>o.querySelector('span').textContent==='Local power forwards').click()");await wait(idle);
   await check('later correction cannot change a retained exact historical result',`JSON.stringify(window.__responses.filter(r=>r.path==='/api/evaluate').at(-1).data)===${JSON.stringify(JSON.stringify(before))}`);
   const mismatch=await evaluate(`__api('evaluate',{snapshotId:${JSON.stringify(future.data.frame.id)},curve:'local_power'})`);
   await check('unbound future-correction frame is rejected, no fallback',JSON.stringify(mismatch.status===422));
