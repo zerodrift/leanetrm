@@ -47,12 +47,12 @@ test('every other page reports the view it shows in its read tool input form, an
     ['admin','users_access'],['ai','settings_ai'],['vol-surfaces','vol_surfaces']])assert.deepEqual(pageReport({page}),{page:id,selection:{}});
 });
 
-test('Jobs & Infrastructure reports the list of your jobs, or the history of the job whose details are open, as Read jobs takes them',()=>{
+test('Jobs reports the list of your jobs, or the history of the job whose details are open, as Read jobs takes them',()=>{
   const job='a7000000-0000-0000-0000-000000000003',working={mode:'current',frameId:frame,frameLabel:'18 Dec 2020 16:00'},names={curve:String,table:String};
   assert.deepEqual(pageReport({page:'jobs',job:null}),{page:'jobs',selection:{view:'jobs',job:null,page:0,before:null}});
   assert.deepEqual(pageReport({page:'jobs',job}),{page:'jobs',selection:{view:'history',job,page:null,before:null}});
   assert.deepEqual(lookingAt(pageReport({page:'jobs',job:null}),working,names),
-    {page:'Jobs & Infrastructure',shows:'Your jobs. Other people’s jobs are not sent.',context:'Working data · As of 18 Dec 2020 16:00',supported:true,askable:true});
+    {page:'Jobs',shows:'Your jobs. Other people’s jobs are not sent.',context:'Working data · As of 18 Dec 2020 16:00',supported:true,askable:true});
   assert.equal(lookingAt(pageReport({page:'jobs',job}),working,names).shows,'The history of the job whose details are open');
   assert.equal(webPage('jobs'),'jobs');
   assert.equal(stepLine({ordinal:1,tool:'read_jobs',code:null}),'Read your jobs');
