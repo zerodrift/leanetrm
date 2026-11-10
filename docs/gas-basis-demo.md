@@ -60,7 +60,7 @@ not invented historical publication timestamps.
    At the pre-delivery close each has contractual PV of 20 USD.
 2. Open a trade's physical Side. Its explicit operational records show nominated
    90, confirmed 85 and scheduled 80 MMBtu. These preserve its contractual 100.
-3. Apply **As of 2021-01-15** and open Operations → Facilities & delivery → Quantities & allocations. Choose the seeded
+3. Apply **As of 2021-01-15** and open Scheduling → Facilities & delivery → Quantities & allocations. Choose the seeded
    2021-01-01 delivery-point ledger. Reported flow is 100; the saved plan assigns
    60/25/10, leaving 5 unallocated. Its native-period maximum is 90, so the
    assessment retains the report and shows a 10-unit breach. This profile assesses

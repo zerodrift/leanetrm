@@ -1,7 +1,7 @@
 # Facility quantities and physical Side delivery tracks
 
 Status: implemented for local synthetic qualification (D303, migration 0184).
-Operations › Facilities & delivery › Quantities & allocations and the authorized
+Scheduling › Facilities & delivery › Quantities & allocations and the authorized
 API use the same database operations. Broader lifecycle responsibilities remain in the
 [design](physical-lifecycle-design.md) and [extension guide](physical-lifecycle-extension-guide.md).
 D321 adds explicit [final-input adoption and a gas basis demo](gas-basis-demo.md).

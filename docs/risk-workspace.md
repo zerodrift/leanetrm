@@ -10,7 +10,7 @@ so moving between them neither reloads nor discards anything and asks no leave
 question. A compact bar states the portfolio, book and trade scope for all four and
 opens the controls below on demand. A finished run or an opened report shows Reports;
 a submission awaiting confirmation shows Scenarios & Greeks. Worker nodes are managed
-from Infrastructure › Jobs.
+from Administration › Jobs.
 
 Risk owns its book/portfolio selection and run editor. The header selects the
 market close and financial context. Empty book and portfolio selections explicitly

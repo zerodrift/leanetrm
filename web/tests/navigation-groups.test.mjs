@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {navigationGroups,pageGroup,pageAvailable,firstPage} from '../dist/navigation-groups.js';
+import {consoleAreas} from '../dist/console-menu.js';
 
 const allPages=navigationGroups.flatMap(g=>g.pages);
 const listed=permissions=>allPages.filter(page=>pageAvailable(page,permissions));
@@ -13,7 +14,7 @@ test('physical product workflows remain Trading pages while saved views provide 
 test('every page belongs to exactly one group and Overview comes first',()=>{
  const pages=navigationGroups.flatMap(g=>g.pages);
  assert.equal(new Set(pages).size,pages.length);assert.equal(navigationGroups[0].label,'Overview');assert.equal(pageGroup('dashboard'),'Overview');
- assert.equal(pageGroup('parties'),'Reference Data');assert.equal(pageGroup('admin'),'Infrastructure');assert.equal(pageGroup('jobs'),'Infrastructure');
+ assert.equal(pageGroup('parties'),'Reference Data');assert.equal(pageGroup('admin'),'Administration');assert.equal(pageGroup('jobs'),'Administration');
 });
 test('the groups and their pages keep the sidebar order',()=>{
  assert.deepEqual(navigationGroups.map(g=>[g.id,g.label,[...g.pages]]),[
@@ -21,9 +22,9 @@ test('the groups and their pages keep the sidebar order',()=>{
   ['trading','Trading',['futures']],
   ['markets','Markets',['market','delivery','interval-series','vol-surfaces','interval-curves']],
   ['risk','Risk',['risk','risk-scenarios','risk-var','risk-runs']],
-  ['operations','Operations',['physical-operations','facilities']],
+  ['scheduling','Scheduling',['physical-operations','facilities']],
   ['reference','Reference Data',['reference']],
-  ['infrastructure','Infrastructure',['jobs','admin','ai']]]);
+  ['administration','Administration',['jobs','admin','ai']]]);
 });
 test('PPA bookings is a Trading page the Blotter opens, not a sidebar entry',()=>{
  assert.equal(pageGroup('ppa'),'Trading');assert.ok(!allPages.includes('ppa'));
@@ -33,9 +34,9 @@ test('facility quantities require explicit complete-pool access',()=>{
  assert.equal(pageAvailable('facilities',['ReadMarketData','ReadTrades','ReadFacilityQuantities']),true);
  for(const permissions of [[],['ReadMarketData','ReadTrades'],['ReadFacilityQuantities']])assert.equal(pageAvailable('facilities',permissions),false);
 });
-test('Delivery setup sits in the console and Facilities in Operations without widening pool authority',()=>{
+test('Delivery setup sits in the console and Facilities in Scheduling without widening pool authority',()=>{
  for(const page of ['gas-setup','crude-setup']){assert.equal(pageGroup(page),'Reference Data');assert.ok(!allPages.includes(page));}
- assert.equal(pageGroup('facilities'),'Operations');assert.ok(allPages.includes('facilities'));
+ assert.equal(pageGroup('facilities'),'Scheduling');assert.ok(allPages.includes('facilities'));
  assert.throws(()=>pageAvailable('physical',['ReadMarketData']),/could not load/);
  assert.equal(pageAvailable('gas-setup',['ReadMarketData']),true);
  assert.equal(pageAvailable('crude-setup',['ReadMarketData']),true);
@@ -91,7 +92,7 @@ const markup=readFileSync(new URL('../src/index.html',import.meta.url),'utf8');
 const switched=['interval-curves'];
 test('the sidebar markup lists each group and its pages in the navigationGroups order, but for the pages a switch enters',()=>{
  const shown=[...markup.matchAll(/<details id="nav-group-([a-z]+)"[^>]*><summary>([^<]+)<\/summary>(.*?)<\/details>/gs)]
-  .map(([,id,label,body])=>({id,label,pages:[...body.matchAll(/<button id="nav-([a-z-]+)"/g)].map(m=>m[1]).filter(page=>page!=='configuration')}));
+  .map(([,id,label,body])=>({id,label,pages:[...body.matchAll(/<button id="nav-([a-z-]+)"|<div id="nav-(reference)"/g)].map(m=>m[1]??m[2]).filter(page=>page!=='configuration')}));
  assert.deepEqual(shown,navigationGroups.map(({id,label,pages})=>({id,label,pages:pages.filter(page=>!switched.includes(page))})));
  assert.doesNotMatch(markup,/id="(market|settings|trading)-menu"/);
 });
@@ -119,8 +120,8 @@ test('the curve workspace switch precedes every curve view',()=>{
   assert.ok(switchAt<markup.indexOf(`<section id="${id}"`),`workspace switch must precede ${id}`);
 });
 
-test('physical work has its own sidebar workspace under Operations',()=>{
- assert.equal(pageGroup('physical-operations'),'Operations');
+test('physical work has its own sidebar workspace under Scheduling',()=>{
+ assert.equal(pageGroup('physical-operations'),'Scheduling');
  assert.equal(allPages.includes('physical-operations'),true);
  assert.equal(pageAvailable('physical-operations',['ReadMarketData','ReadTrades']),true);
  assert.equal(pageAvailable('physical-operations',['ReadMarketData']),false);
@@ -139,4 +140,10 @@ test('moving pages changes no account’s reach',()=>{
  assert.deepEqual(reach(['ReadMarketData','ReadTrades','RunScenario']),[...market,'physical-operations','futures','vol-surfaces','risk','risk-scenarios','risk-var','risk-runs'].sort());
  assert.deepEqual(reach(['ReadMarketData','ReadTrades','ReadFacilityQuantities']),[...market,'physical-operations','futures','vol-surfaces','facilities'].sort());
  assert.deepEqual(reach(['ManageAccess']),['admin','jobs'].sort());
+});
+
+test('Reference Data lists the areas of its console, in the console\'s order and by its names',()=>{
+ const [,body]=markup.match(/<div id="nav-reference"[^>]*>(.*?)<\/div>/s);
+ assert.deepEqual([...body.matchAll(/<button id="reference-area-([a-z]+)"[^>]*data-area="([a-z]+)"[^>]*title="([^"]+)"/g)].map(([,id,area,name])=>({id:area,name:name.replace('&amp;','&'),same:id===area})),
+  consoleAreas.map(a=>({...a,same:true})));
 });

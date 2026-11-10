@@ -11,7 +11,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('switching commodity asks before leaving unsaved setup and keeps the current family selected',"document.querySelector('#gs-leave').open&&document.querySelector('#nav-gas-setup').getAttribute('aria-current')==='page'&&document.querySelector('#crude-setup-page').hidden");
  await click('#gs-keep');
  await check('keeping gas edits cancels the commodity switch without changing the draft',"document.querySelector('#gs-field-adjustment').value==='-0.15'&&!document.querySelector('#gas-setup-page').hidden&&document.querySelector('#nav-gas-setup').getAttribute('aria-current')==='page'");
- await click('#nav-reference');await click('#nav-table-currencies');
+ await click('#reference-area-curves');await click('#nav-table-currencies');
  await check('navigation protects unsaved economic setup edits',"document.querySelector('#gs-leave').open&&!document.querySelector('#gas-setup-page').hidden");
  await click('#gs-keep');await click('#gs-save');
  const draft=await evaluate("document.querySelector('#gs-version').value");

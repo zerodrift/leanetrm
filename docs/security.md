@@ -151,7 +151,7 @@ mode:
   malformed, including one holding an escaped lone surrogate, repeats a member, holds
   a value its member's type cannot hold, such as a whole number beyond a 32-bit
   member's range, or holds an unknown member where its request type refuses one, as
-  every Infrastructure › AI, grant and account request does.
+  every Administration › AI, grant and account request does.
 - `request_too_large` (413): a body over the route's limit, 32 KiB, or 8 MiB for
   `/api/interval-series/revise`.
 
@@ -163,7 +163,7 @@ with nginx's own 413, which pages cannot read, so they keep such a request uncon
 Each answer is a fixed code and message that echo nothing the request held, and
 neither refusal is logged, so no part of a refused provider key reaches an answer or
 the application log. A refusal that names its own code, such as `request_token`,
-keeps it. Infrastructure › AI releases a first attempt refused either way, since nothing was
+keeps it. Administration › AI releases a first attempt refused either way, since nothing was
 written. For a form with entries it states the ranges they keep; for one without, a
 refusal can only mean the page and the server disagree, and it asks for a refresh.
 Users & access, parties, jobs, custom curves, trading and the contract-date and
@@ -412,7 +412,7 @@ input, not evidence of production capacity or a qualified cluster installation.
 ## Page-assistant provider administration
 
 Migration 0043 adds `ManageModelProviders`, held by Access Administrator, for the
-page assistant's Infrastructure › AI ([ai-assistant.md](ai-assistant.md) §5). Provider,
+page assistant's Administration › AI ([ai-assistant.md](ai-assistant.md) §5). Provider,
 credential and audit tables force RLS with no runtime table grants; definer
 operations recheck the permission and refuse delegated agent contexts, so an agent
 never administers providers or keys. A provider key is write-only. The API
@@ -485,7 +485,7 @@ migration's helpers are unexecutable by the runtime.
 Migration 0061 has the Providers directory also state each applied mapping's
 reasoning efforts. The directory keeps its definer, owner and grants, still rechecks
 `ManageModelProviders` and refuses delegated agents, and the migration verifies the
-definitions it relies on and replaces. Infrastructure › AI offers only the efforts the
+definitions it relies on and replaces. Administration › AI offers only the efforts the
 directory states, and the server validates every capability it is sent.
 
 The Messages adapter (step 4) sends the key only in its `x-api-key` header, after
@@ -570,7 +570,7 @@ administrator role, and never runs under a delegated context:
   ASCII letters only.
 - **Repeats:** each command's request names its action, and a repeat answers only the
   identical request from the same administrator; a request identity used for any other
-  administrative change, in Infrastructure › AI or Users & access, is refused. The
+  administrative change, in Administration › AI or Users & access, is refused. The
   administrator's principal row serializes their commands, so an identical repeat sent
   while its original still runs waits for it and answers as it does.
 - **Admission:** create and Retire write control tables. Each first runs every check
@@ -842,7 +842,7 @@ a command requiring separate human approval:
   each currency by its exact reference alone.
 - **Export:** an export records the report it carries, with its request, in the model
   administration audit, which the Usage tab lists. A repeat answers with the recorded
-  report; a request identity used for any other change in Infrastructure › AI or Users & access
+  report; a request identity used for any other change in Administration › AI or Users & access
   is refused, as is one sent by another reader. The tab's CSV prefixes text a spreadsheet
   could read as a formula with an apostrophe.
 - **Records:** row triggers refuse any update or delete of an export record, even from

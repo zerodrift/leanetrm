@@ -94,7 +94,7 @@ bounded determination and its corrections without changing this read contract.
 - `POST /api/gas/quantities/status`: original operation identity, actor-bound and
   checked against current trade/source authority.
 
-Open **Operations → Physical operations → Delivery** for the booked gas
+Open **Scheduling → Physical operations → Delivery** for the booked gas
 instrument and select its exact side/day row. **After flow** offers allocated
 quantity entry with explicit status and evidence, followed by review and
 acceptance. Nominations, confirmations and schedule adoption use the separate

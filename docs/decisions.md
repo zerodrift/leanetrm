@@ -10,7 +10,7 @@ later [fixed-volume physical crude decision](#d271--fixed-volume-physical-crude)
 References must include the subject to distinguish them; the two contracts are
 independent.
 
-## D367 — One catalogue, independent regional close sessions
+## D369 — One catalogue, independent regional close sessions
 
 Approved 2026-11-10. Current business objects belong to one ordinary production
 catalogue. Remove the source-market selector, its authoring request fields and
@@ -40,7 +40,7 @@ Final dependencies are separately pinned immutable inputs; selecting them does
 not rewrite the recorded forward close. Legacy settlement modes retain their
 existing behavior.
 
-The separated installation scheme is superseded by D367. Publication methodology,
+The separated installation scheme is superseded by D369. Publication methodology,
 exact reference identities and immutable correction history remain in force.
 
 ## D363 — Curve objects, explicit contract settlement and price publications
@@ -3779,3 +3779,42 @@ commercial billing, automatic monthly index switching, arbitrary holiday
 calendars or exchange execution eligibility. Those consumers require their own
 explicit contracts and checks. Private operational seed data is not part of this
 repository.
+
+## D367 — Sidebar groups are named for the desks that use them
+
+The **Operations** sidebar group is now **Scheduling** and **Infrastructure** is
+**Administration**. Scheduling lists Physical operations and Facilities, where
+deliveries, daily quantities, nominations and allocations are worked. Administration
+lists Jobs, Users & access and AI. This amends the group names of D365; the group
+order and each group's pages are unchanged. Every sidebar entry has a drawn icon of
+its own, so the four Risk pages no longer share one symbol.
+
+This changes presentation only. Page identifiers, addresses, permissions and every
+read and write are unchanged. The Jobs page keeps its name, Jobs & Infrastructure, in
+assistant page reports.
+
+## D368 — Reference Data lists its console's areas in the sidebar
+
+The Reference Data sidebar group held one entry with the group's own name. It now
+lists the areas of the console's menu: Curves & pricing, Time, Products, Commodities
+& units, Physical and Entities. An area opens the entry last shown in it, else its
+first, and the area of the page shown is marked. The console keeps its own menu and
+search. An area an account's menu does not have is not listed; until that account's
+tables are read every area is listed, and an area of tables opens once they are. This
+amends the single entry of D365.
+
+Risk's pages share one layout: the scope and its editor on one bar, report choices
+across the page, and an empty report or run list that says so and, for a report,
+offers the ways to start one.
+
+A reference category's name is the page title, in place of a second heading under
+"Reference data", and its search and paging share one row above the table. Curve definitions and Price
+setup lay each section's fields side by side within one measure.
+
+A new dashboard widget takes the first free place on the Board, reading across and
+then down, in place of always going below the lowest widget; the layout the server
+stores and validates is unchanged. The dashboard's controls no longer repeat the page
+title.
+
+This changes presentation only. Page identifiers, addresses, permissions and every
+read and write are unchanged.

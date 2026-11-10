@@ -22,7 +22,8 @@ export function setupRiskWorkspace(o:Options){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const prefix='workspace-',host=get('risk-page'),editor=get<HTMLDetailsElement>('risk-workspace-editor');
  copyRiskEditor(get('risk-workspace-editor-body'),prefix);
- const results=setupRiskResults(get('risk-workspace-results'),o.zone);
+ const start=(view:RiskView)=>()=>{if(!o.busy())o.view(view);};
+ const results=setupRiskResults(get('risk-workspace-results'),o.zone,undefined,[{label:'Run scenarios & Greeks',go:start('risk-scenarios')},{label:'Run VaR / ES',go:start('risk-var')}]);
  const scopePicker=setupBookScopePicker({books:get('risk-workspace-books'),portfolios:get('risk-workspace-portfolios'),busy:o.busy});
  let epoch=0,directory:Directory|undefined,selection:Source|undefined,selectedJob:string|undefined,owner='',engine:ReturnType<typeof setupRisk>|undefined;
  let shown:RunView|undefined,question:AbortController|undefined,scope:Scope={bookIds:[],portfolioIds:[],tradeIds:null},unreadRecovery=false;
@@ -53,7 +54,8 @@ export function setupRiskWorkspace(o:Options){
    const before=shown?.parts[i];return p.report!==before?.report||p.job?.state!==before?.job?.state||p.failure!==before?.failure||p.unknown!==before?.unknown||p.unlisted!==before?.unlisted;
   });
   const finished=!!shown?.running&&!!run&&!run.running&&!engine.unconfirmed();
-  if(different){shown=run;results.show(run);}
+  // A report on the page answers the scope status that asked for one.
+  if(different){shown=run;results.show(run);if(run&&!engine.unconfirmed())get('risk-workspace-note').textContent='';}
   if(finished)o.view('risk');
   const first=run?.parts.find(p=>p.report)?.report;
   const differentScope=run?.scope&&!sameRiskScope(run.scope,scope);

@@ -20,7 +20,7 @@ const homeSections:Record<WidgetKind,Section>={latest_levels:'prices_positions',
 export const homeSection=(kind:WidgetKind):Section=>homeSections[kind];
 
 // How large a new widget first is on the Board; the person can resize it.
-const boardSizes:Record<WidgetKind,Pick<Box,'w'|'h'>>={latest_levels:{w:6,h:4},price_chart:{w:6,h:6},positions:{w:6,h:5}};
+const boardSizes:Record<WidgetKind,Pick<Box,'w'|'h'>>={latest_levels:{w:6,h:5},price_chart:{w:6,h:6},positions:{w:6,h:5}};
 
 const absent=()=>Error('This widget is not on the dashboard. Reload the dashboard.');
 function change(layout:DashboardLayout,id:string,edit:(widget:DashboardWidget)=>DashboardWidget):DashboardLayout{
@@ -28,10 +28,15 @@ function change(layout:DashboardLayout,id:string,edit:(widget:DashboardWidget)=>
  return {...layout,widgets:layout.widgets.map(w=>w.id===id?edit(w):w)};
 }
 
-// A widget of this content placed after everything on the Board (below the lowest widget, at the left edge) and at the end of its Morning section.
+const overlap=(a:Box,b:Box)=>a.x<b.x+b.w&&b.x<a.x+a.w&&a.y<b.y+b.h&&b.y<a.y+a.h;
+// The first place on the Board where a box of this size overlaps no widget, reading across each row and then down; below the lowest widget is always free.
+function freePlace(layout:DashboardLayout,size:Pick<Box,'w'|'h'>):Box{
+ for(let y=0;;y++)for(let x=0;x+size.w<=columns;x++){const box={x,y,...size};if(!layout.widgets.some(w=>overlap(w.board,box)))return box;}
+}
+// A widget of this content in the first free place on the Board and at the end of its Morning section.
 export function newWidget(layout:DashboardLayout,id:string,content:WidgetContent):DashboardWidget{
  const section=homeSection(content.kind);
- return {id,...content,board:{x:0,y:Math.max(0,...layout.widgets.map(w=>w.board.y+w.board.h)),...boardSizes[content.kind]},morning:{section,order:endOfSection(layout,section)}};
+ return {id,...content,board:freePlace(layout,boardSizes[content.kind]),morning:{section,order:endOfSection(layout,section)}};
 }
 export function addWidget(layout:DashboardLayout,widget:DashboardWidget):DashboardLayout{
  if(layout.widgets.some(w=>w.id===widget.id))throw Error('This widget is already on the dashboard.');
