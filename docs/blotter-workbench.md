@@ -423,3 +423,15 @@ Crude and LNG use the same inspector in their schedule views. Select
 source contract/fixing, amount and discount inputs. Schedule values include the
 signed booked scale; calculation cells declare their unit-Side basis. Lifecycle
 facts remain independent of the selected contractual MTM measure.
+
+
+## Desktop continuity (D370)
+
+Maximizing Positions hides the other dock panes and fills the dock without outer
+padding. Resizing preserves the grid’s row anchor, selected row and horizontal
+scroll, including while another page hides it. Returning keeps the read-only
+position and detail tab after server freshness validation. An authority or context
+change still invalidates retained data; edits keep their existing leave guards.
+Side schedules keep their widget while the position/context is unchanged. Paging
+rows or calculation inputs leaves the previous page visible and inert until its
+validated replacement arrives, retaining the table’s scroll position.

@@ -167,7 +167,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     `[document.querySelector('#curve-title').textContent,document.querySelector('#contract-panel-head').textContent,document.querySelector('#error').textContent,document.querySelector('#notice').textContent]`);
   await click('#nav-futures');
   await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
-  await check('coming back to the Blotter leaves no panel open',`${panel}.hidden&&!document.querySelector('#futures-page').hidden`);
+  await check('coming back to the unchanged Blotter restores its selected position details',`!${panel}.hidden&&${panelReference}===${JSON.stringify(futureReference)}&&!document.querySelector('#futures-page').hidden&&document.querySelector('#position-details-tabs-terms').getAttribute('aria-selected')==='true'`);
 
   // A new read shows the position the details showed again, from the new read, on the tab they were on.
   await open('fut');
@@ -309,19 +309,19 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   await click('#nav-market');await asks();await answer(1);await wait(`${title}==='Curves & prices'&&${idle}`);
   await check('discarding them goes to the page chosen',`${title}==='Curves & prices'`);
   await back();
-  await check('and the Blotter comes back without the form: it starts fresh',`${panel}.hidden&&document.querySelector('#trade-editing').hidden`);
-  // The sidebar's own Blotter closes the panel; unchanged values are validated and reused.
+  await check('the Blotter returns without the discarded amendment form',`document.querySelector('#trade-editing').hidden&&!${unloadAsks}`);
+  // The sidebar's own Blotter releases the amendment while unchanged read-only details remain selected.
   await amend(refB);
-  await click('#nav-futures');await wait(`${panel}.hidden&&${redrawn(idle)}`);
-  await check('the sidebar\'s Blotter closes the panel without a question when the form holds no edits',`${panel}.hidden&&${prompt}.hidden&&${title}==='Blotter'`);
+  await click('#nav-futures');await wait(`document.querySelector('#trade-editing').hidden&&${redrawn(idle)}`);
+  await check('the sidebar\'s Blotter closes the unedited amendment and retains its read-only position',`!${panel}.hidden&&${panelReference}===${JSON.stringify(refB)}&&document.querySelector('#trade-editing').hidden&&${prompt}.hidden&&${title}==='Blotter'&&!${unloadAsks}`);
   await amend(refB);await typeInto('#trade-lots','5');
   const readsBeforeBlotter=await evaluate(workspaceReads);
   await click('#nav-futures');await asks();
   await check('and asks first when it does, before it reads anything',`${prompt}.querySelectorAll('button').length===2&&${editing}&&${workspaceReads}===${readsBeforeBlotter}&&${title}==='Blotter'`,`[${workspaceReads},${readsBeforeBlotter}]`);
   await answer(0);
   await check('and keeping them reads nothing: the panel, its form and the edits stay',`${editing}&&document.querySelector('#trade-lots').value==='5'&&${workspaceReads}===${readsBeforeBlotter}`);
-  await click('#nav-futures');await asks();await answer(1);await wait(`${panel}.hidden&&${redrawn(idle)}`);
-  await check('discarding them closes the panel and reuses unchanged Blotter values',`${panel}.hidden&&document.querySelector('#trade-editing').hidden&&${workspaceReads}===${readsBeforeBlotter}`);
+  await click('#nav-futures');await asks();await answer(1);await wait(`document.querySelector('#trade-editing').hidden&&${redrawn(idle)}`);
+  await check('discarding them restores read-only details and reuses unchanged Blotter values',`!${panel}.hidden&&${panelReference}===${JSON.stringify(refB)}&&document.querySelector('#trade-editing').hidden&&!${unloadAsks}&&${workspaceReads}===${readsBeforeBlotter}`);
   // A new As of date.
   const closes=await evaluate("[...document.querySelector('#snapshot').options].map(o=>o.value).filter(Boolean)"),closeNow=await evaluate("document.querySelector('#snapshot').value"),closeOther=closes.find(close=>close!==closeNow);
   if(!closeOther)throw Error('The As of checks need a second close.');
@@ -584,13 +584,19 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     await click('#side-panel-amend');await click('#details-collapse');await wait(`${panel}.hidden`);
     await check('collapsing mobile details shows the positions again and leaves the page usable',`document.querySelectorAll('[inert]').length===0&&!document.querySelector('#blotter-pane-grid').hidden&&!document.querySelector('#desk-positions .open-row')`);
   }
-  await settle(760,900);await open('fut');await click('#side-panel-open-curve');
+  await settle(760,900);await open('fut');
+  // Only completed read-only details are retained when another page is opened.
+  await wait("!!document.querySelector('#position-details-view .side-panel-section')&&!document.querySelector('#position-details-view .side-panel-status')&&"+idle);
+  const mobileReference=await evaluate(panelReference);await click('#side-panel-open-curve');
   await wait("document.querySelector('#nav-market').classList.contains('active')&&!document.querySelector('#contract-panel').hidden");
-  await check('Open curve closes the details and opens the contract sheet',`${panel}.hidden&&!document.querySelector('#contract-panel').closest('[inert]')`,
+  await check('Open curve hides the Blotter and opens a usable contract sheet',`document.querySelector('#futures-page').hidden&&!document.querySelector('#contract-panel').closest('[inert]')`,
     `({positionHidden:${panel}.hidden,futuresPageHidden:document.querySelector('#futures-page').hidden,contractHidden:document.querySelector('#contract-panel').hidden,contractInert:document.querySelector('#contract-panel').closest('[inert]')?.id,openRows:document.querySelectorAll('#desk-positions .open-row').length,busy:document.body.getAttribute('aria-busy')})`);
   await click('#contract-panel-close');
   await check('closing the contract sheet leaves the page usable',`document.querySelector('#contract-panel').hidden&&document.querySelectorAll('[inert]').length===0`);
-  await click('#nav-futures');await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
-  await check('returning to the Blotter starts with no position in the details',`${panel}.hidden&&document.querySelectorAll('[inert]').length===0`);
+  await click('#nav-futures');
+  // On a narrow page restored details occupy the single pane, so the hidden grid has no rendered rows to await.
+  await wait(`!${panel}.hidden&&${panelReference}===${JSON.stringify(mobileReference)}&&document.querySelector('#position-details-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelectorAll('[inert]').length===0&&${idle}`);
+  await check('returning to the unchanged Blotter restores the mobile position details',`!${panel}.hidden&&${panelReference}===${JSON.stringify(mobileReference)}&&document.querySelector('#position-details-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelectorAll('[inert]').length===0`,
+    `({positionHidden:${panel}.hidden,reference:${panelReference},expected:${JSON.stringify(mobileReference)},terms:document.querySelector('#position-details-tabs-terms')?.getAttribute('aria-selected'),inert:[...document.querySelectorAll('[inert]')].map(n=>n.id),status:document.querySelector('#position-details-view .side-panel-status')?.textContent,error:document.querySelector('#error').textContent})`);
   await settle(1440,1050);
 }

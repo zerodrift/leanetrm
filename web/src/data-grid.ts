@@ -175,8 +175,14 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   }
   // The room a table has changes with its container's width, which is not the window's: it is fitted again when that changes, at the place
   // the person last left it.
-  let width=0;
-    const resizing=new ResizeObserver(()=>{if(!alive||container.clientWidth===width)return;width=container.clientWidth;const at=lastPlace;void change(fit,at&&(()=>at));});
+  const visible=()=>container.clientWidth>0&&container.clientHeight>0&&container.getClientRects().length>0&&getComputedStyle(container).visibility==='visible';
+  let width=0,viewportHeight=0;
+  const resizing=new ResizeObserver(()=>{
+    if(!alive||!visible()||container.clientWidth===width&&container.clientHeight===viewportHeight)return;
+    width=container.clientWidth;viewportHeight=container.clientHeight;
+    const at=restoring?.version===placing?restoring.place:lastPlace;
+    void change(()=>{redraw(false);fit();},at&&(()=>at));
+  });
   resizing.observe(container);
   // The row the consumer has open, and the row selected, by key: marked whenever their elements are drawn.
   let opened:string|null=null,selected:string|null=null,selectionLost=false,selectionChanged:((key:string|null)=>void)|undefined;
@@ -264,7 +270,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     const view=holder();
     if(view&&ready&&alive){
       const top=view.getBoundingClientRect().top;
-      for(const row of view.querySelectorAll<HTMLElement>('.tabulator-row[data-row-key]')){const box=row.getBoundingClientRect();if(box.height>0&&box.top>=top-0.5)return {anchor:row.dataset.rowKey!,offset:box.top-top,selected};}
+      for(const row of view.querySelectorAll<HTMLElement>('.tabulator-row[data-row-key]')){const box=row.getBoundingClientRect();if(box.height>0&&box.top>=top-0.5)return {anchor:row.dataset.rowKey!,offset:box.top-top,selected,left:view.scrollLeft};}
     }
     return {anchor:null,offset:0,selected};
   }
@@ -274,6 +280,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // Changes wait for the table to be built: Tabulator refuses data before then, and run one at a time; restoring a place does not hold them up.
   let placing=0,updating=false,lastPlace:Place|undefined,restoring:{version:number;place:Place}|undefined,watching=0,queue:Promise<void>=built;
   async function restore(place:Place){
+    if(!visible()){lastPlace=place;return;}
     const version=++placing,view=holder(),row=place.anchor===null?false:table.getRow(place.anchor);
     restoring={version,place};
     try{await settle(version,place,view,row);}finally{if(restoring?.version===version)restoring=undefined;}
@@ -281,13 +288,15 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // Whether a row is drawn whole within the grid's viewport.
   function inView(row:GridRow,view:HTMLElement){const target=row.getElement();if(!target.isConnected)return false;const box=target.getBoundingClientRect(),port=view.getBoundingClientRect();return box.top>=port.top-0.5&&box.bottom<=port.bottom+0.5;}
   async function settle(version:number,place:Place,view:HTMLElement|null,row:GridRow|false){
-    if(!view||!row)return;
+    if(!view)return;
+    if(place.left!==undefined)view.scrollLeft=place.left;
+    if(!row)return;
     const away=()=>{const target=row.getElement();return target.isConnected?target.getBoundingClientRect().top-view.getBoundingClientRect().top-place.offset:undefined;};
     // A row already where it was is left alone: scrolling to it would draw the rows again for nothing. The virtual renderer can still
     // move the rows on the frame after a change, as it does in a short pane, so the row is measured again then.
     if(Math.abs(away()??Infinity)<1){
       await frame();if(version!==placing||!alive)return;
-      if(Math.abs(away()??Infinity)<1){lastPlace=capture();return;}
+      if(Math.abs(away()??Infinity)<1){if(place.left!==undefined)view.scrollLeft=place.left;lastPlace=capture();return;}
     }
     try{await row.scrollTo('top',false);}catch{return;}
     // The virtual renderer estimates the heights of rows it has not drawn, so the row is measured where it lands and moved again until it holds.
@@ -298,17 +307,17 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       if(Math.abs(delta)<1)break;
       view.scrollTop+=delta;await frame();
     }
-    if(version===placing&&alive)lastPlace=capture();
+    if(version===placing&&alive){if(place.left!==undefined)view.scrollLeft=place.left;lastPlace=capture();}
   }
   // A full redraw rebuilds the virtual renderer's estimates and scrolls to the top: it is drawn at the scroll offsets it had, and the change it
   // is part of then restores the first row in view.
-  function redraw(){
+  function redraw(force=true){
     const view=holder(),top=view?.scrollTop??0,left=view?.scrollLeft??0;
-    table.redraw(true);
+    table.redraw(force);
     if(view){view.scrollTop=top;view.scrollLeft=left;}
   }
   // The place a change starts from: the one still being restored, or where the rows are now.
-  const aimedPlace=()=>restoring&&restoring.version===placing?restoring.place:capture();
+  const aimedPlace=()=>restoring&&restoring.version===placing?restoring.place:!visible()&&lastPlace?lastPlace:capture();
   async function keepPlace(work:()=>void|Promise<void>,from?:()=>Place){
     // A grid destroyed while a change waited has nothing left to change.
     if(!alive)return;
@@ -329,7 +338,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     const run=queue.then(()=>keepPlace(work,asked)).finally(()=>{waiting--;});queue=run.catch(()=>undefined);return run;
   }
   // Where the person scrolls to is the place a change of width keeps: by then the rows have already moved.
-  const watchPlace=()=>{if(watching||!alive)return;watching=requestAnimationFrame(()=>{watching=0;if(alive&&ready&&!updating)lastPlace=capture();});};
+  const watchPlace=(event:Event)=>{if(event.target!==holder()||watching||!alive||!visible()||updating||restoring?.version===placing)return;watching=requestAnimationFrame(()=>{watching=0;if(alive&&ready&&!updating&&visible()&&restoring?.version!==placing)lastPlace=capture();});};
   container.addEventListener('scroll',watchPlace,true);
   // The person scrolling the rows themselves, by wheel, touch, the scrollbar or a paging key, supersedes a place still being restored:
   // where they scroll to stands.
@@ -552,7 +561,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
      * Draws the rows again for the room the grid now has, at the place the person last left them: for a grid whose element was moved,
      * which loses its scroll offset, or whose room changed while it was out of view.
      */
-    relayout(){if(!ready||!alive)return;const at=lastPlace;void change(()=>{width=container.clientWidth;redraw();fit();},at&&(()=>at));},
+    relayout(){if(!ready||!alive||!visible())return;const at=restoring?.version===placing?restoring.place:lastPlace;void change(()=>{width=container.clientWidth;viewportHeight=container.clientHeight;redraw(false);fit();},at&&(()=>at));},
     /** Replaces every row with these, by key, keeping the person's place. */
     replaceRows(next:Cells,displayRows:string[][]|undefined,rowKeys:readonly string[]){
       const nextKeys=keysOf(next,rowKeys);requested=nextKeys;

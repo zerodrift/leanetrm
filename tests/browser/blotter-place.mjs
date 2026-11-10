@@ -50,7 +50,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     const anchorAt=Math.min(29,order.keys.length-order.visible);
     if(anchorAt<order.visible)throw Error(`The standard fixture shows ${order.keys.length} positions, too few to need scrolling to a row beneath ${order.visible} rows in view.`);
     const anchorKey=order.keys[anchorAt],selectedKey=order.keys[anchorAt+2];
-    await evaluate(`(async()=>{const h=document.querySelector('#desk-positions .tabulator-tableholder');for(let i=0;i<4;i++){const r=window.__place.at(${JSON.stringify(anchorKey)});if(!r){h.scrollTop+=h.clientHeight/2;}else if(Math.abs(r.top)<1)break;else h.scrollTop+=r.top;await ${frames};}})()`);
+    await evaluate(`(async()=>{const h=document.querySelector('#desk-positions .tabulator-tableholder');h.dispatchEvent(new WheelEvent('wheel',{bubbles:true}));for(let i=0;i<20;i++){const r=window.__place.at(${JSON.stringify(anchorKey)});if(!r){h.scrollTop+=h.clientHeight/2;}else if(Math.abs(r.top)<1)break;else h.scrollTop+=r.top;await ${frames};}})()`);
     // Opening the row shows its position in the Details pane below the grid, which shrinks the grid and keeps the row first in view.
     const opened=`document.querySelector('#desk-positions .standard-data-grid').dataset.selectedRow===${JSON.stringify(selectedKey)}&&document.querySelector('#position-details')?.hidden===false&&!!document.querySelector('#desk-positions .open-row')`;
     await click(`#desk-positions .tabulator-row[data-row-key="${selectedKey}"]`);

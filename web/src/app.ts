@@ -29,6 +29,7 @@ import {setupPriceSetup} from './price-setup.js';
 import {LiveUpdates,liveContextUpdate,type LiveSelection,type LiveContextUpdate,type LiveStatus} from './live-context.js';
 import {setupMarketCalendar,type MarketDates} from './market-calendar.js';
 import {otherSessionRefusal,sessionOffer,linkedFrame,type FrameClose} from './close-sessions.js';
+import {closeConventionProfile} from './close-convention-profile.js';
 import {newestDate,newestClose,closeBadge,latestInstant,type CloseBadge,type CloseChoice} from './latest-close.js';
 import {setupPowerImports} from './power-imports-view.js';
 import {setupIntervalSeries} from './interval-series-view.js';
@@ -105,7 +106,7 @@ let contractOpener:HTMLElement|undefined,contract='',historyPolicy:RevisionPolic
 // The overlay catalog, read for one account.
 let overlayCatalog:{scope:string;catalog:OverlayCatalog}|undefined;
 let consoleTables:string[]=[],contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
-// The person's remembered close session (D334); null until they choose one, and nothing chooses it for them.
+// The active view's convention starts from the profile default; an explicit override belongs to this window.
 let closeSession:string|null=null,closeSessionNames:ReadonlyMap<string,string>=new Map();
 let navigation:MarketNavigation|undefined,marketGeneration=0;
 // The curve shapes the market board and the library draw, read at one close for one directory and account (markets-desk.md).
@@ -145,6 +146,8 @@ const instant=(value:string)=>displayInstant(value,prefs.timeZone);
 const unit=(quote:string)=>quoteUnit(quote,data());
 function notice(message:string){const shown=$('notice');text('notice',withNotice(shown.hidden?'':shown.textContent??'',publicText(message)));shown.hidden=false;}
 const savedPreferences=preferenceSession(api,notice);
+const closeConventionDefaults=closeConventionProfile(api);
+const preferenceIdentity=()=>administrationScope+':'+exampleId+':'+currentProfile;
 async function persist(confirmZone=false):Promise<boolean>{
  try{await savedPreferences.save(prefs,confirmZone);return true;}
  catch(error){notice(error instanceof Error?error.message:'Your preferences could not be saved.');return false;}
@@ -169,12 +172,9 @@ function renderWorkspaceMode(){
   const dateHelp=page==='jobs'?'Header dates apply to saved valuation reports. Job and node status stays current.':usesBusinessDate(page)?'Business date selects effective records. Changing it selects knowledge through that day’s end, capped at current knowledge.':'As of selects the market close and its business date.';
   text('context-date-help',knowledgeHelp+' '+dateHelp);
   text('knowledge-summary',contextDirty?'Unapplied context':navigation?.live?'Live corrections':historical?'Historical · read only':'Current knowledge');
-  const known=historicalContext()?.knownAt;
-  $('as-of-context-summary').title=(known?'As known on '+instant(known)+'. ':'')+knowledgeHelp;
-  // With no session in force the widget is open for that choice alone, so it offers no knowledge action.
-  const expanded=$<HTMLDetailsElement>('as-of-context').open&&closeSession!==null;
+  $('as-of-context-summary').title='Expand to choose a close convention or information cutoff.';
+  const expanded=$<HTMLDetailsElement>('as-of-context').open;
   $('as-of-context').dataset.contextMode=$('date-context').dataset.contextMode;
-  const sessionChoice=select('close-session');text('close-session-summary',$('close-session-control').hidden?'':sessionChoice.value?sessionChoice.selectedOptions[0].textContent!:'Choose a close session');
   $('context-actions').hidden=!showsContext(page)||!contextDirty&&!historical&&!expanded;
   $('apply-view-context').hidden=!contextDirty&&!expanded;
   $('current-view-context').hidden=!contextDirty&&!historical&&!expanded;
@@ -369,7 +369,7 @@ async function openMarketCalendar(date?:string):Promise<void>{
  if(marketDatesLoaded){marketCalendar.show(date);return;}
  const definition=page==='custom-curves'?customCurves.dateDefinition():undefined;
  if(page==='custom-curves'&&!definition){marketCalendar.unavailable('Complete a curve graph or apply your formula to see available closes.');marketCalendar.show();return;}
- if(closeSession===null){marketCalendar.unavailable('Choose a close session to see its closes.');marketCalendar.show();return;}
+ if(closeSession===null){marketCalendar.unavailable('Expand As of details to choose a close convention, or set a default in Profile.');marketCalendar.show();return;}
  const request={curve:(page==='market'||page==='power')&&curve?curve:null,timeZone:prefs.timeZone,session:closeSession,definition:definition??null};
  marketCalendar.loading();
  try{
@@ -909,18 +909,25 @@ async function loadWorkspace(){
   const owner=directory(),started=marketGeneration,scope=marketSelection();
   const next=await api<Workspace>('workspace/catalog');workspace=validateWorkspace(next,owner,started,scope);
 }
-// The published close sessions and the person's remembered choice. A choice that is no longer published or visible is named,
-// and the person chooses again; no other session is put in its place.
+// Only an explicitly saved, still-published default initializes a new view.
 async function loadCloseSessions(){
- const [catalog,choice]=await Promise.all([api<{sessions:{code:string;name:string;state:string}[]}>('close-sessions/catalog'),api<{session:string|null}>('close-sessions/choice')]);
- const published=new Map(catalog.sessions.filter(s=>s.state==='published').map(s=>[s.code,s.name]));closeSessionNames=published;
+ const choice=await closeConventionDefaults.load(preferenceIdentity());
+ const published=new Map(choice.conventions.map(s=>[s.code,s.name]));closeSessionNames=published;
  closeSession=choice.session!==null&&published.has(choice.session)?choice.session:null;
  const withdrawn=choice.session!==null&&closeSession===null;
- choose('close-session',[{value:'',name:withdrawn?'Your session is no longer available · choose one':'Choose a session…'},...[...published].map(([value,name])=>({value,name}))],closeSession??'');
+ choose('close-session',[{value:'',name:withdrawn?'Default unavailable · choose a convention':'Choose a convention…'},...[...published].map(([value,name])=>({value,name}))],closeSession??'');
  $('close-session-status').hidden=!withdrawn;
- // No session in force needs a choice, so its control is shown rather than left collapsed.
- if(closeSession===null)$<HTMLDetailsElement>('as-of-context').open=true;
+ $<HTMLDetailsElement>('as-of-context').open=false;
  renderWorkspaceMode();
+}
+async function loadProfileCloseConvention(){
+ const available=can('ReadMarketData');$('profile-close-convention').hidden=!available;
+ if(!available){choose('default-close-session',[{value:'',name:'No default chosen'}],'');return;}
+ const choice=await closeConventionDefaults.load(preferenceIdentity());
+ const options=[{value:'',name:'No default chosen'},...choice.conventions.map(c=>({value:c.code,name:c.name}))];
+ if(choice.session!==null&&!choice.conventions.some(c=>c.code===choice.session))options.push({value:choice.session,name:'Saved convention unavailable · choose another'});
+ choose('default-close-session',options,choice.session??'');
+ select('default-close-session').options[0].disabled=choice.session!==null;
 }
 // A day's replaced closes are history: listed under the close in force, never offered as a choice.
 async function showCloseHistory(){
@@ -990,7 +997,7 @@ async function openProfile(){
     const current=(await api<{permissions:string[]}>('access')).permissions;
     if(JSON.stringify([...current].sort())!==JSON.stringify([...permissions].sort()))await loadIdentity();
   }catch(error){if((error as {code?:string}).code==='access_denied'){text('profile-access','Workspace access could not be verified.');await loadIdentity();}throw error;}
-  await profileChoices();
+  await profileChoices();await loadProfileCloseConvention();
   choose('zone',zoneChoices(prefs.timeZone),prefs.timeZone);$<HTMLInputElement>('show-assistant').checked=!prefs.assistantHidden;select('preferred-browse').value=prefs.browseBy;$<HTMLDialogElement>('profile-dialog').showModal();
 }
 $('sidebar-toggle').onclick=()=>{if(busy)return;prefs.sidebarCollapsed=!prefs.sidebarCollapsed;renderLayout();persist();};
@@ -1005,7 +1012,7 @@ async function profileAction(control:HTMLElement,work:()=>Promise<void>){
 }
 $('profile-dialog').addEventListener('close',()=>profileError());
 $('profile-open').onclick=()=>void act(openProfile);for(const id of ['profile-close','profile-cancel'])$(id).onclick=()=>$<HTMLDialogElement>('profile-dialog').close();
-$('preferences-form').onsubmit=event=>{event.preventDefault();void (async()=>{if(busy)return;if(page==='physical-operations'&&!await mayLeaveForDialog('The preferences were not changed'))return;await profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){scheduleWorkspace?.calendar.reset();dateEditor.invalidatePreview();workspaceCloses=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];prefs.assistantHidden=!$<HTMLInputElement>('show-assistant').checked;if(!await persist(true))throw Error('Your preferences were not confirmed. Retry Save or reload your profile.');assistant.sync();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();curveDefinitions.refresh();power.refresh();}renderTimeZones();customCurves.refresh();riskJobs.refresh();jobs.refresh();if(page==='physical-operations')await physicalOperations.refresh();facilities.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();crude.sync();futures.refreshDisplay();$<HTMLDialogElement>('profile-dialog').close();});})();};
+$('preferences-form').onsubmit=event=>{event.preventDefault();void (async()=>{if(busy)return;if(page==='physical-operations'&&!await mayLeaveForDialog('The preferences were not changed'))return;await profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){scheduleWorkspace?.calendar.reset();dateEditor.invalidatePreview();workspaceCloses=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];prefs.assistantHidden=!$<HTMLInputElement>('show-assistant').checked;if(!await persist(true))throw Error('Your preferences were not confirmed. Retry Save or reload your profile.');if(can('ReadMarketData'))try{await closeConventionDefaults.save(select('default-close-session').value||null);}catch(error){throw Error('Display preferences were saved, but the default close convention was not confirmed. Retry Save preferences. '+errorMessage(error));}assistant.sync();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();curveDefinitions.refresh();power.refresh();}renderTimeZones();customCurves.refresh();riskJobs.refresh();jobs.refresh();if(page==='physical-operations')await physicalOperations.refresh();facilities.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();crude.sync();futures.refreshDisplay();$<HTMLDialogElement>('profile-dialog').close();});})();};
 function setHostMode(mode:string){
   if(mode!=='hosted-pilot'&&mode!=='local-synthetic-preview')throw Error('The workspace mode could not be verified. Please refresh.');
   hostedPilot=mode==='hosted-pilot';
@@ -1020,6 +1027,7 @@ $('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were 
 // A sign-out or account change that failed after it ended the popped-out Blotter shows the Blotter here again, read afresh, rather than an empty page.
 async function blotterBack(){if(page==='futures'&&select('snapshot').value){futures.reset('read');await futures.load();}}
 async function loadIdentity(initialAccess?:unknown){
+  closeConventionDefaults.invalidate();
   physicalOperations.reset();$('physical-operations-page').hidden=true;deliverySetup.reset();referenceConsole.reset();curveWorkspace.reset();customCurves.reset();$('custom-curves-page').hidden=true;volSurfaces.reset();$('vol-surfaces-page').hidden=true;riskJobs.reset();riskViewsNav.reset();$('risk-page').hidden=true;facilities.reset();$('facilities-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;dashboard.reset();$('dashboard-page').hidden=true;
 
   deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();lng.reset();$('lng-page').hidden=true;gasSetup.reset();crudeSetup.reset();$('crude-setup-page').hidden=true;$('gas-setup-page').hidden=true;$('gas-page').hidden=true;$('crude-page').hidden=true;referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();priceSetup.reset();curveDefinitions.reset();$('curve-definitions-page').hidden=true;scheduleWorkspace?.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('blotter-away').hidden=true;$('no-access-page').hidden=true;
@@ -1067,7 +1075,7 @@ select('close-session').onchange=()=>{
  const chosen=select('close-session').value;select('close-session').value=closeSession??'';
  if(!chosen||chosen===closeSession)return;
  leaving(async()=>{
-  await api('close-sessions/choice',{session:chosen});closeSession=chosen;select('close-session').value=chosen;$('close-session-status').hidden=true;renderWorkspaceMode();
+  closeSession=chosen;select('close-session').value=chosen;$('close-session-status').hidden=true;renderWorkspaceMode();
   void loadLastCloses();
   clearPrices();renderFrames('');await openNewestClose();
  },'closes');

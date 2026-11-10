@@ -2,7 +2,7 @@
  * Where a person is in a grid, by row key: the first row fully in view and how far below the top of the viewport it sits, and the
  * selected row. Keys name positions, not places in the rows, so the place survives new data, sorting, grouping and filtering.
  */
-export type Place={anchor:string|null;offset:number;selected:string|null};
+export type Place={anchor:string|null;offset:number;selected:string|null;left?:number};
 
 /**
  * The place a grid keeps when its rows change from `previousOrder` to `nextOrder`. The anchor stays when its row does; otherwise it falls
@@ -13,7 +13,7 @@ export function retainPlace(before:Place,previousOrder:readonly string[],nextOrd
   const surviving=new Set(nextOrder),selectionLost=before.selected!==null&&!surviving.has(before.selected);
   const selected=selectionLost?null:before.selected;
   const anchor=before.anchor===null||surviving.has(before.anchor)?before.anchor:fallback(before.anchor,previousOrder,surviving);
-  return {place:anchor===null?{anchor:null,offset:0,selected}:{anchor,offset:before.offset,selected},selectionLost};
+  return {place:anchor===null?{...before,anchor:null,offset:0,selected}:{...before,anchor,selected},selectionLost};
 }
 
 function fallback(anchor:string,previousOrder:readonly string[],surviving:ReadonlySet<string>){

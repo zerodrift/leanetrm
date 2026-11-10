@@ -291,7 +291,7 @@ decision):
   a frame without `close` is a working snapshot.
 - Pilot close definitions name `session`; pilot and close-risk reports carry
   `close.session`, `close.businessDate`, `close.replaced` and `close.inForce`.
-- The header has a **Close session** choice, offers unrecorded snapshots as
+- The expanded As of details has a **Close convention** choice, offers unrecorded snapshots as
   "Working snapshot ·" entries, and lists a day's replaced closes under
   **Earlier closes for this day**.
 - Previews record every built-in frame as a close of a synthetic UTC session per
@@ -356,4 +356,8 @@ Curves & prices states each listed curve's last close and lists the closes a cur
 be priced at, read for the chosen session. Choosing a close there prompts to switch the
 As of or open a separate window at that recorded close; see [decisions](decisions.md).
 The header's **As of details** widget holds the session and knowledge controls, collapsed
-by default, and its summary names what is in use.
+by default. Its summary stays **As of details**; the convention and knowledge cutoff
+are visible only when expanded. **Market close** names the selected recorded price
+inputs. Profile saves the user’s explicit default convention for opening a workspace,
+without changing the active view; changing the header convention is a view override.
+Missing or withdrawn defaults require a choice rather than falling back.
