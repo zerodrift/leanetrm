@@ -71,6 +71,7 @@ public sealed partial class ScheduleMarketSources
             !ReferenceEquals(scenario.PricingBindings,basis.PricingBindings)||!ReferenceEquals(scenario.Model,basis.Model)||!scenario.Snapshot.HasSameInputs(basis.Snapshot))
             throw Invalid("Execution requires the same selected model, snapshot and explicit discount provider.");
         var program=demand.Program;
+        var availabilityPayments=program.Document.Instructions.Where(i=>i.Output.Operation=="price_application"&&i.Output.Parameters.GetValueOrDefault("mapping")==FloatingSide.DeliveryIndexImplementation).Select(i=>i.Output.PaymentOrdinal).ToHashSet();
         var baseId=basis.Pricing.ScenarioId;var scenarioId=scenario.Pricing.ScenarioId;
         var evidence=ImmutableDictionary.CreateBuilder<ScheduleSourceCell,ScheduleSourceEvidence>();
         var inputs=new Dictionary<ScheduleInputAddress,ScheduleInputValue<ScheduleValueColumn>>();
@@ -167,7 +168,7 @@ public sealed partial class ScheduleMarketSources
                             evidence.Add(new(source.Instruction,cell,id),sampled.Evidence);break;
                         case "price_lookup":
                         case CurvePriceScheduleSource.Operation:
-                            var price=grid is null?Dated(instruction,market,deliveryMarks):Native(instruction,grid,cell,program.Document.Family,resolver!,nativePriceAttribute);
+                            var price=grid is null?Dated(instruction,market,deliveryMarks,availabilityPayments.Contains(instruction.Output.PaymentOrdinal)):Native(instruction,grid,cell,program.Document.Family,resolver!,nativePriceAttribute);
                             Set(cell,new(price.Price.NumeratorValue,price.Price.DenominatorValue),new(null,price.State));
                             evidence.Add(new(source.Instruction,cell,id),price.Evidence);break;
                         default:throw Invalid("The program requested an unsupported dynamic source.");

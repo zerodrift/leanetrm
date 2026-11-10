@@ -16,7 +16,7 @@ test('a job target opens the job on whichever page of the directory lists it, re
 
 test('a job the directory does not list is refused after its last page, never replaced by another job',async()=>{
   const pages=directory(['a','b']);
-  await assert.rejects(findJob('missing',pages.read),/not listed on Jobs & Infrastructure/);
+  await assert.rejects(findJob('missing',pages.read),/not listed on Jobs for you/);
   assert.deepEqual(pages.pages,[0]);
   const empty=directory([]);
   await assert.rejects(findJob('missing',empty.read),/not listed/);

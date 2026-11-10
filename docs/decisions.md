@@ -3727,7 +3727,49 @@ a menu entry is shown only for a page or reference table the account can open.
 The planned facility and transport workflows that were listed as disabled tiles
 moved to `docs/plan.md`.
 
-## D366 — Sidebar groups are named for the desks that use them
+## D366 — Exact location forecasts and dated gas publication cash
+
+A versioned gas point can select one exact published custom curve output for its
+forecast and explicit contiguous dated index-source periods for indexed cash.
+The setup pins native curve/index/reference revisions and its published graph
+version. Delivery days must resolve exactly one compatible daily or containing
+monthly contract and fixing. Missing, overlapping or conflicting terms refuse.
+The ticket proposes the configured location selection; a cash index override or
+contradictory forecast cannot replace that configured contract.
+
+The new `delivery_index_fixings_v1` floating Side keeps each delivery day's
+allocation separate from its original observation period. Multiple days can
+consume one monthly fixing without creating daily copies of that observation.
+`point_publications_v1` requires an explicit spread and following-month UTC
+payment day. The graph/mapping and original request remain immutable; retries
+return their first outcome after a later setup publication.
+
+An admitted final index fact fixes the new cash profile under its selected
+business and knowledge cutoffs and exact minimum eligible fixing boundary. Expected release time and an upstream futures
+expiry do not invent a publication. Missing final prices on ended gas days
+refuse realized accrual. Native observation corrections preserve their original
+business observation instant: an explicitly selected `latest_correction` context
+can restate that fact using its knowledge cutoff, including a correction issued
+after the original market close. Exact input pins and earlier knowledge contexts
+retain the original fact. This cash contract does not impose the separate
+`published_release_v1` graph policy on native correction eligibility.
+Legacy daily indexed cash, futures settlement, native
+location marks and retained old programs keep their existing contracts.
+
+The price-application mapping identifies this new version contract in retained
+programs. SQL admission independently verifies every day's exact source,
+observation period, allocation, spread, payment, graph and location binding.
+Current authority, temporal visibility and risk-worker service restrictions apply
+to the new typed point periods. Structural setup validation separately discloses
+that full published-graph qualification needs a selected-snapshot preview.
+
+This is a local implementation prerequisite. It does not qualify indexed final
+commercial billing, automatic monthly index switching, arbitrary holiday
+calendars or exchange execution eligibility. Those consumers require their own
+explicit contracts and checks. Private operational seed data is not part of this
+repository.
+
+## D367 — Sidebar groups are named for the desks that use them
 
 The **Operations** sidebar group is now **Scheduling** and **Infrastructure** is
 **Administration**. Scheduling lists Physical operations and Facilities, where
@@ -3740,7 +3782,7 @@ This changes presentation only. Page identifiers, addresses, permissions and eve
 read and write are unchanged. The Jobs page keeps its name, Jobs & Infrastructure, in
 assistant page reports.
 
-## D367 — Reference Data lists its console's areas in the sidebar
+## D368 — Reference Data lists its console's areas in the sidebar
 
 The Reference Data sidebar group held one entry with the group's own name. It now
 lists the areas of the console's menu: Curves & pricing, Time, Products, Commodities

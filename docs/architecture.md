@@ -1,5 +1,10 @@
 # Architecture and domain contracts
 
+D366 adds exact versioned point forecasts and dated publication-index cash.
+Daily delivery allocations retain their original daily or monthly observation
+periods, and the selected location supplies both contracts without a ticket index
+override. See [the decision](decisions.md#d366--exact-location-forecasts-and-dated-gas-publication-cash).
+
 Selected correction-history reads use function-scoped generic planning under
 migration 0227; see [the planning qualification](context.md#selected-correction-history-planning).
 

@@ -801,10 +801,10 @@ static class AgentToolChecks
             "a trade read issues the trade at the exact revision it read, its latest under the pinned knowledge included, as a record target");
         var jobs=Issue("read_jobs",JobList,$$"""{"page":0,"total":1,"jobs":[{"id":"{{Job}}","name":"Synthetic readiness"}]}""");
         var job=Issue("read_jobs",JobHistory,$$"""{"job":{"id":"{{Job}}","name":"Synthetic readiness"},"runs":[],"audit":[],"commands":[]}""",4);
-        Require(jobs.Issued.Length==2&&Is(jobs.Issued[0],"n1","jobs","null","page","Jobs & Infrastructure")
-            &&Is(jobs.Issued[1],"n2","jobs",JobHistory,"record","Jobs & Infrastructure: job history")
+        Require(jobs.Issued.Length==2&&Is(jobs.Issued[0],"n1","jobs","null","page","Jobs")
+            &&Is(jobs.Issued[1],"n2","jobs",JobHistory,"record","Jobs: job history")
             &&jobs.Result["jobs"]![0]!["target"]!.GetValue<string>()=="n2"
-            &&job.Issued.Length==1&&Is(job.Issued[0],"n4","jobs",JobHistory,"record","Jobs & Infrastructure: job history"),
+            &&job.Issued.Length==1&&Is(job.Issued[0],"n4","jobs",JobHistory,"record","Jobs: job history"),
             "a job list issues the page as it opens, since the page's own list is not the reader's, then each job's history as a record target, and a "+
             "job's history its own; labels name no text a person typed");
         var issued=directory.Issued.Concat(rows.Issued).Concat(totals.Issued).Concat(trade.Issued).Concat(jobs.Issued.Skip(1)).Concat(job.Issued).ToList();
@@ -835,7 +835,7 @@ static class AgentToolChecks
 
         var names=new Dictionary<string,string>{["curves"]="Curves & prices",["contract_definitions"]="Contract definitions",["schedules"]="Schedules",
             ["power_tous"]="Power TOUs",["reference_data"]="Reference data",["parties"]="Entities & counterparties",["blotter"]="Blotter",["custom_curves"]="Curve builder",
-            ["jobs"]="Jobs & Infrastructure",["risk_jobs"]="Risk",["delivery_prices"]="Delivery prices",["interval_series"]="Interval data",
+            ["jobs"]="Jobs",["risk_jobs"]="Risk",["delivery_prices"]="Delivery prices",["interval_series"]="Interval data",
             ["interval_curves"]="Hourly / sub-hourly curves",["users_access"]="Users & access",["settings_ai"]="AI settings",
             ["blotter_risk"]="Blotter risk",["blotter_risk_lens"]="Blotter risk lens",["blotter_new_trade"]="New trade",
             ["blotter_new_future"]="New futures trade",["blotter_new_swap"]="New swap",["physical_operations"]="Physical operations",["gas_setup"]="Gas delivery setup",["crude_setup"]="Crude delivery setup"};

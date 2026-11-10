@@ -9,6 +9,9 @@ export function setupReferenceConsole(o:{host:HTMLElement;menu:()=>readonly Cons
  const buttons=new Map<string,HTMLButtonElement>(),sections=new Map<string,HTMLDetailsElement>();
  const areas=[...o.areas?.querySelectorAll<HTMLButtonElement>('[data-area]')??[]],lastIn=new Map<string,string>();
  let drawn='',shown:ConsoleEntry|undefined,visible=false,refocus:string|undefined,wanted:string|undefined;
+ // The page last shown for an entry that has several, such as Delivery setup's commodities, so the entry reopens it.
+ const lastPages=new Map<string,string>();
+ const reopened=(entry:ConsoleEntry)=>{const page=lastPages.get(entry.id);return page?{...entry,page}:entry;};
  const groupOf=(id:string)=>o.menu().find(g=>g.entries.some(e=>e.id===id));
  // A table entry has one id; the buttons of pages keep the sidebar's nav-<page> address.
  const domId=(entry:ConsoleEntry)=>entry.table?'nav-table-'+entry.table:'nav-'+entry.id;
@@ -20,7 +23,7 @@ export function setupReferenceConsole(o:{host:HTMLElement;menu:()=>readonly Cons
    list.append(...group.entries.map(entry=>{
     const item=document.createElement('li'),button=document.createElement('button');
     button.type='button';button.id=domId(entry);button.textContent=entry.name;
-    button.onclick=()=>{if(o.busy()||(shown?.id===entry.id&&!entry.table&&!o.pendingContext?.()))return;refocus=entry.id;o.open(entry);};
+    button.onclick=()=>{if(o.busy()||(shown?.id===entry.id&&!entry.table&&!o.pendingContext?.()))return;refocus=entry.id;o.open(reopened(entry));};
     item.append(button);buttons.set(entry.id,button);return item;
    }));
    section.append(summary,list);sections.set(group.id,section);return section;
@@ -46,8 +49,10 @@ export function setupReferenceConsole(o:{host:HTMLElement;menu:()=>readonly Cons
   if(wanted&&visible&&!shown&&!o.busy()){const group=menu.find(g=>g.id===wanted);if(group||tablesRead)wanted=undefined;if(group)o.open(group.entries[0]);}
   for(const area of areas){const group=menu.find(g=>g.id===area.dataset.area);area.hidden=tablesRead?!group:!menu.length;area.disabled=o.busy();area.classList.toggle('active',visible&&!!group?.entries.some(e=>e.id===shown?.id));}
   for(const [id,button] of buttons){button.disabled=o.busy();if(shown?.id===id)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');}
-  // Entries are disabled while a page is read, which takes focus from the one chosen; it is given back afterwards.
-  if(refocus&&!o.busy()){buttons.get(refocus)?.focus({preventScroll:true});refocus=undefined;}
+  // Entries are disabled while a page is read, which takes focus from the one chosen; it is given back once that page shows, to the
+  // toggle when the menu is folded. Focus the person moves elsewhere, as when they answer a leave question, cancels it.
+  const active=document.activeElement;if(refocus&&active&&active!==document.body&&!o.host.contains(active))refocus=undefined;
+  if(refocus&&!o.busy()&&shown?.id===refocus){const target=body.hidden?toggle:buttons.get(refocus);target?.focus({preventScroll:true});if(document.activeElement===target)refocus=undefined;}
  }
  // An area returns to the entry last shown in it, else opens its first.
  for(const area of areas)area.onclick=()=>{
@@ -55,7 +60,7 @@ export function setupReferenceConsole(o:{host:HTMLElement;menu:()=>readonly Cons
   if(o.busy()||(group&&visible&&group.entries.some(e=>e.id===shown?.id)&&!o.pendingContext?.()))return;
   // An area of tables not yet read opens the console, which reads them; its first entry opens once they are.
   if(!group){wanted=area.dataset.area;o.open({id:'reference',name:'Reference Data',page:'reference'});return;}
-  o.open(group.entries.find(e=>e.id===lastIn.get(group.id))??group.entries[0]);
+  o.open(reopened(group.entries.find(e=>e.id===lastIn.get(group.id))??group.entries[0]));
  };
  text.oninput=filter;
  form.onsubmit=event=>{event.preventDefault();if(!o.busy())o.search(text.value);};
@@ -65,8 +70,9 @@ export function setupReferenceConsole(o:{host:HTMLElement;menu:()=>readonly Cons
   // `reference` shows the console before its table is known.
   show(page:string,table?:string){
    const entry=consoleEntryFor(o.menu(),page,table);
-   visible=!!entry||page==='reference';shown=entry;if(!visible||entry)wanted=undefined;const group=entry&&groupOf(entry.id);if(group)lastIn.set(group.id,entry.id);
-   sync();openShownGroup();filter();
+   visible=!!entry||page==='reference';shown=entry;if(entry)lastPages.set(entry.id,page);if(!visible||entry)wanted=undefined;const group=entry&&groupOf(entry.id);if(group)lastIn.set(group.id,entry.id);
+   // Drawn first, so the shown entry's group is open before focus can be given back to it.
+   sync();openShownGroup();filter();sync();
   },
   reset(){shown=undefined;wanted=undefined;lastIn.clear();visible=false;text.value='';fold(false);sync();},
  };

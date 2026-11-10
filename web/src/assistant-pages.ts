@@ -91,7 +91,7 @@ export function askKnowledge(context:PageContext,page?:string){
 
 const pageNames:Record<string,string>={physical_operations:'Physical operations',gas_setup:'Gas delivery setup',crude_setup:'Crude delivery setup',facility_quantities:'Facilities',curves:'Curves & prices',contract_definitions:'Contract definitions',schedules:'Schedules',power_tous:'Power TOUs',
   reference_data:'Reference data',parties:'Entities & counterparties',blotter:'Blotter',blotter_risk:'Blotter',blotter_risk_lens:'Blotter',blotter_new_trade:'Blotter',blotter_new_future:'Blotter',blotter_new_swap:'Blotter',blotter_new_ppa:'Blotter',blotter_new_gas:'Blotter',blotter_new_option:'Blotter',blotter_new_crude:'Blotter',blotter_new_lng:'Blotter',delivery_prices:'Delivery prices',
-  custom_curves:'Curve builder',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs & Infrastructure',users_access:'Users & access',
+  custom_curves:'Curve builder',interval_series:'Interval data',interval_curves:'Curves & prices · Hourly / sub-hourly',jobs:'Jobs',users_access:'Users & access',
   risk_jobs:'Risk',settings_ai:'AI',dashboard:'Dashboard',physical_gas:'Physical gas bookings',physical_crude:'Physical crude bookings',ppa:'PPA bookings',vol_surfaces:'Vol surfaces'};
 // The label catalog is checked against server admission by the owned browser fixture.
 export const reportedPages:readonly string[]=Object.freeze(Object.keys(pageNames));

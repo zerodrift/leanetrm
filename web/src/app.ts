@@ -179,7 +179,7 @@ function renderWorkspaceMode(){
   $('context-actions').hidden=!showsContext(page)||!contextDirty&&!historical&&!expanded;
   $('apply-view-context').hidden=!contextDirty&&!expanded;
   $('current-view-context').hidden=!contextDirty&&!historical&&!expanded;
-  $('follow-live').hidden=historical||contextDirty||!['market','custom-curves','futures'].includes(page);
+  $('follow-live').hidden=historical||contextDirty||!['market','curve-definitions','custom-curves','futures'].includes(page);
   $('follow-live').toggleAttribute('disabled',busy||!select('snapshot').value);
 }
 async function responseFor(path:string,body?:unknown,root=apiRoot,signal?:AbortSignal):Promise<Response>{

@@ -2226,3 +2226,14 @@ a qualified migration window, manifest admission and the idempotent private
 installation plan. Vendor-calendar generation, licensed feed adapters,
 preliminary-price valuation and interim gap policies remain separate unsupported
 increments. No operator should infer those policies from this sample repair.
+
+
+### Location-derived gas publication cash (D366)
+
+Local prerequisites add exact point forecast and dated settlement periods,
+monthly-fixing allocation to daily cash, native SQL admission and ticket mapping.
+Publication and qualification evidence must precede deployment. Indexed final
+commercial billing remains outside the fixed-price daily billing consumer;
+operational quantities do not silently replace contractual cash allocations.
+Automatic rolling of a booked deal's settlement index remains excluded. Existing
+booked graph/index periods stay pinned when later setup versions are published.

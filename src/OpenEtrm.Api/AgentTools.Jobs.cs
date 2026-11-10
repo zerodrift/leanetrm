@@ -10,7 +10,7 @@ namespace OpenEtrm.Api;
 // whose jobs they are, so another person's job reads like an unknown one, a job manager's included.
 public sealed partial class AgentTools
 {
-    static AgentTool JobTool=>Tool("read_jobs","Reads the user's own jobs on Jobs & Infrastructure as they are now: never another person's, and "+
+    static AgentTool JobTool=>Tool("read_jobs","Reads the user's own jobs on Jobs as they are now: never another person's, and "+
         "never under a historical view. View jobs lists them newest first, 25 to a page, with their terms, state, version, whether they can be "+
         "edited and their latest run. View history returns one of them with its latest 25 runs, its audit actions newest first, which "+
         "record finished runs' outcomes, 100 before an audit sequence or the newest when before is null, and the terms its latest 25 create, "+

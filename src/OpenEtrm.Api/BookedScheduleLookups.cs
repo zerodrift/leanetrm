@@ -12,6 +12,7 @@ internal static class BookedScheduleLookups
     internal static ImmutableArray<IndexPriceLookup> Dated(PreviewData data,BookedSideProgram program)
     {
         var result=ImmutableArray.CreateBuilder<IndexPriceLookup>();
+        var availabilityPayments=program.Document.Instructions.Where(i=>i.Output.Operation=="price_application"&&i.Output.Parameters.GetValueOrDefault("mapping")==FloatingSide.DeliveryIndexImplementation).Select(i=>i.Output.PaymentOrdinal).ToHashSet();
         foreach(var instruction in program.Document.Instructions.Where(instruction=>instruction.Output.Grid is null&&CurvePriceScheduleSource.IsLookup(instruction.Output.Operation)))
         {
             var row=instruction.Output;var bindings=instruction.Bindings.ToDictionary(binding=>binding.Port);
@@ -56,7 +57,8 @@ internal static class BookedScheduleLookups
             }
             var interval=row.Operation==CurvePriceScheduleSource.Operation?CurvePriceScheduleSource.Interval(row):null;
             if(interval==new ProjectionDelivery(contracts[0].DeliveryFrom,contracts[0].DeliveryTo))interval=null;
-            result.Add(new(selection,quotes[0],request,contracts[0],null,fixing,custom,interval));
+            var publishedWhenAvailable=availabilityPayments.Contains(row.PaymentOrdinal);
+            result.Add(new(selection,quotes[0],request,contracts[0],null,fixing,custom,interval){PublishedWhenAvailable=publishedWhenAvailable});
         }
         return result.Distinct().ToImmutableArray();
     }
