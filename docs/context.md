@@ -407,11 +407,13 @@ resolve latest corrections again. See [risk scenarios and jobs](risk-engine.md).
 
 ## Shared context header and selected fact reads (D354)
 
-The header groups **Close session** with **As of**, then names **Knowledge**
-separately. The session selects the published closing calendar/cutoff; choosing
-it does not run a close. As of chooses recorded price inputs and their business
-date. Pages that use effective records show Business date instead of market-close
-controls. Knowledge selects the information cutoff; changing it requires Apply.
+The header names the selected recorded price inputs **Market close**. Expanding
+**As of details** reveals **Close convention** and **As known on**. The convention
+selects the published closing calendar/cutoff; choosing it does not run a close.
+Profile stores an explicitly chosen default for opening the workspace; a header
+override applies only to the current view. Saving a default leaves that view unchanged.
+A missing or unavailable default does not select another convention. Pages that
+use effective records show Business date instead of market-close controls. Knowledge selects the information cutoff; changing it requires Apply.
 Working data returns to current knowledge and the latest available close.
 
 The help disclosure is keyboard accessible, remains in document flow and explains

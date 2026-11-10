@@ -224,9 +224,10 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // shows the arrangement as it was, with the details expanded while they show something. Focus in the details stays there.
   let narrowed=false;
   function placeDock(){
+    if(get('futures-page').hidden)return;
     const now=options.narrow(),body=get('blotter-pane-details'),focused=body.contains(document.activeElement);
     dock.relayout();
-    if(now!==narrowed&&(now||panel.current()!==null))dock.reveal(panel.current()===null?'grid':'details');
+    if(dock.maximized()===null&&now!==narrowed&&(now||panel.current()!==null))dock.reveal(panel.current()===null?'grid':'details');
     narrowed=now;fitRoom();
     if(focused&&!body.contains(document.activeElement)&&!body.hidden)get('position-details').focus({preventScroll:true});
   }
@@ -248,7 +249,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   const sharedFloor=160;
   function fitRoom(){
     const host=get('blotter-dock');host.style.removeProperty('--grid-room');host.style.removeProperty('--details-room');
-    if(panel.current()===null||options.narrow())return;
+    if(panel.current()===null||options.narrow()||dock.maximized()!==null)return;
     const grid=get('blotter-pane-grid').closest('.dock-group'),details=get('blotter-pane-details').closest('.dock-group');
     if(!grid||!details)return;
     const foot=host.getBoundingClientRect().bottom-parseFloat(getComputedStyle(host).paddingBottom);
@@ -355,7 +356,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // The panes stack in one group on a narrow main area: they are placed again when its width changes; a change of its height only sizes
   // the open details' room again.
   let mainWidth=main.clientWidth;
-  new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;placeDock();}else fitRoom();}).observe(main);
+  new ResizeObserver(()=>{if(get('futures-page').hidden||main.clientWidth===0)return;if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;placeDock();}else fitRoom();}).observe(main);
   position=setupPositionPanel(panel,{zone:options.zone,busy,leave:()=>panel.leave(),canAmend:()=>!!holdings&&!!catalog?.canAmendTrades,curveListed:options.curveListed,shape:shapeOf,context:()=>JSON.stringify([readContext(),displayedContext()?.contextId]),onDenied:clear,
     read:async(h,formats)=>{
       const stale=!holdings,context=readContext();
@@ -418,7 +419,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   const guarded=(work:()=>Promise<void>,kept?:()=>void)=>guard({busy,leave,act},work,kept);
   const asked=(work:()=>Promise<void>,kept?:()=>void)=>void guarded(work,kept).catch(error=>{if((error as {shown?:boolean}).shown!==true)options.failed(error);});
   // Forms and pending reads are released; completed values remain hidden until current authority is checked again.
-  function leavePage(){get('futures-page').classList.add('checking-cache');pauseFullReport();cancelRead();dropForms();deskPanel.reset();}
+  function leavePage(){const keep=panel.current()?.kind==='position'&&position.retainable();get('futures-page').classList.add('checking-cache');pauseFullReport();cancelRead();dropForms();if(!keep)deskPanel.reset();}
   // A trade request whose outcome is not confirmed is owned by the window that sent it, which keeps its Check status and Retry.
   // A main window's unconfirmed requests stay with it; a pop-out's go back with the Blotter (handOver).
   const retainedStays=(move:string)=>{
@@ -1027,7 +1028,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     // until it is (renderChartPanels). A draw that fails above leaves it marked.
     const chartComing=pivot&&view.chart.visible&&get('blotter-chart-card').classList.contains('stale');
     kept=undefined;markStale(null,false,!chartComing);
-    options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();syncPositionDetails();drawContract();
+    options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();syncPositionDetails();drawContract();placeDock();
   }
   // What the trade rows' desk shows, selected from the read: its rows, their trade fields, its group headers and its two charts.
   function planDesk(colors:ReadonlyMap<string,string>){
@@ -1244,6 +1245,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
         if(reuse&&holdings&&catalog&&summaries&&cachedRead?.key===cacheKey&&cachedRead.version===version){
           get('futures-page').classList.remove('checking-cache');
           if(!table&&!ladderTable)render();
+          placeDock();table?.relayout();ladderTable?.relayout();
           loadShapes(checking,scope,source);
           options.onReadContext(holdings.asOf,holdings.context.knownAt);sync();startUpdates();return;
         }

@@ -6,14 +6,15 @@ async function fixture(work,inline=false){
  await withBrowserPage('<div id="host"></div>',async evaluate=>{
   await evaluate(`(async()=>{
    const {mountSideScheduleInspection}=await import('/side-schedule-inspection.js');
-   window.reads=[];window.held=[];window.hold=false;window.deny=false;window.denied=0;window.patchRow={};window.quantityEntries=[];window.windows=[];
+   window.reads=[];window.held=[];window.hold=false;window.holdCalculation=false;window.deny=false;window.denied=0;window.patchRow={};window.quantityEntries=[];window.windows=[];
    const identity={tradeId:'trade',bindingId:'binding',revision:2,contextId:'retained',snapshotId:'snapshot'};
    const row={key:'10:0',operation:'output_guard',kind:'Payment',deliveryFrom:'2041-01-01',deliveryTo:'2041-01-02',start:'2041-01-01T09:00:00Z',end:'2041-01-02T09:00:00Z',observationFrom:null,observationTo:null,valueAt:'2041-02-10T00:00:00Z',paymentAt:'2041-02-10T00:00:00Z',quantity:'-100',price:'3.02',amount:'-302',discountFactor:'1',presentValue:'-302',quantityState:'Contractual',priceStates:['Projected'],quantitySpecification:{code:'synthetic_mmbtu'},currency:{code:'synthetic_usd'},quoteMultiplier:'1',operatingDate:null,paid:null,outstanding:null,lifecycle:{delivery:'Scheduled',due:'NotDue',cash:'NotTracked',economicClass:null,coverage:'Discounted',unavailableReason:null,fulfillment:null}};
    const api=async(path,body)=>{
     reads.push({path,body});if(deny)throw Object.assign(new Error('Access revoked'),{code:deny===true?'access_denied':deny});
     if(body.sideSlot===null){if(${inline})await new Promise(r=>setTimeout(r,30));return {...identity,sides:[{slot:0,sideId:'delivery',family:'gas',manifest:'m0',windows:window.windows},{slot:1,sideId:'payment',family:'floating',manifest:'m1',windows:window.windows}]};}
     const selected={...identity,window:body.window,sideSlot:body.sideSlot,sideId:body.sideSlot===0?'delivery':'payment',manifest:body.sideSlot===0?'m0':'m1'};
-    if(body.contribution)return {...selected,page:{side:'payment',manifest:selected.manifest,contribution:body.contribution,valueBasis:'unit_side_v1',tradeQuantityScale:'100',membershipNumerator:'-1',membershipDenominator:'1',offset:0,total:1,rows:[{key:'2:0',role:'source',operation:'price_lookup',kind:'price',value:'3',presence:'Resolved',deliveryFrom:row.deliveryFrom,deliveryTo:row.deliveryTo,start:row.start,end:row.end,observationFrom:row.deliveryFrom,observationTo:row.deliveryTo,valueAt:row.valueAt,unit:null,currency:null,quantityState:null,priceStates:['Projected'],inputs:[],bindings:[],fixingAt:'2041-01-01T12:00:00Z',contractFrom:row.deliveryFrom,contractTo:row.deliveryTo,lineage:[]}]}};
+    if(body.contribution&&holdCalculation)await new Promise(resolve=>held.push(resolve));
+    if(body.contribution)return {...selected,page:{side:'payment',manifest:selected.manifest,contribution:body.contribution,valueBasis:'unit_side_v1',tradeQuantityScale:'100',membershipNumerator:'-1',membershipDenominator:'1',offset:body.offset,total:59,rows:[{key:'2:0',role:'source',operation:'price_lookup',kind:'price',value:'3',presence:'Resolved',deliveryFrom:row.deliveryFrom,deliveryTo:row.deliveryTo,start:row.start,end:row.end,observationFrom:row.deliveryFrom,observationTo:row.deliveryTo,valueAt:row.valueAt,unit:null,currency:null,quantityState:null,priceStates:['Projected'],inputs:[],bindings:[],fixingAt:'2041-01-01T12:00:00Z',contractFrom:row.deliveryFrom,contractTo:row.deliveryTo,lineage:[]}]}};
     const result={...selected,page:{side:body.sideSlot===0?'delivery':'payment',manifest:selected.manifest,valuationAt:'2040-12-18T16:00:00Z',knownAt:'2040-12-18T17:00:00Z',offset:body.offset,total:59,rows:[{...row,operatingDate:body.sideSlot===0?'2041-01-01':null,presentValue:body.sideSlot===0?'320':'-302',...patchRow}]}};
     if(hold&&body.sideSlot===0)return new Promise(resolve=>held.push(()=>resolve(result)));
     return result;
@@ -121,4 +122,25 @@ test('a selected ticket Side has one expanded grid, no duplicate selector, and r
   await evaluate("{const input=document.querySelector('.ticket-cell-input');input.value='125';input.onchange();}");
   assert.deepEqual(await evaluate('quantityEntries'),[['2041-01-01','125']]);
  },true);
+});
+
+test('paging retains the current schedule until its replacement arrives and preserves horizontal position',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await fixture(async evaluate=>{
+  await evaluate("(async()=>{await openInspector();choose(0);await until(()=>!!document.querySelector('.inspection-calculation'));})()");
+  await evaluate("{window.oldSchedule=document.querySelector('.inspection-rows table');document.querySelector('.inspection-rows').style.width='250px';document.querySelector('.inspection-rows').style.overflow='auto';document.querySelector('.inspection-rows').scrollLeft=120;window.scheduleLeft=document.querySelector('.inspection-rows').scrollLeft;hold=true;document.querySelector('.inspection-pager button:last-child').click();}");
+  assert.equal(await evaluate("oldSchedule.isConnected&&document.querySelector('.inspection-rows').getAttribute('aria-busy')==='true'"),true);
+  await evaluate("(async()=>{held.shift()();await until(()=>document.querySelector('.side-schedule-inspection [role=status]').textContent.startsWith('33'));})()");
+  assert.equal(await evaluate("document.querySelector('.inspection-rows').scrollLeft===scheduleLeft&&!document.querySelector('.inspection-rows').hasAttribute('aria-busy')"),true);
+ });
+});
+
+
+test('calculation paging retains its table and horizontal place until the replacement is ready',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await fixture(async evaluate=>{
+  await evaluate("(async()=>{await openInspector();choose(1);await until(()=>document.querySelector('.inspection-calculation'));document.querySelector('.inspection-calculation').click();await until(()=>document.querySelector('.inspection-steps'));const style=document.createElement('style');style.textContent='.inspection-steps{width:240px;overflow:auto}';document.head.append(style);const steps=document.querySelector('.inspection-steps');steps.scrollLeft=120;window.oldSteps=steps;holdCalculation=true;[...document.querySelectorAll('.inspection-evidence button')].find(b=>b.textContent==='Next inputs').click();await until(()=>held.length===1);})()");
+  assert.equal(await evaluate("oldSteps.isConnected&&document.querySelector('.inspection-evidence').inert&&document.querySelector('.inspection-evidence').getAttribute('aria-busy')==='true'"),true);
+  await evaluate("(async()=>{held.shift()();await until(()=>document.querySelector('.inspection-steps')!==oldSteps);})()");
+  assert.equal(await evaluate("document.querySelector('.inspection-steps').scrollLeft"),120);
+  assert.equal(await evaluate("document.querySelector('.inspection-evidence').inert"),false);
+ });
 });

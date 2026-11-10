@@ -1536,8 +1536,6 @@ header:has(.context-toolbar:not([hidden])) .header-actions{flex:1 1 740px;flex-w
 .as-of-context>summary::after{content:'▾';font-size:9px}
 .as-of-context[open]>summary::after{content:'▴'}
 .as-of-panel{display:grid;gap:10px;width:300px;max-width:100%;box-sizing:border-box;padding:10px 0 0}
-#close-session-summary:empty{display:none}
-#close-session-summary:not(:empty)::after{content:' ·'}
 .knowledge-panel{max-width:100%;box-sizing:border-box}
 .knowledge-panel .field-help{margin:7px 0;font-size:11px}
 .knowledge-panel .schedule-actions{gap:5px}
@@ -1870,6 +1868,8 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
   body.blotter-shown>main{flex:1 1 0;height:auto;min-height:0}
 }
 #blotter-dock.tab-dock{min-height:0;padding:10px;background:var(--bg)}
+#blotter-dock.tab-dock[data-maximized]{padding:0}
+#blotter-dock[data-maximized] .dock-group[data-maximized-path]{border-radius:0}
 /* The saved views list keeps its whole label; the search beside it gives way first. */
 #blotter-workspace .table-workspace-toolbar>select{flex:none;width:auto}
 .table-workspace-rows{display:flex;flex:1 1 560px;align-items:center;gap:6px 14px;min-width:0}
