@@ -127,6 +127,9 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
             if(!properties.TryGetValue(pair.Key,out var property))throw new ToolRefusal("tool_arguments_invalid");
             Canonical(pair.Value,property.PropertyType,certificate);
         }
+        // A required id the body leaves out would bind as an empty id; a missing frame names the pinned frame it must use.
+        if(properties.FirstOrDefault(p=>p.Value.PropertyType==typeof(Guid)&&!obj.ContainsKey(p.Key)).Key is {} omitted)
+            throw new ToolRefusal(omitted=="snapshotId"?"operation_context_mismatch":"tool_arguments_invalid");
     }
 
     JsonObject Contract(AssistantOperation operation,RouteEndpoint endpoint)

@@ -1,5 +1,5 @@
 import {emptyGridLayout,type GridHandle} from './data-grid.js';
-import {gasDeliveryKey} from './physical-operations-grid.js';
+import {gasDeliveryKey,gasStages} from './physical-operations-grid.js';
 import {readPhysicalDelivery} from './physical-delivery.js';
 import {renderPhysicalDeliveryGrid} from './physical-delivery-grid.js';
 import {renderRegularTable} from './regular-table.js';
@@ -14,7 +14,7 @@ type State={accounts:Row[];nominations:Row[];statements:Row[];agreements:Row[];r
 type Review={action?:string;phase?:string;quantity?:string;unit?:string;confirmed?:string;scheduled?:string;buyerBalanceAfter?:string;sellerBalanceAfter?:string;cash?:string;currency?:string;priceMultiplier?:string;scope?:string};
 type View={permissions:{canConfigure:boolean;canRecord:boolean};state:State;balances:{accountId:string;amount:string|null;refusal:string|null}[];nominationProfile:string;imbalanceProfile:string;roundingPolicy:string;statementPolicies:string[]};
 type Field={name:string;label:string;meaning:string;type?:string;options?:[string,string][];optional?:boolean};
-const stages=['Before flow','Scheduling','After flow','Reconciliation'];
+const stages=gasStages;
 const actions=[
  ['service','Service account & terms',0,'Accounts, availability and statement policy'],
  ['nomination','Submitted nomination / retro request',0,'A nomination or retro request sent externally'],
@@ -53,7 +53,7 @@ export function setupGasOperations(host:HTMLElement,o:{api:Api;context:()=>Recor
  const stageTabs=setupTabs(stageList,stages.map((title,i)=>[String(i),title]),{label:'Delivery stage',panel:stagePanel,selected:'0',select:next=>{
   stageTabs.mark(String(stage));if(Number(next)===stage||busy||workflow?.busy()||workflow?.pending())return;
   if(edits.edited()){message.textContent='Finish this operation, or discard inputs with Refresh operations before changing stage.';return;}
-  stage=Number(next);kind=undefined;draw();showStage();
+  stage=Number(next);kind=undefined;draw();showStage();workflow?.changed();
  }});
  for(const [i,title] of stages.entries()){const button=stageList.children[i] as HTMLButtonElement;button.dataset.stage=String(i);button.innerHTML=`<span class="gas-stage-number" aria-hidden="true">${i+1}</span><span data-stage-title="${i}">${title}</span>`;}
  function showStage(){stageTabs.mark(String(stage));panels.forEach((p,i)=>p.hidden=i!==stage);afterFlowHost.hidden=stage!==2;get('stage-description').textContent=descriptions[stage];}
@@ -135,7 +135,7 @@ export function setupGasOperations(host:HTMLElement,o:{api:Api;context:()=>Recor
  function clearRows(keep=true){if(keep&&grid){filters=grid.state();if(grid.ready())layout=grid.layout();}grid?.destroy();grid=undefined;get('rows').replaceChildren();}
  async function chooseDelivery(index:number){const next=daily?.rows[index];if(!next||busy||workflow?.busy()||workflow?.pending())return false;const key=gasDeliveryKey(next);if(key===selectedKey)return true;
   if(edits.edited()){message.textContent='Keep editing, or discard inputs with Refresh delivery rows before choosing another side or day.';return false;}
-  selectedKey=key;kind=undefined;const epoch=beginRead();grid?.selectRow(index);await loadOperations(epoch);if(valid(epoch)){busy=false;sync();}return valid(epoch)&&selectedKey===key;
+  selectedKey=key;kind=undefined;const epoch=beginRead();grid?.selectRow(index);workflow?.changed();await loadOperations(epoch);if(valid(epoch)){busy=false;sync();}return valid(epoch)&&selectedKey===key;
  }
  function drawRows(){if(!daily)return;const view=readPhysicalDelivery(daily.delivery,{tradeId:o.tradeId,revision:daily.expectedRevision});get('zone').textContent=o.zone();
   grid=renderPhysicalDeliveryGrid(get('rows'),'gas-delivery-rows',o.tradeId,view,o.zone(),()=>busy||workflow?.busy()===true||!!workflow?.pending(),{
@@ -157,11 +157,13 @@ export function setupGasOperations(host:HTMLElement,o:{api:Api;context:()=>Recor
    const delivery=readPhysicalDelivery(data.delivery,{tradeId:o.tradeId,revision:data.expectedRevision});
    if(delivery.rows.length!==data.rows.length||delivery.rows.some((r,i)=>r.key!==gasDeliveryKey(data.rows[i])))throw Error('The delivery rows do not match their native recording scope.');
    daily=data;
-   selectedKey=data.rows.some(r=>gasDeliveryKey(r)===selectedKey)?selectedKey:data.rows.length===1?gasDeliveryKey(data.rows[0]):undefined;drawRows();
+   selectedKey=data.rows.some(r=>gasDeliveryKey(r)===selectedKey)?selectedKey:data.rows.length===1?gasDeliveryKey(data.rows[0]):undefined;drawRows();workflow?.changed();
    if(!selectedDelivery()){message.textContent='Select a delivery row to work with its day and side.';return;}await loadOperations(epoch);
   }catch(error){if(valid(epoch)){view=undefined;message.textContent=String(error);}}
   finally{if(valid(epoch)){busy=false;sync();}}
  }
  get('refresh').onclick=()=>{if(busy||workflow?.busy()||workflow?.pending())return;edits.clear();invalidate();void read();};void read();
- return{afterFlowHost,sync,pending:()=>!!workflow?.pending()||busy,unsaved:()=>edits.edited(),destroy(){disposed=true;generation++;clearRows(false);root.remove();}};
+ // The selected delivery row and stage, as the page reports them to the assistant.
+ const shown=()=>{const row=selectedDelivery();return row?{day:row.day,obligationId:row.obligationId,stage}:undefined;};
+ return{afterFlowHost,sync,shown,pending:()=>!!workflow?.pending()||busy,unsaved:()=>edits.edited(),destroy(){disposed=true;generation++;clearRows(false);root.remove();}};
 }

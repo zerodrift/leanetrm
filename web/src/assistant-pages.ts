@@ -3,6 +3,7 @@
 // page, the places a move left for Back, and the plain lines the conversation shows. None of them names an identifier.
 import {grantPhrase,type Vendor} from './agent-grants.js';
 import {readPages,type Step,type Ending,type Usage,type TargetContext} from './assistant-events.js';
+import {physicalTabs,gasStages} from './physical-operations-grid.js';
 
 /**
  * What the Blotter shows of its panes and window, which its report states beside the selection (D271). A pane is open when it is the shown
@@ -22,19 +23,23 @@ export type EntryShown={product:'futures'|'options'|'swaps'|'ppa'|'gas'|'crude'|
 export type PpaShown={trade:{tradeId:string;revision:number}|null;book:string|null};
 // What a web page shows, as the page's own state names it.
 export type WorkspaceSelection={operation:string;inputJson:string};
+// The physical instrument and tab Physical operations shows and, on a selected gas delivery row, its day, delivery side and stage.
+export type PhysicalShown={tradeId:string;bindingId:string;revision:number;instrumentType:'physical_gas'|'physical_crude'|'physical_lng';tab:string;
+  day:string|null;obligationId:string|null;stage:number|null};
 export type PageState=(
   {page:'market';curve:string|null;tab:'prices'|'dependencies'|'inputs'}|{page:'power';frame:boolean}|{page:'configuration'}|{page:'schedules'}
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
   |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
-  |{page:'physical-operations'|'facilities'|'risk'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null};
+  |{page:'physical-operations';physical?:PhysicalShown}
+  |{page:'facilities'|'risk'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null;businessDate?:string}
   |{mode:'retained';contextId:string;effectiveOn:string;knownAtLabel:string;frameId:string|null;frameLabel:string|null}|{mode:'unapplied'};
 
 export const inconsistent=()=>Error('The assistant’s page is inconsistent. Reload it.');
-const unsupported:Record<string,string>={'physical-operations':'physical_operations',facilities:'facility_quantities',risk:'risk_jobs',dashboard:'dashboard','crude-setup':'crude_setup','gas-setup':'gas_setup',gas:'physical_gas',crude:'physical_crude',delivery:'delivery_prices','interval-series':'interval_series',
+const unsupported:Record<string,string>={facilities:'facility_quantities',risk:'risk_jobs',dashboard:'dashboard','crude-setup':'crude_setup','gas-setup':'gas_setup',gas:'physical_gas',crude:'physical_crude',delivery:'delivery_prices','interval-series':'interval_series',
   'interval-curves':'interval_curves','vol-surfaces':'vol_surfaces',admin:'users_access',ai:'settings_ai'};
 // Pages the assistant reads but Navigate does not open (D250).
 const unopened:readonly string[]=['ppa'];
@@ -48,6 +53,7 @@ const entryPages={none:'blotter_new_trade',futures:'blotter_new_future',swaps:'b
 // risk results the assistant does not read (D222), or the rows and totals it reads.
 export function pageReport(state:PageState):PageReport{
   switch(state.page){
+    case 'physical-operations':return {page:'physical_operations',selection:state.physical?{...state.physical}:{}};
     case 'facilities':return {page:'facility_quantities',selection:state.businessDate?{ledgerId:state.facilityLedger??null}:{},...(state.businessDate?{businessDate:state.businessDate}:{})};
     case 'market':return {page:'curves',selection:state.curve===null?{view:'curves',curve:null}:{view:state.tab==='inputs'?'observations':'curve',curve:state.curve}};
     case 'power':return {page:'power_tous',selection:{view:state.frame?'power_hours':'tou_products'}};
@@ -130,7 +136,11 @@ function shows(report:PageReport,names:Names,trade?:string){
     case 'blotter_new_crude':return 'A new physical crude trade is being entered. The assistant does not read a trade being entered.';
     case 'blotter_new_option':return 'A new futures option is being entered. The assistant does not read a trade being entered.';
     case 'blotter_new_gas':return 'A new physical gas trade is being entered. The assistant does not read a trade being entered.';
-    case 'physical_operations':return 'Physical instrument operations under the header context. Unsaved edits are not sent.';
+    case 'physical_operations':{
+      if(!s.tradeId)return 'Physical instrument operations under the header context. Unsaved edits are not sent.';
+      const tab=physicalTabs(String(s.instrumentType)).find(([id])=>id===s.tab)?.[1];if(!tab)throw inconsistent();
+      return `Selected physical instrument, revision ${s.revision} · ${tab}${s.day?` · Gas day ${s.day} · ${gasStages[Number(s.stage)]} stage`:''}. Unsaved edits are not sent.`;
+    }
     case 'gas_setup':case 'crude_setup':return 'Published delivery setup and field definitions in the header context. Unsaved edits are not sent.';
     case 'facility_quantities':return 'Facility quantities and allocations at the header operating date and knowledge cutoff. Unsaved edits are not sent.';
     default:return ['dashboard','physical_gas','physical_crude','vol_surfaces'].includes(report.page)?'The assistant does not read this page.':'Authorized page operations, reads and previews. Changes require your authorization.';

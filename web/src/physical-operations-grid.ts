@@ -10,6 +10,13 @@ export function physicalProduct(type:PositionFact['instrumentType']){
  if(!(type in products))throw Error('The directory returned an unsupported physical instrument.');
  return products[type as keyof typeof products];
 }
+// An instrument's tabs, by id and label.
+export function physicalTabs(instrumentType:string|undefined):[string,string][]{
+ return [['overview','Overview'],...(instrumentType==='physical_gas'?[['delivery','Delivery'],['cash','Billing & corrections']]
+  :instrumentType==='physical_crude'?[['delivery','Delivery & cash']]:instrumentType==='physical_lng'?[['delivery','Delivery']]:[]) as [string,string][]];
+}
+// A gas delivery's stages, in order.
+export const gasStages=['Before flow','Scheduling','After flow','Reconciliation'];
 export const physicalTradeKey=(p:Pick<PositionFact,'tradeId'|'bindingId'>)=>p.tradeId+':'+p.bindingId;
 export const gasDeliveryKey=(r:Pick<GasQuantityRow,'obligationId'|'day'>)=>r.obligationId+':'+r.day;
 export function operationsTag(label:string,tone:string){const tag=document.createElement('span');tag.className='operations-tag';tag.dataset.tone=tone;tag.textContent=label;return tag;}

@@ -128,7 +128,8 @@ static class PageReports
             if(page.Tool=="read_workspace_page")
             {
                 _=new ToolInput(selection);
-                if(id=="facility_quantities"&&selection.EnumerateObject().Any())
+                if(id=="physical_operations"&&selection.EnumerateObject().Any())PhysicalSelection(selection);
+                else if(id=="facility_quantities"&&selection.EnumerateObject().Any())
                 {
                     var facility=new ToolInput(selection);facility.Exactly("ledgerId");
                     if(facility.Has("ledgerId"))_=facility.Id("ledgerId");
@@ -155,6 +156,23 @@ static class PageReports
             return new(id,page.Operations.Contains(call.Operation.Id)&&Shows(id,call)?call:null,layout);
         }
         catch(ToolRefusal){return new(id,null,layout);}
+    }
+
+    // Physical operations' instrument and tab and, on a selected gas delivery row, its day, delivery side and stage: all of them or
+    // none of them. They identify what the page shows; the assistant reads them with its own authorized operations.
+    static void PhysicalSelection(JsonElement selection)
+    {
+        var input=new ToolInput(selection);input.Exactly("tradeId","bindingId","revision","instrumentType","tab","day","obligationId","stage");
+        _=input.Id("tradeId");_=input.Id("bindingId");_=input.Whole("revision",1,int.MaxValue);
+        var kind=input.Choice("instrumentType","physical_gas","physical_crude","physical_lng");
+        var tab=input.Choice("tab",kind=="physical_gas"?["overview","delivery","cash"]:["overview","delivery"]);
+        if(kind=="physical_gas"&&tab=="delivery"&&input.Has("day"))
+        {
+            if(!DateOnly.TryParseExact(input.Text("day",10,10),"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,out _))throw ToolInput.Invalid();
+            _=input.Id("obligationId");_=input.Whole("stage",0,3);
+        }
+        else input.Null("day","obligationId","stage");
     }
 
     // The Blotter's layout: exactly {"pane":{"details","charts"},"poppedOut"}, each a flag; anything else is none.

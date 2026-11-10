@@ -379,3 +379,19 @@ test('facility questions retain the selected operating date and ledger without b
  assert.equal(webPage('gas_setup'),'gas-setup');
  assert.equal(webPage('crude_setup'),'crude-setup');
 });
+
+test('physical operations reports the selected instrument, gas day, delivery side and stage, and nothing before an instrument is chosen',()=>{
+ const binding='b1000000-0000-4000-8000-000000000001',obligation='0b100000-0000-4000-8000-000000000001';
+ const physical={tradeId:trade,bindingId:binding,revision:2,instrumentType:'physical_gas',tab:'delivery',day:'2020-12-19',obligationId:obligation,stage:1};
+ assert.deepEqual(pageReport({page:'physical-operations',physical}),{page:'physical_operations',selection:physical});
+ assert.deepEqual(pageReport({page:'physical-operations'}),{page:'physical_operations',selection:{}});
+});
+
+test('Looking at says which physical instrument revision, tab, gas day and stage an ask reports',()=>{
+ const working={mode:'current',frameId:frame,frameLabel:'18 Dec 2020 16:00'},names={curve:String,table:String};
+ const physical={tradeId:trade,bindingId:'b1000000-0000-4000-8000-000000000001',revision:2,instrumentType:'physical_gas',tab:'delivery',day:'2020-12-19',obligationId:'0b100000-0000-4000-8000-000000000001',stage:1};
+ const shows=state=>lookingAt(pageReport({page:'physical-operations',...state}),working,names).shows;
+ assert.equal(shows({physical}),'Selected physical instrument, revision 2 · Delivery · Gas day 2020-12-19 · Scheduling stage. Unsaved edits are not sent.');
+ assert.equal(shows({physical:{...physical,tab:'cash',day:null,obligationId:null,stage:null}}),'Selected physical instrument, revision 2 · Billing & corrections. Unsaved edits are not sent.');
+ assert.equal(shows({}),'Physical instrument operations under the header context. Unsaved edits are not sent.');
+});
