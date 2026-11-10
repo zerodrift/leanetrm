@@ -1,4 +1,5 @@
 import {openPhysical} from './physical-workspace.mjs';
+import {openPhysicalTrade,openGasDelivery} from './physical-operations-grid.mjs';
 
 // Real delayed answer, explicit Go and Back, followed by a frameless facility question.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url,provider,fixture}){
@@ -58,4 +59,19 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   `(()=>{const ask=window.__physicalAsks.at(-1);return ask.pageReport.businessDate==='2021-01-15'&&ask.pageReport.selection.ledgerId===${JSON.stringify(fixture.ledgerId)}&&ask.knowledge.mode==='current'&&ask.knowledge.frameId===null;})()`);
  await check('the native facility read finishes without a tool refusal',"!document.querySelector('#assistant-turns').textContent.includes('refused')&&document.querySelector('#error').hidden");
  await shot('physical-assistant-operating-context');
+
+ // Physical operations reports the gas day and stage it shows, and Looking at names them.
+ const actions={command,evaluate,wait,click,set,idle};
+ if(after.close){await set('#close-session',after.close.session);await wait(idle);}
+ await set('#snapshot',after.id);await wait(idle);await click('#nav-physical-operations');await openPhysicalTrade(actions,fixture.trades[0]);
+ await click('#physical-operations-tabs-delivery');await wait("!!document.querySelector('[data-ops=rows] .tabulator-row')&&"+idle);
+ const day=await evaluate("document.querySelector('[data-ops=rows] .tabulator-row').dataset.rowKey.split(':').at(-1)");
+ await openGasDelivery(actions,day);await click('[data-stage="1"]');await wait(idle);
+ await check('Looking at names the selected gas day and stage',`document.querySelector('#assistant-looking-shows').textContent.includes(${JSON.stringify('Gas day '+day+' · Scheduling stage')})`,"document.querySelector('#assistant-looking-shows').textContent");
+ await script([{text:'Synthetic gas day read.'}]);
+ await set('#assistant-question','What is scheduled for this gas day?');await wait("!document.querySelector('#assistant-send').disabled");await submit('#assistant-composer');
+ await wait("document.querySelector('#assistant-turns').textContent.includes('Synthetic gas day read.')&&document.querySelector('#assistant-send').textContent==='Send'");
+ await check('an ask from a selected gas day sends its trade, day, delivery side and stage',
+  `(()=>{const s=window.__physicalAsks.at(-1).pageReport.selection;return s.tradeId===${JSON.stringify(fixture.trades[0])}&&s.instrumentType==='physical_gas'&&s.tab==='delivery'&&s.day===${JSON.stringify(day)}&&!!s.obligationId&&s.stage===1;})()`,
+  "JSON.stringify(window.__physicalAsks.at(-1).pageReport)");
 }

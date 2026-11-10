@@ -23,6 +23,8 @@ static class AssistantWorkspaceChecks
                 catch(OpenEtrm.MarketData.MarketDataException e) when(e.Code=="page_report_invalid"){}
             }
         }
+        PhysicalSelection();
+        OmittedIds();
         BusinessDatePins();
         var pages=new[]{"physical_operations","risk_jobs","delivery_prices","interval_series","interval_curves","users_access","settings_ai",
             "blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","gas_setup","crude_setup","facility_quantities"};
@@ -91,6 +93,39 @@ static class AssistantWorkspaceChecks
             catch(ToolRefusal e) when(e.Code=="tool_arguments_invalid"){}
         }
         Console.WriteLine("PASS assistant workspace: page coverage, explicit operation catalog and mandatory write approval");
+    }
+
+    // Physical operations reports the instrument it shows and, on a gas delivery, the day, side and stage: exactly, or not at all.
+    static void PhysicalSelection()
+    {
+        var gas=new Dictionary<string,object?>{["tradeId"]=Guid.NewGuid(),["bindingId"]=Guid.NewGuid(),["revision"]=2,["instrumentType"]="physical_gas",
+            ["tab"]="delivery",["day"]="2020-12-19",["obligationId"]=Guid.NewGuid(),["stage"]=1};
+        JsonElement Report(Dictionary<string,object?> selection)=>JsonSerializer.SerializeToElement(new{page="physical_operations",selection});
+        Dictionary<string,object?> With(string key,object? value)=>new(gas){[key]=value};
+        foreach(var valid in new[]{gas,new(gas){["day"]=null,["obligationId"]=null,["stage"]=null},
+            new(gas){["tab"]="overview",["day"]=null,["obligationId"]=null,["stage"]=null},
+            new(gas){["instrumentType"]="physical_crude",["tab"]="delivery",["day"]=null,["obligationId"]=null,["stage"]=null}})
+            PageReports.Require(Report(valid));
+        var missing=new Dictionary<string,object?>(gas);missing.Remove("stage");
+        foreach(var invalid in new[]{missing,new(gas){["value"]="918273"},With("tradeId","TR-000009"),With("revision",0),With("instrumentType","future"),
+            With("tab","risk"),With("day","19/12/2020"),With("stage",4),With("obligationId","side"),
+            With("obligationId",null),With("stage",null),new(gas){["tab"]="cash"},new(gas){["day"]=null},new(gas){["instrumentType"]="physical_crude"}})
+        {
+            try{PageReports.Require(Report(invalid));throw new Exception("An inexact physical operations selection was accepted.");}
+            catch(OpenEtrm.MarketData.MarketDataException e) when(e.Code=="page_report_invalid"){}
+        }
+    }
+
+    // A body that omits a required id is refused with a reason, never read as an empty id that a later check calls a denial.
+    static void OmittedIds()
+    {
+        var context=Guid.NewGuid();
+        string Directory(string snapshot)=>"{\"context\":{"+snapshot+"\"convention\":\"trading_workspace_v1\",\"knowledgeMode\":\"retained\",\"contextId\":\""+context+"\"},\"bookIds\":[],\"portfolioIds\":[],\"offset\":0,\"limit\":100}";
+        AssistantWorkspace.Canonical(System.Text.Json.Nodes.JsonNode.Parse(Directory("\"snapshotId\":\""+Guid.NewGuid()+"\",")),typeof(TradingPositionsRequest));
+        try{AssistantWorkspace.Canonical(System.Text.Json.Nodes.JsonNode.Parse(Directory("")),typeof(TradingPositionsRequest));throw new Exception("A context without its frame was accepted.");}
+        catch(ToolRefusal e) when(e.Code=="operation_context_mismatch"){}
+        try{AssistantWorkspace.Canonical(System.Text.Json.Nodes.JsonNode.Parse("{\"context\":null,\"day\":\"2021-01-01\"}"),typeof(GasOperationsReadRequest));throw new Exception("A body without its trade id was accepted.");}
+        catch(ToolRefusal e) when(e.Code=="tool_arguments_invalid"){}
     }
 
     static void BusinessDatePins()

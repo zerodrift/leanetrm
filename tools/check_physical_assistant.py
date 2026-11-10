@@ -1,5 +1,6 @@
 """Native physical operations through an explicitly delegated assistant, owned synthetic fixture only."""
 from copy import deepcopy
+from datetime import date,timedelta
 import json
 import time
 from uuid import uuid4
@@ -251,6 +252,44 @@ def run_checks(url, query, manifest, fake, demo, dotnet, environment, owned_root
     check('manual service proposals make no operational writes before approval',owner.call('gas/operations/read',dict(context=daily_current,tradeId=demo['trades'][0],day=row['day']))['state']['accounts']==[])
     service_reference={'turnId':service_turn['id'],'step':1};service_receipt=owner.call('assistant/actions/authorize',service_reference)
     check('approved service setup uses the native handler and retained outcome',owner.call('assistant/actions/authorize',service_reference)==service_receipt and len(owner.call('gas/operations/read',dict(context=daily_current,tradeId=demo['trades'][0],day=row['day']))['state']['accounts'])==1)
+
+    # The page hands the assistant its selected instrument, gas day, delivery side and stage, and the agent then records a
+    # nomination, its acknowledgments and the schedule they confirm, each prepared as a proposal and applied only on approval.
+    position=next(p for p in physical_facts['positions'] if p['tradeId']==demo['trades'][0])
+    scheduled_day=row['day'];before_day=(date.fromisoformat(scheduled_day)-timedelta(days=1)).isoformat()
+    selection={'tradeId':demo['trades'][0],'bindingId':position['bindingId'],'revision':position['revision'],'instrumentType':'physical_gas',
+        'tab':'delivery','day':scheduled_day,'obligationId':row['obligationId'],'stage':1}
+    physical_report={'page':'physical_operations','selection':selection}
+    _,page_view,_=ask([('read_workspace_page',{'page':'physical_operations'})],report=physical_report,knowledge={**current,'frameId':after})
+    check('physical operations hands the assistant its selected instrument, gas day, delivery side and stage',page_view[0]['selection']==selection)
+    def day_state():
+        return owner.call('gas/operations/read',dict(context=daily_current,tradeId=demo['trades'][0],day=scheduled_day))['state']
+    def agent_records(kind,details):
+        preview=dict(context=daily_current,tradeId=demo['trades'][0],expectedRevision=1,day=scheduled_day,kind=kind,details=details)
+        def reviewed(rows):
+            certificate=rows[0]['context']
+            return 'read_page_operation',operation('gas.operations.preview_v1',{**preview,'context':{**daily_current,'knowledgeMode':'retained','contextId':certificate['contextId']}})
+        _,results,_=ask([('discover_page_operations',{'page':'physical_operations','operation':'gas.operations.preview_v1'}),reviewed],report=physical_report,knowledge={**current,'frameId':after})
+        before=day_state()
+        turn,_,_=ask([('propose_page_action',operation('gas.operations.record_v1',dict(preview=preview,operationId=str(uuid4()),previewHash=results[1]['data']['previewHash'])))],
+            report=physical_report,knowledge={**current,'frameId':after})
+        check(f'a proposed {kind} records nothing before approval',day_state()==before)
+        reference={'turnId':turn['id'],'step':1};receipt=owner.call('assistant/actions/authorize',reference)
+        check(f'an approved {kind} uses the native handler and replays its first outcome',owner.call('assistant/actions/authorize',reference)==receipt)
+        return day_state()
+    scheduled=lambda state:[h for h in state['heads'] if h['kind']=='scheduled']
+    account=next(a for a in day_state()['accounts'] if a['origin_obligation_id']==row['obligationId']);schedule_before=scheduled(day_state())
+    recorded=agent_records('nomination',dict(accountId=account['id'],serviceVersionId=account['version_id'],externalReference='synthetic-agent-nomination',expectedPreviousId=None,
+        quantity='100',submittedAt=before_day+'T12:00:00Z',channel='portal',reason='Synthetic agent scheduling request',evidence='Synthetic reviewed agent nomination'))
+    nomination=next(n for n in recorded['nominations'] if n['external_reference']=='synthetic-agent-nomination')
+    for side,quantity in [('counterparty','95'),('pipeline','90')]:
+        recorded=agent_records('response',dict(nominationId=nomination['id'],imbalanceId=None,side=side,decision='approved',quantity=quantity,
+            externalReference='synthetic-agent-'+side,respondedAt=before_day+'T18:00:00Z',expectedPreviousId=None,evidence='Synthetic '+side+' acknowledgment'))
+    check('recorded acknowledgments leave the schedule to an explicit application',scheduled(recorded)==schedule_before)
+    responses={r['side']:r['id'] for r in recorded['responses'] if r['nomination_id']==nomination['id']}
+    recorded=agent_records('nomination_apply',dict(nominationId=nomination['id'],counterpartyResponseId=responses['counterparty'],pipelineResponseId=responses['pipeline'],
+        expectedPreviousId=None,profile='manual_confirmed_ceiling_v1',evidence='Synthetic reviewed agent scheduling adoption'))
+    check('the approved application schedules the lower confirmed quantity',scheduled(recorded)!=schedule_before and [h['quantity'] for h in scheduled(recorded) if h not in schedule_before]==['90'])
 
     query("DELETE FROM security.role_permissions WHERE role_id=(SELECT id FROM security.roles WHERE code='trader') AND permission='RecordFacilityQuantities';")
     try:
