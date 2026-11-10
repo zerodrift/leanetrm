@@ -160,7 +160,7 @@ def run_http_checks(url, query, client=None):
     context = {'snapshotId': frame['id'], 'convention': 'contract_lot_execution_pnl_v2', 'knowledgeMode': 'current'}
     catalog = c.call('futures/catalog', context); contract = catalog['contracts'][0]
     body = {**context, **trade_booking(), 'operationId': str(uuid4()), 'bookId': catalog['books'][0]['id'],
-            'curve': contract['curve'], 'contractId': contract['id'], 'lots': '2', 'executionPrice': '3'}
+            'curve': contract['curve'], 'contractId': contract['id'], 'definitionRevisionId': contract['definitionRevisionId'], 'lots': '2', 'executionPrice': '3'}
     first = c.call('futures/book', body)
     reference = query(f"SELECT reference_number FROM trading.trade_references WHERE trade_id='{UUID(first['tradeId'])}';")
     counters = query('SELECT jsonb_agg(to_jsonb(c) ORDER BY catalog_id,kind)::text FROM trading.reference_counters c;')

@@ -221,7 +221,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
     booking = trader.call('futures/catalog', trading)
     contract = next(c for c in booking['contracts'] if c['curve'] == 'future')
     booked = trader.call('futures/book', {**trading, **trade_booking(), 'operationId': str(uuid4()), 'bookId': booking['books'][0]['id'],
-                                          'curve': 'future', 'contractId': contract['id'], 'lots': '2', 'executionPrice': '3.1',
+                                          'curve': 'future', 'contractId': contract['id'], 'definitionRevisionId': contract['definitionRevisionId'], 'lots': '2', 'executionPrice': '3.1',
                                           'memo': 'Synthetic tool check trade'})['tradeId']
     swapping = {**trading, 'convention': SWAPS}
     offer = trader.call('swaps/catalog', swapping)

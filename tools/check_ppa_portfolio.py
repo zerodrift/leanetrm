@@ -59,7 +59,7 @@ def run_checks(url, query, manifest, dotnet, owned_root, environment):
     context = {'snapshotId': frame['id'], 'convention': 'contract_lot_execution_pnl_v2', 'knowledgeMode': 'current'}
     contract = client.call('futures/catalog', context)['contracts'][0]
     future = client.call('futures/book', {**context, **trade_booking(), 'operationId': str(uuid4()),
-        'bookId': book, 'curve': contract['curve'], 'contractId': contract['id'], 'lots': '1', 'executionPrice': '2.9'})
+        'bookId': book, 'curve': contract['curve'], 'contractId': contract['id'], 'definitionRevisionId': contract['definitionRevisionId'], 'lots': '1', 'executionPrice': '2.9'})
 
     def runtime(sql):
         token = query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("

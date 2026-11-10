@@ -16,7 +16,7 @@ def run_checks(url, query, manifest, client=None):
                 'counterpartyId': p['id'], 'counterpartyRevision': p['revision']}
     contract = catalog['contracts'][0]
     body = {**context, **booking(), 'operationId': str(uuid4()), 'bookId': catalog['books'][0]['id'],
-            'curve': contract['curve'], 'contractId': contract['id'], 'lots': '2', 'executionPrice': '3'}
+            'curve': contract['curve'], 'contractId': contract['id'], 'definitionRevisionId': contract['definitionRevisionId'], 'lots': '2', 'executionPrice': '3'}
     first = c.call('futures/book', body)
     assert first == c.call('futures/book', body)
     second = c.call('futures/book', {**body, **booking(other_entity, other_party), 'lots': '3', 'operationId': str(uuid4())})

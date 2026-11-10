@@ -95,7 +95,7 @@ def run_checks(url, session=None):
     catalog = c.call('futures/catalog', {**futures, 'snapshotId': dec18['id']})
     ng = next(k for k in catalog['contracts'] if k['curve'] == 'ng_monthly' and k['deliveryFrom'] == '2021-02-01')
     booked = c.call('futures/book', {**futures, **trade_booking(), 'snapshotId': dec18['id'], 'bookId': BOOKS[0], 'curve': 'ng_monthly',
-                                     'contractId': ng['id'], 'lots': '3', 'executionPrice': '3.05',
+                                     'contractId': ng['id'], 'definitionRevisionId': ng['definitionRevisionId'], 'lots': '3', 'executionPrice': '3.05',
                                      'operationId': str(uuid5(OPERATIONS, 'valuation_status_v1:ng_monthly:2021-02'))})
 
     def report(frame, view):

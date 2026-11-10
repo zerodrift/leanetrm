@@ -40,13 +40,13 @@ def run_checks(url,query,dotnet,owned_root,environment):
     book=catalog['books'][0]['id']
     def book_future(lots):
         return client.call('futures/book',{**futures_context,**trade_booking(),'operationId':str(uuid4()),'bookId':book,'curve':contract['curve'],
-                                           'contractId':contract['id'],'lots':lots,'executionPrice':'2.9'})['tradeId']
+                                           'contractId':contract['id'], 'definitionRevisionId': contract['definitionRevisionId'],'lots':lots,'executionPrice':'2.9'})['tradeId']
     future=book_future('40')
     short=book_future('-15')
     amended=book_future('5')
     earlier=client.call('futures/editor',{'context':futures_context,'tradeId':amended,'revision':None})['context']
     client.call('futures/amend',{**futures_context,**trade_booking(),'operationId':str(uuid4()),'tradeId':amended,'expectedRevision':1,'bookId':book,
-        'curve':contract['curve'],'contractId':contract['id'],'lots':'6','executionPrice':'2.9','effectiveAt':booking['at'],
+        'curve':contract['curve'],'contractId':contract['id'],'definitionRevisionId':contract['definitionRevisionId'],'lots':'6','executionPrice':'2.9','effectiveAt':booking['at'],
         'reason':'Synthetic close-out revision','amendmentConvention':'unprocessed_futures_booking_amendment_v1'})
 
     swaps=client.call('swaps/catalog',swap_context)

@@ -39,7 +39,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     client.call('swaps/amend',{**daily_terms,'bookId':unsupported_book,'operationId':str(uuid4()),'tradeId':daily_trade['tradeId'],'expectedRevision':1,'effectiveAt':frame['at'],'reason':'Synthetic book transfer'})
     future_context={**context,'convention':'contract_lot_execution_pnl_v2'}
     future=client.call('futures/catalog',future_context)['contracts'][0]
-    future_terms={'curve':future['curve'],'contractId':future['id'],'lots':'2','executionPrice':'2.9'}
+    future_terms={'curve':future['curve'],'contractId':future['id'],'definitionRevisionId':future['definitionRevisionId'],'lots':'2','executionPrice':'2.9'}
     future_price=client.call('futures/price',{'context':future_context,**future_terms})['executionPnl']
     future_trade=client.call('futures/book',{**future_context,**trade_booking(),**future_terms,'operationId':str(uuid4()),'bookId':book})
     expected=[]
