@@ -3818,3 +3818,20 @@ title.
 
 This changes presentation only. Page identifiers, addresses, permissions and every
 read and write are unchanged.
+
+## D369 — Physical operations reports its selection to the assistant
+
+The Physical operations page reported no selection, so an ask from a selected gas
+day said only which page it came from. It now reports the instrument it shows (trade,
+binding, revision and instrument type) and its tab, and, on a selected gas delivery
+row, that row's day and delivery side (obligation) and the stage shown. The day, side
+and stage are all present or all null. The server accepts exactly that shape and
+refuses any other, as for the other pages' selections (D191).
+
+The selection identifies what the page shows; it reads nothing. The assistant reads
+the day, its quantities and its operations with the page's existing operations,
+under the asking person's current authority and its `UseAssistantWorkspace` consent
+(D284). No operation, permission or role changes. In particular, the gas operations
+roles stay out of an agent version's Allowed roles: those name who may use the agent,
+must hold `UseAgents`, and do not limit or extend the authority of workspace reads
+and proposals.

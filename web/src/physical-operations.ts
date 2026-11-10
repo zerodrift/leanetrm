@@ -7,6 +7,7 @@ import {lngInstrumentSections,type LngInstrumentFacts} from './lng-trade-view.js
 import {facilityAllocationTrack} from './facility-allocation-track.js';
 import type {FacilityAllocationTrack} from './ticket-types.js';
 import {setupGasOperations} from './gas-operations.js';
+import type {PhysicalShown} from './assistant-pages.js';
 import {setupGasBilling,type GasBillingWorkflow} from './gas-billing.js';
 import {setupCrudeOperations} from './crude-operations.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
@@ -78,7 +79,7 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
   renderDeliveryCapabilities(section.querySelector('[data-delivery=capabilities]')!,view);content.append(section);
   deliveryGrid=renderPhysicalDeliveryGrid(section.querySelector('[data-delivery=rows]')!,'physical-delivery-intervals',o.identity(),view,o.zone(),busy,{layout:emptyGridLayout(),onLayout(){}});
  }
- async function mount(){clearWidgets();if(!selected){clearInstrument();message.textContent='';content.innerHTML='<div class="operations-empty"><span aria-hidden="true">⇄</span><h3>Choose an instrument to begin</h3><p>Select a trade in the grid above to view its delivery work.</p></div>';sync();return;}
+ async function mount(){clearWidgets();o.changed();if(!selected){clearInstrument();message.textContent='';content.innerHTML='<div class="operations-empty"><span aria-hidden="true">⇄</span><h3>Choose an instrument to begin</h3><p>Select a trade in the grid above to view its delivery work.</p></div>';sync();return;}
   tabs();get('tabs').hidden=false;get('instrument').hidden=false;get('family').textContent=physicalProduct(selected.instrumentType).label;get('reference').textContent=selected.tradeReference;get('market').textContent=selected.marketLabel??'';get('book').textContent=selected.book;get('period').textContent=selected.deliveryFrom&&selected.deliveryTo?`${selected.deliveryFrom} → ${selected.deliveryTo} · exclusive`:'Not available';
   const p=selected,epoch=++generation,actor=o.identity();message.textContent='';reading=true;sync();
   try{const context=structuredClone(o.context());if(tab==='delivery'&&p.instrumentType==='physical_gas'){gas=setupGasOperations(content,{api:o.api,context:gasContext,tradeId:p.tradeId,actor:o.identity,zone:o.zone,workflow});const allocations=await o.api<{facilityAllocations:FacilityAllocationTrack[]}>('trading/gas',{context,tradeId:p.tradeId,bindingId:p.bindingId,revision:p.revision,instrumentType:p.instrumentType});if(current(epoch,actor)&&allocations.facilityAllocations?.length)gas.afterFlowHost.append(facilityAllocationTrack(allocations.facilityAllocations));}
@@ -102,5 +103,8 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
    positions=facts.positions;selected=positions.find(p=>physicalTradeKey(p)===previous)??(positions.length===1?positions[0]:undefined);drawTrades();reading=false;await mount();if(selected)grid?.selectRow(positions.indexOf(selected));
   }catch(error){if(current(epoch,actor)){positions=[];selected=undefined;filters=undefined;clearGrid();message.textContent=String(error);}}finally{if(current(epoch,actor)){reading=false;sync();}}}
  get('refresh').onclick=()=>void o.act(async()=>{if(await leave())await load();});get('retry').onclick=()=>void o.act(async()=>{if(pending.command)await send(pending.command);});get('status').onclick=()=>void o.act(check);
- return{load,sync,leave,edited:()=>edited()||!!pending.command,selected:()=>selected,reset(){generation++;reading=false;asking?.abort();asking=undefined;clearWidgets();positions=[];selected=undefined;tab='overview';pending.clear();identity='';clearGrid();filters=undefined;clearInstrument();message.textContent='';},async refresh(){if(await leave())await load();}};
+ // The instrument and tab shown and, on a gas delivery, its selected row and stage (PageState's physical).
+ const shown=():PhysicalShown|undefined=>selected&&{tradeId:selected.tradeId,bindingId:selected.bindingId,revision:selected.revision,
+  instrumentType:selected.instrumentType as PhysicalShown['instrumentType'],tab,...(tab==='delivery'&&gas?.shown())||{day:null,obligationId:null,stage:null}};
+ return{load,sync,leave,edited:()=>edited()||!!pending.command,selected:()=>selected,shown,reset(){generation++;reading=false;asking?.abort();asking=undefined;clearWidgets();positions=[];selected=undefined;tab='overview';pending.clear();identity='';clearGrid();filters=undefined;clearInstrument();message.textContent='';},async refresh(){if(await leave())await load();}};
 }

@@ -1365,7 +1365,7 @@ function pageState():PageState{
     case 'reference':return {page,...referenceSelection(shownReference)};
     case 'parties':return {page,kind:select('party-kind').value};
     case 'futures':return {page,...futures.report()};
-    case 'physical-operations':return {page};
+    case 'physical-operations':return {page,physical:physicalOperations.shown()};
     case 'facilities':return {page,businessDate:$<HTMLInputElement>('date-context-on').value,facilityLedger:facilities.selected()};
     case 'jobs':return {page,job:jobs.shown()};
     case 'crude-setup':case 'gas-setup':case 'gas':case 'crude':return {page};

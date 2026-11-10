@@ -379,3 +379,10 @@ test('facility questions retain the selected operating date and ledger without b
  assert.equal(webPage('gas_setup'),'gas-setup');
  assert.equal(webPage('crude_setup'),'crude-setup');
 });
+
+test('physical operations reports the selected instrument, gas day, delivery side and stage, and nothing before an instrument is chosen',()=>{
+ const binding='b1000000-0000-4000-8000-000000000001',obligation='0b100000-0000-4000-8000-000000000001';
+ const physical={tradeId:trade,bindingId:binding,revision:2,instrumentType:'physical_gas',tab:'delivery',day:'2020-12-19',obligationId:obligation,stage:1};
+ assert.deepEqual(pageReport({page:'physical-operations',physical}),{page:'physical_operations',selection:physical});
+ assert.deepEqual(pageReport({page:'physical-operations'}),{page:'physical_operations',selection:{}});
+});
