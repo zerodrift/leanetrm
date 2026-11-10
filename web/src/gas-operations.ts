@@ -1,5 +1,5 @@
 import {emptyGridLayout,type GridHandle} from './data-grid.js';
-import {gasDeliveryKey} from './physical-operations-grid.js';
+import {gasDeliveryKey,gasStages} from './physical-operations-grid.js';
 import {readPhysicalDelivery} from './physical-delivery.js';
 import {renderPhysicalDeliveryGrid} from './physical-delivery-grid.js';
 import {renderRegularTable} from './regular-table.js';
@@ -14,7 +14,7 @@ type State={accounts:Row[];nominations:Row[];statements:Row[];agreements:Row[];r
 type Review={action?:string;phase?:string;quantity?:string;unit?:string;confirmed?:string;scheduled?:string;buyerBalanceAfter?:string;sellerBalanceAfter?:string;cash?:string;currency?:string;priceMultiplier?:string;scope?:string};
 type View={permissions:{canConfigure:boolean;canRecord:boolean};state:State;balances:{accountId:string;amount:string|null;refusal:string|null}[];nominationProfile:string;imbalanceProfile:string;roundingPolicy:string;statementPolicies:string[]};
 type Field={name:string;label:string;meaning:string;type?:string;options?:[string,string][];optional?:boolean};
-const stages=['Before flow','Scheduling','After flow','Reconciliation'];
+const stages=gasStages;
 const actions=[
  ['service','Service account & terms',0,'Accounts, availability and statement policy'],
  ['nomination','Submitted nomination / retro request',0,'A nomination or retro request sent externally'],

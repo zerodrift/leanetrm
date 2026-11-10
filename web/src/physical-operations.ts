@@ -1,7 +1,7 @@
 import {renderDataGrid,emptyGridLayout,type GridHandle,type GridLayout} from './data-grid.js';
 import {readPhysicalDelivery,type PhysicalDeliveryView} from './physical-delivery.js';
 import {renderPhysicalDeliveryGrid,renderDeliveryCapabilities} from './physical-delivery-grid.js';
-import {physicalProduct,physicalTradeKey,physicalTradeGrid,operationsTag} from './physical-operations-grid.js';
+import {physicalProduct,physicalTabs,physicalTradeKey,physicalTradeGrid,operationsTag} from './physical-operations-grid.js';
 import {crudeInstrumentSections,type CrudeInstrumentFacts} from './crude-trade-view.js';
 import {lngInstrumentSections,type LngInstrumentFacts} from './lng-trade-view.js';
 import {facilityAllocationTrack} from './facility-allocation-track.js';
@@ -72,7 +72,7 @@ export function setupPhysicalOperations(root:HTMLElement,o:{api:Api;act:(work:()
    cells:(row,column)=>column===1?operationsTag(model.rows[row][1],physicalProduct(trades[row].instrumentType).tone):column===8?operationsTag(model.rows[row][8],trades[row].instrumentType==='physical_lng'?'tbd':'neutral'):null,
   });
  }
- function tabs(){const available:[string,string][]=[['overview','Overview']];if(selected?.instrumentType==='physical_gas')available.push(['delivery','Delivery'],['cash','Billing & corrections']);else if(selected?.instrumentType==='physical_crude')available.push(['delivery','Delivery & cash']);else if(selected?.instrumentType==='physical_lng')available.push(['delivery','Delivery']);if(!available.some(([id])=>id===tab))tab='overview';tabStrip=setupTabs(get('tabs'),available,{label:'Physical instrument operations',panel:content,selected:tab,select:id=>{tabStrip?.mark(tab);void(async()=>{const epoch=generation,actor=o.identity();if(busy()||!await leave()||!current(epoch,actor))return;tab=id as Tab;await mount();})();}});}
+ function tabs(){const available=physicalTabs(selected?.instrumentType);if(!available.some(([id])=>id===tab))tab='overview';tabStrip=setupTabs(get('tabs'),available,{label:'Physical instrument operations',panel:content,selected:tab,select:id=>{tabStrip?.mark(tab);void(async()=>{const epoch=generation,actor=o.identity();if(busy()||!await leave()||!current(epoch,actor))return;tab=id as Tab;await mount();})();}});}
  function showDelivery(value:unknown,p:PositionFact){
   const view=readPhysicalDelivery(value,{tradeId:p.tradeId,bindingId:p.bindingId,revision:p.revision});
   const section=document.createElement('section');section.className='operations-deliveries';section.innerHTML='<h3>Delivery intervals</h3><div data-delivery="capabilities"></div><div data-delivery="rows"></div><p class="operations-grid-note">Exact contractual interval totals. Operational recording is available only through the supported workflows below.</p>';

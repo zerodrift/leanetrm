@@ -3,6 +3,7 @@
 // page, the places a move left for Back, and the plain lines the conversation shows. None of them names an identifier.
 import {grantPhrase,type Vendor} from './agent-grants.js';
 import {readPages,type Step,type Ending,type Usage,type TargetContext} from './assistant-events.js';
+import {physicalTabs,gasStages} from './physical-operations-grid.js';
 
 /**
  * What the Blotter shows of its panes and window, which its report states beside the selection (D271). A pane is open when it is the shown
@@ -135,7 +136,11 @@ function shows(report:PageReport,names:Names,trade?:string){
     case 'blotter_new_crude':return 'A new physical crude trade is being entered. The assistant does not read a trade being entered.';
     case 'blotter_new_option':return 'A new futures option is being entered. The assistant does not read a trade being entered.';
     case 'blotter_new_gas':return 'A new physical gas trade is being entered. The assistant does not read a trade being entered.';
-    case 'physical_operations':return 'Physical instrument operations under the header context. Unsaved edits are not sent.';
+    case 'physical_operations':{
+      if(!s.tradeId)return 'Physical instrument operations under the header context. Unsaved edits are not sent.';
+      const tab=physicalTabs(String(s.instrumentType)).find(([id])=>id===s.tab)?.[1];if(!tab)throw inconsistent();
+      return `Selected physical instrument, revision ${s.revision} · ${tab}${s.day?` · Gas day ${s.day} · ${gasStages[Number(s.stage)]} stage`:''}. Unsaved edits are not sent.`;
+    }
     case 'gas_setup':case 'crude_setup':return 'Published delivery setup and field definitions in the header context. Unsaved edits are not sent.';
     case 'facility_quantities':return 'Facility quantities and allocations at the header operating date and knowledge cutoff. Unsaved edits are not sent.';
     default:return ['dashboard','physical_gas','physical_crude','vol_surfaces'].includes(report.page)?'The assistant does not read this page.':'Authorized page operations, reads and previews. Changes require your authorization.';
