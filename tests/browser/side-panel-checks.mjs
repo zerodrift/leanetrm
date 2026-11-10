@@ -584,13 +584,19 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     await click('#side-panel-amend');await click('#details-collapse');await wait(`${panel}.hidden`);
     await check('collapsing mobile details shows the positions again and leaves the page usable',`document.querySelectorAll('[inert]').length===0&&!document.querySelector('#blotter-pane-grid').hidden&&!document.querySelector('#desk-positions .open-row')`);
   }
-  await settle(760,900);await open('fut');const mobileReference=await evaluate(panelReference);await click('#side-panel-open-curve');
+  await settle(760,900);await open('fut');
+  // Only completed read-only details are retained when another page is opened.
+  await wait("!!document.querySelector('#position-details-view .side-panel-section')&&!document.querySelector('#position-details-view .side-panel-status')&&"+idle);
+  const mobileReference=await evaluate(panelReference);await click('#side-panel-open-curve');
   await wait("document.querySelector('#nav-market').classList.contains('active')&&!document.querySelector('#contract-panel').hidden");
   await check('Open curve hides the Blotter and opens a usable contract sheet',`document.querySelector('#futures-page').hidden&&!document.querySelector('#contract-panel').closest('[inert]')`,
     `({positionHidden:${panel}.hidden,futuresPageHidden:document.querySelector('#futures-page').hidden,contractHidden:document.querySelector('#contract-panel').hidden,contractInert:document.querySelector('#contract-panel').closest('[inert]')?.id,openRows:document.querySelectorAll('#desk-positions .open-row').length,busy:document.body.getAttribute('aria-busy')})`);
   await click('#contract-panel-close');
   await check('closing the contract sheet leaves the page usable',`document.querySelector('#contract-panel').hidden&&document.querySelectorAll('[inert]').length===0`);
-  await click('#nav-futures');await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
-  await check('returning to the unchanged Blotter restores the mobile position details',`!${panel}.hidden&&${panelReference}===${JSON.stringify(mobileReference)}&&document.querySelector('#position-details-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelectorAll('[inert]').length===0`);
+  await click('#nav-futures');
+  // On a narrow page restored details occupy the single pane, so the hidden grid has no rendered rows to await.
+  await wait(`!${panel}.hidden&&${panelReference}===${JSON.stringify(mobileReference)}&&document.querySelector('#position-details-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelectorAll('[inert]').length===0&&${idle}`);
+  await check('returning to the unchanged Blotter restores the mobile position details',`!${panel}.hidden&&${panelReference}===${JSON.stringify(mobileReference)}&&document.querySelector('#position-details-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelectorAll('[inert]').length===0`,
+    `({positionHidden:${panel}.hidden,reference:${panelReference},expected:${JSON.stringify(mobileReference)},terms:document.querySelector('#position-details-tabs-terms')?.getAttribute('aria-selected'),inert:[...document.querySelectorAll('[inert]')].map(n=>n.id),status:document.querySelector('#position-details-view .side-panel-status')?.textContent,error:document.querySelector('#error').textContent})`);
   await settle(1440,1050);
 }
