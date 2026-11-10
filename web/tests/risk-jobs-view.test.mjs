@@ -20,6 +20,7 @@ test('reset fences a delayed job directory from the previous account',async()=>{
 test('an empty authorized directory has an explicit empty state',async()=>{
  const {view,nodes}=fixture(async path=>path.includes('/archive?')?{items:[],next:null}:[]);await view.load();
  assert.match(nodes.get('risk-jobs-list').textContent,/No recent risk jobs/);
+ assert.doesNotMatch(nodes.get('risk-jobs-list').textContent,/Market as of/,'an empty directory draws no table');
 });
 test('a refused refresh clears previous report content and surfaces the failure',async()=>{
  const {view,nodes}=fixture(async()=>{throw Error('denied');});

@@ -81,21 +81,21 @@ textarea{width:100%;line-height:1.5}
 input[type=checkbox]{min-height:0}
 
 /* Sidebar */
-.sidebar{position:fixed;inset:0 auto 0 0;width:var(--sidebar-width);background:var(--sidebar);color:var(--sidebar-text);padding:20px 14px;display:flex;flex-direction:column;overflow-y:auto;z-index:2}
-.brand-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:0 4px 28px}
+.sidebar{position:fixed;inset:0 auto 0 0;width:var(--sidebar-width);background:var(--sidebar);color:var(--sidebar-text);padding:20px 14px;display:flex;flex-direction:column;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2f4b3e transparent;z-index:2}
+.brand-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:0 4px 22px}
 .brand{display:flex;align-items:center;gap:10px;color:#f2f7f4;text-decoration:none;font-size:17px;font-weight:650;letter-spacing:-.3px;white-space:nowrap}
 .brand-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#7fbf9b,#3d8b67);color:#0f2219;font-size:15px;font-weight:750}
 .sidebar-toggle{flex-shrink:0;width:28px;height:28px;padding:0;background:transparent;border:1px solid #2f4b3e;border-radius:6px;font-size:18px;color:var(--sidebar-text);line-height:24px}
 .sidebar-toggle:hover{background:var(--sidebar-2);border-color:#3c5d4e}
-#sidebar-menus{display:grid;gap:22px}
-.nav-group summary{display:flex;align-items:center;justify-content:space-between;list-style:none;font-size:11px;letter-spacing:.08em;font-weight:600;text-transform:uppercase;color:var(--sidebar-muted);padding:4px 10px;margin-bottom:6px}
+#sidebar-menus{display:grid;gap:16px;margin-bottom:16px}
+.nav-group summary{display:flex;align-items:center;justify-content:space-between;list-style:none;font-size:11px;letter-spacing:.08em;font-weight:600;text-transform:uppercase;color:var(--sidebar-muted);padding:4px 10px;margin-bottom:4px}
 .nav-group summary::-webkit-details-marker,.curve-group summary::-webkit-details-marker{display:none}
 .nav-group summary::after,.curve-group summary::after{content:'›';font-size:15px;line-height:12px;transition:transform .15s}
 .nav-group[open]>summary::after,.curve-group[open]>summary::after{transform:rotate(90deg)}
 nav{display:grid;gap:2px}
-.nav-item{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:transparent;border-color:transparent;color:var(--sidebar-text);font-weight:500;padding:9px 10px;font-size:13.5px;border-radius:7px}
-.nav-item:hover{background:var(--sidebar-2);border-color:transparent}
-.nav-item.active{background:var(--sidebar-active);color:#fff}
+.nav-item{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:transparent;border-color:transparent;color:var(--sidebar-text);font-weight:500;padding:7px 10px;font-size:13.5px;border-radius:7px}
+.nav-item:hover{background:var(--sidebar-2);border-color:transparent;color:#e8f1ec}
+.nav-item.active{background:var(--sidebar-active);color:#fff;box-shadow:inset 3px 0 0 #7fbf9b}
 /* A saved Blotter view listed in the sidebar sits under the Blotter. */
 .nav-view{padding-left:26px;font-size:12.5px}
 .nav-view .nav-icon{font-size:12px}
@@ -178,6 +178,15 @@ footer{font-size:12px;color:var(--text-3);margin-top:24px}
 /* Cards and shared layout */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px;box-shadow:var(--shadow);min-width:0}
 .card-heading{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:8px}
+/* A disclosure that is a card's own section, as New job or Add widget. */
+summary::marker{color:var(--text-3)}
+.card>details>summary,details.card>summary{font-size:13px;font-weight:550;color:var(--text-2)}
+.card>details>summary:hover,details.card>summary:hover{color:var(--text)}
+/* A page area with nothing in it yet. */
+.empty-state{display:grid;place-items:center;align-content:center;gap:12px;min-height:180px;margin:0 0 16px;padding:24px;text-align:center;color:var(--text-3);font-size:13px;border:1px dashed var(--border-strong);border-radius:var(--radius-lg)}
+.empty-state p{margin:0}
+.empty-state .actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.card>.empty-state:last-child,.table-wrap>.empty-state:last-child{margin-bottom:0}
 .card-heading p{font-size:13px;color:var(--text-3);margin:2px 0 0}
 .card>p{font-size:13px;color:var(--text-2)}
 .schedule-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px;margin-bottom:16px}
@@ -410,7 +419,9 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 .custom-curve-edit{margin:0 8px 6px;font-size:12px}
 .custom-curve-market{min-width:180px;max-width:320px;flex:1 1 220px}
 .custom-curve-market select{width:100%}
-.curve-definition-section{min-width:0;border:0;border-top:1px solid #e4ebdf;padding:12px 0 4px;margin:0;display:grid;gap:12px;max-width:560px}.curve-definition-section legend{font-weight:600;padding:0 0 4px}.curve-definition-section input,.curve-definition-section select{width:100%;min-width:0;max-width:100%}
+/* Each section's fields sit side by side; what is not a field, as the rows table, takes the full row. */
+.curve-definition-section{min-width:0;border:0;border-top:1px solid var(--border);padding:16px 0 8px;margin:16px 0 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:14px 20px;max-width:880px}.curve-definition-section legend{font-size:13px;font-weight:600;color:var(--text-2);padding:0 8px 0 0}
+.curve-definition-section>:not(div),.curve-definition-section>.regular-table-scroll{grid-column:1/-1}.curve-definition-section>button{justify-self:start}.curve-definition-section input,.curve-definition-section select{width:100%;min-width:0;max-width:100%}
 .form-section{font-size:13px;font-weight:600;color:var(--text-2);margin:20px 0 10px;padding-top:16px;border-top:1px solid var(--border)}
 form>.form-section:first-child{border-top:0;padding-top:0;margin-top:6px}
 .label{display:block;font-size:13px;font-weight:500;color:var(--text-2);margin-bottom:6px}
@@ -1656,6 +1667,13 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 .reference-search-hits>p{grid-column:1/-1;margin:0;color:var(--text-3)}
 @media(max-width:760px){.reference-search-all{flex-basis:100%}}
 /* A reference item's page: breadcrumb, identity, then its fields as a labelled grid; a futures product adds sections and its contracts. */
+.reference-description{margin:0;font-size:13px;color:var(--text-2)}
+/* A category's search and its pages share one row above the table. */
+.reference-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0}
+.reference-toolbar .inline-form{flex:1 1 320px;align-items:center}
+.reference-toolbar .schedule-actions{margin:0;align-items:center}
+#reference-page-status{font-size:12.5px;color:var(--text-2)}
+.reference-item .breadcrumb a{color:var(--accent-text)}
 .reference-item .breadcrumb{display:flex;flex-wrap:wrap;gap:0 4px;margin:4px 0 8px;font-size:13px;color:var(--text-3)}
 .reference-item h2{margin:0 0 8px;overflow-wrap:anywhere}
 .item-facts{display:flex;flex-wrap:wrap;gap:4px 24px;margin:0 0 16px;font-size:13px}
@@ -1975,6 +1993,8 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 .dashboard-section{margin-bottom:16px}
 .dashboard-section>h3{font-size:13px;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em}
 .dashboard-refusal{color:var(--danger);background:var(--danger-soft);border:1px solid var(--danger-border);border-radius:var(--radius-sm);padding:8px 12px;font-size:13px}
+.dashboard-controls .card-heading{align-items:center;margin-bottom:0}
+.dashboard-controls .card-heading p{margin:0}
 #dashboard-add{margin-top:8px}
 .dashboard-add-form{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;margin-top:8px}
 .dashboard-add-form label{display:flex;flex-direction:column;gap:2px;font-size:12px}
@@ -2381,6 +2401,7 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 #facilities-page select,#facilities-page input:not([type=checkbox]){box-sizing:border-box;max-width:100%}
 #facilities-page fieldset{border:0;padding:0}
 #facility-ledger,#facility-create-target{width:100%}
+#facility-ledger{display:block;max-width:640px}
 
 .standard-data-grid .tabulator-cell.selected-cell{outline:2px solid var(--accent);outline-offset:-2px}
 
@@ -2512,6 +2533,11 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .price-authoring-form{border:0;padding:0;margin:0;min-width:0}
 .price-authoring-form>h3{border-top:1px solid var(--border);padding-top:20px;margin-top:24px}
 .price-authoring-form>label{max-width:640px}
+/* The price editors' fields keep one measure, with each label over its control. */
+:is(#contract-price-terms-editor,#price-publications-editor)>label{display:block;max-width:640px}
+:is(#contract-price-terms-editor,#price-publications-editor) .price-authoring-fields{max-width:880px}
+:is(#contract-price-terms-editor,#price-publications-editor) .price-authoring-fields>label{flex:1 1 260px;max-width:432px}
+:is(#contract-price-terms-editor,#price-publications-editor) .price-authoring-fields select{width:100%;min-width:0}
 .price-authoring-form select,.price-authoring-form input:not([type=checkbox]),#contract-price-terms-editor>label select,#price-publications-editor>label select{width:100%;min-width:0}
 .price-authoring-checks{display:flex;gap:12px;flex-wrap:wrap}
 .price-authoring-checks label{display:flex;gap:12px;align-items:center;padding:10px 14px;border:1px solid var(--border);border-radius:8px}
@@ -2564,8 +2590,15 @@ body.in-console.console-folded main{margin-left:calc(var(--sidebar-width) + 44px
 .risk-scope-label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
 #risk-scope-summary{font-size:13.5px;font-weight:500}
 .risk-scope-bar .actions{margin-left:auto}
-.risk-scope-editor{margin-top:8px}
 .risk-scope-editor>summary{cursor:pointer;font-size:12.5px;color:var(--accent-text)}
+/* Open, the scope editor takes its own row under the bar. */
+.risk-scope-editor[open]{order:1;flex-basis:100%;margin-top:4px;padding-top:12px;border-top:1px solid var(--border)}
+#risk-workspace-note{margin:10px 0 0;font-size:12.5px;color:var(--text-2)}
+#risk-workspace-note:empty{display:none}
+/* Report choices read across the page; the fields under them keep a readable measure. */
+#risk-workspace-editor .risk-choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin-bottom:12px}
+#risk-workspace-editor .risk-choice{margin:0}
+#risk-workspace-editor :is(.risk-preset,.risk-custom,#workspace-risk-parent){max-width:640px}
 
 /* Curve builder's workbench: the title on the app header, the actions on the tab row, and the graph over the prices. */
 .page-heading-slot{position:relative}

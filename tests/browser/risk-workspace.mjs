@@ -30,7 +30,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   await set('#snapshot',here);await wait(idle);}
  await click('#nav-risk');await wait(idle);
  await check('Risk opens on report availability and owns Run risk, with run history in its own view',
-  "document.querySelector('#risk-workspace-results').textContent.includes('No report selected')&&document.querySelector('#risk-workspace-note').textContent.includes('No completed recent report')&&!document.querySelector('#risk-jobs-new').disabled&&document.querySelector('.risk-report-library').classList.contains('risk-view-off')&&!document.querySelector('#snapshot').closest('.date-control').hidden",
+  "document.querySelector('#risk-workspace-results').textContent.includes('No report selected')&&document.querySelectorAll('#risk-workspace-results .empty-state button').length===2&&document.querySelector('#risk-workspace-note').textContent.includes('No completed recent report')&&!document.querySelector('#risk-jobs-new').disabled&&document.querySelector('.risk-report-library').classList.contains('risk-view-off')&&!document.querySelector('#snapshot').closest('.date-control').hidden",
   "({results:document.querySelector('#risk-workspace-results').innerText,note:document.querySelector('#risk-workspace-note').innerText,disabled:document.querySelector('#risk-jobs-new').disabled,error:document.querySelector('#error').innerText,dateHidden:document.querySelector('#snapshot').closest('.date-control').hidden})");
  await click('#risk-jobs-new');await wait("!document.querySelector('#workspace-risk-fields').disabled&&"+idle);
  await check('the shared run editor opens inside Risk without loading or opening the Blotter',
@@ -44,6 +44,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
   `document.querySelector('#risk-workspace-editor').open&&document.querySelector('#workspace-risk-form input[value=custom]').checked&&document.querySelector('#workspace-risk-factor').value===${JSON.stringify(target)}&&document.querySelector('#workspace-risk-bump').value==='0.05'&&document.querySelector('#risk-page-prompt').hidden`);
  await click('#workspace-risk-run');
  await wait("document.querySelector('#risk-workspace-results canvas')&&"+idle,60000);
+ await check('a drawn report replaces the scope status that said none matched',"document.querySelector('#risk-workspace-note').textContent===''");
  const baseline=await evaluate("window.__workspaceRiskReads.findLast(r=>r.path==='/api/portfolio/risk').data");
  await check('Risk shows each moved total\'s delta at display precision with its exact amount beneath it, and its native unit',
   `(()=>{const f=${JSON.stringify(baseline.factors[0])},root=document.querySelector('#risk-workspace-results');const moved=f.totals.filter(t=>[t.values.delta,t.values.gamma,t.values.upPnl,t.values.downPnl].some(v=>!/^-?0+(?:\\.0+)?(?:\\/\\d+)?$/.test(v)));return moved.length>0&&moved.every(t=>[...root.querySelectorAll('td span[title]')].some(n=>n.title===t.values.delta)&&root.textContent.includes(t.values.deltaUnit))&&root.querySelector('[data-chart-kind=bar]')&&root.querySelector('.risk-coverage').dataset.state===${JSON.stringify(baseline.excludedPositions.length?'incomplete':'complete')};})()`,

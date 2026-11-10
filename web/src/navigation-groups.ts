@@ -4,15 +4,16 @@ import {aiTabs} from './agent-settings.js';
 // a sidebar button or a view inside its workspace; the group's
 // label is the eyebrow above the page title. `opened` are a group's pages that another page opens instead of the sidebar:
 // Product bookings, from the Blotter's new trade panel and its positions; the setup pages, from the Reference Data console's menu.
-export type NavigationGroup={id:'overview'|'trading'|'markets'|'risk'|'operations'|'reference'|'infrastructure';label:string;pages:readonly string[];opened?:readonly string[]};
+// Reference Data's entry is the list of its console's areas (console-menu.ts).
+export type NavigationGroup={id:'overview'|'trading'|'markets'|'risk'|'scheduling'|'reference'|'administration';label:string;pages:readonly string[];opened?:readonly string[]};
 export const navigationGroups:readonly NavigationGroup[]=[
  {id:'overview',label:'Overview',pages:['dashboard']},
  {id:'trading',label:'Trading',pages:['futures'],opened:['ppa','gas','crude']},
  {id:'markets',label:'Markets',pages:['market','delivery','interval-series','vol-surfaces','interval-curves']},
  {id:'risk',label:'Risk',pages:['risk','risk-scenarios','risk-var','risk-runs']},
- {id:'operations',label:'Operations',pages:['physical-operations','facilities']},
+ {id:'scheduling',label:'Scheduling',pages:['physical-operations','facilities']},
  {id:'reference',label:'Reference Data',pages:['reference'],opened:['curve-definitions','custom-curves','configuration','schedules','power','parties','gas-setup','crude-setup']},
- {id:'infrastructure',label:'Infrastructure',pages:['jobs','admin','ai']},
+ {id:'administration',label:'Administration',pages:['jobs','admin','ai']},
 ];
 
 const unknownPage=()=>Error('This page could not load. Please refresh.');

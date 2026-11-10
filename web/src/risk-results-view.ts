@@ -17,7 +17,7 @@ import {valuationReason} from './valuation-status.js';
 // A value at the display precision, with the backend's exact amount beneath it (D114), as the Blotter shows its figures.
 const shown=(v:RiskValues,key:'base'|'upPnl'|'downPnl'|'delta'|'gamma')=>{const exact=v[key],cell=node('span',amountText(exact,key==='delta'||key==='gamma'?'factor':'money'));cell.title=exact;return cell;};
 
-export function setupRiskResults(host:HTMLElement,zone:()=>string,reportUrl:(id:string)=>string=id=>location.pathname+location.search+'#risk/job/'+encodeURIComponent(id)){
+export function setupRiskResults(host:HTMLElement,zone:()=>string,reportUrl:(id:string)=>string=id=>location.pathname+location.search+'#risk/job/'+encodeURIComponent(id),starts:readonly {label:string;go:()=>void}[]=[]){
  let metric:RiskMetric='delta',kind:'bar'|'heatmap'='bar',current:RunView|undefined,selected:string|undefined,factorPage=0,bookPage=0,groupKey:string|undefined;
  const plots:HTMLElement[]=[];
  let jointState=newJointView();
@@ -32,8 +32,15 @@ export function setupRiskResults(host:HTMLElement,zone:()=>string,reportUrl:(id:
   if(!factor.positions.length)positions.append(node('p','This report retains book totals only. Position detail was not requested.'));
   target.append(positions);
  }
+ // Where a page can start a report, its empty report offers those ways.
+ function empty(){
+  const message=node('p','No report selected. Run risk here or open a retained report from Reports and runs.');if(!starts.length)return message;
+  const state=node('div'),actions=node('div');state.className='empty-state';actions.className='actions';
+  for(const start of starts){const button=node('button',start.label);button.type='button';button.className='secondary';button.onclick=start.go;actions.append(button);}
+  state.append(message,actions);return state;
+ }
  function draw(){
-  clear();if(!current){host.append(node('p','No report selected. Run risk here or open a retained report from Reports and runs.'));return;}
+  clear();if(!current){host.append(empty());return;}
   let view:ReturnType<typeof reportPresentation>;try{view=reportPresentation(current,metric,{offset:factorPage*64,limit:64});}catch(error){const errorNode=node('p',error instanceof Error?error.message:'This report cannot be displayed.');errorNode.setAttribute('role','alert');host.append(errorNode);return;}
   const head=node('div');head.className='risk-result-heading';
   const title=view.monteCarlo?(view.monteCarlo.request.hybrid?'Hybrid Monte Carlo VaR / ES':'Monte Carlo VaR / ES'):view.historical?'Historical simulation VaR / ES':view.parametric?'Parametric VaR / ES':view.joint?.kind==='scenarios'?'Joint scenario report':view.joint?'Selected Greeks and cross-gamma':'Sensitivity report';

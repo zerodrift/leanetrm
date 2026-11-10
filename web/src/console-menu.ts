@@ -15,6 +15,8 @@ const layout:readonly {id:string;name:string;before?:readonly PageEntry[];after?
  {id:'physical',name:'Physical',before:[{id:'delivery-setup',name:'Delivery setup',page:'gas-setup',alsoPages:['crude-setup']}]},
  {id:'entities',name:'Entities',after:[page('parties','Entities & counterparties')]},
 ];
+// The menu's areas by name, as the sidebar lists them.
+export const consoleAreas:readonly {id:string;name:string}[]=layout.map(({id,name})=>({id,name}));
 
 export function consoleMenu(o:{pageAvailable:(page:string)=>boolean;tables:readonly string[]}):readonly ConsoleGroup[]{
  const sections=dataSections([...o.tables]);

@@ -56,7 +56,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   }
   await evaluate("window.__beforeDeniedSample=window.__pricingReads.length;window.__denySampleReset=true");await click('#example');
   await check('a denied sample context reset clears prior prices before requesting combined data',"!document.querySelector('#error').hidden&&window.__pricingReads.length===window.__beforeDeniedSample&&document.querySelector('#contracts').children.length===0&&document.querySelector('#inputs').children.length===0");
-  await persona('viewer');await evaluate('window.__referenceStart=performance.now()');await click('#nav-reference');await click('#nav-table-currencies');
+  await persona('viewer');await evaluate('window.__referenceStart=performance.now()');await click('#reference-area-curves');await click('#nav-table-currencies');
   await check('first reference navigation explicitly hydrates its exact pin and unit metadata',"document.querySelector('#reference-page-status').textContent.startsWith('Rows ')&&document.querySelector('#reference tbody tr')&&document.querySelector('#error').hidden");
   console.log('FIRST_REFERENCE_WITH_HYDRATION_MS='+await evaluate('performance.now()-window.__referenceStart'));
   await command('Page.navigate',{url:url+'/?hold-navigation=true'});await wait("typeof window.__releaseNavigation==='function'");

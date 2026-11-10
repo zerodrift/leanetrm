@@ -126,7 +126,7 @@ export async function run(actions){
  }finally{await own.close();}
  await check('booked side schedules fit the viewport and expose no instrument editor',`document.documentElement.scrollWidth<=innerWidth&&!document.querySelector(${q(booked+' .ticket-card')})`);
  await set(`${booked} .ticket-level`,'day');await click(`${booked} .ticket-tab[data-tab="physical-1"]`);
- await check('physical schedule inspection is read-only; daily work belongs to Operations',`!document.querySelector(${q(booked+' .ticket-cell-input')})&&!document.querySelector(${q(booked+' .ticket-record')})&&!document.querySelector('.gas-operations')`);
+ await check('physical schedule inspection is read-only; daily work belongs to Scheduling',`!document.querySelector(${q(booked+' .ticket-cell-input')})&&!document.querySelector(${q(booked+' .ticket-record')})&&!document.querySelector('.gas-operations')`);
 
 
  // A linked side's receipt, delivery and fuel are drawn in the Quantity links tab exactly as the preview returned them.

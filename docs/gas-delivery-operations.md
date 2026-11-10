@@ -109,7 +109,7 @@ qualification boundaries. No production deployment is implied by this contract.
 
 ## Using the manual desk
 
-Open **Operations → Physical operations**, select Natural gas and the booked
+Open **Scheduling → Physical operations**, select Natural gas and the booked
 instrument, then **Delivery**. Choose a retained native delivery day. This is the delivery period being operated on; the header
 As of and knowledge cutoff remain authoritative for every source read. Service
 versions have no picker: the latest eligible version follows that header context.

@@ -118,7 +118,7 @@ export function setupDashboard(options:{api:<T>(path:string,body?:unknown)=>Prom
       }catch(error){body.replaceChildren(refusalNote(error));}
       return [widget.id,body];
     }));
-    if(layout.widgets.length===0){host.replaceChildren(element('p','muted','No widgets have been added to this dashboard.'));return;}
+    if(layout.widgets.length===0){host.replaceChildren(element('p','empty-state','No widgets have been added to this dashboard.'));return;}
     if(layout.arrangement==='board'){
       const grid=element('div','dashboard-board');
       for(const widget of layout.widgets){
