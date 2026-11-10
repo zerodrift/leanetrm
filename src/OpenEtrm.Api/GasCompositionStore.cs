@@ -115,7 +115,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   {
    var m=await gas.Metadata(c,data,Selection(body,p),ct);assignments.Add(m.Assignments);clocks.Add(m.Clock);mappings.Add(m.Mapping);
    var basis=p.QuantityBasis switch{"per_operating_day"=>GasQuantityBasis.PerOperatingDay,"period_total_equal_days"=>GasQuantityBasis.PeriodTotalEqualOperatingDays,_=>throw Invalid("Choose each physical quantity basis explicitly.")};
-   var side=new PhysicalGasSide(Guid.NewGuid(),m.Assignments[0].Location,m.Assignments[0].Product,new(m.Clock,DateWorkspace.Date(p.DeliveryFrom),DateWorkspace.Date(p.DeliveryTo),basis,new(Number("1"),m.Assignments[0].Quote.Quantity),GasFuelConvention.None,default),m.Assignments,p.ForecastCurve?.ToBinding());
+   var side=new PhysicalGasSide(Guid.NewGuid(),m.Assignments[0].Location,m.Assignments[0].Product,new(m.Clock,DateWorkspace.Date(p.DeliveryFrom),DateWorkspace.Date(p.DeliveryTo),basis,new(Number("1"),m.Assignments[0].Quote.Quantity),GasFuelConvention.None,default),m.Assignments,GasPointPricing.Resolve(database.Manifest.CatalogId,m.Mapping,p.ForecastCurve)?.ToBinding());
    var link=p.Link is null?null:new GasCompositionLink(p.Link.Source,p.Link.Formula switch{"none"=>GasFuelConvention.None,"gross_less_fraction"=>GasFuelConvention.NetEqualsGrossTimesOneMinusFuel,"gross_divided_by_one_plus_fraction"=>GasFuelConvention.NetEqualsGrossDividedByOnePlusFuel,_=>throw Invalid("Select an installed fuel rule.")},Number(p.Link.Fraction));
    physical.Add(new(p.Code,side,Number(Sign(p.Direction,true).ToString(CultureInfo.InvariantCulture)),p.Quantity is null?null:Number(p.Quantity),link));
   }
@@ -123,7 +123,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   foreach(var p in body.CashSides)
   {
    var indices=body.PhysicalSides.Select((v,n)=>(v,n)).Where(x=>x.v.Code==p.Source).ToArray();if(indices.Length!=1)throw Invalid("Cash quantity sources must name one physical side.");var n=indices[0].n;var source=physical[n].Side;
-   if(p.Indexed is not null){cash.Add(new(p.Code,GasIndexedCash.Resolve(data,source,p),p.Role,p.Source,Stage(p.Stage),Number(Sign(p.Direction,false).ToString(CultureInfo.InvariantCulture))));continue;}
+   if(p.Indexed is not null){cash.Add(new(p.Code,GasIndexedCash.Resolve(data,source,p,mappings[n]),p.Role,p.Source,Stage(p.Stage),Number(Sign(p.Direction,false).ToString(CultureInfo.InvariantCulture))));continue;}
    if(p.Role=="indexed_consideration")throw Invalid("An indexed cash Side requires its explicit index terms.");
    string? price=p.Price;
    if(p.TariffCode is not null)

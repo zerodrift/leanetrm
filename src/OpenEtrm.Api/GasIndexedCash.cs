@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Numerics;
 using System.Text.Json.Serialization;
+using System.Text.Json;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Gas;
 using OpenEtrm.MarketData.Trading;
@@ -10,7 +11,7 @@ using OpenEtrm.Shared.Numerics;
 namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record GasIndexedCashRequest([property:JsonRequired]string Index,[property:JsonRequired]string ObservationConvention,
+public sealed record GasIndexedCashRequest([property:JsonRequired]string? Index,[property:JsonRequired]string ObservationConvention,
  [property:JsonRequired]string PaymentConvention,[property:JsonRequired]int PaymentDay,[property:JsonRequired]string Spread,[property:JsonRequired]CustomCurveProjectionInput? ForecastCurve);
 
 // Resolve explicit daily index terms into the existing floating payment Side.
@@ -18,8 +19,10 @@ public sealed record GasIndexedCashRequest([property:JsonRequired]string Index,[
 internal static class GasIndexedCash
 {
  internal const string Observation="daily_published_index_v1",Payment="next_month_day_utc_v1";
- internal static FloatingSide Resolve(PreviewData data,PhysicalGasSide physical,GasCashRequest cash)
+ internal static FloatingSide Resolve(PreviewData data,PhysicalGasSide physical,GasCashRequest cash,JsonElement point)
  {
+  if(cash.Indexed?.ObservationConvention=="point_publications_v1")return GasPointIndexCash.Resolve(data,physical,cash,point);
+  if(point.GetProperty("settlement_periods").GetArrayLength()>0)throw new MarketDataException("gas_location_index_conflict","Indexed consideration must use the exact publication periods assigned to this location setup.");
   var terms=cash.Indexed??throw Invalid();
   if(cash.Role!="indexed_consideration"||cash.Price is not null||cash.TariffCode is not null||cash.PaymentAt is not null||
    terms.ObservationConvention!=Observation||terms.PaymentConvention!=Payment||terms.PaymentDay is <1 or >28||string.IsNullOrWhiteSpace(terms.Index)||string.IsNullOrWhiteSpace(terms.Spread))

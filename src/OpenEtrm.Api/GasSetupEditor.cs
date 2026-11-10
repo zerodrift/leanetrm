@@ -75,7 +75,7 @@ public sealed class GasSetupEditor(PreviewDatabase database)
  public Task<JsonElement> Save(NpgsqlConnection c,GasSetupSaveRequest body,CancellationToken ct)=>Execute(c,
   "SELECT security.save_gas_setup($1,$2,$3,$4,$5::jsonb)::text",[database.Manifest.CatalogId,database.Manifest.GasMarket?.RevisionId??database.Manifest.RevisionId,body.OperationId,(object?)body.BaseSetupId??DBNull.Value,body.Configuration.GetRawText()],ct);
  public Task<JsonElement> Validate(NpgsqlConnection c,GasSetupValidateRequest body,CancellationToken ct)=>Execute(c,
-  "SELECT security.validate_gas_setup($1,$2,$3,$4)::text",[database.Manifest.CatalogId,body.SetupId,DateWorkspace.Date(body.From),DateWorkspace.Date(body.To)],ct);
+  "SELECT (security.validate_gas_setup($1,$2,$3,$4)||jsonb_build_object('validationScope','reference_structure_and_native_coverage_v1','forecastQualification','requires_snapshot_preview_v1'))::text",[database.Manifest.CatalogId,body.SetupId,DateWorkspace.Date(body.From),DateWorkspace.Date(body.To)],ct);
  public Task<JsonElement> Publish(NpgsqlConnection c,GasSetupPublishRequest body,CancellationToken ct)=>Execute(c,
   "SELECT security.publish_gas_setup($1,$2,$3)::text",[database.Manifest.CatalogId,body.SetupId,body.OperationId],ct);
  static async Task<JsonElement> Execute(NpgsqlConnection c,string sql,object[] values,CancellationToken ct)

@@ -20,6 +20,7 @@ public sealed record IndexPriceLookup(PriceSettlementSelection Settlement, Quote
     MarketContract Contract, Quantity? AveragingQuantity, IndexFixing? Fixing = null,
     CustomCurveProjectionBinding? CustomProjection = null,ProjectionDelivery? ProjectionInterval=null)
 {
+    public bool PublishedWhenAvailable { get; init; }
     public ReferenceKey Index => Settlement.SelectedIndex;
     public ProjectionDelivery ForecastDelivery
     {

@@ -46,6 +46,11 @@ public static class PeriodPriceSelector
     {
         if (lookup is null || lookup.Settlement is null || snapshot is null || !TradingInstant.IsSupported(snapshot.ValuationAt))
             throw new MarketDataException("price_settlement_selection", "An exact period lookup, settlement selection and valuation instant are required.");
+        if(lookup.PublishedWhenAvailable)
+        {
+            Qualify(lookup.Settlement,lookup.Contract,lookup.Fixing,lookup.CustomProjection is not null);
+            return IndexFixingPricing.ResolveSelected(snapshot,lookup) is null?lookup.ProjectionRequest:null;
+        }
         return RequiresProjection(lookup.Settlement, lookup.Contract, lookup.Fixing, snapshot.ValuationAt, lookup.CustomProjection is not null) ? lookup.ProjectionRequest : null;
     }
     internal static bool RequiresProjection(PriceSettlementSelection settlement, MarketContract contract, IndexFixing? fixing,

@@ -45,6 +45,13 @@ internal static class GasTicketChecks
             Equal(null, GasTicket.ChoiceSet(full, "RCT", "pipeline", [new("A", "A"),new("B", "B")]).StartingValue, "ambiguous pipeline");
         });
 
+        Check("location publication pricing maps and round-trips without an explicit index",()=>
+        {
+            var draft=Draft(Receipt,Indexed with{Values=Indexed.Values.SetItem("floating_index","@location_publications_v1")});
+            var terms=Map(draft);Equal(null,terms.CashSides[0].Indexed!.Index,"location-selected index");
+            Equal("point_publications_v1",terms.CashSides[0].Indexed!.ObservationConvention,"dated location policy");
+            Equal("@location_publications_v1",GasTicket.Draft(terms).Sides[1].Values["floating_index"],"retained location selection");
+        });
         Check("the gas description is valid", () => TicketDescriptions.Validate(GasTicket.Description));
         Check("payment direction can be chosen before its source and refreshes its suggestion afterwards",()=>
         {
