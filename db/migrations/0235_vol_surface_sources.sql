@@ -110,16 +110,16 @@ DO $$DECLARE signature regprocedure;body text;before text;restriction text;BEGIN
     OR strpos(body,'SELECT jsonb_build_object(''id'',j.id')=0
     OR strpos(body,'RETURN result;')=0 THEN RAISE EXCEPTION 'vol_surface_job_drift';END IF;
    body=replace(body,'DECLARE c security.request_contexts;result jsonb;',
-    'DECLARE c security.request_contexts;result jsonb;p ref_data.futures_option_products;');
+    'DECLARE c security.request_contexts;result jsonb;product_key ref_data.futures_option_products;');
    body=replace(body,'SELECT jsonb_build_object(''id'',j.id', $job$
- p=trading.vol_surface_key(product,business_date,model);
- IF security.vol_surface_source_visible(catalog,definition,p.catalog_id,p.revision_id) IS NOT TRUE
+ product_key=trading.vol_surface_key(product,business_date,model);
+ IF security.vol_surface_source_visible(catalog,definition,product_key.catalog_id,product_key.revision_id) IS NOT TRUE
   OR security.vol_surface_location_visible(catalog,definition,close,vol_surface_fit_job.valuation_at,pins) IS NOT TRUE
  THEN RETURN NULL;END IF;
  SELECT jsonb_build_object('id',j.id$job$);
    body=replace(body,'RETURN result;', $job$
  IF c.expires_at<=clock_timestamp() OR security.trading_access(catalog,'ReadTrades') IS NOT TRUE
-  OR security.vol_surface_source_visible(catalog,definition,p.catalog_id,p.revision_id) IS NOT TRUE
+  OR security.vol_surface_source_visible(catalog,definition,product_key.catalog_id,product_key.revision_id) IS NOT TRUE
   OR (close IS NOT NULL AND security.market_close_visible(catalog,close) IS NOT TRUE)
  THEN RAISE EXCEPTION 'risk_job_denied' USING ERRCODE='42501';END IF;
  RETURN result;$job$);

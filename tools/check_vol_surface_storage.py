@@ -176,6 +176,9 @@ def run_checks(query, manifest):
           and seen_later['valuationAt'].replace('+00:00', 'Z') == frame_at
           and seen_later['knownFrom'] is not None and seen_earlier['knownFrom'] <= seen_later['knownFrom']
           and (seen_later['model'], seen_later['solverPolicy'], seen_later['effectiveOn']) == (MODEL, POLICY, day), seen_later)
+    check('the fit job read accepts the same exact location with no job yet',
+          trader(bound(later) + f"SELECT {reading().replace('security.read_vol_surface', 'risk.vol_surface_fit_job')};",
+                 'ROLLBACK') == '')
     check('a product never fitted for the date reads as not fitted', read(later, key=other_product) == '')
     check('a frame that does not pin every input of the latest revision reads the latest one it does pin',
           json.loads(read(later, pins=first_inputs))['revision'] == first['revision'] and read(later, pins=observations[:1]) == '',
