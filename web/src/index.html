@@ -29,7 +29,14 @@
       <button id="nav-facilities" class="nav-item" aria-label="Facilities" title="Facilities" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 21V10l6 4v-4l6 4V5h6v16z"/></svg></span><span class="nav-text">Facilities</span></button>
     </nav></details>
     <details id="nav-group-reference" class="nav-group" open><summary>Reference Data</summary><nav aria-label="Reference Data">
-      <button id="nav-reference" class="nav-item" aria-label="Reference Data" title="Reference Data"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></svg></span><span class="nav-text">Reference Data</span></button>
+      <div id="nav-reference">
+        <button id="reference-area-curves" class="nav-item" data-area="curves" aria-label="Curves & pricing" title="Curves & pricing" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5v14h16"/><path d="M7 15c3 0 4-7 10-8"/></svg></span><span class="nav-text">Curves &amp; pricing</span></button>
+        <button id="reference-area-time" class="nav-item" data-area="time" aria-label="Time" title="Time" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h12M6 21h12M7 3v3l5 6 5-6V3M7 21v-3l5-6 5 6v3"/></svg></span><span class="nav-text">Time</span></button>
+        <button id="reference-area-products" class="nav-item" data-area="products" aria-label="Products" title="Products" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg></span><span class="nav-text">Products</span></button>
+        <button id="reference-area-units" class="nav-item" data-area="units" aria-label="Commodities & units" title="Commodities & units" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="8" rx="1.5"/><path d="M7 8v3M11 8v4M15 8v3"/></svg></span><span class="nav-text">Commodities &amp; units</span></button>
+        <button id="reference-area-physical" class="nav-item" data-area="physical" aria-label="Physical" title="Physical" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11a7 7 0 10-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span><span class="nav-text">Physical</span></button>
+        <button id="reference-area-entities" class="nav-item" data-area="entities" aria-label="Entities" title="Entities" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21V5a1 1 0 011-1h9a1 1 0 011 1v16M15 10h4a1 1 0 011 1v10M3 21h18M8 8h3M8 12h3M8 16h3"/></svg></span><span class="nav-text">Entities</span></button>
+      </div>
     </nav></details>
     <details id="nav-group-administration" class="nav-group" open><summary>Administration</summary><nav aria-label="Administration">
       <button id="nav-jobs" class="nav-item" aria-label="Jobs" title="Jobs"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 11-2.6-5.9"/><path d="M20 4v5h-5"/></svg></span><span class="nav-text">Jobs</span></button>
@@ -387,12 +394,13 @@
   <section id="risk-page" hidden>
     <div id="risk-page-prompt" class="side-panel-prompt" hidden></div>
     <div class="card risk-workspace-heading">
-      <div class="risk-scope-bar"><span class="risk-scope-label">Scope</span><span id="risk-scope-summary"></span><div class="actions"><button id="risk-jobs-new" class="secondary" type="button" data-risk-view="risk-scenarios">New run</button><button id="risk-history-open" type="button" disabled data-risk-view="risk-var">Prepare VaR / ES</button><button id="risk-workspace-export" class="secondary" type="button" disabled data-risk-view="risk">Export report</button><button id="risk-workspace-refresh" class="secondary" type="button" data-risk-view="risk">Refresh Risk</button></div></div>
+      <div class="risk-scope-bar"><span class="risk-scope-label">Scope</span><span id="risk-scope-summary"></span>
       <details id="risk-scope-editor" class="risk-scope-editor"><summary>Change scope</summary>
       <div class="risk-workspace-scope"><label>Portfolios<select id="risk-workspace-portfolios" multiple size="3" aria-describedby="risk-workspace-scope-help"></select></label><label>Books<select id="risk-workspace-books" multiple size="3" aria-describedby="risk-workspace-scope-help"></select></label></div>
       <p id="risk-workspace-scope-help" class="field-help">Portfolio → books → trades. No portfolio or book filter means all readable books. Scope changes affect the next calculation; a retained report keeps its captured selection.</p>
       <div class="risk-trade-scope"><label>Trade scope<select id="risk-workspace-trade-mode"><option value="all">All trades in these books</option><option value="selected">Choose individual trades</option></select></label><label>Trades in these books<select id="risk-workspace-trades" multiple size="7" aria-describedby="risk-workspace-trade-help"></select></label><p id="risk-workspace-trade-help" class="field-help" role="status"></p><button id="risk-workspace-trades-more" type="button" class="secondary" hidden>Load more trades</button></div>
       </details>
+      <div class="actions"><button id="risk-jobs-new" class="secondary" type="button" data-risk-view="risk-scenarios">New run</button><button id="risk-history-open" type="button" disabled data-risk-view="risk-var">Prepare VaR / ES</button><button id="risk-workspace-export" class="secondary" type="button" disabled data-risk-view="risk">Export report</button><button id="risk-workspace-refresh" class="secondary" type="button" data-risk-view="risk">Refresh Risk</button></div></div>
       <p id="risk-workspace-note" role="status"></p>
     </div>
     <p id="risk-workspace-context-note" class="risk-context-note" role="status"></p>

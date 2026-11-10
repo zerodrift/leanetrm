@@ -183,7 +183,10 @@ summary::marker{color:var(--text-3)}
 .card>details>summary,details.card>summary{font-size:13px;font-weight:550;color:var(--text-2)}
 .card>details>summary:hover,details.card>summary:hover{color:var(--text)}
 /* A page area with nothing in it yet. */
-.empty-state{display:grid;place-items:center;min-height:180px;margin:0 0 16px;padding:24px;text-align:center;color:var(--text-3);font-size:13px;border:1px dashed var(--border-strong);border-radius:var(--radius-lg)}
+.empty-state{display:grid;place-items:center;align-content:center;gap:12px;min-height:180px;margin:0 0 16px;padding:24px;text-align:center;color:var(--text-3);font-size:13px;border:1px dashed var(--border-strong);border-radius:var(--radius-lg)}
+.empty-state p{margin:0}
+.empty-state .actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.card>.empty-state:last-child,.table-wrap>.empty-state:last-child{margin-bottom:0}
 .card-heading p{font-size:13px;color:var(--text-3);margin:2px 0 0}
 .card>p{font-size:13px;color:var(--text-2)}
 .schedule-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px;margin-bottom:16px}
@@ -2570,8 +2573,15 @@ body.in-console.console-folded main{margin-left:calc(var(--sidebar-width) + 44px
 .risk-scope-label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
 #risk-scope-summary{font-size:13.5px;font-weight:500}
 .risk-scope-bar .actions{margin-left:auto}
-.risk-scope-editor{margin-top:8px}
 .risk-scope-editor>summary{cursor:pointer;font-size:12.5px;color:var(--accent-text)}
+/* Open, the scope editor takes its own row under the bar. */
+.risk-scope-editor[open]{order:1;flex-basis:100%;margin-top:4px;padding-top:12px;border-top:1px solid var(--border)}
+#risk-workspace-note{margin:10px 0 0;font-size:12.5px;color:var(--text-2)}
+#risk-workspace-note:empty{display:none}
+/* Report choices read across the page; the fields under them keep a readable measure. */
+#risk-workspace-editor .risk-choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px;margin-bottom:12px}
+#risk-workspace-editor .risk-choice{margin:0}
+#risk-workspace-editor :is(.risk-preset,.risk-custom,#workspace-risk-parent){max-width:640px}
 
 /* Curve builder's workbench: the title on the app header, the actions on the tab row, and the graph over the prices. */
 .page-heading-slot{position:relative}

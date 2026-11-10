@@ -5,11 +5,13 @@ import {withBrowserPage,browserAvailable,browserTestTimeout} from './browser-pag
 
 const markup=readFileSync(new URL('../src/index.html',import.meta.url),'utf8');
 const shell=markup.match(/<nav id="reference-console"[^>]*>.*?<\/nav>/s)[0];
-const html=`<link rel="stylesheet" href="/app.css">${shell}`;
+// The sidebar's Reference Data entries, one for each area of the menu.
+const areas='<div id="areas">'+['curves','time','products'].map(id=>`<button data-area="${id}"></button>`).join('')+'</div>';
+const html=`<link rel="stylesheet" href="/app.css">${areas}${shell}`;
 const setup=`(async()=>{window.opened=[];window.searched=[];window.blocked=false;
  window.menu=[{id:'curves',name:'Curves & pricing',entries:[{id:'custom-curves',name:'Curve builder',page:'custom-curves'}]},
   {id:'time',name:'Time',entries:[{id:'calendars',name:'Calendars',page:'reference',table:'calendars'},{id:'power',name:'Power TOUs',page:'power'}]}];
- window.console_=(await import('/reference-console.js')).setupReferenceConsole({host:document.querySelector('#reference-console'),menu:()=>menu,open:entry=>opened.push(entry.id),search:text=>searched.push(text),busy:()=>blocked,pendingContext:()=>!!window.pendingContext,unfolded:()=>window.unfoldings=(window.unfoldings||0)+1});
+ window.console_=(await import('/reference-console.js')).setupReferenceConsole({host:document.querySelector('#reference-console'),menu:()=>menu,open:entry=>opened.push(entry.id),search:text=>searched.push(text),areas:document.querySelector('#areas'),busy:()=>blocked,pendingContext:()=>!!window.pendingContext,unfolded:()=>window.unfoldings=(window.unfoldings||0)+1});
  console_.show('power');})()`;
 const group=name=>`[...document.querySelectorAll('#reference-console details')].find(d=>d.querySelector('summary').textContent.includes('${name}'))`;
 const current=`document.querySelector('#reference-console [aria-current=page]')?.textContent`;
@@ -63,14 +65,29 @@ test('typing narrows the menu and submitting searches reference data',browser,as
   assert.equal((await evaluate(listed)).length,3);
  });
 });
-test('reopening goes to the last entry shown, else the first available',browser,async()=>{
+const area=id=>`document.querySelector('#areas [data-area=${id}]')`;
+test('the sidebar lists the areas this menu has and marks the one shown',browser,async()=>{
  await withBrowserPage(html,async evaluate=>{
   await evaluate(setup);
-  assert.equal(await evaluate('console_.destination().id'),'power');
-  await evaluate("console_.reset()");
-  assert.equal(await evaluate('console_.destination().id'),'custom-curves');
-  await evaluate('menu=[];console_.sync()');
-  assert.equal(await evaluate('console_.destination()'),null);
+  assert.deepEqual(await evaluate(`['curves','time','products'].map(id=>document.querySelector('#areas [data-area='+id+']').hidden)`),[false,false,true]);
+  assert.deepEqual(await evaluate(`['curves','time'].map(id=>document.querySelector('#areas [data-area='+id+']').classList.contains('active'))`),[false,true]);
+  await evaluate('console_.reset()');
+  assert.equal(await evaluate(`${area('time')}.classList.contains('active')`),false,'no area is marked outside the console');
+ });
+});
+test('an area opens the entry last shown in it, else its first, and the area shown is not opened again',browser,async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(setup);
+  await evaluate(`${area('time')}.click()`);
+  assert.deepEqual(await evaluate('opened'),[],'Power TOUs is shown, in Time');
+  await evaluate(`${area('curves')}.click()`);
+  assert.deepEqual(await evaluate('opened'),['custom-curves']);
+  await evaluate(`console_.show('custom-curves');${area('time')}.click()`);
+  assert.deepEqual(await evaluate('opened'),['custom-curves','power'],'the entry last shown in Time');
+  await evaluate(`console_.reset();console_.show('custom-curves');${area('time')}.click()`);
+  assert.deepEqual(await evaluate('opened'),['custom-curves','power','calendars'],'the first entry of Time');
+  await evaluate(`blocked=true;${area('time')}.click()`);
+  assert.equal((await evaluate('opened')).length,3,'nothing opens while the application is busy');
  });
 });
 test('entries are disabled while the application is busy',browser,async()=>{
@@ -108,5 +125,26 @@ test('the console shows for its pages and hides elsewhere',browser,async()=>{
   assert.equal(await evaluate("document.querySelector('#reference-console').hidden"),true);
   await evaluate("console_.show('reference')");
   assert.equal(await evaluate("document.querySelector('#reference-console').hidden"),false,'reference shows the console before its table is known');
+ });
+});
+test('before the tables are read every area is listed, and one of tables opens once they are',browser,async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(setup);
+  await evaluate("menu=[menu[0]];console_.reset()");
+  assert.equal(await evaluate(`${area('products')}.hidden`),false);
+  await evaluate(`${area('products')}.click()`);
+  assert.deepEqual(await evaluate('opened'),['reference'],'the console opens, where its tables are read');
+  await evaluate("console_.show('reference');menu=[menu[0],{id:'products',name:'Products',entries:[{id:'products',name:'Products',page:'reference',table:'products'}]}];blocked=true;console_.sync()");
+  assert.deepEqual(await evaluate('opened'),['reference'],'it waits for the application to be free');
+  await evaluate("blocked=false;console_.sync();console_.sync()");
+  assert.deepEqual(await evaluate('opened'),['reference','products']);
+ });
+});
+test('an area asked for and then left is not opened later',browser,async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(setup);
+  await evaluate(`menu=[menu[0]];console_.reset();${area('products')}.click();console_.show('custom-curves')`);
+  await evaluate("menu=[menu[0],{id:'products',name:'Products',entries:[{id:'products',name:'Products',page:'reference',table:'products'}]}];console_.show('reference')");
+  assert.deepEqual(await evaluate('opened'),['reference']);
  });
 });

@@ -3739,3 +3739,20 @@ its own, so the four Risk pages no longer share one symbol.
 This changes presentation only. Page identifiers, addresses, permissions and every
 read and write are unchanged. The Jobs page keeps its name, Jobs & Infrastructure, in
 assistant page reports.
+
+## D367 — Reference Data lists its console's areas in the sidebar
+
+The Reference Data sidebar group held one entry with the group's own name. It now
+lists the areas of the console's menu: Curves & pricing, Time, Products, Commodities
+& units, Physical and Entities. An area opens the entry last shown in it, else its
+first, and the area of the page shown is marked. The console keeps its own menu and
+search. An area an account's menu does not have is not listed; until that account's
+tables are read every area is listed, and an area of tables opens once they are. This
+amends the single entry of D365.
+
+Risk's pages share one layout: the scope and its editor on one bar, report choices
+across the page, and an empty report or run list that says so and, for a report,
+offers the ways to start one.
+
+This changes presentation only. Page identifiers, addresses, permissions and every
+read and write are unchanged.

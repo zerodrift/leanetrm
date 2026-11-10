@@ -310,7 +310,7 @@ async function setPage(next:string){
   text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='physical-operations'?'Physical operations':next==='facilities'?'Facilities':next==='gas-setup'||next==='crude-setup'?'Delivery setup':next==='dashboard'?'Dashboard':next==='risk'?'Risk':next==='jobs'?'Jobs':isCurvePage(next)?'Curves & prices':next==='custom-curves'?'Curve builder':next==='curve-definitions'?'Curve definitions':next==='vol-surfaces'?'Vol surfaces':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='parties'?'Entities & counterparties':next==='crude'?'Physical crude bookings':next==='gas'?'Physical gas bookings':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='configuration'?'Price setup':next==='schedules'?'Schedules & date mappings':'Reference data');
   $('page-title').title=$('page-title').textContent??'';
   for(const name of ['physical-operations','facilities','dashboard','delivery','interval-series','vol-surfaces','admin','ai','jobs'])$('nav-'+name).classList.toggle('active',next===name);
-  const inConsole=pageGroup(next)==='Reference Data';$('nav-reference').classList.toggle('active',inConsole);
+  const inConsole=pageGroup(next)==='Reference Data';
   riskViewsNav.page(next);deliverySetup.show(next);curveWorkspace.show(next);referenceConsole.show(next,next==='reference'?referenceTable||undefined:undefined);
   // Curve builder has the title for its curve, and the console's menu folds to give its graph the room.
   if(builderChanged)referenceConsole.fold(next==='custom-curves');$('page-title').classList.toggle('sr-only',next==='custom-curves');$('page-heading-slot').hidden=next!=='custom-curves';
@@ -1262,7 +1262,7 @@ const referenceNavigation=setupReferenceNavigation({host:$('reference-page'),gro
 function openReferenceTable(table:string){
   leaving(async()=>{if(contextDirty)await applyContext();referenceTable=table;await showPage('reference');},contextDirty?'discards':'page');
 }
-const referenceConsole=setupReferenceConsole({host:$('reference-console'),busy:()=>busy,pendingContext:()=>contextDirty,
+const referenceConsole=setupReferenceConsole({host:$('reference-console'),areas:$('nav-reference'),busy:()=>busy,pendingContext:()=>contextDirty,
   // A changed context drops the catalog until it is read again; the menu keeps the tables this account last read.
   menu:()=>{if(workspace)consoleTables=Object.keys(workspace.references);return consoleMenu({pageAvailable:next=>pageAvailable(next,permissions),tables:consoleTables});},
   open:entry=>{if(entry.table)openReferenceTable(entry.table);else navigate(entry.page)();},
@@ -1343,7 +1343,6 @@ for(const name of ['physical-operations','facilities','dashboard','vol-surfaces'
 
   $('nav-'+name).onclick=navigate(name);
 // Reference Data reopens on the last entry used, or on the first this account has.
-$('nav-reference').onclick=()=>{if(busy||pageGroup(page)==='Reference Data')return;const entry=referenceConsole.destination();if(entry?.table)openReferenceTable(entry.table);else navigate(entry?.page??'reference')();};
 // The saved Blotter views the person lists in the sidebar, each under the Blotter, which is marked while none of them is the view it shows.
 let blotterViews:{listed:string[];shown:string|null}={listed:[],shown:null};
 function renderBlotterViews(){

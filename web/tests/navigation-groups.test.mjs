@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {navigationGroups,pageGroup,pageAvailable,firstPage} from '../dist/navigation-groups.js';
+import {consoleAreas} from '../dist/console-menu.js';
 
 const allPages=navigationGroups.flatMap(g=>g.pages);
 const listed=permissions=>allPages.filter(page=>pageAvailable(page,permissions));
@@ -91,7 +92,7 @@ const markup=readFileSync(new URL('../src/index.html',import.meta.url),'utf8');
 const switched=['interval-curves'];
 test('the sidebar markup lists each group and its pages in the navigationGroups order, but for the pages a switch enters',()=>{
  const shown=[...markup.matchAll(/<details id="nav-group-([a-z]+)"[^>]*><summary>([^<]+)<\/summary>(.*?)<\/details>/gs)]
-  .map(([,id,label,body])=>({id,label,pages:[...body.matchAll(/<button id="nav-([a-z-]+)"/g)].map(m=>m[1]).filter(page=>page!=='configuration')}));
+  .map(([,id,label,body])=>({id,label,pages:[...body.matchAll(/<button id="nav-([a-z-]+)"|<div id="nav-(reference)"/g)].map(m=>m[1]??m[2]).filter(page=>page!=='configuration')}));
  assert.deepEqual(shown,navigationGroups.map(({id,label,pages})=>({id,label,pages:pages.filter(page=>!switched.includes(page))})));
  assert.doesNotMatch(markup,/id="(market|settings|trading)-menu"/);
 });
@@ -139,4 +140,10 @@ test('moving pages changes no account’s reach',()=>{
  assert.deepEqual(reach(['ReadMarketData','ReadTrades','RunScenario']),[...market,'physical-operations','futures','vol-surfaces','risk','risk-scenarios','risk-var','risk-runs'].sort());
  assert.deepEqual(reach(['ReadMarketData','ReadTrades','ReadFacilityQuantities']),[...market,'physical-operations','futures','vol-surfaces','facilities'].sort());
  assert.deepEqual(reach(['ManageAccess']),['admin','jobs'].sort());
+});
+
+test('Reference Data lists the areas of its console, in the console\'s order and by its names',()=>{
+ const [,body]=markup.match(/<div id="nav-reference"[^>]*>(.*?)<\/div>/s);
+ assert.deepEqual([...body.matchAll(/<button id="reference-area-([a-z]+)"[^>]*data-area="([a-z]+)"[^>]*title="([^"]+)"/g)].map(([,id,area,name])=>({id:area,name:name.replace('&amp;','&'),same:id===area})),
+  consoleAreas.map(a=>({...a,same:true})));
 });

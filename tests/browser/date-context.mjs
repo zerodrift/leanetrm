@@ -53,7 +53,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('the selector identifies the retained business date before an exact historical close is chosen',"document.querySelector('#market-date-open').textContent.includes('Dec 17, 2020')&&document.querySelector('#workspace-mode-label').textContent.includes('Historical view · read only')");
  await click('#current-view-context');
  await check('returning to working data restores the selected close and current knowledge',"(async()=>{const frames=(await(await fetch('/api/workspace')).json()).frames,selected=frames.find(frame=>frame.id===document.querySelector('#snapshot').value);return !!selected&&document.querySelector('#date-context-on').value===selected.at.slice(0,10)&&document.querySelector('#date-context-view').value!==''&&document.querySelector('#workspace-mode-label').textContent.includes('current knowledge');})()");
- await click('#nav-reference');await click('#nav-table-currencies');await set('#date-context-on','2021-01-15');await wait(idle);
+ await click('#reference-area-curves');await click('#nav-table-currencies');await set('#date-context-on','2021-01-15');await wait(idle);
  await check('native date edits visibly retain their unapplied status',"document.querySelector('#workspace-mode-label').textContent.includes('Unapplied')&&document.querySelector('#date-context-on').value==='2021-01-15'&&document.querySelector('#market-date-calendar').closest('.date-control').hidden");
  await click('#nav-jobs');
  await check('current Jobs navigation leaves financial date edits unapplied',"!document.querySelector('#jobs-page').hidden&&document.querySelector('#workspace-mode-label').textContent.includes('Unapplied')&&document.querySelector('#error').hidden");

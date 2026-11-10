@@ -4,6 +4,7 @@ import {aiTabs} from './agent-settings.js';
 // a sidebar button or a view inside its workspace; the group's
 // label is the eyebrow above the page title. `opened` are a group's pages that another page opens instead of the sidebar:
 // Product bookings, from the Blotter's new trade panel and its positions; the setup pages, from the Reference Data console's menu.
+// Reference Data's entry is the list of its console's areas (console-menu.ts).
 export type NavigationGroup={id:'overview'|'trading'|'markets'|'risk'|'scheduling'|'reference'|'administration';label:string;pages:readonly string[];opened?:readonly string[]};
 export const navigationGroups:readonly NavigationGroup[]=[
  {id:'overview',label:'Overview',pages:['dashboard']},

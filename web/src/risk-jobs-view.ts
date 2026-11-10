@@ -34,7 +34,7 @@ export function setupRiskJobs(options:{api:<T>(path:string)=>Promise<T>;act:(wor
   try{
    const jobs=await options.api<Job[]>('portfolio/risk/jobs');if(version!==generation)return;
    recent=jobs;const root=get('risk-jobs-list');root.replaceChildren();
-   if(!jobs.length)root.textContent='No recent risk jobs are visible to this account.';
+   if(!jobs.length){const empty=cell('p','No recent risk jobs are visible to this account.');empty.className='empty-state';root.append(empty);await archive(version);return;}
    const table=document.createElement('table'),head=document.createElement('tr');
    for(const title of ['Run','Kind','State','Market as of','Finished','Report'])head.append(cell('th',title));
    // A run of several parts is numbered by its place in this list, so its parts read together; no key is shown.
