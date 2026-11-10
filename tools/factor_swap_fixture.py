@@ -14,7 +14,7 @@ def prepare(manifest):
     base=next(f for f in manifest['frames'] if f['at'].startswith('2020-12-18'))
     for at in ['2021-04-01T02:00:00Z','2021-04-01T04:00:00Z','2021-04-05T08:00:00Z']:
         manifest['frames'].append({**base,'at':at})
-    for market in manifest['swapMarkets']:
+    for market in manifest['inputMarkets']:
         present={f['at'] for f in market['frames']}
         market['frames'].extend(dict(at=f['at'],observationIds=[],curveContracts={}) for f in manifest['frames'] if f['at'] not in present)
     r=f"'{RCAT}','{REFERENCE}'";m=f"'{CAT}','{REVISION}'"
@@ -62,6 +62,6 @@ def prepare(manifest):
         for n,sid in enumerate(rates):
             oid=identity('7',22800000+sample*10+n);pins.append(oid)
             rows.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REVISION}','{sid}',{r},'fixture','factor_rate_{oid}','1','parameter','final','{frame['at']}','{now}',0.05,NULL);")
-        frames.append(dict(at=frame['at'],observationIds=pins,curveContracts=members))
+        frames.append(dict(at=frame['at'],frozenObservationIds=[],observationIds=pins,curveContracts=members))
     rows.append(discount_default(CAT,'d2000000-0000-0000-0000-000000000220',REVISION,r,CURRENCY,'factor_rates',1,'2020-01-01T00:00:00Z'))
-    rows.append('COMMIT;');SQL='\n'.join(rows);manifest['swapMarkets'].append(dict(revisionId=REVISION,frames=frames))
+    rows.append('COMMIT;');SQL='\n'.join(rows);manifest['inputMarkets'].append(dict(revisionId=REVISION,frames=frames))

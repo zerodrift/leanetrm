@@ -32,7 +32,7 @@ internal static class CrudePortfolio
         foreach (var group in positions.GroupBy(p => p.Definition).OrderBy(g => g.Key))
         {
             var source = await PhysicalMarketSelection.Crude.PortfolioSource(database, connection, frame, group.Key,
-                [..group.Select(p => p.Reference)], supplied, requirePinnedSources, group.First().Trade, ct);
+                [..group.Select(p => p.Reference)], supplied, requirePinnedSources, ct);
             var snapshot = MarketSnapshotBinding.Bind(source.Data.Snapshot(source.Frame), contextId, SchedulePreview.ParseAt(context.KnownAt));
             var instruments = new Dictionary<Guid, RetainedCrudeInstrument>();
             var trades = ImmutableArray.CreateBuilder<Trade>();

@@ -4,7 +4,7 @@ import {displayInstant} from './market-view.js';
 
 /** The close the drafted price was read at, as the backend states it: its instant, and a UTC label of its own. */
 export type CloseOutPrice={source:'curve_price';closeAt:string;closeLabel:string};
-export type FuturesCloseOut={kind:'future';terms:Record<string,unknown>&{bookId:string;curve:string;contractId:string;lots:string;executionPrice:string};price:CloseOutPrice&{value:string;unit:string}};
+export type FuturesCloseOut={kind:'future';terms:Record<string,unknown>&{definitionRevisionId:string;bookId:string;curve:string;contractId:string;lots:string;executionPrice:string};price:CloseOutPrice&{value:string;unit:string}};
 /** A remaining period of a swap's draft, its quantity the exact decimal or fraction the backend states. */
 export type CloseOutPeriod={from:string;to:string;quantity:string;price:string};
 export type SwapCloseOut={kind:'financial_swap';terms:Record<string,unknown>;periods:CloseOutPeriod[];settledPeriodsExcluded:number;price:CloseOutPrice};

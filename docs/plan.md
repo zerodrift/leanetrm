@@ -2225,3 +2225,17 @@ objects, compatible published graph versions and exact official close inputs.
 Deleting a selector alone does not qualify an existing separated dataset. Existing
 business history must never be silently rebound or overwritten. No production
 activation is implied by a local implementation.
+
+### Exact temporal source resolution (D373)
+
+Local implementation separates dated catalogue membership, retained native terms,
+and exact pricing inputs. Recorded closes and execution envelopes carry explicit
+source matrices and business dates. Current UI metadata follows its selected
+snapshot. No production activation is implied.
+
+Before release, complete mixed-product and retained-worker replay checks,
+source-qualified authoring and booking checks, regional-calendar and browser
+regressions, current-access revocation tests, generated-close/report capability
+review, migration qualification on stock PostgreSQL, and independent adversarial
+review. Initial catalogue membership must be published through the ordinary
+operation; no historical publication knowledge is fabricated.

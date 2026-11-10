@@ -37,6 +37,23 @@ public sealed record FuturesOptionWork(int Positions,int UniqueSeries,int Solved
     public int ScenarioTreePrices{get;init;}
 }
 
+// Aggregate diagnostics retain each independent calibrated market; they do not
+// merge discount contexts or pricing inputs across native versions.
+internal sealed class FuturesOptionMarkets
+{
+    internal FuturesOptionMarkets(ImmutableArray<FuturesOptionMarket> sources)
+    {
+        var bindings=ImmutableDictionary.CreateBuilder<Guid,FuturesOptionMarketBinding>();
+        foreach(var binding in sources.SelectMany(s=>s.Bindings))
+            if(!bindings.TryAdd(binding.Key,binding.Value))
+                throw new MarketDataException("option_market_context","One option instrument cannot select conflicting market inputs in a calculation.");
+        Bindings=bindings.ToImmutable();
+    }
+    internal ImmutableDictionary<Guid,FuturesOptionMarketBinding> Bindings{get;}
+    internal int TreePrices=>Bindings.Values.Sum(b=>b.TreePrices);
+    internal ImmutableArray<FuturesOptionCalibrationReceipt> Receipts=>[..Bindings.Values.Select(b=>b.Receipt).OrderBy(r=>r.InstrumentId)];
+}
+
 // One market's option and premium valuation inputs for a set of held positions: each distinct series calibrated once from
 // the unshocked base, and the context's payment-discount selection for each currency. A position-specific failure is kept
 // against its binding with its structured code; any other failure fails the preparation.
@@ -117,6 +134,20 @@ internal sealed record FuturesOptionCalibrations(ImmutableDictionary<Guid,Future
 
 internal static class FuturesOptionPortfolio
 {
+    internal sealed record Input(PreviewData Data,InputFrame Frame,ImmutableArray<FuturesOptionPosition> Positions);
+    internal static async Task<ImmutableArray<Input>> Inputs(NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,
+        ImmutableArray<FuturesOptionPosition> positions,ImmutableArray<(PreviewData Data,InputFrame Frame)> supplied,bool requirePinned,CancellationToken ct)
+    {
+        var inputs=ImmutableArray.CreateBuilder<Input>();
+        foreach(var group in positions.GroupBy(p=>new CatalogueSource(p.Definition,p.Reference.CatalogId,p.Reference.RevisionId))
+            .OrderBy(g=>g.Key.DefinitionRevisionId))
+        {
+            var source=await MarketInputSelection.Resolve(database,connection,frame,group.Key,supplied,requirePinned,ct);
+            inputs.Add(new(source.Data,source.Frame,[..group]));
+        }
+        return inputs.ToImmutable();
+    }
+
     internal static async Task<FuturesOptionMarket> Prepare(NpgsqlConnection connection,Guid catalog,PreviewData data,InputFrame frame,MarketSnapshot snapshot,
         ImmutableArray<FuturesOptionPosition> positions,FuturesOptionValuationPolicy policy,CancellationToken ct)
     {

@@ -36,12 +36,15 @@ public static class PilotCloseReports
         =>Publish(connection,runId,Adapt(result),ct);
     internal static ClosePortfolioValuationResult Adapt(PortfolioValuationResult result)
     {
+        // The normalized recorded-close report admits one exact definition
+        // bundle. Multi-source interactive reports retain all receipts instead.
+        if(result.PpaReceipts.Length>1)throw Invalid();
         var factors=result.Factors.Select(f=>new CloseQuoteFactor(f.Axis.Quote??throw Invalid(),f.BumpSize)).ToImmutableArray();
         var byId=result.Factors.Select((f,i)=>(f.Axis.Id,i)).ToDictionary(p=>p.Id,p=>p.i);
         var risk=result.Risk.Select(r=>new CloseFactorRisk(r.Measure,r.BookId,r.Currency,factors[byId[r.Factor]].Factor.Input,
             r.Up,r.Down,r.UpPnl,r.DownPnl,r.Delta,r.Gamma)).ToImmutableArray();
         return new ClosePortfolioValuationResult(result.SnapshotId,result.Context,result.Policy,result.ModelContracts,
-            result.Positions,factors,result.Totals,risk,result.Work){DiscountInputs=result.DiscountInputs,PpaReceipt=result.PpaReceipt,PpaMeasures=result.PpaMeasures};
+            result.Positions,factors,result.Totals,risk,result.Work){DiscountInputs=result.DiscountInputs,PpaReceipt=result.PpaReceipts.SingleOrDefault(),PpaMeasures=result.PpaMeasures};
     }
     public static async Task<Guid> Publish(NpgsqlConnection connection,Guid runId,ClosePortfolioValuationResult result,CancellationToken ct)
     {

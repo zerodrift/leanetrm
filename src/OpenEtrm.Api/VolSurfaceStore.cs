@@ -49,7 +49,7 @@ internal static class VolSurfaceStore
         if(view.Frame.OriginCloseId is {} close)await SelectedClose.RequireInForce(connection,manifest.CatalogId,close,ct);
         var request=new JsonObject{["convention"]=Convention,["engineVersion"]=RiskJobs.EngineVersion,["product"]=Product(manifest,body.Product),
             ["businessDate"]=BusinessDate(view),["model"]=body.Model,["solverPolicy"]=SolverPolicy,["futuresConvention"]=manifest.FuturesConvention};
-        var frame=RiskJobs.PinFrame(view.CalculationFrame with{SwapMarketSelections=null});
+        var frame=RetainedFrames.Record(view.CalculationFrame with{SwapMarketSelections=null});
         await using var command=ScheduleStore.Command(connection,"SELECT risk.submit_vol_surface_fit($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)::text",
             manifest.CatalogId,body.RequestId,contextId,manifest.RevisionId,view.Frame.At,request.ToJsonString(),frame.ToJsonString(RiskJobs.Json));
         var job=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!;
@@ -117,7 +117,7 @@ internal static class VolSurfaceStore
             throw new MarketDataException("risk_job_input","The retained fit must name the supported solver policy and futures convention.");
         var model=VolModels.Require(request["model"]!.GetValue<string>());
         var product=request["product"]!.AsObject();
-        var frame=RiskJobs.ReadFrame(job["frame"]??throw new JsonException("Missing fit frame."));
+        var frame=RetainedFrames.Read(job["frame"]??throw new JsonException("Missing fit frame."));
         if(frame.ContextId!=job["contextId"]!.GetValue<Guid>()||frame.At!=job["valuationAt"]!.GetValue<DateTimeOffset>()||frame.SwapMarketSelections is {Count:>0})
             throw new MarketDataException("risk_job_context","The queued fit and its retained frame must identify the same context.");
         var catalog=job["catalogId"]!.GetValue<Guid>();var revision=job["revisionId"]!.GetValue<Guid>();
@@ -127,7 +127,7 @@ internal static class VolSurfaceStore
         await using var transaction=await connection.BeginTransactionAsync(ct);
         await using(var bind=ScheduleStore.Command(connection,"SELECT risk.bind($1,$2)",id,lease))await bind.ExecuteScalarAsync(ct);
         await using var database=new PreviewDatabase(manifest,source);
-        var data=await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins);
+        var data=await RetainedFrames.ReadBoundJobInputs(database,connection,frame,revision,ReferenceReadScope.DefinitionClosure,ct);
         var elapsed=Stopwatch.StartNew();
         var fitted=await VolSurfaceFit.Compute(connection,database,data,frame,data.Snapshot(frame),product["code"]!.GetValue<string>(),model,ct);
         elapsed.Stop();

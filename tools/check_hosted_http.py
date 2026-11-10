@@ -241,7 +241,7 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         # or selected market dates. It must load without inventing sample inputs.
         empty_revision=str(uuid4())
         query(f"INSERT INTO market_data.revisions VALUES('{manifest['catalogId']}','{empty_revision}','{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}','draft',0);INSERT INTO market_data.revision_periods VALUES('{manifest['catalogId']}','{empty_revision}','0001-01-01','9999-12-31');UPDATE market_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{manifest['catalogId']}','{empty_revision}');")
-        (definitions/'manifest.json').write_text(json.dumps({**selected,'revisionId':empty_revision,'frames':[],'example':None,'swapMarkets':None}))
+        (definitions/'manifest.json').write_text(json.dumps({**selected,'revisionId':empty_revision,'frames':[],'example':None,'inputMarkets':None}))
         api.terminate();api.wait(timeout=10);api=start()
         client.bootstrap();empty,_=client.call('/api/workspace')
         assert empty['frames']==[] and empty['observations']==[] and empty['definitions']['curves']==[] and empty['example'] is None

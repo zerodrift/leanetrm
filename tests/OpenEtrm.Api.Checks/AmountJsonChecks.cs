@@ -48,15 +48,6 @@ internal static class AmountJsonChecks
   if(referenceRow.GetProperty("latitude").GetString()!="41.123456789012345678"||referenceRow.GetProperty("longitude").GetString()!="-87.987654321098765432"||
      referenceRow.GetProperty("ordinal").GetInt32()!=2||!referenceRow.GetProperty("is_business_day").GetBoolean()||referenceRow.GetProperty("missing").ValueKind!=JsonValueKind.Null)
    throw new Exception("Reference presentation must preserve exact numeric lexemes, ordinal ordering, booleans and nulls.");
-  var financialRevision=Guid.NewGuid();var unitRevision=Guid.NewGuid();
-  var manifest=new PreviewManifest("local-synthetic-preview",Guid.NewGuid(),Guid.NewGuid(),revision.CatalogId,financialRevision,Guid.NewGuid(),Guid.NewGuid(),[],null,
-    UnitCatalog:new(unitRevision,Guid.NewGuid()),FuturesConvention:"contract_lot_execution_pnl_v2");
-  foreach(var table in new[]{"dimensions","units","unit_conversions","commodities","measurement_bases","quantity_specifications"})
-   if(ReferenceEditors.Source(manifest,table)!=new ReferenceRevision(revision.CatalogId,unitRevision))
-    throw new Exception("The reference editor must use the exact supplemental unit revision for each consumed unit table.");
-  if(ReferenceEditors.Source(manifest,"currencies")!=new ReferenceRevision(revision.CatalogId,financialRevision)||
-     ReferenceEditors.Source(manifest with{UnitCatalog=null},"units")!=new ReferenceRevision(revision.CatalogId,financialRevision))
-   throw new Exception("Reference presentation must retain the explicitly selected financial revision when no supplemental unit revision is selected.");
-  Console.WriteLine("PASS common API reference transport preserves numeric lexemes and exact source-revision routing");
+  Console.WriteLine("PASS common API reference transport preserves numeric lexemes");
  }
 }

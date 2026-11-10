@@ -102,8 +102,6 @@ SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.l
     internal async Task<CustomCurveVersion?> Replay(NpgsqlConnection connection,Guid requestId,string operation,string payload,string permission,CancellationToken ct)
     {
         if(requestId==Guid.Empty)throw Invalid("Supply a stable request identity.");
-        await using var bundle=ScheduleStore.Command(connection,"SELECT security.custom_curve_source_visible($1,$2)",Catalog,database.Manifest.RevisionId);
-        if(!Equals(await bundle.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
         await using var command=ScheduleStore.Command(connection,"SELECT operation,payload=$3::jsonb,response::text FROM market_data.custom_curve_requests WHERE catalog_id=$1 AND actor_id=security.custom_curve_actor($1,$4) AND request_id=$2",Catalog,requestId,payload,permission);
         await using var reader=await command.ExecuteReaderAsync(ct);
         if(!await reader.ReadAsync(ct))return null;
@@ -119,7 +117,7 @@ SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.l
     }
     internal async Task Record(NpgsqlConnection connection,Guid requestId,string operation,string payload,CustomCurveVersion result,string permission,CancellationToken ct)
     {
-        var revision=CurveVersionInputs.Revision(database,result.MarketRevisionId??result.Sources.Values.FirstOrDefault()?.RevisionId);
+        var revision=await CurveVersionInputs.Resolve(database,connection,result.MarketRevisionId??result.Sources.Values.FirstOrDefault()?.RevisionId,ct);
         if(result.Sources.Values.Any(source=>source.CatalogId!=Catalog||source.RevisionId!=revision))
             throw Invalid("The retained response must use the selected exact definition bundle.");
         await using var command=ScheduleStore.Command(connection,"""

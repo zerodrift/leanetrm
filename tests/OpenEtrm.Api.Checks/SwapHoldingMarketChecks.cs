@@ -33,7 +33,7 @@ internal static class SwapHoldingMarketChecks
                     row.GetProperty("quantity").ValueKind==JsonValueKind.Null).ToArray();
                 if(supplemental.Length==0||!rows.Any(row=>row.Text("settlement")=="Active"))
                     throw new Exception($"The market-read regression requires supplemental scheduled holdings and active lifecycle holdings: supplemental={supplemental.Length}, active={rows.Count(row=>row.Text("settlement")=="Active")}, availability reads={availabilityReads}.");
-                var expected=database.Manifest.SwapMarkets?.Length??0;
+                var expected=database.Manifest.InputMarkets?.Length??0;
                 if(expected==0||availabilityReads!=expected)
                     throw new Exception($"One Holdings read must load supplemental markets once: expected {expected} availability reads, got {availabilityReads}.");
                 Console.WriteLine("PASS holdings with supplemental scheduled trades and active lifecycle reuse one authorized supplemental market load");

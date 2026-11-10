@@ -323,6 +323,33 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
     return reference, market, security_fixture(CAT,RCAT), manifest
 
 
+def catalogue_fixture(manifest,issuer):
+    """Publish the explicitly selected baseline through the ordinary native command."""
+    catalog,revision,reference_catalog,reference_revision,tenant,workspace=(manifest[key] for key in
+        ('catalogId','revisionId','referenceCatalogId','referenceRevisionId','tenantId','workspaceId'))
+    return f"""
+BEGIN;
+SET LOCAL SESSION AUTHORIZATION preview_authenticator;
+SELECT security.issue_context('{issuer}','approver','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120) AS token \\gset
+SET LOCAL SESSION AUTHORIZATION preview_runtime;
+SELECT security.use_context(:'token');
+SELECT security.publish_catalogue('{catalog}','ebc5e695-c5c3-413f-9533-cba165b4d626',NULL,
+ (SELECT jsonb_build_object('effectiveFrom',p.effective_from,'effectiveTo',p.effective_to,
+ 'curves',(SELECT jsonb_agg(jsonb_build_object('code',code,'kind',kind,'definitionRevisionId','{revision}',
+ 'referenceCatalogId','{reference_catalog}','referenceRevisionId','{reference_revision}') ORDER BY code)
+ FROM(SELECT code,'curve' kind FROM market_data.curves WHERE(catalog_id,revision_id)=('{catalog}','{revision}')
+ UNION ALL SELECT code,'rate' FROM market_data.rate_curves WHERE(catalog_id,revision_id)=('{catalog}','{revision}'))c),
+ 'roles',(SELECT jsonb_object_agg(role,jsonb_build_object('definitionRevisionId','{revision}',
+ 'referenceCatalogId','{reference_catalog}','referenceRevisionId','{reference_revision}'))
+ FROM(SELECT unnest(ARRAY['primary','units','gas','ppa'])role UNION ALL
+ SELECT 'reference:'||c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ref_data' AND c.relkind='r'
+ AND EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attname='catalog_id' AND NOT a.attisdropped)
+ AND EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attname='revision_id' AND NOT a.attisdropped))roles))
+ FROM market_data.revision_periods p WHERE(p.catalog_id,p.revision_id)=('{catalog}','{revision}')));
+COMMIT;
+"""
+
+
 def security_fixture(catalog,reference_catalog):
     security=[f"INSERT INTO security.tenants VALUES ('{TENANT}','preview');",
               f"INSERT INTO security.workspaces VALUES ('{TENANT}','{WORKSPACE}','synthetic_market');",

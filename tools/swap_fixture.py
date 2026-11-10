@@ -40,7 +40,7 @@ def fixture(fixing_frames=False, observation_guards=False, scheduled_periods=Fal
             oid=identity('7', 300000+day*10000+number);pins.append(oid)
             adjusted=value-Decimal(18-day)* (Decimal('.0001') if role=='parameter' else Decimal('.01'))
             rows.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REVISION}','{sid}',{r},'fixture','swap_{day}_{number}','1','{role}','final','2020-12-{day} 16:00:00+00','{now}',{adjusted},NULL);")
-        frames.append({'at':f'2020-12-{day}T16:00:00Z','observationIds':pins,'curveContracts':{}})
+        frames.append({'at':f'2020-12-{day}T16:00:00Z','frozenObservationIds':[],'observationIds':pins,'curveContracts':{}})
     emitted=set()
     # Separate final facts reuse the exact price series but have their own
     # index_fixing role. They cannot become shocked forward marks.
@@ -64,7 +64,7 @@ def fixture(fixing_frames=False, observation_guards=False, scheduled_periods=Fal
                 actual=value+Decimal('.31') if number<2100 else value+Decimal('3.1')
                 rows.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{actual_id}','{REVISION}','{sid}',{r},'fixture','synthetic_daily_fixing_{number}','1','index_fixing','final','{fixing_at}','{now}',{actual},NULL);")
                 emitted.add(actual_id)
-        frames.append({'at':at,'observationIds':pins,'curveContracts':{}})
+        frames.append({'at':at,'frozenObservationIds':[],'observationIds':pins,'curveContracts':{}})
     if fixing_frames:
         partial=next(frame for frame in frames if frame['at']=='2021-01-15T08:00:00Z')
         frames.append({**partial,'at':'2021-01-15T09:00:00Z',

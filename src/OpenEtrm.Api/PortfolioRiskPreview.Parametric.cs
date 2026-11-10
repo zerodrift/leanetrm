@@ -66,7 +66,7 @@ public sealed partial class PortfolioRiskPreview
     private static void RequireParametricWork(PortfolioValuation.Prepared portfolio,ImmutableArray<PortfolioCurveBump> bumps)
     {
         var scenarios=1+2L*bumps.Length;
-        var rows=portfolio.Ppa is {} ppa?checked(ppa.Rows*scenarios):0;
+        var rows=checked(portfolio.PpaRows*scenarios);
         var width=portfolio.Markets.Sum(m=>RiskEngine.ScenarioResultWidth(m.Connected,RiskDetail.Books));
         var nodes=portfolio.Options?.Bindings.Values.Where(b=>b.Receipt.Mode==OpenEtrm.MarketData.Trading.FuturesOptionPricing.SolvedMode)
             .Sum(b=>checked((long)b.Policy.Steps*(b.Policy.Steps+1)/2*scenarios))??0;

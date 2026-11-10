@@ -23,7 +23,7 @@ def seed(query, manifest):
     exchange prices. Every retry keeps the same business keys and values.
     """
     catalog = manifest['catalogId']
-    revisions = [manifest['revisionId'], *(m['revisionId'] for m in manifest.get('swapMarkets', []))]
+    revisions = [manifest['revisionId'], *(m['revisionId'] for m in manifest.get('inputMarkets', []))]
     revision_sql = ','.join("'" + value + "'::uuid" for value in revisions)
     query(f"""WITH originals AS(
         SELECT DISTINCT ON(definition_revision_id,series_id,source_code,role,publication_state)

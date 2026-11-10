@@ -3867,3 +3867,61 @@ request that only lacked its frame. The assistant now refuses such a body before
 any read or proposal: a missing `snapshotId` as `operation_context_mismatch`, which
 asks for the pinned frame, and any other missing id as `tool_arguments_invalid`.
 No permission, operation or financial behavior changes.
+## D373 — Exact source resolution under business and knowledge time
+
+Logical catalogue membership is an immutable, explicitly published set of exact
+native definition/reference coordinates with an effective interval. New choices
+resolve that membership at the selected business date and knowledge cutoff.
+Current metadata inspection without a selected date is a distinct operation;
+it does not establish pricing inputs. A captured context retains its certified
+catalogue publication prefix. Select the applicable head before checking current
+authority; an unavailable head never revives an earlier publication.
+
+Held terms resolve their own exact native foreign keys. Adding a product does not
+replace unrelated contracts, require rebooking, or change retained graphs. Prices
+come from explicit source selections at one business date and valuation instant.
+One logical code, a deployment revision, or a shared UTC date cannot substitute
+for source identity. Missing or ambiguous inputs fail with a structured error.
+The managed source resolver is shared by portfolio consumers and market reads.
+
+Every recorded close retains a source matrix: exact source/reference versions,
+observation pins, frozen input uses, ordered curve members, and its session's
+source-qualified roots. Retained dependencies cannot expand the signed commodity roots. Native rate
+inspection uses the close's exact primary source, rate-definition foreign keys
+and retained tenor pins; it does not promise signed rate-root coverage or extend
+generated-close scope.
+Normalize existing single-source relationships from their own recorded facts;
+this adds no observations, publication times, or alternate runtime path. Working
+edits update the same matrix atomically and cease claiming recorded identity.
+Queued calculations and agent turns retain the shared explicit input envelope.
+The UI selects metadata for its selected snapshot and carries its business date
+independently of UTC and recorded-close metadata.
+
+This supersedes D334's exception admitting after-cutoff closes and their prices.
+A historical view uses the close known in force at its cutoff, and every price
+obeys the same certified knowledge prefix. Current authority still applies.
+Replacing a close never rewrites a saved result. Existing UTC-day session-clock
+capability restrictions remain; this decision does not qualify additional clocks.
+
+Commands retain first outcomes independently of their resulting financial facts.
+Reaffirming the unchanged current close or catalogue is a no-op; a changed value
+is a new revision. A deliberate A-to-B-to-A sequence records a new occurrence.
+No previous execution-envelope format or deployment routing fallback is admitted.
+
+Local qualification on stock PostgreSQL 18 proves additive catalogue
+membership across both time axes, immutable original and added futures with
+independent marks, recorded source selection without deployment price frames,
+and a claimed worker reproducing interactive scenario values and held version
+evidence. An upgrade check preserves a previously recorded
+close, its pins, publication transaction and certified receipt. Curve calendars,
+price history and custom graphs preserve the source of each available sample;
+a close that lacks a requested source is reported unavailable without hiding
+later complete samples. Position charts and draft previews use exact source
+identities; the UI keeps held terms distinct from new booking choices.
+
+Remaining qualification includes cross-reference, mixed-product worker replay,
+secondary-source volatility surfaces, portfolio aggregation across distinct
+reference revisions, remaining product admissions and the final browser and
+authority checks. Generated-close and normalized-report capabilities must be
+assessed separately from interactive portfolio support. No production activation
+has been performed.

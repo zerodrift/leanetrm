@@ -30,7 +30,7 @@ internal static class BookedScheduleReaderChecks
  }
  internal static async Task Run()
  {
-  var frame=new InputFrame(Guid.NewGuid(),"Synthetic schedule reader",new(2040,12,18,0,0,0,TimeSpan.Zero),[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
+  var frame=new InputFrame(Guid.NewGuid(),"Synthetic schedule reader",new(2040,12,18,0,0,0,TimeSpan.Zero),OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(new(2040,12,18,0,0,0,TimeSpan.Zero)).Date,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
   var view=new TradingView(frame,new("2040-12-18",1,"2040-12-19T00:00:00Z",Guid.NewGuid()),false);
   var position=new TradePositionReadRequest(new(frame.Id,TradingBlotter.Convention,"retained",view.Context.ContextId),Guid.NewGuid(),Guid.NewGuid(),3,"synthetic_unlisted_product");
   var selected=TradePositionSelection.From(position);var source=new Source();var reader=new BookedScheduleReader([source]);using var connection=new NpgsqlConnection();

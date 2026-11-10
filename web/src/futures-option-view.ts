@@ -130,7 +130,7 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
   const chosen=optionChoices(catalog,pick).series;if(!chosen){said.textContent='Choose the exchange, commodity, underlying future, call or put and strike.';return;}
   if(!side.value){said.textContent='Choose buy or sell.';return;}
   pending.begin('options/book',{...annotations.read(),snapshotId:o.source().snapshotId,convention:optionConvention,knowledgeMode:'current',bookId:(document.getElementById('option-book') as HTMLSelectElement).value,
-   series:chosen.series,side:side.value,lots:lots.value,premium:premium.value,premiumPaymentDate:paid.value||null,premiumStyle:style.value||null},undefined,'Futures option booking');
+   definitionRevisionId:chosen.definitionRevisionId,series:chosen.series,side:side.value,lots:lots.value,premium:premium.value,premiumPaymentDate:paid.value||null,premiumStyle:style.value||null},undefined,'Futures option booking');
   retain();void send();
  };
  retry.onclick=()=>void send();

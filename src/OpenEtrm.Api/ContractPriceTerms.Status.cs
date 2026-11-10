@@ -20,8 +20,8 @@ public static partial class CustomCurves
             var saved=(await new CustomCurvesStore(database).Read(connection,ct)).SingleOrDefault(v=>v.Id==curveId&&v.Version==version)
                 ??throw Invalid("Select an exact visible authored curve version.");
             pin=await SelectedClose.Pin(connection,database,pin,ct);
-            var revision=CurveVersionInputs.Revision(database,saved.MarketRevisionId);
-            var frame=CurveVersionInputs.Frame(database,pin.RequireFrame(),revision);var knownAt=SchedulePreview.ParseAt(pin.Context!.KnownAt);
+            var revision=await CurveVersionInputs.Resolve(database,connection,saved.MarketRevisionId,ct);
+            var frame=pin.RequireFrame();var knownAt=SchedulePreview.ParseAt(pin.Context!.KnownAt);
             var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             var publications=await new PricePublicationStore(database).Read(connection,ct);
             var rows=ImmutableArray.CreateBuilder<ContractPublicationPriceRow>();

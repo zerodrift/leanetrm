@@ -210,7 +210,7 @@ internal static class DirectReadChecks
         {
             var empty=working.Selected with{CurveContracts=ImmutableDictionary<string,ImmutableArray<Guid>>.Empty};
             var data=await database.Read(c,ct,observationIds:empty.ObservationIds);
-            var catalog=JsonSerializer.SerializeToElement(await new FuturesStore(database.Manifest).Catalog(c,data,empty,ct),Json);
+            var catalog=JsonSerializer.SerializeToElement(await new FuturesStore(database).Catalog(c,data,empty,ct),Json);
             if(catalog.GetProperty("contracts").GetArrayLength()!=0||FuturesOptionStore.Series(data,empty).Length!=0)
                 throw new Exception("Booking catalogs must not price contracts outside the exact frame membership.");
             return true;

@@ -92,7 +92,7 @@ public sealed partial class TradingBlotter(PreviewDatabase database,FuturesStore
   var lngRun=await LngBlotter.Run(connection,database,frame,view.BookIds,view.PortfolioIds,ct);
   var optionRun=await FuturesOptionBlotter.Run(connection,database,data,frame,view.BookIds,view.PortfolioIds,ct);
   var formats=await DealAmountFormats.All(connection,manifest.CatalogId,ct);
-  return new(view,summaries,futuresRun,swapRun,ppaRun,row=>FutureTerms(row,data),formats,gasRun,crudeRun,optionRun,lngRun);
+  return new(view,summaries,futuresRun,swapRun,ppaRun,formats,gasRun,crudeRun,optionRun,lngRun);
  }
  // The report of a view and, grouped from the same valuation, each requested summary in request order.
  public sealed record BlotterRead(object Blotter,ImmutableArray<Summary> Summaries);

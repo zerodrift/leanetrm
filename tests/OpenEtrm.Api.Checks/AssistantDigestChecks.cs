@@ -38,7 +38,7 @@ static class AssistantDigestChecks
     {
         var catalog=Guid.Parse("c1000000-0000-0000-0000-000000000001");
         var manifest=new PreviewManifest("local-synthetic-preview",catalog,Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),[],null);
-        var frame=new InputFrame(Guid.Parse("f1000000-0000-0000-0000-000000000001"),"Synthetic close",DateTimeOffset.Parse("2020-12-18T16:00:00Z"),[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
+        var frame=new InputFrame(Guid.Parse("f1000000-0000-0000-0000-000000000001"),"Synthetic close",DateTimeOffset.Parse("2020-12-18T16:00:00Z"),OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(DateTimeOffset.Parse("2020-12-18T16:00:00Z")).Date,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
         var pin=TurnPin.From(JsonSerializer.SerializeToElement(new{mode="retained",contextId=Guid.Parse("c2000000-0000-0000-0000-000000000001"),cutoff="2026-10-21T12:00:00Z",frameId=frame.Id}),JsonDocument.Parse(TurnPin.Record(frame)).RootElement,catalog,manifest);
         JsonObject Row(int id,string pnl)=>JsonSerializer.SerializeToNode(new{tradeId=$"71000000-0000-0000-0000-{id:000000000000}",bindingId=$"72000000-0000-0000-0000-{id:000000000000}",revision="1",tradeReference=$"TR-{id:000000}",instrumentReference="Synthetic future",instrumentType="future",bookId="b1000000-0000-0000-0000-000000000001",book="Synthetic book",unit="lots",currency="USD",deliveryFrom="2021-01-01",deliveryTo="2021-02-01",quantity="1",executionPnl=pnl,
             quantitySpecification=new{revision=new{catalogId=catalog,revisionId=catalog},code="synthetic_lots"},currencyReference=new{revision=new{catalogId=catalog,revisionId=catalog},code="usd"}})!.AsObject();

@@ -447,7 +447,11 @@ function readShapes():ReadonlyMap<string,CurveShape|string>{const kept=boardShap
 const board=()=>marketBoard(directory(),{by:prefs.browseBy,commodity:prefs.market,type:prefs.marketType},readShapes());
 // Choosing a curve, from the library or from its card on the board, or no curve, which shows the board again.
 async function selectCurve(code:string){
-  curve=code;invalidateMarketDates();clearPrices();void renderCurveCloses();
+  const previous=curve?listedCurve().source:null;
+  curve=code;
+  const selected=curve?listedCurve().source:null;
+  if(JSON.stringify(previous)!==JSON.stringify(selected))workspace=undefined;
+  invalidateMarketDates();clearPrices();void renderCurveCloses();
   if(!curve){renderContext();await loadBoard();}
   else if(select('snapshot').value)await build();else{await loadWorkspace();renderContext();}
 }
@@ -895,8 +899,9 @@ function marketSelection(){return JSON.stringify([administrationScope,currentPro
 function validateWorkspace(next:Workspace,owner:MarketNavigation,started:number,scope:string){
   if(next.referenceScope!=='definition_closure'||next.observationScope!=='on_demand'||!Array.isArray(next.observations)||next.observations.length||!Array.isArray(next.curveNames))throw Error('The market catalog is missing or inconsistent. Refresh and try again.');
   const revision=next.definitions?.revisions?.[0];
-  const sameRevision=revision&&val(revision,'catalog_id')===owner.definitionRevision.catalogId&&val(revision,'id')===owner.definitionRevision.revisionId&&val(revision,'reference_catalog_id')===owner.referenceRevision.catalogId&&val(revision,'reference_revision_id')===owner.referenceRevision.revisionId;
-  const summarize=({id,name,at,originCloseId}:FrameSummary)=>({id,name,at,originCloseId:originCloseId??null});
+  const source=curve?owner.curves.find(c=>c.code===curve)?.source:{definitionRevisionId:owner.definitionRevision.revisionId,referenceCatalogId:owner.referenceRevision.catalogId,referenceRevisionId:owner.referenceRevision.revisionId};
+  const sameRevision=source&&revision&&val(revision,'catalog_id')===owner.definitionRevision.catalogId&&val(revision,'id')===source.definitionRevisionId&&val(revision,'reference_catalog_id')===source.referenceCatalogId&&val(revision,'reference_revision_id')===source.referenceRevisionId;
+  const summarize=({id,name,at,businessDate,originCloseId}:FrameSummary)=>({id,name,at,businessDate,originCloseId:originCloseId??null});
   const summaries=next.frames?.map(summarize);
   if(navigation!==owner||started!==marketGeneration||scope!==marketSelection()||contextDirty||next.profile!==owner.profile||!sameRevision||
      JSON.stringify((next as Workspace & {context?:Context}).context??null)!==JSON.stringify(owner.context)||JSON.stringify(summaries)!==JSON.stringify(owner.frames.map(summarize))||
@@ -907,7 +912,8 @@ function validateWorkspace(next:Workspace,owner:MarketNavigation,started:number,
 async function loadWorkspace(){
   if(workspace)return;
   const owner=directory(),started=marketGeneration,scope=marketSelection();
-  const next=await api<Workspace>('workspace/catalog');workspace=validateWorkspace(next,owner,started,scope);
+  const parameters=new URLSearchParams();if(curve)parameters.set('curve',curve);if(select('snapshot').value)parameters.set('snapshotId',select('snapshot').value);
+  const next=await api<Workspace>(`workspace/catalog${parameters.size?'?'+parameters.toString():''}`);workspace=validateWorkspace(next,owner,started,scope);
 }
 // Only an explicitly saved, still-published default initializes a new view.
 async function loadCloseSessions(){
@@ -938,15 +944,16 @@ async function showCloseHistory(){
  $('close-history-list').replaceChildren(...history.replaced.map(c=>el('li',`${c.name} · recorded ${instant(c.recordedAt)}${c.recordedBy?' by '+c.recordedBy:''} · replaced`)));
  host.hidden=!history.replaced.length;
 }
-async function loadNavigation(){
+let navigationSnapshot='';
+async function loadNavigation(snapshot=''){
   riskJobs.contextChanged();
   if(!nativeCurveInspector.element.hidden){nativeCurveInspector.element.hidden=true;curveDefinitions.element.hidden=false;}
   const started=++marketGeneration,profile=currentProfile,scope=administrationScope;
   workspace=undefined;navigation=undefined;clearReference();referenceNavigation.clear();setCurveNames([]);$('curves').replaceChildren();
-  const next=validateMarketNavigation(await api<MarketNavigation>('workspace/navigation'));
+  const next=validateMarketNavigation(await api<MarketNavigation>(`workspace/navigation${snapshot?`?snapshotId=${encodeURIComponent(snapshot)}`:''}`));
   if(started!==marketGeneration||currentProfile!==profile||administrationScope!==scope||next.profile!==profile||contextDirty)
     throw Error('The account or market selection changed. Reload before continuing.');
-  navigation=next;setCurveNames(next.curveNames);if(next.live)connectLive(next.live);else stopLive();
+  navigation=next;navigationSnapshot=snapshot;setCurveNames(next.curveNames);if(next.live)connectLive(next.live);else stopLive();
 }
 function stopLive(){liveStream?.close();liveUpdates?.stop();liveStream=undefined;liveUpdates=undefined;liveId='';lastLiveUpdate=undefined;$('live-status').hidden=true;$('live-retry').hidden=true;}
 function showLiveStatus(status:LiveStatus){
@@ -1091,6 +1098,8 @@ function closeChanged(){
   if(navigation)renderBrowse();renderMarketBoard();
 }
 async function loadSelectedClose(){
+  const selected=select('snapshot').value;
+  if(selected&&navigationSnapshot!==selected){await loadNavigation(selected);renderFrames(selected);if(curve&&!directory().curves.some(c=>c.code===curve))curve='';}
   if(page==='schedules'){await dateEditor.load();return;}
   if(page==='curve-definitions'){if(!curveDefinitions.read())await curveDefinitions.load();return;}
   if(page==='configuration'){await priceSetup.load();return;}
@@ -1174,7 +1183,7 @@ async function returnToWorking(){
   if(choice.kind==='choose')askNewestClose(choice.date);
 }
 // The time controls of working data show the selected close's effective date at current knowledge, ready to be changed (D217).
-async function initializeContext(){await dateEditor.initialize(directory().frames.find(f=>f.id===select('snapshot').value)?.at.slice(0,10)??'');}
+async function initializeContext(){await dateEditor.initialize(directory().frames.find(f=>f.id===select('snapshot').value)?.businessDate??'');}
 $('current-view-context').onclick=()=>leaving(returnToWorking);
 $('follow-live').onclick=()=>leaving(async()=>{
  const selected=await api<LiveContextUpdate>('market/live',{snapshotId:frame().id,policy:'selected_facts_latest_committed_corrections_v1'});
@@ -1251,7 +1260,7 @@ const tickets=productTickets({
  options:optionTicket,
 });
 async function ticketBooked(tradeId:string):Promise<void>{if(tickets.active())await futures.bookedExternal(tradeId);}
-const futures=setupFutures({volSurface:openVolSurface,riskReportUrl:id=>riskReportAddress(id,{hosted:hostedPilot,example:exampleId}),narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),inPlace:kind=>assistant.draft(kind==='pivot'?askPivotText:askSelectionText),about:({reference})=>assistant.draft(askAboutText(reference))},window:{kind:'main',example:exampleId as 'baseline'|'exchange',open:(url,target,features)=>window.open(url,target,features)},failed:error=>{text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');},failureCleared:()=>{$('error').hidden=true;if(!busy)text('status',pageStatus());},onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,stream:(body,handlers,signal)=>streamBlotter((path,payload,abort)=>responseFor(path,payload,apiRoot,abort),body,handlers,signal),act,busy:()=>busy,updatesBlocked:()=>assistant.working(),canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,contextDirty:()=>contextDirty,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,definitionRevision:()=>directory().definitionRevision.revisionId,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
+const futures=setupFutures({volSurface:openVolSurface,riskReportUrl:id=>riskReportAddress(id,{hosted:hostedPilot,example:exampleId}),narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),inPlace:kind=>assistant.draft(kind==='pivot'?askPivotText:askSelectionText),about:({reference})=>assistant.draft(askAboutText(reference))},window:{kind:'main',example:exampleId as 'baseline'|'exchange',open:(url,target,features)=>window.open(url,target,features)},failed:error=>{text('error',errorMessage(error));$('error').hidden=false;text('status','Please check the message above.');},failureCleared:()=>{$('error').hidden=true;if(!busy)text('status',pageStatus());},onViews:(listed,shown)=>{blotterViews={listed,shown};renderBlotterViews();},tickets,api,stream:(body,handlers,signal)=>streamBlotter((path,payload,abort)=>responseFor(path,payload,apiRoot,abort),body,handlers,signal),act,busy:()=>busy,updatesBlocked:()=>assistant.working(),canRunRisk:()=>permissions.includes('RunScenario'),bookingUnavailableReason:()=>bookingFallback({contextDirty,view:knowledgeView(),canBook:permissions.includes('BookTrade')}),knowledge:knowledgeView,contextDirty:()=>contextDirty,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),notice,curveListed:code=>!!navigation?.curves.some(c=>c.code===code),openCurve:(code,contractId)=>openCurve(code,contractId),reported:()=>assistant.sync(),unsavedChanged:()=>syncUnloadQuestion(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,convention:directory().futuresConvention,context:historicalContext()};}});
 // The contract panel beside the curve's chart and table: docked when the main area has the room and the assistant is closed, an overlay
 // otherwise, and on a phone a sheet over the page. Closing it returns focus to the contract's row, or else to what opened it.
 const contractPanel=setupContractPanel($('contract-panel'),{

@@ -7,7 +7,9 @@ using OpenEtrm.MarketData;
 namespace OpenEtrm.Api;
 
 public sealed record CurveName(string Code,string Name);
+public sealed record ReferenceSourceSelection(ReferenceRevision ReferenceRevision,Guid DefinitionRevisionId);
 public sealed record WorkspaceRead(PreviewData Data,UnitCatalogData? Units,ImmutableArray<CurveName>? CurveNames,
+    ImmutableDictionary<string,ReferenceSourceSelection> ReferenceSources,
     ReferenceDisplayData? ReferenceDisplay=null,ReferenceDisplayData? UnitReferenceDisplay=null);
 public sealed record PriceRead(object Result,ImmutableArray<JsonElement> Observations,WorkspaceRead? Workspace=null);
 // KnownAt is the latest certified publication instant among the sample's observations; null while any is not yet certified.
@@ -42,7 +44,13 @@ public sealed record CurveShapePoint(Guid ContractId,string DeliveryFrom,string 
 // Evaluate read raises when the pinned data cannot read it.
 // ContractCount, Front and Availability are D233's summary of Points: how many contracts the view selects, its first priced one, and why
 // it has none (no_remaining_contracts when the view selects nothing, no_priced_contract when it selects contracts and none is priced).
-public sealed record CurveShape(string Curve,string? Unit,ImmutableArray<CurveShapePoint>? Points,string? UnavailableReason,int? ContractCount,CurveFront? Front,string? Availability);
+public sealed record CurveShape(string Curve,string? Unit,ImmutableArray<CurveShapePoint>? Points,string? UnavailableReason,int? ContractCount,CurveFront? Front,string? Availability)
+{
+    public Guid DefinitionRevisionId{get;init;}
+}
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record CurveInspection([property:System.Text.Json.Serialization.JsonRequired]string Curve,
+    [property:System.Text.Json.Serialization.JsonRequired]Guid DefinitionRevisionId);
 // The front contract of a curve (D233): the first contract in delivery order that the selected close prices.
 public static class CurveSummary{public const string NoRemainingContracts="no_remaining_contracts",NoPricedContract="no_priced_contract";}
 public sealed record CurveFront(Guid ContractId,string DeliveryFrom,string DeliveryTo,string Price)
@@ -58,15 +66,17 @@ public sealed record CurveFront(Guid ContractId,string DeliveryFrom,string Deliv
 public sealed class MarketReads(PreviewDatabase database)
 {
     public async Task<PreviewData> Data(NpgsqlConnection connection,PinnedContext pin,CancellationToken ct,
-        ImmutableArray<Guid>? observationIds=null,ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure,bool includeCalendarDays=false)
+        ImmutableArray<Guid>? observationIds=null,ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure,bool includeCalendarDays=false,string? curve=null)
     {
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
-        return await database.Read(connection,ct,observationIds:observationIds,referenceScope:referenceScope,includeCalendarDays:includeCalendarDays);
+        var catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,pin.Frame?.Time.Date);
+        var source=curve is null?catalogue.RequireRole("primary"):(await Curves(connection,catalogue,pin.Frame,ct)).SingleOrDefault(c=>c.Code==curve)?.Source??throw new MarketDataException("catalogue_curve","The selected view does not contain this curve.");
+        return await database.Read(connection,ct,observationIds:observationIds,referenceScope:referenceScope,includeCalendarDays:includeCalendarDays,ppaBundle:source);
     }
 
-    public async Task<WorkspaceRead> Workspace(NpgsqlConnection connection,PinnedContext pin,bool catalogOnly,CancellationToken ct)
+    public async Task<WorkspaceRead> Workspace(NpgsqlConnection connection,PinnedContext pin,bool catalogOnly,CancellationToken ct,string? curve=null)
     {
-        var data=await Data(connection,pin,ct,catalogOnly?ImmutableArray<Guid>.Empty:null,catalogOnly?ReferenceReadScope.DefinitionClosure:ReferenceReadScope.AllVisible);
+        var data=await Data(connection,pin,ct,catalogOnly?ImmutableArray<Guid>.Empty:null,catalogOnly?ReferenceReadScope.DefinitionClosure:ReferenceReadScope.AllVisible,curve:curve);
         return await WorkspaceMetadata(connection,data,catalogOnly,ct);
     }
 
@@ -77,23 +87,53 @@ public sealed class MarketReads(PreviewDatabase database)
         catch(MarketDataException e) when(e.Code=="unit_catalog") { units=null; }
         var display=await ReferenceEditors.Display(connection,data.ReferenceRevision,ct);
         var unitDisplay=units is null?null:units.Revision==data.ReferenceRevision?display:await ReferenceEditors.Display(connection,units.Revision,ct);
-        return new(data,units,catalogOnly?await Names(connection,ct):null,display,unitDisplay);
+        return new(data,units,catalogOnly?await Names(connection,ct):null,await database.ReadReferenceSources(connection,ct),display,unitDisplay);
     }
 
     public async Task<NavigationRead> Navigation(NpgsqlConnection connection,PinnedContext pin,CancellationToken ct)
     {
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
-        var pins=await MarketBundle.Require(connection,database.Manifest,ct);
-        var curves=await MarketNavigation.ReadCurves(connection,database.Manifest,ct);
+        var catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,pin.Frame?.Time.Date);
+        var primary=catalogue.RequireRole("primary").Apply(database.Manifest);
+        var pins=await MarketBundle.Require(connection,primary,ct);
+        var listed=ImmutableArray.CreateBuilder<NavigationCurve>();
+        var configured=ImmutableArray.CreateBuilder<CurveConfiguration>();
+        var mayWrite=await PreviewDatabase.HasPermission(connection,"WriteMarketDefinitions",ct);
+        foreach(var source in (await Curves(connection,catalogue,pin.Frame,ct)).GroupBy(c=>c.Source))
+        {
+            var manifest=source.Key.Apply(database.Manifest);
+            var codes=source.Select(c=>c.Code).ToHashSet(StringComparer.Ordinal);
+            var members=(await MarketNavigation.ReadCurves(connection,manifest,ct)).Where(c=>codes.Contains(c.Code)).ToImmutableArray();
+            listed.AddRange(members.Select(c=>c with{Source=source.Key}));
+            configured.AddRange(await MarketNavigation.ReadConfigurations(connection,manifest,members,pin.Context is not null,mayWrite,ct));
+        }
+        var curves=listed.OrderBy(c=>c.Code,StringComparer.Ordinal).ToImmutableArray();
         var names=await Names(connection,ct);
-        await MarketBundle.RequireReferenceVisibility(connection,database.Manifest,ct);
+        await MarketBundle.RequireReferenceVisibility(connection,primary,ct);
         var display=await ReferenceEditors.Display(connection,pins.References,ct);
         if(display is not null && display.References.TryGetValue("commodities",out var labels))
         {
             var namesByCode=labels.Where(r=>r.TryGetProperty("name",out _)).ToDictionary(r=>r.Text("code"),r=>r.Text("name"));
             curves=[..curves.Select(c=>c.Category is {} category&&namesByCode.TryGetValue(category.Code,out var name)?c with{Category=category with{Name=name}}:c)];
         }
-        return new(pins.Definitions,pins.References,curves,names,display);
+        return new(pins.Definitions,pins.References,curves,names,display){Configurations=configured.ToImmutable()};
+    }
+
+    internal async Task<ImmutableArray<CatalogueCurve>> Curves(NpgsqlConnection connection,CataloguePublication catalogue,InputFrame? frame,CancellationToken ct)
+    {
+        if(frame is null)return catalogue.Curves;
+        var result=catalogue.Curves.ToDictionary(c=>c.Code,StringComparer.Ordinal);
+        var own=await MarketInputSelection.Root(database,connection,frame,ct,observationIds:[],includeCalendarDays:false);
+        foreach(var rate in own.Definitions["rate_curves"])
+            result[rate.Text("code")]=new(rate.Text("code"),"rate",own.DefinitionRevision.RevisionId,own.ReferenceRevision.CatalogId,own.ReferenceRevision.RevisionId);
+        if(frame.SourceInputs is not {} matrix)return [..result.Values.OrderBy(c=>c.Code,StringComparer.Ordinal)];
+        foreach(var roots in matrix.Values.SelectMany(part=>part.RootCurves.Select(code=>(code,part.Source))).GroupBy(p=>p.code,StringComparer.Ordinal))
+        {
+            if(roots.Count()!=1)throw new MarketDataException("market_inputs","The selected inputs declare several sources for one root curve.");
+            var root=roots.Single();var source=root.Source;
+            result[root.code]=new(root.code,"curve",source.DefinitionRevisionId,source.ReferenceCatalogId,source.ReferenceRevisionId);
+        }
+        return [..result.Values.OrderBy(c=>c.Code,StringComparer.Ordinal)];
     }
 
     // Stored display names for every curve in this catalog, for screens that show curve codes from any bundle.
@@ -124,17 +164,19 @@ public sealed class MarketReads(PreviewDatabase database)
     }
 
     // The pinned frame and the data its own observations select, for the date of the pin's context.
-    async Task<(InputFrame Frame,PreviewData Data)> Pinned(NpgsqlConnection connection,PinnedContext pin,CancellationToken ct)
+    async Task<(InputFrame Frame,PreviewData Data)> Pinned(NpgsqlConnection connection,PinnedContext pin,string curve,CancellationToken ct)
     {
         var frame=pin.RequireFrame();
         if(pin.Context is {} selected && PreviewSession.BusinessDay(frame)!=DateWorkspace.Date(selected.EffectiveOn))
             throw new MarketDataException("market_date","Choose inputs for the selected context date. No earlier market date is substituted.");
-        return (frame,await Data(connection,pin,ct,frame.ObservationIds));
+        await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        var inputs=await MarketInputSelection.ForCurve(database,connection,frame,curve,ct);
+        return (inputs.Frame,inputs.Data);
     }
 
     public async Task<PriceRead> Evaluate(NpgsqlConnection connection,PinnedContext pin,string curve,CancellationToken ct,bool includeWorkspace=false)
     {
-        var (frame,data)=await Pinned(connection,pin,ct);
+        var (frame,data)=await Pinned(connection,pin,curve,ct);
         var result=data.IsRateCurve(curve)?data.Result(frame,curve,await RateCurveResolver.Resolve(connection,data,frame,curve,ct)):data.Result(frame,curve);
         return new(result,data.Observations,includeWorkspace?await WorkspaceMetadata(connection,data,true,ct):null);
     }
@@ -150,9 +192,64 @@ public sealed class MarketReads(PreviewDatabase database)
     {
         if(curves.IsDefault||curves.IsEmpty||curves.Length>MaximumShapedCurves||curves.Any(string.IsNullOrWhiteSpace)||curves.Distinct().Count()!=curves.Length)
             throw new MarketDataException("curve_shapes",$"Name from 1 to {MaximumShapedCurves} distinct curves.");
-        var (frame,data)=await Pinned(connection,pin,ct);
-        var snapshot=data.Snapshot(frame);
-        return [..curves.Select(curve=>Shape(data,snapshot,frame,curve))];
+        var frame=pin.RequireFrame();
+        if(pin.Context is {} selected&&frame.Time.Date!=DateWorkspace.Date(selected.EffectiveOn))
+            throw new MarketDataException("market_date","Choose inputs for the selected context date.");
+        await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        var root=await MarketInputSelection.Root(database,connection,frame,ct);
+        var catalogue=frame.SourceInputs is null?await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,frame.Time.Date):null;
+        var resolved=new List<(string Curve,CatalogueSource Source)>();var result=new Dictionary<string,CurveShape>(StringComparer.Ordinal);
+        foreach(var curve in curves)
+        {
+            try{resolved.Add((curve,MarketInputSelection.SelectedCurve(frame,curve,catalogue,root)));}
+            catch(MarketDataException error)when(error.Code is "curve_not_selected" or "catalogue_curve")
+            {result.Add(curve,new(curve,null,null,error.Code,null,null,null));}
+        }
+        foreach(var item in await ShapeSources(connection,frame,root,resolved,ct))
+            result.Add(item.Key.Curve,item.Value);
+        return [..curves.Select(curve=>result[curve])];
+    }
+
+    // Exact input inspection is distinct from a session's signed commodity roots.
+    // Held positions and draft charts name their own native definition FK.
+    public async Task<ImmutableArray<CurveShape>> InspectCurveShapes(NpgsqlConnection connection,PinnedContext pin,
+        ImmutableArray<CurveInspection> curves,CancellationToken ct)
+    {
+        if(curves.IsDefaultOrEmpty||curves.Length>MaximumShapedCurves||curves.Any(c=>c is null||string.IsNullOrWhiteSpace(c.Curve)||c.DefinitionRevisionId==Guid.Empty)||
+            curves.Distinct().Count()!=curves.Length)
+            throw new MarketDataException("curve_shapes","Name distinct exact curve definitions within the inspection limit.");
+        var frame=pin.RequireFrame();await pin.Bind(connection,database.Manifest.CatalogId,ct);
+        var root=await MarketInputSelection.Root(database,connection,frame,ct);
+        var resolved=new List<(string Curve,CatalogueSource Source)>();
+        foreach(var group in curves.GroupBy(c=>c.DefinitionRevisionId))
+        {
+            var source=await MarketInputSelection.ExactSource(database,connection,group.Key,ct);
+            resolved.AddRange(group.Select(c=>(c.Curve,source)));
+        }
+        var result=await ShapeSources(connection,frame,root,resolved,ct);
+        return [..curves.Select(curve=>result[curve])];
+    }
+
+    // One metadata read and snapshot per exact source serves both signed roots
+    // and explicitly versioned input inspection. Eligibility is resolved by callers.
+    private async Task<Dictionary<CurveInspection,CurveShape>> ShapeSources(NpgsqlConnection connection,
+        InputFrame frame,PreviewData root,IEnumerable<(string Curve,CatalogueSource Source)> curves,CancellationToken ct)
+    {
+        var result=new Dictionary<CurveInspection,CurveShape>();
+        foreach(var group in curves.GroupBy(c=>c.Source))
+        {
+            (PreviewData Data,InputFrame Frame) inputs;
+            try{inputs=await MarketInputSelection.Resolve(database,connection,frame,group.Key,[(root,frame)],false,ct);}
+            catch(MarketDataException error)when(error.Code=="market_inputs_missing")
+            {
+                foreach(var curve in group)result.Add(new(curve.Curve,group.Key.DefinitionRevisionId),
+                    new(curve.Curve,null,null,error.Code,null,null,null){DefinitionRevisionId=group.Key.DefinitionRevisionId});
+                continue;
+            }
+            var snapshot=inputs.Data.Snapshot(inputs.Frame);
+            foreach(var curve in group)result.Add(new(curve.Curve,group.Key.DefinitionRevisionId),Shape(inputs.Data,snapshot,inputs.Frame,curve.Curve));
+        }
+        return result;
     }
 
     // The contracts the frame selects for a curve, each priced as Evaluate prices it: one build of the whole curve. Only when that
@@ -161,7 +258,9 @@ public sealed class MarketReads(PreviewDatabase database)
     // read, or whose contracts cannot be isolated, has no unit or points and states what its own Evaluate read raises: the failure
     // of its one build of every contract, whatever isolating them met. A catalog inconsistency in the price unit of a curve that
     // can be read is not the curve's own failure, and fails the read.
-    internal static CurveShape Shape(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve)
+    internal static CurveShape Shape(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve)=>
+        ShapeCore(data,snapshot,frame,curve) with{DefinitionRevisionId=data.DefinitionRevision.RevisionId};
+    private static CurveShape ShapeCore(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve)
     {
         ImmutableArray<CurveRequest> requests;
         try{requests=data.Requests(frame,curve);}
@@ -192,19 +291,28 @@ public sealed class MarketReads(PreviewDatabase database)
         string curve,Guid? contractId,Guid? seriesId,string revisionPolicy,CancellationToken ct,Func<PreviewData,ImmutableArray<InputFrame>>? resolveFrames=null,ImmutableArray<Guid>? resolutionAnchors=null)
     {
         var current=pin.RequireFrame();
-        var metadata=await Data(connection,pin,ct,[]);
+        var metadata=await Data(connection,pin,ct,[],curve:curve);
         if(resolveFrames is not null)
         {
             if(pin.Context is null||resolutionAnchors is null)throw new ArgumentException("Live history requires its exact context and original frame anchors.");
-            var aliases=await database.Read(connection,ct,observationIds:resolutionAnchors);
+            var aliases=await MarketInputSelection.Root(database,connection,current,ct,observationIds:resolutionAnchors,
+                observationScope:ObservationReadScope.FactHistory,includeCalendarDays:false);
             frames=resolveFrames(aliases);
         }
         var selected=frames.Select(pin.Require).Where(frame=>frame.At!=current.At).Append(current).OrderBy(frame=>frame.At).ThenBy(frame=>frame.Id).ToImmutableArray();
         var demand=metadata.HistorySeries(curve,contractId,seriesId);
-        var samples=new List<HistorySample>();var index=0;
-        await foreach(var data in database.ReadFrameObservations(connection,metadata,selected,ObservationReadScope.FactHistory,ct,demand))
+        var samples=new List<HistorySample>();
+        var projected=ImmutableArray.CreateBuilder<InputFrame>();
+        foreach(var frame in selected)
         {
-            var selectedFrame=selected[index++];
+            try{projected.Add(await MarketInputSelection.FrameFor(database,connection,metadata,frame,ct));}
+            catch(MarketDataException error)when(error.Code is "market_inputs_missing" or "market_inputs_not_effective")
+            {samples.Add(new(frame.At,null,frame.Id,[],error.Code));}
+        }
+        var index=0;
+        await foreach(var data in database.ReadFrameObservations(connection,metadata,projected.ToImmutable(),ObservationReadScope.FactHistory,ct,demand))
+        {
+            var selectedFrame=projected[index++];
             try
             {
                 var f=data.HistoryFrame(selectedFrame);
@@ -215,7 +323,7 @@ public sealed class MarketReads(PreviewDatabase database)
             {samples.Add(new(selectedFrame.At,null,selectedFrame.Id,[],error.Code));}
         }
         var knowledge=await KnownAt(connection,samples.SelectMany(s=>s.ObservationIds).Distinct().ToArray(),ct);
-        var known=samples.Select(s=>s with{KnownAt=s.ObservationIds.Length>0&&s.ObservationIds.All(knowledge.ContainsKey)?s.ObservationIds.Max(id=>knowledge[id]):null});
+        var known=samples.OrderBy(s=>s.At).ThenBy(s=>s.SnapshotId).Select(s=>s with{KnownAt=s.ObservationIds.Length>0&&s.ObservationIds.All(knowledge.ContainsKey)?s.ObservationIds.Max(id=>knowledge[id]):null});
         return revisionPolicy==HistoryRevisionPolicy.AsKnownAtCutoff?[..HistoryRevisionPolicy.OnePerInstant(known)]:[..known];
     }
 

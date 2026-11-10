@@ -31,7 +31,7 @@ public sealed partial class SwapStore
  {
   if(body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
   {
-   var selected=One((await database.ReadSwapMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId));data=selected.Data;frame=selected.Frame;
+   var selected=One((await database.ReadInputMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId));data=selected.Data;frame=selected.Frame;
   }
   return OpenEtrm.MarketData.Trading.SideComponents.ActualFixingPins(data.Snapshot(frame),Resolve(data,body).Instrument.Sides.Select(m=>m.Side)).ToArray();
  }

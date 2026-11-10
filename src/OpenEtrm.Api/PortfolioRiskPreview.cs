@@ -246,14 +246,14 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
             gammaUnit=$"{Currency(markets,v.Base.Currency)} / ({Unit(markets,v.Gamma.Unit.Factor)})²"};
         return new{detail=run.Detail.ToString(),tradeIds=prepared.Request.TradeIds,convention=Convention,numericalPolicy=RiskEngine.ExactNumericalPolicy,
             engineVersion=RiskJobs.EngineVersion,displayPolicy=new{implementation="risk_decimal_display_v1",decimalPlaces=12,tieRule="to_even"},
-            run.Work,run.SnapshotId,run.ConnectedScenarios,scenario=Scenario(prepared),heldInstruments=run.Positions.Select(p=>p.InstrumentId).Distinct().Count(),
+            run.Work,run.SnapshotId,run.ConnectedScenarios,scenario=Scenario(prepared),heldInstruments=run.Positions.Select(p=>(p.DefinitionRevisionId,p.InstrumentId)).Distinct().Count(),
             excludedPositions=prepared.Portfolio.Excluded,
             // Options: each series' calibration receipt, the policy that holds it in every scenario, and how many held positions are in the intrinsic mode.
             scenarioPolicy=prepared.Portfolio.Options is null?null:prepared.Portfolio.Policy.FuturesOptions!.ScenarioPolicy,
             optionCalibrations=prepared.Portfolio.OptionCalibrations,optionWork,
             fallbackPositions=prepared.Portfolio.OptionModes.Values.Count(mode=>mode==OpenEtrm.MarketData.Options.ImpliedVolatility.FallbackMode),
             projectionPolicies=ProjectionPolicyReceipts.For(run.ModelContracts),
-            ppaMeasures=run.PpaMeasures,inputs=new{pricingPolicy=run.Policy,ppaReceipt=run.PpaReceipt is {} receipt?PpaPortfolio.Receipt(receipt):null,markets=prepared.Portfolio.Markets.Select(m=>new{definitions=m.Snapshot.Definitions,
+            ppaMeasures=run.PpaMeasures,inputs=new{pricingPolicy=run.Policy,ppaReceipts=run.PpaReceipts.Select(PpaPortfolio.Receipt),markets=prepared.Portfolio.Markets.Select(m=>new{definitions=m.Snapshot.Definitions,
                 snapshotId=m.Snapshot.Id,m.Snapshot.ValuationAt,m.Snapshot.MarketCutoff,curveNumericalPolicy=CurveModel.NumericalPolicy,
                 selectionPolicy=m.Snapshot.SelectionPolicy.ToString(),observations=m.Snapshot.Selections.Select(s=>new{s.Input,s.Observation.Key,
                     s.Observation.Series,s.Observation.Source,role=s.Observation.Role.ToString(),state=s.Observation.State.ToString(),

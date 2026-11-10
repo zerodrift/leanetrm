@@ -33,9 +33,9 @@ public sealed partial class PortfolioRiskPreview
         var width=portfolio.Markets.Sum(m=>RiskEngine.ScenarioResultWidth(m.Connected,RiskDetail.Holdings));
         var nodes=portfolio.Options?.Bindings.Values.Where(b=>b.Receipt.Mode==OpenEtrm.MarketData.Trading.FuturesOptionPricing.SolvedMode)
             .Sum(b=>checked((long)b.Policy.Steps*(b.Policy.Steps+1)/2))??0;
-        var capacity=MonteCarloPathCapacity(width,portfolio.Ppa?.Rows??0,nodes,portfolio.Factors.Length);
+        var capacity=MonteCarloPathCapacity(width,portfolio.PpaRows,nodes,portfolio.Factors.Length);
         var analysisCapacities=Enumerable.Range(1,Math.Min(PcaHybridRisk.MaximumComponents,portfolio.Factors.Length)).Select(k=>new{components=k,
-            scopeMaxPaths=MonteCarloPathCapacity(width,portfolio.Ppa?.Rows??0,nodes,portfolio.Factors.Length,1+PcaHybridRisk.FittingScenarios(portfolio.Factors.Length,k))}).ToArray();
+            scopeMaxPaths=MonteCarloPathCapacity(width,portfolio.PpaRows,nodes,portfolio.Factors.Length,1+PcaHybridRisk.FittingScenarios(portfolio.Factors.Length,k))}).ToArray();
         var desiredComponents=Math.Min(3,portfolio.Factors.Length);
         var startingComponents=analysisCapacities.Where(c=>c.components<=desiredComponents&&c.scopeMaxPaths>=2).Select(c=>c.components).DefaultIfEmpty(desiredComponents).Max();
         return new{
@@ -85,7 +85,7 @@ public sealed partial class PortfolioRiskPreview
             var hybridWidth=portfolio.Markets.Sum(m=>RiskEngine.ScenarioResultWidth(m.Connected,RiskDetail.Holdings));
             var hybridNodes=portfolio.Options?.Bindings.Values.Where(b=>b.Receipt.Mode==OpenEtrm.MarketData.Trading.FuturesOptionPricing.SolvedMode)
                 .Sum(b=>checked((long)b.Policy.Steps*(b.Policy.Steps+1)/2))??0;
-            var maximum=HybridPathCapacity(hybridWidth,portfolio.Ppa?.Rows??0,hybridNodes,history.Columns.Length,fitting.RetainedComponents,execution.ValidationPaths,fallback);
+            var maximum=HybridPathCapacity(hybridWidth,portfolio.PpaRows,hybridNodes,history.Columns.Length,fitting.RetainedComponents,execution.ValidationPaths,fallback);
             if(request.Policy.Paths>maximum)
                 throw new MarketDataException("risk_scenario_capacity","The complete hybrid output, fitting, validation and selected fallback exceed this scope's work budget.");
             return;
@@ -93,7 +93,7 @@ public sealed partial class PortfolioRiskPreview
         var scenarios=history.Available&&portfolio.Excluded.IsEmpty?1L+request.Policy.Paths+
             (request.Analysis is {} selected?1L+PcaHybridRisk.FittingScenarios(history.Columns.Length,selected.RetainedComponents):0):1;
         var width=portfolio.Markets.Sum(m=>RiskEngine.ScenarioResultWidth(m.Connected,RiskDetail.Holdings));
-        var rows=portfolio.Ppa is {} ppa?checked(ppa.Rows*scenarios):0;
+        var rows=checked(portfolio.PpaRows*scenarios);
         var nodes=portfolio.Options?.Bindings.Values.Where(b=>b.Receipt.Mode==OpenEtrm.MarketData.Trading.FuturesOptionPricing.SolvedMode)
             .Sum(b=>checked((long)b.Policy.Steps*(b.Policy.Steps+1)/2*scenarios))??0;
         RiskValuationAdmission.Require(rows,nodes,checked(width*scenarios),history.Columns.Length,1);

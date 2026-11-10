@@ -14,7 +14,7 @@ public static partial class CustomCurves
     internal static async Task<CurveRead> CatalogRead(NpgsqlConnection connection,PreviewDatabase database,PinnedContext pin,CancellationToken ct)
     {
         var store=new CustomCurvesStore(database);
-        var revision=database.Manifest.RevisionId;
+        var revision=await CurveVersionInputs.Resolve(database,connection,null,ct);
         var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
         var schedules=new ScheduleStore(database.Manifest.CatalogId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId);
         var versions=pin.Context is {} selected?await schedules.ReadAt(connection,selected,ct):await schedules.Read(connection,ct);
@@ -41,7 +41,7 @@ public static partial class CustomCurves
         foreach(var recipe in recipes.Where(r=>r.State=="published"&&r.EngineVersion==RecipeEngine.Version))
         {
             await using var eligible=ScheduleStore.Command(connection,"SELECT security.custom_curve_uses_revision($1,$2,$3,$4)",
-                data.DefinitionRevision.CatalogId,recipe.Id,recipe.Version,data.DefinitionRevision.RevisionId);
+                data.DefinitionRevision.CatalogId,recipe.Id,recipe.Version,await CurveVersionInputs.Resolve(database,connection,recipe.MarketRevisionId,ct));
             if(Equals(await eligible.ExecuteScalarAsync(ct),true)){var source=new{
                 label=$"{recipe.Definition.Name} ({recipe.Definition.Code}) · v{recipe.Version} · {recipe.Definition.Output}",kind=CurveKinds.Of(recipe.Definition),
                 reference=new PublishedRecipeReference(data.DefinitionRevision.CatalogId,recipe.Id,recipe.Version,recipe.Definition.Output)};
@@ -53,8 +53,20 @@ public static partial class CustomCurves
             await using var command=ScheduleStore.Command(connection,"SELECT security.has_permission($1)",permission);
             return pin.Context is null&&Equals(await command.ExecuteScalarAsync(ct),true);
         }
+        var nativeSources=new List<object>();
+        foreach(var source in await MarketInputSelection.ReadCatalogueTerms(database,connection,ct))
+        {
+            var sourceData=source.Data;var codes=source.Members.Where(c=>c.Kind=="curve").Select(c=>c.Code).ToHashSet(StringComparer.Ordinal);
+            nativeSources.AddRange(sourceData.Definitions["curves"].Where(row=>codes.Contains(row.Text("code"))).Select(row=>(object)new
+            {
+                code=row.Text("code"),name=row.Text("name"),kind=PreviewData.CurveKind(row.Text("rule"),row.OptionalText("direct_role")),
+                catalogId=sourceData.DefinitionRevision.CatalogId,revisionId=sourceData.DefinitionRevision.RevisionId,
+                contracts=sourceData.DefinitionRows("curve_members","curve_code",row.Text("code")).OrderBy(m=>m.GetProperty("ordinal").GetInt32())
+                    .Select(m=>sourceData.ContractRows(m.Id("contract_id")).Single()).Select(k=>new{id=k.Key.Id,label=k.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),k.DeliveryFrom,k.DeliveryTo})
+            }));
+        }
         var value=new{kindsVersion=CurveKinds.Version,context=pin.Context,canEdit=await Can("WriteMarketDefinitions"),canPublish=await Can("SealMarketDefinitions"),
-            sources=data.Definitions["curves"].Select(row=>new{code=row.Text("code"),name=row.Text("name"),kind=PreviewData.CurveKind(row.Text("rule"),row.OptionalText("direct_role")),catalogId=data.DefinitionRevision.CatalogId,revisionId=data.DefinitionRevision.RevisionId,contracts=data.DefinitionRows("curve_members","curve_code",row.Text("code")).OrderBy(m=>m.GetProperty("ordinal").GetInt32()).Select(m=>data.ContractRows(m.Id("contract_id")).Single()).Select(k=>new{id=k.Key.Id,label=k.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),k.DeliveryFrom,k.DeliveryTo})}),
+            sources=nativeSources,
             calendars=calendars.Select(row=>new{code=row.Reference.Code,name=row.Reference.Code,row.Reference.CatalogId,row.Reference.RevisionId}),
             schedules=versions.Where(v=>v.State=="published").Select(v=>new{value=v.Id.ToString("D")+":"+v.Version.ToString(CultureInfo.InvariantCulture),name=v.Definition.Name,v.Id,v.Version}),
             contextSchedules=contextSchedules.Select(v=>new{value=v.Id.ToString("D")+":"+v.Version.ToString(CultureInfo.InvariantCulture),name=v.Definition.Name,v.Id,v.Version}),
@@ -62,6 +74,7 @@ public static partial class CustomCurves
             componentHistory=new{policy=RecipeComponentHistory.Policy,label="Raw prices · contract roll jumps retained",kinds=new[]{"select","weighted_contracts","sample"},selectionModes=new[]{"positions"},sampleSelectionPort="selection",
                 sampling="context_utc_time",corrections="exact_context_frame_history_latest_visible",
                 description="Sample at the selected close's UTC time. Keep the component's contract-binding rule and read historical corrections visible at the selected knowledge cutoff. Every requested observation is required."}};
+        _=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct);
         await using var authority=ScheduleStore.Command(connection,"SELECT security.market_access($1,'ReadMarketData') AND NOT EXISTS(SELECT 1 FROM unnest($2::uuid[]) r WHERE NOT security.reference_access(r,'ReadMarketData'))",database.Manifest.CatalogId,referenceCatalogs.ToArray());
         if(!Equals(await authority.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
         return new(value,recipes.Length+publishedSources.Count+data.Definitions["curves"].Length+versions.Length+calendars.Length,referenceCatalogs);
@@ -73,9 +86,9 @@ public static partial class CustomCurves
         var frame=pin.RequireFrame() with{ContextId=context.ContextId};
         var versions=await store.Read(connection,ct);
         var retained=body.Id is {} requested?versions.SingleOrDefault(v=>v.Id==requested&&v.Version==body.Version):null;
-        var revision=CurveVersionInputs.Revision(database,retained?.MarketRevisionId);
+        var revision=retained is null?await CurveVersionInputs.NewGraph(database,connection,body.Definition,pin.Frame?.Time.Date,ct):await CurveVersionInputs.Resolve(database,connection,retained.MarketRevisionId,ct);
         if(retained?.MarketRevisionId is {} exact&&exact!=revision)throw Invalid("The saved graph requires its exact definition revision.");
-        frame=CurveVersionInputs.Frame(database,frame,revision);
+
         var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
         Validate(body.Definition);
         var references=await store.References(connection,body.Definition,data,ct);
@@ -93,9 +106,10 @@ public static partial class CustomCurves
             Validate(inspected);
             references=await store.References(connection,inspected,data,ct);
         }
-        var graph=await PrepareDefinition(connection,database,inspected,data,frame,references.Sources,references.Calendars,references.Schedules,
+        var prepared=await PrepareDefinition(connection,database,inspected,data,frame,references.Sources,references.Calendars,references.Schedules,
             pin.Context??throw Invalid("Recipe pricing requires its resolved financial context."),ct);
-        var value=Result(EvaluateGraph(graph,CalculationContext(frame,data.DefinitionRevision,context),database,ct),data,pin,inspected,body.Id,body.Version,history is not null);
+        var graph=prepared.Graph;
+        var value=Result(EvaluateGraph(graph,prepared.Context,database,ct),data,pin,inspected,body.Id,body.Version,history is not null);
         if(history is not null)value=new{node=history.Node,policy=history.Policy,preview=value};
         var referenceCatalogs=graph.Definitions.SelectMany(d=>d.Points).SelectMany(point=>point.Expression is ConnectedRecipeProjection projected?
             projected.Declaration.References.Calendars.Select(c=>c.Reference.Revision.CatalogId).Concat(projected.Declaration.References.Schedules.Where(s=>s.Calendar is not null).Select(s=>s.Calendar!.Reference.Revision.CatalogId)):[]);

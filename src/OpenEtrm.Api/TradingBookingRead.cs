@@ -11,7 +11,7 @@ internal static class TradingBookingRead
   // Current-knowledge booking explicitly resolves a certified pricing view.
   // Its temporary read binding must not turn the ensuing write into a historical write.
   var context=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,
-   new(DateOnly.FromDateTime(frame.At.UtcDateTime).ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),null,"current"),ct)).Context;
+   new(frame.Time.Date.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),null,"current"),ct)).Context;
   await using(var savepoint=ScheduleStore.Command(connection,"SAVEPOINT connected_booking_price"))await savepoint.ExecuteNonQueryAsync(ct);
   try
   {
@@ -24,7 +24,7 @@ internal static class TradingBookingRead
     var selectedMarket=await physicalMarket.Read(database,connection,pinned,ct,trade:physicalTrade,setup:crudeSetup);
     return await read(selectedMarket.Data,selectedMarket.Frame);
    }
-   var selected=await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins);
+   var selected=await MarketInputSelection.Root(database,connection,pinned,ct,observationScope:ObservationReadScope.ExactPins);
    return await read(selected,pinned);
   }
   finally

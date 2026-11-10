@@ -16,7 +16,7 @@ def run_gas_reference_bootstrap(manifest,owned_root,dotnet,dll,environment,brows
     root=owned_root/'reference-only-gas';root.mkdir()
     run_id=(owned_root/'.openetrm-preview').read_text()
     (root/'.openetrm-preview').write_text(run_id)
-    source=manifest['swapMarkets'][-1]
+    source=manifest['inputMarkets'][-1]
     selected={**manifest,'gasMarket':{'revisionId':source['revisionId'],'frames':[]},'retainedGasMarkets':[]}
     manifest_path=owned_root/'manifest.json';original=manifest_path.read_text()
     with socket.socket() as reservation:
@@ -379,7 +379,7 @@ def run_booking_checks(url, query, manifest, *, run_worker):
     suggested=next(s for s in pinned_setup['sources'] if s['definitionRevisionId']==assignment['definitionRevisionId'] and s['curve']==assignment['curve'])['suggestedDeliveryPeriod']
     assert suggested=={'from':'2021-01-01','to':'2021-02-01'}
     c.call('profile', {'profile': 'editor'})
-    source = next(m for m in manifest['swapMarkets'] if m['revisionId'] == assignment['definitionRevisionId'])
+    source = next(m for m in manifest['inputMarkets'] if m['revisionId'] == assignment['definitionRevisionId'])
     source_frame = next(f for f in source['frames'] if f['at'][:10] == frame['at'][:10])
     changed = c.call('corrections', {'snapshotId': frame['id'], 'observationId': source_frame['observationIds'][0], 'value': '81'})
     c.call('profile', {'profile': 'trader'})

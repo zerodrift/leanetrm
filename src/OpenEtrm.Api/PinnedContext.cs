@@ -14,6 +14,7 @@ public sealed record PinnedContext
         Context=context is null?null:Exact(context);
         this.rereading=rereading;
         Frame=frame is null?null:Require(frame);
+        if(Frame is not null&&Context is {} selected)Frame.Time.RequireDate(DateWorkspace.Date(selected.EffectiveOn));
     }
     // The selected retained context, or null for current working data.
     public ScheduleContext? Context {get;}
@@ -27,7 +28,14 @@ public sealed record PinnedContext
     public static PinnedContext Rereading(ScheduleContext context,InputFrame frame)=>frame is {ContextId:null}?new(context,frame,true):throw Missing();
     public InputFrame RequireFrame()=>Frame??throw Missing();
     // A frame belongs to exactly one knowledge view; working frames carry no context.
-    public InputFrame Require(InputFrame? frame)=>frame is not null && frame.ContextId==(rereading?null:Context?.ContextId)?frame:throw Missing();
+    public InputFrame Require(InputFrame? frame)
+    {
+        if(frame is null||frame.ContextId!=(rereading?null:Context?.ContextId))throw Missing();
+        // History samples retain their own business dates under the selected
+        // cutoff. Only the selected valuation root must match its effective date.
+        _=frame.Time;
+        return frame;
+    }
     // Binding a recorded close also requires it to be the close in force now: one replaced after it was offered is refused (D334).
     public async Task Bind(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
     {

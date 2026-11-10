@@ -48,25 +48,17 @@ def run_checks(query, manifest, context, pins, legacy, current):
 
         newest=query(f"SELECT id FROM market_data.market_closes WHERE catalog_id='{catalog}' AND session_code='test_utc_close' AND business_date='2020-12-18' ORDER BY publication_order DESC LIMIT 1;")
         late=query(f"SELECT p.observation_id FROM market_data.market_close_pins p JOIN market_data.knowledge_events e ON(e.catalog_id,e.observation_id)=(p.catalog_id,p.observation_id) WHERE(p.catalog_id,p.close_id)=('{catalog}','{newest}') AND e.event_order>(SELECT known_through FROM market_data.market_contexts WHERE(catalog_id,context_id)=('{catalog}','{context}')) ORDER BY p.observation_id LIMIT 1;")
-        assert late,'The retained fixture must precede a selected close pin'
-        other=next(p for p in pins if p!=late)
-        one=f"ARRAY['{late}'::uuid]"
-        fault=f"""SET LOCAL session_replication_role=replica;UPDATE market_data.observations SET observed_at=(SELECT at+interval '1 second' FROM market_data.market_closes WHERE(catalog_id,id)=('{catalog}','{newest}')),
-          received_at=greatest(received_at,(SELECT at+interval '1 second' FROM market_data.market_closes WHERE(catalog_id,id)=('{catalog}','{newest}')))
-          WHERE(catalog_id,id)=('{catalog}','{other}');SET LOCAL session_replication_role=origin;"""
-        query('BEGIN;'+fault+bound(issue())+f"DO $$BEGIN IF EXISTS(SELECT 1 FROM security.read_observation_pins('{catalog}','{revision}',{one})) THEN RAISE EXCEPTION 'Invalid unrequested close pin was ignored';END IF;END$$;"+'ROLLBACK;')
-        hidden=query(f"SELECT definition_revision_id FROM market_data.close_session_versions WHERE catalog_id='{catalog}' AND code='test_sql_hidden';")
-        assert hidden and hidden!=revision
-        later=str(uuid4())
-        newer=f"""SET LOCAL session_replication_role=replica;
-          INSERT INTO market_data.market_closes SELECT(jsonb_populate_record(NULL::market_data.market_closes,to_jsonb(s)||jsonb_build_object(
-            'id','{later}','definition_revision_id','{hidden}','request_id','{uuid4()}','publication_order',(SELECT max(publication_order)+1 FROM market_data.market_closes WHERE catalog_id='{catalog}')))).*
-          FROM market_data.market_closes s WHERE(s.catalog_id,s.id)=('{catalog}','{newest}');SET LOCAL session_replication_role=origin;"""
-        query('BEGIN;'+newer+bound(issue())+f"DO $$BEGIN IF EXISTS(SELECT 1 FROM security.read_observation_pins('{catalog}','{revision}',{one})) THEN RAISE EXCEPTION 'A hidden newer close fell back to the older revision';END IF;END$$;"+'ROLLBACK;')
-        print('PASS point reads validate unrequested close pins and choose newest before revision/visibility filters',flush=True)
+        early=query(f"SELECT e.observation_id FROM market_data.knowledge_events e WHERE e.catalog_id='{catalog}' AND e.observation_id=ANY({ids}) AND e.event_order<=(SELECT known_through FROM market_data.market_contexts WHERE(catalog_id,context_id)=('{catalog}','{context}')) ORDER BY e.event_order LIMIT 1;")
+        assert early and late and early!=late,'The fixture requires independently known and later facts'
+        for session in ('test_utc_close','test_late_close'):
+            for observation,expected_count in ((early,'1'),(late,'0')):
+                statement=bound(issue()).replace('test_utc_close',session)
+                count=query('BEGIN;'+statement+f"SELECT count(*) FROM security.read_observation_pins('{catalog}','{revision}',ARRAY['{observation}']::uuid[]);ROLLBACK;")
+                assert count==expected_count,(session,observation,count)
+        print('PASS exact reads retain known facts and exclude after-cutoff prices independently of regional close selection',flush=True)
 
         core=query("SELECT pg_get_functiondef('security.observation_visibility_scope(uuid,uuid,uuid[])'::regprocedure);")
-        split=core.rfind('\nEND;\n');assert split>=0
+        split=core.rfind('\nEND;');assert split>=0
         slow=core[:split]+"\nPERFORM pg_sleep(2.1);"+core[split:]+';'
         for grant_expiry in (False,True):
             token=issue(120 if grant_expiry else 2)

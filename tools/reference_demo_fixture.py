@@ -72,12 +72,12 @@ def install(query, manifest):
         for i,(value,sid) in enumerate([('50',series),*rates]):
             oid=identity('observation:'+frame['at']+':'+str(i));pins.append(oid)
             sql.append(f"INSERT INTO market_data.observations(catalog_id,id,definition_revision_id,series_id,reference_catalog_id,reference_revision_id,source_code,source_event_id,source_revision_id,role,publication_state,observed_at,received_at,value) VALUES('{cat}','{oid}','{definition}','{sid}',{rr},'demo_reference_marks','{oid}','1',{'trader_mark' if i==0 else 'parameter'!r},'final',{lit(frame['at'])},clock_timestamp(),{value});")
-        frames.append({'at':frame['at'],'observationIds':pins,'curveContracts':{'demo_forward':[contract]}})
+        frames.append({'at':frame['at'],'frozenObservationIds':[],'observationIds':pins,'curveContracts':{'demo_forward':[contract]}})
     mapping=identity('discount-mapping')
     sql.extend([f"INSERT INTO trading.publications SELECT '{cat}',coalesce(max(publication_order),0)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{cat}';",
       "INSERT INTO trading.currency_discount_defaults(catalog_id,id,definition_revision_id,reference_catalog_id,reference_revision_id,currency_code,curve_code,publication_order,effective_at) "
       f"SELECT '{cat}','{mapping}','{definition}',{rr},{lit(chosen['currency_code'])},'demo_discount_curve',max(publication_order),{lit(min(f['at'] for f in main))} FROM trading.publications WHERE catalog_id='{cat}';",'COMMIT;'])
     query('\n'.join(sql))
-    manifest.setdefault('swapMarkets',[]).append({'revisionId':definition,'frames':frames})
+    manifest.setdefault('inputMarkets',[]).append({'revisionId':definition,'frames':frames})
     manifest['referenceCatalog']={'referenceRevisionId':revision,'definitionRevisionId':definition,'tables':['interest_rate_definitions','value_specifications']}
     return {'definitionRevisionId':definition,'referenceRevisionId':revision,'referenceCatalogId':ref,'deliveryFrom':str(delivery),'deliveryTo':str(end),'paymentDate':str(payment),'mappingId':mapping,'currency':chosen['currency_code'],'frames':frames}

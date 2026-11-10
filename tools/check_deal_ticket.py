@@ -220,7 +220,7 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     assert (error['code'],error['side'],error['field'])==('numeric_format','physical','quantity'),error
     error=c.call('tickets/preview',{'context':context,'draft':{**draft,'trade':{k:v for k,v in trade.items() if k!='book'}}},expected=422)
     assert (error['code'],error['side'],error['field'])==('ticket_input',None,'book'),error
-    operation=str(uuid4());request={'context':context,'draft':draft,'operationId':operation}
+    operation=str(uuid4());request={'context':context,'draft':draft,'definitionRevisionId':preview['source']['definitionRevisionId'],'operationId':operation}
     booked=c.call('tickets/book',request)
     assert c.call('tickets/book',request)==booked and c.call('tickets/status',{'operationId':operation})['tradeId']==booked['tradeId'],booked
     retained={**context,'knowledgeMode':'retained','contextId':cat['context']['contextId']}
@@ -306,7 +306,7 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     without_setup={**draft,'trade':{k:v for k,v in trade.items() if k!='gas_setup'}}
     for stale in [draft,without_setup]:
         unpinned('tickets/preview',{'context':context,'draft':stale})
-        unpinned('tickets/book',{'context':context,'draft':stale,'operationId':str(uuid4())})
+        unpinned('tickets/book',{'context':context,'draft':stale,'definitionRevisionId':preview['source']['definitionRevisionId'],'operationId':str(uuid4())})
     assert c.call('tickets/book',request)==booked,'A retried booking answers its first outcome after a later setup publication.'
     d=next(l for l in cat['locations'] if l['deliveryPoint']==retired)
     at_d=lambda setup_id:{**draft,'trade':{**{k:v for k,v in trade.items() if k!='gas_setup'},**setup(setup_id)},'sides':[{**draft['sides'][0],'values':{**physical,'pipeline':d['pipeline'],'zone':d['zone'],'delivery_point':retired,'product':d['product']}}]}

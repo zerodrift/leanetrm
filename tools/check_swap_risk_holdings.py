@@ -53,7 +53,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
         selected=next(f for f in workspace['frames'] if f['at'].startswith(f'2021-01-{day}T08:00:00'))
         selected_context={**context,'snapshotId':selected['id']}
         actual_editor=client.call('swaps/editor',{'context':selected_context,'tradeId':daily_trade['tradeId'],'revision':None})
-        supplemental=next(m for m in manifest['swapMarkets'] if m['revisionId']==daily['definitionRevisionId'])
+        supplemental=next(m for m in manifest['inputMarkets'] if m['revisionId']==daily['definitionRevisionId'])
         seed=next(f for f in supplemental['frames'] if datetime.fromisoformat(f['at'])==datetime.fromisoformat(selected['at']))
         actual_cases.append({'frame':{**selected,'observationIds':seed['observationIds'],'curveContracts':seed['curveContracts']},
             'context':actual_editor['context'],'revisionId':daily['definitionRevisionId'],'tradeId':daily_trade['tradeId'],

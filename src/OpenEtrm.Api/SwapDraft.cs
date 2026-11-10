@@ -35,7 +35,7 @@ public sealed partial class SwapStore
         if(body.Quantity is null||body.Floating is null)throw Error("swap_input","Supply explicit instrument quantity and both sides.");
         if(body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
         {
-            var selected=One((await database.ReadSwapMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId));data=selected.Data;frame=selected.Frame;
+            var selected=One((await database.ReadInputMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId));data=selected.Data;frame=selected.Frame;
         }
         var curve=One(data.Definitions["curves"].Where(c=>c.Text("code")==body.Floating.Curve));
         var quote=One(data.Quotes.Where(q=>q.Key.Code==curve.Text("quote_code")));

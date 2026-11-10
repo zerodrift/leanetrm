@@ -12,7 +12,7 @@ async function fixture(work,amend=false,lateForecast=false){
    const draft={product:description.product,version:1,trade:{},sides:[{kind:'physical',code:'physical-1',values:{end:'2041-03-01',pipeline:'A',zone:'ZA',point:'PA',forecast:'CURVE'}}]};
    if(${lateForecast}){delete draft.sides[0].values.forecast;draft.sides[0].values.quantity='100';}
    const cells={'physical-1.quantity':{value:'100',sources:[]}};
-   const preview={schedule:{levels:['day'],valuationAt:'2041-01-01T00:00:00Z',deliveredLeaves:0,leaves:1,delivered:null,remaining:null,totals:cells,rows:[{key:'2041-02-01',parent:null,level:'day',start:'',end:'',operatingDate:null,cells,delivered:false}]},quantityUnit:'MMBtu',summaries:[],links:[],scheduleRefusal:null};
+   const preview={source:{definitionRevisionId:'definition-a',referenceCatalogId:'reference-catalog',referenceRevisionId:'reference-a'},schedule:{levels:['day'],valuationAt:'2041-01-01T00:00:00Z',deliveredLeaves:0,leaves:1,delivered:null,remaining:null,totals:cells,rows:[{key:'2041-02-01',parent:null,level:'day',start:'',end:'',operatingDate:null,cells,delivered:false}]},quantityUnit:'MMBtu',summaries:[],links:[],scheduleRefusal:null};
    window.calls=[];window.held=[];window.hold=false;window.holdForecast=${lateForecast};window.releaseForecast=null;window.holdPreview=false;window.releasePreview=null;
    const api=async(path,body)=>{
     calls.push({path,body});

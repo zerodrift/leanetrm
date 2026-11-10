@@ -1,5 +1,11 @@
 # Architecture and domain contracts
 
+D373 separates dated catalogue choices, exact retained terms and explicit pricing
+inputs. Recorded closes retain source matrices; the shared execution envelope and
+UI preserve the selected business date. Historical closes and prices obey the
+same knowledge cutoff. See [the decision](decisions.md#d373--exact-source-resolution-under-business-and-knowledge-time)
+for qualification status and capability boundaries.
+
 D366 adds exact versioned point forecasts and dated publication-index cash.
 Daily delivery allocations retain their original daily or monthly observation
 periods, and the selected location supplies both contracts without a ticket index

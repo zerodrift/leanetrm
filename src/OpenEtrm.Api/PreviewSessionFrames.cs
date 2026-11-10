@@ -57,7 +57,7 @@ public sealed partial class PreviewSession
         return candidates.Length==1?candidates[0].Id:null;
     }
     // A recorded close's business day is its session's; a working snapshot's is the UTC date of its instant (D334).
-    public static DateOnly BusinessDay(InputFrame frame)=>frame.Close?.BusinessDate??DateOnly.FromDateTime(frame.At.UtcDateTime);
+    public static DateOnly BusinessDay(InputFrame frame)=>frame.Time.Date;
     // Session-scoped identity only: no financial values, authority or read
     // results are cached, and different resolved selections get different IDs.
     private Guid AliasId(string sourceKind,Guid source,InputFrame frame)

@@ -29,7 +29,7 @@ internal static class FrameReadAuthorityChecks
         var expectDenied=sample.GetProperty("expectDenied").GetBoolean();
         ImmutableArray<Guid>? series=filtered?[sample.GetProperty("seriesId").GetGuid()]:null;
         var frames=Enumerable.Range(0,2).Select(i=>new InputFrame(Guid.NewGuid(),$"Synthetic deadline frame {i}",
-            DateTimeOffset.Parse("2020-12-18T16:00:00Z",CultureInfo.InvariantCulture),pins,
+            DateTimeOffset.Parse("2020-12-18T16:00:00Z",CultureInfo.InvariantCulture),OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(DateTimeOffset.Parse("2020-12-18T16:00:00Z",CultureInfo.InvariantCulture)).Date,pins,
             ImmutableDictionary<string,ImmutableArray<Guid>>.Empty)).ToImmutableArray();
         var yielded=0;var denied=false;
         try

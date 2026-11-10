@@ -30,7 +30,7 @@ internal static class ExactPinReadChecks
                     throw new Exception($"Exact observation retrieval changed native RLS rows/order: context={sample.GetProperty("contextId")}, expected={expected.Count}, actual={observed.Count}, index={at}, fields={string.Join(',',fields)}.");
                 }
                 var metadata=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
-                var frame=new InputFrame(Guid.NewGuid(),"Synthetic calendar frame",DateTimeOffset.Parse("2020-12-18T16:00:00Z"),pins,
+                var frame=new InputFrame(Guid.NewGuid(),"Synthetic calendar frame",DateTimeOffset.Parse("2020-12-18T16:00:00Z"),OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(DateTimeOffset.Parse("2020-12-18T16:00:00Z")).Date,pins,
                     ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
                 foreach(var series in new ImmutableArray<Guid>?[]{null,[..actual.Select(row=>row.Id("series_id")).Distinct()],[..actual.Take(1).Select(row=>row.Id("series_id"))]})
                 {

@@ -33,7 +33,7 @@ public sealed partial class SwapStore
         if(supplemental.IsDefault)
         {
             var revisions=rows.Select(r=>r.Id("definition_revision_id")).Where(r=>r!=data.DefinitionRevision.RevisionId).ToHashSet();
-            supplemental=revisions.Count==0?[]:await database.ReadSwapMarkets(connection,frame,ct,data,revisions);
+            supplemental=revisions.Count==0?[]:await database.ReadInputMarkets(connection,frame,ct,data,revisions);
         }
         var knowledge=snapshot.Knowledge;
         var markets=new[]{(Data:data,Frame:frame,Snapshot:snapshot)}.Concat((supplemental.IsDefault?[]:supplemental)

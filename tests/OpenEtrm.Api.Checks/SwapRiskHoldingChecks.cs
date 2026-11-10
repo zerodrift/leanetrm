@@ -18,9 +18,9 @@ internal static class SwapRiskHoldingChecks
         var context=JsonSerializer.Deserialize<ScheduleContext>(request.GetProperty("currentContext"),json)!;
         var frame=JsonSerializer.Deserialize<InputFrame>(request.GetProperty("frame"),json)! with{ContextId=context.ContextId};
         await using var runtime=NpgsqlDataSource.Create(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_RUNTIME")!);
-        var supplemental=database.Manifest.SwapMarkets??throw new Exception("The scope regression requires a declared supplemental market.");
+        var supplemental=database.Manifest.InputMarkets??throw new Exception("The scope regression requires a declared supplemental market.");
         if(supplemental.Length==0)throw new Exception("The scope regression requires a declared supplemental market.");
-        await using var scoped=new PreviewDatabase(database.Manifest with{SwapMarkets=supplemental.Select(m=>m with{Frames=[]}).ToArray()},runtime);
+        await using var scoped=new PreviewDatabase(database.Manifest with{InputMarkets=supplemental.Select(m=>m with{Frames=[]}).ToArray()},runtime);
         await database.WithIdentity("risk","RunScenario",async(connection,ct)=>
         {
             await MarketContextStore.Bind(connection,database.Manifest.CatalogId,context,ct);

@@ -40,10 +40,11 @@ def run_checks(c, check, query, manifest):
         expected += [{'code': curve['code'], 'name': curve['name'], 'marketType': 'rates', 'category': None, 'kind': 'interest_rate'}
                      for curve in definitions['rate_curves']]
         revision = definitions['revisions'][0]
+        for item in expected:item['source']={'definitionRevisionId':revision['id'],'referenceCatalogId':revision['reference_catalog_id'],'referenceRevisionId':revision['reference_revision_id']}
         return (sorted(nav['curves'], key=lambda r: r['code']) == sorted(expected, key=lambda r: r['code'])
                 and nav['definitionRevision'] == {'catalogId': revision['catalog_id'], 'revisionId': revision['id']}
                 and nav['referenceRevision'] == {'catalogId': revision['reference_catalog_id'], 'revisionId': revision['reference_revision_id']}
-                and nav['frames'] == [{**{key: frame[key] for key in ['id', 'name', 'at']},'originCloseId':frame.get('originCloseId'),'close':frame.get('close')}
+                and nav['frames'] == [{**{key: frame[key] for key in ['id', 'name', 'at', 'businessDate']},'originCloseId':frame.get('originCloseId'),'close':frame.get('close')}
                                       for frame in workspace['frames']]
                 and all(nav[key] == workspace[key] for key in ['profile', 'context', 'example', 'futuresConvention', 'initialFrameIds','referenceDisplay','frameCatalog'])
                 and nav['curveNames'] == c.call('curve-names'))
@@ -55,7 +56,7 @@ def run_checks(c, check, query, manifest):
           and navigation['kind'] == 'market_navigation' and navigation['kindsVersion'] == 'curve_kinds_v1'
           # Built-in frames are recorded session closes (D334): each names its stored close and its session day. A frame a
           # fixture never records stays a working snapshot, with neither.
-          and all(set(frame) == {'id', 'name', 'at','originCloseId','close'} and (frame['originCloseId'] == frame['id']
+          and all(set(frame) == {'id', 'name', 'at','businessDate','originCloseId','close'} and (frame['originCloseId'] == frame['id']
                   and frame['close']['session'] and frame['close']['businessDate'] or frame['originCloseId'] is None and frame['close'] is None)
                   for frame in navigation['frames'])
           and any(frame['close'] for frame in navigation['frames']))

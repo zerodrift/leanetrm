@@ -61,6 +61,16 @@ test('a revision of the position\'s own contract is written in the position\'s u
  assert.deepEqual(prices(tradeHistory(expired,'UTC',formats)).slice(0,2),['p:2.95 · unit unavailable: the contract of this revision is not in the catalog','p:2.975 · unit unavailable: the contract of this revision is not in the catalog'],'with no position\'s unit, the catalog is all there is');
 });
 
+test('the same contract identifiers in another definition cannot supply retained terms or history units',()=>{
+ const versioned=clone(details.future),original=versioned.catalog.contracts[0];
+ versioned.catalog.contracts=[{...original,definitionRevisionId:'another-definition',unit:'MWh',name:'Another contract version'}];
+ assert.deepEqual(rowsOf(tradeTerms(versioned,'UTC',formats,unit),'Contract'),{'Contract terms':'Retained contract terms are unavailable in this selectable catalog.'});
+ versioned.history.push({...clone(versioned.history[0]),definitionRevisionId:'another-definition',revision:2});
+ const prices=tradeHistory(versioned,'UTC',formats).map(section=>Object.fromEntries(section.rows)['Execution price']);
+ assert.equal(prices[0],'p:2.95 · unit unavailable: the contract of this revision is not in the catalog');
+ assert.equal(prices[1],'p:2.95 USD/MWh');
+});
+
 test('a revision of a book the catalog no longer holds says so, and an hour the clock repeats is told apart',()=>{
  const gone=clone(details.future);gone.catalog.books=[];
  assert.equal(Object.fromEntries(tradeHistory(gone,'UTC',formats)[0].rows).Book,'Unavailable book');
@@ -252,20 +262,20 @@ test('a swap\'s valuation facts state its PV and per-side notional, and each sid
 
 // Price before booking marks the delivery of each market the draft is for on that market's curve.
 test('a futures draft is for the market of the contract it was priced with, found by that contract\'s identity, whichever contract the form offers first',()=>{
- const contracts=[{id:'c1',curve:'future',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'},{id:'c2',curve:'future',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01'}];
- assert.deepEqual(futuresDraftMarkets(contracts,{curve:'future',contractId:'c2'}),[{curve:'future',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01'}]);
- assert.deepEqual(futuresDraftMarkets(contracts,{curve:'future',contractId:'c1'}),[{curve:'future',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'}]);
+ const contracts=[{definitionRevisionId:'r1',id:'c1',curve:'future',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'},{definitionRevisionId:'r1',id:'c2',curve:'future',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01'}];
+ assert.deepEqual(futuresDraftMarkets(contracts,{definitionRevisionId:'r1',curve:'future',contractId:'c2'}),[{definitionRevisionId:'r1',curve:'future',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01'}]);
+ assert.deepEqual(futuresDraftMarkets(contracts,{definitionRevisionId:'r1',curve:'future',contractId:'c1'}),[{definitionRevisionId:'r1',curve:'future',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'}]);
 });
 
 test('a contract is told apart by its curve as well as its id: two curves may number a contract alike',()=>{
- const contracts=[{id:'c1',curve:'a',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'},{id:'c1',curve:'b',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01'}];
- assert.deepEqual(futuresDraftMarkets(contracts,{curve:'b',contractId:'c1'}),[{curve:'b',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01'}]);
+ const contracts=[{definitionRevisionId:'r1',id:'c1',curve:'a',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'},{definitionRevisionId:'r1',id:'c1',curve:'b',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01'}];
+ assert.deepEqual(futuresDraftMarkets(contracts,{definitionRevisionId:'r1',curve:'b',contractId:'c1'}),[{definitionRevisionId:'r1',curve:'b',deliveryFrom:'2021-02-01',deliveryTo:'2021-03-01'}]);
 });
 
 test('a draft whose contract the catalog does not hold has no market to mark, and says so rather than marking another contract\'s',()=>{
- const contracts=[{id:'c1',curve:'a',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'}];
- assert.throws(()=>futuresDraftMarkets(contracts,{curve:'a',contractId:'c9'}),/not in the catalog/);
- assert.throws(()=>futuresDraftMarkets([],{curve:'a',contractId:'c1'}),/not in the catalog/);
+ const contracts=[{definitionRevisionId:'r1',id:'c1',curve:'a',deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01'}];
+ assert.throws(()=>futuresDraftMarkets(contracts,{definitionRevisionId:'r1',curve:'a',contractId:'c9'}),/not in the catalog/);
+ assert.throws(()=>futuresDraftMarkets([],{definitionRevisionId:'r1',curve:'a',contractId:'c1'}),/not in the catalog/);
 });
 
 test('a swap draft is for the market of each floating side, with that side\'s delivery, in the revision it was entered against',()=>{

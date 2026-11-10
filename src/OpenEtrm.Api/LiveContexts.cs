@@ -74,7 +74,7 @@ public sealed class LiveContexts(PreviewDatabase database,CalculationChanges cha
                     write.CancelAfter(TimeSpan.FromSeconds(5));
                     var payload=resolved.Generation==delivered?": ping\n\n":
                         $"id: {id:D}:{resolved.Generation}\nevent: context\ndata: "+JsonSerializer.Serialize(new
-                        {live=resolved.Summary(),context=resolved.Context,frame=new NavigationFrame(resolved.Frame!.Id,resolved.Frame.Name,resolved.Frame.At)},json)+"\n\n";
+                        {live=resolved.Summary(),context=resolved.Context,frame=new NavigationFrame(resolved.Frame!.Id,resolved.Frame.Name,resolved.Frame.At,resolved.Frame.BusinessDate)},json)+"\n\n";
                     if(!Current())break;
                     await c.Response.WriteAsync(payload,write.Token);await c.Response.Body.FlushAsync(write.Token);
                     if(DateTimeOffset.UtcNow>=heartbeat)heartbeat=DateTimeOffset.UtcNow+TimeSpan.FromSeconds(10);

@@ -28,7 +28,7 @@ import {changeChart,changeScales,gapsText,lensCells,madeHere,noMoveText,position
   type LensCell,type ReadPlace,type RunGap} from './risk-lens.js';
 import {sensitivityFactors,type ExcludedPosition,type RiskReport} from './risk-report.js';
 import {setupFuturesBooking} from './futures-booking.js';
-import {draftShapes,otherRevision,readCurveShapes,curvesPerRead} from './curve-shapes.js';
+import {draftShapes,curveSelectionKey,readInputCurveShapes,curvesPerRead} from './curve-shapes.js';
 import {batchReads} from './batch-reads.js';
 import {visibleReads} from './visible-read.js';
 import {newTradeControl,newTradeProducts,setupNewTrade,type NewProduct} from './new-trade.js';
@@ -106,7 +106,6 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // takes that away again once the person acts anew.
   failed:(error:unknown)=>void;failureCleared:()=>void;notice:(message:string)=>void;
   // The definition revision of the curves the selected close prices; positions of another revision get no shape from it.
-  definitionRevision:()=>string;
   // The saved views the person lists in the sidebar, and the one the Blotter shows, whenever the saved views are read or the shown one changes.
   onViews:(listed:string[],shown:string|null)=>void;
   // Whether Curves & prices lists a market, and opens it with one of its contracts' price history shown when a contract is named.
@@ -163,7 +162,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // The valued rows of the read under way, in the backend's order, as they have arrived.
   let arrived:Holding[]=[];
   // The curve shapes of the current read, once read: by curve, a shape or why it is unavailable; or why none could be read.
-  let shapes:{revision:string;curves:Map<string,CurveShape|string>}|{unavailable:string}|undefined;
+  let shapes:{curves:Map<string,CurveShape|string>}|{unavailable:string}|undefined;
   // The desk's read of its curves, while it is under way: what Price before booking waits for before it reads a curve of its own.
   let shapesRead:Promise<void>=Promise.resolve(),stopShapeReads=()=>{};
   let pendingShapes=new Set<string>();
@@ -172,11 +171,10 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // Price before booking draws the curve of each market the draft is for: from the desk's own read when it holds the curve, and otherwise
   // from one read of that curve, kept until the desk reads again.
   const drafts=draftShapes({
-    desk:async()=>{await shapesRead;return shapes&&'curves' in shapes?{revision:shapes.revision,curves:new Map([...shapes.curves].filter(([curve])=>!pendingShapes.has(curve)))}:undefined;},
-    revision:()=>{try{return options.definitionRevision();}catch{return undefined;}},
-    read:async curve=>{
+    desk:async()=>{await shapesRead;return shapes&&'curves' in shapes?new Map([...shapes.curves].filter(([key])=>!pendingShapes.has(key))):undefined;},
+    read:async market=>{
       let source;try{source=options.source();}catch{return 'Curve shape unavailable · the market selection changed';}
-      return (await readCurveShapes(api,source,[curve])).get(curve)??'Curve shape unavailable';
+      return (await readInputCurveShapes(api,source,[market])).get(curveSelectionKey(market))??'Curve shape unavailable';
     },
   });
   let lastReadRequest:unknown;
@@ -1151,9 +1149,8 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function shapeOf(h:Holding):CurveShape|string|undefined{
     if(!shapes)return undefined;
     if('unavailable' in shapes)return shapes.unavailable;
-    if(h.definitionRevisionId!==shapes.revision)return otherRevision;
     if(projectsFromSeveralCurves(h))return severalCurvesShape;
-    return shapes.curves.get(h.curve);
+    return shapes.curves.get(curveSelectionKey(h));
   }
   // The position at a row of the read on screen, as the details draw it; nothing while the desk draws no positions.
   function positionInput(index:number):PositionInput|undefined{
@@ -1394,7 +1391,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     const reason=`Curve shape unavailable · ${why}`;
     pendingShapes.clear();
     if(preserveCompleted&&shapes&&'curves' in shapes){
-      for(const h of holdings?.holdings??[])if(!shapes.curves.has(h.curve))shapes.curves.set(h.curve,reason);
+      for(const h of holdings?.holdings??[])if(!shapes.curves.has(curveSelectionKey(h)))shapes.curves.set(curveSelectionKey(h),reason);
     }else shapes={unavailable:reason};
     redrawCurves();syncPositionDetails();
   }
@@ -1404,17 +1401,17 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   function loadShapes(started:number,scope:string,source:{snapshotId:string;context?:{contextId?:string}},refresh=false){
     stopShapeReads();shapesRead=Promise.resolve();
     const current=()=>{try{requireCurrentRead(started,scope);return !get('futures-page').hidden;}catch{return false;}};
-    let revision:string;
-    try{revision=options.definitionRevision();}catch{noShapes('the market definitions of this close are not loaded',false);return;}
-    const found=shapes&&'curves' in shapes&&shapes.revision===revision?new Map(shapes.curves):new Map<string,CurveShape|string>();
-    pendingShapes=new Set(refresh?[...found.keys()]:[...pendingShapes].filter(curve=>found.has(curve)));
-    const status=()=>{for(const node of get('desk-positions').querySelectorAll<HTMLElement>('[data-shape-row]')){const h=holdings?.holdings[Number(node.dataset.shapeRow)];const pending=!!h&&pendingShapes.has(h.curve);node.classList.toggle('curve-updating',pending);if(pending)node.setAttribute('aria-busy','true');else node.removeAttribute('aria-busy');}};
-    shapes={revision,curves:found};status();
-    const reader=batchReads<string,CurveShape|string>({maximum:curvesPerRead,current,read:curves=>readCurveShapes(api,source,curves),
-      received:(read,curves)=>{for(const code of curves){found.set(code,read.get(code)??'Curve shape unavailable · the read did not return this curve');pendingShapes.delete(code);}status();redrawCurves(curves);}});
+    const found=shapes&&'curves' in shapes?new Map(shapes.curves):new Map<string,CurveShape|string>();
+    pendingShapes=new Set(refresh?[...found.keys()]:[...pendingShapes].filter(key=>found.has(key)));
+    const status=()=>{for(const node of get('desk-positions').querySelectorAll<HTMLElement>('[data-shape-row]')){const h=holdings?.holdings[Number(node.dataset.shapeRow)];const pending=!!h&&pendingShapes.has(curveSelectionKey(h));node.classList.toggle('curve-updating',pending);if(pending)node.setAttribute('aria-busy','true');else node.removeAttribute('aria-busy');}};
+    shapes={curves:found};status();
+    const reader=batchReads<string,CurveShape|string>({maximum:curvesPerRead,current,
+      read:keys=>readInputCurveShapes(api,source,keys.map(key=>{const [definitionRevisionId,curve]=JSON.parse(key) as [string,string];return {definitionRevisionId,curve};})),
+      received:(read,keys)=>{for(const key of keys){found.set(key,read.get(key)??'Curve shape unavailable · the read did not return this exact curve');pendingShapes.delete(key);}status();redrawCurves();}});
     requestShape=h=>{
-      if(!current()||h.definitionRevisionId!==revision||projectsFromSeveralCurves(h)||(found.has(h.curve)&&!pendingShapes.has(h.curve))||reader.has(h.curve))return;
-      void reader.get([h.curve]);shapesRead=reader.idle();
+      const key=curveSelectionKey(h);
+      if(!current()||projectsFromSeveralCurves(h)||(found.has(key)&&!pendingShapes.has(key))||reader.has(key))return;
+      void reader.get([key]);shapesRead=reader.idle();
     };
     const observer=visibleReads(current,target=>{
       const h=holdings?.holdings[Number((target as HTMLElement).dataset.shapeRow)];if(h)requestShape?.(h);

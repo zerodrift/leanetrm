@@ -17,7 +17,6 @@ public sealed partial class TradingBlotter
    case "future":
     var read=JsonSerializer.SerializeToNode(await futures.Position(connection,data,frame,selected,ct),Json)!.AsObject();
     rows=read["holdings"]!.AsArray().Select(n=>n!.DeepClone().AsObject()).ToArray();
-    foreach(var row in rows)FutureTerms(row,data);
     break;
    case "financial_swap" or "heat_rate":
     rows=[..(await swaps.Holdings(connection,data,frame,[],[],ct,selected)).Rows];
@@ -54,13 +53,6 @@ public sealed partial class TradingBlotter
   var formats=await DealAmountFormats.All(connection,manifest.CatalogId,ct);
   AmountFormats(result,formats.GetValueOrDefault(selected.TradeId));
   return result;
- }
- private void FutureTerms(JsonObject row,PreviewData data)
- {
-  var curve=data.Definitions["curves"].Single(c=>c.Text("code")==row["curve"]!.GetValue<string>());
-  var quote=data.Quotes.Single(q=>q.Key.Code==curve.Text("quote_code"));
-  row["quantitySpecification"]=JsonSerializer.SerializeToNode(quote.Quantity,Json);row["currencyReference"]=JsonSerializer.SerializeToNode(quote.Currency,Json);
-  row["definitionRevisionId"]=manifest.RevisionId.ToString();row["instrumentType"]="future";row["presentValue"]=null;row["fixedPrice"]=null;row["direction"]=null;
  }
  internal static void AmountFormats(JsonObject row,Dictionary<string,DealAmountFormats.Selection>? formats)
  {

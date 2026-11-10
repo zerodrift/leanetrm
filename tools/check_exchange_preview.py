@@ -38,7 +38,7 @@ def run_checks(url,query=None,manifest=None):
     # Direct quoted basis is itself the live factor: its benchmark is settlement metadata.
     from fractions import Fraction as F
     basis=next(v for v in contracts if v['curve']=='ice_dgd')
-    draft={'context':context,'curve':basis['curve'],'contractId':basis['id'],'lots':'-2','executionPrice':basis['mark']}
+    draft={'context':context,'curve':basis['curve'],'contractId':basis['id'],'definitionRevisionId':basis['definitionRevisionId'],'lots':'-2','executionPrice':basis['mark']}
     price=c.call('futures/price',draft);assert price['executionPnl']=='0' and price['unbooked']
     risk=c.call('futures/draft-risk',{'draft':{**draft,'context':{**context,'knowledgeMode':'retained','contextId':price['context']['contextId']}},'bumpPolicy':price['bumpPolicy'],'numericalPolicy':price['numericalPolicy']})
     assert len(risk['factors'])==1 and risk['factors'][0]['factor']['curves']==['ice_dgd']
@@ -51,7 +51,7 @@ def run_checks(url,query=None,manifest=None):
         contract=next(v for v in contracts if v['curve']==curve)
         assert contract['contractSize']==size
         lots=Decimal('-2' if n%2 else '2');tick=Decimal(contract['tick']);execution=Decimal(contract['mark'])-tick
-        body={'operationId':str(uuid4()),**context,'bookId':catalog['books'][n%2]['id'],'curve':curve,'contractId':contract['id'],
+        body={'operationId':str(uuid4()),**context,'bookId':catalog['books'][n%2]['id'],'curve':curve,'contractId':contract['id'],'definitionRevisionId':contract['definitionRevisionId'],
               'lots':str(lots),'executionPrice':str(execution),'legalEntityId':catalog['legalEntities'][0]['id'],'legalEntityRevision':catalog['legalEntities'][0]['revision'],
               'counterpartyId':catalog['counterparties'][0]['id'],'counterpartyRevision':catalog['counterparties'][0]['revision']}
         saved=c.call('futures/book',body);assert saved==c.call('futures/book',body)

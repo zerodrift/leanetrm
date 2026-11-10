@@ -3,6 +3,8 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--catalogue-trading",var catalogueFixture]){await CatalogueTradingChecks.Run(catalogueFixture);return;}
+if(args is ["--context-resolution"]){ContextResolutionChecks.Run();return;}
 if(args is ["--unified-catalogue"]){UnifiedCatalogueChecks.Run();return;}
 if(args is ["--curve-version-inputs"]){CurveVersionInputChecks.Run();return;}
 if(args is ["--generic-schedules"]){await BookedScheduleReaderChecks.Run();return;}
@@ -19,8 +21,6 @@ if(args is ["--publication-inputs"]){PricePublicationInputChecks.Run();return;}
 if(args is ["--crude-instants"]){CrudeInstantChecks.Run();return;}
 if(args is ["--crude-lifecycle"]){CrudeLifecycleChecks.Run();return;}
 if(args is ["--crude-positions"]){CrudePositionChecks.Run();return;}
-if(args is ["--crude-market-selection"]){CrudeMarketSelectionChecks.Run();return;}
-if(args is ["--gas-market-selection"]){GasMarketSelectionChecks.Run();return;}
 if(args is ["--preview-failure-diagnostics"]){OpenEtrm.Api.Checks.PreviewFailureDiagnosticChecks.Run();return;}
 if(args is ["--position-qualification"]){await PositionQualificationChecks.Run();return;}
 
@@ -126,8 +126,6 @@ if (args is ["--schedules"])
     RetainedScheduleLimitChecks.Run();
     TradingReadSelectionChecks.Run();
     await BookedScheduleReaderChecks.Run();
-    GasMarketSelectionChecks.Run();
-    CrudeMarketSelectionChecks.Run();
     CrudePositionChecks.Run();
     CrudeLifecycleChecks.Run();
     PricePublicationInputChecks.Run();
@@ -188,17 +186,14 @@ if(resolvedBundle.ReferenceRevisionId!=(Guid)supplementalRow["reference_revision
     throw new Exception("A selected bundle must retain its persisted exact reference version.");
 Console.WriteLine("PASS supplemental market uses its own persisted reference revision");
 var foreignCatalog=new Dictionary<string,object>(supplementalRow){["reference_catalog_id"]=Guid.NewGuid()};
-try {PreviewData.ResolveBundleManifest(supplemental,JsonSerializer.SerializeToElement(foreignCatalog));throw new Exception("Accepted a supplemental market in another reference catalog");}
-catch(MarketDataException e) when(e.Code=="reference_pin_mismatch") {Console.WriteLine("PASS supplemental market cannot substitute its declared reference catalog");}
+var foreign=PreviewData.ResolveBundleManifest(supplemental,JsonSerializer.SerializeToElement(foreignCatalog));
+if(foreign.ReferenceCatalogId!=(Guid)foreignCatalog["reference_catalog_id"])throw new Exception("An exact source lost its native reference-catalog coordinate.");
+Console.WriteLine("PASS exact source coordinates are resolved from its immutable native header; database reads separately prove authority");
 
-var browserReference=Guid.NewGuid();var browsed=manifest with{ReferenceCatalog=new(browserReference,Guid.NewGuid(),["interest_rate_definitions"])};
-if(ReferenceEditors.Source(browsed,"interest_rate_definitions").RevisionId!=browserReference||ReferenceEditors.Source(browsed,"currencies").RevisionId!=referenceRevision||manifest.ReferenceRevisionId!=referenceRevision)
-    throw new Exception("An explicit reference browser catalog must preserve the original valuation manifest.");
-Console.WriteLine("PASS explicit reference browser catalog is separate from pinned valuation inputs");
 var correctedPin=Guid.NewGuid();var contextId=Guid.NewGuid();var sourceDefinition=Guid.NewGuid();
-var selectedFrame=new InputFrame(Guid.NewGuid(),"Reviewed corrected inputs",DateTimeOffset.UtcNow,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,contextId)
+var selectedFrame=new InputFrame(Guid.NewGuid(),"Reviewed corrected inputs",DateTimeOffset.UtcNow,OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(DateTimeOffset.UtcNow).Date,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,contextId)
  {SwapMarketSelections=ImmutableDictionary<Guid,ImmutableArray<Guid>>.Empty.Add(sourceDefinition,[correctedPin]),ResolvesLatestCorrection=true,OriginCloseId=Guid.NewGuid()};
-var sourceFrame=selectedFrame.ForSwapMarket([correctedPin],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
+var sourceFrame=selectedFrame.ForMarketSource([correctedPin],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,[]);
 if(sourceFrame.SwapMarketSelections!=selectedFrame.SwapMarketSelections||!sourceFrame.ResolvesLatestCorrection||sourceFrame.ContextId!=contextId||
  sourceFrame.OriginCloseId is not null||sourceFrame.Id!=selectedFrame.Id)
  throw new Exception("Supplemental booking revalidation lost the reviewed correction or retained source context.");
@@ -213,7 +208,7 @@ if(args.Length==1)
     var persisted=definitions["revisions"][0];
     var realManifest=new PreviewManifest("local-synthetic-preview",persisted.Id("catalog_id"),persisted.Id("id"),persisted.Id("reference_catalog_id"),persisted.Id("reference_revision_id"),Guid.NewGuid(),Guid.NewGuid(),[],new(DateTimeOffset.UtcNow,"local_power"),FuturesConvention:"contract_lot_execution_pnl_v2");
     var f=root.GetProperty("frames").EnumerateArray().Single(f=>f.GetProperty("at").GetString()!.StartsWith("2020-12-18",StringComparison.Ordinal));
-    var frame=new InputFrame(f.Id("id"),"Exact fixture",f.Instant("at"),f.GetProperty("observationIds").EnumerateArray().Select(id=>id.GetGuid()).ToImmutableArray(),
+    var frame=new InputFrame(f.Id("id"),"Exact fixture",f.Instant("at"),OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(f.Instant("at")).Date,f.GetProperty("observationIds").EnumerateArray().Select(id=>id.GetGuid()).ToImmutableArray(),
         f.GetProperty("curveContracts").EnumerateObject().ToImmutableDictionary(p=>p.Name,p=>p.Value.EnumerateArray().Select(id=>id.GetGuid()).ToImmutableArray()));
     var previous=CultureInfo.CurrentCulture;
     try

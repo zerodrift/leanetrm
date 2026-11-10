@@ -39,7 +39,8 @@
    "eventSchema": "futures_booking_state_v2",
    "kind": "booked",
    "reason": "Initial booking",
-   "settlement": "unprocessed"
+   "settlement": "unprocessed",
+   "definitionRevisionId": "60000000-0000-0000-0000-000000000001"
   },
   "history": [
    {
@@ -81,7 +82,8 @@
     "eventSchema": "futures_booking_state_v2",
     "kind": "booked",
     "reason": "Initial booking",
-    "settlement": "unprocessed"
+    "settlement": "unprocessed",
+    "definitionRevisionId": "60000000-0000-0000-0000-000000000001"
    }
   ],
   "catalog": {
@@ -196,7 +198,8 @@
      },
      "lotBasis": "fixed_total",
      "settlementMethod": "cash",
-     "mark": "3"
+     "mark": "3",
+     "definitionRevisionId": "60000000-0000-0000-0000-000000000001"
     }
    ]
   },

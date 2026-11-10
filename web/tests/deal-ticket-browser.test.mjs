@@ -124,7 +124,7 @@ test('a lookup answer that changes nothing leaves the drawn schedule standing',{
     if(path==='tickets/description')return d;
     if(path==='tickets/choices')return {choices:[]};
     if(path==='tickets/lookup')return await new Promise(answer=>held.push(()=>answer({value:'3.25',source:{kind:'market',label:'Hub · close 2041-01-02'}})));
-    if(path==='tickets/preview'){const q=body.draft.sides[0].values.q;return {schedule:{levels:['month'],valuationAt:'',deliveredLeaves:0,leaves:1,delivered:null,remaining:null,totals:cells(q),
+    if(path==='tickets/preview'){const q=body.draft.sides[0].values.q;return {source:{definitionRevisionId:'definition-a',referenceCatalogId:'reference-catalog',referenceRevisionId:'reference-a'},schedule:{levels:['month'],valuationAt:'',deliveredLeaves:0,leaves:1,delivered:null,remaining:null,totals:cells(q),
      rows:[{key:'2041-02',parent:null,level:'month',start:'',end:'',operatingDate:null,cells:cells(q),delivered:false}]},summaries:[],scheduleRefusal:null,quantityUnit:'MMBtu',links:[]};}
     throw Error('unexpected '+path);
    };

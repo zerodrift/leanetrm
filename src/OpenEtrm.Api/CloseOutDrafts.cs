@@ -74,7 +74,9 @@ public sealed partial class FuturesStore
         var execution=FuturesExecution.Require(position);var side=execution.MarketBinding;
         if(frame.At<side.EligibleFrom||frame.At>=side.Contract.Expiry)
             throw CloseOutTerms.Refused("The position's contract does not trade at this close, so no offsetting trade can be booked.");
-        // The Blotter's mark: the same build and holding valuation, of this one position.
+        // The Blotter's mark: the same exact source inputs as this held position.
+        var inputs=await MarketInputSelection.DefinitionInput(database,connection,data,frame,side.Market.Curve.Revision.RevisionId,ct);
+        data=inputs.Data;frame=inputs.Frame;
         var snapshot=data.Snapshot(frame);
         var (build,unvalued)=ValuationStatus.BuildValued(held=>data.Model.Build(snapshot,held),[side.Market]);
         if(unvalued.TryGetValue(side.Market,out var reason))throw CloseOutTerms.NoMark(reason);
@@ -85,7 +87,7 @@ public sealed partial class FuturesStore
         return new{kind="future",terms=CloseOutTerms.Draft(new FuturesBookRequest(Guid.Empty,context.SnapshotId,trade.BookId,side.Market.Curve.Code,side.Contract.Key.Id,
                 lots.ToString(),mark,null,row.Text("implementation"),context.KnowledgeMode,
                 LegalEntityId:parties.LegalEntity.Key.Id,LegalEntityRevision:parties.LegalEntity.Key.Revision,
-                CounterpartyId:parties.Counterparty.Key.Id,CounterpartyRevision:parties.Counterparty.Key.Revision)),
+                CounterpartyId:parties.Counterparty.Key.Id,CounterpartyRevision:parties.Counterparty.Key.Revision,DefinitionRevisionId:side.Market.Curve.Revision.RevisionId)),
             price=new{value=mark,unit=data.PriceUnit(side.Market.Curve.Code),source=CloseOutTerms.PriceSource,closeAt=frame.At,closeLabel=CloseOutTerms.Label(frame.At)}};
     }
 }

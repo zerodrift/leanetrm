@@ -4,7 +4,7 @@ import {noOptionPick,optionChoices,pickOption,keepOffered,lifecycleWrites,option
 
 // A synthetic catalog: two exchanges, two commodities on the first, the series in the backend's order.
 const named=(code,name)=>({code,name});
-const series=(code,exchange,commodity,underlyingSeries,right,strike)=>({series:code,product:`${exchange.code}_product`,name:`Synthetic ${commodity.name} option`,exchange,commodity,
+const series=(code,exchange,commodity,underlyingSeries,right,strike)=>({definitionRevisionId:'definition-a',series:code,product:`${exchange.code}_product`,name:`Synthetic ${commodity.name} option`,exchange,commodity,
  underlyingSeries,right,strike,expiryAt:'2041-01-15T19:30:00Z',premiumStyle:'premium_paid_up_front',contraryInstructionsAllowed:false,multiplier:'1000',currency:'USD',
  premiumTick:'0.01',minimumPremium:'0',maximumPremium:'1000',settlementPrice:'0.5',exerciseStyle:'american'});
 const alpha=named('exchange_a','Exchange A'),beta=named('exchange_b','Exchange B'),gas=named('gas','Synthetic gas'),oil=named('oil','Synthetic oil');
@@ -17,8 +17,8 @@ const catalog={
   series('a_oil_feb_c50','',oil,'oil_feb','call','50'),
   series('b_gas_feb_c10','',gas,'b_gas_feb','call','10'),
  ].map((s,i)=>({...s,exchange:i===5?beta:alpha})),
- underlyings:[{series:'gas_feb',name:'Synthetic gas future',deliveryFrom:'2041-02-01',deliveryTo:'2041-03-01'},{series:'gas_mar',name:'Synthetic gas future',deliveryFrom:'2041-03-01',deliveryTo:'2041-04-01'},
-  {series:'oil_feb',name:'Synthetic oil future',deliveryFrom:'2041-02-01',deliveryTo:'2041-03-01'},{series:'b_gas_feb',name:'Synthetic gas future',deliveryFrom:'2041-02-01',deliveryTo:'2041-03-01'}],
+ underlyings:[{definitionRevisionId:'definition-a',series:'gas_feb',name:'Synthetic gas future',deliveryFrom:'2041-02-01',deliveryTo:'2041-03-01'},{definitionRevisionId:'definition-a',series:'gas_mar',name:'Synthetic gas future',deliveryFrom:'2041-03-01',deliveryTo:'2041-04-01'},
+  {definitionRevisionId:'definition-a',series:'oil_feb',name:'Synthetic oil future',deliveryFrom:'2041-02-01',deliveryTo:'2041-03-01'},{definitionRevisionId:'definition-a',series:'b_gas_feb',name:'Synthetic gas future',deliveryFrom:'2041-02-01',deliveryTo:'2041-03-01'}],
 };
 const values=list=>list.map(c=>c.value);
 const pick=(...steps)=>steps.reduce((p,[level,value])=>pickOption(catalog,p,level,value),noOptionPick);
@@ -96,4 +96,15 @@ test('a catalog with no listed series says nothing can be booked at this close, 
  assert.equal(optionTicketStatus({...catalog,options:[],underlyings:[],canBook:true}),'No options are listed at this close, so none can be booked. Choose another close or publish listed series.');
  assert.equal(optionTicketStatus({...catalog,canBook:true}),'Pick the listed series, then enter the execution.');
  assert.equal(optionTicketStatus({...catalog,canBook:false,bookingUnavailableReason:'This account cannot book trades.'}),'This account cannot book trades.');
+});
+
+test('options sharing an underlying series code use the terms from their own exact definition',()=>{
+ const original=catalog.options[0],underlying=catalog.underlyings[0];
+ const added={...original,series:'a_gas_feb_c11',strike:'11',definitionRevisionId:'definition-b'};
+ const joined={options:[original,added],underlyings:[underlying,{...underlying,definitionRevisionId:'definition-b'}]};
+ const selection={...noOptionPick,exchange:original.exchange.code,commodity:original.commodity.code,underlying:original.underlyingSeries,right:'call',strike:'11'};
+ const selected=optionChoices(joined,selection);
+ assert.equal(selected.underlying.length,1);
+ assert.equal(selected.series.definitionRevisionId,'definition-b');
+ assert.throws(()=>optionChoices({...joined,underlyings:[underlying]},selection),/does not describe/);
 });

@@ -107,7 +107,7 @@ def run_checks(query, manifest, psql=None, environment=None):
                'risk_job_denied')
     print('PASS risk worker boundary: mixed executor roles, privileged flags and application ownership refuse admission', flush=True)
 
-    supplemental = next(m for m in manifest['swapMarkets'] if m['revisionId'] != revision)
+    supplemental = next(m for m in manifest['inputMarkets'] if m['revisionId'] != revision)
     supplemental_revision = supplemental['revisionId']
     supplemental_seed = next(f for f in supplemental['frames'] if f['at'] == at)
     member = json.loads(query(f"SELECT jsonb_build_object('curve',curve_code,'contract',contract_id) FROM market_data.curve_members WHERE catalog_id='{catalog}' AND revision_id='{supplemental_revision}' ORDER BY curve_code,ordinal LIMIT 1;"))
@@ -654,7 +654,7 @@ def main():
         reference, market, security, manifest = fixture(ROOT)
         from swap_fixture import fixture as swap_fixture
         swap_market, swap_manifest = swap_fixture()
-        manifest['swapMarkets'] = [swap_manifest]
+        manifest['inputMarkets'] = [swap_manifest]
         for sql in (reference, market, swap_market, security):
             query(sql)
         query(trading_fixture(manifest['catalogId'], swap_defaults=True))

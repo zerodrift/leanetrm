@@ -51,7 +51,7 @@ public sealed partial class SwapStore
         if (from is {} start && to is {} end && (start.Day != 1 || start.Year == 9999 || start.AddMonths(1) != end))
             throw Error("swap_projection", "This booking model selects one complete delivery month per instrument.");
         var markets = new List<(PreviewData Data, InputFrame Frame)> { (data, frame) };
-        markets.AddRange(await database.ReadSwapMarkets(connection, frame, ct, data,
+        markets.AddRange(await database.ReadInputMarkets(connection, frame, ct, data,
             input.DefinitionRevisionId is {} revision ? new HashSet<Guid> { revision } : null));
         if (input.DefinitionRevisionId is {} exact && markets.All(market => market.Data.DefinitionRevision.RevisionId != exact))
             throw Error("swap_definition", "The selected exact definition is unavailable in this context.");

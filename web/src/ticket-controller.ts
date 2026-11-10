@@ -1,3 +1,4 @@
+import {isCatalogueSource,type CatalogueSource} from './market-navigation.js';
 import {renderTicket,type TicketEntry,type TicketEvents,type TicketView} from './deal-ticket.js';
 import {quantityRecord,quantityRecordChoices,quantityRecordFields,recordedBy,type GasQuantityReceipt,type GasQuantityView} from './gas-daily-quantities.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
@@ -99,6 +100,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
  let measures:GasMeasures|null=null,currency:string|undefined,quantityPolicy:string|undefined,day=entryKey?entries.get(entryKey):undefined,recording=false;
  // The draft the ticket opened with, the last one previewed without refusal, and the one whose lookups were read last.
  let opened='',bookable:string|undefined,looked:string|undefined;
+ let previewSource:CatalogueSource|undefined;
  let settling:ReturnType<typeof setTimeout>|undefined,queued=false,sending=false,booked:string|undefined,said='';
  const draft=()=>draftOf(state!),sent=()=>JSON.stringify(draft());
  const previewIdentity=(value:TicketDraft=draft())=>JSON.stringify(mode==='amend'?[value,reason]:value);
@@ -242,7 +244,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   try{outcome={preview:await o.api<TicketPreview>(amendment?'tickets/amend-preview':'tickets/preview',body,signal)};}catch(error){outcome={refused:error};}
   // Only the latest preview is drawn: an answer that arrives after a newer edit or preview is discarded.
   if(signal.aborted||!alive||!state||!acceptPreview(state,next.serial))return;
-  try{panel=previewed(panel,outcome);bookable='preview' in outcome?asking:undefined;}
+  try{if('preview' in outcome&&!isCatalogueSource(outcome.preview.source))throw Error('The preview did not identify its exact trade terms.');panel=previewed(panel,outcome);bookable='preview' in outcome?asking:undefined;previewSource='preview' in outcome?outcome.preview.source:undefined;}
   catch(error){panel=previewed(panel,{refused:error});bookable=undefined;}
   draw();
  }
@@ -376,7 +378,7 @@ export function setupTicket(host:HTMLElement,o:TicketOptions):TicketHandle{
   if(!state||blocked())return;
   if(unresolved.size){say('Book once every local time you entered resolves to one instant.');return;}
   if(!previewCurrent()){say('Save once the preview of your latest change is up to date.');return;}
-  pending.begin(amendment?'tickets/amend':'tickets/book',{context:o.context(),draft:draft(),...amendmentTerms()});retain();
+  pending.begin(amendment?'tickets/amend':'tickets/book',{context:o.context(),draft:draft(),...(!amendment?{definitionRevisionId:previewSource?.definitionRevisionId}:{}),...amendmentTerms()});retain();
   await send();
  }
  async function send(){

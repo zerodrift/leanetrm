@@ -265,6 +265,7 @@ def main():
             if args.gas_in_term_check:
                 from gas_in_term_fixture import add_fixture as add_in_term_fixture
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
+        query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             if migration.name.startswith(('0228_','0229_')):
                 from check_fact_anchor_upgrade import run_checks as check_point_upgrade
@@ -542,8 +543,8 @@ def main():
                 times={f['at'] for f in swap_manifest['frames']}
                 swap_manifest['frames'].extend({'at':f['at'],'observationIds':[],'curveContracts':{}}
                     for f in manifest['frames'] if f['at'] not in times)
-            manifest['swapMarkets']=[swap_manifest]
-            if args.crude_setup_check: manifest['swapMarkets'].append(manifest.pop('crudeMarket'))
+            manifest['inputMarkets']=[swap_manifest]
+            if args.crude_setup_check: manifest['inputMarkets'].append(manifest.pop('crudeMarket'))
             if args.factor_swap_check:
                 from factor_swap_fixture import prepare as prepare_factor
                 prepare_factor(manifest)
@@ -560,11 +561,13 @@ def main():
             check_hosted_auth(query, manifest)
             from check_power_import import run_checks as check_power_import
             check_power_import(query,manifest,dotnet,temporary,env)
+        from preview_fixture import catalogue_fixture
         if args.exchange_check or args.with_exchange:
             from exchange_fixture import fixture as exchange_fixture
             er,em,es,et,exchange_manifest=exchange_fixture(ROOT)
             query(er);query(em);query(es);query(et)
             query(f"SELECT security.initialize_operating_policies('{exchange_manifest['tenantId']}','{exchange_manifest['workspaceId']}');")
+            query(catalogue_fixture(exchange_manifest,exchange_manifest['identityIssuer']))
             (temporary/'exchange-manifest.json').write_text(json.dumps(exchange_manifest))
             if args.exchange_check:
                 from check_futures_option_storage import run_checks as check_futures_option_storage
@@ -574,6 +577,7 @@ def main():
                 check_vol_surface_storage(query,exchange_manifest)
         from preview_fixture import trading_fixture
         query(trading_fixture(manifest['catalogId'],swap_defaults=args.example=='standard'))
+        query(catalogue_fixture(manifest,'https://preview.invalid'))
         if args.ppa_bookings_check or args.blotter_stream_benchmark:
             from ppa_bookings_fixture import trading as ppa_benchmark_books
             query(ppa_benchmark_books(manifest['catalogId']))
@@ -630,7 +634,7 @@ def main():
             reference_demo=install_reference_demo(query,manifest)
             # One owned test date deliberately has no admitted demo input frame.
             reference_demo['omittedAt']=max(f['at'] for f in reference_demo['frames'] if not f['at'].startswith('2020-12-18'))
-            manifest['swapMarkets'][-1]['frames']=[f for f in reference_demo['frames'] if f['at']!=reference_demo['omittedAt']]
+            manifest['inputMarkets'][-1]['frames']=[f for f in reference_demo['frames'] if f['at']!=reference_demo['omittedAt']]
         # Only recorded closes are closes (D334): the built-in frames are recorded as synthetic session closes.
         from seed_session_closes import seed as seed_session_closes
         # The aligned-history check reads a correction through a working frame of its day, which a close's exact pins never take.
