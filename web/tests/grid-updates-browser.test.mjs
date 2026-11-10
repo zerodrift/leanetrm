@@ -60,3 +60,15 @@ test('incremental values reconcile numeric filters and sort order without replac
  })()`);
  assert.deepEqual(result,{rows:['c','a'],kept:true});
 }));
+
+test('hiding and resizing a standing grid preserves its row anchor, horizontal position and selection',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async evaluate=>{
+ const result=await evaluate(`(async()=>{
+  const {renderDataGrid,emptyGridLayout}=await import('/data-grid.js'),host=document.querySelector('#host');host.style.height='350px';
+  const grid=renderDataGrid(host,'retained-place','synthetic',['Trade','Description'],Array.from({length:200},(_,i)=>['Trade '+i,'Synthetic row '+i]),[],()=>false,{keys:['trade','description'],rowKeys:Array.from({length:200},(_,i)=>'row-'+i),fill:true,layout:{...emptyGridLayout(),widths:{trade:600,description:600}},onLayout(){}});${ready}
+  const tick=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))),holder=()=>host.querySelector('.tabulator-tableholder');
+  const place=()=>{const h=holder(),top=h.getBoundingClientRect().top,row=[...h.querySelectorAll('.tabulator-row[data-row-key]')].find(r=>r.getBoundingClientRect().top>=top-.5);return {key:row?.dataset.rowKey,offset:row?row.getBoundingClientRect().top-top:0,left:h.scrollLeft};};
+  holder().scrollTop=1600;holder().scrollLeft=120;grid.select('row-60');await tick();await tick();const before=place();
+  host.style.display='none';await tick();host.style.width='1000px';await tick();host.style.display='block';host.style.visibility='hidden';holder().scrollTop=0;holder().scrollLeft=0;await tick();await tick();host.style.visibility='visible';grid.relayout();await grid.updated();await tick();await tick();const after=place(),selected=grid.selected();grid.destroy();return {before,after,selected};
+ })()`);
+ assert.equal(result.after.key,result.before.key);assert.ok(Math.abs(result.after.offset-result.before.offset)<2,JSON.stringify(result));assert.equal(result.after.left,result.before.left);assert.equal(result.selected,'row-60');
+}));

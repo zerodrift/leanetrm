@@ -10,8 +10,11 @@ export async function run(actions){
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await persona('trader');
  const {frame,session}=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();const f=w.frames.find(f=>f.at.startsWith('2021-01-15T08:')&&w.initialFrameIds.includes(f.id));return {frame:f.id,session:f.close?.session??null};})()");
- // Where this frame is a recorded close, the As of list offers it under its own session (D334).
- if(session){await set('#close-session',session);await wait(idle,30000);}
+ // Reload reopens the profile default (D370), so save this fixture's convention explicitly before its view override.
+ if(session){
+  await click('#profile-open');await set('#default-close-session',session);await click('#profile-save');await wait(idle,30000);
+  await set('#close-session',session);await wait(idle,30000);
+ }
  await set('#snapshot',frame);await wait(idle,30000);await open();
  await set('#facility-ledger',fixture.ledgerId);await wait("!document.querySelector('#facility-editor').hidden&&"+idle).catch(async error=>{throw Error(error.message+' · '+JSON.stringify(await evaluate("({page:document.querySelector('#page-title').textContent,error:document.querySelector('#error').textContent,context:document.querySelector('#facility-context').textContent,selected:document.querySelector('#facility-ledger').value,options:document.querySelector('#facility-ledger').innerHTML})")));});
  const shown="document.querySelector('#facility-balance').textContent",saved="document.querySelector('#facility-saved').textContent";

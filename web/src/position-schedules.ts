@@ -10,7 +10,8 @@ export function withSideSchedules(read:DetailRead,api:Api,context:Record<string,
  const position:SchedulePosition={context:{...context,convention:'trading_workspace_v1'},tradeId:h.tradeId,bindingId:h.bindingId,revision:Number(h.revision),instrumentType:h.instrumentType};
  return {...read,view:zone=>{
   const view=read.view(zone);
-  return {...view,schedules:view.schedules??(host=>mountSideScheduleInspection(host,{api,position,instant:at=>displayInstant(at,zone),onDenied}))};
+  return view.schedules?view:{...view,scheduleKey:JSON.stringify(['native-side-schedules',position,zone]),
+   schedules:host=>mountSideScheduleInspection(host,{api,position,instant:at=>displayInstant(at,zone),onDenied})};
  }};
 }
 export function genericPositionView(h:Pick<Holding,'tradeReference'|'instrumentReference'|'instrumentType'>):DetailRead{
