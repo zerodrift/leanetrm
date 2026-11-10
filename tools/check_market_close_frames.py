@@ -33,7 +33,7 @@ def run_checks(query,manifest,psql,environment,close_id,context):
     DO $$BEGIN PERFORM security.read_market_close_parts('{catalog}',ARRAY['{close_id}'::uuid],'{uuid4()}');
     RAISE EXCEPTION 'A close read mislabeled its bound context';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;END$$;ROLLBACK;""")
     def attempt(expect_refusal,direct=False):
-        # A close in force is qualified from its pins, whatever the cutoff (D334), so the direct read waits on them.
+        # The exact close reader checks its certified pins, so the direct read waits on them.
         table='market_close_pins' if direct else 'market_close_members'
         read=(f"IF security.market_close_visible('{catalog}','{close_id}') THEN RAISE EXCEPTION 'Expired close reader returned financial parts';END IF;" if direct else
               f"PERFORM security.read_market_close_parts('{catalog}',ARRAY['{close_id}'::uuid],'{context['contextId']}');RAISE EXCEPTION 'Expired close reader returned financial parts';EXCEPTION WHEN SQLSTATE '42501' THEN NULL;")
