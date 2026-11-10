@@ -46,13 +46,14 @@ def schedule_sql(plan,catalog):
     return '\n'.join(lines)
 
 
-def verify_instrument_dates(query, plan, catalog, revision):
-    """Refuse demo rows whose actual dates did not come from the compiled plan."""
+def verify_instrument_dates(query, plan, catalog, revision, outside_plan=()):
+    """Refuse demo rows whose actual dates did not come from the compiled plan.
+    `outside_plan` names, by id, the contracts of a fixture that carries its own dates."""
     from datetime import datetime
     mappings={m['code']:m['contracts'] for m in plan['mappings']}
     expected={kind:{(r['start'],r['end'],datetime.fromisoformat(r['lastTradingAt'])) for r in mappings[code]}
               for kind,code in [('future','gas_delivery'),('forward','forward_delivery')]}
-    rows=json.loads(query(f"SELECT coalesce(json_agg(row_to_json(c)),'[]') FROM (SELECT id,kind,delivery_from,delivery_to,expiry_at FROM market_data.contracts WHERE catalog_id='{catalog}' AND revision_id='{revision}')c;"))
+    rows=[row for row in json.loads(query(f"SELECT coalesce(json_agg(row_to_json(c)),'[]') FROM (SELECT id,kind,delivery_from,delivery_to,expiry_at FROM market_data.contracts WHERE catalog_id='{catalog}' AND revision_id='{revision}')c;")) if row['id'] not in outside_plan]
     if not rows:raise ValueError('The date-first fixture has no contracts.')
     for row in rows:
         dates=(row['delivery_from'],row['delivery_to'],datetime.fromisoformat(row['expiry_at']))

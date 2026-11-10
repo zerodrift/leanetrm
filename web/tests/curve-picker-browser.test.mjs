@@ -50,3 +50,11 @@ test('a click elsewhere closes the panel; close does the same from code',browser
   assert.equal(await evaluate(open),false);
  });
 });
+test('closing from code returns focus to the title when it was inside the panel',browser,async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(setup);await evaluate("document.querySelector('#title').click();picker.close()");
+  assert.equal(await evaluate(focused),'title');
+  await evaluate("document.querySelector('#title').click();document.querySelector('#after').focus();picker.close()");
+  assert.equal(await evaluate(focused),'after','focus elsewhere stays where it is');
+ });
+});

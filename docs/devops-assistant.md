@@ -113,7 +113,7 @@ are not owned by a person, so the agent does not read or change them (§6).
   page's own list is not the reader's; and each listed job, and a history's own job,
   as a record target that opens the job's details on whichever page of the page's
   directory lists it, refused when none does. Under a historical view Navigate
-  refuses the Jobs page `jobs_current_only`, as the reads do. Labels say "Jobs & Infrastructure: job history"
+  refuses the Jobs page `jobs_current_only`, as the reads do. Labels say "Jobs: job history"
   and never carry a job's name, which a person typed. A `proposal` target comes with
   Prepare (§4). The model never composes a target.
 

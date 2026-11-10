@@ -110,3 +110,35 @@ test('the console shows for its pages and hides elsewhere',browser,async()=>{
   assert.equal(await evaluate("document.querySelector('#reference-console').hidden"),false,'reference shows the console before its table is known');
  });
 });
+test('a refused move leaves focus where it is, even after the application is free again',browser,async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(setup);
+  await evaluate("const outside=document.createElement('button');outside.id='outside';document.body.append(outside);document.querySelector('#nav-custom-curves').click();blocked=true;console_.sync();outside.focus();blocked=false;console_.sync()");
+  assert.equal(await evaluate('document.activeElement.id'),'outside');
+  await evaluate("blocked=true;console_.sync();blocked=false;console_.show('custom-curves')");
+  assert.equal(await evaluate('document.activeElement.id'),'outside','a later move does not reclaim focus for a refused one');
+ });
+});
+test('the shown entry takes focus back once its page has opened',browser,async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(setup);
+  await evaluate("document.querySelector('#nav-custom-curves').click();blocked=true;console_.sync();blocked=false;console_.show('custom-curves')");
+  assert.equal(await evaluate('document.activeElement.id'),'nav-custom-curves');
+ });
+});
+test('a folded menu gives focus to its toggle rather than a hidden entry',browser,async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(setup);
+  await evaluate("document.querySelector('#nav-custom-curves').click();blocked=true;console_.sync();console_.fold(true);blocked=false;console_.show('custom-curves')");
+  assert.equal(await evaluate('document.activeElement.id'),'reference-console-toggle');
+ });
+});
+test('an entry with several pages reopens the one last shown',browser,async()=>{
+ await withBrowserPage(html,async evaluate=>{
+  await evaluate(`(async()=>{window.pages=[];window.menu=[{id:'physical',name:'Physical',entries:[{id:'delivery-setup',name:'Delivery setup',page:'gas-setup',alsoPages:['crude-setup']}]}];
+   window.console_=(await import('/reference-console.js')).setupReferenceConsole({host:document.querySelector('#reference-console'),menu:()=>menu,open:entry=>pages.push(entry.page),search:()=>{},busy:()=>false});
+   console_.show('crude-setup');console_.show('market');})()`);
+  await evaluate("document.querySelector('#nav-delivery-setup').click()");
+  assert.deepEqual(await evaluate('pages'),['crude-setup']);
+ });
+});
