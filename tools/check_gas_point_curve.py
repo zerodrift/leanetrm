@@ -19,7 +19,12 @@ def run_checks(url,query,manifest):
  saved=c.call('custom-curves/save',{'requestId':str(uuid4()),'snapshotId':frame['id'],'definition':graph,'layout':{}})
  c.call('profile',{'profile':'approver'});curve=c.call('custom-curves/publish',{'requestId':str(uuid4()),'id':saved['id'],'version':saved['version'],'generation':saved['generation']})
  pricing={'source':'published_custom_v1','curveId':curve['id'],'version':curve['version'],'outputNode':'output','selection':'containing_delivery_interval_v1','implementation':'published_custom_curve_projection_v1'}
- payload=deepcopy(original);point=next(p for p in payload['paths'] if p['point']=='synthetic_gas_point_a');point['pricing']=pricing;point['settlementPeriods']=[{'from':'2021-01-01','to':'2021-02-01','curve':'base_forward','index':'test_price','observationConvention':'monthly_published_index_v1'}]
+ payload=deepcopy(original);point=next(p for p in payload['paths'] if p['point']=='synthetic_gas_point_a')
+ group=next(g for g in payload['groups'] if g['code']==point['groupCode']);assert group['curve']=='local_gas'
+ adjustment=Decimal(group['adjustment'])+Decimal(point['adjustment'])
+ expected_physical=Decimal('1000')*(Decimal('2')*Decimal('3.30')+adjustment)
+ expected_native=Decimal('1000')*(Decimal('3.30')+adjustment)
+ point['pricing']=pricing;point['settlementPeriods']=[{'from':'2021-01-01','to':'2021-02-01','curve':'base_forward','index':'test_price','observationConvention':'monthly_published_index_v1'}]
  c.call('profile',{'profile':'editor'});command={'operationId':str(uuid4()),'baseSetupId':setup['activeSetupId'],'configuration':payload}
  draft=c.call('gas-setup/save',command);assert c.call('gas-setup/save',command)==draft
  validation=c.call('gas-setup/validate',{'setupId':draft['setupId'],'from':'2021-01-01','to':'2021-02-01'});assert validation['valid'],validation
@@ -30,8 +35,9 @@ def run_checks(url,query,manifest):
  choices=c.call('tickets/choices',{'context':context,'draft':draft_terms,'side':'physical','field':'forecast_curve'})
  assert len(choices['choices'])==1 and choices['choices'][0]['value']!='assigned',choices
  assert __import__('json').loads(choices['choices'][0]['value'])['curveId']==curve['id']
- # The fixture source is3.30; retain the point's explicit-0.10 group adjustment:2*3.30-0.10=6.50.
- value=c.call('gas/composition/preview',body);assert Decimal(value['sides'][0]['presentValue'])==Decimal('6500'),value['sides'][0]['presentValue']
+ # The fixture source is3.30. The preceding browser check may publish another
+ # explicit group adjustment; retain exactly that selected setup in the oracle.
+ value=c.call('gas/composition/preview',body);assert Decimal(value['sides'][0]['presentValue'])==expected_physical,value['sides'][0]['presentValue']
  booked=c.call('gas/composition/book',body);assert c.call('gas/composition/book',body)==booked
  indexed=deepcopy(body);indexed['operationId']=str(uuid4());indexed['profile']='indexed_gas_composition_v1'
  indexed['cashSides']=[{'code':'payment','role':'indexed_consideration','direction':'pay','source':'gas','stage':'delivery','price':None,'tariffCode':None,'paymentAt':None,
@@ -49,10 +55,10 @@ def run_checks(url,query,manifest):
  # Publishing a native setup changes new bookings only. The old contract keeps its exact graph.
  c.call('profile',{'profile':'editor'});native=c.call('gas-setup/save',{'operationId':str(uuid4()),'baseSetupId':draft['setupId'],'configuration':original})
  c.call('profile',{'profile':'approver'});c.call('gas-setup/publish',{'operationId':str(uuid4()),'setupId':native['setupId']})
- c.call('profile',{'profile':'trader'});held=c.call('gas/composition/editor',{'context':context,'tradeId':booked['tradeId']})['valuation'];assert Decimal(held['sides'][0]['presentValue'])==Decimal('6500'),held['sides'][0]['presentValue']
+ c.call('profile',{'profile':'trader'});held=c.call('gas/composition/editor',{'context':context,'tradeId':booked['tradeId']})['valuation'];assert Decimal(held['sides'][0]['presentValue'])==expected_physical,held['sides'][0]['presentValue']
  assert c.call('gas/composition/book',body)==booked
  assert c.call('gas/composition/book',indexed)==indexed_book
  retained_index=c.call('gas/composition/editor',{'context':context,'tradeId':indexed_book['tradeId']})['valuation']
  assert Decimal(retained_index['sides'][1]['presentValue'])==Decimal('-6600'),retained_index['sides'][1]
- fresh=gas_purchase(context,c.call('gas/catalog',context));assert Decimal(c.call('gas/composition/preview',fresh)['sides'][0]['presentValue'])==Decimal('3200')
+ fresh=gas_purchase(context,c.call('gas/catalog',context));assert Decimal(c.call('gas/composition/preview',fresh)['sides'][0]['presentValue'])==expected_native
  print('PASS point pricing: setup-derived exact graph, no trade override, contradiction refused, immutable booked pin, monthly location cash, native restoration and exact retries',flush=True)
