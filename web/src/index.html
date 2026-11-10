@@ -18,29 +18,37 @@
       <button id="nav-interval-series" class="nav-item" aria-label="Interval data" title="Interval data"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20v-6M9 20V8M14 20v-9M19 20V4"/></svg></span><span class="nav-text">Interval data</span></button>
       <button id="nav-vol-surfaces" class="nav-item" aria-label="Vol surfaces" title="Vol surfaces" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 5c3 10 15 10 18 0"/><path d="M3 20h18"/><circle cx="12" cy="12.5" r="1.4"/></svg></span><span class="nav-text">Vol surfaces</span></button>
     </nav></details>
+    <details id="nav-group-risk" class="nav-group" open hidden><summary>Risk</summary><nav aria-label="Risk">
+      <button id="nav-risk" class="nav-item" aria-label="Reports" title="Reports" hidden><span class="nav-icon" aria-hidden="true">±</span><span class="nav-text">Reports</span></button>
+      <button id="nav-risk-scenarios" class="nav-item" aria-label="Scenarios &amp; Greeks" title="Scenarios &amp; Greeks" hidden><span class="nav-icon" aria-hidden="true">±</span><span class="nav-text">Scenarios &amp; Greeks</span></button>
+      <button id="nav-risk-var" class="nav-item" aria-label="VaR / ES" title="VaR / ES" hidden><span class="nav-icon" aria-hidden="true">±</span><span class="nav-text">VaR / ES</span></button>
+      <button id="nav-risk-runs" class="nav-item" aria-label="Run history" title="Run history" hidden><span class="nav-icon" aria-hidden="true">±</span><span class="nav-text">Run history</span></button>
+    </nav></details>
     <details id="nav-group-operations" class="nav-group" open><summary>Operations</summary><nav aria-label="Operations">
       <button id="nav-physical-operations" class="nav-item" aria-label="Physical operations" title="Physical operations" hidden><span class="nav-icon" aria-hidden="true">▤</span><span class="nav-text">Physical operations</span></button>
-      <button id="nav-physical" class="nav-item" aria-label="Facilities &amp; delivery" title="Facilities &amp; delivery" hidden><span class="nav-icon" aria-hidden="true">⇄</span><span class="nav-text">Facilities &amp; delivery</span></button>
-      <button id="nav-risk" class="nav-item" aria-label="Risk" title="Risk" hidden><span class="nav-icon" aria-hidden="true">±</span><span class="nav-text">Risk</span></button>
-      <button id="nav-jobs" class="nav-item" aria-label="Jobs & Infrastructure" title="Jobs & Infrastructure"><span class="nav-icon" aria-hidden="true">↻</span><span class="nav-text">Jobs &amp; Infrastructure</span></button>
+      <button id="nav-facilities" class="nav-item" aria-label="Facilities" title="Facilities" hidden><span class="nav-icon" aria-hidden="true">⇄</span><span class="nav-text">Facilities</span></button>
     </nav></details>
-    <details id="nav-group-settings" class="nav-group" open><summary>Settings</summary><nav aria-label="Settings">
-      <button id="nav-configuration" hidden class="nav-item" aria-label="Contract definitions" title="Contract definitions"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg></span><span class="nav-text">Contract definitions</span></button>
-      <button id="nav-schedules" class="nav-item" aria-label="Schedules &amp; date mappings" title="Schedules &amp; date mappings"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span><span class="nav-text">Schedules &amp; date mappings</span></button>
-      <button id="nav-power" class="nav-item" aria-label="Power TOUs" title="Power TOUs"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></span><span class="nav-text">Power TOUs</span></button>
-      <button id="nav-reference" class="nav-item" aria-label="Reference data" title="Reference data"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></svg></span><span class="nav-text">Reference data</span></button>
-      <button id="nav-parties" class="nav-item" aria-label="Entities & counterparties" title="Entities & counterparties" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6M8 10h.01M12 10h.01M16 10h.01"/></svg></span><span class="nav-text">Entities &amp; counterparties</span></button>
+    <details id="nav-group-reference" class="nav-group" open><summary>Reference Data</summary><nav aria-label="Reference Data">
+      <button id="nav-reference" class="nav-item" aria-label="Reference Data" title="Reference Data"><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></svg></span><span class="nav-text">Reference Data</span></button>
     </nav></details>
-    <details id="nav-group-admin" class="nav-group" open hidden><summary>Admin</summary><nav aria-label="Admin">
+    <details id="nav-group-infrastructure" class="nav-group" open><summary>Infrastructure</summary><nav aria-label="Infrastructure">
+      <button id="nav-jobs" class="nav-item" aria-label="Jobs" title="Jobs"><span class="nav-icon" aria-hidden="true">↻</span><span class="nav-text">Jobs</span></button>
       <button id="nav-admin" class="nav-item" aria-label="Users & access" title="Users & access" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></span><span class="nav-text">Users &amp; access</span></button>
       <button id="nav-ai" class="nav-item" aria-label="AI" title="AI" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg></span><span class="nav-text">AI</span></button>
     </nav></details>
   </div>
   <div class="side-note"><strong><span class="dot" aria-hidden="true"></span><span id="workspace-host-mode">Workspace</span></strong><p id="workspace-mode-description">Verifying workspace information.</p><div class="example-switch"><label for="example-dataset">Market example</label><select id="example-dataset" aria-label="Market example"></select></div></div>
 </aside>
+<nav id="reference-console" class="reference-console" aria-label="Reference Data" hidden>
+  <button id="reference-console-toggle" type="button" class="reference-console-toggle" aria-controls="reference-console-body" aria-expanded="true" aria-label="Collapse the Reference Data menu"><span aria-hidden="true">‹</span></button>
+  <div id="reference-console-body" class="reference-console-body">
+    <form id="reference-search-all" class="reference-search-all" role="search"><label for="reference-search-all-text" class="sr-only">Search reference data</label><input id="reference-search-all-text" type="search" required maxlength="160" autocomplete="off" placeholder="Search reference data"></form>
+    <div id="reference-console-groups"></div>
+  </div>
+</nav>
 <main>
   <header>
-    <div><div id="page-section" class="eyebrow">MARKETS</div><h1 id="page-title">Curves & prices</h1></div>
+    <div><div id="page-section" class="eyebrow">MARKETS</div><h1 id="page-title">Curves & prices</h1><div id="page-heading-slot" class="page-heading-slot" hidden></div></div>
     <div class="header-actions">
       <div id="context-toolbar" class="context-toolbar" role="group" aria-label="View context" hidden>
         <div id="market-close-controls" class="context-market" role="group" aria-label="Market close">
@@ -71,32 +79,9 @@
   </header>
   <div id="error" role="alert" hidden></div><div id="notice" role="status" hidden></div>
   <div id="blotter-window-question" class="blotter-window-question" tabindex="-1" aria-label="The Blotter’s window"><div id="blotter-window-question-prompt" class="side-panel-prompt" role="alertdialog" hidden></div></div>
-  <div class="status-bar"><span id="status" role="status" aria-live="polite">Loading market data…</span></div>
+  <div class="status-bar sr-only"><span id="status" role="status" aria-live="polite">Loading market data…</span></div>
   <section id="physical-operations-page" hidden aria-label="Physical operations"></section>
-  <section id="physical-workspace" class="physical-workspace" hidden aria-label="Facilities and delivery">
-    <div class="physical-workspace-heading">
-      <p class="field-help">Delivery relationships, pricing bindings and facility quantities in one workspace.</p>
-      <nav class="physical-workspace-nav" aria-label="Physical workflow"><button id="physical-delivery-setup" type="button">Delivery setup</button><button id="nav-facilities" type="button" hidden>Quantities &amp; allocations</button></nav>
-      <nav id="physical-commodity" class="physical-commodity" aria-label="Delivery setup commodity"><span>Commodity family</span><button id="nav-gas-setup" type="button">Natural gas</button><button id="nav-crude-setup" type="button">Crude oil</button></nav>
-      <details id="physical-type-coverage" class="physical-type-coverage card" data-own-controls open>
-        <summary>Facility &amp; transport workflows</summary>
-        <p id="physical-type-definitions" class="field-help">View location definitions in Reference data → Locations. Available setup views and planned workflows are listed below.</p>
-        <div class="physical-type-grid">
-          <button id="physical-pipelines" class="physical-type-card" type="button"><strong>Pipelines</strong><span>Gas delivery setup</span></button>
-          <button id="physical-crude-sites" class="physical-type-card" type="button"><strong>Crude delivery sites</strong><span>Crude delivery setup</span></button>
-          <button class="physical-type-card" type="button" disabled data-planned><strong>Gas storage</strong><span>Planned · TBD</span></button>
-          <button class="physical-type-card" type="button" disabled data-planned><strong>Power plants</strong><span>Planned · TBD</span></button>
-          <button class="physical-type-card" type="button" disabled data-planned><strong>Rail / trains</strong><span>Planned · TBD</span></button>
-          <button class="physical-type-card" type="button" disabled data-planned><strong>Barges</strong><span>Planned · TBD</span></button>
-          <button class="physical-type-card" type="button" disabled data-planned><strong>Tankers</strong><span>Planned · TBD</span></button>
-          <button class="physical-type-card" type="button" disabled data-planned><strong>Trucks</strong><span>Planned · TBD</span></button>
-          <button class="physical-type-card" type="button" disabled data-planned><strong>LNG terminals</strong><span>Planned · TBD</span></button>
-          <button class="physical-type-card" type="button" disabled data-planned><strong>Processing plants</strong><span>Planned · TBD</span></button>
-          <button class="physical-type-card" type="button" disabled data-planned><strong>Terminals / ports</strong><span>Planned · TBD</span></button>
-          <button class="physical-type-card" type="button" disabled data-planned><strong>Bulk storage / tank farms</strong><span>Planned · TBD</span></button>
-        </div>
-      </details>
-    </div>
+  <nav id="physical-commodity" class="physical-commodity" aria-label="Delivery setup commodity" hidden><span>Commodity family</span><button id="nav-gas-setup" type="button">Natural gas</button><button id="nav-crude-setup" type="button">Crude oil</button></nav>
     <section id="crude-setup-page" hidden aria-label="Crude delivery setup"></section>
     <section id="gas-setup-page" hidden aria-label="Gas delivery setup"></section>
     <section id="facilities-page" data-own-controls hidden>
@@ -144,7 +129,6 @@
     <div id="facility-pending" class="card mode-banner" hidden><h3>Request outcome unconfirmed</h3><p id="facility-pending-description"></p><div class="actions"><button id="facility-status" type="button" class="secondary">Check status</button><button id="facility-retry" type="button">Retry original request</button><button id="facility-discard" type="button" class="secondary">Discard after checking</button></div></div>
     <p id="facility-saved" role="status"></p>
   </section>
-  </section>
   <section id="crude-page" hidden aria-label="Physical crude bookings"></section>
   <section id="lng-page" hidden aria-label="Physical LNG bookings"></section>
   <section id="gas-page" hidden aria-label="Physical gas bookings"></section>
@@ -152,10 +136,9 @@
   <section id="ppa-page" hidden aria-label="PPA bookings"></section>
   <nav id="curve-price-navigation" class="curve-price-navigation" aria-label="Curve workspace" hidden>
     <button id="curve-price-contracts" type="button" class="secondary" aria-pressed="true">Contract prices</button>
-    <button id="nav-custom-curves" type="button" class="secondary" aria-pressed="false">Curve builder</button>
     <button id="nav-interval-curves" type="button" class="secondary" aria-pressed="false">Hourly / sub-hourly prices</button>
-    <button id="curve-price-setup" type="button" class="secondary" aria-pressed="false">Price setup</button>
   </nav>
+  <section id="curve-definitions-page" hidden aria-label="Curve definitions"><div id="curve-definition"></div></section>
   <section id="custom-curves-page" hidden aria-label="Curve builder"></section>
   <section id="price-setup-page" hidden aria-label="Price setup"><div id="price-setup-tabs" class="price-authoring-tabs"></div><div id="price-setup-panel"><section id="contract-price-terms-editor" class="card"></section><section id="price-publications-editor" class="card" hidden></section></div></section>
   <section id="vol-surfaces-page" hidden aria-label="Volatility surfaces"></section>
@@ -225,10 +208,9 @@
     <div class="market-layout"><section id="curve-library" class="curve-library" aria-label="Choose a curve">
       <div class="library-heading"><button id="library-toggle" type="button" aria-expanded="true" aria-controls="curves" aria-label="Collapse curve list" title="Collapse curve list"><span class="library-title">CURVES</span><span id="curve-count"></span><span class="library-chevron" aria-hidden="true">‹</span></button></div>
       <div class="library-filters"><div class="filter-tabs" aria-label="Market type"><button data-type="all" class="active" aria-pressed="true">All</button><button data-type="futures" aria-pressed="false">Futures</button><button data-type="forwards" aria-pressed="false">Forwards</button><button data-type="rates" aria-pressed="false">Rates</button></div>
-        <div class="browse-controls"><div><label for="commodity">Market</label><select id="commodity"><option value="">All markets</option></select></div><div><label for="browse-by">Group by</label><select id="browse-by"><option value="commodity">Commodity</option><option value="marketType">Market type</option></select></div></div><button id="curve-define" type="button" class="secondary curve-define">Curve definitions</button></div>
+        <div class="browse-controls"><div><label for="commodity">Market</label><select id="commodity"><option value="">All markets</option></select></div><div><label for="browse-by">Group by</label><select id="browse-by"><option value="commodity">Commodity</option><option value="marketType">Market type</option></select></div></div></div>
       <div id="curves"></div></section>
     <div class="market-content">
-      <section id="curve-definition" hidden></section>
       <section id="market-board" class="market-board" aria-labelledby="market-board-title"><header class="market-board-head"><div><p class="eyebrow">Market board</p><h2 id="market-board-title">Every curve at this close</h2><p id="market-board-status" class="market-board-status"></p></div><div class="market-board-sample"><button id="example" type="button" class="secondary">Open sample prices</button><p id="example-help" class="fine-print"></p></div></header><div id="market-board-empty" class="market-board-empty"><div class="market-board-empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-9"/><path d="M15 7h5v5"/></svg></div><h3 id="market-board-empty-title">Choose a market date</h3><p id="market-board-empty-help">Pick a close in As of above to see every curve at that close, or choose a curve from the list.</p></div><div id="market-board-groups"></div></section>
       <section id="curve-detail" hidden>
         <div class="curve-header"><div><nav class="curve-crumbs" aria-label="Curves"><button id="curve-all-markets" type="button" class="text-button"><span aria-hidden="true">‹</span> All markets</button><span class="eyebrow" id="curve-kind"></span></nav><div class="curve-title-row"><span id="curve-kind-badge"></span><h2 id="curve-title"></h2></div></div><div class="curve-header-actions"><span id="unit" class="unit-pill"></span><button id="curve-power" type="button" class="secondary" hidden>Power hours &amp; settlements</button><button id="curve-definition-link" type="button" class="secondary" hidden>Curve definition</button></div></div>
@@ -306,8 +288,8 @@
 <label for="party-kind">Party type</label><select id="party-kind"><option value="legal_entity">Legal entities</option><option value="counterparty">Counterparties</option></select><div id="party-list" class="table-wrap"></div>
 <p id="party-read-only" class="field-help" hidden>Read-only. Editing requires party-maintenance permission and working data.</p><button id="party-new" type="button" class="secondary">New party</button><p id="party-saved" role="status"></p></div>
 <div class="card"><h3 id="party-edit-title">New party</h3><form id="party-form" hidden><fieldset id="party-fields"><div class="schedule-fields"><div><label for="party-code">Code · permanent identity</label><input id="party-code" required maxlength="48" pattern="[a-z][a-z0-9_]{0,47}"></div><div><label for="party-name">Name</label><input id="party-name" required aria-describedby="party-name-limit"><small id="party-name-limit">Maximum 80 characters.</small></div><div><label for="party-effective">Effective from · <span data-user-time-zone></span></label><input id="party-effective" type="datetime-local" step="60" required></div></div><p class="field-help">Saving appends a version. Earlier versions and booked trades keep their original names and references.</p><button type="submit">Save version</button></fieldset></form><div id="party-pending" hidden><p>The save outcome is unconfirmed. Retry the original request, or inspect saved versions before discarding it.</p><button id="party-retry" type="button">Retry original save</button><button id="party-discard" type="button" class="secondary">Discard request after checking</button></div><h3>Version history</h3><div id="party-history" class="table-wrap"></div></div></section>
-<section id="reference-page" hidden><div class="card"><div class="reference-navigation"><div id="reference-groups" class="side-panel-tabs page-tabs"></div><form id="reference-search-all" class="reference-search-all" role="search"><label for="reference-search-all-text" class="sr-only">Search all reference data</label><input id="reference-search-all-text" type="search" required maxlength="160" autocomplete="off" placeholder="Search all reference data"><button type="submit" class="secondary">Search</button></form></div><div id="reference-search-hits" class="reference-search-hits" hidden></div>
-<div id="reference-group-panel"><div id="reference-sections" class="side-panel-tabs page-tabs reference-sections"></div><div id="reference-panel"><div id="reference-list"><div class="card-heading"><div><h2 id="data-title">Reference data</h2><p id="data-description">Units, currencies, locations and contract details.</p></div></div><form id="reference-search-form" class="inline-form"><div><label for="reference-search">Search this category</label><input id="reference-search" type="search" maxlength="160" autocomplete="off"></div><button type="submit" class="secondary">Search</button></form><div class="schedule-actions"><button id="reference-previous" type="button" class="secondary" disabled>Previous page</button><button id="reference-next" type="button" class="secondary" disabled>Next page</button><span id="reference-page-status" role="status"></span></div><div id="reference" class="table-wrap"></div></div><div id="reference-item" class="reference-item" hidden></div></div></div></div><div id="unit-converter" class="card" hidden><h3>Convert quantities</h3><p>Conversions preserve commodity and measurement basis. Gas volume needs a heating value to become energy; MW needs a delivery duration to become MWh.</p>
+<section id="reference-page" hidden><div class="card"><div id="reference-search-hits" class="reference-search-hits" hidden></div>
+<div id="reference-panel"><div id="reference-list"><div class="card-heading"><div><h2 id="data-title">Reference data</h2><p id="data-description">Units, currencies, locations and contract details.</p></div></div><form id="reference-search-form" class="inline-form"><div><label for="reference-search">Search this category</label><input id="reference-search" type="search" maxlength="160" autocomplete="off"></div><button type="submit" class="secondary">Search</button></form><div class="schedule-actions"><button id="reference-previous" type="button" class="secondary" disabled>Previous page</button><button id="reference-next" type="button" class="secondary" disabled>Next page</button><span id="reference-page-status" role="status"></span></div><div id="reference" class="table-wrap"></div></div><div id="reference-item" class="reference-item" hidden></div></div></div><div id="unit-converter" class="card" hidden><h3>Convert quantities</h3><p>Conversions preserve commodity and measurement basis. Gas volume needs a heating value to become energy; MW needs a delivery duration to become MWh.</p>
 <form id="unit-conversion-form"><div class="schedule-fields converter-fields"><div><label for="unit-value">Amount</label><input id="unit-value" required inputmode="decimal" maxlength="45"></div><div><label for="unit-commodity">Commodity</label><select id="unit-commodity" required></select></div><div><label for="unit-from">From</label><select id="unit-from" required></select></div><div><label for="unit-to">To</label><select id="unit-to" required></select></div></div>
 <div class="converter-precision"><div><label for="unit-rounding">Conversion precision</label><select id="unit-rounding"><option value="exact">Exact · reject an unrepresentable result</option><option value="round">Round the final result</option></select></div><div id="unit-rounding-fields" class="schedule-fields" hidden><div><label for="unit-decimals">Decimal places</label><input id="unit-decimals" type="number" min="0" max="18" value="6" required></div><div><label for="unit-tie">Ties</label><select id="unit-tie"><option value="to_even">To even</option><option value="away_from_zero">Away from zero</option></select></div></div><button type="submit">Convert</button></div></form><p id="unit-conversion-result" role="status"></p></div></section>
 <div id="curve-date-editor" class="card" hidden><h2>Date mappings</h2><p class="muted">Save reviewed date rules as a draft, then publish an immutable version for the workspace. Schedule references retain the exact versions used when saving. Resolve a published version in an explicitly selected context. This does not create exchange contracts, curves or booked sides.</p>
@@ -404,22 +386,24 @@
   </section>
   <section id="risk-page" hidden>
     <div id="risk-page-prompt" class="side-panel-prompt" hidden></div>
-    <div class="card risk-workspace-heading"><div class="card-heading"><div><span class="workbench-eyebrow">PORTFOLIO RISK</span><h2>Risk reports</h2><p>Shared market-factor shocks, full instrument repricing and visible coverage. VaR and expected shortfall (parametric, historical and Monte Carlo) and native sensitivity reports.</p></div><div class="actions"><button id="risk-jobs-new" class="secondary" type="button">Scenarios and Greeks</button><button id="risk-history-open" type="button" disabled>VaR / ES</button><button id="risk-workspace-export" class="secondary" type="button" disabled>Export report</button><button id="risk-workspace-refresh" class="secondary" type="button">Refresh Risk</button></div></div>
+    <div class="card risk-workspace-heading">
+      <div class="risk-scope-bar"><span class="risk-scope-label">Scope</span><span id="risk-scope-summary"></span><div class="actions"><button id="risk-jobs-new" class="secondary" type="button" data-risk-view="risk-scenarios">New run</button><button id="risk-history-open" type="button" disabled data-risk-view="risk-var">Prepare VaR / ES</button><button id="risk-workspace-export" class="secondary" type="button" disabled data-risk-view="risk">Export report</button><button id="risk-workspace-refresh" class="secondary" type="button" data-risk-view="risk">Refresh Risk</button></div></div>
+      <details id="risk-scope-editor" class="risk-scope-editor"><summary>Change scope</summary>
       <div class="risk-workspace-scope"><label>Portfolios<select id="risk-workspace-portfolios" multiple size="3" aria-describedby="risk-workspace-scope-help"></select></label><label>Books<select id="risk-workspace-books" multiple size="3" aria-describedby="risk-workspace-scope-help"></select></label></div>
       <p id="risk-workspace-scope-help" class="field-help">Portfolio → books → trades. No portfolio or book filter means all readable books. Scope changes affect the next calculation; a retained report keeps its captured selection.</p>
       <div class="risk-trade-scope"><label>Trade scope<select id="risk-workspace-trade-mode"><option value="all">All trades in these books</option><option value="selected">Choose individual trades</option></select></label><label>Trades in these books<select id="risk-workspace-trades" multiple size="7" aria-describedby="risk-workspace-trade-help"></select></label><p id="risk-workspace-trade-help" class="field-help" role="status"></p><button id="risk-workspace-trades-more" type="button" class="secondary" hidden>Load more trades</button></div>
+      </details>
       <p id="risk-workspace-note" role="status"></p>
     </div>
     <p id="risk-workspace-context-note" class="risk-context-note" role="status"></p>
-    <details id="risk-history-panel" class="card"><summary>VaR setup and price coverage</summary><div id="risk-history-body"></div></details>
-    <div id="risk-workspace-results" class="card risk-results" aria-live="polite"></div>
-    <details id="risk-workspace-editor" class="card"><summary>Run setup and job status</summary><p class="field-help">Run now is available for this visit. Queue as job retains the exact inputs and report for reload and reopening by link under the submitting account’s current authority.</p><div id="risk-workspace-editor-body"></div></details>
-    <details class="card risk-report-library"><summary>Reports and runs</summary><div class="card-heading"><p>The recent directory is bounded. A missing part is unavailable, never a completed or zero-risk part. Open a report to read its captured context.</p><button id="risk-jobs-refresh" class="secondary" type="button">Refresh recent runs</button></div><div id="risk-jobs-list" class="table-wrap" aria-live="polite"></div><div id="risk-jobs-report"></div>
-      <details><summary>Worker diagnostics</summary><p>Queued work waits for a separately configured worker with matching engine binaries. Queueing does not start a worker.</p><button id="risk-jobs-nodes" class="secondary" type="button">Manage worker nodes</button></details>
+    <details id="risk-history-panel" class="card" data-risk-view="risk-var"><summary>VaR setup and price coverage</summary><div id="risk-history-body"></div></details>
+    <div id="risk-workspace-results" data-risk-view="risk" class="card risk-results" aria-live="polite"></div>
+    <details id="risk-workspace-editor" class="card" data-risk-view="risk-scenarios"><summary>Run setup and job status</summary><p class="field-help">Run now is available for this visit. Queue as job retains the exact inputs and report for reload and reopening by link under the submitting account’s current authority.</p><div id="risk-workspace-editor-body"></div></details>
+    <details class="card risk-report-library" data-risk-view="risk-runs" open><summary>Reports and runs</summary><div class="card-heading"><p>The recent directory is bounded. A missing part is unavailable, never a completed or zero-risk part. Open a report to read its captured context.</p><button id="risk-jobs-refresh" class="secondary" type="button">Refresh recent runs</button></div><div id="risk-jobs-list" class="table-wrap" aria-live="polite"></div><div id="risk-jobs-report"></div>
     </details>
   </section>
   <section id="jobs-page" hidden>
-    <div class="card"><div class="card-heading"><div><h2>Jobs &amp; Infrastructure</h2><p id="jobs-scope"></p></div><button id="jobs-refresh" class="secondary" type="button">Refresh jobs</button></div><div id="jobs-table" class="table-wrap"></div><p id="jobs-page-count"></p><div class="actions"><button id="jobs-previous" type="button" class="secondary" disabled>Previous page</button><button id="jobs-next" type="button" class="secondary" disabled>Next page</button></div></div>
+    <div class="card"><div class="card-heading"><p id="jobs-scope"></p><button id="jobs-refresh" class="secondary" type="button">Refresh jobs</button></div><div id="jobs-table" class="table-wrap"></div><p id="jobs-page-count"></p><div class="actions"><button id="jobs-previous" type="button" class="secondary" disabled>Previous page</button><button id="jobs-next" type="button" class="secondary" disabled>Next page</button></div></div>
     <div class="card"><details id="job-editor" hidden><summary id="job-editor-title">New job</summary><form id="job-create" hidden>
       <div class="schedule-fields"><label>Name<input id="job-name" maxlength="80" required></label><label>Operation<select id="job-operation" required><option value="">Choose an operation…</option><option value="worker_check">Worker readiness check</option><option value="swarm_job">Approved container job</option></select></label><label id="job-profile-field" hidden>Execution profile<select id="job-profile"><option value="">Choose an approved image…</option></select></label></div>
       <div class="schedule-fields"><label>Due at<input id="job-due" type="datetime-local" step="1" required></label><label>Expires at<input id="job-expires" type="datetime-local" step="1" required></label><label>Frequency<select id="job-frequency" required><option value="">Choose frequency…</option><option value="once">Once</option><option value="interval">Fixed interval</option></select></label><label id="job-interval-field" hidden>Interval (seconds)<input id="job-interval" type="number" min="60" max="31536000"></label></div>

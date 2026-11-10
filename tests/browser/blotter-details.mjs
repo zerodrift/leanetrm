@@ -189,19 +189,19 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('at 1440 by 1400, ↓ five times beside the open details leaves the first row in view where it was',
     `(()=>{const a=${row(JSON.stringify(first.key))};return !!a&&Math.abs(a.getBoundingClientRect().top-${holder}.getBoundingClientRect().top-${first.top})<=1;})()`,room);
   await click('#details-collapse');await wait(`${collapsed}&&${idle}`);
-  // At 1440 by 900 the dock cannot hold a 250 px grid and 240 px of details beside the summary strip: the two share what is left evenly,
+  // At 1440 by 840 the dock cannot hold a 250 px grid and 240 px of details beside the summary strip: the two share what is left evenly,
   // each at least 160 px, and no pane reaches past the dock into the band beneath it.
-  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});await evaluate(frames);
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:840,deviceScaleFactor:1,mobile:false});await evaluate(frames);
   await evaluate(`${rows}.find(r=>{const h=${holder}.getBoundingClientRect(),b=r.getBoundingClientRect();return b.top>=h.top-0.5&&b.bottom<=h.bottom+0.5;}).focus({preventScroll:true})`);
   await press('Enter');await wait(`document.querySelector('#position-details')?.hidden===false&&${idle}`);await evaluate(frames);
   const shared=`(()=>{const r=${room};return r.details>=160&&r.grid>=160&&Math.abs(r.details-r.grid)<=2&&r.page[0]<=r.page[1]&&r.groups.every(g=>g[2]<=r.dock+1);})()`;
   await wait(shared,3000).catch(()=>undefined);
-  await check('at 1440 by 900 the grid and the open details share the room evenly, each at least 160 px, and every pane stays inside the dock',shared,room);
+  await check('at 1440 by 840 the grid and the open details share the room evenly, each at least 160 px, and every pane stays inside the dock',shared,room);
   // Grown back to 1440 by 1050 with the details open, the panes take their own minimums again.
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await wait(roomy,3000).catch(()=>undefined);
   await check('a taller window with the details open gives the grid 250 px and the details 240 px again, inside the dock',roomy,room);
-  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:840,deviceScaleFactor:1,mobile:false});
   await wait(shared,3000).catch(()=>undefined);
   await check('and a shorter one has them share the room again',shared,room);
   await click('#details-collapse');await wait(`${collapsed}&&${idle}`);

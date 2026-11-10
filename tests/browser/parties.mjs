@@ -40,5 +40,5 @@ export async function run({command,wait,click,set,submit,check,evaluate,idle,url
  await click('#profile-open');await set('#profile','trader');await click('#open');await click('#example');await click('#nav-parties');
  await check('trader can inspect parties with read-only fields',"!document.querySelector('#party-read-only').hidden&&document.querySelector('#party-fields').disabled&&document.querySelector('#party-new').disabled");
  await click('#profile-open');await set('#profile','viewer');await click('#open');
- await check('identity change clears cached party records and hides unauthorized navigation',"document.querySelector('#nav-parties').hidden&&document.querySelector('#party-list').children.length===0&&document.querySelector('#party-name').value===''&&document.querySelector('#parties-page').hidden");
+ await check('identity change clears cached party records and hides unauthorized navigation',"!document.querySelector('#nav-parties')&&document.querySelector('#party-list').children.length===0&&document.querySelector('#party-name').value===''&&document.querySelector('#parties-page').hidden");
 }

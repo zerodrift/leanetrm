@@ -8,7 +8,7 @@ export async function run(actions){
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-crude-setup')&&"+idle);await persona('editor');
  await evaluate("document.querySelector('#snapshot').value=''");
  await open();await wait(idle);
- await check('setup inspection waits for the header context',"document.querySelector('#page-title').textContent==='Facilities & delivery'&&document.querySelector('#nav-crude-setup').getAttribute('aria-current')==='page'&&document.querySelector('#cs-status').textContent.includes('header')&&document.querySelector('#cs-new').disabled&&document.querySelector('#cs-grade').options.length===0");
+ await check('setup inspection waits for the header context',"document.querySelector('#page-title').textContent==='Delivery setup'&&document.querySelector('#nav-crude-setup').getAttribute('aria-current')==='page'&&document.querySelector('#cs-status').textContent.includes('header')&&document.querySelector('#cs-new').disabled&&document.querySelector('#cs-grade').options.length===0");
  const frame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>w.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18')).id;})()");
  await evaluate(`(()=>{const original=window.fetch;window.fetch=async function(input,init){const response=await original.call(this,input,init);if(String(input).includes('/api/crude-setup/catalog?')&&response.ok){window.crudeSetupCatalog=await response.clone().json();window.fetch=original;}return response;};})()`);
  await set('#snapshot',frame);await wait("document.querySelector('#cs-grade').options.length>1&&!!window.crudeSetupCatalog&&"+idle);

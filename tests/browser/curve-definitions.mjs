@@ -5,9 +5,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await persona('viewer');
  const close=at=>evaluate(`(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith(${JSON.stringify(at)})).id;})()`);
  await set('#snapshot',await close('2021-01-15T16:00:00'));await wait(idle,30000);
- await click('#curve-define');await wait("document.querySelectorAll('#curve-definition-mapping option').length>1&&"+idle);
- await check('the editor replaces the board on Curves & prices, and Schedules keeps only schedules and date mappings',
-  "!document.querySelector('#curve-definition').hidden&&document.querySelector('#market-board').hidden&&document.querySelector('#curve-detail').hidden&&!document.querySelector('#schedule-tab-curves')");
+ await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-mapping option').length>1&&"+idle);
+ await check('the editor is its own Reference Data page, and Schedules keeps only schedules and date mappings',
+  "!document.querySelector('#curve-definitions-page').hidden&&document.querySelector('#page-title').textContent==='Curve definitions'&&document.querySelector('#page-section').textContent==='REFERENCE DATA'&&document.querySelector('#market-page').hidden&&!document.querySelector('#curve-define')&&document.querySelector('#nav-curve-definitions').getAttribute('aria-current')==='page'&&!document.querySelector('#schedule-tab-curves')");
  await check('Coming soon business cases are listed and cannot be chosen, and readers cannot save',
   "[...document.querySelectorAll('#curve-definition-target option')].some(o=>o.textContent.includes('Hourly physical price')&&o.disabled)&&[...document.querySelectorAll('#curve-definition-rule option')].some(o=>o.textContent.includes('Formula contracts')&&o.disabled)&&document.querySelector('#curve-definition-save').hidden");
  const choose=(id,text)=>`(()=>{const field=document.querySelector('#curve-definition-${id}');field.value=[...field.options].find(o=>o.textContent.includes(${JSON.stringify(text)})&&!o.disabled).value;field.dispatchEvent(new Event('change',{bubbles:true}));})()`;
@@ -29,11 +29,11 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('a refused definition shows the server refusal and no stale window',
   "!document.querySelector('#error').hidden&&document.querySelector('#curve-definition-result').hidden");
  await check('the curve form stays inside the market content',"(()=>{const content=document.querySelector('.market-content');return content.scrollWidth<=content.clientWidth+1;})()");
- await click('#curve-definition-back');await wait(idle);
- await check('All markets returns to the board',"document.querySelector('#curve-definition').hidden&&!document.querySelector('#market-board').hidden");
+ await click('#nav-market');await wait(idle);
+ await check('Curves & prices shows the board again',"document.querySelector('#curve-definitions-page').hidden&&!document.querySelector('#market-board').hidden");
  // D358: saved definitions are listed and edited here; tools/check_curve_definitions.py published usd_zero over rate_tenors.
  await set('#snapshot',await close('2021-01-15T16:00:00'));await wait(idle,30000);
- await persona('editor');await click('#curve-define');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
+ await persona('editor');await click('#nav-market');await wait(idle);await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
  // Changing persona selects the newest available close; the rate curve marked there makes that 15 February, so return to 15 January.
  await set('#snapshot',await close('2021-01-15T16:00:00'));await wait(idle,30000);
  const open=code=>evaluate(`[...document.querySelectorAll('#curve-definition-list .shortcut-saved-row')].find(r=>r.textContent.includes(${JSON.stringify(code)})).querySelector('button').click()`);
@@ -70,13 +70,16 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await click('#curve-definition-save');await wait(idle);
  await check('an author saves the definition and its tenors as drafts',"document.querySelector('#error').hidden&&document.querySelector('#curve-definition-status').textContent.includes('Saved draft')",
   "({error:document.querySelector('#error').textContent,status:document.querySelector('#curve-definition-status').textContent})");
- await persona('approver');await click('#curve-define');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
+ await persona('approver');await click('#nav-market');await wait(idle);await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
  await open('browser_zero');await wait(idle);await click('#curve-definition-publish');await wait(idle);
  await check('save then publish publishes the curve and its tenors',
   "document.querySelector('#error').hidden&&[...document.querySelectorAll('#curve-definition-list .shortcut-saved-row')].some(r=>r.textContent.includes('browser_zero')&&r.textContent.includes('published'))",
   "({error:document.querySelector('#error').textContent,list:document.querySelector('#curve-definition-list').textContent})");
- await persona('editor');await click('#curve-define');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
+ await persona('editor');await click('#nav-market');await wait(idle);await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
  await open('usd_zero');await wait(idle);
+ await set('#curve-definition-name','Edited, not saved');const heldClose=await evaluate("document.querySelector('#snapshot').value");await set('#snapshot',await evaluate("[...document.querySelector('#snapshot').options].map(o=>o.value).filter(v=>v&&v!==document.querySelector('#snapshot').value)[0]"));await wait(idle,30000);
+ await check('changing the close keeps edits in progress',"document.querySelector('#curve-definition-name').value==='Edited, not saved'");
+ await set('#snapshot',heldClose);await wait(idle,30000);await open('usd_zero');await wait(idle);
  await check('a newer published mapping version is offered to the curve',"!document.querySelector('#curve-definition-newer').hidden",
   "document.querySelector('#curve-definition-newer').textContent");
  await click('#curve-definition-newer button');await wait(idle);
@@ -92,7 +95,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const r=await fetch('/api/date-schedules/contracts/save',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify({requestId:crypto.randomUUID(),
    code:'rate_tenors',name:'Synthetic rate tenors changed in Settings',context:m.definition.context,contracts:null,dates:m.definition.dates,id:m.id,version:m.version,generation:m.generation,expectedState:m.state})});
   if(!r.ok)throw Error(await r.text());})()`);
- await click('#curve-define');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
+ await click('#nav-market');await wait(idle);await click('#nav-curve-definitions');await wait("document.querySelectorAll('#curve-definition-list .shortcut-saved-row').length>1&&"+idle);
  await open('browser_zero');await wait(idle);
  await check('a mapping draft changed after the curve was saved is shown',"!document.querySelector('#curve-definition-stale').hidden");
  await click('#curve-definition-save');await wait(idle);
@@ -100,7 +103,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await click('#curve-definition-stale button');await click('#curve-definition-save');await wait(idle);
  await check('reviewed changed rows are adopted on save',"document.querySelector('#error').hidden&&document.querySelector('#curve-definition-stale').hidden&&document.querySelector('#curve-definition-status').textContent.includes('Saved draft')",
   "({error:document.querySelector('#error').textContent,status:document.querySelector('#curve-definition-status').textContent})");
- await click('#curve-definition-back');await wait(idle);
+ await click('#nav-market');await wait(idle);
  // Editing is an explicit destination, separate from the recorded-price surface.
  await check('market cards offer a separate configuration destination',
   "!document.querySelector('#market-board').hidden&&document.querySelectorAll('#market-board [data-curve-configure]').length===document.querySelectorAll('#market-board .market-card').length&&!document.querySelector('#market-board [id^=curve-definition-]')");
@@ -115,7 +118,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('the link opens the curve definition the curve pins',"document.querySelector('#curve-definition-code').value==='usd_rolling'&&document.querySelector('#curve-definition-code').readOnly");
  // Every curve retains its inspection destination; editability is the backend's.
  const gear='#curves [data-curve-configure="usd_rolling"]';
- await click('#curve-definition-back');await wait(idle);
+ await click('#nav-market');await wait(idle);
  await check('every listed curve has a configuration action',
   `document.querySelector(${JSON.stringify(gear)})&&document.querySelectorAll('#curves [data-curve-configure]').length===document.querySelectorAll('#curves .curve-button[data-curve]').length`);
  await check('the gear names its actual editing action',`document.querySelector(${JSON.stringify(gear)}).getAttribute('aria-label').startsWith('Edit definition:')`);
@@ -124,12 +127,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('the gear opens that curve’s configuration',"document.querySelector('#curve-definition-code').readOnly&&document.querySelector('#curve-definition-code').value==='usd_rolling'");
  // D362: a futures curve admitted from its definition has a gear too, opening its contract terms.
  const contractGear='#curves [data-curve-configure="rolling_gas"]';
- await click('#curve-definition-back');await wait(idle);
+ await click('#nav-market');await wait(idle);
  await check('an admitted futures curve has a gear for someone who may edit it',`!!document.querySelector(${JSON.stringify(contractGear)})`);
  await click(contractGear);await wait("!document.querySelector('#curve-definition').hidden&&document.querySelector('#curve-definition-code').value==='rolling_gas'&&"+idle,30000);
  await check('the gear opens the futures curve\u2019s definition',"document.querySelector('#curve-definition-code').readOnly&&document.querySelector('#curve-definition-kind').value==='future'&&document.querySelectorAll('#curve-definition-rows tr').length===3",
   "({kind:document.querySelector('#curve-definition-kind').value,rows:document.querySelectorAll('#curve-definition-rows tr').length,error:document.querySelector('#error').textContent})");
- await click('#curve-definition-back');await wait(idle);
+ await click('#nav-market');await wait(idle);
  await click('#curves [data-curve-configure="future"]');await wait("!document.querySelector('#native-curve-inspector').hidden&&"+idle);
  await check('a seeded native curve shows its retained terms and immutable editing limit',
   "document.querySelector('#native-curve-inspector-reason').textContent.includes('immutable')&&document.querySelector('#native-curve-inspector').textContent.includes('daily_settlement')&&!document.querySelector('#native-curve-derive').hidden&&document.querySelector('#error').hidden");

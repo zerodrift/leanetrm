@@ -3707,3 +3707,22 @@ guard's reads still decide the set for each admission.
 
 Migration 0222 needs a hosted pilot schema window; the owner placed it in the
 combined window after 0221.
+
+## D365 — Setup lives in one Reference Data console
+
+Setup screens were spread across a Settings group, tabs inside the Reference data
+page, buttons on Curves & prices and a page in Operations. They now share one
+**Reference Data** sidebar group, whose single entry opens a console with its own
+menu: Curves & pricing, Time, Products, Commodities & units, Physical and Entities.
+Power TOUs sits with the calendars and market clocks it depends on. Curve
+definitions, previously a state of Curves & prices, is a page of its own. **Risk** is
+its own sidebar group; Jobs, Users & access and AI form **Infrastructure**, replacing
+Settings and Admin.
+
+This changes presentation only. Page identifiers, `#reference…` and `#risk…`
+addresses, permissions and every read and write are unchanged; each console page
+keeps the header context it had. The server still authorizes every operation, and
+a menu entry is shown only for a page or reference table the account can open.
+
+The planned facility and transport workflows that were listed as disabled tiles
+moved to `docs/plan.md`.

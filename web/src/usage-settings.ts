@@ -174,7 +174,7 @@ export function exportPending(body:Record<string,unknown>){
     +'Retry sends the same request: it returns the recorded report if the export was recorded, and otherwise exports once. Discarding the request leaves any recorded export in place.';
 }
 
-// The Usage tab of Settings › AI (docs/ai-assistant.md §9): a report reads and records nothing; an export records the
+// The Usage tab of Infrastructure › AI (docs/ai-assistant.md §9): a report reads and records nothing; an export records the
 // report it carries in the audit this tab lists, so like a change its outcome can be unknown.
 export function setupUsageSettings(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;

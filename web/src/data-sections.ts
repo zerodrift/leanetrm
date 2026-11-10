@@ -4,13 +4,22 @@ export const foldedIntoProduct=['futures_series','futures_milestones','futures_e
 // Categories whose rows have no code of their own, and so no page of their own.
 export const keylessCategories=['unit_conversions','calendar_days'] as const;
 export const referenceGroups=[
-  {name:'Markets & contracts',sections:[
-    {value:'futures_products',name:'Futures',consumer:'Used by futures entry and valuation for contract economics and quote/lot conventions.'},
+  {name:'Curves & pricing',sections:[
     {value:'price_index_definitions',name:'Price indexes',consumer:'Used by forward settlement targets, floating swaps and the power preview.'},
-    {value:'exchanges',name:'Exchanges',consumer:'Used by futures-product venue references.'},
-    {value:'clearing_houses',name:'Clearing houses',consumer:'Used by futures-product clearing references and exchange compatibility checks.'},
     {value:'interest_rate_definitions',name:'Interest rates',consumer:'Reference interest-rate specifications. Rate curves state their own currency, unit and conventions (D359).'},
     {value:'sources',name:'Data sources',consumer:'Used to match observation sources and retain product evidence and provenance.'}
+  ]},
+  {name:'Time',sections:[
+    {value:'calendars',name:'Calendars',consumer:'Used by business-day schedules, payment dates and power settlement coverage.'},
+    {value:'calendar_days',name:'Calendar dates',consumer:'Used by schedules and power calculations for explicit holiday and business-day overrides.'},
+    {value:'clock_rules',name:'Market clocks',consumer:'Used by contract dates, calendars, schedules, TOUs and elapsed-hour power integration.'}
+  ]},
+  {name:'Products',sections:[
+    {value:'futures_products',name:'Futures',consumer:'Used by futures entry and valuation for contract economics and quote/lot conventions.'},
+    {value:'exchanges',name:'Exchanges',consumer:'Used by futures-product venue references.'},
+    {value:'clearing_houses',name:'Clearing houses',consumer:'Used by futures-product clearing references and exchange compatibility checks.'},
+    {value:'quote_specifications',name:'Price conventions',consumer:'Used to validate price units, multipliers, domains and clearing grids.'},
+    {value:'settlement_targets',name:'Settlement rules',consumer:'Used for explicit futures/index settlement targets and swap/power construction.'}
   ]},
   {name:'Commodities & units',sections:[
     {value:'commodities',name:'Commodities',consumer:'Used to validate compatible units and filter futures, curves and trade entry.'},
@@ -21,18 +30,9 @@ export const referenceGroups=[
     {value:'quantity_specifications',name:'Quantity definitions',consumer:'Used by amounts, unit conversion and side quantities for exact commodity/unit/basis identity.'},
     {value:'value_specifications',name:'Numeric input types',consumer:'Used by numeric series and typed multiplication in scale/add curves.'}
   ]},
-  {name:'Locations',sections:[
+  {name:'Physical',sections:[
     {value:'locations',name:'Locations',consumer:'Used by exact curve, futures-product and settlement-index location references.'},
-    {value:'location_types',name:'Location types',consumer:'Used to validate each location’s explicit business type.'}
-  ]},
-  {name:'Calendars',sections:[
-    {value:'calendars',name:'Calendars',consumer:'Used by business-day schedules, payment dates and power settlement coverage.'},
-    {value:'calendar_days',name:'Calendar dates',consumer:'Used by schedules and power calculations for explicit holiday and business-day overrides.'},
-    {value:'clock_rules',name:'Market clocks',consumer:'Used by contract dates, calendars, schedules, TOUs and elapsed-hour power integration.'}
-  ]},
-  {name:'Conventions',sections:[
-    {value:'quote_specifications',name:'Price conventions',consumer:'Used to validate price units, multipliers, domains and clearing grids.'},
-    {value:'settlement_targets',name:'Settlement rules',consumer:'Used for explicit futures/index settlement targets and swap/power construction.'},
+    {value:'location_types',name:'Location types',consumer:'Used to validate each location’s explicit business type.'},
     {value:'delivery_profiles',name:'Delivery patterns',consumer:'Used by declared constituent and delivery mappings in composed curves.'}
   ]}
 ] as const;

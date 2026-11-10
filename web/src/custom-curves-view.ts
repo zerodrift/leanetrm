@@ -13,7 +13,9 @@ import {askInPanel} from './side-panel.js';
 import {renderTile,space} from './tiles.js';
 import {kindBadge,kindGroups,kindLabel,kindsVersion,type CurveKind} from './curve-kinds.js';
 import {setupDock} from './dock.js';
-import {defaultLayout,restoreArrangement,type DockRules} from './dock-model.js';
+import {restoreArrangement,type DockRules} from './dock-model.js';
+import {workbenchArrangementKey,workbenchLayout} from './curve-workbench.js';
+import {setupCurvePicker} from './curve-picker.js';
 import {menuKey,placeOf,setupMenu,type MenuItem} from './context-menu.js';
 import {renderCurveObjectCanvas} from './curve-object-canvas.js';
 import {curveObjects,type ObjectConnection} from './curve-object-model.js';
@@ -32,7 +34,7 @@ type Schedule={id?:string;version:number;symbol?:string;name:string};
 type Catalog=AuthoringMarketCatalog&{contextSourceStatus:{id:string;available:boolean;reason:string}[];contextRecipes:Recipe[];contextSchedules:Catalog['schedules'];contextSources:Catalog['publishedSources'];componentHistory?:HistoryCatalog['componentHistory'];kindsVersion:typeof kindsVersion;context?:{effectiveOn?:string;knownAt?:string};canEdit:boolean;canPublish:boolean;operators:Operator[];templates:Template[];sources:(Source&{kind:CurveKind})[];publishedSources?:{label:string;kind:CurveKind;reference:PublishedSourceReference}[];calendars:(Source&{reference?:unknown})[];schedules:Schedule[];recipes:Recipe[];formulaSupported?:boolean};
 type Preview={columns:string[];rows:(string|null)[][];at?:string;snapshotId?:string;summary?:PreviewSummary;chart?:ChartSpec;context?:{effectiveOn?:string;knownAt?:string};dependencies?:unknown[];inputs?:unknown[];trace?:unknown;warnings?:string[]};
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
-type Options={api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string;source:()=>{snapshotId:string;context?:unknown};catalogSnapshot?:()=>string;historical:()=>boolean;marketScopeChanged?:()=>void;unsavedChanged?:()=>void;
+type Options={headingSlot:HTMLElement;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string;source:()=>{snapshotId:string;context?:unknown};catalogSnapshot?:()=>string;historical:()=>boolean;marketScopeChanged?:()=>void;unsavedChanged?:()=>void;
  /** Contract terms are configured against an exact saved graph version and source node. */
  openContractTerms?:(selection:{curveId:string;version:number;nodeId:string;contractId?:string;marketRevisionId?:string})=>void;
  /** Whether the page is too narrow to show tab groups side by side. */
@@ -75,16 +77,17 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  function storePending(){try{if(pending.command)sessionStorage.setItem(storageKey(),JSON.stringify(pending.command));else sessionStorage.removeItem(storageKey());}catch{/* The exact request remains available in memory. */}}
 
  // Header: the curve's name, its state and version, and the actions on one line.
- const head=el('header');head.className='custom-curve-head';const titles=el('div');titles.className='custom-curve-titles';
- const kicker=el('p','Custom curve');kicker.className='eyebrow';const heading=el('h2');heading.id='custom-curves-heading';
- const headKind=el('span');headKind.id='custom-curves-kind';const titleRow=el('div');titleRow.className='custom-curve-title-row';titleRow.append(headKind,heading);
- const status=el('p');status.id='custom-curves-state';status.className='custom-curve-status';status.setAttribute('role','status');titles.append(kicker,titleRow,status);
+ const titles=el('div');titles.className='custom-curve-titles';
+ const heading=el('span');heading.id='custom-curves-heading';
+ const headKind=el('span');headKind.id='custom-curves-kind';const pickerChevron=el('span','▾');pickerChevron.setAttribute('aria-hidden','true');const pickerTitle=button('','custom-curves-picker',()=>{});pickerTitle.className='custom-curve-picker-title';pickerTitle.setAttribute('aria-label','Choose a saved curve');pickerTitle.append(heading,pickerChevron);const titleRow=el('div');titleRow.className='custom-curve-title-row';titleRow.append(headKind,pickerTitle);
+ const status=el('p');status.id='custom-curves-state';status.className='custom-curve-status';status.setAttribute('role','status');titleRow.append(status);titles.append(titleRow);
  const resetLayoutButton=button('Reset layout','custom-curves-reset-layout',()=>resetDock());resetLayoutButton.className='text-button';
  const previewButton=button('Preview','custom-curves-preview',()=>void o.act(preview));previewButton.className='secondary';
  const saveButton=button('Save draft','custom-curves-save',()=>void o.act(save));
  const publishButton=button('Publish','custom-curves-publish',()=>void o.act(publish));publishButton.className='secondary';
- const actions=el('div');actions.className='custom-curve-actions';actions.append(resetLayoutButton,previewButton,saveButton,publishButton);head.append(titles,actions);
- const market=el('select');market.id='custom-curves-market';const marketField=label('Source market',market);marketField.className='custom-curve-market';head.append(marketField);
+ const more=el('details');more.className='custom-curve-more';const moreLabel=el('summary','⋯');moreLabel.setAttribute('aria-label','More actions');more.append(moreLabel,resetLayoutButton);
+ const actions=el('div');actions.className='custom-curve-actions';actions.append(previewButton,saveButton,publishButton,more);
+ const market=el('select');market.id='custom-curves-market';const marketField=label('Source market',market);marketField.className='custom-curve-market';
  market.onchange=()=>{const requested=market.value;market.value=marketRevisionId??'';if(!requested)return;replacing(()=>void o.act(async()=>{reset();marketRevisionId=requested;await load();}));};
  const templateHelp=el('p');templateHelp.id='custom-curves-template-help';templateHelp.className='custom-curve-about';
  const accessNote=el('p');accessNote.id='custom-curves-access-note';accessNote.className='mode-banner';accessNote.hidden=true;
@@ -94,14 +97,9 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  // The question asked before unsaved edits are given up (askInPanel), above the curve's views.
  host.tabIndex=-1;const prompt=el('div');prompt.id=host.id+'-prompt';prompt.className='side-panel-prompt custom-curve-prompt';prompt.setAttribute('role','alertdialog');prompt.setAttribute('aria-label','Unsaved changes');prompt.hidden=true;
 
- // Left rail: asking the assistant, and the saved curves with their kind, version and state. The rail collapses to its toggle, giving its
- // width to the views.
- const desk=el('div');desk.className='custom-curve-desk';
- const rail=el('section');rail.id='custom-curves-rail';rail.className='custom-curve-rail';rail.setAttribute('aria-label','Saved curves');
- const railBody=el('div');railBody.id='custom-curves-rail-body';railBody.className='custom-curve-rail-body';
- const railToggle=button('','custom-curves-toggle-rail',()=>{railBody.hidden=!railBody.hidden;desk.classList.toggle('rail-collapsed',railBody.hidden);railToggle.setAttribute('aria-expanded',String(!railBody.hidden));railToggle.setAttribute('aria-label',(railBody.hidden?'Expand':'Collapse')+' saved curves');});
- const railTitle=el('span','Saved curves');railTitle.className='custom-curve-rail-title';const railChevron=el('span','‹');railChevron.className='custom-curve-rail-chevron';railChevron.setAttribute('aria-hidden','true');
- railToggle.className='custom-curve-rail-toggle';railToggle.append(railTitle,railChevron);railToggle.setAttribute('aria-controls',railBody.id);railToggle.setAttribute('aria-expanded','true');railToggle.setAttribute('aria-label','Collapse saved curves');
+ // The picker on the title: asking the assistant, and the saved curves with their kind, version and state.
+ const pickerPanel=el('section');pickerPanel.id='custom-curves-picker-panel';pickerPanel.className='custom-curve-picker-panel';pickerPanel.setAttribute('role','dialog');pickerPanel.setAttribute('aria-label','Saved curves');pickerPanel.hidden=true;
+ const picker=setupCurvePicker({title:pickerTitle,panel:pickerPanel});o.headingSlot.append(titles,pickerPanel);
  const askAssistant=()=>o.assistant.draft(assistantStart);
  const askButton=button('Ask the assistant to set up a curve','custom-curves-ask',askAssistant);askButton.className='custom-curve-ask';
  const startNew=()=>replacing(()=>{openDefinition(empty(),{},undefined,'configuration');if(!code.disabled)code.focus({preventScroll:true});});
@@ -109,7 +107,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  const reloadButton=button('Reload','custom-curves-reload',()=>replacing(()=>void o.act(reloadSelected),undefined,()=>!!selected&&editing()));reloadButton.className='text-button';reloadButton.setAttribute('aria-label','Reload library');
  const libraryActions=el('div');libraryActions.className='custom-curve-library-actions';libraryActions.append(newButton,reloadButton);
  const library=el('ul');library.id='custom-curves-library';library.className='custom-curve-list';library.setAttribute('aria-label','Saved custom curves');
- railBody.append(askButton,libraryActions,library);rail.append(railToggle,railBody);
+ pickerPanel.append(marketField,askButton,libraryActions,library);
 
  // With no curve open, the main area offers the ways to start one.
  const start=el('section');start.id='custom-curves-start';start.className='card custom-curve-start';start.setAttribute('aria-labelledby','custom-curves-start-title');
@@ -130,14 +128,15 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  details.append(label('Code',code),label('Name',name),detailHelp,el('h4','Kind'),kindNote,label('Start from a template',templates));
  const ingredientsPart=el('div');const ingredients=el('ul');ingredients.id='custom-curves-ingredients';ingredients.className='custom-curve-ingredients';ingredients.setAttribute('aria-labelledby','custom-curves-ingredients-title');
  const ingredientsTitle=el('h4','Ingredients');ingredientsTitle.id='custom-curves-ingredients-title';ingredientsPart.append(ingredientsTitle,ingredients);
+ let built=false;
  const blend=setupCurveBlend(request=>void o.act(async()=>{
   if(!code.reportValidity()||!name.reportValidity())throw Error('Enter a code and name for this curve.');
   const started=guard(),source=o.source();
   const prepared=await o.api<{definition:CurveDefinition;description:string}>('custom-curves/compose',{snapshotId:source.snapshotId,...authoringMarketField(marketRevisionId),composition:{...request,code:code.value,name:name.value}});
   if(!current(started))return;
-  openDefinition(prepared.definition,{},selected,'graph');dirty=true;blend.clean();templateHelp.textContent=prepared.description;renderStatus();
- }),()=>{generation++;templateHelp.textContent='';clearPreview();renderStatus();});
- ingredientsPart.append(blend.element);configuration.append(details,ingredientsPart);
+  openDefinition(prepared.definition,{},selected,'graph');dirty=true;blend.clean();templateHelp.textContent=prepared.description;renderStatus();combine.open=false;built=true;
+ }).then(()=>{if(built){built=false;document.getElementById('custom-curves-dock-graph')?.focus({preventScroll:true});}}),()=>{generation++;templateHelp.textContent='';markPreviewOutOfDate();renderStatus();});
+ configuration.append(details,ingredientsPart);
 
  // Versions: the curve's effective versions.
  const activation=view('curve-activation');
@@ -173,7 +172,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  const sideToggle=button('Hide operations','custom-curves-toggle-side',()=>showSide(!!side.hidden));sideToggle.className='secondary';sideToggle.setAttribute('aria-controls','custom-curves-side');sideToggle.setAttribute('aria-expanded','true');
  toolbar.append(modes,graphTools,sideToggle);
  const expression=el('div');expression.id='custom-curves-expression';expression.hidden=true;const formula=el('textarea');formula.id='custom-curves-formula';formula.rows=7;formula.spellcheck=false;formula.setAttribute('aria-label','Curve formula');
- const compile=button('Apply formula','custom-curves-compile',()=>void o.act(async()=>{clearPreview();const request=guard();const result=await o.api<{definition:CurveDefinition;layout?:CurveLayout}>('custom-curves/compile',{formula:formula.value,snapshotId:o.source().snapshotId,...authoringMarketField(marketRevisionId),code:code.value,name:name.value});if(!current(request))return;definition=clone(result.definition);layout={...(result.layout??layout)};dirty=true;formulaDirty=false;render();notifyMarketScope();}));
+ const compile=button('Apply formula','custom-curves-compile',()=>void o.act(async()=>{markPreviewOutOfDate();const request=guard();const result=await o.api<{definition:CurveDefinition;layout?:CurveLayout}>('custom-curves/compile',{formula:formula.value,snapshotId:o.source().snapshotId,...authoringMarketField(marketRevisionId),code:code.value,name:name.value});if(!current(request))return;definition=clone(result.definition);layout={...(result.layout??layout)};dirty=true;formulaDirty=false;render();notifyMarketScope();}));
  const syntax=el('p');syntax.className='field-help';syntax.textContent='Use one assignment per line: node = operation(parameter="value", input=@other_node). Parameters are quoted strings; contract mappings use typed JSON rows and connected inputs use @node. The backend compiles this into the same typed graph.';expression.append(label('Formula',formula),compile,syntax);
  const hint=el('p','Drag cards to arrange the graph and drag from a card’s output dot to an input to connect. Right-click an arrow, card or listed contract (or press Shift+F10) for its actions; select a card to edit it beside the graph.');hint.className='custom-curve-hint';
  centre.append(toolbar,connectNote,objectBoard,board,expression,hint);
@@ -182,7 +181,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  const operations=el('div');operations.id='custom-curves-operators';palette.append(paletteTitle,operations);
  const inspector=el('section');inspector.id='custom-curves-inspector';inspector.className='custom-curve-view custom-curve-inspector';inspector.setAttribute('aria-labelledby','custom-curves-inspector-title');
  const inspectorTitle=el('h3','Selected operation');inspectorTitle.id='custom-curves-inspector-title';const properties=el('div');properties.id='custom-curves-properties';inspector.append(inspectorTitle,properties);
- side.append(palette,inspector);graphTab.append(centre,side);
+ const combine=el('details');combine.id='custom-curves-combine';combine.className='custom-curve-combine';combine.append(el('summary','Combine published curves'),blend.element);side.append(palette,combine,inspector);graphTab.append(centre,side);
  function showSide(on:boolean){side.hidden=!on;sideToggle.textContent=on?'Hide operations':'Show operations';sideToggle.setAttribute('aria-expanded',String(on));}
  // The graph is measured again when its tab comes into view and whenever its room changes, as when its group is resized. The board's
  // own size is not watched: its scrollbars come and go with the graph it draws.
@@ -199,34 +198,39 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  const result=el('div');result.id='custom-curves-result';result.className='custom-curve-preview';result.tabIndex=-1;const receipt=el('p');receipt.id='custom-curves-receipt';receipt.className='field-help';
  const summaryTiles=el('div');summaryTiles.id='custom-curves-summary';summaryTiles.className='desk-tiles custom-curve-tiles';
  const chart=el('div');chart.id='custom-curves-chart';chart.className='chart';const table=el('div');table.id='custom-curves-values';table.className='table-wrap';result.append(receipt,summaryTiles,chart,table);result.hidden=true;
- outputs.append(outputsEmpty,result);
+ const previewStale=el('div');previewStale.id='custom-curves-preview-stale';previewStale.className='custom-curve-stale';previewStale.hidden=true;
+ const previewStaleText=el('span','Out of date: your edits aren\u2019t included');const previewAgain=button('Preview','custom-curves-stale-preview',()=>void o.act(preview));previewAgain.className='secondary';previewStale.append(previewStaleText,previewAgain);
+ outputs.append(outputsEmpty,previewStale,result);
  const lineage=view('custom-curves-tab-lineage');const lineageEmpty=el('p','Preview the curve to see the dependencies, source observations and evaluation trace it was calculated from.');lineageEmpty.className='field-help';
  const lineageBody=el('div');lineageBody.id='custom-curves-lineage';lineage.append(lineageEmpty,lineageBody);
 
  const historyView=setupComponentHistory({api:o.api,act:o.act,busy:o.busy,zone:o.zone,valid:()=>!!catalog&&!formulaDirty&&!blend.dirty()&&definition.nodes.length>0,
   selection:()=>{validate();return {definition:clone(definition),snapshotId:o.source().snapshotId,...authoringMarketField(marketRevisionId),...(selected&&!dirty?{id:selected.id,version:selected.version}:{})};}});
  const dockHost=el('div');dockHost.id='custom-curves-dock';
- const dockTabs=['outputs','graph','configuration','versions','lineage','history'],dockKey='openetrm.custom-curves.layout.v1';
- const dockRules:DockRules={maxDepth:2,fixed:dockTabs,ratioRange:[0.2,0.8]},dockDefault={layout:defaultLayout(dockTabs,'outputs'),collapsed:[]};
+ const dockTabs=['outputs','graph','configuration','versions','lineage','history'],dockKey=workbenchArrangementKey;
+ const dockRules:DockRules={maxDepth:2,fixed:dockTabs,ratioRange:[0.2,0.8]},dockDefault={layout:workbenchLayout(),collapsed:[]};
  // Every tab is fixed: Curve builder's panes do not collapse. The arrangement is this viewer's presentation state in this browser only; storage that cannot be read or written leaves it to this visit.
  const dockSaved=()=>{try{const raw=localStorage.getItem(dockKey);return raw===null?undefined:JSON.parse(raw);}catch{return undefined;}};
  const dock=setupDock(dockHost,{narrow:o.narrow,label:'Curve views',rules:dockRules,initial:restoreArrangement(dockSaved(),dockTabs,dockRules,dockDefault),
-  changed:a=>{try{localStorage.setItem(dockKey,JSON.stringify(a));}catch{/* The arrangement lasts this visit. */}},shown:id=>{if(id==='graph')remeasure();},tabs:[{id:'outputs',label:'Outputs',body:outputs},{id:'graph',label:'Graph',body:graphTab},
-  {id:'configuration',label:'Configuration',body:configuration},{id:'versions',label:'Versions',body:activation},{id:'lineage',label:'Lineage',body:lineage},{id:'history',label:'History',body:historyView.element}]});
+  changed:a=>{try{localStorage.setItem(dockKey,JSON.stringify(a));}catch{/* The arrangement lasts this visit. */}},shown:id=>{if(id==='graph')remeasure();},actions,tabs:[{id:'outputs',label:'Preview',body:outputs},{id:'graph',label:'Build',body:graphTab},
+  {id:'configuration',label:'Details',body:configuration},{id:'versions',label:'Versions',body:activation},{id:'lineage',label:'Lineage',body:lineage},{id:'history',label:'History',body:historyView.element}]});
  function resetDock(){dock.set(dockDefault);try{localStorage.removeItem(dockKey);}catch{/* Nothing was kept. */}}
- const workspace=el('div');workspace.className='custom-curve-main';workspace.append(start,dockHost);desk.append(rail,workspace);
- host.replaceChildren(head,templateHelp,accessNote,pendingPanel,prompt,desk,menu.element);
+ const workspace=el('div');workspace.className='custom-curve-main';workspace.append(start,dockHost);
+ host.replaceChildren(templateHelp,accessNote,pendingPanel,prompt,workspace,menu.element);
  function guard(){return {generation,identity:o.identity()};}function current(request:{generation:number;identity:string}){return generation===request.generation&&o.identity()===request.identity;}
  function notifyMarketScope(){if(initialized)o.marketScopeChanged?.();}
  function dateDefinition():CurveDefinition|undefined{return catalog&&!formulaDirty&&definition.nodes.length?clone(definition):undefined;}
  function dateMarketRevision(){return catalog?marketRevisionId:undefined;}
- function invalidate(){opened=true;generation++;dirty=true;effectiveCurve=undefined;templateHelp.textContent='';clearPreview();renderStatus();notifyMarketScope();}
- function clearPreview(){historyView.clear();lastPreview=undefined;result.hidden=true;outputsEmpty.hidden=false;lineageEmpty.hidden=false;receipt.textContent='';summaryTiles.replaceChildren();clearChart(chart);table.replaceChildren();lineageBody.replaceChildren();}
+ function invalidate(){opened=true;generation++;dirty=true;effectiveCurve=undefined;templateHelp.textContent='';markPreviewOutOfDate();renderStatus();notifyMarketScope();}
+ // An edit leaves the last chart and tiles in view, subdued and labeled. They are display only: every value that can be read or acted on goes.
+ function markPreviewOutOfDate(){if(result.hidden){clearPreview();return;}clearValues();previewStale.hidden=false;result.classList.add('out-of-date');}
+ function clearValues(){historyView.clear();lastPreview=undefined;lineageEmpty.hidden=false;receipt.textContent='';table.replaceChildren();lineageBody.replaceChildren();}
+ function clearPreview(){previewStale.hidden=true;result.classList.remove('out-of-date');historyView.clear();lastPreview=undefined;result.hidden=true;outputsEmpty.hidden=false;lineageEmpty.hidden=false;receipt.textContent='';summaryTiles.replaceChildren();clearChart(chart);table.replaceChildren();lineageBody.replaceChildren();}
  function authorAllowed(){return !!catalog?.canEdit&&!o.historical();}
  function editAllowed(){return authorAllowed()&&currentAuthoringVersion(selected,catalog?.recipes??[]);}
  function renderStatus(){accessNote.hidden=!catalog||editAllowed();const previewAccess=document.getElementById('preview-access');accessNote.textContent=selected&&!currentAuthoringVersion(selected,catalog?.recipes??[])?'Prior versions are read-only. Open the current version to author changes.':o.historical()?'This historical view is read-only. Return to current inputs to edit curves.':catalog?.canPublish?'This account can publish saved drafts, but editing is read-only. '+(previewAccess&&!previewAccess.hidden?'Choose Market Data Editor in Profile → Preview access to edit.':'Ask your workspace administrator for market-data authoring access.'):'Curve editing is read-only for this account. '+(previewAccess&&!previewAccess.hidden?'Choose Market Data Editor in Profile → Preview access to edit.':'Ask your workspace administrator for market-data authoring access.');
   start.hidden=opened;dockHost.hidden=!opened;resetLayoutButton.hidden=!opened;for(const ask of [askButton,startAsk])ask.hidden=!o.assistant.available();
-  heading.textContent=publicText(!opened?'No curve open':definition.name||(selected?selected.definition.name:'New curve'));
+  heading.textContent=publicText(!opened?'Curve builder':definition.name||(selected?selected.definition.name:'New curve'));
   // The backend names a saved version's kind; an edit is not classified until it is saved.
   const kind=selected&&!dirty?selected.kind:undefined;
   headKind.replaceChildren(...kind?[kindBadge(kind,'md')]:[]);
@@ -256,7 +260,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   if(!read.length)ingredients.append(el('li','This graph reads no curves yet.'));
  }
  /** Shows Combine curves in Configuration, for the ingredient changes waiting to be built or discarded. */
- function showCombine(){dock.reveal('configuration');blend.element.scrollIntoView({block:'nearest'});blend.element.querySelector<HTMLElement>('select:enabled,input:enabled')?.focus({preventScroll:true});}
+ function showCombine(){dock.reveal('graph');showSide(true);combine.open=true;blend.element.scrollIntoView({block:'nearest'});blend.element.querySelector<HTMLElement>('select:enabled,input:enabled')?.focus({preventScroll:true});}
  /** Marks the library's entry for the exact version open, if it is one. */
  function markLibrary(){for(const entry of library.querySelectorAll<HTMLElement>('[data-recipe]')){if(selected&&entry.dataset.recipe===selected.id+'|'+selected.version)entry.setAttribute('aria-current','true');else entry.removeAttribute('aria-current');}}
  function sync(){market.disabled=o.busy()||!!pending.command;const busy=o.busy(),editable=editAllowed(),retryAllowed=['custom-curves/publish','custom-curves/activation'].includes(pending.command?.path??'')?!!catalog?.canPublish&&!o.historical():pending.command?.path==='custom-curves/save'?authorAllowed():false;for(const input of [code,name,templates])input.disabled=busy||!editable;code.disabled ||=!!selected;retryButton.disabled=busy||!retryAllowed;discardButton.disabled=busy;pendingPanel.hidden=!pending.command;newButton.disabled=startNewButton.disabled=busy||!authorAllowed();for(const b of startTemplates.querySelectorAll('button'))b.disabled=busy||!editable;reloadButton.disabled=busy;for(const entry of library.querySelectorAll('button'))entry.disabled=busy;templateHelp.hidden=!templateHelp.textContent;const incomplete=missingContractInputs(definition).length>0;previewButton.disabled=busy||!catalog||!definition.nodes.length||formulaDirty||incomplete;effectiveButton.disabled=busy||!selected||dirty||formulaDirty;saveButton.disabled=busy||!editable||!definition.nodes.length||formulaDirty||incomplete;publishButton.disabled=busy||!catalog?.canPublish||o.historical()||!currentAuthoringVersion(selected,catalog?.recipes??[])||!selected||selected.state==='published'||dirty;compile.disabled=busy||!editable||!catalog?.formulaSupported;formula.disabled=busy||!editable||!catalog?.formulaSupported;fitButton.disabled=busy;actualButton.disabled=busy;arrangeButton.disabled=busy||!editable;for(const b of operations.querySelectorAll('button'))b.disabled=busy||!editable;for(const input of properties.querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button,textarea'))input.disabled=busy||(!editable&&!input.hasAttribute('data-read-only-action'));
@@ -275,7 +279,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  // The formula shows only the graph it was formatted from: an earlier one is cleared first, so a graph the backend cannot format shows none.
  async function formatFormula(){if(!catalog?.formulaSupported||formulaDirty)return;formula.value='';const request=guard();const result=await o.api<{formula:string}>('custom-curves/format',{definition});if(!current(request))return;formula.value=result.formula;formulaDirty=false;sync();}
  function setMode(value:string){if(o.busy())return;mode=value;objectBoard.hidden=value!=='objects';board.hidden=value!=='visual';expression.hidden=value!=='formula';graphTools.hidden=value!=='visual';if(value==='objects')renderObjects();if(value==='visual'){if(estimated.size)renderGraph();else{sizeCanvas();positionCanvas();}}for(const b of [objectButton,visualButton,formulaButton]){const active=b.id.endsWith(value);b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));}hint.textContent=value==='objects'?'Select a curve or contract set to inspect it. Select a connection to edit its operations, date mapping and explicit weights. Advanced graph exposes every retained operation.':'Drag cards to arrange the graph and drag from an output dot to an input to connect. Right-click a card, connection or contract for its actions.';renderPalette();renderInspector();sync();}
- function openDefinition(next:CurveDefinition,positions:CurveLayout={},recipe?:Recipe,show?:'outputs'|'graph'|'configuration'){historyView.reset();opened=true;generation++;clearGraphModes();effectiveCurve=undefined;clearActivation();mode='objects';definition=clone(next);layout={...positions};estimated.clear();selected=recipe;selectedNode=definition.nodes.find(node=>(catalog?.operators.find(operator=>operator.kind===node.kind)?.fields.length??0)>0)?.id||definition.output||definition.nodes[0]?.id||'';dirty=false;formulaDirty=false;formula.value='';templateHelp.textContent='';code.value=definition.code;name.value=definition.name;clearPreview();render();notifyMarketScope();if(show)dock.reveal(show);}
+ function openDefinition(next:CurveDefinition,positions:CurveLayout={},recipe?:Recipe,show?:'outputs'|'graph'|'configuration'){picker.close();historyView.reset();opened=true;generation++;clearGraphModes();effectiveCurve=undefined;clearActivation();mode='objects';definition=clone(next);layout={...positions};estimated.clear();selected=recipe;selectedNode=definition.nodes.find(node=>(catalog?.operators.find(operator=>operator.kind===node.kind)?.fields.length??0)>0)?.id||definition.output||definition.nodes[0]?.id||'';dirty=false;formulaDirty=false;formula.value='';templateHelp.textContent='';code.value=definition.code;name.value=definition.name;clearPreview();render();notifyMarketScope();if(show)dock.reveal(show);}
  /** Opens a saved version; `show` names the tab to show, as a curve the person opens shows Outputs (a save or reload shows what it showed). */
  function openRecipe(recipe:Recipe,show?:'outputs'|'graph'){if(catalog){catalog.recipes=[...catalog.recipes.filter(r=>r.id!==recipe.id||r.version!==recipe.version),recipe];renderLibrary();}openDefinition(recipe.definition,recipe.layout,recipe,show);setTemplate('');}
  async function openRecipeMarket(recipe:Recipe,show?:'outputs'|'graph'){
@@ -297,7 +301,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   if(catalog&&!recipes.length){const none=el('li','No saved curves yet. Start a new curve to save one.');none.className='custom-curve-empty';library.append(none);}
   markLibrary();
   // Ingredients chosen for a combination the catalog no longer offers cannot be built, so they are not kept to block the page.
-  if(!catalog?.operators.some(op=>op.kind==='weighted_panels'))blend.reset();
+  combine.hidden=!catalog?.operators.some(op=>op.kind==='weighted_panels');
+  if(combine.hidden)blend.reset();
   templates.replaceChildren();option(templates,'','Choose a template…');for(const template of catalog?.templates??[])option(templates,template.code,template.name);
   startTemplates.replaceChildren(...(catalog?.templates??[]).map(template=>{const item=el('li'),choose=button(template.name,'',()=>replacing(()=>openTemplate(template)));choose.className='secondary';choose.dataset.template=template.code;if(template.description)choose.title=publicText(template.description);item.append(choose);return item;}));const combination=catalog?.operators.find(op=>op.kind==='weighted_panels');blend.catalog(catalog?.contextSources??[],combination?.fields.find(f=>f.key==='aggregation')?.options??[],combination?.fields.find(f=>f.key==='alignment')?.options??[]);}
  /** Follows the page's width; a page out of view is arranged when it is next read, so a resize elsewhere does not redraw it. */
@@ -668,7 +673,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   applyMarket(loaded,expectedMarket);catalog=loaded;
   previewTiles(result.preview.summary);openRecipe(result.recipe);effectiveCurve=id;showActivation(result.activation);lastPreview={values:result.preview,source};showPreview(result.preview,source);
  }
- function showPreview(values:Preview,source:{snapshotId:string;context?:unknown}){const shown=previewTable(values),tiles=previewTiles(values.summary);result.hidden=false;outputsEmpty.hidden=true;chart.hidden=!values.chart;
+ function showPreview(values:Preview,source:{snapshotId:string;context?:unknown}){const shown=previewTable(values),tiles=previewTiles(values.summary);previewStale.hidden=true;result.classList.remove('out-of-date');result.hidden=false;outputsEmpty.hidden=true;chart.hidden=!values.chart;
   summaryTiles.replaceChildren(...tiles.map(renderTile));const context=values.context??catalog?.context;receipt.textContent=[values.at?'As of '+displayInstant(values.at,o.zone()):'',context?.effectiveOn?`Context date ${context.effectiveOn}`:'',context?.knownAt?`Known ${displayInstant(context.knownAt,o.zone())}`:'',...(values.warnings??[])].filter(Boolean).join(' · ');
   renderRegularTable(table,'custom-curves-preview',JSON.stringify([o.identity(),source,definition]),shown.headers,shown.rows,[],o.busy);if(values.chart)renderChart(chart,values.chart);else clearChart(chart);lineageBody.replaceChildren();for(const [title,items] of [['Dependencies',values.dependencies],['Source observations',values.inputs],['Evaluation trace',values.trace]] as const){if(items&&(Array.isArray(items)?items.length:Object.keys(items).length)){lineageBody.append(el('h4',title),el('pre',JSON.stringify(displayEvidence(items),null,2)));}}lineageEmpty.hidden=lineageBody.childElementCount>0;
  }
@@ -717,8 +722,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   if(!asks()){replace();return;}
   void leave().then(going=>{if(going)replace();else kept?.();});
  }
- function refresh(){renderStatus();if(lastPreview)showPreview(lastPreview.values,lastPreview.source);}
- async function liveRefresh(){historyView.clear();generation++;drag=undefined;if(!activationDirty)clearActivation();else activationLoaded=false;renderStatus();if(lastPreview){if(effectiveCurve)await previewEffective(true);else await preview(true);}}
+ function refresh(){renderStatus();if(!previewStale.hidden)clearPreview();if(lastPreview)showPreview(lastPreview.values,lastPreview.source);}
+ async function liveRefresh(){if(!previewStale.hidden)clearPreview();historyView.clear();generation++;drag=undefined;if(!activationDirty)clearActivation();else activationLoaded=false;renderStatus();if(lastPreview){if(effectiveCurve)await previewEffective(true);else await preview(true);}}
  /** Opens the saved draft an assistant's draft target names, once the library holding it is read. */
  async function openSaved(draft:{id:string;version:number},request:ReturnType<typeof guard>){
   if(!current(request)||!catalog)throw Error('The editor or account changed. Open the saved draft again.');

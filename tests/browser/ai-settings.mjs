@@ -24,7 +24,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await evaluate(`__api('settings/ai/models/add',${JSON.stringify({operationId:crypto.randomUUID(),vendor:'anthropic',identifier:'browser-unqualified-'+stamp,displayName:'Browser model without capabilities'})})`);
 
   await persona(manager);
-  await check('an administrator without market data opens AI settings from Admin',"!document.querySelector('#nav-ai').hidden&&document.querySelector('#nav-ai').closest('#nav-group-admin')!==null");
+  await check('an administrator without market data opens AI settings from Infrastructure',"!document.querySelector('#nav-ai').hidden&&document.querySelector('#nav-ai').closest('#nav-group-infrastructure')!==null");
   await click('#nav-ai');
   await check('AI settings open on Models & prices with the date controls hidden',"!document.querySelector('#ai-page').hidden&&!document.querySelector('#ai-models').hidden&&document.querySelector('#ai-providers').hidden&&document.querySelector('#page-title').textContent==='AI'&&document.querySelector('#snapshot').closest('.date-control').hidden&&document.querySelector('#error').hidden");
   await click('#ai-tab-providers');

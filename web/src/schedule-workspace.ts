@@ -7,7 +7,7 @@ export function setupScheduleWorkspace(){
  const host=get('schedules-page'),templates=get('curve-date-editor'),generators=el('div');
  templates.classList.remove('card');templates.hidden=false;
  generators.append(...Array.from(host.children));
- const intro=el('div');intro.className='schedule-workspace-intro';intro.append(el('p','DATES'),el('h2','Schedules & date mappings'),el('p','Upload or generate dates, then reference them by name in date mappings.'));
+ const intro=el('div');intro.className='schedule-workspace-intro';intro.append(el('p','Upload or generate dates, then reference them by name in date mappings.'));
  const path=el('div');path.className='schedule-path';for(const [index,text] of ['Saved dates','Symbolic mappings','Contracts & curves'].entries()){const step=el('span');step.append(el('b',String(index+1)),el('span',text));path.append(step);}intro.append(path);
  const tabs=el('div');tabs.className='schedule-tabs';tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','Schedules and date mappings');
  const content=el('div');content.className='schedule-workspace-content';const editor=el('div');editor.className='schedule-workspace-editor';const aside=el('aside');aside.setAttribute('aria-label','Date explorer');

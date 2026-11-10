@@ -104,9 +104,9 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('following a link while editing asks before discarding the unsaved edits',`document.querySelector('${prompt}').textContent.includes('unsaved edits')&&location.hash==='#reference/units/megawatt_hour'`);
   await evaluate(keep);await wait(idle);
   await check('keeping the edits returns the address to the item and keeps its inputs',kept);
-  await evaluate("[...document.querySelectorAll('#reference-sections [role=tab]')].find(t=>t.textContent==='Unit conversions').click()");await wait(visible(prompt.slice(1)));
+  await evaluate("[...document.querySelectorAll('#reference-console li button')].find(t=>t.textContent==='Unit conversions').click()");await wait(visible(prompt.slice(1)));
   await evaluate(keep);await wait(idle);
-  await check('choosing another tab while editing asks, and keeping the edits keeps the item\'s tab',`${kept}&&document.querySelector('#reference-sections [aria-selected=true]').textContent==='Units'`);
+  await check('choosing another tab while editing asks, and keeping the edits keeps the item\'s tab',`${kept}&&document.querySelector('#reference-console [aria-current=page]').textContent==='Units'`);
   await evaluate("document.querySelector('#nav-market').click()");await wait(visible(prompt.slice(1)));
   await evaluate(keep);await wait(idle);
   await check('opening another page while editing asks, and keeping the edits stays on the item',`${kept}&&!document.querySelector('#reference-page').hidden`);

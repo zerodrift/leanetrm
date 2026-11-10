@@ -109,7 +109,7 @@ turns at the next start. The gateway needs no change: it already passes event st
 through unbuffered, with a read timeout above the stream's heartbeat.
 
 Before anyone else gets the launcher, the installation's owner qualifies a vendor live,
-entering their own key in Settings › AI so that no one else handles it:
+entering their own key in Infrastructure › AI so that no one else handles it:
 - records the vendor's terms and attests;
 - adds the model with its capabilities and the price they enter, and runs Test;
 - asks a scripted question from the panel that reads and navigates.

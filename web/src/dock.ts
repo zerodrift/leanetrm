@@ -19,8 +19,9 @@ export type Dock={arrangement():Arrangement;set(a:Arrangement):void;reveal(tab:s
  *  body comes into view, also when the dock is drawn again and moves it, so that what it draws can measure itself there (a moved element
  *  loses its scroll offsets); `label` names the tab groups to assistive technology. A tab of `ownCollapse` draws its own collapse
  *  control in its body, which asks first about what it holds, so its group's head draws none while it is shown. `maximizable` adds
- *  temporary maximize/restore controls; the arrangement, bodies and their edits stay in place. */
-export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boolean;rules:DockRules;initial:Arrangement;changed:(a:Arrangement)=>void;shown?:(id:string)=>void;opened?:(open:string[])=>void;label?:string;ownCollapse?:readonly string[];maximizable?:boolean}):Dock{
+ *  temporary maximize/restore controls; the arrangement, bodies and their edits stay in place. `actions` sits at the end of the first
+ *  group's head. */
+export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boolean;rules:DockRules;initial:Arrangement;changed:(a:Arrangement)=>void;shown?:(id:string)=>void;opened?:(open:string[])=>void;actions?:HTMLElement;label?:string;ownCollapse?:readonly string[];maximizable?:boolean}):Dock{
   const {rules}=o,label=new Map(o.tabs.map(t=>[t.id,t.label]));
   const flat=(a:Arrangement):Arrangement=>({layout:collapse(a.layout),collapsed:a.collapsed});
   let saved=o.initial,narrow=o.narrow(),shown=narrow?flat(saved):saved,dragged:string|undefined,maximized:string|null=null;
@@ -80,7 +81,7 @@ export function setupDock(host:HTMLElement,o:{tabs:readonly Tab[];narrow:()=>boo
     strip.setAttribute('role','tablist');strip.setAttribute('aria-label',`${o.label??'Views'}, group ${index+1}`);
     for(const id of g.tabs)strip.append(buttons.get(id)!);
     grip.draggable=true;grip.title='Drag to move';grip.textContent='⠿';grip.setAttribute('aria-hidden','true');dragSource(grip,g.active);
-    head.append(strip,grip);
+    head.append(strip,grip);if(index===0&&o.actions)head.append(o.actions);
     if(o.maximizable){
       const maximize=document.createElement('button');maximize.type='button';maximize.className='dock-maximize';
       head.append(maximize);

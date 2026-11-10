@@ -110,7 +110,7 @@ function setupText(setup:RunSetup|undefined):string{
  * shows change, however it changed: an action, a part that finished on the report's own timer, or a reset.
  */
 export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;canRun:()=>boolean;profile:()=>string;
-  scope:()=>Scope;onDenied:()=>void;onChange:()=>void;edited?:()=>void;prefix?:string}){
+  scope:()=>Scope;onDenied:()=>void;onChange:()=>void;ranNow?:()=>void;edited?:()=>void;prefix?:string}){
   const prefix=options.prefix??'';
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(prefix+id) as T;
   const root=get('risk-report'),shelf=root.parentElement!,form=get<HTMLFormElement>('risk-form');
@@ -386,7 +386,7 @@ export function setupRisk(options:{api:Api;act:(work:()=>Promise<void>)=>Promise
     // The time the run finished is this page's clock: the run bar says when it ran.
     current.making=false;current.finishedAt=new Date().toISOString();
     get('risk-progress').textContent='';
-    if(current.parts.length===1&&first!==undefined)forgetRun();else showRun();
+    if(current.parts.length===1&&first!==undefined)forgetRun();else{showRun();options.ranNow?.();}
     if(first!==undefined)throw first;
   }
   /**

@@ -3,7 +3,7 @@ import {navigationGroups} from './navigation-groups.js';
 export type Preferences={version:1;timeZone:string;browseBy:'commodity'|'marketType';market:string|null;marketType:'all'|'futures'|'forwards'|'rates';tab:'prices'|'inputs'|'dependencies';sidebarCollapsed:boolean;libraryCollapsed:boolean;assistantHidden:boolean;assistantMinimized:boolean;collapsedMenus:string[];collapsedCurveGroups:string[]};
 // Collapsed groups are saved by navigation group id. The earlier three-group sidebar saved other ids; they name no current
 // group, so a saved profile loses them instead of failing to load.
-const groupIds:string[]=navigationGroups.map(group=>group.id),retiredMenus=['market-menu','settings-menu','trading-menu'];
+const groupIds:string[]=navigationGroups.map(group=>group.id),retiredMenus=['market-menu','settings-menu','trading-menu','settings','admin'];
 export function validTimeZone(zone:unknown):zone is string {if(typeof zone!=='string')return false;try{new Intl.DateTimeFormat('en',{timeZone:zone});return true;}catch{return false;}}
 // The time zones offered for a choice, UTC and the current choice first.
 export function zoneChoices(current:string){return [...new Set(['UTC',current,...Intl.supportedValuesOf('timeZone')])].map(zone=>({value:zone,name:zone.replaceAll('_',' ')}));}

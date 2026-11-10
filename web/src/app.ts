@@ -1,7 +1,10 @@
 import {isCurvePage,setupCurveWorkspace} from './curve-workspace.js';
 import {setupPhysicalOperations} from './physical-operations.js';
 
-import {isPhysicalPage,setupPhysicalWorkspace} from './physical-workspace.js';
+import {riskViewNames,setupRiskViews} from './risk-views.js';
+import {setupDeliverySetupSwitch} from './delivery-setup-switch.js';
+import {consoleMenu} from './console-menu.js';
+import {setupReferenceConsole} from './reference-console.js';
 import {setupFacilityQuantities} from './facility-quantities-view.js';
 import {requestDeadlines} from './request-deadline.js';
 import {rememberPage,restoredPage} from './page-memory.js';
@@ -102,7 +105,7 @@ let sourceOnlyCurve=false;
 let contractOpener:HTMLElement|undefined,contract='',historyPolicy:RevisionPolicy=revisionPolicies[0].policy,overlayRequests:OverlayRequest[]=[],historyData:ContractHistory|undefined,historySeries:OverlaySeries[]=[],historyFailed=false;
 // The overlay catalog, read for one account.
 let overlayCatalog:{scope:string;catalog:OverlayCatalog}|undefined;
-let definingCurve=false,contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
+let consoleTables:string[]=[],contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
 // The person's remembered close session (D334); null until they choose one, and nothing chooses it for them.
 let closeSession:string|null=null,closeSessionNames:ReadonlyMap<string,string>=new Map();
 let navigation:MarketNavigation|undefined,marketGeneration=0;
@@ -156,7 +159,7 @@ function syncControls(){
   for(const id of ['source-contract','pricing-contract'])select(id).disabled=busy||showAllContracts||!result?.points.length;
   for(const id of ['source-all','pricing-all'])$<HTMLButtonElement>(id).disabled=busy||!result||!result.points.length||(result.points.length<2&&!showAllContracts);
   $('reference-previous').toggleAttribute('disabled',busy||!referencePage||referencePage.offset===0);$('reference-next').toggleAttribute('disabled',busy||!canAdvanceReference());
-  physicalWorkspace.sync();physicalOperations.sync();curveWorkspace.sync();facilities.sync();futures.sync();futures.follow();accessPolicy.sync();assistantPolicy.sync();riskJobs.sync();parties.sync();agentGrants.sync();jobs.sync();dashboard.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();priceSetup.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();gas.sync();crude.sync();gasSetup.sync();crudeSetup.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
+  deliverySetup.sync();referenceConsole.sync();riskViewsNav.sync();physicalOperations.sync();curveWorkspace.sync();facilities.sync();futures.sync();futures.follow();accessPolicy.sync();assistantPolicy.sync();riskJobs.sync();parties.sync();agentGrants.sync();jobs.sync();dashboard.sync();aiSettings.sync();referenceEditor.sync();dateEditor.sync();priceSetup.sync();deliveryPrices.sync();intervalSeries.sync();intervalCurves.sync();ppa.sync();gas.sync();crude.sync();gasSetup.sync();crudeSetup.sync();marketCalendar.sync();renderCloseBadge();if(initialWorkspaceReady)customCurves.sync();assistant.sync();contractPanel.sync(busy);contractPanel.place();customCurves.place();refreshContextPanels();document.body.setAttribute('aria-busy',String(busy));
 
 }
 function renderWorkspaceMode(){
@@ -279,7 +282,7 @@ const usesBusinessDate=(next:string)=>['facilities','reference','schedules','job
 const showsContext=(next:string)=>showsDate(next)&&next!=='interval-curves';
 async function setPage(next:string){
   if(navigation?.live){
-    if(['market','custom-curves','futures','reference'].includes(next)){
+    if(['market','curve-definitions','custom-curves','futures','reference'].includes(next)){
       connectLive(navigation.live);
       if(next==='market'&&next!==page&&lastLiveUpdate)liveUpdates?.offer({...lastLiveUpdate,generation:lastLiveUpdate.live.generation},true);
     }else{
@@ -302,14 +305,21 @@ async function setPage(next:string){
   if(next!=='reference'&&location.hash.startsWith('#reference'))window.history.replaceState(null,'',location.pathname+location.search);
   if(next!=='risk'&&location.hash.startsWith('#risk'))window.history.replaceState(null,'',location.pathname+location.search);
   if(page==='physical-operations'&&next!==page)physicalOperations.reset();
-  page=next;$('physical-operations-page').hidden=next!=='physical-operations';rememberPage(()=>sessionStorage,administrationScope+':'+exampleId+':'+currentProfile,next);$('risk-page').hidden=next!=='risk';$('gas-setup-page').hidden=next!=='gas-setup';$('crude-setup-page').hidden=next!=='crude-setup';$('gas-page').hidden=next!=='gas';$('crude-page').hidden=next!=='crude';$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('vol-surfaces-page').hidden=next!=='vol-surfaces';$('jobs-page').hidden=next!=='jobs';$('facilities-page').hidden=next!=='facilities';$('dashboard-page').hidden=next!=='dashboard';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures'||futures.poppedOut();$('blotter-away').hidden=next!=='futures'||!futures.poppedOut();$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next)||usesBusinessDate(next);$('context-toolbar').hidden=!showsDate(next);$('business-date-field').hidden=!usesBusinessDate(next);$<HTMLInputElement>('date-context-on').type=usesBusinessDate(next)?'date':'hidden';$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('price-setup-page').hidden=next!=='configuration';$('date-context').hidden=!showsContext(next);$('admin-page').hidden=next!=='admin'||!can('ManageIdentities');$('ai-page').hidden=next!=='ai';$('access-policy-page').hidden=next!=='admin'||!can('ManageAccess');$('assistant-policy-page').hidden=next!=='ai'||!can('ManageAgents');$('no-access-page').hidden=true;
-  text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='physical-operations'?'Physical operations':isPhysicalPage(next)?'Facilities & delivery':next==='dashboard'?'Dashboard':next==='risk'?'Risk':next==='jobs'?'Jobs & Infrastructure':isCurvePage(next)?'Curves & prices':next==='vol-surfaces'?'Vol surfaces':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='parties'?'Entities & counterparties':next==='crude'?'Physical crude bookings':next==='gas'?'Physical gas bookings':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='configuration'?'Contract definitions':next==='schedules'?'Schedules & date mappings':'Reference data');
-  for(const name of ['physical-operations','dashboard','market','custom-curves','delivery','interval-series','vol-surfaces','interval-curves','power','reference','configuration','schedules','admin','ai','parties','risk','jobs'])$('nav-'+name).classList.toggle('active',next===name);
-  physicalWorkspace.show(next);curveWorkspace.show(next);
+  const builderChanged=(page==='custom-curves')!==(next==='custom-curves');
+  page=next;$('physical-operations-page').hidden=next!=='physical-operations';rememberPage(()=>sessionStorage,administrationScope+':'+exampleId+':'+currentProfile,next);$('risk-page').hidden=next!=='risk';$('gas-setup-page').hidden=next!=='gas-setup';$('crude-setup-page').hidden=next!=='crude-setup';$('gas-page').hidden=next!=='gas';$('crude-page').hidden=next!=='crude';$('ppa-page').hidden=next!=='ppa';$('custom-curves-page').hidden=next!=='custom-curves';$('curve-definitions-page').hidden=next!=='curve-definitions';$('vol-surfaces-page').hidden=next!=='vol-surfaces';$('jobs-page').hidden=next!=='jobs';$('facilities-page').hidden=next!=='facilities';$('dashboard-page').hidden=next!=='dashboard';$('delivery-page').hidden=next!=='delivery';$('interval-series-page').hidden=next!=='interval-series';$('interval-curves-page').hidden=next!=='interval-curves';$('parties-page').hidden=next!=='parties';$('futures-page').hidden=next!=='futures'||futures.poppedOut();$('blotter-away').hidden=next!=='futures'||!futures.poppedOut();$('power-page').hidden=next!=='power';select('snapshot').closest<HTMLElement>('.date-control')!.hidden=!showsDate(next)||usesBusinessDate(next);$('context-toolbar').hidden=!showsDate(next);$('business-date-field').hidden=!usesBusinessDate(next);$<HTMLInputElement>('date-context-on').type=usesBusinessDate(next)?'date':'hidden';$('market-page').hidden=next!=='market';$('reference-page').hidden=next!=='reference';$('schedules-page').hidden=next!=='schedules';$('price-setup-page').hidden=next!=='configuration';$('date-context').hidden=!showsContext(next);$('admin-page').hidden=next!=='admin'||!can('ManageIdentities');$('ai-page').hidden=next!=='ai';$('access-policy-page').hidden=next!=='admin'||!can('ManageAccess');$('assistant-policy-page').hidden=next!=='ai'||!can('ManageAgents');$('no-access-page').hidden=true;
+  text('page-section',pageGroup(next).toUpperCase());text('header-calculation-time','');text('page-title',next==='physical-operations'?'Physical operations':next==='facilities'?'Facilities':next==='gas-setup'||next==='crude-setup'?'Delivery setup':next==='dashboard'?'Dashboard':next==='risk'?'Risk':next==='jobs'?'Jobs':isCurvePage(next)?'Curves & prices':next==='custom-curves'?'Curve builder':next==='curve-definitions'?'Curve definitions':next==='vol-surfaces'?'Vol surfaces':next==='delivery'?'Delivery prices':next==='interval-series'?'Interval data':next==='parties'?'Entities & counterparties':next==='crude'?'Physical crude bookings':next==='gas'?'Physical gas bookings':next==='ppa'?'PPA bookings':next==='futures'?'Blotter':next==='power'?'Power TOUs':next==='admin'?'Users & access':next==='ai'?'AI':next==='configuration'?'Price setup':next==='schedules'?'Schedules & date mappings':'Reference data');
+  $('page-title').title=$('page-title').textContent??'';
+  for(const name of ['physical-operations','facilities','dashboard','delivery','interval-series','vol-surfaces','admin','ai','jobs'])$('nav-'+name).classList.toggle('active',next===name);
+  const inConsole=pageGroup(next)==='Reference Data';$('nav-reference').classList.toggle('active',inConsole);
+  riskViewsNav.page(next);deliverySetup.show(next);curveWorkspace.show(next);referenceConsole.show(next,next==='reference'?referenceTable||undefined:undefined);
+  // Curve builder has the title for its curve, and the console's menu folds to give its graph the room.
+  if(builderChanged)referenceConsole.fold(next==='custom-curves');$('page-title').classList.toggle('sr-only',next==='custom-curves');$('page-heading-slot').hidden=next!=='custom-curves';
 
   $('market-close-controls').hidden=$('close-session-control').hidden=usesBusinessDate(next);$('as-of-context').closest<HTMLElement>('.as-of-widget')!.hidden=usesBusinessDate(next)&&!showsContext(next);
   renderBlotterViews();
   text('status',pageStatus());syncControls();
+  // The menu lists reference tables from the catalog this account reads; folded on Curve builder, it reads that when it is opened.
+  if(inConsole&&next!=='custom-curves'&&navigation&&!contextDirty){await loadWorkspace();referenceConsole.sync();}
 }
 function showView(view:Preferences['tab']){document.querySelectorAll<HTMLElement>('.view').forEach(n=>n.hidden=n.id!==`view-${view}`);document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>{const active=b.dataset.view===view;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));});}
 function renderLayout(){
@@ -439,15 +449,14 @@ function readShapes():ReadonlyMap<string,CurveShape|string>{const kept=boardShap
 const board=()=>marketBoard(directory(),{by:prefs.browseBy,commodity:prefs.market,type:prefs.marketType},readShapes());
 // Choosing a curve, from the library or from its card on the board, or no curve, which shows the board again.
 async function selectCurve(code:string){
-  curve=code;definingCurve=false;invalidateMarketDates();clearPrices();void renderCurveCloses();
+  curve=code;invalidateMarketDates();clearPrices();void renderCurveCloses();
   if(!curve){renderContext();await loadBoard();}
   else if(select('snapshot').value)await build();else{await loadWorkspace();renderContext();}
 }
 function chooseCurve(code:string){void act(()=>selectCurve(code));}
 // The market board, while no curve is shown: every listed curve at the selected close, or what to choose before there is one.
 function renderMarketBoard(){
-  $('curve-definition').hidden=!definingCurve;
-  const shown=(!curve||!workspace)&&!definingCurve,close=navigation&&!contextDirty?navigation.frames.find(f=>f.id===select('snapshot').value):undefined;
+  const shown=!curve||!workspace,close=navigation&&!contextDirty?navigation.frames.find(f=>f.id===select('snapshot').value):undefined;
   $('market-board').hidden=!shown;$('market-board-empty').hidden=!!close;$('market-board-groups').hidden=!close;
   text('market-board-status',close?`Prices at the close of ${instant(close.at)}`:'');
   text('market-board-empty-title',contextDirty?'Apply the changed context':'Choose a market date');
@@ -774,10 +783,10 @@ function clearReference(){referencePage=undefined;shownReference='';referenceEdi
 const referenceSections=()=>dataSections(Object.keys(data().references)).flatMap(g=>g.sections);
 // The chosen category, shown as its group and tab, with its list or one of its items (`listed`). One no longer available is an
 // error, and the next opening starts on Currencies.
-function referenceCategory(listed:boolean){
+function referenceCategory(){
   const selected=referenceTable||'currencies',section=referenceSections().find(s=>s.value===selected);
-  if(!section){referenceTable='';referenceNavigation.clear();throw Error('These details are unavailable. Please refresh the page.');}
-  referenceTable=selected;referenceNavigation.select(selected,listed);text('data-title',section.name);text('data-description',section.consumer);
+  if(!section){referenceTable='';referenceConsole.show('reference');throw Error('These details are unavailable. Please refresh the page.');}
+  referenceTable=selected;referenceConsole.show('reference',selected);text('data-title',section.name);text('data-description',section.consumer);
   return section;
 }
 const listAddress=(table:string,search:string):ReferenceAddress=>search?{table,search}:{table};
@@ -793,7 +802,7 @@ function addressReference(address:ReferenceAddress){
 // Opens a category's tab, with its rows matching `search` when one is given, at the page an item of it was opened from.
 async function showReference(table:string,search:string){
   clearReference();await loadWorkspace();
-  if(!referenceSections().some(s=>s.value===table)){referenceNavigation.clear();throw Error('That reference table is not available here.');}
+  if(!referenceSections().some(s=>s.value===table)){referenceConsole.show('reference');throw Error('That reference table is not available here.');}
   const offset=referenceReturn?.table===table&&referenceReturn.search===search?referenceReturn.offset:0;referenceReturn=undefined;
   referenceTable=table;$<HTMLInputElement>('reference-search').value=search;await loadReference(offset,search);
 }
@@ -803,10 +812,10 @@ async function openReferenceItem(address:ReferenceAddress){
   if(code===undefined)return showReference(table,search);
   const from=referencePage;
   clearReference();if(contextDirty)throw Error('Apply the changed context first.');await loadWorkspace();
-  if(!referenceSections().some(s=>s.value===table)){referenceNavigation.clear();throw Error('That reference table is not available here.');}
+  if(!referenceSections().some(s=>s.value===table)){referenceConsole.show('reference');throw Error('That reference table is not available here.');}
   if((keylessCategories as readonly string[]).includes(table))throw Error('Rows of this category have no page of their own. Choose the category to list them.');
   if(from)referenceReturn={table:from.table,search:from.search,offset:from.offset};
-  referenceTable=table;const section=referenceCategory(false),owner=data(),context=historicalContext()??null;
+  referenceTable=table;const section=referenceCategory(),owner=data(),context=historicalContext()??null;
   // The editor adds the item's display version to these facts once it has read it.
   const heading={list:{name:section.name,address:listAddress(table,search)},facts:[['As of',context?`${displayDate(context.effectiveOn)}${context.knownAt?`, as known at ${instant(context.knownAt)}`:''}`:'Working data']] as const};
   const current=()=>workspace===owner&&!contextDirty&&page==='reference'&&referenceTable===table;
@@ -841,8 +850,8 @@ async function openReferenceAddress(hash:string){
   await setPage('reference');
   const address=parseReferenceAddress(hash);
   if(address)return openReferenceItem(address);
-  clearReference();referenceNavigation.clear();
-  throw Error('This address names no available reference category. Choose one from Reference data.');
+  clearReference();referenceNavigation.clear();referenceConsole.show('reference');
+  throw Error('This address names no available reference category. Choose one from Reference Data.');
 }
 type ReferenceSearch={query:string;hits:ReferenceHit[];truncated:boolean;context:Context|null;profile:string};
 async function searchReference(text:string){
@@ -876,7 +885,7 @@ function renderReference(){
 }
 async function loadReference(offset=0,search=''){
   clearReference();if(contextDirty)throw Error('Apply the changed context first.');await loadWorkspace();
-  const owner=data(),selected=referenceCategory(true).value,context=historicalContext()??null;
+  const owner=data(),selected=referenceCategory().value,context=historicalContext()??null;
   const query=new URLSearchParams({table:selected,offset:String(offset),search});
   const next=await api<ReferencePage>('reference/catalog?'+query);
   if(workspace!==owner||contextDirty||page!=='reference'||referenceTable!==selected||!sameReferencePage(owner,selected,next,context)||next.offset!==offset||next.search!==search||next.maximumOffset<offset)
@@ -926,7 +935,7 @@ async function showCloseHistory(){
 }
 async function loadNavigation(){
   riskJobs.contextChanged();
-  if(!nativeCurveInspector.element.hidden){nativeCurveInspector.element.hidden=true;definingCurve=false;}
+  if(!nativeCurveInspector.element.hidden){nativeCurveInspector.element.hidden=true;curveDefinitions.element.hidden=false;}
   const started=++marketGeneration,profile=currentProfile,scope=administrationScope;
   workspace=undefined;navigation=undefined;clearReference();referenceNavigation.clear();setCurveNames([]);$('curves').replaceChildren();
   const next=validateMarketNavigation(await api<MarketNavigation>('workspace/navigation'));
@@ -1013,10 +1022,10 @@ $('sign-out').onclick=()=>void (async()=>{if(!await mayLeaveForDialog('You were 
 // A sign-out or account change that failed after it ended the popped-out Blotter shows the Blotter here again, read afresh, rather than an empty page.
 async function blotterBack(){if(page==='futures'&&select('snapshot').value){futures.reset('read');await futures.load();}}
 async function loadIdentity(initialAccess?:unknown){
-  physicalOperations.reset();$('physical-operations-page').hidden=true;physicalWorkspace.reset();curveWorkspace.reset();customCurves.reset();$('custom-curves-page').hidden=true;volSurfaces.reset();$('vol-surfaces-page').hidden=true;riskJobs.reset();$('risk-page').hidden=true;facilities.reset();$('facilities-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;dashboard.reset();$('dashboard-page').hidden=true;
+  physicalOperations.reset();$('physical-operations-page').hidden=true;deliverySetup.reset();referenceConsole.reset();curveWorkspace.reset();customCurves.reset();$('custom-curves-page').hidden=true;volSurfaces.reset();$('vol-surfaces-page').hidden=true;riskJobs.reset();riskViewsNav.reset();$('risk-page').hidden=true;facilities.reset();$('facilities-page').hidden=true;jobs.reset();$('jobs-page').hidden=true;dashboard.reset();$('dashboard-page').hidden=true;
 
-  deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();lng.reset();$('lng-page').hidden=true;gasSetup.reset();crudeSetup.reset();$('crude-setup-page').hidden=true;$('gas-setup-page').hidden=true;$('gas-page').hidden=true;$('crude-page').hidden=true;referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();priceSetup.reset();curveDefinitions.reset();definingCurve=false;scheduleWorkspace?.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('blotter-away').hidden=true;$('no-access-page').hidden=true;
-  $('context-toolbar').hidden=true;curve='';clearPrices();clearReference();referenceTable='';referenceReturn=undefined;referenceNavigation.clear();marketGeneration++;workspace=undefined;navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('price-setup-page').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;accessPolicy.reset();assistantPolicy.reset();$('date-context').hidden=true;
+  deliveryPrices.reset();intervalSeries.reset();intervalCurves.reset();ppa.reset();gas.reset();crude.reset();lng.reset();$('lng-page').hidden=true;gasSetup.reset();crudeSetup.reset();$('crude-setup-page').hidden=true;$('gas-setup-page').hidden=true;$('gas-page').hidden=true;$('crude-page').hidden=true;referenceEditor.reset();$('delivery-page').hidden=true;$('interval-series-page').hidden=true;$('interval-curves-page').hidden=true;parties.reset();unitConverter.reset();futures.reset(null);blotterViews={listed:[],shown:null};renderBlotterViews();power.reset();touProducts.reset();schedules.reset();dateEditor.reset();priceSetup.reset();curveDefinitions.reset();$('curve-definitions-page').hidden=true;scheduleWorkspace?.reset();administration.reset();aiSettings.reset();agentGrants.reset();contextDirty=false;$('parties-page').hidden=true;$('power-page').hidden=true;$('futures-page').hidden=true;$('blotter-away').hidden=true;$('no-access-page').hidden=true;
+  $('context-toolbar').hidden=true;curve='';clearPrices();clearReference();referenceTable='';referenceReturn=undefined;referenceNavigation.clear();marketGeneration++;workspace=undefined;consoleTables=[];navigation=undefined;setCurveNames([]);permissions=[];choose('snapshot',[{value:'',name:'Choose a date…'}],'');marketCalendar.reset();workspaceCloses=undefined;closeBasis=undefined;select('snapshot').closest<HTMLElement>('.date-control')!.hidden=true;$('curves').replaceChildren();$('market-page').hidden=true;$('reference-page').hidden=true;$('schedules-page').hidden=true;$('price-setup-page').hidden=true;$('admin-page').hidden=true;$('ai-page').hidden=true;accessPolicy.reset();assistantPolicy.reset();$('date-context').hidden=true;
   if(initialAccess===undefined)permissions=(await api<{permissions:string[]}>('access')).permissions;
   else{
     const access=initialAccess as StartupAccess|null;
@@ -1077,6 +1086,7 @@ function closeChanged(){
 }
 async function loadSelectedClose(){
   if(page==='schedules'){await dateEditor.load();return;}
+  if(page==='curve-definitions'){if(!curveDefinitions.read())await curveDefinitions.load();return;}
   if(page==='configuration'){await priceSetup.load();return;}
   if(page==='physical-operations'){await physicalOperations.load();return;}
  if(page==='gas-setup'){await gasSetup.load();return;}
@@ -1092,7 +1102,7 @@ function chooseClose(id:string){
   leaving(async()=>{select('snapshot').value=id;closeChanged();if(!historicalContext())await initializeContext();await loadSelectedClose();},'closes');
 }
 $('snapshot').onchange=()=>chooseClose(select('snapshot').value);
-$('example').onclick=()=>void act(async()=>{curve='';clearPrices();await currentInputs();const example=directory().example;if(!example)throw Error('No sample is configured.');const f=directory().frames.find(f=>directory().initialFrameIds.includes(f.id)&&new Date(f.at).getTime()===new Date(example.at).getTime());if(!f)throw Error('These sample prices are unavailable.');prefs.market=null;prefs.marketType='all';prefs.tab='prices';persist();curve=example.curve;clearPrices();renderFrames(f.id);await initializeContext();if(isCurvePage(page))await loadSelectedClose();else await build();});
+$('example').onclick=()=>void act(async()=>{curve='';clearPrices();await currentInputs();const example=directory().example;if(!example)throw Error('No sample is configured.');const f=directory().frames.find(f=>directory().initialFrameIds.includes(f.id)&&new Date(f.at).getTime()===new Date(example.at).getTime());if(!f)throw Error('These sample prices are unavailable.');prefs.market=null;prefs.marketType='all';prefs.tab='prices';persist();curve=example.curve;clearPrices();renderFrames(f.id);await initializeContext();if(isCurvePage(page)||['custom-curves','curve-definitions','configuration'].includes(page))await loadSelectedClose();else await build();});
 $('browse-by').onchange=()=>void act(updateFilters);$('commodity').onchange=()=>void act(updateFilters);
 document.querySelectorAll<HTMLButtonElement>('[data-type]').forEach(b=>b.onclick=()=>void act(async()=>{prefs.marketType=b.dataset.type as Preferences['marketType'];await updateFilters();}));
 document.querySelectorAll<HTMLButtonElement>('.tab').forEach(b=>b.onclick=()=>{if(busy)return;prefs.tab=b.dataset.view as Preferences['tab'];persist();showView(prefs.tab);assistant.sync();});
@@ -1111,19 +1121,18 @@ const administration=setupAdministration(act,api,()=>busy,()=>prefs.timeZone,()=
 // A person's own agent grants, in the profile dialog (docs/ai-assistant.md §7.1).
 const agentGrants=setupAgentGrants({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
 $('profile-dialog').addEventListener('close',agentGrants.hide);
-// Settings › AI, each tab offered by its own permission (docs/ai-assistant.md §9).
+// Infrastructure › AI, each tab offered by its own permission (docs/ai-assistant.md §9).
 const accessPolicy=setupOperatingPolicy($('access-policy-page'),'access',{api,act,identity:()=>administrationScope+':'+currentProfile,can:()=>can('ManageAccess'),busy:()=>busy});
 const assistantPolicy=setupOperatingPolicy($('assistant-policy-page'),'assistant',{api,act,identity:()=>administrationScope+':'+currentProfile,can:()=>can('ManageAgents'),busy:()=>busy});
 const aiSettings=setupAiSettings({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,tabs:()=>aiTabs(permissions)});
-// Defining a curve takes the place of the board or a curve; it previews at the header's selected close.
+// Curve definitions preview at the header's selected close.
 const curveDefinitions=setupCurveDefinitionEditor(api,act,()=>{if(contextDirty)throw Error('Apply the changed market context first.');return select('snapshot').value;},
-  ()=>prefs.timeZone,()=>busy,()=>{definingCurve=false;renderMarketBoard();},()=>contextDirty?'Apply the changed market context first.':historicalContext()?'Historical view is read-only. Return to current knowledge to edit.':null);
-const nativeCurveInspector=setupNativeCurveInspector(()=>{definingCurve=false;renderMarketBoard();},code=>leaving(async()=>{await setPage('custom-curves');await customCurves.load(directory().definitionRevision.revisionId);await customCurves.openSource(code,directory().definitionRevision.revisionId);}),()=>busy);
+  ()=>prefs.timeZone,()=>busy,()=>contextDirty?'Apply the changed market context first.':historicalContext()?'Historical view is read-only. Return to current knowledge to edit.':null);
+const nativeCurveInspector=setupNativeCurveInspector(()=>navigate('market')(),code=>leaving(async()=>{await setPage('custom-curves');await customCurves.load(directory().definitionRevision.revisionId);await customCurves.openSource(code,directory().definitionRevision.revisionId);}),()=>busy);
 $('curve-definition').append(curveDefinitions.element,nativeCurveInspector.element);nativeCurveInspector.element.hidden=true;
-$('curve-define').onclick=()=>void act(async()=>{await selectCurve('');definingCurve=true;curveDefinitions.element.hidden=false;nativeCurveInspector.element.hidden=true;renderMarketBoard();await curveDefinitions.load();});
 function openCurveConfiguration(configuration:CurveConfiguration){return act(async()=>{
   if(contextDirty)throw Error('Apply the changed market context first.');
-  await selectCurve('');definingCurve=true;curveDefinitions.element.hidden=configuration.kind==='native';nativeCurveInspector.element.hidden=configuration.kind!=='native';renderMarketBoard();
+  await setPage('curve-definitions');curveDefinitions.element.hidden=configuration.kind==='native';nativeCurveInspector.element.hidden=configuration.kind!=='native';
   if(configuration.kind==='definition')await curveDefinitions.openDefinition(configuration.id!,configuration.version!,configuration.reason);
   else{await loadWorkspace();nativeCurveInspector.show(data(),configuration,curveName(configuration.curve),can('WriteMarketDefinitions')&&!historicalContext());}
 });}
@@ -1171,7 +1180,7 @@ $('live-retry').onclick=()=>{if(liveStream?.readyState===EventSource.CLOSED&&nav
 // shows its views' tab groups side by side only from a main area this wide (dock.ts).
 const main=document.querySelector('main')!,phone=window.matchMedia('(max-width:760px)');
 const panelDocked=()=>panelPlacement(main.clientWidth,document.body.classList.contains('assistant-open'))==='docked';
-const customCurves=setupCustomCurves($('custom-curves-page'),{api,act,openContractTerms:selection=>leaving(async()=>{await setPage('configuration');await priceSetup.openContract(selection);}),catalogSnapshot:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return select('snapshot').value;},marketScopeChanged:invalidateMarketDates,unsavedChanged:()=>{if(initialWorkspaceReady)syncUnloadQuestion();},narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),draft:text=>assistant.draft(text)},busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});
+const customCurves=setupCustomCurves($('custom-curves-page'),{headingSlot:$('page-heading-slot'),api,act,openContractTerms:selection=>leaving(async()=>{await setPage('configuration');await priceSetup.openContract(selection);}),catalogSnapshot:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return select('snapshot').value;},marketScopeChanged:invalidateMarketDates,unsavedChanged:()=>{if(initialWorkspaceReady)syncUnloadQuestion();},narrow:()=>main.clientWidth<dockedGroupsFrom,assistant:{available:()=>can('UseAgents'),draft:text=>assistant.draft(text)},busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});
 scheduleWorkspace=setupScheduleWorkspace();
 $('schedules-page').prepend($('schedules-page-prompt'));
 // The hidden select remains the shared exact-frame adapter consumed by the
@@ -1187,7 +1196,7 @@ const deliveryPrices=setupPowerImports({zone:()=>prefs.timeZone,api,act,busy:()=
 const crudeSetup=setupCrudeConfiguration({api,act,busy:()=>busy,actor:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>({snapshotId:contextDirty?'':select('snapshot').value}),marketLabel:()=>select('snapshot').value?`Market date: ${instant(frame().at)}`:'Select a market date above for preview.'});
 const gasSetup=setupGasConfiguration({api,act,busy:()=>busy,actor:()=>administrationScope+':'+currentProfile,historical:()=>contextDirty||!!historicalContext(),source:()=>contextDirty?'':select('snapshot').value});
 const curveWorkspace=setupCurveWorkspace({open:next=>navigate(next)(),available:next=>pageAvailable(next,permissions),busy:()=>busy,pendingContext:()=>contextDirty});
-const physicalWorkspace=setupPhysicalWorkspace({open:next=>navigate(next)(),available:next=>pageAvailable(next,permissions),busy:()=>busy});
+const deliverySetup=setupDeliverySetupSwitch({open:next=>navigate(next)(),available:next=>pageAvailable(next,permissions),busy:()=>busy});
 const crude=setupPhysicalCrude({api,act,zone:()=>prefs.timeZone,busy:()=>busy,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
 const lng=setupPhysicalLng({api,act,zone:()=>prefs.timeZone,busy:()=>busy,canBook:()=>can('BookTrade'),source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,onBooked:ticketBooked});
 const gas=setupGasTicket({api,source:()=>({snapshotId:frame().id}),historical:()=>contextDirty||!!historicalContext(),actor:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,onBooked:ticketBooked});
@@ -1216,8 +1225,7 @@ function dashboardMarket():DashboardMarket{
  return {navigation:directory(),snapshotId:close.id,zone:prefs.timeZone,historical:!!historicalContext(),close:{at:close.at,label:close.name||null,badge:currentCloseBadge()}};
 }
 const dashboard=setupDashboard({api,act,busy:()=>busy,historical:()=>contextDirty||!!historicalContext(),market:dashboardMarket});
-const riskJobs=setupRiskWorkspace({api,act,instant,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>exampleId+':'+administrationScope+':'+currentProfile,canRun:()=>can('RunScenario'),changed:()=>{if(initialWorkspaceReady)syncUnloadQuestion();},source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});
-$('risk-jobs-nodes').onclick=()=>navigate('jobs')();
+const riskJobs=setupRiskWorkspace({api,act,instant,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>exampleId+':'+administrationScope+':'+currentProfile,canRun:()=>can('RunScenario'),view:next=>riskViewsNav.select(next),changed:()=>{if(initialWorkspaceReady)syncUnloadQuestion();},source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});
 const jobs=setupJobs({api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,contextReady:()=>!contextDirty});
 // A committed label changes current curves' names and units as well as the item's page: the market is read again, as after a correction,
 // and so is the page.
@@ -1249,14 +1257,17 @@ let mainWidth=main.clientWidth;
 new ResizeObserver(()=>{if(main.clientWidth!==mainWidth){mainWidth=main.clientWidth;contractPanel.place();customCurves.place();}}).observe(main);
 new MutationObserver(()=>{contractPanel.place();customCurves.place();}).observe(document.body,{attributes:true,attributeFilter:['class']});
 const touProducts=setupTouProducts(act,api,()=>busy,()=>prefs.timeZone,async()=>{power.reset();if(select('snapshot').value)await power.load();});
-const referenceNavigation=setupReferenceNavigation({host:$('reference-page'),groups:()=>dataSections(Object.keys(data().references)),
-  // A tab chosen while an item holds unsaved edits asks first; kept, the tabs show the item's category again.
-  onSelect:async table=>{
-    if(busy)return;
-    if(!await mayLeave()){referenceNavigation.select(referenceTable,false);return;}
-    await act(async()=>{referenceTable=table;$<HTMLInputElement>('reference-search').value='';await loadReference();});
-  },
-  onSearch:q=>act(()=>searchReference(q))});
+const referenceNavigation=setupReferenceNavigation({host:$('reference-page'),groups:()=>dataSections(Object.keys(data().references))});
+// A category chosen while an item holds unsaved edits asks first; kept, the menu shows the item's category still.
+function openReferenceTable(table:string){
+  leaving(async()=>{if(contextDirty)await applyContext();referenceTable=table;await showPage('reference');},contextDirty?'discards':'page');
+}
+const referenceConsole=setupReferenceConsole({host:$('reference-console'),busy:()=>busy,pendingContext:()=>contextDirty,
+  // A changed context drops the catalog until it is read again; the menu keeps the tables this account last read.
+  menu:()=>{if(workspace)consoleTables=Object.keys(workspace.references);return consoleMenu({pageAvailable:next=>pageAvailable(next,permissions),tables:consoleTables});},
+  open:entry=>{if(entry.table)openReferenceTable(entry.table);else navigate(entry.page)();},
+  unfolded:()=>{if(!workspace&&navigation&&!contextDirty)void act(loadWorkspace);},
+  search:text=>leaving(async()=>{if(page!=='reference')await showPage('reference');await searchReference(text);},'page')});
 // A reference address the person follows, types or returns to with Back opens what it names.
 // The address stays with the page shown, so that a reload opens what is on screen, while the person is asked about edits the
 // move would give up, and when it is not opened: another read is in progress, or the person kept their edits.
@@ -1295,7 +1306,6 @@ async function loadPowerPage({refreshProducts}:{refreshProducts:boolean}){
 // Opens a page as its navigation does. The assistant's moves and Back open pages the same way.
 async function showPage(next:string){
   switch(next){
-    case 'physical':return showPage(physicalWorkspace.entry());
     case 'market':await setPage('market');if(curve&&!result&&select('snapshot').value)await build();await loadBoard();return;
     case 'custom-curves':await setPage('custom-curves');await customCurves.load();return;
     case 'vol-surfaces':await setPage('vol-surfaces');await volSurfaces.refresh();return;
@@ -1316,6 +1326,7 @@ async function showPage(next:string){
     case 'reference':await setPage('reference');$<HTMLInputElement>('reference-search').value='';await loadReference();return;
     case 'schedules':await setPage('schedules');await schedules.load();await dateEditor.load();scheduleWorkspace?.show();return;
     case 'configuration':await setPage('configuration');await priceSetup.load();return;
+    case 'curve-definitions':await setPage('curve-definitions');curveDefinitions.element.hidden=false;nativeCurveInspector.element.hidden=true;await curveDefinitions.load();return;
     case 'parties':await setPage('parties');await parties.load();return;
     case 'admin':await setPage('admin');await accessPolicy.load();if(can('ManageIdentities'))await administration.load();return;
     case 'ai':await setPage('ai');await assistantPolicy.load();await aiSettings.load();return;
@@ -1325,11 +1336,14 @@ async function showPage(next:string){
   }
 }
 // Pages that read the selected historical view apply a changed one before they open.
-const readsContext=['physical-operations','crude-setup','gas-setup','gas','crude','dashboard','market','custom-curves','vol-surfaces','delivery','interval-curves','power','reference','configuration','schedules','parties','futures'];
+const readsContext=['physical-operations','crude-setup','gas-setup','gas','crude','dashboard','market','curve-definitions','custom-curves','vol-surfaces','delivery','interval-curves','power','reference','configuration','schedules','parties','futures'];
 const navigate=(next:string)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);},contextDirty&&readsContext.includes(next)?'discards':'page');
-for(const name of ['physical-operations','dashboard','vol-surfaces','delivery','interval-series','risk','jobs','power','reference','schedules','configuration','parties','admin','ai','futures'])
+const riskViewsNav=setupRiskViews({show:view=>{riskJobs.showView(view);text('page-title',riskViewNames[view]);$('page-title').title=riskViewNames[view];},open:()=>navigate('risk')(),onPage:()=>page==='risk',busy:()=>busy,available:()=>pageAvailable('risk',permissions)});
+for(const name of ['physical-operations','facilities','dashboard','vol-surfaces','delivery','interval-series','jobs','admin','ai','futures'])
 
   $('nav-'+name).onclick=navigate(name);
+// Reference Data reopens on the last entry used, or on the first this account has.
+$('nav-reference').onclick=()=>{if(busy||pageGroup(page)==='Reference Data')return;const entry=referenceConsole.destination();if(entry?.table)openReferenceTable(entry.table);else navigate(entry?.page??'reference')();};
 // The saved Blotter views the person lists in the sidebar, each under the Blotter, which is marked while none of them is the view it shows.
 let blotterViews:{listed:string[];shown:string|null}={listed:[],shown:null};
 function renderBlotterViews(){
@@ -1349,6 +1363,7 @@ $('curve-power').onclick=navigate('power');
 function pageState():PageState{
   switch(page){
     case 'market':return {page,curve:curve||null,tab:prefs.tab};
+    case 'curve-definitions':return {page:'market',curve:null,tab:prefs.tab};
     case 'power':return {page,frame:!!select('snapshot').value};
     case 'reference':return {page,...referenceSelection(shownReference)};
     case 'parties':return {page,kind:select('party-kind').value};

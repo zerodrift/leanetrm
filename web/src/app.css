@@ -398,7 +398,6 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 /* Forms */
 .schedule-fields.three{grid-template-columns:repeat(3,minmax(0,1fr))}
 /* Define a curve (D318): one field per row, sections stacked. */
-.curve-define{width:100%}
 .curve-row{display:flex;align-items:center;gap:2px}
 .curve-row .curve-button{flex:1 1 auto;min-width:0}
 .curve-configure{flex:none;width:28px;height:28px;padding:0;border:0;border-radius:var(--radius-sm);background:none;color:var(--text-3);font-size:15px;line-height:1}
@@ -1085,8 +1084,6 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 
 /* Curve builder as a desk (markets-desk.md, Curve builder): a header with the curve's state and actions, the saved-curve library, and the
    curve's views as tabs in a dock. Every color is a token. */
-:root{--curve-rail-width:212px}
-.custom-curve-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px 24px;flex-wrap:wrap;margin:2px 0 16px}
 .custom-curve-titles{min-width:0}
 .custom-curve-titles .eyebrow{margin:0 0 2px}
 .custom-curve-titles h2{font-size:22px;letter-spacing:-.4px;overflow-wrap:anywhere}
@@ -1098,15 +1095,6 @@ body.assistant-open:not(.assistant-overlay) .side-panel[data-placement=overlay]{
 .curve-state-chip[data-state=unsaved]{border-color:var(--warn-border);background:var(--warn-soft);color:var(--warn)}
 .custom-curve-about{max-width:90ch;margin:-6px 0 14px;font-size:13px;color:var(--text-2)}
 .custom-curve-pending{flex-wrap:wrap;align-items:center}.custom-curve-pending p{flex:1 1 100%;margin:0}
-.custom-curve-desk{--rail:var(--curve-rail-width);display:grid;grid-template-columns:var(--rail) minmax(0,1fr);gap:16px;align-items:start}
-.custom-curve-desk.rail-collapsed{--rail:44px}
-.custom-curve-rail{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto;padding:8px 10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
-.custom-curve-rail-toggle{display:flex;align-items:center;gap:8px;width:100%;padding:4px 6px;margin-bottom:6px;border:0;background:transparent;color:var(--text-3);font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600}
-.custom-curve-rail-toggle:hover{background:var(--surface-3);border-color:transparent}
-.custom-curve-rail-chevron{margin-left:auto;font-size:18px;line-height:14px;letter-spacing:0}
-.rail-collapsed .custom-curve-rail{padding:8px 4px}
-.rail-collapsed .custom-curve-rail-title{display:none}
-.rail-collapsed .custom-curve-rail-chevron{margin:0 auto;transform:rotate(180deg)}
 .custom-curve-library-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px}
 .custom-curve-library-actions .secondary{flex:1;padding:6px 10px;font-size:12.5px}
 .custom-curve-library-actions .text-button{font-size:12px;padding:2px 2px}
@@ -1304,8 +1292,6 @@ button.custom-curve-dot.connectable:hover,button.custom-curve-dot.connectable:fo
 .curve-contract-row input,.curve-contract-row select{font-size:12px;min-width:0}
 .curve-contract-row input[inputmode=decimal]{font-family:var(--mono)}
 .curve-contract-mapping>button{width:100%;margin-top:4px}
-@media(max-width:1200px){:root{--curve-rail-width:192px}}
-@media(max-width:960px){.custom-curve-desk,.custom-curve-desk.rail-collapsed{grid-template-columns:minmax(0,1fr)}.custom-curve-rail{position:static;max-height:none}.custom-curve-list{max-height:220px;overflow:auto}.rail-collapsed .custom-curve-rail-title{display:inline}.rail-collapsed .custom-curve-rail-chevron{margin:0 0 0 auto}}
 @media(max-width:760px){.custom-curve-actions{width:100%}.custom-curve-actions button{flex:1}.custom-curve-graph-tools{margin-left:0}.dock-panels{padding:12px}}
 /* The side panel's risk report: a choice of report, its sizes or the scenario lab, and the run's jobs and the work it did. */
 .risk-report fieldset{border:0;padding:0;margin:0;min-width:0}
@@ -1659,12 +1645,8 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 .page-tabs{gap:24px;margin:0 0 14px;padding:0;background:none}
 .page-tabs .side-panel-tab{padding:10px 0;font-size:14px;font-weight:500}
 /* Reference data: group tabs beside the search of every category, then the chosen group's category tabs. */
-.reference-navigation{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:12px}
-.reference-navigation .page-tabs{border-bottom:0;margin:0;flex-wrap:wrap}
 .reference-search-all{display:flex;gap:8px;padding-bottom:8px;flex:0 1 360px;min-width:0}
 .reference-search-all input{flex:1;min-width:0}
-.reference-sections{gap:18px;flex-wrap:wrap}
-.reference-sections .side-panel-tab{font-size:13px}
 .reference-search-hits{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px 24px;margin:0 0 16px;font-size:13px}
 .reference-search-hits h3{font-size:12px;color:var(--text-3);margin:0 0 4px}
 .reference-search-hits ul{list-style:none;margin:0;padding:0}
@@ -1967,8 +1949,6 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 .gas-setup-category select{display:block;width:100%}
 .delivery-setup .card{padding:24px;min-width:0}
 .delivery-setup .card>p{max-width:90ch;line-height:1.6}
-.delivery-setup-context{padding:14px 16px;margin:18px 0;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius)}
-.delivery-setup-context p{margin:6px 0 0;font-size:12px;line-height:1.6;color:var(--text-2)}
 .delivery-setup .schedule-fields{grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:22px 24px;margin-top:20px}
 .delivery-setup-field{min-width:0}
 .delivery-setup-field label{display:block;margin:0;font-weight:550}
@@ -2089,11 +2069,7 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
   .position-schedules .schedule-fields label{flex:1 1 140px}
 }
 @container workspace (max-width:960px){
-  .custom-curve-desk,.custom-curve-desk.rail-collapsed{grid-template-columns:minmax(0,1fr)}
-  .custom-curve-rail{position:static;max-height:none}
   .custom-curve-list{max-height:220px;overflow:auto}
-  .rail-collapsed .custom-curve-rail-title{display:inline}
-  .rail-collapsed .custom-curve-rail-chevron{margin:0 0 0 auto}
 }
 @container workspace (max-width:900px){
   .schedule-workspace-content{grid-template-columns:minmax(0,1fr)}
@@ -2434,17 +2410,8 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 
 #facility-adoption-fields{display:grid;gap:10px;min-width:0}
 #facility-adoption-evidence{width:100%;box-sizing:border-box}
-.physical-workspace-heading{margin-bottom:1rem}.physical-workspace-nav,.physical-commodity{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem}.physical-workspace-nav{border-bottom:1px solid var(--border);padding-bottom:.75rem}.physical-workspace-nav button,.physical-commodity button{background:transparent;color:var(--text-3);border:1px solid transparent}.physical-workspace-nav button.active,.physical-commodity button.active{background:var(--accent-soft);color:var(--accent-text);border-color:var(--accent-border)}.physical-commodity{padding-top:.75rem}.physical-commodity>span{font-size:.8rem;color:var(--text-3);margin-right:.5rem}
+.physical-commodity{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem}.physical-commodity button{background:transparent;color:var(--text-3);border:1px solid transparent}.physical-commodity button.active{background:var(--accent-soft);color:var(--accent-text);border-color:var(--accent-border)}.physical-commodity{padding-top:.75rem}.physical-commodity>span{font-size:.8rem;color:var(--text-3);margin-right:.5rem}
 
-.physical-type-coverage{margin:1rem 0 0;padding:14px 16px}
-.physical-type-coverage summary{font-weight:650;cursor:pointer}
-.physical-type-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:8px}
-.physical-type-card{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:5px;min-width:0;padding:12px;text-align:left;background:var(--surface);color:var(--text);border:1px solid var(--border);white-space:normal}
-.physical-type-card strong{font-size:.85rem;overflow-wrap:anywhere}
-.physical-type-card span{font-size:.75rem;color:var(--text-3)}
-.physical-type-card:not(:disabled):hover{background:var(--accent-soft);border-color:var(--accent-border)}
-.physical-type-card:disabled{background:var(--surface-3);color:var(--text-3);border-color:var(--border);opacity:1;cursor:not-allowed}
-.physical-type-card:disabled span{color:var(--text-3)}
 
 .inspection-value{display:flex;flex-direction:column;gap:4px}.inspection-value>small{font-size:10px;color:var(--text-3);font-weight:400}.side-schedule-inspection td{vertical-align:top}
 
@@ -2563,3 +2530,80 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 #price-setup-page .side-panel-prompt{position:relative;margin-bottom:20px}
 @media(max-width:760px){.price-authoring-tabs{overflow:auto}.price-authoring-fields>label{flex-basis:100%}.price-authoring-map>label{flex-basis:100%}}
 #contract-terms-preview-result,#contract-terms-current,#price-publications-occurrences,#price-publications-releases,#price-publications-preview-result{max-width:100%;overflow:auto}
+
+/* The Reference Data console's menu, a second column beside the sidebar. */
+:root{--console-width:188px}
+.reference-console{position:fixed;inset:0 auto 0 var(--sidebar-width);width:var(--console-width);z-index:1;display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--border);padding:16px 10px;overflow-y:auto}
+.reference-console[hidden]{display:none}
+.reference-console.folded{width:44px;padding:16px 8px}
+body.in-console main{margin-left:calc(var(--sidebar-width) + var(--console-width))}
+body.in-console.console-folded main{margin-left:calc(var(--sidebar-width) + 44px)}
+.reference-console-toggle{align-self:flex-end;width:26px;height:26px;padding:0;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text-2);line-height:22px;margin-bottom:8px}
+.reference-console-body[hidden]{display:none}
+.reference-console .reference-search-all{margin-bottom:10px}
+.reference-console .reference-search-all input{width:100%;font-size:12.5px}
+.reference-console-group[hidden]{display:none}
+.reference-console-group summary{display:flex;align-items:center;justify-content:space-between;list-style:none;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--text-2);padding:6px 6px}
+.reference-console-group summary::-webkit-details-marker{display:none}
+.reference-console-group summary::after{content:'›';transition:transform .15s}
+.reference-console-group[open]>summary::after{transform:rotate(90deg)}
+.reference-console-group ul{list-style:none;margin:0 0 6px;padding:0}
+.reference-console-group li[hidden]{display:none}
+.reference-console-group button{display:block;width:100%;text-align:left;background:transparent;border:0;border-radius:6px;padding:5px 6px 5px 12px;font-size:12.5px;font-weight:500;color:var(--text-2);line-height:1.3}
+.reference-console-group button:hover:not(:disabled){background:var(--surface-3)}
+.reference-console-group button[aria-current=page]{background:var(--accent-soft);color:var(--accent-text);font-weight:600}
+@media (max-width:760px){
+ .reference-console,.reference-console.folded{position:static;width:auto;max-height:40vh;border-right:0;border-bottom:1px solid var(--border)}
+ body.in-console main,body.in-console.console-folded main{margin-left:0}
+}
+
+/* Risk's views: one page, one set of panels showing at a time. */
+.risk-view-off{display:none!important}
+#risk-page details[data-risk-view]>summary{display:none}
+.risk-scope-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.risk-scope-label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+#risk-scope-summary{font-size:13.5px;font-weight:500}
+.risk-scope-bar .actions{margin-left:auto}
+.risk-scope-editor{margin-top:8px}
+.risk-scope-editor>summary{cursor:pointer;font-size:12.5px;color:var(--accent-text)}
+
+/* Curve builder's workbench: the title on the app header, the actions on the tab row, and the graph over the prices. */
+.page-heading-slot{position:relative}
+.page-heading-slot[hidden]{display:none}
+.custom-curve-title-row{gap:10px;flex-wrap:wrap}
+.custom-curve-title-row .custom-curve-status{margin:0}
+.custom-curve-picker-title{display:inline-flex;align-items:center;gap:6px;padding:0;background:transparent;border:0;color:var(--text);font-size:24px;line-height:1.25;letter-spacing:-.4px;font-weight:600;max-width:100%}
+.custom-curve-picker-title:hover:not(:disabled){background:transparent;color:var(--accent-text)}
+.custom-curve-picker-title #custom-curves-heading{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.custom-curve-picker-title>span:last-child{font-size:14px;color:var(--text-3)}
+.custom-curve-picker-panel{position:absolute;z-index:20;top:calc(100% + 6px);left:0;width:300px;max-height:60vh;overflow:auto;padding:10px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius);box-shadow:0 8px 24px rgba(18,34,27,.14)}
+.custom-curve-picker-panel[hidden]{display:none}
+#custom-curves-dock .dock-head .custom-curve-actions{flex:none;align-self:center;align-items:center;margin:0 8px;flex-wrap:nowrap}
+#custom-curves-dock .dock-head .custom-curve-actions button{padding:4px 12px;font-size:12.5px}
+#custom-curves-dock>.dock-split[data-direction=column]{height:calc(100vh - 150px);min-height:560px}
+.custom-curve-more{position:relative}
+.custom-curve-more>summary{list-style:none;cursor:pointer;padding:2px 8px;border-radius:6px;color:var(--text-2)}
+.custom-curve-more>summary::-webkit-details-marker{display:none}
+.custom-curve-more[open]>button{position:absolute;right:0;top:calc(100% + 4px);z-index:10;white-space:nowrap;background:var(--surface);border:1px solid var(--border-strong)}
+.custom-curve-combine{margin:0 0 12px}
+.custom-curve-combine>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--text-2);padding:4px 0}
+.custom-curve-combine[hidden]{display:none}
+.curve-object-connect,.curve-object-terms{background:var(--surface);color:var(--text-2);border:1px solid var(--border-strong);font-size:12px;padding:3px 9px}
+.curve-object-connect:hover:not(:disabled),.curve-object-terms:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
+.custom-curve-stale{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;padding:6px 10px;background:var(--warn-soft);border:1px solid var(--warn-border);border-radius:var(--radius-sm);color:var(--warn);font-size:12.5px}
+.custom-curve-stale[hidden]{display:none}
+.custom-curve-preview.out-of-date .chart,.custom-curve-preview.out-of-date .custom-curve-tiles{opacity:.45}
+.custom-curve-preview.out-of-date .chart{pointer-events:none}
+
+/* One header row: the title never wraps, and the context stays beside it. */
+#page-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header>div:first-child{flex:1 1 160px}
+@media(min-width:761px){
+ header{align-items:center}
+ header:has(.context-toolbar:not([hidden])) .header-actions{flex:0 1 auto;flex-wrap:nowrap;align-items:center}
+ .context-toolbar{flex-wrap:nowrap;padding:6px 10px;gap:12px}
+}
+@container workspace (max-width:1040px){.profile-text{display:none}}
+/* Jobs lists a section only when it has something to show. */
+#jobs-page>.card:not(:has(>:not([hidden]))){display:none}
+.status-bar.sr-only{position:absolute;width:1px;height:1px;min-height:0;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
