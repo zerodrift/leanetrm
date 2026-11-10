@@ -3925,6 +3925,12 @@ retain that definition identity alongside the exact product reference and close
 or working valuation instant. The library marks a fit as available at a recorded
 close only when its source pins match that close's signed source part.
 
+The v1 generated-close profile and normalized report have one exact definition.
+Admission checks the anchor's source matrix and publication checks the due
+session version's source-qualified roots before writing any observations.
+Preflight uses its due business date and explicit derived inputs, and the
+report uses the recorded close with its original source evidence.
+
 Remaining qualification includes a secondary-source fit through worker
 persistence and readback, cross-reference mixed-product worker replay, portfolio
 aggregation across distinct reference revisions, remaining product admissions and

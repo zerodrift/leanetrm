@@ -36,7 +36,16 @@ public static class PilotCloseJobs
         if(pin.Context is not null)throw new MarketDataException("historical_read_only","Configure generated pilot jobs in the current workspace.");
         foreach(var permission in Permissions)if(!await PreviewDatabase.HasPermission(connection,permission,ct))throw new PreviewDeniedException();
         var data=await database.Read(connection,ct,observationIds:[],includeCalendarDays:false);
-        var closeRows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT id,name,at,kind FROM market_data.market_closes WHERE catalog_id=$1 AND definition_revision_id=$2 AND id=security.close_in_force(catalog_id,session_code,business_date) ORDER BY at DESC,id LIMIT 128)t",[database.Manifest.CatalogId,database.Manifest.RevisionId],ct);
+        var closeRows=await PreviewDatabase.Rows(connection,
+            """
+            SELECT row_to_json(t)::text FROM(
+             SELECT c.id,c.name,c.at,c.kind FROM market_data.market_closes c
+             WHERE(c.catalog_id,c.definition_revision_id)=($1,$2)
+              AND c.id=security.close_in_force(c.catalog_id,c.session_code,c.business_date)
+              AND NOT EXISTS(SELECT 1 FROM market_data.market_close_sources s
+               WHERE(s.catalog_id,s.close_id)=(c.catalog_id,c.id) AND s.definition_revision_id<>c.definition_revision_id)
+             ORDER BY c.at DESC,c.id LIMIT 128)t
+            """,[data.DefinitionRevision.CatalogId,data.DefinitionRevision.RevisionId],ct);
         await using var clock=ScheduleStore.Command(connection,"SELECT clock_timestamp()");
         var observed=new DateTimeOffset((DateTime)(await clock.ExecuteScalarAsync(ct))!);
         var current=(await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,
@@ -75,7 +84,7 @@ public static class PilotCloseJobs
             schedulePolicy=new{timeZone="UTC",misfire="run_once",overlap="forbid"},
             fields=new{seed=new{minimum=0,maximum=int.MaxValue},maximumTicks=new{minimum=1,maximum=PilotMarkGenerator.MaximumTickMove},bumpTicks=new{minimum=1,maximum=100},
                 timeoutSeconds=new{minimum=1,maximum=3600},maximumAttempts=new{minimum=1,maximum=3}},
-            warning="Generated prices are synthetic pilot data. Futures execution P&L is not settlement PV or variation margin. Every selected book is evaluated in full; unsupported positions or missing inputs reject the occurrence."};
+            warning="Generated prices are synthetic pilot data. Select an anchor and session curves from one exact definition. Futures execution P&L is not settlement PV or variation margin. Every selected book is evaluated in full; unsupported positions or missing inputs reject the occurrence."};
         foreach(var permission in Permissions)if(!await PreviewDatabase.HasPermission(connection,permission,ct))throw new PreviewDeniedException();
         await using var scope=ScheduleStore.Command(connection,"SELECT security.market_access($1,'ReadMarketData') AND security.reference_access($2,'ReadMarketData')",data.DefinitionRevision.CatalogId,data.ReferenceRevision.CatalogId);
         if(!Equals(await scope.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();

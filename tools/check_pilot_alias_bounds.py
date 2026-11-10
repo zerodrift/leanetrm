@@ -26,7 +26,9 @@ def run_checks(owner,body,query,manifest):
     members=[{'curve':code,'contractId':contract,'ordinal':0} for code in aliases]
     pins=[{'seriesId':series,'observationId':observation,'inputUse':'variable'}]
     def encoded(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
-    anchor=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{human_token()}');SELECT security.register_market_close('{catalog}','{revision}','{uuid4()}','Synthetic native alias anchor','test_pilot_alias','2020-12-18','2020-12-18T16:00:00Z',{encoded(pins)},{encoded(members)});COMMIT;").splitlines()[-1]
+    registered_pins=[{**pin,'definitionRevisionId':revision} for pin in pins]
+    registered_members=[{**member,'definitionRevisionId':revision,'scope':'root'} for member in members]
+    anchor=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{human_token()}');SELECT security.register_market_close('{catalog}','{revision}','{uuid4()}','Synthetic native alias anchor','test_pilot_alias','2020-12-18','2020-12-18T16:00:00Z',{encoded(registered_pins)},{encoded(registered_members)});COMMIT;").splitlines()[-1]
     for second_bound,rejected in [(8,True),(7,False)]:
         request={**body,'schedule':{**body['schedule'],'requestId':str(uuid4()),'name':'Synthetic native alias policy'},
             'definition':{**body['definition'],'session':'test_pilot_alias','priorCloseId':anchor,'curveCodes':aliases,

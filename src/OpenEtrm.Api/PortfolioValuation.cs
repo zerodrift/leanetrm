@@ -104,14 +104,12 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             throw new MarketDataException("portfolio_policy","Select the supported exact valuation policies and one to 100 symmetric trading ticks explicitly.");
         policy.FuturesOptions?.Validate();
     }
-    public async Task<PortfolioValuationResult> Calculate(NpgsqlConnection connection,PreviewData data,MarketSnapshot snapshot,
+    public async Task<PortfolioValuationResult> Calculate(NpgsqlConnection connection,PreviewData data,InputFrame frame,
         ScheduleContext context,ImmutableArray<Guid> bookIds,PortfolioValuationPolicy policy,CancellationToken ct,bool requireNativeEvidence=false)
     {
         var exact=PinnedContext.Exact(context);
-        await RequireValuationContext(connection,exact,snapshot.ValuationAt,ct);
-        var frame=new InputFrame(snapshot.Id,"Portfolio inputs",snapshot.ValuationAt,PublishedSchedules.ContextDate(exact),
-            snapshot.Selections.Select(s=>s.Observation.Key.Id).ToImmutableArray(),ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,
-            exact.ContextId,snapshot.Selections.Where(s=>s.Input.Use==InputUse.FrozenFact).Select(s=>s.Observation.Key.Id).ToImmutableArray());
+        await RequireValuationContext(connection,exact,frame.At,ct);
+        var snapshot=data.Snapshot(frame);
         var prepared=await Prepare(connection,data,frame,snapshot,exact,bookIds,policy,[],excluded:[],ct);
         if(requireNativeEvidence)CloseBookRiskJobs.RequireNativeEvidence(prepared.ConnectedMarkets);
         var bumps=prepared.Factors.Select(f=>new PortfolioCurveBump(CurveRiskAxes.Quote(prepared,f,ct),

@@ -37,7 +37,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     future_context={**swap_context,'convention':'contract_lot_execution_pnl_v2'}
     future=next(c for c in trader.call('futures/catalog',future_context)['contracts'] if c['curve']=='future' and c['deliveryFrom']=='2021-01-01')
     future_trade=trader.call('futures/book',{**future_context,**trade_booking(),'operationId':str(uuid4()),'bookId':books[0],
-        'curve':'future','contractId':future['id'],'lots':'2','executionPrice':'2.9'})
+        'curve':'future','contractId':future['id'],'definitionRevisionId':future['definitionRevisionId'],'lots':'2','executionPrice':'2.9'})
     from pilot_report_fixture import prepare_alias
     prepare_alias(query,manifest,future_trade['tradeId'])
     owner=PreviewClient(url);owner.bootstrap();owner.call('profile',{'profile':'approver'})

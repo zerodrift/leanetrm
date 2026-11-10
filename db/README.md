@@ -9,7 +9,7 @@ grant. Bootstrap refuses an existing application schema; upgrading an installed
 database preserves its migration ledger and existing ACL provenance.
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0235_vol_surface_sources.sql`. It includes reference/market data, certified
+`0236_generated_close_source_scope.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts, regional closes, bounded physical gas/crude operations and
 pre-loading LNG cargo booking/valuation with saved Incoterms.

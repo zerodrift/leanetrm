@@ -145,6 +145,7 @@ const string malformed="The request is incomplete or malformed.";
         => (422,parts[0],CloseSessions.Refusal(parts[0])+(parts.Length>1?" ("+parts[1].Trim()+")":"")),
     PostgresException p when p.MessageText is "pilot_close_conflict" => (409,p.MessageText,"This close request already has different retained inputs. Reconcile the original request."),
     PostgresException p when p.SqlState is "23503" or "23514" && apiPath.StartsWithSegments("/api/jobs/pilot-close") => (422,"pilot_profile","Choose supported exact books, curves, sources, policies and schedule terms."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="pilot_close_source_scope" => (422,p.MessageText,"This generated close requires an anchor and session curves from one exact definition."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("pilot_",StringComparison.Ordinal) => (422,p.MessageText,"Choose complete explicit pilot close inputs, supported policies and an available exact anchor."),
     PostgresException p when p.MessageText is "infrastructure_busy" => (409,p.MessageText,"Wait for active workloads or pending maintenance to finish before requesting node maintenance."),
     PostgresException p when p.MessageText is "infrastructure_conflict" => (409,p.MessageText,"The node changed. Refresh infrastructure before requesting another action."),

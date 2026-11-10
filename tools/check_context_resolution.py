@@ -62,7 +62,7 @@ def main():
         for sql in (reference, market, security, trading_fixture(manifest['catalogId'])): query(sql)
         catalog, rcat, rrev, tenant, workspace = [manifest[k] for k in
             ('catalogId', 'referenceCatalogId', 'referenceRevisionId', 'tenantId', 'workspaceId')]
-        query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN (VALUES('SealMarketDefinitions'),('WriteMarketDefinitions'),('PublishMarketData'),('RunScenario')) x(p) WHERE code='trader' ON CONFLICT DO NOTHING;")
+        query("INSERT INTO security.role_permissions SELECT id,p FROM security.roles CROSS JOIN (VALUES('SealMarketDefinitions'),('WriteMarketDefinitions'),('PublishMarketData'),('RunScenario'),('RunJobs')) x(p) WHERE code='trader' ON CONFLICT DO NOTHING;")
         revision=manifest['revisionId']
         def runtime(sql, login='trader'):
             token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
@@ -174,6 +174,18 @@ def main():
         native_parts=json.loads(runtime(f"SELECT security.read_market_close_parts('{catalog}',ARRAY['{close}']::uuid[],NULL)::text;"))[0]
         assert {part['definition_revision_id'] for part in native_parts['sources']}=={revision,additional}
         assert native_parts['primary_definition_revision_id']==revision
+        # Generation v1 has one exact source in its profile and report contract.
+        # Admission must reject the composite anchor before allocating a job.
+        schedule=dict(requestId=str(uuid4()),name='Synthetic source qualification',operation='generated_pilot_close_v1',
+                      dueAt=None,expiresAt=None,intervalSeconds=None,timeZone='UTC',misfire='run_once',overlap='forbid',
+                      timeoutSeconds=120,maximumAttempts=1,profileId=None,profileVersion=None)
+        generated=dict(session='test_source_inputs',priorCloseId=close,bookIds=[str(uuid4())],curveCodes=['future'],
+                       sourceCode='fixture',seed=1,leafMoves=[dict(curve='future',maxTicks=1)],
+                       generator='seeded_clearing_tick_move_v1',tickBasis='clearing_increment',parameterPolicy='carry_exact_anchor_v1',
+                       frozenPolicy='carry_exact_anchor_frozen_facts_v1',membershipPolicy='retained_live_members_v1',
+                       calendarPolicy='every_utc_calendar_day_v1',closePolicy='utc_due_instant_v1',valuationPolicy={})
+        reject('pilot_close_source_scope',lambda:runtime(
+            f"SELECT automation.create_pilot_close_job({literal(schedule)},{literal(generated)});"))
         earlier_frame=next(f for f in manifest['frames'] if f['at'].startswith('2020-12-17'))
         earlier_pins=json.loads(query(f"SELECT json_agg(json_build_object('definitionRevisionId',definition_revision_id,'seriesId',series_id,'observationId',id,'inputUse','variable')) FROM market_data.observations WHERE catalog_id='{catalog}' AND id IN({','.join(chr(39)+i+chr(39) for i in earlier_frame['observationIds'])});"))
         earlier_members=[m for m in members if m['definitionRevisionId']==revision]

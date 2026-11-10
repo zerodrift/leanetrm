@@ -155,9 +155,11 @@ internal static class SwapRiskHoldingChecks
             var refused=false;
             try
             {
-                var snapshot=data.Snapshot(frame);
-                var final=data.Snapshot(frame with {ObservationIds=[request.Id("frozenObservationId")]}).Selections.Single();
-                var frozen=snapshot with {Selections=snapshot.Selections.Add(final with {Input=final.Input with {Use=InputUse.FrozenFact}})};
+                var frozen=frame with
+                {
+                    ContextId=current.ContextId,ObservationIds=frame.ObservationIds.Add(request.Id("frozenObservationId")),
+                    FrozenObservationIds=[request.Id("frozenObservationId")]
+                };
                 var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,
                     SwapStore.Convention,ZeroRateCurve.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
                 await new PortfolioValuation(database).Calculate(connection,data,frozen,current,[request.Id("bookId")],policy,lifetime.Token);
@@ -275,12 +277,15 @@ internal static class SwapRiskHoldingChecks
         },retained);
         await Read(async(connection,data,ct)=>
         {
-            var snapshot=data.Snapshot(frame);
-            var final=data.Snapshot(frame with {ObservationIds=[request.Id("frozenObservationId")]}).Selections.Single();
-            var frozen=snapshot with { Selections=snapshot.Selections.Add(final with {Input=final.Input with {Use=InputUse.FrozenFact}}) };
+            var frozenFrame=frame with
+            {
+                ContextId=current.ContextId,ObservationIds=frame.ObservationIds.Add(request.Id("frozenObservationId")),
+                FrozenObservationIds=[request.Id("frozenObservationId")]
+            };
             var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,
                 SwapStore.Convention,ZeroRateCurve.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
-            var result=await new PortfolioValuation(database).Calculate(connection,data,frozen,current,[request.Id("bookId")],policy,ct);
+            var result=await new PortfolioValuation(database).Calculate(connection,data,frozenFrame,current,[request.Id("bookId")],policy,ct);
+            var frozen=data.Snapshot(frozenFrame);
             var expectedSwaps=request.GetProperty("holdings").EnumerateArray().Select(h=>ExactDecimal.Parse(h.Text("presentValue"))).Aggregate((a,b)=>a+b);
             Check("one mixed book retains separate swap PV and futures execution-PnL totals matching independent prices",
                 result.Totals.Length==2&&result.Totals.Single(t=>t.Measure==PortfolioValuation.SwapMeasure).Value.ToMoney().Amount==expectedSwaps&&
@@ -331,7 +336,7 @@ internal static class SwapRiskHoldingChecks
                 await using var pinnedDatabase=new PreviewDatabase(database.Manifest with{RevisionId=data.DefinitionRevision.RevisionId},runtime);
                 var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,
                     SwapStore.Convention,ZeroRateCurve.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
-                var result=await new PortfolioValuation(pinnedDatabase).Calculate(connection,data,snapshot,actualContext,[request.Id("unsupportedBookId")],policy,ct);
+                var result=await new PortfolioValuation(pinnedDatabase).Calculate(connection,data,actualFrame with{ContextId=actualContext.ContextId},actualContext,[request.Id("unsupportedBookId")],policy,ct);
                 var count=actual.GetProperty("actualCount").GetInt32();
                 Check("stored indexed book values exact actuals and only unresolved daily factors at "+actualFrame.At.ToString("O"),
                     result.Positions.Single().TradeId==actual.Id("tradeId")&&result.Totals.Single().Value.ToMoney().Amount.ToString()==actual.Text("expectedValue")&&
@@ -340,7 +345,7 @@ internal static class SwapRiskHoldingChecks
                 var actualIds=actual.GetProperty("actualIds").EnumerateArray().Select(id=>id.GetGuid()).ToHashSet();
                 Check("actual source pins remain frozen and outside commodity shocks",actualIds.Count==count&&snapshot.Selections.Where(s=>actualIds.Contains(s.Observation.Key.Id)).All(s=>s.Input.Use==InputUse.FrozenFact)&&
                     !result.Factors.Any(f=>f.Axis.Quote is {} quote&&actualIds.Contains(quote.Observation.Id)));
-                var missing=snapshot with{Selections=snapshot.Selections.Where(s=>s.Observation.Key.Id!=actualIds.First()).ToImmutableArray()};
+                var missing=actualFrame with{ContextId=actualContext.ContextId,ObservationIds=actualFrame.ObservationIds.Remove(actualIds.First())};
                 try
                 {
                     await new PortfolioValuation(pinnedDatabase).Calculate(connection,data,missing,actualContext,[request.Id("unsupportedBookId")],policy,ct);

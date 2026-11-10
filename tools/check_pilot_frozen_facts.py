@@ -31,9 +31,11 @@ def run_checks(query,manifest,choices):
     members=[{'curve':'future','contractId':native.pop('contractId'),'ordinal':0}]
     pins=[{'seriesId':native['seriesId'],'observationId':native['anchorObservationId'],'inputUse':'variable'},fixed]
     sql_session(query,manifest,'test_pilot_morning','test_utc_every_day','08:00',['future'],['approver','pilot_fixture_worker'])
-    def register(candidate,expected=None,day='2021-01-01'):
+    def register(candidate,expected=None,day='2021-01-01',name='Synthetic exact frozen facts'):
         token=human_token()
-        invocation=f"security.register_market_close('{catalog}','{revision}','{uuid4()}','Synthetic exact frozen facts','test_pilot_morning','{day}','{day}T08:00:00Z','{json.dumps(candidate)}'::jsonb,'{json.dumps(members)}'::jsonb)"
+        registered_pins=[{**pin,'definitionRevisionId':revision} for pin in candidate]
+        registered_members=[{**member,'definitionRevisionId':revision,'scope':'root'} for member in members]
+        invocation=f"security.register_market_close('{catalog}','{revision}','{uuid4()}','{name}','test_pilot_morning','{day}','{day}T08:00:00Z','{json.dumps(registered_pins)}'::jsonb,'{json.dumps(registered_members)}'::jsonb)"
         if expected:
             statement=f"DO $$BEGIN PERFORM {invocation};RAISE EXCEPTION 'Unqualified actual was registered';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'{expected}' THEN RAISE;END IF;END$$;"
         else:statement=f'SELECT {invocation};'
@@ -77,7 +79,7 @@ def run_checks(query,manifest,choices):
     # D334: automation never replaces a recorded close for its session day, and never follows a replaced anchor.
     register(pins,day='2021-01-02')
     publish([fixed],expected='close_exists')
-    register(pins)
+    assert register(pins,name='Synthetic revised anchor')!=anchor
     publish([fixed],expected='close_replaced')
     query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.finish_run('{claim['id']}',{claim['fence']},'{claim['workerId']}',false,'synthetic_qualification',NULL);")
     assert query(f"SELECT count(*) FROM market_data.market_closes WHERE run_id='{claim['id']}';")=='0'

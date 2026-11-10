@@ -29,7 +29,7 @@ internal static class PpaPortfolioChecks
                     var data=await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins);
                     try
                     {
-                        var result=await new PortfolioValuation(database).Calculate(connection,data,data.Snapshot(frame),context,[request.Id("bookId")],policy,ct);
+                        var result=await new PortfolioValuation(database).Calculate(connection,data,frame with{ContextId=context.ContextId},context,[request.Id("bookId")],policy,ct);
                         if(name=="after")throw new Exception("A complete portfolio silently omitted its retained PPA positions.");
                         if(result.Positions.Length!=1||result.Positions[0].TradeId!=request.Id("futureTradeId")||result.Totals.IsEmpty)
                             throw new Exception("The independent pre-PPA control did not value its supported futures position.");
