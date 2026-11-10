@@ -40,7 +40,10 @@ def run_checks(query, manifest, psql=None, environment=None):
     at = frame_seed['at']
     frame = {'id': str(uuid4()), 'name': 'Synthetic retained inputs', 'at': at,
              'observationIds': frame_seed['observationIds'], 'curveContracts': frame_seed['curveContracts'],
-             'frozenObservationIds': []}
+             'frozenObservationIds': [], 'businessDate': at[:10], 'sourceInputs': None,
+             'resolvesLatestCorrection': False,
+             'source': {'definitionRevisionId': revision, 'referenceCatalogId': manifest['referenceCatalogId'],
+                        'referenceRevisionId': manifest['referenceRevisionId']}}
 
     def token(profile='risk'):
         return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
@@ -113,6 +116,9 @@ def run_checks(query, manifest, psql=None, environment=None):
     member = json.loads(query(f"SELECT jsonb_build_object('curve',curve_code,'contract',contract_id) FROM market_data.curve_members WHERE catalog_id='{catalog}' AND revision_id='{supplemental_revision}' ORDER BY curve_code,ordinal LIMIT 1;"))
     supplemental_frame = {key: value for key, value in frame.items()
                           if key not in ('supplementalMarkets', 'swapMarketSelections', 'scenarioAxes', 'connectedMarkets')}
+    supplemental_frame['source'] = json.loads(query(
+        f"SELECT jsonb_build_object('definitionRevisionId',id,'referenceCatalogId',reference_catalog_id,'referenceRevisionId',reference_revision_id)"
+        f" FROM market_data.revisions WHERE (catalog_id,id)=('{catalog}','{supplemental_revision}');"))
     supplemental_frame.update(name='Synthetic supplemental market', observationIds=supplemental_seed['observationIds'],
                               frozenObservationIds=supplemental_seed['observationIds'][:1],
                               curveContracts={member['curve']: [member['contract']]})
@@ -649,6 +655,7 @@ def main():
                 raise RuntimeError(result.stderr)
             return result.stdout.strip()
         assert Path(query('SHOW data_directory;')).resolve() == data
+        query((ROOT / 'db/bootstrap.sql').read_text())
         for path in sorted((ROOT / 'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             query(path.read_text())
         reference, market, security, manifest = fixture(ROOT)

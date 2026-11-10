@@ -25,7 +25,7 @@ KEY = f"'{CAT}', '{REV}'"
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pg-bin", type=Path, required=True,
-                        help="Directory containing preinstalled PG16+ binaries")
+                        help="Directory containing preinstalled PostgreSQL 18 binaries")
     parser.add_argument("--market", action="store_true",
                         help="Also apply and verify the market-data migration")
     parser.add_argument("--security", action="store_true",

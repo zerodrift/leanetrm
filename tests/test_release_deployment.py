@@ -35,7 +35,7 @@ def archive(path, entries):
 
 def release_entries(migration_count=1):
     files = {'compose.yaml': b'name: synthetic\n', 'LICENSE': b'Synthetic fixture\n',
-             'image.tar': b'owned synthetic image'}
+             'image.tar': b'owned synthetic image', 'bootstrap.sql': b'SELECT 1;\n'}
     files.update({f'migrations/{number:04d}_baseline.sql': b'BEGIN; COMMIT;\n'
                   for number in range(1, migration_count + 1)})
     manifest = {'version': 1, 'repository': REPOSITORY, 'commit': COMMIT, 'runId': 17,
@@ -68,18 +68,18 @@ class BundleChecks(unittest.TestCase):
         migrations = list((Path(__file__).resolve().parents[1] / 'db/migrations').glob('*.sql'))
         entries = release_entries(migration_count=len(migrations))
         manifest = self.unpack(entries)
-        self.assertEqual(len(manifest['files']), len(migrations) + 3)
+        self.assertEqual(len(manifest['files']), len(migrations) + 4)
         for name, value in entries:
             self.assertEqual((self.destination / name).read_bytes(), value)
 
     def test_256_regular_files_are_admitted(self):
-        entries = release_entries(migration_count=252)
+        entries = release_entries(migration_count=251)
         self.assertEqual(len(entries), 256)
         self.unpack(entries)
         self.assertEqual(sum(path.is_file() for path in self.destination.rglob('*')), 256)
 
     def test_257th_regular_file_is_refused_before_its_body_is_written(self):
-        entries = release_entries(migration_count=253)
+        entries = release_entries(migration_count=252)
         self.assertEqual(len(entries), 257)
         with self.assertRaisesRegex(bundle.ReleaseError, 'expansion limit'):
             self.unpack(entries)

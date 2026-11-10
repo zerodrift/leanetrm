@@ -228,6 +228,7 @@ def main(checks=run_checks, before_migration=None):
             safe_to_remove=False
             run([binaries/'pg_ctl','-D',directory/'data','-l',directory/'postgres.log','-w','-o',
                  shlex.join(['-k',str(directory),'-h','','-p','55439','-c','track_commit_timestamp=on']),'start'])
+            query((root / 'db/bootstrap.sql').read_text())
             for migration in sorted((root/'db/migrations').glob('*.sql')):
                 if migration.name in('0223_bounded_fact_anchor_reads.sql','0225_bounded_observation_matching.sql'):
                     from check_fact_anchor_upgrade import run_checks as check_fact_upgrade

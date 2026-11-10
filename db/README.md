@@ -148,8 +148,10 @@ their certificates retain NULL date/party facts without inferred backfills.
 Apply this additive migration with runtime write admission stopped and admitted
 calls drained; the publication gate does not replace draining old function bodies.
 
+The attested release includes this bootstrap as `bootstrap.sql` at its root.
+
 [0001_reference_data.sql](migrations/0001_reference_data.sql) is the first migration.
-It requires stock PostgreSQL 16 or later and installs no extensions. This is a
+It requires stock PostgreSQL 18 and installs no extensions. This is a
 storage foundation, not a complete application schema or a runnable service.
 
 The original migration created 28 tables covering the following families.

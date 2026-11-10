@@ -54,7 +54,7 @@ def main():
     parser.add_argument('--lng-cargo-check',action='store_true',help='Qualify native LNG cargo booking, exact references and saved Incoterms')
     parser.add_argument('--physical-gas-check',action='store_true',help='Qualify physical gas preview, durable schedules and booking UI operations')
     parser.add_argument('--demo-instruments-check',action='store_true',help='Verify mixed synthetic PPA and heat-rate bookings, blotter and risk')
-    parser.add_argument('--pg-bin', type=Path, required=True, help='Installed stock PG16+ binaries')
+    parser.add_argument('--pg-bin', type=Path, required=True, help='Installed stock PostgreSQL 18 binaries')
     parser.add_argument('--dotnet', type=Path, required=True, help='Installed .NET SDK matching global.json')
     parser.add_argument('--port', type=int, default=0, help='Loopback HTTP port; 0 chooses an unused port')
     parser.add_argument('--no-build', action='store_true', help='Use already-built assets')

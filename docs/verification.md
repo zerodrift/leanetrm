@@ -698,7 +698,7 @@ synthetic fixtures. No existing database or application is a verification target
 - The exact Node version in `.node-version`, including its bundled npm.
 - Python 3.12+ with assertions enabled; the preview launcher uses Python 3.12
   f-string syntax. The hosted job uses Ubuntu's Python 3.12.
-- Installed stock PostgreSQL 16+ binaries, including `initdb`, `pg_ctl` and `psql`.
+- Installed stock PostgreSQL 18 binaries, including `initdb`, `pg_ctl` and `psql`.
 - An installed Chromium-compatible browser. Keep its normal sandbox enabled.
 
 Run as an ordinary user, not root. PostgreSQL's shared system service is not used.
