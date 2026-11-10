@@ -25,8 +25,15 @@ DO $$DECLARE body text;before text;BEGIN
  body=pg_get_functiondef('automation.publish_pilot_close(jsonb,jsonb,jsonb)'::regprocedure);
  before=' IF security.close_in_force(anchor.catalog_id,anchor.session_code,anchor.business_date)<>anchor.id THEN RAISE EXCEPTION ''close_replaced'' USING ERRCODE=''P0001'';END IF;';
  IF (length(body)-length(replace(body,before,'')))/length(before)<>1 THEN RAISE EXCEPTION 'generated_close_anchor_drift';END IF;
- body=replace(body,before,replace(before,'<>anchor.id',' IS DISTINCT FROM anchor.id')||
-  E'\n PERFORM automation.require_generated_anchor_source(p.catalog_id,p.prior_close_id,p.definition_revision_id);');
+ -- New writes use the current committed head under the publication lock.
+ -- A certified preflight context may still legitimately see its older anchor.
+ body=replace(body,before,$anchor$
+ IF security.close_in_force(anchor.catalog_id,anchor.session_code,anchor.business_date) IS DISTINCT FROM anchor.id
+ OR EXISTS(SELECT 1 FROM market_data.market_closes newer
+  WHERE(newer.catalog_id,newer.session_code,newer.business_date)=(anchor.catalog_id,anchor.session_code,anchor.business_date)
+  AND newer.publication_order>anchor.publication_order)
+ THEN RAISE EXCEPTION 'close_replaced' USING ERRCODE='P0001';END IF;
+ PERFORM automation.require_generated_anchor_source(p.catalog_id,p.prior_close_id,p.definition_revision_id);$anchor$);
  before=' PERFORM security.require_session_curves(p.catalog_id,p.session_code,day.session_version,members);';
  IF (length(body)-length(replace(body,before,'')))/length(before)<>1 THEN RAISE EXCEPTION 'generated_close_session_drift';END IF;
  EXECUTE replace(body,before,$guard$

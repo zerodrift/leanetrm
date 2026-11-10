@@ -3929,7 +3929,9 @@ including stored observation lineage and library selection.
 
 The v1 generated-close profile and normalized report have one exact definition.
 Admission checks the anchor's source matrix and publication checks the due
-session version's source-qualified roots before writing any observations.
+session version's source-qualified roots before writing any observations. New
+publication checks the anchor against the current committed head under the
+publication lock, even when preflight retained an older certified view.
 Preflight uses its due business date and explicit derived inputs, and the
 report uses the recorded close with its original source evidence.
 
