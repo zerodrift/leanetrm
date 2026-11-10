@@ -50,8 +50,14 @@ public sealed class GasTicketStore(PreviewDatabase database)
    var from=DateWorkspace.Date(physical.DeliveryFrom);var to=DateWorkspace.Date(physical.DeliveryTo);
    var days=Enumerable.Range(0,to.DayNumber-from.DayNumber).Select(n=>new ProjectionDelivery(from.AddDays(n),from.AddDays(n+1)));
    var choices=await CustomCurves.ProjectionChoices(c,database,data,frame,ct);
-   return GasTicket.ChoiceSet(body.Draft,body.Side,body.Field,[GasTicket.AssignedForecastChoice,..choices.Where(choice=>choice.Reference.Selection==CustomCurveProjectionBinding.ContainingDeliverySelection&&
-    choice.Unit==PriceUnit.FromQuote(metadata.Assignments[0].Quote)&&choice.Covers(days)).Select(choice=>new TicketChoice(GasTicket.ForecastValue(choice.Reference),choice.Label))]);
+   var eligible=choices.Where(choice=>choice.Reference.Selection==CustomCurveProjectionBinding.ContainingDeliverySelection&&
+    choice.Unit==PriceUnit.FromQuote(metadata.Assignments[0].Quote)&&choice.Covers(days)).ToArray();
+   if((body.Field=="forecast_curve"||metadata.Mapping.GetProperty("settlement_periods").GetArrayLength()>0)&&GasPointPricing.Configured(database.Manifest.CatalogId,metadata.Mapping) is {} configured)
+   {
+    var selected=eligible.SingleOrDefault(choice=>choice.Reference==configured)??throw new MarketDataException("gas_location_curve_unavailable","The point's exact pricing curve must be visible and cover this delivery term in the required price unit.");
+    return GasTicket.ChoiceSet(body.Draft,body.Side,body.Field,[new TicketChoice(GasTicket.ForecastValue(selected.Reference),selected.Label)]);
+   }
+   return GasTicket.ChoiceSet(body.Draft,body.Side,body.Field,[GasTicket.AssignedForecastChoice,..eligible.Select(choice=>new TicketChoice(GasTicket.ForecastValue(choice.Reference),choice.Label))]);
   }
   return GasTicket.ChoiceSet(body.Draft,body.Side,body.Field,GasTicket.Choices(body.Draft,body.Side,body.Field,
    GasTicket.PhysicalReferenceField(body.Draft,body.Side,body.Field)?JsonSerializer.SerializeToElement(await gas.PhysicalReferences(c,data,ct),Json):await Catalog(c,data,frame,ct)));

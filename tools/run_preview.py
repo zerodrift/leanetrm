@@ -271,6 +271,12 @@ def main():
                 from gas_in_term_fixture import add_fixture as add_in_term_fixture
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if migration.name.startswith(('0228_','0229_')):
+                from check_fact_anchor_upgrade import run_checks as check_point_upgrade
+                point_signatures=('security.materialize_gas_setup(uuid,uuid)','trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamptz,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamptz,jsonb)')
+                cash_signatures=('trading.require_gas_index_cash_shape(uuid,uuid,trading.gas_component_terms,market_data.gas_valuation_assignments,jsonb)',)
+                point=migration.name.startswith('0228_')
+                check_point_upgrade(query,migration,number='0228' if point else '0229',guard='gas_point_pricing_upgrade' if point else 'gas_point_cash_upgrade',signatures=point_signatures if point else cash_signatures)
             if migration.name=='0203_assistant_presentation_controls.sql':
                 from check_assistant_presentation_upgrade import run_checks as check_presentation_upgrade
                 check_presentation_upgrade(query,migration)
@@ -864,6 +870,8 @@ def main():
                     return subprocess.run([str(dotnet),str(frozen_dll),'--admin-load-gas-in-term',config,private('gas-in-term-request.json',json.dumps(request))],
                                           cwd=ROOT,env=env,text=True,capture_output=True,timeout=300)
                 check_gas_in_term(url,query,manifest,risk_worker_runner(),admin_load_in_term,browse_in_term if args.browser_check else None)
+                from check_gas_point_in_term import run_checks as check_point_in_term
+                check_point_in_term(url,query,manifest,admin_load_in_term)
             elif args.gas_indexed_check:
                 from check_gas_indexed import run_checks as check_gas_indexed
                 indexed_fixture=check_gas_indexed(url,query,manifest,risk_worker_runner())
@@ -918,6 +926,8 @@ def main():
                     if args.deal_ticket_check:
                         subprocess.run(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--deal-ticket'],cwd=ROOT,env=env,check=True,timeout=300)
                 if args.gas_setup_check:
+                    from check_gas_point_curve import run_checks as check_point_curve
+                    check_point_curve(url,query,manifest)
                     from check_gas_setup_editor import run_checks as check_gas_setup
                     check_gas_setup(url,query,manifest)
             elif args.retained_schedule_check:

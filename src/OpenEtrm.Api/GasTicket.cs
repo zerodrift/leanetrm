@@ -17,7 +17,7 @@ public sealed record TicketChoices(ImmutableArray<TicketChoice> Choices,TicketLo
 public static class GasTicket
 {
  const string Physical="physical";
- public static TicketChoice AssignedForecastChoice{get;}=new("assigned","Assigned index forward");
+ public static TicketChoice AssignedForecastChoice{get;}=new("assigned","Assigned location curve");
  // The composition role each side kind books as.
  static readonly ImmutableDictionary<string,string> Roles=new Dictionary<string,string>{[Physical]="physical",["cash"]="consideration",["fee"]="fee",["floating"]="indexed_consideration"}.ToImmutableDictionary();
  public static TicketDescription Description{get;}=TicketDescriptions.Validate(new("physical_gas",1,"flow",
@@ -136,7 +136,7 @@ public static class GasTicket
   return new(snapshotId,PhysicalGasStore.Convention,knowledgeMode,draft.Sides.Any(s=>s.Kind=="floating")?GasCompositionStore.IndexedProfile:GasCompositionStore.Profile,operationId,Id(t,"book")!.Value,definitionRevisionId,Id(t,"gas_setup"),false,entity,entityRevision,party,partyRevision,
    [..physical.Select(s=>PhysicalRequest(s,Source))],
    [..draft.Sides.Where(s=>s.Kind!=Physical).Select(s=>new GasCashRequest(s.Code,Roles[s.Kind],s.Values[$"{s.Kind}_direction"],Source(s,$"{s.Kind}_source"),s.Values[$"{s.Kind}_stage"],s.Values.GetValueOrDefault($"{s.Kind}_price"),s.Values.GetValueOrDefault($"{s.Kind}_tariff"),s.Values.GetValueOrDefault($"{s.Kind}_payment_at"),
-    s.Kind=="floating"?new(s.Values["floating_index"],GasIndexedCash.Observation,GasIndexedCash.Payment,PaymentDay(s),s.Values["floating_spread"],Forecast(s.Values["floating_forecast_curve"])):null))]);
+    s.Kind=="floating"?new(s.Values["floating_index"]=="@location_publications_v1"?null:s.Values["floating_index"],s.Values["floating_index"]=="@location_publications_v1"?"point_publications_v1":GasIndexedCash.Observation,GasIndexedCash.Payment,PaymentDay(s),s.Values["floating_spread"],Forecast(s.Values["floating_forecast_curve"])):null))]);
  }
 
  static int PaymentDay(TicketSideDraft side)=>int.TryParse(side.Values["floating_payment_day"],NumberStyles.None,CultureInfo.InvariantCulture,out var day)&&day is >=1 and <=28?day:
@@ -214,7 +214,7 @@ public static class GasTicket
    ("forecast_curve",p.ForecastCurve is {} curve?ForecastValue(curve):null),("quantity_basis",p.QuantityBasis),("pipeline",p.Pipeline),("zone",p.Zone),("delivery_point",p.DeliveryPoint),("link_source",p.Link?.Source),("link_formula",p.Link?.Formula),("link_fraction",p.Link?.Fraction))));
   var cash=terms.CashSides.Select(s=>{var kind=SideKind(s.Role).Kind;
    return new TicketSideDraft(kind,s.Code,Values(($"{kind}_direction",s.Direction),($"{kind}_source",s.Source),($"{kind}_stage",s.Stage),($"{kind}_price",s.Price),($"{kind}_payment_at",s.PaymentAt),($"{kind}_tariff",s.TariffCode),
-    ("floating_index",s.Indexed?.Index),("floating_forecast_curve",s.Indexed is {} index?index.ForecastCurve is {} forecast?ForecastValue(forecast):"assigned":null),("floating_payment_day",s.Indexed?.PaymentDay.ToString(CultureInfo.InvariantCulture)),("floating_spread",s.Indexed?.Spread)));});
+    ("floating_index",s.Indexed?.ObservationConvention=="point_publications_v1"?"@location_publications_v1":s.Indexed?.Index),("floating_forecast_curve",s.Indexed is {} index?index.ForecastCurve is {} forecast?ForecastValue(forecast):"assigned":null),("floating_payment_day",s.Indexed?.PaymentDay.ToString(CultureInfo.InvariantCulture)),("floating_spread",s.Indexed?.Spread)));});
   return new(Description.Product,Description.Version,trade.ToImmutableDictionary(),[..physical,..cash]);
  }
 
@@ -300,7 +300,7 @@ public static class GasTicket
   var path=Path(source,catalog,Unresolved);
   var valuation=path.GetProperty("valuation");
   if(valuation.ValueKind!=JsonValueKind.Object)throw Unresolved("This path has no pricing index assignment.");
-  return [new(valuation.Text("index"),valuation.Text("index"))];
+  return valuation.TryGetProperty("cashPricingSource",out var pricingSource)&&pricingSource.ValueKind==JsonValueKind.String&&pricingSource.GetString()=="point_publications_v1"?[new("@location_publications_v1","Location publication index")]:[new(valuation.Text("index"),valuation.Text("index"))];
  }
  static TicketSideDraft QuantitySource(TicketDraft draft,TicketSideDraft target)=>target.Kind==Physical?target:
   draft.Sides.SingleOrDefault(s=>s.Kind==Physical&&s.Code==target.Values.GetValueOrDefault($"{target.Kind}_source"))??throw Unresolved("Choose the physical quantity source first.");

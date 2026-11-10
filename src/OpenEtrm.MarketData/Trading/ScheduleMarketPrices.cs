@@ -19,12 +19,12 @@ public sealed partial class ScheduleMarketSources
     }
 
     // The admitted dated lookups exactly matching a stored price row's contract, quote, fixing and projection definition.
-    internal static IndexPriceLookup[] DatedCandidates(BookedSideInstruction instruction,IEnumerable<IndexPriceLookup> dated)
+    internal static IndexPriceLookup[] DatedCandidates(BookedSideInstruction instruction,IEnumerable<IndexPriceLookup> dated,bool publishedWhenAvailable)
     {
         var row=instruction.Output;var bindings=instruction.Bindings.ToDictionary(binding=>binding.Port);
         if(!bindings.ContainsKey("market")||!bindings.ContainsKey("index")||!bindings.ContainsKey("quote")||!bindings.TryGetValue("fixing",out var fixing))
             throw Invalid("A scalar price requires exact dated market, index, quote and fixing bindings.");
-        return dated.Where(lookup=>lookup.Market==bindings["market"].Market&&lookup.Index==bindings["index"].Reference&&
+        return dated.Where(lookup=>lookup.PublishedWhenAvailable==publishedWhenAvailable&&lookup.Market==bindings["market"].Market&&lookup.Index==bindings["index"].Reference&&
             lookup.Quote.Key==bindings["quote"].Reference&&lookup.Contract.DeliveryFrom==row.ObservationFrom&&lookup.Contract.DeliveryTo==row.ObservationTo&&
             DefinitionIdentity.For(lookup.Settlement).Canonical==row.Parameters["selection"]&&CurvePriceScheduleSource.Matches(row,lookup)&&
             lookup.Fixing is {} f&&f.Series==fixing.Series&&f.Source==fixing.Reference&&f.Implementation==fixing.Coordinate&&
@@ -33,9 +33,9 @@ public sealed partial class ScheduleMarketSources
     }
 
     // deliveryMark: the row prices undelivered physical gas, which reads its location mark and never the payment fixing (D360).
-    private (ExactUnitPrice Price,SchedulePriceFacts State,ScheduleSourceEvidence Evidence) Dated(BookedSideInstruction instruction,CurveBuild market,bool deliveryMark)
+    private (ExactUnitPrice Price,SchedulePriceFacts State,ScheduleSourceEvidence Evidence) Dated(BookedSideInstruction instruction,CurveBuild market,bool deliveryMark,bool publishedWhenAvailable)
     {
-        var candidates=DatedCandidates(instruction,dated);
+        var candidates=DatedCandidates(instruction,dated,publishedWhenAvailable);
         var row=instruction.Output;var bindings=instruction.Bindings.ToDictionary(binding=>binding.Port);
         GasValuationAssignment? gasAssignment=null;
         if(bindings.TryGetValue("assignment",out var assignment))

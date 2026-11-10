@@ -255,15 +255,16 @@ internal sealed partial class RetainedSideSchedule
         var market=Binding(row.Ordinal,"market");var index=Binding(row.Ordinal,"index");var quote=Binding(row.Ordinal,"quote");
         var candidates=market.Market is {} request&&projectionCandidates.TryGetValue(request,out var matches)?matches:[];
         var selected=candidates
-            .Where(p=>p.projection.Market==market.Market&&floating.Index==index.Reference&&floating.Quote.Key==quote.Reference&&
+            .Where(p=>p.projection.Market==market.Market&&(p.period.ObservationImplementation==FloatingSide.DeliveryIndexImplementation?p.period.Fixings[p.n].Index:floating.Index)==index.Reference&&floating.Quote.Key==quote.Reference&&
                 p.projection.Contract.DeliveryFrom==row.ObservationFrom&&p.projection.Contract.DeliveryTo==row.ObservationTo&&
-                DefinitionIdentity.For(floating.Settlement).Canonical==row.Parameters["selection"])
+                DefinitionIdentity.For(p.period.ObservationImplementation==FloatingSide.DeliveryIndexImplementation?PriceSettlementSelection.CurveTarget(p.period.Fixings[p.n].Index):floating.Settlement).Canonical==row.Parameters["selection"])
+            .Where(p=>p.period.ObservationImplementation!=FloatingSide.DeliveryIndexImplementation||(p.period.DeliveryFrom==row.DeliveryFrom&&p.period.DeliveryTo==row.DeliveryTo))
             .Where(p=>bindings.TryGetValue((row.Ordinal,"fixing"),out var fixing)&&!p.period.Fixings.IsEmpty&&p.period.Fixings[p.n].Series==fixing.Series&&p.period.Fixings[p.n].Source==fixing.Reference&&p.period.Fixings[p.n].Implementation==fixing.Coordinate)
             .Where(p=>!bindings.TryGetValue((row.Ordinal,"projection"),out var projection)?p.period.CustomProjection is null:
                 p.period.CustomProjection is {} custom&&custom.CatalogId==projection.EntityCatalog&&custom.CurveId==projection.Entity&&custom.Version==projection.Version&&custom.OutputNode==projection.Coordinate&&custom.Position==projection.Position)
             .ToArray();
         if(selected.Length==0)throw Error("A retained observation must bind exact immutable contract, quote, index, fixing and projection definitions.");
-        var value=selected[0];var lookup=new IndexPriceLookup(floating.Settlement,floating.Quote,value.projection.Market,value.projection.Contract,value.projection.AveragingQuantity,
+        var value=selected[0];var lookup=value.period.ObservationImplementation==FloatingSide.DeliveryIndexImplementation?floating.DeliveryLookup(value.period):new IndexPriceLookup(floating.Settlement,floating.Quote,value.projection.Market,value.projection.Contract,value.projection.AveragingQuantity,
             value.period.Fixings[value.n],value.period.CustomProjection);
         if(!CurvePriceScheduleSource.Matches(row,lookup))throw Error("The stored query policy and interval must match the side's selected forecast binding.");
         return lookup;

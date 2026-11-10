@@ -149,7 +149,7 @@ public sealed partial record FloatingSide : Side
         get
         {
             var selection=DateSettlement??IntervalPriceDefinition?.Settlement;
-            if(selection is null)return [];
+            if(selection is null)return Periods.Where(p=>p.ObservationImplementation==DeliveryIndexImplementation).SelectMany(p=>p.Projections.Select(projection=>new SettlementProjection(Id,projection.Market.Curve,PriceSettlementSelection.CurveTarget(p.Fixings[0].Index)))).Distinct().ToImmutableArray();
             var curves=IntervalDefinition is null?Periods.SelectMany(p=>p.Projections).Select(p=>p.Market.Curve).Distinct():
                 [new CurveKey(Price.Curve.Revision,Price.Curve.Code)];
             return [..curves.Select(curve=>new SettlementProjection(Id,curve,selection))];
@@ -256,6 +256,7 @@ public sealed partial record FloatingSide : Side
     public SidePaymentSchedule GenerateDatedSchedule()
     {
         if(RetainedPlan is {} retained)return retained.DatedSchedule();
+        if(Periods[0].ObservationImplementation==DeliveryIndexImplementation)return GenerateDeliveryIndexSchedule();
         if(!Periods[0].ContractObservations.IsDefaultOrEmpty)return GenerateContractObservationSchedule();
         var payments=Periods.Select((period,n)=>
         {
