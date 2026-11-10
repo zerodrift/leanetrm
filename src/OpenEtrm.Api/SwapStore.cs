@@ -48,13 +48,15 @@ public sealed partial class SwapStore(PreviewDatabase database)
  private PaymentRule Payment(PreviewData data,SwapPaymentInput input)
  {
   PaymentCalendar? calendar=null;
-  if(input.Calendar is {} code)
+  if(PaymentCalendarCode(input.Calendar) is {} code)
    calendar=ReferenceCalendar(data,new(data.ReferenceRevision,code));
   return new(SwapPaymentOptions.Parse(SwapPaymentOptions.Frequencies,input.Frequency),SwapPaymentOptions.Parse(SwapPaymentOptions.Rules,input.Rule),
    input.Days,input.DayOfMonth,input.DayBasis is null?null:SwapPaymentOptions.Parse(SwapPaymentOptions.DayBases,input.DayBasis),
    input.ShortMonth is null?null:SwapPaymentOptions.Parse(SwapPaymentOptions.ShortMonths,input.ShortMonth),
    SwapPaymentOptions.Parse(SwapPaymentOptions.Adjustments,input.Adjustment),calendar,Required(input.Implementation));
  }
+ public static string? PaymentCalendarCode(string? value)=>value is null||!string.IsNullOrWhiteSpace(value)?value:
+  throw Error("payment_calendar","Choose the payment calendar that the business-day basis or date adjustment uses.");
  private static string Sampling(SwapFloatingInput input)
  {
   if(input.Averaging is not null)throw Error("swap_averaging","Supply one explicit sampling definition.");

@@ -90,7 +90,10 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
  await set('#swap-floating-from','2021-01-02');await check('later side edits leave populated peer values independent',"document.querySelector('#swap-fixed-from').value==='2021-01-01'");await set('#swap-floating-from','2021-01-01');await set('#swap-floating-to','2021-02-01');await fill('3');await set('#swap-memo','Synthetic swap memo <plain text>');
  // Price before booking draws the curve of the swap's market: the desk's own read of it when the desk holds it, and otherwise one read, whatever the number of prices.
  const shapeReads="window.__swaps.filter(r=>r.path==='/api/market/curve-shapes').length",shapesBefore=await evaluate(shapeReads);
- const priceCalls=await evaluate("window.__swaps.filter(r=>r.path==='/api/swaps/price').length");await set('#swap-price','');await click('#swaps-draft-price');
+ const priceCalls=await evaluate("window.__swaps.filter(r=>r.path==='/api/swaps/price').length");
+ await set('#swap-fixed-day-basis','business_days');await set('#swap-fixed-payment-calendar','');await click('#swaps-draft-price');
+ await check('business-day payment without a chosen calendar names the calendar without requesting a price',`window.__swaps.filter(r=>r.path==='/api/swaps/price').length===${priceCalls}&&document.querySelector('#error').textContent.includes('payment calendar')`,"document.querySelector('#error').textContent");
+ await set('#swap-fixed-day-basis','calendar_days');await set('#swap-price','');await click('#swaps-draft-price');
  await check('blank agreed pricing fails without requesting par',`window.__swaps.filter(r=>r.path==='/api/swaps/price').length===${priceCalls}&&document.querySelector('#error').textContent.includes('agreed fixed price')`);
  await set('#swap-price-mode','par');await set('#swap-par-places','12');await click('#swaps-draft-price');
  await check('explicit par mode returns a managed fixed price for review before booking',"document.querySelector('#swap-price').value==='3.16'&&document.querySelector('#swap-par-result').textContent.includes('Par fixed rate: 3.16')&&document.querySelector('#swaps-draft-value').textContent==='PV: 0.000 USD'");
