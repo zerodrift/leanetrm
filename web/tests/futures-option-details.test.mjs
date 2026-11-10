@@ -21,3 +21,11 @@ test('option details name the product, the underlying future and linked futures 
  const shown=rows.map(([,v])=>String(v)).join(' ');
  for(const hidden of [h.tradeId,h.linkedFuturesTradeIds[0],h.underlyingSeries,h.series,h.product])assert.ok(!shown.includes(hidden),hidden);
 });
+
+test('the held option opens its exact product definition',async()=>{
+ const definitionRevisionId='5d4c1a2e-0000-4000-8000-000000000003',opened=[];
+ const read=await readOptionView(async()=>holding,{snapshotId:'synthetic-close'},{...h,definitionRevisionId},{
+  writes:()=>({enabled:false,reason:'Read only.'}),actor:()=>'trader',recorded(){},surface:(...args)=>opened.push(args)});
+ read.view('UTC').actions.find(action=>action.id==='option-trade-vol-surface').run();
+ assert.deepEqual(opened,[[h.product,definitionRevisionId]]);
+});

@@ -44,7 +44,7 @@ const levelLabels:Record<OptionLevel,string>={exchange:'Exchange',commodity:'Com
 /** New trade's futures option form: the listed series picked from the backend's catalog, booked with premium paid up front. Once a
  *  series is chosen, `surface` opens its product's volatility surface. */
 export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};historical:()=>boolean;actor:()=>string;instant:(at:string)=>string;
- zone:()=>string;onBooked:(tradeId:string)=>Promise<void>;surface:(product:string)=>void}){
+ zone:()=>string;onBooked:(tradeId:string)=>Promise<void>;surface:(product:string,definitionRevisionId:string)=>void}){
  // A booking request outlives the form that sent it, per person, until its outcome is known.
  const requests=actorTransport<RequestCommand>(()=>`option-ticket-request:${o.actor()}`,()=>sessionStorage);
  // The form keeps its controls' states itself: the page's busy state leaves its coming-soon items disabled and its cascade as drawn.
@@ -91,7 +91,7 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
   settlement.value.textContent=s?`${s.settlementPrice} ${s.currency}`:'—';multiplier.value.textContent=s?s.multiplier:'—';tick.value.textContent=s?s.premiumTick:'—';
   range.value.textContent=s?`${s.minimumPremium} to ${s.maximumPremium} ${s.currency}`:'—';exercise.value.textContent=s?publicText(s.exerciseStyle):'—';
   instructions.value.textContent=s?(s.contraryInstructionsAllowed?'Accepted':'Not accepted'):'—';
-  surface.hidden=!s;surface.onclick=s?()=>o.surface(s.product):null;
+  surface.hidden=!s;surface.onclick=s?()=>o.surface(s.product,s.definitionRevisionId):null;
   sync();
  }
  function sync(){
@@ -175,7 +175,7 @@ const lotsWord=(lots:string)=>`${lots} ${lots.replace(/^-/,'')==='1'?'lot':'lots
 /** What an option view needs of its host: whether lifecycle events may be recorded now, asked again when one is sent; who is recording,
  *  whose unanswered requests it keeps; what hears a recorded event; and what opens a product's volatility surface, null where the
  *  host has no Vol surfaces page. */
-export type OptionHost={writes:()=>LifecycleWrites|Promise<LifecycleWrites>;actor:()=>string;recorded:(note:string)=>void;surface:((product:string)=>void)|null};
+export type OptionHost={writes:()=>LifecycleWrites|Promise<LifecycleWrites>;actor:()=>string;recorded:(note:string)=>void;surface:((product:string,definitionRevisionId:string)=>void)|null};
 
 /**
  * An option trade's Details: its series, lots, settlement and value per contract from the Blotter row, its recorded events from
@@ -200,7 +200,7 @@ export async function readOptionView(api:Api,context:Record<string,unknown>&{sna
     ['Linked future',e.futuresTradeReference??'None'],...(e.outcome?[['Outcome',publicText(e.outcome)] as const]:[])] as const}))];
   const surface=host.surface,product=h.product;
   return {terms,history,...(option&&h.actions?{termsContent:(box:HTMLElement)=>{widget=lifecycle(box,api,context.snapshotId,h,writes,host);return()=>{widget?.dispose();widget=undefined;};}}:{}),
-   ...(surface&&product?{actions:[{id:'option-trade-vol-surface',label:'Volatility surface',run:()=>surface(product)}]}:{})};
+   ...(surface&&product&&h.definitionRevisionId?{actions:[{id:'option-trade-vol-surface',label:'Volatility surface',run:()=>surface(product,h.definitionRevisionId)}]}:{})};
  }};
 }
 

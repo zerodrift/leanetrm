@@ -101,7 +101,7 @@ const numericFields=['tradeCount','lots','quantity','executionPrice','mark','exe
 export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(body:BlotterStreamRequest,handlers:BlotterStreamHandlers,signal:AbortSignal)=>Promise<void>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;updatesBlocked:()=>boolean;canRunRisk:()=>boolean;bookingUnavailableReason:()=>string;zone:()=>string;profile:()=>string;onReadContext:(at:string,known:string)=>void;
   riskReportUrl?:(id:string)=>string;
   // Opens an option product's volatility surface; null in a window with no Vol surfaces page.
-  volSurface:((product:string)=>void)|null;
+  volSurface:((product:string,definitionRevisionId:string)=>void)|null;
   // Says why work that does not run under act failed: a read in the background, or an action the person took that was refused; and
   // takes that away again once the person acts anew.
   failed:(error:unknown)=>void;failureCleared:()=>void;notice:(message:string)=>void;

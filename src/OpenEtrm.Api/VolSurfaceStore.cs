@@ -15,15 +15,15 @@ namespace OpenEtrm.Api;
 
 /// <summary>A fit of one option product's surface at a working frame, under an explicit vol model.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record VolSurfaceFitRequest(Guid RequestId,Guid SnapshotId,string Product,string Model);
+public sealed record VolSurfaceFitRequest(Guid RequestId,Guid SnapshotId,string Product,string Model,Guid? DefinitionRevisionId=null);
 
 /// <summary>A read of one option product's stored surface at a trading context, under an explicit vol model.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record VolSurfaceReadRequest(FuturesReadRequest Context,string Product,string Model);
+public sealed record VolSurfaceReadRequest(FuturesReadRequest Context,string Product,string Model,Guid? DefinitionRevisionId=null);
 
 /// <summary>A page of the surfaces stored at or before a trading context, under an explicit vol model.</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record VolSurfaceLibraryRequest(FuturesReadRequest Context,string Model,int Offset,string? Product=null);
+public sealed record VolSurfaceLibraryRequest(FuturesReadRequest Context,string Model,int Offset,string? Product=null,Guid? DefinitionRevisionId=null);
 
 // A fitted surface as its job's completion records it: the pinned inputs, the canonical bytes and their digest, and the work done.
 internal sealed record VolSurfaceFitOutcome(ImmutableArray<Guid> Inputs,string Surface,string Digest,int Series,int Solves,long ElapsedMs);
@@ -44,7 +44,7 @@ internal static class VolSurfaceStore
     {
         if(body.RequestId==Guid.Empty)throw new MarketDataException("vol_surface_input","Supply a stable request identity for the fit.");
         VolModels.Require(body.Model);
-        var selected=await SelectedInputs(connection,database,view.CalculationFrame,ct);
+        var selected=await SelectedInputs(connection,database,view.CalculationFrame,ct,body.DefinitionRevisionId);
         var manifest=selected.Source.Apply(database.Manifest);
         var contextId=view.Context.ContextId??throw new MarketDataException("vol_surface_context","The fit requires its captured trading context.");
         // A fit is new work: at a recorded close it requires the close in force for its session and business day (D334).
@@ -63,7 +63,7 @@ internal static class VolSurfaceStore
     internal static async Task<object> Read(NpgsqlConnection connection,PreviewDatabase database,TradingView view,VolSurfaceReadRequest body,CancellationToken ct)
     {
         VolModels.Require(body.Model);
-        var selected=await SelectedInputs(connection,database,view.CalculationFrame,ct);
+        var selected=await SelectedInputs(connection,database,view.CalculationFrame,ct,body.DefinitionRevisionId);
         var manifest=selected.Source.Apply(database.Manifest);
         var product=Product(manifest,body.Product).ToJsonString();var date=DateOnly.ParseExact(BusinessDate(view),"yyyy-MM-dd",CultureInfo.InvariantCulture);
         async Task<JsonNode?> Value(string sql,params object[] arguments)
@@ -83,7 +83,7 @@ internal static class VolSurfaceStore
                 ["inputsRevised"]=(bool)(await revised.ExecuteScalarAsync(ct))!};
         }
         var canFit=await PreviewDatabase.HasPermission(connection,"PublishMarketData",ct)&&await PreviewDatabase.HasPermission(connection,"ReadTrades",ct);
-        return new JsonObject{["snapshotId"]=view.Frame.Id,["model"]=body.Model,
+        return new JsonObject{["snapshotId"]=view.Frame.Id,["definitionRevisionId"]=manifest.RevisionId,["model"]=body.Model,
             ["solverPolicy"]=stored?["solverPolicy"]?.DeepClone()??SolverPolicy,["state"]=stored is null?"notFitted":"fitted",
             ["revision"]=revision,["job"]=job,["canFit"]=canFit,["surface"]=stored?["content"]?.DeepClone()};
     }
@@ -93,7 +93,7 @@ internal static class VolSurfaceStore
     internal static async Task<object> Library(NpgsqlConnection connection,PreviewDatabase database,TradingView view,VolSurfaceLibraryRequest body,CancellationToken ct)
     {
         VolModels.Require(body.Model);
-        var source=await ProductSource(connection,database,view.CalculationFrame,ct);
+        var source=await ProductSource(connection,database,view.CalculationFrame,ct,body.DefinitionRevisionId);
         var manifest=source.Apply(database.Manifest);
         var (close,at,pins)=Location(view.CalculationFrame);
         try
@@ -110,21 +110,23 @@ internal static class VolSurfaceStore
             manifest.CatalogId,manifest.RevisionId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId,(object?)body.Product??DBNull.Value,body.Model,close,at,pins,body.Offset,LibraryPage);
         var page=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
         var canFit=await PreviewDatabase.HasPermission(connection,"PublishMarketData",ct)&&await PreviewDatabase.HasPermission(connection,"ReadTrades",ct);
-        return new JsonObject{["snapshotId"]=view.Frame.Id,["model"]=body.Model,["product"]=body.Product,["offset"]=body.Offset,["pageSize"]=LibraryPage,
+        return new JsonObject{["snapshotId"]=view.Frame.Id,["definitionRevisionId"]=manifest.RevisionId,["model"]=body.Model,["product"]=body.Product,["offset"]=body.Offset,["pageSize"]=LibraryPage,
             ["surfaces"]=page["surfaces"]!.DeepClone(),["hasMore"]=page["hasMore"]!.DeepClone(),["canFit"]=canFit};
     }
     // The product directory and calibration select the same published reference
     // role. A recorded close supplies the exact pins of that role's definition.
     internal static async Task<(CatalogueSource Source,InputFrame Frame)> SelectedInputs(
-        NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,CancellationToken ct)
+        NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,CancellationToken ct,Guid? definitionRevisionId=null)
     {
-        var source=await ProductSource(connection,database,frame,ct);
+        var source=await ProductSource(connection,database,frame,ct,definitionRevisionId);
         return(source,await ProjectInputs(connection,database,frame,source,ct));
     }
 
     private static async Task<CatalogueSource> ProductSource(
-        NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,CancellationToken ct)
+        NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,CancellationToken ct,Guid? definitionRevisionId)
     {
+        if(definitionRevisionId is {} exact)
+            return await MarketInputSelection.ExactSource(database,connection,exact,ct);
         var catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,frame.Time.Date);
         return catalogue.RequireRole("reference:futures_option_products");
     }

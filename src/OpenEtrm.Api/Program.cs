@@ -1082,8 +1082,18 @@ api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,se
     var requestedOffset=c.Request.Query["offset"].ToString();
     if(!int.TryParse(c.Request.Query.ContainsKey("offset")?requestedOffset:"0",System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var offset))
         throw new MarketDataException("reference_page",$"Choose an offset from 0 to {PreviewDatabase.ReferenceMaximumOffset}.");
-    var page=await marketReads.References(connection,Pin(session,ContextVersions.CatalogueSnapshot(c.Request.Query)),c.Request.Query["table"].ToString(),offset,c.Request.Query["search"].ToString(),
-        c.Request.Query.TryGetValue("code",out var code)?code.ToString():null,ct);
+    var table=c.Request.Query["table"].ToString();
+    var snapshot=ContextVersions.SnapshotId(c.Request.Query);
+    Guid? definitionRevisionId=null;
+    if(c.Request.Query.TryGetValue("definitionRevisionId",out var requestedDefinition))
+    {
+        if(table!="futures_option_products"||snapshot is null||requestedDefinition.Count!=1||
+            !Guid.TryParse(requestedDefinition[0],out var exact)||exact==Guid.Empty)
+            throw new MarketDataException("reference_page","Choose a snapshot and an exact definition for option products.");
+        definitionRevisionId=exact;
+    }
+    var page=await marketReads.References(connection,Pin(session,snapshot),table,offset,c.Request.Query["search"].ToString(),
+        c.Request.Query.TryGetValue("code",out var code)?code.ToString():null,ct,definitionRevisionId);
     var referenceDisplay=await ReferenceEditors.Display(connection,page.ReferenceRevision,ct);
     return Results.Ok(new {page.Table,page.Rows,page.References,page.Offset,page.PageSize,page.MaximumOffset,page.HasMore,page.Search,page.ReferenceRevision,page.DefinitionRevisionId,referenceDisplay,
         tables=PreviewDatabase.ReferenceTables,referenceScope="selected_table",context=session.MarketContext,profile=session.Profile});

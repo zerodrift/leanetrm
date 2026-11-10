@@ -33,9 +33,9 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
         assert condition, f'{name}: {actual}'
         print('PASS ' + name, flush=True)
 
-    def read(product=PRODUCT, snapshot=None, **context):
+    def read(product=PRODUCT, snapshot=None, definition=None, **context):
         return c.call('vol-surfaces/read', {'context': {'snapshotId': snapshot or frame['id'], 'convention': OPTION, 'knowledgeMode': 'current', **context},
-                                            'product': product, 'model': MODEL}, timeout=TIMEOUT)
+                                            'product': product, 'model': MODEL, **({'definitionRevisionId': definition} if definition else {})}, timeout=TIMEOUT)
 
     def fit(product=PRODUCT, snapshot=None, request=None, model=MODEL, expected=200):
         return c.call('vol-surfaces/fit', {'requestId': request or str(uuid4()), 'snapshotId': snapshot or frame['id'], 'product': product, 'model': model},
@@ -433,6 +433,17 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     changed = publish_choices(added, prior['id'])
     try:
         c.call('profile', {'profile': 'trader'})
+        held_primary = read(snapshot=at_east['id'], definition=original_definition)
+        check('an exact held product reads its earlier source after the catalogue changes',
+              held_primary['definitionRevisionId'] == original_definition
+              and held_primary['revision']['id'] == fitted_east['revision']['id'], held_primary['state'])
+        held_catalogue = c.call(f"reference/catalog?table=futures_option_products&code={PRODUCT}"
+                                f"&snapshotId={at_replacement['id']}&definitionRevisionId={original_definition}")
+        check('exact held product metadata follows the named definition',
+              held_catalogue['definitionRevisionId'] == original_definition and held_catalogue['rows'][0]['code'] == PRODUCT)
+        absent = c.call(f"reference/catalog?table=futures_option_products&code={PRODUCT}"
+                        f"&snapshotId={at_replacement['id']}&definitionRevisionId={second_definition}", expected=422)
+        check('an exact directory read requires the source at the selected close', absent['code'] == 'market_inputs_missing')
         at_mixed = close_frame(c, mixed)
         secondary = fit(snapshot=at_mixed['id'])
         run_worker()

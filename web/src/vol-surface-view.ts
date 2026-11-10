@@ -22,7 +22,7 @@ export type SurfaceExpiry={expiryAt:string;underlyingCode:string;futures:string|
  grid:{strike:string;logMoneyness:string;fitted:string}[]};
 export type VolSurfaceResult={modelId:string;strikeAxis:string[];expiries:SurfaceExpiry[];series:SurfaceSeries[]};
 type Job={id:string;state:string;errorCode:string|null};
-type SurfaceRead={snapshotId:string;model:string;state:'fitted'|'notFitted';revision:{id:string;knownFrom:string;inputsRevised:boolean}|null;job:Job|null;canFit:boolean;
+type SurfaceRead={definitionRevisionId:string;snapshotId:string;model:string;state:'fitted'|'notFitted';revision:{id:string;knownFrom:string;inputsRevised:boolean}|null;job:Job|null;canFit:boolean;
  surface:VolSurfaceResult|null};
 
 // The only vol model: an explicit input of every read and fit, shown read-only.
@@ -211,7 +211,7 @@ export type VolSurfaceFrames={
  /** The frame the header offers in the current view at a stored surface's close or working snapshot, if any. */
  offered(surface:LibrarySurface):string|null;
  /** Selects an offered frame in the header, as choosing it there does. */
- open(frameId:string,product:string):void;
+ open(frameId:string,product:string,definitionRevisionId?:string):void;
 };
 
 /**
@@ -238,6 +238,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  const productSearch=el('input','vol-search');productSearch.type='search';productSearch.id='vol-search';productSearch.placeholder='Find an option product';
  productSearch.setAttribute('aria-label','Find an option product');productSearch.autocomplete='off';
  const titles=el('div','vol-shelf-titles');titles.append(shelfTitle,shelfCount);shelfHead.append(titles,productSearch);
+ const publishedProducts=button('secondary','Published products');publishedProducts.hidden=true;shelfHead.append(publishedProducts);
  const cards=el('div','vol-cards');cards.id='vol-products';cards.setAttribute('role','list');
  const moreProducts=button('secondary vol-more','More products','vol-more-products');moreProducts.hidden=true;
  shelf.append(shelfHead,cards,moreProducts);
@@ -284,7 +285,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
 
  // The generations of the reads under way: only a read of the current product and context stands for the next one.
  const reading:number[]=[];
- let products:{code:string;name:string}[]=[],library:LibrarySurface[]=[],libraryComplete=false,canFit=false,product='',
+ let products:{code:string;name:string}[]=[],library:LibrarySurface[]=[],libraryComplete=false,canFit=false,product='',definitionRevisionId:string|undefined,publishedDefinition:string|undefined,
   timeline:LibrarySurface[]|undefined,shown:SurfaceRead|undefined,drawn:View[]=[],view3d:{reset():void;dispose():void}|undefined,cells:HeatCell[]=[],
   drawnFor:VolSurfaceResult|undefined,drawnRevision='',here:Here|undefined;
  let generation=0,timer:ReturnType<typeof setTimeout>|undefined,submitting=false,fitMessage='',moveMessage='';
@@ -314,13 +315,20 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   smiles.replaceChildren();scale.replaceChildren();canvasHost.replaceChildren();levelScale.replaceChildren();renderReadout(null);
  }
  function stop(){clearTimeout(timer);timer=undefined;}
- const scopeOf=()=>JSON.stringify([o.context(),product]);
+ const selectedDefinition=()=>definitionRevisionId??publishedDefinition;
+ function requireDefinition(){
+  const selected=selectedDefinition();
+  if(!selected)throw Error('Read the option product directory before using its definition.');
+  return selected;
+ }
+ const scopeOf=()=>JSON.stringify([o.context(),product,requireDefinition()]);
 
  // The shelf: a card per product, in the library's order, the chosen one pressed.
  function renderShelf(){
   // A search narrows the cards to the catalog's matches; without one, a product the library lists is shown even off this page.
   const entries=libraryEntries(products,library,libraryComplete).filter(e=>!productQuery||products.some(p=>p.code===e.code));
   const calibrated=entries.filter(e=>e.state==='here').length;
+  publishedProducts.hidden=definitionRevisionId===undefined;
   shelfCount.textContent=entries.length?`${calibrated} of ${entries.length} calibrated here`:'';
   cards.replaceChildren(...entries.map(entry=>{
    const card=button('vol-product-card','');card.dataset.product=entry.code;card.dataset.state=entry.state;card.setAttribute('role','listitem');
@@ -338,11 +346,11 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  // Each read is numbered: an answer to a read that a newer one replaced is dropped. While the read reports a fit job queued or
  // running, one timer reads again, unless the product, context or page changed or the page is hidden.
  async function read(number:number){
-  const context=o.context(),scope=scopeOf();
+  const context=o.context(),scope=scopeOf(),definition=requireDefinition();
   let answer:SurfaceRead;
-  reading.push(number);try{answer=await o.api<SurfaceRead>('vol-surfaces/read',{context,product,model});}finally{reading.splice(reading.indexOf(number),1);}
+  reading.push(number);try{answer=await o.api<SurfaceRead>('vol-surfaces/read',{context,product,model,definitionRevisionId:definition});}finally{reading.splice(reading.indexOf(number),1);}
   if(number!==generation)return;
-  if(answer.model!==model||answer.snapshotId!==context.snapshotId||(answer.state==='fitted')!==!!answer.surface||answer.surface&&answer.surface.modelId!==model)
+  if(answer.definitionRevisionId!==definition||answer.model!==model||answer.snapshotId!==context.snapshotId||(answer.state==='fitted')!==!!answer.surface||answer.surface&&answer.surface.modelId!==model)
    throw Error('The surface read does not match the selected product, model and context. Refresh and try again.');
   const finished=shown?.job&&active(shown.job)&&!active(answer.job);
   shown=answer;canFit=answer.canFit;render();stop();
@@ -353,10 +361,10 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
    if(number===generation&&same&&!root.hidden)void read(number).catch(cause=>{if(number===generation)failed(cause);});
   },checkBackMs);
  }
- type LibraryPage={snapshotId:string;model:string;product:string|null;offset:number;pageSize:number;surfaces:LibrarySurface[];hasMore:boolean;canFit:boolean};
+ type LibraryPage={definitionRevisionId:string;snapshotId:string;model:string;product:string|null;offset:number;pageSize:number;surfaces:LibrarySurface[];hasMore:boolean;canFit:boolean};
  async function libraryPage(of?:string){
-  const context=o.context(),page=await o.api<LibraryPage>('vol-surfaces/library',{context,model,offset:0,...(of?{product:of}:{})});
-  if(page.model!==model||page.snapshotId!==context.snapshotId||(page.product??undefined)!==of||page.surfaces.some(s=>of!==undefined&&s.product!==of))
+  const context=o.context(),definition=requireDefinition(),page=await o.api<LibraryPage>('vol-surfaces/library',{context,model,offset:0,definitionRevisionId:definition,...(of?{product:of}:{})});
+  if(page.definitionRevisionId!==definition||page.model!==model||page.snapshotId!==context.snapshotId||(page.product??undefined)!==of||page.surfaces.some(s=>of!==undefined&&s.product!==of))
    throw Error('The surface library does not match the selected context and model. Refresh and try again.');
   return page;
  }
@@ -380,14 +388,19 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  }
  // Product metadata is paged too; another page requires an explicit search or More.
  let nextProductOffset:number|null=null,productQuery='';
- type ProductPage={rows:Record<string,string|number|null>[];offset:number;pageSize:number;hasMore:boolean};
+ type ProductPage={definitionRevisionId:string;rows:Record<string,string|number|null>[];offset:number;pageSize:number;hasMore:boolean};
  async function productPage(offset:number,code?:string){
   const params=new URLSearchParams({table:'futures_option_products',snapshotId:o.context().snapshotId,offset:String(offset),search:code?'':productQuery});
   if(code)params.set('code',code);
-  return o.api<ProductPage>('reference/catalog?'+params);
+  if(definitionRevisionId!==undefined)params.set('definitionRevisionId',definitionRevisionId);
+  const page=await o.api<ProductPage>('reference/catalog?'+params);
+  if(!page.definitionRevisionId||(selectedDefinition()!==undefined&&page.definitionRevisionId!==selectedDefinition()))
+   throw Error('The option directory changed. Refresh to read its published definition.');
+  return page;
  }
  async function listProducts(number:number,offset:number){
   const page=await productPage(offset);if(number!==generation)return;
+  if(definitionRevisionId===undefined)publishedDefinition=page.definitionRevisionId;
   const rows=page.rows.map(row=>({code:String(row.code),name:String(row.name)}));
   products=offset===0?rows:[...products,...rows.filter(row=>!products.some(kept=>kept.code===row.code))];
   nextProductOffset=page.hasMore?page.offset+page.pageSize:null;
@@ -400,15 +413,17 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   moreProducts.hidden=nextProductOffset===null;moreProducts.disabled=false;renderShelf();
  }
  async function refresh(){
-  const number=restart();root.dataset.state='loading';error.hidden=true;nextProductOffset=null;moreProducts.hidden=true;showHere();
+  const number=restart();publishedDefinition=undefined;publishedProducts.hidden=definitionRevisionId===undefined;root.dataset.state='loading';error.hidden=true;nextProductOffset=null;moreProducts.hidden=true;showHere();
   cards.replaceChildren(el('p','vol-empty-shelf','Reading the library…'));renderDetail();
   try{
    o.context(); // an unapplied context reads nothing
    // A search narrows the product cards; the library of stored surfaces is read whole.
-   await Promise.all([listProducts(number,0),readLibrary(number)]);if(number!==generation)return;
+   await listProducts(number,0);if(number!==generation)return;
+   await readLibrary(number);if(number!==generation)return;
    await readProduct();
   }catch(cause){if(number===generation)failed(cause);}
  }
+ publishedProducts.onclick=()=>{definitionRevisionId=undefined;product='';void refresh();};
  let searchTimer:ReturnType<typeof setTimeout>|undefined;
  productSearch.oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{
   if(productQuery===productSearch.value.trim())return;productQuery=productSearch.value.trim();
@@ -428,7 +443,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  // Opening another close is the header's own move: an offered close is selected there, so every page reads it; any other is named.
  function move(surface:LibrarySurface){
   const how=reach(surface,here!,o.frames.offered);
-  if(how==='open'){o.frames.open(o.frames.offered(surface)!,surface.product);return;}
+  if(how==='open'){o.frames.open(o.frames.offered(surface)!,surface.product,requireDefinition());return;}
   moveMessage=how==='otherSession'?`This surface belongs to the ${o.frames.sessionName(surface.close!.session)} session. Choose that session in the header to open it.`
    :how==='replaced'?'That close has been replaced. Its surface is history; calibrate at the close in force for its day.'
    :o.historical()?'This view offers only its own business day. Return to working data to open another day.'
@@ -504,7 +519,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
 
  async function submit(){
   if(submitting)return;
-  let command;try{const c=o.context();command=pending.begin('vol-surfaces/fit',{snapshotId:c.snapshotId,product,model});}catch(cause){fitMessage=messageOf(cause);render();return;}
+  let command;try{const c=o.context();command=pending.begin('vol-surfaces/fit',{snapshotId:c.snapshotId,product,model,definitionRevisionId:requireDefinition()});}catch(cause){fitMessage=messageOf(cause);render();return;}
   const number=generation;submitting=true;fitMessage='';render();
   const previouslyUncertain=pending.sending();
   let queued=false;
@@ -586,14 +601,16 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
   const next=ahead.sort((a,b)=>distance(a)-distance(b))[0];if(next)link.set(next.series!.series.code);
  };
 
+ function selectProduct(code:string,definition?:string){product=code;definitionRevisionId=definition;}
  showHere();renderShelf();renderDetail();
  return {
-  refresh,
-  async open(code:string){product=code;await refresh();},
+  refresh,selectProduct,
+  async open(code:string,definition?:string){selectProduct(code,definition);await refresh();},
   // Left for another page: what was drawn is released, and no read or check-back under way draws it again while away.
   leave(){restart();clearViews();},
-  reset(){
-   restart();products=[];library=[];libraryComplete=false;nextProductOffset=null;moreProducts.hidden=true;clearViews();views.hidden=true;missing.hidden=true;closes.hidden=true;
+  reset(resetDefinition=false){
+   if(resetDefinition&&definitionRevisionId!==undefined){definitionRevisionId=undefined;product='';}
+   publishedProducts.hidden=true;publishedDefinition=undefined;restart();products=[];library=[];libraryComplete=false;nextProductOffset=null;moreProducts.hidden=true;clearViews();views.hidden=true;missing.hidden=true;closes.hidden=true;
    root.dataset.state='idle';error.hidden=true;hereKind.textContent='';hereTitle.textContent='Apply the selected context to see its surfaces';
    shelfCount.textContent='';cards.replaceChildren(el('p','vol-empty-shelf','Apply the selected context to see its surfaces.'));productHead.hidden=status.hidden=true;placeholder.hidden=!product;
   },

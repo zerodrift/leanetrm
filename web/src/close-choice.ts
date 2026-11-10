@@ -2,7 +2,7 @@ import {publicText} from './market-view.js';
 
 // A close a page offers beside the header's As of. Switching moves the whole app; a separate window keeps this one where it is and opens
 // the same app at that close (D361). The close travels by its recorded close id, as a frame's id belongs to one session's listing.
-export type CloseTarget={page:'market';curve:string}|{page:'vol-surfaces';product:string};
+export type CloseTarget={page:'market';curve:string}|{page:'vol-surfaces';product:string;definitionRevisionId?:string};
 export type CloseLink=CloseTarget&{close:string};
 
 export function closeLink(search:string):CloseLink|null{
@@ -10,12 +10,15 @@ export function closeLink(search:string):CloseLink|null{
  if(!close)return null;
  const curve=query.get('curve'),product=query.get('product');
  if(query.get('page')==='market'&&curve)return {close,page:'market',curve};
- if(query.get('page')==='vol-surfaces'&&product)return {close,page:'vol-surfaces',product};
+ if(query.get('page')==='vol-surfaces'&&product){
+  const definitionRevisionId=query.get('definitionRevisionId');
+  return {close,page:'vol-surfaces',product,...(definitionRevisionId===null?{}:{definitionRevisionId})};
+ }
  return null;
 }
 export function closeLinkHref(link:CloseLink,path:string,search:string){
- const query=new URLSearchParams(search);for(const name of ['close','page','curve','product'])query.delete(name);
- for(const [name,value] of Object.entries(link))query.set(name,value);
+ const query=new URLSearchParams(search);for(const name of ['close','page','curve','product','definitionRevisionId'])query.delete(name);
+ for(const [name,value] of Object.entries(link))if(value!==undefined)query.set(name,value);
  return `${path}?${query}`;
 }
 
