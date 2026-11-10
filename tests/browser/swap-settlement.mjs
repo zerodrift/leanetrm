@@ -1,4 +1,5 @@
 import {workspaceProbeScript} from './workspace-probe.mjs';
+import {blotterAt,decemberClose} from './gas-ticket.mjs';
 import {mkdtemp,copyFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -119,13 +120,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await set('#swap-settlement-reversal',movement);await set('#swap-settlement-effective','2021-01-15T08:00:00Z');await set('#swap-settlement-reference','Synthetic lost browser reversal');
  await evaluate("window.__lose='/api/swaps/settlement/payment'");await click('#swap-settlement-reverse');await wait("!document.querySelector('#futures-pending').hidden&&"+idle);
  await command('Page.reload');await wait(idle);await evaluate(intercept);
- await set('#snapshot',frame);await wait(idle,30000);await click('#nav-futures',30000);await wait(idle);
+ await blotterAt({set,wait,click},{id:frame,session:session??'demo_close_1600'});
  await check('after a reload the reversal whose outcome is not known is still kept, named for it',card('Settlement cash reversal of '+selected.reference),"[document.querySelector('#futures-pending').hidden,document.querySelector('#futures-pending').textContent]");
  await openView();
  await click('#futures-retry',60000);await wait("document.querySelector('#futures-pending').hidden&&"+idle);
  await check('Retry sends it again and leaves the settlement view open, which shows the reversal',`${open}&&document.querySelector('#swap-settlement').textContent.includes('Synthetic lost browser reversal')`,"[(document.querySelector('#position-details')?.hidden!==false),!!document.querySelector('#swap-settlement')&&document.querySelector('#swap-settlement').hidden,document.querySelector('#error').textContent]");
 
  await click('#swap-settlement button[data-membership="1"][data-payment="0"]');await wait("!!document.querySelector('#swap-settlement-determine')");
- const oldFrame=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();return w.frames.find(f=>f.at.startsWith('2020-12-18')&&w.initialFrameIds.includes(f.id)).id;})()");await set('#snapshot',oldFrame);await wait(idle,30000);
+ await blotterAt({set,wait,click},await decemberClose(evaluate));
  await check('a financial context change discards a stale settlement preview',"!document.querySelector('#swap-settlement-determine')&&(document.querySelector('#swap-settlement').hidden||document.querySelector('#swap-settlement [role=status]').textContent.includes('context changed'))");
 }

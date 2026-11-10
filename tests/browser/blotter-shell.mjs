@@ -86,6 +86,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   // Focus the person moves out of the details stays out: sorting by a click on a column header draws the rows again, and does not put
   // focus back into the details.
   await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait("!!document.querySelector('#desk-positions .open-row')&&!!document.querySelector('#position-details-tabs-terms')&&"+idle);
+  const beforeResize=await evaluate("document.querySelector('#desk-positions .standard-data-grid').dataset.selectedRow");
+  await click('#blotter-dock [aria-label="Maximize Positions"]');await size(700,1050);
+  await check('maximized positions stay maximized when the app crosses its narrow layout breakpoint',
+    "document.querySelector('#blotter-dock').dataset.maximized==='grid'&&['summary','grid','details','charts'].filter(id=>document.querySelector('#blotter-pane-'+id).checkVisibility()).join()==='grid'");
+  await size(1920,1200);
+  await check('maximized positions fill the tab area without summary or charts and keep the selected row after enlarging the app',
+    `(()=>{const dock=document.querySelector('#blotter-dock'),grid=document.querySelector('#blotter-pane-grid').closest('.dock-group');return dock.dataset.maximized==='grid'&&grid.getBoundingClientRect().height>=dock.clientHeight-2&&['summary','charts','details'].every(id=>!document.querySelector('#blotter-pane-'+id).checkVisibility())&&document.querySelector('#desk-positions .standard-data-grid').dataset.selectedRow===${JSON.stringify(beforeResize)};})()`);
+  await click('#blotter-dock [aria-label="Restore Positions"]');await size(1440,1050);
   await evaluate("document.querySelector('#position-details-tabs-terms').focus()");
   const header=await evaluate("(()=>{const r=document.querySelector('#desk-positions .tabulator-col[tabulator-field=c1] .tabulator-col-title').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()");
   for(const type of ['mousePressed','mouseReleased'])await command('Input.dispatchMouseEvent',{type,button:'left',clickCount:1,...header});

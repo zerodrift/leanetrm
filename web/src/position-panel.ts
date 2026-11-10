@@ -400,6 +400,8 @@ export function setupPositionPanel(shell:Pick<SidePanel,'element'|'form'|'reveal
     },
     sync,
     block(value:boolean){if(value)held=focused()??held;view().inert=value;if(!value)refocus();},
+    /** Completed read-only details can remain hidden until their Blotter passes its next freshness check. */
+    retainable:()=>!!input&&detail?.state==='ready'&&detail.key===key(input)&&!amending&&!detail.read.unsaved?.()&&!detail.read.updatesBlocked?.(),
     /** Only edits enter the leave guard; transient reads do not. */
     unsaved:()=>detail?.state==='ready'&&!!detail.read.unsaved?.(),
     /** Keep a rendered operational edit or unresolved write in place. */

@@ -1,6 +1,7 @@
 // Returning to a page retains its location; completed Blotter reads require a fresh server check before reuse.
 export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,url}){
   await command('Page.enable');await command('Runtime.enable');
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   const installed=await command('Page.addScriptToEvaluateOnNewDocument',{source:`window.__navigationReads=[];const original=window.fetch;window.fetch=async(...args)=>{const path=String(args[0]);if(path.startsWith('/api/trading/'))window.__navigationReads.push({path,body:args[1]?.body});const response=await original(...args);if(path.startsWith('/api/bootstrap')&&location.search==='?jobs-without-default=1'&&response.ok){const body=await response.clone().json();if(body.access)body.access.permissions=[];return new Response(JSON.stringify(body),{status:200,headers:{'Content-Type':'application/json'}});}return response;};`});
   const open=async hash=>{await command('Page.navigate',{url:'about:blank'});await command('Page.navigate',{url:url+'/'+hash});await wait(`document.querySelector('#nav-market')&&!document.querySelector('#nav-market').hidden&&${idle}`);};
   try{
@@ -13,7 +14,12 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     await set('#snapshot',frame);await wait(idle);await click('#nav-futures');
     await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);
     const reads=()=>evaluate("window.__navigationReads.filter(r=>['/api/trading/workspace','/api/trading/workspace/stream','/api/trading/directory','/api/trading/positions'].includes(r.path)).length");
+    await wait("document.querySelectorAll('#desk-positions .tabulator-row').length>0");
     await check('the authorized Blotter has rows before cache validation',"document.querySelectorAll('#desk-positions .tabulator-row').length>0");
+    await evaluate("document.querySelector('#desk-positions .tabulator-row[data-row-key]').click()");
+    await wait("!!document.querySelector('#position-details-tabs-schedules')&&"+idle);
+    await click('#position-details-tabs-schedules');await wait("!!document.querySelector('#position-details-view .side-schedule-inspection')");
+    await evaluate("window.__retainedBlotterGrid=document.querySelector('#desk-positions .standard-data-grid');window.__retainedSchedule=document.querySelector('#position-details-view .side-schedule-inspection');window.__retainedPosition=window.__retainedBlotterGrid.dataset.selectedRow");
     let before=await reads();const context=await evaluate("document.querySelector('#futures-page').dataset.pricingContext");
     await click('#nav-market');
     await evaluate(`window.__navigationFetch=window.fetch;window.fetch=async(...args)=>{const response=await window.__navigationFetch(...args);if(String(args[0])==='/api/trading/freshness')await new Promise(resolve=>window.__releaseFreshness=resolve);return response;};document.querySelector('#nav-futures').click()`);
@@ -22,6 +28,8 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
     await evaluate('window.__releaseFreshness();window.fetch=window.__navigationFetch');await wait(idle);
     await check('returning to an unchanged Blotter checks the server without refetching positions or valuations',`window.__navigationReads.some(r=>r.path==='/api/trading/freshness')&&document.querySelector('#futures-page').dataset.pricingContext===${JSON.stringify(context)}&&document.querySelector('#error').hidden`);
     await check('an unchanged Blotter keeps all completed data reads',`${await reads()}===${before}`);
+    await check('returning to an unchanged Blotter keeps its selected position, detail tab and schedule widget',
+      "document.querySelector('#desk-positions .standard-data-grid')===window.__retainedBlotterGrid&&document.querySelector('#desk-positions .standard-data-grid').dataset.selectedRow===window.__retainedPosition&&document.querySelector('#position-details-tabs-schedules')?.getAttribute('aria-selected')==='true'&&document.querySelector('#position-details-view .side-schedule-inspection')===window.__retainedSchedule");
     await set('#blotter-name','Synthetic retained desk');await evaluate("document.querySelector('#blotter-sidebar').checked=true");await click('#blotter-save');await wait("document.querySelector('#futures-page').dataset.pricingState==='complete'&&"+idle);
     await click('#blotter-risk');await wait("!document.querySelector('#risk-fields').disabled");
     await click('input[name=risk-choice][value=held]');

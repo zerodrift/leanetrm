@@ -3818,3 +3818,24 @@ title.
 
 This changes presentation only. Page identifiers, addresses, permissions and every
 read and write are unchanged.
+
+
+## D370 — Explicit close defaults and a Blotter that keeps its place
+
+The header labels recorded price inputs **Market close**. **As of details** is
+collapsed by default and reveals **Close convention** and **As known on** only
+when expanded. Profile saves the existing account/workspace close choice as the
+user’s explicit default; saving it does not change the active financial context.
+A header override affects that view only. Missing or withdrawn defaults never
+select the first available convention. The native published-catalog validation
+and nondelegated choice operation remain the authority.
+
+Maximized Positions occupies the whole Blotter dock, hiding its other panes.
+Window resizing preserves row anchor, selection and horizontal scroll. A return
+to an unchanged Blotter keeps completed read-only position details and the active
+tab after current server freshness and authorization validation; pending edits
+and changed contexts still follow their existing guards and invalidation.
+Schedule widgets have stable position/context identities. Row and calculation
+paging keeps the previous page in place, inert while loading, and replaces it
+only after validating the reply’s retained native identity. Authorization failure
+clears retained values. These are presentation changes, not new valuation rules.

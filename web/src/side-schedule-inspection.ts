@@ -49,7 +49,7 @@ export function mountSideScheduleInspection(host:HTMLElement,o:{api:Api;position
   position:{...o.position,context},sideSlot:slot,contribution,offset,limit:32,window:slot===null?null:windowSelect.value||null},signal);
  function fail(error:unknown,at:number){
   if(!current(at))return;
-  rows.replaceChildren();evidence.replaceChildren();pager.hidden=true;page=undefined;
+  rows.replaceChildren();rows.removeAttribute('aria-busy');rows.style.removeProperty('min-height');rows.inert=evidence.inert=false;evidence.removeAttribute('aria-busy');evidence.replaceChildren();pager.hidden=true;page=undefined;
   status.textContent=error instanceof Error?error.message:'The Side schedule could not be read.';
   if(invalidates(error)){
    begin();directory=undefined;select.replaceChildren();controls.hidden=true;root.ontoggle=null;o.onDenied();
@@ -66,13 +66,19 @@ export function mountSideScheduleInspection(host:HTMLElement,o:{api:Api;position
    else if(value.sides.length===1){select.value=String(value.sides[0].slot);sideChanged();}
   }catch(error){fail(error,at);}finally{directoryLoading=false;}
  }
+ let shownSelection:string|undefined;
  async function show(offset:number){
-  const side=selected();if(!side||side.windows.length&&!windowSelect.value){begin();rows.replaceChildren();evidence.replaceChildren();pager.hidden=true;status.textContent='Choose a delivery window to inspect.';return;}
-  const {at,signal}=begin();rows.replaceChildren();evidence.replaceChildren();pager.hidden=true;status.textContent='Reading the selected Side…';
+  const side=selected();if(!side||side.windows.length&&!windowSelect.value){begin();page=undefined;shownSelection=undefined;rows.replaceChildren();rows.removeAttribute('aria-busy');rows.style.removeProperty('min-height');rows.inert=evidence.inert=false;evidence.replaceChildren();pager.hidden=true;status.textContent='Choose a delivery window to inspect.';return;}
+  const selection=JSON.stringify([side.slot,windowSelect.value]),keep=page!==undefined&&shownSelection===selection;
+  const left=keep?rows.scrollLeft:0,top=keep?rows.scrollTop:0;
+  const {at,signal}=begin();
+  if(keep)rows.style.minHeight=rows.clientHeight+'px';
+  else{rows.replaceChildren();rows.style.removeProperty('min-height');evidence.replaceChildren();pager.hidden=true;}
+  evidence.removeAttribute('aria-busy');rows.setAttribute('aria-busy','true');rows.inert=evidence.inert=true;previous.disabled=next.disabled=true;status.textContent='Reading the selected Side…';
   try{
    const value=await read<Reply<Page>>(side.slot,null,offset,signal);if(!current(at))return;identity(value);
    if(value.sideSlot!==side.slot||value.sideId!==side.sideId||value.manifest!==side.manifest||value.page.manifest!==side.manifest||(value.window??null)!==(windowSelect.value||null))throw Error('The response does not match this retained Side.');
-   page=value.page;
+   page=value.page;shownSelection=selection;evidence.replaceChildren();
    table(rows,['Delivery from','To · exclusive','Payment at','Quantity','Price','DF','Amount','PV','Lifecycle',''],
     page.rows.map(row=>{
      const inspect=element('button','Calculation');inspect.type='button';inspect.className='inspection-calculation';inspect.disabled=row.lifecycle.unavailableReason!==null;
@@ -92,13 +98,17 @@ export function mountSideScheduleInspection(host:HTMLElement,o:{api:Api;position
       lines(number(row.price),[row.priceStates.length?'Inputs: '+row.priceStates.map(text).join(', '):'',row.quoteMultiplier?`Quote multiplier: ${row.quoteMultiplier}`:'']),
       number(row.discountFactor),lines(number(row.amount),[currency]),lines(number(row.presentValue),[currency]),lines(text(state.delivery),lifecycle),inspect];
     }),[3,4,5,6,7]);
+   rows.scrollLeft=left;rows.scrollTop=top;
    const refusals=[...new Set(page.rows.flatMap(r=>r.lifecycle.unavailableReason?[text(r.lifecycle.unavailableReason)]:[]))];
    status.textContent=`${page.rows.length?`${offset+1}–${offset+page.rows.length}`:"No"} of ${page.total} rows · Valued ${instant(page.valuationAt)} · Known ${instant(page.knownAt)}. Values include the signed membership and booked quantity.${refusals.length?' Valuation unavailable: '+refusals.join('; '):''}`;
    previous.disabled=offset===0;next.disabled=offset+page.rows.length>=page.total;pager.hidden=false;
   }catch(error){fail(error,at);}
+  finally{if(current(at)){rows.removeAttribute('aria-busy');rows.inert=evidence.inert=false;}}
  }
  async function calculation(row:InspectedScheduleRow,offset:number){
-  const side=selected();if(!side)return;const {at,signal}=begin();evidence.replaceChildren(element('p','Reading calculation inputs…'));
+  const side=selected();if(!side)return;const {at,signal}=begin(),previousSteps=evidence.querySelector<HTMLElement>('.inspection-steps'),left=previousSteps?.scrollLeft??0,top=previousSteps?.scrollTop??0;
+  if(previousSteps)evidence.style.minHeight=evidence.clientHeight+'px';else evidence.replaceChildren(element('p','Reading calculation inputs…'));
+  evidence.setAttribute('aria-busy','true');evidence.inert=true;
   try{
    const value=await read<Reply<Calculation>>(side.slot,row.key,offset,signal);if(!current(at))return;identity(value);const detail=value.page;
    if(value.sideSlot!==side.slot||value.sideId!==side.sideId||value.manifest!==side.manifest||detail.manifest!==side.manifest||detail.contribution!==row.key||detail.valueBasis!=='unit_side_v1'||(value.window??null)!==(windowSelect.value||null))throw Error('The calculation response belongs to another contribution or value basis.');
@@ -109,8 +119,9 @@ export function mountSideScheduleInspection(host:HTMLElement,o:{api:Api;position
     step.contractFrom??'—',step.contractTo??'—',instant(step.fixingAt),step.priceStates.map(text).join(', '),step.bindings.map(b=>b.market?.curve.code??b.code??text(b.kind)).join(', ')+(step.actualBatch?` · Actual batch ${step.actualBatch}, revision ${step.actualRevision??'—'}, known ${instant(step.actualKnownAt??null)}`:''),step.inputs.map(i=>`${i.port}: ${i.key}`).join(', '),Object.entries(step.parameters??{}).map(([key,value])=>`${text(key)}: ${value}`).join(', ')]),[3]);
    const before=element('button','Previous inputs'),after=element('button','Next inputs');before.type=after.type='button';before.disabled=offset===0;after.disabled=offset+detail.rows.length>=detail.total;
    before.onclick=()=>void calculation(row,Math.max(0,offset-32));after.onclick=()=>void calculation(row,offset+32);
-   const buttons=element('div');buttons.className='inspection-pager';buttons.append(before,element('span',`${offset+1}–${offset+detail.rows.length} of ${detail.total} calculation cells`),after);evidence.replaceChildren(caption,steps,buttons);
+   const buttons=element('div');buttons.className='inspection-pager';buttons.append(before,element('span',`${offset+1}–${offset+detail.rows.length} of ${detail.total} calculation cells`),after);evidence.replaceChildren(caption,steps,buttons);steps.scrollLeft=left;steps.scrollTop=top;
   }catch(error){if(invalidates(error))fail(error,at);else if(current(at))evidence.replaceChildren(element('p',error instanceof Error?error.message:'The calculation inputs could not be read.'));}
+  finally{if(current(at)){evidence.removeAttribute('aria-busy');evidence.inert=false;}}
  }
  function sideChanged(){
   const side=selected(),windows=side?.windows??[];windowSelect.replaceChildren(new Option('Choose a window…',''),...windows.map(w=>new Option(w.label,w.id)));

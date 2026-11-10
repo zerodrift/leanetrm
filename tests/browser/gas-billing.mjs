@@ -19,6 +19,7 @@ export async function run(actions){
  const answer=async text=>{await evaluate(`[...document.querySelectorAll('${prompt} button')].find(b=>b.textContent===${JSON.stringify(text)}).click()`);await wait(`document.querySelector('${prompt}').hidden&&`+idle);};
  const keep=async(action,label)=>{await action();await wait(shown);await answer('Keep editing');await check(label,`document.querySelector(${JSON.stringify(field('evidence'))})?.value==='Synthetic kept billing edit'&&document.querySelector('#physical-operations-tabs-cash').getAttribute('aria-selected')==='true'`);};
  await keep(()=>click('#physical-operations-tabs-overview'),'Keep editing preserves the billing form across tab changes');
+ const savedDefault=await evaluate("(async()=> (await(await fetch('/api/close-sessions/choice')).json()).session)()");
  const originalSession=await evaluate("document.querySelector('#close-session').value"),originalFrame=await evaluate("document.querySelector('#snapshot').value");
  const otherSession=await evaluate("[...document.querySelector('#close-session').options].find(o=>o.value&&o.value!==document.querySelector('#close-session').value)?.value");
  if(!otherSession)throw Error('The synthetic session-switch scenario requires two published close sessions.');
@@ -61,6 +62,6 @@ export async function run(actions){
  await evaluate(`document.querySelector(${JSON.stringify(field('evidence'))}).focus();document.querySelector(${JSON.stringify(field('evidence'))}).select()`);await command('Input.insertText',{text:'Synthetic discarded session edit'});
  const discardSession=await evaluate("[...document.querySelector('#close-session').options].find(o=>o.value&&o.value!==document.querySelector('#close-session').value).value");
  await set('#close-session',discardSession);await wait(shown);await answer('Discard changes');
- await check('explicit discard applies the chosen close session',`(async()=>{const choice=await(await fetch('/api/close-sessions/choice')).json();return document.querySelector('#close-session').value===${JSON.stringify(discardSession)}&&choice.session===${JSON.stringify(discardSession)};})()`);
+ await check('explicit discard applies the chosen close session',`(async()=>{const choice=await(await fetch('/api/close-sessions/choice')).json();return document.querySelector('#close-session').value===${JSON.stringify(discardSession)}&&choice.session===${JSON.stringify(savedDefault)};})()`);
 
 }
