@@ -125,7 +125,9 @@ public static class MarketCloses
     private static InputFrame CreateFrame(Guid close,string name,DateTimeOffset at,CloseParts parts,Guid? contextId,FrameClose session)
     {
         var primary=parts.Sources[parts.Primary.DefinitionRevisionId];
-        if(primary.ObservationIds.IsEmpty||primary.CurveContracts.IsEmpty)throw new MarketDataException("pilot_close_inputs","The retained close has no complete exact input selection.");
+        if(!parts.Sources.Values.Any(part=>!part.ObservationIds.IsEmpty)||
+            !parts.Sources.Values.Any(part=>!part.CurveContracts.IsEmpty))
+            throw new MarketDataException("pilot_close_inputs","The retained close has no complete exact input selection.");
         return new(close,name,at,session.BusinessDate,primary.ObservationIds,primary.CurveContracts,contextId,primary.FrozenObservationIds){OriginCloseId=close,Close=session,Source=parts.Primary,SourceInputs=parts.Sources};
     }
 }

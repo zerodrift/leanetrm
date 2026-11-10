@@ -100,7 +100,7 @@ def run_checks(c, check, query, manifest):
         raise AssertionError('Owned reference scope is missing before navigation revocation check')
     try:
         query(f'DELETE FROM security.reference_catalog_scopes WHERE {scope};')
-        c.call('workspace/navigation', expected=422)
+        c.call('workspace/navigation', expected=403)
         check('current reference revocation cannot return a stale or empty successful directory')
     finally:
         query(f"INSERT INTO security.reference_catalog_scopes VALUES('{catalog}','{tenant}','{workspace}','{mode}');")

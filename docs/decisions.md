@@ -3886,7 +3886,8 @@ The managed source resolver is shared by portfolio consumers and market reads.
 
 Every recorded close retains a source matrix: exact source/reference versions,
 observation pins, frozen input uses, ordered curve members, and its session's
-source-qualified roots. Retained dependencies cannot expand the signed commodity roots. Native rate
+source-qualified roots. A close can retain primary-source pins while all signed
+roots belong to another exact source. Retained dependencies cannot expand the signed commodity roots. Native rate
 inspection uses the close's exact primary source, rate-definition foreign keys
 and retained tenor pins; it does not promise signed rate-root coverage or extend
 generated-close scope.
@@ -3925,7 +3926,10 @@ retain that definition identity alongside the exact product reference and close
 or working valuation instant. The library marks a fit as available at a recorded
 close only when its source pins match that close's signed source part. The
 exchange worker check fits and reads the secondary part of a mixed close,
-including stored observation lineage and library selection.
+including stored observation lineage and library selection. A held option or an
+option selected for booking opens the option directory, stored surfaces and fit
+commands under its exact definition. A published directory read pins its definition
+for the resulting surface requests and for opening a stored fit at another close.
 
 The v1 generated-close profile and normalized report have one exact definition.
 Admission checks the anchor's source matrix and publication checks the due

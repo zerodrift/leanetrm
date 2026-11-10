@@ -2239,3 +2239,27 @@ regressions, current-access revocation tests, generated-close/report capability
 review, migration qualification on stock PostgreSQL, and independent adversarial
 review. Initial catalogue membership must be published through the ordinary
 operation; no historical publication knowledge is fabricated.
+
+The current portfolio results bucket money by exact currency reference. To net
+across revisions, the proposed first capability is an approved, versioned
+same-denomination mapping with exact source and target currency foreign keys.
+It admits only one-to-one amounts within a reference catalogue. Equal labels
+or codes do not qualify a pair. Admission resolves the mapping at the selected
+business date and certified cutoff and records its identity and target for
+worker replay under current authority. Holdings and pricing axes keep their
+native terms. Apply the mapping to exact reporting amounts and derivative
+numerators before book aggregation. Group exact scenario losses or exposures
+before computing VaR, expected shortfall or covariance. Qualify offsetting
+positions, rational amounts, mapping changes between admission and replay, and
+missing or revoked mapping evidence.
+
+The normalized close report currently has a single definition contract.
+A proposed mixed-source contract attaches model, position, dependency, factor,
+discount and PPA evidence to their exact source part in the recorded matrix.
+Reported cash separately carries its exact reporting currency. Admission must
+prove every held position and required input is covered before calculation,
+and native publication must verify each source-qualified receipt without
+copying the close header's definition onto child evidence. Qualification
+includes two sources sharing a local identifier, absent or revoked source
+inputs, independent discount and PPA receipts, and worker recovery after the
+first publication commits.

@@ -50,9 +50,13 @@ public sealed partial class SwapStore
         var to = input.DeliveryTo is null ? (DateOnly?)null : Date(input.DeliveryTo);
         if (from is {} start && to is {} end && (start.Day != 1 || start.Year == 9999 || start.AddMonths(1) != end))
             throw Error("swap_projection", "This booking model selects one complete delivery month per instrument.");
-        var markets = new List<(PreviewData Data, InputFrame Frame)> { (data, frame) };
-        markets.AddRange(await database.ReadInputMarkets(connection, frame, ct, data,
-            input.DefinitionRevisionId is {} revision ? new HashSet<Guid> { revision } : null));
+        var root = data.DefinitionRevision.RevisionId;
+        var markets = input.DefinitionRevisionId == root
+            ? [(data, frame)]
+            : MarketInputSelection.WithRoot(data, frame,
+                [..(await database.ReadInputMarkets(connection, frame, ct, data,
+                    input.DefinitionRevisionId is {} revision ? new HashSet<Guid> { revision } : null))
+                    .Where(market => market.Data.DefinitionRevision.RevisionId != root)]);
         if (input.DefinitionRevisionId is {} exact && markets.All(market => market.Data.DefinitionRevision.RevisionId != exact))
             throw Error("swap_definition", "The selected exact definition is unavailable in this context.");
 

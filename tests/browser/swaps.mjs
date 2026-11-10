@@ -3,7 +3,6 @@ import {chooseSwapSides} from './swap-sides.mjs';
 import {setupWorkspaceProbe} from './workspace-probe.mjs';
 import {setupTradingReplies} from './trading-responses.mjs';
 import {chooseProduct,newTrade,startNewTrade,closeNewTrade} from './new-trade.mjs';
-import {deliveryLabel} from '../../web/dist/market-view.js';
 import {swapPvCard,groupHeadersReadApart} from './desk-cards.mjs';
 import {scrollPositionsToTop} from './positions-scroll.mjs';
 import {deltaInkCheck} from './side-panel-checks.mjs';
@@ -89,7 +88,7 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
  await check('independent entered dates and currency remain visible without a copy control',"document.querySelector('#swap-fixed-from').value==='2021-01-01'&&document.querySelector('#swap-fixed-to').value==='2021-02-01'&&document.querySelector('#swap-fixed-currency').value===document.querySelector('#swap-floating-currency').value&&![...document.querySelectorAll('#swap-editing button')].some(b=>/copy/i.test(b.textContent))");
  await set('#swap-floating-from','2021-01-02');await check('later side edits leave populated peer values independent',"document.querySelector('#swap-fixed-from').value==='2021-01-01'");await set('#swap-floating-from','2021-01-01');await set('#swap-floating-to','2021-02-01');await fill('3');await set('#swap-memo','Synthetic swap memo <plain text>');
  // Price before booking draws the curve of the swap's market: the desk's own read of it when the desk holds it, and otherwise one read, whatever the number of prices.
- const shapeReads="window.__swaps.filter(r=>r.path==='/api/market/curve-shapes').length",shapesBefore=await evaluate(shapeReads);
+ const shapeReads="window.__swaps.filter(r=>r.path==='/api/market/input-curve-shapes').length",shapesBefore=await evaluate(shapeReads);
  const priceCalls=await evaluate("window.__swaps.filter(r=>r.path==='/api/swaps/price').length");await set('#swap-price','');await click('#swaps-draft-price');
  await check('blank agreed pricing fails without requesting par',`window.__swaps.filter(r=>r.path==='/api/swaps/price').length===${priceCalls}&&document.querySelector('#error').textContent.includes('agreed fixed price')`);
  await set('#swap-price-mode','par');await set('#swap-par-places','12');await click('#swaps-draft-price');
@@ -99,16 +98,16 @@ export async function run({command,evaluate,wait,click,set:setValue,submit,perso
  const bookingsBefore=await evaluate("window.__swaps.filter(r=>r.path==='/api/swaps/book').length");
  await set('#swap-legal-entity','');await set('#swap-counterparty','');
  await click('#swaps-draft-price');await check('temporary deal prices without booking parties',"document.querySelector('#swaps-draft-value').textContent==='PV: 16.000 USD'&&!document.querySelector('#swaps-draft-risk').disabled");
- const priced=await evaluate("(f=>({curve:f.curve,deliveryFrom:f.deliveryFrom,deliveryTo:f.deliveryTo}))(window.__swaps.filter(r=>r.path==='/api/swaps/price').at(-1).body.floating)");
- const heldByDesk=await evaluate(`window.__tradingReports(window.__swaps).at(-1).data.holdings.some(h=>h.curve===${JSON.stringify(priced.curve)})`);
- // The curves the close shapes are those of its own definition revision, as a position's row says: a swap market defined in another has no curve.
- const sharesCurves=await evaluate("(async()=>(await(await fetch('/api/workspace/navigation')).json()).definitionRevision.revisionId===window.__swaps.filter(r=>r.path==='/api/swaps/price').at(-1).body.definitionRevisionId)()");
- const curveReads=sharesCurves&&!heldByDesk?1:0;
- if(sharesCurves)await check('Price before booking shows the curve of the swap\'s market with the delivery period of its floating side marked',`(()=>{const plot=document.querySelector('#swaps-draft-curves .chart');return !!plot&&!!plot.querySelector('canvas')&&plot.dataset.chartAxis==='delivery'&&plot.querySelector('.chart-toolbar small').textContent==='Marked: delivery '+${JSON.stringify(deliveryLabel(priced.deliveryFrom,priced.deliveryTo))};})()`,"document.querySelector('#swaps-draft-curves').innerText");
- else await check('Price before booking says why a swap market defined in another revision than the close\'s curves has no curve, without failing the price',"document.querySelector('#swaps-draft-curves').textContent==='Curve shape unavailable · this market is defined in another revision than the curves of this close'&&!document.querySelector('#swaps-draft-curves .chart')&&document.querySelector('#swaps-draft-value').textContent.startsWith('PV')","document.querySelector('#swaps-draft-curves').innerText");
- await check('a curve the desk holds is drawn from the desk\'s own read, one it does not hold is read once for the draft, and a market the close has no curve for is read not at all',`${shapeReads}===${shapesBefore+curveReads}`,`[${shapeReads},${shapesBefore},${JSON.stringify([sharesCurves,heldByDesk])}]`);
+ const priced=await evaluate("window.__swaps.filter(r=>r.path==='/api/swaps/price').at(-1).body");
+ const heldByDesk=await evaluate(`window.__tradingReports(window.__swaps).at(-1).data.holdings.some(h=>h.curve===${JSON.stringify(priced.floating.curve)}&&h.definitionRevisionId===${JSON.stringify(priced.definitionRevisionId)})`);
+ const curveReads=heldByDesk?0:1;
+ await check('Price before booking states the missing curve view without failing the exact swap price',
+  "document.querySelector('#swaps-draft-curves').textContent==='Curve shape unavailable · no curve view at this close'&&!document.querySelector('#swaps-draft-curves .chart')&&document.querySelector('#swaps-draft-value').textContent.startsWith('PV')",
+  "document.querySelector('#swaps-draft-curves').innerText");
+ await check('the draft reuses its exact held curve or requests that exact definition once',
+  `${shapeReads}===${shapesBefore+curveReads}&&(${heldByDesk}||window.__swaps.filter(r=>r.path==='/api/market/input-curve-shapes').at(-1).body.curves.some(c=>c.curve===${JSON.stringify(priced.floating.curve)}&&c.definitionRevisionId===${JSON.stringify(priced.definitionRevisionId)}))`);
  await click('#swaps-draft-price');
- await check('pricing the same draft again reads its curve no more',`${shapeReads}===${shapesBefore+curveReads}&&document.querySelectorAll('#swaps-draft-curves .chart').length===${sharesCurves?1:0}`);
+ await check('pricing the same draft again reuses the exact curve read',`${shapeReads}===${shapesBefore+curveReads}`);
  await check('temporary pricing writes no user-authored fixing instant or clock resolution',"!('firstFixingAt' in window.__swaps.filter(r=>r.path==='/api/swaps/price').at(-1).body.floating)&&!window.__swaps.some(r=>r.path==='/api/time/inspect')");
  await click('#swaps-draft-risk');await check('daily draft risk displays 31 exact factors with compact unit-aware exposures',"document.querySelector('#swaps-draft-exposure').textContent.includes('3.225806')&&window.__swaps.filter(r=>r.path==='/api/swaps/draft-risk').at(-1).data.factors.length===31&&window.__swaps.filter(r=>r.path==='/api/swaps/draft-risk').at(-1).body.draft.context.contextId===window.__swaps.filter(r=>r.path==='/api/swaps/price').at(-1).data.context.contextId");
  await check('price and risk never submit a booking',`window.__swaps.filter(r=>r.path==='/api/swaps/book').length===${bookingsBefore}`);

@@ -64,7 +64,7 @@ def run_checks(url, query, manifest):
     over=deepcopy(terms);over['delivery']['to']='2062-12-01'
     check('request work limit precedes valuation',solve(expected=422,terms=over)['code']=='ppa_size')
     wrong=deepcopy(terms);wrong['definitionRevisionId']=str(uuid4())
-    check('incompatible revision refuses',solve(expected=422,terms=wrong).get('code') is not None)
+    check('an inaccessible exact revision refuses',solve(expected=403,terms=wrong)['code']=='access_denied')
     discount=deepcopy(terms);discount['discounting']=True
     check('missing required discount inputs refuse',solve(expected=422,terms=discount).get('code') is not None)
     # A later source correction is separate from the unchanged draft terms.
