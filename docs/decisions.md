@@ -10,12 +10,26 @@ later [fixed-volume physical crude decision](#d271--fixed-volume-physical-crude)
 References must include the subject to distinguish them; the two contracts are
 independent.
 
-## D364 — Publication release resolution and existing Henry Hub repair
+## D367 — One catalogue, independent regional close sessions
 
-Approved 2026-11-09. Preserve the existing Henry Hub physical curve identity and
-publish a new graph version with explicit daily Gas Daily and monthly Platts
-IFERC physical index references. Monthly forwards retain their configured H
-source; NYMEX final settlement does not substitute for the physical index.
+Approved 2026-11-10. Current business objects belong to one ordinary production
+catalogue. Remove the source-market selector, its authoring request fields and
+named population manifest entries. No separate sample populations, repair paths
+or seed-specific application features remain. Data-loading scripts stay private.
+This supersedes D364's separated installation scheme.
+
+Regional close sessions are retained: a global team selects its official session
+and business date, with the exact recorded inputs and authorized knowledge view.
+Catalogue identity and close-session identity are independent. Saved references
+remain exact; no timestamp-only input replacement or same-code rebinding is
+permitted. A catalogue activation must include its current objects, compatible
+published graphs and official close inputs through ordinary versioned operations.
+
+## D364 — Publication release resolution
+
+Approved 2026-11-09. Explicit publication-index contracts distinguish daily and
+monthly physical assessments from the configured futures forward inputs.
+An exchange futures final does not substitute for a physical publication index.
 
 The selected `published_release_v1` policy consumes an exact authorized final
 release known in the selected context. Before expiry it uses configured forward
@@ -26,11 +40,8 @@ Final dependencies are separately pinned immutable inputs; selecting them does
 not rewrite the recorded forward close. Legacy settlement modes retain their
 existing behavior.
 
-New support revisions and explicitly admitted source-market frames preserve the
-primary market, earlier graph versions and existing holdings. Sample calendars
-and observations remain synthetic. Private installation uses normal authorized,
-idempotent stores with a named administrator; it grants no additional authority.
-Implementation and disposable qualification do not authorize production activation.
+The separated installation scheme is superseded by D367. Publication methodology,
+exact reference identities and immutable correction history remain in force.
 
 ## D363 — Curve objects, explicit contract settlement and price publications
 

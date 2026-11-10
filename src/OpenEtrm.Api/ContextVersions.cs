@@ -7,6 +7,12 @@ namespace OpenEtrm.Api;
 // unavailable inputs or change exact-version backend access.
 internal static class ContextVersions
 {
+    internal static Guid? CatalogueSnapshot(Microsoft.AspNetCore.Http.IQueryCollection query)
+    {
+        if(query.Keys.Any(key=>key!="snapshotId"))
+            throw new OpenEtrm.MarketData.MarketDataException("catalogue_query","Only an exact snapshot identity may qualify this catalogue read.");
+        return SnapshotId(query);
+    }
     internal static Guid? SnapshotId(Microsoft.AspNetCore.Http.IQueryCollection query)=>OptionalId(query,"snapshotId");
     internal static Guid? OptionalId(Microsoft.AspNetCore.Http.IQueryCollection query,string key)
     {

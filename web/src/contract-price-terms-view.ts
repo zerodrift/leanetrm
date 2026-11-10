@@ -1,24 +1,22 @@
 import {authoringLabel,publicationIndicesFor} from './price-authoring-model.js';
 import {authoringSession,button,choices,element,field,group,help,input,resultTable,rules,select,type PriceAuthoringOptions} from './price-authoring-ui.js';
 import {contractPriceStatusRows,type ContractPriceStatus} from './contract-price-status.js';
-import {authoringMarket,authoringMarketField,acknowledgesAuthoringMarket,type AuthoringMarketCatalog} from './authoring-market.js';
 
 type Terms={settlement:string;publication?:{id:string;version:number}|null;index?:{code:string}|null;observationRule:string;pendingPolicy:string;projectionPolicy?:string|null};
 type Contract={id:string;label:string;deliveryFrom:string;deliveryTo:string;expiry:string;kind:string};
 type Source={nodeId:string;curveCode:string;commodity:string;quote:string;contracts:Contract[];terms?:{default:Terms;replacements:{contract:{id:string};terms:Terms}[]}|null;mapping?:string;mappings?:{targetContractId:string;sourceContractId:string}[]};
 type Curve={id:string;version:number;generation:number;state:string;code:string;name:string;sources:Source[]};
 type Publication={id:string;version:number;name:string;implementation:string;indices:{code:string;commodity:string;quote:string;symbol:string;statistic:string}[]};
-type Catalog=AuthoringMarketCatalog&{snapshotId:string;canWrite:boolean;curves:Curve[];publications:Publication[];mappingRules:string[];settlementSources:string[];observationRules:string[];pendingPolicies:string[]};
-export type ContractTermsSelection={curveId:string;version:number;nodeId:string;contractId?:string;marketRevisionId?:string};
+type Catalog={snapshotId:string;canWrite:boolean;curves:Curve[];publications:Publication[];mappingRules:string[];settlementSources:string[];observationRules:string[];pendingPolicies:string[]};
+export type ContractTermsSelection={curveId:string;version:number;nodeId:string;contractId?:string};
 
 export function setupContractPriceTerms(host:HTMLElement,o:PriceAuthoringOptions){
  let catalog:Catalog|undefined,selected:Curve|undefined,source:Source|undefined,shownScope='',shownContract='';
- let marketRevisionId:string|undefined;
  const session=authoringSession(host,o,'contract-price-terms/save');
  session.validateReceipt((value,command)=>{
   const record=(v:unknown):Record<string,unknown>|undefined=>v!==null&&typeof v==='object'&&!Array.isArray(v)?v as Record<string,unknown>:undefined;
   const receipt=record(value),request=command.body,requested=record(request.terms),definition=record(receipt?.definition);
-  if(!receipt||!requested||!acknowledgesAuthoringMarket(receipt,request)||receipt.id!==request.curveId||receipt.version!==request.version||!Number.isInteger(receipt.generation)||
+  if(!receipt||!requested||receipt.id!==request.curveId||receipt.version!==request.version||!Number.isInteger(receipt.generation)||
    !Number.isInteger(request.generation)||(receipt.generation as number)<(request.generation as number)||(receipt.generation as number)>(request.generation as number)+1||!Array.isArray(definition?.nodes))return false;
   const selected=definition.nodes.map(record).find(n=>n?.id===requested.nodeId),terms=record(selected?.contractTerms);
   if(!terms||!Array.isArray(terms.replacements)||!Array.isArray(terms.mappings)||!terms.mappings.length)return false;
@@ -47,8 +45,6 @@ export function setupContractPriceTerms(host:HTMLElement,o:PriceAuthoringOptions
  });
  const head=element('div');head.className='card-heading';const title=element('div');title.append(element('h2','Contract pricing'),help('Choose the inputs for a saved curve, map its contracts, and define where each final price comes from.'));
  const reload=button('Reload',()=>void change(async()=>load()),'contract-terms-reload');head.append(title,reload);host.append(head);
- const market=select('contract-terms-market'),marketField=field('Source market',market);host.append(marketField);
- market.onchange=()=>{const requested=market.value;market.value=marketRevisionId??'';if(!requested||session.blocked())return;void change(async()=>{marketRevisionId=requested;catalog=undefined;selected=undefined;source=undefined;await load();});};
  const status=element('p');status.id='contract-terms-status';status.setAttribute('role','status');host.append(status);
  const curve=select('contract-terms-curve'),node=select('contract-terms-source');host.append(group(field('Saved curve version',curve),field('Input curve',node)));
  const form=element('form');form.id='contract-terms-form';const fields=element('fieldset');fields.className='price-authoring-form';form.append(fields);host.append(form);
@@ -126,7 +122,7 @@ export function setupContractPriceTerms(host:HTMLElement,o:PriceAuthoringOptions
   if(publicationSettlement()&&(!p||!index.value))throw Error('Choose the exact publication version and compatible index.');
   let mappings=mapping.value==='explicit_contracts_v1'?Array.from(maps.children).map(row=>({targetContractId:row.querySelector<HTMLSelectElement>('[data-mapping="target"]')!.value,sourceContractId:row.querySelector<HTMLSelectElement>('[data-mapping="source"]')!.value})):[];
   if(mappings.some(m=>!m.targetContractId||!m.sourceContractId))throw Error('Choose both contracts for every mapping.');
-  return {snapshotId:o.snapshot(),...authoringMarketField(marketRevisionId),curveId:selected.id,version:selected.version,terms:{nodeId:source.nodeId,scope:scope.value,contractId:scope.value==='contract'?contract.value:null,mapping:mapping.value,mappings,
+  return {snapshotId:o.snapshot(),curveId:selected.id,version:selected.version,terms:{nodeId:source.nodeId,scope:scope.value,contractId:scope.value==='contract'?contract.value:null,mapping:mapping.value,mappings,
    settlement:settlement.value,publicationId:publicationSettlement()?p!.id:null,publicationVersion:publicationSettlement()?p!.version:null,index:publicationSettlement()?index.value:null,
    observationRule:observation.value,pendingPolicy:pending.value,projectionPolicy:publicationSettlement()?(projection.value||null):null}};
  }
@@ -153,21 +149,19 @@ export function setupContractPriceTerms(host:HTMLElement,o:PriceAuthoringOptions
  }
  async function saveTerms(){if(!allowed())throw Error('Select an editable draft in working data.');const request=body();await session.save({...request,generation:selected!.generation},`${selected!.name} · ${source!.curveCode} pricing terms`);}
  async function load(selection?:ContractTermsSelection){
-  if(selection?.marketRevisionId)marketRevisionId=selection.marketRevisionId;
-  const valid=session.ticket(),response=await o.api<Catalog>(`contract-price-terms?snapshotId=${encodeURIComponent(o.snapshot())}${marketRevisionId?'&marketRevisionId='+encodeURIComponent(marketRevisionId):''}`);if(!valid())return;
+  const valid=session.ticket(),response=await o.api<Catalog>(`contract-price-terms?snapshotId=${encodeURIComponent(o.snapshot())}`);if(!valid())return;
   if(response.snapshotId!==o.snapshot())throw Error('The contract pricing catalog belongs to another close. Reload before authoring.');
-  const selectedMarket=authoringMarket(response,marketRevisionId);marketRevisionId=selectedMarket.revisionId;choices(market,selectedMarket.markets.map(m=>({value:m.revisionId,label:m.name})),marketRevisionId??'');marketField.hidden=!selectedMarket.markets.length;if(market.options[0])market.options[0].disabled=true;
   const previous=selection??(selected?{curveId:selected.id,version:selected.version,nodeId:source?.nodeId??'',...(scope.value==='contract'&&contract.value?{contractId:contract.value}:{})}:undefined);
   catalog=response;choices(curve,catalog.curves.map(c=>({value:key(c),label:`${c.name} · v${c.version} · ${c.state}`})));
   chooseCurve(previous?`${previous.curveId}:${previous.version}`:'');if(previous&&selected){chooseSource(previous.nodeId);scope.value=shownScope=previous.contractId?'contract':'curve';contract.value=shownContract=previous.contractId??'';fillTerms();renderMappings();}
   status.textContent=selected?`${selected.code} · v${selected.version} · ${selected.state}`:catalog.curves.length?'Choose a saved curve and its input to configure pricing.':'Save a curve with a native input in the Curve builder to configure contract pricing.';sync();if(source)await readPriceStates();
  }
  function sync(){
-  market.disabled=o.busy()||session.blocked();
+
   fields.disabled=o.busy()||session.blocked()||!source;curve.disabled=o.busy()||session.blocked();node.disabled=o.busy()||session.blocked()||!selected;reload.disabled=o.busy();
   const exception=Array.from(scope.options).find(option=>option.value==='contract')!;exception.disabled=!source?.terms;exception.textContent=source?.terms?'One contract · exception':'One contract · save a default rule first';
   save.disabled=o.busy()||session.blocked()||!source||!allowed();preview.disabled=o.busy()||!source;refreshStates.disabled=o.busy()||session.blocked()||!source;contractField.hidden=scope.value!=='contract';maps.hidden=mapping.value!=='explicit_contracts_v1';addMap.hidden=maps.hidden||scope.value==='contract';publicationFields.hidden=!publicationSettlement();projection.closest('label')!.hidden=!publicationSettlement();
  }
- session.changed(sync);session.saved(async(_value,command)=>{marketRevisionId=typeof command.body.marketRevisionId==='string'?command.body.marketRevisionId:undefined;await load();status.textContent='Pricing terms saved. The curve retains this exact rule and its contract exceptions.';});
- return {load,sync(){session.sync();},unsaved:session.unsaved,leave:session.leave,reset(){catalog=undefined;selected=undefined;source=undefined;marketRevisionId=undefined;choices(market,[]);marketField.hidden=true;session.reset();choices(curve,[]);choices(node,[]);current.replaceChildren();resolved.replaceChildren();priceStates.replaceChildren();sync();}};
+ session.changed(sync);session.saved(async(_value,command)=>{await load();status.textContent='Pricing terms saved. The curve retains this exact rule and its contract exceptions.';});
+ return {load,sync(){session.sync();},unsaved:session.unsaved,leave:session.leave,reset(){catalog=undefined;selected=undefined;source=undefined;session.reset();choices(curve,[]);choices(node,[]);current.replaceChildren();resolved.replaceChildren();priceStates.replaceChildren();sync();}};
 }

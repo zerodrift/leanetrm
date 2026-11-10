@@ -28,7 +28,6 @@ import {setupCustomCurves} from './custom-curves-view.js';
 import {setupPriceSetup} from './price-setup.js';
 import {LiveUpdates,liveContextUpdate,type LiveSelection,type LiveContextUpdate,type LiveStatus} from './live-context.js';
 import {setupMarketCalendar,type MarketDates} from './market-calendar.js';
-import {acknowledgesAuthoringMarket} from './authoring-market.js';
 import {otherSessionRefusal,sessionOffer,linkedFrame,type FrameClose} from './close-sessions.js';
 import {newestDate,newestClose,closeBadge,latestInstant,type CloseBadge,type CloseChoice} from './latest-close.js';
 import {setupPowerImports} from './power-imports-view.js';
@@ -333,7 +332,7 @@ function invalidateMarketDates(){
  marketDateGeneration++;marketDatesLoaded=false;
  marketCalendar.invalidate(contextDirty?'Apply the changed history and knowledge context first.':'Open the calendar to check available closes.');
 }
-type MarketDatesRequest={curve:string|null;timeZone:string;session:string;definition:unknown;maximumDates?:number;marketRevisionId?:string};
+type MarketDatesRequest={curve:string|null;timeZone:string;session:string;definition:unknown;maximumDates?:number};
 const datesMismatch=()=>Error('The available market dates do not match this workspace. Reload the calendar.');
 // What the calendar offers for one scope, checked as describing this workspace. It resolves to nothing when the
 // workspace or the scope changed while it loaded, since that answer no longer applies.
@@ -344,7 +343,7 @@ async function readAvailability(request:MarketDatesRequest):Promise<MarketDates|
  if(stale())return undefined;
  const frames=catalog.dates.flatMap(group=>group.frames);
  // Every close's time must be readable, as the newest close and the badge compare them, before anything keeps the answer.
- if(!acknowledgesAuthoringMarket(catalog,request)||catalog.selectionPolicy!=='exact_snapshot_no_close_substitution_v1'||catalog.timeZone!==prefs.timeZone||catalog.curve!==request.curve||
+ if(catalog.selectionPolicy!=='exact_snapshot_no_close_substitution_v1'||catalog.timeZone!==prefs.timeZone||catalog.curve!==request.curve||
   JSON.stringify(catalog.context??null)!==JSON.stringify(historicalContext()??null)||new Set(frames.map(close=>close.id)).size!==frames.length||
   catalog.dates.some(group=>!/^\d{4}-\d{2}-\d{2}$/.test(group.date)||!group.frames.length)||frames.some(close=>Number.isNaN(Date.parse(close.at))))
   throw datesMismatch();
@@ -371,8 +370,7 @@ async function openMarketCalendar(date?:string):Promise<void>{
  const definition=page==='custom-curves'?customCurves.dateDefinition():undefined;
  if(page==='custom-curves'&&!definition){marketCalendar.unavailable('Complete a curve graph or apply your formula to see available closes.');marketCalendar.show();return;}
  if(closeSession===null){marketCalendar.unavailable('Choose a close session to see its closes.');marketCalendar.show();return;}
- const marketRevisionId=definition?customCurves.dateMarketRevision():undefined;
- const request={curve:(page==='market'||page==='power')&&curve?curve:null,timeZone:prefs.timeZone,session:closeSession,definition:definition??null,...(marketRevisionId?{marketRevisionId}:{})};
+ const request={curve:(page==='market'||page==='power')&&curve?curve:null,timeZone:prefs.timeZone,session:closeSession,definition:definition??null};
  marketCalendar.loading();
  try{
   const catalog=await readMarketDates(request);
@@ -1128,7 +1126,7 @@ const aiSettings=setupAiSettings({api,act,busy:()=>busy,zone:()=>prefs.timeZone,
 // Curve definitions preview at the header's selected close.
 const curveDefinitions=setupCurveDefinitionEditor(api,act,()=>{if(contextDirty)throw Error('Apply the changed market context first.');return select('snapshot').value;},
   ()=>prefs.timeZone,()=>busy,()=>contextDirty?'Apply the changed market context first.':historicalContext()?'Historical view is read-only. Return to current knowledge to edit.':null);
-const nativeCurveInspector=setupNativeCurveInspector(()=>navigate('market')(),code=>leaving(async()=>{await setPage('custom-curves');await customCurves.load(directory().definitionRevision.revisionId);await customCurves.openSource(code,directory().definitionRevision.revisionId);}),()=>busy);
+const nativeCurveInspector=setupNativeCurveInspector(()=>navigate('market')(),code=>leaving(async()=>{await setPage('custom-curves');await customCurves.load();await customCurves.openSource(code,directory().definitionRevision.revisionId);}),()=>busy);
 $('curve-definition').append(curveDefinitions.element,nativeCurveInspector.element);nativeCurveInspector.element.hidden=true;
 function openCurveConfiguration(configuration:CurveConfiguration){return act(async()=>{
   if(contextDirty)throw Error('Apply the changed market context first.');
@@ -1445,7 +1443,7 @@ async function showTarget(report:string,selection:Record<string,unknown>|null,ki
       }
       const proposal=await api<Parameters<typeof customCurves.openPrepared>[0]>('assistant/curve-proposal',selection);
       if(requested!==scope())throw Error('The account or financial context changed. Review the proposed curve again.');
-      signal?.throwIfAborted();await setPage('custom-curves');await customCurves.load(directory().definitionRevision.revisionId);
+      signal?.throwIfAborted();await setPage('custom-curves');await customCurves.load();
       if(requested!==scope())throw Error('The account or financial context changed. Review the proposed curve again.');
       customCurves.openPrepared(proposal,editor);return;
     }

@@ -26,7 +26,7 @@ public static partial class CustomCurves
         api.MapPost("/custom-curves/compose",(HttpContext c,CustomCurveCompositionRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {
             var definition=RecipeComposition.Build(body.Composition);Validate(definition);
-            var revision=CurveAuthoringMarket.Revision(database,body.MarketRevisionId);
+            var revision=database.Manifest.RevisionId;
             var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             _=await store.References(connection,definition,data,ct);
             var versions=(await store.Read(connection,ct)).ToDictionary(v=>(v.Id,v.Version));
@@ -44,21 +44,21 @@ public static partial class CustomCurves
             var segment=CurveActivations.Resolve(plan,DateWorkspace.Date(context.EffectiveOn),body.Policy);
             var saved=(await store.Read(connection,ct)).SingleOrDefault(v=>v.Id==body.CurveId&&v.Version==segment.Version&&v.Definition.Output==segment.OutputNode)
                 ??throw Invalid("The activated exact published output is unavailable in this context.");
-            var revision=CurveAuthoringMarket.Revision(database,saved.MarketRevisionId);
-            frame=CurveAuthoringMarket.Frame(database,frame,revision);
+            var revision=CurveVersionInputs.Revision(database,saved.MarketRevisionId);
+            frame=CurveVersionInputs.Frame(database,frame,revision);
             var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             await store.RequirePublishedSource(connection,new(data.DefinitionRevision.CatalogId,saved.Id,saved.Version,saved.Definition.Output),data.DefinitionRevision.RevisionId,ct);
             var calculated=await EvaluateDefinition(connection,database,saved.Definition,data,frame,saved.Sources,saved.Calendars,saved.Schedules,context,ct);
             return Results.Ok(new{activation=plan,interval=segment,recipe=saved,preview=Result(calculated,data,pin,saved.Definition,saved.Id,saved.Version)});
         }));
-        api.MapGet("/custom-curves",(Func<HttpContext,Task<IResult>>)((HttpContext c)=>operation(c,"ReadMarketData",ContextVersions.SnapshotId(c.Request.Query),async(connection,pin,ct)=>
+        api.MapGet("/custom-curves",(Func<HttpContext,Task<IResult>>)((HttpContext c)=>operation(c,"ReadMarketData",ContextVersions.CatalogueSnapshot(c.Request.Query),async(connection,pin,ct)=>
         {
-            return Results.Ok((await CatalogRead(connection,database,pin,ct,CurveAuthoringMarket.Query(c))).Value);
+            return Results.Ok((await CatalogRead(connection,database,pin,ct)).Value);
         })));
         api.MapPost("/custom-curves/compile",(HttpContext c,CustomCurveCompileRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {
             var definition=RecipeFormula.Compile(body.Formula,body.Code,body.Name);Validate(definition);
-            var revision=CurveAuthoringMarket.Revision(database,body.MarketRevisionId);
+            var revision=database.Manifest.RevisionId;
             var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             _=await store.References(connection,definition,data,ct);
             return Results.Ok(new{definition});
@@ -69,7 +69,7 @@ public static partial class CustomCurves
         }));
         api.MapPost("/custom-curves/save",(HttpContext c,CustomCurveSaveRequest body)=>operation(c,"WriteMarketDefinitions",body.SnapshotId,async(connection,pin,ct)=>
         {
-            var revision=CurveAuthoringMarket.Revision(database,body.MarketRevisionId);
+            var revision=database.Manifest.RevisionId;
             var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             return Results.Ok(await store.Save(connection,body,data,CurveDraftSaver.Person,ct));
         }));
@@ -78,7 +78,7 @@ public static partial class CustomCurves
         api.MapPost("/custom-curves/component-history",(HttpContext c,ComponentHistoryRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {
             pin=await SelectedClose.Pin(connection,database,pin,ct);
-            return Results.Ok((await PreviewRead(connection,database,pin,new(body.Definition,body.SnapshotId,body.Id,body.Version,body.MarketRevisionId),ct,body)).Value);
+            return Results.Ok((await PreviewRead(connection,database,pin,new(body.Definition,body.SnapshotId,body.Id,body.Version),ct,body)).Value);
         }));
         api.MapPost("/custom-curves/preview",(HttpContext c,CustomCurvePreviewRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {

@@ -10,17 +10,17 @@ namespace OpenEtrm.Api;
 public sealed record CurveNodePosition(decimal X,decimal Y);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CustomCurveSaveRequest(Guid RequestId,RecipeDefinition Definition,
-    ImmutableDictionary<string,CurveNodePosition> Layout,Guid SnapshotId,Guid? Id=null,int? Version=null,int? Generation=null,string? ExpectedState=null,[property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] Guid? MarketRevisionId=null);
+    ImmutableDictionary<string,CurveNodePosition> Layout,Guid SnapshotId,Guid? Id=null,int? Version=null,int? Generation=null,string? ExpectedState=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CustomCurvePublishRequest(Guid RequestId,Guid Id,int Version,int Generation);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record CustomCurveCompileRequest(string Formula,string Code,string Name,Guid SnapshotId,Guid? MarketRevisionId=null);
+public sealed record CustomCurveCompileRequest(string Formula,string Code,string Name,Guid SnapshotId);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CustomCurveFormatRequest(RecipeDefinition Definition);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record CustomCurvePreviewRequest(RecipeDefinition Definition,Guid SnapshotId,Guid? Id=null,int? Version=null,Guid? MarketRevisionId=null);
+public sealed record CustomCurvePreviewRequest(RecipeDefinition Definition,Guid SnapshotId,Guid? Id=null,int? Version=null);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record ComponentHistoryRequest(RecipeDefinition Definition,Guid SnapshotId,string Node,RecipeNode Dates,string Policy,Guid? Id=null,int? Version=null,Guid? MarketRevisionId=null);
+public sealed record ComponentHistoryRequest(RecipeDefinition Definition,Guid SnapshotId,string Node,RecipeNode Dates,string Policy,Guid? Id=null,int? Version=null);
 public sealed record CurveSourceReference(Guid CatalogId,Guid RevisionId,string Code);
 public sealed record CurveScheduleReference(Guid CatalogId,Guid Id,int Version);
 // Who saved a generation, as reads show it (D260): `person`, `assistant`, or null for a generation saved before
@@ -92,7 +92,7 @@ SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.l
             new(reader.IsDBNull(15)?null:reader.GetString(15)),
             reader.GetString(10)));
         var versions=result.ToImmutable();
-        return [..versions.Select(v=>v with{MarketRevisionId=CurveAuthoringMarket.SavedRevision(v,versions)})];
+        return [..versions.Select(v=>v with{MarketRevisionId=CurveVersionInputs.SavedRevision(v,versions)})];
     }
     internal async Task Lock(NpgsqlConnection connection,CancellationToken ct)
     {
@@ -115,11 +115,11 @@ SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.l
         await using var visible=ScheduleStore.Command(connection,"SELECT security.custom_curve_visible($1,$2,$3)",Catalog,result.Id,result.Version);
         if(!Equals(await visible.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
         var versions=await Read(connection,ct);
-        return result with{MarketRevisionId=CurveAuthoringMarket.SavedRevision(result,versions)};
+        return result with{MarketRevisionId=CurveVersionInputs.SavedRevision(result,versions)};
     }
     internal async Task Record(NpgsqlConnection connection,Guid requestId,string operation,string payload,CustomCurveVersion result,string permission,CancellationToken ct)
     {
-        var revision=CurveAuthoringMarket.Revision(database,result.MarketRevisionId??result.Sources.Values.FirstOrDefault()?.RevisionId);
+        var revision=CurveVersionInputs.Revision(database,result.MarketRevisionId??result.Sources.Values.FirstOrDefault()?.RevisionId);
         if(result.Sources.Values.Any(source=>source.CatalogId!=Catalog||source.RevisionId!=revision))
             throw Invalid("The retained response must use the selected exact definition bundle.");
         await using var command=ScheduleStore.Command(connection,"""
@@ -162,6 +162,8 @@ INSERT INTO market_data.custom_curve_requests(catalog_id,actor_id,request_id,ope
         {
             id=body.Id.Value;
             var old=all.SingleOrDefault(v=>v.Id==id&&v.Version==body.Version);
+            if(old is not null&&old.Sources.Any(p=>references.Sources.TryGetValue(p.Key,out var exact)&&exact.Code==p.Value.Code&&exact!=p.Value))
+                throw Invalid("A saved curve revision must retain its exact source versions. Create a new curve to use different inputs.");
             // The assistant revises the draft its claim holds, at the generation the claim locked, so its request may leave
             // the generation and state to the claim; a person names both.
             var claimed=saver.IsAssistant&&body.Generation is null&&body.ExpectedState is null;
