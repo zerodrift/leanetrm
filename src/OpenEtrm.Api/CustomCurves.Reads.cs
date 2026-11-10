@@ -11,10 +11,10 @@ public static partial class CustomCurves
 {
     internal sealed record CurveRead(object Value,int Rows,ImmutableArray<Guid> ReferenceCatalogs);
     // Callers bind this pin once in their authorized request transaction.
-    internal static async Task<CurveRead> CatalogRead(NpgsqlConnection connection,PreviewDatabase database,PinnedContext pin,CancellationToken ct,Guid? marketRevisionId=null)
+    internal static async Task<CurveRead> CatalogRead(NpgsqlConnection connection,PreviewDatabase database,PinnedContext pin,CancellationToken ct)
     {
         var store=new CustomCurvesStore(database);
-        var revision=CurveAuthoringMarket.Revision(database,marketRevisionId);
+        var revision=database.Manifest.RevisionId;
         var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
         var schedules=new ScheduleStore(database.Manifest.CatalogId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId);
         var versions=pin.Context is {} selected?await schedules.ReadAt(connection,selected,ct):await schedules.Read(connection,ct);
@@ -53,7 +53,7 @@ public static partial class CustomCurves
             await using var command=ScheduleStore.Command(connection,"SELECT security.has_permission($1)",permission);
             return pin.Context is null&&Equals(await command.ExecuteScalarAsync(ct),true);
         }
-        var value=new{marketRevisionId=revision,markets=await CurveAuthoringMarket.Choices(connection,database,ct),kindsVersion=CurveKinds.Version,context=pin.Context,canEdit=await Can("WriteMarketDefinitions"),canPublish=await Can("SealMarketDefinitions"),
+        var value=new{kindsVersion=CurveKinds.Version,context=pin.Context,canEdit=await Can("WriteMarketDefinitions"),canPublish=await Can("SealMarketDefinitions"),
             sources=data.Definitions["curves"].Select(row=>new{code=row.Text("code"),name=row.Text("name"),kind=PreviewData.CurveKind(row.Text("rule"),row.OptionalText("direct_role")),catalogId=data.DefinitionRevision.CatalogId,revisionId=data.DefinitionRevision.RevisionId,contracts=data.DefinitionRows("curve_members","curve_code",row.Text("code")).OrderBy(m=>m.GetProperty("ordinal").GetInt32()).Select(m=>data.ContractRows(m.Id("contract_id")).Single()).Select(k=>new{id=k.Key.Id,label=k.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),k.DeliveryFrom,k.DeliveryTo})}),
             calendars=calendars.Select(row=>new{code=row.Reference.Code,name=row.Reference.Code,row.Reference.CatalogId,row.Reference.RevisionId}),
             schedules=versions.Where(v=>v.State=="published").Select(v=>new{value=v.Id.ToString("D")+":"+v.Version.ToString(CultureInfo.InvariantCulture),name=v.Definition.Name,v.Id,v.Version}),
@@ -73,9 +73,9 @@ public static partial class CustomCurves
         var frame=pin.RequireFrame() with{ContextId=context.ContextId};
         var versions=await store.Read(connection,ct);
         var retained=body.Id is {} requested?versions.SingleOrDefault(v=>v.Id==requested&&v.Version==body.Version):null;
-        var revision=CurveAuthoringMarket.Revision(database,body.MarketRevisionId??retained?.MarketRevisionId);
-        if(retained?.MarketRevisionId is {} exact&&exact!=revision)throw Invalid("The saved graph requires its exact source market.");
-        frame=CurveAuthoringMarket.Frame(database,frame,revision);
+        var revision=CurveVersionInputs.Revision(database,retained?.MarketRevisionId);
+        if(retained?.MarketRevisionId is {} exact&&exact!=revision)throw Invalid("The saved graph requires its exact definition revision.");
+        frame=CurveVersionInputs.Frame(database,frame,revision);
         var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
         Validate(body.Definition);
         var references=await store.References(connection,body.Definition,data,ct);

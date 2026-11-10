@@ -164,6 +164,9 @@ def run_checks(url, query=None, manifest=None):
     client.call('profile',{'profile':'editor'})
     catalog=client.call('custom-curves')
     assert catalog['canEdit'] and not catalog['canPublish']
+    for endpoint in ('custom-curves','contract-price-terms','price-publications'):
+        denied=client.call(endpoint+'?snapshotId='+frame['id']+'&marketRevisionId='+str(uuid4()),expected=422)
+        assert denied['code']=='catalogue_query',denied
     saved=client.call('custom-curves/save',body)
     assert saved['state']=='draft' and saved['version']==1 and saved['generation']==1
     # A person's save is recorded as theirs (D260); only the assistant's names a turn and step.

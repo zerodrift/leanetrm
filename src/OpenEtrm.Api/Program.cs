@@ -16,7 +16,6 @@ using OpenEtrm.MarketData;
 
 if(args.Length>0&&args[0]=="--import-reference"){Environment.ExitCode=await ReferenceImportCommand.Run(args[1..]);return;}
 if(args.Length>0&&args[0]=="--admin-load-gas-in-term"){Environment.ExitCode=await GasInTermLoad.Run(args[1..]);return;}
-if(args.Length>0&&args[0]=="--admin-load-curve-examples"){Environment.ExitCode=await CurveExampleLoad.Run(args[1..]);return;}
 if(args.Length>0&&args[0]=="--capture-reference"){Environment.ExitCode=await ReferenceCaptureCommand.Run(args[1..]);return;}
 
 if(args is ["--compile-date-seed",var dateSeedInput,var dateSeedOutput]){DateSeedCommand.Run(dateSeedInput,dateSeedOutput);return;}

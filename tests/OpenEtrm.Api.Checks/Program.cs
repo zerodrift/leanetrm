@@ -3,7 +3,8 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
-if(args is ["--curve-authoring-market"]){CurveAuthoringMarketChecks.Run();return;}
+if(args is ["--unified-catalogue"]){UnifiedCatalogueChecks.Run();return;}
+if(args is ["--curve-version-inputs"]){CurveVersionInputChecks.Run();return;}
 if(args is ["--generic-schedules"]){await BookedScheduleReaderChecks.Run();return;}
 if(args is ["--delivery-setup-defaults"]){DeliverySetupDefaultsChecks.Run();return;}
 if(args is ["--market-calendar-demand"]){await MarketCalendarDemandChecks.Run();return;}
@@ -15,7 +16,6 @@ if(args is ["--reference-presentation"]){ReferencePresentationChecks.Run();retur
 if(args is ["--assistant-workspace"]){AssistantWorkspaceChecks.Run();AssistantDigestChecks.Run();AssistantSelectionChecks.Run();AssistantWalkthroughChecks.Run();TradingBlotterChecks.Run();return;}
 if(args is ["--market-preparation-reuse"]){MarketPreparationReuseChecks.Run();return;}
 if(args is ["--publication-inputs"]){PricePublicationInputChecks.Run();return;}
-if(args is ["--curve-example-load"]){CurveExampleLoadChecks.Run();return;}
 if(args is ["--crude-instants"]){CrudeInstantChecks.Run();return;}
 if(args is ["--crude-lifecycle"]){CrudeLifecycleChecks.Run();return;}
 if(args is ["--crude-positions"]){CrudePositionChecks.Run();return;}
@@ -131,8 +131,8 @@ if (args is ["--schedules"])
     CrudePositionChecks.Run();
     CrudeLifecycleChecks.Run();
     PricePublicationInputChecks.Run();
-    CurveExampleLoadChecks.Run();
-    CurveAuthoringMarketChecks.Run();
+    UnifiedCatalogueChecks.Run();
+    CurveVersionInputChecks.Run();
     CrudeInstantChecks.Run();
     TradePositionFactsChecks.Run();
     BookScopeChecks.Run();

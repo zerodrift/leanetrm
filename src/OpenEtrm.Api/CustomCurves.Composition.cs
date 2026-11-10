@@ -4,7 +4,7 @@ using OpenEtrm.MarketData.CustomCurves;
 namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record CustomCurveCompositionRequest([property:JsonRequired] RecipeCompositionRequest Composition,[property:JsonRequired] Guid SnapshotId,Guid? MarketRevisionId=null);
+public sealed record CustomCurveCompositionRequest([property:JsonRequired] RecipeCompositionRequest Composition,[property:JsonRequired] Guid SnapshotId);
 
 public static partial class CustomCurves
 {

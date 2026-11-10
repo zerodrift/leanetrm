@@ -7,7 +7,7 @@ using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
 
-internal sealed class PricePublicationStore(PreviewDatabase database,Guid? marketRevisionId=null)
+internal sealed class PricePublicationStore(PreviewDatabase database)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new ExactDecimalJsonConverter() } };
     internal async Task<ImmutableArray<PricePublicationDefinition>> Read(NpgsqlConnection connection, CancellationToken ct)
@@ -29,7 +29,7 @@ internal sealed class PricePublicationStore(PreviewDatabase database,Guid? marke
     }
 
     async Task<PreviewData> Data(NpgsqlConnection connection, CancellationToken ct) =>
-        await database.Read(connection, ct, selectedRevision:CurveAuthoringMarket.Revision(database,marketRevisionId), observationIds: [], referenceScope: ReferenceReadScope.AllVisible, includeCalendarDays: false);
+        await database.Read(connection, ct, observationIds: [], referenceScope: ReferenceReadScope.AllVisible, includeCalendarDays: false);
 
     internal async Task<PricePublicationCatalog> Catalog(NpgsqlConnection connection, PinnedContext pin, CancellationToken ct)
     {
@@ -45,8 +45,7 @@ internal sealed class PricePublicationStore(PreviewDatabase database,Guid? marke
             Choices("commodities"), IndexChoices(data), Choices("calendars"), Choices("clock_rules"), Choices("sources"),
             [DatedGasPublication.DailyImplementation, DatedGasPublication.MonthlyImplementation, ..UnsupportedPricePublication.Implementations],
             [..(await Occurrences(connection, ct)).Where(o=>publications.Any(p=>p.Key==o.Occurrence.Publication))],
-            await Releases(connection, pin.RequireFrame().At, ct))
-        {MarketRevisionId=data.DefinitionRevision.RevisionId,Markets=await CurveAuthoringMarket.Choices(connection,database,ct)};
+            await Releases(connection, pin.RequireFrame().At, ct));
     }
 
     static ImmutableArray<PricePublicationIndexChoice> IndexChoices(PreviewData data)

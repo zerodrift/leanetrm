@@ -417,8 +417,6 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 .native-curve-terms dd{margin:0;overflow-wrap:anywhere}
 .native-curve-inspector .regular-table-scroll{margin:16px 0}
 .custom-curve-edit{margin:0 8px 6px;font-size:12px}
-.custom-curve-market{min-width:180px;max-width:320px;flex:1 1 220px}
-.custom-curve-market select{width:100%}
 /* Each section's fields sit side by side; what is not a field, as the rows table, takes the full row. */
 .curve-definition-section{min-width:0;border:0;border-top:1px solid var(--border);padding:16px 0 8px;margin:16px 0 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:14px 20px;max-width:880px}.curve-definition-section legend{font-size:13px;font-weight:600;color:var(--text-2);padding:0 8px 0 0}
 .curve-definition-section>:not(div),.curve-definition-section>.regular-table-scroll{grid-column:1/-1}.curve-definition-section>button{justify-self:start}.curve-definition-section input,.curve-definition-section select{width:100%;min-width:0;max-width:100%}

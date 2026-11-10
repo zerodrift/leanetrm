@@ -93,8 +93,16 @@ def run_checks(url, manifest, query):
     query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{publisher}');SELECT security.publish_custom_curve('{catalog}','{other_curve}',1,1);COMMIT;")
     client.call('custom-curves/activation', {**request, 'requestId': str(uuid4()), 'curveId': other_curve})
     mismatch = client.call('custom-curves/effective-preview', {**selected, 'curveId': other_curve}, expected=422)
-    # The cloned revision is deliberately absent from the admitted authoring markets.
-    assert mismatch['code'] == 'curve_market', mismatch
+    # A different catalogue revision cannot replace this close's exact inputs.
+    assert mismatch['code'] == 'curve_inputs', mismatch
+    client.call('profile', {'profile': 'editor'})
+    retained=next(v for v in client.call('custom-curves')['recipes'] if v['id']==other_curve and v['version']==1)
+    before_rebind=query(f"SELECT count(*) FROM market_data.custom_curve_versions WHERE curve_id='{other_curve}';")
+    refused=client.call('custom-curves/save',dict(requestId=str(uuid4()),snapshotId=frame['id'],id=other_curve,version=1,
+        generation=retained['generation'],expectedState='published',definition=retained['definition'],layout=retained['layout']),expected=422)
+    assert refused['code']=='custom_curve_definition' and 'exact source' in refused['message'],refused
+    assert query(f"SELECT count(*) FROM market_data.custom_curve_versions WHERE curve_id='{other_curve}';")==before_rebind
+    client.call('profile', {'profile':'approver'})
     foreign_catalog, foreign_curve = str(uuid4()), str(uuid4())
     authentication = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','approver','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120);")
     accepted=[]
