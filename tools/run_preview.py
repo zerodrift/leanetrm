@@ -713,7 +713,7 @@ def main():
         if (not gas_demo and not args.check or args.live_calculation_check or args.unit_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.valuation_status_check or args.desk_fields_check) and args.example=='standard':
             if not args.check and date_plan is not None:
                 from demo_date_plan import verify_instrument_dates
-                count=verify_instrument_dates(query,date_plan,manifest['catalogId'],manifest['revisionId'])
+                count=verify_instrument_dates(query,date_plan,manifest['catalogId'],manifest['revisionId'],manifest['contractsOutsideDatePlan'] if args.with_custom_curves else ())
                 print(f'Verified {count} demo contracts and rate pillars against source schedule dates.',flush=True)
             from seed_preview_positions import seed_positions
             seed_positions(url,run_id,temporary)

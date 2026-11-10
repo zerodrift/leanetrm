@@ -99,4 +99,6 @@ def prepare(reference,market,manifest,*,daily_lifecycle=False):
     market=market.rsplit('COMMIT;',1)[0]+'\n'+'\n'.join(observations)+'\nCOMMIT;\n'
     manifest['frames']=sorted(frames.values(),key=lambda f:f['at'])
     manifest['schedules'].append({'curve':'ng_monthly','from':'2020-11-01T00:00:00Z','to':'2022-04-28T15:30:00Z','exampleAt':'2020-12-18T16:00:00Z'})
+    # These panels carry their own dates, so the demo date plan does not cover them.
+    manifest['contractsOutsideDatePlan']=[contract[0] for contract in monthly+daily]+[key('e',300+ordinal) for ordinal in range(2)]
     return reference,market,manifest
