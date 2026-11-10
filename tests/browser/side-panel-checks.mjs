@@ -167,7 +167,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
     `[document.querySelector('#curve-title').textContent,document.querySelector('#contract-panel-head').textContent,document.querySelector('#error').textContent,document.querySelector('#notice').textContent]`);
   await click('#nav-futures');
   await wait("!!document.querySelector('#desk-positions .tabulator-row:not(.tabulator-group)')");
-  await check('coming back to the Blotter leaves no panel open',`${panel}.hidden&&!document.querySelector('#futures-page').hidden`);
+  await check('coming back to the unchanged Blotter restores its selected position details',`!${panel}.hidden&&${panelReference}===${JSON.stringify(futureReference)}&&!document.querySelector('#futures-page').hidden&&document.querySelector('#position-details-tabs-terms').getAttribute('aria-selected')==='true'`);
 
   // A new read shows the position the details showed again, from the new read, on the tab they were on.
   await open('fut');
