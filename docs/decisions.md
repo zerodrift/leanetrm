@@ -3923,7 +3923,9 @@ Volatility fits use the published option-product role at the selected business
 date and exact calibration inputs from its source. Fit jobs and stored revisions
 retain that definition identity alongside the exact product reference and close
 or working valuation instant. The library marks a fit as available at a recorded
-close only when its source pins match that close's signed source part.
+close only when its source pins match that close's signed source part. The
+exchange worker check fits and reads the secondary part of a mixed close,
+including stored observation lineage and library selection.
 
 The v1 generated-close profile and normalized report have one exact definition.
 Admission checks the anchor's source matrix and publication checks the due
@@ -3931,8 +3933,7 @@ session version's source-qualified roots before writing any observations.
 Preflight uses its due business date and explicit derived inputs, and the
 report uses the recorded close with its original source evidence.
 
-Remaining qualification includes a secondary-source fit through worker
-persistence and readback, cross-reference mixed-product worker replay, portfolio
+Remaining qualification includes cross-reference mixed-product worker replay, portfolio
 aggregation across distinct reference revisions, remaining product admissions and
 the final browser and authority checks. Generated-close and normalized-report capabilities must be
 assessed separately from interactive portfolio support. No production activation
