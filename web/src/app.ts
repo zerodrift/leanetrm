@@ -786,7 +786,7 @@ const referenceSections=()=>dataSections(Object.keys(data().references)).flatMap
 function referenceCategory(){
   const selected=referenceTable||'currencies',section=referenceSections().find(s=>s.value===selected);
   if(!section){referenceTable='';referenceConsole.show('reference');throw Error('These details are unavailable. Please refresh the page.');}
-  referenceTable=selected;referenceConsole.show('reference',selected);text('data-title',section.name);text('data-description',section.consumer);
+  referenceTable=selected;referenceConsole.show('reference',selected);text('page-title',section.name);$('page-title').title=section.name;text('data-description',section.consumer);
   return section;
 }
 const listAddress=(table:string,search:string):ReferenceAddress=>search?{table,search}:{table};

@@ -3754,5 +3754,9 @@ Risk's pages share one layout: the scope and its editor on one bar, report choic
 across the page, and an empty report or run list that says so and, for a report,
 offers the ways to start one.
 
+A reference category's name is the page title, in place of a second heading under
+"Reference data", and its search and paging share one row above the table. Curve definitions and Price
+setup lay each section's fields side by side within one measure.
+
 This changes presentation only. Page identifiers, addresses, permissions and every
 read and write are unchanged.

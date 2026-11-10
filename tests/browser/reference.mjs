@@ -23,7 +23,7 @@ export async function run({command,evaluate,wait,click,set,submit,check,idle,url
     await check('reference navigation reads only the explicit initial currency page',`window.__referenceReads.length===1&&${read('table')}==='currencies'&&document.querySelector('#reference tbody tr')&&document.querySelector('#error').hidden`);
     await check('the initial category is shown as its menu entry and addressed',`${selected()}==='Currencies'&&location.hash==='#reference/currencies'`);
     await tab('Locations');
-    await check('choosing a menu entry reads that category and addresses it',`${read('table')}==='locations'&&location.hash==='#reference/locations'&&${selected()}==='Locations'&&document.querySelector('#data-title').textContent==='Locations'`);
+    await check('choosing a menu entry reads that category and addresses it',`${read('table')}==='locations'&&location.hash==='#reference/locations'&&${selected()}==='Locations'&&document.querySelector('#page-title').textContent==='Locations'&&document.querySelector('#reference-previous').closest('.reference-toolbar').contains(document.querySelector('#reference-search'))`);
     await set('#reference-search-all-text','Tail %_');await submit('#reference-search-all');
     await check('the global search sends the literal text across categories without a category read',`window.__referenceSearches.length===1&&new URL(window.__referenceSearches[0].path,location.origin).searchParams.get('q')==='Tail %_'&&${read('table')}==='locations'&&document.querySelector('#reference-search-hits').textContent.includes('No reference data matches')`);
     await set('#reference-search-all-text','test_gas');await submit('#reference-search-all');
