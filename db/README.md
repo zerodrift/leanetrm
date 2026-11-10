@@ -3,13 +3,13 @@
 For a fresh database, run [bootstrap.sql](bootstrap.sql) as the actual role that
 will create migration objects, before applying migrations in order. It establishes
 the explicit seven-rights table-owner ACL reviewed by the migration guards on
-stock PostgreSQL versions. It does not grant runtime access or alter published
-migration files. Additional maintenance privileges require an explicit operator
+stock PostgreSQL 18. Runtime grants and published migration files are independent
+of this bootstrap. Additional maintenance privileges require an explicit operator
 grant. Bootstrap refuses an existing application schema; upgrading an installed
 database preserves its migration ledger and existing ACL provenance.
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0210_indexed_gas_consideration.sql`. It includes reference/market data, certified
+`0234_booking_choice_sources.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts, regional closes, bounded physical gas/crude operations and
 pre-loading LNG cargo booking/valuation with saved Incoterms.

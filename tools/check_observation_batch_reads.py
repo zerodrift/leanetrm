@@ -21,12 +21,14 @@ def run_checks(query,manifest):
         last=min(first+4095,count)
         query(f"""INSERT INTO market_data.observations SELECT copied.* FROM market_data.observations o CROSS JOIN generate_series({first},{last})n CROSS JOIN LATERAL jsonb_populate_record(NULL::market_data.observations,to_jsonb(o)||jsonb_build_object('id',md5('scale_observation_'||n)::uuid,'definition_revision_id','{revision}','series_id',md5('scale_series_'||n)::uuid,'source_event_id','synthetic_scale_selected_'||n,'source_revision_id','first','corrects_id',NULL,'received_at',clock_timestamp()))copied WHERE(o.catalog_id,o.id)=('{catalog}','{original}');""")
     actor=query("SELECT principal_id FROM security.identity_bindings WHERE subject='approver';")
-    query(f"""INSERT INTO market_data.close_sessions VALUES('{catalog}','scale_close','Synthetic scaled close');
+    query(f"""BEGIN;
+    INSERT INTO market_data.close_sessions VALUES('{catalog}','scale_close','Synthetic scaled close');
     INSERT INTO market_data.close_session_versions(catalog_id,code,version,state,generation,definition_revision_id,reference_catalog_id,reference_revision_id,calendar_code,cutoff_local,effective_from,effective_to,actor_id,request_id,request,publisher_id,publish_request_id)
     VALUES('{catalog}','scale_close',1,'published',1,'{revision}','{reference_catalog}','{reference_revision}','test_utc_every_day','23:00','2020-12-01','2021-12-01','{actor}','{uuid4()}','{{}}','{actor}','{uuid4()}');
     INSERT INTO market_data.market_closes(catalog_id,id,definition_revision_id,reference_catalog_id,reference_revision_id,name,at,kind,actor_id,request_id,request,publication_order,publication_xid,session_code,session_version,business_date)
     VALUES('{catalog}','{close_id}','{revision}','{reference_catalog}','{reference_revision}','Synthetic scaled close','2020-12-17 23:00Z','retained_input','{actor}','{uuid4()}','{{}}',1,pg_current_xact_id(),'scale_close',1,'2020-12-17');
-    INSERT INTO market_data.market_close_pins SELECT '{catalog}','{close_id}','{revision}',series_id,id,'variable' FROM market_data.observations WHERE catalog_id='{catalog}' AND definition_revision_id='{revision}';""")
+    INSERT INTO market_data.market_close_pins SELECT '{catalog}','{close_id}','{revision}',series_id,id,'variable' FROM market_data.observations WHERE catalog_id='{catalog}' AND definition_revision_id='{revision}';
+    COMMIT;""")
     pins=json.loads(query(f"SELECT json_agg(id) FROM market_data.observations WHERE definition_revision_id='{revision}';"));array='ARRAY['+','.join("'"+p+"'::uuid" for p in pins)+']'
     def issue():return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
 
