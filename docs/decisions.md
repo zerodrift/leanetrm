@@ -3835,3 +3835,14 @@ under the asking person's current authority and its `UseAssistantWorkspace` cons
 roles stay out of an agent version's Allowed roles: those name who may use the agent,
 must hold `UseAgents`, and do not limit or extend the authority of workspace reads
 and proposals.
+
+## D370 — An assistant request that omits a required id is refused as such
+
+An operation body's id that the discovered contract does not mark nullable is
+required. A body that left one out was bound as an empty id. A trading read's
+context without its `snapshotId` then named no frame of the turn, and the read was
+refused as `access_denied`, so the model reported a permission problem for a
+request that only lacked its frame. The assistant now refuses such a body before
+any read or proposal: a missing `snapshotId` as `operation_context_mismatch`, which
+asks for the pinned frame, and any other missing id as `tool_arguments_invalid`.
+No permission, operation or financial behavior changes.

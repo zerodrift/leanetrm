@@ -24,6 +24,7 @@ static class AssistantWorkspaceChecks
             }
         }
         PhysicalSelection();
+        OmittedIds();
         BusinessDatePins();
         var pages=new[]{"physical_operations","risk_jobs","delivery_prices","interval_series","interval_curves","users_access","settings_ai",
             "blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","gas_setup","crude_setup","facility_quantities"};
@@ -113,6 +114,18 @@ static class AssistantWorkspaceChecks
             try{PageReports.Require(Report(invalid));throw new Exception("An inexact physical operations selection was accepted.");}
             catch(OpenEtrm.MarketData.MarketDataException e) when(e.Code=="page_report_invalid"){}
         }
+    }
+
+    // A body that omits a required id is refused with a reason, never read as an empty id that a later check calls a denial.
+    static void OmittedIds()
+    {
+        var context=Guid.NewGuid();
+        string Directory(string snapshot)=>"{\"context\":{"+snapshot+"\"convention\":\"trading_workspace_v1\",\"knowledgeMode\":\"retained\",\"contextId\":\""+context+"\"},\"bookIds\":[],\"portfolioIds\":[],\"offset\":0,\"limit\":100}";
+        AssistantWorkspace.Canonical(System.Text.Json.Nodes.JsonNode.Parse(Directory("\"snapshotId\":\""+Guid.NewGuid()+"\",")),typeof(TradingPositionsRequest));
+        try{AssistantWorkspace.Canonical(System.Text.Json.Nodes.JsonNode.Parse(Directory("")),typeof(TradingPositionsRequest));throw new Exception("A context without its frame was accepted.");}
+        catch(ToolRefusal e) when(e.Code=="operation_context_mismatch"){}
+        try{AssistantWorkspace.Canonical(System.Text.Json.Nodes.JsonNode.Parse("{\"context\":null,\"day\":\"2021-01-01\"}"),typeof(GasOperationsReadRequest));throw new Exception("A body without its trade id was accepted.");}
+        catch(ToolRefusal e) when(e.Code=="tool_arguments_invalid"){}
     }
 
     static void BusinessDatePins()
