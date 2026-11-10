@@ -124,6 +124,7 @@ def main():
         projection=','.join("'"+additional+"'::uuid" if c=='revision_id' else "'additional_future'" if c=='code' else "'Synthetic additional futures'" if c=='name' else '"'+c+'"' for c in columns)
         query(f"INSERT INTO market_data.curves({','.join(columns)}) SELECT {projection} FROM market_data.curves WHERE catalog_id='{catalog}' AND revision_id='{revision}' AND code='future';INSERT INTO market_data.curve_members SELECT catalog_id,'{additional}','additional_future',contract_id,ordinal FROM market_data.curve_members WHERE catalog_id='{catalog}' AND revision_id='{revision}' AND curve_code='future';UPDATE market_data.revisions SET state='sealed' WHERE catalog_id='{catalog}' AND id='{additional}';")
         after=deepcopy(definition);after['effectiveFrom']='2020-12-18';after['curves'].append(dict(code='additional_future',kind='curve',**{**pin,'definitionRevisionId':additional}))
+        after['roles']['reference:futures_option_products']={**pin,'definitionRevisionId':additional}
         # Explicit additional-source inputs have different values. No date/code
         # alias may price an original held future from these observations.
         columns=json.loads(query("SELECT json_agg(attname ORDER BY attnum) FROM pg_attribute WHERE attrelid='market_data.observations'::regclass AND attnum>0 AND NOT attisdropped AND attgenerated='';"))

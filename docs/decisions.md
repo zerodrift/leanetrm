@@ -3919,9 +3919,15 @@ a close that lacks a requested source is reported unavailable without hiding
 later complete samples. Position charts and draft previews use exact source
 identities; the UI keeps held terms distinct from new booking choices.
 
-Remaining qualification includes cross-reference, mixed-product worker replay,
-secondary-source volatility surfaces, portfolio aggregation across distinct
-reference revisions, remaining product admissions and the final browser and
-authority checks. Generated-close and normalized-report capabilities must be
+Volatility fits use the published option-product role at the selected business
+date and exact calibration inputs from its source. Fit jobs and stored revisions
+retain that definition identity alongside the exact product reference and close
+or working valuation instant. The library marks a fit as available at a recorded
+close only when its source pins match that close's signed source part.
+
+Remaining qualification includes a secondary-source fit through worker
+persistence and readback, cross-reference mixed-product worker replay, portfolio
+aggregation across distinct reference revisions, remaining product admissions and
+the final browser and authority checks. Generated-close and normalized-report capabilities must be
 assessed separately from interactive portfolio support. No production activation
 has been performed.

@@ -21,7 +21,7 @@ def run_checks(query, manifest):
     product = json.dumps({'referenceCatalogId': manifest['referenceCatalogId'], 'referenceRevisionId': manifest['referenceRevisionId'], 'code': 'nymex_on'})
     other_product = product.replace('nymex_on', 'nymex_lo')
     actor = query(f"SELECT principal_id FROM security.identity_bindings WHERE issuer='{manifest['identityIssuer']}' AND subject='trader';")
-    observations = query(f"SELECT string_agg(id::text,',' ORDER BY id) FROM(SELECT id FROM market_data.observations WHERE catalog_id='{catalog}' ORDER BY id LIMIT 3)x;").split(',')
+    observations = query(f"SELECT string_agg(id::text,',' ORDER BY id) FROM(SELECT id FROM market_data.observations WHERE catalog_id='{catalog}' AND observed_at<='{frame_at}' ORDER BY id LIMIT 3)x;").split(',')
     first_inputs, second_inputs = observations[:2], observations[1:]
     first_surface, second_surface = {'synthetic': 'first fit'}, {'synthetic': 'second fit'}
     first_frame = str(uuid4())
@@ -75,7 +75,7 @@ def run_checks(query, manifest):
         """A read at a close, or at a working snapshot when none is named, a valuation instant and the frame's pins."""
         located = f"'{close}'" if close else 'NULL'
         pinned = 'ARRAY[' + ','.join(f"'{o}'" for o in pins) + ']::uuid[]'
-        return f"security.read_vol_surface('{catalog}','{key or product}'::jsonb,'{date or day}','{model}',{located}::uuid,'{valuation}'::timestamptz,{pinned})"
+        return f"security.read_vol_surface('{catalog}','{manifest['revisionId']}','{key or product}'::jsonb,'{date or day}','{model}',{located}::uuid,'{valuation}'::timestamptz,{pinned})"
 
     def read(context, **key):
         return trader(bound(context) + f"SELECT {reading(**key)};", 'ROLLBACK')
@@ -180,6 +180,10 @@ def run_checks(query, manifest):
     check('a frame that does not pin every input of the latest revision reads the latest one it does pin',
           json.loads(read(later, pins=first_inputs))['revision'] == first['revision'] and read(later, pins=observations[:1]) == '',
           read(later, pins=first_inputs))
+    check('a working snapshot must supply distinct non-null pins from the selected source',
+          trader(bound(later) + f"SELECT {reading().replace(']::uuid[]', ',NULL]::uuid[]')};", 'ROLLBACK') == ''
+          and read(later, pins=observations + observations[:1]) == ''
+          and read(later, pins=observations + [str(uuid4())]) == '')
     check('a read for another business date than its context is refused', read_refused(later, 'vol_surface_context', date='2026-10-15'))
     check('a read for an unknown model is refused', read_refused(later, 'vol_model_unknown', model='smile_unknown_v1'))
     check('a read without a trading context is refused',

@@ -40,16 +40,18 @@ internal static class VolSurfaceStore
     private static string SolverPolicy=>FuturesOptionValuationPolicy.Release1.NumericalPolicy;
 
     // Admits a fit job at the view's context, captured from current knowledge over the working frame.
-    internal static async Task<object> Submit(NpgsqlConnection connection,PreviewManifest manifest,TradingView view,VolSurfaceFitRequest body,CancellationToken ct)
+    internal static async Task<object> Submit(NpgsqlConnection connection,PreviewDatabase database,TradingView view,VolSurfaceFitRequest body,CancellationToken ct)
     {
         if(body.RequestId==Guid.Empty)throw new MarketDataException("vol_surface_input","Supply a stable request identity for the fit.");
         VolModels.Require(body.Model);
+        var selected=await SelectedInputs(connection,database,view.CalculationFrame,ct);
+        var manifest=selected.Source.Apply(database.Manifest);
         var contextId=view.Context.ContextId??throw new MarketDataException("vol_surface_context","The fit requires its captured trading context.");
         // A fit is new work: at a recorded close it requires the close in force for its session and business day (D334).
         if(view.Frame.OriginCloseId is {} close)await SelectedClose.RequireInForce(connection,manifest.CatalogId,close,ct);
         var request=new JsonObject{["convention"]=Convention,["engineVersion"]=RiskJobs.EngineVersion,["product"]=Product(manifest,body.Product),
             ["businessDate"]=BusinessDate(view),["model"]=body.Model,["solverPolicy"]=SolverPolicy,["futuresConvention"]=manifest.FuturesConvention};
-        var frame=RetainedFrames.Record(view.CalculationFrame with{SwapMarketSelections=null});
+        var frame=RetainedFrames.Record(selected.Frame with{SwapMarketSelections=null});
         await using var command=ScheduleStore.Command(connection,"SELECT risk.submit_vol_surface_fit($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)::text",
             manifest.CatalogId,body.RequestId,contextId,manifest.RevisionId,view.Frame.At,request.ToJsonString(),frame.ToJsonString(RiskJobs.Json));
         var job=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!;
@@ -58,18 +60,20 @@ internal static class VolSurfaceStore
 
     // The stored surface of a key fitted at the view's own close (or working snapshot), instant and pins, known at its bound
     // context, whether its inputs were revised since, the caller's newest fit job for the key there and whether the caller may fit.
-    internal static async Task<object> Read(NpgsqlConnection connection,PreviewManifest manifest,TradingView view,VolSurfaceReadRequest body,CancellationToken ct)
+    internal static async Task<object> Read(NpgsqlConnection connection,PreviewDatabase database,TradingView view,VolSurfaceReadRequest body,CancellationToken ct)
     {
         VolModels.Require(body.Model);
+        var selected=await SelectedInputs(connection,database,view.CalculationFrame,ct);
+        var manifest=selected.Source.Apply(database.Manifest);
         var product=Product(manifest,body.Product).ToJsonString();var date=DateOnly.ParseExact(BusinessDate(view),"yyyy-MM-dd",CultureInfo.InvariantCulture);
         async Task<JsonNode?> Value(string sql,params object[] arguments)
         {
             await using var command=ScheduleStore.Command(connection,sql,arguments);
             return await command.ExecuteScalarAsync(ct) is string text?JsonNode.Parse(text):null;
         }
-        var (close,at,pins)=Location(view);
-        var stored=await Value("SELECT security.read_vol_surface($1,$2::jsonb,$3,$4,$5::uuid,$6,$7)::text",manifest.CatalogId,product,date,body.Model,close,at,pins);
-        var job=await Value("SELECT risk.vol_surface_fit_job($1,$2::jsonb,$3,$4,$5::uuid,$6,$7)::text",manifest.CatalogId,product,date,body.Model,close,at,pins);
+        var (close,at,pins)=Location(selected.Frame);
+        var stored=await Value("SELECT security.read_vol_surface($1,$2,$3::jsonb,$4,$5,$6::uuid,$7,$8)::text",manifest.CatalogId,manifest.RevisionId,product,date,body.Model,close,at,pins);
+        var job=await Value("SELECT risk.vol_surface_fit_job($1,$2,$3::jsonb,$4,$5,$6::uuid,$7,$8)::text",manifest.CatalogId,manifest.RevisionId,product,date,body.Model,close,at,pins);
         JsonObject? revision=null;
         if(stored is not null)
         {
@@ -86,24 +90,59 @@ internal static class VolSurfaceStore
 
     // The surfaces stored at or before the view's bound context, the view's own first and then newest business date first, each
     // with the close it belongs to, and whether the caller may fit, a page at a time, for every product or one.
-    internal static async Task<object> Library(NpgsqlConnection connection,PreviewManifest manifest,TradingView view,VolSurfaceLibraryRequest body,CancellationToken ct)
+    internal static async Task<object> Library(NpgsqlConnection connection,PreviewDatabase database,TradingView view,VolSurfaceLibraryRequest body,CancellationToken ct)
     {
         VolModels.Require(body.Model);
-        var (close,at,pins)=Location(view);
-        await using var command=ScheduleStore.Command(connection,"SELECT security.vol_surface_library($1,$2,$3,$4::text,$5,$6::uuid,$7,$8,$9,$10)::text",
-            manifest.CatalogId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId,(object?)body.Product??DBNull.Value,body.Model,close,at,pins,body.Offset,LibraryPage);
+        var source=await ProductSource(connection,database,view.CalculationFrame,ct);
+        var manifest=source.Apply(database.Manifest);
+        var (close,at,pins)=Location(view.CalculationFrame);
+        try
+        {
+            (_,_,pins)=Location(await ProjectInputs(connection,database,view.CalculationFrame,source,ct));
+        }
+        catch(MarketDataException error)when(error.Code=="market_inputs_missing")
+        {
+            // A library can list fits from other closes even when this close
+            // has no inputs for this source. No fit can match an empty pin set.
+            pins=[];
+        }
+        await using var command=ScheduleStore.Command(connection,"SELECT security.vol_surface_library($1,$2,$3,$4,$5::text,$6,$7::uuid,$8,$9,$10,$11)::text",
+            manifest.CatalogId,manifest.RevisionId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId,(object?)body.Product??DBNull.Value,body.Model,close,at,pins,body.Offset,LibraryPage);
         var page=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
         var canFit=await PreviewDatabase.HasPermission(connection,"PublishMarketData",ct)&&await PreviewDatabase.HasPermission(connection,"ReadTrades",ct);
         return new JsonObject{["snapshotId"]=view.Frame.Id,["model"]=body.Model,["product"]=body.Product,["offset"]=body.Offset,["pageSize"]=LibraryPage,
             ["surfaces"]=page["surfaces"]!.DeepClone(),["hasMore"]=page["hasMore"]!.DeepClone(),["canFit"]=canFit};
     }
+    // The product directory and calibration select the same published reference
+    // role. A recorded close supplies the exact pins of that role's definition.
+    internal static async Task<(CatalogueSource Source,InputFrame Frame)> SelectedInputs(
+        NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,CancellationToken ct)
+    {
+        var source=await ProductSource(connection,database,frame,ct);
+        return(source,await ProjectInputs(connection,database,frame,source,ct));
+    }
+
+    private static async Task<CatalogueSource> ProductSource(
+        NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,CancellationToken ct)
+    {
+        var catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,frame.Time.Date);
+        return catalogue.RequireRole("reference:futures_option_products");
+    }
+
+    private static async Task<InputFrame> ProjectInputs(
+        NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,CatalogueSource source,CancellationToken ct)
+    {
+        var data=await database.Read(connection,ct,ppaBundle:source,observationIds:[],includeCalendarDays:false);
+        return await MarketInputSelection.FrameFor(database,connection,data,frame,ct);
+    }
+
     private const int LibraryPage=48;
 
     // Where the view reads. A frame id is session-scoped, so a surface is located by the close the frame is, or for a working
     // snapshot by none, and its valuation instant; a surface is the frame's only when every input is one of its pins, since
     // working snapshots of one instant can pin different observations.
-    private static (object Close,DateTimeOffset At,Guid[] Pins) Location(TradingView view)=>
-        ((object?)view.Frame.OriginCloseId??DBNull.Value,view.Frame.At,[..view.Frame.ObservationIds]);
+    private static (object Close,DateTimeOffset At,Guid[] Pins) Location(InputFrame frame)=>
+        ((object?)frame.OriginCloseId??DBNull.Value,frame.At,[..frame.ObservationIds]);
 
     // Fits a claimed job from its pinned frame in the worker: the actor's retained authority is bound to the read, which the
     // fit's discount-default lookup also uses, and the attempt is rechecked again when the job completes.

@@ -382,7 +382,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  let nextProductOffset:number|null=null,productQuery='';
  type ProductPage={rows:Record<string,string|number|null>[];offset:number;pageSize:number;hasMore:boolean};
  async function productPage(offset:number,code?:string){
-  const params=new URLSearchParams({table:'futures_option_products',offset:String(offset),search:code?'':productQuery});
+  const params=new URLSearchParams({table:'futures_option_products',snapshotId:o.context().snapshotId,offset:String(offset),search:code?'':productQuery});
   if(code)params.set('code',code);
   return o.api<ProductPage>('reference/catalog?'+params);
  }

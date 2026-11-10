@@ -487,9 +487,9 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
         .Where(row=>row.TryGetProperty(column,out var value)&&value.ValueKind==JsonValueKind.String)
         .Select(row=>row.GetProperty(column).GetString()!).Distinct();
 
-    public async Task<ImmutableDictionary<string,ReferenceSourceSelection>> ReadReferenceSources(NpgsqlConnection connection,CancellationToken ct)
+    public async Task<ImmutableDictionary<string,ReferenceSourceSelection>> ReadReferenceSources(NpgsqlConnection connection,CancellationToken ct,DateOnly? effectiveOn=null)
     {
-        var catalogue=await new CatalogueStore(Manifest.CatalogId).ReadBound(connection,ct);
+        var catalogue=await new CatalogueStore(Manifest.CatalogId).ReadBound(connection,ct,effectiveOn);
         return ReferenceTables.ToImmutableDictionary(table=>table,table=>
         {
             var source=catalogue.RequireRole("reference:"+table);
@@ -498,10 +498,10 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
     }
     // Current read authority over a table's exact reference revision and proof that the
     // selected sealed definition revision names that revision; reads repeat it after reading.
-    public async Task<(ReferenceRevision Revision,Guid Definition)> ReferenceScope(NpgsqlConnection connection,string table,CancellationToken ct)
+    public async Task<(ReferenceRevision Revision,Guid Definition)> ReferenceScope(NpgsqlConnection connection,string table,CancellationToken ct,DateOnly? effectiveOn=null)
     {
         if(!ReferenceTables.Contains(table))throw new MarketDataException("reference_catalog","Choose an available reference category.");
-        var source=(await ReadReferenceSources(connection,ct))[table];
+        var source=(await ReadReferenceSources(connection,ct,effectiveOn))[table];
         var revision=source.ReferenceRevision;var definition=source.DefinitionRevisionId;
         await using(var access=ScheduleStore.Command(connection,"SELECT security.reference_access($1,'ReadMarketData')",revision.CatalogId))
             if(!Equals(await access.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
@@ -566,7 +566,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
         return new(query,[..hits.Take(SearchHitLimit)],hits.Length<found.Length||hits.Length>SearchHitLimit);
     }
 
-    public async Task<ReferencePage> ReadReferencePage(NpgsqlConnection connection,string table,int offset,string? search,string? code,CancellationToken ct)
+    public async Task<ReferencePage> ReadReferencePage(NpgsqlConnection connection,string table,int offset,string? search,string? code,CancellationToken ct,DateOnly? effectiveOn=null)
     {
         search??="";
         if(!ReferenceTables.Contains(table)||offset is <0 or >ReferenceMaximumOffset||search.Length>160)
@@ -574,7 +574,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
         // An exact item read names one code-keyed record; it is never a search or a later page.
         if(code is not null&&(ReferenceKey(table)!="code"||code.Length is 0 or >160||search!=""||offset!=0))
             throw new MarketDataException("reference_page","Read one item by its exact code from a code-keyed table, without search text or an offset.");
-        var (revision,definition)=await ReferenceScope(connection,table,ct);
+        var (revision,definition)=await ReferenceScope(connection,table,ct,effectiveOn);
         const int pageSize=200;
         // Table and key identifiers come only from the fixed public catalog.
         // Search is literal, including SQL wildcard characters, and never runs
@@ -592,7 +592,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
         var references=ImmutableDictionary.CreateBuilder<string,ImmutableArray<JsonElement>>();
         references.Add(table,rows);
         await LinkReferences(connection,revision,rows,references,ct,table);
-        await ReferenceScope(connection,table,ct);
+        await ReferenceScope(connection,table,ct,effectiveOn);
         // Absence is reported only after current authority is proven again.
         if(code is not null&&rows.IsEmpty)throw ReferenceItemMissing();
         return new(table,rows,references.ToImmutable(),offset,pageSize,ReferenceMaximumOffset,found.Length>pageSize,search,revision,definition);

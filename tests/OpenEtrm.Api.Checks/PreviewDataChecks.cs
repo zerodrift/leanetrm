@@ -185,9 +185,17 @@ internal static class PreviewDataChecks
         {
             var final=Change(fixture.Observations[0],"role","final_contract_settlement");
             var selected=fixture.Frame with{ContextId=Guid.NewGuid(),OriginCloseId=Guid.NewGuid(),FrozenObservationIds=[final.Id("id")],ResolvesLatestCorrection=true};
+            var owner=CatalogueSource.From(data);
+            var part=new MarketSourceInputs(owner,selected.ObservationIds,selected.FrozenObservationIds,selected.CurveContracts,["future"]);
+            selected=selected with
+            {
+                Source=owner,
+                SourceInputs=ImmutableDictionary<Guid,MarketSourceInputs>.Empty.Add(owner.DefinitionRevisionId,part),
+                Close=new("synthetic_close",1,selected.BusinessDate,null)
+            };
             var retained=RetainedFrames.Read(RetainedFrames.Record(selected));
             var frozenData=Data(fixture.Observations.SetItem(0,final));
-            if(retained.ContextId!=selected.ContextId||retained.OriginCloseId!=selected.OriginCloseId||retained.ResolvesLatestCorrection||
+            if(retained.ContextId!=selected.ContextId||retained.OriginCloseId!=selected.OriginCloseId||retained.ResolvesLatestCorrection!=selected.ResolvesLatestCorrection||
                 !frozenData.Snapshot(retained).Selections.SequenceEqual(frozenData.Snapshot(selected).Selections)||
                 frozenData.Snapshot(retained).Selections[0].Input.Use!=InputUse.FrozenFact)
                 throw new Exception("Worker transport changed retained facts, provenance or input use.");

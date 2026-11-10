@@ -40,6 +40,10 @@ internal static class CatalogueTradingChecks
         if(physical.Data.DefinitionRevision!=data.DefinitionRevision||!physical.Frame.ObservationIds.SequenceEqual(frame.ObservationIds))
             throw new Exception("Physical choices used deployment routing instead of their dated published role and exact selected inputs.");
         var added=frame.SourceInputs!.Values.Single(p=>p.Source.DefinitionRevisionId!=data.DefinitionRevision.RevisionId).Source;
+        var volatility=await VolSurfaceStore.SelectedInputs(connection,database,frame,default);
+        if(volatility.Source!=added||volatility.Frame.OriginCloseId!=frame.OriginCloseId||
+            volatility.Frame.ContextId!=frame.ContextId||!frame.SourceInputs[added.DefinitionRevisionId].Matches(volatility.Frame))
+            throw new Exception("Volatility calibration must select the published product source and its exact recorded close pins.");
         var retainedPhysical=await PhysicalMarketSelection.Gas.PortfolioSource(database,connection,frame,added.DefinitionRevisionId,
             [data.ReferenceRevision],[(data,frame)],false,default);
         if(retainedPhysical.Data.DefinitionRevision.RevisionId!=added.DefinitionRevisionId)

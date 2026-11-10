@@ -148,7 +148,7 @@ public sealed class MarketReads(PreviewDatabase database)
     public async Task<ReferencePage> References(NpgsqlConnection connection,PinnedContext pin,string table,int offset,string? search,string? code,CancellationToken ct)
     {
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
-        return await database.ReadReferencePage(connection,table,offset,search,code,ct);
+        return await database.ReadReferencePage(connection,table,offset,search,code,ct,pin.Frame?.Time.Date);
     }
 
     public async Task<FuturesProductRead> FuturesProduct(NpgsqlConnection connection,PinnedContext pin,string code,CancellationToken ct)

@@ -1081,7 +1081,7 @@ api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,se
     var requestedOffset=c.Request.Query["offset"].ToString();
     if(!int.TryParse(c.Request.Query.ContainsKey("offset")?requestedOffset:"0",System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var offset))
         throw new MarketDataException("reference_page",$"Choose an offset from 0 to {PreviewDatabase.ReferenceMaximumOffset}.");
-    var page=await marketReads.References(connection,Pin(session),c.Request.Query["table"].ToString(),offset,c.Request.Query["search"].ToString(),
+    var page=await marketReads.References(connection,Pin(session,ContextVersions.CatalogueSnapshot(c.Request.Query)),c.Request.Query["table"].ToString(),offset,c.Request.Query["search"].ToString(),
         c.Request.Query.TryGetValue("code",out var code)?code.ToString():null,ct);
     var referenceDisplay=await ReferenceEditors.Display(connection,page.ReferenceRevision,ct);
     return Results.Ok(new {page.Table,page.Rows,page.References,page.Offset,page.PageSize,page.MaximumOffset,page.HasMore,page.Search,page.ReferenceRevision,page.DefinitionRevisionId,referenceDisplay,
@@ -2068,13 +2068,13 @@ api.MapPost("/vol-surfaces/fit",(HttpContext c,VolSurfaceFitRequest body)=>Locke
     {
         if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct))throw new PreviewDeniedException();
         var view=await TradingView.Capture(connection,knowledgeStore,Frame(session,body.SnapshotId),ct);
-        return Results.Ok(await tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Submit(connection,database.Manifest,view,body,ct),ct));
+        return Results.Ok(await tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Submit(connection,database,view,body,ct),ct));
     },c.RequestAborted);
 }));
 api.MapPost("/vol-surfaces/read",(HttpContext c,VolSurfaceReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("vol_surface_context","Supply the selected context."),
-    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Read(connection,database.Manifest,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
+    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Read(connection,database,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
 api.MapPost("/vol-surfaces/library",(HttpContext c,VolSurfaceLibraryRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("vol_surface_context","Supply the selected context."),
-    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Library(connection,database.Manifest,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
+    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Library(connection,database,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
 api.MapGet("/jobs",(HttpContext c,int? page,int? collectionPage)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
     async(connection,ct)=>Results.Ok(await CollectionJobs.Directory(connection,ct,page??0,collectionPage??0)),c.RequestAborted)));
 api.MapPost("/jobs/collection/update",(HttpContext c,CollectionJobUpdate body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
