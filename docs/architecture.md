@@ -96,7 +96,7 @@ compact instrument context, responsive saved-term cards, focused delivery stages
 and grouped billing inputs. Presentation reuses native operations and existing
 context, permission, edit and request-recovery guards.
 
-D340 moves physical work into **Operations → Physical operations**. The Blotter
+D340 moves physical work into **Scheduling → Physical operations**. The Blotter
 keeps pricing, retained instrument overviews and read-only Side schedules. The
 operations directory reads exact booked metadata without PV, refuses missing held
 source metadata and follows the header context. Gas and crude reuse their native
@@ -336,7 +336,7 @@ retained terms and contractual PV alongside futures, swaps and PPAs. New trade u
 one product panel and each product’s existing authorized booking operations;
 physical gas is entered and opened in the description-driven [deal
 ticket](deal-ticket.md) (D278–D281), which replaced the gas single-point and
-composition editors. Daily gas quantities are recorded in **Operations → Physical
+composition editors. Daily gas quantities are recorded in **Scheduling → Physical
 operations** and remain separate operational revisions; the booked ticket and Side
 schedules retain contractual inspection. Interactive and retained portfolio risk
 include supported contractual gas through the common PV and shared market-factor

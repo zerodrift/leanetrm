@@ -93,7 +93,7 @@ Rules for every configured value:
 
 | Home | Owner | Holds | Changed by | Recorded with |
 | --- | --- | --- | --- | --- |
-| Agent version | Agent administrator (`ManageAgents`) | What one agent's turns may do and see | Saving a new version in Infrastructure › AI | The turn's agent version (already recorded) |
+| Agent version | Agent administrator (`ManageAgents`) | What one agent's turns may do and see | Saving a new version in Administration › AI | The turn's agent version (already recorded) |
 | Installation settings | Access administrator (`ManageAccess`) for sign-in; agent administrator (`ManageAgents`) for assistant capacity | Policy and data-volume limits shared by every user or agent of the installation | An idempotent, audited save in Settings; a new revision | The revision id on the row the operation writes |
 | Hosted configuration | Operator | Process, transport and capacity limits that must be known at start and must match the gateway, database and host | Editing the configuration and restarting, through the release gate | The configuration digest logged at start and kept in the release record |
 | Job terms or command settings | The job's owner, or the operator for a command | Per-run values already saved with each job or read from a command's configuration file | Saving the job, or editing the command's configuration | The job revision or run (already recorded) |

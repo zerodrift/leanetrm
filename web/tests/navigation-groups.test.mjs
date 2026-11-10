@@ -13,7 +13,7 @@ test('physical product workflows remain Trading pages while saved views provide 
 test('every page belongs to exactly one group and Overview comes first',()=>{
  const pages=navigationGroups.flatMap(g=>g.pages);
  assert.equal(new Set(pages).size,pages.length);assert.equal(navigationGroups[0].label,'Overview');assert.equal(pageGroup('dashboard'),'Overview');
- assert.equal(pageGroup('parties'),'Reference Data');assert.equal(pageGroup('admin'),'Infrastructure');assert.equal(pageGroup('jobs'),'Infrastructure');
+ assert.equal(pageGroup('parties'),'Reference Data');assert.equal(pageGroup('admin'),'Administration');assert.equal(pageGroup('jobs'),'Administration');
 });
 test('the groups and their pages keep the sidebar order',()=>{
  assert.deepEqual(navigationGroups.map(g=>[g.id,g.label,[...g.pages]]),[
@@ -21,9 +21,9 @@ test('the groups and their pages keep the sidebar order',()=>{
   ['trading','Trading',['futures']],
   ['markets','Markets',['market','delivery','interval-series','vol-surfaces','interval-curves']],
   ['risk','Risk',['risk','risk-scenarios','risk-var','risk-runs']],
-  ['operations','Operations',['physical-operations','facilities']],
+  ['scheduling','Scheduling',['physical-operations','facilities']],
   ['reference','Reference Data',['reference']],
-  ['infrastructure','Infrastructure',['jobs','admin','ai']]]);
+  ['administration','Administration',['jobs','admin','ai']]]);
 });
 test('PPA bookings is a Trading page the Blotter opens, not a sidebar entry',()=>{
  assert.equal(pageGroup('ppa'),'Trading');assert.ok(!allPages.includes('ppa'));
@@ -33,9 +33,9 @@ test('facility quantities require explicit complete-pool access',()=>{
  assert.equal(pageAvailable('facilities',['ReadMarketData','ReadTrades','ReadFacilityQuantities']),true);
  for(const permissions of [[],['ReadMarketData','ReadTrades'],['ReadFacilityQuantities']])assert.equal(pageAvailable('facilities',permissions),false);
 });
-test('Delivery setup sits in the console and Facilities in Operations without widening pool authority',()=>{
+test('Delivery setup sits in the console and Facilities in Scheduling without widening pool authority',()=>{
  for(const page of ['gas-setup','crude-setup']){assert.equal(pageGroup(page),'Reference Data');assert.ok(!allPages.includes(page));}
- assert.equal(pageGroup('facilities'),'Operations');assert.ok(allPages.includes('facilities'));
+ assert.equal(pageGroup('facilities'),'Scheduling');assert.ok(allPages.includes('facilities'));
  assert.throws(()=>pageAvailable('physical',['ReadMarketData']),/could not load/);
  assert.equal(pageAvailable('gas-setup',['ReadMarketData']),true);
  assert.equal(pageAvailable('crude-setup',['ReadMarketData']),true);
@@ -119,8 +119,8 @@ test('the curve workspace switch precedes every curve view',()=>{
   assert.ok(switchAt<markup.indexOf(`<section id="${id}"`),`workspace switch must precede ${id}`);
 });
 
-test('physical work has its own sidebar workspace under Operations',()=>{
- assert.equal(pageGroup('physical-operations'),'Operations');
+test('physical work has its own sidebar workspace under Scheduling',()=>{
+ assert.equal(pageGroup('physical-operations'),'Scheduling');
  assert.equal(allPages.includes('physical-operations'),true);
  assert.equal(pageAvailable('physical-operations',['ReadMarketData','ReadTrades']),true);
  assert.equal(pageAvailable('physical-operations',['ReadMarketData']),false);

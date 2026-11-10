@@ -81,21 +81,21 @@ textarea{width:100%;line-height:1.5}
 input[type=checkbox]{min-height:0}
 
 /* Sidebar */
-.sidebar{position:fixed;inset:0 auto 0 0;width:var(--sidebar-width);background:var(--sidebar);color:var(--sidebar-text);padding:20px 14px;display:flex;flex-direction:column;overflow-y:auto;z-index:2}
-.brand-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:0 4px 28px}
+.sidebar{position:fixed;inset:0 auto 0 0;width:var(--sidebar-width);background:var(--sidebar);color:var(--sidebar-text);padding:20px 14px;display:flex;flex-direction:column;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#2f4b3e transparent;z-index:2}
+.brand-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:0 4px 22px}
 .brand{display:flex;align-items:center;gap:10px;color:#f2f7f4;text-decoration:none;font-size:17px;font-weight:650;letter-spacing:-.3px;white-space:nowrap}
 .brand-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#7fbf9b,#3d8b67);color:#0f2219;font-size:15px;font-weight:750}
 .sidebar-toggle{flex-shrink:0;width:28px;height:28px;padding:0;background:transparent;border:1px solid #2f4b3e;border-radius:6px;font-size:18px;color:var(--sidebar-text);line-height:24px}
 .sidebar-toggle:hover{background:var(--sidebar-2);border-color:#3c5d4e}
-#sidebar-menus{display:grid;gap:22px}
-.nav-group summary{display:flex;align-items:center;justify-content:space-between;list-style:none;font-size:11px;letter-spacing:.08em;font-weight:600;text-transform:uppercase;color:var(--sidebar-muted);padding:4px 10px;margin-bottom:6px}
+#sidebar-menus{display:grid;gap:16px;margin-bottom:16px}
+.nav-group summary{display:flex;align-items:center;justify-content:space-between;list-style:none;font-size:11px;letter-spacing:.08em;font-weight:600;text-transform:uppercase;color:var(--sidebar-muted);padding:4px 10px;margin-bottom:4px}
 .nav-group summary::-webkit-details-marker,.curve-group summary::-webkit-details-marker{display:none}
 .nav-group summary::after,.curve-group summary::after{content:'›';font-size:15px;line-height:12px;transition:transform .15s}
 .nav-group[open]>summary::after,.curve-group[open]>summary::after{transform:rotate(90deg)}
 nav{display:grid;gap:2px}
-.nav-item{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:transparent;border-color:transparent;color:var(--sidebar-text);font-weight:500;padding:9px 10px;font-size:13.5px;border-radius:7px}
-.nav-item:hover{background:var(--sidebar-2);border-color:transparent}
-.nav-item.active{background:var(--sidebar-active);color:#fff}
+.nav-item{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:transparent;border-color:transparent;color:var(--sidebar-text);font-weight:500;padding:7px 10px;font-size:13.5px;border-radius:7px}
+.nav-item:hover{background:var(--sidebar-2);border-color:transparent;color:#e8f1ec}
+.nav-item.active{background:var(--sidebar-active);color:#fff;box-shadow:inset 3px 0 0 #7fbf9b}
 /* A saved Blotter view listed in the sidebar sits under the Blotter. */
 .nav-view{padding-left:26px;font-size:12.5px}
 .nav-view .nav-icon{font-size:12px}
@@ -178,6 +178,12 @@ footer{font-size:12px;color:var(--text-3);margin-top:24px}
 /* Cards and shared layout */
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px;box-shadow:var(--shadow);min-width:0}
 .card-heading{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:8px}
+/* A disclosure that is a card's own section, as New job or Add widget. */
+summary::marker{color:var(--text-3)}
+.card>details>summary,details.card>summary{font-size:13px;font-weight:550;color:var(--text-2)}
+.card>details>summary:hover,details.card>summary:hover{color:var(--text)}
+/* A page area with nothing in it yet. */
+.empty-state{display:grid;place-items:center;min-height:180px;margin:0 0 16px;padding:24px;text-align:center;color:var(--text-3);font-size:13px;border:1px dashed var(--border-strong);border-radius:var(--radius-lg)}
 .card-heading p{font-size:13px;color:var(--text-3);margin:2px 0 0}
 .card>p{font-size:13px;color:var(--text-2)}
 .schedule-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px;margin-bottom:16px}

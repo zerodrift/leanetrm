@@ -1,6 +1,6 @@
 # Current implementation record
 
-D340 moves physical work into **Operations → Physical operations**. The Blotter
+D340 moves physical work into **Scheduling → Physical operations**. The Blotter
 keeps pricing, retained instrument overviews and read-only Side schedules. The
 operations directory reads exact booked metadata without PV, refuses missing held
 source metadata and follows the header context. Gas and crude reuse their native

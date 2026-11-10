@@ -3726,3 +3726,16 @@ a menu entry is shown only for a page or reference table the account can open.
 
 The planned facility and transport workflows that were listed as disabled tiles
 moved to `docs/plan.md`.
+
+## D366 — Sidebar groups are named for the desks that use them
+
+The **Operations** sidebar group is now **Scheduling** and **Infrastructure** is
+**Administration**. Scheduling lists Physical operations and Facilities, where
+deliveries, daily quantities, nominations and allocations are worked. Administration
+lists Jobs, Users & access and AI. This amends the group names of D365; the group
+order and each group's pages are unchanged. Every sidebar entry has a drawn icon of
+its own, so the four Risk pages no longer share one symbol.
+
+This changes presentation only. Page identifiers, addresses, permissions and every
+read and write are unchanged. The Jobs page keeps its name, Jobs & Infrastructure, in
+assistant page reports.

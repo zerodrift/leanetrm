@@ -1121,7 +1121,7 @@ const administration=setupAdministration(act,api,()=>busy,()=>prefs.timeZone,()=
 // A person's own agent grants, in the profile dialog (docs/ai-assistant.md §7.1).
 const agentGrants=setupAgentGrants({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile});
 $('profile-dialog').addEventListener('close',agentGrants.hide);
-// Infrastructure › AI, each tab offered by its own permission (docs/ai-assistant.md §9).
+// Administration › AI, each tab offered by its own permission (docs/ai-assistant.md §9).
 const accessPolicy=setupOperatingPolicy($('access-policy-page'),'access',{api,act,identity:()=>administrationScope+':'+currentProfile,can:()=>can('ManageAccess'),busy:()=>busy});
 const assistantPolicy=setupOperatingPolicy($('assistant-policy-page'),'assistant',{api,act,identity:()=>administrationScope+':'+currentProfile,can:()=>can('ManageAgents'),busy:()=>busy});
 const aiSettings=setupAiSettings({api,act,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>administrationScope+':'+currentProfile,tabs:()=>aiTabs(permissions)});

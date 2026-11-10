@@ -110,7 +110,7 @@ latency claim. The ordinary five-second command deadline is unchanged.
 - `gas/billing/status`: recover that actor's original operation outcome under
   current authority.
 
-Open **Operations → Physical operations**, select Natural gas and the booked
+Open **Scheduling → Physical operations**, select Natural gas and the booked
 instrument, then choose **Billing & corrections**.
 The billing panel remains available after delivery starts even when contractual
 PV is unavailable. Select the claim, final source, billing profile and rounding

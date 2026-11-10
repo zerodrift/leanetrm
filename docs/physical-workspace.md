@@ -2,7 +2,7 @@
 
 Status: implemented and locally qualified D322–D324 delivery workspace and D327 native assistant operations. Hosted activation remains separate.
 
-**Operations → Facilities & delivery** combines the existing gas setup, crude
+**Scheduling → Facilities & delivery** combines the existing gas setup, crude
 setup and facility quantity workflows under one sidebar entry. Delivery setup
 selects the commodity family; Quantities & allocations opens the shared facility
 ledger, including the D321 gas demo's explicit final-input acceptance and
@@ -52,7 +52,7 @@ restores contextual terms without opening the superseded configuration. Exact
 backend version/history operations remain available.
 
 The D327 setup assistant reader uses these same native catalogs and definitions
-under current authority and the selected temporal context. **Infrastructure → AI**
+under current authority and the selected temporal context. **Administration → AI**
 provides Providers, Models & prices, Agents, Page prompts and Usage screens.
 Reviewed page guidance and admitted conversation history remain separate;
 old turns are not verified financial expertise. No new memory table or automatic
