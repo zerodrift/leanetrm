@@ -66,11 +66,16 @@ test('a section ends after its last order, and an empty section starts at zero',
   assert.equal(endOfSection(layout(levels),'missed'),0);
 });
 
-test('a new widget goes below the lowest on the Board and at the end of its home section',()=>{
-  const added=newWidget(layout(levels,ladder),'00000000-0000-4000-8000-000000000009',{kind:'price_chart',config:chart.config});
-  assert.deepEqual(added.board,{x:0,y:7,w:6,h:6});
+test('a new widget takes the first free place on the Board, reading across then down, and the end of its home section',()=>{
+  const id='00000000-0000-4000-8000-000000000009';
+  const added=newWidget(layout(levels,ladder),id,{kind:'price_chart',config:chart.config});
+  assert.deepEqual(added.board,{x:4,y:0,w:6,h:6},'beside the widgets on the left');
   assert.deepEqual(added.morning,{section:'prices_positions',order:3});
-  assert.deepEqual(newWidget(layout(),'00000000-0000-4000-8000-000000000009',{kind:'latest_levels',config:{curves:['hh']}}).board,{x:0,y:0,w:6,h:4});
+  assert.deepEqual(newWidget(layout(),id,{kind:'latest_levels',config:{curves:['hh']}}).board,{x:0,y:0,w:6,h:5});
+  const banner=widget('00000000-0000-4000-8000-000000000004','latest_levels',{curves:['hh']},'prices_positions',0,{x:0,y:0,w:12,h:2});
+  assert.deepEqual(newWidget(layout(banner),id,{kind:'price_chart',config:chart.config}).board,{x:0,y:2,w:6,h:6},'below a full row');
+  const beside=widget('00000000-0000-4000-8000-000000000005','latest_levels',{curves:['hh']},'prices_positions',0,{x:0,y:0,w:8,h:3});
+  assert.deepEqual(newWidget(layout(beside),id,{kind:'price_chart',config:chart.config}).board,{x:0,y:3,w:6,h:6},'where it fits whole');
 });
 
 test('a Board widget moves and resizes one step at a time within the twelve-column grid and the stored bounds',()=>{

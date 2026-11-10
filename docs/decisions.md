@@ -3758,5 +3758,10 @@ A reference category's name is the page title, in place of a second heading unde
 "Reference data", and its search and paging share one row above the table. Curve definitions and Price
 setup lay each section's fields side by side within one measure.
 
+A new dashboard widget takes the first free place on the Board, reading across and
+then down, in place of always going below the lowest widget; the layout the server
+stores and validates is unchanged. The dashboard's controls no longer repeat the page
+title.
+
 This changes presentation only. Page identifiers, addresses, permissions and every
 read and write are unchanged.

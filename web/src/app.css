@@ -1993,6 +1993,8 @@ main:has(>section:not([hidden]) .floating-context){--dock-band:140px}
 .dashboard-section{margin-bottom:16px}
 .dashboard-section>h3{font-size:13px;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em}
 .dashboard-refusal{color:var(--danger);background:var(--danger-soft);border:1px solid var(--danger-border);border-radius:var(--radius-sm);padding:8px 12px;font-size:13px}
+.dashboard-controls .card-heading{align-items:center;margin-bottom:0}
+.dashboard-controls .card-heading p{margin:0}
 #dashboard-add{margin-top:8px}
 .dashboard-add-form{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;margin-top:8px}
 .dashboard-add-form label{display:flex;flex-direction:column;gap:2px;font-size:12px}
@@ -2399,6 +2401,7 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 #facilities-page select,#facilities-page input:not([type=checkbox]){box-sizing:border-box;max-width:100%}
 #facilities-page fieldset{border:0;padding:0}
 #facility-ledger,#facility-create-target{width:100%}
+#facility-ledger{display:block;max-width:640px}
 
 .standard-data-grid .tabulator-cell.selected-cell{outline:2px solid var(--accent);outline-offset:-2px}
 
