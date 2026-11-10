@@ -1,4 +1,5 @@
 import {setupWorkspaceProbe} from './workspace-probe.mjs';
+import {blotterAt} from './gas-ticket.mjs';
 import {mkdtemp,copyFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -113,7 +114,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  const retained=await evaluate("(()=>{const key=Object.keys(sessionStorage).find(k=>k.startsWith('openetrm.futures.request.server_booking_utc_v1.'));return {key,value:sessionStorage.getItem(key),command:window.syntheticLostNetCommand};})()");
  await check('a lost net-settlement reply retains its exact operation and allocation payload, in the panel\'s card named for it',`${card('Net settlement of '+selected.reference)}&&!!window.syntheticLostNetCommand`,"document.querySelector('#futures-pending').textContent");
  const profile=await evaluate("document.querySelector('#profile-label')?.textContent");
- const replaced=await evaluate('performance.timeOrigin');await command('Page.reload');await wait(`performance.timeOrigin!==${replaced}&&document.querySelector('#profile-label')?.textContent===${JSON.stringify(profile)}&&${idle}`);await set('#snapshot',frame);await wait(idle,30000);await click('#nav-futures',30000);await wait(idle);
+ const replaced=await evaluate('performance.timeOrigin');await command('Page.reload');await wait(`performance.timeOrigin!==${replaced}&&document.querySelector('#profile-label')?.textContent===${JSON.stringify(profile)}&&${idle}`);await blotterAt({set,wait,click},{id:frame,session:session??'demo_close_1600'});
  await check('reload restores the original uncertain settlement without changing its operation or body, still named for it',`${card('Net settlement of '+selected.reference)}&&sessionStorage.getItem(${JSON.stringify(retained.key)})===${JSON.stringify(retained.value)}&&document.querySelector('#futures-new').disabled`);
  // Check status settles the record from its card in the panel, which asks nothing, while the risk report there holds the person's sizes:
  // the report is read again at the inputs on screen, and keeps the person's choice and sizes.
