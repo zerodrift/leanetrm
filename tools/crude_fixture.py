@@ -41,7 +41,7 @@ UPDATE market_data.revisions SET state='sealed' WHERE catalog_id='{CAT}' AND id=
     for n, frame in enumerate(manifest['frames']):
         oid = f'70000000-0000-0000-0000-{5100+n:012d}'
         statements.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REVISION}','{SERIES}',{R},'fixture','synthetic_crude_mark_{n}','1','trader_mark','final','{frame['at']}','{datetime.now(timezone.utc).isoformat()}',80,NULL);")
-        frames.append({'at':frame['at'],'observationIds':[oid],'curveContracts':{'synthetic_crude_forward':[CONTRACT]}})
+        frames.append({'at':frame['at'],'observationIds':[oid],'frozenObservationIds':[],'curveContracts':{'synthetic_crude_forward':[CONTRACT]}})
     statements.append('COMMIT;')
     return reference, market+'\n'+'\n'.join(statements), {**manifest,'crudeMarket':{'revisionId':REVISION,'frames':frames}}
 

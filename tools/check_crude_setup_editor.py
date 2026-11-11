@@ -9,15 +9,17 @@ from pathlib import Path
 from urllib.request import urlopen
 from concurrent.futures import ThreadPoolExecutor
 from preview_client import PreviewClient, initial_frame
+from exact_values import instant
 
 
 def run_gas_reference_bootstrap(manifest,owned_root,dotnet,dll,environment,browser=None):
-    """An owned auxiliary API has exact physical masters but no gas price frame."""
+    """An owned auxiliary API has no standalone gas frames; its recorded close retains exact native inputs."""
     root=owned_root/'reference-only-gas';root.mkdir()
     run_id=(owned_root/'.openetrm-preview').read_text()
     (root/'.openetrm-preview').write_text(run_id)
     source=manifest['inputMarkets'][-1]
-    selected={**manifest,'gasMarket':{'revisionId':source['revisionId'],'frames':[]},'retainedGasMarkets':[]}
+    selected={**manifest,'gasMarket':{'revisionId':source['revisionId'],'frames':[]},'retainedGasMarkets':[],
+              'inputMarkets':[{**market,'frames':[]} if market['revisionId']==source['revisionId'] else market for market in manifest['inputMarkets']]}
     manifest_path=owned_root/'manifest.json';original=manifest_path.read_text()
     with socket.socket() as reservation:
         reservation.bind(('127.0.0.1',0));port=reservation.getsockname()[1]
@@ -41,12 +43,18 @@ def run_gas_reference_bootstrap(manifest,owned_root,dotnet,dll,environment,brows
             manifest_path.write_text(original)
             c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
             frame=initial_frame(c.call('workspace'),'2020-12-18')
+            assert frame.get('originCloseId')==frame['id'],frame
             context={'snapshotId':frame['id'],'convention':'physical_gas_fixed_quantity_v4','knowledgeMode':'current'}
             c.call('tickets/description',{'context':context,'product':'physical_gas'})
             draft={'product':'physical_gas','version':1,'trade':{},'sides':[{'kind':'physical','code':'physical','values':{'product':'test_gas','pipeline':'test_pipeline_a','zone':'synthetic_gas_zone_a'}}]}
             choices=c.call('tickets/choices',{'context':context,'draft':draft,'side':'physical','field':'delivery_point'})['choices']
             assert 'synthetic_gas_point_unpriced' in {p['value'] for p in choices}
-            assert c.call('tickets/lookup',{'context':context,'draft':draft,'side':'physical','field':'price'},expected=422)['code']=='gas_market_context'
+            refusal=c.call('tickets/lookup',{'context':context,'draft':draft,'side':'physical','field':'price'},expected=422)
+            assert refusal=={'code':'ticket_lookup','message':"Choose the delivery from on side 'physical' first."},refusal
+            priced={**draft,'sides':[{'kind':'physical','code':'physical','values':{**draft['sides'][0]['values'],
+                'delivery_from':'2021-01-01','delivery_to':'2021-02-01','delivery_point':'synthetic_gas_point_a'}}]}
+            price=c.call('tickets/lookup',{'context':context,'draft':priced,'side':'physical','field':'price'})
+            assert price['value']=='3.2' and price['source']['kind']=='market' and instant(price['asOf'])==instant(frame['at']),price
             if browser:
                 target=owned_root/'gas-reference-browser-target.json';target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id.strip()}))
                 subprocess.run(['node',str(repository/'tests/browser/run.mjs'),str(target),str(browser),'--gas-references'],cwd=repository,env=environment,check=True,timeout=90)
@@ -54,7 +62,7 @@ def run_gas_reference_bootstrap(manifest,owned_root,dotnet,dll,environment,brows
             manifest_path.write_text(original)
             if child is not None and child.poll() is None:
                 child.terminate();child.wait(timeout=15)
-    print('PASS gas reference bootstrap: native description and independent physical choices need no dated price frame; pricing still refuses',flush=True)
+    print('PASS gas reference bootstrap: native description and independent physical choices need no standalone frame; complete pricing uses the retained inputs of its recorded close',flush=True)
 
 
 def run_resolution_authority_check(query,manifest,psql,environment):
