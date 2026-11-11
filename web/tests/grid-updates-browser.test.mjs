@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {browserAvailable,browserTestTimeout,withBrowserPage} from './browser-page.mjs';
+import {browserAvailable,browserTestTimeout,withBrowserPage,pressKey} from './browser-page.mjs';
 const page='<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:900px"></div>';
 const ready="while(!grid.ready())await new Promise(r=>setTimeout(r,10));await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));";
 
@@ -90,18 +90,19 @@ test('a grid resize preserves an editable cell and its focus without taking focu
  assert.deepEqual(result,{kept:{same:true,value:'990',focused:true,selection:[1,2]},moved:true,released:true});
 }));
 
-// A grid whose quantity cells are entries, as a booked ticket's day quantities are. The person types in the first row in view; the grid's
-// width then changes, which draws its rows again: each row is taken out of the page and the same row is put back. The rows are scrolled as
-// by the person's wheel, whose place the grid keeps. `leaving` has the entry answer losing focus by moving it to the row search, as a
-// consumer's own handler can. `keyAsDrawn` presses a key the moment the rows are back, before the next frame: it goes to whatever has focus
-// then, as a person's key does.
-const typingThroughWidthChange=(days,scrollTop,{leaving=false,keyAsDrawn=false}={})=>`(async()=>{
+// A grid whose quantity cells are entries, as a booked ticket's day quantities are, with the entry of the first row in view at hand. The
+// rows are scrolled as by the person's wheel, whose place the grid keeps.
+const entryGrid=(days,scrollTop)=>`
   const {renderDataGrid,emptyGridLayout}=await import('/data-grid.js'),host=document.querySelector('#host'),tick=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
   const cells=(index,column)=>{if(column!==1)return null;const input=document.createElement('input');input.setAttribute('aria-label','Quantity of day '+(index+1));return input;};
   const rows=Array.from({length:${days}},(_,i)=>['Day '+(i+1),String(i+1)]);
   const grid=renderDataGrid(host,'cell-entry','synthetic',['Day','Quantity'],rows,[1],()=>false,{keys:['day','quantity'],rowKeys:rows.map(row=>row[0]),layout:emptyGridLayout(),onLayout(){},cells});${ready}
   const holder=host.querySelector('.tabulator-tableholder'),search=host.querySelector('.table-search');holder.dispatchEvent(new WheelEvent('wheel',{bubbles:true}));holder.scrollTop=${scrollTop};await tick();
-  const top=holder.getBoundingClientRect().top,row=[...holder.querySelectorAll('.tabulator-row[data-row-key]')].find(row=>row.getBoundingClientRect().top>=top),input=row.querySelector('input');
+  const top=holder.getBoundingClientRect().top,row=[...holder.querySelectorAll('.tabulator-row[data-row-key]')].find(row=>row.getBoundingClientRect().top>=top),input=row.querySelector('input');`;
+// The person types in the entry; the grid's width then changes, which draws its rows again: each row is taken out of the page and the same
+// row is put back. `leaving` has the entry answer losing focus by moving it to the row search, as a consumer's own handler can.
+// `keyAsDrawn` presses a key the moment the rows are back, before the next frame: it goes to whatever has focus then, as a person's key does.
+const typingThroughWidthChange=(days,scrollTop,{leaving=false,keyAsDrawn=false}={})=>`(async()=>{${entryGrid(days,scrollTop)}
   input.focus();input.value='990';if(${leaving})input.onblur=()=>search.focus();await tick();
   let redrawn=false,keyTo=null;new MutationObserver(records=>{
    if(records.some(record=>[...record.removedNodes].includes(row)))redrawn=true;
@@ -129,4 +130,51 @@ test('a key pressed the moment the rows are drawn again goes to the cell control
 
 test('focus that moved on from a cell control as its row was drawn again stays where it went',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async evaluate=>{
  assert.deepEqual(await evaluate(typingThroughWidthChange(2,0,{leaving:true})),{redrawn:true,scrolled:false,drawn:true,value:'990',focus:'search'});
+}));
+
+// The browser reports a change of text typed in an entry to it once, when the entry loses focus or Enter is pressed in it, and so when a
+// redraw takes the entry's row out of the page. `heard` is what the entry was told of. Text a script set, as above, is never reported.
+const typedEntry=async(evaluate,command,days,scrollTop,leaving=false)=>{
+ await evaluate(`(async()=>{${entryGrid(days,scrollTop)}
+  Object.assign(window,{grid,holder,search,row,input,tick,heard:[]});input.onchange=()=>heard.push(input.value);if(${leaving})input.onblur=()=>search.focus();input.focus();
+ })()`);
+ await command('Input.insertText',{text:'99'});
+ assert.equal(await evaluate('input.value'),'99');
+};
+// The grid's width changes, which draws its rows again: each row is taken out of the page and the same row is put back.
+const widthChange=`
+  let redrawn=false;new MutationObserver(records=>{if(records.some(record=>[...record.removedNodes].includes(row)))redrawn=true;}).observe(row.parentElement,{childList:true});
+  document.querySelector('#host').style.width='420px';for(let i=0;i<300&&!redrawn;i++)await new Promise(r=>setTimeout(r,10));
+  await grid.updated();await tick();await tick();`;
+const afterWidthChange=`(async()=>{${widthChange}return {redrawn,scrolled:holder.scrollTop>0,drawn:input.isConnected,value:input.value,focus:document.activeElement===input?'entry':document.activeElement===search?'search':'nothing',heard:[...heard]};})()`;
+
+// The person enters what an entry holds by Enter in it, or by moving focus on, as Tab does.
+for(const [where,days,scrollTop] of [['a cell',2,0],['a cell of scrolled rows',40,600]])for(const key of ['Enter','Tab'])
+ test(`text typed in ${where} is reported to its control when ${key} enters it, not when a change of width draws the rows again`,{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async(evaluate,command)=>{
+  await typedEntry(evaluate,command,days,scrollTop);
+  assert.deepEqual(await evaluate(afterWidthChange),{redrawn:true,scrolled:scrollTop>0,drawn:true,value:'99',focus:'entry',heard:[]});
+  await pressKey(command,key);
+  assert.deepEqual(await evaluate('heard'),['99']);
+ }));
+
+for(const key of ['Enter','Tab'])
+ test(`text typed in a cell on both sides of a redraw is reported to its control once, whole, when ${key} enters it`,{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async(evaluate,command)=>{
+  await typedEntry(evaluate,command,2,0);await evaluate(afterWidthChange);
+  await command('Input.insertText',{text:'0'});await pressKey(command,key);
+  assert.deepEqual(await evaluate('heard'),['990']);
+ }));
+
+test('text typed in a cell control that lost focus to another as its row was drawn again is reported to it then',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async(evaluate,command)=>{
+ await typedEntry(evaluate,command,2,0,true);
+ assert.deepEqual(await evaluate(afterWidthChange),{redrawn:true,scrolled:false,drawn:true,value:'99',focus:'search',heard:['99']});
+}));
+
+// Rows the consumer replaces are drawn with new controls: the one typed in is gone for good, and what it held is reported to it once.
+test('text typed in a cell control that its rows\' replacement removes is reported to it once',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async(evaluate,command)=>{
+ await typedEntry(evaluate,command,2,0);
+ assert.deepEqual(await evaluate(`(async()=>{
+  await grid.replaceRows([['Day 1','1'],['Day 2','2']],undefined,['Day 1','Day 2']);await tick();
+  const replaced={drawn:input.isConnected,heard:[...heard]};window.row=holder.querySelector('.tabulator-row[data-row-key]');${widthChange}
+  return {replaced,redrawn,heard};
+ })()`),{replaced:{drawn:false,heard:['99']},redrawn:true,heard:['99']});
 }));

@@ -1990,7 +1990,11 @@ Shared grids suppress row activation after pointer dragging, text selection or
 scrolling. Deliberate pointer and keyboard activation preserve source-row identity
 through virtual scrolling. A column width a person sets survives later redraws at
 another grid width, such as when an opened menu adds a page scrollbar, and a saved
-view stores it. Schedule tables have a single bounded scrolling area; shared table
+view stores it. A redraw takes the rows out of the page and puts them back, which
+makes the browser report text typed in a cell's entry as entered; the grid keeps
+that report from the entry and makes it when the person presses Enter in the entry
+or moves focus on, or as the redraw ends if the entry is gone or something else
+has taken focus. Schedule tables have a single bounded scrolling area; shared table
 text uses consistent spacing and tabular numeric alignment without changing exact
 values or exports.
 

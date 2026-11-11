@@ -13,6 +13,14 @@ const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/
 export const browserTestTimeout=90000;
 export const browserAvailable=await access(browser).then(()=>true,()=>false);
 
+// Presses a key in the page as a person does, by the `command` withBrowserPage hands its body. Enter carries its character, which is
+// what has the browser enter a text control's value.
+const keyCodes={Enter:13,Tab:9};
+export async function pressKey(command,key){
+ if(!(key in keyCodes))throw Error(`No key code is listed for ${key}.`);
+ for(const type of ['keyDown','keyUp'])await command('Input.dispatchKeyEvent',{type,key,code:key,windowsVirtualKeyCode:keyCodes[key],...type==='keyDown'&&key==='Enter'?{text:'\r'}:{}});
+}
+
 // A disposable headless browser and a static server of web/dist draw `page`; `body` evaluates expressions in it.
 // No application runtime, account or database is attached.
 export async function withBrowserPage(page,body){
