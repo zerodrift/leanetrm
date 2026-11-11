@@ -138,6 +138,22 @@ internal static class DirectReadChecks
             await Execute(c,"SET LOCAL jit=off;"+string.Concat(disabled.Select(setting=>$"SET LOCAL {setting}=off;")),ct);
             return await read(c,ct);
         },CancellationToken.None);
+        async Task<InputFrame> RecordedFrame(NpgsqlConnection connection,InputFrame summary,CancellationToken ct)
+        {
+            if(summary.OriginCloseId is not {} close)return summary;
+            var frame=await MarketCloses.Frame(connection,database.Manifest.CatalogId,close,summary.ContextId,ct);
+            if(frame.Time!=summary.Time||!frame.ObservationIds.SequenceEqual(summary.ObservationIds))
+                throw new Exception("The recorded close and the page's exact frame summary disagree.");
+            return frame with{Id=summary.Id};
+        }
+        foreach(var view in views)
+            view.Frames=await Read(async(c,ct)=>
+            {
+                if(view.Context is {} context)await MarketContextStore.Bind(c,database.Manifest.CatalogId,context,ct);
+                var frames=ImmutableArray.CreateBuilder<InputFrame>();
+                foreach(var frame in view.Frames)frames.Add(await RecordedFrame(c,frame,ct));
+                return frames.ToImmutable();
+            });
         // A request binds a market context at most once, so a second bind shows whether the read bound one.
         // Reads bind their view's context unless they say otherwise.
         Task<T> Direct<T>(View view,string name,Func<NpgsqlConnection,CancellationToken,Task<T>> read,bool? binds=null)=>Read(async(c,ct)=>
@@ -179,7 +195,7 @@ internal static class DirectReadChecks
                 var combined=await Direct(view,"prices with workspace",(c,ct)=>reads.Evaluate(c,view.Pin(view.Selected),curve.Key,ct,true));
                 var metadata=combined.Workspace??throw new Exception("An explicitly requested full workspace is missing.");
                 Same($"{view.Name} {curve.Key} combined prices preserve their page",combined.Result,Without(curve.Value!.AsObject(),"context"));
-                Same($"{view.Name} combined workspace retains the same bound catalog",new{definitions=metadata.Data.Definitions,references=metadata.Data.References,unitCatalog=metadata.Units,curveNames=metadata.CurveNames,referenceDisplay=metadata.ReferenceDisplay,unitReferenceDisplay=metadata.UnitReferenceDisplay},
+                Same($"{view.Name} combined workspace retains the same bound catalog",new{definitions=metadata.Data.Definitions,references=metadata.References(true),unitCatalog=metadata.Units,curveNames=metadata.CurveNames,referenceDisplay=metadata.ReferenceDisplay,unitReferenceDisplay=metadata.UnitReferenceDisplay},
                     view.Page("catalog"),"definitions","references","unitCatalog","curveNames","referenceDisplay","unitReferenceDisplay");
             }
             var shapes=view.Page("curveShapes")["curves"]!;
@@ -246,7 +262,8 @@ internal static class DirectReadChecks
         var trader=recorded.GetProperty("profile").GetString()!;
         Task<T> AsTrader<T>(Func<NpgsqlConnection,CancellationToken,Task<T>> read)=>Read(read,trader);
         JsonNode Recorded(params string[] path)=>JsonNode.Parse(path.Aggregate(recorded,(e,p)=>e.GetProperty(p)).GetRawText())!;
-        var at=recorded.GetProperty("frames").Deserialize<ImmutableArray<InputFrame>>(Json).Single(f=>f.Id==recorded.GetProperty("frameId").GetGuid());
+        var summary=recorded.GetProperty("frames").Deserialize<ImmutableArray<InputFrame>>(Json).Single(f=>f.Id==recorded.GetProperty("frameId").GetGuid());
+        var at=await AsTrader((c,ct)=>RecordedFrame(c,summary,ct));
         var report=recorded.GetProperty("report").Deserialize<FuturesBlotterView>(Json)!;
         var summaries=recorded.GetProperty("summaries").Deserialize<ImmutableArray<FuturesBlotterView>>(Json);
         var captured=Recorded("captured");
@@ -255,7 +272,13 @@ internal static class DirectReadChecks
         Console.WriteLine("PASS the ordinary trader's page grants no manual gas operations rights");
         var traded=captured["catalog"]!["context"].Deserialize<ScheduleContext>(Json)!;
         var (fresh,again)=(new TradingView(at,traded,true),TradingView.Reread(at,traded));
-        var chosen=TradingView.Retained(Recorded("historical","frame").Deserialize<InputFrame>(Json),Recorded("historical","context").Deserialize<ScheduleContext>(Json)!);
+        var chosenContext=Recorded("historical","context").Deserialize<ScheduleContext>(Json)!;
+        var chosenFrame=await AsTrader(async(c,ct)=>
+        {
+            await MarketContextStore.Bind(c,database.Manifest.CatalogId,chosenContext,ct);
+            return await RecordedFrame(c,Recorded("historical","frame").Deserialize<InputFrame>(Json)!,ct);
+        });
+        var chosen=TradingView.Retained(chosenFrame,chosenContext);
         Same("a captured trading workspace, with its summaries, matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,fresh,report,summaries,false,ct)),Unadorned(captured,fresh,"catalog","blotter"));
         Same("a re-read trading workspace matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,again,report,[],false,ct)),Unadorned(Recorded("reread"),again,"catalog","blotter"));
         Same("a historical trading workspace matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,chosen,report,[],false,ct)),
@@ -331,7 +354,7 @@ internal static class DirectReadChecks
     {
         public string Name {get;}=view.GetProperty("name").GetString()!;
         public ScheduleContext? Context {get;}=view.GetProperty("context").ValueKind==JsonValueKind.Object?view.GetProperty("context").Deserialize<ScheduleContext>(Json):null;
-        public ImmutableArray<InputFrame> Frames {get;}=view.GetProperty("frames").Deserialize<ImmutableArray<InputFrame>>(Json);
+        public ImmutableArray<InputFrame> Frames {get;set;}=view.GetProperty("frames").Deserialize<ImmutableArray<InputFrame>>(Json);
         public InputFrame Selected=>Frames.Single(f=>f.Id==view.GetProperty("frameId").GetGuid());
         // The frames the page's history rebuilds: its remaining built-in frames and every offered recorded close (D334).
         public ImmutableArray<InputFrame> Initial=>[..view.GetProperty("initialFrameIds").EnumerateArray().Select(id=>Frames.Single(f=>f.Id==id.GetGuid()))

@@ -10,7 +10,11 @@ public sealed record CurveName(string Code,string Name);
 public sealed record ReferenceSourceSelection(ReferenceRevision ReferenceRevision,Guid DefinitionRevisionId);
 public sealed record WorkspaceRead(PreviewData Data,UnitCatalogData? Units,ImmutableArray<CurveName>? CurveNames,
     ImmutableDictionary<string,ReferenceSourceSelection> ReferenceSources,
-    ReferenceDisplayData? ReferenceDisplay=null,ReferenceDisplayData? UnitReferenceDisplay=null);
+    ReferenceDisplayData? ReferenceDisplay=null,ReferenceDisplayData? UnitReferenceDisplay=null)
+{
+    public ImmutableDictionary<string,ImmutableArray<JsonElement>> References(bool catalogOnly)=>
+        catalogOnly?Data.References.SetItem("calendar_days",[]):Data.References;
+}
 public sealed record PriceRead(object Result,ImmutableArray<JsonElement> Observations,WorkspaceRead? Workspace=null);
 // KnownAt is the latest certified publication instant among the sample's observations; null while any is not yet certified.
 public sealed record HistorySample(DateTimeOffset At,string? Value,Guid SnapshotId,Guid[] ObservationIds,string? UnavailableReason,DateTimeOffset? KnownAt=null);

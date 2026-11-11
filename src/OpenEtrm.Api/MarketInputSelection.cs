@@ -13,12 +13,12 @@ internal static class MarketInputSelection
         [(data,frame),..supplemental.IsDefault?[]:supplemental];
 
     internal sealed record CatalogueTerms(CatalogueSource Source,ImmutableArray<CatalogueCurve> Members,PreviewData Data);
-    internal static async Task<ImmutableArray<CatalogueTerms>> ReadCatalogueTerms(PreviewDatabase database,NpgsqlConnection connection,CancellationToken ct,DateOnly? effectiveOn=null)
+    internal static async Task<ImmutableArray<CatalogueTerms>> ReadCatalogueTerms(PreviewDatabase database,NpgsqlConnection connection,CancellationToken ct,DateOnly? effectiveOn=null,ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure)
     {
         var catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,effectiveOn);
         var result=ImmutableArray.CreateBuilder<CatalogueTerms>();
         foreach(var source in catalogue.Curves.GroupBy(c=>c.Source).OrderBy(g=>g.Key.DefinitionRevisionId))
-            result.Add(new(source.Key,[..source],await database.Read(connection,ct,observationIds:[],includeCalendarDays:false,ppaBundle:source.Key)));
+            result.Add(new(source.Key,[..source],await database.Read(connection,ct,observationIds:[],referenceScope:referenceScope,includeCalendarDays:false,ppaBundle:source.Key)));
         return result.ToImmutable();
     }
 
@@ -155,7 +155,8 @@ internal static class MarketInputSelection
     }
 
     internal static async Task<(PreviewData Data,InputFrame Frame)> Resolve(PreviewDatabase database,NpgsqlConnection connection,
-        InputFrame frame,CatalogueSource exact,ImmutableArray<(PreviewData Data,InputFrame Frame)> supplied,bool requirePinned,CancellationToken ct,MarketInputReadScope? reads=null)
+        InputFrame frame,CatalogueSource exact,ImmutableArray<(PreviewData Data,InputFrame Frame)> supplied,bool requirePinned,CancellationToken ct,MarketInputReadScope? reads=null,
+        ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure)
     {
         if(supplied.IsDefault)throw Invalid("Supply explicit input sources.");
         MarketSourceInputs? recorded=null;
@@ -173,12 +174,12 @@ internal static class MarketInputSelection
         {
             if(retained.Source!=exact)throw Invalid("The recorded input source has different exact references.");
             var projection=retained.Project(frame);
-            var data=reads is null?await database.Read(connection,ct,ppaBundle:exact,observationIds:projection.ObservationIds,observationScope:ObservationReadScope.ExactPins):
-                await reads.Read(projection,exact,projection.ObservationIds,ReferenceReadScope.DefinitionClosure,ObservationReadScope.ExactPins,true,ct);
+            var data=reads is null?await database.Read(connection,ct,ppaBundle:exact,observationIds:projection.ObservationIds,referenceScope:referenceScope,observationScope:ObservationReadScope.ExactPins):
+                await reads.Read(projection,exact,projection.ObservationIds,referenceScope,ObservationReadScope.ExactPins,true,ct);
             found=[(data,projection)];
         }
         if(found.Length==0&&!requirePinned&&frame.OriginCloseId is null)
-            found=(await database.ReadInputMarkets(connection,frame,ct,requiredRevisions:new HashSet<Guid>{exact.DefinitionRevisionId})).ToArray();
+            found=(await database.ReadInputMarkets(connection,frame,ct,requiredRevisions:new HashSet<Guid>{exact.DefinitionRevisionId},referenceScope:referenceScope)).ToArray();
         if(found.Length==0&&requirePinned)throw Invalid("The retained execution omitted a required source.");
         if(found.Length==0)throw new MarketDataException("market_inputs_missing","The required source has no explicit inputs at this business date and valuation instant.");
         if(found.Length!=1)throw Invalid("Every required market must have exactly one explicit source selection. Retained calculations cannot select replacement inputs.");

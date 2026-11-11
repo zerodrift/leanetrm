@@ -97,11 +97,11 @@ def run_checks(url, manifest, query):
     assert mismatch['code'] == 'market_inputs_missing', mismatch
     client.call('profile', {'profile': 'editor'})
     retained=next(v for v in client.call('custom-curves')['recipes'] if v['id']==other_curve and v['version']==1)
-    before_rebind=query(f"SELECT count(*) FROM market_data.custom_curve_versions WHERE curve_id='{other_curve}';")
-    refused=client.call('custom-curves/save',dict(requestId=str(uuid4()),snapshotId=frame['id'],id=other_curve,version=1,
-        generation=retained['generation'],expectedState='published',definition=retained['definition'],layout=retained['layout']),expected=422)
-    assert refused['code']=='custom_curve_definition' and 'exact source' in refused['message'],refused
-    assert query(f"SELECT count(*) FROM market_data.custom_curve_versions WHERE curve_id='{other_curve}';")==before_rebind
+    before_count=int(query(f"SELECT count(*) FROM market_data.custom_curve_versions WHERE curve_id='{other_curve}';"))
+    saved=client.call('custom-curves/save',dict(requestId=str(uuid4()),snapshotId=frame['id'],id=other_curve,version=1,
+        generation=retained['generation'],expectedState='published',definition=retained['definition'],layout=retained['layout']))
+    assert saved['state']=='draft' and saved['version']==2 and saved['sources']==retained['sources'],saved
+    assert int(query(f"SELECT count(*) FROM market_data.custom_curve_versions WHERE curve_id='{other_curve}';"))==before_count+1
     client.call('profile', {'profile':'approver'})
     foreign_catalog, foreign_curve = str(uuid4()), str(uuid4())
     authentication = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','approver','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120);")

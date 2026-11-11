@@ -125,7 +125,7 @@ def run_checks(c, check, query, manifest):
         for mode in ['directory', 'priced_contracts']:
             error = c.call('trading/workspace', {**request, 'bookingCatalog': mode}, expected=422)
             check('a retained trading read cannot use exact references outside current scope: ' + mode,
-                  error['code'] == 'catalogue_source' and set(error) == {'code', 'message'})
+                  error['code'] == 'ambiguous_reference' and set(error) == {'code', 'message'})
     finally:
         query(f"INSERT INTO security.reference_catalog_scopes VALUES('{catalog}','{tenant}','{scope_workspace}','{access}');")
     for profile in ['viewer', 'admin']:

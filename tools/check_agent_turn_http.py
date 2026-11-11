@@ -132,14 +132,33 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
         """The turn's recorded pins."""
         return json.loads(query(f"SELECT pins::text FROM assistant.turns WHERE id='{turn['id']}';"))
 
-    def frame_pins(session, frame):
-        """The exact pins of an As of frame, as the session's workspace shows it. The workspace leaves out the observations
-        a frame froze, of which the seeded frames freeze none, and whether it resolves the latest correction, as a working
-        frame of a retained context does; a recorded close keeps its exact pins (D334)."""
+    def pins_match(session, frame, recorded):
         shown = next(f for f in session.call('workspace')['frames'] if f['id'] == frame['id'])
-        return {'at': shown['at'], 'curveContracts': shown['curveContracts'], 'frameId': shown['id'], 'frozenObservationIds': [], 'name': shown['name'],
-                'observationIds': shown['observationIds'], 'resolvesLatestCorrection': 'contextId' in shown and shown['originCloseId'] is None,
-                'swapMarketSelections': shown.get('swapMarketSelections')}
+        origin = shown.get('originCloseId')
+        expected = {key: shown.get(key) for key in ('at', 'businessDate', 'close', 'curveContracts', 'name',
+            'observationIds', 'originCloseId', 'ppaBundle', 'swapMarketSelections')}
+        expected.update(frameId=shown['id'], resolvesLatestCorrection='contextId' in shown and origin is None)
+        if not all(recorded[key] == value for key, value in expected.items()):
+            return False
+        if origin is None:
+            return recorded['sourceInputs'] is None and recorded['frozenObservationIds'] == []
+        catalog = manifest['catalogId']
+        where = f"catalog_id='{catalog}' AND close_id='{origin}'"
+        parts = json.loads(query(f"SELECT json_agg(s) FROM market_data.market_close_sources s WHERE {where};"))
+        matrix = recorded['sourceInputs']
+        if set(matrix) != {part['definition_revision_id'] for part in parts}:
+            return False
+        for part in parts:
+            revision = part['definition_revision_id']
+            source = {'definitionRevisionId': revision, 'referenceCatalogId': part['reference_catalog_id'],
+                      'referenceRevisionId': part['reference_revision_id']}
+            pins = json.loads(query(f"SELECT coalesce(json_agg(p),'[]') FROM market_data.market_close_pins p WHERE {where} AND definition_revision_id='{revision}';"))
+            selected = matrix[revision]
+            if (selected['source'] != source or sorted(selected['observationIds']) != sorted(pin['observation_id'] for pin in pins)
+                or sorted(selected['frozenObservationIds']) != sorted(pin['observation_id'] for pin in pins if pin['input_use'] == 'frozen')):
+                return False
+        primary = query(f"SELECT definition_revision_id FROM market_data.market_closes WHERE catalog_id='{catalog}' AND id='{origin}';")
+        return recorded['source'] == matrix[primary]['source'] and recorded['frozenObservationIds'] == matrix[primary]['frozenObservationIds']
 
     def pinging(text='Partial '):
         """A response that streams `text`, then keeps its connection busy with comments until the client drops it, which
@@ -191,7 +210,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
     check('an ask is admitted, pinned over working data at its frame and run by the worker to completion, keeping the streamed answer '
           'and closing with its usage before its terminal event',
           asked['turn']['state'] in ('queued', 'running') and asked['turn']['context']['contextId'] and asked['turn']['context']['frameId'] == frame['id']
-          and pins(turn) == frame_pins(trader, frame)
+          and pins_match(trader, frame, pins(turn))
           and (turn['state'], turn['answer'], turn['incomplete']) == ('completed', 'The page shows test_curve.', False)
           and [e['kind'] for e in events] == ['accepted', 'text', 'usage', 'completed']
           and usage['calls'] == 1 and usage['uncachedInput'] == {'count': 21, 'unknownCalls': 0} and usage['output'] == {'count': 9, 'unknownCalls': 0},
@@ -248,7 +267,7 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap):
     check('while a historical view is selected, its retained context is asked with a frame of it, pinned as named with the frame, capturing '
           'nothing, and working data is not asked',
           refused['code'] == 'context_required' and (retained['state'], retained['context']['mode'], retained['context']['contextId'])
-          == ('completed', 'retained', selected['contextId']) and pins(retained) == frame_pins(viewing, past) and query(captures) == before,
+          == ('completed', 'retained', selected['contextId']) and pins_match(viewing, past, pins(retained)) and query(captures) == before,
           (refused, retained))
     risk = client('risk')
     check('an ask without a covering grant is refused', ask(risk, at=frame_of(risk), expected=403)['code'] == 'grant_required')

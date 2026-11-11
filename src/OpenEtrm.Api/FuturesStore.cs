@@ -73,16 +73,19 @@ public sealed partial class FuturesStore(PreviewDatabase database)
         return new {kind="directory",directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,convention=manifest.FuturesConvention};
     }
 
-    public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)
+    public Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)=>
+        Catalog(connection,data,frame,ReferenceReadScope.DefinitionClosure,ct);
+
+    internal async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,ReferenceReadScope referenceScope,CancellationToken ct)
     {
         var choices=ImmutableArray.CreateBuilder<object>();var unavailable=ImmutableArray.CreateBuilder<object>();
-        foreach(var source in await MarketInputSelection.ReadCatalogueTerms(database,connection,ct,frame.Time.Date))
+        foreach(var source in await MarketInputSelection.ReadCatalogueTerms(database,connection,ct,frame.Time.Date,referenceScope))
         {
             var codes=source.Members.Where(m=>m.Kind=="curve").Select(m=>m.Code).ToHashSet(StringComparer.Ordinal);
             if(!source.Data.Contracts.Any(c=>c.Kind==ContractKind.Future&&codes.Any(code=>source.Data.HasCurveMember(code,c.Key.Id))))continue;
             try
             {
-                var inputs=await MarketInputSelection.Resolve(database,connection,frame,source.Source,[(data,frame)],false,ct);
+                var inputs=await MarketInputSelection.Resolve(database,connection,frame,source.Source,[(data,frame)],false,ct,referenceScope:referenceScope);
                 choices.AddRange(Contracts(inputs.Data,inputs.Frame,codes));
             }
             catch(MarketDataException error)when(error.Code=="market_inputs_missing")

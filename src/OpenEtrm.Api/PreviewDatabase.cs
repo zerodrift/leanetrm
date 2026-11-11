@@ -718,7 +718,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
     }
 
     public async Task<ImmutableArray<(PreviewData Data,InputFrame Frame)>> ReadInputMarkets(NpgsqlConnection connection,InputFrame selected,CancellationToken ct,PreviewData? sharedReferences=null,
-        IReadOnlySet<Guid>? requiredRevisions=null)
+        IReadOnlySet<Guid>? requiredRevisions=null,ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure)
     {
         var result=ImmutableArray.CreateBuilder<(PreviewData,InputFrame)>();
         if(selected.OriginCloseId is not null&&selected.SourceInputs is null)
@@ -731,7 +731,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
             {
                 if(requiredRevisions is not null&&!requiredRevisions.Contains(part.Source.DefinitionRevisionId))continue;
                 var data=await Read(connection,ct,ppaBundle:part.Source,sharedReferences:sharedReferences,
-                    observationIds:part.ObservationIds,observationScope:ObservationReadScope.ExactPins);
+                    observationIds:part.ObservationIds,referenceScope:referenceScope,observationScope:ObservationReadScope.ExactPins);
                 result.Add((data,part.Project(selected)));
             }
             return result.ToImmutable();
@@ -755,7 +755,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
                 continue;
             }
             var pins=InputMarketPins(selected,market)!.Value;
-            var data=await Read(connection,ct,market.RevisionId,sharedReferences,pins);
+            var data=await Read(connection,ct,market.RevisionId,sharedReferences,pins,referenceScope);
             var frozenInputs=seed.FrozenObservationIds is {} frozen?frozen.ToImmutableArray():throw new MarketDataException("market_inputs","Declare frozen observations explicitly for every source frame.");
             var frame=selected.ForMarketSource(pins,seed.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()),data.SelectFrozen(pins,frozenInputs))
                 with{Source=new(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId)};

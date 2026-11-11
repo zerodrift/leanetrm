@@ -85,8 +85,9 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
     }
     internal async Task<object> CatalogRead(NpgsqlConnection connection,InputFrame frame,CancellationToken ct)
     {
-        var choice=(await new CatalogueStore(Catalog).ReadBound(connection,ct,frame.Time.Date)).RequireRole("ppa");
+        var choice=frame.PpaBundle??(await new CatalogueStore(Catalog).ReadBound(connection,ct,frame.Time.Date)).RequireRole("ppa");
         var input=await SelectInputs(connection,frame,choice.DefinitionRevisionId,ct);frame=input.Frame;var data=input.Data;
+        if(CatalogueSource.From(data)!=choice)throw PpaCompiler.Error("ppa_reference_revision","The selected PPA source has different exact references.");
         await Authority(connection,[data.ReferenceRevision.CatalogId],ct);
         var physicalLocations=await PreviewDatabase.Rows(connection,
             "SELECT row_to_json(l)::text FROM ref_data.locations l WHERE(catalog_id,revision_id)=($1,$2) ORDER BY name,code",

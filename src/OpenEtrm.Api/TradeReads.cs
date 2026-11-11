@@ -47,7 +47,7 @@ public sealed partial class TradeReads
         }
         return Read(connection,view,async data=>
         {
-            var catalog=directory?await futures.Directory(connection,ct):await futures.Catalog(connection,data,view.CalculationFrame,ct);
+            var catalog=directory?await futures.Directory(connection,ct):await futures.Catalog(connection,data,view.CalculationFrame,ReferenceReadScope.TradeValuation,ct);
             return await Complete(catalog,await blotter.Begin(connection,data,view.CalculationFrame,report,summaries,ct));
         },ct,directory?EmptyDirectory:null,
             referenceScope:ReferenceReadScope.TradeValuation,

@@ -1046,7 +1046,7 @@ object WorkspaceProjection(PreviewSession session,WorkspaceRead read,bool catalo
     var context=exact is null?session.MarketContext:exact.Context;
     var prior=exact?.Frame is {} selected&&selected.ContextId!=session.MarketContext?.ContextId?selected:null;
     var referenceSources=read.ReferenceSources;
-    var references=catalogOnly?data.References.SetItem("calendar_days",[]):data.References;
+    var references=read.References(catalogOnly);
     return new {referenceSources,unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
         // Each offered frame names its recorded close; one without a close is a working snapshot (D334).
         frames=prior is null?session.VisibleFrames:[prior],frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:session.InitialFrameIds};
