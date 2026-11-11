@@ -1,11 +1,11 @@
 # Connected graph kernel benchmark
 
-Measured on 2026-10-21 with `ConnectedGraphBenchmark` and report schema
+Measured on 2026-11-10 with `ConnectedGraphBenchmark` and report schema
 `connected_graph_kernel_benchmark_v1`. Three fresh Release processes completed
 the independent arithmetic checks at every size. The largest plan had
-5,000,001 nodes and 5,000,000 edges. Its median base evaluation was 106.8675 ms;
-a broad source shift required 22.5180 ms to construct the affected overlay and
-217.5109 ms to evaluate it. A sparse output shift evaluated one node.
+5,000,001 nodes and 5,000,000 edges. Its median base evaluation was 102.1425 ms;
+a broad source shift required 18.1849 ms to construct the affected overlay and
+119.2079 ms to evaluate it. A sparse output shift evaluated one node.
 
 These are checked `Int64` graph operations with **zero financial instruments or
 unique instrument pricers**. They do not qualify the rich curve compiler, exact
@@ -30,7 +30,8 @@ used to infer a latency bound or a size-dependent speedup.
 
 Compilation includes edge enumeration, admission checks, sorting, cycle
 validation and construction of forward/reverse compressed adjacency arrays.
-Session creation allocates the base value storage. Evaluation includes output
+Session creation allocates only the top-level page table; value pages are
+allocated as nodes are evaluated. Evaluation includes output
 traversal and checksum accumulation. Each requested output is checked against
 an independent formula outside timing. Checksums alone are not the oracle.
 Forced collections used for memory samples also run outside timed intervals.
@@ -80,55 +81,55 @@ discovering a broad affected closure is real work even before any output is read
 
 | Shared-source phase | 100,000 edges | 1,000,000 edges | 5,000,000 edges |
 | --- | ---: | ---: | ---: |
-| Compile plan | 1.7216 | 17.6162 | 93.0650 |
-| Create base session | 0.0263 | 0.0319 | 0.1619 |
-| Evaluate base outputs | 2.1494 | 20.8575 | 106.8675 |
-| Create sparse overlay | 0.0692 | 0.0036 | 0.0049 |
-| Evaluate sparse output | 0.0260 | 0.0011 | 0.0012 |
-| Create nested overlay | 0.0848 | 0.0012 | 0.0012 |
-| Evaluate nested output | 0.0390 | 0.0008 | 0.0008 |
-| Create broad overlay | 0.4883 | 4.1578 | 22.5180 |
-| Evaluate broad outputs | 3.9855 | 43.6268 | 217.5109 |
-| Create two context sessions | 0.0660 | 0.0460 | 0.0714 |
-| Evaluate both contexts concurrently | 8.8298 | 23.6930 | 120.8880 |
+| Compile plan | 1.2874 | 11.9002 | 70.2042 |
+| Create base session | 0.0226 | 0.0008 | 0.0007 |
+| Evaluate base outputs | 2.0330 | 20.7155 | 102.1425 |
+| Create sparse overlay | 0.0681 | 0.0060 | 0.0052 |
+| Evaluate sparse output | 0.0251 | 0.0018 | 0.0016 |
+| Create nested overlay | 0.0459 | 0.0017 | 0.0043 |
+| Evaluate nested output | 0.0214 | 0.0027 | 0.0022 |
+| Create broad overlay | 0.3727 | 3.4481 | 18.1849 |
+| Evaluate broad outputs | 2.2686 | 23.1513 | 119.2079 |
+| Create two context sessions | 0.0798 | 0.0010 | 0.0033 |
+| Evaluate both contexts concurrently | 8.6745 | 22.4120 | 123.5262 |
 
-At five million edges, the three base observations ranged from 105.8890 to
-113.1136 ms; broad evaluation ranged from 214.7221 to 223.7302 ms. Three local
+At five million edges, the three base observations ranged from 101.6034 to
+104.8323 ms; broad evaluation ranged from 117.3870 to 121.8036 ms. Three local
 observations do not establish latency percentiles or service capacity.
 
 | Additional shape / phase | Median ms | Median allocated bytes |
 | --- | ---: | ---: |
-| Chain: compile | 2.2367 | 4,904,376 |
-| Chain: create base session | 0.1949 | 812,856 |
-| Chain: evaluate base | 1.4433 | 2,097,536 |
-| Chain: create broad overlay | 1.0146 | 4,831,168 |
-| Chain: evaluate broad child | 2.5868 | 10,549,808 |
-| Diamonds: compile | 1.5940 | 4,897,840 |
-| Diamonds: create base session | 0.0883 | 812,856 |
-| Diamonds: evaluate base | 1.7225 | 2,200,000 |
-| Diamonds: create sparse overlay | 0.0495 | 1,176 |
-| Diamonds: evaluate sparse child | 0.0267 | 472 |
+| Chain: compile | 2.1591 | 4,904,376 |
+| Chain: create base session | 0.2022 | 352 |
+| Chain: evaluate base | 1.5710 | 2,955,536 |
+| Chain: create broad overlay | 0.6395 | 70,720 |
+| Chain: evaluate broad child | 1.4905 | 2,907,600 |
+| Diamonds: compile | 1.3512 | 4,897,840 |
+| Diamonds: create base session | 0.0915 | 352 |
+| Diamonds: evaluate base | 1.8718 | 858,176 |
+| Diamonds: create sparse overlay | 0.0497 | 3,128 |
+| Diamonds: evaluate sparse child | 0.0268 | 2,160 |
 
 ## Allocations and memory
 
 Allocated bytes are managed allocations during a phase across the entire
 process, including parallel workers. They include temporary compilation arrays,
-evaluation stacks and broad-scenario hash/dictionary storage. They are neither
+evaluation stacks and paged scenario storage. They are neither
 retained memory nor peak resident memory.
 
 | Shared-source phase | 100,000 edges: bytes | 1,000,000 edges: bytes | 5,000,000 edges: bytes |
 | --- | ---: | ---: | ---: |
-| Compile plan | 4,897,848 | 44,779,184 | 274,228,464 |
-| Create base session | 812,896 | 8,125,400 | 40,625,400 |
-| Evaluate base outputs | 4,400,000 | 44,000,000 | 220,000,000 |
-| Create sparse overlay | 1,008 | 1,008 | 1,008 |
-| Evaluate sparse output | 224 | 224 | 224 |
-| Create nested overlay | 1,016 | 1,016 | 1,016 |
-| Evaluate nested output | 224 | 224 | 224 |
-| Create broad overlay | 2,852,712 | 24,982,376 | 122,958,880 |
-| Evaluate broad outputs | 8,471,984 | 80,376,104 | 376,454,544 |
-| Create two context sessions | 1,625,832 | 16,250,840 | 81,250,840 |
-| Evaluate both contexts concurrently | 8,854,168 | 88,002,272 | 440,002,208 |
+| Compile plan | 4,897,848 | 44,779,808 | 274,228,464 |
+| Create base session | 384 | 496 | 984 |
+| Evaluate base outputs | 858,176 | 8,566,128 | 42,821,680 |
+| Create sparse overlay | 3,128 | 3,240 | 3,728 |
+| Evaluate sparse output | 2,160 | 2,160 | 2,160 |
+| Create nested overlay | 5,432 | 5,544 | 6,032 |
+| Evaluate nested output | 4,232 | 4,232 | 4,232 |
+| Create broad overlay | 562,720 | 4,544,840 | 35,280,272 |
+| Evaluate broad outputs | 408,272 | 4,050,848 | 20,239,384 |
+| Create two context sessions | 808 | 1,032 | 2,008 |
+| Evaluate both contexts concurrently | 1,763,784 | 17,134,464 | 85,643,712 |
 
 The following numbers are medians of each process's highest end-of-phase sample
 for the workload. Managed samples follow a forced collection. They include all
@@ -138,20 +139,22 @@ runtime after the earlier large workload. One MiB is 1,048,576 bytes.
 
 | Workload | Highest sampled retained managed MiB | Highest sampled working set MiB |
 | --- | ---: | ---: |
-| Shared source: 100,000 edges, six sessions | 7.613 | 69.344 |
-| Shared source: 1,000,000 edges, six sessions | 70.741 | 139.281 |
-| Shared source: 5,000,000 edges, six sessions | 333.194 | 462.688 |
-| Chain: two sessions | 9.460 | 165.625 |
-| Diamonds: two sessions | 3.078 | 162.734 |
+| Shared source: 100,000 edges, six sessions | 8.487 | 71.188 |
+| Shared source: 1,000,000 edges, six sessions | 79.823 | 133.344 |
+| Shared source: 5,000,000 edges, six sessions | 394.660 | 402.453 |
+| Chain: two sessions | 5.730 | 274.656 |
+| Diamonds: two sessions | 3.811 | 274.125 |
 
 The managed process API did not supply a lifetime peak on this platform, so the
 JSON field is null. The external macOS `/usr/bin/time -l` measurement reported
-maximum resident set sizes of 485,408,768, 485,277,696 and 485,490,688 bytes.
-That is a process-lifetime range of 462.797–463.000 MiB, with a median of
-462.922 MiB. These peaks cover the whole executable and every workload, not
+maximum resident set sizes of 421,986,304, 423,936,000 and 422,264,832 bytes.
+That is a process-lifetime range of 402.438–404.297 MiB, with a median of
+402.703 MiB. These peaks cover the whole executable and every workload, not
 one graph or one scenario.
 
-Sparse child storage does not scale with total node count in these measurements.
+Sparse child storage follows the 256-node blocks a scenario touches. Beyond
+that it grows by one eight-byte table slot per 65,536 plan nodes: 3,128, 3,240
+and 3,728 bytes at the three sizes here.
 Broad shifts still allocate and evaluate in proportion to their affected
 closure. Base value arrays are proportional to plan size for each independent
 context. The rich financial compiler additionally retains typed definitions,
