@@ -348,6 +348,9 @@ test('late booked choice labels preserve an editable day cell and its unsent qua
    const level=document.querySelector('.ticket-level');level.value='day';level.onchange();
    document.querySelector('.ticket-tab[data-tab="physical-1"]').click();
    await until(()=>!!document.querySelector('.ticket-cell-input'));
+   // A grid draws its rows again within a frame of first drawing them, which detaches a cell and drops its focus: the person is in the
+   // cell once the grid has settled.
+   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
    window.cell=document.querySelector('.ticket-cell-input');cell.value='990';cell.focus();
    if(document.activeElement!==cell)throw Error('The editable day cell did not receive focus before its label read.');
    held.shift()();await until(()=>document.querySelector('[data-field=book] .ticket-value')?.textContent==='Resolved book');
