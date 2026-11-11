@@ -273,6 +273,10 @@ def main():
                 cash_signatures=('trading.require_gas_index_cash_shape(uuid,uuid,trading.gas_component_terms,market_data.gas_valuation_assignments,jsonb)',)
                 point=migration.name.startswith('0228_')
                 check_point_upgrade(query,migration,number='0228' if point else '0229',guard='gas_point_pricing_upgrade' if point else 'gas_point_cash_upgrade',signatures=point_signatures if point else cash_signatures)
+            if migration.name=='0238_selected_observation_event_probes.sql':
+                from check_fact_anchor_upgrade import run_checks as check_observation_event_upgrade
+                check_observation_event_upgrade(query,migration,number='0238',guard='observation_event_upgrade',
+                    signatures=('security.observation_visibility_scope(uuid,uuid,uuid[])',))
             if migration.name=='0203_assistant_presentation_controls.sql':
                 from check_assistant_presentation_upgrade import run_checks as check_presentation_upgrade
                 check_presentation_upgrade(query,migration)

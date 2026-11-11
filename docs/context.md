@@ -436,3 +436,14 @@ shared authorized anchor/correction set, five-key fact identity and authority
 checks remain unchanged. The caller's planning mode is restored on return.
 The scale check exercises both caller modes, native-RLS row parity and bounded
 knowledge-receipt work with the same deadline.
+
+## Selected observation event probes
+
+Migration 0238 keeps each selected observation's knowledge-event lookup ahead of
+its certified receipt lookup. A generic plan previously enumerated unrelated
+receipts before matching the selected identity, causing calendar reads to exceed
+their existing deadline. The migration changes only that join boundary, attests
+the helper's original definition and privileges, and retains every knowledge,
+effective-date and current-authority predicate. Both caller planning modes read
+144 event/receipt tuples for 72 selected pins despite 4,096 unrelated facts;
+large-close and correction-history checks retain native-RLS row parity.

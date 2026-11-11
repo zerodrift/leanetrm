@@ -3,8 +3,35 @@ import json
 from uuid import uuid4
 from check_reference_editing import main
 
+KNOWLEDGE_WORK="SELECT 'WORK|'||coalesce(sum(seq_tup_read+idx_tup_fetch),0) FROM pg_stat_xact_user_tables WHERE schemaname='market_data' AND relname IN('knowledge_events','market_knowledge_receipts');"
+
+
+def check_small_point_scope(query,manifest):
+    catalog,revision,tenant,workspace=[manifest[k] for k in ('catalogId','revisionId','tenantId','workspaceId')]
+    pins=query(f"SELECT id FROM market_data.observations WHERE catalog_id='{catalog}' AND definition_revision_id='{revision}' AND observed_at<'2020-12-18' ORDER BY id LIMIT 72;").splitlines()
+    assert pins
+    original=pins[0]
+    query(f"""INSERT INTO market_data.observations SELECT copied.* FROM market_data.observations o
+    CROSS JOIN generate_series(1,4096)n
+    CROSS JOIN LATERAL jsonb_populate_record(NULL::market_data.observations,to_jsonb(o)||jsonb_build_object(
+    'id',gen_random_uuid(),'source_event_id','synthetic_point_history_'||n,'source_revision_id','first','corrects_id',NULL,'received_at',clock_timestamp()))copied
+    WHERE(o.catalog_id,o.id)=('{catalog}','{original}');""")
+    def issue():
+        return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
+    token=issue();context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.capture_date_context('{catalog}','2020-12-17',NULL);COMMIT;")
+    selected='ARRAY['+','.join("'"+pin+"'::uuid" for pin in pins)+']'
+    for plan in ['force_generic_plan','force_custom_plan']:
+        token=issue()
+        lines=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SET LOCAL plan_cache_mode={plan};SET LOCAL statement_timeout='5s';SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{context}');"+KNOWLEDGE_WORK+
+            f"SELECT 'ROWS|'||count(*) FROM security.read_observation_pins('{catalog}','{revision}',{selected});"+KNOWLEDGE_WORK+"ROLLBACK;").splitlines()
+        work=[int(line.split('|')[1]) for line in lines if line.startswith('WORK|')]
+        assert 'ROWS|'+str(len(pins)) in lines,lines
+        assert work[1]-work[0]<=2*len(pins)+64,(plan,len(pins),work[1]-work[0])
+        print(f'PASS cold {plan}: {len(pins)} selected pins read {work[1]-work[0]} event/receipt tuples despite 4096 unrelated facts',flush=True)
+
 
 def run_checks(query,manifest):
+    check_small_point_scope(query,manifest)
     catalog,source_revision,tenant,workspace,reference_catalog,reference_revision=[manifest[k] for k in ['catalogId','revisionId','tenantId','workspaceId','referenceCatalogId','referenceRevisionId']]
     # Exact lookups gain nothing from JIT, and loading LLVM on a cold host can consume the read's deadline.
     for signature in ['security.read_observation_facts(uuid,uuid,uuid[])','security.observation_visibility_scope(uuid,uuid,uuid[])']:
@@ -60,15 +87,17 @@ def run_checks(query,manifest):
     # The selected close stays fixed while a later certified cutoff includes more
     # unrelated committed receipts. Exact event/receipt probes must not expand.
     one=f"ARRAY['{pins[0]}'::uuid]"
-    stats="SELECT 'WORK|'||coalesce(sum(seq_tup_read+idx_tup_fetch),0) FROM pg_stat_xact_user_tables WHERE schemaname='market_data' AND relname IN('knowledge_events','market_knowledge_receipts');"
+    selected='ARRAY['+','.join("'"+pin+"'::uuid" for pin in pins[:72])+']'
     before={}
-    def measured(plan,selected_context):
-        lines=read(stats+f"SELECT 'ROWS|'||count(*) FROM security.read_observation_facts('{catalog}','{revision}',{one});"+stats,plan,selected_context).splitlines()
+    def measured(plan,selected_context,reader):
+        requested,expected=(one,2) if reader=='read_observation_facts' else (selected,72)
+        lines=read(KNOWLEDGE_WORK+f"SELECT 'ROWS|'||count(*) FROM security.{reader}('{catalog}','{revision}',{requested});"+KNOWLEDGE_WORK,plan,selected_context).splitlines()
         work=[int(line.split('|')[1]) for line in lines if line.startswith('WORK|')]
-        assert 'ROWS|2' in lines,lines
+        assert 'ROWS|'+str(expected) in lines,lines
         return work[1]-work[0]
+    readers=['read_observation_facts','read_observation_pins']
     for plan in ['force_generic_plan','force_custom_plan']:
-        before[plan]=measured(plan,context)
+        for reader in readers:before[plan,reader]=measured(plan,context,reader)
     query(f"""INSERT INTO market_data.observations SELECT copied.* FROM market_data.observations o
     CROSS JOIN generate_series(1,1024)n
     CROSS JOIN LATERAL jsonb_populate_record(NULL::market_data.observations,to_jsonb(o)||jsonb_build_object(
@@ -76,9 +105,10 @@ def run_checks(query,manifest):
     WHERE(o.catalog_id,o.id)=('{catalog}','{pins[0]}');""")
     token=issue();context=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');SELECT security.capture_date_context('{catalog}','2020-12-17',NULL);COMMIT;")
     for plan in ['force_generic_plan','force_custom_plan']:
-        after=measured(plan,context)
-        assert after<=before[plan]+64,(plan,before[plan],after)
-        print(f'PASS {plan}: selected event/receipt tuple work stays bounded {before[plan]}/{after} after 1024 additional known receipts',flush=True)
+        for reader in readers:
+            after=measured(plan,context,reader)
+            assert after<=before[plan,reader]+64,(reader,plan,before[plan,reader],after)
+            print(f'PASS {reader}/{plan}: selected event/receipt tuple work stays bounded {before[plan,reader]}/{after} after 1024 additional known receipts',flush=True)
 
 
 if __name__=='__main__':
