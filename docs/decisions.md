@@ -3876,3 +3876,107 @@ told to review its operation. It is now a 403 `access_denied` that says the role
 do not permit the gas operations read or change. The delivery desk says why each
 operation is unavailable: the context is read only, the role cannot record it, or
 the day's operations were refused. No permission or operation changes.
+
+## D374 — The assistant reads a selected gas day as its page does
+
+Physical operations reported its selected gas day (D371), but the assistant then
+had to write the day's read itself, and the request schema does not say which
+valuation convention a gas read requires. A read without it was refused as
+`swap_context`, which tells the model a swap market is unavailable, so it gave up.
+Read current page now runs the selected day's `gas.operations.read_v1` under the
+turn's frame and retained context and returns it with the exact input it used,
+the physical gas convention included, for the assistant to repeat for that day
+in the same turn. A refusal of that read is reported in its place and the rest of
+the page stays readable. A swap, physical gas or Blotter read whose convention is
+missing or wrong is refused as `valuation_convention`. Reading a booked physical
+gas trade no longer fails: like a crude or LNG trade it states its trade, revision
+and reference, which its navigation target names, and its reference revisions are
+taken from its delivery members, which hold them, not from its head. No
+permission, operation or financial behavior changes.
+
+## D375 — Exact source resolution under business and knowledge time
+
+Logical catalogue membership is an immutable, explicitly published set of exact
+native definition/reference coordinates with an effective interval. New choices
+resolve that membership at the selected business date and knowledge cutoff.
+Current metadata inspection without a selected date is a distinct operation;
+it does not establish pricing inputs. A captured context retains its certified
+catalogue publication prefix. Select the applicable head before checking current
+authority; an unavailable head never revives an earlier publication.
+
+Held terms resolve their own exact native foreign keys. Adding a product does not
+replace unrelated contracts, require rebooking, or change retained graphs. Prices
+come from explicit source selections at one business date and valuation instant.
+One logical code, a deployment revision, or a shared UTC date cannot substitute
+for source identity. Missing or ambiguous inputs fail with a structured error.
+The managed source resolver is shared by portfolio consumers and market reads.
+A reread retains its working view identity while every calculation and recorded
+source validation carries the context captured for that operation.
+Immutable reference rows may be reused only for the same market catalogue and
+exact reference catalogue/version. A different-reference source reads its own
+native rows; cached candidates never replace source pins or authority checks.
+Mutation retries resolve their owner-scoped receipt before ephemeral page inputs
+or current catalogue choices. The native receipt read rechecks its own exact
+source and retained curve visibility; a hidden receipt is denied, never treated
+as a new command. Historical contexts cannot authorize mutation replay.
+
+Every recorded close retains a source matrix: exact source/reference versions,
+observation pins, frozen input uses, ordered curve members, and its session's
+source-qualified roots. A close can retain primary-source pins while all signed
+roots belong to another exact source. Retained dependencies cannot expand the signed commodity roots. Native rate
+inspection uses the close's exact primary source, rate-definition foreign keys
+and retained tenor pins; it does not promise signed rate-root coverage or extend
+generated-close scope.
+Normalize existing single-source relationships from their own recorded facts;
+this adds no observations, publication times, or alternate runtime path. Working
+edits update the same matrix atomically and cease claiming recorded identity.
+Queued calculations and agent turns retain the shared explicit input envelope.
+The UI selects metadata for its selected snapshot and carries its business date
+independently of UTC and recorded-close metadata.
+
+This supersedes D334's exception admitting after-cutoff closes and their prices.
+A historical view uses the close known in force at its cutoff, and every price
+obeys the same certified knowledge prefix. Current authority still applies.
+Replacing a close never rewrites a saved result. Existing UTC-day session-clock
+capability restrictions remain; this decision does not qualify additional clocks.
+
+Commands retain first outcomes independently of their resulting financial facts.
+Reaffirming the unchanged current close or catalogue is a no-op; a changed value
+is a new revision. A deliberate A-to-B-to-A sequence records a new occurrence.
+No previous execution-envelope format or deployment routing fallback is admitted.
+
+Local qualification on stock PostgreSQL 18 proves additive catalogue
+membership across both time axes, immutable original and added futures with
+independent marks, recorded source selection without deployment price frames,
+and a claimed worker reproducing interactive scenario values and held version
+evidence. An upgrade check preserves a previously recorded
+close, its pins, publication transaction and certified receipt. Curve calendars,
+price history and custom graphs preserve the source of each available sample;
+a close that lacks a requested source is reported unavailable without hiding
+later complete samples. Position charts and draft previews use exact source
+identities; the UI keeps held terms distinct from new booking choices.
+
+Volatility fits use the published option-product role at the selected business
+date and exact calibration inputs from its source. Fit jobs and stored revisions
+retain that definition identity alongside the exact product reference and close
+or working valuation instant. The library marks a fit as available at a recorded
+close only when its source pins match that close's signed source part. The
+exchange worker check fits and reads the secondary part of a mixed close,
+including stored observation lineage and library selection. A held option or an
+option selected for booking opens the option directory, stored surfaces and fit
+commands under its exact definition. A published directory read pins its definition
+for the resulting surface requests and for opening a stored fit at another close.
+
+The v1 generated-close profile and normalized report have one exact definition.
+Admission checks the anchor's source matrix and publication checks the due
+session version's source-qualified roots before writing any observations. New
+publication checks the anchor against the current committed head under the
+publication lock, even when preflight retained an older certified view.
+Preflight uses its due business date and explicit derived inputs, and the
+report uses the recorded close with its original source evidence.
+
+Remaining qualification includes cross-reference mixed-product worker replay, portfolio
+aggregation across distinct reference revisions, remaining product admissions and
+the final browser and authority checks. Generated-close and normalized-report capabilities must be
+assessed separately from interactive portfolio support. No production activation
+has been performed.

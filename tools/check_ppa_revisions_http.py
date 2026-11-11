@@ -80,7 +80,7 @@ def run_checks(url,query,manifest,fixture):
         query(f"INSERT INTO security.reference_catalog_scopes VALUES('{bundle['referenceCatalogId']}','{manifest['tenantId']}','{manifest['workspaceId']}','owner');")
     # An old snapshot cannot be relabelled as the new bundle or vice versa.
     refusal=preview([t2['tradeId']],a,expected=422,**bundle)
-    check('R3.10 exact compatible binding still refuses an incompatible selected market frame',refusal['code']=='ppa_definition_revision' and 'valueExcludingOverdue' not in refusal)
+    check('R3.10 exact compatible binding still refuses an incompatible selected market frame',refusal['code']=='market_inputs_missing' and 'valueExcludingOverdue' not in refusal)
     # A stored compatible subset reuses the accepted meter-correction policy
     # while the other exact bundle remains present in the mixed book.
     config=manifest['ppaBookings']['workloads']['60']

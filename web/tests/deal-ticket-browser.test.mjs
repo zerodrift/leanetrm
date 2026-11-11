@@ -124,7 +124,7 @@ test('a lookup answer that changes nothing leaves the drawn schedule standing',{
     if(path==='tickets/description')return d;
     if(path==='tickets/choices')return {choices:[]};
     if(path==='tickets/lookup')return await new Promise(answer=>held.push(()=>answer({value:'3.25',source:{kind:'market',label:'Hub · close 2041-01-02'}})));
-    if(path==='tickets/preview'){const q=body.draft.sides[0].values.q;return {schedule:{levels:['month'],valuationAt:'',deliveredLeaves:0,leaves:1,delivered:null,remaining:null,totals:cells(q),
+    if(path==='tickets/preview'){const q=body.draft.sides[0].values.q;return {source:{definitionRevisionId:'definition-a',referenceCatalogId:'reference-catalog',referenceRevisionId:'reference-a'},schedule:{levels:['month'],valuationAt:'',deliveredLeaves:0,leaves:1,delivered:null,remaining:null,totals:cells(q),
      rows:[{key:'2041-02',parent:null,level:'month',start:'',end:'',operatingDate:null,cells:cells(q),delivered:false}]},summaries:[],scheduleRefusal:null,quantityUnit:'MMBtu',links:[]};}
     throw Error('unexpected '+path);
    };
@@ -342,6 +342,7 @@ test('late booked choice labels preserve an editable day cell and its unsent qua
     throw Error(path);
    };
    window.until=async test=>{for(let i=0;i<250&&!test();i++)await new Promise(r=>setTimeout(r,20));if(!test())throw Error('Condition not ready');};
+   window.painted=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
    window.ticket=setupTicket(document.querySelector('#host'),{api,context:()=>({}),product:d.product,instant:at=>at,zone:()=>'UTC',actor:()=>'synthetic-reader',opened:{tradeId:'synthetic',bindingId:'synthetic',revision:1}});
    await until(()=>held.length===1);
    const level=document.querySelector('.ticket-level');level.value='day';level.onchange();
@@ -351,10 +352,13 @@ test('late booked choice labels preserve an editable day cell and its unsent qua
    // cell once the grid has settled.
    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
    window.cell=document.querySelector('.ticket-cell-input');cell.value='990';cell.focus();
+   if(document.activeElement!==cell)throw Error('The editable day cell did not receive focus before its label read.');
    held.shift()();await until(()=>document.querySelector('[data-field=book] .ticket-value')?.textContent==='Resolved book');
+   // A label can resize the grid; its redraw restores the retained control on the next frame.
+   await painted();await until(()=>document.activeElement===cell);
   })()`);
   assert.deepEqual(await evaluate("({same:cell.isConnected&&cell===document.querySelector('.ticket-cell-input'),value:cell.value,focused:document.activeElement===cell})"),{same:true,value:'990',focused:true});
-  await evaluate('(async()=>{await until(()=>!!window.refuseChoice);refuseChoice();await new Promise(r=>setTimeout(r,50));})()');
+  await evaluate('(async()=>{await until(()=>!!window.refuseChoice);refuseChoice();await painted();await until(()=>document.activeElement===cell);})()');
   assert.deepEqual(await evaluate("({same:cell.isConnected&&cell===document.querySelector('.ticket-cell-input'),value:cell.value,focused:document.activeElement===cell,party:document.querySelector('[data-field=party] .ticket-value').textContent})"),{same:true,value:'990',focused:true,party:'party-1'});
   await evaluate("cell.dispatchEvent(new Event('change'))");
   assert.equal(await evaluate("document.querySelector('.ticket-record [data-field=quantity] .ticket-control').value"),'990');

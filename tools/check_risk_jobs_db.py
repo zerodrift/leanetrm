@@ -40,7 +40,10 @@ def run_checks(query, manifest, psql=None, environment=None):
     at = frame_seed['at']
     frame = {'id': str(uuid4()), 'name': 'Synthetic retained inputs', 'at': at,
              'observationIds': frame_seed['observationIds'], 'curveContracts': frame_seed['curveContracts'],
-             'frozenObservationIds': []}
+             'frozenObservationIds': [], 'businessDate': at[:10], 'sourceInputs': None,
+             'resolvesLatestCorrection': False,
+             'source': {'definitionRevisionId': revision, 'referenceCatalogId': manifest['referenceCatalogId'],
+                        'referenceRevisionId': manifest['referenceRevisionId']}}
 
     def token(profile='risk'):
         return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
@@ -107,12 +110,15 @@ def run_checks(query, manifest, psql=None, environment=None):
                'risk_job_denied')
     print('PASS risk worker boundary: mixed executor roles, privileged flags and application ownership refuse admission', flush=True)
 
-    supplemental = next(m for m in manifest['swapMarkets'] if m['revisionId'] != revision)
+    supplemental = next(m for m in manifest['inputMarkets'] if m['revisionId'] != revision)
     supplemental_revision = supplemental['revisionId']
     supplemental_seed = next(f for f in supplemental['frames'] if f['at'] == at)
     member = json.loads(query(f"SELECT jsonb_build_object('curve',curve_code,'contract',contract_id) FROM market_data.curve_members WHERE catalog_id='{catalog}' AND revision_id='{supplemental_revision}' ORDER BY curve_code,ordinal LIMIT 1;"))
     supplemental_frame = {key: value for key, value in frame.items()
                           if key not in ('supplementalMarkets', 'swapMarketSelections', 'scenarioAxes', 'connectedMarkets')}
+    supplemental_frame['source'] = json.loads(query(
+        f"SELECT jsonb_build_object('definitionRevisionId',id,'referenceCatalogId',reference_catalog_id,'referenceRevisionId',reference_revision_id)"
+        f" FROM market_data.revisions WHERE (catalog_id,id)=('{catalog}','{supplemental_revision}');"))
     supplemental_frame.update(name='Synthetic supplemental market', observationIds=supplemental_seed['observationIds'],
                               frozenObservationIds=supplemental_seed['observationIds'][:1],
                               curveContracts={member['curve']: [member['contract']]})
@@ -230,22 +236,22 @@ def run_checks(query, manifest, psql=None, environment=None):
     empty_markets = submit(payload=generic_request, selected_frame={**frame, 'supplementalMarkets': {}, 'swapMarketSelections': {}})
     user(f"SELECT risk.cancel('{empty_markets['jobId']}')")
     reject(lambda: submit(payload={key: value for key, value in generic_request.items() if key != 'pricingPolicy'}, selected_frame=generic_frame), 'risk_job_input')
-    for mutate in (
-        lambda value: value.pop('supplementalMarkets'),
-        lambda value: value['supplementalMarkets'][supplemental_revision].update(contextId=str(uuid4())),
-        lambda value: value['supplementalMarkets'][supplemental_revision].update(id=str(uuid4())),
-        lambda value: value['supplementalMarkets'][supplemental_revision].update(at='2020-12-14T16:00:00Z'),
-        lambda value: value['supplementalMarkets'][supplemental_revision].update(frozenObservationIds=[str(uuid4())]),
-        lambda value: value['supplementalMarkets'][supplemental_revision].update(supplementalMarkets={}),
-        lambda value: value.update(swapMarketSelections={}),
+    for mutate, expected in (
+        (lambda value: value.pop('supplementalMarkets'), 'risk_job_input'),
+        (lambda value: value['supplementalMarkets'][supplemental_revision].update(contextId=str(uuid4())), 'risk_job_input'),
+        (lambda value: value['supplementalMarkets'][supplemental_revision].update(id=str(uuid4())), 'risk_job_input'),
+        (lambda value: value['supplementalMarkets'][supplemental_revision].update(at='2020-12-14T16:00:00Z'), 'temporal_inputs_denied'),
+        (lambda value: value['supplementalMarkets'][supplemental_revision].update(frozenObservationIds=[str(uuid4())]), 'temporal_inputs'),
+        (lambda value: value['supplementalMarkets'][supplemental_revision].update(supplementalMarkets={}), 'risk_job_input'),
+        (lambda value: value.update(swapMarketSelections={}), 'risk_job_input'),
     ):
         invalid = deepcopy(generic_frame); mutate(invalid)
-        reject(lambda: submit(payload=generic_request, selected_frame=invalid), 'risk_job_input')
+        reject(lambda: submit(payload=generic_request, selected_frame=invalid), expected)
     invalid = deepcopy(generic_frame)
     invalid['supplementalMarkets'][supplemental_revision]['observationIds'] = frame['observationIds'][:1]
     invalid['supplementalMarkets'][supplemental_revision]['frozenObservationIds'] = []
     invalid['swapMarketSelections'][supplemental_revision] = frame['observationIds'][:1]
-    reject(lambda: submit(payload=generic_request, selected_frame=invalid), 'risk_job_denied')
+    reject(lambda: submit(payload=generic_request, selected_frame=invalid), 'temporal_inputs_denied')
     changed = deepcopy(generic_frame)
     changed['supplementalMarkets'][supplemental_revision]['frozenObservationIds'] = []
     reject(lambda: submit(generic_operation, generic_request, changed), 'risk_job_conflict')
@@ -278,7 +284,7 @@ def run_checks(query, manifest, psql=None, environment=None):
     corrected['supplementalMarkets'][supplemental_revision]['observationIds'][0] = correction.upper()
     corrected['supplementalMarkets'][supplemental_revision]['frozenObservationIds'] = [correction.upper()]
     corrected['swapMarketSelections'][supplemental_revision][0] = correction.upper()
-    reject(lambda: submit(payload=generic_request, selected_frame=corrected), 'risk_job_denied')
+    reject(lambda: submit(payload=generic_request, selected_frame=corrected), 'temporal_inputs_denied')
     later = user(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL)")
     corrected['contextId'] = later
     corrected['supplementalMarkets'][supplemental_revision]['contextId'] = later
@@ -384,10 +390,10 @@ def run_checks(query, manifest, psql=None, environment=None):
         print('PASS risk job run concurrency: a part sent while another of its run is uncommitted waits on the run\'s lock, seen in pg_stat_activity, so no run holds parts at two contexts or a part twice', flush=True)
 
     operation = str(uuid4())
-    reject(lambda: submit(selected_frame={**frame, 'frozenObservationIds': [str(uuid4())]}), 'risk_job_input')
-    reject(lambda: submit(selected_frame={key: value for key, value in frame.items() if key != 'frozenObservationIds'}), 'risk_job_input')
+    reject(lambda: submit(selected_frame={**frame, 'frozenObservationIds': [str(uuid4())]}), 'temporal_inputs')
+    reject(lambda: submit(selected_frame={key: value for key, value in frame.items() if key != 'frozenObservationIds'}), 'temporal_inputs')
     reject(lambda: submit(selected_frame={**frame, 'swapMarketSelections': {str(uuid4()): [str(uuid4())]}}), 'risk_job_input')
-    reject(lambda: submit(selected_frame={**frame, 'originCloseId': str(uuid4())}), 'risk_job_denied')
+    reject(lambda: submit(selected_frame={**frame, 'originCloseId': str(uuid4())}), 'temporal_inputs')
     job = submit(operation)
     assert job['state'] == 'queued'
     assert job['convention'] == request['convention']
@@ -649,12 +655,13 @@ def main():
                 raise RuntimeError(result.stderr)
             return result.stdout.strip()
         assert Path(query('SHOW data_directory;')).resolve() == data
+        query((ROOT / 'db/bootstrap.sql').read_text())
         for path in sorted((ROOT / 'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             query(path.read_text())
         reference, market, security, manifest = fixture(ROOT)
         from swap_fixture import fixture as swap_fixture
         swap_market, swap_manifest = swap_fixture()
-        manifest['swapMarkets'] = [swap_manifest]
+        manifest['inputMarkets'] = [swap_manifest]
         for sql in (reference, market, swap_market, security):
             query(sql)
         query(trading_fixture(manifest['catalogId'], swap_defaults=True))

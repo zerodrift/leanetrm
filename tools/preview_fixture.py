@@ -239,7 +239,7 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
             role='daily_settlement' if n==1 else 'parameter' if n==6 or n>=8 else 'trader_mark'
             event=f'event_{number}' if day==18 else f'history_{day}_{number}'
             extra_obs.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REV}','{identity('9',number)}',{R},'fixture','{event}','1','{role}','final','2020-12-{day} 16:00:00+00','{now}',{value},NULL);")
-        frames.append({'at':f'2020-12-{day}T16:00:00Z','observationIds':pins,
+        frames.append({'at':f'2020-12-{day}T16:00:00Z','observationIds':pins,'frozenObservationIds':[],
                        'curveContracts':{code:[identity('5',month*5+n) for month in range(6)] for code,n in curves}})
     if fixing_frames:
         if not current_schema:
@@ -264,7 +264,7 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
                     if oid not in emitted:
                         extra_obs.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REV}','{sid}',{R},'fixture','synthetic_monthly_fixing_{month}_{n}','1','index_fixing','final','{fixing_at}','{now}',{value},NULL);")
                         emitted.add(oid)
-            frames.append({'at':at,'observationIds':pins,'curveContracts':{code:[identity('5',month*5+n) for month in range(6)] for code,n in curves}})
+            frames.append({'at':at,'observationIds':pins,'frozenObservationIds':[],'curveContracts':{code:[identity('5',month*5+n) for month in range(6)] for code,n in curves}})
         partial=next(frame for frame in frames if frame['at']=='2021-01-15T08:00:00Z')
         frames.append({**partial,'at':'2021-01-15T09:00:00Z'})
     if window_frames:
@@ -321,6 +321,39 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
     reference=reference.replace("'test_currency_a'",f"'{CURRENCY}'").replace("'TST','Synthetic currency A'","'USD','US Dollar'")
     market=market.replace("'test_currency_a'",f"'{CURRENCY}'")
     return reference, market, security_fixture(CAT,RCAT), manifest
+
+
+def catalogue_fixture(manifest,issuer,*,curve_sources=(),role_revisions=None,expected_head=None,request_id='ebc5e695-c5c3-413f-9533-cba165b4d626'):
+    """Publish the explicitly selected baseline through the ordinary native command."""
+    catalog,revision,reference_catalog,reference_revision,tenant,workspace=(manifest[key] for key in
+        ('catalogId','revisionId','referenceCatalogId','referenceRevisionId','tenantId','workspaceId'))
+    curve_revisions = ','.join(f"'{source}'" for source in [revision, *curve_sources])
+    selected_roles=json.dumps(role_revisions or {}).replace("'", "''")
+    expected='NULL' if expected_head is None else "'"+str(expected_head)+"'::uuid"
+    return f"""
+BEGIN;
+SET LOCAL SESSION AUTHORIZATION preview_authenticator;
+SELECT security.issue_context('{issuer}','approver','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120) AS token \\gset
+SET LOCAL SESSION AUTHORIZATION preview_runtime;
+SELECT security.use_context(:'token');
+SELECT security.publish_catalogue('{catalog}','{request_id}',{expected},
+ (SELECT jsonb_build_object('effectiveFrom',p.effective_from,'effectiveTo',p.effective_to,
+ 'curves',coalesce((SELECT jsonb_agg(jsonb_build_object('code',c.code,'kind',c.kind,'definitionRevisionId',c.revision_id,
+ 'referenceCatalogId',r.reference_catalog_id,'referenceRevisionId',r.reference_revision_id) ORDER BY c.code)
+ FROM(SELECT code,revision_id,'curve' kind FROM market_data.curves WHERE catalog_id='{catalog}' AND revision_id IN({curve_revisions})
+ UNION ALL SELECT code,revision_id,'rate' FROM market_data.rate_curves WHERE(catalog_id,revision_id)=('{catalog}','{revision}'))c
+ JOIN market_data.revisions r ON(r.catalog_id,r.id)=('{catalog}',c.revision_id)),'[]'::jsonb),
+ 'roles',(SELECT jsonb_object_agg(role,jsonb_build_object('definitionRevisionId',r.id,
+ 'referenceCatalogId',r.reference_catalog_id,'referenceRevisionId',r.reference_revision_id))
+ FROM(SELECT unnest(ARRAY['primary','units','gas','ppa'])role UNION ALL
+ SELECT jsonb_object_keys('{selected_roles}'::jsonb) UNION
+ SELECT 'reference:'||c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ref_data' AND c.relkind='r'
+ AND EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attname='catalog_id' AND NOT a.attisdropped)
+ AND EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attname='revision_id' AND NOT a.attisdropped))roles
+ JOIN market_data.revisions r ON r.catalog_id='{catalog}' AND r.id=coalesce(('{selected_roles}'::jsonb->>role)::uuid,'{revision}'::uuid)))
+ FROM market_data.revision_periods p WHERE(p.catalog_id,p.revision_id)=('{catalog}','{revision}')));
+COMMIT;
+"""
 
 
 def security_fixture(catalog,reference_catalog):

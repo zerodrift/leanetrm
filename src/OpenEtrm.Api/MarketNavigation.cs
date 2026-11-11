@@ -7,13 +7,19 @@ namespace OpenEtrm.Api;
 
 public sealed record NavigationCategory(string Code,string Name);
 // A commodity curve names its commodity. An interest-rate curve has none; its market type identifies it.
-public sealed record NavigationCurve(string Code,string Name,string MarketType,NavigationCategory? Category,string Kind);
+public sealed record NavigationCurve(string Code,string Name,string MarketType,NavigationCategory? Category,string Kind)
+{
+    public CatalogueSource? Source{get;init;}
+}
 // Every listed curve has an honest authoring destination. Native terms without an
 // admitted definition are inspectable; this metadata never admits a financial rewrite.
 public sealed record CurveConfiguration(string Curve,Guid? Id,int? Version,string Kind,bool CanEdit,string? Reason);
-public sealed record NavigationFrame(Guid Id,string Name,DateTimeOffset At,Guid? OriginCloseId=null,FrameClose? Close=null);
+public sealed record NavigationFrame(Guid Id,string Name,DateTimeOffset At,DateOnly BusinessDate,Guid? OriginCloseId=null,FrameClose? Close=null);
 public sealed record NavigationRead(DefinitionRevision DefinitionRevision,ReferenceRevision ReferenceRevision,
-    ImmutableArray<NavigationCurve> Curves,ImmutableArray<CurveName> CurveNames,ReferenceDisplayData? ReferenceDisplay=null);
+    ImmutableArray<NavigationCurve> Curves,ImmutableArray<CurveName> CurveNames,ReferenceDisplayData? ReferenceDisplay=null)
+{
+    internal ImmutableArray<CurveConfiguration> Configurations{get;init;}=[];
+}
 public sealed record MarketNavigation(string Profile,ScheduleContext? Context,DefinitionRevision DefinitionRevision,
     ReferenceRevision ReferenceRevision,string FuturesConvention,PreviewExample? Example,ImmutableArray<Guid> InitialFrameIds,
     ImmutableArray<NavigationFrame> Frames,ImmutableArray<CurveName> CurveNames,ImmutableArray<NavigationCurve> Curves,ReferenceDisplayData? ReferenceDisplay=null)

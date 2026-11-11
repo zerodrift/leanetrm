@@ -8,7 +8,7 @@ def run_checks(url,client=None):
     frame=next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2020-12-18'))
     context={'snapshotId':frame['id'],'convention':'contract_lot_execution_pnl_v2','knowledgeMode':'current'}
     catalog=c.call('futures/catalog',context);trader=catalog['bookingActor'];contract=catalog['contracts'][0]
-    body={**context,'operationId':str(uuid4()),**trade_booking(), 'bookId':catalog['books'][0]['id'],'curve':contract['curve'],'contractId':contract['id'],'lots':'2','executionPrice':'3','memo':'Synthetic memo <text> =1+1'}
+    body={**context,'operationId':str(uuid4()),**trade_booking(), 'bookId':catalog['books'][0]['id'],'curve':contract['curve'],'contractId':contract['id'],'definitionRevisionId':contract['definitionRevisionId'],'lots':'2','executionPrice':'3','memo':'Synthetic memo <text> =1+1'}
     result=c.call('futures/book',body);assert result==c.call('futures/book',body)
     detail=c.call('futures/editor',{'context':context,'tradeId':result['tradeId'],'revision':None})
     assert detail['state']['traderId']==trader['id'] and detail['state']['memo']==body['memo']

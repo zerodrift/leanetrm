@@ -22,7 +22,7 @@ internal static class PortfolioJointCalculation
     internal static void RequireWork(PortfolioValuation.Prepared portfolio,PortfolioJointRisk.Resolved joint,RiskDetail detail)
     {
         var width=portfolio.Markets.Sum(m=>RiskEngine.ScenarioResultWidth(m.Connected,detail));
-        var rowScenarios=portfolio.Ppa is {} ppa?checked(ppa.Rows*(1L+joint.ChildCount)):0;
+        var rowScenarios=checked(portfolio.PpaRows*(1L+joint.ChildCount));
         // Admission counts nonterminal rollback nodes; terminal rows are linear in the selected step count.
         var treeNodes=portfolio.Options?.Bindings.Values.Where(b=>b.Receipt.Mode==OpenEtrm.MarketData.Trading.FuturesOptionPricing.SolvedMode)
             .Sum(b=>checked((long)b.Policy.Steps*(b.Policy.Steps+1)/2*(1L+joint.ChildCount)))??0;

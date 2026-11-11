@@ -99,6 +99,7 @@ def main():
                            'IFS= read -r PGPASSWORD < /run/secrets/database-owner; export PGPASSWORD; exec psql -X -h 127.0.0.1 -U openetrm_owner -d openetrm -qAt -v ON_ERROR_STOP=1']
                 result = subprocess.run(command, input=sql, text=True, capture_output=True, check=True)
                 return result.stdout.strip()
+            psql((extracted / 'bootstrap.sql').read_text())
             migrations = sorted((extracted / 'migrations').glob('*.sql'))
             for migration in migrations: psql(migration.read_text())
             psql("CREATE ROLE synthetic_runtime LOGIN PASSWORD '" + runtime_password + "' IN ROLE openetrm_runtime;\n"

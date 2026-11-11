@@ -31,7 +31,7 @@ def run_checks(url):
     contract = trading['contracts'][0]
     entity, counterparty = unicode_parties['legal_entity'], unicode_parties['counterparty']
     booked = trader.call('futures/book', {**trading_context, 'operationId': str(uuid4()), 'bookId': trading['books'][0]['id'],
-        'curve': contract['curve'], 'contractId': contract['id'], 'lots': '1', 'executionPrice': '3',
+        'curve': contract['curve'], 'contractId': contract['id'], 'definitionRevisionId': contract['definitionRevisionId'], 'lots': '1', 'executionPrice': '3',
         'legalEntityId': entity['id'], 'legalEntityRevision': entity['revision'],
         'counterpartyId': counterparty['id'], 'counterpartyRevision': counterparty['revision']})
     detail_request = {'context': trading_context, 'tradeId': booked['tradeId'], 'revision': None}

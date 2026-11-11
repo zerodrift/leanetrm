@@ -31,9 +31,11 @@ def run_checks(query,manifest,choices):
     members=[{'curve':'future','contractId':native.pop('contractId'),'ordinal':0}]
     pins=[{'seriesId':native['seriesId'],'observationId':native['anchorObservationId'],'inputUse':'variable'},fixed]
     sql_session(query,manifest,'test_pilot_morning','test_utc_every_day','08:00',['future'],['approver','pilot_fixture_worker'])
-    def register(candidate,expected=None,day='2021-01-01'):
+    def register(candidate,expected=None,day='2021-01-01',name='Synthetic exact frozen facts'):
         token=human_token()
-        invocation=f"security.register_market_close('{catalog}','{revision}','{uuid4()}','Synthetic exact frozen facts','test_pilot_morning','{day}','{day}T08:00:00Z','{json.dumps(candidate)}'::jsonb,'{json.dumps(members)}'::jsonb)"
+        registered_pins=[{**pin,'definitionRevisionId':revision} for pin in candidate]
+        registered_members=[{**member,'definitionRevisionId':revision,'scope':'root'} for member in members]
+        invocation=f"security.register_market_close('{catalog}','{revision}','{uuid4()}','{name}','test_pilot_morning','{day}','{day}T08:00:00Z','{json.dumps(registered_pins)}'::jsonb,'{json.dumps(registered_members)}'::jsonb)"
         if expected:
             statement=f"DO $$BEGIN PERFORM {invocation};RAISE EXCEPTION 'Unqualified actual was registered';EXCEPTION WHEN SQLSTATE 'P0001' THEN IF SQLERRM<>'{expected}' THEN RAISE;END IF;END$$;"
         else:statement=f'SELECT {invocation};'
@@ -54,8 +56,8 @@ def run_checks(query,manifest,choices):
     due='2021-01-02T08:00:00Z';query(f"UPDATE automation.jobs SET next_due_at='{due}' WHERE id='{created['id']}';")
     claim=json.loads(query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.claim_next('{uuid4()}',120,true);"))
     assert claim['jobId']==created['id'],'The frozen qualifier claimed an unrelated occurrence'
-    service=query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_pilot_context('{claim['id']}',{claim['fence']},'{claim['workerId']}');")
-    def publish(carried,marks=None,expected=None):
+    def service_token():return query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.issue_pilot_context('{claim['id']}',{claim['fence']},'{claim['workerId']}');")
+    def publish(carried,marks=None,expected=None,context=None):
         values=[marks if marks is not None else [native],carried,members]
         args=','.join("'"+json.dumps(value).replace("'","''")+"'::jsonb" for value in values)
         statement=f"PERFORM automation.publish_pilot_close({args});"
@@ -66,8 +68,9 @@ def run_checks(query,manifest,choices):
              OR EXISTS(SELECT 1 FROM market_data.observations WHERE catalog_id='{catalog}' AND role='index_fixing' AND source_event_id LIKE 'pilot:%')
              OR NOT EXISTS(SELECT 1 FROM market_data.market_closes WHERE id='{claim['id']}' AND(session_code,business_date,at)=('test_pilot_morning','2021-01-02','{due}'))
              THEN RAISE EXCEPTION 'Exact actual identity was replaced or generated';END IF;"""
-        query(f"""SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{service}');
-         SELECT security.use_market_context('{catalog}',security.capture_date_context('{catalog}','2021-01-02',NULL));
+        selected = f"'{context}'::uuid" if context else f"security.capture_date_context('{catalog}','2021-01-02',NULL)"
+        query(f"""SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{service_token()}');
+         SELECT security.use_market_context('{catalog}',{selected});
          SELECT security.use_trading_context('{catalog}','{due}');DO $$BEGIN {statement} END$$;ROLLBACK;""")
     publish([fixed])
     publish([],expected='pilot_close_inputs')
@@ -77,7 +80,10 @@ def run_checks(query,manifest,choices):
     # D334: automation never replaces a recorded close for its session day, and never follows a replaced anchor.
     register(pins,day='2021-01-02')
     publish([fixed],expected='close_exists')
-    register(pins)
+    preflight_context = query(f"SET SESSION AUTHORIZATION pilot_fixture_runtime;BEGIN;SELECT security.use_context('{service_token()}');"
+                              f"SELECT security.capture_date_context('{catalog}','2021-01-02',NULL);COMMIT;").splitlines()[-1]
+    assert register(pins,name='Synthetic revised anchor')!=anchor
+    publish([fixed],expected='close_replaced',context=preflight_context)
     publish([fixed],expected='close_replaced')
     query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.finish_run('{claim['id']}',{claim['fence']},'{claim['workerId']}',false,'synthetic_qualification',NULL);")
     assert query(f"SELECT count(*) FROM market_data.market_closes WHERE run_id='{claim['id']}';")=='0'

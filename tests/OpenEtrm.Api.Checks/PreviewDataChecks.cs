@@ -185,18 +185,26 @@ internal static class PreviewDataChecks
         {
             var final=Change(fixture.Observations[0],"role","final_contract_settlement");
             var selected=fixture.Frame with{ContextId=Guid.NewGuid(),OriginCloseId=Guid.NewGuid(),FrozenObservationIds=[final.Id("id")],ResolvesLatestCorrection=true};
-            var retained=RiskJobs.ReadFrame(RiskJobs.PinFrame(selected));
+            var owner=CatalogueSource.From(data);
+            var part=new MarketSourceInputs(owner,selected.ObservationIds,selected.FrozenObservationIds,selected.CurveContracts,["future"]);
+            selected=selected with
+            {
+                Source=owner,
+                SourceInputs=ImmutableDictionary<Guid,MarketSourceInputs>.Empty.Add(owner.DefinitionRevisionId,part),
+                Close=new("synthetic_close",1,selected.BusinessDate,null)
+            };
+            var retained=RetainedFrames.Read(RetainedFrames.Record(selected));
             var frozenData=Data(fixture.Observations.SetItem(0,final));
-            if(retained.ContextId!=selected.ContextId||retained.OriginCloseId!=selected.OriginCloseId||retained.ResolvesLatestCorrection||
+            if(retained.ContextId!=selected.ContextId||retained.OriginCloseId!=selected.OriginCloseId||retained.ResolvesLatestCorrection!=selected.ResolvesLatestCorrection||
                 !frozenData.Snapshot(retained).Selections.SequenceEqual(frozenData.Snapshot(selected).Selections)||
                 frozenData.Snapshot(retained).Selections[0].Input.Use!=InputUse.FrozenFact)
                 throw new Exception("Worker transport changed retained facts, provenance or input use.");
             foreach(var bad in new[]{"missing","unselected"})
             {
-                var envelope=RiskJobs.PinFrame(selected);
+                var envelope=RetainedFrames.Record(selected);
                 if(bad=="missing")envelope.Remove("frozenObservationIds");
                 else envelope["frozenObservationIds"]=System.Text.Json.Nodes.JsonNode.Parse("[\""+Guid.NewGuid()+"\"]");
-                Reject("risk_job_context",()=>RiskJobs.ReadFrame(envelope));
+                Reject("risk_job_context",()=>RetainedFrames.Read(envelope));
             }
         });
         Check("an explicitly selected frozen revision remains frozen without claiming the original stored close",()=>
@@ -595,7 +603,7 @@ internal static class PreviewDataChecks
             var previous=alias.ObservationIds[0];var replacement=Guid.NewGuid();
             foreach(var variant in new[]{alias.SelectRevision(previous,replacement,"Explicit synthetic inputs"),
                 alias.SelectSwapMarketRevision(Guid.NewGuid(),alias.ObservationIds,previous,replacement,"Explicit synthetic market"),
-                alias.ForSwapMarket([replacement],alias.CurveContracts)})
+                alias.ForMarketSource([replacement],alias.CurveContracts,[])})
                 if(variant.OriginInputId is not null||variant.OriginCloseId is not null||session.ContextFrame(variant,plan,context) is not null)
                     throw new Exception("An explicitly changed input retained an automatic entitlement to another close.");
         });
@@ -701,7 +709,7 @@ internal static class PreviewDataChecks
             ["trading_close_times"]=[],["futures_option_series"]=[],["futures_option_products"]=[],["clock_rules"]=[]
         };
         ImmutableArray<JsonElement> observations=[..series.Select((id,i)=>Row(new{id=Guid.NewGuid(),series_id=id,source_code="synthetic",role="daily_settlement",publication_state="final",observed_at="2040-01-09T00:00:00Z",value="100."+i.ToString("D3",CultureInfo.InvariantCulture),corrects_id=(Guid?)null}))];
-        var frame=new InputFrame(Guid.NewGuid(),"Synthetic selected futures",at,[..observations.Select(row=>row.Id("id"))],
+        var frame=new InputFrame(Guid.NewGuid(),"Synthetic selected futures",at,OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(at).Date,[..observations.Select(row=>row.Id("id"))],
             ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("future",[..contract]));
         return(new("local-synthetic-preview",cat,rev,rcat,rrev,Guid.NewGuid(),Guid.NewGuid(),[],null),definitions,references,observations,frame);
     }

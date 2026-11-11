@@ -19,7 +19,7 @@ def run_checks(url, receipt, *, run_worker):
     futures = c.call('futures/catalog', future_context)
     contract = next(k for k in futures['contracts'] if k['curve'] == 'future')
     future = c.call('futures/book', {**future_context, **trade_booking(), 'operationId': str(uuid4()),
-        'bookId': book, 'curve': contract['curve'], 'contractId': contract['id'], 'lots': '1', 'executionPrice': contract['mark']})
+        'bookId': book, 'curve': contract['curve'], 'contractId': contract['id'], 'definitionRevisionId': contract['definitionRevisionId'], 'lots': '1', 'executionPrice': contract['mark']})
 
     gas_context = {**context, 'convention': 'physical_gas_fixed_quantity_v4'}
     gas_catalog = c.call('gas/catalog', gas_context)

@@ -156,7 +156,7 @@ task; the booking-storage checkpoint alone does not complete it. See the
 ## Quickstart
 
 You need the .NET SDK pinned in `global.json`, Node with npm (version in
-`.node-version`), Python 3.12+ with assertions enabled and PostgreSQL 16 or later.
+`.node-version`), Python 3.12+ with assertions enabled and PostgreSQL 18.
 CI runs on Ubuntu 24.04.
 
 ```sh

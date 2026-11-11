@@ -231,8 +231,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
     static readonly ImmutableDictionary<string,ToolOperation> Operations=new ToolOperation[]
     {
         new("market_data.curves_v1","read_market_data",ToolNeeds.View,MarketAccess,[]),
-        new("market_data.curve_v1","read_market_data",ToolNeeds.Frame,MarketAccess,["missing_curve"]),
-        new("market_data.observations_v1","read_market_data",ToolNeeds.Frame,MarketAccess,["missing_curve"]),
+        new("market_data.curve_v1","read_market_data",ToolNeeds.Frame,MarketAccess,["missing_curve","curve_not_selected","catalogue_curve"]),
+        new("market_data.observations_v1","read_market_data",ToolNeeds.Frame,MarketAccess,["missing_curve","curve_not_selected","catalogue_curve"]),
         new("market_data.contract_definitions_v1","read_market_data",ToolNeeds.View,MarketAccess,[]),
         new("trades.blotter_v1","read_trades",ToolNeeds.Frame,TradeAccess,["blotter_view"]),
         new("trades.trade_v1","read_trades",ToolNeeds.Frame,TradeAccess,["futures_trade","swap_trade","ppa_trade","ppa_revision"]),
@@ -369,6 +369,8 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         ["access_denied"]="The read was denied under the agent's current access.",
         ["missing_curve"]="No curve with this code exists in the pinned market data.",
         ["missing_curve_view"]="The pinned As of frame selects no contracts for this curve.",
+        ["curve_not_selected"]="The selected close does not include this curve in its published scope.",
+        ["catalogue_curve"]="The selected catalogue does not include this curve.",
         ["empty_curve_view"]="This curve has no remaining contracts at the pinned As of frame.",
         ["missing_observation"]="Market data this curve needs is missing at the pinned As of frame.",
         ["source_expired"]="An input this curve needs has expired at the pinned As of frame.",
@@ -389,6 +391,7 @@ public sealed partial class AgentTools(PreviewDatabase database,MarketReads mark
         ["swap_trade"]="This swap is unavailable at the pinned knowledge.",
         ["futures_definition"]="A held futures contract cannot be resolved at the pinned knowledge.",
         ["swap_context"]="A swap market this read needs is unavailable at the pinned As of frame.",
+        ["valuation_convention"]="This read needs its exact valuation convention. Where the page's selected read states its input, repeat that input, which names it.",
         ["clock_rule"]="A market clock this read needs is incomplete or unreadable.",
         ["clock_tzdb"]="A market clock this read needs declares a time-zone release other than the installed one.",
         ["power_calendar"]="A settlement index calendar does not cover a whole delivery period.",

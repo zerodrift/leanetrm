@@ -79,7 +79,7 @@ def run_checks(url, query, manifest, client=None):
     futures_context = {**context, 'convention': w['futuresConvention']}
     futures = c.call('futures/catalog', futures_context)
     contract = futures['contracts'][0]
-    future = {'context': futures_context, 'curve': contract['curve'], 'contractId': contract['id'], 'lots': '-2', 'executionPrice': contract['mark']}
+    future = {'context': futures_context, 'curve': contract['curve'], 'contractId': contract['id'], 'definitionRevisionId': contract['definitionRevisionId'], 'lots': '-2', 'executionPrice': contract['mark']}
     fp = c.call('futures/price', future)
     assert fp['measure'] == 'execution_pnl' and F(fp['executionPnl']) == 0
     fr = c.call('futures/draft-risk', {'draft': {**future, 'context': {**futures_context, 'knowledgeMode': 'retained', 'contextId': fp['context']['contextId']}}, 'bumpPolicy': fp['bumpPolicy'], 'numericalPolicy': fp['numericalPolicy']})

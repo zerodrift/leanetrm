@@ -131,7 +131,7 @@ def run_supplemental_checks(c, check, query, manifest):
     before = trading_workspace(c, retained)
     held = next(h for h in before['blotter']['holdings'] if h['instrumentType'] == 'financial_swap'
                 and h['definitionRevisionId'] != manifest['revisionId'] and h['curve'] == 'daily_gas' and h['fixedPrice'] is not None)
-    market = next(m for m in manifest['swapMarkets'] if m['revisionId'] == held['definitionRevisionId'])
+    market = next(m for m in manifest['inputMarkets'] if m['revisionId'] == held['definitionRevisionId'])
     seed = next(f for f in market['frames'] if datetime.fromisoformat(f['at']) == datetime.fromisoformat(frame['at']))
     selected = ','.join("'" + str(UUID(i)) + "'::uuid" for i in seed['observationIds'])
     selected_facts = json.loads(query(f"SELECT json_agg(json_build_object('observation',row_to_json(o),'quote',row_to_json(q)) ORDER BY o.id)::text FROM market_data.observations o JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.id)=(o.catalog_id,o.definition_revision_id,o.series_id) JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)=(s.reference_catalog_id,s.reference_revision_id,s.quote_code) WHERE o.id=ANY(ARRAY[{selected}]) AND EXISTS(SELECT 1 FROM market_data.curve_members m WHERE(m.catalog_id,m.revision_id,m.contract_id,m.curve_code)=(s.catalog_id,s.revision_id,s.contract_id,'daily_gas'));"), parse_float=Decimal)

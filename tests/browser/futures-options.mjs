@@ -13,7 +13,7 @@ const q=value=>JSON.stringify(value);
 // A term the Details or the trade's window list, by its label.
 const term=label=>`[...document.querySelectorAll('.side-term')].find(t=>t.querySelector('dt').textContent===${JSON.stringify(label)})?.querySelector('dd').textContent`;
 // The request members a futures option booking states; a coming-soon control adds none.
-const bookingMembers=['operationId','snapshotId','convention','knowledgeMode','bookId','series','side','lots','premium','premiumPaymentDate','premiumStyle','memo','legalEntityId','legalEntityRevision','counterpartyId','counterpartyRevision'];
+const bookingMembers=['operationId','snapshotId','convention','knowledgeMode','bookId','definitionRevisionId','series','side','lots','premium','premiumPaymentDate','premiumStyle','memo','legalEntityId','legalEntityRevision','counterpartyId','counterpartyRevision'];
 
 export async function run({command,evaluate,wait,click,set,persona,check,idle,url,tab}){
  const artifacts=await mkdtemp(join(tmpdir(),'openetrm-futures-options-'));console.log('FUTURES_OPTION_VISUAL_ARTIFACTS='+artifacts);
@@ -122,7 +122,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  const receipt=sent[1].answer;
  await check('the retry sends the original request under its own identity and the backend answers its first outcome',
   q(sent[0].body.operationId===sent[1].body.operationId&&JSON.stringify(sent[0].body)===JSON.stringify(sent[1].body)&&sent[0].status===200&&sent[0].answer.tradeId===receipt.tradeId&&
-   Object.keys(sent[1].body).every(k=>bookingMembers.includes(k))&&sent[1].body.side==='buy'&&sent[1].body.lots==='2'&&sent[1].body.series===chosen.series&&sent[1].body.premiumStyle==='premium_paid_up_front'));
+   Object.keys(sent[1].body).every(k=>bookingMembers.includes(k))&&sent[1].body.side==='buy'&&sent[1].body.lots==='2'&&sent[1].body.definitionRevisionId===chosen.definitionRevisionId&&sent[1].body.series===chosen.series&&sent[1].body.premiumStyle==='premium_paid_up_front'));
 
  await wait(`window.blotterRows.some(r=>r.tradeId===${q(receipt.tradeId)})&&`+idle,60000);
  const rows=await evaluate(`window.blotterRows.filter(r=>r.series===${q(chosen.series)})`);
@@ -221,10 +221,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
 
  // An option, booked or being entered, links to its product's volatility surface: Vol surfaces opens on that product, read at the
  // context the option was read at.
- const surfaceOpened=async(name,product,context)=>{
+ const surfaceOpened=async(name,product,context,definition)=>{
   await settled(`document.querySelector('#page-title').textContent==='Vol surfaces'&&window.surfaceReads.length>0&&!['idle','loading'].includes(document.querySelector('#vol-surfaces-page').dataset.state)&&${idle}`,30000);
   const read=await evaluate('window.surfaceReads.at(-1)');
-  await check(name,q(read.status===200&&read.body.product===product&&read.body.context.snapshotId===context.snapshotId&&read.body.context.knowledgeMode===context.knowledgeMode&&
+  await check(name,q(read.status===200&&read.body.product===product&&read.body.definitionRevisionId===definition&&read.body.context.snapshotId===context.snapshotId&&read.body.context.knowledgeMode===context.knowledgeMode&&
    await evaluate(`document.querySelector('.vol-product-card[aria-pressed=true]')?.dataset.product===${q(product)}&&['notFitted','fitted'].includes(document.querySelector('#vol-surfaces-page').dataset.state)`)),
    `({read:window.surfaceReads.at(-1),state:document.querySelector('#vol-surfaces-page').dataset.state,error:document.querySelector('#vol-surface-error').textContent,product:document.querySelector('.vol-product-card[aria-pressed=true]')?.dataset.product})`);
  };
@@ -240,7 +240,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await wait(`!!${discard}||document.querySelector('#page-title').textContent==='Vol surfaces'`,30000);
  await check('leaving the ticket with typed entries asks first whether to discard them',`!!${discard}&&document.querySelector('#page-title').textContent!=='Vol surfaces'`);
  await evaluate(`${discard}.click()`);
- await surfaceOpened('the ticket\'s Volatility surface opens Vol surfaces on the chosen series\' product at the ticket\'s context',chosen.product,ticketRead);
+ await surfaceOpened('the ticket\'s Volatility surface opens Vol surfaces on the chosen series\' product at the ticket\'s context',chosen.product,ticketRead,chosen.definitionRevisionId);
  await click('#nav-futures');await wait("document.querySelector('#page-title').textContent==='Blotter'&&!!document.querySelector('#desk-positions .tabulator-row[data-row-key]')&&"+idle,60000);
  await find(receipt.tradeId);await details(row);
  await evaluate("[...document.querySelectorAll('#position-details [role=tab]')].find(t=>t.textContent==='Terms')?.click()");
@@ -248,5 +248,5 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  const holdingRead=(await evaluate(`window.optionCalls.filter(c=>c.path==='holding'&&c.body.tradeId===${q(receipt.tradeId)}).at(-1)`)).body.context;
  await check('the option trade offers its product\'s volatility surface',`document.querySelector('#option-trade-vol-surface').textContent==='Volatility surface'&&${term('Product')}===${q(chosen.name)}`);
  await evaluate("window.surfaceReads=[]");await click('#option-trade-vol-surface');
- await surfaceOpened('the trade\'s Volatility surface opens Vol surfaces on its product at the context the trade was read at',chosen.product,holdingRead);
+ await surfaceOpened('the trade\'s Volatility surface opens Vol surfaces on its product at the context the trade was read at',chosen.product,holdingRead,chosen.definitionRevisionId);
 }

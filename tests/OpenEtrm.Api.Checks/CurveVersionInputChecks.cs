@@ -10,17 +10,14 @@ internal static class CurveVersionInputChecks
     {
         var primary=Guid.NewGuid();var other=Guid.NewGuid();var at=DateTimeOffset.Parse("2032-10-04T20:00:00Z");
         var oldPin=Guid.NewGuid();var newPin=Guid.NewGuid();var actual=Guid.NewGuid();var context=Guid.NewGuid();
-        var frame=new InputFrame(Guid.NewGuid(),"Original close",at,[oldPin],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty)
+        var frame=new InputFrame(Guid.NewGuid(),"Original close",at,OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(at).Date,[oldPin],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty)
             {ContextId=context,OriginCloseId=Guid.NewGuid()};
         var manifest=new PreviewManifest("local-synthetic-preview",Guid.NewGuid(),primary,Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),[],null,
             FuturesConvention:"contract_lot_execution_pnl_v2",GasMarket:new(other,[new(at,[newPin],new(){["daily"]=[Guid.NewGuid()]},[actual])]));
         using var runtime=NpgsqlDataSource.Create("Host=127.0.0.1;Port=1;Database=unused;Username=unused");
         var database=new PreviewDatabase(manifest,runtime);
-        Require(CurveVersionInputs.Revision(database,null)==primary,"New curves use the active catalogue.");
-        Require(ReferenceEquals(CurveVersionInputs.Frame(database,frame,primary),frame),"Primary selections keep the original frame.");
-        Reject(()=>CurveVersionInputs.Frame(database,frame,other));
-        Reject(()=>CurveVersionInputs.Revision(database,Guid.NewGuid()));
-        Reject(()=>CurveVersionInputs.Revision(database,Guid.Empty));
+        Require(CurveVersionInputs.Exact(other)==other,"A saved source is exact contractual input, independent of the current catalogue.");
+        Reject(()=>CurveVersionInputs.Exact(Guid.Empty));
         Require(frame.ObservationIds.SequenceEqual([oldPin])&&frame.OriginCloseId is not null,
             "A rejected version must not replace the selected close's prices or official identity.");
         var source=Saved(manifest.CatalogId,Guid.NewGuid(),other,null);

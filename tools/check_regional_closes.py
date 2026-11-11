@@ -60,14 +60,14 @@ def run_checks(url, query, manifest):
     # The frame must carry exactly the session's curves; the database names what is missing or extra.
     series = dict(json.loads(query(f"SELECT json_agg(json_build_array(id,series_id))::text FROM market_data.observations WHERE catalog_id='{catalog}' AND id IN({','.join(repr(o) for o in frame['observationIds'])});")))
     def register_sql(members, session='test_utc_close'):
-        pins = [{'seriesId': series[o], 'observationId': o, 'inputUse': 'variable'} for o in frame['observationIds']]
+        pins = [{'definitionRevisionId': revision, 'seriesId': series[o], 'observationId': o, 'inputUse': 'variable'} for o in frame['observationIds']]
         encoded = lambda value: "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
         token = query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','approver','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120);")
         return query(f"""SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');
         DO $$BEGIN PERFORM security.register_market_close('{catalog}','{revision}','{uuid4()}','Synthetic partial','{session}','2020-12-18','2020-12-18T16:00:00Z',{encoded(pins)},{encoded(members)});
         RAISE EXCEPTION 'accepted';EXCEPTION WHEN SQLSTATE 'P0001' THEN DECLARE detail text;BEGIN GET STACKED DIAGNOSTICS detail=PG_EXCEPTION_DETAIL;
         PERFORM set_config('openetrm.check_refusal',SQLERRM||'|'||detail,false);END;END$$;SELECT current_setting('openetrm.check_refusal');COMMIT;""").splitlines()[-1]
-    members = [{'curve': c, 'contractId': k, 'ordinal': n} for c in curves for n, k in enumerate(frame['curveContracts'][c])]
+    members = [{'definitionRevisionId': revision, 'curve': c, 'contractId': k, 'ordinal': n, 'scope': 'root'} for c in curves for n, k in enumerate(frame['curveContracts'][c])]
     missing = register_sql([m for m in members if m['curve'] != 'future'])
     assert 'close_incomplete' in missing and 'future' in missing, missing
     publish(editor, approver, draft('test_narrow_close', 'test_business', '16:00', ['future']))
@@ -76,7 +76,7 @@ def run_checks(url, query, manifest):
     assert 'close_outside_session' in extra and 'local_power' in extra, extra
     print('PASS a close must carry exactly its session curves, naming those missing or extra', flush=True)
 
-    # Two recordings for one session and day race; the later publication is in force and both succeed.
+    # Concurrent commands recording the same fact share one publication and both succeed.
     racers, results = [client(url, 'approver') for _ in range(2)], []
     def race(who):
         try:
@@ -86,17 +86,17 @@ def run_checks(url, query, manifest):
     threads = [threading.Thread(target=race, args=(who,)) for who in racers]
     for thread in threads: thread.start()
     for thread in threads: thread.join()
-    assert len(results) == 2 and all(isinstance(r, dict) for r in results) and len({r['id'] for r in results}) == 2, results
+    assert len(results) == 2 and all(isinstance(r, dict) for r in results) and len({r['id'] for r in results}) == 1, results
     latest = max(results, key=lambda r: int(query(f"SELECT publication_order FROM market_data.market_closes WHERE id='{r['id']}';")))
     assert query(f"SELECT id FROM market_data.market_closes WHERE catalog_id='{catalog}' AND session_code='test_utc_close' AND business_date='2020-12-18' ORDER BY publication_order DESC LIMIT 1;") == latest['id']
-    print('PASS concurrent recordings for one session day both succeed and the later one is in force', flush=True)
+    print('PASS concurrent identical recordings share one publication and both succeed', flush=True)
 
     # Only the close in force is a choice: the calendar lists it once per business day and counts the closes it replaced.
     replaced = sorted(r['id'] for r in [first, *results] if r['id'] != latest['id'])
     dates = lambda who, session: who.call('market/dates', {'curve': None, 'timeZone': 'UTC', 'session': session})
     utc = dates(viewer, 'test_utc_close')
     day = next(d for d in utc['dates'] if d['date'] == '2020-12-18')
-    assert [f['id'] for f in day['frames']] == [latest['id']] and day['replaced'] == 2, day
+    assert [f['id'] for f in day['frames']] == [latest['id']] and day['replaced'] == 1, day
     assert day['frames'][0]['businessDate'] == '2020-12-18'
     viewer.call('market/dates', {'curve': None, 'timeZone': 'UTC'}, expected=400)
     history = viewer.call('market/closes/history', {'session': 'test_utc_close', 'businessDate': '2020-12-18'})
@@ -117,22 +117,19 @@ def run_checks(url, query, manifest):
     assert refused['code'] == 'close_replaced' and newer['id'] in refused['message'], refused
     print('PASS a close replaced after it was offered is refused for new work, naming the close in force', flush=True)
 
-    # Always latest (D334): a historical view reads the close in force for its business day even when it was recorded after the
-    # view's knowledge cutoff, and says so. Its business day, not the UTC date of its instant, matches the view's date.
+    # A retained cutoff keeps its known close when a later replacement is recorded.
     historical = client(url, 'viewer')
     historical.call('market/context', {'effectiveOn': '2020-12-18', 'knownAt': None, 'mode': 'current', 'selection': 'latest_correction'})
     after = record(approver, 'test_utc_close', '2020-12-18', 'Synthetic after cutoff')
     # A historical view offers closes under its own frame identities, each naming the close it reads.
     closes = {f['originCloseId']: f for f in historical.call('workspace')['frames']}
-    assert after['id'] in closes and newer['id'] not in closes, sorted(closes)
-    assert closes[after['id']]['close']['recordedAfterCutoff'] is True, closes[after['id']]
-    assert historical.call('evaluate', {'snapshotId': closes[after['id']]['id'], 'curve': 'future'})['points']
+    assert after['id'] not in closes and newer['id'] in closes, sorted(closes)
+    assert historical.call('evaluate', {'snapshotId': closes[newer['id']]['id'], 'curve': 'future'})['points']
     day = next(d for d in historical.call('market/dates', {'curve': None, 'timeZone': 'UTC', 'session': 'test_utc_close'})['dates'] if d['date'] == '2020-12-18')
-    assert [f['id'] for f in day['frames']] == [closes[after['id']]['id']], day
-    print('PASS historical views read the close in force recorded after their cutoff', flush=True)
+    assert [f['id'] for f in day['frames']] == [closes[newer['id']]['id']], day
+    print('PASS historical views keep the close known at their cutoff', flush=True)
 
-    # A price first published after the view's cutoff, pinned by the close in force, is released alike by the set and the per-row
-    # visibility checks, and only for the session the request reads.
+    # Neither regional session nor a newer recorded close releases a price first published after the cutoff.
     base = next(f for f in approver.call('workspace')['frames'] if f.get('originCloseId', f['id']) == after['id'])
     pinned = next(o for o in approver.call('workspace')['observations'] if o['id'] in base['observationIds'] and o['series_id'].endswith('000000000001'))
     editor.call('workspace')
@@ -146,10 +143,10 @@ def run_checks(url, query, manifest):
           SELECT EXISTS(SELECT 1 FROM security.visible_observations() v WHERE v.observation='{corrected['observationId']}')::text||'|'||security.market_fact_visible('{catalog}','{revision}','{corrected['observationId']}')::text;COMMIT;""").splitlines()[-1]
     def issue():
         return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',120);")
-    assert released('test_utc_close') == 'true|true', released('test_utc_close')
+    assert released('test_utc_close') == 'false|false', released('test_utc_close')
     assert released('test_late_close') == 'false|false', 'Another session released this session\'s later price'
-    assert newest['id'] in {f['originCloseId'] for f in historical.call('workspace')['frames']}
-    print('PASS set and per-row visibility release a later price pinned by the close in force, for its session only', flush=True)
+    assert newest['id'] not in {f['originCloseId'] for f in historical.call('workspace')['frames']}
+    print('PASS set and per-row visibility both exclude later prices across regional sessions', flush=True)
 
     # A person's chosen session is remembered (D334); nothing chooses one for a new account.
     created = admin.call('admin/create', {'operationId': str(uuid4()), 'login': 'session_chooser', 'name': 'Synthetic session chooser', 'kind': 'human', 'roles': ['trader']})

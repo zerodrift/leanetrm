@@ -45,7 +45,7 @@ def run_checks(url, query, manifest):
     book = catalog['books'][0]['id']
 
     def body(option, lots, premium, **changes):
-        return {'operationId': str(uuid4()), **context, 'bookId': book, 'series': option['series'], **side_lots(lots), 'premium': premium,
+        return {'operationId': str(uuid4()), **context, 'bookId': book, 'series': option['series'], 'definitionRevisionId': option['definitionRevisionId'], **side_lots(lots), 'premium': premium,
                 'premiumPaymentDate': '2026-10-19', 'premiumStyle': 'premium_paid_up_front', 'memo': 'Synthetic option booking', **parties, **changes}
 
     def stored(trade):
@@ -150,13 +150,14 @@ def run_checks(url, query, manifest):
         finally:
             query(f"INSERT INTO security.{table} SELECT * FROM json_populate_recordset(NULL::security.{table},'" + held.replace("'", "''") + "'::json);")
     seen, missing, replayed = withdrawn('reference_catalog_scopes', 'catalog_id', reference[0], lambda: (
-        c.call('options/book', body(lo, '1', '1.25'), expected=422), c.call('options/book', body(lo, '1', '1.25', series='nymex_lo_29991201_p1.00'), expected=422),
-        c.call('options/book', long_call, expected=422)))
-    check('a trader whose reference scope is withdrawn cannot book, and an unseen series is refused exactly as a nonexistent one',
-          seen == missing and seen['code'] == 'option_definition' and rows() == before, (seen, missing))
-    check('a retried booking whose series the trader can no longer see is refused as unseen, not replayed', replayed == seen, replayed)
+        c.call('options/book', body(lo, '1', '1.25'), expected=403), c.call('options/book', body(lo, '1', '1.25', series='nymex_lo_29991201_p1.00'), expected=403),
+        c.call('options/book', long_call, expected=403)))
+    check('withdrawn reference scope denies the exact source without disclosing whether a series exists',
+          seen == missing and seen['code'] == 'access_denied' and rows() == before, (seen, missing))
+    check('an accepted booking cannot be replayed after reference authority is withdrawn', replayed == seen, replayed)
     check('once the scope is restored the same retry returns its first outcome', c.call('options/book', long_call) == booked and rows() == before)
-    check('a nonexistent series is refused with the same code', c.call('options/book', body(lo, '1', '1.25', series='nymex_lo_29991201_p1.00'), expected=422) == seen)
+    check('an authorized request for a nonexistent series is refused',
+          c.call('options/book', body(lo, '1', '1.25', series='nymex_lo_29991201_p1.00'), expected=422)['code'] == 'option_definition')
     withdrawn('market_catalog_scopes', 'catalog_id', manifest['catalogId'], lambda: c.call('options/book', body(lo, '1', '1.25'), expected=403))
     check('a trader without market read access cannot book', rows() == before)
     return options
@@ -283,7 +284,7 @@ def run_lifecycle_checks(url, query, manifest):
         print('PASS ' + name, flush=True)
 
     def booked(option, lots):
-        return c.call('options/book', {'operationId': str(uuid4()), **context, 'bookId': book, 'series': option['series'], **side_lots(lots),
+        return c.call('options/book', {'operationId': str(uuid4()), **context, 'bookId': book, 'series': option['series'], 'definitionRevisionId': option['definitionRevisionId'], **side_lots(lots),
                                        'premium': '0.125', 'premiumPaymentDate': '2026-10-19', 'premiumStyle': 'premium_paid_up_front', **parties})['tradeId']
 
     def event(path, trade, expected=200, **fields):

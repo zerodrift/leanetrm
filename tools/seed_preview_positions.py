@@ -46,15 +46,18 @@ def seed_positions(url, run_id, owned_root, client=None):
     contract = identity('5', 1)
     # Resolve every exact book/member before the first mutation. The business
     # command independently validates ticks, units, trading interval and authority.
+    definitions = {}
     for frame in frames:
         catalog = client.call('futures/catalog', {'snapshotId':frame['id'],'convention':CONVENTION,'knowledgeMode':'current'})
-        if not set(BOOKS).issubset({b['id'] for b in catalog['books']}) or not any(c['id'] == contract and c['curve'] == 'future' for c in catalog['contracts']):
+        choices = [c for c in catalog['contracts'] if c['id'] == contract and c['curve'] == 'future']
+        if not set(BOOKS).issubset({b['id'] for b in catalog['books']}) or len(choices) != 1:
             raise ValueError('Required synthetic books or dated contract are unavailable.')
+        definitions[frame['id']] = choices[0]['definitionRevisionId']
     results = []
     for day, a_lots, a_price, b_lots, b_price in EXECUTIONS:
         frame = next(f for f in frames if f['at'][:10] == day)
         for book, lots, price in zip(BOOKS, (a_lots,b_lots), (a_price,b_price), strict=True):
             operation = uuid5(NAMESPACE, ':'.join(('weekday_demo_v1',CAT,REV,day,book)))
             results.append(client.call('futures/book', {'operationId':str(operation),'snapshotId':frame['id'],'convention':CONVENTION,
-                'knowledgeMode':'current',**trade_booking(),'bookId':book,'curve':'future','contractId':contract,'lots':lots,'executionPrice':price}))
+                'knowledgeMode':'current',**trade_booking(),'bookId':book,'curve':'future','contractId':contract,'definitionRevisionId':definitions[frame['id']],'lots':lots,'executionPrice':price}))
     return results

@@ -42,8 +42,9 @@ def run_checks(query, manifest):
     check('complete original frame pins admit under their exact certified context')
     reject(guard([], at='2020-12-16T16:00:00Z'), 'knowledge_coverage')
     check('a certified context cannot be reused for a different effective date')
-    outside = capture('2023-01-01')
-    reject(guard([], outside, '2023-01-01T16:00:00Z'), 'ppa_definition_revision')
+    outside_day=query(f"SELECT effective_to FROM market_data.revision_periods WHERE(catalog_id,revision_id)=('{catalog}','{definition}');")
+    outside = capture(outside_day)
+    reject(guard([], outside, outside_day+'T16:00:00Z'), 'ppa_definition_revision')
     check('publication does not authorize a definition outside its exact effective period')
 
     late = str(uuid4())

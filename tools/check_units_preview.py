@@ -51,8 +51,15 @@ def run_checks(url, previous_known_at=None, client=None):
     if previous_known_at is not None:
         c.call('market/context',{'effectiveOn':'2020-12-18','knownAt':previous_known_at,'mode':'at','selection':'latest_correction'})
         old=c.call('workspace')
-        assert old['definitions']['curves'] and old['unitCatalog'] is None and old['unitCatalogError']=='unit_catalog'
-        assert c.call('units/convert',{'value':'1','from':source,'to':source,'decimalPlaces':None,'tieRule':None},expected=422)['code']=='unit_catalog'
+        assert old['definitions']['curves'] and old['unitCatalogError'] is None
+        assert old['unitCatalog']['revision'] == {'catalogId': old['definitions']['revisions'][0]['reference_catalog_id'],
+            'revisionId': old['definitions']['revisions'][0]['reference_revision_id']}
+        assert old['unitCatalog']['revision'] != w['unitCatalog']['revision']
+        assert all(unit['revision_id'] == w['unitCatalog']['revision']['revisionId'] for unit in refs['units'])
+        assert 'catalog_only_kwh' not in {unit['code'] for unit in old['unitCatalog']['references']['units']}
+        assert convert('2.5','test_power','megawatt_hour','kilowatt_hour')['value']=='2500'
+        assert c.call('units/convert',{'value':'1','from':'test_power_catalog_only','to':'test_power_catalog_only',
+            'decimalPlaces':None,'tieRule':None},expected=422)['code']=='missing_reference'
         c.call('market/current',{})
-        assert c.call('workspace')['unitCatalog'] is not None
-        print('PASS unit catalog: old knowledge retains market data while later unit bundle is unavailable; working knowledge restores the exact configured catalog',flush=True)
+        assert c.call('workspace')['unitCatalog']['revision'] == w['unitCatalog']['revision']
+        print('PASS unit catalog: each certified cutoff reads its published unit version; current knowledge reads the added unit',flush=True)

@@ -22,7 +22,7 @@ internal static class CloseRiskChecks
         var balances=ValueMeasures.From(inputs.Session(market.Build).Value(agreement,new(fixture.From,fixture.From.AddHours(1)),
             new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
         var report=new PortfolioValuationResult(market.Snapshot.Id,new("2031-10-31",null),PilotCloseJobs.QualifiedPolicy,[],[],[],[],[],new(0,0,0,1,0,0,0))
-            {PpaMeasures=[new(Guid.NewGuid(),agreement.Currency,balances,[])],PpaReceipt=inputs.Receipt};
+            {PpaMeasures=[new(Guid.NewGuid(),agreement.Currency,balances,[])],PpaReceipts=[inputs.Receipt]};
         var adapted=PilotCloseReports.Adapt(report);
         if(!adapted.PpaMeasures.SequenceEqual(report.PpaMeasures)||adapted.PpaReceipt!=inputs.Receipt)
             throw new Exception("Shared close report conversion dropped retained PPA receipt or book measures.");

@@ -13,6 +13,7 @@ public sealed record TradingView
     internal TradingView(InputFrame? frame,ScheduleContext context,bool working)
     {
         Frame=frame??throw PinnedContext.Missing();Context=PinnedContext.Exact(context);Working=working;
+        Frame.Time.RequireDate(DateWorkspace.Date(Context.EffectiveOn));
     }
     public InputFrame Frame {get;}
     public InputFrame CalculationFrame=>Frame with{ContextId=Context.ContextId};

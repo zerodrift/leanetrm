@@ -1,7 +1,15 @@
 # Database schema and migration history
 
+For a fresh database, run [bootstrap.sql](bootstrap.sql) as the actual role that
+will create migration objects, before applying migrations in order. It establishes
+the explicit seven-rights table-owner ACL reviewed by the migration guards on
+stock PostgreSQL 18. Runtime grants and published migration files are independent
+of this bootstrap. Additional maintenance privileges require an explicit operator
+grant. Bootstrap refuses an existing application schema; upgrading an installed
+database preserves its migration ledger and existing ACL provenance.
+
 The current ordered schema runs from `0001_reference_data.sql` through
-`0210_indexed_gas_consideration.sql`. It includes reference/market data, certified
+`0236_generated_close_source_scope.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts, regional closes, bounded physical gas/crude operations and
 pre-loading LNG cargo booking/valuation with saved Incoterms.
@@ -140,8 +148,10 @@ their certificates retain NULL date/party facts without inferred backfills.
 Apply this additive migration with runtime write admission stopped and admitted
 calls drained; the publication gate does not replace draining old function bodies.
 
+The attested release includes this bootstrap as `bootstrap.sql` at its root.
+
 [0001_reference_data.sql](migrations/0001_reference_data.sql) is the first migration.
-It requires stock PostgreSQL 16 or later and installs no extensions. This is a
+It requires stock PostgreSQL 18 and installs no extensions. This is a
 storage foundation, not a complete application schema or a runnable service.
 
 The original migration created 28 tables covering the following families.

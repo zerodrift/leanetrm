@@ -85,13 +85,14 @@ export async function run(actions){
  await shot('deal-ticket');
 
  // The booking's response is lost: its request is kept and the ticket locked, and after a reload the Blotter offers to reconcile it.
- await evaluate(`{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/tickets/book')&&response.ok)throw new TypeError('Synthetic lost booking response');return response;};}`);
+ await evaluate(`{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/tickets/book')&&response.ok){window.__ticketBooked=await response.clone().json();throw new TypeError('Synthetic lost booking response');}return response;};}`);
  const reconcile=`[...document.querySelectorAll('#gas-ticket .ticket-booking button')].find(b=>b.textContent==='Check booking status'&&!b.disabled)`;
  await click(`${ticket} .ticket-book`);await wait(`!!${reconcile}`);
  await check('no preview or booking request carries a coming-soon field',
   `['preview','book'].every(path=>ticketBodies.some(b=>b.path===path))&&ticketBodies.every(b=>{const sent=[b.draft.trade,...b.draft.sides.map(s=>s.values)].flatMap(Object.keys);
    return ${q(soonIds)}.every(id=>!sent.includes(id))&&b.draft.sides.every(s=>s.kind!=='floating');})&&${q(soonIds)}.length===10`,`({soon:${q(soonIds)},bodies:ticketBodies.length})`);
  await check('a booking whose response is lost keeps its request and locks the ticket',`document.querySelector('#gas-ticket > div').inert&&document.querySelector('#gas-ticket .ticket-booking').textContent.includes('The booking is not confirmed')`,"document.querySelector('#gas-ticket .ticket-booking').textContent");
+ const bookedReceipt=await evaluate('window.__ticketBooked');
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
  await set('#snapshot',frame.id);await wait(idle);
  await evaluate("window.__pendingChangeWaits=0;{const send=window.fetch;window.fetch=(input,init)=>{if(String(input)==='/api/trading/changes')window.__pendingChangeWaits++;return send(input,init);};}");
@@ -102,7 +103,9 @@ export async function run(actions){
  await wait(`!!${reconcile}&&document.querySelectorAll(${q(ticket+' .ticket-card')}).length===3`);
  await check('the reconciled ticket shows the request\'s exact terms, locked',`document.querySelector(${q(control('physical-1','quantity'))}).value==='10000'&&document.querySelector('#gas-ticket > div').inert`);
  await evaluate(`${reconcile}.click()`);
+ await wait("document.querySelector('#position-details').dataset.mode==='position'&&document.querySelector('#desk-positions .standard-data-grid')?.dataset.selectedRow?.startsWith("+q(bookedReceipt.tradeId+':')+")&&"+idle);
  await openBookedSchedules(actions);
+ await wait(`!!document.querySelector(${q(booked+' .ticket-tab[data-tab=instrument]')})`);await click(`${booked} .ticket-tab[data-tab=instrument]`);
  await until(`!!document.querySelector(${q(booked)})&&`+current(booked),`({error:document.querySelector('#error').textContent,booking:document.querySelector('#gas-ticket .ticket-booking')?.textContent,details:document.querySelector('#position-details').textContent.slice(0,300)})`);
  await check('the booked trade opens read-only in the Details pane with the schedule it was previewed with',
   `${month(booked)}===${q(previewed)}&&document.querySelectorAll(${q(booked+' .ticket-card')}).length===0&&!document.querySelector(${q(booked+' .ticket-control:not([disabled])')})&&!document.querySelector(${q(booked+' .ticket-book')})`,
@@ -121,6 +124,7 @@ export async function run(actions){
   await own.command('Page.navigate',{url:await evaluate('window.__opened[0]')});
   await own.wait("!!document.querySelector('#position-window-tabs-schedules')");await own.evaluate("document.querySelector('#position-window-tabs-schedules').click()");
   const windowTicket='#position-window-view .deal-ticket[data-mode=booked]';
+  await own.wait(`!!document.querySelector(${q(windowTicket+' .ticket-tab[data-tab=instrument]')})`);await own.evaluate(`document.querySelector(${q(windowTicket+' .ticket-tab[data-tab=instrument]')}).click()`);
   await own.wait(`!!document.querySelector(${q(windowTicket+' .tabulator-row[data-row-key="2021-01"]')})`,30000);
   await check('the trade\'s own window opens the same read-only ticket',`${q(await own.evaluate(month(windowTicket)))}===${q(previewed)}`);
  }finally{await own.close();}

@@ -30,9 +30,12 @@ public static class CloseSessions
     public static async Task<object> Catalog(NpgsqlConnection connection,Guid catalog,CancellationToken ct)=>
         new{sessions=await ModelProviders.Read(connection,"SELECT security.close_session_catalog($1)::text",[catalog],ct)};
 
-    public static Task<JsonElement> Save(NpgsqlConnection connection,PreviewDatabase database,CloseSessionSave request,CancellationToken ct)=>
-        ModelProviders.Read(connection,"SELECT security.save_close_session($1,$2,$3,$4::jsonb)::text",
-            [database.Manifest.CatalogId,database.Manifest.RevisionId,request.RequestId,JsonSerializer.Serialize(request.Draft,Json)],ct);
+    public static async Task<JsonElement> Save(NpgsqlConnection connection,PreviewDatabase database,CloseSessionSave request,CancellationToken ct)
+    {
+        var source=(await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct)).RequireRole("primary");
+        return await ModelProviders.Read(connection,"SELECT security.save_close_session($1,$2,$3,$4::jsonb)::text",
+            [database.Manifest.CatalogId,source.DefinitionRevisionId,request.RequestId,JsonSerializer.Serialize(request.Draft,Json)],ct);
+    }
 
     public static Task<JsonElement> Publish(NpgsqlConnection connection,Guid catalog,CloseSessionPublish request,CancellationToken ct)=>
         ModelProviders.Read(connection,"SELECT security.publish_close_session($1,$2,$3,$4,$5)::text",

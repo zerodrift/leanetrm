@@ -17,7 +17,7 @@ test('catalog refresh drops an unavailable delivery filter and immediately offer
  try{
   setCurveNames([{code:'synthetic',name:'Synthetic curve'}]);
   const host=new Element('section'),editor=futuresInstrumentEditor(host,{contract:'contract',lots:'lots',price:'price',terms:'terms'});
-  const row={id:'front',curve:'synthetic',commodity:'gas',commodityName:'Synthetic gas',exchange:'synthetic_exchange',exchangeName:'Synthetic exchange',product:'synthetic_product',name:'Synthetic future',deliveryFrom:'2031-01-01',deliveryTo:'2031-02-01'};
+  const row={definitionRevisionId:'r1',id:'front',curve:'synthetic',commodity:'gas',commodityName:'Synthetic gas',exchange:'synthetic_exchange',exchangeName:'Synthetic exchange',product:'synthetic_product',name:'Synthetic future',deliveryFrom:'2031-01-01',deliveryTo:'2031-02-01'};
   const later={...row,id:'later',deliveryFrom:'2031-02-01',deliveryTo:'2031-03-01'};
   const byId=id=>descendants(host).find(n=>n.id===id);
   editor.populate([row,later],'');
@@ -26,6 +26,6 @@ test('catalog refresh drops an unavailable delivery filter and immediately offer
   assert.equal(byId('contract').options.length,2,'front month filter is active');
   editor.populate([later],'');
   assert.equal(byId('contract-date-clear').disabled,true,'unavailable filter is cleared');
-  assert.deepEqual(byId('contract').options.map(o=>o.value),['',JSON.stringify([later.curve,later.id])]);
+  assert.deepEqual(byId('contract').options.map(o=>o.value),['',JSON.stringify([later.definitionRevisionId,later.curve,later.id])]);
  }finally{Object.assign(globalThis,prior);}
 });

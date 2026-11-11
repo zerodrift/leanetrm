@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {otherSessionRefusal,sessionOffer} from '../dist/close-sessions.js';
 
-const close=(id,session,businessDate)=>({id,at:`${businessDate}T16:00:00Z`,name:id,originCloseId:id,close:{session,sessionVersion:1,businessDate,replacedBy:null}});
-const working=(id,at)=>({id,at,name:'Edited inputs',originCloseId:null});
+const close=(id,session,businessDate)=>({id,at:`${businessDate}T16:00:00Z`,businessDate,name:id,originCloseId:id,close:{session,sessionVersion:1,businessDate,replacedBy:null}});
+const working=(id,at)=>({id,at,businessDate:at.slice(0,10),name:'Edited inputs',originCloseId:null});
 
 test('a chosen session offers its own closes and every working snapshot, separately (D334)',()=>{
  const frames=[close('a','london','2020-12-17'),close('b','new_york','2020-12-17'),working('w','2020-12-17T16:00:00Z')];
@@ -25,4 +25,10 @@ test('opening a close of another session names that session and chooses nothing 
  assert.equal(otherSessionRefusal(frames,'a','london',names),null);
  assert.equal(otherSessionRefusal(frames,'w','london',names),null);
  assert.equal(otherSessionRefusal(frames,'missing','london',names),null);
+});
+
+test('a derived pricing snapshot keeps its server business date across UTC midnight',()=>{
+ const source={id:'source',name:'Source inputs',at:'2020-12-19T00:00:00Z',businessDate:'2020-12-18',close:null};
+ assert.deepEqual(sessionOffer([source],null,'2020-12-18').working,[source]);
+ assert.deepEqual(sessionOffer([source],null,'2020-12-19').working,[]);
 });

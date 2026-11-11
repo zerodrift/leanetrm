@@ -30,8 +30,14 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
     internal Guid ReferenceFor(InputFrame frame)=>SelectedManifest(frame).ReferenceCatalogId;
     internal Task RecheckRefusal(NpgsqlConnection connection,PpaRevisionRefusal refusal,CancellationToken ct)=>Authority(connection,refusal.AuthorityReferences,ct);
     internal async Task Recheck(NpgsqlConnection connection,InputFrame? frame,CancellationToken ct)
-    {if(frame is null){await Authority(connection,[],ct);return;}var selected=SelectedManifest(frame);await Authority(connection,[selected.ReferenceCatalogId],ct);await MarketBundle.Require(connection,selected,ct);}
-    internal PreviewManifest SelectedManifest(InputFrame? frame)=>frame?.PpaBundle is {} b?database.Manifest with {RevisionId=b.DefinitionRevisionId,ReferenceCatalogId=b.ReferenceCatalogId,ReferenceRevisionId=b.ReferenceRevisionId}:database.Manifest;
+    {
+        if(frame is null){await Authority(connection,[],ct);return;}
+        var source=await MarketInputSelection.RootSource(database,connection,frame,ct);
+        await Authority(connection,[source.ReferenceCatalogId],ct);
+        await MarketBundle.Require(connection,source.Apply(database.Manifest),ct);
+    }
+    internal PreviewManifest SelectedManifest(InputFrame? frame)=>(frame?.Source??
+        throw PpaCompiler.Error("market_inputs","Select an exact market source for this operation.")).Apply(database.Manifest);
     // A read given the context its request already bound (an agent's pinned context, D250) reads under it and captures
     // none; otherwise it captures the page's context at the frame's date and its cutoff.
     internal async Task RecheckScope(NpgsqlConnection connection,InputFrame frame,string knownAt,string scope,Guid[] ids,Guid reference,CancellationToken ct,Guid? bound=null)
@@ -46,7 +52,13 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         {await using var check=ScheduleStore.Command(connection,"SELECT security.reference_access($1,'ReadMarketData')",reference);if(!Equals(await check.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();}
     }
     internal async Task<PreviewData> Definitions(NpgsqlConnection connection,InputFrame frame,bool observations,CancellationToken ct)=>
-        await database.Read(connection,ct,observationIds:observations?frame.ObservationIds:[],includeCalendarDays:true,observationScope:ObservationReadScope.ExactPins,ppaBundle:frame.PpaBundle);
+        await MarketInputSelection.Root(database,connection,frame,ct,observationIds:observations?frame.ObservationIds:[],includeCalendarDays:true);
+    internal async Task<(PreviewData Data,InputFrame Frame)> SelectInputs(NpgsqlConnection connection,InputFrame frame,Guid definition,CancellationToken ct)
+    {
+        var source=await MarketInputSelection.ExactSource(database,connection,definition,ct);
+        var data=await database.Read(connection,ct,ppaBundle:source,observationIds:[],includeCalendarDays:true);
+        return(data,await MarketInputSelection.FrameFor(database,connection,data,frame,ct));
+    }
     private async Task<PreviewData> PhysicalReferences(NpgsqlConnection connection,InputFrame frame,PreviewData data,PpaTermsInput terms,CancellationToken ct)
     {
         var codes=terms.Memberships.Where(m=>m.Side.Kind=="energy"&&m.Side.Location is not null).Select(m=>m.Side.Location!).Distinct().ToArray();
@@ -56,22 +68,26 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
             WHERE(catalog_id,revision_id)=($1,$2) AND code=ANY($3)
             """,[data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId,codes],ct);
         var references=data.References.SetItem("locations",[..data.References["locations"].Concat(locations).DistinctBy(l=>l.Text("code"))]);
-        return new PreviewData(SelectedManifest(frame),data.Definitions,references,data.Observations,database.Calculations){CalendarDaysRead=data.CalendarDaysRead};
+        return new PreviewData(CatalogueSource.From(data).Apply(database.Manifest),data.Definitions,references,data.Observations,database.Calculations){CalendarDaysRead=data.CalendarDaysRead};
     }
     internal async Task<ImmutableArray<InputFrame>> FramesRead(NpgsqlConnection connection,IEnumerable<InputFrame> frames,CancellationToken ct)
     {
         await Authority(connection,[],ct);var result=ImmutableArray.CreateBuilder<InputFrame>();
         foreach(var frame in frames)
         {
-            var selected=SelectedManifest(frame);
-            await using var query=ScheduleStore.Command(connection,"SELECT security.reference_access($1,'ReadMarketData') AND security.market_fact_visible($2,$3,NULL)",selected.ReferenceCatalogId,Catalog,selected.RevisionId);
-            if(Equals(await query.ExecuteScalarAsync(ct),true)){await MarketBundle.Require(connection,selected,ct);result.Add(frame);}
+            try
+            {
+                await Recheck(connection,frame,ct);result.Add(frame);
+            }
+            catch(PreviewDeniedException){/* An undiscoverable source is not an offered frame. */}
         }
         return result.ToImmutable();
     }
     internal async Task<object> CatalogRead(NpgsqlConnection connection,InputFrame frame,CancellationToken ct)
     {
-        var data=await Definitions(connection,frame,false,ct);
+        var choice=frame.PpaBundle??(await new CatalogueStore(Catalog).ReadBound(connection,ct,frame.Time.Date)).RequireRole("ppa");
+        var input=await SelectInputs(connection,frame,choice.DefinitionRevisionId,ct);frame=input.Frame;var data=input.Data;
+        if(CatalogueSource.From(data)!=choice)throw PpaCompiler.Error("ppa_reference_revision","The selected PPA source has different exact references.");
         await Authority(connection,[data.ReferenceRevision.CatalogId],ct);
         var physicalLocations=await PreviewDatabase.Rows(connection,
             "SELECT row_to_json(l)::text FROM ref_data.locations l WHERE(catalog_id,revision_id)=($1,$2) ORDER BY name,code",
@@ -97,7 +113,8 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
     }
     internal async Task<object> Validate(NpgsqlConnection connection,InputFrame frame,PpaValidateRequest request,CancellationToken ct)
     {
-        PpaCompiler.PreflightWork([(request.Terms,request.CoverageFrom,request.CoverageTo,"draft")]);var data=await Definitions(connection,frame,false,ct);
+        PpaCompiler.PreflightWork([(request.Terms,request.CoverageFrom,request.CoverageTo,"draft")]);
+        var selected=await SelectInputs(connection,frame,request.Terms.DefinitionRevisionId,ct);frame=selected.Frame;var data=selected.Data;
         data=await PhysicalReferences(connection,frame,data,request.Terms,ct);
         var i=PpaCompiler.Compile(data,request.Terms,await products.Read(connection,ct),await PpaCompiler.ReadQuantityTypes(connection,data,request.Terms,ct));var mw=PpaCompiler.Mw(request.Quantity);await PpaCompiler.ValidateDefinitions(connection,data,i,ct);
         var coverage=PpaCompiler.Coverage(i,PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code),request.CoverageFrom,request.CoverageTo);
@@ -111,7 +128,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         var input=request.Terms??throw PpaCompiler.Error("ppa_term","Retaining a schedule requires complete immutable instrument terms.");
         PpaCompiler.PreflightWork([(input,request.CoverageFrom??throw PpaCompiler.Error("ppa_coverage","Supply explicit booking coverage."),
             request.CoverageTo??throw PpaCompiler.Error("ppa_coverage","Supply explicit booking coverage."),"booking")]);
-        var data=await Definitions(connection,frame,false,ct);
+        var selected=await SelectInputs(connection,frame,input.DefinitionRevisionId,ct);frame=selected.Frame;var data=selected.Data;
         data=await PhysicalReferences(connection,frame,data,input,ct);
         RetainedScheduleLimits.RequireFullPreparation(input,PpaQuantitiesStore.Clock(data,input.Delivery.Clock));
         var instrument=PpaCompiler.Compile(data,input,await products.Read(connection,ct),await PpaCompiler.ReadQuantityTypes(connection,data,input,ct));
@@ -131,7 +148,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         var input=envelope.GetProperty("terms").Deserialize<PpaTermsInput>(Json)!;
         var ids=envelope.GetProperty("sideIds").EnumerateArray().ToDictionary(
             row=>new SideSlot(PpaCompiler.Role(row.Text("role")),row.GetProperty("ordinal").GetInt32()),row=>row.Id("sideId"));
-        var data=await Definitions(connection,frame,false,ct);
+        var selected=await SelectInputs(connection,frame,input.DefinitionRevisionId,ct);frame=selected.Frame;var data=selected.Data;
         var actual=PpaCompiler.Compile(data,input,await products.Read(connection,ct),
             await PpaCompiler.ReadQuantityTypes(connection,data,input,ct),instrument,ids);
         var programs=new List<RetainedPublicationIdentity>();
@@ -160,7 +177,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
     internal async Task<PpaRevisionRefusal?> AmendmentRefusal(NpgsqlConnection connection,InputFrame frame,PpaWriteRequest request,CancellationToken ct)
     {
         if(request.TradeId is not {} trade||request.Terms is not {} terms)return null;
-        var current=await new KnowledgeStore(Catalog).Capture(connection,new(DateOnly.FromDateTime(frame.At.UtcDateTime).ToString("yyyy-MM-dd"),null,"current"),ct);
+        var current=await new KnowledgeStore(Catalog).Capture(connection,new(frame.Time.Date.ToString("yyyy-MM-dd"),null,"current"),ct);
         var scope=await ReadScope(connection,"trades",[trade],current.Context.ContextId!.Value,frame,false,ct);
         await Authority(connection,Rows(scope,"heads").Select(r=>r.Id("reference_catalog_id")).Append(terms.ReferenceCatalogId),ct);
         return await RevisionRefusal(connection,Rows(scope,"bindings"),terms.DefinitionRevisionId,terms.ReferenceCatalogId,terms.ReferenceRevisionId,
@@ -185,7 +202,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
     internal async Task<Guid> Bind(NpgsqlConnection connection,InputFrame frame,string cutoff,CancellationToken ct)
     {
         var known=await PpaQuantitiesStore.KnownAt(connection,cutoff,ct);
-        var context=await new KnowledgeStore(Catalog).Capture(connection,new(DateOnly.FromDateTime(frame.At.UtcDateTime).ToString("yyyy-MM-dd"),known.ToString("O"),"at"),ct);
+        var context=await new KnowledgeStore(Catalog).Capture(connection,new(frame.Time.Date.ToString("yyyy-MM-dd"),known.ToString("O"),"at"),ct);
         return context.Context.ContextId!.Value;
     }
     internal async Task<JsonElement> ReadScope(NpgsqlConnection connection,string scope,Guid[] ids,Guid context,InputFrame frame,bool history,CancellationToken ct)
@@ -290,11 +307,11 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
                 throw PpaCompiler.Error("ppa_scope","The inspected binding and side must belong to the complete authorized selection.");
         }
         PpaCompiler.PreflightWork(stored.Select(r=>(envelopes[r.Id("instrument_id")].GetProperty("terms").Deserialize<PpaTermsInput>(Json)!,r.Text("coverage_from"),r.Text("coverage_to"),r.Id("instrument_id").ToString())));
+        var market=await SelectInputs(connection,frame,request.DefinitionRevisionId,ct);frame=market.Frame;var data=market.Data;
         var selectedBundle=SelectedManifest(frame);
         if(selectedBundle.RevisionId!=request.DefinitionRevisionId)throw PpaCompiler.Error("ppa_definition_revision","This frame does not declare the requested exact PPA definition bundle.");
         if(selectedBundle.ReferenceCatalogId!=request.ReferenceCatalogId || selectedBundle.ReferenceRevisionId!=request.ReferenceRevisionId)throw PpaCompiler.Error("ppa_reference_revision","This frame does not declare the requested exact PPA reference bundle.");
         await PpaReads.RequireMarket(connection,Catalog,request.DefinitionRevisionId,request.ReferenceCatalogId,request.ReferenceRevisionId,frame,knowledge,ct);
-        var data=await Definitions(connection,frame,false,ct);
         if(data.DefinitionRevision.RevisionId!=request.DefinitionRevisionId)throw PpaCompiler.Error("ppa_definition_revision","This frame does not declare the requested exact PPA definition bundle.");
         if(data.ReferenceRevision!=new ReferenceRevision(request.ReferenceCatalogId,request.ReferenceRevisionId))throw PpaCompiler.Error("ppa_reference_revision","This frame does not declare the requested exact PPA reference bundle.");
         var tou=await PpaReads.Tou(connection,data,frame,knowledge,request.Scope=="draft"?[request.Terms!]:envelopes.Values.Select(e=>e.GetProperty("terms").Deserialize<PpaTermsInput>(Json)!),ct);var bindings=ImmutableArray.CreateBuilder<PpaBinding>();
@@ -324,7 +341,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         var selected=bindings.ToImmutable();foreach(var instrument in selected.Select(b=>b.Instrument).DistinctBy(i=>i.Id))await PpaCompiler.ValidateDefinitions(connection,data,instrument,ct);PpaCompiler.Work(selected.Select(b=>(b.Instrument,b.Coverage)),detail,i=>PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code));
         if(selected.IsEmpty)throw PpaCompiler.Error("ppa_scope","The selected revision has no retained binding to value.");
         if(selected.Select(b=>b.Instrument.Currency).Distinct().Count()!=1)throw PpaCompiler.Error("ppa_currency","The bounded preview requires one exact currency.");
-        data=new PreviewData(SelectedManifest(frame),data.Definitions,data.References,await PreviewDatabase.ReadObservationPins(connection,SelectedManifest(frame),frame.ObservationIds,ct)){CalendarDaysRead=true};
+        data=await database.ReadObservationWindows(connection,data,[],ct,frame.ObservationIds);
         var readsAt=watch.Elapsed.TotalSeconds;
         var prepared=await new PpaReads().Prepare(connection,data,frame,selected,known,new(knowledge,known),IntervalKnowledgePolicy.ResolvedCutoff,pending,detail,ct);var preparedAt=watch.Elapsed.TotalSeconds;
         ct.ThrowIfCancellationRequested();var session=prepared.Inputs.Session(prepared.Market);var values=new List<object>();var totals=new List<ValueMeasureSet>();object? detailPage=null;

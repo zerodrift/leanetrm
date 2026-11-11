@@ -262,7 +262,7 @@ def check_curve_shapes(c, check, frame, context, held):
 
     check('one read returns each curve asked, in request order, as its code, unit, points, contract count, front and availability, and no unavailable reason; working data names no context',
           set(read) == {'curves'} and [s['curve'] for s in read['curves']] == held
-          and all(set(s) == {'curve', 'unit', 'points', 'unavailableReason', 'contractCount', 'front', 'availability'} and s['unavailableReason'] is None
+          and all(set(s) == {'curve', 'definitionRevisionId', 'unit', 'points', 'unavailableReason', 'contractCount', 'front', 'availability'} and s['unavailableReason'] is None
                   and s['contractCount'] == len(s['points']) and s['front'] == front_of(s)
                   and s['availability'] == (None if s['front'] else 'no_priced_contract') for s in read['curves']))
     units = {g['market']: g['priceUnit'] for g in c.call('trading/blotter', {'context': context, 'view': PRICE_UNITS})['groups']}
@@ -279,12 +279,12 @@ def check_curve_shapes(c, check, frame, context, held):
     by_curve = {s['curve']: s for s in read['curves']}
     check('curves the pinned data cannot read are stated unavailable with no unit or points, and do not fail the curves beside them',
           [s['curve'] for s in mixed] == ['future', *unreadable, 'base_forward'] and mixed[0] == by_curve['future'] and mixed[4] == by_curve['base_forward']
-          and mixed[1:4] == [{'curve': k, 'unit': None, 'points': None, 'unavailableReason': 'missing_curve', 'contractCount': None, 'front': None, 'availability': None} for k in unreadable])
+          and mixed[1:4] == [{'curve': k, 'unit': None, 'points': None, 'unavailableReason': 'missing_curve' if k == 'interest_rates' else 'curve_not_selected', 'contractCount': None, 'front': None, 'availability': None, 'definitionRevisionId': read['curves'][0]['definitionRevisionId'] if k == 'interest_rates' else '00000000-0000-0000-0000-000000000000'} for k in unreadable])
     check('an unavailable curve states the code its own /evaluate read raises',
-          [c.call('evaluate', {'snapshotId': frame['id'], 'curve': k}, expected=422)['code'] for k in ('unlisted', 'daily_gas')] == ['missing_curve']*2)
+          [c.call('evaluate', {'snapshotId': frame['id'], 'curve': k}, expected=422)['code'] for k in ('unlisted', 'daily_gas')] == ['curve_not_selected']*2)
     many = shapes({'curves': [f'curve_{i}' for i in range(64)]})['curves']
     check('64 curves are within the limit; ones the pinned data does not define are each stated unavailable',
-          len(many) == 64 and all(s['unit'] is None and s['points'] is None and s['unavailableReason'] == 'missing_curve'
+          len(many) == 64 and all(s['unit'] is None and s['points'] is None and s['unavailableReason'] == 'curve_not_selected'
                                   and s['contractCount'] is None and s['front'] is None and s['availability'] is None for s in many))
 
     def refused(name, body, code):

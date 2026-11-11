@@ -450,6 +450,9 @@ def run_temporal_checks(url,query,manifest):
     catalog=client.call('swaps/catalog',context(later))
     primary=next(i for i in catalog['indices'] if i['curve']=='base_forward')
     secondary=next(i for i in catalog['indices'] if i['curve']=='daily_gas')
+    earlier_catalog=client.call('swaps/catalog',context(earlier))
+    assert any(i['definitionRevisionId']==primary['definitionRevisionId'] and i['curve']==primary['curve'] for i in earlier_catalog['indices'])
+    assert not any(i['definitionRevisionId']==secondary['definitionRevisionId'] for i in earlier_catalog['indices'])
     payment=dict(frequency='monthly',rule='days_after_period_end',days=18,dayOfMonth=None,dayBasis='calendar_days',shortMonth=None,adjustment='unadjusted',calendar=None,implementation='monthly_payment_date_rules_v1')
     def checked_booking(body):
         signature='security.read_swap_publication(uuid,uuid,uuid)'

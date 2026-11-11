@@ -10,7 +10,7 @@ import tarfile
 MAXIMUM_BYTES = 2 * 1024 ** 3
 MAXIMUM_FILES = 256
 ENTRYPOINT = ['dotnet', '/opt/openetrm/api/OpenEtrm.Api.dll', '--hosted-pilot']
-FILE_NAME = re.compile(r'(?:release\.json|compose\.yaml|LICENSE|image\.tar|migrations/[0-9]{4}_[a-z0-9_]+\.sql)\Z')
+FILE_NAME = re.compile(r'(?:release\.json|compose\.yaml|bootstrap\.sql|LICENSE|image\.tar|migrations/[0-9]{4}_[a-z0-9_]+\.sql)\Z')
 SHA256 = re.compile(r'[a-f0-9]{64}\Z')
 COMMIT = re.compile(r'[a-f0-9]{40}\Z')
 REPOSITORY = re.compile(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z')
@@ -93,7 +93,7 @@ def unpack(artifact, destination, repository, commit, run_id, run_attempt, maxim
             and SHA256.fullmatch(manifest['imageConfigSha256']), 'invalid release identity')
     files = manifest['files']
     require(isinstance(files, dict) and names == {'release.json', *files}
-            and {'image.tar', 'compose.yaml', 'LICENSE'} <= files.keys(), 'release file inventory mismatch')
+            and {'image.tar', 'compose.yaml', 'bootstrap.sql', 'LICENSE'} <= files.keys(), 'release file inventory mismatch')
     require(any(name.startswith('migrations/') for name in files), 'missing migration baseline')
     for name, expected in files.items():
         require(isinstance(expected, str) and SHA256.fullmatch(expected) and sha256(destination / name) == expected, 'release file hash mismatch')

@@ -51,6 +51,7 @@ try:
                     shlex.join(['-k', str(owned), '-h', '', '-p', port, '-c', 'track_commit_timestamp=on']), 'start'],
                    check=True, capture_output=True, env=env, cwd=SOURCE)
     assert Path(query('SHOW data_directory;')).resolve() == data
+    query((SOURCE / 'db/bootstrap.sql').read_text())
     for path in sorted((SOURCE / 'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
         query(path.read_text())
     reference, market, security, _ = baseline(SOURCE)
@@ -79,7 +80,10 @@ try:
     request = {'businessDate': day, 'convention': 'vol_surface_fit_v1', 'engineVersion': 'synthetic_expiry_engine_v1',
                'futuresConvention': manifest['futuresConvention'], 'model': 'smile_quadratic_log_moneyness_v1',
                'product': product, 'solverPolicy': 'american_futures_option_crr_v1'}
-    frame = {'contextId': context, 'id': str(uuid4()), 'at': frame_at, 'observationIds': [pin], 'curveContracts': {}, 'frozenObservationIds': []}
+    frame = {'contextId': context, 'id': str(uuid4()), 'at': frame_at, 'observationIds': [pin], 'curveContracts': {}, 'frozenObservationIds': [],
+             'businessDate': day, 'sourceInputs': None, 'resolvesLatestCorrection': False,
+             'source': {'definitionRevisionId': manifest['revisionId'], 'referenceCatalogId': manifest['referenceCatalogId'],
+                        'referenceRevisionId': manifest['referenceRevisionId']}}
 
     def submit(operation):
         return f"risk.submit_vol_surface_fit('{catalog}','{operation}','{context}','{manifest['revisionId']}','{frame_at}',{literal(json.dumps(request))}::jsonb,{literal(json.dumps(frame))}::jsonb)"

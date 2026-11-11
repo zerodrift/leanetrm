@@ -14,7 +14,7 @@ internal static class PpaPortfolioChecks
         await using var database=new PreviewDatabase(root);
         using var fixture=JsonDocument.Parse(File.ReadAllText(path));var request=fixture.RootElement;
         var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
-        var frame=request.GetProperty("frame").Deserialize<InputFrame>(json)!;
+        var requested=request.GetProperty("frame").Deserialize<InputFrame>(json)!;
         var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,
             SwapStore.Convention,ZeroRateCurve.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
         foreach(var name in denied?new[]{"after"}:new[]{"before","after"})
@@ -25,20 +25,23 @@ internal static class PpaPortfolioChecks
                 await database.WithIdentity("risk","ReadTrades",async(connection,ct)=>
                 {
                     await MarketContextStore.Bind(connection,database.Manifest.CatalogId,context,ct);
+                    var frame=requested.OriginCloseId is {} close
+                        ?await MarketCloses.Frame(connection,database.Manifest.CatalogId,close,context.ContextId,ct)
+                        :requested;
                     await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",database.Manifest.CatalogId,frame.At))await bind.ExecuteNonQueryAsync(ct);
-                    var data=await database.Read(connection,ct,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins);
+                    var data=await MarketInputSelection.Root(database,connection,frame,ct);
                     try
                     {
-                        var result=await new PortfolioValuation(database).Calculate(connection,data,data.Snapshot(frame),context,[request.Id("bookId")],policy,ct);
+                        var result=await new PortfolioValuation(database).Calculate(connection,data,frame with{ContextId=context.ContextId},context,[request.Id("bookId")],policy,ct);
                         if(name=="after")throw new Exception("A complete portfolio silently omitted its retained PPA positions.");
                         if(result.Positions.Length!=1||result.Positions[0].TradeId!=request.Id("futureTradeId")||result.Totals.IsEmpty)
                             throw new Exception("The independent pre-PPA control did not value its supported futures position.");
                         Console.WriteLine("PASS PPA portfolio: earlier certified complete scope values its supported position");
                     }
-                    catch(CloseRiskInputsException error)when(name=="after"&&error.AffectedBindings.All(b=>b.Reason=="exact_bundle_whole_operation_v1"))
+                    catch(MarketDataException error)when(name=="after"&&error.Code=="market_inputs_missing")
                     {
                         if(denied)throw new Exception("Incompatible-bundle diagnostics preceded complete PPA reference authority.");
-                        Console.WriteLine("PASS PPA portfolio: whole-book consumer refuses incompatible exact PPA bundles before partial valuation evidence");
+                        Console.WriteLine("PASS PPA portfolio: whole-book consumer refuses a missing exact PPA source before partial valuation evidence");
                     }
                     return true;
                 },CancellationToken.None);

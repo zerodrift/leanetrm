@@ -71,7 +71,7 @@ def prepare(reference,market,manifest,*,daily_lifecycle=False):
     first=date(2020,11,18);last=date(2021,1,2) if daily_lifecycle else date(2020,12,31)
     for day_index in range((last-first).days+1):
         day=first+timedelta(days=day_index);instant=f'{day}T16:00:00Z'
-        frame=frames.setdefault(instant,{'at':instant,'observationIds':[],'curveContracts':{}})
+        frame=frames.setdefault(instant,{'at':instant,'observationIds':[],'frozenObservationIds':[],'curveContracts':{}})
         if day>=date(2020,11,28) and day!=date(2020,12,17):
             frame['observationIds'].append(final_id)
         for ordinal,code in enumerate(('ng_fixed_spread','ng_fixed_basis') if day<date(2021,1,1) else ()):

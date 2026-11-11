@@ -63,6 +63,7 @@ def main():
         inspect_image(files / 'image.tar', tag, config_hash, args.repository, args.commit)
         shutil.copyfile(root / 'deploy/compose.yaml', files / 'compose.yaml')
         shutil.copyfile(root / 'LICENSE', files / 'LICENSE')
+        shutil.copyfile(root / 'db/bootstrap.sql', files / 'bootstrap.sql')
         (files / 'migrations').mkdir()
         for migration in sorted((root / 'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             shutil.copyfile(migration, files / 'migrations' / migration.name)

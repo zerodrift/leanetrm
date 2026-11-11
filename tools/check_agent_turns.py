@@ -1454,7 +1454,9 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     retained = query(f"SELECT context_id FROM assistant.turns WHERE id='{first.id}';")
     frame = str(uuid4())
     observation = str(uuid4())
-    pins = {'at': '2020-12-18T12:00:00Z', 'curveContracts': {'test_curve': []}, 'frameId': frame, 'frozenObservationIds': [observation],
+    business_date = query(f"SELECT effective_on FROM market_data.temporal_contexts WHERE id='{retained}';")
+    pins = {'at': '2020-12-18T12:00:00Z', 'businessDate': business_date, 'close': None,
+            'originCloseId': None, 'ppaBundle': None, 'source': None, 'sourceInputs': None, 'curveContracts': {'test_curve': []}, 'frameId': frame, 'frozenObservationIds': [observation],
             'name': 'Synthetic certified inputs', 'observationIds': [observation], 'resolvesLatestCorrection': True,
             'swapMarketSelections': {str(uuid4()): [observation]}}
     as_of = Turn()

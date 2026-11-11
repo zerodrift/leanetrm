@@ -479,7 +479,7 @@ test('a PPA the close cannot value is listed as not valued, with its reason, and
  const ppa={...fixture.holdings[0],instrumentType:'ppa',contractIdentityKind:'ppa_instrument',direction:'multi_side',quantity:'80',unit:'MW',fixedPrice:null,mark:null,
   presentValue:null,measure:'ppa_value_excluding_overdue',completePv:null,overdueKnown:null,overdueEstimated:null,unavailableReason:'other_definition_versions'};
  const [p]=positionRows([ppa]);
- assert.deepEqual([p.value,p.unavailable,p.markNote],[null,'Booked under other reference data versions',null]);
+ assert.deepEqual([p.value,p.unavailable,p.markNote],[null,'Booked market inputs are unavailable at this close',null]);
  assert.throws(()=>positionRows([{...ppa,presentValue:'1'}]),{message:'The Blotter returned a value for a position it cannot value.'});
 });
 

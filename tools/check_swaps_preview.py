@@ -90,7 +90,7 @@ def run_checks(url):
     futures_context = {**context, 'convention': 'contract_lot_execution_pnl_v2'}
     future_catalog = c.call('futures/catalog', futures_context)
     future = future_catalog['contracts'][0]
-    future_body = {**futures_context, 'operationId': amend['operationId'], **trade_booking(), 'bookId': body['bookId'], 'curve': future['curve'], 'contractId': future['id'], 'lots': '1', 'executionPrice': '2.9'}
+    future_body = {**futures_context, 'operationId': amend['operationId'], **trade_booking(), 'bookId': body['bookId'], 'curve': future['curve'], 'contractId': future['id'], 'definitionRevisionId': future['definitionRevisionId'], 'lots': '1', 'executionPrice': '2.9'}
     c.call('futures/book', future_body, expected=409)
     future_body['operationId'] = str(uuid4())
     future_trade = c.call('futures/book', future_body)

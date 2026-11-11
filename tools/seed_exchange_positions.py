@@ -27,7 +27,7 @@ def seed_positions(url,run_id,owned_root):
     for n,(curve,contract) in enumerate(sorted(selected.items())):
         operation=str(uuid5(UUID('ed032a31-883e-447a-809a-66a4d583a124'),manifest['catalogId']+':'+curve))
         body={'operationId':operation,**context,'bookId':catalog['books'][n%len(catalog['books'])]['id'],
-            'curve':curve,'contractId':contract['id'],'lots':'2' if n%2==0 else '-1',
+            'curve':curve,'contractId':contract['id'],'definitionRevisionId':contract['definitionRevisionId'],'lots':'2' if n%2==0 else '-1',
             'executionPrice':str(Decimal(contract['mark'])-Decimal(contract['tick'])),
             'legalEntityId':catalog['legalEntities'][0]['id'],'legalEntityRevision':catalog['legalEntities'][0]['revision'],
             'counterpartyId':catalog['counterparties'][0]['id'],'counterpartyRevision':catalog['counterparties'][0]['revision']}

@@ -90,7 +90,7 @@ def run_checks(c, check, query, manifest):
     check('deferred catalog pricing leaves every actual retained holding and exact amount unchanged',
           full['blotter'] == light['blotter'])
     common = lambda catalog: {key: value for key, value in catalog.items()
-                              if key not in ('kind', 'contracts')}
+                              if key not in ('kind', 'contracts', 'unavailable')}
     check('directory and priced catalogs preserve identical metadata under the same retained context',
           common(full['catalog']) == common(light['catalog']))
     for mode in ['', 'unknown', 'Directory', 'priced']:
@@ -123,9 +123,9 @@ def run_checks(c, check, query, manifest):
     try:
         query(f'DELETE FROM security.reference_catalog_scopes WHERE {scope};')
         for mode in ['directory', 'priced_contracts']:
-            error = c.call('trading/workspace', {**request, 'bookingCatalog': mode}, expected=422)
+            error = c.call('trading/workspace', {**request, 'bookingCatalog': mode}, expected=403)
             check('a retained trading read cannot use exact references outside current scope: ' + mode,
-                  error['code'] == 'ambiguous_reference' and set(error) == {'code', 'message'})
+                  error['code'] == 'access_denied' and set(error) == {'code', 'message'})
     finally:
         query(f"INSERT INTO security.reference_catalog_scopes VALUES('{catalog}','{tenant}','{scope_workspace}','{access}');")
     for profile in ['viewer', 'admin']:

@@ -2,6 +2,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
   await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);
   await evaluate(`window.__requests=[];window.__responses=[];window.__originalFetch=window.fetch;window.fetch=async(...args)=>{const path=String(args[0]),body=args[1]?.body?JSON.parse(args[1].body):null;window.__requests.push({path,body});const response=await window.__originalFetch(...args);window.__responses.push({path,status:response.status,data:await response.clone().json()});return response;};window.__api=async(path,body)=>{const boot=await(await window.__originalFetch('/api/bootstrap')).json();const r=await fetch('/api/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','X-Preview-CSRF':boot.csrfToken},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};};`);
+  const catalogContext="window.__responses.flatMap(r=>r.path.split('?')[0]==='/api/workspace/catalog'?[r.data]:r.data.workspace?[r.data.workspace]:[]).at(-1)?.context";
   await check('historical time controls share the header with one effective-date coordinate',"document.querySelector('header #date-context')&&document.querySelectorAll('#date-context-on').length===1&&document.querySelector('header #snapshot')");
 
   await click('#example');
@@ -28,21 +29,21 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await set('#date-context-on','2020-12-17');await wait(idle);await click('#date-context-latest');await click('#apply-view-context');
   await check('explicit context apply displays historical read-only mode',"document.querySelector('#environment-context-note').textContent.includes('Historical view')&&document.querySelector('#error').hidden");
   const first=await evaluate("window.__responses.filter(r=>r.path==='/api/market/context').at(-1).data");
-  await check('workspace receives exactly the applied temporal context',`JSON.stringify(window.__responses.filter(r=>r.path==='/api/workspace/catalog').at(-1).data.context)===${JSON.stringify(JSON.stringify(first.context))}`);
+  await check('workspace receives exactly the applied temporal context',`JSON.stringify(${catalogContext})===${JSON.stringify(JSON.stringify(first.context))}`);
 
   await evaluate(`(()=>{const s=document.querySelector('#snapshot');s.value=[...s.options].find(o=>o.textContent.includes('Dec 17')).value;s.dispatchEvent(new Event('change',{bubbles:true}));})()`);await wait(idle);
-  const before=await evaluate("window.__responses.filter(r=>r.path==='/api/evaluate').at(-1).data");
+  const before=await evaluate("(({workspace,...prices})=>prices)(window.__responses.filter(r=>r.path==='/api/evaluate').at(-1).data)");
   await check('commodity valuation carries same effective and known context',`JSON.stringify(window.__responses.filter(r=>r.path==='/api/evaluate').at(-1).data.context)===${JSON.stringify(JSON.stringify(first.context))}`);
   await evaluate("[...document.querySelectorAll('.curve-button')].find(o=>o.querySelector('span').textContent==='Interest rates').click()");await wait(idle);
   await check('rate curve uses same context and renders discount factors',`JSON.stringify(window.__responses.filter(r=>r.path==='/api/evaluate').at(-1).data.context)===${JSON.stringify(JSON.stringify(first.context))}&&document.querySelector('#contracts').textContent.includes('Discount factor')&&document.querySelector('#error').hidden`);
   await click('#reference-area-curves');await click('#nav-table-currencies');await check('reference view survives historical context with rows',"document.querySelector('#reference').textContent.length>0&&document.querySelector('#error').hidden");
   await click('#nav-schedules');await click('#nav-market');
-  await check('navigation retains exact context, no implicit current reload',`JSON.stringify(window.__responses.filter(r=>r.path==='/api/workspace/catalog').at(-1).data.context)===${JSON.stringify(JSON.stringify(first.context))}`);
+  await check('navigation retains exact context, no implicit current reload',`JSON.stringify(${catalogContext})===${JSON.stringify(JSON.stringify(first.context))}`);
   const future=await evaluate(`(async()=>{await __api('market/current',{});const w=(await __api('workspace')).data;let f=w.frames.filter(f=>f.at.startsWith('2020-12-17')&&!f.contextId).at(-1);let o=w.observations.find(o=>f.observationIds.includes(o.id)&&o.series_id.endsWith('000000000001'));while(w.observations.some(n=>n.corrects_id===o.id))o=w.observations.find(n=>n.corrects_id===o.id);if(!f.observationIds.includes(o.id))f=(await __api('select-observation',{snapshotId:f.id,observationId:o.id})).data.frame;return await __api('corrections',{snapshotId:f.id,observationId:o.id,value:(Number(o.value)+0.137).toFixed(3)});})()`);
   await check('editor can create a synthetic current-input correction',JSON.stringify(future.status===200));
   await evaluate(`__api('market/context',{effectiveOn:'2020-12-17',knownAt:${JSON.stringify(first.context.knownAt)},mode:'at',selection:'latest_correction'})`);
   await evaluate("[...document.querySelectorAll('.curve-button')].find(o=>o.querySelector('span').textContent==='Local power forwards').click()");await wait(idle);
-  await check('later correction cannot change a retained exact historical result',`JSON.stringify(window.__responses.filter(r=>r.path==='/api/evaluate').at(-1).data)===${JSON.stringify(JSON.stringify(before))}`);
+  await check('later correction cannot change a retained exact historical result',`JSON.stringify((({workspace,...prices})=>prices)(window.__responses.filter(r=>r.path==='/api/evaluate').at(-1).data))===${JSON.stringify(JSON.stringify(before))}`);
   const mismatch=await evaluate(`__api('evaluate',{snapshotId:${JSON.stringify(future.data.frame.id)},curve:'local_power'})`);
   await check('unbound future-correction frame is rejected, no fallback',JSON.stringify(mismatch.status===422));
   await click('#date-context-latest');await click('#apply-view-context');
@@ -51,10 +52,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('explicit current knowledge reads the recorded close exactly',`window.__responses.filter(r=>r.path==='/api/evaluate').at(-1).data.points[0].value===${JSON.stringify(before.points[0].value)}&&document.querySelector('#error').hidden`);
   await set('#date-context-on','2020-12-16');await wait(idle);
   await check('unapplied date edit immediately hides old prices and reference rows',"document.querySelector('#contracts').children.length===0&&document.querySelector('#reference').children.length===0");
-  await click('#date-context-latest');await click('#reference-area-curves');await click('#nav-table-currencies');await check('navigation applies changed context instead of stale reference rows',"window.__responses.filter(r=>r.path==='/api/workspace/catalog').at(-1).data.context.effectiveOn==='2020-12-16'&&document.querySelector('#reference').textContent.length>0");
+  await click('#date-context-latest');await click('#reference-area-curves');await click('#nav-table-currencies');await check('navigation applies changed context instead of stale reference rows',"window.__responses.filter(r=>r.path.split('?')[0]==='/api/workspace/navigation').at(-1).data.context.effectiveOn==='2020-12-16'&&document.querySelector('#reference').textContent.length>0");
   await set('#date-context-view','2099-01-01T00:00');await click('#apply-view-context');
   await check('future knowledge cutoff errors visibly with no stale row fallback',"!document.querySelector('#error').hidden&&document.querySelector('#contracts').children.length===0&&document.querySelector('#reference').children.length===0");
-  await click('#current-view-context');await check('explicit return restores current pins and populated controls',"document.querySelector('#date-context-on').value!==''&&document.querySelector('#date-context-view').value!==''&&document.querySelector('#workspace-mode-label').textContent.includes('current knowledge')&&window.__responses.filter(r=>r.path==='/api/workspace/catalog').at(-1).data.context===null");
+  await click('#current-view-context');await check('explicit return restores current pins and populated controls',"document.querySelector('#date-context-on').value!==''&&document.querySelector('#date-context-view').value!==''&&document.querySelector('#workspace-mode-label').textContent.includes('current knowledge')&&window.__responses.filter(r=>r.path.split('?')[0]==='/api/workspace/navigation').at(-1).data.context===null");
   await click('#nav-market');await click('#example');await evaluate('window.scrollTo(0,0)');await shot('market-desktop');
   await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await evaluate('window.scrollTo(0,0)');
   await check('mobile 390px view has no page-wide horizontal overflow',fitsWidth);await shot('market-mobile');

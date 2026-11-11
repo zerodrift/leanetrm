@@ -55,7 +55,7 @@ def run_checks(url, query, manifest, *, run_worker):
     check('the option catalog describes each underlying future its series exercise into once, with its delivery period and product name',
           len(described) == len(catalog['underlyings']) == len({o['underlyingSeries'] for o in options.values()})
           and all(described[o['underlyingSeries']]['deliveryFrom'] < described[o['underlyingSeries']]['deliveryTo'] for o in options.values())
-          and described['nymex_ng_20261201'] == {'series': 'nymex_ng_20261201', 'name': 'NYMEX Henry Hub Natural Gas · NG', 'deliveryFrom': '2026-12-01', 'deliveryTo': '2027-01-01'}, catalog['underlyings'])
+          and described['nymex_ng_20261201'] == {'definitionRevisionId': manifest['revisionId'], 'series': 'nymex_ng_20261201', 'name': 'NYMEX Henry Hub Natural Gas · NG', 'deliveryFrom': '2026-12-01', 'deliveryTo': '2027-01-01'}, catalog['underlyings'])
     # The long ON call is the series the later close leaves without a settlement; no earlier check books it.
     on = options[manifest['missingSettlement']['series']]
     lo = next(o for o in catalog['options'] if o['product'] == 'nymex_lo' and o['right'] == 'put' and o['underlyingSeries'] == 'nymex_cl_20270101')
@@ -65,13 +65,13 @@ def run_checks(url, query, manifest, *, run_worker):
                'counterpartyId': catalog['counterparties'][0]['id'], 'counterpartyRevision': catalog['counterparties'][0]['revision']}
 
     def book_option(option, lots, premium, into=book, paid=PAYMENT_DATE):
-        return c.call('options/book', {'operationId': str(uuid4()), **booking, 'convention': OPTION, 'bookId': into, 'series': option['series'],
+        return c.call('options/book', {'operationId': str(uuid4()), **booking, 'convention': OPTION, 'bookId': into, 'series': option['series'], 'definitionRevisionId': option['definitionRevisionId'],
                                        **side_lots(lots), 'premium': premium, 'premiumPaymentDate': paid,
                                        'premiumStyle': 'premium_paid_up_front', **parties})
     futures_context = {**booking, 'convention': 'contract_lot_execution_pnl_v2'}
     crude = next(k for k in c.call('futures/catalog', futures_context)['contracts'] if k['curve'] == 'nymex_cl' and k['deliveryFrom'] == '2026-12-01')
     future = c.call('futures/book', {'operationId': str(uuid4()), **futures_context, 'bookId': book, 'curve': 'nymex_cl',
-                                     'contractId': crude['id'], 'lots': '1', 'executionPrice': crude['mark'], **parties})
+                                     'contractId': crude['id'], 'definitionRevisionId': crude['definitionRevisionId'], 'lots': '1', 'executionPrice': crude['mark'], **parties})
     held = {'on': (book_option(on, '3', '0.125'), on, 3), 'lo': (book_option(lo, '-2', '1.25'), lo, -2), 'deep': (book_option(deep, '1', '1.000'), deep, 1)}
     # A series this check alone holds, later moved past its expiry without a recorded expiry.
     lapsing = next(o for o in catalog['options'] if o['product'] == 'nymex_lo' and o['right'] == 'call' and o['underlyingSeries'] == 'nymex_cl_20270201')

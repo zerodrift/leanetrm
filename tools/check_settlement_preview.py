@@ -25,7 +25,7 @@ def prepare(manifest):
     result=deepcopy(manifest)
     for at in (BOOK_AT,AMEND_AT):
         assert not any(frame['at']==at for frame in result['frames']), at
-        result['frames'].append(dict(at=at,observationIds=[],curveContracts={}))
+        result['frames'].append(dict(at=at,observationIds=[],frozenObservationIds=[],curveContracts={}))
     return result
 
 

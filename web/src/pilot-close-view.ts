@@ -4,7 +4,7 @@ type Choice={value:string;label:string};
 type Policy={curveNumericalPolicy:string;riskNumericalPolicy:string;futuresConvention:string;swapConvention:string;rateNumericalPolicy:string;discountInterpolationPolicy:string;bumpConvention:string;bumpBasis:string;bumpTicks:number};
 const policies=['generator','tickBasis','parameterPolicy','frozenPolicy','membershipPolicy','calendarPolicy','closePolicy'] as const;
 type Catalog={operation:string;operationName:string;canCreate:boolean;warning:string;
- priorCloses:{id:string;name:string;at:string;kind:string}[];anchorFrames:{id:string;name:string;at:string}[];
+ priorCloses:{id:string;name:string;at:string;kind:string}[];anchorFrames:{id:string;name:string;at:string;businessDate:string}[];
  books:{id:string;name:string}[];curves:{code:string;name:string;leafCurves:string[]}[];sources:{code:string;name:string}[];
  policies:Record<typeof policies[number],Choice[]>;valuationPolicyChoices:{value:string;label:string;policy:Policy}[];
  scheduleChoices:{value:string;label:string;intervalSeconds:number|null}[];schedulePolicy:{timeZone:string;misfire:string;overlap:string};
@@ -57,7 +57,7 @@ export function setupPilotClose(options:{api:<T>(path:string,body?:unknown)=>Pro
   const identity=options.identity(),request=generation;
   const frame=catalog?.anchorFrames.find(f=>f.id===input('anchor').value);if(!frame)throw Error('Choose an exact existing market close.');
   if(!input('anchor-session').value)throw Error('Choose the close session to record this close for.');
-  await options.mutate('market/closes/register',{snapshotId:frame.id,name:input('anchor-name').value,session:input('anchor-session').value,businessDate:frame.at.slice(0,10)});
+  await options.mutate('market/closes/register',{snapshotId:frame.id,name:input('anchor-name').value,session:input('anchor-session').value,businessDate:frame.businessDate});
   if(identity!==options.identity()||request!==generation)return;
   await load();if(identity===options.identity()&&request+1===generation)get('pilot-close-status').textContent='The exact existing inputs are retained. Choose the new anchor close explicitly before creating a job.';
  });};

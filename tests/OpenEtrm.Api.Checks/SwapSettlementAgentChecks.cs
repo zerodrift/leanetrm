@@ -15,7 +15,11 @@ internal static class SwapSettlementAgentChecks
         using var document=JsonDocument.Parse(File.ReadAllText(path));var fixture=document.RootElement;
         var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
         JsonElement Json(object value)=>JsonSerializer.SerializeToElement(value,json);
-        var frame=fixture.GetProperty("frame").Deserialize<InputFrame>(json)!;
+        var requested=fixture.GetProperty("frame").Deserialize<InputFrame>(json)!;
+        var frame=requested.OriginCloseId is {} close
+            ?await database.WithIdentity("trader","ReadMarketData",(connection,ct)=>
+                MarketCloses.Frame(connection,database.Manifest.CatalogId,close,null,ct),CancellationToken.None)
+            :requested;
         var agent=new AgentIdentity(fixture.Text("principal"),fixture.Id("delegation"));
         var operations=new SwapSettlementOperations(database);
         await database.WithIdentity("admin","ManageAccess",async(connection,ct)=>

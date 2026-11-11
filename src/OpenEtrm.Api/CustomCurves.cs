@@ -14,7 +14,8 @@ using OpenEtrm.Shared.Temporal;
 namespace OpenEtrm.Api;
 
 public delegate Task<IResult> CustomCurveOperation(HttpContext context,string permission,Guid? snapshotId,
-    Func<NpgsqlConnection,PinnedContext,CancellationToken,Task<IResult>> work);
+    Func<NpgsqlConnection,PinnedContext,CancellationToken,Task<IResult>> work,
+    Func<NpgsqlConnection,CancellationToken,Task<IResult?>>? replay=null);
 
 public static partial class CustomCurves
 {
@@ -26,7 +27,7 @@ public static partial class CustomCurves
         api.MapPost("/custom-curves/compose",(HttpContext c,CustomCurveCompositionRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {
             var definition=RecipeComposition.Build(body.Composition);Validate(definition);
-            var revision=database.Manifest.RevisionId;
+            var revision=await CurveVersionInputs.NewGraph(database,connection,definition,pin.Frame?.Time.Date,ct);
             var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             _=await store.References(connection,definition,data,ct);
             var versions=(await store.Read(connection,ct)).ToDictionary(v=>(v.Id,v.Version));
@@ -44,8 +45,8 @@ public static partial class CustomCurves
             var segment=CurveActivations.Resolve(plan,DateWorkspace.Date(context.EffectiveOn),body.Policy);
             var saved=(await store.Read(connection,ct)).SingleOrDefault(v=>v.Id==body.CurveId&&v.Version==segment.Version&&v.Definition.Output==segment.OutputNode)
                 ??throw Invalid("The activated exact published output is unavailable in this context.");
-            var revision=CurveVersionInputs.Revision(database,saved.MarketRevisionId);
-            frame=CurveVersionInputs.Frame(database,frame,revision);
+            var revision=await CurveVersionInputs.Resolve(database,connection,saved.MarketRevisionId,ct);
+
             var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             await store.RequirePublishedSource(connection,new(data.DefinitionRevision.CatalogId,saved.Id,saved.Version,saved.Definition.Output),data.DefinitionRevision.RevisionId,ct);
             var calculated=await EvaluateDefinition(connection,database,saved.Definition,data,frame,saved.Sources,saved.Calendars,saved.Schedules,context,ct);
@@ -58,7 +59,7 @@ public static partial class CustomCurves
         api.MapPost("/custom-curves/compile",(HttpContext c,CustomCurveCompileRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {
             var definition=RecipeFormula.Compile(body.Formula,body.Code,body.Name);Validate(definition);
-            var revision=database.Manifest.RevisionId;
+            var revision=await CurveVersionInputs.NewGraph(database,connection,definition,pin.Frame?.Time.Date,ct);
             var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             _=await store.References(connection,definition,data,ct);
             return Results.Ok(new{definition});
@@ -69,9 +70,15 @@ public static partial class CustomCurves
         }));
         api.MapPost("/custom-curves/save",(HttpContext c,CustomCurveSaveRequest body)=>operation(c,"WriteMarketDefinitions",body.SnapshotId,async(connection,pin,ct)=>
         {
-            var revision=database.Manifest.RevisionId;
+            CustomCurvesStore.RequireSaveCoordinates(body);
+            var retained=body.Id is {} id?await store.RequireVersion(connection,id,body.Version,ct):null;
+            var revision=retained is null?await CurveVersionInputs.NewGraph(database,connection,body.Definition,pin.Frame?.Time.Date,ct):await CurveVersionInputs.Resolve(database,connection,retained.MarketRevisionId,ct);
             var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             return Results.Ok(await store.Save(connection,body,data,CurveDraftSaver.Person,ct));
+        },async(connection,ct)=>
+        {
+            await store.Lock(connection,ct);
+            return await store.ReplaySave(connection,body,CurveDraftSaver.Person,ct) is {} saved?Results.Ok(saved):null;
         }));
         api.MapPost("/custom-curves/publish",(HttpContext c,CustomCurvePublishRequest body)=>operation(c,"SealMarketDefinitions",null,async(connection,pin,ct)=>
             Results.Ok(await store.Publish(connection,body,ct))));
@@ -183,16 +190,17 @@ public static partial class CustomCurves
         ScheduleContext context,CancellationToken ct,bool retainedObservations=false,InputFrame? sourceFrame=null,
         Dictionary<CalendarReference,ReferenceCalendar>? calendarReads=null)
     {
-        return EvaluateGraph(await PrepareDefinition(connection,database,definition,data,frame,sources,calendars,schedules,context,ct,retainedObservations,sourceFrame,calendarReads),
-            CalculationContext(frame,data.DefinitionRevision,context),database,ct);
+        var prepared=await PrepareDefinition(connection,database,definition,data,frame,sources,calendars,schedules,context,ct,retainedObservations,sourceFrame,calendarReads);
+        return EvaluateGraph(prepared.Graph,prepared.Context,database,ct);
     }
-    static async Task<ConnectedRecipeGraph> PrepareDefinition(NpgsqlConnection connection,PreviewDatabase database,RecipeDefinition definition,
+    static async Task<(ConnectedRecipeGraph Graph,ResolvedCalculationContext Context)> PrepareDefinition(NpgsqlConnection connection,PreviewDatabase database,RecipeDefinition definition,
         PreviewData data,InputFrame frame,ImmutableDictionary<string,CurveSourceReference> sources,
         ImmutableDictionary<string,CalendarReference> calendars,ImmutableDictionary<string,CurveScheduleReference> schedules,
         ScheduleContext context,CancellationToken ct,bool retainedObservations=false,InputFrame? sourceFrame=null,
         Dictionary<CalendarReference,ReferenceCalendar>? calendarReads=null)
     {
         var exact=PinnedContext.Exact(context);
+        frame=await MarketInputSelection.FrameFor(database,connection,data,frame,ct);
         RequireFrameContext(frame,exact);
         if(sourceFrame is not null&&(!retainedObservations||sourceFrame.Id!=frame.Id||sourceFrame.At!=frame.At||sourceFrame.ContextId!=frame.ContextId))
             throw Invalid("Projected source pins must belong to this exact retained calculation frame.");
@@ -201,7 +209,7 @@ public static partial class CustomCurves
         var resolved=CalculationContext(frame,data.DefinitionRevision,exact);
         var preparation=new RecipePreparation(connection,database,data,frame,exact,resolved,await new CustomCurvesStore(database).Read(connection,ct),retainedObservations:retainedObservations,sourceFrame:sourceFrame,calendarReads:calendarReads);
         var graph=await preparation.Definition(definition,identity,sources,calendars,schedules,ct);
-        return graph;
+        return (graph,resolved);
     }
     internal static void RequireFrameContext(InputFrame frame,ScheduleContext context)
     {
@@ -314,7 +322,7 @@ public static partial class CustomCurves
         {
             if(sampleDay==day){frames.Add(sampleDay,frame);continue;}
             var at=new DateTimeOffset(sampleDay.ToDateTime(TimeOnly.FromDateTime(frame.At.UtcDateTime),DateTimeKind.Utc));
-            frames.Add(sampleDay,new(Guid.NewGuid(),"Exact historical sampling inputs",at,[],frame.CurveContracts,frame.ContextId));
+            frames.Add(sampleDay,new(Guid.NewGuid(),"Exact historical sampling inputs",at,sampleDay,[],frame.CurveContracts,frame.ContextId));
         }
         var sources=ImmutableDictionary.CreateBuilder<string,RecipeSource>();
         var connected=ImmutableArray.CreateBuilder<ConnectedRecipeSample>();

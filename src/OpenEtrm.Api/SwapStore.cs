@@ -173,7 +173,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
  {
   if(body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
   {
-   var selected=(markets??await database.ReadSwapMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId).ToArray();
+   var selected=(markets??await database.ReadInputMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId).ToArray();
    if(selected.Length!=1)throw Error("swap_definition","The selected exact swap market is unavailable in this historical context.");
    data=selected[0].Data;frame=selected[0].Frame;
   }
@@ -237,7 +237,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
  private async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct,SwapWriteRequest? retained)
  {
   var indices=new List<object>();
-  var markets=new List<(PreviewData Data,InputFrame Frame)>{(data,frame)};markets.AddRange((await database.ReadSwapMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision!=data.DefinitionRevision));
+  var markets=new List<(PreviewData Data,InputFrame Frame)>{(data,frame)};markets.AddRange((await database.ReadInputMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision!=data.DefinitionRevision));
   foreach(var market in markets)
   {
    data=market.Data;frame=market.Frame;
@@ -350,7 +350,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    throw Error("swap_averaging","The exact retained observation schedule is unavailable under the selected context and current authority.");
   if(row.GetProperty("custom_projection_id").ValueKind!=JsonValueKind.Null&&custom.ValueKind==JsonValueKind.Null)
    throw Error("custom_projection","The retained custom pricing definition is unavailable under the current context and authority.");
-  if(row.Id("definition_revision_id")!=manifest.RevisionId&&!(manifest.SwapMarkets??[]).Any(m=>m.RevisionId==row.Id("definition_revision_id"))||row.Id("reference_catalog_id")!=manifest.ReferenceCatalogId||row.Text("implementation")!=Convention)
+  if(row.Id("definition_revision_id")!=manifest.RevisionId&&!(manifest.InputMarkets??[]).Any(m=>m.RevisionId==row.Id("definition_revision_id"))||row.Id("reference_catalog_id")!=manifest.ReferenceCatalogId||row.Text("implementation")!=Convention)
    throw Error("swap_definition","The retained swap requires its exact supported reference and model versions.");
   var sampling=SwapObservationCompatibility.Mode(StoredAveraging(row.Text("averaging")));
   var first=row.GetProperty("first_floating");
@@ -469,7 +469,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
    if(head.OptionalText("first_floating_fixing") is {} firstFixing&&frame.At>=SchedulePreview.ParseAt(firstFixing))throw Error("swap_amendment","The retained first floating side requires actual fixing state.");
    var selectedData=data;
    if(body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
-    selectedData=One((await database.ReadSwapMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId)).Data;
+    selectedData=One((await database.ReadInputMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId)).Data;
    if(One(selectedData.Definitions["curves"].Where(c=>c.Text("code")==body.Floating!.Curve)).Text("quote_code")!=head.Text("quote_code"))
     throw Error("swap_amendment","The replacement curve must preserve the retained exact quote and quantity specification.");
   }
@@ -480,7 +480,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
  {
   if(body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
   {
-   var selected=One((await database.ReadSwapMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId));
+   var selected=One((await database.ReadInputMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId));
    data=selected.Data;frame=selected.Frame;
   }
   if(body.Scheduled is not null)return await SaveScheduled(connection,data,frame,body,ct);
@@ -492,7 +492,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   await RetainedScheduleStore.RequireOperationProduct(connection,manifest.CatalogId,body.OperationId,false,ct);
   if(body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
   {
-   var market=One((await database.ReadSwapMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId));
+   var market=One((await database.ReadInputMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId));
    data=market.Data;frame=market.Frame;
   }
   SidedInstrument instrument;
@@ -566,7 +566,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
   // includes discounting and distinguishes unit work under this context.
   // Every other bundle a held swap is booked in is required at this close: one with no frame there refuses the read, saying so.
   var required=rows.Select(r=>r.Id("definition_revision_id")).Where(r=>r!=data.DefinitionRevision.RevisionId).ToHashSet();
-  var markets=required.Count==0?[]:await database.ReadSwapMarkets(connection,frame,ct,data,required);
+  var markets=required.Count==0?[]:await database.ReadInputMarkets(connection,frame,ct,data,required);
   var values=new Dictionary<(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId),FinancialSwapEvaluation>();
   var unvalued=new Dictionary<(DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId),string>();
   var identities=new Dictionary<Guid,((DefinitionIdentity Economics,DefinitionIdentity Binding,Guid RetainedId) Key,FinancialSwapInstrument Instrument)>();

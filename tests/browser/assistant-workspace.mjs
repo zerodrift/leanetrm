@@ -18,7 +18,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const frame=navigation.frames.find(f=>navigation.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18'));
   const context={snapshotId:frame.id,convention:'contract_lot_execution_pnl_v2',knowledgeMode:'current'};
   const catalog=await side.call('futures/catalog',context),contract=catalog.contracts.find(c=>c.curve==='future');
-  await side.call('futures/book',{...context,operationId:crypto.randomUUID(),bookId:catalog.books[0].id,curve:'future',contractId:contract.id,lots:'3',executionPrice:'3.3',
+  await side.call('futures/book',{...context,operationId:crypto.randomUUID(),bookId:catalog.books[0].id,curve:'future',contractId:contract.id,definitionRevisionId:contract.definitionRevisionId,lots:'3',executionPrice:'3.3',
     legalEntityId:'d4000000-0000-0000-0000-000000000001',legalEntityRevision:1,counterpartyId:'d5000000-0000-0000-0000-000000000001',counterpartyRevision:1,memo:'Synthetic selection browser fixture'});
   await command('Page.enable');await command('Runtime.enable');
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
@@ -66,10 +66,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await sendQuestion();await wait("!document.querySelector('#assistant-consent').hidden");
   const answers=[{tools:[['toolu_selection_digest','read_page_digest',{mode:'overview'}]]},{text:'Synthetic selected positions were read at the question pin.'}];
   if(!(await fetch(new URL('/respond',control),{method:'POST',body:JSON.stringify(answers)})).ok)throw Error('Synthetic provider refused the script.');
-  await wait('__selectionWaits>0');
+  await wait('__selectionWaits>0&&!document.querySelector("#assistant-allow").disabled&&'+idle);
   const consentPrices=await evaluate("__selectionRequests.filter(r=>r.path==='/api/trading/workspace').length"),changedHeads=await evaluate('__selectionChangedHeads');
   await evaluate("window.__holdConsentGrant=window.__holdConsentPricing=true;document.querySelector('#assistant-allow').click()");
-  await wait("typeof window.__releaseConsentGrant==='function'&&__selectionChangedHeads>"+changedHeads);
+  await wait("typeof window.__releaseConsentGrant==='function'");
+  // The durable change watcher may finish an eight-second poll before observing
+  // the grant. Wait for its acknowledgement separately from the held response.
+  await wait('__selectionChangedHeads>'+changedHeads,30000);
   await evaluate('new Promise(resolve=>setTimeout(resolve,600))');
   await check('a grant publication waits behind the admitted assistant consent action',`__selectionRequests.filter(r=>r.path==='/api/trading/workspace').length===${consentPrices}&&document.body.getAttribute('aria-busy')==='false'`);
   await evaluate('window.__holdConsentAgents=true;window.__releaseConsentGrant()');

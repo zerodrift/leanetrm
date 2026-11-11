@@ -12,16 +12,12 @@ timelines now resolve under that same certified context (D189); exact booked
 references remain pinned. General lifecycle transitions, native-curve activation
 and production recovery remain unimplemented.
 
-D334 records one exception: a historical view uses the latest recorded close in
-force for the selected regional session and business day, including that close's
-pinned prices when recorded after the knowledge cutoff. The response discloses
-this condition. Trade state, reference/definition visibility and other market
-facts keep the selected cutoff. Saved results retain their original exact close
-without silent recomputation. Pilot close reports disclose replacement; portfolio
-risk job views do not yet expose that status. The risk worker also lacks the
-session binding needed to release close prices recorded after its historical
-cutoff. See the remaining limits in
-[regional closes](regional-closes.md#historical-views-always-latest).
+D375 removes the D334 after-cutoff close exception. A historical view uses the
+recorded close known in force for its selected regional session and business day.
+Neither a later close nor its price pins bypasses the cutoff. Current authority
+still governs access. Saved results retain their original exact close without
+silent recomputation. See [the decision](decisions.md#d375--exact-source-resolution-under-business-and-knowledge-time)
+for the local qualification status.
 
 This is a baseline product requirement, not an optional reporting feature. Read
 with [architecture](architecture.md), [lifecycle](lifecycle.md) and [plan](plan.md).
@@ -209,9 +205,8 @@ Market data retains separate coordinates:
 
 Select ordinary observations under the context's market cutoff and knowledge
 revision, then apply the explicit source-selection/staleness/correction policy.
-The D334 close-in-force exception above admits that close's exact pins beyond the
-knowledge cutoff; it does not admit other newer observations. A quote correction
-imported later never overwrites the original observation. The policy and its
+Recorded-close pins obey that same cutoff. A quote correction imported later
+never overwrites the original observation. The policy and its
 dependencies are retained inputs.
 
 For example, a May 6 observation imported on May 8 is not information this
@@ -225,8 +220,7 @@ trusted source archives support a reconstruction of externally available history
 that is an explicitly labeled source-history mode with separate provenance.
 It does not claim to reproduce what this installation actually knew.
 
-Outside the explicit D334 close policy, never fall back to newer data when a
-historical input is missing. Distinguish known-empty results, a missing input,
+Never fall back to newer data when a historical input is missing. Distinguish known-empty results, a missing input,
 an unavailable historical archive and an unauthorized result. Do not reveal private history through those distinctions to
 an unauthorized caller.
 
@@ -272,8 +266,7 @@ metadata is a loss of historical coverage, not permission to invent timestamps.
 
 ## 6. Consistency across the environment
 
-All business reads and calculations use the resolved context, including its
-explicit D334 close policy:
+All business reads and calculations use the resolved context:
 
 - Portfolio/book trees, trade blotters, searches, filters and counts.
 - Trade details, instrument/side terms and composed schedules.
@@ -362,9 +355,8 @@ Absence of data must not silently become proof that no trades or prices existed.
 Before offering the historical environment:
 
 1. Reproduce the amendment table above and preserve every captured old result.
-2. Verify later market imports/corrections stay outside an earlier context,
-   except the disclosed pins of its D334 close in force. Replacement must not
-   rewrite a saved result's exact close.
+2. Verify later closes, market imports and corrections stay outside an earlier
+   context. Replacement must not rewrite a saved result's exact close.
 3. Verify future delivery contracts remain visible if they were already known.
 4. Change portfolio/book membership, curve dependencies and calendars later;
    historical joins must retain the prior bindings.
@@ -444,3 +436,14 @@ shared authorized anchor/correction set, five-key fact identity and authority
 checks remain unchanged. The caller's planning mode is restored on return.
 The scale check exercises both caller modes, native-RLS row parity and bounded
 knowledge-receipt work with the same deadline.
+
+## Selected observation event probes
+
+Migration 0238 keeps each selected observation's knowledge-event lookup ahead of
+its certified receipt lookup. A generic plan previously enumerated unrelated
+receipts before matching the selected identity, causing calendar reads to exceed
+their existing deadline. The migration changes only that join boundary, attests
+the helper's original definition and privileges, and retains every knowledge,
+effective-date and current-authority predicate. Both caller planning modes read
+144 event/receipt tuples for 72 selected pins despite 4,096 unrelated facts;
+large-close and correction-history checks retain native-RLS row parity.

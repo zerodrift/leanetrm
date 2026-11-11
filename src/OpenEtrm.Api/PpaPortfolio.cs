@@ -19,6 +19,25 @@ internal sealed record PpaScope(ImmutableDictionary<Guid,JsonElement> Heads,Immu
 // Adapt persisted coverage bindings to the shared unit valuation and risk engines.
 internal static class PpaPortfolio
 {
+    internal sealed record Input(PreviewData Data,InputFrame Frame,PpaScope Scope);
+    internal static async Task<ImmutableArray<Input>> Inputs(NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,
+        PpaScope scope,ImmutableArray<(PreviewData Data,InputFrame Frame)> supplied,bool requirePinned,CancellationToken ct)
+    {
+        CatalogueSource Source(JsonElement row)=>new(row.Id("definition_revision_id"),row.Id("reference_catalog_id"),row.Id("reference_revision_id"));
+        // Admission and report exclusions remain whole-trade operations.
+        foreach(var trade in scope.Bindings.GroupBy(r=>r.Id("trade_id")))
+            if(trade.Select(Source).Distinct().Count()!=1)
+                throw CloseRiskInputsException.For(trade,"ppa_mixed_trade_sources");
+        var inputs=ImmutableArray.CreateBuilder<Input>();
+        foreach(var group in scope.Bindings.GroupBy(Source).OrderBy(g=>g.Key.DefinitionRevisionId))
+        {
+            var source=await MarketInputSelection.Resolve(database,connection,frame,group.Key,supplied,requirePinned,ct);
+            var trades=group.Select(r=>r.Id("trade_id")).ToHashSet();
+            inputs.Add(new(source.Data,source.Frame,new(scope.Heads.Where(h=>trades.Contains(h.Key)).ToImmutableDictionary(),[..group])));
+        }
+        return inputs.ToImmutable();
+    }
+
     internal static object Receipt(ValuationReceipt receipt)=>new{
         receipt.Definitions,receipt.Reference,receipt.Snapshot,receipt.ValuationAt,receipt.KnownAt,receipt.KnowledgeContext,
         sourceKnowledgePolicy=receipt.KnowledgePolicy switch {

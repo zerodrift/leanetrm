@@ -33,7 +33,7 @@ internal static class PpaBlotter
         var books=await BookScope.Read(connection,database.Manifest.CatalogId,ct);
         var selected=BookScope.Select(books,bookIds,portfolioIds)
             .Select(b=>b.Id("id")).ToImmutableArray();
-        if(selected.IsEmpty)return new(null);
+        if(selected.IsEmpty)return new([]);
         var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,frame.ContextId??throw new PreviewDeniedException(),ct)).Context;
         var scope=await PpaPortfolio.Scope(connection,data,frame,context,selected,ct);
         if(position is not null)
@@ -41,25 +41,43 @@ internal static class PpaBlotter
             scope=scope.Without(scope.Heads.Keys.Where(t=>t!=position.TradeId).ToHashSet());
             position.Require(scope.Bindings);
         }
-        return new(new(connection,database,data,frame,books,context,scope));
+        var missing=frame.OriginCloseId is not null&&frame.SourceInputs is {} matrix
+            ?scope.Bindings.Where(row=>!matrix.ContainsKey(row.Id("definition_revision_id"))).Select(row=>row.Id("trade_id")).ToHashSet()
+            :[];
+        var inputs=await PpaPortfolio.Inputs(connection,database,frame,scope.Without(missing),[(data,frame)],false,ct);
+        var sources=inputs.Select(source=>new Scoped(connection,database,source.Data,source.Frame,books,context,source.Scope));
+        var unavailable=missing.Count==0?null:new Scoped(connection,database,data,frame,books,context,
+            scope.Without(scope.Heads.Keys.Where(trade=>!missing.Contains(trade)).ToHashSet()));
+        return new([..sources],unavailable);
     }
     internal sealed record Scoped(NpgsqlConnection Connection,PreviewDatabase Database,PreviewData Data,InputFrame Frame,
         ImmutableArray<JsonElement> Books,ScheduleContext Context,PpaScope Scope);
     // A run of no selected books has no positions.
-    internal sealed class PpaBlotterRun(Scoped? scoped):IBlotterProductRun
+    internal sealed class PpaBlotterRun(ImmutableArray<Scoped> sources,Scoped? unavailable=null):IBlotterProductRun
     {
-        public int Positions{get;}=scoped?.Scope.Bindings.Length??0;
+        public int Positions{get;}=sources.Sum(s=>s.Scope.Bindings.Length)+(unavailable?.Scope.Bindings.Length??0);
         // Each held trade is one unit: the valued trades once the shared preparation is done, each after its bindings are
         // valued, then the trades listed unvalued, by reason.
-        public IAsyncEnumerable<ImmutableArray<JsonObject>> Units(CancellationToken ct)=>scoped is null?AsyncEnumerable.Empty<ImmutableArray<JsonObject>>():Value(scoped,ct);
+        public async IAsyncEnumerable<ImmutableArray<JsonObject>> Units([EnumeratorCancellation]CancellationToken ct)
+        {
+            foreach(var source in sources)
+                await foreach(var unit in Value(source,ct))yield return unit;
+            if(unavailable is {} missing)
+            {
+                var catalog=missing.Database.Manifest.CatalogId;
+                var facts=await Facts(missing.Connection,catalog,missing.Scope.Heads,ct);
+                var rows=await Unvalued(missing.Connection,catalog,missing.Scope,missing.Scope.Heads.Keys.ToHashSet(),OtherVersions,facts,missing.Books,ct);
+                foreach(var trade in ByTrade(rows,row=>row["tradeId"]!.GetValue<Guid>()))yield return trade;
+            }
+        }
     }
     private static async IAsyncEnumerable<ImmutableArray<JsonObject>> Value(Scoped scoped,[EnumeratorCancellation]CancellationToken ct)
     {
         var (connection,database,data,frame,books,context,scope)=scoped;
         // A trade with any binding booked under other versions is listed whole, so no total holds part of a trade.
-        var other=scope.Bindings.Where(b=>!PpaPortfolio.SameVersions(data,b)).Select(b=>b.Id("trade_id")).ToHashSet();
+        if(scope.Bindings.Any(b=>!PpaPortfolio.SameVersions(data,b)))throw new MarketDataException("ppa_context","Every PPA binding requires its exact source inputs.");
         var facts=await Facts(connection,database.Manifest.CatalogId,scope.Heads,ct);
-        var priced=scope.Without(other);
+        var priced=scope;
         var admission=new PpaBlotterAdmission();
         var retained=new RetainedScheduleStore(data.DefinitionRevision.CatalogId);
         var prepared=await PpaPortfolio.Prepare(connection,data,frame,context,priced,PendingActuals,SchedulePreview.ParseAt(context.KnownAt),
@@ -71,7 +89,7 @@ internal static class PpaBlotter
         }
         var rebook=admission.Refusals.Where(p=>p.Value.Any(PpaBlotterAdmission.NeedsRebooking)).Select(p=>p.Key).ToHashSet();
         var unpriced=admission.Refusals.Keys.Where(t=>!rebook.Contains(t)).ToHashSet();
-        foreach(var (trades,reason) in new[]{(other,OtherVersions),(unpriced,UnpricedDelivery),(rebook,NeedsRebooking)})
+        foreach(var (trades,reason) in new[]{(unpriced,UnpricedDelivery),(rebook,NeedsRebooking)})
         {
             if(trades.Count==0)continue;
             foreach(var trade in ByTrade(await Unvalued(connection,database.Manifest.CatalogId,scope,trades,reason,facts,books,ct),r=>r["tradeId"]!.GetValue<Guid>()))

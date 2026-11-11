@@ -237,14 +237,24 @@ def run_checks(root, manifest, query, dotnet, dll, environment, browser=None, co
         api.terminate(); api.wait(timeout=10); api = start()
         restarted = client.bootstrap(); assert restarted['runId'] == installation and restarted['profile'] == first
         client.call('/api/access')
-        # A fresh installation has reference units but no observations, contracts
-        # or selected market dates. It must load without inventing sample inputs.
-        empty_revision=str(uuid4())
-        query(f"INSERT INTO market_data.revisions VALUES('{manifest['catalogId']}','{empty_revision}','{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}','draft',0);INSERT INTO market_data.revision_periods VALUES('{manifest['catalogId']}','{empty_revision}','0001-01-01','9999-12-31');UPDATE market_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{manifest['catalogId']}','{empty_revision}');")
-        (definitions/'manifest.json').write_text(json.dumps({**selected,'revisionId':empty_revision,'frames':[],'example':None,'swapMarkets':None}))
+        # An empty installation publishes an empty catalogue. Existing native
+        # close visibility is independent of the deployment's definition revision.
+        empty_catalog,empty_revision=str(uuid4()),str(uuid4())
+        query(f"INSERT INTO market_data.catalogs VALUES('{empty_catalog}','synthetic_fresh_{empty_catalog.replace('-','')}');"
+              f"INSERT INTO security.market_catalog_scopes VALUES('{empty_catalog}','{manifest['tenantId']}','{manifest['workspaceId']}');"
+              f"INSERT INTO market_data.revisions VALUES('{empty_catalog}','{empty_revision}','{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}','draft',0);"
+              f"INSERT INTO market_data.revision_periods VALUES('{empty_catalog}','{empty_revision}','0001-01-01','9999-12-31');"
+              f"UPDATE market_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{empty_catalog}','{empty_revision}');")
+        empty_manifest={**selected,'catalogId':empty_catalog,'revisionId':empty_revision,'frames':[],'example':None,'inputMarkets':[],
+                        'gasMarket':None,'retainedGasMarkets':[],'crudeMarket':None,'retainedCrudeMarkets':[],
+                        'lngMarket':None,'retainedLngMarkets':[],'schedules':[]}
+        from preview_fixture import catalogue_fixture
+        query(catalogue_fixture(empty_manifest,'https://preview.invalid'))
+        assert query(f"SELECT EXISTS(SELECT 1 FROM market_data.market_closes WHERE catalog_id='{manifest['catalogId']}') AND NOT EXISTS(SELECT 1 FROM market_data.market_closes WHERE catalog_id='{empty_catalog}');")=='t'
+        (definitions/'manifest.json').write_text(json.dumps(empty_manifest))
         api.terminate();api.wait(timeout=10);api=start()
         client.bootstrap();empty,_=client.call('/api/workspace')
-        assert empty['frames']==[] and empty['observations']==[] and empty['definitions']['curves']==[] and empty['example'] is None
+        assert empty['frames']==[] and empty['observations']==[] and empty['definitions']['curves']==[] and empty['example'] is None,empty
         print('PASS fresh hosted workspace loads empty definitions and dates without fabricating market inputs',flush=True)
         if browser:
             target=root/'hosted-browser-target.json'

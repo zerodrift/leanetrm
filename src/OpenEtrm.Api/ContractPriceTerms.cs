@@ -34,23 +34,26 @@ public static partial class CustomCurves
         api.MapContractPublicationStatus(database,operation);
         api.MapGet("/contract-price-terms",(Func<HttpContext,Task<IResult>>)((HttpContext c)=>operation(c,"ReadMarketData",ContextVersions.CatalogueSnapshot(c.Request.Query),async(connection,pin,ct)=>
         {
-            var revision=database.Manifest.RevisionId;
-            var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             var saved=await new CustomCurvesStore(database).Read(connection,ct);
             var publications=await new PricePublicationStore(database).Read(connection,ct);
             await using var permission=ScheduleStore.Command(connection,"SELECT security.market_access($1,'WriteMarketDefinitions') AND security.current_write_context()",database.Manifest.CatalogId);
             var canWrite=Equals(await permission.ExecuteScalarAsync(ct),true);
-            var curves=saved.Where(v=>v.MarketRevisionId==revision)
-                .Select(v=>new ContractPriceCurveChoice(v.Id,v.Version,v.Generation,v.State,v.Definition.Code,v.Definition.Name,
+            var curves=ImmutableArray.CreateBuilder<ContractPriceCurveChoice>();
+            foreach(var group in saved.GroupBy(v=>v.MarketRevisionId))
+            {
+                var data=await database.Read(connection,ct,selectedRevision:group.Key,observationIds:[],includeCalendarDays:false);
+                curves.AddRange(group.Select(v=>new ContractPriceCurveChoice(v.Id,v.Version,v.Generation,v.State,v.Definition.Code,v.Definition.Name,
                 v.Definition.Nodes.Where(n=>n.Kind=="source").Select(n=>
                 {
                     var curve=data.DefinitionRows("curves","code",v.Sources[n.Id].Code).Single();var quote=data.QuoteRows(curve.Text("quote_code")).Single();
                     return new ContractPriceSourceChoice(n.Id,v.Sources[n.Id].Code,PpaQuantitiesStore.Quantity(data,quote.Quantity.Code).Commodity.Code,quote.Key.Code,
                         ContractPriceTermsStore.Members(data,v.Sources[n.Id].Code).Select(k=>new ContractPriceContractChoice(k.Key.Id,k.DeliveryFrom.ToString("yyyy-MM"),k.DeliveryFrom,k.DeliveryTo,k.Expiry,k.Kind.ToString().ToLowerInvariant())).ToImmutableArray(),n.ContractTerms,
                         n.ContractTerms?.MappingRule,n.ContractTerms is null?[]:n.ContractTerms.Mappings.Select(m=>new ContractPriceMapInput(m.Target.Id,m.Source.Id)).ToImmutableArray());
-                }).ToImmutableArray())).ToImmutableArray();
-            return Results.Ok(new ContractPriceTermsCatalog(pin.RequireFrame().Id,canWrite,curves,
-                publications.Where(p=>p.References==data.ReferenceRevision).Select(p=>new ContractPricePublicationChoice(p.Key.Id,p.Key.Version,p.Name,p.Implementation,
+                }).ToImmutableArray())));
+            }
+
+            return Results.Ok(new ContractPriceTermsCatalog(pin.RequireFrame().Id,canWrite,curves.ToImmutable(),
+                publications.Select(p=>new ContractPricePublicationChoice(p.Key.Id,p.Key.Version,p.Name,p.Implementation,
                     p.Indices.Select(i=>new ContractPriceIndexChoice(i.Key.Code,i.Commodity.Code,i.Quote.Code,i.Symbol,i.Statistic)).ToImmutableArray())).ToImmutableArray(),
                 [ContractPriceMappings.SameDeliveryPeriod,ContractPriceMappings.ExplicitContracts],[ContractPriceTerms.ExchangeFinal,ContractPriceTerms.PublishedIndex,ContractPriceTerms.PublishedRelease,ContractPriceTerms.Derived],
                 [ContractPriceTerms.SingleAssessment],[ContractPriceTerms.RequireFinal]));
@@ -83,7 +86,7 @@ public static partial class CustomCurves
     {
         var saved=(await new CustomCurvesStore(database).Read(connection,ct)).SingleOrDefault(v=>v.Id==id&&v.Version==version)
             ??throw Invalid("Select an exact visible authored curve version.");
-        return CurveVersionInputs.Revision(database,saved.MarketRevisionId);
+        return await CurveVersionInputs.Resolve(database,connection,saved.MarketRevisionId,ct);
     }
     static async Task<(CustomCurveVersion Saved,OpenEtrm.MarketData.CustomCurves.RecipeDefinition Definition,object[] Rows)> ContractTermsDefinition(
         Npgsql.NpgsqlConnection connection,PreviewDatabase database,PreviewData data,Guid id,int version,ContractPriceTermsInput input,CancellationToken ct)

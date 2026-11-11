@@ -35,9 +35,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
     window.__loadingReads.at(-1).data=data;return response;
   });})()`);
   try{
-    await persona('trader');
+    await persona('trader');await click('#nav-market');
     const selected=await evaluate("[...document.querySelector('#snapshot').options].at(-1).value");
     await set('#snapshot',selected);
+    await wait(idle+`&&document.querySelector('#snapshot').value===${JSON.stringify(selected)}`);
     // A first load whose valuation fails draws no row, never a zero total, and says why with a Retry; the toolbar stays usable.
     await evaluate("window.__failValuation=true;document.querySelector('#nav-futures').click()");
     await wait("document.querySelector('#futures-page').dataset.pricingState==='failed'&&"+idle);

@@ -1,3 +1,4 @@
+import type {CatalogueSource} from './market-navigation.js';
 import type {GasMeasures} from './lifecycle-text.js';
 // Mirrors of the deal ticket routes' JSON (System.Text.Json web defaults, nulls written).
 // Numeric schedule values are exact decimal strings or exact "a/b" ratios, never numbers.
@@ -30,7 +31,7 @@ export type TradeActions={amend:TradeAction;closeOut:TradeAction;record:TradeAct
 // and the actions it offers; a booking answers its receipt.
 // A link is a physical side whose quantity follows its source's: their receipt, delivery and fuel totals over the term, as exact text.
 export type TicketLink={source:string;target:string;formula:string;fraction:string;receipt:string;delivery:string;fuel:string};
-export type TicketPreview={schedule:ScheduleView|null;summaries:TicketSummary[]|null;scheduleRefusal:ScheduleRefusal|null;quantityUnit:string;links:TicketLink[]};
+export type TicketPreview={source:CatalogueSource;schedule:ScheduleView|null;summaries:TicketSummary[]|null;scheduleRefusal:ScheduleRefusal|null;quantityUnit:string;links:TicketLink[]};
 // quantityPolicy is the daily quantity selection the booked schedule shows, or null for a trade that records no daily quantities.
 export type FacilityAllocationTrack={obligationId:string;sideCode:string;day:string;quantity:string|null;unit:string;state:'planned'|'no_current_allocation';finalQuantity?:string|null;finalState?:string};
 export type TicketTrade=TicketPreview&{measures?:GasMeasures|null;currency?:string;draft:TicketDraft;definitionRevisionId:string;snapshotId:string;context:{contextId:string;effectiveOn:string;knownAt:string};sideSlots:Record<string,number>;actions:TradeActions;quantityPolicy:string|null;facilityAllocations:FacilityAllocationTrack[]};
