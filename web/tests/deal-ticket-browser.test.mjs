@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {browserAvailable,withBrowserPage,browserTestTimeout} from './browser-page.mjs';
+import {browserAvailable,withBrowserPage,browserTestTimeout,pressKey} from './browser-page.mjs';
 
 // The ticket draws a synthetic in-delivery schedule view in the real grid dependency: the backend's delivered, remaining and total rows,
 // pinned in that order, and the strip's delivered count.
@@ -322,9 +322,9 @@ test('returning to an earlier draft cannot apply a partially superseded lookup b
  });
 });
 
-test('late booked choice labels preserve an editable day cell and its unsent quantity',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
- await withBrowserPage('<div id="host"></div>',async evaluate=>{
-  await evaluate(`(async()=>{
+// A booked synthetic trade opened in the ticket, on its side's tab at day level, where the day's quantity is an entry: `cell`. The book's
+// choice labels stay unanswered until `held` is released.
+const bookedDayCell=`
    const {setupTicket}=await import('/ticket-controller.js');
    const field={id:'book',label:'Book',meaning:'',type:'choice',unit:null,state:'editable',required:true,band:null,choices:'books',dependsOn:[],lookup:null,soon:null,rule:null};
    const d={product:'synthetic_booked',version:1,rowShape:'flow',tradeFields:[field,{...field,id:'party',label:'Party'}],sideLimits:[],levels:['month','day'],modes:['booked'],tabs:[],tradeColumns:[],
@@ -351,7 +351,12 @@ test('late booked choice labels preserve an editable day cell and its unsent qua
    // A grid draws its rows again within a frame of first drawing them, which detaches a cell and drops its focus: the person is in the
    // cell once the grid has settled.
    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-   window.cell=document.querySelector('.ticket-cell-input');cell.value='990';cell.focus();
+   window.cell=document.querySelector('.ticket-cell-input');`;
+
+test('late booked choice labels preserve an editable day cell and its unsent quantity',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage('<div id="host"></div>',async evaluate=>{
+  await evaluate(`(async()=>{${bookedDayCell}
+   cell.value='990';cell.focus();
    if(document.activeElement!==cell)throw Error('The editable day cell did not receive focus before its label read.');
    held.shift()();await until(()=>document.querySelector('[data-field=book] .ticket-value')?.textContent==='Resolved book');
    // A label can resize the grid; its redraw restores the retained control on the next frame.
@@ -365,6 +370,53 @@ test('late booked choice labels preserve an editable day cell and its unsent qua
   await evaluate('ticket.destroy()');
  });
 });
+
+// The checks below type in the day's entry as a person does: the browser reports a change of typed text once, when the entry loses focus
+// or Enter is pressed in it, and never of text a script set. The page behaves as a person's focused window; `behind` starts it as a window
+// behind another, which the typing then brings forward.
+const ticketPage='<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><div id="host" style="width:1200px"></div>';
+const typedDayCell=async(evaluate,command,behind,text)=>{
+ if(behind)await command('Emulation.setFocusEmulationEnabled',{enabled:false});
+ await evaluate(`(async()=>{${bookedDayCell}cell.focus();})()`);await command('Input.insertText',{text});
+ assert.equal(await evaluate('cell.value'),text);
+};
+// The ticket's width changes, which draws the grid's rows again: the entry's row is taken out of the page and the same row is put back.
+const narrowed=`(async()=>{
+  const row=cell.closest('.tabulator-row');let redrawn=false;new MutationObserver(records=>{if(records.some(record=>[...record.removedNodes].includes(row)))redrawn=true;}).observe(row.parentElement,{childList:true});
+  document.querySelector('#host').style.width='420px';for(let i=0;i<300&&!redrawn;i++)await new Promise(r=>setTimeout(r,10));
+  for(let i=0;i<5;i++)await painted();
+  return redrawn;
+ })()`;
+// What became of the entry the person typed in, and the quantity the day's record holds once it is open.
+const dayEntry="({same:cell.isConnected&&cell===document.querySelector('.ticket-cell-input'),value:cell.value,focused:document.activeElement===cell,record:document.querySelector('.ticket-record [data-field=quantity] .ticket-control')?.value??null})";
+
+// The person enters what the entry holds by Enter in it, or by moving focus on, as Tab does.
+for(const behind of [false,true])for(const key of ['Enter','Tab']){
+ const where=behind?', in a window that was behind another':'';
+ test(`${key} enters a typed day quantity${where}`,{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(ticketPage,async(evaluate,command)=>{
+  await typedDayCell(evaluate,command,behind,'99');
+  await pressKey(command,key);
+  assert.equal((await evaluate(dayEntry)).record,'99');
+ }));
+ // The redraw is not the person entering the quantity: it stays in its entry, with focus, until they do.
+ test(`a day quantity typed before a change of width stays in its entry until ${key} enters it${where}`,{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(ticketPage,async(evaluate,command)=>{
+  await typedDayCell(evaluate,command,behind,'99');
+  assert.equal(await evaluate(narrowed),true);
+  assert.deepEqual(await evaluate(dayEntry),{same:true,value:'99',focused:true,record:null});
+  await pressKey(command,key);
+  assert.equal((await evaluate(dayEntry)).record,'99');
+ }));
+}
+
+for(const behind of [false,true])
+ test(`a day quantity typed across a change of width is entered whole${behind?', in a window that was behind another':''}`,{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(ticketPage,async(evaluate,command)=>{
+  await typedDayCell(evaluate,command,behind,'99');
+  assert.equal(await evaluate(narrowed),true);
+  await command('Input.insertText',{text:'0'});
+  assert.deepEqual(await evaluate(dayEntry),{same:true,value:'990',focused:true,record:null});
+  await pressKey(command,'Enter');
+  assert.equal((await evaluate(dayEntry)).record,'990');
+ }));
 
 // A local date-time is booked only as the instant it resolved to: while its resolution is out, or after the clock refused it, the earlier
 // instant is not booked in its place; and an earlier entry's late answer never replaces a later one's.

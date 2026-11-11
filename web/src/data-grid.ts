@@ -298,9 +298,10 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       await frame();if(version!==placing||!alive)return;
       if(Math.abs(away()??Infinity)<1){if(place.left!==undefined)view.scrollLeft=place.left;lastPlace=capture();return;}
     }
-    // Scrolling to the row draws the rows again: what in the grid has focus keeps it (refocus).
-    const held=focusedInGrid();
-    try{await row.scrollTo('top',false);}catch{return;}
+    // Scrolling to the row draws the rows again: what in the grid has focus keeps it (refocus), and an entry is not to take that for the
+    // person entering its text (redrawing).
+    const held=focusedInGrid();redrawing=true;
+    try{await row.scrollTo('top',false);}catch{return;}finally{redrawEnded();}
     refocus(held);
     // The virtual renderer estimates the heights of rows it has not drawn, so the row is measured where it lands and moved again until it holds.
     for(let tries=0;tries<4&&version===placing&&alive;tries++){
@@ -388,6 +389,23 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     });
   }
   const focusLost=()=>{const active=document.activeElement;return active===null||active===document.body||active===document.documentElement;};
+  // The browser tells an entry of text typed in it once, by a `change`, when the entry loses focus or Enter is pressed in it. A redraw takes
+  // the entry's row out of the page, so the browser tells it then, as if the person had entered text they are still typing. What an entry is
+  // told while the rows are drawn again (by a redraw Tabulator reports, or by the scroll to a row in settle) is kept from it, and as the
+  // browser will not repeat it, the grid tells it when the person does enter that same text, by Enter or by leaving the entry, or as the
+  // redraw ends when the entry will not have its focus back: it is gone, or something else has focus. Text typed on is the browser's to tell.
+  let redrawing=false,unreported:{entry:HTMLInputElement;text:string}|undefined;
+  const reportChange=()=>{const entry=unreported?.entry;unreported=undefined;entry?.dispatchEvent(new Event('change',{bubbles:true}));};
+  const redrawEnded=()=>{redrawing=false;if(unreported&&(!unreported.entry.isConnected||!focusLost()&&document.activeElement!==unreported.entry))reportChange();};
+  const entryChanged=(event:Event)=>{
+    const entry=event.target;
+    if(redrawing&&entry instanceof HTMLInputElement){event.stopPropagation();unreported={entry,text:entry.value};}
+    else if(entry===unreported?.entry)unreported=undefined;
+  };
+  const entryLeft=(event:FocusEvent)=>{if(event.target===unreported?.entry)reportChange();};
+  const entryKeyed=(event:KeyboardEvent)=>{if(event.key==='Enter'&&event.target===unreported?.entry&&unreported.entry.value===unreported.text)reportChange();};
+  container.addEventListener('change',entryChanged,true);container.addEventListener('focusout',entryLeft,true);container.addEventListener('keydown',entryKeyed,true);
+  table.on('renderStarted',()=>{redrawing=true;});table.on('renderComplete',redrawEnded);
   // Drawing the rows again, whether by the grid's own changes, its scrolling or a resize, detaches them, which drops keyboard focus from a
   // row or its editable control without the person moving it: the same element has it back once drawn. A press outside the grid moves
   // focus on purpose, and that stands; a
@@ -694,7 +712,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       // The grid that was pressed is on the page already: only its rows are scrolled.
       whenDrawn(at,()=>undefined,undefined,(_row,view)=>{const top=view.getBoundingClientRect().top;return press>=top&&press<top+view.clientHeight;});
     },
-    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('click',multipleClick,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('mouseup',doubleClick,true);container.removeEventListener('contextmenu',rowMenu,true);container.removeEventListener('focusout',rowBlurred,true);document.removeEventListener('focusin',focusMoved,true);document.removeEventListener('pointerdown',pressed,true);document.removeEventListener('keydown',keyed,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
+    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('click',multipleClick,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('mouseup',doubleClick,true);container.removeEventListener('contextmenu',rowMenu,true);container.removeEventListener('focusout',rowBlurred,true);container.removeEventListener('change',entryChanged,true);container.removeEventListener('focusout',entryLeft,true);container.removeEventListener('keydown',entryKeyed,true);document.removeEventListener('focusin',focusMoved,true);document.removeEventListener('pointerdown',pressed,true);document.removeEventListener('keydown',keyed,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }
 export type GridHandle=ReturnType<typeof renderDataGrid>;
