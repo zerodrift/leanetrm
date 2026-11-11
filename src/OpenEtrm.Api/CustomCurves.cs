@@ -14,7 +14,8 @@ using OpenEtrm.Shared.Temporal;
 namespace OpenEtrm.Api;
 
 public delegate Task<IResult> CustomCurveOperation(HttpContext context,string permission,Guid? snapshotId,
-    Func<NpgsqlConnection,PinnedContext,CancellationToken,Task<IResult>> work);
+    Func<NpgsqlConnection,PinnedContext,CancellationToken,Task<IResult>> work,
+    Func<NpgsqlConnection,CancellationToken,Task<IResult?>>? replay=null);
 
 public static partial class CustomCurves
 {
@@ -69,10 +70,15 @@ public static partial class CustomCurves
         }));
         api.MapPost("/custom-curves/save",(HttpContext c,CustomCurveSaveRequest body)=>operation(c,"WriteMarketDefinitions",body.SnapshotId,async(connection,pin,ct)=>
         {
-            var retained=body.Id is {} id?(await store.Read(connection,ct)).SingleOrDefault(v=>v.Id==id&&v.Version==body.Version):null;
+            CustomCurvesStore.RequireSaveCoordinates(body);
+            var retained=body.Id is {} id?await store.RequireVersion(connection,id,body.Version,ct):null;
             var revision=retained is null?await CurveVersionInputs.NewGraph(database,connection,body.Definition,pin.Frame?.Time.Date,ct):await CurveVersionInputs.Resolve(database,connection,retained.MarketRevisionId,ct);
             var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             return Results.Ok(await store.Save(connection,body,data,CurveDraftSaver.Person,ct));
+        },async(connection,ct)=>
+        {
+            await store.Lock(connection,ct);
+            return await store.ReplaySave(connection,body,CurveDraftSaver.Person,ct) is {} saved?Results.Ok(saved):null;
         }));
         api.MapPost("/custom-curves/publish",(HttpContext c,CustomCurvePublishRequest body)=>operation(c,"SealMarketDefinitions",null,async(connection,pin,ct)=>
             Results.Ok(await store.Publish(connection,body,ct))));

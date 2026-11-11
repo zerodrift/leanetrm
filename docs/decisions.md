@@ -3885,6 +3885,10 @@ for source identity. Missing or ambiguous inputs fail with a structured error.
 The managed source resolver is shared by portfolio consumers and market reads.
 A reread retains its working view identity while every calculation and recorded
 source validation carries the context captured for that operation.
+Mutation retries resolve their owner-scoped receipt before ephemeral page inputs
+or current catalogue choices. The native receipt read rechecks its own exact
+source and retained curve visibility; a hidden receipt is denied, never treated
+as a new command. Historical contexts cannot authorize mutation replay.
 
 Every recorded close retains a source matrix: exact source/reference versions,
 observation pins, frozen input uses, ordered curve members, and its session's

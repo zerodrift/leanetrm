@@ -134,7 +134,7 @@ def option_checks(url,manifest,run_worker):
     option=next(o for o in catalog['options'] if o['product']=='nymex_on' and o['right']=='call' and o['series']!='nymex_on_20261201_c2.00')
     book=catalog['books'][0]['id']
     trade=c.call('options/book',{'operationId':str(uuid4()),'snapshotId':first['id'],'knowledgeMode':'current',
-        'convention':'futures_option_premium_v1','bookId':book,'series':option['series'],**side_lots('1'),'premium':'0.125',
+        'convention':'futures_option_premium_v1','bookId':book,'series':option['series'],'definitionRevisionId':option['definitionRevisionId'],**side_lots('1'),'premium':'0.125',
         'premiumPaymentDate':'2026-10-19','premiumStyle':'premium_paid_up_front',
         'legalEntityId':catalog['legalEntities'][0]['id'],'legalEntityRevision':catalog['legalEntities'][0]['revision'],
         'counterpartyId':catalog['counterparties'][0]['id'],'counterpartyRevision':catalog['counterparties'][0]['revision']})

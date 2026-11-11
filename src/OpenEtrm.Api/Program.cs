@@ -537,24 +537,20 @@ api.MapGet("/jobs/pilot-close/results",async Task<IResult>(HttpContext c,Guid ru
     var pin=Pin(session);await pin.Bind(connection,database.Manifest.CatalogId,ct);
     return Results.Ok(await PilotCloseReports.Read(connection,runId,pin,ct));
 },c.RequestAborted)));
-api.MapCustomCurves(database,(c,permission,snapshotId,work)=>Locked(c,session=>
+CustomCurveOperation CurrentMarketOperation(string code,string message)=>(c,permission,snapshotId,work,replay)=>Locked(c,session=>
     database.WithIdentity(Profile(session),permission,async(connection,ct)=>
     {
+        // Accepted commands resolve under current authority before looking up an
+        // ephemeral page snapshot; a retry never requires a new pricing context.
+        if(permission is "WriteMarketDefinitions" or "SealMarketDefinitions" or "ImportObservations" && Pin(session).Context is not null)
+            throw new MarketDataException(code,message);
+        if(replay is not null&&await replay(connection,ct) is {} accepted)return accepted;
         var pin=Pin(session,snapshotId);
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
-        if(permission is "WriteMarketDefinitions" or "SealMarketDefinitions" && pin.Context is not null)
-            throw new MarketDataException("custom_curve_historical","Author and publish curves in the current workspace.");
-        return await work(connection,pin,ct);
-    },c.RequestAborted)));
-CustomCurveOperation priceAuthoringOperation=(c,permission,snapshotId,work)=>Locked(c,session=>
-    database.WithIdentity(Profile(session),permission,async(connection,ct)=>
-    {
-        var pin=Pin(session,snapshotId);
-        await pin.Bind(connection,database.Manifest.CatalogId,ct);
-        if(permission is "WriteMarketDefinitions" or "SealMarketDefinitions" or "ImportObservations" && pin.Context is not null)
-            throw new MarketDataException("price_authoring_historical","Return to working data to change pricing terms or ingest publication prices.");
         return await work(connection,pin,ct);
     },c.RequestAborted));
+api.MapCustomCurves(database,CurrentMarketOperation("custom_curve_historical","Author and publish curves in the current workspace."));
+var priceAuthoringOperation=CurrentMarketOperation("price_authoring_historical","Return to working data to change pricing terms or ingest publication prices.");
 api.MapPricePublications(database,priceAuthoringOperation);
 api.MapContractPriceTerms(database,priceAuthoringOperation);
 api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,async session=>

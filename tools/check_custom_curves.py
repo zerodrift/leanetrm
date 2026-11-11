@@ -206,11 +206,20 @@ def run_checks(url, query=None, manifest=None):
     if query and manifest:
         scope=manifest['referenceCatalogId']
         access=query(f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{scope}' RETURNING tenant_id,workspace_id,access_mode;")
-        try:client.call('custom-curves/publish',publish,expected=403)
+        try:
+            assert client.call('custom-curves/publish',publish,expected=403)['code']=='access_denied'
+            client.call('profile',{'profile':'editor'})
+            assert client.call('custom-curves/save',body,expected=403)['code']=='access_denied'
+            assert client.call('custom-curves/save',altered,expected=403)['code']=='access_denied'
         finally:
+            client.call('profile',{'profile':'approver'})
             tenant,workspace,mode=access.split('|')
             query(f"INSERT INTO security.reference_catalog_scopes VALUES('{scope}','{tenant}','{workspace}','{mode}');")
         assert client.call('custom-curves/publish',publish)['publicationOrder']==published['publicationOrder']
+        client.call('profile',{'profile':'editor'})
+        restored=client.call('custom-curves/save',body)
+        assert (restored['id'],restored['version'],restored['generation'])==(saved['id'],1,1),restored
+        client.call('custom-curves/save',altered,expected=409)
     client.call('profile',{'profile':'viewer'})
     assert any(r['id']==saved['id'] for r in client.call('custom-curves')['recipes'])
     final=client.call('custom-curves')
@@ -228,6 +237,9 @@ def run_checks(url, query=None, manifest=None):
     retained_frame=initial_frame(client.call('workspace/navigation'),'2020-12-18')
     client.call('custom-curves/preview',{'definition':published['definition'],'snapshotId':retained_frame['id'],'id':saved['id'],'version':1},expected=422)
     client.call('custom-curves/save',{**body,'snapshotId':retained_frame['id'],'requestId':str(uuid4())},expected=403)
+    client.call('profile',{'profile':'editor'})
+    client.call('market/context',{'effectiveOn':'2020-12-18','knownAt':before['context']['knownAt'],'mode':'at','selection':'latest_correction'})
+    assert client.call('custom-curves/save',body,expected=422)['code']=='custom_curve_historical'
     client.call('market/current',{})
     client.call('profile',{'profile':'editor'})
     fork=client.call('custom-curves/save',{**body,'requestId':str(uuid4()),'id':saved['id'],'version':1,'generation':2,'expectedState':'published','definition':published['definition']})
@@ -240,6 +252,7 @@ def run_checks(url, query=None, manifest=None):
         assert query(f"SELECT count(*) FROM market_data.custom_curve_node_sources WHERE catalog_id='{cat}' AND curve_id='{saved['id']}' AND version=1;")=='1'
         def token(profile='editor'):
             return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','{profile}','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
+        assert query(f"BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token()}');SELECT count(*) FROM security.read_custom_curve_request('{cat}','{publish['requestId']}','ReadMarketData','{{}}'::jsonb);ROLLBACK;")=='0','Another actor must not discover a retained receipt'
         # Moving a relationship from a published parent to a draft is still a mutation of the published graph.
         query(f"""BEGIN;SET LOCAL SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token()}');
             DELETE FROM market_data.custom_curve_node_sources WHERE(catalog_id,curve_id,version)=('{cat}','{saved['id']}',2);
