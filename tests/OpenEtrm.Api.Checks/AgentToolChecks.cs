@@ -604,6 +604,9 @@ static class AgentToolChecks
         var blotter=AgentTools.Operation("trades.blotter_v1");
         var trade=AgentTools.Operation("trades.trade_v1");
         Require(AgentTools.Shown(curve,true,"missing_curve")=="page_selection_unavailable"&&AgentTools.Shown(curve,false,"missing_curve")=="missing_curve"
+            &&AgentTools.Shown(curve,true,"curve_not_selected")=="page_selection_unavailable"
+            &&AgentTools.Shown(curve,false,"curve_not_selected")=="curve_not_selected"
+            &&AgentTools.Shown(curve,true,"catalogue_curve")=="page_selection_unavailable"
             &&AgentTools.Shown(curve,true,"missing_observation")=="missing_observation"&&AgentTools.Shown(blotter,true,"blotter_view")=="page_selection_unavailable"
             &&AgentTools.Shown(trade,true,"futures_trade")=="page_selection_unavailable"&&AgentTools.Shown(trade,true,"swap_trade")=="page_selection_unavailable"
             &&AgentTools.Shown(trade,true,"knowledge_coverage")=="knowledge_coverage",

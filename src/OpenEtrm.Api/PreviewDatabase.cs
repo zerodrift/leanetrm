@@ -686,7 +686,10 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
             """,[catalog,revision,pins.ToArray()],ct);
     }
 
-    private static Task<ImmutableArray<JsonElement>> ReadObservationFacts(NpgsqlConnection connection,PreviewManifest manifest,ImmutableArray<Guid> pins,CancellationToken ct)
+    private static Task<ImmutableArray<JsonElement>> ReadObservationFacts(NpgsqlConnection connection,PreviewManifest manifest,ImmutableArray<Guid> pins,CancellationToken ct)=>
+        ReadObservationFacts(connection,manifest.CatalogId,manifest.RevisionId,pins,ct);
+
+    internal static Task<ImmutableArray<JsonElement>> ReadObservationFacts(NpgsqlConnection connection,Guid catalog,Guid revision,ImmutableArray<Guid> pins,CancellationToken ct)
     {
         if(pins.IsEmpty)return Task.FromResult(ImmutableArray<JsonElement>.Empty);
         // One bounded visibility set authorizes both the requested anchors and
@@ -696,7 +699,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
                 SELECT * FROM security.read_observation_facts($1,$2,$3::uuid[])
                 ORDER BY observed_at,received_at,id
             ) t
-            """,[manifest.CatalogId,manifest.RevisionId,pins.ToArray()],ct);
+            """,[catalog,revision,pins.ToArray()],ct);
     }
 
     public async Task<UnitCatalogData> ReadUnitCatalog(NpgsqlConnection connection,PreviewData selected,CancellationToken ct)

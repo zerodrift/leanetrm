@@ -537,11 +537,11 @@ def run_checks(url, query, psql, manifest, environment, log, fake, trap, admin, 
           refusing['state'] == 'completed' and len(fake.received) == since + 2
           and [(s['tool'], s['operation'], s['input'], s['code']) for s in refused]
           == [('read_current_page', 'market_data.curve_v1', {}, 'page_selection_unavailable'), ('read_market_data', None, None, 'tool_arguments_invalid'),
-              ('read_market_data', 'market_data.curve_v1', {'view': 'curve', 'curve': 'no_such_curve'}, 'missing_curve')]
+              ('read_market_data', 'market_data.curve_v1', {'view': 'curve', 'curve': 'no_such_curve'}, 'curve_not_selected')]
           and [s['access'] for s in refused] == [market, [], market]
           and [e['payload'] for e in events if e['kind'] == 'step'] == [{'ordinal': n, 'tool': s['tool'], 'code': s['code']} for n, s in enumerate(refused, start=1)]
           and all(error and set(content) == {'code', 'message'} for content, error in given.values())
-          and given['toolu_synthetic_23'][0] == {'code': 'missing_curve', 'message': 'No curve with this code exists in the pinned market data.'},
+          and given['toolu_synthetic_23'][0] == {'code': 'curve_not_selected', 'message': 'The selected close does not include this curve in its published scope.'},
           (refused, given))
     fake.respond(stream(tool_use(model_name, [('toolu_synthetic_31', 'read_current_page', {})])), stream(recording(model_name, text='Off.')))
     since = len(fake.received)

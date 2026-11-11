@@ -184,7 +184,9 @@ public sealed class MarketReads(PreviewDatabase database)
     {
         var (frame,data)=await Pinned(connection,pin,curve,ct);
         var result=data.IsRateCurve(curve)?data.Result(frame,curve,await RateCurveResolver.Resolve(connection,data,frame,curve,ct)):data.Result(frame,curve);
-        return new(result,data.Observations,includeWorkspace?await WorkspaceMetadata(connection,data,true,ct):null);
+        var observations=await PreviewDatabase.ReadObservationFacts(connection,data.DefinitionRevision.CatalogId,
+            data.DefinitionRevision.RevisionId,frame.ObservationIds,ct);
+        return new(result,observations,includeWorkspace?await WorkspaceMetadata(connection,data,true,ct):null);
     }
 
     public const int MaximumShapedCurves=64;
