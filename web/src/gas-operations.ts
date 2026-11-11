@@ -37,7 +37,7 @@ export function setupGasOperations(host:HTMLElement,o:{api:Api;context:()=>Recor
  const root=document.createElement('section');root.className='gas-operations';root.dataset.ownControls='true';
  root.innerHTML=`<header class="operations-section-heading"><div><h3>Delivery workspace</h3><p>Every contract day and physical side, with its independent quantity tracks.</p><p class="operations-mode">Manual entry <span>Live pipeline connection · TBD</span></p></div><button class="secondary" type="button" data-ops="refresh">Refresh delivery rows</button></header>
  <section class="operations-deliveries" aria-label="Delivery rows"><div data-ops="rows"></div><p class="operations-grid-note">Quantities are native interval totals. A blank track has no record; withdrawn records stay identified. Times use <span data-ops="zone"></span>.</p></section>
- <section data-ops="workflow" hidden><div class="operations-row-context" data-ops="selection"></div><div class="gas-stages" data-ops="stages"></div><div data-ops="stage-panel"><p class="gas-stage-description" data-ops="stage-description"></p><div data-ops="actions"></div><div class="operation-editor" data-ops="editor" hidden><h4 data-ops="title"></h4><form class="schedule-fields"></form><pre class="operation-review" data-ops="review" hidden></pre><button type="button" data-ops="confirm" hidden>Accept reviewed operation</button></div><div data-ops="allocations"></div></div></section><p data-ops="message" role="status"></p>
+ <section data-ops="workflow" hidden><div class="operations-row-context" data-ops="selection"></div><div class="gas-stages" data-ops="stages"></div><div data-ops="stage-panel"><p class="gas-stage-description" data-ops="stage-description"></p><p class="field-help" data-ops="unavailable" hidden></p><div data-ops="actions"></div><div class="operation-editor" data-ops="editor" hidden><h4 data-ops="title"></h4><form class="schedule-fields"></form><pre class="operation-review" data-ops="review" hidden></pre><button type="button" data-ops="confirm" hidden>Accept reviewed operation</button></div><div data-ops="allocations"></div></div></section><p data-ops="message" role="status"></p>
  <section class="operations-activity" data-ops="activity" hidden><header><h3>Activity &amp; evidence</h3><p>Recorded facts across all four stages for the selected day.</p></header><div data-ops="history"></div></section>`;
  host.append(root);const get=<T extends HTMLElement>(name:string)=>root.querySelector<T>(`[data-ops="${name}"]`)!;
  const descriptions=['Set up service terms or record a request sent to the operator.','Record external responses, then review their adoption into the schedule.','Record allocated delivery and operator statements. Facility allocations remain separate evidence.','Agree and apply an explicit imbalance transfer. Commercial cash remains nonportfolio and unposted.'];
@@ -45,7 +45,7 @@ export function setupGasOperations(host:HTMLElement,o:{api:Api;context:()=>Recor
  const afterFlowHost=get('allocations');
  const form=root.querySelector('form')!,message=get('message'),owner=o.actor(),workflow=o.workflow;
  let grid:GridHandle|undefined,layout=emptyGridLayout(),filters:{query:string;columns:(string|null)[]}|undefined,selectedKey:string|undefined;
- let view:View|undefined,daily:GasQuantityView|undefined,kind:string|undefined,stage=0,busy=false,disposed=false,generation=0,fields:Field[]=[],reviewed:Record<string,unknown>|undefined;
+ let view:View|undefined,readRefusal:string|undefined,daily:GasQuantityView|undefined,kind:string|undefined,stage=0,busy=false,disposed=false,generation=0,fields:Field[]=[],reviewed:Record<string,unknown>|undefined;
  const selectedDelivery=()=>daily?.rows.find(r=>gasDeliveryKey(r)===selectedKey);
  const day=()=>selectedDelivery()?.day??'';
  const edits=trackEdits(form,[],()=>workflow?.changed());const times=new Map<string,ReturnType<typeof zonedInput>>();
@@ -64,9 +64,18 @@ export function setupGasOperations(host:HTMLElement,o:{api:Api;context:()=>Recor
  };panels[at].append(button);}
  showStage();
  function writable(){return !disposed&&!o.readOnly&&o.actor()===owner&&o.context().knowledgeMode==='current'&&!o.context().contextId&&!!workflow&&!workflow.pending();}
- function sync(){const blocked=busy||workflow?.busy()===true||!!workflow?.pending();for(const control of form.querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'))control.disabled=blocked||!writable()||!(kind==='service'?view?.permissions.canConfigure:kind==='daily_quantity'?daily?.canWrite:view?.permissions.canRecord);
+ // Why an operation cannot be recorded here, or nothing when it can.
+ function unavailable(operation:string|undefined){
+  if(!writable())return 'Read only in this context, or a retained command needs reconciliation.';
+  if(operation==='daily_quantity')return daily?.canWrite?undefined:'Your current role cannot record this operation.';
+  if(!view)return readRefusal??'Gas operations for this day are still loading.';
+  return (operation==='service'?view.permissions.canConfigure:view.permissions.canRecord)?undefined:'Your current role cannot record this operation.';
+ }
+ function sync(){const blocked=busy||workflow?.busy()===true||!!workflow?.pending();for(const control of form.querySelectorAll<HTMLInputElement|HTMLSelectElement|HTMLButtonElement>('input,select,button'))control.disabled=blocked||!!unavailable(kind);
   for(const button of stageList.querySelectorAll<HTMLButtonElement>('button'))button.disabled=blocked;
-  for(const button of root.querySelectorAll<HTMLButtonElement>('[data-operation]')){button.setAttribute('aria-pressed',String(button.dataset.operation===kind));button.disabled=blocked||!selectedDelivery()||!writable()||!(button.dataset.operation==='service'?view?.permissions.canConfigure:button.dataset.operation==='daily_quantity'?daily?.canWrite:view?.permissions.canRecord);}
+  const reasons=new Set<string>();
+  for(const button of root.querySelectorAll<HTMLButtonElement>('[data-operation]')){const reason=unavailable(button.dataset.operation);button.setAttribute('aria-pressed',String(button.dataset.operation===kind));button.disabled=blocked||!selectedDelivery()||!!reason;button.title=reason??'';if(reason&&!button.parentElement!.hidden)reasons.add(reason);}
+  get('unavailable').textContent=[...reasons].join(' ');get('unavailable').hidden=blocked||!reasons.size;
   get('rows').inert=blocked;get('workflow').hidden=!selectedDelivery();get('activity').hidden=!view;get('selection').textContent=selectedDelivery()?`${day()} · ${selectedDelivery()!.sideCode} · ${selectedDelivery()!.deliveryPoint??''}`:'';get<HTMLButtonElement>('refresh').disabled=blocked;get('refresh').textContent=edits.edited()?'Discard inputs & refresh':'Refresh delivery rows';get<HTMLButtonElement>('confirm').disabled=blocked||!writable();get('confirm').hidden=!reviewed;
  }
  const ownAccounts=()=>view?.state.accounts.filter(a=>a.trade_id===o.tradeId&&a.origin_obligation_id===selectedDelivery()?.obligationId)??[];
@@ -97,7 +106,7 @@ export function setupGasOperations(host:HTMLElement,o:{api:Api;context:()=>Recor
   for(const f of fields){const label=document.createElement('label');label.append(document.createTextNode(f.label));let input:HTMLInputElement|HTMLSelectElement;if(f.options){input=document.createElement('select');selectOptions(input,f.options);}else{input=document.createElement('input');input.type=f.type??'text';if(f.type==='datetime-local')input.step='1';input.maxLength=f.name==='evidence'?500:300;}
    input.name=f.name;input.required=!f.optional;label.append(input);const small=document.createElement('small');small.textContent=f.meaning;label.append(small);form.append(label);if(f.type==='datetime-local')times.set(f.name,zonedInput(input as HTMLInputElement,o.zone,o.api));}
   if(fields.length){const button=document.createElement('button');button.textContent='Review operation';form.append(button);}
-  updatePrefix();edits.clear();if(kind)get('editor').scrollIntoView({block:'nearest'});message.textContent=!kind?'':!writable()?'Read only in this context, or a retained command needs reconciliation.':!(kind==='service'?view?.permissions.canConfigure:kind==='daily_quantity'?daily?.canWrite:view?.permissions.canRecord)?'Your current role cannot record this operation.':'Select explicit terms and evidence, then preview.';sync();
+  updatePrefix();edits.clear();if(kind)get('editor').scrollIntoView({block:'nearest'});message.textContent=!kind?'':unavailable(kind)??'Select explicit terms and evidence, then preview.';sync();
  }
  function value(name:string){return(form.elements.namedItem(name) as HTMLInputElement|HTMLSelectElement).value;}
  function invalidate(){generation++;reviewed=undefined;get('review').hidden=true;sync();}
@@ -144,13 +153,14 @@ export function setupGasOperations(host:HTMLElement,o:{api:Api;context:()=>Recor
  }
 
  const valid=(epoch:number)=>!disposed&&epoch===generation&&o.actor()===owner;
- function beginRead(){busy=true;view=undefined;reviewed=undefined;get('history').replaceChildren();
+ function beginRead(){busy=true;view=undefined;readRefusal=undefined;reviewed=undefined;get('history').replaceChildren();
   // Removing a focused input can emit a final change. Start the new read after cleanup.
   form.replaceChildren();edits.clear();const epoch=++generation;get('editor').hidden=!kind;get('review').textContent='';get('review').hidden=true;sync();return epoch;
  }
  async function loadOperations(epoch:number){try{
   const operations=await o.api<View>('gas/operations/read',{context:o.context(),tradeId:o.tradeId,day:day()});if(!valid(epoch))return;view=operations;history();if(kind)draw();else message.textContent=writable()?'Choose an action in this stage.':'This delivery history is read only in the selected context.';
- }catch(error){if(valid(epoch)){view=undefined;message.textContent=String(error);}}}
+ }catch(error){if(valid(epoch)){view=undefined;message.textContent=String(error);
+  readRefusal=(error as {code?:string}).code==='access_denied'?'Your roles do not permit gas operations for this delivery.':'Gas operations for this day did not load. Refresh delivery rows to try again.';}}}
  async function read(){
   if(disposed||o.actor()!==owner)return;daily=undefined;clearRows();const epoch=beginRead();
   try{const data=await o.api<GasQuantityView>('gas/quantities/read',{context:o.context(),tradeId:o.tradeId,selectionPolicy:'operational_projection_v1',includeHistory:false});if(!valid(epoch))return;

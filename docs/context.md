@@ -12,11 +12,11 @@ timelines now resolve under that same certified context (D189); exact booked
 references remain pinned. General lifecycle transitions, native-curve activation
 and production recovery remain unimplemented.
 
-D373 removes the D334 after-cutoff close exception. A historical view uses the
+D374 removes the D334 after-cutoff close exception. A historical view uses the
 recorded close known in force for its selected regional session and business day.
 Neither a later close nor its price pins bypasses the cutoff. Current authority
 still governs access. Saved results retain their original exact close without
-silent recomputation. See [the decision](decisions.md#d373--exact-source-resolution-under-business-and-knowledge-time)
+silent recomputation. See [the decision](decisions.md#d374--exact-source-resolution-under-business-and-knowledge-time)
 for the local qualification status.
 
 This is a baseline product requirement, not an optional reporting feature. Read

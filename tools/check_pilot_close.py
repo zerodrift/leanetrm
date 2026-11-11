@@ -84,7 +84,7 @@ def run_checks(url, query, manifest,psql,environment):
     exact=fresh.call('evaluate',{'snapshotId':result['id'],'curve':curve})
     point=next(point for point in exact['points'] if point['contractId']==contract)
     assert stored_point['value']==point['value'] and set(stored_point['observationIds'])==set(point['lineage'])
-    # D373: a close is only in force for a view that knows its publication.
+    # D374: a close is only in force for a view that knows its publication.
     assert result['id'] not in {f.get('originCloseId') for f in earlier.call('workspace/navigation')['frames']}, 'An earlier cutoff exposed a later close'
     current=fresh.call('market/context',{'effectiveOn':frame['at'][:10],'knownAt':None,'mode':'current','selection':'latest_correction'})
     retained=fresh.call('workspace/navigation')
