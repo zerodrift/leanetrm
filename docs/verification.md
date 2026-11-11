@@ -2271,9 +2271,14 @@ uses the hosted-release environment and scoped write/attestation permissions to
 publish the reviewed release. Pull requests do not trigger that publisher.
 
 The job installs stock PostgreSQL 18 from the PostgreSQL Apt Repository and uses
-the runner's Chrome. The checks start their own disposable clusters. SDK, Node
-and application dependency versions are pinned. The job records the runner
-image, PostgreSQL patch, browser, Python, ICU and time-zone data versions.
+the runner's Chrome. The server package depends on `liburing2` from the Ubuntu
+archive. When that install fails, as when the runner cannot reach the archive's
+hosts, it is retried with the same signed `noble main` read from
+`mirrors.edge.kernel.org`, which apt verifies with the image's Ubuntu archive
+key, and the run carries a warning. The checks start their own disposable
+clusters. SDK, Node and application dependency versions are pinned. The job
+records the runner image, PostgreSQL patch, browser, Python, ICU and time-zone
+data versions.
 
 Hosted qualification passed on 2026-10-17 in
 [run 39064855342](https://github.com/zerodrift/leanetrm/actions/runs/39064855342)
