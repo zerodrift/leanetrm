@@ -3876,3 +3876,20 @@ told to review its operation. It is now a 403 `access_denied` that says the role
 do not permit the gas operations read or change. The delivery desk says why each
 operation is unavailable: the context is read only, the role cannot record it, or
 the day's operations were refused. No permission or operation changes.
+
+## D374 — The assistant reads a selected gas day as its page does
+
+Physical operations reported its selected gas day (D371), but the assistant then
+had to write the day's read itself, and the request schema does not say which
+valuation convention a gas read requires. A read without it was refused as
+`swap_context`, which tells the model a swap market is unavailable, so it gave up.
+Read current page now runs the selected day's `gas.operations.read_v1` under the
+turn's frame and retained context and returns it with the exact input it used,
+the physical gas convention included, for the assistant to repeat for that day
+in the same turn. A refusal of that read is reported in its place and the rest of
+the page stays readable. A swap, physical gas or Blotter read whose convention is
+missing or wrong is refused as `valuation_convention`. Reading a booked physical
+gas trade no longer fails: like a crude or LNG trade it states its trade, revision
+and reference, which its navigation target names, and its reference revisions are
+taken from its delivery members, which hold them, not from its head. No
+permission, operation or financial behavior changes.

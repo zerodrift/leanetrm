@@ -24,7 +24,7 @@ def run_checks(url, query, manifest, fake, demo, dotnet, environment, owned_root
     fixture.qualify();identifier='synthetic-physical-'+stamp
     model=fixture.model(identifier)
     agent=fixture.publish(fixture.save(fixture.create('physical operations'),model,
-        tools=['read_workspace_page','discover_page_operations','read_page_operation','propose_page_action','navigate','present_walkthrough'],roles=['trader']))
+        tools=['read_workspace_page','discover_page_operations','read_page_operation','propose_page_action','navigate','present_walkthrough','read_trades'],roles=['trader']))
     owner.call('assistant/grants/grant',{'operationId':str(uuid4()),'agentId':agent['id'],'version':1})
     frame=initial_frame(owner.call('workspace/navigation'),'2020-12-18')['id']
     facility_report={'page':'facility_quantities','businessDate':demo['operationsOn'],'selection':{'ledgerId':demo['ledgerId']}}
@@ -264,6 +264,22 @@ def run_checks(url, query, manifest, fake, demo, dotnet, environment, owned_root
     check('physical operations hands the assistant its selected instrument, gas day, delivery side and stage',page_view[0]['selection']==selection)
     def day_state():
         return owner.call('gas/operations/read',dict(context=daily_current,tradeId=demo['trades'][0],day=scheduled_day))['state']
+    selected_read=page_view[0]['selectedView']
+    check('the selected gas day reaches the assistant as its operations read under the pinned frame',
+        selected_read['operation']=='gas.operations.read_v1' and selected_read['data']['state']==day_state())
+    stated={}
+    def repeated(rows):
+        stated['input']=rows[0]['selectedView']['inputJson']
+        return 'read_page_operation',{'operation':'gas.operations.read_v1','inputJson':stated['input']}
+    def unstated(_):
+        read=json.loads(stated['input']);del read['body']['context']['convention']
+        return 'read_page_operation',{'operation':'gas.operations.read_v1','inputJson':json.dumps(read)}
+    _,reused,_=ask([('read_workspace_page',{'page':'physical_operations'}),repeated,unstated],report=physical_report,knowledge={**current,'frameId':after})
+    check('the selected read states the exact input the assistant repeats for the day in its turn',reused[1]['data']['state']==reused[0]['selectedView']['data']['state'])
+    check('a gas read without its valuation convention is refused as such, not as an unavailable swap market',reused[2]['code']=='valuation_convention')
+    _,trade_read,_=ask([('read_trades',{'view':'trade','mode':None,'bookIds':None,'portfolioIds':None,'groupBy':None,'measures':None,
+        'tradeId':demo['trades'][0],'instrumentType':'physical_gas','revision':position['revision']})],report=physical_report,knowledge={**current,'frameId':after})
+    check('the assistant reads a booked physical gas trade',trade_read[0]['result']['instrumentType']=='physical_gas' and trade_read[0]['result']['head']['trade_id']==demo['trades'][0])
     def agent_records(kind,details):
         preview=dict(context=daily_current,tradeId=demo['trades'][0],expectedRevision=1,day=scheduled_day,kind=kind,details=details)
         def reviewed(rows):
