@@ -386,7 +386,8 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   }
   const focusLost=()=>{const active=document.activeElement;return active===null||active===document.body||active===document.documentElement;};
   // Drawing the rows again, whether by the grid's own changes, its scrolling or a resize, detaches them, which drops keyboard focus from a
-  // row without the person moving it: the row has it back once drawn. A press outside the grid moves focus on purpose, and that stands; a
+  // row or its editable control without the person moving it: the same element has it back once drawn. A press outside the grid moves
+  // focus on purpose, and that stands; a
   // press on a row is the person choosing it, whose focus the redraw it causes must not take. A press or a key outside the grid is the person
   // moving on, which ends a wait for the row (`givingBack`), however long after it comes.
   let pressedAt=-Infinity,givingBack=0;
@@ -394,18 +395,22 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   const keyed=(event:KeyboardEvent)=>{if(!container.contains(event.target as Node))givingBack++;};
   const rowBlurred=(event:FocusEvent)=>{
     const target=event.target;
-    if(event.relatedTarget!==null||!(target instanceof HTMLElement)||!target.classList.contains('tabulator-row')||performance.now()-pressedAt<500)return;
-    const key=target.dataset.rowKey,wait=++givingBack;
+    if(event.relatedTarget!==null||!(target instanceof HTMLElement)||performance.now()-pressedAt<500)return;
+    const owner=target.closest<HTMLElement>('.tabulator-row');
+    if(!owner||!container.contains(owner))return;
+    const key=owner.dataset.rowKey,control=target===owner?undefined:target,wait=++givingBack;
     // The row can be drawn again some frames later, as after a scroll, or be out of reach while the page is busy (inert): it is waited for,
     // for as long as focus stays lost and the person has not moved on, up to about ten seconds.
     const giveBack=(frames:number)=>requestAnimationFrame(()=>{
       if(key===undefined||!alive||wait!==givingBack||!focusLost())return;
-      const row=table.getRow(key),target=row?row.getElement():undefined;
+      const row=table.getRow(key),owner=row?row.getElement():undefined;
+      const target=control?(owner?.contains(control)?control:undefined):owner;
       if(target?.isConnected&&!target.closest('[inert]'))target.focus({preventScroll:true});else if(row&&frames>0)giveBack(frames-1);
     });
     giveBack(600);
   };
-  container.addEventListener('focusout',rowBlurred,true);document.addEventListener('pointerdown',pressed,true);document.addEventListener('keydown',keyed,true);
+  const focusMoved=()=>{givingBack++;};
+  container.addEventListener('focusout',rowBlurred,true);document.addEventListener('focusin',focusMoved,true);document.addEventListener('pointerdown',pressed,true);document.addEventListener('keydown',keyed,true);
   function safeRowGesture(event:MouseEvent,targetRow:HTMLElement){
     const selection=window.getSelection(),target=event.target as Element;
     return current()&&event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&
@@ -676,7 +681,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       // The grid that was pressed is on the page already: only its rows are scrolled.
       whenDrawn(at,()=>undefined,undefined,(_row,view)=>{const top=view.getBoundingClientRect().top;return press>=top&&press<top+view.clientHeight;});
     },
-    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('click',multipleClick,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('mouseup',doubleClick,true);container.removeEventListener('contextmenu',rowMenu,true);container.removeEventListener('focusout',rowBlurred,true);document.removeEventListener('pointerdown',pressed,true);document.removeEventListener('keydown',keyed,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
+    destroy(){if(!alive)return;alive=false;placing++;if(watching)cancelAnimationFrame(watching);resizing.disconnect();gesture=undefined;doubleCandidate=undefined;container.removeEventListener('mousedown',secondMouseDown,true);container.removeEventListener('click',multipleClick,true);container.removeEventListener('dblclick',doubleClick,true);container.removeEventListener('mouseup',doubleClick,true);container.removeEventListener('contextmenu',rowMenu,true);container.removeEventListener('focusout',rowBlurred,true);document.removeEventListener('focusin',focusMoved,true);document.removeEventListener('pointerdown',pressed,true);document.removeEventListener('keydown',keyed,true);container.removeEventListener('pointerdown',pointerDown,true);container.removeEventListener('scroll',watchPlace,true);container.removeEventListener('wheel',personScrolls,true);container.removeEventListener('touchmove',personScrolls,true);container.removeEventListener('pointerdown',scrollbarPress,true);container.removeEventListener('keydown',pagingKey,true);document.removeEventListener('pointermove',pointerMove,true);document.removeEventListener('pointercancel',cancelGesture,true);document.removeEventListener('scroll',cancelGesture,true);if(ready)table.destroy();host.replaceChildren();toolbar.remove();},
   };
 }
 export type GridHandle=ReturnType<typeof renderDataGrid>;
