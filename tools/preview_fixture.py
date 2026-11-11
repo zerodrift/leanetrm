@@ -338,11 +338,11 @@ SET LOCAL SESSION AUTHORIZATION preview_runtime;
 SELECT security.use_context(:'token');
 SELECT security.publish_catalogue('{catalog}','{request_id}',{expected},
  (SELECT jsonb_build_object('effectiveFrom',p.effective_from,'effectiveTo',p.effective_to,
- 'curves',(SELECT jsonb_agg(jsonb_build_object('code',c.code,'kind',c.kind,'definitionRevisionId',c.revision_id,
+ 'curves',coalesce((SELECT jsonb_agg(jsonb_build_object('code',c.code,'kind',c.kind,'definitionRevisionId',c.revision_id,
  'referenceCatalogId',r.reference_catalog_id,'referenceRevisionId',r.reference_revision_id) ORDER BY c.code)
  FROM(SELECT code,revision_id,'curve' kind FROM market_data.curves WHERE catalog_id='{catalog}' AND revision_id IN({curve_revisions})
  UNION ALL SELECT code,revision_id,'rate' FROM market_data.rate_curves WHERE(catalog_id,revision_id)=('{catalog}','{revision}'))c
- JOIN market_data.revisions r ON(r.catalog_id,r.id)=('{catalog}',c.revision_id)),
+ JOIN market_data.revisions r ON(r.catalog_id,r.id)=('{catalog}',c.revision_id)),'[]'::jsonb),
  'roles',(SELECT jsonb_object_agg(role,jsonb_build_object('definitionRevisionId',r.id,
  'referenceCatalogId',r.reference_catalog_id,'referenceRevisionId',r.reference_revision_id))
  FROM(SELECT unnest(ARRAY['primary','units','gas','ppa'])role UNION ALL
