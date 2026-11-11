@@ -144,7 +144,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const bindingOf=()=>evaluate(`window.__tradingReports(window.__editorReplies).at(-1).data.holdings.find(row=>row.tradeId===${JSON.stringify(bookedTrade)}).bindingId`);
   await open(2);
   const bindingBefore=await bindingOf(),contractBefore=await evaluate("document.querySelector('#trade-contract').value");
-  const deliveryBefore=await evaluate(`window.__editorReplies.filter(r=>r.path==='/api/futures/editor').at(-1).data.catalog.contracts.find(c=>JSON.stringify([c.curve,c.id])===${JSON.stringify(contractBefore)}).deliveryFrom`);
+  const deliveryBefore=await evaluate(`window.__editorReplies.filter(r=>r.path==='/api/futures/editor').at(-1).data.catalog.contracts.find(c=>JSON.stringify([c.definitionRevisionId,c.curve,c.id])===${JSON.stringify(contractBefore)}).deliveryFrom`);
   await click('#trade-contract-date');
   const month=await evaluate(`(()=>{const calendar=document.querySelector('#trade-contract-date').parentElement;for(let n=0;n<24;n++){const cell=[...calendar.querySelectorAll('[data-date]:not(:disabled)')].find(b=>b.dataset.date!==${JSON.stringify(deliveryBefore)});if(cell){cell.click();return cell.dataset.date;}const next=calendar.querySelector('[aria-label="Next month with data"]');if(next.disabled)return null;next.click();}return null;})()`);
   if(month===null)throw Error('The instrument-changing amendment needs a second delivery month.');

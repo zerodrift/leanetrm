@@ -390,10 +390,10 @@ def run_checks(query, manifest, psql=None, environment=None):
         print('PASS risk job run concurrency: a part sent while another of its run is uncommitted waits on the run\'s lock, seen in pg_stat_activity, so no run holds parts at two contexts or a part twice', flush=True)
 
     operation = str(uuid4())
-    reject(lambda: submit(selected_frame={**frame, 'frozenObservationIds': [str(uuid4())]}), 'risk_job_input')
-    reject(lambda: submit(selected_frame={key: value for key, value in frame.items() if key != 'frozenObservationIds'}), 'risk_job_input')
+    reject(lambda: submit(selected_frame={**frame, 'frozenObservationIds': [str(uuid4())]}), 'temporal_inputs')
+    reject(lambda: submit(selected_frame={key: value for key, value in frame.items() if key != 'frozenObservationIds'}), 'temporal_inputs')
     reject(lambda: submit(selected_frame={**frame, 'swapMarketSelections': {str(uuid4()): [str(uuid4())]}}), 'risk_job_input')
-    reject(lambda: submit(selected_frame={**frame, 'originCloseId': str(uuid4())}), 'risk_job_denied')
+    reject(lambda: submit(selected_frame={**frame, 'originCloseId': str(uuid4())}), 'temporal_inputs')
     job = submit(operation)
     assert job['state'] == 'queued'
     assert job['convention'] == request['convention']

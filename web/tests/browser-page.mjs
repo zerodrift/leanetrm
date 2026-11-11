@@ -35,6 +35,7 @@ export async function withBrowserPage(page,body){
   const command=(method,params={})=>new Promise(r=>{pending.set(++id,r);ws.send(JSON.stringify({id,method,params}));});
   const evaluate=async expression=>{const reply=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});assert.ok(!reply.error&&!reply.result.exceptionDetails,JSON.stringify(reply));return reply.result.result.value;};
   await command('Page.enable');
+  await command('Emulation.setFocusEmulationEnabled',{enabled:true});
   await command('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
   for(let i=0;i<100&&!await evaluate('!!document.querySelector("#host")');i++)await new Promise(r=>setTimeout(r,20));
   await body(evaluate,command);

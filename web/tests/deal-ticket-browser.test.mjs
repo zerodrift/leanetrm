@@ -348,6 +348,7 @@ test('late booked choice labels preserve an editable day cell and its unsent qua
    document.querySelector('.ticket-tab[data-tab="physical-1"]').click();
    await until(()=>!!document.querySelector('.ticket-cell-input'));
    window.cell=document.querySelector('.ticket-cell-input');cell.value='990';cell.focus();
+   if(document.activeElement!==cell)throw Error('The editable day cell did not receive focus before its label read.');
    held.shift()();await until(()=>document.querySelector('[data-field=book] .ticket-value')?.textContent==='Resolved book');
   })()`);
   assert.deepEqual(await evaluate("({same:cell.isConnected&&cell===document.querySelector('.ticket-cell-input'),value:cell.value,focused:document.activeElement===cell})"),{same:true,value:'990',focused:true});
