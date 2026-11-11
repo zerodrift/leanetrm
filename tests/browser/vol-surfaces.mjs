@@ -150,7 +150,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   await settled(`${calls('vol-surfaces/fit')}.length===1&&!document.querySelector('#vol-fit-retry').hidden`,30000);
   const lost=await evaluate(`${calls('vol-surfaces/fit')}.at(-1)`);
   await check('Calibrate submits the product and model at the selected close under a fresh request id',
-   q(Object.keys(lost.body).sort().join()==='model,product,requestId,snapshotId'&&lost.body.product==='nymex_lo'&&lost.body.model===model&&
+   q(Object.keys(lost.body).sort().join()==='definitionRevisionId,model,product,requestId,snapshotId'&&lost.body.definitionRevisionId===failed.body.definitionRevisionId&&lost.body.product==='nymex_lo'&&lost.body.model===model&&
     lost.body.snapshotId===unfitted.body.context.snapshotId&&/^[0-9a-f-]{36}$/.test(lost.body.requestId)&&lost.status===200&&['queued','running'].includes(lost.answer.state)));
   await check('a lost calibration response keeps the request to retry, and offers no fresh calibration meanwhile',
    "!!document.querySelector('#vol-fit-retry').offsetParent&&!document.querySelector('#vol-fit').offsetParent&&document.querySelector('#vol-fit-here')?.disabled===true&&/not confirmed/.test(document.querySelector('#vol-fit-failure').textContent)",

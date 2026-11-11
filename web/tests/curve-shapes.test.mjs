@@ -156,3 +156,10 @@ test('input inspection requests and matches exact definitions, including the sam
  const wrong=await readInputCurveShapes(async()=>({curves:[shape('gas_forward','other')]}),{snapshotId:'s1'},[markets[0]]);
  assert.equal(wrong.get(curveSelectionKey(markets[0])),'Curve shape unavailable · the read did not return this exact curve definition');
 });
+
+test('draft delivery annotations do not enter the exact input inspection contract',async()=>{
+ const draft={curve:'gas_forward',definitionRevisionId:'r1',deliveryFrom:'2020-12-01',deliveryTo:'2021-01-01'},calls=[];
+ const found=await readInputCurveShapes(async(path,body)=>{calls.push([path,body]);return {curves:[shape('gas_forward','r1')]};},{snapshotId:'s1'},[draft]);
+ assert.deepEqual(calls,[['market/input-curve-shapes',{snapshotId:'s1',curves:[{curve:'gas_forward',definitionRevisionId:'r1'}]}]]);
+ assert.equal(found.get(curveSelectionKey(draft)).curve,'gas_forward');
+});

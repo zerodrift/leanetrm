@@ -16,7 +16,7 @@ def prepare(manifest):
         manifest['frames'].append({**base,'at':at})
     for market in manifest['inputMarkets']:
         present={f['at'] for f in market['frames']}
-        market['frames'].extend(dict(at=f['at'],observationIds=[],curveContracts={}) for f in manifest['frames'] if f['at'] not in present)
+        market['frames'].extend(dict(at=f['at'],observationIds=[],frozenObservationIds=[],curveContracts={}) for f in manifest['frames'] if f['at'] not in present)
     r=f"'{RCAT}','{REFERENCE}'";m=f"'{CAT}','{REVISION}'"
     rows=["BEGIN;",f"INSERT INTO ref_data.revisions(catalog_id,id,revision_key) VALUES({r},'synthetic_factor_units');",f"""DO $copy$ DECLARE t text;BEGIN
     FOREACH t IN ARRAY security.reference_display_tables() LOOP

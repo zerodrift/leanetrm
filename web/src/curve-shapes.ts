@@ -34,7 +34,7 @@ export async function readInputCurveShapes(api:Api,source:{snapshotId:string;con
  const found=new Map<string,CurveShape|string>();
  try{
   if(markets.some(m=>!m.definitionRevisionId||!m.curve))throw Error('Missing exact input coordinates');
-  const read=await api<{curves:CurveShape[];context?:{contextId?:string}}>('market/input-curve-shapes',{snapshotId:source.snapshotId,curves:markets});
+  const read=await api<{curves:CurveShape[];context?:{contextId?:string}}>('market/input-curve-shapes',{snapshotId:source.snapshotId,curves:markets.map(({curve,definitionRevisionId})=>({curve,definitionRevisionId}))});
   for(const market of markets){
    const key=curveSelectionKey(market);
    if(read.context?.contextId!==source.context?.contextId){found.set(key,unavailable('the curves were read in another market context'));continue;}

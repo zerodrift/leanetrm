@@ -655,8 +655,12 @@ def main():
                     close_inputs.append(manifest[key])
             if len({source['revisionId'] for source in close_inputs}) != len(close_inputs):
                 raise ValueError('A fixture must declare each exact retained close source once.')
-        seed_session_closes(query,manifest,working=('2020-12-18',) if args.factor_history_check or args.context_read_check else (),
-                            input_markets=close_inputs)
+        # The factor scenario publishes its additional contracts after opening
+        # the initial view, so its explicit working selections are never recorded
+        # as closes containing contracts that do not exist yet.
+        working_days=tuple({frame['at'][:10] for frame in manifest['frames']}) if args.factor_swap_check else (
+            ('2020-12-18',) if args.factor_history_check or args.context_read_check else ())
+        seed_session_closes(query,manifest,working=working_days,input_markets=close_inputs)
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         (temporary/'manifest.json').chmod(0o600)
         # Freeze assets for this owned instance; a later web build must not change

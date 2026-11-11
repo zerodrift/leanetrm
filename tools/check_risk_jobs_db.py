@@ -236,22 +236,22 @@ def run_checks(query, manifest, psql=None, environment=None):
     empty_markets = submit(payload=generic_request, selected_frame={**frame, 'supplementalMarkets': {}, 'swapMarketSelections': {}})
     user(f"SELECT risk.cancel('{empty_markets['jobId']}')")
     reject(lambda: submit(payload={key: value for key, value in generic_request.items() if key != 'pricingPolicy'}, selected_frame=generic_frame), 'risk_job_input')
-    for mutate in (
-        lambda value: value.pop('supplementalMarkets'),
-        lambda value: value['supplementalMarkets'][supplemental_revision].update(contextId=str(uuid4())),
-        lambda value: value['supplementalMarkets'][supplemental_revision].update(id=str(uuid4())),
-        lambda value: value['supplementalMarkets'][supplemental_revision].update(at='2020-12-14T16:00:00Z'),
-        lambda value: value['supplementalMarkets'][supplemental_revision].update(frozenObservationIds=[str(uuid4())]),
-        lambda value: value['supplementalMarkets'][supplemental_revision].update(supplementalMarkets={}),
-        lambda value: value.update(swapMarketSelections={}),
+    for mutate, expected in (
+        (lambda value: value.pop('supplementalMarkets'), 'risk_job_input'),
+        (lambda value: value['supplementalMarkets'][supplemental_revision].update(contextId=str(uuid4())), 'risk_job_input'),
+        (lambda value: value['supplementalMarkets'][supplemental_revision].update(id=str(uuid4())), 'risk_job_input'),
+        (lambda value: value['supplementalMarkets'][supplemental_revision].update(at='2020-12-14T16:00:00Z'), 'temporal_inputs_denied'),
+        (lambda value: value['supplementalMarkets'][supplemental_revision].update(frozenObservationIds=[str(uuid4())]), 'temporal_inputs'),
+        (lambda value: value['supplementalMarkets'][supplemental_revision].update(supplementalMarkets={}), 'risk_job_input'),
+        (lambda value: value.update(swapMarketSelections={}), 'risk_job_input'),
     ):
         invalid = deepcopy(generic_frame); mutate(invalid)
-        reject(lambda: submit(payload=generic_request, selected_frame=invalid), 'risk_job_input')
+        reject(lambda: submit(payload=generic_request, selected_frame=invalid), expected)
     invalid = deepcopy(generic_frame)
     invalid['supplementalMarkets'][supplemental_revision]['observationIds'] = frame['observationIds'][:1]
     invalid['supplementalMarkets'][supplemental_revision]['frozenObservationIds'] = []
     invalid['swapMarketSelections'][supplemental_revision] = frame['observationIds'][:1]
-    reject(lambda: submit(payload=generic_request, selected_frame=invalid), 'risk_job_denied')
+    reject(lambda: submit(payload=generic_request, selected_frame=invalid), 'temporal_inputs_denied')
     changed = deepcopy(generic_frame)
     changed['supplementalMarkets'][supplemental_revision]['frozenObservationIds'] = []
     reject(lambda: submit(generic_operation, generic_request, changed), 'risk_job_conflict')
@@ -284,7 +284,7 @@ def run_checks(query, manifest, psql=None, environment=None):
     corrected['supplementalMarkets'][supplemental_revision]['observationIds'][0] = correction.upper()
     corrected['supplementalMarkets'][supplemental_revision]['frozenObservationIds'] = [correction.upper()]
     corrected['swapMarketSelections'][supplemental_revision][0] = correction.upper()
-    reject(lambda: submit(payload=generic_request, selected_frame=corrected), 'risk_job_denied')
+    reject(lambda: submit(payload=generic_request, selected_frame=corrected), 'temporal_inputs_denied')
     later = user(f"SELECT security.capture_date_context('{catalog}','{at[:10]}',NULL)")
     corrected['contextId'] = later
     corrected['supplementalMarkets'][supplemental_revision]['contextId'] = later
