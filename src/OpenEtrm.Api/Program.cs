@@ -83,6 +83,12 @@ const string malformed="The request is incomplete or malformed.";
 (int Status,string Code,string Message) Failure(Exception e,PathString apiPath,HttpContext context)=>e switch
 {
     ToolRefusal refusal=>(422,refusal.Code,AgentTools.Text(refusal.Code)),
+    PostgresException p when p.SqlState=="P0001"&&p.MessageText=="catalogue_choice_changed"
+        => (409,p.MessageText,"The offered product definition changed. Reload the available trade terms before booking."),
+    PostgresException p when p.SqlState=="P0001"&&p.MessageText is "catalogue_context" or "catalogue_missing" or "catalogue_source" or "catalogue_publication" or "catalogue_conflict"
+        => (p.MessageText=="catalogue_conflict"?409:422,p.MessageText,CatalogueStore.Refusal(p.MessageText)),
+    PostgresException p when p.SqlState=="P0001"&&p.MessageText=="temporal_inputs"
+        => (422,p.MessageText,"The saved inputs do not match their business date, exact source versions or recorded close. Select a complete input snapshot."),
     PostgresException p when p.SqlState=="P0001"&&p.MessageText is "operating_policy_conflict" or "user_preferences_conflict" or "user_preferences_owner_changed"
         =>(409,p.MessageText,"These settings or this request changed. Reload the current version, or retry the original request."),
     PostgresException p when p.SqlState=="P0001"&&p.MessageText is "operating_policy_input" or "user_preferences_input"
@@ -139,6 +145,7 @@ const string malformed="The request is incomplete or malformed.";
         => (422,parts[0],CloseSessions.Refusal(parts[0])+(parts.Length>1?" ("+parts[1].Trim()+")":"")),
     PostgresException p when p.MessageText is "pilot_close_conflict" => (409,p.MessageText,"This close request already has different retained inputs. Reconcile the original request."),
     PostgresException p when p.SqlState is "23503" or "23514" && apiPath.StartsWithSegments("/api/jobs/pilot-close") => (422,"pilot_profile","Choose supported exact books, curves, sources, policies and schedule terms."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="pilot_close_source_scope" => (422,p.MessageText,"This generated close requires an anchor and session curves from one exact definition."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("pilot_",StringComparison.Ordinal) => (422,p.MessageText,"Choose complete explicit pilot close inputs, supported policies and an available exact anchor."),
     PostgresException p when p.MessageText is "infrastructure_busy" => (409,p.MessageText,"Wait for active workloads or pending maintenance to finish before requesting node maintenance."),
     PostgresException p when p.MessageText is "infrastructure_conflict" => (409,p.MessageText,"The node changed. Refresh infrastructure before requesting another action."),
@@ -174,6 +181,7 @@ const string malformed="The request is incomplete or malformed.";
 
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("gas_",StringComparison.Ordinal) => (422,p.MessageText,"The gas operation requires complete compatible terms and retained schedules."),
     MarketDataException m when m.Code is "gas_billing_conflict" or "gas_billing_stale_preview" or "gas_operations_conflict" or "gas_operations_stale_preview" => (409,m.Code,m.Message),
+    MarketDataException m when m.Code=="catalogue_conflict" => (409,m.Code,m.Message),
     MarketDataException m => (422,m.Code,m.Message),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_denied" => (403,"access_denied","Current authority does not permit this risk job operation."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText=="risk_job_conflict" => (409,p.MessageText,"This request identity already belongs to different risk inputs."),
@@ -462,7 +470,7 @@ async Task<SessionFramePlan> DiscoverFrames(NpgsqlConnection connection,PreviewS
 {
     if(session.Live is not null)return new([],session.FrameCatalog);
     var aliases=session.ContextAliases(session.MarketContext);
-    var stored=await MarketCloses.Frames(connection,database.Manifest.CatalogId,database.Manifest.RevisionId,session.MarketContext?.ContextId,ct,session.DurableLimit(aliases));
+    var stored=await MarketCloses.Frames(connection,database.Manifest.CatalogId,session.MarketContext?.ContextId,ct,session.DurableLimit(aliases));
     return session.PlanFrames(stored,session.MarketContext,aliases);
 }
 async Task RefreshFrames(PreviewSession session,CancellationToken ct)
@@ -530,24 +538,20 @@ api.MapGet("/jobs/pilot-close/results",async Task<IResult>(HttpContext c,Guid ru
     var pin=Pin(session);await pin.Bind(connection,database.Manifest.CatalogId,ct);
     return Results.Ok(await PilotCloseReports.Read(connection,runId,pin,ct));
 },c.RequestAborted)));
-api.MapCustomCurves(database,(c,permission,snapshotId,work)=>Locked(c,session=>
+CustomCurveOperation CurrentMarketOperation(string code,string message)=>(c,permission,snapshotId,work,replay)=>Locked(c,session=>
     database.WithIdentity(Profile(session),permission,async(connection,ct)=>
     {
+        // Accepted commands resolve under current authority before looking up an
+        // ephemeral page snapshot; a retry never requires a new pricing context.
+        if(permission is "WriteMarketDefinitions" or "SealMarketDefinitions" or "ImportObservations" && Pin(session).Context is not null)
+            throw new MarketDataException(code,message);
+        if(replay is not null&&await replay(connection,ct) is {} accepted)return accepted;
         var pin=Pin(session,snapshotId);
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
-        if(permission is "WriteMarketDefinitions" or "SealMarketDefinitions" && pin.Context is not null)
-            throw new MarketDataException("custom_curve_historical","Author and publish curves in the current workspace.");
-        return await work(connection,pin,ct);
-    },c.RequestAborted)));
-CustomCurveOperation priceAuthoringOperation=(c,permission,snapshotId,work)=>Locked(c,session=>
-    database.WithIdentity(Profile(session),permission,async(connection,ct)=>
-    {
-        var pin=Pin(session,snapshotId);
-        await pin.Bind(connection,database.Manifest.CatalogId,ct);
-        if(permission is "WriteMarketDefinitions" or "SealMarketDefinitions" or "ImportObservations" && pin.Context is not null)
-            throw new MarketDataException("price_authoring_historical","Return to working data to change pricing terms or ingest publication prices.");
         return await work(connection,pin,ct);
     },c.RequestAborted));
+api.MapCustomCurves(database,CurrentMarketOperation("custom_curve_historical","Author and publish curves in the current workspace."));
+var priceAuthoringOperation=CurrentMarketOperation("price_authoring_historical","Return to working data to change pricing terms or ingest publication prices.");
 api.MapPricePublications(database,priceAuthoringOperation);
 api.MapContractPriceTerms(database,priceAuthoringOperation);
 api.MapPost("/profile",(HttpContext c,ProfileRequest body)=>Locked(c,async session=>
@@ -758,16 +762,18 @@ api.MapPost("/schedules/keep",(HttpContext c,SchedulePreviewRequest body)=>Sched
     _=shortcut.Resolve(SchedulePreview.ParseAt(body.At));
     return Results.Ok(SchedulePreview.Describe(session.Shortcuts.Keep(Profile(session),shortcut)));
 }));
-api.MapPost("/schedules/resolve",(HttpContext c,ShortcutResolveRequest body)=>ScheduleOperation(c,(session,data)=>
-{
-    var shortcut=session.Shortcuts.Find(Profile(session),body.Symbol);
-    var source=ScheduleSource(shortcut.Sequence.Key.Code);
-    if(shortcut.Sequence.Key.Revision!=new DefinitionRevision(database.Manifest.CatalogId,database.Manifest.RevisionId) ||
-       shortcut.Sequence.References!=new ReferenceRevision(database.Manifest.ReferenceCatalogId,database.Manifest.ReferenceRevisionId) ||
-       source.From!=shortcut.Sequence.From || source.To!=shortcut.Sequence.To)
-        throw new MarketDataException("sequence_definition","The retained shortcut pins differ from this preview's exact source bundle.");
-    return Results.Ok(SchedulePreview.Result(shortcut,SchedulePreview.ParseAt(body.At)));
-}));
+api.MapPost("/schedules/resolve",(HttpContext c,ShortcutResolveRequest body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+    {
+        var shortcut=session.Shortcuts.Find(Profile(session),body.Symbol);
+        var sequence=shortcut.Sequence;
+        if(sequence.Key.Revision.CatalogId!=database.Manifest.CatalogId)
+            throw new MarketDataException("sequence_definition","The retained shortcut belongs to another catalogue.");
+        await Pin(session).Bind(connection,database.Manifest.CatalogId,ct);
+        var source=new CatalogueSource(sequence.Key.Revision.RevisionId,sequence.References.CatalogId,sequence.References.RevisionId);
+        await MarketBundle.Require(connection,source.Apply(database.Manifest),ct);
+        return Results.Ok(SchedulePreview.Result(shortcut,SchedulePreview.ParseAt(body.At)));
+    },c.RequestAborted)));
 DateReceipt ResolveDate(PreviewSession session,PreviewData data,string? expression,string? at,CalendarDraft? calendar)
 {
     var instant=at is null? (DateTimeOffset?)null:SchedulePreview.ParseAt(at);
@@ -811,8 +817,7 @@ CurveDatesSaved CompileCurve(PreviewSession session,PreviewData data,CurveDatesR
         if(contracts[i].DeliveryFrom<contracts[i-1].DeliveryTo || contracts[i].Expiry<=contracts[i-1].Expiry)
             throw new TemporalException("contract_dates","Contracts must have ordered, nonoverlapping delivery periods and increasing expiries.");
     return new(body.Code,body.Name,body.TemplateCurve!,templates[0].Clone(),
-        new DefinitionRevision(database.Manifest.CatalogId,database.Manifest.RevisionId),
-        new ReferenceRevision(database.Manifest.ReferenceCatalogId,database.Manifest.ReferenceRevisionId),
+        data.DefinitionRevision,data.ReferenceRevision,
         at.ToString("O",System.Globalization.CultureInfo.InvariantCulture),body.RollingCalendar,contracts);
 }
 api.MapPost("/schedules/contracts/preview",(HttpContext c,CurveDatesRequest body)=>ScheduleOperation(c,(session,data)=>Results.Ok(CompileCurve(session,data,body))));
@@ -986,13 +991,24 @@ async Task<IResult> SelectContext(HttpContext c,PreviewSession session,string? s
         await MarketContextStore.Bind(connection,database.Manifest.CatalogId,captured.Context,ct);
         var data=await database.Read(connection,ct,observationIds:[..session.InitialFrames.SelectMany(id=>session.Frames[id].ObservationIds).Distinct()]);
         var aliases=session.SelectContextAliases(data,captured.Context);
-        var stored=await MarketCloses.Frames(connection,database.Manifest.CatalogId,database.Manifest.RevisionId,captured.Context.ContextId,ct,session.DurableLimit(aliases));
+        var stored=await MarketCloses.Frames(connection,database.Manifest.CatalogId,captured.Context.ContextId,ct,session.DurableLimit(aliases));
         return (captured,plan:session.PlanFrames(stored,captured.Context,aliases));
     },c.RequestAborted);
     session.StopLive();session.ApplyFrames(snapshot.plan);
     session.MarketContext=snapshot.captured.Context;
     return Results.Ok(new{snapshot.captured.Context,snapshot.captured.CoverageFrom,snapshot.captured.CertifiedThrough,frameSelectionPolicy=framePolicy,snapshotId=framePolicy is null?null:session.ContextFrame(previous,snapshot.plan,snapshot.captured.Context)});
 }
+var catalogueStore=new CatalogueStore(database.Manifest.CatalogId);
+api.MapGet("/catalogue",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
+{
+    await Pin(session).Bind(connection,database.Manifest.CatalogId,ct);
+    return Results.Ok(await catalogueStore.ReadBound(connection,ct));
+},c.RequestAborted))));
+api.MapPost("/catalogue/publish",(HttpContext c,CataloguePublishRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"SealMarketDefinitions",async(connection,ct)=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Publish catalogue membership in current knowledge.");
+    return Results.Ok(await catalogueStore.Publish(connection,body,ct));
+},c.RequestAborted)));
 api.MapPost("/market/context",(HttpContext c,MarketContextRequest body)=>Locked(c,session=>
     SelectContext(c,session,body.Selection,(connection,ct)=>knowledgeStore.Capture(connection,new(body.EffectiveOn,body.KnownAt,body.Mode),ct),body.SnapshotId,body.FrameSelectionPolicy)));
 api.MapPost("/market/current",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,async session=>
@@ -1007,7 +1023,7 @@ api.MapPost("/market/live",(HttpContext c,LiveSelectRequest body)=>Locked(c,asyn
     var seed=Frame(session,body.SnapshotId);
     var resolved=await liveContexts.Resolve(Profile(session),LiveSelection.Start(seed,body.Policy),c.RequestAborted);
     session.SelectLive(resolved);
-    return Results.Ok(new{live=resolved.Summary(),context=resolved.Context,frame=new NavigationFrame(resolved.Frame!.Id,resolved.Frame.Name,resolved.Frame.At)});
+    return Results.Ok(new{live=resolved.Summary(),context=resolved.Context,frame=new NavigationFrame(resolved.Frame!.Id,resolved.Frame.Name,resolved.Frame.At,resolved.Frame.BusinessDate)});
 }));
 api.MapGet("/market/live/events",(HttpContext c,Guid selection)=>liveContexts.Serve(c,()=>Session(c),selection,app.Lifetime.ApplicationStopping));
 api.MapPost("/market/live/pause",(HttpContext c,LivePauseRequest body)=>Locked(c,async session=>
@@ -1019,19 +1035,16 @@ api.MapPost("/market/live/pause",(HttpContext c,LivePauseRequest body)=>Locked(c
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
         await MarketBundle.RequireObservationPins(connection,database.Manifest,pin.RequireFrame().ObservationIds,ct);return true;
     },c.RequestAborted);
-    session.PauseLive(pin);return Results.Ok(new{context=pin.Context,frame=new NavigationFrame(pin.RequireFrame().Id,pin.RequireFrame().Name,pin.RequireFrame().At)});
+    session.PauseLive(pin);return Results.Ok(new{context=pin.Context,frame=new NavigationFrame(pin.RequireFrame().Id,pin.RequireFrame().Name,pin.RequireFrame().At,pin.RequireFrame().BusinessDate)});
 }));
 object WorkspaceProjection(PreviewSession session,WorkspaceRead read,bool catalogOnly,PinnedContext? exact=null)
 {
     var data=read.Data;
     var context=exact is null?session.MarketContext:exact.Context;
     var prior=exact?.Frame is {} selected&&selected.ContextId!=session.MarketContext?.ContextId?selected:null;
-    var referenceSources=PreviewDatabase.ReferenceTables.ToDictionary(table=>table,table=>
-    {
-        var source=PreviewDatabase.ReferenceSource(database.Manifest,table);
-        return new {referenceRevision=source.Revision,definitionRevisionId=source.Definition};
-    });
-    return new {referenceSources,unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references=data.References,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
+    var referenceSources=read.ReferenceSources;
+    var references=read.References(catalogOnly);
+    return new {referenceSources,unitCatalog=read.Units,unitCatalogError=read.Units is null?"unit_catalog":null,referenceDisplay=read.ReferenceDisplay,unitReferenceDisplay=read.UnitReferenceDisplay,context,profile=session.Profile,example=database.Manifest.Example,futuresConvention=database.Manifest.FuturesConvention,curveNames=read.CurveNames,powerCurveCodes=PowerPreview.CurveCodes(data),definitions=data.Definitions,references,referenceScope=catalogOnly?"definition_closure":"all_visible",observations=catalogOnly?ImmutableArray<JsonElement>.Empty:data.Observations,observationScope=catalogOnly?"on_demand":"all_visible",
         // Each offered frame names its recorded close; one without a close is a working snapshot (D334).
         frames=prior is null?session.VisibleFrames:[prior],frameCatalog=session.FrameCatalog,initialFrameIds=prior is not null?[prior.Id]:session.InitialFrameIds};
 }
@@ -1039,7 +1052,7 @@ Task<IResult> Workspace(HttpContext c,bool catalogOnly)=>Locked(c,async session=
 {
     var read=await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
     {
-        var workspace=await marketReads.Workspace(connection,Pin(session),catalogOnly,ct);
+        var workspace=await marketReads.Workspace(connection,Pin(session,ContextVersions.SnapshotId(c.Request.Query)),catalogOnly,ct,c.Request.Query["curve"].FirstOrDefault());
         return(workspace,plan:await DiscoverFrames(connection,session,ct));
     },c.RequestAborted);
     session.ApplyFrames(read.plan);
@@ -1051,25 +1064,34 @@ api.MapGet("/workspace/navigation",(Func<HttpContext,Task<IResult>>)(c=>Locked(c
 {
     var read=await database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
     {
-        var navigation=await marketReads.Navigation(connection,Pin(session),ct);
+        var navigation=await marketReads.Navigation(connection,Pin(session,ContextVersions.CatalogueSnapshot(c.Request.Query)),ct);
         // Keep inspection available when authoring is unavailable, with the exact reason.
-        var configurations=await MarketNavigation.ReadConfigurations(connection,database.Manifest,navigation.Curves,
-            session.MarketContext is not null,await PreviewDatabase.HasPermission(connection,"WriteMarketDefinitions",ct),ct);
+        var configurations=navigation.Configurations;
         return(navigation,configurations,plan:await DiscoverFrames(connection,session,ct));
     },c.RequestAborted);
     session.ApplyFrames(read.plan);var frames=session.VisibleFrames;
     return Results.Ok(new MarketNavigation(Profile(session),session.MarketContext,read.navigation.DefinitionRevision,read.navigation.ReferenceRevision,
         database.Manifest.FuturesConvention,database.Manifest.Example,
         [..session.InitialFrameIds],
-        [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.OriginCloseId,f.Close))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog,Live=session.Live?.Summary(),CurveConfigurations=read.configurations});
+        [..frames.Select(f=>new NavigationFrame(f.Id,f.Name,f.At,f.BusinessDate,f.OriginCloseId,f.Close))],read.navigation.CurveNames,read.navigation.Curves,read.navigation.ReferenceDisplay){FrameCatalog=session.FrameCatalog,Live=session.Live?.Summary(),CurveConfigurations=read.configurations});
 })));
 api.MapGet("/reference/catalog",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>
 {
     var requestedOffset=c.Request.Query["offset"].ToString();
     if(!int.TryParse(c.Request.Query.ContainsKey("offset")?requestedOffset:"0",System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var offset))
         throw new MarketDataException("reference_page",$"Choose an offset from 0 to {PreviewDatabase.ReferenceMaximumOffset}.");
-    var page=await marketReads.References(connection,Pin(session),c.Request.Query["table"].ToString(),offset,c.Request.Query["search"].ToString(),
-        c.Request.Query.TryGetValue("code",out var code)?code.ToString():null,ct);
+    var table=c.Request.Query["table"].ToString();
+    var snapshot=ContextVersions.SnapshotId(c.Request.Query);
+    Guid? definitionRevisionId=null;
+    if(c.Request.Query.TryGetValue("definitionRevisionId",out var requestedDefinition))
+    {
+        if(table!="futures_option_products"||snapshot is null||requestedDefinition.Count!=1||
+            !Guid.TryParse(requestedDefinition[0],out var exact)||exact==Guid.Empty)
+            throw new MarketDataException("reference_page","Choose a snapshot and an exact definition for option products.");
+        definitionRevisionId=exact;
+    }
+    var page=await marketReads.References(connection,Pin(session,snapshot),table,offset,c.Request.Query["search"].ToString(),
+        c.Request.Query.TryGetValue("code",out var code)?code.ToString():null,ct,definitionRevisionId);
     var referenceDisplay=await ReferenceEditors.Display(connection,page.ReferenceRevision,ct);
     return Results.Ok(new {page.Table,page.Rows,page.References,page.Offset,page.PageSize,page.MaximumOffset,page.HasMore,page.Search,page.ReferenceRevision,page.DefinitionRevisionId,referenceDisplay,
         tables=PreviewDatabase.ReferenceTables,referenceScope="selected_table",context=session.MarketContext,profile=session.Profile});
@@ -1089,7 +1111,7 @@ api.MapGet("/reference/editor",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,ses
 {
     await Pin(session).Bind(connection,database.Manifest.CatalogId,ct);
     var code=c.Request.Query.TryGetValue("code",out var selected)?selected.ToString():null;
-    return Results.Ok(await ReferenceEditors.Read(connection,database.Manifest,c.Request.Query["table"].ToString(),ct,code));
+    return Results.Ok(await ReferenceEditors.Read(connection,database,c.Request.Query["table"].ToString(),ct,code));
 },c.RequestAborted))));
 Task<IResult> ReferenceMutation(HttpContext c,string permission,Func<NpgsqlConnection,CancellationToken,Task<JsonElement>> work)=>Locked(c,session=>
 {
@@ -1132,7 +1154,7 @@ api.MapPost("/crude-setup/preview",(HttpContext c,CrudeSetupPreviewRequest body)
  var pin=Pin(session,body.SnapshotId);
  if(body.KnowledgeMode!="current"||pin.Context is not null||body.ContextId is not null)throw new MarketDataException("crude_setup_input","Choose current working knowledge for delivery-mark preview.");
  var frame=pin.RequireFrame();
- var context=(await knowledgeStore.Capture(connection,new(DateOnly.FromDateTime(frame.At.UtcDateTime).ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),null,"current"),ct)).Context;
+ var context=(await knowledgeStore.Capture(connection,new(frame.Time.Date.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),null,"current"),ct)).Context;
  await PinnedContext.BindExact(connection,database.Manifest.CatalogId,context,ct);
  return Results.Ok(await crudeSetupEditor.Preview(connection,frame with{ContextId=context.ContextId},body,ct));
 },c.RequestAborted)));
@@ -1147,7 +1169,7 @@ api.MapPost("/gas-setup/save",(HttpContext c,GasSetupSaveRequest body)=>Referenc
 api.MapPost("/gas-setup/validate",(HttpContext c,GasSetupValidateRequest body)=>ReferenceMutation(c,"ReadMarketData",(connection,ct)=>gasSetupEditor.Validate(connection,body,ct)));
 api.MapPost("/gas-setup/publish",(HttpContext c,GasSetupPublishRequest body)=>ReferenceMutation(c,"SealMarketDefinitions",(connection,ct)=>gasSetupEditor.Publish(connection,body,ct)));
 // The route holds Write; the apply function enforces Seal in the same transaction.
-api.MapPost("/reference/commit",(HttpContext c,ReferenceCommitRequest body)=>ReferenceMutation(c,"WriteReferenceData",(connection,ct)=>ReferenceEditors.Commit(connection,database.Manifest,body,ct)));
+api.MapPost("/reference/commit",(HttpContext c,ReferenceCommitRequest body)=>ReferenceMutation(c,"WriteReferenceData",(connection,ct)=>ReferenceEditors.Commit(connection,database,body,ct)));
 api.MapPost("/evaluate",(HttpContext c,BuildRequest body)=>Locked(c,async session=>
 {
     var pin=Pin(session,body.SnapshotId);
@@ -1173,6 +1195,12 @@ api.MapPost("/market/curve-shapes",(HttpContext c,CurveShapesRequest body)=>Lock
     var pin=Pin(session,body.SnapshotId);
     var curves=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.CurveShapes(connection,pin,body.Curves,ct),c.RequestAborted);
     return pin.Context is {} context?Results.Ok(new {curves,context}):Results.Ok(new {curves});
+}));
+api.MapPost("/market/input-curve-shapes",(HttpContext c,CurveInspectionsRequest body)=>Locked(c,async session=>
+{
+    var pin=Pin(session,body.SnapshotId);
+    var curves=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.InspectCurveShapes(connection,pin,body.Curves,ct),c.RequestAborted);
+    return pin.Context is {} context?Results.Ok(new{curves,context}):Results.Ok(new{curves});
 }));
 api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async session=>
 {
@@ -1210,8 +1238,8 @@ api.MapPost("/corrections",(HttpContext c,CorrectionRequest body)=>Locked(c,asyn
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to current input editing before changing observations.");
     var frame=Frame(session,body.SnapshotId);
     // The correction replaces the pin in whichever bundle of this snapshot holds it (D172).
-    var held=frame.ObservationIds.Contains(body.ObservationId)?[]:(database.Manifest.SwapMarkets??[])
-        .Select(m=>(m.RevisionId,Pins:database.SwapMarketPins(frame,m)??[])).Where(m=>m.Pins.Contains(body.ObservationId)).ToArray();
+    var held=frame.ObservationIds.Contains(body.ObservationId)?[]:(database.Manifest.InputMarkets??[])
+        .Select(m=>(m.RevisionId,Pins:database.InputMarketPins(frame,m)??[])).Where(m=>m.Pins.Contains(body.ObservationId)).ToArray();
     if (held.Length>1) throw new MarketDataException("ambiguous_reference","A required exact reference is missing or ambiguous.");
     if (!frame.ObservationIds.Contains(body.ObservationId)&&held.Length==0) throw new MarketDataException("snapshot_input","Only an explicitly selected observation can be corrected here.");
     if (session.Frames.Count>=128&&!(c.Features.Get<AssistantInvocation>()?.ResultIdentity is {} replay&&session.Frames.ContainsKey(replay))) throw new MarketDataException("preview_limit","Restart the disposable preview to create more saved selections.");
@@ -1246,9 +1274,9 @@ api.MapPost("/select-observation",(HttpContext c,SelectionRequest body)=>Locked(
         // The chosen revision replaces the pin of the same source fact in the bundle that holds it (D172).
         var data=await database.Read(connection,ct,observationIds:[..frame.ObservationIds.Append(body.ObservationId).Distinct()]);
         if(!data.HasObservation(body.ObservationId))
-            foreach(var market in database.Manifest.SwapMarkets??[])
+            foreach(var market in database.Manifest.InputMarkets??[])
             {
-                if(database.SwapMarketPins(frame,market) is not {} pins||!await database.SwapMarketAvailable(connection,market,ct))continue;
+                if(database.InputMarketPins(frame,market) is not {} pins||!await database.InputMarketAvailable(connection,market,ct))continue;
                 var bundle=await database.Read(connection,ct,market.RevisionId,observationIds:[..pins.Append(body.ObservationId).Distinct()]);
                 if(bundle.HasObservation(body.ObservationId))
                     return frame.SelectSwapMarketRevision(market.RevisionId,pins,SameFact(bundle,pins,body.ObservationId),body.ObservationId,"Explicit revision selection");
@@ -1293,7 +1321,7 @@ api.MapGet("/dashboard/layout",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,ses
     database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>Results.Ok(await DashboardLayouts.Read(connection,ct)),c.RequestAborted))));
 api.MapPost("/dashboard/layout",(HttpContext c,SaveDashboardLayout body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"ReadMarketData",async(connection,ct)=>Results.Ok(await DashboardLayouts.Save(connection,body,ct)),c.RequestAborted)));
-var futuresStore=new FuturesStore(database.Manifest);
+var futuresStore=new FuturesStore(database);
 var lngStore=new PhysicalLngStore(database);
 // Trading pages name their knowledge: current knowledge, captured now at the working frame's date;
 // a context captured earlier, re-read over a working frame; or the selected historical view's own.
@@ -1302,11 +1330,14 @@ Task<TradingView> TradeView(NpgsqlConnection connection,PreviewSession session,F
 // How trading reads publish their results: camel-case members, exact decimals as exact text.
 var tradingJson=new JsonSerializerOptions{PropertyNamingPolicy=JsonNamingPolicy.CamelCase,Converters={new ExactDecimalJsonConverter()}};
 // Trading pages without a read operation of their own run their store's read on the shared trading read path.
-Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,Guid? gasTrade=null,Guid? crudeTrade=null,Guid? crudeSetup=null,bool gasReferenceChoices=false,Guid? lngTrade=null)=>
-    TradingRead(c,body,(connection,view,ct)=>gasReferenceChoices&&view.Working&&expectedConvention==PhysicalGasStore.Convention
+Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,Guid? gasTrade=null,Guid? crudeTrade=null,Guid? crudeSetup=null,bool gasReferenceChoices=false,Guid? lngTrade=null)
+{
+    CatalogueSource? gasChoiceSource=null;
+    return TradingRead(c,body,(connection,view,ct)=>gasReferenceChoices&&view.Working&&expectedConvention==PhysicalGasStore.Convention
         ?tradeReads.ReadBound(connection,view,async()=>{
-            var revision=database.Manifest.GasMarket?.RevisionId??database.Manifest.RevisionId;
-            var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],observationScope:ObservationReadScope.ExactPins);
+            var source=(await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,view.CalculationFrame.Time.Date)).RequireRole("gas");
+            gasChoiceSource=source;
+            var data=await database.Read(connection,ct,ppaBundle:source,observationIds:[],observationScope:ObservationReadScope.ExactPins);
             return await read(connection,data,view.CalculationFrame,ct);
         },ct)
         :expectedConvention==PhysicalLngStore.Convention
@@ -1319,7 +1350,7 @@ Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
             var selected=await PhysicalMarketSelection.Crude.Read(database,connection,view.CalculationFrame,ct,crudeTrade,crudeSetup);
             return await read(connection,selected.Data,selected.Frame,ct);
         },ct)
-        :expectedConvention==PhysicalGasStore.Convention&&PhysicalMarketSelection.Gas.Configured(database.Manifest)
+        :expectedConvention==PhysicalGasStore.Convention
         ?tradeReads.ReadBound(connection,view,async()=>{
             var selected=await PhysicalMarketSelection.Gas.Read(database,connection,view.CalculationFrame,ct,gasTrade);
             return await read(connection,selected.Data,selected.Frame,ct);
@@ -1327,15 +1358,10 @@ Task<IResult> FuturesRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConne
         :tradeReads.Read(connection,view,data=>read(connection,data,view.CalculationFrame,ct),ct),scenario,headTrade,amendmentPreview,expectedConvention,dealRisk,
         publicationCheck:expectedConvention==PhysicalLngStore.Convention?(connection,view,ct)=>lngTrade is {} selectedTrade?lngStore.RecheckScope(connection,selectedTrade,ct):lngStore.RecheckReferences(connection,ct):gasReferenceChoices?async(connection,view,ct)=>{
             if(!view.Working)return;
-            await using var authority=ScheduleStore.Command(connection,"""
-                SELECT security.market_access($1,'ReadMarketData') AND EXISTS(
-                 SELECT 1 FROM market_data.revisions r WHERE(r.catalog_id,r.id)=($1,$2) AND r.state='sealed'
-                 AND security.market_fact_visible(r.catalog_id,r.id,NULL)
-                 AND security.reference_access(r.reference_catalog_id,'ReadMarketData')
-                 AND security.reference_version_visible(r.reference_catalog_id,r.reference_revision_id))
-                """,database.Manifest.CatalogId,database.Manifest.GasMarket?.RevisionId??database.Manifest.RevisionId);
-            if(!Equals(await authority.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+            var source=gasChoiceSource??throw new MarketDataException("market_inputs","The gas choices did not retain their exact source.");
+            await MarketBundle.Require(connection,source.Apply(database.Manifest),ct);
         }:null);
+}
 // The page keeps request policy: conventions, risk and amendment permissions, and the booking and amendment flags.
 Task<IResult> TradingRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,TradingView,CancellationToken,Task<object>> read,bool scenario=false,Guid? headTrade=null,bool amendmentPreview=false,string? expectedConvention=null,bool dealRisk=false,bool combinedWorkspace=false,bool concurrent=false,
     Func<NpgsqlConnection,TradingView,CancellationToken,Task>? recheck=null,
@@ -1474,7 +1500,7 @@ api.MapPost("/futures/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesR
 api.MapPost("/futures/editor",(HttpContext c,FuturesEditorRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("futures_trade","Supply the selected context."),
     (connection,view,ct)=>tradeReads.FuturesTrade(connection,view,body.TradeId,body.Revision,ct),headTrade:body.TradeId));
 api.MapPost("/futures/amend-preview",(HttpContext c,FuturesAmendRequest body)=>FuturesRead(c,new(body.SnapshotId,body.Convention,body.KnowledgeMode),
-    (connection,data,frame,ct)=>futuresStore.PreviewAmendment(connection,data,frame,body,ct),headTrade:body.TradeId,amendmentPreview:true));
+    async(connection,data,frame,ct)=>await futuresStore.PreviewAmendment(connection,data,frame,body,ct),headTrade:body.TradeId,amendmentPreview:true));
 api.MapPost("/futures/amend",(HttpContext c,FuturesAmendRequest body)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before amending.");
@@ -1482,7 +1508,7 @@ api.MapPost("/futures/amend",(HttpContext c,FuturesAmendRequest body)=>Locked(c,
     return await database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>
     {
         if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct)||!await PreviewDatabase.HasPermission(connection,"ReadMarketData",ct))throw new PreviewDeniedException();
-        return Results.Ok(await futuresStore.Amend(connection,await database.Read(connection,ct,observationIds:Frame(session,body.SnapshotId).ObservationIds,observationScope:ObservationReadScope.ExactPins),Frame(session,body.SnapshotId),body,ct));
+        return Results.Ok(await futuresStore.Amend(connection,await MarketInputSelection.ReadTerms(database,connection,body.DefinitionRevisionId,ct),Frame(session,body.SnapshotId),body,ct));
     },c.RequestAborted);
 }));
 api.MapPost("/futures/blotter",(HttpContext c,FuturesBlotterRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("blotter_view","Supply the selected context."),(connection,data,frame,ct)=>futuresStore.Blotter(connection,data,frame,body.View,ct)));
@@ -1675,7 +1701,7 @@ api.MapPost("/tickets/amend",(HttpContext c,TicketAmendRequest body)=>Locked(c,a
 // Booking maps the draft against the definition revision its booking read resolves for the selected frame.
 api.MapPost("/tickets/book",(HttpContext c,TicketBookRequest body)=>Locked(c,session=>{
  var context=TicketContext(body.Context);RequireGasBooking(session,context.KnowledgeMode,context.ContextId);RequireConvention(context,PhysicalGasStore.Convention);
- return BookGasComposition(c,session,TicketRequest(body.Draft,context,body.OperationId,PhysicalMarketSelection.Gas.Select(database.Manifest,Frame(session,context.SnapshotId)).Revision));
+ return BookGasComposition(c,session,TicketRequest(body.Draft,context,body.OperationId,body.DefinitionRevisionId));
 }));
 
 api.MapPost("/physical/operations/directory",(HttpContext c,TradingPositionsRequest body)=>TradingRead(c,
@@ -2012,13 +2038,13 @@ api.MapPost("/futures/book",(HttpContext c,FuturesBookRequest body)=>Locked(c,as
     return await database.WithIdentity(Profile(session),"BookTrade",async(connection,ct)=>
     {
         if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct))throw new PreviewDeniedException();
-        return Results.Ok(await futuresStore.Book(connection,await database.Read(connection,ct,observationIds:Frame(session,body.SnapshotId).ObservationIds,observationScope:ObservationReadScope.ExactPins),Frame(session,body.SnapshotId),body,ct));
+        return Results.Ok(await futuresStore.Book(connection,await MarketInputSelection.ReadTerms(database,connection,body.DefinitionRevisionId,ct),Frame(session,body.SnapshotId),body,ct));
     },c.RequestAborted);
 }));
 api.MapPost("/futures/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
     Results.Ok(await futuresStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
 // Listed futures options: the bookable series at a frame, and booking with premium paid up front under the futures booking authority.
-var optionStore=new FuturesOptionStore(database.Manifest);
+var optionStore=new FuturesOptionStore(database);
 api.MapPost("/options/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,optionStore.Catalog,expectedConvention:FuturesOptionStore.Convention));
 // Option bookings and lifecycle events, written by a human under the booking authority; no agent tool writes them.
 Task<IResult> OptionWrite(HttpContext c,Guid snapshot,Func<NpgsqlConnection,InputFrame,CancellationToken,Task<JsonElement>> write)=>Locked(c,async session=>
@@ -2051,13 +2077,13 @@ api.MapPost("/vol-surfaces/fit",(HttpContext c,VolSurfaceFitRequest body)=>Locke
     {
         if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct))throw new PreviewDeniedException();
         var view=await TradingView.Capture(connection,knowledgeStore,Frame(session,body.SnapshotId),ct);
-        return Results.Ok(await tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Submit(connection,database.Manifest,view,body,ct),ct));
+        return Results.Ok(await tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Submit(connection,database,view,body,ct),ct));
     },c.RequestAborted);
 }));
 api.MapPost("/vol-surfaces/read",(HttpContext c,VolSurfaceReadRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("vol_surface_context","Supply the selected context."),
-    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Read(connection,database.Manifest,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
+    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Read(connection,database,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
 api.MapPost("/vol-surfaces/library",(HttpContext c,VolSurfaceLibraryRequest body)=>TradingRead(c,body.Context??throw new MarketDataException("vol_surface_context","Supply the selected context."),
-    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Library(connection,database.Manifest,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
+    (connection,view,ct)=>tradeReads.ReadBound(connection,view,()=>VolSurfaceStore.Library(connection,database,view,body,ct),ct),expectedConvention:FuturesOptionStore.Convention));
 api.MapGet("/jobs",(HttpContext c,int? page,int? collectionPage)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
     async(connection,ct)=>Results.Ok(await CollectionJobs.Directory(connection,ct,page??0,collectionPage??0)),c.RequestAborted)));
 api.MapPost("/jobs/collection/update",(HttpContext c,CollectionJobUpdate body)=>Locked(c,session=>database.WithIdentity(Profile(session),null,
@@ -2263,6 +2289,9 @@ public sealed record BuildRequest(Guid SnapshotId,string Curve,bool IncludeSourc
 public sealed record HistoryRequest(Guid SnapshotId,string Curve,Guid? ContractId=null,Guid? SeriesId=null,string? RevisionPolicy=null,ImmutableArray<OpenEtrm.Shared.Analytics.OverlayRequest>? Overlays=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record CurveShapesRequest(Guid SnapshotId,ImmutableArray<string> Curves);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record CurveInspectionsRequest([property:System.Text.Json.Serialization.JsonRequired]Guid SnapshotId,
+    [property:System.Text.Json.Serialization.JsonRequired]ImmutableArray<CurveInspection> Curves);
 public sealed record CorrectionRequest(Guid SnapshotId,Guid ObservationId,string Value);
 public sealed record SelectionRequest(Guid SnapshotId,Guid ObservationId);
 public sealed partial class PreviewSession
@@ -2295,8 +2324,8 @@ public sealed partial class PreviewSession
         InitialCloses=[..manifest.Frames.Select(f=>f.CloseId).OfType<Guid>()];
         foreach(var f in manifest.Frames.Where(f=>f.CloseId is null)) {
             if(f.CurveContracts is null)throw new MarketDataException("missing_curve_view","Every seed frame requires explicit curve contract selections.");
-            var frame=new InputFrame(Guid.NewGuid(),"Initial synthetic inputs",f.At,f.ObservationIds.ToImmutableArray(),
-                f.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()),FrozenObservationIds:(f.FrozenObservationIds??[]).ToImmutableArray()){PpaBundle=f.PpaBundle};Frames.Add(frame.Id,frame);
+            var frame=new InputFrame(Guid.NewGuid(),"Initial synthetic inputs",f.At,OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(f.At).Date,f.ObservationIds.ToImmutableArray(),
+                f.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()),FrozenObservationIds:(f.FrozenObservationIds??[]).ToImmutableArray()){PpaBundle=f.PpaBundle,Source=f.PpaBundle??new(manifest.RevisionId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId)};Frames.Add(frame.Id,frame);
         }
         InitialFrames=Frames.Values.Where(f=>f.PpaBundle is null).Select(f=>f.Id).ToArray();
     }

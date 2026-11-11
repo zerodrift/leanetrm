@@ -39,11 +39,13 @@ def run_checks(url, query, manifest):
 
     def close(code, day, order_hint):
         identity = str(uuid4())
-        query(f"""INSERT INTO market_data.market_closes(catalog_id,id,definition_revision_id,reference_catalog_id,reference_revision_id,name,at,kind,actor_id,request_id,request,
+        query(f"""BEGIN;INSERT INTO market_data.market_closes(catalog_id,id,definition_revision_id,reference_catalog_id,reference_revision_id,name,at,kind,actor_id,request_id,request,
          publication_order,publication_xid,session_code,session_version,business_date)
         SELECT '{catalog}','{identity}','{revision}',{reference},'Synthetic {order_hint}',security.close_session_instant('{catalog}','{code}',1,'{day}'),'retained_input',
          '{approver}','{uuid4()}','{{}}'::jsonb,coalesce(max(publication_order),0)+1,pg_current_xact_id(),'{code}',1,'{day}'
-        FROM market_data.market_closes WHERE catalog_id='{catalog}';""")
+        FROM market_data.market_closes WHERE catalog_id='{catalog}';
+        INSERT INTO market_data.market_close_members SELECT catalog_id,'{identity}',revision_id,curve_code,contract_id,ordinal
+        FROM market_data.curve_members WHERE(catalog_id,revision_id,curve_code)=('{catalog}','{revision}','future');COMMIT;""")
         return identity
 
     first = close('test_sql_london', '2021-01-15', 'first London')
@@ -100,11 +102,13 @@ def run_checks(url, query, manifest):
     INSERT INTO market_data.close_session_curves VALUES('{catalog}','test_sql_hidden',1,'{later}','future');
     COMMIT;""")
     hidden_close = str(uuid4())
-    query(f"""INSERT INTO market_data.market_closes(catalog_id,id,definition_revision_id,reference_catalog_id,reference_revision_id,name,at,kind,actor_id,request_id,request,
+    query(f"""BEGIN;INSERT INTO market_data.market_closes(catalog_id,id,definition_revision_id,reference_catalog_id,reference_revision_id,name,at,kind,actor_id,request_id,request,
      publication_order,publication_xid,session_code,session_version,business_date)
     SELECT '{catalog}','{hidden_close}','{later}',{reference},'Synthetic hidden close','2021-01-15T17:30:00Z','retained_input','{approver}','{uuid4()}','{{}}',
-     coalesce(max(publication_order),0)+1,pg_current_xact_id(),'test_sql_hidden',1,'2021-01-15' FROM market_data.market_closes WHERE catalog_id='{catalog}';""")
+     coalesce(max(publication_order),0)+1,pg_current_xact_id(),'test_sql_hidden',1,'2021-01-15' FROM market_data.market_closes WHERE catalog_id='{catalog}';
+    INSERT INTO market_data.market_close_members SELECT catalog_id,'{hidden_close}',revision_id,curve_code,contract_id,ordinal
+    FROM market_data.curve_members WHERE(catalog_id,revision_id,curve_code)=('{catalog}','{later}','future');COMMIT;""")
     hidden = query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token()}');SELECT security.use_market_context('{catalog}','{context}');SELECT security.close_session_hidden_days('{catalog}','test_sql_hidden')::text;COMMIT;").splitlines()[-1]
-    assert hidden == '{2021-01-15}', hidden
+    assert hidden == '{}', 'An unknown later close leaked into the historical calendar'
     assert as_approver(f"security.close_session_hidden_days('{catalog}','test_sql_hidden')::text") == '{}', 'Current working data cannot see the close'
-    print('PASS a day whose close in force the reader cannot see is named as hidden', flush=True)
+    print('PASS an after-cutoff close does not reveal its business day to the earlier view', flush=True)

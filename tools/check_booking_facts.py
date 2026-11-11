@@ -11,7 +11,7 @@ def run_checks(url,query=None,manifest=None,client=None,administrator=None):
     context={'snapshotId':frame['id'],'convention':'contract_lot_execution_pnl_v2','knowledgeMode':'current'}
     catalog=c.call('futures/catalog',context);contract=catalog['contracts'][0]
     parties={k:v for k,v in trade_booking().items() if k!='tradeDate'}
-    body={**context,**parties,'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],'curve':contract['curve'],'contractId':contract['id'],'lots':'2','executionPrice':'3','memo':'Synthetic automatic booking facts'}
+    body={**context,**parties,'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],'curve':contract['curve'],'contractId':contract['id'],'definitionRevisionId':contract['definitionRevisionId'],'lots':'2','executionPrice':'3','memo':'Synthetic automatic booking facts'}
     before=datetime.now(timezone.utc);result=c.call('futures/book',body);after=datetime.now(timezone.utc)
     state=c.call('futures/editor',{'context':context,'tradeId':result['tradeId'],'revision':None})['state']
     executed=datetime.fromisoformat(state['executedAt'].replace('Z','+00:00'))

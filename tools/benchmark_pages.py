@@ -158,7 +158,7 @@ def main():
         swap_market, swap_manifest = swap_fixture()
         for sql in [reference, market, swap_market, security, trading_fixture(manifest['catalogId'], swap_defaults=True)]:
             query(sql)
-        manifest['swapMarkets'] = [swap_manifest]
+        manifest['inputMarkets'] = [swap_manifest]
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         shutil.copytree(ROOT/'web/dist', temporary/'web')
         shutil.copytree(dll.parent, temporary/'api')

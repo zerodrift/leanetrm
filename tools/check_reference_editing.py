@@ -228,6 +228,7 @@ def main(checks=run_checks, before_migration=None):
             safe_to_remove=False
             run([binaries/'pg_ctl','-D',directory/'data','-l',directory/'postgres.log','-w','-o',
                  shlex.join(['-k',str(directory),'-h','','-p','55439','-c','track_commit_timestamp=on']),'start'])
+            query((root / 'db/bootstrap.sql').read_text())
             for migration in sorted((root/'db/migrations').glob('*.sql')):
                 if migration.name in('0223_bounded_fact_anchor_reads.sql','0225_bounded_observation_matching.sql'):
                     from check_fact_anchor_upgrade import run_checks as check_fact_upgrade
@@ -237,6 +238,10 @@ def main(checks=run_checks, before_migration=None):
                     from check_fact_anchor_upgrade import run_checks as check_fact_upgrade
                     check_fact_upgrade(query,migration,number='0227',guard='fact_plan_upgrade',
                         signatures=('security.read_observation_facts(uuid,uuid,uuid[])',))
+                if migration.name=='0238_selected_observation_event_probes.sql':
+                    from check_fact_anchor_upgrade import run_checks as check_observation_event_upgrade
+                    check_observation_event_upgrade(query,migration,number='0238',guard='observation_event_upgrade',
+                        signatures=('security.observation_visibility_scope(uuid,uuid,uuid[])',))
                 if migration.name=='0224_reference_display_close_validation.sql':
                     from check_reference_display_scale import upgrade_checks
                     upgrade_checks(query,migration)

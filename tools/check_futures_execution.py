@@ -42,7 +42,7 @@ def run_checks(url,query,manifest):
     sequences=c.call('schedules')['sources']
     entry=next(e for sequence in sequences for e in sequence['entries'] if e['contractId']==future['id'])
     assert datetime.fromisoformat(entry['eligibleFrom'].replace('Z','+00:00'))==datetime.fromisoformat(future['eligibleFrom'].replace('Z','+00:00')), 'Contract sequences must retain the selected execution bound without inventing a source event'
-    body={**context,'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],'curve':future['curve'],'contractId':future['id'],
+    body={**context,'operationId':str(uuid4()),'bookId':catalog['books'][0]['id'],'curve':future['curve'],'contractId':future['id'],'definitionRevisionId':future['definitionRevisionId'],
           'lots':'2','executionPrice':str(Decimal(future['mark'])-Decimal(future['tick'])),'memo':'Synthetic behavior check',
           'legalEntityId':catalog['legalEntities'][0]['id'],'legalEntityRevision':catalog['legalEntities'][0]['revision'],
           'counterpartyId':catalog['counterparties'][0]['id'],'counterpartyRevision':catalog['counterparties'][0]['revision']}

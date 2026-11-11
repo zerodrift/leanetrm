@@ -40,7 +40,7 @@ export async function sidePanelChecks({command,evaluate,wait,click,set,check,idl
   wait=async(expression,duration)=>{try{return await waitUntil(expression,duration);}catch(error){const state=await evaluate("({focus:[document.activeElement?.id,document.activeElement?.className],detail:document.querySelector('#position-details')?.hidden,detailConnected:!!document.querySelector('#position-details'),prompt:document.querySelector('#position-details-prompt')?.textContent,editing:document.querySelector('#trade-editing')?.hidden,query:document.querySelector('#blotter-filters .table-search')?.value,renderedReferences:[...document.querySelectorAll('#desk-positions .desk-reference')].map(n=>n.textContent),busy:document.body.getAttribute('aria-busy'),errorHidden:document.querySelector('#error')?.hidden,error:document.querySelector('#error')?.textContent})");throw Error(error.message+' · position state '+JSON.stringify(state));}};
 
   const held=reference=>`${rowsRead}.find(h=>h.tradeReference===${JSON.stringify(reference)})`;
-  const shapeReads="window.__futuresResponses.filter(r=>r.path==='/api/market/curve-shapes').length";
+  const shapeReads="window.__futuresResponses.filter(r=>r.path==='/api/market/input-curve-shapes').length";
   const shapeRequests="window.__curveShapeRequests";
   const editorReads="window.__futuresResponses.filter(r=>r.path==='/api/futures/editor').length";
   // The row's reference is read before it opens: the grid draws only the rows in its pane's view, which the opening details shrink. A row

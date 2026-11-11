@@ -356,11 +356,13 @@ def run_correction_checks(query, manifest, c, frames):
     assert len(aliases)==2 and seed['id'] not in aliases
     print('PASS certified contexts: each cutoff reads the recorded close exactly into the context\'s own snapshot, repeatably and read-only',flush=True)
     c.call('profile',{'profile':'approver'})
+    close_count=query(f"SELECT count(*) FROM market_data.market_closes WHERE catalog_id='{manifest['catalogId']}';")
     refused=c.call('market/closes/register',{'requestId':str(uuid4()),'snapshotId':daily['frame']['id'],'name':'Selected daily correction',
         'session':daily['frame'].get('close',{}).get('session','not_a_session'),'businessDate':daily['frame']['at'][:10]},expected=422)
-    assert refused['code']=='close_swap_market_pins',refused
+    assert refused['code']=='source_expired',refused
+    assert query(f"SELECT count(*) FROM market_data.market_closes WHERE catalog_id='{manifest['catalogId']}';")==close_count
     c.call('profile',{'profile':'trader'})
-    print('PASS a close cannot be registered from a snapshot whose separate swap-bundle selections it cannot record',flush=True)
+    print('PASS close registration refuses an expired selected source without recording a partial close',flush=True)
     # Exercise the stored row constraint independently of immutable-row triggers.
     # The probe copies the real schema and a qualified row, and is rolled back.
     query("""BEGIN;

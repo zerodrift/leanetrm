@@ -17,7 +17,7 @@ def run_checks(url, query, manifest, client=None):
     assert next(p for p in market['points'] if p['contractId']==member['id'])['instrumentId']==member['instrumentId']
     c.call('profile',{'profile':'trader'})
     future_body = {**future_context, **trade_booking(), 'operationId': str(uuid4()), 'bookId': futures['books'][0]['id'],
-                   'curve': member['curve'], 'contractId': member['id'],
+                   'curve': member['curve'], 'contractId': member['id'], 'definitionRevisionId': member['definitionRevisionId'],
                    'lots': '2', 'executionPrice': '3'}
     previous = int(query("SELECT count(*) FROM trading.futures_revision_markets;"))
     first = c.call('futures/book', future_body)

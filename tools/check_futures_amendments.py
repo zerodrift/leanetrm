@@ -24,7 +24,7 @@ def run_checks(url, query, manifest, psql, environment):
     catalog = c.call('futures/catalog', context)
     contract = next(k for k in catalog['contracts'] if k['deliveryFrom'] == '2021-01-01')
     book_a, book_b = [b['id'] for b in catalog['books']]
-    booking = {'operationId': str(uuid4()), **context, **trade_booking(), 'bookId': book_a, 'curve': contract['curve'], 'contractId': contract['id'],
+    booking = {'operationId': str(uuid4()), **context, **trade_booking(), 'bookId': book_a, 'curve': contract['curve'], 'contractId': contract['id'], 'definitionRevisionId': contract['definitionRevisionId'],
                'lots': '1', 'executionPrice': '2.9', 'snapshotId':earlier['id']}
     trade = c.call('futures/book', booking)
     other = c.call('futures/book', {**booking, 'operationId': str(uuid4())})
@@ -142,7 +142,7 @@ def run_checks(url, query, manifest, psql, environment):
     check('a historical session cannot forge a current-knowledge amendment')
     c.call('market/current', {})
     current_frame = next(f for f in c.call('workspace')['frames'] if f['at'] == frame['at'])
-    replacement = {**change, 'snapshotId': current_frame['id'], 'operationId': str(uuid4()), 'expectedRevision': 3, 'contractId': february['id'], 'curve': february['curve'], 'lots': '3'}
+    replacement = {**change, 'snapshotId': current_frame['id'], 'operationId': str(uuid4()), 'expectedRevision': 3, 'contractId': february['id'], 'definitionRevisionId': february['definitionRevisionId'], 'curve': february['curve'], 'lots': '3'}
     c.call('futures/amend-preview', replacement)
     fourth = c.call('futures/amend', replacement)
     edited = details()['state']
@@ -159,7 +159,7 @@ def run_checks(url, query, manifest, psql, environment):
           and pinned['instrumentId'] == accepted['instrumentId'] == fourth['instrumentId']
           and accepted['eventId'] == fourth['eventId'] and accepted['eventSchema'] == fourth['eventSchema'])
     # Restore the same January contract for the later shared-instrument browser fixture.
-    restored = c.call('futures/amend', {**replacement, 'operationId': str(uuid4()), 'expectedRevision': 4, 'contractId': contract['id'], 'curve': contract['curve']})
+    restored = c.call('futures/amend', {**replacement, 'operationId': str(uuid4()), 'expectedRevision': 4, 'contractId': contract['id'], 'definitionRevisionId': contract['definitionRevisionId'], 'curve': contract['curve']})
     check('restoring an exact instrument restores its original readable reference', details()['state']['instrumentReference'] == initial['state']['instrumentReference'])
     check('a later amendment reuses the original exact instrument without rewriting history', restored['revision'] == 5 and details()['state']['instrumentId'] == initial['state']['instrumentId'] and details(4)['state']['instrumentId'] == fourth['instrumentId'])
     print(f'{passed} amendment HTTP checks passed.', flush=True)

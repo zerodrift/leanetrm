@@ -14,7 +14,7 @@ internal static class LngAdmissionChecks
         await using var database=new PreviewDatabase(root);
         var original=JsonSerializer.Deserialize<PhysicalLngWriteRequest>(File.ReadAllText(path),ScheduleDefinition.Json)!;
         var seed=database.Manifest.Frames.Single(f=>f.At==DateTimeOffset.Parse("2020-12-18T16:00:00Z",System.Globalization.CultureInfo.InvariantCulture));
-        var frame=new InputFrame(original.SnapshotId,"Synthetic admission check",seed.At,[..seed.ObservationIds],seed.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()));
+        var frame=new InputFrame(original.SnapshotId,"Synthetic admission check",seed.At,OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(seed.At).Date,[..seed.ObservationIds],seed.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()));
         var store=new PhysicalLngStore(database);
         var serial=0;
         foreach(var mutation in new[]{"dated_root","permuted_rows","missing_publication"})

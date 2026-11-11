@@ -15,7 +15,7 @@ test('a missing due index fixing is explicit for indexed swap sides, with no sta
   assert.throws(()=>valuationReason('index_fixing_missing',instrumentType),{message:'The Blotter returned an unknown valuation status.'});
 });
 test('a PPA booked under other reference or definition versions than the close reads in plain words, and only for a PPA',()=>{
- assert.equal(valuationReason('other_definition_versions','ppa'),'Booked under other reference data versions');
+ assert.equal(valuationReason('other_definition_versions','ppa'),'Booked market inputs are unavailable at this close');
  for(const instrumentType of ['future','financial_swap','heat_rate'])
   assert.throws(()=>valuationReason('other_definition_versions',instrumentType),{message:'The Blotter returned an unknown valuation status.'});
  assert.throws(()=>valuationReason('source_expired','ppa'),{message:'The Blotter returned an unknown valuation status.'});

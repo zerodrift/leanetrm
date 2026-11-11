@@ -63,7 +63,7 @@ UPDATE market_data.revisions SET state='sealed' WHERE(catalog_id,id)=({m});
     for n, frame in enumerate(manifest['frames']):
         oid = f'70000000-0000-0000-0000-{17600+n:012d}'
         statements.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REVISION}','{SERIES}',{R},'fixture','synthetic_lng_mark_{n}','1','trader_mark','final','{frame['at']}','{datetime.now(timezone.utc).isoformat()}',11,NULL);")
-        frames.append({'at':frame['at'], 'observationIds':[oid], 'curveContracts':{'synthetic_lng_forward':[CONTRACT]}})
+        frames.append({'at':frame['at'], 'observationIds':[oid], 'frozenObservationIds':[], 'curveContracts':{'synthetic_lng_forward':[CONTRACT]}})
     statements.append('COMMIT;')
     return reference, market + '\n' + '\n'.join(statements), {**manifest,
         'lngMarket':{'revisionId':REVISION, 'frames':frames},

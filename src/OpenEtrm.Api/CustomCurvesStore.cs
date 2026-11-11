@@ -102,24 +102,33 @@ SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.l
     internal async Task<CustomCurveVersion?> Replay(NpgsqlConnection connection,Guid requestId,string operation,string payload,string permission,CancellationToken ct)
     {
         if(requestId==Guid.Empty)throw Invalid("Supply a stable request identity.");
-        await using var bundle=ScheduleStore.Command(connection,"SELECT security.custom_curve_source_visible($1,$2)",Catalog,database.Manifest.RevisionId);
-        if(!Equals(await bundle.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
-        await using var command=ScheduleStore.Command(connection,"SELECT operation,payload=$3::jsonb,response::text FROM market_data.custom_curve_requests WHERE catalog_id=$1 AND actor_id=security.custom_curve_actor($1,$4) AND request_id=$2",Catalog,requestId,payload,permission);
+        await using var command=ScheduleStore.Command(connection,"SELECT operation,payload_matches,response::text FROM security.read_custom_curve_request($1,$2,$4,$3::jsonb)",Catalog,requestId,payload,permission);
         await using var reader=await command.ExecuteReaderAsync(ct);
         if(!await reader.ReadAsync(ct))return null;
         if(reader.GetString(0)!=operation||!reader.GetBoolean(1))throw Conflict();
         var result=JsonSerializer.Deserialize<CustomCurveVersion>(reader.GetString(2),Json)!;
         await reader.DisposeAsync();
-        // A retained mutation result contains graph and exact reference content.
-        // Accepted request identity cannot restore access that has since expired.
-        await using var visible=ScheduleStore.Command(connection,"SELECT security.custom_curve_visible($1,$2,$3)",Catalog,result.Id,result.Version);
-        if(!Equals(await visible.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
         var versions=await Read(connection,ct);
         return result with{MarketRevisionId=CurveVersionInputs.SavedRevision(result,versions)};
     }
+    internal static void RequireSaveCoordinates(CustomCurveSaveRequest body)
+    {
+        if(body.Id is null?body.Version is not null||body.Generation is not null||body.ExpectedState is not null:body.Version is null)throw Conflict();
+    }
+
+    internal Task<CustomCurveVersion?> ReplaySave(NpgsqlConnection connection,CustomCurveSaveRequest body,CurveDraftSaver saver,CancellationToken ct)=>
+        Replay(connection,body.RequestId,"save",JsonSerializer.Serialize(body,Json),saver.IsAssistant?"ReadMarketData":"WriteMarketDefinitions",ct);
+
+    internal async Task<CustomCurveVersion> RequireVersion(NpgsqlConnection connection,Guid id,int? version,CancellationToken ct)
+    {
+        await using var visible=ScheduleStore.Command(connection,"SELECT security.custom_curve_visible($1,$2,$3)",Catalog,id,version is {} v?v:DBNull.Value);
+        if(!Equals(await visible.ExecuteScalarAsync(ct),true))throw new PreviewDeniedException();
+        return (await Read(connection,ct)).SingleOrDefault(v=>v.Id==id&&v.Version==version)??throw new PreviewDeniedException();
+    }
+
     internal async Task Record(NpgsqlConnection connection,Guid requestId,string operation,string payload,CustomCurveVersion result,string permission,CancellationToken ct)
     {
-        var revision=CurveVersionInputs.Revision(database,result.MarketRevisionId??result.Sources.Values.FirstOrDefault()?.RevisionId);
+        var revision=await CurveVersionInputs.Resolve(database,connection,result.MarketRevisionId??result.Sources.Values.FirstOrDefault()?.RevisionId,ct);
         if(result.Sources.Values.Any(source=>source.CatalogId!=Catalog||source.RevisionId!=revision))
             throw Invalid("The retained response must use the selected exact definition bundle.");
         await using var command=ScheduleStore.Command(connection,"""
@@ -141,11 +150,12 @@ INSERT INTO market_data.custom_curve_requests(catalog_id,actor_id,request_id,ope
         var receipt=saver.IsAssistant?"ReadMarketData":"WriteMarketDefinitions";
         // A new curve names no version, generation or state; a revision names its version. Checked before the claim, so a
         // malformed request is the same conflict whoever saves it.
-        if(body.Id is null?body.Version is not null||body.Generation is not null||body.ExpectedState is not null:body.Version is null)throw Conflict();
+        RequireSaveCoordinates(body);
         if(created is not null&&(!saver.IsAssistant||body.Id is not null))throw Conflict();
         var target=body.Id??created??Guid.NewGuid();
         if(saver.IsAssistant)await Claim(connection,target,body.Version??1,saver,ct);
-        if(await Replay(connection,body.RequestId,"save",payload,receipt,ct) is {} replay)return replay;
+        if(await ReplaySave(connection,body,saver,ct) is {} replay)return replay;
+        if(body.Id is {} existing)await RequireVersion(connection,existing,body.Version,ct);
         CustomCurves.Validate(body.Definition);
         ValidateLayout(body.Definition,body.Layout);
         var references=await References(connection,body.Definition,data,ct);
@@ -295,8 +305,8 @@ INSERT INTO market_data.custom_curve_generation_savers(catalog_id,curve_id,versi
         await Lock(connection,ct);
         var payload=JsonSerializer.Serialize(body,Json);
         if(await Replay(connection,body.RequestId,"publish",payload,"SealMarketDefinitions",ct) is {} replay)return replay;
-        var row=(await Read(connection,ct)).SingleOrDefault(v=>v.Id==body.Id&&v.Version==body.Version);
-        if(row is null||row.Generation!=body.Generation)throw Conflict();
+        var row=await RequireVersion(connection,body.Id,body.Version,ct);
+        if(row.Generation!=body.Generation)throw Conflict();
         CustomCurves.Validate(row.Definition);
         await using var command=ScheduleStore.Command(connection,"SELECT security.publish_custom_curve($1,$2,$3,$4)",Catalog,body.Id,body.Version,body.Generation);
         await command.ExecuteScalarAsync(ct);

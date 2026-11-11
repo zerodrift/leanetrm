@@ -16,7 +16,7 @@ def run_checks(url, receipt, *, run_worker, query, manifest):
     futures_context={**context,'convention':'contract_lot_execution_pnl_v2'}
     catalog=c.call('futures/catalog',futures_context)
     contract=next(p for p in catalog['contracts'] if p['curve']=='future')
-    future=c.call('futures/book',{**futures_context,**trade_booking(),'operationId':str(uuid4()),'bookId':book,'curve':contract['curve'],'contractId':contract['id'],'lots':'1','executionPrice':contract['mark']})
+    future=c.call('futures/book',{**futures_context,**trade_booking(),'operationId':str(uuid4()),'bookId':book,'curve':contract['curve'],'contractId':contract['id'],'definitionRevisionId':contract['definitionRevisionId'],'lots':'1','executionPrice':contract['mark']})
     view=dict(mode='trades',bookIds=[book],portfolioIds=[],groupBy=[],measures=[],pivotConvention=None)
     blotter=c.call('trading/blotter',dict(context=context,view=view))
     row=next(p for p in blotter['holdings'] if p['tradeId']==receipt['tradeId'])

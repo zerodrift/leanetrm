@@ -10,7 +10,8 @@ namespace OpenEtrm.Api;
 public sealed record FuturesEditorRequest(FuturesReadRequest Context,Guid TradeId,int? Revision);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record FuturesAmendRequest(Guid OperationId,Guid SnapshotId,Guid TradeId,int ExpectedRevision,Guid BookId,string? Curve,Guid ContractId,
-    string? Lots,string? ExecutionPrice,string? ExecutedAt,string? EffectiveAt,string? Reason,string? Convention,string? AmendmentConvention,string? KnowledgeMode,Guid? TraderId=null,int? TraderRevision=null,string? Memo=null,string? TradeDate=null,Guid? LegalEntityId=null,int? LegalEntityRevision=null,Guid? CounterpartyId=null,int? CounterpartyRevision=null);
+    string? Lots,string? ExecutionPrice,string? ExecutedAt,string? EffectiveAt,string? Reason,string? Convention,string? AmendmentConvention,string? KnowledgeMode,Guid? TraderId=null,int? TraderRevision=null,string? Memo=null,string? TradeDate=null,Guid? LegalEntityId=null,int? LegalEntityRevision=null,Guid? CounterpartyId=null,int? CounterpartyRevision=null,
+    [property:System.Text.Json.Serialization.JsonRequired] Guid DefinitionRevisionId=default);
 
 public sealed partial class FuturesStore
 {
@@ -49,7 +50,7 @@ public sealed partial class FuturesStore
     private static int Revision(JsonElement row)=>int.Parse(row.Text("revision"),System.Globalization.CultureInfo.InvariantCulture);
     private object State(JsonElement row)=>new{
         booking=TradeParties.State(manifest.CatalogId,row),bookingFacts=TradeAnnotations.Facts(row),traderId=row.Id("booker_id"),traderRevision=int.Parse(row.Text("booker_version"),System.Globalization.CultureInfo.InvariantCulture),trader=row.Text("booker_name"),traderCode=row.Text("booker_login"),memo=row.OptionalText("memo"),tradeId=row.Id("trade_id"),tradeReference=TradingReference.Trade(row),instrumentReference=TradingReference.Instrument(row),revision=Revision(row),bookId=row.Id("book_id"),bindingId=row.Id("binding_id"),instrumentId=row.Id("instrument_id"),canonicalInstrumentId=ContractIdentity.Futures(new(new(row.Id("reference_catalog_id"),row.Id("reference_revision_id")),row.Text("series_code"))),
-        curve=row.Text("curve_code"),contractId=row.Id("contract_id"),lots=row.Text("lots"),executionPrice=row.Text("execution_price"),
+        definitionRevisionId=row.Id("definition_revision_id"),curve=row.Text("curve_code"),contractId=row.Id("contract_id"),lots=row.Text("lots"),executionPrice=row.Text("execution_price"),
         executedAt=row.Text("booked_at"),economicEffectiveAt=row.Text("effective_at"),effectiveAt=row.Text("revision_effective_at"),recordedAt=row.Text("recorded_at"),
         eventId=row.Id("event_id"),eventSchema=row.Text("event_schema"),kind=row.Text("event_kind"),reason=row.Text("reason"),settlement=row.Text("settlement_state")};
 
@@ -60,9 +61,15 @@ public sealed partial class FuturesStore
         if(rows.IsEmpty)throw Error("futures_trade","The trade is unavailable in the selected context.");
         var selected=revision??rows.Max(Revision);
         var state=One(rows.Where(r=>Revision(r)==selected));
-        var side=Binding(data,state.Text("curve_code"),state.Id("contract_id"),state.Id("side_id"),state.Text("implementation"));
+        var terms=await MarketInputSelection.Terms(database,connection,data,new(state.Id("definition_revision_id"),state.Id("reference_catalog_id"),state.Id("reference_revision_id")),ct);
+        var side=Binding(terms,state.Text("curve_code"),state.Id("contract_id"),state.Id("side_id"),state.Text("implementation"));
         var lifecycleEligible=state.Text("settlement_state")=="unprocessed"&&side.EligibleFrom<=frame.At&&frame.At<side.Contract.Expiry&&frame.At>=state.Instant("revision_effective_at");
-        return new{lifecycleEligible,state=State(state),history=rows.OrderBy(Revision).Select(State),catalog=await Catalog(connection,data,frame,ct),amendmentConvention=AmendmentConvention};
+        var inputs=await MarketInputSelection.DefinitionInput(database,connection,data,frame,terms.DefinitionRevision.RevisionId,ct);
+        var directory=await ReadBookingDirectory(connection,ct);
+        var codes=inputs.Data.Definitions["curves"].Select(c=>c.Text("code")).ToHashSet(StringComparer.Ordinal);
+        var catalog=new{kind="priced_contracts",directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,
+            contracts=Contracts(inputs.Data,inputs.Frame,codes),convention=manifest.FuturesConvention};
+        return new{lifecycleEligible,state=State(state),history=rows.OrderBy(Revision).Select(State),catalog,amendmentConvention=AmendmentConvention};
     }
 
     private sealed record AmendmentPlan(Trade Before,Trade After,DateTimeOffset EffectiveAt,string Reason);
@@ -79,10 +86,12 @@ public sealed partial class FuturesStore
         var rows=await RevisionRows(connection,body.TradeId,false,ct);
         var current=One(rows);
         if(Revision(current)!=body.ExpectedRevision)throw Error("futures_revision_conflict","Reload the latest trade revision before amending.");
-        var resolved=await ReadTrades(connection,data,books,[],[],ct);
+        var resolved=await ReadTrades(connection,data,books,[],[],ct,trades:ImmutableHashSet.Create(body.TradeId));
         var before=resolved.Trades.Single(t=>t.Id==body.TradeId);
         if(before.Instruments.Length!=1||FuturesExecution.Require(before.Instruments[0]).Settlement!=FuturesSettlementState.Unprocessed||effective<current.Instant("revision_effective_at"))
             throw Error("futures_amendment","Only the latest unprocessed futures binding can be amended from its current effective interval.");
+        if(FuturesExecution.Require(before.Instruments[0]).MarketBinding.Market.Curve.Revision!=data.DefinitionRevision)
+            throw Error("futures_amendment","An amendment retains its existing exact definition version.");
         var side=Binding(data,Text(body.Curve),body.ContractId,body.ContractId,body.Convention!);
         var prior=before.Instruments[0];var priorExecution=FuturesExecution.Require(prior);
         body=body with{ExecutedAt=Instant(priorExecution.ExecutedAt),TraderId=current.OptionalId("trader_id"),TraderRevision=current.OptionalText("trader_revision") is {} traderVersion?int.Parse(traderVersion,System.Globalization.CultureInfo.InvariantCulture):null,TradeDate=current.OptionalText("trade_date")??current.Text("booking_date")};
@@ -103,34 +112,42 @@ public sealed partial class FuturesStore
 
     public async Task<object> PreviewAmendment(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesAmendRequest body,CancellationToken ct)
     {
-        var plan=await PlanAmendment(connection,data,frame,body,ct);
-        var snapshot=data.Snapshot(frame);
-        var market=data.Model.Build(snapshot,[..plan.Before.Instruments.Select(p=>FuturesExecution.Require(p).MarketBinding.Market).Concat(plan.After.Instruments.Select(p=>FuturesExecution.Require(p).MarketBinding.Market)).Distinct()]);
-        var before=FuturesHoldings.Price([plan.Before],snapshot,market,manifest.FuturesConvention).Single();
-        var after=FuturesHoldings.Price([plan.After],snapshot,market,manifest.FuturesConvention).Single();
-        var change=after.ExecutionPnl.Subtract(before.ExecutionPnl);
-        object Values(FuturesHolding value)
+        var terms=await MarketInputSelection.ReadTerms(database,connection,body.DefinitionRevisionId,ct);
+        var plan=await PlanAmendment(connection,terms,frame,body,ct);
+        async Task<(FuturesHolding Value,PreviewData Data)> Value(Trade trade)
         {
-            var quantity=One(data.References["quantity_specifications"].Where(q=>q.Text("code")==value.Quantity.Specification.Code));
-            var unit=One(data.References["units"].Where(u=>u.Text("code")==quantity.Text("unit_code")));
-            var currency=One(data.References["currencies"].Where(c=>c.Text("code")==value.ExecutionPnl.Currency.Code));
+            var revision=FuturesExecution.Require(trade.Instruments.Single()).MarketBinding.Market.Curve.Revision.RevisionId;
+            var selected=await MarketInputSelection.DefinitionInput(database,connection,data,frame,revision,ct);
+            var snapshot=selected.Data.Snapshot(selected.Frame);
+            var market=selected.Data.Model.Build(snapshot,[..trade.Instruments.Select(p=>FuturesExecution.Require(p).MarketBinding.Market)]);
+            return(FuturesHoldings.Price([trade],snapshot,market,manifest.FuturesConvention).Single(),selected.Data);
+        }
+        var prior=await Value(plan.Before);var next=await Value(plan.After);
+        var before=prior.Value;var after=next.Value;
+        var change=after.ExecutionPnl.Subtract(before.ExecutionPnl);
+        object Values(FuturesHolding value,PreviewData source)
+        {
+            var quantity=One(source.References["quantity_specifications"].Where(q=>q.Text("code")==value.Quantity.Specification.Code));
+            var unit=One(source.References["units"].Where(u=>u.Text("code")==quantity.Text("unit_code")));
+            var currency=One(source.References["currencies"].Where(c=>c.Text("code")==value.ExecutionPnl.Currency.Code));
             return new{quantity=value.Quantity.Amount.ToString(),quantitySpecification=value.Quantity.Specification,unit=unit.Text("symbol"),
                 executionPnl=value.ExecutionPnl.Amount.ToString(),currency=currency.Text("display_code")};
         }
         return new{expectedRevision=body.ExpectedRevision,effectiveAt=plan.EffectiveAt,
-            before=Values(before),after=Values(after),
+            before=Values(before,prior.Data),after=Values(after,next.Data),
             change=change.Amount.ToString(),currency=change.Currency};
     }
 
     public async Task<JsonElement> Amend(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesAmendRequest body,CancellationToken ct)
     {
+        MarketInputSelection.RequireTerms(data,body.DefinitionRevisionId);
         // SQL owns current-head/idempotency checks. An accepted old command must
         // reconcile even after a newer revision, without rerunning a stale plan.
         TradeAnnotations.RequireServerFacts(body.ExecutedAt,body.TraderId,body.TraderRevision,body.TradeDate);
         Convention(body.Convention);
         await using var command=ScheduleStore.Command(connection,
             "SELECT security.amend_futures_with_parties($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::numeric,$13::numeric,$14,$15,$16,$17,$18,$19,$20::jsonb)::text",
-            manifest.CatalogId,body.OperationId,body.TradeId,body.ExpectedRevision,body.BookId,manifest.RevisionId,Text(body.Curve),body.ContractId,
+            manifest.CatalogId,body.OperationId,body.TradeId,body.ExpectedRevision,body.BookId,data.DefinitionRevision.RevisionId,Text(body.Curve),body.ContractId,
             frame.At,SchedulePreview.ParseAt(body.EffectiveAt),DBNull.Value,ExactDecimal.Parse(Text(body.Lots)).ToString(),
             ExactDecimal.Parse(Text(body.ExecutionPrice)).ToString(),Text(body.Reason).Trim(),body.Convention!,body.AmendmentConvention??"",DBNull.Value,DBNull.Value,body.Memo is {} memo?memo:DBNull.Value,TradeParties.Submitted(body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision));
         if(body.KnowledgeMode!="current")throw Error("futures_amendment","Amendments require current working data.");

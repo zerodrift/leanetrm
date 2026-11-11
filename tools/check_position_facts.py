@@ -93,8 +93,8 @@ def _directory_authority(client,context,query,root):
     assert access in ('owner','read_only')
     try:
         query(f'DELETE FROM security.reference_catalog_scopes WHERE {scope};')
-        refused=client.call('trading/directory',context,expected=422)
-        assert refused['code']=='ambiguous_reference' and set(refused)=={'code','message'},refused
+        refused=client.call('trading/directory',context,expected=403)
+        assert refused['code']=='access_denied' and set(refused)=={'code','message'},refused
     finally:
         query(f"INSERT INTO security.reference_catalog_scopes VALUES('{catalog}','{tenant}','{workspace}','{access}');")
     role=query("SELECT id FROM security.roles WHERE code='trader';")

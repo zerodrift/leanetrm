@@ -58,7 +58,8 @@ def run_checks(url, manifest, query, *, run_worker, owned_root, run_id, psql, en
     moved = next(p for p in positions if p['bindingId'] == first['bindingId'])
     assert Fraction(moved['values']['upPnl']) == -700 and Fraction(moved['values']['gamma']) == 0
     assert all(Fraction(p['values']['upPnl']) == 0 for p in positions if p['instrumentType'] == 'ppa')
-    assert report['ppaMeasures'] and report['inputs']['ppaReceipt']['pending'] == 'estimate_until_actual_v1'
+    receipts = report['inputs']['ppaReceipts']
+    assert report['ppaMeasures'] and len(receipts) == 1 and receipts[0]['pending'] == 'estimate_until_actual_v1'
     print('PASS shared risk values every binding, preserves PPA measures and reprices the explicit heat rate', flush=True)
     from check_ppa_risk_custody import run_checks as custody
     custody(c, query, manifest, request, ppas[0]['tradeId'])

@@ -72,3 +72,20 @@ test('hiding and resizing a standing grid preserves its row anchor, horizontal p
  })()`);
  assert.equal(result.after.key,result.before.key);assert.ok(Math.abs(result.after.offset-result.before.offset)<2,JSON.stringify(result));assert.equal(result.after.left,result.before.left);assert.equal(result.selected,'row-60');
 }));
+
+test('a grid resize preserves an editable cell and its focus without taking focus back from another control',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async evaluate=>{
+ const result=await evaluate(`(async()=>{
+  const {renderDataGrid,emptyGridLayout}=await import('/data-grid.js'),host=document.querySelector('#host');
+  const input=document.createElement('input');input.value='1000';input.setAttribute('aria-label','Scheduled quantity');
+  const outside=document.createElement('input');outside.setAttribute('aria-label','Another field');document.body.append(outside);
+  const grid=renderDataGrid(host,'editable-focus','synthetic',['Day','Quantity'],[['2041-02-01','1000']],[1],()=>false,{keys:['day','quantity'],rowKeys:['day'],layout:emptyGridLayout(),onLayout(){},cells:(_row,column)=>column===1?input:null});${ready}
+  input.value='990';input.focus();input.setSelectionRange(1,2);
+  if(document.activeElement!==input)throw Error('The quantity did not receive focus before resizing.');
+  host.style.width='700px';grid.relayout();await grid.updated();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  const kept={same:host.contains(input),value:input.value,focused:document.activeElement===input,selection:[input.selectionStart,input.selectionEnd]};
+  input.focus();host.style.width='650px';grid.relayout();await grid.updated();outside.focus();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  const moved=document.activeElement===outside;outside.blur();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  const released=document.activeElement===document.body;grid.destroy();outside.remove();return {kept,moved,released};
+ })()`);
+ assert.deepEqual(result,{kept:{same:true,value:'990',focused:true,selection:[1,2]},moved:true,released:true});
+}));

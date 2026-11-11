@@ -20,7 +20,7 @@ public sealed partial class TradeReads
 
     public TradeReads(PreviewDatabase database)
     {
-        this.database=database;futures=new(database.Manifest);swaps=new(database);blotter=new(database,futures,swaps);scheduleReader=new(BookedScheduleSources.Create(database));
+        this.database=database;futures=new(database);swaps=new(database);blotter=new(database,futures,swaps);scheduleReader=new(BookedScheduleSources.Create(database));
     }
 
     // The Blotter with the booking catalog, or with only the catalog's directory of books and parties, and the groupings
@@ -47,7 +47,7 @@ public sealed partial class TradeReads
         }
         return Read(connection,view,async data=>
         {
-            var catalog=directory?await futures.Directory(connection,ct):await futures.Catalog(connection,data,view.CalculationFrame,ct);
+            var catalog=directory?await futures.Directory(connection,ct):await futures.Catalog(connection,data,view.CalculationFrame,ReferenceReadScope.TradeValuation,ct);
             return await Complete(catalog,await blotter.Begin(connection,data,view.CalculationFrame,report,summaries,ct));
         },ct,directory?EmptyDirectory:null,
             referenceScope:ReferenceReadScope.TradeValuation,
@@ -121,8 +121,8 @@ public sealed partial class TradeReads
         ReferenceReadScope referenceScope=ReferenceReadScope.DefinitionClosure,
         ObservationReadScope observationScope=ObservationReadScope.ExactPins)
         =>ReadBound(connection,view,async()=>
-            (readWithoutMarket is null?null:await readWithoutMarket())??await read(await database.Read(connection,ct,
-                observationIds:view.Frame.ObservationIds,referenceScope:referenceScope,observationScope:observationScope)),ct);
+            (readWithoutMarket is null?null:await readWithoutMarket())??await read(await MarketInputSelection.Root(database,connection,view.CalculationFrame,ct,
+                referenceScope:referenceScope,observationScope:observationScope)),ct);
     internal async Task<object> ReadBound(NpgsqlConnection connection,TradingView view,Func<Task<object>> read,CancellationToken ct)
     {
         var catalog=database.Manifest.CatalogId;

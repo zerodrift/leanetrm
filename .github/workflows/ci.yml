@@ -40,6 +40,16 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
+      - name: Install PostgreSQL 18
+        shell: bash
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          gpg --show-keys --with-colons /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc | awk -F: '$1 == "pub" { primary=1 } $1 == "fpr" && primary { print $10; primary=0 }' > "$RUNNER_TEMP/pgdg-primary-keys"
+          test "$(cat "$RUNNER_TEMP/pgdg-primary-keys")" = B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
+          echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' | sudo tee /etc/apt/sources.list.d/openetrm-pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y postgresql-18
       - name: Record the verification environment
         shell: bash
         run: |
@@ -48,7 +58,7 @@ jobs:
           node --version
           npm --version
           python3 --version
-          /usr/lib/postgresql/16/bin/postgres --version
+          /usr/lib/postgresql/18/bin/postgres --version
           google-chrome --version
           dpkg-query -W tzdata libicu74
       - name: Check release admission and archive boundaries
@@ -59,7 +69,7 @@ jobs:
         shell: bash
         run: |
           python3 tools/check_all.py --group "${{ matrix.group }}" \
-            --pg-bin /usr/lib/postgresql/16/bin \
+            --pg-bin /usr/lib/postgresql/18/bin \
             --dotnet "$(command -v dotnet)" \
             --browser "$(command -v google-chrome)"
 

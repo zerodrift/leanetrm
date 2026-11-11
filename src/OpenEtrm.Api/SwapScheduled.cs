@@ -167,7 +167,7 @@ public sealed partial class SwapStore
     private async Task<(PreviewData Data,InputFrame Frame)> ScheduledMarket(NpgsqlConnection connection,PreviewData data,InputFrame frame,Guid revision,CancellationToken ct)
     {
         if(data.DefinitionRevision.RevisionId==revision)return(data,frame);
-        return One((await database.ReadSwapMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==revision));
+        return One((await database.ReadInputMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==revision));
     }
     private async Task<FinancialSwapValue> ScheduledPrice(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,Guid? instrument,CancellationToken ct)=>
         (await ScheduledPriceDetail(connection,data,frame,body,instrument,ct)).Value;

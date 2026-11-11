@@ -19,11 +19,6 @@ public sealed record ReferenceCommitRequest(Guid OperationId,string Table,string
 public static class ReferenceEditors
 {
     static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
-    public static ReferenceRevision Source(PreviewManifest manifest,string table)
-    {
-        if(!PreviewDatabase.ReferenceTables.Contains(table))throw Error("reference_edit","Choose an available reference category.");
-        return PreviewDatabase.ReferenceSource(manifest,table).Revision;
-    }
     public static async Task<ReferenceDisplayData?> Display(NpgsqlConnection connection,ReferenceRevision source,CancellationToken ct)
     {
         await using var command=ScheduleStore.Command(connection,"SELECT security.reference_display_state($1,$2)::text",source.CatalogId,source.RevisionId);
@@ -31,9 +26,9 @@ public static class ReferenceEditors
         return display is null?null:display with{References=display.References.ToImmutableDictionary(p=>p.Key,
             p=>p.Value.Select(row=>ReferenceJson.PreserveNumericLexemes(row.GetRawText())).ToImmutableArray())};
     }
-    public static async Task<object> Read(NpgsqlConnection connection,PreviewManifest manifest,string table,CancellationToken ct,string? code=null)
+    public static async Task<object> Read(NpgsqlConnection connection,PreviewDatabase database,string table,CancellationToken ct,string? code=null)
     {
-        var source=Source(manifest,table);var display=await Display(connection,source,ct);
+        var source=(await database.ReferenceScope(connection,table,ct)).Revision;var display=await Display(connection,source,ct);
         await using var access=ScheduleStore.Command(connection,"SELECT security.reference_access($1,'WriteReferenceData'),security.reference_access($1,'SealReferenceData'),security.reference_display_editor_fields($2)::text",source.CatalogId,table);
         bool write,seal;ImmutableArray<ReferenceEditField> fields;
         await using(var reader=await access.ExecuteReaderAsync(ct))
@@ -62,9 +57,9 @@ public static class ReferenceEditors
     }
     // Save and apply share one transaction and operation id, so an exact retry
     // replays both first outcomes and any refusal leaves no unapplied draft.
-    public static async Task<JsonElement> Commit(NpgsqlConnection connection,PreviewManifest manifest,ReferenceCommitRequest request,CancellationToken ct)
+    public static async Task<JsonElement> Commit(NpgsqlConnection connection,PreviewDatabase database,ReferenceCommitRequest request,CancellationToken ct)
     {
-        var source=Source(manifest,request.Table);
+        var source=(await database.ReferenceScope(connection,request.Table,ct)).Revision;
         if(request.OperationId==Guid.Empty||request.SourceRevisionId!=source.RevisionId||request.BaseRevisionId==Guid.Empty||request.ExpectedVersion<0||
             string.IsNullOrWhiteSpace(request.Code)||request.Code.Length>64||request.Values is null||request.Values.Count is <1 or >64||
             // Transport bound: one Unicode scalar may occupy two UTF-16 code

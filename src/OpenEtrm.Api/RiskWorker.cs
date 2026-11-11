@@ -212,7 +212,7 @@ public static class RiskWorker
         var request=payload.Deserialize<PortfolioRiskRequest>(RiskJobs.Json)??throw new JsonException("Missing risk request.");
         RiskJobs.RequireTradeScope(request.TradeIds,job["frame"]?["scope"]);
         var requestContext=request.Context??throw new JsonException("Missing risk context.");
-        var frame=RiskJobs.ReadFrame(job["frame"]??throw new JsonException("Missing risk frame."));
+        var frame=RetainedFrames.Read(job["frame"]??throw new JsonException("Missing risk frame."));
         var catalog=job["catalogId"]!.GetValue<Guid>();var revision=job["revisionId"]!.GetValue<Guid>();
         if(requestContext.KnowledgeMode!="retained"||requestContext.ContextId!=frame.ContextId||requestContext.SnapshotId!=frame.Id||
             requestContext.ContextId!=job["contextId"]!.GetValue<Guid>()||frame.At!=job["valuationAt"]!.GetValue<DateTimeOffset>())
@@ -225,7 +225,7 @@ public static class RiskWorker
         var selected=rows[0];
         var pinned=job["frame"]!["supplementalMarkets"] as JsonObject
                 ??throw new MarketDataException("risk_job_context","Portfolio risk requires an explicit supplemental-market manifest.");
-        var supplemental=pinned.ToImmutableDictionary(p=>Guid.Parse(p.Key),p=>RiskJobs.ReadFrame(p.Value??throw new JsonException("Missing market frame.")));
+        var supplemental=pinned.ToImmutableDictionary(p=>Guid.Parse(p.Key),p=>RetainedFrames.Read(p.Value??throw new JsonException("Missing market frame.")));
         if(supplemental.Any(p=>p.Key==revision||p.Value.Id!=frame.Id||p.Value.ContextId!=frame.ContextId||p.Value.At!=frame.At||
             p.Value.SwapMarketSelections is {Count:>0})||frame.SwapMarketSelections is null||
             frame.SwapMarketSelections.Count!=supplemental.Count||supplemental.Any(p=>!frame.SwapMarketSelections.TryGetValue(p.Key,out var pins)||!pins.SequenceEqual(p.Value.ObservationIds)))
@@ -237,13 +237,12 @@ public static class RiskWorker
             throw new MarketDataException("risk_graph_manifest","Every connected market must retain the same explicit source execution convention.");
         var manifest=new PreviewManifest("retained-risk-job",catalog,revision,selected.Id("reference_catalog_id"),selected.Id("reference_revision_id"),
             job["tenantId"]!.GetValue<Guid>(),job["workspaceId"]!.GetValue<Guid>(),[],null,
-            SwapMarkets:supplemental.Select(p=>new PreviewSwapMarket(p.Key,[new(p.Value.At,p.Value.ObservationIds.ToArray(),
-                p.Value.CurveContracts.ToDictionary(c=>c.Key,c=>c.Value.ToArray()))])).ToArray(),
+            InputMarkets:supplemental.Select(p=>new PreviewInputMarket(p.Key,[new(p.Value.At,p.Value.ObservationIds.ToArray(),
+                p.Value.CurveContracts.ToDictionary(c=>c.Key,c=>c.Value.ToArray()),p.Value.FrozenObservationIds.ToArray())])).ToArray(),
             FuturesConvention:sourceConventions[0]);
         var context=(await new KnowledgeStore(catalog).Read(connection,requestContext.ContextId!.Value,ct)).Context;
         await using var database=new PreviewDatabase(manifest,source);
-        var data=await database.Read(connection,ct,observationIds:frame.ObservationIds,
-            referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins);
+        var data=await RetainedFrames.ReadBoundJobInputs(database,connection,frame,revision,ReferenceReadScope.TradeValuation,ct);
         var markets=ImmutableArray.CreateBuilder<(PreviewData Data,InputFrame Frame)>();
         foreach(var market in supplemental.OrderBy(p=>p.Key))
             markets.Add((await database.Read(connection,ct,market.Key,observationIds:market.Value.ObservationIds,

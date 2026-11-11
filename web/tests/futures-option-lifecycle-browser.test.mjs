@@ -7,10 +7,10 @@ test('an open option ticket refreshes its clock without changing edits or an unc
   await evaluate(`(async()=>{
    const {setupOptionTicket}=await import('/futures-option-view.js'),{displayInstant}=await import('/market-view.js');
    const party={id:'synthetic-party',revision:1,code:'synthetic',name:'Synthetic party'};
-   const series={series:'synthetic_call',product:'synthetic_option',name:'Synthetic option',exchange:{code:'synthetic_exchange',name:'Synthetic exchange'},
+   const series={definitionRevisionId:'definition-a',series:'synthetic_call',product:'synthetic_option',name:'Synthetic option',exchange:{code:'synthetic_exchange',name:'Synthetic exchange'},
     commodity:{code:'gas',name:'Gas'},underlyingSeries:'synthetic_future',right:'call',strike:'3',expiryAt:'2026-12-01T20:30:00Z',
     settlementPrice:'0.2',currency:'USD',multiplier:'1000',premiumTick:'0.01',minimumPremium:'0',maximumPremium:'100',exerciseStyle:'American',contraryInstructionsAllowed:false};
-   const catalog={options:[series],underlyings:[{series:'synthetic_future',deliveryFrom:'2026-12-01',deliveryTo:'2027-01-01'}],
+   const catalog={options:[series],underlyings:[{definitionRevisionId:'definition-a',series:'synthetic_future',deliveryFrom:'2026-12-01',deliveryTo:'2027-01-01'}],
     books:[{id:'synthetic-book',name:'Synthetic book',portfolio:'Synthetic portfolio'}],bookingActor:party,legalEntities:[party],counterparties:[party],canBook:true};
    window.optionZone='UTC';window.optionSent=[];
    const api=async(path,body)=>{if(path==='options/catalog')return catalog;optionSent.push(structuredClone(body));throw new TypeError('Synthetic lost response');};

@@ -78,7 +78,7 @@ static class AgentToolChecks
         var context=new ScheduleContext("2020-12-18",1,Cutoff.ToString("O"),Guid.NewGuid());
         var frame=Working with{ContextId=context.ContextId};
         CustomCurves.RequireFrameContext(frame,context);
-        Require(Code(()=>CustomCurves.RequireFrameContext(frame with{At=frame.At.AddDays(1)},context))=="custom_curve_definition",
+        Require(Code(()=>CustomCurves.RequireFrameContext(frame with{At=frame.At.AddDays(1),BusinessDate=frame.BusinessDate.AddDays(1)},context))=="custom_curve_definition",
             "matching context identity cannot disguise a different effective frame date");
         Console.WriteLine("PASS agent curves: catalog and explicit preparation tool contracts");
     }
@@ -164,7 +164,7 @@ static class AgentToolChecks
     static readonly Guid Catalog=Guid.Parse("c1000000-0000-0000-0000-000000000001");
     static readonly PreviewManifest Manifest=new("local-synthetic-preview",Catalog,Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),[],null);
     static readonly DateTimeOffset Cutoff=DateTimeOffset.Parse("2026-10-21T12:00:00.123456Z");
-    static readonly InputFrame Working=new(Guid.NewGuid(),"Initial synthetic inputs",DateTimeOffset.Parse("2020-12-18T16:00:00Z"),[Guid.NewGuid()],
+    static readonly InputFrame Working=new(Guid.NewGuid(),"Initial synthetic inputs",DateTimeOffset.Parse("2020-12-18T16:00:00Z"),new DateOnly(2020,12,18),[Guid.NewGuid()],
         ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("future",[Guid.NewGuid()]));
 
     static TurnPin Pin(string mode,Guid context,InputFrame? frame,Guid? catalog=null,Guid? frameId=null)=>TurnPin.From(Record(mode,context,Cutoff,frameId??frame?.Id),
@@ -173,7 +173,7 @@ static class AgentToolChecks
     static void TurnPins()
     {
         var (a,b,c)=(Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid());
-        var working=new InputFrame(Guid.NewGuid(),"Initial synthetic inputs",DateTimeOffset.Parse("2020-12-18T16:00:00Z"),[a,b],
+        var working=new InputFrame(Guid.NewGuid(),"Initial synthetic inputs",DateTimeOffset.Parse("2020-12-18T16:00:00Z"),OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(DateTimeOffset.Parse("2020-12-18T16:00:00Z")).Date,[a,b],
             ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("future",[c]));
         var retainedId=Guid.NewGuid();
         var retained=working with{Id=Guid.NewGuid(),Name="Certified market inputs",ContextId=retainedId,FrozenObservationIds=[b],ResolvesLatestCorrection=true,
@@ -604,6 +604,9 @@ static class AgentToolChecks
         var blotter=AgentTools.Operation("trades.blotter_v1");
         var trade=AgentTools.Operation("trades.trade_v1");
         Require(AgentTools.Shown(curve,true,"missing_curve")=="page_selection_unavailable"&&AgentTools.Shown(curve,false,"missing_curve")=="missing_curve"
+            &&AgentTools.Shown(curve,true,"curve_not_selected")=="page_selection_unavailable"
+            &&AgentTools.Shown(curve,false,"curve_not_selected")=="curve_not_selected"
+            &&AgentTools.Shown(curve,true,"catalogue_curve")=="page_selection_unavailable"
             &&AgentTools.Shown(curve,true,"missing_observation")=="missing_observation"&&AgentTools.Shown(blotter,true,"blotter_view")=="page_selection_unavailable"
             &&AgentTools.Shown(trade,true,"futures_trade")=="page_selection_unavailable"&&AgentTools.Shown(trade,true,"swap_trade")=="page_selection_unavailable"
             &&AgentTools.Shown(trade,true,"knowledge_coverage")=="knowledge_coverage",

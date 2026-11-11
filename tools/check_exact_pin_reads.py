@@ -52,8 +52,8 @@ def run_checks(query, manifest, dotnet, environment, owned_root, psql, psql_envi
           {stats}ROLLBACK;""").splitlines()
         calls=[int(line.split('|')[1]) for line in output if line.startswith('CLOSE_CALLS|')]
         rows=int(next(line.split('|')[1] for line in output if line.startswith('PIN_ROWS|')))
-        assert rows>1 and calls[1]-calls[0]==1,dict(mode=mode,rows=rows,closeVisibilityCalls=calls[1]-calls[0])
-        print(f'PASS observation read: {mode}, {rows} exact pins share one close visibility decision',flush=True)
+        assert rows>1 and calls[1]-calls[0]==0,dict(mode=mode,rows=rows,closeVisibilityCalls=calls[1]-calls[0])
+        print(f'PASS observation read: {mode}, {rows} exact pins obey the certified prefix without close-based releases',flush=True)
     from check_exact_pin_authority import run_checks as authority
     authority(query,manifest,context,pins,legacy,original)
     managed()

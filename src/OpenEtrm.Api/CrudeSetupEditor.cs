@@ -26,7 +26,7 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
  private static MarketDataException Invalid(string message)=>new("crude_setup_input",message);
  private static JsonElement One(ImmutableArray<JsonElement> rows)=>rows.Length==1?rows[0]:throw Invalid("Select one visible exact delivery setup.");
  private IEnumerable<Guid> Sources()=>new[]{database.Manifest.RevisionId}
-  .Concat((database.Manifest.SwapMarkets??[]).Select(m=>m.RevisionId))
+  .Concat((database.Manifest.InputMarkets??[]).Select(m=>m.RevisionId))
   .Concat(database.Manifest.CrudeMarket is {} c?[c.RevisionId]:[])
   .Concat((database.Manifest.RetainedCrudeMarkets??[]).Select(m=>m.RevisionId)).Distinct();
  internal static async Task<Guid[]> CurrentSetups(NpgsqlConnection c,Guid catalog,CancellationToken ct)
@@ -37,7 +37,7 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
  internal static InputFrame SourceFrame(PreviewManifest manifest,InputFrame frame,Guid revision)
  {
   if(revision==manifest.RevisionId)return frame;
-  var candidates=(manifest.SwapMarkets??[]).Where(m=>m.RevisionId==revision).Select(m=>m.Frames)
+  var candidates=(manifest.InputMarkets??[]).Where(m=>m.RevisionId==revision).Select(m=>m.Frames)
    .Concat(manifest.CrudeMarket is {} c&&c.RevisionId==revision?[c.Frames]:[])
    .Concat((manifest.RetainedCrudeMarkets??[]).Where(m=>m.RevisionId==revision).Select(m=>m.Frames)).ToArray();
   if(candidates.Length!=1)throw Invalid("Select one explicitly admitted original source bundle.");
@@ -46,8 +46,8 @@ public sealed class CrudeSetupEditor(PreviewDatabase database)
   var selected=frames[0];var pins=frame.SwapMarketSelections?.GetValueOrDefault(revision)??[..selected.ObservationIds];
   if(pins.Distinct().Count()!=pins.Length)throw Invalid("Source price inputs must be distinct.");
   var contracts=selected.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray());
-  if((manifest.SwapMarkets??[]).Any(m=>m.RevisionId==revision))
-   return frame.ForSwapMarket(pins,contracts) with{SwapMarketSelections=null,PpaBundle=null};
+  if((manifest.InputMarkets??[]).Any(m=>m.RevisionId==revision))
+   return frame.ForMarketSource(pins,contracts,selected.FrozenObservationIds is {} declared?declared.ToImmutableArray():throw Invalid("Declare the source frozen observations explicitly.")) with{SwapMarketSelections=null,PpaBundle=null};
   return frame with{ObservationIds=pins,CurveContracts=contracts,
    FrozenObservationIds=selected.FrozenObservationIds is {} frozen?[..frozen]:[],OriginCloseId=null,Close=null,SwapMarketSelections=null,PpaBundle=null};
  }

@@ -6,7 +6,7 @@ export async function run({command,evaluate,wait,click,persona,check,idle,url}){
     const Observer=window.IntersectionObserver;
     window.IntersectionObserver=class extends Observer{constructor(callback,options){super((entries,self)=>callback(entries.filter(entry=>entry.target.dataset?.curve!==window.__deferLibraryCurve&&!(window.__deferHeldShapes&&entry.target.dataset?.shapeRow!==undefined)),self),options);}};
     const original=window.fetch;
-    window.fetch=(input,init)=>{const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;window.__lazyRequests.push(path);if(path==='/api/market/curve-shapes'){const body=JSON.parse(init.body);window.__lazyShapes.push(body);if(document.querySelector('#futures-page:not([hidden])'))window.__lazyDeskShapes.push(body);}return original(input,init);};
+    window.fetch=(input,init)=>{const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;window.__lazyRequests.push(path);if(path==='/api/market/curve-shapes')window.__lazyShapes.push(JSON.parse(init.body));if(path==='/api/market/input-curve-shapes'&&document.querySelector('#futures-page:not([hidden])'))window.__lazyDeskShapes.push(JSON.parse(init.body));return original(input,init);};
   `});
   try{
     await command('Page.navigate',{url:url+'/'});await wait(idle);

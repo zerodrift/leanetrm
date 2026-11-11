@@ -19,10 +19,10 @@ export type FuturesBookingCatalog=PartyCatalog&{bookingActor:Trader;books:{id:st
  * is found in the catalog by the identity the draft carries (its curve and id), not by what the form offers now, which the person can have
  * changed since the price was made; one the catalog does not hold has no delivery period to mark, and is said so.
  */
-export function futuresDraftMarkets(contracts:readonly Pick<FuturesContract,'id'|'curve'|'deliveryFrom'|'deliveryTo'>[],draft:{curve:string;contractId:string}):DraftMarket[]{
-  const contract=contracts.find(c=>c.curve===draft.curve&&c.id===draft.contractId);
+export function futuresDraftMarkets(contracts:readonly Pick<FuturesContract,'definitionRevisionId'|'id'|'curve'|'deliveryFrom'|'deliveryTo'>[],draft:{definitionRevisionId:string;curve:string;contractId:string}):DraftMarket[]{
+  const contract=contracts.find(c=>c.definitionRevisionId===draft.definitionRevisionId&&c.curve===draft.curve&&c.id===draft.contractId);
   if(!contract)throw Error('The contract this price was made for is not in the catalog.');
-  return [{curve:contract.curve,deliveryFrom:contract.deliveryFrom,deliveryTo:contract.deliveryTo}];
+  return [{definitionRevisionId:contract.definitionRevisionId,curve:contract.curve,deliveryFrom:contract.deliveryFrom,deliveryTo:contract.deliveryTo}];
 }
 
 /**
@@ -58,7 +58,7 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
  const draft=draftValuation(get('futures-draft-valuation'),{product:'futures',api:options.api,act:options.act,busy:options.busy,denied:options.onDenied,key:()=>JSON.stringify(options.context()),shape:options.shape,markets:made=>futuresDraftMarkets(priced()?.contracts??[],made),
   draft:async()=>{
    const c=chosen();if(!c)throw Error('Choose an exact dated futures contract.');
-   return {context:options.context(),curve:c.curve,contractId:c.id,lots:field('futures-lots').value,executionPrice:field('futures-execution').value};
+   return {context:options.context(),definitionRevisionId:c.definitionRevisionId,curve:c.curve,contractId:c.id,lots:field('futures-lots').value,executionPrice:field('futures-execution').value};
   }});
  form.addEventListener('input',draft.reset);
  // A close-out draft (blotter-workbench.md, Row context menu) heads the form, and its price is labelled with its source until the price, or
@@ -80,7 +80,7 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
   const catalog=priced();if(!catalog?.canBook)throw Error('Return to current inputs with trading authority before booking.');
   const c=chosen();if(!c)throw Error('Choose the exact dated contract.');
   const {snapshotId,convention}=options.context();
-  await options.book({...annotations.read(),snapshotId,convention,knowledgeMode:'current',bookId:field('futures-book').value,curve:c.curve,contractId:c.id,lots:field('futures-lots').value,executionPrice:field('futures-execution').value});
+  await options.book({...annotations.read(),snapshotId,convention,knowledgeMode:'current',bookId:field('futures-book').value,definitionRevisionId:c.definitionRevisionId,curve:c.curve,contractId:c.id,lots:field('futures-lots').value,executionPrice:field('futures-execution').value});
  });};
  function sync(){
   const catalog=priced(),held=!!options.pending();
@@ -118,7 +118,7 @@ export function setupFuturesBooking(options:{api:Api;act:(work:()=>Promise<void>
    */
   closeOut(drafted:FuturesCloseOut,shown:CloseOutShown){
    presentationRevision++;const catalog=priced(),t=drafted.terms;if(!catalog)throw Error('The priced futures contracts are not read, so the close-out cannot be shown.');
-   const key=futuresContractKey({curve:t.curve,id:t.contractId});
+   const key=futuresContractKey({definitionRevisionId:t.definitionRevisionId,curve:t.curve,id:t.contractId});
    if(!catalog.contracts.some(c=>futuresContractKey(c)===key))throw Error('The drafted contract is not offered for booking at this close.');
    if(!catalog.books.some(b=>b.id===t.bookId))throw Error('The drafted book is not one you can book for.');
    selected=key;instrument.populate(catalog.contracts,key);terms();field('futures-book').value=t.bookId;

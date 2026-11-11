@@ -362,6 +362,7 @@ def main():
                 if result.returncode:
                     raise RuntimeError(result.stderr)
                 return result.stdout.strip()
+            query((ROOT / 'db/bootstrap.sql').read_text())
             for migration in sorted((ROOT/'db/migrations').glob('*.sql')):
                 if migration.name == '0035_automation_jobs.sql':
                     query("INSERT INTO security.roles(id,code,name) VALUES(gen_random_uuid(),'synthetic_external_executor','Synthetic external executor');")

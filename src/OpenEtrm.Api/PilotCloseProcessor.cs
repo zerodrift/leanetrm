@@ -53,7 +53,14 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
                 if(live.IsEmpty)throw Invalid("Every selected root curve requires retained contracts live at the scheduled close.");
                 return live;
             },StringComparer.Ordinal);
-            var frame=anchor with{Id=claim.Id,At=claim.DueAt,CurveContracts=members};
+            var source=CatalogueSource.From(data);
+            var part=new MarketSourceInputs(source,anchor.ObservationIds,anchor.FrozenObservationIds,members,definition.CurveCodes);
+            var frame=new InputFrame(claim.Id,"Generated close preflight",claim.DueAt,PublishedSchedules.ContextDate(context),
+                part.ObservationIds,part.CurveContracts,context.ContextId,part.FrozenObservationIds)
+            {
+                Source=source,
+                SourceInputs=ImmutableDictionary<Guid,MarketSourceInputs>.Empty.Add(source.DefinitionRevisionId,part)
+            };
             var snapshot=data.Snapshot(frame);
             var requests=members.SelectMany(p=>p.Value.Select(id=>new CurveRequest(new(data.DefinitionRevision,p.Key),new(data.DefinitionRevision,id)))).ToImmutableArray();
             var build=data.Model.Build(snapshot,requests,cancellation);
@@ -61,7 +68,7 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
             var factors=data.Model.QuoteFactors(snapshot).Where(f=>lineage.Contains(f.Observation)).ToImmutableArray();
             // Whole-book preflight occurs before any mark is written. It uses
             // exactly the same black-box adapter as the eventual report.
-            var preflight=await new PortfolioValuation(database).Calculate(connection,data,snapshot,context,definition.BookIds,definition.ValuationPolicy,cancellation,requireNativeEvidence:true);
+            var preflight=await new PortfolioValuation(database).Calculate(connection,data,frame,context,definition.BookIds,definition.ValuationPolicy,cancellation,requireNativeEvidence:true);
             var covered=factors.Select(f=>f.Input).ToHashSet();
             if(preflight.Factors.Any(f=>f.Axis.Quote is null||!covered.Contains(f.Axis.Quote.Input)))throw Invalid("Selected root curves must cover every market factor used by every selected book.");
             var moves=definition.LeafMoves.ToDictionary(m=>m.Curve,m=>m.MaxTicks,StringComparer.Ordinal);
@@ -101,12 +108,12 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
             await using var stamp=ScheduleStore.Command(connection,"SELECT automation.pilot_close_commit()");
             var known=new DateTimeOffset((DateTime)(await stamp.ExecuteScalarAsync(cancellation))!);
             var context=(await new KnowledgeStore(header.Definition.CatalogId).Capture(connection,
-                new(Date(header.At),known.ToString("O",CultureInfo.InvariantCulture),"at"),cancellation)).Context;
+                new(header.BusinessDate.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),known.ToString("O",CultureInfo.InvariantCulture),"at"),cancellation)).Context;
             await Bind(connection,header.Definition.CatalogId,context,header.At,cancellation);
             var frame=await MarketCloses.Frame(connection,header.Definition.CatalogId,header.Id,context.ContextId,cancellation);
             var data=await database.Read(connection,cancellation,observationIds:frame.ObservationIds,
                 referenceScope:ReferenceReadScope.TradeValuation,includeCalendarDays:true,observationScope:ObservationReadScope.ExactPins);
-            var result=await new PortfolioValuation(database).Calculate(connection,data,data.Snapshot(frame),context,definition.BookIds,definition.ValuationPolicy,cancellation,requireNativeEvidence:true);
+            var result=await new PortfolioValuation(database).Calculate(connection,data,frame,context,definition.BookIds,definition.ValuationPolicy,cancellation,requireNativeEvidence:true);
             _=await PilotCloseReports.Publish(connection,claim.Id,result,cancellation);
             return true;
         },ct);

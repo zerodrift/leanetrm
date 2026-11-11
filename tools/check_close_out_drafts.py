@@ -40,13 +40,13 @@ def run_checks(url,query,dotnet,owned_root,environment):
     book=catalog['books'][0]['id']
     def book_future(lots):
         return client.call('futures/book',{**futures_context,**trade_booking(),'operationId':str(uuid4()),'bookId':book,'curve':contract['curve'],
-                                           'contractId':contract['id'],'lots':lots,'executionPrice':'2.9'})['tradeId']
+                                           'contractId':contract['id'], 'definitionRevisionId': contract['definitionRevisionId'],'lots':lots,'executionPrice':'2.9'})['tradeId']
     future=book_future('40')
     short=book_future('-15')
     amended=book_future('5')
     earlier=client.call('futures/editor',{'context':futures_context,'tradeId':amended,'revision':None})['context']
     client.call('futures/amend',{**futures_context,**trade_booking(),'operationId':str(uuid4()),'tradeId':amended,'expectedRevision':1,'bookId':book,
-        'curve':contract['curve'],'contractId':contract['id'],'lots':'6','executionPrice':'2.9','effectiveAt':booking['at'],
+        'curve':contract['curve'],'contractId':contract['id'],'definitionRevisionId':contract['definitionRevisionId'],'lots':'6','executionPrice':'2.9','effectiveAt':booking['at'],
         'reason':'Synthetic close-out revision','amendmentConvention':'unprocessed_futures_booking_amendment_v1'})
 
     swaps=client.call('swaps/catalog',swap_context)
@@ -117,17 +117,17 @@ def run_checks(url,query,dotnet,owned_root,environment):
     future_row=rows[future]
     pins=",".join(f"'{oid}'" for oid in booking['observationIds'])
     def without(contracts,what):
-        """The booking close without its pinned prices of the given contracts: a close that cannot price them."""
+        """An explicit working selection without prices of the given contracts."""
         removed=set(query(f"SELECT o.id FROM market_data.observations o JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.id)=(o.catalog_id,o.definition_revision_id,o.series_id) "
                           f"WHERE s.contract_id IN ({contracts}) AND o.id IN ({pins});").split())
         assert removed,'The booking close pins no price of '+what
-        return {**booking,'id':str(uuid4()),'observationIds':[o for o in booking['observationIds'] if o not in removed]}
+        return {**booking,'id':str(uuid4()),'originCloseId':None,'close':None,'observationIds':[o for o in booking['observationIds'] if o not in removed]}
     # March of the forward curve and of each curve it is built from.
     march=(f"SELECT m.contract_id FROM market_data.curve_members m JOIN market_data.contracts k ON(k.catalog_id,k.revision_id,k.id)=(m.catalog_id,m.revision_id,m.contract_id) "
            f"WHERE m.curve_code IN ('base_forward','future','bridge_basis') AND k.delivery_from='2021-03-01'")
-    fixture={'frames':{'booking':booking,'february':february,'unpriced':without(f"'{contract['id']}'",'the future contract'),'swapUnpriced':without(march,'the March forward')},
+    fixture={'workingOrigins':{'unpriced':'booking','swapUnpriced':'booking'},'frames':{'booking':booking,'february':february,'unpriced':without(f"'{contract['id']}'",'the future contract'),'swapUnpriced':without(march,'the March forward')},
              'earlierContext':earlier,'unsettledContext':unsettled,
-             'positions':{'future':position(future,contractId=contract['id'],curve=contract['curve'],mark=future_row['mark'],
+             'positions':{'future':position(future,definitionRevisionId=contract['definitionRevisionId'],contractId=contract['id'],curve=contract['curve'],mark=future_row['mark'],
                                           priceUnit=f"{contract['currency']}/{contract['unit']}"+('' if contract['quoteMultiplier']=='1' else ' × '+contract['quoteMultiplier']),
                                           legalEntityId=trade_booking()['legalEntityId'],counterpartyId=trade_booking()['counterpartyId']),
                           'amendedFuture':position(amended),'swap':position(swap,quantity='100',mark=rows[swap]['mark']),
@@ -158,7 +158,7 @@ def run_checks(url,query,dotnet,owned_root,environment):
     # The daily swap's separate bundle has no frame at the February close: the whole Blotter read there refuses, naming the missing frame.
     view={'mode':'trades','bookIds':[],'portfolioIds':[],'groupBy':[],'measures':[],'pivotConvention':None}
     missing=client.call('trading/blotter',{'context':{**futures_context,'snapshotId':february['id'],'convention':'trading_workspace_v1'},'view':view},expected=422)
-    assert (missing['code'],missing['message'])==('swap_context','No explicit market frame exists for a required retained bundle at this As of time.'),missing
+    assert (missing['code'],missing['message'])==('market_inputs','A required source is absent from the exact input matrix.'),missing
     print('PASS close-out draft HTTP: the trading read route returns the same reviewed terms twice, refuses with its structured reason and requires current trading authority first',flush=True)
     print('PASS a Blotter read at a close with no frame for a required retained bundle refuses, naming the missing frame',flush=True)
     return fixture

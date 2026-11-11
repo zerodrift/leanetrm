@@ -11,7 +11,8 @@ namespace OpenEtrm.Api;
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record FuturesOptionBookRequest(Guid OperationId,Guid SnapshotId,Guid BookId,string? Series,string? Side,string? Lots,string? Premium,
     string? PremiumPaymentDate,string? PremiumStyle,string? ExecutedAt,string? Convention,string? KnowledgeMode,Guid? TraderId=null,int? TraderRevision=null,
-    string? Memo=null,string? TradeDate=null,Guid? LegalEntityId=null,int? LegalEntityRevision=null,Guid? CounterpartyId=null,int? CounterpartyRevision=null);
+    string? Memo=null,string? TradeDate=null,Guid? LegalEntityId=null,int? LegalEntityRevision=null,Guid? CounterpartyId=null,int? CounterpartyRevision=null,
+    [property:System.Text.Json.Serialization.JsonRequired] Guid DefinitionRevisionId=default);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record FuturesOptionStatusRequest(Guid OperationId);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
@@ -25,8 +26,9 @@ public sealed record FuturesOptionHoldingRequest(FuturesReadRequest Context,Guid
 
 // Listed futures options with premium paid up front: the bookable series at a frame, and booking through the one
 // authorized operation, security.book_futures_option, which owns every booking rule.
-public sealed partial class FuturesOptionStore(PreviewManifest manifest)
+public sealed partial class FuturesOptionStore(PreviewDatabase database)
 {
+    private PreviewManifest manifest=>database.Manifest;
     [System.Text.RegularExpressions.GeneratedRegex("^[0-9]+$")]
     private static partial System.Text.RegularExpressions.Regex WholeLots();
     // The booking and valuation convention an option trade records.
@@ -40,13 +42,32 @@ public sealed partial class FuturesOptionStore(PreviewManifest manifest)
     // options exercise into.
     public async Task<object> Catalog(NpgsqlConnection connection,PreviewData data,InputFrame frame,CancellationToken ct)
     {
-        var options=Series(data,frame);
-        string ProductName(FuturesSeriesSpecification f)=>
-            Single(data.ReferenceRows("futures_products","code",Single(data.ReferenceRows("futures_series","code",f.Key.Code)).Text("product_code"))).Text("name");
-        var underlyings=Listed(data,frame).Select(s=>s.UnderlyingSeries).Distinct().Select(key=>Single(data.FuturesSeries.Where(f=>f.Key==key)))
-            .Select(f=>new{series=f.Key.Code,name=ProductName(f),deliveryFrom=f.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),deliveryTo=f.DeliveryTo.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)}).ToArray();
+        var options=ImmutableArray.CreateBuilder<object>();var underlyings=ImmutableArray.CreateBuilder<object>();
+        var unavailable=ImmutableArray.CreateBuilder<object>();
+        foreach(var source in await MarketInputSelection.ReadCatalogueTerms(database,connection,ct,frame.Time.Date))
+        {
+            var codes=source.Members.Where(m=>m.Kind=="curve").Select(m=>m.Code).ToHashSet(StringComparer.Ordinal);
+            if(!source.Data.Contracts.Any(c=>c.Kind==ContractKind.FutureOption&&codes.Any(code=>source.Data.HasCurveMember(code,c.Key.Id))))continue;
+            try
+            {
+                var inputs=await MarketInputSelection.Resolve(database,connection,frame,source.Source,[(data,frame)],false,ct);
+                var selected=inputs.Frame with{CurveContracts=inputs.Frame.CurveContracts.Where(p=>codes.Contains(p.Key)).ToImmutableDictionary(StringComparer.Ordinal)};
+                options.AddRange(Series(inputs.Data,selected));
+                foreach(var key in Listed(inputs.Data,selected).Select(s=>s.UnderlyingSeries).Distinct())
+                {
+                    var future=Single(inputs.Data.FuturesSeries.Where(f=>f.Key==key));
+                    var series=Single(inputs.Data.ReferenceRows("futures_series","code",future.Key.Code));
+                    var product=Single(inputs.Data.ReferenceRows("futures_products","code",series.Text("product_code")));
+                    underlyings.Add(new{definitionRevisionId=inputs.Data.DefinitionRevision.RevisionId,series=future.Key.Code,name=product.Text("name"),
+                        deliveryFrom=future.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),deliveryTo=future.DeliveryTo.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)});
+                }
+            }
+            catch(MarketDataException error)when(error.Code=="market_inputs_missing")
+            {unavailable.Add(new{source.Source.DefinitionRevisionId,reason=error.Code});}
+        }
         var directory=await FuturesStore.ReadBookingDirectory(connection,manifest.CatalogId,ct);
-        return new {kind="futures_options",directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,convention=Convention,options,underlyings};
+        return new{kind="futures_options",directory.Books,directory.BookingActor,directory.LegalEntities,directory.Counterparties,
+            convention=Convention,options=options.ToImmutable(),underlyings=underlyings.ToImmutable(),unavailable=unavailable.ToImmutable()};
     }
 
     // The listed option series whose expiry is after the frame.
@@ -87,7 +108,7 @@ public sealed partial class FuturesOptionStore(PreviewManifest manifest)
                 var product=Single(data.ReferenceRows("futures_option_products","code",s.Series.Product.Code));
                 var quote=Single(data.QuoteRows(product.Text("quote_code")));
                 var exchange=Single(data.ReferenceRows("exchanges","code",product.Text("exchange_code")));
-                return new {series=s.Series.Key.Code,instrumentId=ContractIdentity.FuturesOption(s.Series.Key),contractId=s.Contract.Key.Id,
+                return new {definitionRevisionId=data.DefinitionRevision.RevisionId,series=s.Series.Key.Code,instrumentId=ContractIdentity.FuturesOption(s.Series.Key),contractId=s.Contract.Key.Id,
                     product=product.Text("code"),name=product.Text("name"),exchange=new{code=exchange.Text("code"),name=exchange.Text("name")},
                     commodity=data.Commodity(s.Request.Curve.Code),underlyingSeries=s.Series.UnderlyingSeries.Code,
                     right=s.Series.Terms.Right.ToString().ToLowerInvariant(),strike=s.Series.Terms.Strike.ToString(),expiryAt=s.Series.Terms.ExpiryAt.ToString("O",CultureInfo.InvariantCulture),
@@ -113,7 +134,7 @@ public sealed partial class FuturesOptionStore(PreviewManifest manifest)
         TradeAnnotations.ValidateShape(null,null,body.Memo);
         await using var command=ScheduleStore.Command(connection,
             "SELECT security.book_futures_option($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8,$9,$10,$11,$12,$13,$14,$15,$16::jsonb)::text",
-            manifest.CatalogId,body.OperationId,body.BookId,manifest.RevisionId,body.Series,lots.ToString(),ExactDecimal.Parse(body.Premium).ToString(),
+            manifest.CatalogId,body.OperationId,body.BookId,(await MarketInputSelection.ReadTerms(database,connection,body.DefinitionRevisionId,ct)).DefinitionRevision.RevisionId,body.Series,lots.ToString(),ExactDecimal.Parse(body.Premium).ToString(),
             paymentDate,body.PremiumStyle,frame.At,DBNull.Value,Convention,DBNull.Value,DBNull.Value,body.Memo is {} memo?memo:DBNull.Value,
             TradeParties.Submitted(body.LegalEntityId,body.LegalEntityRevision,body.CounterpartyId,body.CounterpartyRevision));
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);

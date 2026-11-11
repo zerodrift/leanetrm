@@ -159,7 +159,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     offer = owner.call('futures/catalog', trading)
     contract = next(c for c in offer['contracts'] if c['curve'] == 'future')
     booked = owner.call('futures/book', {**trading, **trade_booking(), 'operationId': str(uuid4()), 'bookId': offer['books'][0]['id'],
-        'curve': 'future', 'contractId': contract['id'], 'lots': '2', 'executionPrice': '3.1', 'memo': 'Synthetic approved-format check'})
+        'curve': 'future', 'contractId': contract['id'], 'definitionRevisionId': contract['definitionRevisionId'], 'lots': '2', 'executionPrice': '3.1', 'memo': 'Synthetic approved-format check'})
     format_command = {'operation': 'trade-formats.save_v1', 'inputJson': json.dumps({'body': {'tradeId': booked['tradeId'], 'role': 'trade',
         'expectedRevision': 0, 'format': {'money': 2, 'price': 4, 'quantity': 3, 'factor': 6}}, 'parameters': {}})}
     format_turn, _, _ = ask([('propose_page_action', format_command)])
@@ -235,7 +235,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
     check('retrying a correction replays the observation and frame identities', owner.call('assistant/actions/authorize', correction_reference) == first_correction)
 
     owner.call('futures/book', {**trading, **trade_booking(), 'operationId': str(uuid4()), 'bookId': offer['books'][0]['id'],
-        'curve': 'future', 'contractId': contract['id'], 'lots': '4', 'executionPrice': '3.2', 'memo': 'Synthetic post-pin fact'})
+        'curve': 'future', 'contractId': contract['id'], 'definitionRevisionId': contract['definitionRevisionId'], 'lots': '4', 'executionPrice': '3.2', 'memo': 'Synthetic post-pin fact'})
     owner.call('market/context/retained', {'contextId': retained_context, 'selection': 'latest_correction'})
     try:
         retained_frame = initial_frame(owner.call('workspace/navigation'), '2020-12-18')

@@ -54,7 +54,7 @@ def main():
     parser.add_argument('--lng-cargo-check',action='store_true',help='Qualify native LNG cargo booking, exact references and saved Incoterms')
     parser.add_argument('--physical-gas-check',action='store_true',help='Qualify physical gas preview, durable schedules and booking UI operations')
     parser.add_argument('--demo-instruments-check',action='store_true',help='Verify mixed synthetic PPA and heat-rate bookings, blotter and risk')
-    parser.add_argument('--pg-bin', type=Path, required=True, help='Installed stock PG16+ binaries')
+    parser.add_argument('--pg-bin', type=Path, required=True, help='Installed stock PostgreSQL 18 binaries')
     parser.add_argument('--dotnet', type=Path, required=True, help='Installed .NET SDK matching global.json')
     parser.add_argument('--port', type=int, default=0, help='Loopback HTTP port; 0 chooses an unused port')
     parser.add_argument('--no-build', action='store_true', help='Use already-built assets')
@@ -265,6 +265,7 @@ def main():
             if args.gas_in_term_check:
                 from gas_in_term_fixture import add_fixture as add_in_term_fixture
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
+        query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             if migration.name.startswith(('0228_','0229_')):
                 from check_fact_anchor_upgrade import run_checks as check_point_upgrade
@@ -272,6 +273,10 @@ def main():
                 cash_signatures=('trading.require_gas_index_cash_shape(uuid,uuid,trading.gas_component_terms,market_data.gas_valuation_assignments,jsonb)',)
                 point=migration.name.startswith('0228_')
                 check_point_upgrade(query,migration,number='0228' if point else '0229',guard='gas_point_pricing_upgrade' if point else 'gas_point_cash_upgrade',signatures=point_signatures if point else cash_signatures)
+            if migration.name=='0238_selected_observation_event_probes.sql':
+                from check_fact_anchor_upgrade import run_checks as check_observation_event_upgrade
+                check_observation_event_upgrade(query,migration,number='0238',guard='observation_event_upgrade',
+                    signatures=('security.observation_visibility_scope(uuid,uuid,uuid[])',))
             if migration.name=='0203_assistant_presentation_controls.sql':
                 from check_assistant_presentation_upgrade import run_checks as check_presentation_upgrade
                 check_presentation_upgrade(query,migration)
@@ -526,6 +531,8 @@ def main():
             query(prepare_contract_admissions(market,security,manifest))
         else:
             query(market)
+        catalogue_roles={role:manifest[key]['revisionId'] for role,key in
+            [('gas','gasMarket'),('crude','crudeMarket'),('lng','lngMarket')] if key in manifest}
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
             # The valuation-status check reads the last custom-curve close, at which the daily bundle publishes.
@@ -540,10 +547,10 @@ def main():
                 # The primary custom-curve fixture visits closes beyond the four standard weekdays.
                 # Its unrelated secondary bundle explicitly supplies no inputs there.
                 times={f['at'] for f in swap_manifest['frames']}
-                swap_manifest['frames'].extend({'at':f['at'],'observationIds':[],'curveContracts':{}}
+                swap_manifest['frames'].extend({'at':f['at'],'observationIds':[],'frozenObservationIds':[],'curveContracts':{}}
                     for f in manifest['frames'] if f['at'] not in times)
-            manifest['swapMarkets']=[swap_manifest]
-            if args.crude_setup_check: manifest['swapMarkets'].append(manifest.pop('crudeMarket'))
+            manifest['inputMarkets']=[swap_manifest]
+            if args.crude_setup_check: manifest['inputMarkets'].append(manifest.pop('crudeMarket'))
             if args.factor_swap_check:
                 from factor_swap_fixture import prepare as prepare_factor
                 prepare_factor(manifest)
@@ -560,11 +567,13 @@ def main():
             check_hosted_auth(query, manifest)
             from check_power_import import run_checks as check_power_import
             check_power_import(query,manifest,dotnet,temporary,env)
+        from preview_fixture import catalogue_fixture
         if args.exchange_check or args.with_exchange:
             from exchange_fixture import fixture as exchange_fixture
             er,em,es,et,exchange_manifest=exchange_fixture(ROOT)
             query(er);query(em);query(es);query(et)
             query(f"SELECT security.initialize_operating_policies('{exchange_manifest['tenantId']}','{exchange_manifest['workspaceId']}');")
+            query(catalogue_fixture(exchange_manifest,exchange_manifest['identityIssuer']))
             (temporary/'exchange-manifest.json').write_text(json.dumps(exchange_manifest))
             if args.exchange_check:
                 from check_futures_option_storage import run_checks as check_futures_option_storage
@@ -574,6 +583,8 @@ def main():
                 check_vol_surface_storage(query,exchange_manifest)
         from preview_fixture import trading_fixture
         query(trading_fixture(manifest['catalogId'],swap_defaults=args.example=='standard'))
+        curve_sources = [m['revisionId'] for m in manifest['inputMarkets']] if args.swap_risk_holdings_check else []
+        query(catalogue_fixture(manifest,'https://preview.invalid',curve_sources=curve_sources,role_revisions=catalogue_roles))
         if args.ppa_bookings_check or args.blotter_stream_benchmark:
             from ppa_bookings_fixture import trading as ppa_benchmark_books
             query(ppa_benchmark_books(manifest['catalogId']))
@@ -615,6 +626,11 @@ def main():
             unit_bundle='60000000-0000-0000-0000-000000000004'
             query(f"BEGIN; INSERT INTO market_data.revisions VALUES ('{manifest['catalogId']}','{unit_bundle}','{manifest['referenceCatalogId']}','{unit_reference}','draft',0); INSERT INTO market_data.revision_periods VALUES ('{manifest['catalogId']}','{unit_bundle}','2020-01-01','2022-01-01'); UPDATE market_data.revisions SET state='sealed' WHERE catalog_id='{manifest['catalogId']}' AND id='{unit_bundle}'; COMMIT;")
             manifest['unitCatalog']={'referenceRevisionId':unit_reference,'definitionRevisionId':unit_bundle}
+            unit_roles={**catalogue_roles,'units':unit_bundle,**{'reference:'+table:unit_bundle for table in
+                ('dimensions','units','unit_conversions','commodities','measurement_bases','quantity_specifications')}}
+            query(catalogue_fixture(manifest,'https://preview.invalid',curve_sources=curve_sources,
+                role_revisions=unit_roles,expected_head=query(f"SELECT id FROM market_data.catalogue_publications WHERE catalog_id='{manifest['catalogId']}' ORDER BY publication_order DESC LIMIT 1;"),
+                request_id=str(uuid4())))
         if args.factor_swap_check:
             from check_factor_swap_upgrade import run_checks as check_factor_upgrade
             check_factor_upgrade(query,psql,env,ROOT)
@@ -630,11 +646,30 @@ def main():
             reference_demo=install_reference_demo(query,manifest)
             # One owned test date deliberately has no admitted demo input frame.
             reference_demo['omittedAt']=max(f['at'] for f in reference_demo['frames'] if not f['at'].startswith('2020-12-18'))
-            manifest['swapMarkets'][-1]['frames']=[f for f in reference_demo['frames'] if f['at']!=reference_demo['omittedAt']]
+            manifest['inputMarkets'][-1]['frames']=[f for f in reference_demo['frames'] if f['at']!=reference_demo['omittedAt']]
+            query(catalogue_fixture(manifest,'https://preview.invalid',curve_sources=[reference_demo['definitionRevisionId']],
+                role_revisions={**catalogue_roles,**{'reference:'+table:reference_demo['definitionRevisionId'] for table in
+                    ('interest_rate_definitions','value_specifications')}},
+                expected_head=query(f"SELECT id FROM market_data.catalogue_publications WHERE catalog_id='{manifest['catalogId']}' ORDER BY publication_order DESC LIMIT 1;"),
+                request_id='fbf30992-496b-4cd5-9abf-2d7cd3ab0a96'))
         # Only recorded closes are closes (D334): the built-in frames are recorded as synthetic session closes.
         from seed_session_closes import seed as seed_session_closes
         # The aligned-history check reads a correction through a working frame of its day, which a close's exact pins never take.
-        seed_session_closes(query,manifest,working=('2020-12-18',) if args.factor_history_check or args.context_read_check else ())
+        # Generation and normalized close reports qualify their one-definition profiles separately.
+        close_inputs=[]
+        if not (args.pilot_close_check or args.close_risk_check or args.close_risk_lease_check):
+            close_inputs=list(manifest.get('inputMarkets', ()))
+            for key in ('gasMarket','crudeMarket','lngMarket'):
+                if key in manifest and manifest[key]['revisionId'] != manifest['revisionId']:
+                    close_inputs.append(manifest[key])
+            if len({source['revisionId'] for source in close_inputs}) != len(close_inputs):
+                raise ValueError('A fixture must declare each exact retained close source once.')
+        # The factor scenario publishes its additional contracts after opening
+        # the initial view, so its explicit working selections are never recorded
+        # as closes containing contracts that do not exist yet.
+        working_days=tuple({frame['at'][:10] for frame in manifest['frames']}) if args.factor_swap_check else (
+            ('2020-12-18',) if args.factor_history_check or args.context_read_check else ())
+        seed_session_closes(query,manifest,working=working_days,input_markets=close_inputs)
         (temporary/'manifest.json').write_text(json.dumps(manifest))
         (temporary/'manifest.json').chmod(0o600)
         # Freeze assets for this owned instance; a later web build must not change
@@ -1215,6 +1250,9 @@ def main():
                 def run_worker():
                     subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
                 check_reference_demo(url,manifest,reference_demo,query,run_worker)
+                reference_reuse=temporary/'reference-reuse.json';reference_reuse.write_text(json.dumps(reference_demo))
+                subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--reference-reuse',str(reference_reuse)],
+                    cwd=ROOT,env=app_env,check=True,timeout=120)
             elif args.reference_check:
                 from check_reference_display_http import run_checks as check_reference_display
                 check_reference_display(url,query)

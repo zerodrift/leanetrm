@@ -80,7 +80,7 @@ internal static class SideObservationCompatibilityChecks
         var data=new AdmissionFixture().Data();var other=new AdmissionFixture().Data();
         var at=new DateTimeOffset(2048,4,1,16,0,0,TimeSpan.Zero);
         var context=new ScheduleContext("2048-04-01",1,at.AddDays(1).ToString("O"),Guid.NewGuid());
-        var frame=new InputFrame(Guid.NewGuid(),"Synthetic history",at,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,context.ContextId);
+        var frame=new InputFrame(Guid.NewGuid(),"Synthetic history",at,OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(at).Date,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,context.ContextId);
         var history=new ContractObservationSamples.History();var loads=0;
         Task<PreviewData> Load(PreviewData selected){loads++;return Task.FromResult(selected);}
         var first=await history.Read(data.DefinitionRevision,frame,context,false,[],()=>Load(data));
@@ -126,7 +126,7 @@ internal static class SideObservationCompatibilityChecks
         var prior=Guid.NewGuid();var correction=Guid.NewGuid();
         JsonElement Observation(Guid id,string state,Guid? corrects)=>Row(new{id,series_id=series,source_code="projection_source",role="trader_mark",publication_state=state,observed_at=at,value="12",corrects_id=corrects});
         var data=fixture.Data(observations:[Observation(prior,"final",null),Observation(correction,"preliminary",prior)]);
-        var frame=new InputFrame(Guid.NewGuid(),"Synthetic explicit sample",at.AddDays(1),[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,null);
+        var frame=new InputFrame(Guid.NewGuid(),"Synthetic explicit sample",at.AddDays(1),OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(at.AddDays(1)).Date,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,null);
         Reject("missing_observation",()=>ContractObservationSamples.Select(data,frame,lookup,Guid.NewGuid(),at.AddDays(2)),
             "visible preliminary correction supersedes former final");
         data=fixture.Data(observations:[Observation(prior,"final",null),Observation(correction,"final",prior)]);

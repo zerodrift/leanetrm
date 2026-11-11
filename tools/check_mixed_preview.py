@@ -108,7 +108,8 @@ def run_checks(url,export):
     check('a rate curve states its maturity count, first maturity and zero rate, and day count',rates['summary']=={'kind':'rates','maturityCount':3,
           'firstMaturity':rates['points'][0]['maturity'],'firstMark':rates['points'][0]['value'],'markUnitLabel':rates['markUnitLabel'],'dayCount':rates['convention']['dayCount']})
     check('a rate curve is named by its stored market type, not a rule',{r['code']:r['kind'] for r in c.call('workspace/navigation')['curves']}['interest_rates']=='interest_rate')
-    check('unknown curve remains an error',c.call('evaluate',{'snapshotId':first['id'],'curve':'absent'},status=422)['code']=='missing_curve')
+    missing=c.call('evaluate',{'snapshotId':first['id'],'curve':'absent'},status=422)
+    check('a curve outside the selected close remains an error',missing['code']=='curve_not_selected' and set(missing)=={'code','message'})
     check('arbitrary dated contract cannot be substituted in history',c.call('history',{'revisionPolicy':'exact_snapshot_pins_v1','snapshotId':first['id'],'curve':'location_delivery',
           'contractId':'00000000-0000-0000-0000-000000000001'},status=422)['code']=='request_member')
     other=Client();other.call('profile',{'profile':'viewer'})

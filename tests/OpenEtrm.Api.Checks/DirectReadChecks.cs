@@ -138,6 +138,22 @@ internal static class DirectReadChecks
             await Execute(c,"SET LOCAL jit=off;"+string.Concat(disabled.Select(setting=>$"SET LOCAL {setting}=off;")),ct);
             return await read(c,ct);
         },CancellationToken.None);
+        async Task<InputFrame> RecordedFrame(NpgsqlConnection connection,InputFrame summary,CancellationToken ct)
+        {
+            if(summary.OriginCloseId is not {} close)return summary;
+            var frame=await MarketCloses.Frame(connection,database.Manifest.CatalogId,close,summary.ContextId,ct);
+            if(frame.Time!=summary.Time||!frame.ObservationIds.SequenceEqual(summary.ObservationIds))
+                throw new Exception("The recorded close and the page's exact frame summary disagree.");
+            return frame with{Id=summary.Id};
+        }
+        foreach(var view in views)
+            view.Frames=await Read(async(c,ct)=>
+            {
+                if(view.Context is {} context)await MarketContextStore.Bind(c,database.Manifest.CatalogId,context,ct);
+                var frames=ImmutableArray.CreateBuilder<InputFrame>();
+                foreach(var frame in view.Frames)frames.Add(await RecordedFrame(c,frame,ct));
+                return frames.ToImmutable();
+            });
         // A request binds a market context at most once, so a second bind shows whether the read bound one.
         // Reads bind their view's context unless they say otherwise.
         Task<T> Direct<T>(View view,string name,Func<NpgsqlConnection,CancellationToken,Task<T>> read,bool? binds=null)=>Read(async(c,ct)=>
@@ -179,7 +195,7 @@ internal static class DirectReadChecks
                 var combined=await Direct(view,"prices with workspace",(c,ct)=>reads.Evaluate(c,view.Pin(view.Selected),curve.Key,ct,true));
                 var metadata=combined.Workspace??throw new Exception("An explicitly requested full workspace is missing.");
                 Same($"{view.Name} {curve.Key} combined prices preserve their page",combined.Result,Without(curve.Value!.AsObject(),"context"));
-                Same($"{view.Name} combined workspace retains the same bound catalog",new{definitions=metadata.Data.Definitions,references=metadata.Data.References,unitCatalog=metadata.Units,curveNames=metadata.CurveNames,referenceDisplay=metadata.ReferenceDisplay,unitReferenceDisplay=metadata.UnitReferenceDisplay},
+                Same($"{view.Name} combined workspace retains the same bound catalog",new{definitions=metadata.Data.Definitions,references=metadata.References(true),unitCatalog=metadata.Units,curveNames=metadata.CurveNames,referenceDisplay=metadata.ReferenceDisplay,unitReferenceDisplay=metadata.UnitReferenceDisplay},
                     view.Page("catalog"),"definitions","references","unitCatalog","curveNames","referenceDisplay","unitReferenceDisplay");
             }
             var shapes=view.Page("curveShapes")["curves"]!;
@@ -208,9 +224,12 @@ internal static class DirectReadChecks
         }
         await Read(async(c,ct)=>
         {
-            var empty=working.Selected with{CurveContracts=ImmutableDictionary<string,ImmutableArray<Guid>>.Empty};
+            var chosen=working.Selected;
+            var empty=chosen with{OriginCloseId=null,Close=null,CurveContracts=ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,
+                SourceInputs=chosen.SourceInputs?.ToImmutableDictionary(pair=>pair.Key,pair=>pair.Value with
+                    {CurveContracts=ImmutableDictionary<string,ImmutableArray<Guid>>.Empty})};
             var data=await database.Read(c,ct,observationIds:empty.ObservationIds);
-            var catalog=JsonSerializer.SerializeToElement(await new FuturesStore(database.Manifest).Catalog(c,data,empty,ct),Json);
+            var catalog=JsonSerializer.SerializeToElement(await new FuturesStore(database).Catalog(c,data,empty,ct),Json);
             if(catalog.GetProperty("contracts").GetArrayLength()!=0||FuturesOptionStore.Series(data,empty).Length!=0)
                 throw new Exception("Booking catalogs must not price contracts outside the exact frame membership.");
             return true;
@@ -246,7 +265,8 @@ internal static class DirectReadChecks
         var trader=recorded.GetProperty("profile").GetString()!;
         Task<T> AsTrader<T>(Func<NpgsqlConnection,CancellationToken,Task<T>> read)=>Read(read,trader);
         JsonNode Recorded(params string[] path)=>JsonNode.Parse(path.Aggregate(recorded,(e,p)=>e.GetProperty(p)).GetRawText())!;
-        var at=recorded.GetProperty("frames").Deserialize<ImmutableArray<InputFrame>>(Json).Single(f=>f.Id==recorded.GetProperty("frameId").GetGuid());
+        var summary=recorded.GetProperty("frames").Deserialize<ImmutableArray<InputFrame>>(Json).Single(f=>f.Id==recorded.GetProperty("frameId").GetGuid());
+        var at=await AsTrader((c,ct)=>RecordedFrame(c,summary,ct));
         var report=recorded.GetProperty("report").Deserialize<FuturesBlotterView>(Json)!;
         var summaries=recorded.GetProperty("summaries").Deserialize<ImmutableArray<FuturesBlotterView>>(Json);
         var captured=Recorded("captured");
@@ -255,7 +275,13 @@ internal static class DirectReadChecks
         Console.WriteLine("PASS the ordinary trader's page grants no manual gas operations rights");
         var traded=captured["catalog"]!["context"].Deserialize<ScheduleContext>(Json)!;
         var (fresh,again)=(new TradingView(at,traded,true),TradingView.Reread(at,traded));
-        var chosen=TradingView.Retained(Recorded("historical","frame").Deserialize<InputFrame>(Json),Recorded("historical","context").Deserialize<ScheduleContext>(Json)!);
+        var chosenContext=Recorded("historical","context").Deserialize<ScheduleContext>(Json)!;
+        var chosenFrame=await AsTrader(async(c,ct)=>
+        {
+            await MarketContextStore.Bind(c,database.Manifest.CatalogId,chosenContext,ct);
+            return await RecordedFrame(c,Recorded("historical","frame").Deserialize<InputFrame>(Json)!,ct);
+        });
+        var chosen=TradingView.Retained(chosenFrame,chosenContext);
         Same("a captured trading workspace, with its summaries, matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,fresh,report,summaries,false,ct)),Unadorned(captured,fresh,"catalog","blotter"));
         Same("a re-read trading workspace matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,again,report,[],false,ct)),Unadorned(Recorded("reread"),again,"catalog","blotter"));
         Same("a historical trading workspace matches its page",await AsTrader((c,ct)=>tradeReads.Workspace(c,chosen,report,[],false,ct)),
@@ -268,12 +294,15 @@ internal static class DirectReadChecks
             Unadorned(Recorded("trade","response"),again));
         // A trade read binds exactly its view's cutoff: one known just before the parties were published lists none of the page's holdings.
         var unbooked=(await AsTrader((c,ct)=>new KnowledgeStore(database.Manifest.CatalogId).Capture(c,new(traded.EffectiveOn,first.AddTicks(-10).ToString("O",CultureInfo.InvariantCulture),"at"),ct))).Context;
-        var early=JsonSerializer.SerializeToNode(await AsTrader((c,ct)=>tradeReads.Blotter(c,TradingView.Reread(at,unbooked),report,ct)),Json)!;
+        // The recorded close was published after this cutoff. A deliberately
+        // assembled working input selection makes no claim that the close existed.
+        var earlierInputs=at with{OriginCloseId=null,Close=null};
+        var early=JsonSerializer.SerializeToNode(await AsTrader((c,ct)=>tradeReads.Blotter(c,TradingView.Reread(earlierInputs,unbooked),report,ct)),Json)!;
         if(early["holdings"]!.AsArray().Count!=0||captured["blotter"]!["holdings"]!.AsArray().Count==0)
             throw new Exception("A trade read must bind exactly its view's cutoff.");
         Console.WriteLine("PASS a trade read binds exactly its view's cutoff");
         try{await AsTrader((c,ct)=>tradeReads.Blotter(c,TradingView.Reread(at,historical.Context!),report,ct));throw new Exception("A trade read used a context effective on another date than its frame.");}
-        catch(PostgresException e) when(e is {SqlState:"P0001",MessageText:"knowledge_coverage"}){Console.WriteLine("PASS a trade read refuses a context effective on another date than its frame");}
+        catch(TemporalException e) when(e.Code=="temporal_context"){Console.WriteLine("PASS a trade read refuses a context effective on another date than its frame");}
         try{await Read((c,ct)=>tradeReads.Blotter(c,again,report,ct));throw new Exception("A profile without trade access read trades.");}
         catch(Exception e) when(e is PreviewDeniedException or PostgresException{SqlState:"42501",MessageText:"No trading access"}){Console.WriteLine("PASS trade reads refuse a profile without trade access");}
         await Rejects("snapshot_missing","a re-read trading view refuses a retained frame",()=>Task.FromResult(TradingView.Reread(chosen.Frame,chosen.Context)));
@@ -323,15 +352,15 @@ internal static class DirectReadChecks
         await Rejects("snapshot_missing","history refuses a frame outside its pinned context",()=>Read((c,ct)=>reads.History(c,historical.Pin(historical.Selected),[..historical.Initial,working.Selected],"local_power",null,null,HistoryRevisionPolicy.ExactSnapshotPins,ct)));
         var earlier=historical.Frames.Where(f=>DateOnly.FromDateTime(f.At.UtcDateTime)!=effective).MinBy(f=>f.At)
             ??throw new Exception("The historical fixture needs a frame before its effective date.");
-        await Rejects("market_date","a retained pin prices only its effective market date",()=>Read((c,ct)=>reads.Evaluate(c,historical.Pin(earlier),"local_power",ct)));
-        await Rejects("market_date","a retained pin shapes curves only on its effective market date",()=>Read((c,ct)=>reads.CurveShapes(c,historical.Pin(earlier),["local_power"],ct)));
+        await Rejects("temporal_context","a retained pin prices only its effective market date",()=>Read((c,ct)=>reads.Evaluate(c,historical.Pin(earlier),"local_power",ct)));
+        await Rejects("temporal_context","a retained pin shapes curves only on its effective market date",()=>Read((c,ct)=>reads.CurveShapes(c,historical.Pin(earlier),["local_power"],ct)));
     }
 
     sealed class View(JsonElement view)
     {
         public string Name {get;}=view.GetProperty("name").GetString()!;
         public ScheduleContext? Context {get;}=view.GetProperty("context").ValueKind==JsonValueKind.Object?view.GetProperty("context").Deserialize<ScheduleContext>(Json):null;
-        public ImmutableArray<InputFrame> Frames {get;}=view.GetProperty("frames").Deserialize<ImmutableArray<InputFrame>>(Json);
+        public ImmutableArray<InputFrame> Frames {get;set;}=view.GetProperty("frames").Deserialize<ImmutableArray<InputFrame>>(Json);
         public InputFrame Selected=>Frames.Single(f=>f.Id==view.GetProperty("frameId").GetGuid());
         // The frames the page's history rebuilds: its remaining built-in frames and every offered recorded close (D334).
         public ImmutableArray<InputFrame> Initial=>[..view.GetProperty("initialFrameIds").EnumerateArray().Select(id=>Frames.Single(f=>f.Id==id.GetGuid()))

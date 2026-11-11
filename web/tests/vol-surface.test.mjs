@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {closeLink,closeLinkHref} from '../dist/close-choice.js';
 import {surfaceLink} from '../dist/vol-surface-link.js';
 import {decimalText,heatCells,liveSurface,richCheapText} from '../dist/vol-surface-view.js';
 import {richCheapTone} from '../dist/vol-surface-theme.js';
@@ -150,4 +151,12 @@ test('a stored surface is this close, one this view can open, another session, a
   assert.equal(reach(stored('bb','2026-10-16',closeOf('ldn','2026-10-16')),working,offered),'otherSession');
   assert.equal(reach(stored('bb','2026-10-16'),working,offered),'otherDay');
   assert.equal(reach(stored('bb','2026-10-16',null,true),working,offered),'current');
+});
+
+test('a volatility close link opens the same option definition in a separate window',()=>{
+ const link={page:'vol-surfaces',close:'5d4c1a2e-0000-4000-8000-000000000004',product:'synthetic_on',
+  definitionRevisionId:'5d4c1a2e-0000-4000-8000-000000000003'};
+ const address=new URL(closeLinkHref(link,'/','?example=exchange&definitionRevisionId=old'), 'https://preview.invalid');
+ assert.deepEqual(closeLink(address.search),link);
+ assert.equal(address.searchParams.get('example'),'exchange');
 });

@@ -50,6 +50,7 @@ def main():
         def query(sql): return run(psql, input=sql)
 
         assert Path(query('SHOW data_directory;')).resolve() == data
+        query((ROOT / 'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT / 'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
             query(migration.read_text())
         reference, market, security, manifest = fixture(ROOT)

@@ -132,7 +132,6 @@ const mainWindowTickets:ProductTickets={async open(product){throw Error(`${produ
 const futures=setupFutures({volSurface:null,riskReportUrl:id=>{if(!tied)throw Error('This window has no verified workspace for a report link.');return riskReportAddress(id,{hosted,example:tied.example});},window:{kind:'popout',close:()=>bringBack(),example:tied?.example},api,stream:async(body,handlers,signal)=>{await streamBlotter(responseFor,body,handlers,signal);if(!busy)checkAccount();},act,busy:()=>busy,updatesBlocked:()=>false,zone:()=>prefs.timeZone,profile:()=>scope,knowledge,
   narrow:()=>main.clientWidth<dockedGroupsFrom,canRunRisk:()=>can('RunScenario'),contextDirty:()=>false,bookingUnavailableReason:()=>bookingFallback({contextDirty:false,view:knowledge(),canBook:can('BookTrade')}),
   onReadContext:(at,known)=>text('header-calculation-time',`As of ${instant(at)} · knowledge cutoff ${instant(known)}`),failed,failureCleared:()=>{$('error').hidden=true;},notice,
-  definitionRevision:()=>{if(!navigation)throw Error('The market navigation is still loading.');return navigation.definitionRevision.revisionId;},
   // This window has no navigation of saved views, Curves & prices, or PPA and physical gas editors: those are the main window's.
   onViews:()=>undefined,curveListed:()=>false,openCurve:async()=>{throw Error('Curves & prices opens in the main window.');},tickets:mainWindowTickets,
   source:()=>{

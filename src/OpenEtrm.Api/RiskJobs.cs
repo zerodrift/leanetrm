@@ -55,8 +55,8 @@ public static class RiskJobs
         payload["engineVersion"]=EngineVersion;
         var supplemental=new JsonObject();
         foreach(var market in prepared.SupplementalMarkets.OrderBy(m=>m.Data.DefinitionRevision.RevisionId))
-            supplemental.Add(market.Data.DefinitionRevision.RevisionId.ToString(),PinFrame(market.Frame with {ContextId=contextId,SwapMarketSelections=null}));
-        var pinnedFrame=PinFrame(frame with {ContextId=contextId,SwapMarketSelections=prepared.SupplementalMarkets
+            supplemental.Add(market.Data.DefinitionRevision.RevisionId.ToString(),RetainedFrames.Record(market.Frame with {ContextId=contextId,SwapMarketSelections=null}));
+        var pinnedFrame=RetainedFrames.Record(frame with {ContextId=contextId,SwapMarketSelections=prepared.SupplementalMarkets
             .ToImmutableDictionary(m=>m.Data.DefinitionRevision.RevisionId,m=>m.Frame.ObservationIds)});
         pinnedFrame["supplementalMarkets"]=supplemental;
         pinnedFrame["connectedMarkets"]=JsonSerializer.SerializeToNode(prepared.Portfolio.ConnectedMarkets,Json);
@@ -67,7 +67,7 @@ public static class RiskJobs
         pinnedFrame["excludedPositions"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Excluded,Json);
         // Option calibrations are recomputed from the pinned inputs on replay, which must reproduce these receipts exactly.
         pinnedFrame["optionCalibrations"]=JsonSerializer.SerializeToNode(prepared.Portfolio.OptionCalibrations,Json);
-        pinnedFrame["ppaReadContexts"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Ppa?.ReadContexts??[],Json);
+        pinnedFrame["ppaReadContexts"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Ppas.SelectMany(p=>p.ReadContexts).Distinct().Order().ToImmutableArray(),Json);
         // The books and portfolios the run was asked for, as chosen: its results are shown only against a read of the same (D222).
         pinnedFrame["scope"]=ScopeFrame(body.Request.BookIds,body.Request.PortfolioIds,body.Request.TradeIds);
         if(run is not null)pinnedFrame["run"]=run;
@@ -96,26 +96,6 @@ public static class RiskJobs
         var stated=scope?["tradeIds"]?.Deserialize<ImmutableArray<Guid>>(Json);
         if(!Equals(requested is {} a?string.Join(',',a.Order()):null,stated is {} b?string.Join(',',b.Order()):null))
             throw new MarketDataException("risk_trade_scope","The retained request and scope must identify the same selected trades.");
-    }
-
-    internal static JsonObject PinFrame(InputFrame frame)
-    {
-        var pinned=JsonSerializer.SerializeToNode(frame,Json)!.AsObject();
-        // Public frame JSON omits input uses; the retained execution envelope
-        // carries them explicitly so a frozen fact never becomes shockable.
-        pinned["frozenObservationIds"]=JsonSerializer.SerializeToNode(
-            frame.FrozenObservationIds.IsDefault?ImmutableArray<Guid>.Empty:frame.FrozenObservationIds,Json);
-        return pinned;
-    }
-
-    internal static InputFrame ReadFrame(JsonNode pinned)
-    {
-        var frame=pinned.Deserialize<InputFrame>(Json)??throw new JsonException("Missing risk frame.");
-        var frozen=pinned["frozenObservationIds"]?.Deserialize<ImmutableArray<Guid>>(Json);
-        if(frozen is null||frozen.Value.IsDefault||frozen.Value.Distinct().Count()!=frozen.Value.Length||
-            frozen.Value.Any(id=>!frame.ObservationIds.Contains(id)))
-            throw new MarketDataException("risk_job_context","Frozen inputs must be an explicit exact subset of the retained observations.");
-        return frame with {FrozenObservationIds=frozen.Value};
     }
 
     public static async Task<object> Read(NpgsqlConnection connection,Guid catalog,Guid id,CancellationToken ct,bool cancel=false,string? expectedConvention=null)

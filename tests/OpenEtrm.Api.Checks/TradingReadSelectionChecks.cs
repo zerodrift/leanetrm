@@ -10,7 +10,7 @@ internal static class TradingReadSelectionChecks
         var manifest=new PreviewManifest("local-synthetic-preview",Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),
             Guid.NewGuid(),Guid.NewGuid(),[],new(at,"synthetic_power"),FuturesConvention:"contract_lot_execution_pnl_v2");
         var session=new PreviewSession(manifest){Profile="trader"};
-        var frame=new InputFrame(Guid.NewGuid(),"Synthetic read",at,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
+        var frame=new InputFrame(Guid.NewGuid(),"Synthetic read",at,OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(at).Date,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
         var request=new FuturesReadRequest(frame.Id,TradingBlotter.Convention,"current");
         var selected=TradingReadSelection.Capture(session,request,frame);
         selected.RequireSession(session);

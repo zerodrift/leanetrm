@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Collections.Immutable;
+using Npgsql;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 
@@ -23,11 +25,36 @@ internal static class CloseOutDraftChecks
         }
         InputFrame Frame(string name)=>fixture.GetProperty("frames").GetProperty(name).Deserialize<InputFrame>(Json)!;
         JsonElement Position(string name)=>fixture.GetProperty("positions").GetProperty(name);
+        var seeds=new PreviewSession(database.Manifest);
+        async Task<InputFrame> ResolveFrame(NpgsqlConnection connection,string name,CancellationToken ct)
+        {
+            var offered=Frame(name);
+            var working=fixture.GetProperty("workingOrigins").TryGetProperty(name,out var origin);
+            var sourceFrame=working?Frame(origin.GetString()!):offered;
+            if(sourceFrame.OriginCloseId is not {} close)
+            {
+                if(working)throw new Exception("A working fixture must name its recorded input origin.");
+                return seeds.PersistentFrames.Single(f=>f.At==offered.At) with{Id=offered.Id,Name=offered.Name};
+            }
+            var recorded=await MarketCloses.Frame(connection,database.Manifest.CatalogId,close,null,ct);
+            if(!working)return recorded with{Id=offered.Id,Name=offered.Name};
+            // The unpriced cases are explicit working selections, not amended
+            // recorded closes. Keep other sources intact and omit only these pins.
+            var source=recorded.Source??throw new Exception("The recorded fixture requires its primary source.");
+            var frozen=recorded.FrozenObservationIds.Where(offered.ObservationIds.Contains).ToImmutableArray();
+            var inputs=recorded.SourceInputs??throw new Exception("The recorded fixture requires its exact source matrix.");
+            var part=inputs[source.DefinitionRevisionId] with{ObservationIds=offered.ObservationIds,FrozenObservationIds=frozen};
+            return recorded.ForMarketSource(offered.ObservationIds,recorded.CurveContracts,frozen) with
+            {
+                Id=offered.Id,Name=offered.Name,Source=source,
+                SourceInputs=inputs.SetItem(source.DefinitionRevisionId,part)
+            };
+        }
         // One draft read under the trader's own authority, at a working frame or under a context captured earlier.
         Task<JsonElement> Draft(string frameName,JsonElement position,int? revision=null,string? type=null,ScheduleContext? earlier=null)=>
             database.WithIdentity("trader","ReadTrades",async(connection,ct)=>
             {
-                var frame=Frame(frameName);
+                var frame=await ResolveFrame(connection,frameName,ct);
                 var view=earlier is null?await TradingView.Capture(connection,new KnowledgeStore(database.Manifest.CatalogId),frame,ct):TradingView.Reread(frame,earlier);
                 var request=new CloseOutDraftRequest(new(frame.Id,TradingBlotter.Convention,earlier is null?"current":"retained",earlier?.ContextId),
                     position.Id("tradeId"),position.Id("bindingId"),revision??position.GetProperty("revision").GetInt32(),type??position.Text("instrumentType"));

@@ -62,6 +62,7 @@ class Events:
 def run_checks(url, manifest, query):
     live=PreviewClient(url);live.bootstrap();live.call('profile',{'profile':'viewer'})
     working=live.call('workspace');seed=initial_frame(working,'2020-12-18')
+    assert seed['originCloseId'] == seed['id'], 'Start live correction from a recorded close.'
     live.call('market/live',{'snapshotId':seed['id'],'policy':'latest'},expected=422)
     selected=live.call('market/live',{'snapshotId':seed['id'],'policy':'selected_facts_latest_committed_corrections_v1'})
     stream=Events(live,selected['live']['id'])
@@ -95,6 +96,13 @@ def run_checks(url, manifest, query):
         changed=live.call('evaluate',{'snapshotId':second['frame']['id'],'curve':'local_power'})
         assert changed['points'][0]['value']=='29.8',changed['points'][0]
         assert changed['points'][1:]==original['points'][1:]
+        def sample(update):
+            history = live.call('history', {'snapshotId': update['frame']['id'], 'curve': 'local_power',
+                'contractId': original['points'][0]['contractId'], 'revisionPolicy': 'exact_snapshot_pins_v1'})
+            return history['points'][-1]
+        assert sample(first)['value'] == original['points'][0]['value']
+        latest = sample(second)
+        assert latest['value'] == '29.8' and correction['observationId'] in latest['observationIds'], latest
         assert live.call('evaluate',{'snapshotId':first['frame']['id'],'curve':'local_power'})['points']==original['points']
         combined=live.call('evaluate',{'snapshotId':first['frame']['id'],'curve':'local_power','includeWorkspace':True})
         assert combined['context']==combined['workspace']['context']==first['context']

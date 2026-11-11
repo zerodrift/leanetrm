@@ -6,16 +6,27 @@ namespace OpenEtrm.Api;
 internal static class CurveVersionInputs
 {
     static MarketDataException Invalid()=>new("curve_inputs","The exact curve version inputs are unavailable or inconsistent.");
-    internal static Guid Revision(PreviewDatabase database,Guid? saved)
+    internal static Guid Exact(Guid revision)=>revision!=Guid.Empty?revision:throw Invalid();
+    internal static async Task<Guid> Resolve(PreviewDatabase database,Npgsql.NpgsqlConnection connection,Guid? saved,CancellationToken ct)=>
+        saved is {} exact?Exact(exact):(await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct)).RequireRole("primary").DefinitionRevisionId;
+    internal static async Task<Guid> NewGraph(PreviewDatabase database,Npgsql.NpgsqlConnection connection,
+        OpenEtrm.MarketData.CustomCurves.RecipeDefinition definition,DateOnly? effectiveOn,CancellationToken ct)
     {
-        var revision=saved??database.Manifest.RevisionId;
-        if(revision==Guid.Empty||revision!=database.Manifest.RevisionId)throw Invalid();
-        return revision;
-    }
-    internal static InputFrame Frame(PreviewDatabase database,InputFrame frame,Guid revision)
-    {
-        _=Revision(database,revision);
-        return frame;
+        var catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,effectiveOn);
+        var revisions=definition.Nodes.Where(n=>n.Kind=="source"&&n.Parameters.ContainsKey("curve"))
+            .Select(n=>catalogue.RequireCurve(n.Parameters["curve"]).DefinitionRevisionId).ToHashSet();
+        var parents=definition.Nodes.Select(n=>n.PublishedSource).Where(p=>p is not null).ToArray();
+        if(parents.Length>0)
+        {
+            var versions=await new CustomCurvesStore(database).Read(connection,ct);
+            foreach(var parent in parents)
+            {
+                var saved=versions.SingleOrDefault(v=>v.Id==parent!.CurveId&&v.Version==parent.Version)??throw Invalid();
+                if(saved.MarketRevisionId is {} revision)revisions.Add(Exact(revision));
+            }
+        }
+        if(revisions.Count>1)throw new MarketDataException("curve_inputs","This graph profile requires one exact native source revision; cross-source graph composition is not admitted.");
+        return revisions.Count==1?revisions.Single():catalogue.RequireRole("primary").DefinitionRevisionId;
     }
     internal static Guid? SavedRevision(CustomCurveVersion saved,IEnumerable<CustomCurveVersion> versions)
     {

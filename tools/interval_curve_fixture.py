@@ -199,6 +199,14 @@ def prepare(reference, market, security, manifest):
     # HTTP checks publish these after the initial shape cutoff to qualify knowledge exclusion too.
     frozen_frame=deepcopy(manifest['frames'][0])
     frozen_frame['at']=(datetime.now(timezone.utc)+timedelta(minutes=2)).isoformat()
+    # Frozen anchors must already be certified at valuation. Declare catalogue
+    # applicability for that contemporary valuation, as well as the 2020 frames.
+    effective_to=max(date(2022,1,1),datetime.fromisoformat(frozen_frame['at']).date()+timedelta(days=1))
+    original_period=f"INSERT INTO market_data.revision_periods VALUES ({M},'2020-01-01','2022-01-01');"
+    if market.count(original_period)!=1:
+        raise ValueError('The interval fixture requires exactly one explicit baseline applicability period.')
+    market=market.replace(original_period,
+                          f"INSERT INTO market_data.revision_periods VALUES ({M},'2020-01-01','{effective_to.isoformat()}');")
     frozen=[]
     for n,code in enumerate((PEAK,OFF)):
         cid,sid,old,first,value=blocks[code][0]

@@ -6,10 +6,16 @@ import {isCurveKind,kindsVersion,type CurveKind} from './curve-kinds.js';
 
 import type {FrameClose} from './close-sessions.js';
 // close names a recorded close's session and business day (D334); a working snapshot has none.
-export type FrameSummary={id:string;name:string;at:string;originCloseId?:string|null;close?:FrameClose|null};
+export type FrameSummary={id:string;name:string;at:string;businessDate:string;originCloseId?:string|null;close?:FrameClose|null};
 export type NavigationCategory={code:string;name:string};
 // A commodity curve names its commodity. An interest-rate curve has none; its market type identifies it. Its kind is the backend's (D259).
-export type NavigationCurve={code:string;name:string;marketType:MarketType;category:NavigationCategory|null;kind:CurveKind};
+export type CatalogueSource=Readonly<{definitionRevisionId:string;referenceCatalogId:string;referenceRevisionId:string}>;
+export function isCatalogueSource(value:unknown):value is CatalogueSource{
+ if(!value||typeof value!=='object')return false;
+ const source=value as CatalogueSource;
+ return [source.definitionRevisionId,source.referenceCatalogId,source.referenceRevisionId].every(id=>typeof id==='string'&&id.length>0);
+}
+export type NavigationCurve={source:CatalogueSource;code:string;name:string;marketType:MarketType;category:NavigationCategory|null;kind:CurveKind};
 export type CurveConfiguration={curve:string;id:string|null;version:number|null;kind:'native'|'definition';canEdit:boolean;reason:string|null};
 export const curveConfigurationAction=(value:CurveConfiguration)=>value.kind==='native'?'Inspect configuration':value.canEdit?'Edit definition':'Inspect definition';
 export type MarketNavigation={kind:'market_navigation';kindsVersion:typeof kindsVersion;profile:string;context:Context|null;live?:LiveSelection|null;
@@ -25,7 +31,7 @@ export function validateMarketNavigation(value:MarketNavigation){
   value.context!==null&&(!value.context||!text(value.context.contextId)||!text(value.context.effectiveOn)||!text(value.context.knownAt))||
   value.live!=null&&(!value.context||!text(value.live.id)||!Number.isSafeInteger(value.live.generation)||value.live.generation<1||value.live.policy!=='selected_facts_latest_committed_corrections_v1')||
   value.example!==null&&(!value.example||!text(value.example.at)||!text(value.example.curve))||
-  !Array.isArray(value.curves)||value.curves.some(c=>!c||!text(c.code)||!text(c.name)||!['futures','forwards','mixed','rates'].includes(c.marketType)||!isCurveKind(c.kind)||
+  !Array.isArray(value.curves)||value.curves.some(c=>!c||!isCatalogueSource(c.source)||!text(c.code)||!text(c.name)||!['futures','forwards','mixed','rates'].includes(c.marketType)||!isCurveKind(c.kind)||
    (c.marketType==='rates'?c.category!==null:!c.category||!text(c.category.code)||!text(c.category.name)))||
   new Set(value.curves.map(c=>c.code)).size!==value.curves.length||conflictingLabels(value.curves)||
   !Array.isArray(value.curveConfigurations)||value.curveConfigurations.some(c=>!c||!value.curves.some(listed=>listed.code===c.curve)||
@@ -33,7 +39,7 @@ export function validateMarketNavigation(value:MarketNavigation){
    (c.kind==='native'?(c.id!==null||c.version!==null||c.canEdit):(!text(c.id)||!Number.isSafeInteger(c.version)||c.version!<1)))||
   new Set(value.curveConfigurations.map(c=>c.curve)).size!==value.curveConfigurations.length||
   !Array.isArray(value.curveNames)||value.curveNames.some(c=>!c||!text(c.code)||!text(c.name))||
-  !Array.isArray(value.frames)||value.frames.some(f=>!f||!text(f.id)||!text(f.name)||!text(f.at)||f.originCloseId!=null&&!text(f.originCloseId)||f.close!=null&&(!text(f.close.session)||!text(f.close.businessDate)||!f.originCloseId)||Object.keys(f).some(k=>!['at','id','name','originCloseId','close'].includes(k)))||
+  !Array.isArray(value.frames)||value.frames.some(f=>!f||!text(f.id)||!text(f.name)||!text(f.at)||!text(f.businessDate)||!/^\d{4}-\d{2}-\d{2}$/.test(f.businessDate)||f.originCloseId!=null&&!text(f.originCloseId)||f.close!=null&&(!text(f.close.session)||!text(f.close.businessDate)||f.businessDate!==f.close.businessDate||!f.originCloseId)||Object.keys(f).some(k=>!['at','businessDate','id','name','originCloseId','close'].includes(k)))||
   new Set(value.frames.map(f=>f.id)).size!==value.frames.length||
   (value.frameCatalog!==undefined&&!validFrameCatalog(value.frameCatalog))||value.frames.some(f=>!!f.originCloseId)&&!validFrameCatalog(value.frameCatalog!)||
   !Array.isArray(value.initialFrameIds)||value.initialFrameIds.some(id=>!value.frames.some(f=>f.id===id)))

@@ -324,21 +324,21 @@ def run_checks(query, manifest, context, pins, psql, environment, owned_root):
       FROM market_data.observations o WHERE(o.catalog_id,o.id)=('{catalog}','{first}');""")
 
     def record(code, replacement):
-        pin_json = query(f"SELECT jsonb_agg(jsonb_build_object('seriesId',series_id,'observationId',CASE WHEN observation_id='{anchor}' THEN '{replacement}'::uuid ELSE observation_id END,'inputUse',input_use))::text FROM market_data.market_close_pins WHERE(catalog_id,close_id)=('{catalog}','{newest}');")
-        member_json = query(f"SELECT jsonb_agg(jsonb_build_object('curve',curve_code,'contractId',contract_id,'ordinal',ordinal))::text FROM market_data.market_close_members WHERE(catalog_id,close_id)=('{catalog}','{newest}');")
+        pin_json = query(f"SELECT jsonb_agg(jsonb_build_object('definitionRevisionId',definition_revision_id,'seriesId',series_id,'observationId',CASE WHEN observation_id='{anchor}' THEN '{replacement}'::uuid ELSE observation_id END,'inputUse',input_use))::text FROM market_data.market_close_pins WHERE(catalog_id,close_id)=('{catalog}','{newest}');")
+        member_json = query(f"SELECT jsonb_agg(jsonb_build_object('definitionRevisionId',definition_revision_id,'curve',curve_code,'contractId',contract_id,'ordinal',ordinal,'scope','root'))::text FROM market_data.market_close_members WHERE(catalog_id,close_id)=('{catalog}','{newest}');")
         at = query(f"SELECT at FROM market_data.market_closes WHERE(catalog_id,id)=('{catalog}','{newest}');")
         return query('BEGIN;' + bind(issue('approver'), False, code) +
             f"SELECT security.register_market_close('{catalog}','{revision}','{uuid4()}','Synthetic fact barrier close','{code}','2020-12-18','{at}',{quoted(pin_json)}::jsonb,{quoted(member_json)}::jsonb);COMMIT;")
 
     record(session, first)
-    assert [r['id'] for r in result(rows(facts(ids([first]))), session=session)] == [first]
+    assert result(rows(facts(ids([first]))), session=session)==[], 'A late close released a price beyond the cutoff'
     answer = pending_read(ids([first]), True, session, lambda _token: record(session, second))
     assert answer == [], 'A replacement close re-anchored a hidden requested pin to its newly visible sibling'
     assert result(native(ids([first])), session=session) == []
-    assert [r['id'] for r in result(rows(facts(ids([second]))), session=session)] == [second]
+    assert result(rows(facts(ids([second]))), session=session)==[], 'A replacement released another after-cutoff price'
     # An unrelated session publication must not replace the selected session.
     answer = pending_read(ids([second]), True, session, lambda _token: record(other_session, first))
-    assert [r['id'] for r in answer] == [second]
+    assert answer==[], 'Another regional close released an after-cutoff price'
     third = str(uuid4())
 
     def correction(_token):
@@ -349,7 +349,7 @@ def run_checks(query, manifest, context, pins, psql, environment, owned_root):
     assert {r['id'] for r in answer} == {first, second}, 'A correction committed after candidate capture entered this history read'
     assert {r['id'] for r in result(rows(facts(ids([first]))), retained=False, session=session)} == {first, second, third}
     assert query(f"SELECT pg_get_functiondef('{point_signature}'::regprocedure);") == point_definition
-    print('PASS real concurrent replacement close cannot re-anchor hidden input, another session is independent, and post-candidate corrections appear only in the next invocation', flush=True)
+    print('PASS concurrent closes cannot release after-cutoff inputs, regional sessions remain independent, and current corrections enter only the next invocation', flush=True)
 
 
 def run_frame_checks(query, manifest, context, pins, psql, environment, owned_root, dotnet):
@@ -361,6 +361,11 @@ def run_frame_checks(query, manifest, context, pins, psql, environment, owned_ro
     catalog, tenant, workspace = (str(UUID(manifest[k])) for k in ('catalogId', 'tenantId', 'workspaceId'))
     context = str(UUID(context)); pins = [str(UUID(pin)) for pin in pins]
     assert len(pins) > 1 and len(set(pins)) == len(pins)
+    selected = 'ARRAY[' + ','.join("'" + pin + "'::uuid" for pin in pins) + ']'
+    # The managed authority probe needs a genuinely visible frame. Later close
+    # replacements no longer release their prices into this retained cutoff.
+    pins=json.loads(query(f"SELECT json_agg(e.observation_id ORDER BY e.observation_id) FROM market_data.knowledge_events e JOIN market_data.market_knowledge_receipts k USING(catalog_id,event_order,publication_xid) JOIN market_data.market_contexts m ON(m.catalog_id,m.context_id)=(e.catalog_id,'{context}') JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(m.catalog_id,m.context_id) WHERE e.catalog_id='{catalog}' AND e.observation_id=ANY({selected}) AND e.event_order<=m.known_through AND k.known_from<=t.known_at;"))
+    assert len(pins)>1
     selected = 'ARRAY[' + ','.join("'" + pin + "'::uuid" for pin in pins) + ']'
     series = json.loads(query(f"SELECT json_agg(DISTINCT series_id) FROM market_data.observations WHERE catalog_id='{catalog}' AND id=ANY({selected});"))
     assert len(series) > 1, 'A strict-subset series branch requires another series outside the payload'

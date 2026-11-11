@@ -6,7 +6,7 @@ internal static class LiveContextChecks
 {
     public static void Run()
     {
-        var frame=new InputFrame(Guid.NewGuid(),"Synthetic close",DateTimeOffset.Parse("2026-01-02T16:00:00Z"),[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
+        var frame=new InputFrame(Guid.NewGuid(),"Synthetic close",DateTimeOffset.Parse("2026-01-02T16:00:00Z"),OpenEtrm.Shared.Temporal.BusinessTime.UtcSnapshot(DateTimeOffset.Parse("2026-01-02T16:00:00Z")).Date,[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
         var live=LiveSelection.Start(frame,LiveSelection.Corrections);
         var context=new ScheduleContext("2026-01-02",0,"2026-01-03T00:00:00Z",Guid.NewGuid());
         var resolved=frame with{Id=Guid.NewGuid(),ContextId=context.ContextId,ResolvesLatestCorrection=true};

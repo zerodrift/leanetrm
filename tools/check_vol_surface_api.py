@@ -33,9 +33,9 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
         assert condition, f'{name}: {actual}'
         print('PASS ' + name, flush=True)
 
-    def read(product=PRODUCT, snapshot=None, **context):
+    def read(product=PRODUCT, snapshot=None, definition=None, **context):
         return c.call('vol-surfaces/read', {'context': {'snapshotId': snapshot or frame['id'], 'convention': OPTION, 'knowledgeMode': 'current', **context},
-                                            'product': product, 'model': MODEL}, timeout=TIMEOUT)
+                                            'product': product, 'model': MODEL, **({'definitionRevisionId': definition} if definition else {})}, timeout=TIMEOUT)
 
     def fit(product=PRODUCT, snapshot=None, request=None, model=MODEL, expected=200):
         return c.call('vol-surfaces/fit', {'requestId': request or str(uuid4()), 'snapshotId': snapshot or frame['id'], 'product': product, 'model': model},
@@ -381,6 +381,88 @@ def run_checks(url, query, manifest, *, run_worker, worker_login):
     check('the replaced close still reads its own surface as history', history['state'] == 'fitted' and history['revision']['id'] == fitted_east['revision']['id'], history['state'])
     refit_replaced = fit(snapshot=at_east['id'], expected=422)
     check('a calibration at the replaced close is new work and refused', refit_replaced['code'] == 'close_replaced', refit_replaced)
+
+    # The same reference product can have a second exact definition source.
+    # Keep the original close inputs and publish the option role on the new part.
+    second_definition = str(uuid4())
+    original_definition = manifest['revisionId']
+    copies = []
+    for table in ('revision_periods', 'contracts', 'curves', 'series', 'curve_members',
+                  'rate_curves', 'rate_curve_tenors'):
+        copies.append(f"""
+        INSERT INTO market_data.{table}
+        SELECT (jsonb_populate_record(NULL::market_data.{table},
+            to_jsonb(r)||jsonb_build_object('revision_id','{second_definition}'))).*
+        FROM market_data.{table} r WHERE(r.catalog_id,r.revision_id)=({M});""")
+    query(f"""
+    BEGIN;
+    INSERT INTO market_data.revisions VALUES('{catalog}','{second_definition}',{R},'draft',0);
+    {''.join(copies)}
+    UPDATE market_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{catalog}','{second_definition}');
+    INSERT INTO market_data.observations
+    SELECT (jsonb_populate_record(NULL::market_data.observations,to_jsonb(o)||jsonb_build_object(
+        'id',gen_random_uuid(),'definition_revision_id','{second_definition}',
+        'source_event_id','source_copy:'||o.id::text,'received_at',clock_timestamp()))).*
+    FROM market_data.market_close_pins p JOIN market_data.observations o ON(o.catalog_id,o.id)=(p.catalog_id,p.observation_id)
+    WHERE(p.catalog_id,p.close_id)=('{catalog}','{west}');
+    WITH publication AS (
+        INSERT INTO trading.publications SELECT '{catalog}',max(publication_order)+1,pg_current_xact_id()
+        FROM trading.publications WHERE catalog_id='{catalog}' RETURNING publication_order
+    )
+    INSERT INTO trading.currency_discount_defaults
+    SELECT (jsonb_populate_record(NULL::trading.currency_discount_defaults,to_jsonb(d)||jsonb_build_object(
+        'id',gen_random_uuid(),'definition_revision_id','{second_definition}','publication_order',p.publication_order))).*
+    FROM trading.currency_discount_defaults d CROSS JOIN publication p
+    WHERE(d.catalog_id,d.definition_revision_id,d.currency_code)=('{catalog}','{original_definition}','usd');
+    COMMIT;
+    """)
+    copied_pins = json.loads(query(f"SELECT jsonb_agg(id ORDER BY id) FROM market_data.observations "
+                                   f"WHERE(catalog_id,definition_revision_id)=('{catalog}','{second_definition}');"))
+    mixed = record_close(query, manifest, 'synthetic_west', 1, frame,
+                         retained=[(second_definition, {'observationIds': copied_pins, 'curveContracts': {}})])
+    c.call('profile', {'profile': 'approver'})
+    prior = c.call('catalogue')
+    original = {k: prior[k] for k in ('effectiveFrom', 'effectiveTo', 'curves', 'roles')}
+    role_name = 'reference:futures_option_products'
+    added = {**original, 'roles': {**original['roles'], role_name: {
+        **original['roles'][role_name], 'definitionRevisionId': second_definition}}}
+
+    def publish_choices(definition, expected):
+        return c.call('catalogue/publish', {'requestId': str(uuid4()), 'expectedHead': expected, 'definition': definition})
+
+    changed = publish_choices(added, prior['id'])
+    try:
+        c.call('profile', {'profile': 'trader'})
+        held_primary = read(snapshot=at_east['id'], definition=original_definition)
+        check('an exact held product reads its earlier source after the catalogue changes',
+              held_primary['definitionRevisionId'] == original_definition
+              and held_primary['revision']['id'] == fitted_east['revision']['id'], held_primary['state'])
+        held_catalogue = c.call(f"reference/catalog?table=futures_option_products&code={PRODUCT}"
+                                f"&snapshotId={at_replacement['id']}&definitionRevisionId={original_definition}")
+        check('exact held product metadata follows the named definition',
+              held_catalogue['definitionRevisionId'] == original_definition and held_catalogue['rows'][0]['code'] == PRODUCT)
+        absent = c.call(f"reference/catalog?table=futures_option_products&code={PRODUCT}"
+                        f"&snapshotId={at_replacement['id']}&definitionRevisionId={second_definition}", expected=422)
+        check('an exact directory read requires the source at the selected close', absent['code'] == 'market_inputs_missing')
+        at_mixed = close_frame(c, mixed)
+        secondary = fit(snapshot=at_mixed['id'])
+        run_worker()
+        fitted_secondary = read(snapshot=at_mixed['id'])
+        check('the secondary-source worker completes', fitted_secondary['state'] == 'fitted', job(secondary['jobId']))
+        stored_id = fitted_secondary['revision']['id']
+        source = query(f"SELECT definition_revision_id FROM trading.vol_surface_revisions WHERE id='{stored_id}';")
+        stored_pins = json.loads(query(f"SELECT jsonb_agg(observation_id) FROM trading.vol_surface_inputs WHERE revision_id='{stored_id}';"))
+        library_head = library(c, at_mixed['id'], PRODUCT)['surfaces'][0]
+        check('a mixed close fits, stores and reads the published secondary option source',
+              source == second_definition and fitted_secondary['state'] == 'fitted'
+              and fitted_secondary['job']['id'] == secondary['jobId']
+              and stored_pins and set(stored_pins) <= set(copied_pins)
+              and (library_head['closeId'], library_head['revision'], library_head['here']) == (mixed, stored_id, True),
+              fitted_secondary['job'])
+    finally:
+        c.call('profile', {'profile': 'approver'})
+        publish_choices(original, changed['id'])
+        c.call('profile', {'profile': 'trader'})
 
     # The fitter loses PublishMarketData after submitting and before the worker runs; this also restores the trader's own roles.
     revoked = fit(product=UNFITTED)

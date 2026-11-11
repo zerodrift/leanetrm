@@ -84,7 +84,7 @@ public sealed partial class PortfolioRiskPreview
         var scenarios=checked(historicalScenarios+comparisonScenarios);
         var width=portfolio.Markets.Sum(m=>RiskEngine.ScenarioResultWidth(m.Connected,RiskDetail.Holdings));
         var normalWidth=portfolio.Markets.Sum(m=>RiskEngine.ScenarioResultWidth(m.Connected,RiskDetail.Books));
-        var rows=portfolio.Ppa is {} ppa?checked(ppa.Rows*scenarios):0;
+        var rows=checked(portfolio.PpaRows*scenarios);
         var nodes=portfolio.Options?.Bindings.Values.Where(b=>b.Receipt.Mode==OpenEtrm.MarketData.Trading.FuturesOptionPricing.SolvedMode)
             .Sum(b=>checked((long)b.Policy.Steps*(b.Policy.Steps+1)/2*scenarios))??0;
         RiskValuationAdmission.Require(rows,nodes,checked(width*historicalScenarios+normalWidth*comparisonScenarios),history.Columns.Length,1);
@@ -172,7 +172,7 @@ public sealed partial class PortfolioRiskPreview
             Detail=RiskDetail.Holdings,BasePositions=[..basis.Select(v=>new PortfolioHoldingValue(v.Key.Measure,v.Value))],
             ConnectedScenarios=[..run.Partitions.Select(p=>new PortfolioConnectedScenario(p.Market.Snapshot.Definitions,p.Run.BaseScenario.ManifestId,p.Run.BaseScenario.Id,
                 p.Run.BaseScenario.ParentId,p.Run.BaseScenario.Depth,p.Run.GraphWork,p.Market.Preparation))],
-            DiscountInputs=prepared.Portfolio.DiscountInputs,PpaReceipt=prepared.Portfolio.Ppa?.Receipt,
+            DiscountInputs=prepared.Portfolio.DiscountInputs,PpaReceipts=[..prepared.Portfolio.Ppas.Select(p=>p.Receipt)],
             PpaMeasures=[..run.Partitions.SelectMany(p=>p.Run.Groups.SelectMany((g,i)=>p.Market.Measures[i]==PortfolioValuation.PpaMeasure?g.Measures:ImmutableArray<OpenEtrm.MarketData.Trading.BookValueMeasures>.Empty))]
         };
         return new(exposures,observations,nominal);

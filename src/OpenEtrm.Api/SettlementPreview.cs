@@ -47,7 +47,7 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
     {
         if(request.Original is null || request.Policies is null || request.Mappings is not {Length:>=1 and <=MonthlyGrossPreview.MaximumBindings} || request.Mappings.Any(m=>m is null))
             throw Error("manifest","Supply explicit original membership, policies and bounded complete successor mappings.");
-        var capture=await new KnowledgeStore(Catalog).Capture(connection,new(DateOnly.FromDateTime(frame.At.UtcDateTime).ToString("yyyy-MM-dd"),null,"current"),ct);
+        var capture=await new KnowledgeStore(Catalog).Capture(connection,new(frame.Time.Date.ToString("yyyy-MM-dd"),null,"current"),ct);
         await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.plan_payment_lineage($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb)::text",
             Catalog,request.TradeId,request.ExpectedRevision,capture.Context.ContextId!.Value,frame.At,Json(request.Original),Json(request.Mappings),Json(request.Policies));
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
@@ -65,11 +65,13 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
         if(head.GetProperty("revision").GetInt32()!=request.ExpectedRevision)throw Error("trade_head","The certified trade head differs from the explicitly selected revision.");
         var rows=scope.GetProperty("bindings").EnumerateArray().ToArray();
         if(rows.Length is <1 or >MonthlyGrossPreview.MaximumBindings)throw Error("limit","The complete selected trade exceeds the bounded binding manifest.");
+        var sourceRevisions=rows.Select(b=>b.Id("definition_revision_id")).Distinct().ToArray();
+        if(sourceRevisions.Length!=1)throw Error("incompatible","The complete trade requires one exact source for this settlement preview.");
+        var market=await trades.SelectInputs(connection,frame,sourceRevisions[0],ct);frame=market.Frame;var data=market.Data;
         var bundle=trades.SelectedManifest(frame);
         if(rows.Any(b=>b.Id("definition_revision_id")!=bundle.RevisionId || b.Id("reference_catalog_id")!=bundle.ReferenceCatalogId || b.Id("reference_revision_id")!=bundle.ReferenceRevisionId))
             throw Error("incompatible","The entire trade must retain the selected exact definition and reference pins.");
         await PpaReads.RequireMarket(connection,Catalog,bundle.RevisionId,bundle.ReferenceCatalogId,bundle.ReferenceRevisionId,frame,context,ct);
-        var data=await trades.Definitions(connection,frame,false,ct);
         var envelopes=new Dictionary<Guid,JsonElement>();var compiled=new Dictionary<Guid,PpaInstrument>();
         var originalRow=record.GetProperty("originalBinding");
         foreach(var id in rows.Select(r=>r.Id("instrument_id")).Append(originalRow.Id("instrument_id")).Distinct())
@@ -121,7 +123,7 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
         if(MonthlyGrossPreview.Member(original).Side is FloatingSide)
         {
             if(lineage.Text("contract")!=MonthlyGrossPreview.IndexedImplementation)throw Error("incompatible","The lineage must explicitly opt into the indexed calculation contract.");
-            data=new PreviewData(bundle,data.Definitions,data.References,await PreviewDatabase.ReadObservationPins(connection,bundle,frame.ObservationIds,ct)){CalendarDaysRead=true};
+            data=await database.ReadObservationWindows(connection,data,[],ct,frame.ObservationIds);
             var snapshot=data.Snapshot(frame);var tou=await PpaReads.Tou(connection,data,frame,context,[],ct);
             var (frozen,frozenContext)=await IntervalCurvesStore.FrozenKnowledge(connection,data,snapshot,known,ct);
             var curves=ImmutableDictionary.CreateBuilder<CurveKey,PreparedCurve>();

@@ -7,11 +7,11 @@ import {bookingAllowed,unappliedContext} from './new-trade.js';
 // person, and a changed selection clears every selection below it. The browser groups nothing the catalog does not state.
 type Named={code:string;name:string};
 /** One listed series as options/catalog returns it. */
-export type OptionSeries={series:string;instrumentId:string;contractId:string;product:string;name:string;exchange:Named;commodity:Named;underlyingSeries:string;
+export type OptionSeries={definitionRevisionId:string;series:string;instrumentId:string;contractId:string;product:string;name:string;exchange:Named;commodity:Named;underlyingSeries:string;
  right:string;strike:string;expiryAt:string;exerciseStyle:string;premiumStyle:string;contraryInstructionsAllowed:boolean;multiplier:string;currency:string;
  premiumTick:string;minimumPremium:string;maximumPremium:string;curve:string;settlementPrice:string};
 /** An underlying future the catalog's series exercise into, with its product's name and delivery period. */
-export type OptionUnderlying={series:string;name:string;deliveryFrom:string;deliveryTo:string};
+export type OptionUnderlying={definitionRevisionId:string;series:string;name:string;deliveryFrom:string;deliveryTo:string};
 export type OptionCatalog={options:readonly OptionSeries[];underlyings:readonly OptionUnderlying[]};
 export const optionLevels=['exchange','commodity','underlying','right','strike'] as const;
 export type OptionLevel=typeof optionLevels[number];
@@ -32,7 +32,7 @@ function labelOf(catalog:OptionCatalog,level:OptionLevel,s:OptionSeries):string{
   case 'right':return rightLabel(s.right);
   case 'strike':return s.strike;
   case 'underlying':{
-   const found=catalog.underlyings.filter(u=>u.series===s.underlyingSeries);
+   const found=catalog.underlyings.filter(u=>s.definitionRevisionId&&u.definitionRevisionId===s.definitionRevisionId&&u.series===s.underlyingSeries);
    if(found.length!==1)throw Error(`The option catalog does not describe the underlying future ${s.underlyingSeries} exactly once.`);
    return underlyingLabel(found[0].deliveryFrom,found[0].deliveryTo,found[0].name);
   }
@@ -47,7 +47,13 @@ function under(catalog:OptionCatalog,pick:OptionPick,level:OptionLevel){
 }
 function choicesAt(catalog:OptionCatalog,pick:OptionPick,level:OptionLevel):OptionChoice[]{
  const seen=new Map<string,OptionChoice>();
- for(const s of under(catalog,pick,level)){const value=valueOf[level](s);if(!seen.has(value))seen.set(value,{value,label:labelOf(catalog,level,s)});}
+ for(const s of under(catalog,pick,level)){
+  const value=valueOf[level](s),prior=seen.get(value);
+  if(prior&&level!=='underlying')continue;
+  const label=labelOf(catalog,level,s);
+  if(prior&&prior.label!==label)throw Error(`The option catalog lists conflicting delivery terms for ${s.underlyingSeries}.`);
+  if(!prior)seen.set(value,{value,label});
+ }
  const listed=[...seen.values()];
  return level==='strike'?listed.sort((a,b)=>compareDecimalStrings(a.value,b.value)):listed;
 }

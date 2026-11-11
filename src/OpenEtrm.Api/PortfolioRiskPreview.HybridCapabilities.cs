@@ -16,7 +16,7 @@ public sealed partial class PortfolioRiskPreview
         var dimensions=portfolio.Factors.Length;
         var capacities=Enumerable.Range(1,Math.Min(PcaHybridRisk.MaximumComponents,dimensions))
             .SelectMany(k=>new[]{2,8,16,32,64,128,256,512,1024}.SelectMany(m=>new[]{false,true}.Select(f=>new{
-                components=k,validationPaths=m,fallback=f,scopeMaxPaths=HybridPathCapacity(width,portfolio.Ppa?.Rows??0,nodes,dimensions,k,m,f)}))).ToArray();
+                components=k,validationPaths=m,fallback=f,scopeMaxPaths=HybridPathCapacity(width,portfolio.PpaRows,nodes,dimensions,k,m,f)}))).ToArray();
         var initial=capacities.Where(c=>!c.fallback&&c.components<=3&&c.validationPaths<=64&&c.scopeMaxPaths>=c.validationPaths)
             .OrderByDescending(c=>c.components).ThenByDescending(c=>c.validationPaths).FirstOrDefault();
         return new{

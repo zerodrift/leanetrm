@@ -39,7 +39,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     client.call('swaps/amend',{**daily_terms,'bookId':unsupported_book,'operationId':str(uuid4()),'tradeId':daily_trade['tradeId'],'expectedRevision':1,'effectiveAt':frame['at'],'reason':'Synthetic book transfer'})
     future_context={**context,'convention':'contract_lot_execution_pnl_v2'}
     future=client.call('futures/catalog',future_context)['contracts'][0]
-    future_terms={'curve':future['curve'],'contractId':future['id'],'lots':'2','executionPrice':'2.9'}
+    future_terms={'curve':future['curve'],'contractId':future['id'],'definitionRevisionId':future['definitionRevisionId'],'lots':'2','executionPrice':'2.9'}
     future_price=client.call('futures/price',{'context':future_context,**future_terms})['executionPnl']
     future_trade=client.call('futures/book',{**future_context,**trade_booking(),**future_terms,'operationId':str(uuid4()),'bookId':book})
     expected=[]
@@ -48,18 +48,22 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
         expected.append({'label':label,'tradeId':trade['tradeId'],'instrumentId':editor['state']['instrumentId'],'quantity':editor['state']['quantity'],
                          'revision':str(editor['state']['revision']),'presentValue':editor['valuation']['presentValue'],
                          'projectionIds':[reset['lookup']['contract']['key']['id'] for payment in editor['valuation']['sides'][1]['payments'] for reset in payment['resets']]})
+    # The managed fixture deliberately assembles its own pin selections.
+    # Only the HTTP frames above identify the recorded closes.
+    def working_frame(frame):
+        return {key:value for key,value in frame.items() if key not in ('close','originCloseId')}
     actual_cases=[]
     for day,count in [('01',1),('15',15),('31',31)]:
         selected=next(f for f in workspace['frames'] if f['at'].startswith(f'2021-01-{day}T08:00:00'))
         selected_context={**context,'snapshotId':selected['id']}
         actual_editor=client.call('swaps/editor',{'context':selected_context,'tradeId':daily_trade['tradeId'],'revision':None})
-        supplemental=next(m for m in manifest['swapMarkets'] if m['revisionId']==daily['definitionRevisionId'])
+        supplemental=next(m for m in manifest['inputMarkets'] if m['revisionId']==daily['definitionRevisionId'])
         seed=next(f for f in supplemental['frames'] if datetime.fromisoformat(f['at'])==datetime.fromisoformat(selected['at']))
-        actual_cases.append({'frame':{**selected,'observationIds':seed['observationIds'],'curveContracts':seed['curveContracts']},
+        actual_cases.append({'frame':{**working_frame(selected),'observationIds':seed['observationIds'],'curveContracts':seed['curveContracts']},
             'context':actual_editor['context'],'revisionId':daily['definitionRevisionId'],'tradeId':daily_trade['tradeId'],
             'actualCount':count,'expectedValue':str(16+count),'actualIds':[reset['lineage'][0]['id'] for reset in actual_editor['valuation']['sides'][1]['payments'][0]['resets'] if reset['fixingState']=='Actual']})
     fixture=Path(owned_root)/'swap-risk-holdings.json'
-    fixture.write_text(json.dumps({'frame':frame,'frozenObservationId':frozen_id,'bookId':book,'unsupportedBookId':unsupported_book,'sharedInstrumentId':first['instrumentId'],
+    fixture.write_text(json.dumps({'frame':working_frame(frame),'frozenObservationId':frozen_id,'bookId':book,'unsupportedBookId':unsupported_book,'sharedInstrumentId':first['instrumentId'],
                                  'amendedTradeId':first['tradeId'],'earlierQuantity':body['quantity'],'earlierContext':earlier,'currentContext':editor['context'],'holdings':expected,
                                  'futureTradeId':future_trade['tradeId'],'futureExecutionPnl':future_price,'actualCases':actual_cases}))
     repository=Path(__file__).resolve().parents[1]

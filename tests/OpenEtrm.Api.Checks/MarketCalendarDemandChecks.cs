@@ -10,7 +10,7 @@ internal static class MarketCalendarDemandChecks
     public static async Task Run()
     {
         var zone=TimeZoneInfo.FindSystemTimeZoneById("America/Goose_Bay");
-        InputFrame At(string at)=>new(Guid.NewGuid(),"Synthetic backward-midnight close",DateTimeOffset.Parse(at),[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
+        InputFrame At(string at)=>new(Guid.NewGuid(),"Synthetic backward-midnight close",DateTimeOffset.Parse(at),DateOnly.FromDateTime(DateTimeOffset.Parse(at).UtcDateTime),[],ImmutableDictionary<string,ImmutableArray<Guid>>.Empty);
         var newest=At("2010-11-07T04:00:00Z");var previousDate=At("2010-11-07T03:02:00Z");var tiedDate=At("2010-11-07T03:00:00Z");
         var choices=ImmutableArray.Create(newest,previousDate,tiedDate);
         var groups=MarketDates.CandidateBatches(choices,zone,true).ToArray();
@@ -74,7 +74,7 @@ internal static class MarketCalendarDemandChecks
                 await restore.ExecuteNonQueryAsync(CancellationToken.None);
             }
             var one=await MarketDates.Read(database,connection,PinnedContext.Current(),[frames[0]],new(null,"UTC",closeDay.Session,definition,1),ct);
-            var qualifying=frame with{Id=Guid.NewGuid(),At=frame.At.AddDays(1),Close=closeDay with{BusinessDate=closeDay.BusinessDate.AddDays(1)}};
+            var qualifying=frame with{Id=Guid.NewGuid(),At=frame.At.AddDays(1),BusinessDate=closeDay.BusinessDate.AddDays(1),Close=closeDay with{BusinessDate=closeDay.BusinessDate.AddDays(1)}};
             var expected=await MarketDates.Read(database,connection,PinnedContext.Current(),[qualifying],new(null,"UTC",closeDay.Session,definition,1),ct);
             var all=await MarketDates.Read(database,connection,PinnedContext.Current(),frames.Add(qualifying),new(null,"UTC",closeDay.Session,definition),ct);
             if(!one.Dates.IsEmpty||one.Unavailable.Single().Reason!="missing_observation"||expected.Dates.Length!=1||

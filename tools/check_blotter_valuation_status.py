@@ -95,7 +95,7 @@ def run_checks(url, session=None):
     catalog = c.call('futures/catalog', {**futures, 'snapshotId': dec18['id']})
     ng = next(k for k in catalog['contracts'] if k['curve'] == 'ng_monthly' and k['deliveryFrom'] == '2021-02-01')
     booked = c.call('futures/book', {**futures, **trade_booking(), 'snapshotId': dec18['id'], 'bookId': BOOKS[0], 'curve': 'ng_monthly',
-                                     'contractId': ng['id'], 'lots': '3', 'executionPrice': '3.05',
+                                     'contractId': ng['id'], 'definitionRevisionId': ng['definitionRevisionId'], 'lots': '3', 'executionPrice': '3.05',
                                      'operationId': str(uuid5(OPERATIONS, 'valuation_status_v1:ng_monthly:2021-02'))})
 
     def report(frame, view):
@@ -169,9 +169,15 @@ def run_checks(url, session=None):
           unpriced['curve'] == 'ng_fixed_bridge' and [(p['price'], p['unavailableReason']) for p in unpriced['points']] == [(None, 'missing_observation')]
           and unpriced['contractCount'] == 1 and unpriced['front'] is None and unpriced['availability'] == 'no_priced_contract'
           and c.call('evaluate', {'snapshotId': dec17['id'], 'curve': 'ng_fixed_bridge'}, expected=422)['code'] == 'missing_observation')
-    check('a curve the close selects no contracts for is stated unavailable with the code /evaluate raises, and does not fail the curves beside it',
-          unavailable == {'curve': 'future', 'unit': None, 'points': None, 'unavailableReason': 'missing_curve_view', 'contractCount': None, 'front': None, 'availability': None}
-          and c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'future'}, expected=422)['code'] == 'missing_curve_view')
+    check('a curve outside the close roots is unavailable with the same code as evaluation',
+          unavailable == {'definitionRevisionId': '00000000-0000-0000-0000-000000000000', 'curve': 'future', 'unit': None,
+            'points': None, 'unavailableReason': 'curve_not_selected', 'contractCount': None, 'front': None, 'availability': None}
+          and c.call('evaluate', {'snapshotId': dec31['id'], 'curve': 'future'}, expected=422)['code'] == 'curve_not_selected')
+    definition=workspace['definitions']['revisions'][0]['id']
+    inspected,=c.call('market/input-curve-shapes', {'snapshotId': dec31['id'],
+        'curves': [{'curve': 'future', 'definitionRevisionId': definition}]})['curves']
+    check('exact input inspection states the missing contract view without expanding the signed roots',
+          inspected == {**unavailable, 'definitionRevisionId': definition, 'unavailableReason': 'missing_curve_view'})
     early = {(r['tradeId'], r['bindingId']): r for r in report(dec18, TRADES)['holdings']}
     check('positions keep their booked facts when the close cannot value them',
           early.keys() == {(r['tradeId'], r['bindingId']) for r in rows} and all(

@@ -43,20 +43,20 @@ public sealed class TurnPin
     }
 
     // The pins an ask records for its As of frame (§7.2), which a turn's reads rebuild.
-    internal static string Record(InputFrame frame)=>JsonSerializer.Serialize(new{at=frame.At,curveContracts=frame.CurveContracts,frameId=frame.Id,
-        frozenObservationIds=frame.FrozenObservationIds.IsDefault?[]:frame.FrozenObservationIds,name=frame.Name,observationIds=frame.ObservationIds,
-        resolvesLatestCorrection=frame.ResolvesLatestCorrection,swapMarketSelections=frame.SwapMarketSelections});
-
-    static InputFrame Rebuild(JsonElement pins,Guid? context)=>new(pins.GetProperty("frameId").GetGuid(),pins.GetProperty("name").GetString()!,
-        pins.GetProperty("at").GetDateTimeOffset(),Ids(pins.GetProperty("observationIds")),
-        pins.GetProperty("curveContracts").EnumerateObject().ToImmutableDictionary(p=>p.Name,p=>Ids(p.Value)),context,Ids(pins.GetProperty("frozenObservationIds")))
+    internal static string Record(InputFrame frame)
     {
-        ResolvesLatestCorrection=pins.GetProperty("resolvesLatestCorrection").GetBoolean(),
-        SwapMarketSelections=pins.GetProperty("swapMarketSelections") is {ValueKind:JsonValueKind.Object} selected
-            ?selected.EnumerateObject().ToImmutableDictionary(p=>Guid.Parse(p.Name),p=>Ids(p.Value)):null
-    };
+        var record=RetainedFrames.Record(frame);
+        record["frameId"]=record["id"]!.DeepClone();record.Remove("id");record.Remove("contextId");
+        return record.ToJsonString();
+    }
 
-    static ImmutableArray<Guid> Ids(JsonElement ids)=>[..ids.EnumerateArray().Select(id=>id.GetGuid())];
+    static InputFrame Rebuild(JsonElement pins,Guid? context)
+    {
+        var record=System.Text.Json.Nodes.JsonNode.Parse(pins.GetRawText())!.AsObject();
+        record["id"]=record["frameId"]!.DeepClone();record.Remove("frameId");
+        record["contextId"]=context;
+        return RetainedFrames.Read(record);
+    }
 
     // The context a read binds, as the knowledge store reads it: exactly the record's, at its recorded cutoff.
     public ScheduleContext Exact(ScheduleContext stored)=>

@@ -114,7 +114,7 @@ def run_checks(url,query=None,manifest=None,run_worker=None):
     future_context={**context,'convention':'contract_lot_execution_pnl_v2'}
     future_catalog=c.call('futures/catalog',future_context)
     contract=next(k for k in future_catalog['contracts'] if k['curve']=='future')
-    future=c.call('futures/book',{**future_context,**trade_booking(),'operationId':str(uuid4()),'bookId':body['bookId'],'curve':contract['curve'],'contractId':contract['id'],'lots':'1','executionPrice':contract['mark']})
+    future=c.call('futures/book',{**future_context,**trade_booking(),'operationId':str(uuid4()),'bookId':body['bookId'],'curve':contract['curve'],'contractId':contract['id'],'definitionRevisionId':contract['definitionRevisionId'],'lots':'1','executionPrice':contract['mark']})
     mixed=c.call('trading/blotter',{'context':shared,'view':view})
     assert {'future','physical_gas'}<={r['instrumentType'] for r in mixed['holdings']}
     assert next(r for r in mixed['holdings'] if r['tradeId']==future['tradeId'])['executionPnl']=='0'
