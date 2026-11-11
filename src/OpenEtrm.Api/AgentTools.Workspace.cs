@@ -79,6 +79,21 @@ public sealed partial class AgentTools
                         var selectedRead=await workspace.Read(turn,selected.Operation!,selected.Input!.Value,ct);
                         value["selectedView"]=selectedRead.Value;access=[..access.Concat(selectedRead.Access).Distinct()];
                     }
+                    else if(arguments.Page=="physical_operations"&&SelectedGasDay(selection,turn.Pin) is {} gasDay)
+                    {
+                        // The selected gas day is read as its page reads it, under the turn's pin. A refusal is reported
+                        // in place of the day, so the rest of the page stays readable.
+                        try
+                        {
+                            var dayRead=await workspace.Read(turn,"gas.operations.read_v1",JsonSerializer.SerializeToElement(gasDay),ct);
+                            dayRead.Value["inputJson"]=gasDay.ToJsonString();
+                            value["selectedView"]=dayRead.Value;access=[..access.Concat(dayRead.Access).Distinct()];
+                        }
+                        catch(Exception e) when(Classify(e) is (var code,ToolStepEnd.Refusal))
+                        {
+                            value["selectedView"]=JsonNode.Parse(Refusal(code!));
+                        }
+                    }
                     var directory=arguments.Page switch
                     {"risk_jobs"=>"portfolio.risk.jobs_v1","jobs"=>"jobs_v1","delivery_prices"=>"power-imports_v1","interval_series"=>"interval-series_v1",
                         "users_access"=>"admin_v1","gas_setup"=>"gas-setup.catalog_v1","crude_setup"=>"crude-setup.catalog_v1",
@@ -112,6 +127,15 @@ public sealed partial class AgentTools
             return new(tool,call.Operation.Id,input,code,at,access,end==ToolStepEnd.Refusal?Refusal(code!):null,end);
         }
     }
+    // The operations read of a selected gas day, with the exact input it is read with: the turn's frame and retained
+    // context and the physical gas valuation convention, so the assistant can repeat it for that day.
+    internal static JsonObject? SelectedGasDay(JsonElement selection,TurnPin pin)=>
+        !pin.Operational&&pin.Frame is {} frame&&selection.TryGetProperty("instrumentType",out var type)&&type.ValueKind==JsonValueKind.String&&type.GetString()==GasPositions.Type&&
+        selection.TryGetProperty("tradeId",out var trade)&&trade.ValueKind==JsonValueKind.String&&selection.TryGetProperty("day",out var day)&&day.ValueKind==JsonValueKind.String
+            ?new(){["body"]=new JsonObject{["context"]=new JsonObject{["snapshotId"]=frame.Id.ToString(),["convention"]=PhysicalGasStore.Convention,
+                ["knowledgeMode"]="retained",["contextId"]=pin.ContextId.ToString()},["tradeId"]=trade.GetString(),["day"]=day.GetString()},["parameters"]=new JsonObject()}
+            :null;
+
     internal static (string Content,ImmutableArray<IssuedTarget> Issued) WorkspaceResult(JsonObject value,string? page,int next,ToolOutputLimits limits)
     {
         ImmutableArray<IssuedTarget> issued=[];
