@@ -28,6 +28,16 @@ internal static class TradingIdentityChecks
         FinancialSwapInstrument Swap(string price = "3", bool reverse = false, bool discounting = false) => new(Guid.NewGuid(),
             [new(Fixed(price), ExactDecimal.Parse(reverse ? "1" : "-1")), new(Floating(), ExactDecimal.Parse(reverse ? "-1" : "1"))],
             FinancialSwapInstrument.Implementation, discounting);
+        Check("an instrument derives its economic identity once and a copy derives its own", () =>
+        {
+            var swap = Swap();
+            Assert(ReferenceEquals(swap.EconomicIdentity, swap.EconomicIdentity));
+            Assert(swap.EconomicIdentity == DefinitionIdentity.For(swap));
+            var copy = swap with { Sides = Swap("4").Sides };
+            Assert(copy.EconomicIdentity != swap.EconomicIdentity);
+            Assert(copy.EconomicIdentity == DefinitionIdentity.For(copy));
+            Assert(swap.EconomicIdentity == DefinitionIdentity.For(swap));
+        });
         Check("rebuilt definitions and normalized decimal spellings share identity", () =>
             Assert(Swap("3.00").EconomicIdentity == Swap("3").EconomicIdentity));
         Check("marked economics and membership direction distinguish instruments", () =>

@@ -44,7 +44,10 @@ public sealed record SideMembership(Side Side, ExactDecimal Coefficient, OpenEtr
 public abstract record Instrument
 {
     public Guid Id { get; }
-    public DefinitionIdentity EconomicIdentity => DefinitionIdentity.For(this);
+    // Derived once per instance. A `with` copy is a new instance and derives its
+    // own, so a retained identity never describes different terms.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Instrument, DefinitionIdentity> identities = new();
+    public DefinitionIdentity EconomicIdentity => identities.GetValue(this, static instrument => DefinitionIdentity.For(instrument));
     public virtual DefinitionIdentity? PricingBindingIdentity => null;
     public ImmutableArray<SettlementProjection> SettlementProjections=>this is SidedInstrument sided?
         [..sided.Sides.SelectMany(m=>m.Side.SettlementProjections).Distinct()]:[];
