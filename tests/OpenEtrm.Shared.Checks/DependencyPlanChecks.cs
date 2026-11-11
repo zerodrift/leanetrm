@@ -176,6 +176,78 @@ internal static class DependencyPlanChecks
             Reject("graph_work",()=>new GraphSession<long>(plan,(_,_,_)=>0,checkedAdd,workWeights:[1]));
             Reject("graph_work",()=>new GraphSession<long>(plan,(_,_,_)=>0,checkedAdd,workWeights:[long.MaxValue,1,0]));
         });
+        Check("adjacency is ascending for any declaration order and a repeated edge rejects wherever it appears",()=>
+        {
+            var plan=DependencyPlan.Compile(6,[new(5,3),new(4,0),new(5,1),new(4,2),new(5,0),new(3,0),new(5,2)]);
+            Equal(string.Join(",",plan.Dependencies(5).ToArray()),"0,1,2,3");Equal(string.Join(",",plan.Dependencies(4).ToArray()),"0,2");
+            Equal(string.Join(",",plan.Dependents(0).ToArray()),"3,4,5");Equal(string.Join(",",plan.Dependents(2).ToArray()),"4,5");
+            Equal(plan.Dependencies(0).Length,0);Equal(plan.Dependents(5).Length,0);Equal(plan.EdgeCount,7);
+            Reject("graph_edge",()=>DependencyPlan.Compile(4,[new(3,0),new(3,1),new(2,0),new(3,0)]));
+        });
+        Check("nested scenarios stay exact on both sides of every storage block boundary",()=>
+        {
+            int[] watched=[255,256,257,65_535,65_536,65_537];
+            var plan=DependencyPlan.Compile(70_000,watched.Select(n=>new DependencyEdge(n,0)));
+            var root=new GraphSession<long>(plan,(node,read,_)=>node==0?10:watched.Contains(node)?read.Get(0)+node:node,checkedAdd);
+            long Shift(int node)=>node==256?1000:node==65_536?2000:0;
+            foreach(var node in watched)Equal(root.Get(node),10L+node);
+            var outer=root.WithOffsets(new Dictionary<int,long>{{256,1000},{65_536,2000}});
+            var inner=outer.WithOffsets(new Dictionary<int,long>{{0,1}});
+            foreach(var node in watched)Equal(inner.Get(node),11L+node+Shift(node));
+            foreach(var node in watched)Equal(outer.Get(node),10L+node+Shift(node));
+            foreach(var node in watched)Equal(root.Get(node),10L+node);
+            Equal(outer.Work.AffectedNodes,2);Equal(outer.Work.EvaluatedNodes,2L);
+            Equal(inner.Work.AffectedNodes,7);Equal(inner.Work.EvaluatedNodes,7L);
+            Equal(inner.Get(300),300L);Equal(inner.Work.EvaluatedNodes,7L);
+        });
+        Check("a failed deep evaluation leaves nothing behind for the next read",()=>
+        {
+            const int nodes=10_000;var fail=true;
+            var plan=DependencyPlan.Compile(nodes,Enumerable.Range(1,nodes-1).Select(n=>new DependencyEdge(n,n-1)));
+            var root=new GraphSession<long>(plan,(node,read,_)=>node==0?(fail?throw new InvalidOperationException("synthetic failure"):1):read.Get(node-1)+1,checkedAdd);
+            try{root.Get(nodes-1);throw new Exception("Expected the synthetic failure.");}catch(InvalidOperationException){}
+            Equal(root.Work.EvaluatedNodes,0L);
+            fail=false;Equal(root.Get(5),6L);Equal(root.Work.EvaluatedNodes,6L);
+            Equal(root.Get(nodes-1),(long)nodes);Equal(root.Work.EvaluatedNodes,(long)nodes);
+        });
+        Check("repeated output reads do not allocate a stack per read",()=>
+        {
+            const int outputs=20_000;
+            var plan=DependencyPlan.Compile(outputs+1,Enumerable.Range(1,outputs).Select(n=>new DependencyEdge(n,0)));
+            var root=new GraphSession<long>(plan,(node,read,_)=>node==0?7:read.Get(0)+node,checkedAdd);
+            Equal(root.Get(1),8L);
+            var before=GC.GetAllocatedBytesForCurrentThread();
+            long sum=0;for(var node=2;node<=outputs;node++)sum+=root.Get(node);
+            var allocated=GC.GetAllocatedBytesForCurrentThread()-before;
+            Equal(sum,7L*(outputs-1)+(long)outputs*(outputs+1)/2-1);
+            if(allocated>1_000_000)throw new Exception($"{outputs-1} output reads allocated {allocated} bytes.");
+        });
+        Check("a broad scenario allocates by touched storage block, not per affected node",()=>
+        {
+            const int outputs=100_000;
+            var plan=DependencyPlan.Compile(outputs+1,Enumerable.Range(1,outputs).Select(n=>new DependencyEdge(n,0)));
+            var root=new GraphSession<long>(plan,(node,read,_)=>node==0?7:read.Get(0)+node,checkedAdd);
+            var before=GC.GetAllocatedBytesForCurrentThread();
+            var child=root.WithOffsets(new Dictionary<int,long>{{0,1}});
+            long sum=0;for(var node=1;node<=outputs;node++)sum+=child.Get(node);
+            var allocated=GC.GetAllocatedBytesForCurrentThread()-before;
+            Equal(sum,8L*outputs+(long)outputs*(outputs+1)/2);
+            Equal(child.Work.AffectedNodes,outputs+1);Equal(child.Work.EvaluatedNodes,outputs+1L);Equal(child.Work.TraversedAffectedEdges,(long)outputs);
+            Equal(root.Work.EvaluatedNodes,0L);
+            if(allocated>8_000_000)throw new Exception($"A {outputs}-output scenario allocated {allocated} bytes.");
+        });
+        Check("a nested read of a scenario during its own inherited read keeps both evaluations intact",()=>
+        {
+            var plan=DependencyPlan.Compile(3,[new(2,1)]);GraphSession<long>? child=null;
+            var root=new GraphSession<long>(plan,(node,read,_)=>
+            {
+                if(node==1&&child is not null)child.Get(0);
+                return node==2?read.Get(1)+200:node*100;
+            },checkedAdd);
+            child=root.WithOffsets(new Dictionary<int,long>{{0,5},{2,7}});
+            Equal(child.Get(2),307L);Equal(child.Work.EvaluatedNodes,2L);
+            Equal(child.Get(0),5L);Equal(root.Get(2),300L);Equal(root.Get(0),0L);
+        });
         return count;
     }
     private static long checkedAdd(long left,long right)=>checked(left+right);

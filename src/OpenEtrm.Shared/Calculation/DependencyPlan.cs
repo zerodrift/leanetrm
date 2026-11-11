@@ -36,23 +36,22 @@ public sealed class DependencyPlan
         }
         var dependencies=new int[captured.Count];var dependents=new int[captured.Count];
         var next=(int[])offsets.Clone();var reverseNext=(int[])reverseOffsets.Clone();
+        // Two stable distribution passes leave both adjacency lists ascending
+        // without a comparison sort: group by dependency, then by node.
         foreach(var edge in captured)
-        {
-            cancellation.ThrowIfCancellationRequested();
-            dependencies[next[edge.Node]++]=edge.Dependency;dependents[reverseNext[edge.Dependency]++]=edge.Node;
-        }
+        {cancellation.ThrowIfCancellationRequested();dependents[reverseNext[edge.Dependency]++]=edge.Node;}
+        for(var dependency=0;dependency<nodeCount;dependency++)
+            for(var index=reverseOffsets[dependency];index<reverseOffsets[dependency+1];index++)
+            {cancellation.ThrowIfCancellationRequested();dependencies[next[dependents[index]]++]=dependency;}
+        Array.Copy(reverseOffsets,reverseNext,nodeCount);
         for(var node=0;node<nodeCount;node++)
-        {
-            cancellation.ThrowIfCancellationRequested();
-            Array.Sort(dependencies,offsets[node],offsets[node+1]-offsets[node]);
-            Array.Sort(dependents,reverseOffsets[node],reverseOffsets[node+1]-reverseOffsets[node]);
-            for(var index=offsets[node]+1;index<offsets[node+1];index++)
+            for(var index=offsets[node];index<offsets[node+1];index++)
             {
-                cancellation.ThrowIfCancellationRequested();
-                if(dependencies[index]==dependencies[index-1])
+                cancellation.ThrowIfCancellationRequested();var dependency=dependencies[index];
+                if(index>offsets[node]&&dependency==dependencies[index-1])
                     throw new CalculationException("graph_edge","Declare each dependency edge exactly once.");
+                dependents[reverseNext[dependency]++]=node;
             }
-        }
         // Kahn ordering validates cycles without recursion even on very deep plans.
         var order=new int[nodeCount];var head=0;var tail=0;
         for(var node=0;node<nodeCount;node++)
