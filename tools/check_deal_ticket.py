@@ -226,7 +226,7 @@ def check_ticket_operations(c,context,cat,description,body,view,query,manifest):
     retained={**context,'knowledgeMode':'retained','contextId':cat['context']['contextId']}
     refused('tickets/book',{**request,'context':retained,'operationId':str(uuid4())},'historical_read_only')
     refused('tickets/book',{**request,'context':{**context,'contextId':cat['context']['contextId']},'operationId':str(uuid4())},'historical_read_only')
-    refused('tickets/book',{**request,'context':{**context,'convention':'trading_workspace_v1'},'operationId':str(uuid4())},'swap_context')
+    refused('tickets/book',{**request,'context':{**context,'convention':'trading_workspace_v1'},'operationId':str(uuid4())},'valuation_convention')
     shared={**context,'convention':'trading_workspace_v1'}
     def fact_for(trade_id,offset=0):
         page=c.call('trading/positions',{'context':shared,'bookIds':[],'portfolioIds':[],'offset':offset,'limit':64})['positions']

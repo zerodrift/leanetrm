@@ -1,9 +1,9 @@
 # Architecture and domain contracts
 
-D374 separates dated catalogue choices, exact retained terms and explicit pricing
+D375 separates dated catalogue choices, exact retained terms and explicit pricing
 inputs. Recorded closes retain source matrices; the shared execution envelope and
 UI preserve the selected business date. Historical closes and prices obey the
-same knowledge cutoff. See [the decision](decisions.md#d374--exact-source-resolution-under-business-and-knowledge-time)
+same knowledge cutoff. See [the decision](decisions.md#d375--exact-source-resolution-under-business-and-knowledge-time)
 for qualification status and capability boundaries.
 
 D366 adds exact versioned point forecasts and dated publication-index cash.

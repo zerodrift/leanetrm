@@ -2226,7 +2226,7 @@ Deleting a selector alone does not qualify an existing separated dataset. Existi
 business history must never be silently rebound or overwritten. No production
 activation is implied by a local implementation.
 
-### Exact temporal source resolution (D374)
+### Exact temporal source resolution (D375)
 
 Local implementation separates dated catalogue membership, retained native terms,
 and exact pricing inputs. Recorded closes and execution envelopes carry explicit

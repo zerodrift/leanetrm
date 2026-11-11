@@ -1424,7 +1424,7 @@ void RequireConvention(FuturesReadRequest body,string? expected)
 {
     if(expected==PhysicalLngStore.Convention){if(body.Convention!=expected)throw new MarketDataException("lng_context","Select the explicit supported LNG cargo valuation convention.");}
     else if(expected==PhysicalCrudeStore.Convention){if(body.Convention!=expected)throw new MarketDataException("crude_context","Select the explicit supported physical crude valuation convention.");}
-    else if(expected is SwapStore.Convention or PhysicalGasStore.Convention or TradingBlotter.Convention){if(body.Convention!=expected)throw new MarketDataException("swap_context","Select the explicit supported swap valuation convention.");}
+    else if(expected is SwapStore.Convention or PhysicalGasStore.Convention or TradingBlotter.Convention){if(body.Convention!=expected)throw new MarketDataException("valuation_convention","Select the read's explicit supported valuation convention.");}
     else if(expected==FuturesOptionStore.Convention)FuturesOptionStore.RequireConvention(body.Convention);
     else FuturesStore.Convention(body.Convention);
 }
