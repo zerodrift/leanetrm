@@ -66,10 +66,13 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await sendQuestion();await wait("!document.querySelector('#assistant-consent').hidden");
   const answers=[{tools:[['toolu_selection_digest','read_page_digest',{mode:'overview'}]]},{text:'Synthetic selected positions were read at the question pin.'}];
   if(!(await fetch(new URL('/respond',control),{method:'POST',body:JSON.stringify(answers)})).ok)throw Error('Synthetic provider refused the script.');
-  await wait('__selectionWaits>0');
+  await wait('__selectionWaits>0&&!document.querySelector("#assistant-allow").disabled&&'+idle);
   const consentPrices=await evaluate("__selectionRequests.filter(r=>r.path==='/api/trading/workspace').length"),changedHeads=await evaluate('__selectionChangedHeads');
   await evaluate("window.__holdConsentGrant=window.__holdConsentPricing=true;document.querySelector('#assistant-allow').click()");
-  await wait("typeof window.__releaseConsentGrant==='function'&&__selectionChangedHeads>"+changedHeads);
+  await wait("typeof window.__releaseConsentGrant==='function'");
+  // The durable change watcher may finish an eight-second poll before observing
+  // the grant. Wait for its acknowledgement separately from the held response.
+  await wait('__selectionChangedHeads>'+changedHeads,30000);
   await evaluate('new Promise(resolve=>setTimeout(resolve,600))');
   await check('a grant publication waits behind the admitted assistant consent action',`__selectionRequests.filter(r=>r.path==='/api/trading/workspace').length===${consentPrices}&&document.body.getAttribute('aria-busy')==='false'`);
   await evaluate('window.__holdConsentAgents=true;window.__releaseConsentGrant()');

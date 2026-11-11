@@ -337,7 +337,7 @@ def valuation_checks(c, query, manifest, run_worker, frame, context, body, trade
 
     # A context known before the load sees no trade.
     refused = c.call('gas/composition/editor', dict(context={**working, 'knowledgeMode': 'retained', 'contextId': before_load}, tradeId=trade_id), expected=422)
-    assert refused['code'] == 'gas_composition_input', refused
+    assert refused['code'] == 'gas_market_context' and set(refused) == {'code','message'}, refused
     print('PASS a historical context known before the load reads no in-term trade', flush=True)
     determined = final_determination(c, query, manifest, frame, context, body, load)
     # What the browser check must find on screen, from the oracle above: the figures as the page groups them, the trades by their Blotter reference.
