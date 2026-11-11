@@ -90,7 +90,7 @@ def run_checks(c, check, query, manifest):
     check('deferred catalog pricing leaves every actual retained holding and exact amount unchanged',
           full['blotter'] == light['blotter'])
     common = lambda catalog: {key: value for key, value in catalog.items()
-                              if key not in ('kind', 'contracts')}
+                              if key not in ('kind', 'contracts', 'unavailable')}
     check('directory and priced catalogs preserve identical metadata under the same retained context',
           common(full['catalog']) == common(light['catalog']))
     for mode in ['', 'unknown', 'Directory', 'priced']:

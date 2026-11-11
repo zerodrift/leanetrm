@@ -239,7 +239,7 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
             role='daily_settlement' if n==1 else 'parameter' if n==6 or n>=8 else 'trader_mark'
             event=f'event_{number}' if day==18 else f'history_{day}_{number}'
             extra_obs.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REV}','{identity('9',number)}',{R},'fixture','{event}','1','{role}','final','2020-12-{day} 16:00:00+00','{now}',{value},NULL);")
-        frames.append({'at':f'2020-12-{day}T16:00:00Z','observationIds':pins,
+        frames.append({'at':f'2020-12-{day}T16:00:00Z','observationIds':pins,'frozenObservationIds':[],
                        'curveContracts':{code:[identity('5',month*5+n) for month in range(6)] for code,n in curves}})
     if fixing_frames:
         if not current_schema:
@@ -264,7 +264,7 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
                     if oid not in emitted:
                         extra_obs.append(f"INSERT INTO market_data.observations VALUES ('{CAT}','{oid}','{REV}','{sid}',{R},'fixture','synthetic_monthly_fixing_{month}_{n}','1','index_fixing','final','{fixing_at}','{now}',{value},NULL);")
                         emitted.add(oid)
-            frames.append({'at':at,'observationIds':pins,'curveContracts':{code:[identity('5',month*5+n) for month in range(6)] for code,n in curves}})
+            frames.append({'at':at,'observationIds':pins,'frozenObservationIds':[],'curveContracts':{code:[identity('5',month*5+n) for month in range(6)] for code,n in curves}})
         partial=next(frame for frame in frames if frame['at']=='2021-01-15T08:00:00Z')
         frames.append({**partial,'at':'2021-01-15T09:00:00Z'})
     if window_frames:
@@ -323,11 +323,11 @@ def fixture(root, current_schema=True, fixing_frames=False, date_plan=None, wind
     return reference, market, security_fixture(CAT,RCAT), manifest
 
 
-def catalogue_fixture(manifest,issuer):
+def catalogue_fixture(manifest,issuer,*,curve_sources=()):
     """Publish the explicitly selected baseline through the ordinary native command."""
     catalog,revision,reference_catalog,reference_revision,tenant,workspace=(manifest[key] for key in
         ('catalogId','revisionId','referenceCatalogId','referenceRevisionId','tenantId','workspaceId'))
-    curve_revisions = ','.join(f"'{source}'" for source in [revision, *(m['revisionId'] for m in manifest.get('inputMarkets', []))])
+    curve_revisions = ','.join(f"'{source}'" for source in [revision, *curve_sources])
     return f"""
 BEGIN;
 SET LOCAL SESSION AUTHORIZATION preview_authenticator;

@@ -94,7 +94,7 @@ def run_checks(url, manifest, query):
     client.call('custom-curves/activation', {**request, 'requestId': str(uuid4()), 'curveId': other_curve})
     mismatch = client.call('custom-curves/effective-preview', {**selected, 'curveId': other_curve}, expected=422)
     # A different catalogue revision cannot replace this close's exact inputs.
-    assert mismatch['code'] == 'curve_inputs', mismatch
+    assert mismatch['code'] == 'market_inputs_missing', mismatch
     client.call('profile', {'profile': 'editor'})
     retained=next(v for v in client.call('custom-curves')['recipes'] if v['id']==other_curve and v['version']==1)
     before_rebind=query(f"SELECT count(*) FROM market_data.custom_curve_versions WHERE curve_id='{other_curve}';")

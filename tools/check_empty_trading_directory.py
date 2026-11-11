@@ -18,8 +18,8 @@ def run_checks(c,check,query,manifest):
     initial=c.call('trading/workspace',request)
     legacy=c.call('trading/blotter',{'context':retained,'view':view})
     full=c.call('trading/workspace',{'context':retained,'view':view})
-    check('empty directory preserves the exact legacy report and booking metadata',initial['blotter']==legacy==full['blotter']
-          and initial['catalog']=={**{k:v for k,v in full['catalog'].items()if k not in ('kind','contracts')},'kind':'directory'})
+    check('empty directory preserves the exact report and booking directory metadata',initial['blotter']==legacy==full['blotter']
+          and initial['catalog']=={**{k:v for k,v in full['catalog'].items()if k not in ('kind','contracts','unavailable')},'kind':'directory'})
     for selected_view in [view,{**view,'mode':'pivot','groupBy':['book','instrumentType'],'measures':['quantity'],'pivotConvention':'trading_blotter_totals_v1'},
                           {**view,'mode':'pivot','groupBy':['book','instrumentType'],'measures':['presentValue','executionPnl','tradeCount'],
                            'pivotConvention':'trading_blotter_money_totals_v1'}]:

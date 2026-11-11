@@ -24,7 +24,7 @@ public sealed record LiveSelection
     {
         PinnedContext.Exact(context);
         if(frame.At!=Seed.At||frame.ContextId!=context.ContextId||!frame.ResolvesLatestCorrection||
-            context.EffectiveOn!=Seed.At.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)||string.IsNullOrEmpty(head)||
+            context.EffectiveOn!=Seed.Time.Date.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)||string.IsNullOrEmpty(head)||
             frame.CurveContracts.Count!=Seed.CurveContracts.Count||Seed.CurveContracts.Any(p=>!frame.CurveContracts.TryGetValue(p.Key,out var values)||!values.SequenceEqual(p.Value)))throw Invalid();
         return this with{Frame=frame,Context=context,Head=head,Generation=checked(Generation+1)};
     }

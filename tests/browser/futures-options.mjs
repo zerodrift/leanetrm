@@ -13,7 +13,7 @@ const q=value=>JSON.stringify(value);
 // A term the Details or the trade's window list, by its label.
 const term=label=>`[...document.querySelectorAll('.side-term')].find(t=>t.querySelector('dt').textContent===${JSON.stringify(label)})?.querySelector('dd').textContent`;
 // The request members a futures option booking states; a coming-soon control adds none.
-const bookingMembers=['operationId','snapshotId','convention','knowledgeMode','bookId','series','side','lots','premium','premiumPaymentDate','premiumStyle','memo','legalEntityId','legalEntityRevision','counterpartyId','counterpartyRevision'];
+const bookingMembers=['operationId','snapshotId','convention','knowledgeMode','bookId','definitionRevisionId','series','side','lots','premium','premiumPaymentDate','premiumStyle','memo','legalEntityId','legalEntityRevision','counterpartyId','counterpartyRevision'];
 
 export async function run({command,evaluate,wait,click,set,persona,check,idle,url,tab}){
  const artifacts=await mkdtemp(join(tmpdir(),'openetrm-futures-options-'));console.log('FUTURES_OPTION_VISUAL_ARTIFACTS='+artifacts);
@@ -122,7 +122,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  const receipt=sent[1].answer;
  await check('the retry sends the original request under its own identity and the backend answers its first outcome',
   q(sent[0].body.operationId===sent[1].body.operationId&&JSON.stringify(sent[0].body)===JSON.stringify(sent[1].body)&&sent[0].status===200&&sent[0].answer.tradeId===receipt.tradeId&&
-   Object.keys(sent[1].body).every(k=>bookingMembers.includes(k))&&sent[1].body.side==='buy'&&sent[1].body.lots==='2'&&sent[1].body.series===chosen.series&&sent[1].body.premiumStyle==='premium_paid_up_front'));
+   Object.keys(sent[1].body).every(k=>bookingMembers.includes(k))&&sent[1].body.side==='buy'&&sent[1].body.lots==='2'&&sent[1].body.definitionRevisionId===chosen.definitionRevisionId&&sent[1].body.series===chosen.series&&sent[1].body.premiumStyle==='premium_paid_up_front'));
 
  await wait(`window.blotterRows.some(r=>r.tradeId===${q(receipt.tradeId)})&&`+idle,60000);
  const rows=await evaluate(`window.blotterRows.filter(r=>r.series===${q(chosen.series)})`);

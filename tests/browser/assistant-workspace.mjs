@@ -18,7 +18,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   const frame=navigation.frames.find(f=>navigation.initialFrameIds.includes(f.id)&&f.at.startsWith('2020-12-18'));
   const context={snapshotId:frame.id,convention:'contract_lot_execution_pnl_v2',knowledgeMode:'current'};
   const catalog=await side.call('futures/catalog',context),contract=catalog.contracts.find(c=>c.curve==='future');
-  await side.call('futures/book',{...context,operationId:crypto.randomUUID(),bookId:catalog.books[0].id,curve:'future',contractId:contract.id,lots:'3',executionPrice:'3.3',
+  await side.call('futures/book',{...context,operationId:crypto.randomUUID(),bookId:catalog.books[0].id,curve:'future',contractId:contract.id,definitionRevisionId:contract.definitionRevisionId,lots:'3',executionPrice:'3.3',
     legalEntityId:'d4000000-0000-0000-0000-000000000001',legalEntityRevision:1,counterpartyId:'d5000000-0000-0000-0000-000000000001',counterpartyRevision:1,memo:'Synthetic selection browser fixture'});
   await command('Page.enable');await command('Runtime.enable');
   await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});

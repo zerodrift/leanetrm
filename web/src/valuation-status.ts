@@ -15,7 +15,7 @@ const reasons:Readonly<Record<string,Readonly<Partial<Record<ValuationReason,str
    source_expired:'Underlying contract expired',option_underlying_missing:'Missing underlying price at this close',option_calibration_nonconvergent:'Settlement could not be calibrated',
    option_settlement_below_intrinsic:'Settlement below intrinsic value',option_settlement_above_bound:'Settlement above its no-arbitrage bound',option_calibration_fallback_undeclared:'Settlement at intrinsic without a declared fallback',
    discount_coverage:'Payment date outside the discount curve'},
-  ppa:{other_definition_versions:'Booked under other reference data versions',unpriced_delivery:'No price for part of its delivery at this close',needs_rebooking:'Needs rebooking'},
+  ppa:{other_definition_versions:'Booked market inputs are unavailable at this close',unpriced_delivery:'No price for part of its delivery at this close',needs_rebooking:'Needs rebooking'},
 };
 
 export function valuationReason(code:ValuationReason,instrumentType:string):string{

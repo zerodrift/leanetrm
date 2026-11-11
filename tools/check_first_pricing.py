@@ -13,7 +13,7 @@ def run_checks(c, check):
         combined = c.call('evaluate', {**body, 'includeSources': True, 'includeWorkspace': True})
         check('combined first pricing explicitly carries a complete workspace', 'workspace' in combined)
         metadata = combined.pop('workspace')
-        check('combined catalog preserves every legacy catalog property and exact frame pin', metadata == full)
+        check('combined catalog preserves every catalog property and exact frame pin', metadata == full)
         check('combined pricing preserves every exact source, result and temporal field', combined == sources)
         check('metadata observation history stays explicitly empty and separate from selected sources',
               metadata['observationScope'] == 'on_demand' and metadata['observations'] == []

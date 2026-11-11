@@ -541,7 +541,7 @@ def main():
                 # The primary custom-curve fixture visits closes beyond the four standard weekdays.
                 # Its unrelated secondary bundle explicitly supplies no inputs there.
                 times={f['at'] for f in swap_manifest['frames']}
-                swap_manifest['frames'].extend({'at':f['at'],'observationIds':[],'curveContracts':{}}
+                swap_manifest['frames'].extend({'at':f['at'],'observationIds':[],'frozenObservationIds':[],'curveContracts':{}}
                     for f in manifest['frames'] if f['at'] not in times)
             manifest['inputMarkets']=[swap_manifest]
             if args.crude_setup_check: manifest['inputMarkets'].append(manifest.pop('crudeMarket'))
@@ -577,7 +577,8 @@ def main():
                 check_vol_surface_storage(query,exchange_manifest)
         from preview_fixture import trading_fixture
         query(trading_fixture(manifest['catalogId'],swap_defaults=args.example=='standard'))
-        query(catalogue_fixture(manifest,'https://preview.invalid'))
+        curve_sources = [m['revisionId'] for m in manifest['inputMarkets']] if args.swap_risk_holdings_check else []
+        query(catalogue_fixture(manifest,'https://preview.invalid',curve_sources=curve_sources))
         if args.ppa_bookings_check or args.blotter_stream_benchmark:
             from ppa_bookings_fixture import trading as ppa_benchmark_books
             query(ppa_benchmark_books(manifest['catalogId']))

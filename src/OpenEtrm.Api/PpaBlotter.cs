@@ -41,21 +41,34 @@ internal static class PpaBlotter
             scope=scope.Without(scope.Heads.Keys.Where(t=>t!=position.TradeId).ToHashSet());
             position.Require(scope.Bindings);
         }
-        var inputs=await PpaPortfolio.Inputs(connection,database,frame,scope,[(data,frame)],false,ct);
-        return new([..inputs.Select(source=>new Scoped(connection,database,source.Data,source.Frame,books,context,source.Scope))]);
+        var missing=frame.OriginCloseId is not null&&frame.SourceInputs is {} matrix
+            ?scope.Bindings.Where(row=>!matrix.ContainsKey(row.Id("definition_revision_id"))).Select(row=>row.Id("trade_id")).ToHashSet()
+            :[];
+        var inputs=await PpaPortfolio.Inputs(connection,database,frame,scope.Without(missing),[(data,frame)],false,ct);
+        var sources=inputs.Select(source=>new Scoped(connection,database,source.Data,source.Frame,books,context,source.Scope));
+        var unavailable=missing.Count==0?null:new Scoped(connection,database,data,frame,books,context,
+            scope.Without(scope.Heads.Keys.Where(trade=>!missing.Contains(trade)).ToHashSet()));
+        return new([..sources],unavailable);
     }
     internal sealed record Scoped(NpgsqlConnection Connection,PreviewDatabase Database,PreviewData Data,InputFrame Frame,
         ImmutableArray<JsonElement> Books,ScheduleContext Context,PpaScope Scope);
     // A run of no selected books has no positions.
-    internal sealed class PpaBlotterRun(ImmutableArray<Scoped> sources):IBlotterProductRun
+    internal sealed class PpaBlotterRun(ImmutableArray<Scoped> sources,Scoped? unavailable=null):IBlotterProductRun
     {
-        public int Positions{get;}=sources.Sum(s=>s.Scope.Bindings.Length);
+        public int Positions{get;}=sources.Sum(s=>s.Scope.Bindings.Length)+(unavailable?.Scope.Bindings.Length??0);
         // Each held trade is one unit: the valued trades once the shared preparation is done, each after its bindings are
         // valued, then the trades listed unvalued, by reason.
         public async IAsyncEnumerable<ImmutableArray<JsonObject>> Units([EnumeratorCancellation]CancellationToken ct)
         {
             foreach(var source in sources)
                 await foreach(var unit in Value(source,ct))yield return unit;
+            if(unavailable is {} missing)
+            {
+                var catalog=missing.Database.Manifest.CatalogId;
+                var facts=await Facts(missing.Connection,catalog,missing.Scope.Heads,ct);
+                var rows=await Unvalued(missing.Connection,catalog,missing.Scope,missing.Scope.Heads.Keys.ToHashSet(),OtherVersions,facts,missing.Books,ct);
+                foreach(var trade in ByTrade(rows,row=>row["tradeId"]!.GetValue<Guid>()))yield return trade;
+            }
         }
     }
     private static async IAsyncEnumerable<ImmutableArray<JsonObject>> Value(Scoped scoped,[EnumeratorCancellation]CancellationToken ct)

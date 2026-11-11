@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http.Features;
@@ -14,11 +15,26 @@ public sealed class LiveContexts(PreviewDatabase database,CalculationChanges cha
         {
             var head=await Head(connection,cancellation);
             if(head==selection.Head)return selection;
+            var seed=selection.Seed;
             var captured=await new KnowledgeStore(database.Manifest.CatalogId).Capture(connection,
-                new(selection.Seed.At.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),cancellation);
+                new(seed.Time.Date.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),null,"current"),cancellation);
             await MarketContextStore.Bind(connection,database.Manifest.CatalogId,captured.Context,cancellation);
-            var data=await database.Read(connection,cancellation,observationIds:selection.Seed.ObservationIds);
-            var frame=MarketContextStore.Select(selection.Seed,data,captured.Context) with{OriginCloseId=null,Close=null,Name="Live · selected-fact corrections"};
+            var bound=seed with{ContextId=captured.Context.ContextId};
+            var data=await MarketInputSelection.Root(database,connection,bound,cancellation,observationScope:ObservationReadScope.FactHistory);
+            var frame=MarketContextStore.Select(seed,data,captured.Context) with{OriginCloseId=null,Close=null,Name="Live · selected-fact corrections"};
+            if(seed.SourceInputs is {} matrix)
+            {
+                var resolved=ImmutableDictionary.CreateBuilder<Guid,MarketSourceInputs>();
+                foreach(var (revision,part) in matrix)
+                {
+                    var inputs=part.Project(bound);
+                    var source=part.Source==seed.Source?data:await MarketInputSelection.Root(database,connection,inputs,cancellation,
+                        observationScope:ObservationReadScope.FactHistory);
+                    var selected=source.SelectPinned(inputs);
+                    resolved.Add(revision,part with{ObservationIds=selected.ObservationIds,FrozenObservationIds=selected.FrozenObservationIds});
+                }
+                frame=frame with{SourceInputs=resolved.ToImmutable()};
+            }
             // Capture holds the common publication gate through this transaction.
             // This head and the new cutoff therefore describe one committed view.
             return selection.Resolve(captured.Context,frame,await Head(connection,cancellation));
