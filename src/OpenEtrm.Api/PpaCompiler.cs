@@ -85,12 +85,24 @@ internal static class PpaCompiler
             if(energies.Length!=1)throw Error("ppa_quantity_unit","Volume contributions require one identical exact native energy unit.");
             return new(sources,PpaQuantitiesStore.Stage(quantity.Stage),energies[0]);
         }
+        ImmutableArray<ExactDecimal> HourlyFactors(PpaQuantityInput q)
+        {
+            var value=q.HourlyProfile;
+            if(value.ValueKind==System.Text.Json.JsonValueKind.Undefined)return [];
+            if(q.Kind!="profile"||value.ValueKind!=System.Text.Json.JsonValueKind.Object||value.EnumerateObject().Count()!=2||
+                !value.TryGetProperty("implementation",out var implementation)||implementation.ValueKind!=System.Text.Json.JsonValueKind.String||implementation.GetString()!=ContractProfileQuantity.HourlyProfile||
+                !value.TryGetProperty("factors",out var factors)||factors.ValueKind!=System.Text.Json.JsonValueKind.Array||factors.GetArrayLength()!=24||
+                factors.EnumerateArray().Any(v=>v.ValueKind!=System.Text.Json.JsonValueKind.String))
+                throw Error("ppa_profile_shape","Supply the versioned 24-local-hour contractual MW profile explicitly.");
+            return [..factors.EnumerateArray().Select(v=>Number(v.GetString()))];
+        }
         PpaQuantity Quantity(PpaQuantityInput q)
         {
+            var hourly=HourlyFactors(q);
             if(q.Sources.Distinct().Count()!=q.Sources.Length || q.Assets.Distinct().Count()!=q.Assets.Length)throw Error("ppa_quantity_reference","Quantity references must be distinct.");
             return q.Kind switch {
                 "volume" when q.Sources.Length>0 && q.Assets.Length==0 && q.Slots.Length==0 && q.Capacity is null && q.Energy is null && q.Hours is null => Volume(q),
-                "profile" when q.Sources.Length==0 && q.Assets.Length==0 && q.Slots.Length==0 && q.Stage is null && q.Capacity is not null && q.Energy is not null && q.Hours is not null=>new ProfileQuantity(PpaQuantitiesStore.Quantity(data,q.Capacity).Key,PpaQuantitiesStore.Quantity(data,q.Energy).Key,Hours(data,q.Hours,delivery,products)),
+                "profile" when q.Sources.Length==0 && q.Assets.Length==0 && q.Slots.Length==0 && q.Stage is null && q.Capacity is not null && q.Energy is not null && q.Hours is not null=>new ProfileQuantity(PpaQuantitiesStore.Quantity(data,q.Capacity).Key,PpaQuantitiesStore.Quantity(data,q.Energy).Key,Hours(data,q.Hours,delivery,products)){HourlyFactors=hourly},
                 "slots" when q.Sources.Length==0 && q.Assets.Length==0 && q.Slots.Length>0 && q.Stage is null && q.Capacity is null && q.Energy is null && q.Hours is null=>new SlotQuantity([..q.Slots.Select(t=>new SideSlot(Role(t.Role),t.Ordinal))]),
                 "accredited" when q.Sources.Length==0 && q.Assets.Length>0 && q.Slots.Length==0 && q.Stage is null && q.Capacity is null && q.Energy is null && q.Hours is null=>new AccreditedQuantity([..PpaQuantitiesStore.Assets(data,q.Assets).Select(a=>a.Key)]),
                 _=>throw Error("ppa_quantity_reference","Select exactly one explicit quantity variant, with unused fields null or empty.")};

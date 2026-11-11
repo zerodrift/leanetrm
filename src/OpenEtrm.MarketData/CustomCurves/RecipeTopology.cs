@@ -38,6 +38,8 @@ public static partial class RecipeEngine
         CancellationToken cancellation=default)
     {
         var references=ImmutableDictionary.CreateBuilder<CurvePointKey,(PublishedRecipeReference,RecipeDelivery)>();
+        if(PowerIntervalOutput(definition) is not null)
+            throw new MarketDataException("recipe_interval_output","Use the typed power interval consumer for this graph output.");
         var sources=new Dictionary<string,PanelSource>();
         foreach(var (node,topology) in publishedSources)
         {

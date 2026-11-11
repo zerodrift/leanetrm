@@ -266,7 +266,7 @@ td.numeric{text-align:right;font-family:var(--mono);font-variant-numeric:tabular
 .curve-button.selected{background:var(--accent-soft);border-color:var(--accent-border);color:var(--accent-text)}
 .library-collapsed .market-layout{grid-template-columns:48px minmax(0,1fr)}
 .library-collapsed .curve-library{padding:8px 4px}
-.library-collapsed .library-title,.library-collapsed #curve-count,.library-collapsed .library-filters,.library-collapsed .curve-define{display:none}
+.library-collapsed .library-title,.library-collapsed #curve-count,.library-collapsed .library-filters{display:none}
 .library-collapsed .library-chevron{transform:rotate(180deg);margin:0 auto}
 .market-content{min-width:0}
 /* Commodity dots remain on trading views; curve lists and the market board use named icons. */
@@ -1467,6 +1467,9 @@ body.assistant-open.assistant-overlay main{margin-right:0}
 .curve-price-navigation { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
 .curve-price-navigation[hidden] { display:none; }
 .curve-price-navigation button[aria-pressed="true"] { background:var(--accent); color:white; }
+.native-pricing-terms { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:8px 20px; }
+.native-pricing-terms dt { color:var(--text-3); }
+.native-pricing-terms dd { margin:0; overflow-wrap:anywhere; }
 
 .interval-widget-status { color:var(--muted); font-size:12px; margin:8px 0; }
 .interval-widget-controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
@@ -2638,3 +2641,12 @@ header>div:first-child{flex:1 1 160px}
 /* Jobs lists a section only when it has something to show. */
 #jobs-page>.card:not(:has(>:not([hidden]))){display:none}
 .status-bar.sr-only{position:absolute;width:1px;height:1px;min-height:0;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+/* Price setup navigation and saved publication library. */
+#price-setup-tabs{gap:8px;flex-wrap:wrap;padding:8px;margin-bottom:20px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2)}
+#price-setup-tabs .side-panel-tab{min-height:42px;margin:0;padding:9px 18px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-weight:600;box-shadow:var(--shadow)}
+#price-setup-tabs .side-panel-tab:hover{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-text)}
+#price-setup-tabs .side-panel-tab[aria-selected=true]{border-color:var(--accent);background:var(--accent);color:#fff}
+.publication-library{min-width:0;margin:8px 0 16px;padding:0;border:0}
+.publication-library legend{padding:0;margin-bottom:8px;font-size:12px;font-weight:600}
+.publication-library .table-filters{margin:8px 10px;gap:8px}
+.publication-library .tabulator-footer .tabulator-paginator{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:2px}

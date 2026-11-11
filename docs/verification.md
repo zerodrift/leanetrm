@@ -4255,3 +4255,27 @@ catalog against a bound context. The authority window is checked for read-only,
 historical and authoring authority that ends before read authority. A raw draft
 write decides the set once for its several fields. The check is run locally against
 a disposable database; independent adversarial review findings are resolved.
+
+
+## Physical power curves and booked close comparisons (D376–D381)
+
+`--power-booked-roll-check` runs owned stock PostgreSQL/HTTP qualification for
+product forwards, published daily/monthly splices, location bindings, selected
+TOU demand, saved daily additive shapes, immutable hourly MW profiles, retained
+booking parity, source compatibility and captured correction replay. It includes
+real 23/25-hour grids and the timed DA knowledge-eligibility boundary.
+
+`--power-context-check` gives identical curve codes different marks in two
+sources. The power graph must consume its recorded non-primary source; a close
+omitting that source refuses. Managed close admission retains the head known at
+each explicit cutoff, rejects an after-cutoff close even with old observations,
+and requires the replacement once that replacement is visible.
+
+Native `--power-flat`, `--power-atc`, `--power-product-averages`,
+`--power-interval-quantities` and `--ppa-sides` checks assert independent interval,
+quantity, PV and scenario oracles. `--close-risk` includes the zero-row power
+graph worker fence. The standard frontend suite covers saved publication grids,
+price-inspection controls, graph types and retained hourly profile presentation.
+See [the capability contract](power-curve-composition.md) and
+[the booked numerical examples](power-booked-roll.md) for exact limits. No
+production finality, accounting or performance qualification is implied.

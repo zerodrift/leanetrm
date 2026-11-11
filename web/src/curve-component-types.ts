@@ -4,6 +4,8 @@ const types={
  contract:{label:'Dated contract',path:'M5 2h7l4 4v12H5zM12 2v5h4M8 11h5M8 14h5'},
  selection:{label:'Contract selection',path:'M2 4h6v6H2zM12 4h6v6h-6zM5 13v4h10v-4M10 13v4'},
  dates:{label:'Date sequence',path:'M3 5h14v13H3zM6 2v5M14 2v5M3 9h14M6 12h2M12 12h2M6 15h2'},
+ power_intervals:{label:'Power intervals',path:'M2 3h16v14H2zM2 8h16M6 8v9M10 8v9M14 8v9'},
+ 'panel|power_intervals':{label:'Price values',path:'M3 3h14v14H3zM3 8h14M8 3v14'},
  panel:{label:'Price panel',path:'M3 3h14v14H3zM3 8h14M8 3v14M12 11h3M12 14h3'},
  curve_result:{label:'Curve output',path:'M2 15h10M3 12l3-5 4 2M12 5h6M15 2l3 3-3 3'},
 } as const;

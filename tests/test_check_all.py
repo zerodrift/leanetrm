@@ -94,7 +94,7 @@ class CheckAllTests(unittest.TestCase):
                    run=lambda command, **options: commands.append(command))
         market = 'tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj'
         runs = [c for c in commands if '--project' in c and c[c.index('--project') + 1] == market]
-        self.assertEqual([c[c.index('--project') + 2:] for c in runs], [[], ['--', '--futures-options'], ['--', '--hybrid-monte-carlo-risk']])
+        self.assertEqual([c[c.index('--project') + 2:] for c in runs], [[], ['--', '--futures-options'], ['--', '--hybrid-monte-carlo-risk'], *[['--',flag] for flag in ('--power-flat','--power-atc','--power-product-averages','--power-interval-quantities','--ppa-sides')]])
         restores = [c for c in commands if 'restore' in c and c[c.index('restore') + 1] == market]
         self.assertEqual(len(restores), 1)
 
@@ -120,7 +120,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertEqual(executed, expected)
         schedule_commands = [c for c in commands if '--project' in c and 'Api.Checks' in c[c.index('--project') + 1]]
         self.assertEqual([c[-2:] for c in schedule_commands],
-                         [['--', flag] for flag in ('--context-resolution', '--schedules', '--historical-risk', '--monte-carlo-risk', '--automation',
+                         [['--', flag] for flag in ('--context-resolution', '--schedules', '--historical-risk', '--monte-carlo-risk', '--close-risk', '--automation',
                            '--live-calculation', '--reference-intake', '--preview-data', '--side-observation-compatibility')])
         self.assertTrue(any('--historical-risk-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--monte-carlo-risk-check' in c and '--with-exchange' in c and '--browser-check' in c for c in commands))
@@ -133,6 +133,8 @@ class CheckAllTests(unittest.TestCase):
         self.assertTrue(any('--draft-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--execution-check' in c for c in commands))
         self.assertTrue(any('--power-actual-check' in c for c in commands))
+        self.assertTrue(any('--power-booked-roll-check' in c for c in commands))
+        self.assertTrue(any('--power-context-check' in c for c in commands))
         self.assertTrue(any('--interval-series-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--interval-curves-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--ppa-check' in c for c in commands))

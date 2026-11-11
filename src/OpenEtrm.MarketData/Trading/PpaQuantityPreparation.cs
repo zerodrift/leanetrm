@@ -115,7 +115,7 @@ internal sealed class PpaQuantityPreparation(IntervalValuationInputs inputs)
     {
         if(side.RetainedPlan is {} retained)return [..retained.NativeRows.Where(row=>inputs.Includes(instrument,row.Obligation.Interval!))
             .Select(row=>new PreparedQuantityRow(row.Obligation.Interval!,retained.ProfileQuantity(row),VolumeState.Contractual,null,[],[],[]))];
-        var source=new ContractProfileQuantity(Clock(delivery.Clock),delivery.IntervalMinutes,profile.Hours,Quantity(profile.Capacity),Quantity(profile.Energy));
+        var source=new ContractProfileQuantity(Clock(delivery.Clock),delivery.IntervalMinutes,profile.Hours,Quantity(profile.Capacity),Quantity(profile.Energy),profile.HourlyFactors);
         var rows=ImmutableArray.CreateBuilder<PreparedQuantityRow>();
         foreach(var month in Months(delivery))
         {

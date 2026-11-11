@@ -24,7 +24,7 @@ public static class PowerImportProtocol
 
     public static PowerInterval[] Window(DateOnly from,DateOnly through,PowerClock clock,int minutes)
     {
-        if(through<from || through.DayNumber-from.DayNumber>=MaximumOperatingDays)
+        if(through==DateOnly.MaxValue || through<from || through.DayNumber-from.DayNumber>=MaximumOperatingDays)
             throw Invalid("Choose an explicit inclusive collection window of 1–31 operating days.");
         return PowerHours.Compile(from,through.AddDays(1),clock,TimeOfUse.All(minutes),[],minutes);
     }

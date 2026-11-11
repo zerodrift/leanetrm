@@ -111,7 +111,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         await RequireValuationContext(connection,exact,frame.At,ct);
         var snapshot=data.Snapshot(frame);
         var prepared=await Prepare(connection,data,frame,snapshot,exact,bookIds,policy,[],excluded:[],ct);
-        if(requireNativeEvidence)CloseBookRiskJobs.RequireNativeEvidence(prepared.ConnectedMarkets);
+        if(requireNativeEvidence)CloseBookRiskJobs.RequireNativeEvidence(prepared);
         var bumps=prepared.Factors.Select(f=>new PortfolioCurveBump(CurveRiskAxes.Quote(prepared,f,ct),
             f.TradingTick*ExactDecimal.Parse(policy.BumpTicks.ToString(CultureInfo.InvariantCulture)))).ToImmutableArray();
         var result=Calculate(prepared,bumps,[],RiskDetail.Books,ct);

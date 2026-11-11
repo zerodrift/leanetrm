@@ -648,6 +648,119 @@ internal static class PpaAcceptanceChecks
                 Equal(unit.Scale(D("80")).ValueExcludingOverdue.Add(unit.Scale(D("20")).ValueExcludingOverdue),unit.Scale(D("100")).ValueExcludingOverdue);
             }
         });
+        Check("flat captured replacement reprices ordinary Side PV with fixed hours outside native market risk",()=>{
+            var scope=new DeliveryCoverage(f.From,f.From.AddHours(2));var instrument=f.Physical("0");
+            var coverage=ImmutableDictionary<Guid,ImmutableArray<DeliveryCoverage>>.Empty.Add(instrument.Id,[scope]);
+            var observed=f.Market(f.From.AddHours(1),energy:"42",actuals:h=>h.Start==f.From?"7":null,
+                priceSpans:[(scope.From,scope.To)],flatReplacement:true);
+            var scenarioSet=observed.Model.BuildScenarios(observed.Snapshot,[..observed.Build.Values.Select(v=>v.Request)],[observed.Bumps["synthetic_energy"]]);
+            observed=observed with{Build=scenarioSet.Base};
+            var inputs=f.Prepare(observed,[instrument],coverage:coverage);
+            var baseline=inputs.Session(observed.Build);
+            Money(ValueMeasures.From(baseline.Value(instrument,scope,discount)).ValueExcludingOverdue,"49");
+            var scenarios=scenarioSet.Factors.Single();
+            Money(ValueMeasures.From(inputs.Session(scenarios.Up,baseline).Value(instrument,scope,discount)).ValueExcludingOverdue,"50");
+            Money(ValueMeasures.From(inputs.Session(scenarios.Down,baseline).Value(instrument,scope,discount)).ValueExcludingOverdue,"48");
+            var fixedMarket=f.Market(scope.To,energy:"42",actuals:h=>h.Start<scope.To?"7":null,
+                priceSpans:[(scope.From,scope.To)],flatReplacement:true);
+            Equal(fixedMarket.Curves[f.C("synthetic_energy")].Dependencies(f.Month).Length,0);
+            var fixedInputs=f.Prepare(fixedMarket,[instrument],coverage:coverage);
+            Money(ValueMeasures.From(fixedInputs.Session(fixedMarket.Build).Value(instrument,scope,discount)).ValueExcludingOverdue,"14");
+        });
+        Check("product-selected physical Side PV has no sensitivity to the excluded forward branch",()=>{
+            var observed=f.Market(at,energy:"60",hub:"40");
+            var peak=new TouPeak(7,23,false);
+            ImmutableArray<DateOnly> holidays=[new(2031,11,27)];
+            IntervalBlockDefinition Block(string code,BlockMembership membership)
+            {
+                var key=f.C(code);
+                var request=observed.Curves[key].Dependencies(f.Month).Single();
+                return new(key,membership,peak,[observed.Model.ContractDefinition(request.Contract)]);
+            }
+            var flat=new FlatIntervalCurve(f.C("synthetic_energy"),f.EnergyPrice,new(f.Clock,60,holidays),
+                [Block("synthetic_energy",BlockMembership.Peak),Block("synthetic_hub",BlockMembership.OffPeak)],"flat_forward_only_v1");
+            var prepared=PreparedCurve.Prepare(flat,[(f.From,f.To)],[],[],at,at);
+            var scenarios=observed.Model.BuildScenarios(observed.Snapshot,prepared.Dependencies(f.Month),
+                [observed.Bumps["synthetic_energy"],observed.Bumps["synthetic_hub"]]);
+            observed=observed with{Build=scenarios.Base,Curves=new Dictionary<CurveKey,PreparedCurve>{{flat.Key,prepared}}};
+            var full=new DeliveryCoverage(f.From,f.To);
+            foreach(var (membership,expected,peakDelta,offDelta) in new[]{
+                (BlockMembership.All,"34920",304,417),(BlockMembership.Peak,"18240",304,0),(BlockMembership.OffPeak,"16680",0,417)})
+            {
+                var profile=f.Profile with{Hours=new(membership,membership==BlockMembership.All?null:peak,holidays)};
+                var physical=new PowerPhysicalSide(Guid.NewGuid(),f.Terms(profile),f.Asset.Location);
+                var cashTerms=f.Terms(new SlotQuantity([new(PpaRole.EnergyDelivery)])) with{Schedule=physical.Terms.Schedule,
+                    InputPorts=[new(new(PpaRole.EnergyDelivery),f.Energy.Key,physical.Terms.Schedule)]};
+                var cash=new FixedSide(Guid.NewGuid(),cashTerms,new FlatPrice(new(D("0"),f.EnergyPrice)));
+                var instrument=new PpaInstrument(Guid.NewGuid(),f.Definitions,f.Reference,
+                    [new(new(PpaRole.EnergyDelivery),physical,D("1")),new(new(PpaRole.StrikePayment),cash,D("-1"))],false,"ppa_instrument_v2");
+                var inputs=f.Prepare(observed,[instrument]);var baseline=inputs.Session(scenarios.Base);
+                Money(ValueMeasures.From(baseline.Value(instrument,full,discount)).ValueExcludingOverdue,expected);
+                foreach(var (factor,delta) in scenarios.Factors.Zip(new[]{peakDelta,offDelta}))
+                {
+                    var baseAmount=int.Parse(expected,System.Globalization.CultureInfo.InvariantCulture);
+                    Money(ValueMeasures.From(inputs.Session(factor.Up,baseline).Value(instrument,full,discount)).ValueExcludingOverdue,
+                        (baseAmount+delta).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    Money(ValueMeasures.From(inputs.Session(factor.Down,baseline).Value(instrument,full,discount)).ValueExcludingOverdue,
+                        (baseAmount-delta).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
+            }
+        });
+        Check("firm shaped ATC preserves profile identities and 992 MWh through native physical and linked cash schedules",()=>{
+            var december=new PpaAcceptanceFixture(month:new(2020,12,1));
+            var factors=Enumerable.Range(0,24).Select(h=>D(h is >=7 and <15?"2":"1")).ToImmutableArray();
+            var instrument=december.Physical(hourlyFactors:factors);var market=december.Market(december.From.AddDays(-1),energy:"52");
+            var inputs=december.Prepare(market,[instrument]);var valued=inputs.Session(market.Build).Value(instrument,new(december.From,december.To),discount);
+            var physical=(IntervalSideValuation)valued.Sides[0].Value;var cash=(IntervalSideValuation)valued.Sides[1].Value;
+            Money(physical.PresentValue,"51584");Money(cash.PresentValue,"39680");Money(valued.PresentValue,"11904");
+            Equal(physical.Rows.Length,744);Equal(cash.Rows.Length,744);
+            foreach(var (a,b) in physical.Rows.Zip(cash.Rows))Equal(a.Quantity,b.Quantity);
+            var programs=instrument.Memberships.ToDictionary(m=>m.Side.Id,m=>ScheduleDefinitionCompiler.Generate(m.Side));
+            Equal(programs[instrument.Memberships[0].Side.Id].Grids.Count,63);
+            var retained=RetainedSideSchedules.Attach(instrument,programs);var retainedInputs=december.Prepare(market,[retained]);
+            var retainedValue=retainedInputs.Session(market.Build).Value(retained,new(december.From,december.To),discount);
+            Money(retainedValue.PresentValue,"11904");
+            var retainedRows=ValueMeasures.From(retainedValue).Rows;
+            Equal(retainedRows.Length,1488);
+            foreach(var row in retainedRows)Quantity(row.Quantity,TimeZoneInfo.ConvertTime(row.Interval.Start,december.Clock.Zone).Hour is >=7 and <15?"2":"1");
+            var profile=instrument.Memberships.Single(m=>m.Side is PowerPhysicalSide).Side.Terms.Quantity;
+            Equal(DefinitionIdentity.For(december.Profile).Version,"ppa_profile_quantity_v1");
+            if(DefinitionIdentity.For(december.Profile).Canonical.Contains("HourlyFactors",StringComparison.Ordinal))throw new Exception("Legacy profile identity changed.");
+            Equal(DefinitionIdentity.For(profile).Version,"ppa_profile_quantity_v2");
+            foreach(var invalid in new[]{factors.RemoveAt(0),factors.SetItem(0,D("-1")),Enumerable.Repeat(D("0"),24).ToImmutableArray()})
+                Reject("ppa_profile_shape",()=>december.Physical(hourlyFactors:invalid));
+        });
+        Check("Friday to Monday peak contractual change separates fixing marks and captured corrections",()=>{
+            var december=new PpaAcceptanceFixture(month:new(2020,12,1));
+            var friday=PpaAcceptanceFixture.At("2020-12-18T16:00:00Z");var monday=PpaAcceptanceFixture.At("2020-12-21T16:00:00Z");
+            var known=PpaAcceptanceFixture.At("2026-11-11T00:00:00Z");
+            var instrument=december.Physical(hours:new(BlockMembership.Peak,new(7,23,false),[new(2020,12,25)]));
+            var scope=new DeliveryCoverage(december.From,december.To);var seed=december.Market(december.From.AddDays(-1),energy:"52");
+            var native=(ShapedIntervalCurve)seed.Curves[december.C("synthetic_energy")].Curve;
+            var flat=new FlatIntervalCurve(native.Key,native.Unit,native.Definition.Grid,native.Definition.Blocks,FlatIntervalCurve.ReplaceActuals)
+                {ActualRule=new("interval_end",0,IntervalActualRule.PjmDayAheadReplay){ReleaseClock=december.Clock}};
+            ValueMeasureSet Value(DateTimeOffset valuation,string forward,bool correction=false)
+            {
+                var observations=seed.Snapshot.Selections.Select(o=>o.Input==seed.Bumps["synthetic_energy"].Input?o with{
+                    Observation=o.Observation with{Key=new(december.Definitions.CatalogId,Guid.NewGuid()),ObservedAt=valuation,Value=D(forward)}}:o).ToImmutableArray();
+                var snapshot=new MarketSnapshot(Guid.NewGuid(),december.Definitions,valuation,valuation,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,observations)
+                    .WithKnowledge(december.QuantityKnowledge,known);
+                var actuals=december.Hours.Select(h=>new IntervalActual(h.Start,h.End,new(D(correction&&h.Start==PpaAcceptanceFixture.At("2020-12-18T12:00:00Z")?"31":"30"),december.EnergyPrice),known,Guid.NewGuid(),correction?2:1)).ToArray();
+                var curve=PreparedCurve.Prepare(flat,[(scope.From,scope.To)],[],actuals,valuation,known);
+                var market=seed with{Snapshot=snapshot,Build=seed.Model.Build(snapshot,curve.Dependencies(december.Month)),Curves=new Dictionary<CurveKey,PreparedCurve>{{flat.Key,curve}}};
+                return ValueMeasures.From(december.Prepare(market,[instrument]).Session(market.Build).Value(instrument,scope,discount));
+            }
+            var first=Value(friday,"52");var second=Value(monday,"53");
+            Money(first.ValueExcludingOverdue,"-704");Money(second.ValueExcludingOverdue,"-944");
+            var change=PpaContractualChange.Calculate(first,second);
+            Money(change.Change,"-240");Money(change.Fixing,"-352");Money(change.ForwardMarks,"112");Money(change.CaptureCorrections,"0");
+            Equal(change.OpeningActualIntervals,224);Equal(change.ClosingActualIntervals,240);Equal(change.FixingIntervals,16);Equal(change.RemainingForwardIntervals,112);
+            Equal(first.Rows.Count(r=>r.Kind==ComponentKind.Delivery&&r.Interval.End>friday&&r.PriceComponents.Single().State==RowPriceState.Actual),12);
+            Reject("ppa_pnl_scope",()=>PpaContractualChange.Calculate(second,first));
+            Reject("ppa_pnl_scope",()=>PpaContractualChange.Calculate(first,second.Scale(D("2"))));
+            var corrected=PpaContractualChange.Calculate(first,Value(monday,"53",true));
+            Money(corrected.Change,"-239");Money(corrected.CaptureCorrections,"1");Money(change.Change,"-240");
+        });
         Check("economic classes reconcile realised cash and delivery independently from future unrealised value",()=>{
             var past=f.Physical("50");var observed=f.Market(PpaAcceptanceFixture.At("2031-12-10T00:00:00Z"),actuals:_=>"40");
             var inputs=f.Prepare(observed,[past]);var realised=ValueMeasures.From(inputs.Session(observed.Build).Value(past,hour,discount)).Scale(D("10"));

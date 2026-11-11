@@ -1,5 +1,14 @@
 # Current implementation record
 
+D376–D381 add [physical power forward-to-actual valuation](power-curve-composition.md)
+through existing product curves, physical mapping and native Instrument/Side PV.
+The bounded consumer supports daily/monthly product splices, curve-owned captured
+hourly settlement, explicit DA release replay, actual-only prefixes, retained
+hourly MW profiles and additive shapes on daily native blocks. The
+[booked peak/ATC examples](power-booked-roll.md) reconcile contractual close
+value changes and visible corrections. Monthly shaping, graph worker custody,
+ISO finality integration and cash/accounting remain separate work.
+
 D340 moves physical work into **Scheduling → Physical operations**. The Blotter
 keeps pricing, retained instrument overviews and read-only Side schedules. The
 operations directory reads exact booked metadata without PV, refuses missing held

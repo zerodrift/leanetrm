@@ -17,7 +17,10 @@ public sealed record VolumeQuantity([property:IdentityField]ImmutableArray<Volum
     [property:IdentityField]ReferenceKey Energy):PpaQuantity;
 [EconomicDefinition("ppa_profile_quantity_v1")]
 public sealed record ProfileQuantity([property:IdentityField]ReferenceKey Capacity,[property:IdentityField]ReferenceKey Energy,
-    [property:IdentityField]DeliveryHours Hours):PpaQuantity;
+    [property:IdentityField]DeliveryHours Hours):PpaQuantity
+{
+    [IdentityField]public ImmutableArray<ExactDecimal> HourlyFactors {get;init;}=[];
+}
 [EconomicDefinition("ppa_slot_quantity_v1")]
 public sealed record SlotQuantity([property:IdentityField]ImmutableArray<SideSlot> Slots):PpaQuantity;
 [EconomicDefinition("ppa_accreditation_quantity_v1")]

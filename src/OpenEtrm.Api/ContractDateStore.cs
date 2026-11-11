@@ -50,8 +50,8 @@ public sealed class ContractDateStore(Guid catalog,ScheduleStore schedules)
             if(pinned is not null&&(binding is null||binding.Expression!=expression))throw Invalid("The exact retained date-field binding is missing or inconsistent.");
             return resolver.Resolve(expression,binding?.ScheduleId,binding?.ScheduleVersion);
         })).ToImmutableArray();
-        for(var i=1;i<rows.Length;i++)if(rows[i].DeliveryFrom<rows[i-1].DeliveryTo||rows[i].Expiry<=rows[i-1].Expiry)
-            throw Invalid("Contract periods must be ordered without overlap and have increasing last-trading instants.");
+        for(var i=1;i<rows.Length;i++)if(rows[i].DeliveryFrom<rows[i-1].DeliveryTo||rows[i].Expiry<rows[i-1].Expiry)
+            throw Invalid("Contract periods must be ordered without overlap and have nondecreasing last-trading instants.");
         return new(body.Code,body.Name,context,[..rows.Select(c=>new DatedContractDefinition(c.Label,c.DeliveryFrom,c.DeliveryTo,c.Expiry,c.DeliveryStart,c.DeliveryEnd,c.LastTrading,c.CutoffUtc))]);
     }
 

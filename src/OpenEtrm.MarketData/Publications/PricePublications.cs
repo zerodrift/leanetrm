@@ -48,6 +48,7 @@ public abstract class PricePublicationBehavior
         return definition.Implementation switch
         {
             DatedGasPublication.DailyImplementation or DatedGasPublication.MonthlyImplementation => new DatedGasPublication(definition),
+            HourlyPowerPublication.Implementation => new HourlyPowerPublication(definition),
             var value when UnsupportedPricePublication.Implementations.Contains(value) => new UnsupportedPricePublication(definition),
             _ => throw Error("publication_unsupported", "The selected publication implementation is unsupported.")
         };

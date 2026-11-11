@@ -24,6 +24,10 @@ public static partial class CustomCurves
     {
         var store=new CustomCurvesStore(database);
         var activations=new CurveActivations(database.Manifest.CatalogId);
+        api.MapPost("/power-location-bindings",(HttpContext c,PowerLocationBindingRequest body)=>operation(c,"SealMarketDefinitions",null,async(connection,pin,ct)=>
+            Results.Ok(await PowerLocationGraphs.Publish(connection,database.Manifest.CatalogId,body,ct))));
+        api.MapPost("/power-location-bindings/history",(HttpContext c,PowerLocationHistoryRequest body)=>operation(c,"SealMarketDefinitions",null,async(connection,pin,ct)=>
+            Results.Ok(await PowerLocationGraphs.PublishHistory(connection,database.Manifest.CatalogId,body,ct))));
         api.MapPost("/custom-curves/compose",(HttpContext c,CustomCurveCompositionRequest body)=>operation(c,"ReadMarketData",body.SnapshotId,async(connection,pin,ct)=>
         {
             var definition=RecipeComposition.Build(body.Composition);Validate(definition);
@@ -49,6 +53,9 @@ public static partial class CustomCurves
 
             var data=await database.Read(connection,ct,selectedRevision:revision,observationIds:[],includeCalendarDays:false);
             await store.RequirePublishedSource(connection,new(data.DefinitionRevision.CatalogId,saved.Id,saved.Version,saved.Definition.Output),data.DefinitionRevision.RevisionId,ct);
+            if(RecipeEngine.PowerIntervalOutput(saved.Definition) is not null)
+                return Results.Ok(new{activation=plan,interval=segment,recipe=saved,
+                    preview=(await PreviewRead(connection,database,pin,new(saved.Definition,frame.Id,saved.Id,saved.Version),ct)).Value});
             var calculated=await EvaluateDefinition(connection,database,saved.Definition,data,frame,saved.Sources,saved.Calendars,saved.Schedules,context,ct);
             return Results.Ok(new{activation=plan,interval=segment,recipe=saved,preview=Result(calculated,data,pin,saved.Definition,saved.Id,saved.Version)});
         }));
@@ -106,7 +113,7 @@ public static partial class CustomCurves
         if(!System.Text.RegularExpressions.Regex.IsMatch(definition.Code,@"\A[a-z][a-z0-9_]{0,31}\z")||definition.Name.Length>80||definition.Nodes.Length>32||definition.Nodes.Any(n=>!System.Text.RegularExpressions.Regex.IsMatch(n.Id,@"\A[a-z][a-z0-9_]{0,31}\z")))throw Invalid("Use stable lowercase codes, at most 32 nodes and an 80-character name.");
         foreach(var node in definition.Nodes)
         {
-            var allowed=node.Kind switch{"source"=>new[]{"curve"},"published_source"=>new[]{"selection"},"select" when node.Parameters["mode"]=="positions"=>new[]{"mode","binding","first","count"},"select"=>new[]{"mode","binding"},"mean"=>new[]{"axis"},"weighted_contracts"=>new[]{"aggregation"},"weighted_panels"=>new[]{"aggregation","alignment"},"splice"=>new[]{"from","cutover","to","implementation"},"lookup"=>new[]{"axis","method","maxGapDays","leftBoundary","rightBoundary","implementation","output"},"dates"=>node.Parameters.Keys.ToArray(),_=>Array.Empty<string>()};
+            var allowed=node.Kind switch{"source"=>new[]{"curve"},"published_source"=>new[]{"selection"},"select" when node.Parameters["mode"]=="positions"=>new[]{"mode","binding","first","count"},"select"=>new[]{"mode","binding"},"mean"=>new[]{"axis"},"weighted_contracts"=>new[]{"aggregation"},"weighted_panels"=>new[]{"aggregation","alignment"},"splice"=>new[]{"from","cutover","to","implementation"},"lookup"=>new[]{"axis","method","maxGapDays","leftBoundary","rightBoundary","implementation","output"},RecipeEngine.PowerIntervals=>RecipeEngine.PowerIntervalParameters.ToArray(),"dates"=>node.Parameters.Keys.ToArray(),_=>Array.Empty<string>()};
             if(node.Parameters.Keys.Any(key=>!allowed.Contains(key)))throw Invalid("A node contains unsupported settings for its selected operator.");
         }
         foreach(var node in definition.Nodes.Where(n=>n.Kind=="dates"))
@@ -154,11 +161,26 @@ public static partial class CustomCurves
     static object[] Operators()
     {
         object Option(string value,string label)=>new{value,label};
-        object Field(string key,string label,string type,object[]? options=null,object? when=null)=>new{key,label,type,required=true,options=options??[],when};
+        object Field(string key,string label,string type,object[]? options=null,object? when=null,bool required=true)=>new{key,label,type,required,options=options??[],when};
         object When(params string[] modes)=>new{key="mode",values=modes};
         object Port(string name,string type)=>new{name,label=name,type,required=true};
         object Operator(string kind,string label,string output,object[] fields,params object[] ports)=>new{kind,label,outputType=output,fields,inputPorts=ports};
-        return [Operator("source","Source curve","curve",[Field("curve","Curve","curve")]),
+        return [Operator(RecipeEngine.PowerIntervals,"Compose power intervals","power_intervals",[
+                Field("implementation","Forward policy","select",[Option("flat_forward_only_v1","Flat forwards · whole undelivered contracts"),Option(RecipeEngine.DailyThenMonthlyForward,"Daily futures then monthly futures · flat products"),Option(RecipeEngine.SavedProductForwards,"Lookup from saved peak/off-peak product curves")]),
+                Field("product","Published TOU product","power_product"),Field("productVersion","Exact TOU version","integer"),Field("profile","Output delivery profile","power_profile"),
+                Field("profileMapping","Source grid alignment","select",[Option("exact_native_grid_terms_v1","Match every native grid term")]),
+                Field("market","Output market","select",[Option("DA","Day ahead"),Option("RT","Real time")]),
+                Field("from","Delivery from (YYYY-MM-DD)","text"),Field("cutover","Monthly section starts (YYYY-MM-DD)","text",when:new{key="implementation",values=new[]{RecipeEngine.DailyThenMonthlyForward}}),Field("to","Delivery to exclusive (YYYY-MM-DD)","text"),
+                Field("shapePolicy","Hourly price construction","select",[Option(RecipeEngine.DailyAdditiveShape,"Additive shape on daily 16/8 blocks; monthly remains flat")],required:false),
+                Field("shapeSeries","Hourly price shape","power_shape",when:new{key="shapePolicy",values=new[]{RecipeEngine.DailyAdditiveShape}}),
+                Field("settlementPolicy","Physical settlement","select",[Option(PowerIntervalSettlement.Captured,"Captured LMPs · corrections as known · required for ended hours"),Option(PowerIntervalSettlement.PjmDayAheadReplay,"PJM DA replay · normal D−1 13:30 EPT availability · corrections as known")],required:false),
+                Field("settlementPublication","Settlement publication","power_publication",when:new{key="settlementPolicy",values=new[]{PowerIntervalSettlement.Captured,PowerIntervalSettlement.PjmDayAheadReplay}}),
+                Field("settlementVersion","Exact publication version","integer",when:new{key="settlementPolicy",values=new[]{PowerIntervalSettlement.Captured,PowerIntervalSettlement.PjmDayAheadReplay}}),
+                Field("settlementIndex","Settlement index","power_settlement_index",when:new{key="settlementPolicy",values=new[]{PowerIntervalSettlement.Captured,PowerIntervalSettlement.PjmDayAheadReplay}}),
+                Field("settlementSource","Captured hourly source","power_source",when:new{key="settlementPolicy",values=new[]{PowerIntervalSettlement.Captured,PowerIntervalSettlement.PjmDayAheadReplay}}),
+                Field("projectionPolicy","Unfixed hours","select",[Option(OpenEtrm.MarketData.Power.FlatIntervalCurve.ReplaceActuals,"Keep native futures + basis forecast · refuse expired unfixed anchors")],when:new{key="settlementPolicy",values=new[]{PowerIntervalSettlement.Captured,PowerIntervalSettlement.PjmDayAheadReplay}})
+                ],Port("peak","curve|panel"),Port("offPeak","curve|panel"),new{name="dailyPeak",label="Daily HE08–23",type="curve",required=false},new{name="dailyOffPeak",label="Daily HE01–07,24",type="curve",required=false}),
+            Operator("source","Source curve","curve",[Field("curve","Curve","curve")]),
             Operator("published_source","Published custom curve","panel",[Field("publishedSource","Published version/output","published_source"),Field("selection","Output selection","select",[Option("all_output_points_v1","All points under the selected context")])]),
             Operator("select","Select contracts","selection",[Field("mode","Contract selection","select",[Option("positions","Relative positions"),Option("daily_delivery","Daily delivery periods")]),Field("first","First position","integer",when:When("positions")),Field("count","Number of positions","integer",when:When("positions")),Field("binding","Resolve contracts","select",[Option("each_sample","At each sampling instant"),Option("context","Once at context instant")])],Port("source","curve")),
             Operator("dates","Date sequence","dates",[Field("mode","Date sequence","select",[Option("context","Context date"),Option("prior_calendar","Prior calendar dates"),Option("prior_business","Prior publication business dates"),Option("balance_month","Context date through month-end"),Option("schedule","Published date schedule"),Option("delivery_range","Explicit daily delivery range")]),Field("from","Delivery from (YYYY-MM-DD)","text",when:When("delivery_range")),Field("to","Delivery to exclusive (YYYY-MM-DD)","text",when:When("delivery_range")),Field("count","Date count","integer",when:When("prior_calendar","prior_business","schedule")),Field("includeContext","Include context date","boolean",when:When("prior_calendar","prior_business")),Field("calendar","Calendar","calendar",when:When("prior_business")),Field("schedule","Published schedule","schedule",when:When("schedule")),Field("first","First schedule occurrence","integer",when:When("schedule")),Field("sampling","Sampling time","select",[Option("context_utc_time","Exact context UTC time on each sampling date")]),Field("corrections","Corrections","select",[Option("exact_context_frame_history_latest_visible","Exact selected context inputs; latest visible historical corrections")])]),
@@ -182,7 +204,7 @@ public static partial class CustomCurves
                 fields=new[]{Field("aggregation","How to combine","select",[Option(RecipeEngine.SignedSum,"Add weighted prices (negative weights subtract)"),Option(RecipeEngine.WeightedMean,"Weighted average (divide by total weight)")]),
                     Field("alignment","Match delivery periods","select",[Option(RecipeEngine.ExactDeliveryAlignment,"Exact periods · one value per period in every curve")]),Field("panelWeights","Curve weights","panel_weights")},
                 inputPorts=Array.Empty<object>(),dynamicInputs=new{type="panel",label="Curve",prefix="source_"}},
-            Operator("output","Curve output","curve_result",[],Port("values","panel"))];
+            Operator("output","Curve output","curve_result",[],Port("values","panel|power_intervals"))];
     }
     internal static async Task<RecipeResult> EvaluateDefinition(NpgsqlConnection connection,PreviewDatabase database,RecipeDefinition definition,
         PreviewData data,InputFrame frame,ImmutableDictionary<string,CurveSourceReference> sources,
@@ -515,6 +537,19 @@ public static partial class CustomCurves
             var denominator=data.References["units"].Single(r=>r.Text("code")==quantity.Text("unit_code")).Text("symbol");
             return currency+"/"+denominator+(unit.Multiplier==ExactDecimal.Parse("1")?"":" × "+unit.Multiplier);
         }
+        bool NativeProductSplice()
+        {
+            if(history||result.Points.Any(p=>p.Contracts.Length!=1))return false;
+            var output=definition.Nodes.Single(n=>n.Id==definition.Output);
+            var splice=output.Inputs.TryGetValue("values",out var source)?definition.Nodes.SingleOrDefault(n=>n.Id==source&&n.Kind=="splice"):null;
+            if(splice is null)return false;
+            try{_=RecipeEngine.PowerProductSplice(definition,DateWorkspace.Date(splice.Parameters["from"]),DateWorkspace.Date(splice.Parameters["to"]));return true;}
+            catch(MarketDataException error)when(error.Code=="recipe_definition"){return false;} // Generic splices retain their generic presentation.
+        }
+        var deliverySplice=NativeProductSplice();
+        MarketContract Delivery(RecipePoint point)=>data.ContractRows(point.Contracts.Single().Id).Single();
+        string Day(DateOnly day)=>day.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);
+        string Tenor(MarketContract c)=>c.DeliveryTo==c.DeliveryFrom.AddDays(1)?"Daily":c.DeliveryFrom.Day==1&&c.DeliveryTo==c.DeliveryFrom.AddMonths(1)?"Monthly":"Period";
         object Chart()
         {
             var unit=result.Points.Length>0?Unit(result.Points[0].Price.Unit):"";
@@ -525,6 +560,8 @@ public static partial class CustomCurves
                         name="Position "+group.Key.ToString(CultureInfo.InvariantCulture),
                         points=group.OrderBy(p=>p.Dates[0]).Select(p=>new{x=p.Dates[0].ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),y=p.Price.Format(format),label=p.Dates[0].ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),text="Contracts: "+string.Join(", ",p.Contracts.Select(c=>data.ContractRows(c.Id).Single().DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)))})
                     })};
+            if(deliverySplice)return new{title=definition.Name,axis="observation",axisName="Delivery date",unit,
+                series=new[]{new{name="Price",points=result.Points.Select(p=>{var c=Delivery(p);return new{x=Day(c.DeliveryFrom),y=p.Price.Format(format),label=Day(c.DeliveryFrom)+" · "+Tenor(c),text="Delivery to exclusive: "+Day(c.DeliveryTo)};})}}};
             return new{title="Custom curve",axis="category",axisName="Curve point",unit,
                 series=new[]{new{name="Price",points=result.Points.Select(p=>new{x=p.Label,y=p.Price.Format(format),label=p.Label})}}};
         }
@@ -539,8 +576,8 @@ public static partial class CustomCurves
                 unit=units.SingleOrDefault()??""};
         }
         return new{id,version,context=pin.Context,summary=Summary(),snapshotId=pin.RequireFrame().Id,at=pin.RequireFrame().At,engineVersion=RecipeEngine.Version,
-            columns=new[]{"Point","Price","Unit","Samples","Dates","Contracts"},
-            rows=result.Points.Select(p=>new[]{p.Label,p.Price.Format(format),Unit(p.Price.Unit),p.SampleCount.ToString(CultureInfo.InvariantCulture),string.Join(", ",p.Dates.Select(d=>d.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture))),string.Join(", ",p.Contracts.Select(c=>data.ContractRows(c.Id).Single().DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)))}),
+            columns=deliverySplice?new[]{"Delivery from","Delivery to","Price","Unit","Tenor"}:new[]{"Point","Price","Unit","Samples","Dates","Contracts"},
+            rows=deliverySplice?result.Points.Select(p=>{var c=Delivery(p);return new[]{Day(c.DeliveryFrom),Day(c.DeliveryTo),p.Price.Format(format),Unit(p.Price.Unit),Tenor(c)};}):result.Points.Select(p=>new[]{p.Label,p.Price.Format(format),Unit(p.Price.Unit),p.SampleCount.ToString(CultureInfo.InvariantCulture),string.Join(", ",p.Dates.Select(d=>d.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture))),string.Join(", ",p.Contracts.Select(c=>data.ContractRows(c.Id).Single().DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture)))}),
             chart=Chart(),
             points=result.Points,
             inputs=result.Inputs.Select(s=>new{date=s.Date,at=s.At,contract=s.Contract,price=s.Price,observations=s.Observations,fixedValue=s.Fixed}),

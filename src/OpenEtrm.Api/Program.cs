@@ -134,6 +134,10 @@ const string malformed="The request is incomplete or malformed.";
     AutomationException a => (422,a.Code,a.Message),
     OpenEtrm.Shared.Calculation.CalculationException g => (422,g.Code,g.Message),
     OpenEtrm.Shared.Analytics.OverlayException o => (422,o.Code,o.Message),
+    PostgresException p when p.SqlState=="P0001" && (p.MessageText.StartsWith("power_prefix_",StringComparison.Ordinal)||p.MessageText=="power_location_conflict")
+        => (422,p.MessageText,"The activated power output must preserve its declared actual-only history and exact location coverage."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("power_price_shape_",StringComparison.Ordinal)
+        =>(422,p.MessageText,"Select a compatible exact hourly shape series and the supported daily-native calibration policy."),
     PostgresException p when p.MessageText=="curve_activation_conflict" => (409,p.MessageText,"The activation timeline or request changed. Reload or retry the exact original request."),
     PostgresException p when p.SqlState=="P0001" && p.MessageText.StartsWith("curve_activation_",StringComparison.Ordinal) => (422,p.MessageText,"Supply disjoint effective intervals and exact published outputs under the complete timeline policy."),
     PostgresException p when p.MessageText is "job_conflict" => (409,p.MessageText,"The job or request changed. Refresh or reconcile the original request."),
@@ -683,6 +687,25 @@ api.MapPost("/ppa/inspect",(HttpContext c,PpaInspectRequest body)=>PpaOperation(
 api.MapPost("/ppa/break-even",(HttpContext c,PpaBreakEvenRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>new PpaBreakEvenStore(database,ppaStore).Solve(connection,frame!,body,ct)));
 api.MapPost("/ppa/validate",(HttpContext c,PpaValidateRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Validate(connection,frame!,body,ct)));
 api.MapPost("/ppa/preview",(HttpContext c,PpaPreviewRequest body)=>PpaOperation(c,body.SnapshotId,"ReadTrades",(connection,frame,ct)=>ppaStore.Preview(connection,frame!,body,ct),(connection,frame,ct)=>ppaStore.RecheckScope(connection,frame!,body.KnownAt,body.Scope,body.SelectedIds,body.ReferenceCatalogId,ct)));
+api.MapPost("/ppa/pnl",(HttpContext c,PpaContractChangeRequest body)=>Locked(c,session=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("ppa_historical","PPA close comparisons require explicit known-at cutoffs in working mode.");
+    if(body.Opening is null||body.Closing is null)throw PpaCompiler.Error("ppa_pnl_scope","Supply both exact close contexts.");
+    var opening=PpaFrame(session,body.Opening.SnapshotId);var closing=PpaFrame(session,body.Closing.SnapshotId);
+    return database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
+    {
+        if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct)||!await PreviewDatabase.HasPermission(connection,"ReadMarketData",ct))throw new PreviewDeniedException();
+        var value=await ppaStore.ContractChange(connection,opening,closing,body,ct);
+        if(!await PreviewDatabase.HasPermission(connection,"ReadTrades",ct)||!await PreviewDatabase.HasPermission(connection,"ReadMarketData",ct))throw new PreviewDeniedException();
+        var bytes=PpaStore.Response(value);ct.ThrowIfCancellationRequested();
+        await ppaStore.RecheckScope(connection,opening,body.Opening.KnownAt,body.Opening.Scope,body.Opening.SelectedIds,body.Opening.ReferenceCatalogId,ct);
+        await ppaStore.RecheckScope(connection,closing,body.Closing.KnownAt,body.Closing.Scope,body.Closing.SelectedIds,body.Closing.ReferenceCatalogId,ct);
+        await ppaStore.Recheck(connection,opening,ct);await ppaStore.Recheck(connection,closing,ct);
+        await ppaStore.RequireContractClose(connection,opening,body.Opening.KnownAt,ct);
+        await ppaStore.RequireContractClose(connection,closing,body.Closing.KnownAt,ct);ct.ThrowIfCancellationRequested();
+        return(IResult)new PpaJsonResult(bytes,200);
+    },c.RequestAborted);
+}));
 Task<IResult> SavePpa(HttpContext c,PpaWriteRequest body,string action)=>Locked(c,async session=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("ppa_historical","Return to current working data to book or amend.");
@@ -700,7 +723,7 @@ Task<IResult> SavePpa(HttpContext c,PpaWriteRequest body,string action)=>Locked(
                 await ppaStore.Recheck(connection,frame,ct);await ppaStore.RecheckRefusal(connection,refusal,ct);
                 return (Terms:(RetainedScheduleTerms?)null,Refusal:(IResult?)new PpaJsonResult(bytes,422));
             }
-            return (Terms:(RetainedScheduleTerms?)await ppaStore.PrepareScheduleTerms(connection,frame,body,ct),Refusal:(IResult?)null);
+            return (Terms:(RetainedScheduleTerms?)await ppaStore.PrepareScheduleTerms(connection,frame,body,action,ct),Refusal:(IResult?)null);
         },c.RequestAborted);
         if(prepared.Refusal is not null)return prepared.Refusal;
         var terms=prepared.Terms;

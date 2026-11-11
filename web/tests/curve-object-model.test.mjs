@@ -40,3 +40,9 @@ test('object names use offered source names and recipe name without deriving con
  assert.equal(curveObjectTitle(view.nodes[2],d,[],[]),'Example');
  assert.equal(curveConnectionLabel(d,view.connections[1],[{kind:'sample',label:'Sample prices'},{kind:'output',label:'Curve output'}]),'Sample prices');
 });
+test('spliced product curves and power lookups are displayed as result curves',()=>{
+ for(const kind of ['splice','power_intervals']){
+  const d={code:'synthetic',name:'Synthetic',output:'result',nodes:[{id:'operation',kind,parameters:{},inputs:{}},{id:'result',kind:'output',parameters:{},inputs:{values:'operation'}}]};
+  const item=curveObjects(d).nodes.find(n=>n.node.id==='operation');assert.equal(item.role,'result');assert.equal(curveObjectTitle(item,d,[],[]),'Result curve');
+ }
+});

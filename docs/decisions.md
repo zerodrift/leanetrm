@@ -3980,3 +3980,223 @@ aggregation across distinct reference revisions, remaining product admissions an
 the final browser and authority checks. Generated-close and normalized-report capabilities must be
 assessed separately from interactive portfolio support. No production activation
 has been performed.
+
+
+## D376 — Flat power interval outputs and contextual location versions
+
+The first power composition slice uses an explicit flat, forward-only policy over
+whole undelivered native source contracts. Peak/off-peak ports retain original
+curve/contract requests, including declared futures-plus-basis dependencies. Exact
+TOU and output-profile relationships are normalized foreign keys; all native grid
+terms must align. Existing date-only graph output semantics remain unchanged.
+
+The selected assignment policy follows the location's activated graph at each
+valuation. The first bounded assignment is one immutable logical family per exact
+location/source bundle, market and delivery coverage. Creation and initial
+activation commit together; certified activation knowledge controls its visibility.
+The existing activation timeline selects an exact output at the valuation effective
+date, once per calculation. A different logical family needs a later assignment
+revision operation and is refused in this slice. No overlapping native energy
+assignment receives implicit precedence.
+
+Draft physical Side valuation is the first consumer. Booked and retained worker
+admission remain refused until separately qualified. See the
+[composition contract](power-curve-composition.md#supported-behavior).
+
+## D377 · Daily futures then whole-month power forwards
+
+The managed `daily_then_monthly_forward_v1` policy consumes four exact native
+outright curves: daily peak/off-peak and monthly peak/off-peak. Each can retain
+its existing futures-plus-explicit-basis `Add` construction. The saved graph
+selects complete daily periods before an explicit first-of-month cutover and
+complete monthly periods thereafter; the exclusive endpoint is also a month
+boundary. Missing coverage, overlapping ownership, crossing source periods,
+started source contracts and incompatible units/grid terms refuse. No monthly
+price is broadcast into an invented daily reference contract.
+
+Daily peak means HE08–23 and daily off-peak HE01–07 plus HE24 on every calendar
+day, including holidays. Monthly products retain the exact published TOU version
+and its holiday calendar. The daily windows are policy terms, independent of the
+monthly TOU window. Daily fixed-total futures lots remain independent of physical
+MW and selected-hour counts. The durable contract-date mapping permits equal
+adjacent last-trading instants for weekend deliveries; decreasing instants refuse.
+Other relative-roll and legacy date-preview consumers retain their own admission.
+
+The primary graph preview returns native daily/monthly product points and their
+covered hours. Physical Side valuation still uses the existing hourly resolver,
+exact native anchor requests and generic immutable scenarios. Only selected
+anchors enter the calculation dependencies. The cutover is editable only where
+the selected sources provide complete coverage; there is no missing-mark fallback.
+Existing monthly-only interval graphs and other commodities keep their contracts.
+
+ICE's [Western daily peak](https://www.ice.com/products/6590471) and
+[daily off-peak](https://www.ice.com/products/6590503) specifications define the
+16/8 windows. A rule-derived December 2020 demo may extrapolate current product
+patterns under explicit synthetic status; it does not establish actual historical
+listings or official settlements. Published daily/monthly marks need not satisfy
+one common flat price, and this policy makes no arbitrage-free hourly shaping claim.
+
+Qualification: independent numerical checks cover146 anchors over2471 hours,
+Christmas/weekend daily16/8, the January1 cutover to monthly holiday treatment,
+March DST and separate daily/monthly futures/basis up/down scenarios. An owned
+HTTP fixture qualifies24 product points over1008 hours, durable date mappings
+with equal weekend cutoffs, saved publication, existing physical PV, historical
+activation and write authority. This remains forward-only draft physical pricing;
+actual substitution, partial fixing, booked/worker power valuation and compiled
+Side compression remain separate work.
+
+## D378 · Saved product splices feed the physical power lookup
+
+Power product curves are ordinary saved splice graphs. Each uses two native
+sources, exact identity contract maps (one contract per position, signed sum,
+weight one), one context sampling node and the existing whole-delivery splice.
+Daily/monthly bounds and cutover belong to the product curve. Sources retain
+native futures-plus-basis dependencies; no prices are copied into new marks.
+
+The `saved_product_forwards_v1` power policy consumes exact published peak and
+off-peak outputs through the existing normalized published-source relationships.
+Both products must share domain and whole-month cutover. The bounded decoder
+admits only the transparent identity-map splice subtype; price-term overrides,
+nonidentity weights, nested imports, other sampling policies, missing periods
+and incompatible source bundles, locations or grids refuse. Daily16/8 masks and
+monthly TOU masks retain their existing independent conventions. These checks
+also apply at SQL publication, including exact output/port and normalized payload
+checks. No new persistence relationship or pricing framework is introduced.
+
+The physical adapter compiles those exact native requests through the existing
+flat interval resolver and ordinary Side PV/scenario boundary. Only selected
+anchors enter its pricing dependencies. A location family may publish version2
+using exact child versions while old activations and version1 remain retained;
+publishing another child version never silently changes an existing lookup.
+Product previews show one product's daily/monthly points, and location previews
+show the two products over the same interval ownership. Other financial and
+settlement qualifications remain as recorded in D376/D377.
+
+## D379 · Physical power settlement follows the resolved location curve
+
+Agreed routing and captured-price policy; the bounded implementation is described below.
+Physical Side parameters and delivery product select one compatible location
+curve through the physical mapper. That resolved curve output declares the
+exact settlement publication/index and eligibility terms. The Side has no
+separate settlement target or location-versus-curve settlement switch. Product
+terms select the applicable intervals and aggregation convention.
+
+An alternate settlement requires a distinct, explicitly selected, supported
+physical/pricing parameter combination with its own curve assignment and
+settlement declaration. Duplicate assignments for the same combination must not
+silently choose an alternate, and a configuration must not invent an ISO node
+identity to distinguish pricing choices.
+
+For a composed location curve, the physical settlement declaration belongs to
+the locational output; it is not inherited from a futures input's exchange
+settlement. Existing exact-version, historical-context and fixing-eligibility
+contracts still apply. This decision changes no gas/crude or independent
+financial Side behavior and does not qualify actual substitution or cash
+settlement.
+
+
+### D379 implementation checkpoint
+
+The existing `PowerPhysicalSide`, location activation path and interval resolver
+consume an exact output-owned publication/index/source relationship. The narrow
+`custom_curve_power_settlements` relation retains those foreign keys without
+changing prior output rows. Save, SQL publication and read admission require the
+same location, DA/RT statistic, reference bundle, quote, clock and hourly cadence.
+There is no Side settlement selector. Legacy graphs remain explicitly forward-only.
+
+`power_captured_hourly_v1` supplies captured prices, with no official final-release
+assertion. `captured_required_for_ended_v1` requires an actual for every ended
+requested hour; this is a valuation requirement, not an ISO release deadline.
+`flat_native_mark_replace_actual_v1` replaces the complete outright forecast for
+a fixed interval and keeps the existing native mark on other live hours. It does
+not recalibrate a whole-period average. An expired anchor with unfixed live hours
+refuses; no frozen-price carry or estimate is introduced.
+
+Ended hours select corrections at the certified knowledge cutoff. Live/future
+hours additionally require capture knowledge by valuation; the eligibility bound
+is applied before revision selection, so a later correction cannot hide a DA
+original already eligible at valuation. The shared collected-price reader retains
+its existing four-argument behavior and worker fences. Captured-only hours retain
+construction provenance and have no live forward-price dependency. The interval
+publication refuses the legacy date-only release/fixing operation.
+
+Owned synthetic checks cover exact binding round trips, SQL malformed-policy
+refusal, old graph activation, actual and mixed physical Side PV, missing prices,
+expired actual-only anchors, visible and historical corrections, DA eligibility
+and a later correction across a real valuation boundary. Ordinary Side base/up/down
+PV is 49/50/48 for one actual hour at 7 and one forecast hour at 42; two actual hours
+at 7 give 14 with no forward dependency. Existing forward and PPA checks remain
+regressions. These are bounded correctness checks, not a performance claim.
+
+Price demand follows the physical Side's retained product/calendar schedule,
+clipped to its assignment and valuation coverage. The curve's complete declared
+geometry is still validated. Unselected hours require neither marks nor captures;
+a valid zero-hour product window values to zero, while any attempted unprepared
+curve lookup still refuses. Other Side and native assignment paths are unchanged.
+
+Product checks cover all-hours, peak and off-peak forecasts and captured prices,
+sparse selected inputs, holidays, real 23/25-hour DST days and correction history.
+December 2020 has 744/352/392 selected hours with nonuniform synthetic-price
+values 9300/5456/3844. Over December 19 through March 31, trade masks select
+1136 peak and 1335 off-peak hours; 384 of the off-peak trade's hours use daily
+1x16 construction. Independent source up/down scenarios preserve that ownership,
+and ordinary Side PV has zero sensitivity to its excluded branch.
+
+A trade's exact published TOU can be proved by a sealed native block or a
+compatible visible published interval graph. Both consumers share the product
+admission reader. PPA reads additionally bound graph publication receipts by their
+explicit certified knowledge cutoff; a current session cannot use a later graph
+to prove an earlier read. Draft graphs and unpublished product versions remain
+ineligible. The private reader and public worker fence retain their authorization
+contracts; no new product or settlement fallback is introduced.
+
+The D379 checkpoint covers draft physical power valuation; D380 extends booked
+synchronous pricing below. Simultaneous DA/RT assignments for
+one location, expired-anchor projection, whole-period residual recalibration,
+official publication/finality schedules, worker power, cash/invoices and
+futures variation margin remain separately qualified work.
+
+## D380 · Booked power uses explicit admission, release replay and contractual change
+
+The first in-term power consumer retains the full original month and reuses the
+ordinary Instrument/Side booking and PV contracts. An explicit versioned admission
+bounds the supported economic and payment terms; legacy future-only booking is
+unchanged. A separately selected normal PJM DA release replay rule gates capture
+availability, while real certified knowledge selects revisions. Neither means
+official finality. A graph may atomically enroll an exact activation-owned
+actual-only prefix; subsequent activations validate and carry only the immediate
+predecessor's enrollment. No fictional historical forward anchors are introduced.
+
+The managed close comparison reconciles one unchanged holding's native Side PV
+into fixing, forward marks and capture corrections, under two explicit close and
+knowledge contexts. This is contractual value change before payment, not a cash
+or physical-accounting P&L lifecycle. Synchronous booked pricing is admitted;
+graph worker execution remains fenced. See [the contract and numerical oracle](power-booked-roll.md).
+
+## D381 · Firm hourly power quantities and daily-native price shapes
+
+A profile quantity may retain 24 nonnegative local-hour MW factors under
+`local_hour_contractual_mw_factors_v1`. They are contractual quantities, never
+capacity-factor forecasts and never normalized. A repeated civil hour receives
+its factor twice; a missing civil hour creates no interval. Exact side-owned
+immutable factors compile to existing native quantity literals, and linked cash
+uses the same MWh. Absent factors preserve the original definition identity;
+present factors select the profile quantity's second contract version. In-term
+booking selects `in_term_shaped_power_contractual_v1` explicitly.
+
+The existing mixed-tenor physical lookup may select
+`daily_native_block_additive_v1` with one exact additive interval-series foreign
+key. Its complete daily 1x16/1x8 source blocks use the existing whole-block
+additive calibration and shared immutable scenario machinery. Quantity weighting
+does not alter that calibration. Monthly sources stay flat: monthly off-peak
+futures' average of daily averages differs from a duration-weighted hourly mean.
+No monthly shaping statistic is inferred.
+
+Captured actuals replace their own hours. Remaining live hours keep the original
+whole-block calibration; the shape still requires every calibration cell of a
+partially fixed block. Fully fixed blocks, actual-only prefixes and monthly-only
+demand need no shape cells. A common live anchor's changed shape/series revision
+is a model change and refuses the bounded contractual P&L comparison. Existing
+exact assignment, knowledge, expiry and worker fences remain in force.
+
+See [the ATC example and qualification boundary](power-booked-roll.md#hourly-atc-example).

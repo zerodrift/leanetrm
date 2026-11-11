@@ -11,7 +11,10 @@ namespace OpenEtrm.Api;
 
 internal sealed record PpaBinding(Guid? TradeId,int? Revision,Guid BindingId,PpaInstrument Instrument,DeliveryCoverage Coverage,ExactDecimal Mw);
 internal sealed record PpaPrepared(IntervalValuationInputs Inputs,CurveBuild Market,ImmutableDictionary<Guid,ISideDiscounting> Discounting,
-    ImmutableArray<Guid> ReadContexts);
+    ImmutableArray<Guid> ReadContexts)
+{
+    internal ImmutableArray<PowerLocationEvidence> PowerLocations{get;init;}=[];
+}
 
 // All readers execute inside one current authorized operation; prepared values never cross requests.
 internal sealed class PpaReads
@@ -63,7 +66,10 @@ internal sealed class PpaReads
         var clocks=instruments.Select(i=>i.Delivery.Clock).Concat(assetData.Select(a=>a.Clock)).Distinct()
             .ToImmutableDictionary(k=>k,k=>PpaQuantitiesStore.Clock(data,k.Code));
         var quantities=data.References["quantity_specifications"].Select(q=>PpaQuantitiesStore.Quantity(data,q.Text("code"))).ToImmutableDictionary(q=>q.Key);
-        var assignments=PpaQuantitiesStore.Assignments(data);
+        var energyDemands=bindings.SelectMany(b=>b.Instrument.Memberships.Select(m=>m.Side).OfType<PowerPhysicalSide>()
+            .Select(s=>new PowerLocationDemand(s.Location.Code,b.Coverage.From,b.Coverage.To))).Distinct().ToImmutableArray();
+        var powerLocations=await PowerLocationGraphs.Resolve(connection,data,knowledgeContext,energyDemands,ct);
+        var assignments=PpaQuantitiesStore.Assignments(data).AddRange(powerLocations.Select(p=>p.Assignment));
         var reference=new IntervalReferenceData(data.DefinitionRevision,data.ReferenceRevision,clocks,quantities,assetData.ToImmutableDictionary(a=>a.Key),sources.ToImmutableDictionary(s=>s.Key),assignments);
         var series=ImmutableDictionary.CreateBuilder<Guid,QuantitySeries>();
         var contexts=new HashSet<Guid>();
@@ -96,7 +102,22 @@ internal sealed class PpaReads
                 var applicable=assignments.Where(a=>a.Attribute==attribute && locations.Contains(a.Location) && a.From<binding.Coverage.To && a.To>binding.Coverage.From).ToArray();
                 if(!closeRiskInputs&&locations.Count>0&&applicable.Length==0)
                     throw new MarketDataException("location_valuation_missing","No location/attribute valuation assignment covers the selected physical delivery.");
-                foreach(var assignment in applicable)Need(assignment.Curve,new(assignment.From>binding.Coverage.From?assignment.From:binding.Coverage.From,assignment.To<binding.Coverage.To?assignment.To:binding.Coverage.To),binding);
+                foreach(var assignment in applicable)
+                {
+                    var span=new DeliveryCoverage(assignment.From>binding.Coverage.From?assignment.From:binding.Coverage.From,
+                        assignment.To<binding.Coverage.To?assignment.To:binding.Coverage.To);
+                    if(member.Side is PowerPhysicalSide power&&powerLocations.Any(p=>p.Assignment.Curve==assignment.Curve))
+                    {
+                        // The retained Side schedule owns product/calendar selection.
+                        // Excluded hours must not require actuals or forward marks.
+                        var cells=power.GenerateSchedule().Months.SelectMany(m=>m.Intervals).Where(i=>i.Start<span.To&&i.End>span.From).ToArray();
+                        if(cells.Any(cell=>cell.Start<span.From||cell.End>span.To))
+                            throw PpaCompiler.Error("ppa_segment_boundary","A power assignment cannot split a selected native Side interval.");
+                        foreach(var selected in Union(cells.Select(cell=>new DeliveryCoverage(cell.Start,cell.End))))
+                            Need(assignment.Curve,selected,binding);
+                    }
+                    else Need(assignment.Curve,span,binding);
+                }
             }
         var snapshot=data.Snapshot(frame).WithKnowledge(knowledgeContext,resolvedKnowledge.KnownAt);var tou=await Tou(connection,data,frame,knowledgeContext,[],ct);
         var curves=ImmutableDictionary.CreateBuilder<CurveKey,PreparedCurve>();
@@ -108,7 +129,13 @@ internal sealed class PpaReads
         var preparedSpans=new Dictionary<CurveKey,ImmutableArray<DeliveryCoverage>>();
         async Task<PreparedCurve> ReadCurve(CurveKey key,ImmutableArray<DeliveryCoverage> spans)
         {
-            ct.ThrowIfCancellationRequested();PriceCurve curve;
+            ct.ThrowIfCancellationRequested();
+            if(powerLocations.SingleOrDefault(p=>p.Assignment.Curve==key) is {} power)
+            {
+                var powerRead=await PowerIntervalCurves.PrepareRead(connection,data,power.Definition,[..spans.Select(s=>(s.From,s.To))],snapshot.ValuationAt,known,ct);
+                contexts.UnionWith(powerRead.Contexts);return powerRead.Prepared;
+            }
+            PriceCurve curve;
             IReadOnlyList<SeriesCell> shape=[];IReadOnlyList<IntervalActual> actuals=[];
             if(IntervalCurveDefinitions.IsShaped(data,key.Code)||IntervalCurveDefinitions.MarkedCodes(data).Contains(key.Code))
             {
@@ -223,7 +250,9 @@ internal sealed class PpaReads
             }
             discounts.Add(instrument.Id,new PpaDiscounting(snapshot,instrument.Discounting,mapping));
         }
-        return new(inputs,market,discounts.ToImmutable(),[..contexts.Order()]);
+        return new(inputs,market,discounts.ToImmutable(),[..contexts.Order()]){PowerLocations=[..powerLocations.Where(p=>bindings.Any(b=>
+            (admission is null||b.TradeId is null||admission.Includes(b.TradeId.Value))&&b.Coverage.From<p.Assignment.To&&p.Assignment.From<b.Coverage.To&&
+            b.Instrument.Memberships.Any(m=>m.Side is PowerPhysicalSide physical&&physical.Location==p.Assignment.Location))).Select(p=>p.Evidence)]};
     }
     internal sealed record NativePriceRead(PriceCurve Curve,IReadOnlyList<SeriesCell> Shape,IReadOnlyList<IntervalActual> Actuals,Guid SourceId,ImmutableArray<Guid> Contexts);
     internal static async Task<NativePriceRead> ReadNativePrice(NpgsqlConnection connection,PreviewData data,InputFrame frame,

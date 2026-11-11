@@ -32,7 +32,7 @@ public static class PowerPreview
         return new([..resolved.Where(r=>r.Clock is not null).Select(r=>new Product(r.Version.Code,r.Version.Name,r.Version.Version,r.Clock!.Rule,r.Version.Peak))],[..resolved.Where(r=>r.Clock is null).Select(r=>r.Version)]);
     }
     // Engine capabilities, not reference data: the supported mask blocks, grids and labels.
-    private static readonly (string Code,string Name)[] Blocks=[("all","All hours"),("peak","On-peak"),("off","Off-peak")];
+    internal static readonly (string Code,string Name)[] Blocks=[("all","All hours"),("peak","On-peak"),("off","Off-peak")];
     private static readonly int[] Intervals=[60,30,15,5];
     private static readonly (string Code,string Name)[] HourLabels=[("HE","Hour ending · HE"),("HB","Hour beginning · HB")];
     // Suggested index classification labels; any explicit label up to 40 characters is accepted.

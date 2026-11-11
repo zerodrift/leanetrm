@@ -1,5 +1,16 @@
 # Delivery plan and acceptance criteria
 
+D381 qualifies the bounded hourly ATC quantity/price-shape consumer through
+native Side checks and isolated booking checks. Monthly shaping statistics,
+hourly profile authoring and graph worker execution remain separate work.
+See [the ATC example](power-booked-roll.md#hourly-atc-example).
+
+D380 defines the bounded [booked power close comparison](power-booked-roll.md).
+Native numerical checks, owned HTTP checks and an isolated populated preview
+qualify Friday/Monday fixing, forward marks, correction replay and ordinary
+Blotter parity. Cash/invoices, physical accounting, worker graph
+replay, observed ISO releases/finality and residual recalibration remain separate.
+
 D363 adds the Objects canvas, explicit source-node contract pricing and
 publication definitions, occurrences and normalized final-price ingestion.
 The bounded gas implementations use supplied publisher-calendar occurrences;
@@ -2263,3 +2274,17 @@ copying the close header's definition onto child evidence. Qualification
 includes two sources sharing a local identifier, absent or revoked source
 inputs, independent discount and PPA receipts, and worker recovery after the
 first publication commits.
+
+### Physical power forward-to-actual valuation (D376–D381)
+
+Implemented bounded support includes published product splices, daily-to-monthly
+location lookups, curve-owned hourly captures, sparse TOU demand, explicit DA
+release replay, activation-owned actual history, booked native Side valuation,
+firm hourly MW profiles and daily additive price shapes. The close comparison
+separates fixing, remaining forward marks and capture corrections.
+
+See [supported behavior and limits](power-curve-composition.md) and
+[the booked numerical examples](power-booked-roll.md). Monthly shaping,
+residual/nested calibration, subhourly graph products, an hourly profile editor,
+graph worker execution, ISO finality integration and cash/accounting remain
+separate work. An affine compiled optimization remains unmeasured.

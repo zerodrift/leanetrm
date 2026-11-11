@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--power-close-context",var powerContext]){await PowerCloseContextChecks.Run(powerContext);return;}
 if(args is ["--catalogue-trading",var catalogueFixture]){await CatalogueTradingChecks.Run(catalogueFixture);return;}
 if(args is ["--context-resolution"]){ContextResolutionChecks.Run();return;}
 if(args is ["--unified-catalogue"]){UnifiedCatalogueChecks.Run();return;}

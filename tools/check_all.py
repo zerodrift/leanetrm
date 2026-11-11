@@ -50,6 +50,9 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     for project, arguments in CHECK_PROJECTS:
         command = [str(dotnet), 'run', '--no-restore', '--project', project]
         check(' '.join((Path(project).stem, *arguments)), [*command, '--', *arguments] if arguments else command)
+    for argument in ('--power-flat','--power-atc','--power-product-averages','--power-interval-quantities','--ppa-sides'):
+        check('native power '+argument,[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.MarketData.Checks/OpenEtrm.MarketData.Checks.csproj','--',argument])
+    check('power worker admission',[str(dotnet),'run','--no-restore','--project','tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--','--close-risk'])
     check('independent Monte Carlo generator and quantile intervals',[sys.executable,'tools/check_monte_carlo_numerics.py','--dotnet',str(dotnet)])
     worker_project='src/OpenEtrm.Worker/OpenEtrm.Worker.csproj'
     check('locked worker restore',[str(dotnet),'restore',worker_project,'--locked-mode'])
@@ -106,9 +109,11 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('published index fixing price and risk', [*preview, '--index-fixing-check'], suite='trading')
     preview_check('Blotter close-out drafts, settled periods, refusals and browser', [*preview, '--close-out-drafts-check', '--browser-check', '--browser', str(browser)], suite='trading')
     preview_check('side observation authoring, storage and valued schedules', [*preview, '--side-observation-check', '--browser-check', '--browser', str(browser)], suite='trading')
-    preview_check('mapped collected power interval settlement', [*preview, '--power-actual-check'])
+    preview_check('mapped collected power interval settlement', [*preview, '--power-actual-check','--browser-check','--browser',str(browser)])
     preview_check('audited interval series', [*preview, '--interval-series-check', '--browser-check', '--browser', str(browser)])
     preview_check('interval curves, block shaping and resolution', [*preview, '--interval-curves-check', '--browser-check', '--browser', str(browser)])
+    preview_check('physical power product curves, saved profiles, captures and corrections',[*preview,'--power-booked-roll-check'],suite='ppa')
+    preview_check('power recorded sources and historical close admission',[*preview,'--power-context-check'],suite='ppa')
     preview_check('PPA reference and quantity sources', [*preview, '--ppa-check'], suite='ppa')
     preview_check('quarter-hour fixed and indexed settlement preview', [*preview, '--settlement-quarter-check'], suite='ppa')
     preview_check('Durable PPA bookings, HTTP oracles, revision admission and browser', [*preview, '--ppa-bookings-check', '--browser-check', '--browser', str(browser)], suite='ppa')

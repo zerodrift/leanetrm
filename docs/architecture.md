@@ -17,6 +17,13 @@ migration 0227; see [the planning qualification](context.md#selected-correction-
 D364 connects [publication release resolution](curve-authoring.md#publication-release-resolution-d364).
 D369 removes catalogue population selection. Current curves and publications use
 one active catalogue; regional close sessions remain independent official closes.
+D381 adds firm hourly contractual MW factors and explicitly daily-native
+additive price shaping to the existing physical Side and mixed-tenor lookup.
+See [the ATC contract](power-booked-roll.md#hourly-atc-example).
+
+D380 adds [bounded booked power valuation and contractual value change](power-booked-roll.md).
+DA release replay, capture corrections and actual-only history are explicit
+versioned contracts; native Side PV remains the valuation boundary.
 
 D363 adds [curve-object authoring and explicit price publications](curve-authoring.md).
 The editors use the managed graph and exact retained references; publication,
@@ -2954,3 +2961,13 @@ Crude entry projects separate facets of authorized exact valuation assignments.
 Actual instants use the selected user timezone; managed local-time resolution
 retains DST disambiguation, and operating dates retain their original meaning.
 See [decisions](decisions.md#d286--user-zone-instants-and-independent-ppa-composition).
+
+
+D376–D381 implement the bounded [physical power curve path](power-curve-composition.md):
+product-specific daily/monthly futures-plus-basis curves compose into one location
+lookup, whose output owns physical hourly settlement. The existing physical Side
+retains product selection and firm hourly quantities. Explicit DA release replay,
+actual-only prefixes and daily price shapes preserve certified correction history.
+[Booked close comparisons](power-booked-roll.md) decompose native contractual PV
+change into fixing, forward marks and capture corrections. Monthly shaping,
+graph worker replay, cash/accounting and ISO finality integration remain separate.

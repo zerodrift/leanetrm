@@ -9,7 +9,7 @@ using OpenEtrm.MarketData.Trading;
 namespace OpenEtrm.Api;
 
 internal sealed record PpaRevisionRefusal(string Code,string Message,object Scope,object SelectedBundle,object[] AffectedBindings,[property:System.Text.Json.Serialization.JsonIgnore] Guid[] AuthorityReferences);
-internal sealed class PpaStore(PreviewDatabase database,TouProductStore products)
+internal sealed partial class PpaStore(PreviewDatabase database,TouProductStore products)
 {
     internal static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     private Guid Catalog=>database.Manifest.CatalogId;
@@ -111,18 +111,19 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
             legalEntities=directory.GetProperty("legalEntities"),counterparties=directory.GetProperty("counterparties"),
             assets=data.Definitions["generation_assets"].Select(a=>a.Text("code")).ToArray(),sources=data.Definitions["volume_sources"].Select(a=>a.Text("code")).ToArray()};
     }
-    internal async Task<object> Validate(NpgsqlConnection connection,InputFrame frame,PpaValidateRequest request,CancellationToken ct)
+    internal async Task<object> Validate(NpgsqlConnection connection,InputFrame frame,PpaValidateRequest request,CancellationToken ct,PpaWriteRequest? booking=null,string? action=null)
     {
         PpaCompiler.PreflightWork([(request.Terms,request.CoverageFrom,request.CoverageTo,"draft")]);
         var selected=await SelectInputs(connection,frame,request.Terms.DefinitionRevisionId,ct);frame=selected.Frame;var data=selected.Data;
         data=await PhysicalReferences(connection,frame,data,request.Terms,ct);
         var i=PpaCompiler.Compile(data,request.Terms,await products.Read(connection,ct),await PpaCompiler.ReadQuantityTypes(connection,data,request.Terms,ct));var mw=PpaCompiler.Mw(request.Quantity);await PpaCompiler.ValidateDefinitions(connection,data,i,ct);
         var coverage=PpaCompiler.Coverage(i,PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code),request.CoverageFrom,request.CoverageTo);
+        if(booking is not null)RequireAdmission(frame,booking,action!,i,PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code),coverage);
         PpaCompiler.Work([(i,coverage)],[],i=>PpaQuantitiesStore.Clock(data,i.Delivery.Clock.Code));await Authority(connection,[i.Reference.CatalogId],ct);
         return new{implementation=PpaCapabilities.Version,capability=i.Capability,identity=DefinitionIdentity.For(i).Digest,
             sideIdentities=i.Memberships.Select(m=>new{role=PpaCompiler.Role(m.Slot.Role),m.Slot.Ordinal,identity=DefinitionIdentity.For(m.Side).Digest}),definitions=i.Definitions,reference=i.Reference,quantity=mw.ToString(),coverage,terms=request.Terms};
     }
-    internal async Task<RetainedScheduleTerms> PrepareScheduleTerms(NpgsqlConnection connection,InputFrame frame,PpaWriteRequest request,CancellationToken ct)
+    internal async Task<RetainedScheduleTerms> PrepareScheduleTerms(NpgsqlConnection connection,InputFrame frame,PpaWriteRequest request,string action,CancellationToken ct)
     {
         await RetainedScheduleStore.RequireOperationProduct(connection,Catalog,request.OperationId,true,ct);
         var input=request.Terms??throw PpaCompiler.Error("ppa_term","Retaining a schedule requires complete immutable instrument terms.");
@@ -133,12 +134,45 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         RetainedScheduleLimits.RequireFullPreparation(input,PpaQuantitiesStore.Clock(data,input.Delivery.Clock));
         var instrument=PpaCompiler.Compile(data,input,await products.Read(connection,ct),await PpaCompiler.ReadQuantityTypes(connection,data,input,ct));
         await PpaCompiler.ValidateDefinitions(connection,data,instrument,ct);
+        var clock=PpaQuantitiesStore.Clock(data,instrument.Delivery.Clock.Code);
+        RequireAdmission(frame,request,action,instrument,clock,PpaCompiler.Coverage(instrument,clock,request.CoverageFrom,request.CoverageTo));
         await Authority(connection,[data.ReferenceRevision.CatalogId],ct);
         return new(data.DefinitionRevision,data.ReferenceRevision,instrument);
     }
-    internal static object BookingCommand(InputFrame frame,PpaWriteRequest request,string action)=>
-        new{action,request.SnapshotId,request.TradeId,request.ExpectedRevision,request.BookId,valuationAt=frame.At,effectiveAt=frame.At,boundaryAt=request.BoundaryAt,
+    internal const string InTermFixedPower="in_term_fixed_power_contractual_v1";
+    internal const string InTermShapedPower="in_term_shaped_power_contractual_v1";
+    internal static bool InTermAdmission(PpaWriteRequest request,string action)
+    {
+        if(request.Admission.ValueKind==JsonValueKind.Undefined)return false;
+        if(request.Admission.ValueKind!=JsonValueKind.String||request.Admission.GetString() is not(InTermFixedPower or InTermShapedPower)||action!="booked")
+            throw PpaCompiler.Error("ppa_admission","Choose the explicit supported admission only for a new in-term fixed power trade.");
+        return true;
+    }
+    internal static void RequireAdmission(InputFrame frame,PpaWriteRequest request,string action,PpaInstrument instrument,PowerClock clock,DeliveryCoverage coverage)
+    {
+        if(!InTermAdmission(request,action))return;
+        var profiles=instrument.Memberships.Select(m=>m.Side.Terms.Quantity).OfType<ProfileQuantity>().ToArray();
+        if(profiles.Length!=1||(request.Admission.GetString()==InTermShapedPower)==profiles[0].HourlyFactors.IsDefaultOrEmpty)
+            throw PpaCompiler.Error("ppa_admission","Select the explicit hourly-shaped admission only with its immutable contractual profile; the original admission remains flat.");
+        var payment=new PpaPaymentInput("monthly","day_of_following_month",null,10,null,"reject","unadjusted",null,PaymentRule.Implementation);
+        if(instrument.Capability!="fixed_physical"||instrument.Discounting||instrument.Memberships.Length!=2||
+            instrument.Memberships.Single(m=>m.Side is PowerPhysicalSide).Side.Terms.Quantity is not ProfileQuantity||
+            instrument.Memberships.Single(m=>m.Side is FixedSide).Side is not FixedSide{Price:FlatPrice}||
+            instrument.Delivery.IntervalMinutes!=60||instrument.Delivery.From.Day!=1||instrument.Delivery.To!=instrument.Delivery.From.AddMonths(1)||
+            coverage.From!=clock.StartOfDay(instrument.Delivery.From).ToUniversalTime()||coverage.To!=clock.StartOfDay(instrument.Delivery.To).ToUniversalTime()||
+            coverage.From>=frame.At||coverage.To<=frame.At||instrument.NormalizationAssets.Length!=0||
+            request.Terms!.Memberships.Any(m=>m.Side.PaymentRule!=payment)||
+            instrument.Memberships.Any(m=>new DateTimeOffset(m.Side.Terms.DateRule.Generate(instrument.Delivery.From,instrument.Delivery.To)
+                .Date.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero)<=frame.At))
+            throw PpaCompiler.Error("ppa_admission","In-term power admission requires a full active month, hourly contractual MW, fixed consideration and future payment dates.");
+    }
+    internal static object BookingCommand(InputFrame frame,PpaWriteRequest request,string action)
+    {
+        var legacy=new{action,request.SnapshotId,request.TradeId,request.ExpectedRevision,request.BookId,valuationAt=frame.At,effectiveAt=frame.At,boundaryAt=request.BoundaryAt,
             request.CoverageFrom,request.CoverageTo,request.Quantity,request.Reason,request.Memo,request.Booking,request.Terms};
+        if(!InTermAdmission(request,action))return legacy;
+        var command=JsonSerializer.SerializeToNode(legacy,Json)!;command["admission"]=request.Admission.GetString();return command;
+    }
 
     // Booking alone compares the persisted terms with the executable identity.
     // This is deliberately outside every valuation and risk read path.
@@ -162,11 +196,12 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
 
     internal async Task<object> Save(NpgsqlConnection connection,InputFrame frame,PpaWriteRequest request,string action,CancellationToken ct)
     {
+        _=InTermAdmission(request,action);
         if(action!="terminated")
         {
             if(request.Terms is null)throw PpaCompiler.Error("ppa_term","Booking and amendment require complete instrument terms.");
             if(action=="amended"&&await AmendmentRefusal(connection,frame,request,ct) is {} refusal)return refusal;
-            await Validate(connection,frame,new(request.SnapshotId,request.Terms,request.Quantity??"",request.CoverageFrom??"",request.CoverageTo??""),ct);
+            await Validate(connection,frame,new(request.SnapshotId,request.Terms,request.Quantity??"",request.CoverageFrom??"",request.CoverageTo??""),ct,request,action);
         }
         else if(request.Terms is not null || request.Quantity is not null || request.CoverageFrom is not null || request.CoverageTo is not null)
             throw PpaCompiler.Error("ppa_amendment","Termination carries no replacement terms or quantity.");
@@ -276,7 +311,8 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
                 reason=b.Id("definition_revision_id")!=definition?"ppa_definition_revision":"ppa_reference_revision"}).ToArray(),
             mismatch.Select(b=>b.Id("reference_catalog_id")).Concat(declared.Select(r=>r.Id("reference_catalog_id"))).Append(referenceCatalog).Distinct().ToArray());
     }
-    internal async Task<object> Preview(NpgsqlConnection connection,InputFrame frame,PpaPreviewRequest request,CancellationToken ct,PpaInspectRequest? inspection=null,Guid? retainedContext=null,Action<Guid,InstrumentValuation,ExactDecimal>? inspectValues=null)
+    internal async Task<object> Preview(NpgsqlConnection connection,InputFrame frame,PpaPreviewRequest request,CancellationToken ct,PpaInspectRequest? inspection=null,Guid? retainedContext=null,Action<Guid,InstrumentValuation,ExactDecimal>? inspectValues=null,
+        Action<PpaPrepared,ImmutableArray<PpaBinding>,ImmutableArray<ValueMeasureSet>>? capture=null)
     {
         var watch=Stopwatch.StartNew();var allocated=GC.GetTotalAllocatedBytes(false);var process=Process.GetCurrentProcess();
         if(request.SelectedIds is null || request.DetailMonths is null || request.DetailMonths.Length>12 || request.DetailMonths.Distinct().Count()!=request.DetailMonths.Length)throw PpaCompiler.Error("ppa_limit","Supply bounded explicit selection and detail arrays.");
@@ -362,6 +398,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
         var valuedAt=watch.Elapsed.TotalSeconds;ct.ThrowIfCancellationRequested();
         await Authority(connection,heads.Select(r=>r.Id("reference_catalog_id")).Append(data.ReferenceRevision.CatalogId),ct);
         await MarketBundle.Require(connection,SelectedManifest(frame),ct);
+        capture?.Invoke(prepared,selected,[..totals]);
         var contractQuantities=selected.Select(b=>b.Instrument.UnitQuantity.Specification).Distinct().ToArray();
         return new{currency=selected[0].Instrument.Currency,contractQuantitySpecification=contractQuantities.Length==1?contractQuantities[0]:(ReferenceKey?)null,contractQuantitySpecifications=contractQuantities,scope=new{product="ppa",request.Scope,request.SelectedIds,request.ExplicitSubset},measure="ValueExcludingOverdue",measureLabel=ValueMeasureSet.Label,
             valueExcludingOverdue=Sum(totals.Select(m=>m.ValueExcludingOverdue)),completePv=totals.Any(m=>m.HasOverdue)?null:Sum(totals.Select(m=>m.ValueExcludingOverdue)),
@@ -375,7 +412,7 @@ internal sealed class PpaStore(PreviewDatabase database,TouProductStore products
     internal static object InputReceipt(PpaPrepared prepared,Guid knowledge,string pendingActuals)
     {
         var receipt=prepared.Inputs.Receipt;
-        return new{receipt.Definitions,receipt.Reference,receipt.Snapshot,receipt.ValuationAt,receipt.KnownAt,receipt.KnowledgeContext,tradingKnowledgeContext=knowledge,readContexts=prepared.ReadContexts,pendingActuals=pendingActuals,receipt.Coverage,receipt.Implementations,
+        return new{powerLocations=prepared.PowerLocations,receipt.Definitions,receipt.Reference,receipt.Snapshot,receipt.ValuationAt,receipt.KnownAt,receipt.KnowledgeContext,tradingKnowledgeContext=knowledge,readContexts=prepared.ReadContexts,pendingActuals=pendingActuals,receipt.Coverage,receipt.Implementations,
                 quantityRevisions=receipt.QuantityRevisions.Select(q=>new{series=q.Series,revision=q.Revision,knownAt=q.KnownAt,context=q.Context}),actuals=receipt.Actuals.Select(a=>new{batch=a.Batch,revision=a.Revision,knownAt=a.KnownAt}),receipt.Shapes,receipt.AssetVersions,
                 observations=receipt.MarketInputs.Selections.Select(o=>new{input=o.Input,observation=o.Observation.Key}),
                 schedules=receipt.Instruments.SelectMany(i=>i.Sides).Select(m=>m.Side).DistinctBy(s=>s.Id).Select(s=>new{side=s.Id,manifest=s.RetainedSchedule?.Manifest,generator=s.RetainedSchedule?.GeneratorVersion}),

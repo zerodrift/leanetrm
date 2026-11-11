@@ -24,11 +24,12 @@ def grant(admin, query, manifest, login, session):
                                                 'grantedFrom': '2020-01-01T00:00:00Z', 'grantedTo': '9999-01-01T00:00:00Z'})
 
 
-def sql_session(query, manifest, code, calendar, cutoff, curves, logins, revision=None, effective=('2020-12-01', '2021-12-01')):
+def sql_session(query, manifest, code, calendar, cutoff, curves, logins, revision=None, effective=('2020-12-01', '2021-12-01'),curve_sources=None):
     """Publish a session over an exact definition revision directly, with grants, for checks that build their own bundle."""
     catalog, revision = manifest['catalogId'], revision or manifest['revisionId']
     owner = principal(query, manifest, 'approver')
-    curve_rows = ','.join(f"('{catalog}','{code}',1,'{revision}','{c}')" for c in curves)
+    sources=curve_sources or {}
+    curve_rows = ','.join(f"('{catalog}','{code}',1,'{sources.get(c,revision)}','{c}')" for c in curves)
     grants = ''.join(f"INSERT INTO security.close_session_grants VALUES(gen_random_uuid(),'{principal(query, manifest, login)}','{manifest['tenantId']}','{manifest['workspaceId']}',"
                      f"'{catalog}','{code}','2020-01-01','9999-01-01',false,'{owner}',gen_random_uuid(),NULL,NULL);" for login in logins)
     query(f"""INSERT INTO market_data.close_sessions VALUES('{catalog}','{code}','Synthetic {code}');

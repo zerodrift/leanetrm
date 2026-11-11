@@ -1,3 +1,4 @@
+import {selectPublicationByName} from './publication-library.mjs';
 /** Navigation and uncertain writes over the actual authorized publication endpoints. */
 export async function run({command,evaluate,wait,click,set,submit,persona,check,idle,url}){
  await command('Runtime.enable');await command('Page.enable');await command('Emulation.setFocusEmulationEnabled',{enabled:true});
@@ -9,7 +10,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#nav-configuration')&&"+idle,30000);
  await persona('editor');await click('#nav-configuration');await click('#price-setup-tabs-publications');
  const choose=async(selector,match)=>{const value=await evaluate(`Array.from(document.querySelector(${JSON.stringify(selector)}).options).find(o=>o.textContent.includes(${JSON.stringify(match)}))?.value`);if(!value)throw Error('Missing authoring choice: '+match);await set(selector,value);await wait(idle);};
- await choose('#price-publications-library','Synthetic API monthly report');
+ await selectPublicationByName({evaluate,click,wait,idle},'Synthetic API monthly report');
  await set('#price-publications-name','Synthetic recovery control test');
  const unload="(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return event.defaultPrevented;})()";
  await check('unsaved publication edits register a browser-close warning',unload);

@@ -1,3 +1,4 @@
+import {selectPublicationByName} from './publication-library.mjs';
 export async function run({command,evaluate,wait,click,set,persona,check,shot,idle,url}){
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
@@ -11,7 +12,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await set('#contract-terms-scope','curve');await wait("document.querySelector('#contract-terms-settlement').value==='exchange_final_v1'");
  await check('saved pricing terms round-trip through the real catalogue',"document.querySelector('#contract-terms-mapping').value==='same_delivery_period_v1'&&document.querySelector('#contract-terms-pending').value==='require_final_v1'");
  await click('#price-setup-tabs-publications');
- await choose('#price-publications-library','Synthetic API monthly report');
+ await selectPublicationByName({evaluate,click,wait,idle},'Synthetic API monthly report');
  await check('publication editor loads exact saved indices and calendar occurrences',"document.querySelector('#price-publications-indices input:checked')!==null&&document.querySelector('#price-publications-occurrences').textContent.includes('2021-01-01')&&document.querySelector('#error').hidden");
  await shot('price-publications-editor');
  // A changed form is retained until the user explicitly leaves it.
