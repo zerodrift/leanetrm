@@ -69,6 +69,7 @@ internal static class MarketInputSelection
         var exact=frame.Source;
         if(frame.OriginCloseId is {} id)
         {
+            if(exact is {} source)await MarketBundle.RequireReferenceVisibility(connection,source.Apply(database.Manifest),ct);
             var recorded=await MarketCloses.Frame(connection,database.Manifest.CatalogId,id,frame.ContextId,ct);
             if(frame.Source is null||frame.SourceInputs is null||recorded.SourceInputs is null||frame.SourceInputs.Count!=recorded.SourceInputs.Count||
                 frame.SourceInputs.Any(p=>!recorded.SourceInputs.TryGetValue(p.Key,out var native)||!native.Matches(p.Value)))

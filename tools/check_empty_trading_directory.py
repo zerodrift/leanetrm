@@ -64,8 +64,8 @@ def run_checks(c,check,query,manifest):
     assert access in ('owner','read_only')
     query('DELETE FROM security.reference_catalog_scopes WHERE '+scope+';')
     try:
-        error=c.call('trading/workspace',request,expected=422)
-        check('empty report rechecks current exact-reference authority',error['code']=='ambiguous_reference' and set(error)=={'code','message'})
+        error=c.call('trading/workspace',request,expected=403)
+        check('empty report rechecks current exact-reference authority',error['code']=='access_denied' and set(error)=={'code','message'})
     finally:query(f"INSERT INTO security.reference_catalog_scopes VALUES('{reference}','{tenant}','{workspace}','{access}');")
     book=full['catalog']['books'][0]['id']
     for invalid in [{**view,'bookIds':[str(uuid4())]},{**view,'bookIds':[book,book]},{**view,'mode':'unknown'},

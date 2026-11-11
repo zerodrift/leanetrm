@@ -24,8 +24,12 @@ internal static class MarketBundle
 
     internal static async Task RequireReferenceVisibility(NpgsqlConnection connection,PreviewManifest manifest,CancellationToken ct)
     {
-        await using var command=ScheduleStore.Command(connection,"SELECT security.reference_version_visible($1,$2)",manifest.ReferenceCatalogId,manifest.ReferenceRevisionId);
-        if(!Equals(await command.ExecuteScalarAsync(ct),true))throw Missing();
+        await using var command=ScheduleStore.Command(connection,
+            "SELECT security.reference_access($1,'ReadMarketData'),security.reference_version_visible($1,$2)",
+            manifest.ReferenceCatalogId,manifest.ReferenceRevisionId);
+        await using var reader=await command.ExecuteReaderAsync(ct);
+        if(!await reader.ReadAsync(ct)||reader.IsDBNull(0)||!reader.GetBoolean(0))throw new PreviewDeniedException();
+        if(reader.IsDBNull(1)||!reader.GetBoolean(1))throw Missing();
     }
 
     internal static async Task RequireObservationPins(NpgsqlConnection connection,PreviewManifest manifest,ImmutableArray<Guid> pins,CancellationToken ct)
