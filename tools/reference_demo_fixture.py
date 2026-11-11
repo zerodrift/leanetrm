@@ -9,6 +9,8 @@ def install(query, manifest):
     cat,ref,original=[str(UUID(manifest[k])) for k in ('catalogId','referenceCatalogId','referenceRevisionId')]
     identity=lambda name:str(uuid5(NAMESPACE_URL,cat+':reference-demo-v1:'+name))
     revision,definition=identity('reference'),identity('definition')
+    from check_booked_side_programs import capture_context
+    before_source=capture_context(query,manifest,'2020-12-18')
     main=[f for f in manifest['frames'] if not f.get('ppaBundle')]
     if not main:raise ValueError('Explicit original market frames are required')
     last=max(datetime.fromisoformat(f['at'].replace('Z','+00:00')) for f in main)
@@ -79,5 +81,4 @@ def install(query, manifest):
       f"SELECT '{cat}','{mapping}','{definition}',{rr},{lit(chosen['currency_code'])},'demo_discount_curve',max(publication_order),{lit(min(f['at'] for f in main))} FROM trading.publications WHERE catalog_id='{cat}';",'COMMIT;'])
     query('\n'.join(sql))
     manifest.setdefault('inputMarkets',[]).append({'revisionId':definition,'frames':frames})
-    manifest['referenceCatalog']={'referenceRevisionId':revision,'definitionRevisionId':definition,'tables':['interest_rate_definitions','value_specifications']}
-    return {'definitionRevisionId':definition,'referenceRevisionId':revision,'referenceCatalogId':ref,'deliveryFrom':str(delivery),'deliveryTo':str(end),'paymentDate':str(payment),'mappingId':mapping,'currency':chosen['currency_code'],'frames':frames}
+    return {'beforeSourceContextId':before_source,'definitionRevisionId':definition,'referenceRevisionId':revision,'referenceCatalogId':ref,'deliveryFrom':str(delivery),'deliveryTo':str(end),'paymentDate':str(payment),'mappingId':mapping,'currency':chosen['currency_code'],'frames':frames}

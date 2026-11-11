@@ -69,5 +69,8 @@ def fixture(fixing_frames=False, observation_guards=False, scheduled_periods=Fal
         partial=next(frame for frame in frames if frame['at']=='2021-01-15T08:00:00Z')
         frames.append({**partial,'at':'2021-01-15T09:00:00Z',
                        'observationIds':[oid for oid in partial['observationIds'] if oid!=identity('7',7002007)]})
+    # A close can retain this source only where its exact definition applies.
+    # Earlier observations remain facts, but are not executable source frames.
+    frames=[frame for frame in frames if boundary<=frame['at'][:10]<'2022-01-01']
     rows.append('COMMIT;')
     return '\n'.join(rows), {'revisionId':REVISION,'frames':frames}

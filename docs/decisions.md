@@ -3885,6 +3885,9 @@ for source identity. Missing or ambiguous inputs fail with a structured error.
 The managed source resolver is shared by portfolio consumers and market reads.
 A reread retains its working view identity while every calculation and recorded
 source validation carries the context captured for that operation.
+Immutable reference rows may be reused only for the same market catalogue and
+exact reference catalogue/version. A different-reference source reads its own
+native rows; cached candidates never replace source pins or authority checks.
 Mutation retries resolve their owner-scoped receipt before ephemeral page inputs
 or current catalogue choices. The native receipt read rechecks its own exact
 source and retained curve visibility; a hidden receipt is denied, never treated

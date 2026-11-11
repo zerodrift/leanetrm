@@ -159,7 +159,7 @@ export async function run(page){
   await check('the details show the futures form with the drafted side, lots and price, labelled with the close it is the curve price at',
     `document.querySelector('#position-details').dataset.mode==='new'&&document.querySelector('#futures-lots').value==='-40'&&
       document.querySelector('#futures-execution').value===${JSON.stringify(drafted.value.price.value)}&&document.querySelector('#futures-execution').value===${JSON.stringify(drafted.value.terms.executionPrice)}&&
-      document.querySelector('#futures-contract').value===${JSON.stringify(JSON.stringify([future.curve,future.contractId]))}&&document.querySelector('#futures-book').value===${JSON.stringify(future.bookId)}&&
+      document.querySelector('#futures-contract').value===${JSON.stringify(JSON.stringify([future.definitionRevisionId,future.curve,future.contractId]))}&&document.querySelector('#futures-book').value===${JSON.stringify(future.bookId)}&&
       document.querySelector('#futures-close-out').textContent.includes('Close-out of '+${JSON.stringify(reference)})&&
       !document.querySelector('#futures-price-source').hidden&&document.querySelector('#futures-price-source').textContent==='Curve price at '+${shownClose}+' close'`,
     `({lots:document.querySelector('#futures-lots').value,price:document.querySelector('#futures-execution').value,contract:document.querySelector('#futures-contract').value,head:document.querySelector('#futures-close-out').textContent,label:document.querySelector('#futures-price-source').textContent,close:${shownClose}})`);

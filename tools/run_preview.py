@@ -643,6 +643,11 @@ def main():
             # One owned test date deliberately has no admitted demo input frame.
             reference_demo['omittedAt']=max(f['at'] for f in reference_demo['frames'] if not f['at'].startswith('2020-12-18'))
             manifest['inputMarkets'][-1]['frames']=[f for f in reference_demo['frames'] if f['at']!=reference_demo['omittedAt']]
+            query(catalogue_fixture(manifest,'https://preview.invalid',curve_sources=[reference_demo['definitionRevisionId']],
+                role_revisions={**catalogue_roles,**{'reference:'+table:reference_demo['definitionRevisionId'] for table in
+                    ('interest_rate_definitions','value_specifications')}},
+                expected_head=query(f"SELECT id FROM market_data.catalogue_publications WHERE catalog_id='{manifest['catalogId']}' ORDER BY publication_order DESC LIMIT 1;"),
+                request_id='fbf30992-496b-4cd5-9abf-2d7cd3ab0a96'))
         # Only recorded closes are closes (D334): the built-in frames are recorded as synthetic session closes.
         from seed_session_closes import seed as seed_session_closes
         # The aligned-history check reads a correction through a working frame of its day, which a close's exact pins never take.
@@ -1241,6 +1246,9 @@ def main():
                 def run_worker():
                     subprocess.run([str(dotnet),str(frozen_dll),'--risk-worker','once'],cwd=ROOT,env=worker_env,check=True,timeout=90)
                 check_reference_demo(url,manifest,reference_demo,query,run_worker)
+                reference_reuse=temporary/'reference-reuse.json';reference_reuse.write_text(json.dumps(reference_demo))
+                subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--reference-reuse',str(reference_reuse)],
+                    cwd=ROOT,env=app_env,check=True,timeout=120)
             elif args.reference_check:
                 from check_reference_display_http import run_checks as check_reference_display
                 check_reference_display(url,query)

@@ -384,13 +384,16 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
         if(ppaBundle is null&&selectedRevision is not null)
             selectedManifest=PreviewData.ResolveBundleManifest(selectedManifest,definitions["revisions"][0]);
         PreviewData.RequireBundlePin(selectedManifest, definitions["revisions"][0]);
-        if(selectedRevision is not null&&ppaBundle is null&&sharedReferences is not null&&
-            sharedReferences.DefinitionRevision.CatalogId==selectedManifest.CatalogId&&
-            sharedReferences.ReferenceRevision!=new ReferenceRevision(selectedManifest.ReferenceCatalogId,selectedManifest.ReferenceRevisionId))
-            sharedReferences=null;
+        // Reference reuse is an exact-key optimization for every source path.
+        // A source with different reference pins reads its own authorized rows.
+        if(sharedReferences is not null)
+        {
+            if(sharedReferences.DefinitionRevision.CatalogId!=selectedManifest.CatalogId)
+                throw new MarketDataException("reference_pin_mismatch","Shared reference rows require the same exact authorized catalog.");
+            if(sharedReferences.ReferenceRevision!=new ReferenceRevision(selectedManifest.ReferenceCatalogId,selectedManifest.ReferenceRevisionId))
+                sharedReferences=null;
+        }
         IReadOnlyDictionary<string,ImmutableArray<JsonElement>> references;
-        if(sharedReferences is not null && (sharedReferences.ReferenceRevision!=new ReferenceRevision(selectedManifest.ReferenceCatalogId,selectedManifest.ReferenceRevisionId)||sharedReferences.DefinitionRevision.CatalogId!=selectedManifest.CatalogId))
-            throw new MarketDataException("reference_pin_mismatch","Shared reference rows require the same exact authorized catalog and revision.");
         async Task RequireSharedReferenceAccess()
         {
             if(sharedReferences is null)return;
