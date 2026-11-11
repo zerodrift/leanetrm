@@ -89,3 +89,44 @@ test('a grid resize preserves an editable cell and its focus without taking focu
  })()`);
  assert.deepEqual(result,{kept:{same:true,value:'990',focused:true,selection:[1,2]},moved:true,released:true});
 }));
+
+// A grid whose quantity cells are entries, as a booked ticket's day quantities are. The person types in the first row in view; the grid's
+// width then changes, which draws its rows again: each row is taken out of the page and the same row is put back. The rows are scrolled as
+// by the person's wheel, whose place the grid keeps. `leaving` has the entry answer losing focus by moving it to the row search, as a
+// consumer's own handler can. `keyAsDrawn` presses a key the moment the rows are back, before the next frame: it goes to whatever has focus
+// then, as a person's key does.
+const typingThroughWidthChange=(days,scrollTop,{leaving=false,keyAsDrawn=false}={})=>`(async()=>{
+  const {renderDataGrid,emptyGridLayout}=await import('/data-grid.js'),host=document.querySelector('#host'),tick=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+  const cells=(index,column)=>{if(column!==1)return null;const input=document.createElement('input');input.setAttribute('aria-label','Quantity of day '+(index+1));return input;};
+  const rows=Array.from({length:${days}},(_,i)=>['Day '+(i+1),String(i+1)]);
+  const grid=renderDataGrid(host,'cell-entry','synthetic',['Day','Quantity'],rows,[1],()=>false,{keys:['day','quantity'],rowKeys:rows.map(row=>row[0]),layout:emptyGridLayout(),onLayout(){},cells});${ready}
+  const holder=host.querySelector('.tabulator-tableholder'),search=host.querySelector('.table-search');holder.dispatchEvent(new WheelEvent('wheel',{bubbles:true}));holder.scrollTop=${scrollTop};await tick();
+  const top=holder.getBoundingClientRect().top,row=[...holder.querySelectorAll('.tabulator-row[data-row-key]')].find(row=>row.getBoundingClientRect().top>=top),input=row.querySelector('input');
+  input.focus();input.value='990';if(${leaving})input.onblur=()=>search.focus();await tick();
+  let redrawn=false,keyTo=null;new MutationObserver(records=>{
+   if(records.some(record=>[...record.removedNodes].includes(row)))redrawn=true;
+   if(${keyAsDrawn}&&keyTo===null&&records.some(record=>[...record.addedNodes].includes(row))){const at=document.activeElement;keyTo=at===input?'entry':'elsewhere';at.dispatchEvent(new KeyboardEvent('keydown',{key:'0',bubbles:true}));}
+  }).observe(row.parentElement,{childList:true});
+  host.style.width='420px';for(let i=0;i<300&&!redrawn;i++)await new Promise(r=>setTimeout(r,10));
+  await grid.updated();await tick();await tick();
+  const result={redrawn,scrolled:holder.scrollTop>0,drawn:input.isConnected,value:input.value,focus:document.activeElement===input?'entry':document.activeElement===search?'search':'nothing',...(${keyAsDrawn}?{keyTo}:{})};grid.destroy();return result;
+ })()`;
+// These pages behave as a person's focused window does. A window behind another reports no focus events at all, though its focused
+// control still takes what is typed once the person is back.
+const behindAnotherWindow=command=>command('Emulation.setFocusEmulationEnabled',{enabled:false});
+
+// Rows the person scrolled are also put back at their place after the change, which draws them once more.
+for(const [where,days,scrollTop] of [['a cell',2,0],['a cell of scrolled rows',40,600]])for(const behind of [false,true])
+ test(`a control drawn in ${where} keeps focus and its typed value when a change of width draws the rows again${behind?', in a window behind another':''}`,{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async(evaluate,command)=>{
+  if(behind)await behindAnotherWindow(command);
+  assert.deepEqual(await evaluate(typingThroughWidthChange(days,scrollTop)),{redrawn:true,scrolled:scrollTop>0,drawn:true,value:'990',focus:'entry'});
+ }));
+
+// In a focused window the grid also hears the loss and gives focus back on the next frame, which a key can come before.
+test('a key pressed the moment the rows are drawn again goes to the cell control that had focus, which keeps it',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async evaluate=>{
+ assert.deepEqual(await evaluate(typingThroughWidthChange(2,0,{keyAsDrawn:true})),{redrawn:true,scrolled:false,drawn:true,value:'990',focus:'entry',keyTo:'entry'});
+}));
+
+test('focus that moved on from a cell control as its row was drawn again stays where it went',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async evaluate=>{
+ assert.deepEqual(await evaluate(typingThroughWidthChange(2,0,{leaving:true})),{redrawn:true,scrolled:false,drawn:true,value:'990',focus:'search'});
+}));
