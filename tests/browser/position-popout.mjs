@@ -1,3 +1,4 @@
+import {closeOwnedPageFromControl} from './owned-browser.mjs';
 import {setupWorkspaceProbe} from './workspace-probe.mjs';
 import {inspectPositionSide} from './position-schedules.mjs';
 // Native double-clicks open independent windows. All values and schedules remain backend reads.
@@ -6,11 +7,8 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 export async function run({command,evaluate,wait,click,set,persona,check,idle,url,tab,errors}){
  const artifacts=await mkdtemp(join(tmpdir(),'openetrm-position-popout-'));console.log('POPOUT_VISUAL_ARTIFACTS='+artifacts);
- async function close(popup,id){
-  await popup.evaluate("setTimeout(()=>document.querySelector('#position-window-close').click(),0);true");
-  let closed=false;for(let n=0;n<100;n++){closed=!(await command('Target.getTargets')).targetInfos.some(t=>t.targetId===id);if(closed)break;await new Promise(resolve=>setTimeout(resolve,50));}
-  if(!closed)throw Error('Close window did not close the script-opened trade window.');await popup.close();
- }
+ const close=(popup,id)=>closeOwnedPageFromControl(popup,async()=>
+  (await command('Target.getTargets')).targetInfos.some(t=>t.targetId===id),'#position-window-close');
  await command('Runtime.enable');await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1050,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle);await persona('trader');
  await setupWorkspaceProbe(evaluate);
