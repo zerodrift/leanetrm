@@ -18,3 +18,9 @@ test('missing market data is not blamed on a curve, since a discount rate can be
  assert.doesNotMatch(error.message,/for this curve/);
  assert.match(error.message,/price or discount rate/);
 });
+
+test('a curve outside the selected close points to the shared calendar without changing its refusal code',async()=>{
+ const error=await apiRefusal('evaluate',new Response(JSON.stringify({code:'curve_not_selected',message:'The selected inputs do not declare this curve as a root.'}),{status:422}),false);
+ assert.equal(error.code,'curve_not_selected');
+ assert.equal(error.message,'This curve is not covered by the selected close. Choose an available calendar date.');
+});
