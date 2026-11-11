@@ -7,6 +7,8 @@ from pathlib import Path
 import subprocess
 import re
 import sys
+import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
@@ -276,6 +278,63 @@ class CheckAllTests(unittest.TestCase):
                                     env={**os.environ, 'VERIFICATION_RESULT': state})
             self.assertEqual(result.returncode == 0, state == 'success')
         self.assertIn('    needs: checks\n', workflow.split('  publish:\n', 1)[1])
+
+    def install_postgres(self, unreachable):
+        """Runs the hosted job's PostgreSQL install step with stand-ins for the commands that reach package hosts.
+
+        A host whose name matches `unreachable` does not answer. The server depends on a library that the Ubuntu
+        archive publishes in `noble main`, so the stand-in apt installs it only after reading, from a host that
+        answers, an index of that suite signed by the Ubuntu archive key. The runner image arrives with such an
+        index from its own archive host. Returns the step's exit status and the hosts of the sources it added.
+        """
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        step = workflow.split('      - name: Install PostgreSQL 18\n', 1)[1].split('      - name: ', 1)[0]
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        fingerprint = re.search(r'\b[0-9A-F]{40}\b', script).group(0)
+        stand_ins = {
+            'sudo': 'exec "$@"', 'install': ':', 'curl': ':',
+            'gpg': f'printf "pub:\\nfpr:::::::::{fingerprint}:\\n"',
+            'tee': 'cat > "$STATE/sources/$(basename "$1")"',
+            'apt-get': f"""
+                answers() {{ ! [[ $(sed -E 's#^deb \\[[^]]*\\] https?://([^/]+)/.*#\\1#' "$1") =~ $UNREACHABLE ]]; }}
+                case "$1" in
+                 update)
+                  only=; for option in "$@"; do [[ $option == Dir::Etc::sourcelist=* ]] && only=$(basename "${{option#*=}}"); done
+                  for list in "$STATE"/sources/${{only:-*}}; do if answers "$list"; then cp "$list" "$STATE/indexed/"; fi; done;;
+                 install)
+                  for list in "$STATE"/indexed/*; do
+                   if answers "$list" && grep -q -E '^deb \\[signed-by=/usr/share/keyrings/ubuntu-archive-keyring\\.gpg\\] [^ ]+/ubuntu noble( [a-z]+)* main( |$)' "$list"; then exit 0; fi
+                  done; exit 100;;
+                esac""",
+        }
+        with tempfile.TemporaryDirectory() as state:
+            for directory in ('bin', 'sources', 'indexed'):
+                (Path(state) / directory).mkdir()
+            for name, body in stand_ins.items():
+                command = Path(state) / 'bin' / name
+                command.write_text('#!/bin/bash\n' + textwrap.dedent(body) + '\n')
+                command.chmod(0o755)
+            for directory in ('sources', 'indexed'):
+                (Path(state) / directory / 'ubuntu.list').write_text(
+                    'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] http://azure.archive.ubuntu.com/ubuntu noble main\n')
+            result = subprocess.run(['bash', '-eo', 'pipefail', '-c', script], capture_output=True, text=True, env={
+                **os.environ, 'PATH': f'{state}/bin{os.pathsep}{os.environ["PATH"]}', 'STATE': state, 'RUNNER_TEMP': state,
+                'UNREACHABLE': unreachable})
+            added = sorted(re.match(r'deb (?:\[[^]]*\] )?https?://([^/]+)/', source.read_text()).group(1)
+                           for source in (Path(state) / 'sources').iterdir() if source.name != 'ubuntu.list')
+        return result.returncode, added
+
+    def test_hosted_postgres_install_reads_the_ubuntu_archive_elsewhere_only_when_its_own_hosts_do_not_answer(self):
+        self.assertEqual(self.install_postgres(unreachable='^$'), (0, ['apt.postgresql.org']))
+        status, added = self.install_postgres(unreachable=r'(^|\.)ubuntu\.com$')
+        self.assertEqual(status, 0)
+        elsewhere = [host for host in added if host != 'apt.postgresql.org']
+        self.assertEqual(len(elsewhere), 1, added)
+        self.assertNotRegex(elsewhere[0], r'(^|\.)ubuntu\.com$')
+
+    def test_hosted_postgres_install_fails_when_no_host_has_the_ubuntu_archive(self):
+        status, _ = self.install_postgres(unreachable='.')
+        self.assertNotEqual(status, 0)
 
 
 if __name__ == '__main__':

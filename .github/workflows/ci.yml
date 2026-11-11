@@ -49,7 +49,14 @@ jobs:
           test "$(cat "$RUNNER_TEMP/pgdg-primary-keys")" = B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
           echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main' | sudo tee /etc/apt/sources.list.d/openetrm-pgdg.list
           sudo apt-get update
-          sudo apt-get install -y postgresql-18
+          # The server depends on liburing2 from the Ubuntu archive, whose hosts the runner sometimes cannot reach. The same
+          # signed archive is then read from an independent mirror, which apt verifies with the image's Ubuntu archive key.
+          if ! sudo apt-get install -y postgresql-18; then
+            echo '::warning::Installing postgresql-18 failed. Retrying with the Ubuntu archive noble main read from mirrors.edge.kernel.org.'
+            echo 'deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://mirrors.edge.kernel.org/ubuntu noble main' | sudo tee /etc/apt/sources.list.d/openetrm-ubuntu-mirror.list
+            sudo apt-get update -o Dir::Etc::sourcelist=sources.list.d/openetrm-ubuntu-mirror.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
+            sudo apt-get install -y postgresql-18
+          fi
       - name: Record the verification environment
         shell: bash
         run: |
