@@ -406,6 +406,11 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     giveBack(600);
   };
   container.addEventListener('focusout',rowBlurred,true);document.addEventListener('pointerdown',pressed,true);document.addEventListener('keydown',keyed,true);
+  // The table drawing its rows again, as on a resize of its own, detaches them without any focus event: the control the person is in, such
+  // as a cell's entry with its unsent text, has focus back once it is drawn again.
+  let drawingFrom:HTMLElement|null=null;
+  table.on('renderStarted',()=>{const active=document.activeElement;drawingFrom=active instanceof HTMLElement&&container.contains(active)?active:null;});
+  table.on('renderComplete',()=>{const target=drawingFrom;drawingFrom=null;if(target?.isConnected&&focusLost())target.focus({preventScroll:true});});
   function safeRowGesture(event:MouseEvent,targetRow:HTMLElement){
     const selection=window.getSelection(),target=event.target as Element;
     return current()&&event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&

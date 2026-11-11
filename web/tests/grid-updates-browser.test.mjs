@@ -24,6 +24,19 @@ test('revealing an open row clears its lost-selection notice and restores select
  assert.deepEqual(result,{note:true,query:'',current:'true',focus:true});
 }));
 
+// A resize draws the rows again, detaching them without a focus event: a control the person is typing in keeps focus and its text.
+test('a cell control keeps focus and its unsent text when a resize draws the rows again',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async evaluate=>{
+ const result=await evaluate(`(async()=>{
+  const {renderDataGrid,emptyGridLayout}=await import('/data-grid.js'),host=document.querySelector('#host');
+  const cells=(r,c)=>{if(r!==0||c!==1)return null;const input=document.createElement('input');input.className='synthetic-entry';return input;};
+  const grid=renderDataGrid(host,'entry','synthetic',['Day','Quantity'],[['D1','1'],['D2','2']],[1],()=>false,{keys:['day','quantity'],rowKeys:['a','b'],layout:emptyGridLayout(),onLayout(){},cells});${ready}
+  const input=host.querySelector('.synthetic-entry');input.value='990';input.focus();
+  host.style.width='600px';await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));await grid.updated();
+  const result={same:input===host.querySelector('.synthetic-entry'),value:input.value,focused:document.activeElement===input};grid.destroy();return result;
+ })()`);
+ assert.deepEqual(result,{same:true,value:'990',focused:true});
+}));
+
 test('incremental search reconciles changed explanatory text even when every raw cell is unchanged',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage(page,async evaluate=>{
  const result=await evaluate(`(async()=>{
   const {renderDataGrid,emptyGridLayout}=await import('/data-grid.js'),host=document.querySelector('#host');
