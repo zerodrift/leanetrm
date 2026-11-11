@@ -3867,3 +3867,12 @@ request that only lacked its frame. The assistant now refuses such a body before
 any read or proposal: a missing `snapshotId` as `operation_context_mismatch`, which
 asks for the pinned frame, and any other missing id as `tool_arguments_invalid`.
 No permission, operation or financial behavior changes.
+
+## D373 — A refused gas operations permission is a permission refusal
+
+`gas_operations_denied` shared the gas operations message about service terms,
+evidence and source heads, so an account without gas operations permissions was
+told to review its operation. It is now a 403 `access_denied` that says the roles
+do not permit the gas operations read or change. The delivery desk says why each
+operation is unavailable: the context is read only, the role cannot record it, or
+the day's operations were refused. No permission or operation changes.

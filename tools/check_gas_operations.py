@@ -124,7 +124,8 @@ def run_checks(url, query, manifest):
     public_context={**after,'snapshotId':january_delivery_frame(c.call('workspace'))}
     public=c.call('gas/quantities/read',dict(context=public_context,tradeId=trades[0],selectionPolicy='operational_projection_v1'))
     assert all('synthetic-service' not in h['evidence'] and 'Synthetic pipeline response' not in h['evidence'] for row in public['rows'] for h in row['heads'])
-    c.call('gas/operations/read',dict(context=public_context,tradeId=trades[0],day=day),expected=403)
+    refused=c.call('gas/operations/read',dict(context=public_context,tradeId=trades[0],day=day),expected=403)
+    assert refused['code']=='access_denied' and 'gas operations' in refused['message'] and 'service terms' not in refused['message'],refused
     c.call('profile',{'profile':'trader'})
     current_account=next(a for a in state()['state']['accounts'] if a['id']==accounts[0]['id'])
     write({**service,'details':{**service['details'],'expectedPreviousId':current_account['version_id'],'active':True,'evidence':'Synthetic reviewed service reactivation'}})

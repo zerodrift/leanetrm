@@ -32,6 +32,7 @@ if(args is ["--date-lists"]){SchedulePublicationChecks.Run();return;}
 if(args is ["--schedule-preview"]){SchedulePreviewChecks.Run();return;}
 if(args is ["--ticket-description"]){TicketDescriptionChecks.Run();return;}
 if(args is ["--gas-ticket"]){GasTicketChecks.Run();return;}
+if(args is ["--swap-payment-calendar"]){SwapPaymentCalendarChecks.Run();return;}
 if(args is ["--booked-programs",var bookedProgramsFixture]){await BookedProgramStorageChecks.Run(bookedProgramsFixture);return;}
 if(args is ["--ppa-blotter-admission"]){await PpaBlotterAdmissionChecks.Run();return;}
 if(args is ["--position-facts"]){TradePositionFactsChecks.Run();return;}
@@ -141,6 +142,7 @@ if (args is ["--schedules"])
     BookedScheduleLookupChecks.Run();
     SideObservationCompatibilityChecks.Run();
     SwapPriceSourceChecks.Run();
+    SwapPaymentCalendarChecks.Run();
     ContractObservationAuthoringChecks.Run();
     SchedulePreviewChecks.Run();
     TicketDescriptionChecks.Run();
