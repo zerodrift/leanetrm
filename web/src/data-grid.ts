@@ -298,7 +298,10 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       await frame();if(version!==placing||!alive)return;
       if(Math.abs(away()??Infinity)<1){if(place.left!==undefined)view.scrollLeft=place.left;lastPlace=capture();return;}
     }
+    // Scrolling to the row draws the rows again: what in the grid has focus keeps it (refocus).
+    const held=focusedInGrid();
     try{await row.scrollTo('top',false);}catch{return;}
+    refocus(held);
     // The virtual renderer estimates the heights of rows it has not drawn, so the row is measured where it lands and moved again until it holds.
     for(let tries=0;tries<4&&version===placing&&alive;tries++){
       // A short viewport's rows are drawn again on the frame after a scroll: the anchor is measured once it is drawn.
@@ -411,6 +414,16 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   };
   const focusMoved=()=>{givingBack++;};
   container.addEventListener('focusout',rowBlurred,true);document.addEventListener('focusin',focusMoved,true);document.addEventListener('pointerdown',pressed,true);document.addEventListener('keydown',keyed,true);
+  // That wait starts when the browser reports the loss (focusout), which it does only in a window that has focus. A redraw takes the rows
+  // out of the page and puts the same rows back in one step, so what in the grid had focus before that step has it back as the step ends,
+  // in a window behind another too and before the person can press or key anything, unless something else took focus meanwhile, it was
+  // not drawn again (it is then waited for, rowBlurred) or the page is busy (inert).
+  // Tabulator reports the redraws it makes; scrolling to a row (settle) draws the rows again without a report.
+  const focusedInGrid=()=>{const active=document.activeElement;return active instanceof HTMLElement&&container.contains(active)?active:null;};
+  const refocus=(held:HTMLElement|null)=>{if(held?.isConnected&&!held.closest('[inert]')&&focusLost())held.focus({preventScroll:true});};
+  let redrawHeld:HTMLElement|null=null;
+  table.on('renderStarted',()=>{redrawHeld=focusedInGrid();});
+  table.on('renderComplete',()=>{refocus(redrawHeld);redrawHeld=null;});
   function safeRowGesture(event:MouseEvent,targetRow:HTMLElement){
     const selection=window.getSelection(),target=event.target as Element;
     return current()&&event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey&&
