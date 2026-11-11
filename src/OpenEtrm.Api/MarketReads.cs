@@ -74,7 +74,7 @@ public sealed class MarketReads(PreviewDatabase database)
     {
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
         var catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,pin.Frame?.Time.Date);
-        var source=curve is null?catalogue.RequireRole("primary"):(await Curves(connection,catalogue,pin.Frame,ct)).SingleOrDefault(c=>c.Code==curve)?.Source??throw new MarketDataException("catalogue_curve","The selected view does not contain this curve.");
+        var source=curve is null?catalogue.RequireRole("primary"):(await Curves(connection,catalogue,pin.CalculationFrame,ct)).SingleOrDefault(c=>c.Code==curve)?.Source??throw new MarketDataException("catalogue_curve","The selected view does not contain this curve.");
         return await database.Read(connection,ct,observationIds:observationIds,referenceScope:referenceScope,includeCalendarDays:includeCalendarDays,ppaBundle:source);
     }
 
@@ -103,7 +103,7 @@ public sealed class MarketReads(PreviewDatabase database)
         var listed=ImmutableArray.CreateBuilder<NavigationCurve>();
         var configured=ImmutableArray.CreateBuilder<CurveConfiguration>();
         var mayWrite=await PreviewDatabase.HasPermission(connection,"WriteMarketDefinitions",ct);
-        foreach(var source in (await Curves(connection,catalogue,pin.Frame,ct)).GroupBy(c=>c.Source))
+        foreach(var source in (await Curves(connection,catalogue,pin.CalculationFrame,ct)).GroupBy(c=>c.Source))
         {
             var manifest=source.Key.Apply(database.Manifest);
             var codes=source.Select(c=>c.Code).ToHashSet(StringComparer.Ordinal);

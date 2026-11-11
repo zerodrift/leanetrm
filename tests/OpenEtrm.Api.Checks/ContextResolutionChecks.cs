@@ -26,6 +26,10 @@ internal static class ContextResolutionChecks
         Refused(()=>_=(frame with{BusinessDate=day.AddDays(1)}).Time);
         Refused(()=>_=new BusinessTime(day,at.ToOffset(TimeSpan.FromHours(-8))));
         var context=new ScheduleContext("2020-12-18",1,"2026-11-11T00:00:00Z",Guid.NewGuid());
+        var reread=PinnedContext.Rereading(context,frame);
+        if(reread.RequireFrame().ContextId!=context.ContextId||reread.Frame!.ContextId is not null||
+            reread.RequireFrame().OriginCloseId!=frame.OriginCloseId)
+            throw new Exception("A reread must carry its certified context into exact recorded-source reads.");
         var selected=source with{ContextId=context.ContextId};
         var historical=PinnedContext.Retained(context,selected);
         // A history sample is read under the selected cutoff, while retaining

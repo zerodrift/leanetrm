@@ -224,7 +224,10 @@ internal static class DirectReadChecks
         }
         await Read(async(c,ct)=>
         {
-            var empty=working.Selected with{CurveContracts=ImmutableDictionary<string,ImmutableArray<Guid>>.Empty};
+            var chosen=working.Selected;
+            var empty=chosen with{OriginCloseId=null,Close=null,CurveContracts=ImmutableDictionary<string,ImmutableArray<Guid>>.Empty,
+                SourceInputs=chosen.SourceInputs?.ToImmutableDictionary(pair=>pair.Key,pair=>pair.Value with
+                    {CurveContracts=ImmutableDictionary<string,ImmutableArray<Guid>>.Empty})};
             var data=await database.Read(c,ct,observationIds:empty.ObservationIds);
             var catalog=JsonSerializer.SerializeToElement(await new FuturesStore(database).Catalog(c,data,empty,ct),Json);
             if(catalog.GetProperty("contracts").GetArrayLength()!=0||FuturesOptionStore.Series(data,empty).Length!=0)
@@ -291,12 +294,15 @@ internal static class DirectReadChecks
             Unadorned(Recorded("trade","response"),again));
         // A trade read binds exactly its view's cutoff: one known just before the parties were published lists none of the page's holdings.
         var unbooked=(await AsTrader((c,ct)=>new KnowledgeStore(database.Manifest.CatalogId).Capture(c,new(traded.EffectiveOn,first.AddTicks(-10).ToString("O",CultureInfo.InvariantCulture),"at"),ct))).Context;
-        var early=JsonSerializer.SerializeToNode(await AsTrader((c,ct)=>tradeReads.Blotter(c,TradingView.Reread(at,unbooked),report,ct)),Json)!;
+        // The recorded close was published after this cutoff. A deliberately
+        // assembled working input selection makes no claim that the close existed.
+        var earlierInputs=at with{OriginCloseId=null,Close=null};
+        var early=JsonSerializer.SerializeToNode(await AsTrader((c,ct)=>tradeReads.Blotter(c,TradingView.Reread(earlierInputs,unbooked),report,ct)),Json)!;
         if(early["holdings"]!.AsArray().Count!=0||captured["blotter"]!["holdings"]!.AsArray().Count==0)
             throw new Exception("A trade read must bind exactly its view's cutoff.");
         Console.WriteLine("PASS a trade read binds exactly its view's cutoff");
         try{await AsTrader((c,ct)=>tradeReads.Blotter(c,TradingView.Reread(at,historical.Context!),report,ct));throw new Exception("A trade read used a context effective on another date than its frame.");}
-        catch(PostgresException e) when(e is {SqlState:"P0001",MessageText:"knowledge_coverage"}){Console.WriteLine("PASS a trade read refuses a context effective on another date than its frame");}
+        catch(TemporalException e) when(e.Code=="temporal_context"){Console.WriteLine("PASS a trade read refuses a context effective on another date than its frame");}
         try{await Read((c,ct)=>tradeReads.Blotter(c,again,report,ct));throw new Exception("A profile without trade access read trades.");}
         catch(Exception e) when(e is PreviewDeniedException or PostgresException{SqlState:"42501",MessageText:"No trading access"}){Console.WriteLine("PASS trade reads refuse a profile without trade access");}
         await Rejects("snapshot_missing","a re-read trading view refuses a retained frame",()=>Task.FromResult(TradingView.Reread(chosen.Frame,chosen.Context)));
@@ -346,8 +352,8 @@ internal static class DirectReadChecks
         await Rejects("snapshot_missing","history refuses a frame outside its pinned context",()=>Read((c,ct)=>reads.History(c,historical.Pin(historical.Selected),[..historical.Initial,working.Selected],"local_power",null,null,HistoryRevisionPolicy.ExactSnapshotPins,ct)));
         var earlier=historical.Frames.Where(f=>DateOnly.FromDateTime(f.At.UtcDateTime)!=effective).MinBy(f=>f.At)
             ??throw new Exception("The historical fixture needs a frame before its effective date.");
-        await Rejects("market_date","a retained pin prices only its effective market date",()=>Read((c,ct)=>reads.Evaluate(c,historical.Pin(earlier),"local_power",ct)));
-        await Rejects("market_date","a retained pin shapes curves only on its effective market date",()=>Read((c,ct)=>reads.CurveShapes(c,historical.Pin(earlier),["local_power"],ct)));
+        await Rejects("temporal_context","a retained pin prices only its effective market date",()=>Read((c,ct)=>reads.Evaluate(c,historical.Pin(earlier),"local_power",ct)));
+        await Rejects("temporal_context","a retained pin shapes curves only on its effective market date",()=>Read((c,ct)=>reads.CurveShapes(c,historical.Pin(earlier),["local_power"],ct)));
     }
 
     sealed class View(JsonElement view)

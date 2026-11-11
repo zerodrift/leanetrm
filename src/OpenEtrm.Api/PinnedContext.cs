@@ -26,7 +26,8 @@ public sealed record PinnedContext
     // Working data as of a context captured earlier at its frame's date, as TradingView.Reread reads trades: a turn's
     // tool reads bind the context its ask captured and never capture one (docs/ai-assistant.md §7.2).
     public static PinnedContext Rereading(ScheduleContext context,InputFrame frame)=>frame is {ContextId:null}?new(context,frame,true):throw Missing();
-    public InputFrame RequireFrame()=>Frame??throw Missing();
+    internal InputFrame? CalculationFrame=>Frame is {} frame?frame with{ContextId=Context?.ContextId}:null;
+    public InputFrame RequireFrame()=>CalculationFrame??throw Missing();
     // A frame belongs to exactly one knowledge view; working frames carry no context.
     public InputFrame Require(InputFrame? frame)
     {

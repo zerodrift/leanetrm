@@ -527,6 +527,8 @@ def main():
             query(prepare_contract_admissions(market,security,manifest))
         else:
             query(market)
+        catalogue_roles={role:manifest[key]['revisionId'] for role,key in
+            [('gas','gasMarket'),('crude','crudeMarket'),('lng','lngMarket')] if key in manifest}
         if args.example=='standard':
             from swap_fixture import fixture as swap_fixture
             # The valuation-status check reads the last custom-curve close, at which the daily bundle publishes.
@@ -578,7 +580,7 @@ def main():
         from preview_fixture import trading_fixture
         query(trading_fixture(manifest['catalogId'],swap_defaults=args.example=='standard'))
         curve_sources = [m['revisionId'] for m in manifest['inputMarkets']] if args.swap_risk_holdings_check else []
-        query(catalogue_fixture(manifest,'https://preview.invalid',curve_sources=curve_sources))
+        query(catalogue_fixture(manifest,'https://preview.invalid',curve_sources=curve_sources,role_revisions=catalogue_roles))
         if args.ppa_bookings_check or args.blotter_stream_benchmark:
             from ppa_bookings_fixture import trading as ppa_benchmark_books
             query(ppa_benchmark_books(manifest['catalogId']))
@@ -620,6 +622,11 @@ def main():
             unit_bundle='60000000-0000-0000-0000-000000000004'
             query(f"BEGIN; INSERT INTO market_data.revisions VALUES ('{manifest['catalogId']}','{unit_bundle}','{manifest['referenceCatalogId']}','{unit_reference}','draft',0); INSERT INTO market_data.revision_periods VALUES ('{manifest['catalogId']}','{unit_bundle}','2020-01-01','2022-01-01'); UPDATE market_data.revisions SET state='sealed' WHERE catalog_id='{manifest['catalogId']}' AND id='{unit_bundle}'; COMMIT;")
             manifest['unitCatalog']={'referenceRevisionId':unit_reference,'definitionRevisionId':unit_bundle}
+            unit_roles={**catalogue_roles,'units':unit_bundle,**{'reference:'+table:unit_bundle for table in
+                ('dimensions','units','unit_conversions','commodities','measurement_bases','quantity_specifications')}}
+            query(catalogue_fixture(manifest,'https://preview.invalid',curve_sources=curve_sources,
+                role_revisions=unit_roles,expected_head=query(f"SELECT id FROM market_data.catalogue_publications WHERE catalog_id='{manifest['catalogId']}' ORDER BY publication_order DESC LIMIT 1;"),
+                request_id=str(uuid4())))
         if args.factor_swap_check:
             from check_factor_swap_upgrade import run_checks as check_factor_upgrade
             check_factor_upgrade(query,psql,env,ROOT)
@@ -640,7 +647,14 @@ def main():
         from seed_session_closes import seed as seed_session_closes
         # The aligned-history check reads a correction through a working frame of its day, which a close's exact pins never take.
         # Generation and normalized close reports qualify their one-definition profiles separately.
-        close_inputs=() if args.pilot_close_check or args.close_risk_check or args.close_risk_lease_check else manifest.get('inputMarkets', ())
+        close_inputs=[]
+        if not (args.pilot_close_check or args.close_risk_check or args.close_risk_lease_check):
+            close_inputs=list(manifest.get('inputMarkets', ()))
+            for key in ('gasMarket','crudeMarket','lngMarket'):
+                if key in manifest and manifest[key]['revisionId'] != manifest['revisionId']:
+                    close_inputs.append(manifest[key])
+            if len({source['revisionId'] for source in close_inputs}) != len(close_inputs):
+                raise ValueError('A fixture must declare each exact retained close source once.')
         seed_session_closes(query,manifest,working=('2020-12-18',) if args.factor_history_check or args.context_read_check else (),
                             input_markets=close_inputs)
         (temporary/'manifest.json').write_text(json.dumps(manifest))
