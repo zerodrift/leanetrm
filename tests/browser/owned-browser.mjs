@@ -120,8 +120,9 @@ export async function stopOwnedBrowserGroup(chrome,primaryError,grace=5000){
 }
 
 // One debugger connection, once open: its commands and the page helpers the checks use. Every connection reports its
-// page's uncaught exceptions into the same list.
-async function connect(socket,errors){
+// page's uncaught exceptions into the same list. No wait is unbounded: opening and each command have a deadline, and a
+// closed connection rejects the commands still waiting on it.
+export async function connect(socket,errors){
   await new Promise((accept,reject)=>{const timeout=setTimeout(()=>reject(Error('Browser connection timed out')),5000);socket.onopen=()=>{clearTimeout(timeout);accept();};socket.onerror=error=>{clearTimeout(timeout);reject(error);};});
   let sequence=0;const pending=new Map();
   socket.onmessage=event=>{
