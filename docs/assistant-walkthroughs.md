@@ -143,9 +143,9 @@ extends identity-only page admission and requires v15 at both boundaries;
 previous runtime histories and grants remain unchanged.
 
 Eligible live asks in this tab can start a plan. History, reload, gaps and duplicate
-events never start one automatically. Start/Resume rechecks the owner's stored
+events never start one automatically. Start/Resume/Replay rechecks the owner's stored
 event; each step and Continue recheck access and context. A labelled second cursor,
-narration bubble, keyboard Continue, Stop/Esc and reduced-motion support accompany
+inline narration, keyboard Continue, Stop walkthrough/Esc and reduced-motion support accompany
 native controls. Curves phone sheets retain access to the typed walkthrough
 controls while other background content remains inert. Stop also suppresses later automatic plans/navigation from the same
 ask; later plans/navigation require explicit Start/Resume/Go. Stop invalidates pending steps and native async form/detail
@@ -157,6 +157,20 @@ plan invalidates it. Form values never enter the report. Review waits for the
 proposal turn to complete; opening it leaves consent unchecked and Authorize
 disabled. Only the person's separate authorization or ordinary form submission
 can commit a change.
+
+Presentation controls distinguish **Stop answering** (the model response) from
+**Stop walkthrough** (the browser presentation). An active guide offers Continue
+at its pauses and hides its own Start/Resume/Replay action. Stopping immediately
+restores Resume; completion offers Replay from the beginning and removes Stop.
+Closing and reopening the same conversation preserves completion. Changing owner
+or conversation clears the prior guide display. Other retained plans become
+available again when the active guide ends.
+
+Page navigation highlights visible destination content. Curves & prices uses the
+curve board or selected curve details; page scrolling uses the same destination,
+rather than the shared page title. Completion retains the last narration or names
+the opened destination. These changes add no presentation step, financial field,
+market filter, server operation or grant.
 
 ## Keep prerequisite (D315)
 

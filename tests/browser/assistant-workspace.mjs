@@ -83,6 +83,29 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
   await check('the admitted ask sends exactly the three trade ids and no browser cell evidence',"(()=>{const request=__selectionRequests.filter(r=>r.path.endsWith('/assistant/turns/ask')).at(-1).body;return JSON.stringify(request.pageReport.focus.tradeIds)===JSON.stringify(__selectedTradeIds)&&request.pageReport.focus.pivotCell===null&&!JSON.stringify(request).includes('918273');})()");
   await check('the server digest completes without a selection refusal',"document.querySelector('#assistant-turns .assistant-steps').textContent.includes('Read page digest')&&!document.querySelector('#assistant-turns .assistant-steps').textContent.includes('refused')");
   await shot('assistant-selection');
+  // Page-only navigation must show a destination and one unambiguous set of presentation controls.
+  await click('#nav-market');await wait(idle);
+  const curvePlan=[{kind:'go',target:'n1'},{kind:'pause',page:'curves'}];
+  await script([{tools:[['toolu_curve_controls','read_workspace_page',{page:'curves'}]]},
+    {tools:[['toolu_curve_plan','present_walkthrough',{planJson:JSON.stringify(curvePlan)}]]},
+    {hold:'curve_guide_answer',text:'Synthetic curve navigation guidance.'}]);
+  await evaluate('window.__curveGuideStart=__selectionRequests.length');
+  await set('#assistant-question','Show the curve directory.');await sendQuestion();
+  await wait("!document.querySelector('.assistant-walkthrough-continue').hidden&&document.querySelector('#assistant-send').textContent==='Stop answering'");
+  const latestCurve="document.querySelector('#assistant-turns > li:last-child')";
+  await check('a running curve guide exposes Continue and separate answer/presentation stops',`!${latestCurve}.querySelector('[data-assistant-walkthrough-control]')&&document.querySelector('.assistant-walkthrough button:last-child').textContent==='Stop walkthrough'&&!document.querySelector('.assistant-walkthrough button:last-child').hidden`);
+  await check('curve navigation points at the actual curve board rather than its page title',"document.querySelector('.assistant-walkthrough-target')?.id==='market-board'&&!document.querySelector('.assistant-walkthrough-cursor').hidden");
+  await shot('assistant-curve-guide');
+  await press({command,evaluate},'.assistant-walkthrough button:last-child');
+  await check('guide Stop immediately offers Resume without stopping the model answer',`${latestCurve}.querySelector('[data-assistant-walkthrough-control]').textContent==='Resume walkthrough'&&document.querySelector('.assistant-walkthrough button:last-child').hidden&&document.querySelector('#assistant-send').textContent==='Stop answering'&&document.querySelector('.assistant-walkthrough-cursor').hidden`);
+  await fetch(new URL('/release/curve_guide_answer',control),{method:'POST'});
+  await wait("document.querySelector('#assistant-send').textContent==='Send'&&"+idle);
+  await evaluate(`${latestCurve}.querySelector('[data-assistant-walkthrough-control]').click()`);
+  await wait("!document.querySelector('.assistant-walkthrough-continue').hidden");await click('.assistant-walkthrough-continue');
+  await wait("document.querySelector('.assistant-walkthrough-status').textContent.startsWith('Walkthrough complete')");
+  await check('a completed curve guide offers Replay and describes its destination',`${latestCurve}.querySelector('[data-assistant-walkthrough-control]').textContent==='Replay walkthrough'&&document.querySelector('.assistant-walkthrough button:last-child').hidden&&document.querySelector('.assistant-walkthrough-status').textContent.includes('Curves & prices')`);
+  await check('page guidance sends no price correction, booking or authorization',"!__selectionRequests.slice(__curveGuideStart).some(r=>['/futures/book','/assistant/actions/authorize','/market/observations/correct'].some(path=>r.path.endsWith(path)))");
+  await click('#nav-futures');await wait(idle);
   const selected=await evaluate('__selectedTradeIds');
   const swapPlan=[{kind:'go',target:'n4'},{kind:'pause',page:'blotter_new_swap'}];
   const openSwap=async(walkthrough,tag)=>{

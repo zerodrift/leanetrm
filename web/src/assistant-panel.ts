@@ -108,7 +108,16 @@ export function setupAssistant(options:PanelOptions){
       }
       if(!options.presentation)throw Error('This page has no presentation adapter.');
       return options.presentation(step,signal);
-    },takenOver:()=>{if(presenting)takenOver.add(presenting.key);},progress:(index,status)=>{if(presenting&&status!=='Starting walkthrough'){progress.set(presenting.key,index);try{resumeReports.set(presenting.key,reportKey());}catch{takenOver.add(presenting.key);resumeReports.delete(presenting.key);}if(status.startsWith('Stopped')){suppressed.add(presenting.autoKey);announce(status);}if(status.startsWith('Walkthrough complete'))progress.delete(presenting.key);}}});
+    },takenOver:()=>{if(presenting)takenOver.add(presenting.key);},progress:(index,status)=>{
+      const own=presenting;if(!own)return;
+      progress.set(own.key,index);
+      try{resumeReports.set(own.key,reportKey());}catch{takenOver.add(own.key);resumeReports.delete(own.key);}
+      if(status.startsWith('Stopped')){suppressed.add(own.autoKey);announce(status);}
+      if(status.startsWith('Walkthrough complete')){progress.delete(own.key);presenting=undefined;}
+      // Plans on other turns may have rendered while this one owned presentation.
+      for(const control of get('assistant-turns').querySelectorAll<HTMLButtonElement>('[data-assistant-walkthrough-control]'))control.disabled=walkthrough.active();
+      refresh(own.turnId);
+    }});
   async function present(turnId:string,item:{sequence:number;value:Walkthrough},resume=false){
     if(walkthrough.active()||options.pageBusy()||document.querySelector('dialog[open]'))return;
     const place=options.place();if(changesContext(item.value.plan.context,place.context)){announce('Select the walkthrough context before starting it.');return;}
@@ -181,8 +190,10 @@ export function setupAssistant(options:PanelOptions){
     else if(view.text){const answer=el('div','assistant-answer');answer.append(renderBlocks(answerBlocks(publicText(view.text)),document));parts.push(answer);}
     else if(!view.ending)parts.push(el('p','assistant-waiting','Answering…'));
     for(const target of view.targets)parts.push(targetNotice(target));
-    if(!view.hidden)for(const item of view.walkthroughs){const resume=progress.has(planKey(view.id,item.sequence));
-      const control=button(resume?'Resume walkthrough':'Start walkthrough','Present this walkthrough in the page',()=>{void present(view.id,item,resume).catch(error=>announce(message(error,'The walkthrough could not start.')));});control.dataset.assistantWalkthroughControl='true';parts.push(control);}
+    if(!view.hidden)for(const item of view.walkthroughs){const key=planKey(view.id,item.sequence),resume=progress.has(key);
+      if(presenting?.key===key&&walkthrough.active())continue;
+      const label=resume?'Resume walkthrough':presented.has(key)?'Replay walkthrough':'Start walkthrough';
+      const control=button(label,label,()=>{void present(view.id,item,resume).catch(error=>announce(message(error,'The walkthrough could not start.')));});control.dataset.assistantWalkthroughControl='true';control.disabled=walkthrough.active();parts.push(control);}
 
     if(!view.hidden&&view.ending?.state==='completed')for(const step of view.steps)
       if('tool' in step&&step.tool==='propose_page_action'&&step.code===null)
@@ -443,7 +454,7 @@ export function setupAssistant(options:PanelOptions){
   // Shows a conversation as its owner reads it, following an unfinished turn; `asked` marks the turn as this tab's ask,
   // whose stream is live.
   async function load(id:string,asked:boolean){
-    closeStream();conversationGeneration++;walkthrough.stop();
+    closeStream();conversationGeneration++;walkthrough.clear();presenting=undefined;
     conversation=undefined;views=[];notices=new Map();note=undefined;error=asking.command?unconfirmedAsk:'';render();sync();
     const started=conversationGeneration;
     try{
@@ -463,7 +474,7 @@ export function setupAssistant(options:PanelOptions){
   async function openConversation(id:string){if(!running()&&!working){hideHistory();await load(id,false);}}
   function startOver(){
     if(running()||working)return;
-    closeStream();conversationGeneration++;walkthrough.stop();conversation=undefined;views=[];notices=new Map();note=undefined;error=asking.command?unconfirmedAsk:'';
+    closeStream();conversationGeneration++;walkthrough.clear();presenting=undefined;conversation=undefined;views=[];notices=new Map();note=undefined;error=asking.command?unconfirmedAsk:'';
     persist();render();sync();question.focus();
   }
 
@@ -488,7 +499,7 @@ export function setupAssistant(options:PanelOptions){
     picker.disabled=turn||working;question.disabled=false;
     get<HTMLButtonElement>('assistant-new').disabled=turn||working||!conversation;get<HTMLButtonElement>('assistant-history-open').disabled=false;
     get<HTMLButtonElement>('assistant-close').disabled=false;
-    send.type=turn?'button':'submit';send.textContent=turn?'Stop':'Send';
+    send.type=turn?'button':'submit';send.textContent=turn?'Stop answering':'Send';
     send.disabled=turn?working:working||!agent||!askable||retained||options.pageBusy()||!question.value.trim();
     get('assistant-retry').hidden=get('assistant-discard').hidden=!retained;
     get<HTMLButtonElement>('assistant-retry').disabled=get<HTMLButtonElement>('assistant-discard').disabled=working||turn;
@@ -596,7 +607,8 @@ export function setupAssistant(options:PanelOptions){
     },
     // An identity starts with nothing of the last one: its own agents, and the conversation and open panel this tab kept.
     reset(){
-      identity++;conversationGeneration++;walkthrough.stop();closeStream();presenting=undefined;actions.reset();
+      identity++;conversationGeneration++;walkthrough.clear();closeStream();presenting=undefined;actions.reset();
+      suppressed.clear();presented.clear();progress.clear();resumeReports.clear();takenOver.clear();
       agents=[];vendors=[];agentsError='';conversation=undefined;views=[];notices=new Map();askedHere=new Set();history.clear();stepsOpen.clear();
       granting.clear();consent=undefined;note=undefined;error='';unread=false;working=false;moving=Promise.resolve();live=undefined;
       opened=false;panel.hidden=true;document.body.classList.remove('assistant-open');hideHistory();render();renderPicker(undefined);question.value='';

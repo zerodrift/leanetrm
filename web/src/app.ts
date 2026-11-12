@@ -75,6 +75,7 @@ import {apiRefusal} from './api-refusal.js';
 import {setupTouProducts} from './tou-products.js';
 import {validateMarketNavigation,navigationGroups,navigationCategories,navigationCurveKind,curveConfigurationAction,type MarketNavigation,type FrameSummary,type CurveConfiguration} from './market-navigation.js';
 import {navigationGroups as sidebarGroups,pageGroup,pageAvailable,firstPage} from './navigation-groups.js';
+import {pagePresentationTarget} from './assistant-walkthroughs.js';
 import {setupAssistant} from './assistant-panel.js';
 import {pageReport,webPage,type PageState,type PageContext,type Place} from './assistant-pages.js';
 import {readPages,type Target,type TargetContext} from './assistant-events.js';
@@ -1550,7 +1551,7 @@ const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launche
       const id=step.target.page.startsWith('blotter')?(page==='futures'&&['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(step.target.page)?'futures-new':'nav-futures'):'nav-'+webPage(step.target.page);
       const control=$(id);return control?.getClientRects().length&&!control.closest('[hidden]')?control:null;
     }
-    return page==='futures'?futures.presentationLocate(step):$('page-title');
+    return page==='futures'?futures.presentationLocate(step):pagePresentationTarget(main);
   },
   presentation:async(step,signal)=>{
     signal.throwIfAborted();
@@ -1558,12 +1559,12 @@ const assistant=setupAssistant({launcherHidden:()=>prefs.assistantHidden,launche
       if(navigation?.live)throw Error('Pause live data yourself before a walkthrough moves pages.');
       if(unsaved()||futures.windowEdits())throw Error('Finish unsaved changes before moving.');
       if(busy)throw Error('The page is busy.');
-      await acting(act,async()=>{try{await showTarget(step.target.page,step.target.selection,step.target.kind,signal);if(step.target.page.startsWith('blotter')&&!['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(step.target.page))await futures.valued();signal.throwIfAborted();}catch(error){if(!signal.aborted)throw error;}});signal.throwIfAborted();return step.target.page.startsWith('blotter')?futures.presentationTarget():$('page-title');
+      await acting(act,async()=>{try{await showTarget(step.target.page,step.target.selection,step.target.kind,signal);if(step.target.page.startsWith('blotter')&&!['blotter_new_trade','blotter_new_future','blotter_new_swap'].includes(step.target.page))await futures.valued();signal.throwIfAborted();}catch(error){if(!signal.aborted)throw error;}});signal.throwIfAborted();return step.target.page.startsWith('blotter')?futures.presentationTarget():pagePresentationTarget(main);
     }
     const shown=pageReport(pageState()).page;
     if((shown.startsWith('blotter')?'blotter':shown)!==(step.page.startsWith('blotter')?'blotter':step.page))throw Error('The page changed.');
     if(shown.startsWith('blotter'))return futures.present(step,signal);
-    if(step.kind==='scroll_to'&&step.widget==='page'){main.scrollIntoView({block:'nearest'});return main;}
+    if(step.kind==='scroll_to'&&step.widget==='page'){const target=pagePresentationTarget(main);target.scrollIntoView({block:'nearest'});return target;}
     throw Error('This page cannot perform that presentation step.');
   },
   available:()=>can('UseAgents'),pageAvailable:()=>page!=='configuration',pageBusy:()=>busy,act,place,names:()=>({curve:curveName,table:tableName}),

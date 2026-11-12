@@ -2213,6 +2213,11 @@ remains a later increment; current response paging is not that qualification.
 ### Assistant page catalog and guide follow-up (D325–D326)
 
 Identity-only page asks and dismissible, tracked guide controls are implemented.
+Guide control states distinguish answer cancellation, active presentation,
+Resume and Replay. Page navigation highlights visible destination content;
+conversation/identity teardown clears prior narration. Disposable browser
+regressions cover live updates, delayed verification, cross-turn controls,
+completion reopening and identity reset. Hosted rollout remains separate.
 Dashboard widget evidence and volatility reads remain outside the assistant until
 named authorized operation consumers are classified and qualified. These pages
 currently contribute page/context identity only; D327 adds native physical reads.

@@ -231,12 +231,13 @@ test('a tracking failure stops cleanly and a later run can start',{skip:!browser
     await evaluate(`(async()=>{window.errors=[];window.addEventListener('error',e=>{errors.push(e.message);e.preventDefault();});window.failTracking=false;window.inFrame=false;const frame=requestAnimationFrame;window.requestAnimationFrame=callback=>frame(time=>{inFrame=true;try{callback(time);}finally{inFrame=false;}});
       window.runner=(await import('/assistant-walkthroughs.js')).setupWalkthrough({identity:()=> 'synthetic',context:()=>{if(failTracking&&inFrame){failTracking=false;throw Error('Synthetic context unavailable');}return 'pin';},verify:async()=>true,perform:async()=>document.querySelector('#target')});
       window.plan={agentLabel:'Synthetic guide',ordinal:1,plan:{pageReport:{page:'blotter',selection:{}},context:{},steps:[{kind:'scroll_to',page:'blotter',widget:'positions'},{kind:'pause',page:'blotter'}]}};
-      void runner.start(plan);await new Promise(r=>setTimeout(r,450));failTracking=true;await new Promise(r=>setTimeout(r,150));})()`);
+      void runner.start(plan);for(let n=0;n<200&&document.querySelector('.assistant-walkthrough-continue').hidden;n++)await new Promise(r=>setTimeout(r,10));
+      failTracking=true;for(let n=0;n<200&&runner.active();n++)await new Promise(r=>setTimeout(r,10));})()`);
     assert.deepEqual(await evaluate('errors'),[]);
     assert.equal(await evaluate('runner.active()'),false);
     assert.equal(await evaluate("document.querySelector('.assistant-walkthrough-cursor').hidden&&document.querySelectorAll('.assistant-walkthrough-target').length===0"),true);
-    await evaluate('void runner.start(plan);new Promise(r=>setTimeout(r,450))');
-    assert.equal(await evaluate('runner.active()'),true);
+    await evaluate("(async()=>{void runner.start(plan);for(let n=0;n<200&&document.querySelector('.assistant-walkthrough-continue').hidden;n++)await new Promise(r=>setTimeout(r,10));})()");
+    assert.equal(await evaluate("runner.active()&&!document.querySelector('.assistant-walkthrough-continue').hidden"),true);
   });
 });
 
