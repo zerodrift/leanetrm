@@ -124,16 +124,32 @@ Its three deployable files are separate from the authenticated application's
 browser assets. The gateway template `deploy/nginx.conf.template` requires seven
 explicit substitutions: `PUBLIC_HOST`, `CERTIFICATE_CHAIN`, `CERTIFICATE_KEY`,
 `UPSTREAM_ADDRESS`, `UPSTREAM_PORT`, `LANDING_ROOT` and `LANDING_HEADERS`.
-`LANDING_ROOT` names the installed three-file public directory and
+`LANDING_ROOT` names the installed public directory and
 `LANDING_HEADERS` names the installed `site/headers.inc`. Render these inputs
 through `tools/gateway_configuration.py` with the selected host limits. It also
-writes the derived size/deadline placeholders and preserves nginx's own `$request_uri`, `$is_args`, `$args`,
-`$remote_addr` and `$openetrm_backend` variables. Keep rendered configuration,
+writes the derived size/deadline placeholders and preserves nginx's own `$request_uri`, `$uri`,
+`$request_filename`, `$document_root`, `$is_args`, `$args`, `$remote_addr` and `$openetrm_backend` variables. Keep rendered configuration,
 certificate keys and installation addresses outside source control.
 
-Only `/`, `/_landing/site.css` and `/_landing/favicon.svg` serve public files,
-with GET/HEAD, restrictive public-content headers and no JavaScript. Unknown
-paths under `/_landing/` return 404. `/app` proxies to the application's existing
+Only `/`, `/_landing/site.css`, `/_landing/favicon.svg` and the two bounded media
+folders `/_landing/images/` and `/_landing/films/` serve public files, with
+GET/HEAD, restrictive public-content headers and no JavaScript (D382). A media
+name is one lowercase segment with a listed extension, and only a regular file
+is served: folders answer 404 and symbolic links inside a media folder 403.
+Media answers byte ranges, so a player can seek. Other methods are refused with
+403 whatever the name. Images, demonstration films, their captions and their
+posters are operator content installed under `LANDING_ROOT`; they are not in the
+repository.
+Unknown paths under `/_landing/` return 404.
+
+Films are anonymous multi-megabyte downloads served by the same nginx that
+fronts the workspace. The template sets no rate or connection limit for them,
+access logging is off, and a request for an absent media name writes nothing,
+so film traffic leaves no record at the gateway. Slow or parallel downloads
+hold gateway connections that the workspace and its event streams share. Size
+the gateway for that, or put a cache in front of it, before publishing films.
+Error answers on the media routes carry the same five-minute public cache
+period as successful ones, so install a film before the page names it. `/app` proxies to the application's existing
 root, preserving the raw query; `/app/` redirects to `/app`. Successful login's
 upstream `Location: /` becomes `/app` only on the exact `/auth/login` endpoint.
 Failed login and other upstream redirects retain their original destinations.

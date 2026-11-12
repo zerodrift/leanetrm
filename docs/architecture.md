@@ -488,8 +488,8 @@ separate qualified baseline (D135). Hosted authentication and collection boundar
 in [hosted pilot operations](hosted-pilot.md); the synthetic local preview stays isolated.
 
 The public buildless homepage lives in `site/`, separately from the authenticated
-workspace assets. The hosted gateway serves only its exact homepage and two public
-assets; `/app` forwards to the application's native root with its query intact.
+workspace assets. The hosted gateway serves only its exact homepage, two public
+assets and two bounded media folders (D382); `/app` forwards to the application's native root with its query intact.
 Only successful sign-in redirects to that native root are rewritten to `/app`.
 All other application and API paths retain the authenticated upstream routing.
 The site and gateway configuration require a separately reviewed installation;
