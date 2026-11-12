@@ -7,7 +7,7 @@
   --font:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   --font-display:"Avenir Next","Segoe UI",system-ui,-apple-system,sans-serif;--font-mark:"Iowan Old Style","Palatino Linotype",Georgia,serif;
   --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
-  /* The one theme (D382): a dark palette. Every colour is stated in this block and named everywhere else.
+  /* The one theme (D383): a dark palette. Every colour is stated in this block and named everywhere else.
      Surfaces rise from the page: --bg, cards of --surface, their insets of --surface-2, and pressed, hovered and pill grounds of
      --surface-3. --text, --text-2 and --text-3 are each 4.5:1 or better on every surface; --text-disabled, for a choice that cannot
      be made, is 3:1 or better. */
@@ -1584,7 +1584,7 @@ header:has(.context-toolbar:not([hidden])) .header-actions{flex:1 1 740px;flex-w
 .context-field input{width:130px;max-width:100%;min-height:32px;box-sizing:border-box;padding:5px 8px;font-size:12px;margin:0}
 .context-knowledge{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
 .context-knowledge input{width:100%;font-size:12px;padding:6px 8px}
-/* As of details sits beneath the close or business date it details, collapsed to one quiet line that names the close (D383). */
+/* As of details sits beneath the close or business date it details, collapsed to one quiet line that names the close (D384). */
 .context-as-of{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0;max-width:100%}
 .as-of-widget{display:flex;flex-direction:column;gap:5px;min-width:0;max-width:100%}
 .as-of-context{font-size:11px;max-width:100%;min-width:0}

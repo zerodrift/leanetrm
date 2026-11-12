@@ -4281,12 +4281,12 @@ See [the capability contract](power-curve-composition.md) and
 production finality, accounting or performance qualification is implied.
 
 
-## One dark theme (D382, local)
+## One dark theme (D383, local)
 
 The standard frontend suite holds the theme. The stylesheets state no colour
 outside the token block and read no custom property that is neither defined
 there nor set by a view. Text, mark, focus-ring, volatility and curve-kind
-tokens meet the D382 ratios on every surface they are used on. The shared
+tokens meet the D383 ratios on every surface they are used on. The shared
 chart's colours equal the tokens and the palette, each palette colour is 3:1
 or better on every chart surface, and heatmap cell labels keep 4:1 or better
 along each ramp. The sign-in page states only theme colours.
@@ -4317,7 +4317,7 @@ synthetic data drawn from the built bundle. No release was deployed, and no
 other page or state was looked at in a running application built from this
 branch.
 
-## Date-only As of with its details beneath (D383, local)
+## Date-only As of with its details beneath (D384, local)
 
 A unit check holds the As of label: a recorded close is named by the business
 day the backend states, also where its instant falls on another day in the

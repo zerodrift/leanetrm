@@ -334,7 +334,7 @@ read trades.
 
 ## Visual system
 
-- One dark theme (D382): a navy page, raised
+- One dark theme (D383): a navy page, raised
   surfaces, light text, a blue accent and the brand's light-blue and amber
   pair. Every colour is a token in the `:root` block of `web/src/app.css`; no
   other rule states one.

@@ -28,7 +28,7 @@ export function unavailableClosesMessage(catalog:Pick<MarketDates,'dates'|'unava
 }
 
 /**
- * What the As of shows for the selected frame (D383). A recorded close is named by its business day alone: its time of day is its
+ * What the As of shows for the selected frame (D384). A recorded close is named by its business day alone: its time of day is its
  * close convention's cutoff, which As of details names. A working snapshot is a close of no convention and keeps its instant.
  */
 export function asOfLabel(frame:{at:string;close?:{businessDate:string}|null},zone:string):string{

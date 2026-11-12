@@ -106,7 +106,7 @@ on the shared ECharts component, which preserves gaps between periods.
   A priced point with no priced neighbour gets a dot, since a line joins only
   neighbours. Hovering shows the exact backend string for the instant, for the
   price and every overlay series, never a rounded number.
-- **Theme.** Colors, fonts and grid come from the CSS tokens of the app's one dark theme (D382).
+- **Theme.** Colors, fonts and grid come from the CSS tokens of the app's one dark theme (D383).
 - **Overlays.** The overlay menu lists the backend's overlay catalog. Choosing an
   overlay through its Show switch asks for its parameters (the window, with no prefilled value), sends
   them with the read, and draws the values the backend returns as a registered

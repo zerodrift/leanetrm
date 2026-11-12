@@ -28,7 +28,7 @@ test('a calendar with no closes explains its backend refusals instead of giving 
  assert.match(unavailableClosesMessage({...empty,unavailable:[]}),/No complete close/);
  assert.doesNotMatch(unavailableClosesMessage({...empty,unavailable:[{date:'2024-02-03',reason:'unknown_internal_code'}]}),/unknown_internal_code/);
 });
-// D383: a recorded close's time of day is its close convention's cutoff, which As of details names, so the As of states its business
+// D384: a recorded close's time of day is its close convention's cutoff, which As of details names, so the As of states its business
 // day alone. A working snapshot is a close of no convention and keeps its instant.
 test('the As of names a recorded close by its business date and a working snapshot by its instant',()=>{
  assert.equal(asOfLabel({at:'2020-12-18T16:00:00Z',close:{businessDate:'2020-12-18'}},'America/Chicago'),'Dec 18, 2020');

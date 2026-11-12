@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readdirSync,readFileSync} from 'node:fs';
 import {built,contrast,css,rootBlock,sheet,token,tokenNames} from './theme-tokens.mjs';
 
-// The app has one theme (D382): a dark palette stated once, as tokens in app.css's :root block. Everything else names a token, so no
+// The app has one theme (D383): a dark palette stated once, as tokens in app.css's :root block. Everything else names a token, so no
 // rule can keep a colour of its own that the palette does not know.
 const sheets={'app.css':css.replace(rootBlock,''),'position-window.css':sheet('position-window.css')};
 // A colour written out: hex, a colour function, or one of the common colour names as a whole word of a declaration's value.

@@ -184,7 +184,7 @@ function renderWorkspaceMode(){
   $('follow-live').toggleAttribute('disabled',busy||!select('snapshot').value);
 }
 // Collapsed, As of details names the close convention in use and nothing else, and says so when one still has to be chosen; a page
-// read by business date has no close to name. Opened, it also states the selected close's instant, which the As of leaves out (D383).
+// read by business date has no close to name. Opened, it also states the selected close's instant, which the As of leaves out (D384).
 function renderAsOfClose(){
   const byBusinessDate=usesBusinessDate(page),named=byBusinessDate?'As of details':closeSession===null?'Choose a close convention':closeSessionNames.get(closeSession)??closeSession;
   text('as-of-close',named);
