@@ -85,7 +85,7 @@ internal static class NestedScenarioChecks
         });
         Check("nonlinear risk is measured about the complete stressed baseline across books",()=>
         {
-            var contract=new UnitPricingContract(Guid.NewGuid(),"synthetic_square_under_stress_v1",[power],f.R("power_quantity"),f.R("currency"));
+            var contract=new UnitPricingContract(Guid.NewGuid(),"synthetic_square_under_stress_v1",[power],f.R("power_quantity"),f.R("currency")) { Time = ValuationTimeDependency.Independent };
             var instrument=new RiskChecks.TestPricer(contract,i=>new(i.Price(power).Value*i.Price(power).Value,contract.Currency));
             var books=new[]{Guid.NewGuid(),Guid.NewGuid()};
             var positions=books.Select(book=>new RiskPosition(Guid.NewGuid(),Guid.NewGuid(),book,contract.Id,

@@ -16,6 +16,7 @@ public sealed record ValuationSetup(ValuationMeasure Measure,
     public IntervalValuationInputs? Interval{get;init;}
     public ImmutableDictionary<Guid,ISideDiscounting> InstrumentDiscounting{get;init;}=ImmutableDictionary<Guid,ISideDiscounting>.Empty;
     public ImmutableDictionary<MeasureBinding,IBindingValuationState> BindingStates{get;init;}=ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty;
+    public ImmutableDictionary<MeasureBinding,BindingAccountingFacts> AccountingFacts{get;init;}=ImmutableDictionary<MeasureBinding,BindingAccountingFacts>.Empty;
     public ImmutableDictionary<Guid,FuturesOptionMarketBinding> OptionBindings{get;init;}=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty;
 }
 
@@ -23,22 +24,21 @@ public sealed record ValuationSetup(ValuationMeasure Measure,
 // provider is intentional; equal-looking providers do not establish equal pins.
 internal sealed class SideValuationContexts
 {
-    private sealed record Key(ISideDiscounting? Provider,ImmutableHashSet<CurveRequest> Dependencies,IBindingValuationState? State);
+    private sealed record Key(ISideDiscounting? Provider,UnitPricingContract Declaration,IBindingValuationState? State);
     private sealed class Keys:IEqualityComparer<Key>
     {
-        public bool Equals(Key? a,Key? b)=>ReferenceEquals(a,b)||a is not null&&b is not null&&ReferenceEquals(a.Provider,b.Provider)&&ReferenceEquals(a.State,b.State)&&a.Dependencies.SetEquals(b.Dependencies);
+        public bool Equals(Key? a,Key? b)=>ReferenceEquals(a,b)||a is not null&&b is not null&&ReferenceEquals(a.Provider,b.Provider)&&ReferenceEquals(a.State,b.State)&&a.Declaration.SameInputFence(b.Declaration);
         public int GetHashCode(Key key)
         {
             var hash=key.Provider is null?0:System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(key.Provider);
-            foreach(var dependency in key.Dependencies)hash^=dependency.GetHashCode();
-            return HashCode.Combine(hash,key.Dependencies.Count,key.State is null?0:System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(key.State));
+            return HashCode.Combine(hash,key.Declaration.InputFenceHash(),key.State is null?0:System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(key.State));
         }
     }
     private readonly Dictionary<Key,SideValuationContext> contexts=new(new Keys());
     internal int Calculations=>contexts.Values.Sum(c=>c.EvaluatedSides);
-    internal SideValuationContext Get(ISideDiscounting? provider,ImmutableArray<CurveRequest> dependencies,IBindingValuationState? state,Func<SideValuationContext> create)
+    internal SideValuationContext Get(ISideDiscounting? provider,UnitPricingContract declaration,IBindingValuationState? state,Func<SideValuationContext> create)
     {
-        var key=new Key(provider,dependencies.ToImmutableHashSet(),state);
+        var key=new Key(provider,declaration,state);
         if(!contexts.TryGetValue(key,out var context)){context=create();contexts.Add(key,context);}
         return context;
     }
@@ -56,7 +56,7 @@ public sealed class UnitValuationContext
     }
     internal ValuationSetup Setup {get;}
     internal MarketSnapshot Snapshot {get;}
-    private readonly PreparedValuationMarket? pricing;
+    private readonly PreparedValuationEnvironment? pricing;
     private readonly UnitPricingContract? declaration;
     private readonly CancellationToken cancellation;
     internal CancellationToken Cancellation=>cancellation;
@@ -84,10 +84,11 @@ public sealed class UnitValuationContext
         Measures=measures;
     }
     public IntervalValuationSession? IntervalSession{get;}
-    public ISideDiscounting DiscountProvider=>Setup.Discounting??
-        (declaration is not null?Setup.InstrumentDiscounting.GetValueOrDefault(declaration.Id):null)??
-        throw new MarketDataException("side_context","Supply this instrument's explicit discount inputs.");
-    internal UnitValuationContext(MarketSnapshot snapshot,ValuationSetup setup,PreparedValuationMarket? market=null,UnitPricingContract? declaration=null,CancellationToken cancellation=default,DeliveryCoverage? coverage=null,IntervalValuationSession? intervalSession=null,
+    public ISideDiscounting PaymentDiscounting(Guid instrument)=>Setup.Discounting??Setup.InstrumentDiscounting.GetValueOrDefault(instrument)??
+        throw new MarketDataException("side_context","Supply this instrument's explicit payment discount inputs.");
+    public ISideDiscounting DiscountProvider=>Setup.Discounting??(declaration is {} selected?PaymentDiscounting(selected.Id):
+        throw new MarketDataException("side_context","Select this instrument before reading its payment discount inputs."));
+    internal UnitValuationContext(MarketSnapshot snapshot,ValuationSetup setup,PreparedValuationEnvironment? market=null,UnitPricingContract? declaration=null,CancellationToken cancellation=default,DeliveryCoverage? coverage=null,IntervalValuationSession? intervalSession=null,
         SideValuationContexts? sideContexts=null,IBindingValuationState? bindingState=null)
     {
         if(market is not null&&declaration is null&&(setup.Discounting??setup.InstrumentDiscounting.Values.FirstOrDefault()) is {} provider)
@@ -124,7 +125,7 @@ public sealed class UnitValuationContext
         if(pricing is null||declaration is null)
             throw new MarketDataException("side_context","Supply the declared market and explicit payment discount inputs.");
         var provider=selected??Setup.Discounting??Setup.InstrumentDiscounting.GetValueOrDefault(declaration.Id);
-        return sideContexts.Get(provider,declaration.Dependencies,BindingState,()=>pricing.Context(provider,declaration.Dependencies,cancellation).WithBindingState(BindingState));
+        return sideContexts.Get(provider,declaration,BindingState,()=>pricing.Context(provider,declaration.Dependencies,cancellation,Inputs).WithBindingState(BindingState));
     }
 }
 
@@ -150,9 +151,9 @@ public sealed class PortfolioValue
     public int SideCalculations{get;}
     public IntervalValuationSession? IntervalSession{get;}
     internal ValuationPortfolio Owner{get;}
-    internal PreparedValuationMarket Market{get;}
+    internal PreparedValuationEnvironment Market{get;}
     internal ImmutableArray<UnitPricingContract> Declarations{get;}
-    internal PortfolioValue(ValuationPortfolio owner,PreparedValuationMarket market,ImmutableArray<UnitPricingContract> declarations,
+    internal PortfolioValue(ValuationPortfolio owner,PreparedValuationEnvironment market,ImmutableArray<UnitPricingContract> declarations,
         ImmutableArray<ExactMoney> positions,ImmutableArray<BookCurrencyValue> totals,ImmutableArray<ExactMoney> units,int calls,int quantityApplications,IntervalValuationSession? intervalSession,ImmutableArray<BookValueMeasures> baseMeasures,int sideCalculations)
     {Owner=owner;Market=market;Declarations=declarations;Positions=positions;Totals=totals;UnitValues=units;UnitValuations=calls;QuantityApplications=quantityApplications;IntervalSession=intervalSession;BaseMeasures=baseMeasures;SideCalculations=sideCalculations;}
 }
@@ -289,7 +290,7 @@ public sealed class ValuationPortfolio
         foreach(var (binding,state) in Setup.BindingStates)
         {
             if(state is null||!held.TryGetValue(binding,out var position)||position.Quantity!=state.Quantity||
-                binding.TradeId!=state.TradeId||binding.BindingId!=state.BindingId)
+                binding.TradeId!=state.TradeId||binding.BindingId!=state.BindingId||state.BookId!=position.BookId)
                 throw Error("settlement_scope","Every valuation state must belong to its exact held trade binding and booked quantity.");
             Instruments[indexes[position.ValuationId]].ValidateValuationState(state);
         }
@@ -312,7 +313,7 @@ public sealed class ValuationPortfolio
     }
     internal ImmutableArray<BookRiskFactors> RiskFactors(CurveBuild market,ImmutableArray<UnitPricingContract> declarations,CancellationToken cancellation)
         =>RiskFactors(market.Pricing,declarations,cancellation);
-    internal ImmutableArray<BookRiskFactors> RiskFactors(PreparedValuationMarket market,ImmutableArray<UnitPricingContract> declarations,CancellationToken cancellation)
+    internal ImmutableArray<BookRiskFactors> RiskFactors(PreparedValuationEnvironment market,ImmutableArray<UnitPricingContract> declarations,CancellationToken cancellation)
     {
         var context=new UnitValuationContext(market.Snapshot,Setup,market,cancellation:cancellation);
         var byScope=Scopes.Select((scope,n)=>
@@ -346,7 +347,7 @@ public sealed class ValuationPortfolio
                 c.Dependencies.Distinct().Count()!=c.Dependencies.Length||c.Quantity!=instrument.UnitQuantity.Specification||
                 c.Currency!=instrument.Currency||instrument.UnitQuantity.Amount!=ExactDecimal.Parse("1"))
                 throw Error("risk_contract","Each unit instrument requires a complete versioned dependency declaration, currency and normalized unit basis.");
-            Money.RequireKey(c.Currency);Money.RequireKey(c.Quantity);
+            c.RequireInputs();Money.RequireKey(c.Currency);Money.RequireKey(c.Quantity);
             if(c.Currency.Revision!=c.Quantity.Revision)throw Error("risk_contract","Currency and quantity require the same exact reference revision.");
             return c with{ScheduleIdentity=instrument.RetainedScheduleIdentity,SettlementProjections=instrument.SettlementProjections};
         }).ToImmutableArray();
@@ -354,7 +355,7 @@ public sealed class ValuationPortfolio
     internal PortfolioValue PV(CurveBuild market,ImmutableArray<UnitPricingContract> declarations,CurveBuild? baseMarket=null,
         PortfolioValue? baseValue=null,CancellationToken ct=default,RiskDetail detail=RiskDetail.Holdings)
         =>PV(market.Pricing,declarations,baseMarket is null?null:baseMarket.Pricing,baseValue,ct,detail);
-    internal PortfolioValue PV(PreparedValuationMarket market,ImmutableArray<UnitPricingContract> declarations,PreparedValuationMarket? baseMarket=null,
+    internal PortfolioValue PV(PreparedValuationEnvironment market,ImmutableArray<UnitPricingContract> declarations,PreparedValuationEnvironment? baseMarket=null,
         PortfolioValue? baseValue=null,CancellationToken ct=default,RiskDetail detail=RiskDetail.Holdings)
     {
         if(declarations.Length!=Scopes.Length||(baseMarket is null)!=(baseValue is null)||
@@ -372,7 +373,11 @@ public sealed class ValuationPortfolio
         {
             ct.ThrowIfCancellationRequested();var contract=declarations[n];
             if(contract.Id!=Scopes[n].Instrument.Id)throw Error("risk_contract","Declaration ordering must match exact instrument identities.");
-            var affected=baseMarket is null||!market.Unchanged(baseMarket,contract.Dependencies,ct);
+            contract.Time.Require(market.Snapshot.ValuationAt,market.CalculationAt);
+            var affected=baseMarket is null||
+                contract.Time.Use!=ValuationTimeDependency.TimeUse.Independent&&market.CalculationAt!=baseMarket.CalculationAt||
+                contract.Volatility.Any(v=>market.VolatilityOffset(v.Id)!=baseMarket!.VolatilityOffset(v.Id))||
+                !market.Unchanged(baseMarket,contract.Dependencies,ct);
             var scope=Scopes[n];
             var unitContext=context.For(contract,scope.Coverage,scope.BindingState is {} binding?Setup.BindingStates[binding]:null);
             ExactMoney value;

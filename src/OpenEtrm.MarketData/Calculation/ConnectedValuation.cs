@@ -97,14 +97,14 @@ public sealed class ConnectedValuation
         return new(scenario,Snapshot){ContractObservations=ContractObservations};
     }
 
-    internal PreparedValuationMarket Market(ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild? authority,CancellationToken cancellation,CurveBuild? nativeScenario=null)
+    internal PreparedValuationEnvironment Market(ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild? authority,CancellationToken cancellation,CurveBuild? nativeScenario=null)
         =>new ConnectedMarket(this,bindings,authority,cancellation,nativeScenario);
 
-    internal static PreparedValuationMarket WithScenario(PreparedValuationMarket market,ConnectedValuation valuation,CurveBuild? nativeScenario=null)
+    internal static PreparedValuationEnvironment WithScenario(PreparedValuationEnvironment market,ConnectedValuation valuation,CurveBuild? nativeScenario=null)
         =>market is ConnectedMarket connected?connected.WithScenario(valuation,nativeScenario):
             throw new MarketDataException("instrument_context","A connected child requires its prepared pricing bindings.");
 
-    private sealed class ConnectedMarket : PreparedValuationMarket
+    private sealed class ConnectedMarket : PreparedValuationEnvironment
     {
         private readonly ConnectedValuation valuation;
         private readonly ImmutableDictionary<CurveRequest,CurvePointKey> bindings;
@@ -142,6 +142,19 @@ public sealed class ConnectedValuation
         }
         public override MarketSnapshot Snapshot=>valuation.Snapshot;
         public override string ScenarioId=>valuation.Scenario.Id;
+        public override DateTimeOffset CalculationAt=>valuation.Scenario.CalculationAt;
+        public override string? ClockPolicy=>valuation.Scenario.ClockPolicy;
+        internal override ExactDecimal VolatilityOffset(Guid input)=>valuation.Scenario.VolatilityOffset(input);
+        internal override ImmutableHashSet<Guid> ShiftedVolatilityInputs
+        {
+            get
+            {
+                var inputs=ImmutableHashSet.CreateBuilder<Guid>();
+                for(var current=valuation.Scenario;current is not null;current=current.Parent)
+                    foreach(var shift in current.VolatilityShifts)inputs.Add(shift.InputId);
+                return inputs.ToImmutable();
+            }
+        }
         public override string NumericalPolicy=>ConnectedCurves.NumericalPolicy;
         internal override object Identity=>this;
         internal override CurveBuild? Authority=>authority;
@@ -161,19 +174,19 @@ public sealed class ConnectedValuation
                 return new(source.Input,source.Quote.Key,p.Unit,source.Request.Contract,source.Observation.Key,source.Observation.Source,
                     source.Observation.Role,price.Value,[source.Request.Curve],source.Quote.TradingTick);
             })).OrderBy(f=>f.Input.Series.Id).ToImmutableArray();
-        internal override bool Compatible(PreparedValuationMarket prior)=>prior is ConnectedMarket connected&&
+        internal override bool Compatible(PreparedValuationEnvironment prior)=>prior is ConnectedMarket connected&&
             ReferenceEquals(bindings,connected.bindings)&&ReferenceEquals(valuation.Scenario.Plan,connected.valuation.Scenario.Plan)&&
             ReferenceEquals(authority,connected.authority)&&Snapshot.HasSameInputs(connected.Snapshot);
-        internal override bool Unchanged(PreparedValuationMarket prior,ImmutableArray<CurveRequest> requests,CancellationToken cancellation)
+        internal override bool Unchanged(PreparedValuationEnvironment prior,ImmutableArray<CurveRequest> requests,CancellationToken cancellation)
         {
             if(prior is not ConnectedMarket connected)return false;
             foreach(var request in requests)if(!ReferenceEquals(Price(request,cancellation),connected.Price(request,cancellation)))return false;
             return true;
         }
-        internal override SideValuationContext Context(ISideDiscounting? discounting,ImmutableArray<CurveRequest> dependencies,CancellationToken cancellation)
+        internal override SideValuationContext Context(ISideDiscounting? discounting,ImmutableArray<CurveRequest> dependencies,CancellationToken cancellation,PricingInputs? inputs=null)
         {
-            SideValuationContext context=authority is null?new(Snapshot,discounting,dependencies,request=>Price(request,cancellation),NumericalPolicy,ScenarioId,valuation.Scenario.ParentId is null):
-                new(authority,discounting,dependencies,request=>Price(request,cancellation),request=>Lineage(request,cancellation),NumericalPolicy,ScenarioId,valuation.Scenario.ParentId is null);
+            SideValuationContext context=authority is null?new(Snapshot,discounting,dependencies,request=>Price(request,cancellation),NumericalPolicy,ScenarioId,valuation.Scenario.ParentId is null,inputs):
+                new(authority,discounting,dependencies,request=>Price(request,cancellation),request=>Lineage(request,cancellation),NumericalPolicy,ScenarioId,valuation.Scenario.ParentId is null,inputs);
             return valuation.ContractObservations is {} observations?context.WithContractObservations(observations,valuation.Scenario):context;
         }
     }
@@ -197,17 +210,20 @@ public sealed class ConnectedValuation
         var scenario=Scenario;var snapshot=Snapshot;
         var setup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,discounting);
         var declaration=instrument.Declare(new UnitValuationContext(snapshot,setup));
-        if(declaration is null||declaration.Id!=instrument.Id||string.IsNullOrWhiteSpace(declaration.ModelVersion)||
+        if(declaration is null||declaration.Time is null||declaration.Id!=instrument.Id||string.IsNullOrWhiteSpace(declaration.ModelVersion)||
             declaration.Currency!=instrument.Currency||declaration.Quantity!=instrument.UnitQuantity.Specification||
             instrument.UnitQuantity.Amount!=ExactDecimal.Parse("1")||declaration.Dependencies.IsDefault||
             declaration.Dependencies.Distinct().Count()!=declaration.Dependencies.Length)
             throw new MarketDataException("risk_contract","The instrument must declare its exact inputs, model, currency and normalized unit basis.");
+        declaration.RequireInputs();
         if(!declaration.Dependencies.ToHashSet().SetEquals(bindings.Keys))
             throw new MarketDataException("risk_dependency","Connected pricing bindings must match the instrument's complete declared input set.");
         foreach(var point in bindings.Values)
         {cancellation.ThrowIfCancellationRequested();scenario.Plan.GetPoint(point);}
         if(discounting is not null)SideValuationContext.Validate(snapshot,discounting);
-        var context=Market(bindings,authority,cancellation).Context(discounting,declaration.Dependencies,cancellation);
+        var environment=Market(bindings,authority,cancellation);
+        environment.RequireInputs([declaration]);
+        var context=environment.Context(discounting,declaration.Dependencies,cancellation,new(environment,declaration,cancellation));
         var value=instrument.PV(context);
         cancellation.ThrowIfCancellationRequested();
         if(value is null||value.InstrumentId!=instrument.Id||value.Currency!=instrument.Currency||

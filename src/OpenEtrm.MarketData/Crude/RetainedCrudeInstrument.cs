@@ -56,7 +56,7 @@ public sealed record RetainedCrudeInstrument : RetainedProgramInstrument<Retaine
 
     public override UnitPricingContract Declare(UnitValuationContext context) => new(Id, "retained_crude_unit_pv_v1",
         PeriodPriceSelector.ProjectionAt(Assignment.Lookup, context.Snapshot) is {} market ? [market] : [],
-        UnitQuantity.Specification, Currency) { ScheduleIdentity = RetainedScheduleIdentity };
+        UnitQuantity.Specification, Currency) { Time = ValuationTimeDependency.Pinned,  ScheduleIdentity = RetainedScheduleIdentity };
 
     protected override ScheduleMarketSources Sources(CurveBuild basis) => ScheduleMarketSources.ForPhysicalCrude(basis, [Assignment]);
 }

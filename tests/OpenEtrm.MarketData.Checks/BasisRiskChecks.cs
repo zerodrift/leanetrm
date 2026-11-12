@@ -170,7 +170,7 @@ internal static class BasisRiskChecks
         public override bool SupportsQuantityScaling=>true;
         public override ReferenceKey Currency=>Inner.Currency;
         public override Quantity UnitQuantity=>Inner.UnitQuantity;
-        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_missing_input_v1",[],UnitQuantity.Specification,Currency);
+        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_missing_input_v1",[],UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Independent };
         public override InstrumentValuation PV(SideValuationContext context)=>Inner.PV(context);
     }
 

@@ -45,7 +45,7 @@ internal static class WholeTermSwapAssemblyChecks
         if(projectionEvidence.Length!=1||projectionEvidence[0].Selection!=settlement||projectionEvidence[0].Curve.Code!="synthetic_projection")
             throw new Exception("Risk receipts must retain the explicit selected index and projection policy even when multiple periods share a curve.");
         var contract=new OpenEtrm.MarketData.Risk.UnitPricingContract(Guid.NewGuid(),"synthetic_model_v1",[],unit.Specification,quote.Currency)
-            {SettlementProjections=projectionEvidence};
+            { Time = ValuationTimeDependency.Independent, SettlementProjections=projectionEvidence};
         var policyReceipt=ProjectionPolicyReceipts.For([contract]).Single();
         if(policyReceipt.Settlement!=settlement||policyReceipt.Label!="Curve risk with unmodelled basis to synthetic_settlement_index")
             throw new Exception("The backend must state the interpretation of override risk and retain its exact contractual selection.");

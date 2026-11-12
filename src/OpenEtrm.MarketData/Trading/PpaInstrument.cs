@@ -43,7 +43,7 @@ public sealed record PpaInstrument:SidedInstrument
     {
         if(context.Measure!=ValuationMeasure.PresentValue || context.Setup.Interval is not {} inputs || context.Coverage is not {} coverage)
             throw PpaErrors.Error("ppa_context","valuation","Select prepared interval inputs, explicit coverage and present-value measurement.");
-        return new(Id,"ppa_interval_leg_pv_v1",inputs.Dependencies(this,coverage),UnitQuantity.Specification,Currency);
+        return new(Id,"ppa_interval_leg_pv_v1",inputs.Dependencies(this,coverage),UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Pinned };
     }
     public override ExactMoney Value(UnitValuationContext context)
     {

@@ -585,8 +585,8 @@ test('an option row states its right, strike and signed open lots, its premium a
 
 test('the premium row is cash with no mark of its own, and an option with no open lots says so in place of its mark',()=>{
  const [premium]=positionRows([premiumRow()]);
- assert.deepEqual([premium.side,premium.exposure,premium.mark,premium.markNote,premium.quantity,premium.unit],['Premium pending',null,null,'Premium cash','-3000','USD']);
- assert.equal(positionRows([premiumRow({cashState:'settled'})])[0].side,'Premium settled');
+ assert.deepEqual([premium.side,premium.exposure,premium.mark,premium.markNote,premium.quantity,premium.unit],['Premium Pending',null,null,'Premium cash','-3000','USD']);
+ assert.equal(positionRows([premiumRow({cashState:'paid'})])[0].side,'Premium Paid');
  const closed=positionRows([optionRow({openLots:'0',quantity:'0',settlement:null,presentValue:'0',lifecycleState:'closed'})])[0];
  assert.deepEqual([closed.side,closed.exposure,closed.mark,closed.markNote],['Call 3.05 · 0 lots','flat',null,'No open lots']);
  assert.ok(noteMeaning('Premium cash')&&noteMeaning('No open lots'));
@@ -594,7 +594,7 @@ test('the premium row is cash with no mark of its own, and an option with no ope
 
 test('a pending premium dated outside the discount curve says so in place of its value',()=>{
  const [premium]=positionRows([premiumRow({presentValue:null,unavailableReason:'discount_coverage'})]);
- assert.deepEqual([premium.side,premium.value,premium.unavailable],['Premium pending',null,'Payment date outside the discount curve']);
+ assert.deepEqual([premium.side,premium.value,premium.unavailable],['Premium Pending',null,'Payment date outside the discount curve']);
  assert.throws(()=>valuationReason('discount_coverage','future'),{message:'The Blotter returned an unknown valuation status.'});
 });
 

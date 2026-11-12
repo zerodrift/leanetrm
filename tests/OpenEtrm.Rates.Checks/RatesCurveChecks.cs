@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData;
 using OpenEtrm.Rates;
+using OpenEtrm.MarketData.Trading;
+using OpenEtrm.MarketData.Calculation;
 
 internal static class RatesCurveChecks
 {
@@ -27,6 +29,20 @@ internal static class RatesCurveChecks
             throw new Exception("The t_0 anchor must bracket the first pillar from no inputs of its own.");
         try{curve.Lookup(date.AddDays(21));throw new Exception("Unsupported extrapolation succeeded.");}catch(MarketDataException e)when(e.Code=="discount_coverage"){}
         Console.WriteLine("PASS rates curve: shared typed evaluator, exact factors, log-discount brackets, the t_0 anchor and coverage rejection");
+
+        if(RateCurveMath.DiscountRatio(ExactDecimal.Parse("1"),ExactDecimal.Parse("134217728"),RateCurveMath.DiscountRatioPolicy).ToString()!="0.000000007450580597"||
+            RateCurveMath.DiscountRatio(ExactDecimal.Parse("1"),ExactDecimal.Parse("524288"),RateCurveMath.DiscountRatioPolicy).ToString()!="0.000001907348632812")
+            throw new Exception("Independent exact rational discount-ratio rounding oracles failed.");
+        var key=new SidePaymentKey(Guid.NewGuid(),0,at.AddDays(20),R("ccy"));
+        var discounting=new CurrencyDefaultDiscounting([key],snapshot,true,new(Guid.NewGuid(),R("ccy"),definition));
+        var rolled=discounting.ResolveForValuation([key],snapshot,at.AddDays(15),ClockChange.FrozenInputs).Single();
+        var difference=rolled.DiscountFactor-ExactDecimal.Parse("0.980580675690920159");
+        if(difference.CompareTo(ExactDecimal.Parse("0.000000000000000002"))>0||difference.CompareTo(ExactDecimal.Parse("-0.000000000000000002"))<0||
+            !ReferenceEquals(rolled.Snapshot,snapshot)||rolled.ClockRoll is not {AnchorObservations.Length:2})
+            throw new Exception("Frozen dated discount roll did not rebase the full retained curve with source evidence.");
+        try{discounting.ResolveForValuation([key],snapshot,at.AddDays(21),ClockChange.FrozenInputs);throw new Exception("A payment crossing was admitted.");}
+        catch(MarketDataException e)when(e.Code=="valuation_time_event"){}
+        Console.WriteLine("PASS rates curve: conditional frozen-curve roll retains both numerator and denominator sources");
 
         // D359: a payment discounts from a definition's own conventions; the factor is an independent 50-digit oracle.
         var continuous=RateConventionSet.Parse("actual_365_fixed","continuous","log_linear_discount","flat_forward","percent_per_year");

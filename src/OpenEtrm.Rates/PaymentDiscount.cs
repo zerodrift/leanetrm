@@ -93,6 +93,9 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
     public MarketSnapshot Snapshot { get; }
     public ImmutableDictionary<SidePaymentKey, PaymentDiscount> Inputs { get; }
     private readonly ImmutableDictionary<Guid, ImmutableArray<SidePaymentFactor>> factorsBySide;
+    private readonly bool enabled;
+    private readonly Lazy<RatesCurve> frozenCurve;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(DateTimeOffset,SidePaymentKey),SidePaymentFactor> rolledFactors=new();
     public CurrencyDefaultDiscounting(IEnumerable<SideSchedule> schedules,MarketSnapshot snapshot,
         bool discounting,CurrencyDiscountCurve? currencyDefault)
         : this(PaymentKeys(schedules,snapshot),snapshot,discounting,currencyDefault) { }
@@ -101,7 +104,7 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
     // Empty keys explicitly request no rate factors, as for an all-held or all-overdue PPA scope.
     public CurrencyDefaultDiscounting(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot,
         bool discounting,CurrencyDiscountCurve? currencyDefault)
-        : this(snapshot,Resolved(payments,snapshot,discounting,currencyDefault,null)) { }
+        : this(snapshot,Resolved(payments,snapshot,discounting,currencyDefault,null),discounting,currencyDefault) { }
 
     // The payments the curve covers. Each payment date outside the curve's pillars is returned in `uncovered` rather than
     // failing the others with discount_coverage; every other failure still fails the whole context.
@@ -109,14 +112,16 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
         bool discounting,CurrencyDiscountCurve? currencyDefault,out ImmutableArray<SidePaymentKey> uncovered)
     {
         var left=ImmutableArray.CreateBuilder<SidePaymentKey>();
-        var context=new CurrencyDefaultDiscounting(snapshot,Resolved(payments,snapshot,discounting,currencyDefault,left));
+        var context=new CurrencyDefaultDiscounting(snapshot,Resolved(payments,snapshot,discounting,currencyDefault,left),discounting,currencyDefault);
         uncovered=left.ToImmutable();
         return context;
     }
 
-    private CurrencyDefaultDiscounting(MarketSnapshot snapshot,ImmutableDictionary<SidePaymentKey,PaymentDiscount> inputs)
+    private CurrencyDefaultDiscounting(MarketSnapshot snapshot,ImmutableDictionary<SidePaymentKey,PaymentDiscount> inputs,bool enabled,CurrencyDiscountCurve? mapping)
     {
         Snapshot=snapshot;
+        this.enabled=enabled;
+        frozenCurve=new(()=>new RatesCurve(mapping?.Definition??throw new MarketDataException("discount_curve_missing","The retained dated discount definition is unavailable."),snapshot));
         Inputs=inputs;
         factorsBySide=Inputs.GroupBy(p=>p.Key.SideId).ToImmutableDictionary(g=>g.Key,
             g=>g.Select(p=>Factor(p.Key,p.Value)).ToImmutableArray());
@@ -158,6 +163,23 @@ public sealed class CurrencyDefaultDiscounting : ISideDiscounting
             DateOnly.FromDateTime(Snapshot.ValuationAt.UtcDateTime),input.PaymentDate,definition.Conventions,input.RateNumericalPolicy!,
             [..input.Pillars.Select(p=>new RateDiscountPillar(p.Maturity,Snapshot.Selections.Single(s=>s.Input==new InputKey(p.Series,InputUse.Variable) && s.Observation.Key==p.Observation).Observation))]) };
     }
+    public ImmutableArray<SidePaymentFactor> ResolveForValuation(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot,
+        DateTimeOffset calculationAt,string? clockPolicy)
+    {
+        var factors=Resolve(payments,snapshot);
+        if(calculationAt==snapshot.ValuationAt)return factors;
+        if(clockPolicy!=ClockChange.FrozenInputs||!TradingInstant.IsSupported(calculationAt)||calculationAt<snapshot.ValuationAt)
+            throw new MarketDataException("scenario_clock","Select an explicit supported frozen-input clock roll.");
+        if(payments.Any(p=>p.PaymentAt<=calculationAt))throw new MarketDataException("valuation_time_event","The clock crosses a payment event.");
+        if(!enabled)return [..factors.Select(f=>f with{ClockRoll=new(clockPolicy,calculationAt,f.DiscountFactor,ExactDecimal.Parse("1"),[])})];
+        var curve=frozenCurve.Value;
+        var anchor=curve.Lookup(DateOnly.FromDateTime(calculationAt.UtcDateTime)).Value;
+        if(anchor.Value.CompareTo(default)<=0)throw new MarketDataException("discount_curve","The rolled discount anchor must be positive.");
+        return [..factors.Select(f=>rolledFactors.GetOrAdd((calculationAt,f.Payment),_=>f with{
+            DiscountFactor=RateCurveMath.DiscountRatio(f.DiscountFactor,anchor.Value,RateCurveMath.DiscountRatioPolicy),
+            ClockRoll=new(clockPolicy,calculationAt,f.DiscountFactor,anchor.Value,[..anchor.Pillars.Select(p=>p.Observation)])}))];
+    }
+
     public ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot)
     {
         if(!Snapshot.HasSameInputs(snapshot))

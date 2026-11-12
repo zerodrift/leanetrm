@@ -68,6 +68,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     check('owned operating settings database',[sys.executable,'tools/check_operating_settings.py','--pg-bin',str(pg_bin)])
     check('native volatility-fit admission expiry',[sys.executable,'tools/check_vol_surface_admission_expiry.py','--pg-bin',str(pg_bin)])
     check('owned reference metadata database',[sys.executable,'tools/check_reference_editing.py','--pg-bin',str(pg_bin)])
+    check('recorded cash upgrade over existing option bookings',[sys.executable,'tools/check_recorded_cash_upgrade.py','--pg-bin',str(pg_bin)])
     check('exact temporal sources, retained close upgrade and claimed worker replay',
           [sys.executable,'tools/check_context_resolution.py','--upgrade-existing-close','--pg-bin',str(pg_bin),'--dotnet',str(dotnet)])
     check('owned recorded-close observation batches',[sys.executable,'tools/check_observation_batch_reads.py','--pg-bin',str(pg_bin)])

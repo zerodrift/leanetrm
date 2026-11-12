@@ -9,6 +9,8 @@ public sealed record ConnectedRiskScenario(string Id,string Label,ImmutableArray
 {
     // An authorized multi-market operation explicitly projects an unaffected partition.
     public bool Unchanged{get;init;}
+    public ClockChange? Clock{get;init;}
+    public ImmutableArray<VolatilityShift> Volatility{get;init;}=[];
 }
 public sealed record ConnectedRiskScenarioSet(string Id,string Version,string Convention,ImmutableArray<ConnectedRiskScenario> Scenarios)
 {
@@ -74,7 +76,7 @@ public static partial class RiskEngine
         if(set is null||!ScenarioName(set.Id)||!ScenarioName(set.Version)||set.Convention!=ConnectedRiskScenarioSet.Independent||
             set.Scenarios.IsDefaultOrEmpty||set.Scenarios.Length>maximumScenarios||
             set.Scenarios.Any(s=>s is null||!ScenarioName(s.Id)||string.IsNullOrWhiteSpace(s.Label)||s.Label.Length>160||
-                s.Shifts.IsDefault||s.Shifts.IsEmpty!=s.Unchanged||s.Shifts.Length>maximumShifts)||
+                s.Shifts.IsDefault||s.Volatility.IsDefault||(s.Shifts.IsEmpty&&s.Clock is null&&s.Volatility.IsEmpty)!=s.Unchanged||s.Shifts.Length+s.Volatility.Length>maximumShifts)||
             set.Scenarios.Select(s=>s.Id).Distinct(StringComparer.Ordinal).Count()!=set.Scenarios.Length)
             throw Error("risk_scenarios",$"Supply one to {maximumScenarios} distinct independent scenarios, each with at most {maximumShifts} explicit shifts or an unchanged projection.");
         var width=ScenarioResultWidth(prepared,detail);
@@ -87,10 +89,11 @@ public static partial class RiskEngine
         {
             cancellation.ThrowIfCancellationRequested();
             // Every sample starts from the selected parent, never the last sample.
-            var scenario=sample.Unchanged?prepared.Scenario:prepared.Scenario.WithShifts(sample.Shifts,cancellation);
+            var scenario=sample.Unchanged?prepared.Scenario:prepared.Scenario.WithLayer(sample.Shifts,sample.Clock,sample.Volatility,cancellation);
             var valuation=prepared.Valuation.WithScenario(scenario);
             var market=ConnectedValuation.WithScenario(prepared.Market,valuation,
                 prepared.IntervalBasis?.BindConnected(valuation,prepared.Bindings,cancellation));
+            market.RequireInputs(prepared.Contracts.SelectMany(g=>g));
             var values=calculation.Evaluate(market,cancellation);
             var groups=prepared.Portfolios.Select((portfolio,n)=>new ConnectedScenarioGroupValue(n,
                 calculation.Bases[n].Totals.Select((b,i)=>new ScenarioBookValue(b.BookId,ScenarioValues(b.Value,values[n].Totals[i].Value))).ToImmutableArray(),

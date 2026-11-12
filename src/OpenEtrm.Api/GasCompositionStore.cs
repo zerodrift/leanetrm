@@ -204,7 +204,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
   {
    if(held.Members.Length!=members.Length)throw Invalid("Started-delivery valuation requires every member of the held trade.");
    if(held.Terms.Discounting!=false)throw Invalid("A held gas composition requires its explicit no-discounting selection.");
-   state=await GasCashPaymentStore.Read(c,database.Manifest.CatalogId,held.TradeId,held.InstrumentId,new(quantity,members[0].Assignment.Quote.Quantity),GasCashPaymentStore.LatestKnownRevision,ct);
+   state=await GasCashPaymentStore.Read(c,database.Manifest.CatalogId,held.TradeId,held.InstrumentId,held.Terms.BookId,new(quantity,members[0].Assignment.Quote.Quantity),GasCashPaymentStore.LatestKnownRevision,ct);
    // The same admission of the recorded cash as the retained instrument's risk valuation.
    held.Instrument(dated).ValidateValuationState(state);
   }
@@ -245,7 +245,7 @@ public sealed class GasCompositionStore(PreviewDatabase database)
  }
  // An in-term load (inTerm) values its draft with no recorded cash: there is no trade yet, so the operation that books it keys that state.
  internal Task<RetainedScheduleTerms> Prepare(NpgsqlConnection c,InputFrame frame,GasCompositionRequest body,bool inTerm,CancellationToken ct)=>TradingBookingRead.Run(database,c,frame,async(data,pinned)=>{if(body.TradeId is not null)await GasAmendments.Require(c,database.Manifest.CatalogId,body,pinned.At,ct);await RequireSetup(c,data,body,ct);var d=await Resolve(c,data,body,ct);
-  var unrecorded=inTerm?new PhysicalCashState(body.OperationId,d.Instrument.Id,new(d.Instrument.BaseQuantity,d.Members[0].Assignment.Quote.Quantity),[],PhysicalCashState.Policy):null;
+  var unrecorded=inTerm?new PhysicalCashState(body.OperationId,d.Instrument.Id,new(d.Instrument.BaseQuantity,d.Members[0].Assignment.Quote.Quantity),null,[],PhysicalCashState.Policy):null;
   _=await Value(c,data,pinned,d.Members,d.Instrument.BaseQuantity,d.Instrument,body.GasSetupId,null,false,ct,unrecorded:unrecorded);return new RetainedScheduleTerms(data.DefinitionRevision,data.ReferenceRevision,d.Instrument);},ct,physicalMarket:PhysicalMarketSelection.Gas,physicalTrade:body.TradeId);
  // A new trade names no amended trade; the ticket and the administrator in-term load both book new trades only.
  internal static void RequireNewTrade(GasCompositionRequest body)

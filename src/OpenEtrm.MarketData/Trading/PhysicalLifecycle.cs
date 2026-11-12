@@ -15,17 +15,18 @@ public sealed class PhysicalCashState:IBindingValuationState
     public const string Policy="physical_whole_day_accrual_v1";
     public Guid TradeId { get; }
     public Guid BindingId { get; }
+    public Guid? BookId { get; }
     public Quantity Quantity { get; }
     public ImmutableArray<CashOccurrencePayment> Payments { get; }
 
-    public PhysicalCashState(Guid tradeId,Guid bindingId,Quantity quantity,ImmutableArray<CashOccurrencePayment> payments,string policy)
+    public PhysicalCashState(Guid tradeId,Guid bindingId,Quantity quantity,Guid? bookId,ImmutableArray<CashOccurrencePayment> payments,string policy)
     {
-        if(policy!=Policy||tradeId==Guid.Empty||bindingId==Guid.Empty||quantity is null||quantity.Amount==default||payments.IsDefault||
+        if(bookId==Guid.Empty||policy!=Policy||tradeId==Guid.Empty||bindingId==Guid.Empty||quantity is null||quantity.Amount==default||payments.IsDefault||
             payments.Any(p=>p is null||p.Id==Guid.Empty||p.Slot<0||p.Occurrence<0||p.Amount is null||!Supported(p.PaidAt)||!Supported(p.KnownAt))||
             payments.Select(p=>(p.Id,p.Occurrence)).Distinct().Count()!=payments.Length||
             payments.GroupBy(p=>p.Id).Any(g=>g.Select(p=>(p.Slot,p.PaidAt,p.KnownAt)).Distinct().Count()!=1))
             throw new MarketDataException("payment_state","Select the whole-day accrual policy, an exact held binding and quantity, and distinct identified payment allocations.");
-        TradeId=tradeId;BindingId=bindingId;Quantity=quantity;Payments=payments;
+        TradeId=tradeId;BindingId=bindingId;BookId=bookId;Quantity=quantity;Payments=payments;
     }
     // Paid is only ever recorded against cash that has started to accrue: there is no prepayment.
     // Returns the visible paid total and the latest visible payment instant.

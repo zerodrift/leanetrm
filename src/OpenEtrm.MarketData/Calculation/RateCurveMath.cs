@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData.Options;
+using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData;
 
@@ -32,6 +33,15 @@ public sealed record RateNode(int Days, ExactDecimal DecimalRate, ExactDecimal F
 public static class RateCurveMath
 {
     public const string Policy = "rate_curve_lattice30_to_even_18_v1";
+
+    public const string DiscountRatioPolicy=HalfEven18.Policy;
+    public static ExactDecimal DiscountRatio(ExactDecimal numerator,ExactDecimal denominator,string policy)
+    {
+        if(policy!=DiscountRatioPolicy||numerator.CompareTo(default)<=0||denominator.CompareTo(default)<=0)
+            throw new MarketDataException("discount_ratio","Select positive discount operands and the exact rational half-even 18 policy.");
+        var ratio=new SignedRatio(numerator.ScaledValue,denominator.ScaledValue);
+        return ExactDecimal.Parse(HalfEven18.Report(ratio));
+    }
 
     public static readonly ImmutableArray<RateChoice> Choices =
     [

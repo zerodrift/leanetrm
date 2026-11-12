@@ -1,5 +1,21 @@
 # Delivery plan and acceptance criteria
 
+The initial [valuation context and scenario layers](valuation-context-layers.md)
+are implemented locally: complete time/discount/IV declarations, immutable
+combined children, source-anchored discount and held-IV inputs, shared finite
+differences and dependency-aware unit/Side reuse. The P&L UI offers both time
+modes, initially selecting one-calendar-day model decay, with an explicit calendar.
+Source admission and hypothetical calculation time remain separate. The bounded
+report passed native run/save/read/restart and both time-mode checks on disposable
+PostgreSQL 18, and the web suite passed. Development deployment remains a separate
+step using the qualified artifact. Later slices cover
+separately dated source composition, non-price worker envelopes, executable
+surface and rate axes, projected lifecycle and full non-price attribution.
+
+The framework trading P&L report is in implementation. Its agreed remaining-value,
+paid-cash, generic scenario and Run → Save contracts and current boundaries are
+recorded in [trading P&L](trading-pnl.md).
+
 D381 qualifies the bounded hourly ATC quantity/price-shape consumer through
 native Side checks and isolated booking checks. Monthly shaping statistics,
 hourly profile authoring and graph worker execution remain separate work.

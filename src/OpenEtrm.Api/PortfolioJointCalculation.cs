@@ -21,12 +21,7 @@ internal static class PortfolioJointCalculation
     internal const long MaximumOptionTreeNodes=100_000_000;
     internal static void RequireWork(PortfolioValuation.Prepared portfolio,PortfolioJointRisk.Resolved joint,RiskDetail detail)
     {
-        var width=portfolio.Markets.Sum(m=>RiskEngine.ScenarioResultWidth(m.Connected,detail));
-        var rowScenarios=checked(portfolio.PpaRows*(1L+joint.ChildCount));
-        // Admission counts nonterminal rollback nodes; terminal rows are linear in the selected step count.
-        var treeNodes=portfolio.Options?.Bindings.Values.Where(b=>b.Receipt.Mode==OpenEtrm.MarketData.Trading.FuturesOptionPricing.SolvedMode)
-            .Sum(b=>checked((long)b.Policy.Steps*(b.Policy.Steps+1)/2*(1L+joint.ChildCount)))??0;
-        RiskValuationAdmission.Require(rowScenarios,treeNodes,checked(width*(1L+joint.ChildCount)),joint.Factors.DistinctBy(a=>a.Id).Count(),1);
+        RiskValuationAdmission.Require([RiskValuationAdmission.Work(portfolio,[..portfolio.Markets.Select(_=>1+joint.ChildCount)],detail)],joint.Factors.DistinctBy(a=>a.Id).Count());
     }
     internal static PortfolioJointRun Calculate(PortfolioValuation.Prepared portfolio,PortfolioJointRisk.Resolved joint,
         ImmutableArray<PortfolioCurveShift> stress,RiskDetail detail,CancellationToken ct,string? statisticalMethod=null)
@@ -68,7 +63,7 @@ internal static class PortfolioJointCalculation
                 else
                 {
                     var request=new ConnectedFiniteDifferenceRequest(joint.Request.Derivatives!.Convention,
-                        [..axes.Select(a=>new ConnectedSensitivityAxis(a.Id,new(a.Bump.Axis.Coordinate,a.Bump.Axis.Target,a.Bump.Axis.Unit,a.Bump.Size,ConnectedRiskBump.Convention),a.DeltaTolerance,a.GammaTolerance))],
+                        [..axes.Select(a=>new ConnectedSensitivityAxis(a.Id,new PriceSensitivityInput(new(a.Bump.Axis.Coordinate,a.Bump.Axis.Target,a.Bump.Axis.Unit,a.Bump.Size,ConnectedRiskBump.Convention)),a.DeltaTolerance,a.GammaTolerance))],
                         [..joint.Mixed.Where(p=>ids.Contains(p.FirstAxis)&&ids.Contains(p.SecondAxis))]);
                     var run=RiskEngine.CalculateFiniteDifferences(parent,request,portfolio.Policy.RiskNumericalPolicy,ct,detail);
                     partitions.Add(new(market,run.Repricing,run.Derivatives,[..axes.Select(a=>a.Id)]));

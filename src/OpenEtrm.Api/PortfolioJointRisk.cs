@@ -40,7 +40,7 @@ internal static class PortfolioJointRisk
         ImmutableArray<ConnectedMixedSensitivity> Mixed)
     {
         internal bool Scenarios=>Request.Scenarios is not null;
-        internal int ChildCount=>Scenarios?Samples.Length:6*Axes.Length+12*Mixed.Length;
+        internal int ChildCount=>Scenarios?Samples.Length:ConnectedFiniteDifferenceRequest.CountSamples(Axes.Length,Mixed.Length);
         internal IEnumerable<PortfolioRiskAxis> Factors=>Samples.SelectMany(s=>s.Shifts).Select(s=>s.Axis).Concat(Axes.Select(a=>a.Bump.Axis));
     }
     private static MarketDataException Invalid()=>new("risk_joint_contract","Choose one versioned named scenario set or selected derivative request with explicit bounded shifts, axes and nonnegative tolerances.");

@@ -4360,3 +4360,60 @@ This narrows what D163 says `site/` describes and leaves its routing contract
 unchanged. The gateway template, the public policy and the owned route checks
 are untouched. D382's rules for naming films and captions apply to whatever page
 an installation installs; the default page names none.
+
+## D386 · Framework trading P&L and recorded paid cash
+
+Supersedes the date-as-payment premise of D288. Cash retains its immutable
+`CashPayment_v1` unit economic identity; the selected pricing model
+`cash_payment_explicit_paid_state_v2` requires recorded binding-owned allocations.
+A due date establishes no payment. New native recorded-cash memberships and
+revisioned payment facts are introduced by migration 0250; migration 0251 retains
+authenticated completed P&L results and first-outcome save receipts.
+
+The report uses the shared Instrument/Side PV and scenario boundary without
+instrument or model switches. Paid cash leaves remaining PV; unpaid amounts stay.
+Full economic P&L includes cash and position changes, with explicit transfer,
+knowledge-correction and attribution residual treatment. Run presents a result
+before offering Save report; Save retains that exact server-produced artifact
+without repricing. Both comparison contexts and their current authority must
+survive retained execution and saved reads. These are agreed requirements; see
+[the implementation status and contracts](trading-pnl.md) for remaining work.
+
+## D387 · Valuation source selection and calculation layers
+
+The general requirement is to value an admitted portfolio using a selected
+market period and a separately chosen calculation instant. Both one-day model
+decay and endpoint time roll consume this capability; the one-day choice is the
+initial UI selection. Shared Instrument/Side PV, immutable scenarios, explicit
+policies and declared dependency-based reuse remain the required boundaries.
+
+The mechanism resolves certified sources into a base environment and
+applies typed calculation-clock, price and other supported input edits as child
+layers. Source selection or refresh creates a new admitted base; it does not
+change a retained scenario's knowledge or source pins. The prepared valuation
+boundary and dependency contract expand together, including Side/provider caches,
+without a second theta/risk engine. The initial executable policy freezes absolute
+inputs and recorded state while changing calculation time forward from its source
+anchor. Conditional discounting uses the same dated source curve and one exact
+rational half-even rounding to 18 places; options retain their calibrated
+annualized series IV. Unsupported time horizons, event crossings, scalar-only
+discount rolls and undeclared reads refuse. A day uses the selected retained
+clock rules, including DST; it is not assumed to contain 24 elapsed hours.
+
+Unit and Side reuse cover price, time, IV and exact discount-provider inputs.
+Price and IV sensitivities share central finite differences and typed denominator
+units. The P&L consumer runs both endpoint baselines and all opening price/time
+samples under one aggregate work bound before PV. Its time number is a separate
+diagnostic; it does not silently become a multi-day waterfall component.
+
+Save sends a small authenticated handle to a bounded completed-result memo.
+Durable protected results and signed first-outcome receipts use retained private
+installation keys, reauthorize every source and survive process restart without
+pricing. Unsaved results have a 24-hour eligibility window subject to memo eviction
+and restart. A serialized proof of no saved outcome permits recovery by running
+again; an uncertain authorization failure does not establish that proof.
+
+See [contracts and qualification boundaries](valuation-context-layers.md).
+Separately dated sources, executable surfaces, rate axes, non-price worker
+requests, event projections and full attribution ordering remain later work.
+Ordinary historical admission rules remain in force.

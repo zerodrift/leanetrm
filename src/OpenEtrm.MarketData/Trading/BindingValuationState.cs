@@ -6,5 +6,6 @@ public interface IBindingValuationState
 {
     Guid TradeId { get; }
     Guid BindingId { get; }
+    Guid? BookId { get; }
     Quantity Quantity { get; }
 }

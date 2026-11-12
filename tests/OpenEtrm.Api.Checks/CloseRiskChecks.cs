@@ -69,7 +69,7 @@ internal static class CloseRiskChecks
         var currency=new ReferenceKey(quantity.Revision,"synthetic_currency");
         var id=Guid.NewGuid();
         CurveRequest Dependency()=>new(new(revision,"synthetic_curve"),new(revision,Guid.NewGuid()));
-        var first=new UnitPricingContract(id,"swap_binding_dispatch_v1/synthetic_v1",[Dependency()],quantity,currency);
+        var first=new UnitPricingContract(id,"swap_binding_dispatch_v1/synthetic_v1",[Dependency()],quantity,currency) { Time = ValuationTimeDependency.Independent };
         var second=first with{Dependencies=[Dependency()]};
         var models=PortfolioValuation.ModelContracts([first,second,first]);
         if(models.Length!=1||models[0].Dependencies.Length!=2)throw new Exception("Repeated binding models did not retain the union of exact dependencies.");

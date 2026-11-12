@@ -19,7 +19,7 @@ public sealed record SwapLifecycleValue(ExactMoney RemainingValue, ExactMoney De
     ExactMoney DeterminedPv, ExactMoney DueBalance, ExactMoney Realized, ExactMoney Unrealized,
     ExactMoney NetCash, ExactMoney Corrections, ExactMoney EstimatedRemainingPv, ExactMoney RoundingEffect,
     ImmutableArray<SwapLifecyclePayment> Payments);
-public sealed record SwapBindingValuation(SwapSettlementInputs Settlement, ISideDiscounting Discounting) : IBindingValuationState
+public sealed record SwapBindingValuation(SwapSettlementInputs Settlement, ISideDiscounting Discounting,Guid? BookId) : IBindingValuationState
 {
     public Guid TradeId => Settlement.TradeId;
     public Guid BindingId => Settlement.BindingId;

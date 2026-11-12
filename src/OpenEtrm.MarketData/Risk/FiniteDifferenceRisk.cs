@@ -4,19 +4,27 @@ using OpenEtrm.MarketData.Calculation;
 namespace OpenEtrm.MarketData.Risk;
 
 public sealed record FiniteDifferenceTolerance(ExactDecimal Absolute,ExactDecimal Relative);
-public sealed record ConnectedSensitivityAxis(string Id,ConnectedRiskBump Bump,
+public sealed record ConnectedSensitivityAxis(string Id,SensitivityInput Bump,
     FiniteDifferenceTolerance DeltaTolerance,FiniteDifferenceTolerance GammaTolerance);
 public sealed record ConnectedMixedSensitivity(string Id,string FirstAxis,string SecondAxis,FiniteDifferenceTolerance Tolerance);
 public sealed record ConnectedFiniteDifferenceRequest(string Convention,ImmutableArray<ConnectedSensitivityAxis> Axes,
     ImmutableArray<ConnectedMixedSensitivity> Mixed)
 {
+    public ImmutableArray<ConnectedRiskScenario> AdditionalScenarios{get;init;}=[];
     public const string HalfNominalDouble="exact_central_half_nominal_double_v1";
+    public int SampleCount=>CountSamples(Axes.Length,Mixed.Length,AdditionalScenarios.Length);
+    public static int CountSamples(int axes,int mixed,int additional=0)
+    {
+        if(axes<0||axes>RiskEngine.MaxSensitivityAxes||mixed<0||mixed>RiskEngine.MaxMixedSensitivities||additional<0||additional>RiskEngine.MaxJointScenarios)
+            throw new MarketDataException("risk_sensitivity","Choose bounded explicit axes, mixed pairs and additional scenarios.");
+        return checked(6*axes+12*mixed+additional);
+    }
 }
 public sealed record ExactFiniteDifferenceEstimate(ExactMoney Half,ExactMoney Nominal,ExactMoney Double,bool Stable);
 public sealed record DerivativeBookValue(Guid BookId,ExactFiniteDifferenceEstimate Estimate);
 public sealed record DerivativePositionValue(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactFiniteDifferenceEstimate Estimate);
 public sealed record ConnectedDerivativeGroup(int Group,ImmutableArray<DerivativeBookValue> Totals,ImmutableArray<DerivativePositionValue> Positions);
-public sealed record ConnectedDerivativeResult(string Id,string Formula,ImmutableArray<string> Axes,ImmutableArray<PriceUnit> FactorUnits,
+public sealed record ConnectedDerivativeResult(string Id,string Formula,ImmutableArray<string> Axes,ImmutableArray<ScenarioFactorUnit> FactorUnits,
     ImmutableArray<ConnectedDerivativeGroup> Groups);
 public sealed record ConnectedFiniteDifferenceRun(ConnectedFiniteDifferenceRequest Request,ConnectedScenarioRiskRun Repricing,
     ImmutableArray<ConnectedDerivativeResult> Derivatives);
@@ -33,16 +41,15 @@ public static partial class RiskEngine
         cancellation.ThrowIfCancellationRequested();
         if(prepared is null)throw Error("instrument_context","Supply the exact prepared connected portfolio.");
         if(request is null||request.Convention!=ConnectedFiniteDifferenceRequest.HalfNominalDouble||
-            request.Axes.IsDefaultOrEmpty||request.Axes.Length>MaxSensitivityAxes||request.Mixed.IsDefault||request.Mixed.Length>MaxMixedSensitivities||
-            request.Axes.Any(a=>a is null||!ScenarioName(a.Id)||!ValidBump(a.Bump)||!ValidTolerance(a.DeltaTolerance)||!ValidTolerance(a.GammaTolerance))||
+            request.AdditionalScenarios.IsDefault||request.Axes.IsDefault||request.Axes.IsEmpty&&request.AdditionalScenarios.IsEmpty||request.Axes.Length>MaxSensitivityAxes||request.Mixed.IsDefault||request.Mixed.Length>MaxMixedSensitivities||
+            request.Axes.Any(a=>a is null||!ScenarioName(a.Id)||a.Bump is null||!a.Bump.Valid||!ValidTolerance(a.DeltaTolerance)||!ValidTolerance(a.GammaTolerance))||
             request.Axes.Select(a=>a.Id).Distinct(StringComparer.Ordinal).Count()!=request.Axes.Length||
             request.Mixed.Any(p=>p is null||!ScenarioName(p.Id)||!ValidTolerance(p.Tolerance))||
             request.Mixed.Select(p=>p.Id).Distinct(StringComparer.Ordinal).Count()!=request.Mixed.Length)
-            throw Error("risk_sensitivity","Select one to 16 distinct explicit symmetric axes, up to 16 mixed pairs and nonnegative absolute/relative tolerances.");
+            throw Error("risk_sensitivity","Select explicit symmetric axes or additional named scenarios, up to 16 mixed pairs and nonnegative absolute/relative tolerances.");
         var axes=request.Axes;var pairs=request.Mixed;
         var axisIndex=axes.Select((a,n)=>(a.Id,n)).ToDictionary(a=>a.Id,a=>a.n,StringComparer.Ordinal);
-        var nodes=axes.Select(a=>prepared.Scenario.ResolveTarget(a.Bump.Coordinate,a.Bump.Target,cancellation)
-            .Select(p=>prepared.Scenario.Plan.IndexOf(p.Key)).ToHashSet()).ToArray();
+        var nodes=axes.Select(a=>a.Bump.Coordinates(prepared,cancellation)).ToArray();
         var pairAxes=pairs.Select(p=>
         {
             if(!axisIndex.TryGetValue(p.FirstAxis??"",out var first)||!axisIndex.TryGetValue(p.SecondAxis??"",out var second)||
@@ -54,12 +61,16 @@ public static partial class RiskEngine
             throw Error("risk_sensitivity","Select each unordered mixed pair only once.");
         var two=ExactDecimal.Parse("2");var four=ExactDecimal.Parse("4");
         var steps=axes.Select(a=>new[]{a.Bump.Size.DivideExact(two),a.Bump.Size,a.Bump.Size*two}).ToArray();
-        var samples=ImmutableArray.CreateBuilder<ConnectedRiskScenario>();
+        var samples=ImmutableArray.CreateBuilder<ConnectedRiskScenario>(request.SampleCount);
         var singleSamples=new int[axes.Length,3,2];var mixedSamples=new int[pairs.Length,3,4];
-        CurveShift Shift(int axis,int step,bool positive)=>new(axes[axis].Bump.Coordinate,axes[axis].Bump.Target,axes[axis].Bump.Unit,
-            positive?steps[axis][step]:-steps[axis][step],CurveShift.ParentAdditive);
-        int Add(string id,params CurveShift[] shifts)
-        {var index=samples.Count;samples.Add(new(id,id,[..shifts]));return index;}
+        (ImmutableArray<CurveShift> Prices,ImmutableArray<VolatilityShift> Volatility) Shift(int axis,int step,bool positive)=>
+            axes[axis].Bump.Edits(positive?steps[axis][step]:-steps[axis][step]);
+        int Add(string id,params (ImmutableArray<CurveShift> Prices,ImmutableArray<VolatilityShift> Volatility)[] edits)
+        {
+            var index=samples.Count;
+            samples.Add(new(id,id,[..edits.SelectMany(e=>e.Prices)]){Volatility=[..edits.SelectMany(e=>e.Volatility)]});
+            return index;
+        }
         for(var axis=0;axis<axes.Length;axis++)
             for(var step=0;step<3;step++)
                 for(var sign=0;sign<2;sign++)
@@ -69,6 +80,7 @@ public static partial class RiskEngine
                 for(var corner=0;corner<4;corner++)
                     mixedSamples[pair,step,corner]=Add($"mixed/{pair}/{step}/{corner}",
                         Shift(pairAxes[pair].First,step,corner<2),Shift(pairAxes[pair].Second,step,corner%2==0));
+        samples.AddRange(request.AdditionalScenarios);
         var run=CalculateScenarios(prepared,new("finite_differences",ConnectedFiniteDifferenceRequest.HalfNominalDouble,
             ConnectedRiskScenarioSet.Independent,samples.ToImmutable()),numericalPolicy,cancellation,detail);
         var derivatives=ImmutableArray.CreateBuilder<ConnectedDerivativeResult>();
@@ -111,8 +123,6 @@ public static partial class RiskEngine
             derivatives.Add(Measure(pairs[pair].Id,CentralMixedGamma,pairAxes[pair].First,pairAxes[pair].Second,pair,pairs[pair].Tolerance));
         cancellation.ThrowIfCancellationRequested();return new(request,run,derivatives.ToImmutable());
     }
-    private static bool ValidBump(ConnectedRiskBump? bump)=>bump is not null&&bump.Target is not null&&bump.Unit is not null&&
-        bump.Size.CompareTo(default)>0&&bump.ConventionId==ConnectedRiskBump.Convention;
     private static bool ValidTolerance(FiniteDifferenceTolerance? tolerance)=>tolerance is not null&&
         tolerance.Absolute.CompareTo(default)>=0&&tolerance.Relative.CompareTo(default)>=0;
     public static ExactFiniteDifferenceEstimate AssessFiniteDifference(ExactMoney half,ExactMoney nominal,ExactMoney twice,FiniteDifferenceTolerance tolerance)

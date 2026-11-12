@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using OpenEtrm.MarketData.CustomCurves;
 using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Power;
+using OpenEtrm.MarketData.Risk;
 
 namespace OpenEtrm.MarketData.Trading;
 
@@ -39,14 +40,26 @@ public sealed record IndexPriceLookup(PriceSettlementSelection Settlement, Quote
 }
 public enum SchedulePriceState { Fixed = 1, Projected, Actual }
 public enum DiscountFactorSource { Explicit = 1, CurrencyDefault, Undiscounted }
+public sealed record DiscountClockRoll(string Policy,DateTimeOffset CalculationAt,ExactDecimal SourceFactor,
+    ExactDecimal AnchorFactor,ImmutableArray<ObservationKey> AnchorObservations)
+{
+    public string NumericalPolicy=>RateCurveMath.DiscountRatioPolicy;
+}
+
 public sealed record SidePaymentFactor(SidePaymentKey Payment, ExactDecimal DiscountFactor,
     MarketSnapshot Snapshot, DiscountFactorSource Source)
 {
     public RateDiscountDefinition? RateDefinition { get; init; }
+    public DiscountClockRoll? ClockRoll {get;init;}
 }
+
+public sealed record DiscountInput(SidePaymentKey Payment,[property:System.Text.Json.Serialization.JsonIgnore] ISideDiscounting Provider);
 
 public interface ISideDiscounting
 {
+    ImmutableArray<SidePaymentFactor> ResolveForValuation(ImmutableArray<SidePaymentKey> payments,MarketSnapshot source,
+        DateTimeOffset calculationAt,string? clockPolicy) => calculationAt==source.ValuationAt?Resolve(payments,source):
+        throw new MarketDataException("discount_roll_unsupported","The selected discount provider cannot roll its retained inputs.");
     ImmutableArray<SidePaymentFactor> Resolve(SidePaymentSchedule schedule, MarketSnapshot snapshot) =>
         Resolve(schedule.Payments.Select(p=>p.Key).ToImmutableArray(),snapshot);
     ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot);
@@ -64,6 +77,18 @@ public sealed class ExplicitDiscounting : ISideDiscounting
             source == DiscountFactorSource.Undiscounted && factor != ExactDecimal.Parse("1"))
             throw new MarketDataException("side_payment_factors", "Supply a positive explicit factor; explicitly undiscounted payments require one.");
         this.factor = factor; this.source = source;
+    }
+    public ImmutableArray<SidePaymentFactor> ResolveForValuation(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot,
+        DateTimeOffset calculationAt,string? clockPolicy)
+    {
+        if(calculationAt==snapshot.ValuationAt)return Resolve(payments,snapshot);
+        if(clockPolicy!=ClockChange.FrozenInputs||!TradingInstant.IsSupported(calculationAt)||calculationAt<snapshot.ValuationAt)
+            throw new MarketDataException("scenario_clock","Supply an explicit supported frozen-input clock roll.");
+        if(source!=DiscountFactorSource.Undiscounted)
+            throw new MarketDataException("discount_roll_unsupported","A scalar discount factor does not define a dated curve roll.");
+        var factors=Resolve(payments,snapshot);
+        if(payments.Any(p=>p.PaymentAt<=calculationAt))throw new MarketDataException("valuation_time_event","The clock crosses a payment event.");
+        return [..factors.Select(f=>f with{ClockRoll=new(clockPolicy,calculationAt,f.DiscountFactor,ExactDecimal.Parse("1"),[])})];
     }
     public ImmutableArray<SidePaymentFactor> Resolve(SidePaymentSchedule schedule, MarketSnapshot snapshot) =>
         Resolve(schedule.Payments.Select(p=>p.Key).ToImmutableArray(),snapshot);
@@ -204,6 +229,8 @@ public sealed record ResolvedSchedulePrice
 // It consumes only its own schedule, declared prices and explicit discount inputs.
 public sealed partial class SideValuationContext
 {
+    private readonly PricingInputs? pricingInputs;
+    public PricingInputs Inputs=>pricingInputs??throw new MarketDataException("risk_dependency","This Side requires its declared unit valuation inputs.");
     private readonly Dictionary<Side,SideValuation> sideValues=new(ReferenceEqualityComparer.Instance);
     internal int EvaluatedSides=>sideValues.Count;
     internal SideValuation Evaluate(Side side)
@@ -252,16 +279,16 @@ public sealed partial class SideValuationContext
     // Connected calculations retain the same pricer contract and dependency
     // fence. Rational inputs are resolved on demand under their active scenario.
     internal SideValuationContext(MarketSnapshot snapshot,ISideDiscounting? discounting,
-        ImmutableArray<CurveRequest> dependencies,Func<CurveRequest,ExactUnitPrice> exactPrices,string numericalPolicy,string scenarioId,bool baseScenario)
+        ImmutableArray<CurveRequest> dependencies,Func<CurveRequest,ExactUnitPrice> exactPrices,string numericalPolicy,string scenarioId,bool baseScenario,PricingInputs? inputs=null)
     {
-        Snapshot=snapshot;this.discounting=discounting;this.exactPrices=exactPrices;
+        Snapshot=snapshot;this.discounting=discounting;this.exactPrices=exactPrices;pricingInputs=inputs;
         permitted=dependencies.ToImmutableHashSet();
         connectedNumericalPolicy=numericalPolicy;connectedScenarioId=scenarioId;this.baseScenario=baseScenario;
     }
     internal SideValuationContext(CurveBuild authority, ISideDiscounting? discounting,
         IEnumerable<CurveRequest> dependencies, Func<CurveRequest,ExactUnitPrice> exactPrices,
-        Func<CurveRequest,ImmutableHashSet<ObservationKey>> lineage, string numericalPolicy, string scenarioId,bool baseScenario)
-        : this(authority.Snapshot, discounting, dependencies.ToImmutableArray(), exactPrices, numericalPolicy, scenarioId,baseScenario)
+        Func<CurveRequest,ImmutableHashSet<ObservationKey>> lineage, string numericalPolicy, string scenarioId,bool baseScenario,PricingInputs? inputs=null)
+        : this(authority.Snapshot, discounting, dependencies.ToImmutableArray(), exactPrices, numericalPolicy, scenarioId,baseScenario,inputs)
     {
         market = authority; exactLineage = lineage;
     }

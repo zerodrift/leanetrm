@@ -4,7 +4,7 @@ import {riskViews,isRiskView} from '../dist/risk-views.js';
 import {riskScopeSummary} from '../dist/risk-scope.js';
 
 test('Risk has one view per function, Reports first',()=>{
- assert.deepEqual([...riskViews],['risk','risk-scenarios','risk-var','risk-runs']);
+ assert.deepEqual([...riskViews],['risk','risk-pnl','risk-scenarios','risk-var','risk-runs']);
  assert.equal(isRiskView('risk-var'),true);
  assert.equal(isRiskView('market'),false);
 });

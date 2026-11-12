@@ -64,6 +64,11 @@ Keep trade existence, effective terms and future scheduled delivery distinct.
 
 ## 2. Requested context and resolved context
 
+The [valuation-layer contract](valuation-context-layers.md) specifies how to
+separate source admission from hypothetical calculation time at the existing
+valuation boundary. The executable ordinary-history restrictions below remain
+in force. A clock layer is not a newly certified historical source context.
+
 The user selects a requested business environment. The server resolves it once
 into an immutable context token used throughout that environment.
 

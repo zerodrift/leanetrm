@@ -135,7 +135,7 @@ public sealed record FuturesContract : Instrument
         var binding=context.Futures(Id);
         if(binding.Series!=Series)throw FuturesMarketBinding.Error("futures_identity","The selected binding must retain the exact instrument terms.");
         return new(Id,Series.LotBasis==LotBasis.FixedTotal&&SettlementMethod=="cash"?"fixed_total_open_mark_v1":"contract_unit_open_mark_v2",
-            binding.Dependencies,UnitQuantity.Specification,Currency);
+            binding.Dependencies,UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Pinned };
     }
     private string SettlementMethod=>Series.SettlementMethod;
     public override ExactMoney Value(UnitValuationContext context)

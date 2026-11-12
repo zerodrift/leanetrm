@@ -179,7 +179,7 @@ internal static class TemporalBindingChecks
         public override Quantity UnitQuantity{get;}
         public TemporalCurvePv(Guid id,PriceUnit unit,CurveRequest request):base(id)
         {Currency=unit.Currency;UnitQuantity=new(ExactDecimal.Parse("1"),unit.Quantity);this.request=request;}
-        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,Model,[request],UnitQuantity.Specification,Currency);
+        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,Model,[request],UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Independent };
         public override InstrumentValuation PV(SideValuationContext context)=>new(this,context,context.ExactPrice(request).ExactTimes(UnitQuantity),Model);
     }
 

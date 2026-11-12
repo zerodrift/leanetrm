@@ -20,6 +20,7 @@
     </nav></details>
     <details id="nav-group-risk" class="nav-group" open hidden><summary>Risk</summary><nav aria-label="Risk">
       <button id="nav-risk" class="nav-item" aria-label="Reports" title="Reports" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7"/></svg></span><span class="nav-text">Reports</span></button>
+      <button id="nav-risk-pnl" class="nav-item" aria-label="P&amp;L explain" title="P&amp;L explain" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 19h18M5 14h3V9h3v6h3V5h3v5h3"/></svg></span><span class="nav-text">P&amp;L explain</span></button>
       <button id="nav-risk-scenarios" class="nav-item" aria-label="Scenarios &amp; Greeks" title="Scenarios &amp; Greeks" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></span><span class="nav-text">Scenarios &amp; Greeks</span></button>
       <button id="nav-risk-var" class="nav-item" aria-label="VaR / ES" title="VaR / ES" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 19c5 0 6-13 10-13s5 13 10 13"/><path d="M7 19v-5"/></svg></span><span class="nav-text">VaR / ES</span></button>
       <button id="nav-risk-runs" class="nav-item" aria-label="Run history" title="Run history" hidden><span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="nav-text">Run history</span></button>
@@ -407,6 +408,7 @@
       <p id="risk-workspace-note" role="status"></p>
     </div>
     <p id="risk-workspace-context-note" class="risk-context-note" role="status"></p>
+    <section id="risk-pnl-view" class="card" data-risk-view="risk-pnl" aria-label="Trading P&amp;L"></section>
     <details id="risk-history-panel" class="card" data-risk-view="risk-var"><summary>VaR setup and price coverage</summary><div id="risk-history-body"></div></details>
     <div id="risk-workspace-results" data-risk-view="risk" class="card risk-results" aria-live="polite"></div>
     <details id="risk-workspace-editor" class="card" data-risk-view="risk-scenarios"><summary>Run setup and job status</summary><p class="field-help">Run now is available for this visit. Queue as job retains the exact inputs and report for reload and reopening by link under the submitting account’s current authority.</p><div id="risk-workspace-editor-body"></div></details>

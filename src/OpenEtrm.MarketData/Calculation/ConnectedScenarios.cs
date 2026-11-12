@@ -1,4 +1,5 @@
 using OpenEtrm.Shared.Calculation;
+using OpenEtrm.MarketData.Trading;
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
@@ -6,6 +7,11 @@ using System.Text.Json;
 using OpenEtrm.MarketData.CustomCurves;
 
 namespace OpenEtrm.MarketData.Calculation;
+
+public sealed record VolatilityShift(Guid InputId,ExactDecimal Size,string Convention)
+{
+    public const string ParentAdditive="absolute_annualized_volatility_parent_additive_v1";
+}
 
 public enum CurveShockCoordinate { MarketQuote=1, ComputedOutput }
 public abstract record CurveShockTarget(CurveKey Curve);
@@ -27,22 +33,27 @@ public sealed record ResolvedCurveShift(CurveShockCoordinate Coordinate,CurvePoi
 // immutable graph, exact context, definitions and target indexes are shared.
 public sealed class ConnectedScenario
 {
-    private const string IdentityVersion="connected_curve_scenario_v1";
+    private const string IdentityVersion="valuation_input_scenario_v2";
     private readonly GraphSession<ExactUnitPrice> session;
     private readonly TargetIndex targets;
     public ConnectedCurvePlan Plan{get;}
     public string Id{get;}
     public string? ParentId{get;}
     internal ConnectedScenario? Parent{get;}
-    public int Depth=>session.Depth;
-    public GraphWork Work=>session.Work;
+    public int Depth=>Parent is null?0:Parent.Depth+1;
+    public ClockChange? Clock {get;}
+    public ImmutableArray<VolatilityShift> VolatilityShifts{get;}
+    public ExactDecimal VolatilityOffset(Guid id)=>(Parent?.VolatilityOffset(id)??default)+VolatilityShifts.Where(v=>v.InputId==id).Aggregate(default(ExactDecimal),(sum,v)=>sum+v.Size);
+    public string? ClockPolicy=>Clock?.Policy??Parent?.ClockPolicy;
+    public DateTimeOffset CalculationAt {get;}
+    public GraphWork Work=>ReferenceEquals(session,Parent?.session)?default:session.Work;
     public ImmutableArray<ResolvedCurveShift> Shifts{get;}
     internal ImmutableArray<ImmutableArray<ResolvedCurveShift>> Layers{get;}
     internal TargetIndex Targets=>targets;
 
     private ConnectedScenario(ConnectedCurvePlan plan,GraphSession<ExactUnitPrice> session,TargetIndex targets,
-        string id,ConnectedScenario? parent,ImmutableArray<ResolvedCurveShift> shifts,ImmutableArray<ImmutableArray<ResolvedCurveShift>> layers)
-    {Plan=plan;this.session=session;this.targets=targets;Id=id;Parent=parent;ParentId=parent?.Id;Shifts=shifts;Layers=layers;}
+        string id,ConnectedScenario? parent,ImmutableArray<ResolvedCurveShift> shifts,ImmutableArray<ImmutableArray<ResolvedCurveShift>> layers,ClockChange? clock=null,ImmutableArray<VolatilityShift> volatility=default)
+    {VolatilityShifts=volatility.IsDefault?[]:volatility;Clock=clock;CalculationAt=clock?.At??parent?.CalculationAt??plan.Context.ValuationAt;Plan=plan;this.session=session;this.targets=targets;Id=id;Parent=parent;ParentId=parent?.Id;Shifts=shifts;Layers=layers;}
 
     public static ConnectedScenario Base(ConnectedCurvePlan plan,ConnectedCalculationCache? cache=null,CancellationToken cancellation=default)
     {
@@ -83,22 +94,33 @@ public sealed class ConnectedScenario
         =>_=ResolveShifts(shifts,point=>Price(point,cancellation),cancellation);
 
     public ConnectedScenario WithShifts(ImmutableArray<CurveShift> shifts,CancellationToken cancellation=default)
+        =>WithLayer(shifts,null,[],cancellation);
+    public ConnectedScenario WithClock(ClockChange clock,CancellationToken cancellation=default)
+        =>WithLayer([],clock,[],cancellation);
+    public ConnectedScenario WithLayer(ImmutableArray<CurveShift> shifts,ClockChange? clock,ImmutableArray<VolatilityShift> volatility,CancellationToken cancellation=default)
     {
-        var ordered=ResolveShifts(shifts,point=>Price(point,cancellation),cancellation);
-        var offsets=ordered.ToDictionary(s=>s.Node,s=>ExactUnitPrice.FromPrice(new(s.Size,s.Unit)));
-        GraphSession<ExactUnitPrice> child;
-        try{child=session.WithOffsets(offsets,cancellation);}
-        catch(CalculationException error){throw new MarketDataException(error.Code,error.Message);}
-        using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        hash.AppendData(Encoding.UTF8.GetBytes(IdentityVersion+":"+Id+":"+CurveShift.ParentAdditive));
-        foreach(var shift in ordered)
+        cancellation.ThrowIfCancellationRequested();
+        if(Depth>=GraphSession<ExactUnitPrice>.MaximumDepth)throw Error("scenario_depth","The scenario layer depth exceeds the supported bound.");
+        if(shifts.IsDefault||volatility.IsDefault||shifts.IsEmpty&&clock is null&&volatility.IsEmpty)
+            throw Error("scenario_shift","Supply an explicit nonempty typed scenario layer.");
+        clock?.Require(Plan.Context.ValuationAt,CalculationAt);
+        if(volatility.Any(v=>v is null||v.InputId==Guid.Empty||v.Size==default||v.Convention!=VolatilityShift.ParentAdditive)||
+            volatility.Select(v=>v.InputId).Distinct().Count()!=volatility.Length)
+            throw Error("scenario_volatility","Supply distinct exact volatility inputs and explicit nonzero parent-additive annualized shifts.");
+        var ordered=shifts.IsEmpty?[]:ResolveShifts(shifts,point=>Price(point,cancellation),cancellation);
+        var vol=volatility.OrderBy(v=>v.InputId).ToImmutableArray();
+        var child=session;
+        if(!ordered.IsEmpty)
         {
-            cancellation.ThrowIfCancellationRequested();
-            hash.AppendData(JsonSerializer.SerializeToUtf8Bytes(new{coordinate=shift.Coordinate,point=shift.Point,
-                size=shift.Size.ToString(),currency=shift.Unit.Currency,quantity=shift.Unit.Quantity,
-                multiplier=shift.Unit.Multiplier.ToString(),input=shift.Input,observation=shift.Observation}));
+            try{child=session.WithOffsets(ordered.ToDictionary(s=>s.Node,s=>ExactUnitPrice.FromPrice(new(s.Size,s.Unit))),cancellation);}
+            catch(CalculationException error){throw new MarketDataException(error.Code,error.Message);}
         }
-        return new(Plan,child,targets,Convert.ToHexStringLower(hash.GetHashAndReset()),this,ordered,Layers.Add(ordered));
+        // A price graph is one projection of this ancestry. Clock and volatility
+        // edits share it unchanged; pricers consume all edits from this one child.
+        var id=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
+        {version=IdentityVersion,parent=Id,clock,volatility=vol.Select(v=>new{v.InputId,size=v.Size.ToString(),v.Convention}),
+            prices=ordered.Select(s=>new{s.Coordinate,s.Point,size=s.Size.ToString(),currency=s.Unit.Currency,quantity=s.Unit.Quantity,multiplier=s.Unit.Multiplier.ToString(),s.Input,s.Observation})})));
+        return new(Plan,child,targets,id,this,ordered,Layers.Add(ordered),clock,vol);
     }
 
     internal ImmutableArray<ResolvedCurveShift> ResolveShifts(ImmutableArray<CurveShift> shifts,Func<CurvePointKey,ExactUnitPrice> price,CancellationToken cancellation)
