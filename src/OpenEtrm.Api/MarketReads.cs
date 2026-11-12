@@ -128,7 +128,7 @@ public sealed class MarketReads(PreviewDatabase database)
         if(frame is null)return catalogue.Curves;
         await MarketInputSelection.RootSource(database,connection,frame,ct);
         var result=catalogue.Curves.ToDictionary(c=>c.Code,StringComparer.Ordinal);
-        foreach(var rates in (await MarketInputSelection.SelectedRates(database,connection,frame,ct)).GroupBy(r=>r.Code,StringComparer.Ordinal))
+        foreach(var rates in (await MarketInputSelection.SelectedRates(database,connection,frame,catalogue,ct)).GroupBy(r=>r.Code,StringComparer.Ordinal))
         {
             if(rates.Count()!=1)throw new MarketDataException("market_inputs","The selected inputs declare several sources for one rate curve.");
             var rate=rates.Single();
@@ -211,13 +211,13 @@ public sealed class MarketReads(PreviewDatabase database)
             throw new MarketDataException("market_date","Choose inputs for the selected context date.");
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
         var root=await MarketInputSelection.Root(database,connection,frame,ct);
-        var catalogue=frame.SourceInputs is null?await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,frame.Time.Date):null;
-        var rates=await MarketInputSelection.SelectedRates(database,connection,frame,ct);
+        var catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,frame.Time.Date);
+        var rates=await MarketInputSelection.SelectedRates(database,connection,frame,catalogue,ct);
         var resolved=new List<(string Curve,CatalogueSource Source)>();var result=new Dictionary<string,CurveShape>(StringComparer.Ordinal);
         foreach(var curve in curves)
         {
             try{resolved.Add((curve,MarketInputSelection.SelectedCurve(frame,curve,catalogue,rates)));}
-            catch(MarketDataException error)when(error.Code is "curve_not_selected" or "catalogue_curve")
+            catch(MarketDataException error)when(error.Code is "curve_not_selected" or "catalogue_curve" or "market_inputs_missing")
             {result.Add(curve,new(curve,null,null,error.Code,null,null,null));}
         }
         foreach(var item in await ShapeSources(connection,frame,root,resolved,ct))

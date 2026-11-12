@@ -316,15 +316,15 @@ public static class MarketDates
         Dictionary<(CatalogueSource Source,string Code),RateTenorSource?> rateSources,CancellationToken ct)
     {
         var root=await MarketInputSelection.Root(database,connection,frame,ct,reads:reads);
-        var catalogue=frame.SourceInputs is null?await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,frame.Time.Date):null;
-        var selectedRates=await MarketInputSelection.SelectedRates(database,connection,frame,ct);
+        var catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,frame.Time.Date);
+        var selectedRates=await MarketInputSelection.SelectedRates(database,connection,frame,catalogue,ct);
         var codes=requested??(frame.SourceInputs is {} parts?parts.Values.SelectMany(p=>p.RootCurves):frame.CurveContracts.Keys)
             .Concat(frame.SourceInputs is null?root.Definitions["rate_curves"].Select(r=>r.Text("code")):selectedRates.Select(r=>r.Code));
         var selected=new List<(string Code,CatalogueSource Source)>();
         foreach(var code in codes.Distinct(StringComparer.Ordinal))
         {
             try{selected.Add((code,MarketInputSelection.SelectedCurve(frame,code,catalogue,selectedRates)));}
-            catch(MarketDataException error)when(error.Code is "curve_not_selected" or "catalogue_curve"){}
+            catch(MarketDataException error)when(error.Code is "curve_not_selected" or "catalogue_curve" or "market_inputs_missing"){}
         }
         var qualified=ImmutableArray.CreateBuilder<string>();
         foreach(var group in selected.GroupBy(c=>c.Source))
