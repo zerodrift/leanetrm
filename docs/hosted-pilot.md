@@ -119,7 +119,8 @@ first. Conversations are kept until an installation needs a retention policy (O1
 
 ## Public homepage and workspace routing
 
-The open-source homepage is the buildless content in [site](../site/README.md).
+The repository's default public page is the buildless content in [site](../site/README.md);
+an installation may install its own page, stylesheet and icon in its place (D385).
 Its three deployable files are separate from the authenticated application's
 browser assets. The gateway template `deploy/nginx.conf.template` requires seven
 explicit substitutions: `PUBLIC_HOST`, `CERTIFICATE_CHAIN`, `CERTIFICATE_KEY`,
