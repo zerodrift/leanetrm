@@ -89,7 +89,7 @@ test('the change chart draws a bar for each position one shock moves, signed, co
   factor('feb',gas,'0.05',[holding(1,values('0','0')),holding(2,values('-1','1')),holding(3,values('0','0')),holding(4,values('0','0'))]),
  ])]);
  const rows=[1,2,3,4].map(n=>({key:key(n),reference:`TR-00000${n}`,market:`Market ${n}`,commodity:n%2?'test_gas':'test_power'}));
- const colors=new Map([['test_gas','#eb6834'],['test_power','#2a78d6']]);
+ const colors=new Map([['test_gas','#e26d28'],['test_power','#5893ee']]);
  // Stands in for the backend's display text of each position: it keeps the exact value's own leading sign.
  const {panels,unmoved}=changeChart(rows,cells,colors,(index,value)=>value.replace(/^(-?)/,`$1#${index}:`));
  assert.equal(panels.length,1);

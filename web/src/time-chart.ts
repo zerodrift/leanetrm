@@ -164,7 +164,7 @@ export function overlayMenu(host:HTMLElement,catalog:OverlayCatalog,onApply:(req
 
 const tokenNames=['--font','--text','--text-2','--text-3','--border','--surface','--accent'] as const;
 export type ChartTokens=Record<typeof tokenNames[number],string>;
-/** The chart's colors, fonts and grid, from the page's CSS tokens (so light and dark follow the page). */
+/** The chart's colors, fonts and grid, from the page's CSS tokens. */
 export function chartStyles(tokens:Partial<ChartTokens>):DeepPartial<Styles>{
   const token=(name:typeof tokenNames[number])=>tokens[name]||(()=>{throw Error(`The time chart needs the ${name} token.`);})();
   const [font,text,text2,text3,border,surface,accent]=tokenNames.map(token);
@@ -263,8 +263,6 @@ export function renderTimeChart(host:HTMLElement,spec:TimeChartSpec):TimeChart{
   toolbar.insertBefore(noteText,addNote);
   button('Clear drawings',()=>{chart.removeOverlay();});
   chart.setDataLoader({getBars:({callback})=>callback(bars,false)});
-  const restyle=()=>chart.setStyles(chartStyles(readTokens(host)));
-  const scheme=matchMedia('(prefers-color-scheme: dark)');scheme.addEventListener('change',restyle);
   // Every bar in view where the width allows, with a bar's room on either side; a longer series shows its latest bars.
   function fit(){
     const width=chart.getSize('candle_pane','main')?.width;
@@ -303,5 +301,5 @@ export function renderTimeChart(host:HTMLElement,spec:TimeChartSpec):TimeChart{
     latest.replaceChildren(...latestValues(next).flatMap(row=>{const term=document.createElement('dt'),value=document.createElement('dd');term.textContent=row.name;value.textContent=row.value;return [term,value];}));
   }
   update(spec);
-  return {update,dispose(){cancelAnimationFrame(fitting);scheme.removeEventListener('change',restyle);resize.disconnect();dispose(canvas);host.replaceChildren();}};
+  return {update,dispose(){cancelAnimationFrame(fitting);resize.disconnect();dispose(canvas);host.replaceChildren();}};
 }

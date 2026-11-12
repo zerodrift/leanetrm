@@ -30,7 +30,7 @@ test('the board groups and orders its cards exactly as the library groups its cu
 test('a card names its curve, its commodity and market type, and takes its commodity identity color',()=>{
  const board=marketBoard(navigation,all,new Map());
  assert.deepEqual([card(board,'gas_futures').name,card(board,'gas_futures').kind],['Gas futures','Gas · Futures']);
- assert.equal(card(board,'gas_futures').color,'#eb6834');assert.equal(card(board,'power_forward').color,'#2a78d6');
+ assert.equal(card(board,'gas_futures').color,'#e26d28');assert.equal(card(board,'power_forward').color,'#5893ee');
  assert.equal(card(board,'usd_rates').color,null,'a curve without a commodity has no commodity color');
 });
 

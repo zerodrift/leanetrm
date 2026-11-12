@@ -210,7 +210,7 @@ function upcoming(o:TicketView){
 function foot(o:TicketView){
  const node=el('footer','ticket-foot');
  if(o.mode!=='booked'){
-  node.append(el('span','ticket-note','Green fields were filled from a lookup; edit one and the value is yours.'),button('ticket-preview','Preview',()=>o.on.preview()),button('ticket-book',o.mode==='amend'?'Save amendment':'Book',()=>o.on.book()));
+  node.append(el('span','ticket-note','Highlighted fields were filled from a lookup; edit one and the value is yours.'),button('ticket-preview','Preview',()=>o.on.preview()),button('ticket-book',o.mode==='amend'?'Save amendment':'Book',()=>o.on.book()));
   return node;
  }
  if(!o.actions)throw Error('A booked ticket needs its trade actions.');

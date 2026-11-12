@@ -1729,7 +1729,6 @@ Extend only after the baseline contracts are demonstrated:
     refused as `custom_curve_definition`; unconfirmed and pre-existing, to be
     reproduced before any fix.
   - Rates curves on the market board.
-  - A dark color scheme; the charts already follow the tokens.
 - Market dashboard follow-ups ([market-dashboard.md](market-dashboard.md)):
   - Phase 2: provider connections, observation and event storage, the provider
     setup screen, synthetic providers and the Weather, Inventory, Outages and

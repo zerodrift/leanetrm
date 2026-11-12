@@ -1,39 +1,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-import {chartOptions,palette,polarity,selectedChartCategory} from '../dist/chart-view.js';
-const css=readFileSync(new URL('../dist/app.css',import.meta.url),'utf8');
+import {chartOptions,chartTokens,palette,polarity,selectedChartCategory} from '../dist/chart-view.js';
+import {contrast,css,resolved,token} from './theme-tokens.mjs';
 test('bar and heatmap drill-through use the plotted exact factor identity, including sparse series',()=>{
  const spec={title:'Risk',axis:'category',unit:'USD',kind:'bar',series:[{name:'A',points:[{x:'jan',y:'0'},{x:'feb',y:'1'}]},{name:'B',points:[{x:'mar',y:'2'}]}]};
  assert.equal(selectedChartCategory(spec,{componentType:'series',dataIndex:1}),'feb');
  assert.equal(selectedChartCategory({...spec,kind:'heatmap'},{componentType:'series',value:[2,1,2]}),'mar');
  for(const event of [{componentType:'axis',dataIndex:0},{componentType:'series',dataIndex:99},{componentType:'series',dataIndex:-1},{componentType:'series',dataIndex:1.5}])assert.equal(selectedChartCategory(spec,event),undefined);
 });
-const token=name=>css.match(new RegExp(`${name}:\\s*([^;}]+)`))?.[1].trim();
 // A series without its own color takes the palette entry for its index, as ECharts does.
 const colorOf=(option,index)=>{const s=option.series[index];return s.itemStyle?.color??s.lineStyle?.color??option.color[index%option.color.length];};
 test('series take the shared palette in fixed order',()=>{
  const o=chartOptions({title:'t',axis:'category',unit:'USD',series:[{name:'a',points:[{x:'1',y:'1'}]},{name:'b',points:[{x:'1',y:'2'}]}]});
- assert.deepEqual(o.series.map((_,i)=>colorOf(o,i)),['#2f8a66','#2a78d6']);
+ assert.deepEqual(o.series.map((_,i)=>colorOf(o,i)),['#5893ee','#e26d28']);
 });
-test('the shared palette keeps its validated order',()=>{
- assert.deepEqual(palette,['#2f8a66','#2a78d6','#eb6834','#6250d6','#e87ba4','#eda100']);
+test('the shared palette keeps its validated order, each colour 3:1 or better on every surface a chart is drawn on',()=>{
+ assert.deepEqual(palette,['#5893ee','#e26d28','#2dac7c','#9b7ee5','#db6190','#c08a11']);
+ for(const colour of palette)for(const ground of ['--bg','--surface','--surface-2','--surface-3']){
+  const ratio=contrast(colour,token(ground));assert.ok(ratio>=3,`${colour} on ${ground} is ${ratio.toFixed(2)}:1`);
+ }
 });
 test('design tokens carry the specified commodity, polarity and radius values',()=>{
  const names=['--gas','--power','--gain','--loss','--gain-ink','--loss-ink','--radius-lg'];
  assert.deepEqual(Object.fromEntries(names.map(name=>[name,token(name)])),
-  {'--gas':'#eb6834','--power':'#2a78d6','--gain':'#1f8a5b','--loss':'#d6453d','--gain-ink':'#0f6b3c','--loss-ink':'#b3261e','--radius-lg':'12px'});
+  {'--gas':'#e26d28','--power':'#5893ee','--gain':'#00a17d','--loss':'#f45a51','--gain-ink':'#8fe0b4','--loss-ink':'#ff9d8a','--radius-lg':'12px'});
 });
-test('the commodity colors in CSS are the chart palette entries for power and gas',()=>{
- assert.equal(token('--power'),palette[1]);assert.equal(token('--gas'),palette[2]);
+test('the commodity colors in CSS are the chart palette entries for power and gas, and the calendar marks are palette entries too',()=>{
+ assert.equal(token('--power'),palette[0]);assert.equal(token('--gas'),palette[1]);
+ assert.deepEqual(['--event-start','--event-end','--event-expiry','--event-date'].map(token),[palette[2],palette[0],palette[1],palette[3]]);
 });
 // The shared `th` rule's declarations as a property map.
 const sharedHeader=Object.fromEntries((css.match(/^th\{([^}]*)\}/m)?.[1]??'').split(';').filter(Boolean).map(d=>[d.slice(0,d.indexOf(':')).trim(),d.slice(d.indexOf(':')+1).trim()]));
-const resolved=value=>value.startsWith('var(')?token(value.slice(4,-1)):value;
-// WCAG 2.x contrast ratio of two hex colors.
-const channels=hex=>(hex.length===4?[...hex.slice(1)].map(c=>c+c):hex.slice(1).match(/../g)).map(c=>parseInt(c,16)/255);
-const luminance=hex=>{const [r,g,b]=channels(hex).map(c=>c<=0.03928?c/12.92:((c+0.055)/1.055)**2.4);return 0.2126*r+0.7152*g+0.0722*b;};
-const contrast=(a,b)=>{const [light,dark]=[luminance(a),luminance(b)].sort((x,y)=>y-x);return (light+0.05)/(dark+0.05);};
 // Headers name units such as MMBtu or kWh; they must read as the backend names them.
 test('shared table headers leave the case of unit symbols alone',()=>{
  assert.ok(Object.keys(sharedHeader).length,'the shared th rule is missing');
@@ -47,7 +44,7 @@ test('shared table header text meets AA contrast on its own background',()=>{
 test('sign-colored horizontal bars mark gains and losses',()=>{
  const o=chartOptions({title:'PV',axis:'category',unit:'USD',kind:'bar',orientation:'horizontal',colorBySign:true,series:[{name:'PV',points:[{x:'waha',y:'271'},{x:'chi',y:'-284'}]}]});
  assert.equal(o.yAxis.type,'category');assert.equal(o.xAxis.type,'value');
- assert.deepEqual(o.series[0].data.map(d=>d.itemStyle.color),['#1f8a5b','#d6453d']);
+ assert.deepEqual(o.series[0].data.map(d=>d.itemStyle.color),['#00a17d','#f45a51']);
 });
 test('horizontal bars list categories top down, and their texts in a column beside the bars, toned by sign',()=>{
  const o=chartOptions({title:'PV',axis:'category',unit:'USD',kind:'bar',orientation:'horizontal',colorBySign:true,series:[{name:'PV',points:[{x:'a',y:'271',text:'+271.00'},{x:'b',y:'-284',text:'−284.00'},{x:'c',y:'0',text:'0.00'}]}]});
@@ -56,7 +53,7 @@ test('horizontal bars list categories top down, and their texts in a column besi
  assert.equal(texts.position,'right');assert.deepEqual(texts.data,['a','b','c']);assert.equal(texts.inverse,true);
  assert.deepEqual(['a','b','c'].map(texts.axisLabel.formatter),['{gain|+271.00}','{loss|−284.00}','0.00']);
  assert.deepEqual(o.series[0].data.map(d=>d.value),[271,-284,0]);
- assert.equal(o.series[0].data[2].itemStyle.color,'#68776f','a zero is neither a gain nor a loss');
+ assert.equal(o.series[0].data[2].itemStyle.color,'#8d97b0','a zero is neither a gain nor a loss');
 });
 test('a horizontal chart that lists its values beside its bars needs no value-axis labels, and one that does not keeps them',()=>{
  const spec=text=>({title:'t',axis:'category',unit:'USD',kind:'bar',orientation:'horizontal',series:[{name:'s',points:[{x:'a',y:'3',...(text?{text:'+3.00'}:{})}]}]});
@@ -88,10 +85,34 @@ test('an unsigned amount whose direction is stated apart is drawn on that side, 
  assert.equal(o.tooltip.formatter([{seriesIndex:0,dataIndex:0}]),'Swap · Quantity: 50 MWh · 50 receive fixed');
  assert.throws(()=>chartOptions({...spec,series:[{name:'Quantity',points:[{x:'s',y:'-50',direction:'negative'}]}]}),{message:'A chart point with a stated direction needs an unsigned amount.'});
 });
-test('heatmaps shade with the shared palette family: a diverging ramp from loss to gain, else a single-hue ramp',()=>{
+test('heatmaps shade with the shared palette family: a diverging ramp from loss to gain through the surface, else a single-hue ramp rising from it',()=>{
  const spec=y=>({title:'t',axis:'category',unit:'USD',kind:'heatmap',series:[{name:'a',points:[{x:'1',y}]}]});
- assert.deepEqual(chartOptions(spec('-3')).visualMap.inRange.color,['#d6453d','#f7f8f7','#1f8a5b']);
- assert.deepEqual(chartOptions(spec('3')).visualMap.inRange.color,['#eaf3ee','#8cc0a8','#2f8a66']);
+ assert.deepEqual(chartOptions(spec('-3')).visualMap.inRange.color,['#f45a51',token('--surface-3'),'#00a17d']);
+ assert.deepEqual(chartOptions(spec('3')).visualMap.inRange.color,['#132643','#305a9a','#5893ee']);
+});
+// A cell's label is written in one of two inks, by how far along its ramp the cell is. Where the two inks read equally well neither can
+// reach AA (the most any pair of inks can hold across a continuous ramp is about 4.6:1), so the labels keep 4:1 or better everywhere.
+test('a heatmap cell label stays 4:1 or better on its cell along the whole ramp',()=>{
+ const channels=hex=>hex.slice(1).match(/../g).map(c=>parseInt(c,16)),hex=rgb=>'#'+rgb.map(c=>Math.round(c).toString(16).padStart(2,'0')).join('');
+ // The cell's colour at a coordinate, as the library shades between the ramp's stops.
+ const shade=(stops,share)=>{const at=share*(stops.length-1),i=Math.min(stops.length-2,Math.floor(at)),[from,to]=[channels(stops[i]),channels(stops[i+1])];return hex(from.map((c,k)=>c+(to[k]-c)*(at-i)));};
+ for(const [low,high,tone] of [['-100','100','gain'],['0','100','gain'],['0','100','loss']]){
+  const o=chartOptions({title:'t',axis:'category',unit:'USD',kind:'heatmap',positiveTone:tone,series:[{name:'a',points:[{x:'low',y:low},{x:'mid',y:'1'},{x:'high',y:high}]}]});
+  const {min,max,inRange:{color:stops}}=o.visualMap,label=o.series[0].label;
+  for(let step=0;step<=200;step++){
+   const coordinate=min+(max-min)*step/200,ink=/^\{(\w+)\|/.exec(label.formatter({value:[1,0,coordinate]}))[1],ratio=contrast(label.rich[ink].color,shade(stops,step/200));
+   assert.ok(ratio>=4,`a ${tone} cell at ${coordinate} labels ${ratio.toFixed(2)}:1`);
+  }
+ }
+});
+test('a chart draws its text, lines and grounds in the tokens of the shared stylesheet',()=>{
+ for(const [name,value] of Object.entries(chartTokens))assert.equal(value,token('--'+name),name);
+ // Every colour a line, bar or heatmap option states is one of those tokens (some at an alpha), a palette entry or a ramp step.
+ const known=new Set([...Object.values(chartTokens),...palette,'#132643','#305a9a','#3f1916','#93332e']);
+ const stated=value=>typeof value==='string'?(/^#[0-9a-f]{6,8}$/i.test(value)?[value.slice(0,7)]:[]):value&&typeof value==='object'?Object.values(value).flatMap(stated):[];
+ const spec={title:'t',subtitle:'s',axis:'category',unit:'USD',colorBySign:true,marked:['a'],reference:{value:'1',label:'r'},series:[{name:'a',points:[{x:'a',y:'1',text:'+1'},{x:'b',y:'-2',text:'−2'}]},{name:'b',points:[{x:'a',y:'3'}]}]};
+ for(const option of [chartOptions(spec),chartOptions({...spec,kind:'bar',orientation:'horizontal',reference:undefined}),chartOptions({...spec,kind:'heatmap'}),chartOptions({...spec,kind:'heatmap',positiveTone:'loss',series:[spec.series[1]],marked:[]})])
+  assert.deepEqual([...new Set(stated(option))].filter(colour=>!known.has(colour)),[]);
 });
 test('a diverging axis keeps zero in the middle between round ends',()=>{
  const o=chartOptions({title:'PV',axis:'category',unit:'USD',kind:'bar',orientation:'horizontal',colorBySign:true,series:[{name:'PV',points:[{x:'a',y:'369019.597'},{x:'b',y:'-51610623.41849047'}]}]});
@@ -117,6 +138,7 @@ test('a line chart emphasizes the points it marks and draws a reference line at 
 test('a chart without marks or a reference line draws neither, and its axis is the data axis',()=>{
  const o=chartOptions({title:'Gas forward',axis:'delivery',unit:'USD/MMBtu (IT)',kind:'line',series:[{name:'Curve',points:[{x:'jan',y:'3.1'},{x:'feb',y:'3.15'}]}]});
  assert.deepEqual(o.series[0].data,[3.1,3.15]);assert.equal(o.series[0].markLine,undefined);
+ assert.equal(o.series[0].symbol,'circle','a point is a dot of its series, not a ring the library fills white');
  assert.equal(o.yAxis.min,undefined);assert.equal(o.yAxis.max,undefined);
 });
 test('a chart marks only points it draws, and a reference line needs an exact value',()=>{
@@ -132,7 +154,7 @@ test('a reference line given as a rational is placed by its ratio, and its label
 // The muted text of the desk's rows and group headers, on every background it sits on, hovered rows and headers included.
 test('the muted text of the desk meets AA contrast on the rows and group headers it sits on, hovered or not',()=>{
  const colorOf=selector=>{const body=css.match(new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\{([^}]*)\\}'))?.[1];return body&&resolved(body.match(/(?:^|[;\s])color:\s*([^;]+)/)?.[1].trim());};
- const grounds={row:'#ffffff','hovered row':token('--accent-soft'),'group header':token('--surface-2'),'hovered group header':token('--surface-3')};
+ const grounds={row:token('--surface'),'hovered row':token('--accent-soft'),'group header':token('--surface-2'),'hovered group header':token('--surface-3')};
  for(const selector of ['.desk-sub','.desk-unit,.desk-muted','#desk-positions .tabulator-group span.desk-group-count']){
   const color=colorOf(selector);assert.ok(color,`${selector} sets no color`);
   for(const [name,background] of Object.entries(grounds)){const ratio=contrast(color,background);assert.ok(ratio>=4.5,`${selector} on a ${name} is ${ratio.toFixed(2)}:1`);}
@@ -144,7 +166,7 @@ test('a loss chart shades positive losses red without reversing exact plotted va
  const bars=chartOptions(spec).series[0].data;
  assert.equal(bars[0].value,3);assert.equal(bars[0].itemStyle.color,polarity.loss);assert.equal(bars[1].itemStyle.color,polarity.gain);
  const heat=chartOptions({...spec,kind:'heatmap'});
- assert.deepEqual(heat.visualMap.inRange.color,[polarity.gain,'#f7f8f7',polarity.loss]);
+ assert.deepEqual(heat.visualMap.inRange.color,[polarity.gain,token('--surface-3'),polarity.loss]);
  assert.equal(heat.series[0].data[0][2],3);
  assert.equal(chartOptions({...spec,kind:'heatmap',series:[{name:'Book',points:[{x:'loss',y:'3'}]}]}).visualMap.inRange.color.at(-1),polarity.loss);
 });

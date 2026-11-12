@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {calendarMonth,shiftCalendarMonth,closesOnDate,uniqueClose,unavailableClosesMessage} from '../dist/market-calendar.js';
+import {asOfLabel,calendarMonth,shiftCalendarMonth,closesOnDate,uniqueClose,unavailableClosesMessage} from '../dist/market-calendar.js';
 
 const catalog={timeZone:'America/Chicago',curve:'synthetic_curve',selectionPolicy:'exact_snapshot_no_close_substitution_v1',minDate:'2024-02-03',maxDate:'2024-02-06',dates:[
  {date:'2024-02-03',frames:[{id:'one',at:'2024-02-04T01:00:00Z',name:'First close',businessDate:'2024-02-04'}]},
@@ -27,4 +27,12 @@ test('a calendar with no closes explains its backend refusals instead of giving 
  assert.equal(unavailableClosesMessage(catalog),'');
  assert.match(unavailableClosesMessage({...empty,unavailable:[]}),/No complete close/);
  assert.doesNotMatch(unavailableClosesMessage({...empty,unavailable:[{date:'2024-02-03',reason:'unknown_internal_code'}]}),/unknown_internal_code/);
+});
+// D384: a recorded close's time of day is its close convention's cutoff, which As of details names, so the As of states its business
+// day alone. A working snapshot is a close of no convention and keeps its instant.
+test('the As of names a recorded close by its business date and a working snapshot by its instant',()=>{
+ assert.equal(asOfLabel({at:'2020-12-18T16:00:00Z',close:{businessDate:'2020-12-18'}},'America/Chicago'),'Dec 18, 2020');
+ assert.equal(asOfLabel({at:'2020-12-19T02:00:00Z',close:{businessDate:'2020-12-18'}},'Asia/Tokyo'),'Dec 18, 2020','the business day is the backend\'s, not the instant\'s day in the display zone');
+ assert.equal(asOfLabel({at:'2020-12-18T16:00:00Z',close:null},'America/Chicago'),'Dec 18, 2020, 10:00 AM');
+ assert.equal(asOfLabel({at:'2020-12-18T16:00:00Z'},'America/Chicago'),'Dec 18, 2020, 10:00 AM');
 });
