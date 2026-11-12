@@ -6,6 +6,7 @@ import {createServer} from 'node:http';
 import {join} from 'node:path';
 
 const [failure,record,...flags]=process.argv.slice(2);
+if(!['never-opens','refuses','never-answers','closes'].includes(failure))throw Error('Unknown debugger failure: '+failure);
 const profile=flags.find(flag=>flag.startsWith('--user-data-dir=')).slice('--user-data-dir='.length);
 process.on('SIGTERM',()=>{});
 // A check that is itself stopped must not leave this process running.
@@ -15,9 +16,10 @@ const debuggerPort=createServer((_request,response)=>response.end(JSON.stringify
   [{type:'page',webSocketDebuggerUrl:`ws://127.0.0.1:${debuggerPort.address().port}/devtools/page/synthetic`}])));
 debuggerPort.on('upgrade',(request,socket)=>{
   if(failure==='never-opens')return;
+  if(failure==='refuses'){socket.destroy();return;}
   socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+
     createHash('sha1').update(request.headers['sec-websocket-key']+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')+'\r\n\r\n');
-  // Otherwise 'never-answers': the connection stays open and every command goes unanswered.
+  // For 'never-answers' the connection stays open and every command goes unanswered.
   if(failure==='closes')socket.once('data',()=>socket.destroy());
 });
 debuggerPort.listen(0,'127.0.0.1',()=>{

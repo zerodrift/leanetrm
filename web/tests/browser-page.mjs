@@ -23,6 +23,8 @@ export async function pressKey(command,key){
 // A disposable headless browser and a static server of web/dist draw `page`; `body` evaluates expressions in it.
 // No application runtime, account or database is attached.
 export async function withBrowserPage(page,body){
+ // The profile is made before anything that has to be closed, so a call that cannot make it leaves nothing open.
+ const directory=await mkdtemp(join(tmpdir(),'openetrm-page-'));
  const root=fileURLToPath(new URL('../dist/',import.meta.url));
  const server=createServer(async(req,res)=>{
   try{
@@ -33,14 +35,13 @@ export async function withBrowserPage(page,body){
   }catch{res.writeHead(404).end();}
  });
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
- const directory=await mkdtemp(join(tmpdir(),'openetrm-page-'));
  const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore',detached:true});
  let ws,failure;
  try{
   ws=new WebSocket(await waitForBrowserPage(directory,chrome));
   // The connection bounds its opening and each command, so a browser that stops answering fails the test with that reason and the
   // cleanup below still runs. This page's uncaught exceptions are not collected.
-  const {command,evaluate}=await connect(ws,[]);
+  const {command,evaluate}=await connect(ws);
   await command('Page.enable');
   await command('Emulation.setFocusEmulationEnabled',{enabled:true});
   await command('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
@@ -49,9 +50,10 @@ export async function withBrowserPage(page,body){
  }catch(error){failure=error;throw error;}
  finally{
   ws?.close();
-  // A browser that cannot be confirmed stopped keeps its profile and is reported beside the test's own failure. The server closes
-  // either way, so it does not keep the test file's process alive.
-  try{await stopOwnedBrowserGroup(chrome,failure);await rm(directory,{recursive:true,force:true});}
+  // A cleanup failure is reported beside the test's own failure, never in its place. A browser that cannot be confirmed stopped
+  // keeps its profile. The server closes either way, so it does not keep the test file's process alive.
+  try{await stopOwnedBrowserGroup(chrome);await rm(directory,{recursive:true,force:true});}
+  catch(error){throw failure?new AggregateError([failure,error],'The browser test failed, and so did its cleanup.',{cause:failure}):error;}
   finally{await new Promise(r=>server.close(r));}
  }
 }

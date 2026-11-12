@@ -160,11 +160,25 @@ test('failed browser cleanup retains the original failure and cleanup detail',as
 });
 
 
-test('a command the browser never answers fails by its name, and an evaluation by the start of its expression too',async t=>{
+// A debugger connection opened on a socket the check drives. Its deadlines run on the check's clock.
+async function connection(t){
   t.mock.timers.enable({apis:['setTimeout']});
-  const socket={send(){}},opening=connect(socket,[]);
+  const sent=[],socket={send:text=>sent.push(JSON.parse(text))},opening=connect(socket);
   socket.onopen();
-  const {command,evaluate}=await opening,long='synthetic+'.repeat(40);
+  return {socket,sent,...await opening};
+}
+
+test('an evaluation gives the value of its reply, or fails by the exception its page threw',async t=>{
+  const {socket,sent,evaluate}=await connection(t);
+  const value=evaluate('1+1'),thrown=evaluate('synthetic()');
+  socket.onmessage({data:JSON.stringify({id:sent[0].id,result:{result:{value:2}}})});
+  socket.onmessage({data:JSON.stringify({id:sent[1].id,result:{exceptionDetails:{text:'Uncaught synthetic failure'}}})});
+  assert.equal(await value,2);
+  await assert.rejects(thrown,/Uncaught synthetic failure/);
+});
+
+test('a command the browser never answers fails by its name, and an evaluation by the start of its expression too',async t=>{
+  const {command,evaluate}=await connection(t),long='synthetic+'.repeat(40);
   const unanswered=[
     assert.rejects(command('Page.enable'),{message:'Browser command timed out: Page.enable'}),
     assert.rejects(evaluate('document.title'),{message:'Browser command timed out: Runtime.evaluate: document.title'}),
@@ -172,6 +186,26 @@ test('a command the browser never answers fails by its name, and an evaluation b
   ];
   t.mock.timers.tick(20000);
   await Promise.all(unanswered);
+});
+
+test('a command sent after the connection closed fails at once as closed, not later as unanswered',async t=>{
+  const {socket,command}=await connection(t);
+  socket.onclose();
+  const sent=assert.rejects(command('Page.navigate'),{message:'Browser connection closed.'});
+  t.mock.timers.tick(20000);
+  await sent;
+});
+
+test('a command or evaluation nobody waits for is not reported by itself when the connection closes',async t=>{
+  const unhandled=[],note=reason=>unhandled.push(reason);
+  process.on('unhandledRejection',note);t.after(()=>process.off('unhandledRejection',note));
+  const {socket,command,evaluate}=await connection(t);
+  const waited=assert.rejects(command('Page.enable'),{message:'Browser connection closed.'});
+  command('Page.navigate');evaluate('document.title');
+  socket.onclose();
+  command('Page.reload');evaluate('document.title');
+  await waited;await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(unhandled,[]);
 });
 
 

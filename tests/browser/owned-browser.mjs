@@ -119,22 +119,42 @@ export async function stopOwnedBrowserGroup(chrome,primaryError,grace=5000){
   }
 }
 
-// One debugger connection, once open: its commands and the page helpers the checks use. Every connection reports its
-// page's uncaught exceptions into the same list. No wait is unbounded: opening and each command have a deadline, and a
-// closed connection rejects the commands still waiting on it.
-export async function connect(socket,errors){
-  await new Promise((accept,reject)=>{const timeout=setTimeout(()=>reject(Error('Browser connection timed out')),5000);socket.onopen=()=>{clearTimeout(timeout);accept();};socket.onerror=error=>{clearTimeout(timeout);reject(error);};});
-  let sequence=0;const pending=new Map();
+// One debugger connection, once open: its commands and the page helpers the checks use. A caller that passes a list has
+// every connection report its page's uncaught exceptions into it. No wait is unbounded: opening and each command have a
+// deadline, and a closed connection fails the commands waiting on it and any sent after.
+export async function connect(socket,errors=[]){
+  await new Promise((accept,reject)=>{
+    const timeout=setTimeout(()=>reject(Error('Browser connection timed out')),5000);
+    socket.onopen=()=>{clearTimeout(timeout);accept();};
+    socket.onerror=event=>{clearTimeout(timeout);reject(Error('Browser connection failed before it opened.',{cause:event.error}));};
+  });
+  let sequence=0,closed=false;const pending=new Map();
   socket.onmessage=event=>{
     const message=JSON.parse(event.data);
     if(message.method==='Runtime.exceptionThrown')errors.push(message.params.exceptionDetails.exception?.description??message.params.exceptionDetails.text);
-    if(message.id){const p=pending.get(message.id);if(!p)return;pending.delete(message.id);clearTimeout(p.timeout);message.error?p.reject(Error(JSON.stringify(message.error))):p.accept(message.result);}
+    if(message.id){
+      const p=pending.get(message.id);if(!p)return;
+      pending.delete(message.id);clearTimeout(p.timeout);
+      if(message.error)p.reject(Error(JSON.stringify(message.error)));
+      else try{p.resolve(p.read(message.result));}catch(error){p.reject(error);}
+    }
   };
-  const abandon=(reason='Browser check finished')=>{for(const p of pending.values()){clearTimeout(p.timeout);p.reject(Error(reason));}pending.clear();};
-  socket.onclose=()=>abandon('Browser connection closed.');
-  // An unanswered evaluation is reported with the start of its expression, so a stalled step says which it is.
-  function command(method,params={}){const id=++sequence;return new Promise((accept,reject)=>{const timeout=setTimeout(()=>{pending.delete(id);reject(Error('Browser command timed out: '+method+(params.expression===undefined?'':': '+String(params.expression).slice(0,160))));},20000);pending.set(id,{accept,reject,timeout});socket.send(JSON.stringify({id,method,params}));});}
-  async function evaluate(expression){const response=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(response.exceptionDetails)throw Error(JSON.stringify(response.exceptionDetails));return response.result.value;}
+  // A command cut off by the end of its connection fails for whoever waits for it, and is not reported by itself when nobody does.
+  const cutOff=(p,reason)=>{p.promise.catch(()=>{});p.reject(Error(reason));};
+  const abandon=(reason='Browser check finished')=>{for(const p of pending.values()){clearTimeout(p.timeout);cutOff(p,reason);}pending.clear();};
+  socket.onclose=()=>{closed=true;abandon('Browser connection closed.');};
+  // One promise stands for a command and what is read from its reply. An unanswered evaluation is reported with the start of its
+  // expression, so a stalled step says which it is.
+  function send(method,params,read){
+    const id=++sequence,p={...Promise.withResolvers(),read};
+    if(closed){cutOff(p,'Browser connection closed.');return p.promise;}
+    p.timeout=setTimeout(()=>{pending.delete(id);p.reject(Error('Browser command timed out: '+method+(params.expression===undefined?'':': '+String(params.expression).slice(0,160))));},20000);
+    pending.set(id,p);socket.send(JSON.stringify({id,method,params}));
+    return p.promise;
+  }
+  const command=(method,params={})=>send(method,params,result=>result);
+  const evaluate=expression=>send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true},
+    response=>{if(response.exceptionDetails)throw Error(JSON.stringify(response.exceptionDetails));return response.result.value;});
   const {wait,click,set,submit}=browserPageActions(evaluate);
   return {command,evaluate,wait,click,set,submit,abandon};
 }
