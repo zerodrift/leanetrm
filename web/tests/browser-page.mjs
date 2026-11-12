@@ -1,11 +1,10 @@
-import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {readFile,mkdtemp,rm,access} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join,resolve,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {waitForBrowserPage,stopOwnedBrowserGroup} from '../../tests/browser/owned-browser.mjs';
+import {waitForBrowserPage,stopOwnedBrowserGroup,connect} from '../../tests/browser/owned-browser.mjs';
 
 const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 // A browser test's limit covers the owned browser's 60 s startup deadline, so a slow start fails with that deadline's own reason
@@ -27,6 +26,8 @@ export async function pressKey(command,key){
 // A disposable headless browser and a static server of web/dist draw `page`; `body` evaluates expressions in it.
 // No application runtime, account or database is attached.
 export async function withBrowserPage(page,body){
+ // The profile is made before anything that has to be closed, so a call that cannot make it leaves nothing open.
+ const directory=await mkdtemp(join(tmpdir(),'openetrm-page-'));
  const root=fileURLToPath(new URL('../dist/',import.meta.url));
  const server=createServer(async(req,res)=>{
   try{
@@ -37,14 +38,13 @@ export async function withBrowserPage(page,body){
   }catch{res.writeHead(404).end();}
  });
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
- const directory=await mkdtemp(join(tmpdir(),'openetrm-page-'));
  const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore',detached:true});
- let ws;
+ let ws,failure;
  try{
-  ws=new WebSocket(await waitForBrowserPage(directory,chrome));await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});
-  let id=0;const pending=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){pending.get(m.id)(m);pending.delete(m.id);}};
-  const command=(method,params={})=>new Promise(r=>{pending.set(++id,r);ws.send(JSON.stringify({id,method,params}));});
-  const evaluate=async expression=>{const reply=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});assert.ok(!reply.error&&!reply.result.exceptionDetails,JSON.stringify(reply));return reply.result.result.value;};
+  ws=new WebSocket(await waitForBrowserPage(directory,chrome));
+  // The connection bounds its opening and each command, so a browser that stops answering fails the test with that reason and the
+  // cleanup below still runs. This page's uncaught exceptions are not collected.
+  const {command,evaluate}=await connect(ws);
   await command('Page.enable');
   await command('Emulation.setFocusEmulationEnabled',{enabled:true});
   const address=`http://127.0.0.1:${server.address().port}/`;
@@ -59,5 +59,13 @@ export async function withBrowserPage(page,body){
   if(!await evaluate(`new Promise(resolve=>{requestAnimationFrame(()=>resolve(true));setTimeout(()=>resolve(false),${Math.max(0,Math.round(until-performance.now()))});})`))
    throw Error('The test page did not draw a frame.');
   await body(evaluate,command);
- }finally{ws?.close();await stopOwnedBrowserGroup(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
+ }catch(error){failure=error;throw error;}
+ finally{
+  ws?.close();
+  // A cleanup failure is reported beside the test's own failure, never in its place. A browser that cannot be confirmed stopped
+  // keeps its profile. The server closes either way, so it does not keep the test file's process alive.
+  try{await stopOwnedBrowserGroup(chrome);await rm(directory,{recursive:true,force:true});}
+  catch(error){throw failure?new AggregateError([failure,error],'The browser test failed, and so did its cleanup.',{cause:failure}):error;}
+  finally{await new Promise(r=>server.close(r));}
+ }
 }

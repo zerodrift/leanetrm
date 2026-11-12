@@ -1,36 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createServer} from 'node:http';
-import {readFile,mkdtemp,rm,access,writeFile} from 'node:fs/promises';
-import {spawn} from 'node:child_process';
-import {tmpdir} from 'node:os';
-import {join,resolve,extname} from 'node:path';
-import {fileURLToPath} from 'node:url';
-import {waitForBrowserPage,stopOwnedBrowser} from '../../tests/browser/owned-browser.mjs';
+import {writeFile} from 'node:fs/promises';
+import {browserAvailable,browserTestTimeout,withBrowserPage} from './browser-page.mjs';
 
-const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const available=await access(browser).then(()=>true,()=>false);
 // Exercise the production editor with synthetic catalog/API answers, in a disposable browser.
 // The fixture captures requests; it deliberately supplies no local pricing implementation.
-test('Objects edits retained graph operations, exact contract mappings and published references through the normal API',{skip:!available,timeout:30000},async()=>{
- const root=fileURLToPath(new URL('../dist/',import.meta.url));
- const server=createServer(async(req,res)=>{try{
-  if(req.url==='/'){res.setHeader('Content-Type','text/html');res.end('<link rel="stylesheet" href="/app.css"><div id="host" style="width:1400px"></div>');return;}
-  const file=resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root)){res.writeHead(404).end();return;}
-  res.setHeader('Content-Type',extname(file)==='.js'?'text/javascript':extname(file)==='.css'?'text/css':'application/octet-stream');res.end(await readFile(file));
- }catch{res.writeHead(404).end();}});
- await new Promise(r=>server.listen(0,'127.0.0.1',r));
- const directory=await mkdtemp(join(tmpdir(),'openetrm-objects-'));
- const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore'});
- let ws;
- try{
-  ws=new WebSocket(await waitForBrowserPage(directory,chrome));await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});
-  let id=0;const pending=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){pending.get(m.id)(m);pending.delete(m.id);}};
-  const command=(method,params={})=>new Promise(r=>{pending.set(++id,r);ws.send(JSON.stringify({id,method,params}));});
-  const evaluate=async expression=>{const reply=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});assert.ok(!reply.error&&!reply.result.exceptionDetails,JSON.stringify(reply));return reply.result.result.value;};
-  await command('Page.enable');await command('Emulation.setFocusEmulationEnabled',{enabled:true});await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
-  await command('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
-  for(let i=0;i<100&&!await evaluate('!!document.querySelector("#host")');i++)await new Promise(r=>setTimeout(r,20));
+test('Objects edits retained graph operations, exact contract mappings and published references through the normal API',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage('<link rel="stylesheet" href="/app.css"><div id="host" style="width:1400px"></div>',async(evaluate,command)=>{
+  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
   await evaluate(`(async()=>{
    const {setupCustomCurves}=await import('/custom-curves-view.js');
    window.definition={code:'synthetic',name:'Synthetic object fixture',output:'out',nodes:[
@@ -73,7 +50,7 @@ test('Objects edits retained graph operations, exact contract mappings and publi
   assert.equal(await evaluate("document.querySelector('[data-object-id=gas]').textContent.includes('exact contract mappings')"),false,'normalized empty fields do not label a source as a contract mapping');
   assert.equal(await evaluate("getComputedStyle(document.querySelector('.curve-object-operation')).color===getComputedStyle(document.querySelector('.curve-object-title')).color"),true,'connection labels have readable foreground color');
   assert.equal(await evaluate("(()=>{const board=document.querySelector('#custom-curves-objects').getBoundingClientRect();return [...document.querySelectorAll('.curve-object-card')].every(c=>c.getBoundingClientRect().right<=board.right);})()"),true,'a three-object graph fits the desktop board');
-  if(process.env.CURVE_OBJECT_SCREENSHOT){await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');const shot=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(process.env.CURVE_OBJECT_SCREENSHOT,Buffer.from(shot.result.data,'base64'));}
+  if(process.env.CURVE_OBJECT_SCREENSHOT){await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');const shot=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await writeFile(process.env.CURVE_OBJECT_SCREENSHOT,Buffer.from(shot.data,'base64'));}
   await evaluate("[...document.querySelectorAll('.curve-object-operation')].find(b=>b.getAttribute('aria-label').includes('from gas to set')).click()");
   await evaluate("document.querySelector('#custom-curves-mode-visual').click()");
   assert.equal(await evaluate("document.querySelector('#custom-curves-inspector h3').textContent"),'Selected operation');
@@ -130,5 +107,5 @@ test('Objects edits retained graph operations, exact contract mappings and publi
   await evaluate("document.querySelector('#custom-curve-property-selection').value='0';document.querySelector('#custom-curve-property-selection').dispatchEvent(new Event('change'));document.querySelector('#custom-curves-preview').click();running");
   assert.deepEqual(await evaluate("requests.filter(r=>r.path==='custom-curves/preview').at(-1).body.definition.nodes.find(n=>n.kind==='published_source').publishedSource"),{catalogId:'catalog-exact',curveId:'published-parent',version:4,outputNode:'published-out'});
   assert.deepEqual(await evaluate('failures'),[]);
- }finally{ws?.close();await stopOwnedBrowser(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100});}
+ });
 });
