@@ -356,8 +356,10 @@ Curves & prices states each listed curve's last close and lists the closes a cur
 be priced at, read for the chosen session. Choosing a close there prompts to switch the
 As of or open a separate window at that recorded close; see [decisions](decisions.md).
 The header's **As of details** widget holds the session and knowledge controls, collapsed
-by default. Its summary stays **As of details**; the convention and knowledge cutoff
-are visible only when expanded. **Market close** names the selected recorded price
-inputs. Profile saves the user’s explicit default convention for opening a workspace,
+by default, beneath the Market close (D384). Its collapsed line names the close
+convention in use, or says one has to be chosen; the convention choice, the selected
+close's instant and the knowledge cutoff are visible only when expanded. **Market
+close** names the selected recorded price inputs by their business day alone, since the
+convention names their time of day; a working snapshot keeps its instant. Profile saves the user’s explicit default convention for opening a workspace,
 without changing the active view; changing the header convention is a view override.
 Missing or withdrawn defaults require a choice rather than falling back.

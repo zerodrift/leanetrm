@@ -380,7 +380,7 @@ export function positionChartPanels(summaries:readonly Summary[],holdings:readon
 
 // The design's commodity identity colors (blotter-desk.md, Visual system): gas and power, under the explicit energy codes of
 // the imported reference catalog and under those of the synthetic one.
-const identity:Readonly<Record<string,string>>={gas:palette[2],electricity:palette[1],test_gas:palette[2],test_power:palette[1]};
+const identity:Readonly<Record<string,string>>={gas:palette[1],electricity:palette[0],test_gas:palette[1],test_power:palette[0]};
 /** A color for each commodity: its identity color, or the next unused categorical color in code order. Marks always name it too. */
 export function commodityColors(codes:Iterable<string>):Map<string,string>{
   const free=palette.filter(color=>!Object.values(identity).includes(color));let next=0;

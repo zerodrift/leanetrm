@@ -334,16 +334,23 @@ read trades.
 
 ## Visual system
 
-- Keep the existing palette (deep green sidebar, green accent) and refine
-  spacing, radius and shadows. Tokens live in `web/src/app.css`.
-- Commodity identity: gas `#eb6834`, power `#2a78d6`. This pair passes the
-  palette validator (normal-vision ΔE 33.6, CVD ΔE 24.7 on white). Gas is the
+- One dark theme (D383): a navy page, raised
+  surfaces, light text, a blue accent and the brand's light-blue and amber
+  pair. Every colour is a token in the `:root` block of `web/src/app.css`; no
+  other rule states one.
+- Charts take a fixed categorical order of blue, orange, green, violet,
+  magenta and yellow, validated on the card surface (each 3:1 or better on it;
+  worst adjacent pair normal-vision ΔE 16.3, CVD ΔE 10.1).
+- Commodity identity: power `#5893ee`, gas `#e26d28`, the first two of that
+  order. This pair passes the palette validator on the card surface
+  (normal-vision ΔE 30.2, CVD ΔE 26.9). Gas is the
   commodity codes `gas` and `test_gas`, power `electricity` and `test_power`:
   the explicit energy codes of the imported reference catalog and those of the
   synthetic one. Any other commodity takes the next palette color in code
   order, and marks always name the commodity too.
-- Polarity: gains `#1f8a5b`, losses `#d6453d`. Their CVD separation (7.8) needs
-  secondary encoding, so signs and bar direction are always shown.
+- Polarity: gains `#00a17d`, losses `#f45a51` (CVD ΔE 9.6). Signs and bar
+  direction are always shown, and text that carries a gain or a loss uses the
+  lighter ink steps, above 6:1 on every surface.
 - Tables use tabular figures; summary values are larger and semibold.
 - Full charts use the shared ECharts component with one shared theme.
   Sparklines and small bars are inline SVG from a shared helper that preserves

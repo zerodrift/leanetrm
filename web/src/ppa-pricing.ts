@@ -1,4 +1,5 @@
 import {exactText,type Exact,type Reference} from './ppa-view.js';
+import {palette} from './chart-view.js';
 export type Price=Exact&{unit:{currency:Reference;quantity:Reference;multiplier:string}};
 export type PricingPeriod={sideRole?:string;slot:{role:number;ordinal:number};month:string;kind:string;quantityState:string;economicClass:string;coverage:string;valueAt:string;coefficient:string;quantity:Exact&{specification:Reference};amount:Exact;presentValue:Exact|null;effectivePrice:Price|null};
 export type PricingResult={label:string;measure:string;measureDefinition:string;price:Price;sensitivity:Exact;inputValue:Exact;quote:string;quoteResidual:Exact;quoteIsExact:boolean;exactPriceEnterable:boolean;quantity:string;coverage:{from:string;to:string};profileDefinition:string;profiles:{periods:PricingPeriod[];valueCurve:{label:string;strike:Price;value:Exact}[]};receipt:unknown;exclusions:unknown;assumptions:unknown};
@@ -20,7 +21,6 @@ export function pricingSeries(periods:PricingPeriod[],field:'quantity'|'amount'|
   let group=groups.get(name);if(!group){group={name,points:[]};groups.set(name,group);}group.points.push({x:Date.parse(p.month+'T00:00:00Z'),label:p.month,value:p[field]});}
  return [...groups.values()];
 }
-const colors=['#256b52','#416da5','#bf7142','#9671ad','#9a8530','#4b8996'];
 function chart(host:HTMLElement,title:string,unit:string,series:Series[],numericX=false){
  const card=document.createElement('section');card.className='ppa-plot';const heading=document.createElement('h4');heading.textContent=title;card.append(heading);
  const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 680 300');svg.setAttribute('role','img');svg.setAttribute('aria-label',title+' · '+unit);card.append(svg);
@@ -29,12 +29,12 @@ function chart(host:HTMLElement,title:string,unit:string,series:Series[],numeric
  const [xmin,xmax]=plotBounds(points.map(p=>p.x)),[ymin,ymax]=plotBounds([0,...points.map(p=>p.y)]);
  const x=(v:number)=>70+plotCoordinate(v,xmin,xmax,540),y=(v:number)=>240-plotCoordinate(v,ymin,ymax,190);
  function el(name:string,attrs:Record<string,string|number>,text?:string){const n=document.createElementNS(ns,name);for(const [key,value] of Object.entries(attrs))n.setAttribute(key,String(value));if(text)n.textContent=text;svg.append(n);return n;}
- el('path',{d:'M70 50 V240 H610',fill:'none',stroke:'#9baaa0'});el('line',{x1:70,y1:y(0),x2:610,y2:y(0),stroke:'#bdc8be','stroke-dasharray':'4 4'});
+ el('path',{d:'M70 50 V240 H610',class:'ppa-plot-axis'});el('line',{x1:70,y1:y(0),x2:610,y2:y(0),class:'ppa-plot-zero'});
  el('text',{x:70,y:24,'font-size':13},unit+' · approximate axes');
  for(const v of [ymin,ymax])el('text',{x:65,y:y(v)+4,'text-anchor':'end','font-size':11},v.toPrecision(4));
  const xlabel=(v:number)=>numericX?v.toPrecision(5):new Date(v).toISOString().slice(0,7);
  for(const v of [points[0].x,points.at(-1)!.x])el('text',{x:x(v),y:267,'text-anchor':'middle','font-size':11},xlabel(v));
- series.forEach((s,i)=>{const color=colors[i%colors.length];let path='';for(const p of s.points){const v=plotNumber(p.value);if(v===null||p.x===null||!Number.isFinite(p.x)){path='';continue;}const px=x(p.x),py=y(v);if(!Number.isFinite(px)||!Number.isFinite(py)){path='';continue;}if(path)el('line',{x1:path.split(',')[0],y1:path.split(',')[1],x2:px,y2:py,stroke:color,'stroke-width':2});path=`${px},${py}`;
+ series.forEach((s,i)=>{const color=palette[i%palette.length];let path='';for(const p of s.points){const v=plotNumber(p.value);if(v===null||p.x===null||!Number.isFinite(p.x)){path='';continue;}const px=x(p.x),py=y(v);if(!Number.isFinite(px)||!Number.isFinite(py)){path='';continue;}if(path)el('line',{x1:path.split(',')[0],y1:path.split(',')[1],x2:px,y2:py,stroke:color,'stroke-width':2});path=`${px},${py}`;
    const circle=el('circle',{cx:px,cy:py,r:p.label.startsWith('Model break-even')?7:4,fill:color,tabindex:0});const tooltip=document.createElementNS(ns,'title');tooltip.textContent=`${s.name} · ${p.label}: ${exactText(p.value)} ${unit}`;circle.append(tooltip);}
  });
  const legend=document.createElement('p');legend.className='field-help';legend.textContent=series.map(s=>s.name).join(' • ');card.append(legend);host.append(card);
