@@ -3,7 +3,7 @@ import type {Measures,InspectionRow,Exact,Reference} from './ppa-view.js';
 export type DataRow=Record<string,string|number|boolean|null>;
 export type Frame={id:string;name:string;at:string;ppaBundle?:{definitionRevisionId:string;referenceCatalogId:string;referenceRevisionId:string}|null};
 export type Slot={role:string;ordinal:number};
-export type Quantity={kind:string;sources:string[];stage:string|null;capacity:string|null;energy:string|null;hours:{membership:string;touProduct:string|null;touVersion:number|null;calendar:string}|null;slots:Slot[];assets:string[]};
+export type Quantity={kind:string;sources:string[];stage:string|null;capacity:string|null;energy:string|null;hours:{membership:string;touProduct:string|null;touVersion:number|null;calendar:string}|null;slots:Slot[];assets:string[];hourlyProfile?:{implementation:string;factors:string[]}};
 export type FixedPrice={kind:string;quantity:string;multiplier:string;price:string|null;rate:string|null;baseDate:string|null;basis:string|null;steps:{from:string;price:string}[]};
 export type PriceSettlement={mode:'curve_target'|'override';index:string|null;projectionPolicy:'forward_curve_no_basis_v1'|null};
 export type Side={kind:string;quantity:Quantity;paymentRule:PaymentInput;location:string|null;fixedPrice:FixedPrice|null;indexPrice:{curve:string;quantity:string;multiplier:string;indexMultiplier:string;adder:string;settlement:PriceSettlement|null}|null;attribute:{quantity:string;conversion:string|null;eligibility:string|null;holding:string|null;disposition:string|null;rule:string|null}|null};

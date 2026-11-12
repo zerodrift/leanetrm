@@ -24,6 +24,7 @@ public static partial class RecipeEngine
         ["sample"]=new Dictionary<string,string>{{"selection","selection"},{"dates","dates"}}.ToImmutableDictionary(),
         ["lookup"]=new Dictionary<string,string>{{"values","panel"},{"dates","dates"}}.ToImmutableDictionary(),
         ["splice"]=new Dictionary<string,string>{{"before","panel"},{"after","panel"}}.ToImmutableDictionary(),
+        [PowerIntervals]=new Dictionary<string,string>{{"peak","source"},{"offPeak","source"}}.ToImmutableDictionary(),
         ["mean"]=new Dictionary<string,string>{{"values","panel"}}.ToImmutableDictionary(),
         ["output"]=new Dictionary<string,string>{{"values","panel"}}.ToImmutableDictionary()
     }.ToImmutableDictionary();
@@ -47,6 +48,9 @@ public static partial class RecipeEngine
             var weighted=node.Kind=="weighted_contracts";var panels=node.Kind=="weighted_panels";
             var ports=weighted||panels?node.Inputs.Keys.ToImmutableDictionary(k=>k,_=>panels?"panel":"source"):
                 Ports.GetValueOrDefault(node.Kind)??throw Invalid($"Node {node.Id} has an unsupported kind.");
+            if(node.Kind==PowerIntervals)ports=PowerIntervalPorts(node);
+            if(node.Kind=="output"&&node.Inputs.TryGetValue("values",out var interval)&&nodes.TryGetValue(interval,out var intervalNode)&&intervalNode.Kind==PowerIntervals)
+                ports=new Dictionary<string,string>{{"values",PowerIntervals}}.ToImmutableDictionary();
             if(!ports.Keys.ToHashSet().SetEquals(node.Inputs.Keys)||(weighted||panels)&&(node.Inputs.Count is <1 or >32||node.Inputs.Keys.Any(p=>!Identity(p))))
                 throw Invalid($"Node {node.Id} has unsupported input ports.");
             foreach(var (port,id) in node.Inputs)
@@ -71,6 +75,7 @@ public static partial class RecipeEngine
                 case "dates":if(Required(node,"mode")=="delivery_range")_=DeliveryDates(node);break;
                 case "lookup":_=LookupSettings(node);break;
                 case "splice":_=SpliceRange(node);break;
+                case PowerIntervals:_=PowerIntervalSettings(node);break;
                 case "mean":if(Required(node,"axis") is not ("dates" or "contracts"))throw Invalid("Choose the averaging axis explicitly.");break;
                 case "weighted_panels":
                     if(Required(node,"alignment")!=ExactDeliveryAlignment||Required(node,"aggregation") is not(SignedSum or WeightedMean)||
@@ -105,6 +110,7 @@ public static partial class RecipeEngine
                 "dates"=>["mode","sampling","corrections","count","includeContext","calendar","schedule","first","from","to"],
                 "lookup"=>["axis","method","maxGapDays","leftBoundary","rightBoundary","implementation","output"],
                 "splice"=>["from","cutover","to","implementation"],
+                PowerIntervals=>PowerIntervalParameters.ToArray(),
                 "mean"=>["axis"],"weighted_contracts"=>["aggregation"],"weighted_panels"=>["alignment","aggregation"],"published_source"=>["selection"],_=>[]
             };
             if(node.Parameters.Keys.Any(key=>!parameters.Contains(key,StringComparer.Ordinal)))throw Invalid($"Node {node.Id} contains an unsupported or conflicting parameter.");

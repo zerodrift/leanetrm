@@ -20,6 +20,15 @@ public static partial class CustomCurves
         var versions=pin.Context is {} selected?await schedules.ReadAt(connection,selected,ct):await schedules.Read(connection,ct);
         var calendars=await schedules.Calendars(connection,ct);
         var recipes=await store.Read(connection,ct);
+        var powerProducts=await PowerIntervalCurves.Products(connection,data,ct);
+        var powerPublications=(await PricePublicationStore.Read(connection,data.DefinitionRevision.CatalogId,ct))
+            .Where(p=>p.Implementation==OpenEtrm.MarketData.Publications.HourlyPowerPublication.Implementation&&p.References==data.ReferenceRevision).ToArray();
+        var powerSources=await PowerHistory.Sources(connection,null,ct);
+        // New source choices are offered only in working mode. Historical
+        // recipes retain their exact series relationship without future choices.
+        var priceShapes=pin.Context is not null?ImmutableArray<System.Text.Json.JsonElement>.Empty:await PreviewDatabase.Rows(connection,
+            "SELECT jsonb_build_object('id',id,'name',name)::text FROM market_data.interval_series WHERE catalog_id=$1 AND reference_catalog_id=$2 AND reference_revision_id=$3 AND kind='additive_price_shape' AND interval_minutes=60 ORDER BY name,id",
+            [data.DefinitionRevision.CatalogId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId],ct);
         // Raw exact-version metadata is authorized under its original read pin.
         // Resolve UI choices afterward without narrowing those retained reads.
         var referenceCatalogs=await ReferenceCatalogs(connection,data,recipes,versions.Where(v=>v.Calendar is not null).Select(v=>v.Calendar!.CatalogId).Concat(calendars.Select(c=>c.Reference.CatalogId)),ct);
@@ -38,7 +47,7 @@ public static partial class CustomCurves
         }
         var publishedSources=new List<object>();
         var contextSources=new List<object>();
-        foreach(var recipe in recipes.Where(r=>r.State=="published"&&r.EngineVersion==RecipeEngine.Version))
+        foreach(var recipe in recipes.Where(r=>r.State=="published"&&r.EngineVersion==RecipeEngine.Version&&RecipeEngine.PowerIntervalOutput(r.Definition) is null))
         {
             await using var eligible=ScheduleStore.Command(connection,"SELECT security.custom_curve_uses_revision($1,$2,$3,$4)",
                 data.DefinitionRevision.CatalogId,recipe.Id,recipe.Version,await CurveVersionInputs.Resolve(database,connection,recipe.MarketRevisionId,ct));
@@ -70,6 +79,12 @@ public static partial class CustomCurves
             calendars=calendars.Select(row=>new{code=row.Reference.Code,name=row.Reference.Code,row.Reference.CatalogId,row.Reference.RevisionId}),
             schedules=versions.Where(v=>v.State=="published").Select(v=>new{value=v.Id.ToString("D")+":"+v.Version.ToString(CultureInfo.InvariantCulture),name=v.Definition.Name,v.Id,v.Version}),
             contextSchedules=contextSchedules.Select(v=>new{value=v.Id.ToString("D")+":"+v.Version.ToString(CultureInfo.InvariantCulture),name=v.Definition.Name,v.Id,v.Version}),
+            powerProducts=powerProducts.Where(p=>p.State=="published").Select(p=>new{p.Id,p.Code,p.Name,p.Version,p.Clock}),
+            powerProfiles=data.References["delivery_profiles"].Where(p=>p.Text("interval_minutes")=="60").Select(p=>new{code=p.Text("code")}),
+            powerPublications=powerPublications.Select(p=>new{id=p.Key.Id,p.Name,p.Key.Version}),
+            powerSettlementIndices=powerPublications.SelectMany(p=>p.Indices).DistinctBy(i=>i.Key).Select(i=>new{code=i.Key.Code}),
+            powerPriceShapes=priceShapes,
+            powerSources=powerSources.Where(s=>s.Minutes==60&&s.Display.Text("provider")=="PJM"&&s.Display.Id("reference_catalog_id")==data.ReferenceRevision.CatalogId&&s.Display.Id("reference_revision_id")==data.ReferenceRevision.RevisionId).Select(s=>new{id=s.Display.Id("id"),name=s.Display.Text("name"),market=s.Display.Text("market")}),
             operators=Operators(),templates=Templates(data),recipes,publishedSources,contextRecipes,contextSources,contextSourceStatus,formulaSupported=true,
             componentHistory=new{policy=RecipeComponentHistory.Policy,label="Raw prices · contract roll jumps retained",kinds=new[]{"select","weighted_contracts","sample"},selectionModes=new[]{"positions"},sampleSelectionPort="selection",
                 sampling="context_utc_time",corrections="exact_context_frame_history_latest_visible",
@@ -98,6 +113,11 @@ public static partial class CustomCurves
             var saved=(await store.Read(connection,ct)).SingleOrDefault(v=>v.Id==id&&v.Version==body.Version)??throw Invalid("This exact curve version is unavailable in the selected knowledge context.");
             if(saved.EngineVersion!=RecipeEngine.Version)throw Invalid("The selected retained curve engine is unavailable.");
             if(!Equivalent(saved.Definition,body.Definition)||saved.Sources.Any(p=>!references.Sources.TryGetValue(p.Key,out var value)||value!=p.Value)||saved.Calendars.Any(p=>!references.Calendars.TryGetValue(p.Key,out var value)||value!=p.Value)||saved.Schedules.Any(p=>!references.Schedules.TryGetValue(p.Key,out var value)||value!=p.Value))throw Invalid("The selected graph or exact references differ from its retained version.");
+        }
+        if(RecipeEngine.PowerIntervalOutput(body.Definition) is not null)
+        {
+            if(history is not null)throw Invalid("Hourly outputs use the interval preview, without daily history sampling.");
+            return await PowerIntervalPreview(connection,database,pin,body,data,ct);
         }
         var inspected=body.Definition;
         if(history is not null)

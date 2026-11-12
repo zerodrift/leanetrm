@@ -80,7 +80,7 @@ public static class CloseBookRiskJobs
         }
         var prepared=await new PortfolioValuation(database).Prepare(connection,data,frame,data.Snapshot(frame),exact,definition.BookIds,
             definition.ValuationPolicy,[],[],ct,closePolicy:definition);
-        RequireNativeEvidence(prepared.ConnectedMarkets);
+        RequireNativeEvidence(prepared);
         var bumps=prepared.Factors.Select(factor=>new PortfolioCurveBump(CurveRiskAxes.Quote(prepared,factor,ct),
             factor.TradingTick*ExactDecimal.Parse(definition.ValuationPolicy.BumpTicks.ToString(CultureInfo.InvariantCulture)))).ToImmutableArray();
         var work=prepared.Markets.Select(market=>RiskEngine.IntervalWork(market.Connected)).ToArray();
@@ -92,6 +92,16 @@ public static class CloseBookRiskJobs
     {
         if(markets.IsDefaultOrEmpty||markets.Any(market=>market.Recipes.IsDefault||market.Samples.IsDefault||!market.Recipes.IsEmpty||!market.Samples.IsEmpty))
             throw new MarketDataException("close_risk_source_evidence","This close operation retains native frame factor pins only; published recipes and dated source samples require their own complete retained evidence.");
+    }
+    internal static void RequireNativeEvidence(PortfolioValuation.Prepared prepared)
+    {
+        RequirePowerWorkerEvidence(prepared);
+        RequireNativeEvidence(prepared.ConnectedMarkets);
+    }
+    internal static void RequirePowerWorkerEvidence(PortfolioValuation.Prepared prepared)
+    {
+        if(prepared.Ppas.Any(p=>!p.PowerLocations.IsEmpty))
+            throw new MarketDataException("power_location_worker_unsupported","Power location graphs require complete retained assignment and settlement evidence before worker admission.");
     }
     internal static object FactorPins(ClosePortfolioPreparation preparation)=>preparation.Factors.Select(f=>new {seriesId=f.Factor.Input.Series.Id,observationId=f.Factor.Observation.Id,
         quote=f.Factor.Quote.Code,bump=f.BumpSize.ToString()}).OrderBy(f=>f.seriesId).ToArray();

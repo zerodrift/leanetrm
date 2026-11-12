@@ -294,7 +294,7 @@ def run_checks(url, query=None, manifest=None):
         assert protected=={'custom_curves',*(f'custom_curve_{name}' for name in (
             'versions','nodes','edges','node_sources','node_calendars','node_schedules','requests','knowledge_receipts',
             'contract_weights','node_published_sources','activation_plans','activation_segments','activation_receipts',
-            'panel_weights','generation_savers','price_terms','price_mappings'))},protected
+            'panel_weights','generation_savers','price_terms','price_mappings','node_power_intervals','power_settlements','power_price_shapes'))},protected
     # A later correction can restate a working historical window, but never a retained earlier knowledge view.
     client.call('profile',{'profile':'editor'})
     observed=next(row for row in average['inputs'] if row['date']=='2020-12-01' and row['contract']['id']=='e0000000-0000-0000-0000-000000000102')

@@ -64,6 +64,68 @@ internal sealed record CalibratedBlock(UnitPrice Mark,ImmutableHashSet<Observati
 
 public static class BlockShaping
 {
+    public static FlatBlockProjection PrepareFlat(DeliveryGrid grid,ImmutableArray<IntervalBlockDefinition> blocks,
+        DateTimeOffset from,DateTimeOffset to,DateTimeOffset valuationAt,string policy)
+    {
+        if(policy!="flat_forward_only_v1")
+            throw new MarketDataException("interval_flat_policy","Select the flat forward-only construction policy explicitly.");
+        if(valuationAt.Offset!=TimeSpan.Zero)
+            throw new MarketDataException("interval_block_partition","Supply an exact UTC valuation.");
+        var compiled=CompileFlat(grid,blocks,from,to);
+        if(compiled.Anchors.Any(a=>grid.Clock.StartOfDay(a.Contract.DeliveryFrom).ToUniversalTime()<valuationAt||a.Contract.Expiry<=valuationAt))
+            throw new MarketDataException("interval_flat_delivered","Flat forward-only construction requires every selected source period to remain entirely in projection.");
+        return compiled;
+    }
+
+    // Geometry and ownership remain valid after delivery or fixing. Projection
+    // admission belongs to the selected pricing policy, after actual eligibility.
+    public static FlatBlockProjection CompileFlat(DeliveryGrid grid,ImmutableArray<IntervalBlockDefinition> blocks,
+        DateTimeOffset from,DateTimeOffset to)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+        if(grid.Holidays.IsDefault||blocks.IsDefaultOrEmpty)
+            throw new MarketDataException("interval_block_partition","Supply an exact delivery grid and source blocks.");
+        IntervalPrices.RequireWindow(grid.Clock,grid.IntervalMinutes,from,to);
+        var first=DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(from,grid.Clock.Zone).DateTime);
+        var last=DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(to.AddTicks(-1),grid.Clock.Zone).DateTime).AddDays(1);
+        var intervals=ImmutableArray.CreateBuilder<PowerInterval>();
+        for(var day=first;day<last;)
+        {
+            var end=new DateOnly(day.Year,day.Month,1).AddMonths(1);if(end>last)end=last;
+            intervals.AddRange(PowerHours.Compile(day,end,grid.Clock,TimeOfUse.All(grid.IntervalMinutes),grid.Holidays.ToArray(),grid.IntervalMinutes)
+                .Where(p=>p.Start>=from&&p.End<=to));
+            day=end;
+        }
+        var anchors=ImmutableArray.CreateBuilder<(CurveRequest Request,MarketContract Contract)>();
+        var anchorIndex=new Dictionary<CurveRequest,int>();
+        var owned=new Dictionary<DateTimeOffset,(DateTimeOffset End,int Anchor)>();
+        foreach(var block in blocks)
+            foreach(var contract in block.Contracts)
+            {
+                if(contract.Kind is not(ContractKind.Future or ContractKind.Forward)||contract.Interval is not null)
+                    throw new MarketDataException("interval_flat_source","Flat power anchors must be date-only futures or forwards, not option premiums or interval contracts.");
+                var start=grid.Clock.StartOfDay(contract.DeliveryFrom).ToUniversalTime();
+                var end=grid.Clock.StartOfDay(contract.DeliveryTo).ToUniversalTime();
+                if(start>=to||end<=from)continue;
+                var cells=IntervalBlocks.Compile(grid,block,contract).Where(p=>p.Start>=from&&p.End<=to).ToArray();
+                if(cells.Length==0)continue;
+                var request=new CurveRequest(block.Curve,contract.Key);
+                if(!anchorIndex.TryGetValue(request,out var index))
+                {index=anchors.Count;anchorIndex.Add(request,index);anchors.Add((request,contract));}
+                else if(anchors[index].Contract!=contract)
+                    throw new MarketDataException("interval_price_source","One exact source contract has conflicting terms.");
+                foreach(var cell in cells)
+                    if(!owned.TryAdd(cell.Start,(cell.End,index)))throw Unpartitioned();
+            }
+        var owners=ImmutableArray.CreateBuilder<int>(intervals.Count);
+        foreach(var interval in intervals)
+        {
+            if(!owned.TryGetValue(interval.Start,out var owner)||owner.End!=interval.End)throw Unpartitioned();
+            owners.Add(owner.Anchor);
+        }
+        return new(intervals.ToImmutable(),anchors.ToImmutable(),owners.ToImmutable());
+    }
+
     public const string CalibrationPolicy="duration_weighted_block_mean_v1";
     public const string OperatorVersion="block_shape_v1";
 
@@ -192,7 +254,7 @@ public static class BlockShaping
         if(!Enum.IsDefined(definition.Method))throw UnknownMethod();
         if(definition.Grid is null || definition.Blocks.IsDefaultOrEmpty)
             throw new MarketDataException("interval_shape","A shaped curve needs a delivery grid and its blocks.");
-        if(definition.Blocks.Any(b=>(b.Membership==BlockMembership.All)!=(b.Peak is null)))
+        if(definition.Blocks.Any(b=>(b.Membership is BlockMembership.Peak or BlockMembership.OffPeak)!=(b.Peak is not null)))
             throw new MarketDataException("interval_block","Only a peak or off-peak block is bound to a TOU peak window.");
     }
 

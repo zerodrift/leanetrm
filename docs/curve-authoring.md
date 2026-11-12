@@ -5,6 +5,13 @@ PostgreSQL and browser qualification. No production deployment is implied.
 
 ## Authoring and dependencies
 
+**Curve definitions** edits native exchange, forward and rate definitions;
+**Curve builder** composes existing inputs. A saved composition's **Pricing
+rules** action opens its exact version in Contract pricing. Opening terms from
+an input or contract on the canvas keeps that selection. Publications use the
+shared sortable, filterable table with local pages and expose captured hourly
+power inspection separately from final publication releases.
+
 The canvas presents eligible curves, exact dated contracts and published synthetic
 outputs as objects. Selectable connections expose operations, weights, matching
 rules and scope. The advanced graph and formula remain views of the same managed

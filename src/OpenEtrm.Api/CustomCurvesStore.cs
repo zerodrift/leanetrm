@@ -59,14 +59,16 @@ public sealed class CustomCurvesStore(PreviewDatabase database)
     Guid Catalog=>database.Manifest.CatalogId;
     static MarketDataException Conflict()=>new("custom_curve_conflict","This curve or request changed. Reload it or retry the exact original request.");
     static MarketDataException Invalid(string message)=>new("custom_curve_definition",message);
-    public async Task<ImmutableArray<CustomCurveVersion>> Read(NpgsqlConnection connection,CancellationToken ct)
+    public Task<ImmutableArray<CustomCurveVersion>> Read(NpgsqlConnection connection,CancellationToken ct)=>ReadVersions(connection,Catalog,ct);
+    internal static async Task<ImmutableArray<CustomCurveVersion>> ReadVersions(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
     {
         await using var command=ScheduleStore.Command(connection,"""
 SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.layout::text,v.publication_order,v.published_at,v.engine_version,
  coalesce((SELECT jsonb_agg(jsonb_build_object('id',n.node_id,'kind',n.kind,'parameters',n.parameters
  ||coalesce((SELECT jsonb_build_object('curve',s.source_curve_code) FROM market_data.custom_curve_node_sources s WHERE(s.catalog_id,s.curve_id,s.version,s.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'{}'::jsonb)
  ||coalesce((SELECT jsonb_build_object('calendar',s.calendar_code) FROM market_data.custom_curve_node_calendars s WHERE(s.catalog_id,s.curve_id,s.version,s.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'{}'::jsonb)
- ||coalesce((SELECT jsonb_build_object('schedule',s.schedule_id::text||':'||s.schedule_version::text) FROM market_data.custom_curve_node_schedules s WHERE(s.catalog_id,s.curve_id,s.version,s.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'{}'::jsonb),
+ ||coalesce((SELECT jsonb_build_object('schedule',s.schedule_id::text||':'||s.schedule_version::text) FROM market_data.custom_curve_node_schedules s WHERE(s.catalog_id,s.curve_id,s.version,s.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'{}'::jsonb)
+ ||market_data.read_power_interval_terms(n.catalog_id,n.curve_id,n.version,n.node_id),
  'publishedSource',(SELECT jsonb_build_object('catalogId',s.source_catalog_id,'curveId',s.source_curve_id,'version',s.source_version,'outputNode',s.source_output_node) FROM market_data.custom_curve_node_published_sources s WHERE(s.catalog_id,s.curve_id,s.version,s.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),
  'contractWeights',coalesce((SELECT jsonb_agg(jsonb_build_object('outputPosition',w.output_position,'sourcePort',w.source_port,'contractId',w.contract_id,'weight',w.weight::text) ORDER BY w.output_position,w.source_port,w.contract_id) FROM market_data.custom_curve_contract_weights w WHERE(w.catalog_id,w.curve_id,w.version,w.node_id)=(n.catalog_id,n.curve_id,n.version,n.node_id)),'[]'::jsonb),
  'contractTerms',market_data.read_custom_curve_price_terms(n.catalog_id,n.curve_id,n.version,n.node_id),
@@ -80,7 +82,7 @@ SELECT v.curve_id,v.version,v.generation,v.state,c.code,v.name,v.output_node,v.l
  FROM market_data.custom_curve_versions v JOIN market_data.custom_curves c ON(c.catalog_id,c.id)=(v.catalog_id,v.curve_id)
  LEFT JOIN market_data.custom_curve_generation_savers g ON(g.catalog_id,g.curve_id,g.version,g.generation)=(v.catalog_id,v.curve_id,v.version,v.generation)
  WHERE v.catalog_id=$1 ORDER BY c.code,v.version
-""",Catalog);
+""",catalog);
         var result=ImmutableArray.CreateBuilder<CustomCurveVersion>();
         await using var reader=await command.ExecuteReaderAsync(ct);
         while(await reader.ReadAsync(ct))result.Add(new(reader.GetGuid(0),reader.GetInt32(1),reader.GetInt32(2),reader.GetString(3),
@@ -194,7 +196,7 @@ INSERT INTO market_data.custom_curve_requests(catalog_id,actor_id,request_id,ope
         {
             await using var update=ScheduleStore.Command(connection,"UPDATE market_data.custom_curve_versions SET generation=$4,name=$5,output_node=$6,layout=$7::jsonb WHERE(catalog_id,curve_id,version)=($1,$2,$3)",Catalog,id,version,generation,body.Definition.Name,body.Definition.Output,JsonSerializer.Serialize(body.Layout,Json));
             await update.ExecuteNonQueryAsync(ct);
-            foreach(var table in new[]{"price_terms","price_mappings","panel_weights","contract_weights","edges","node_published_sources","node_sources","node_calendars","node_schedules","nodes"})
+            foreach(var table in new[]{"power_price_shapes","power_settlements","node_power_intervals","price_terms","price_mappings","panel_weights","contract_weights","edges","node_published_sources","node_sources","node_calendars","node_schedules","nodes"})
             {
                 await using var delete=ScheduleStore.Command(connection,$"DELETE FROM market_data.custom_curve_{table} WHERE(catalog_id,curve_id,version)=($1,$2,$3)",Catalog,id,version);
                 await delete.ExecuteNonQueryAsync(ct);
@@ -207,12 +209,30 @@ INSERT INTO market_data.custom_curve_requests(catalog_id,actor_id,request_id,ope
         }
         foreach(var node in body.Definition.Nodes)
         {
-            var scalars=node.Parameters.RemoveRange(["curve","calendar","schedule"]);
+            var scalars=node.Parameters.RemoveRange(node.Kind==RecipeEngine.PowerIntervals?["product","productVersion","profile","settlementPublication","settlementVersion","settlementIndex","settlementSource","shapeSeries"]:["curve","calendar","schedule"]);
             await using var insert=ScheduleStore.Command(connection,"INSERT INTO market_data.custom_curve_nodes VALUES($1,$2,$3,$4,$5,$6::jsonb)",Catalog,id,version,node.Id,node.Kind,JsonSerializer.Serialize(scalars,Json));
             await insert.ExecuteNonQueryAsync(ct);
         }
         foreach(var node in body.Definition.Nodes)
         {
+            if(node.Kind==RecipeEngine.PowerIntervals)
+            {
+                var terms=RecipeEngine.PowerIntervalSettings(node);
+                await using var power=ScheduleStore.Command(connection,"INSERT INTO market_data.custom_curve_node_power_intervals VALUES($1,$2,$3,$4,$1,$5,$6,$7,$8,$9)",
+                    Catalog,id,version,node.Id,terms.ProductId,terms.ProductVersion,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId,terms.Profile);
+                await power.ExecuteNonQueryAsync(ct);
+                if(RecipeEngine.PowerShapeSettings(node) is {} shape)
+                {
+                    await using var binding=ScheduleStore.Command(connection,"INSERT INTO market_data.custom_curve_power_price_shapes VALUES($1,$2,$3,$4,$5,$6)",Catalog,id,version,node.Id,shape.Series,shape.Policy);
+                    await binding.ExecuteNonQueryAsync(ct);
+                }
+                if(RecipeEngine.PowerSettlementSettings(node) is {} settlement)
+                {
+                    await using var binding=ScheduleStore.Command(connection,"INSERT INTO market_data.custom_curve_power_settlements VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+                        Catalog,id,version,node.Id,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId,settlement.PublicationId,settlement.PublicationVersion,settlement.Index,settlement.SourceId);
+                    await binding.ExecuteNonQueryAsync(ct);
+                }
+            }
             if(node.PublishedSource is {} published)
             {
                 await using var insert=ScheduleStore.Command(connection,"INSERT INTO market_data.custom_curve_node_published_sources VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
@@ -309,7 +329,9 @@ INSERT INTO market_data.custom_curve_generation_savers(catalog_id,curve_id,versi
         if(row.Generation!=body.Generation)throw Conflict();
         CustomCurves.Validate(row.Definition);
         await using var command=ScheduleStore.Command(connection,"SELECT security.publish_custom_curve($1,$2,$3,$4)",Catalog,body.Id,body.Version,body.Generation);
-        await command.ExecuteScalarAsync(ct);
+        try{await command.ExecuteScalarAsync(ct);}
+        catch(PostgresException error)when(error.SqlState=="P0001"&&error.MessageText.StartsWith("power_interval_",StringComparison.Ordinal))
+        {throw new MarketDataException(error.MessageText,"The exact power interval graph has incompatible policies, source units, grid terms or port bindings.");}
         var result=(await Read(connection,ct)).Single(v=>v.Id==body.Id&&v.Version==body.Version);
         await Record(connection,body.RequestId,"publish",payload,result,"SealMarketDefinitions",ct);
         return result;
@@ -348,6 +370,12 @@ INSERT INTO market_data.custom_curve_generation_savers(catalog_id,curve_id,versi
             var source=sources[node.Inputs[weight.SourcePort]];
             if(!data.DefinitionRows("curve_members","curve_code",source.Code).Any(m=>m.Id("contract_id")==weight.ContractId))
                 throw Invalid("Every mapped contract must belong to its declared exact source curve.");
+        }
+        if(RecipeEngine.PowerIntervalOutput(definition) is not null)
+        {
+            var power=PowerIntervalCurves.Read(data,definition,await PowerIntervalCurves.Products(connection,data,ct),versions:await ReadVersions(connection,Catalog,ct));
+            await PowerIntervalCurves.ValidateSettlement(connection,data,power,ct);
+            await PowerIntervalCurves.ValidateShape(connection,data,power,ct);
         }
         await new ContractPriceTermsStore(database).Validate(connection,definition,data,ct);
         return(sources.ToImmutable(),calendars.ToImmutable(),schedules.ToImmutable());

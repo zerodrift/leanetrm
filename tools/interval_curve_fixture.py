@@ -178,11 +178,32 @@ def prepare(reference, market, security, manifest):
         f"INSERT INTO market_data.index_fixing_observations VALUES({M},'test_capacity_index','2021-01-01','2021-02-01',{R},'test_capacity_quote','{cap_series}','fixture','2020-12-16T12:00:00Z','published_index_observations_v1');"]
     for oid,role,observed,value in [(cap_mark,'trader_mark',MARKED_AT,5),(cap_fixing,'index_fixing','2020-12-16T12:00:00Z',4)]:
         observations.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REV}','{cap_series}',{R},'fixture','capacity_{role}','1','{role}','final','{observed}','{now}',{value},NULL);")
+    product_monthly={}
+    for source_code in (PEAK,OFF):
+        code=source_code.replace('monthly','product_monthly')
+        definitions.append(f"INSERT INTO market_data.curves SELECT(jsonb_populate_record(NULL::market_data.curves,to_jsonb(c)||jsonb_build_object('code','{code}','name','Synthetic product source {code}'))).* FROM market_data.curves c WHERE(c.catalog_id,c.revision_id,c.code)=({M},'{source_code}');")
+        ordered=sorted(blocks[source_code],key=lambda r:r[3])
+        product_monthly[code]=[r[0] for r in ordered]
+        for ordinal,(cid,*_) in enumerate(ordered):definitions.append(f"INSERT INTO market_data.curve_members VALUES({M},'{code}','{cid}',{ordinal});")
+    daily_members,daily_ids={},[]
+    for b,(code,value) in enumerate([('test_power_peak_daily',65),('test_power_offpeak_daily',42)]):
+        definitions.append(f"INSERT INTO market_data.curves VALUES({M},'{code}',{R},'test_power','test_hub_a','test_power_outright','{HOURLY_PROFILE}','test_power_target','direct','fixture','trader_mark','Synthetic daily power block {b}');")
+        daily_members[code]=[]
+        for n in range(11):
+            first=date(2031,11,20)+timedelta(days=n)
+            cid,sid,oid=(identity('d',790000+b*100+n*3+i) for i in range(3))
+            definitions.extend([
+                f"INSERT INTO market_data.contracts VALUES({M},'{cid}',{R},'forward','{first}','{first+timedelta(days=1)}','2031-11-19T23:00:00Z',NULL);",
+                f"INSERT INTO market_data.series VALUES({M},'{sid}','{code}_{n}',{R},'{cid}','test_power_outright',NULL);",
+                f"INSERT INTO market_data.curve_members VALUES({M},'{code}','{cid}',{n});"])
+            observations.append(f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REV}','{sid}',{R},'fixture','daily_{b}_{n}','1','trader_mark','final','{MARKED_AT}','{now}',{value},NULL);")
+            daily_members[code].append(cid);daily_ids.append(oid)
     # As a close would, each frame selects and pins only the intervals still live at its instant.
     for frame in manifest['frames']:
         live = [n for n, end in enumerate(ends) if end > datetime.fromisoformat(frame['at'].replace('Z', '+00:00'))]
         frame['observationIds'] = frame['observationIds'] + [ids[n] for n in live] + block_ids + [b['observationId'] for b in balances.values()]
         views = frame.setdefault('curveContracts', {})
+        views.update(daily_members);views.update(product_monthly);frame['observationIds']+=daily_ids
         views[MARKED] = [contracts[n] for n in live]
         capacity_fixed=datetime.fromisoformat(frame['at'].replace('Z','+00:00'))>=datetime(2020,12,16,12,tzinfo=timezone.utc)
         frame['observationIds'] += [cap_fixing if capacity_fixed else cap_mark]

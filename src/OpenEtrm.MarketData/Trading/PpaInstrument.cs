@@ -115,6 +115,7 @@ public static class PpaCapabilities
                 t.Quantity is AccreditedQuantity && t.Schedule.Cadence!=IntervalScheduleCadence.OperatingMonths)
                 throw PpaErrors.Error("ppa_cadence",slot,"The generated schedule must retain its quantity rule's exact delivery cadence and mask.");
             Money.RequireKey(t.Currency);Money.RequireKey(t.UnitQuantity.Specification);Money.RequireKey(t.Delivery.Clock);Money.RequireKey(t.ScheduleQuantity);
+            if(t.Quantity is ProfileQuantity shapedProfile)ContractProfileQuantity.ValidateHourlyFactors(shapedProfile.HourlyFactors,shapedProfile.Hours,t.Delivery.IntervalMinutes);
             var d=t.Delivery;var months=(d.To.Year-d.From.Year)*12+d.To.Month-d.From.Month;
             if(d.IntervalMinutes is not(15 or 60))throw PpaErrors.Error("ppa_cadence",slot,"Only native 15- or 60-minute intervals are supported.");
             if(d.From.Day!=1 || d.To.Day!=1 || d.From>=d.To || d.From.Year<2000 || d.To>new DateOnly(2100,1,1))

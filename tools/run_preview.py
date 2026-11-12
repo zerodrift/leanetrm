@@ -95,6 +95,9 @@ def main():
     parser.add_argument('--booking-check',action='store_true',help='Qualify backend-owned immutable trade booking facts')
     parser.add_argument('--unit-check', action='store_true', help='Run amount/unit integration checks in the owned standard fixture')
     parser.add_argument('--execution-check',action='store_true',help='Qualify standard futures execution policies in an owned synthetic fixture')
+    parser.add_argument('--power-flat-check',action='store_true',help='Qualify flat forward power interval graphs in an owned fixture')
+    parser.add_argument('--power-context-check',action='store_true',help='Qualify exact non-primary power inputs and historical close admission')
+    parser.add_argument('--power-booked-roll-check',action='store_true',help='Qualify booked power and the in-term close-roll consumer in an owned fixture')
     parser.add_argument('--custom-curves-check',action='store_true',help='Qualify custom curve definitions and calculations in an owned synthetic fixture')
     parser.add_argument('--price-authoring-check',action='store_true',help='Qualify publication schedules, final releases and contract price terms through authenticated HTTP')
     parser.add_argument('--market-read-check',action='store_true',help='Qualify per-row market authority in the owned standard fixture')
@@ -170,6 +173,10 @@ def main():
         if args.example != 'standard' or args.interval_series_benchmark+args.usage_benchmark+args.blotter_stream_benchmark>1 or any(name.endswith('_check') and value for name,value in vars(args).items()):
             parser.error('Each --*-benchmark runs alone in the standard fixture, without another benchmark or any --*-check option')
         args.check = True
+    if args.power_context_check:args.power_flat_check=True
+    if args.power_booked_roll_check:args.power_flat_check=True
+    if args.power_flat_check:
+        args.check=True
     if args.context_read_check:
         args.check=True
         if args.example!='standard':parser.error('--context-read-check requires the standard fixture')
@@ -468,9 +475,12 @@ def main():
         if args.index_fixing_check:
             from check_index_fixings import prepare as prepare_index_fixings
             reference,market,manifest=prepare_index_fixings(reference,market,manifest)
-        if args.interval_curves_check or args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check or args.retained_schedule_check or args.blotter_stream_benchmark:
+        if args.power_flat_check or args.interval_curves_check or args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check or args.retained_schedule_check or args.blotter_stream_benchmark:
             from interval_curve_fixture import prepare as prepare_interval_curves
             reference,market,security,manifest=prepare_interval_curves(reference,market,security,manifest)
+        if args.power_flat_check:
+            from check_power_output_settlement import prepare as prepare_power_output_settlement
+            market=prepare_power_output_settlement(market,manifest)
         if args.ppa_check or args.ppa_bookings_check or args.with_ppa or args.demo_instruments_check or args.retained_schedule_check or args.blotter_stream_benchmark:
             from ppa_fixture import prepare as prepare_ppa
             reference,market,security,manifest=prepare_ppa(reference,market,security,manifest)
@@ -512,6 +522,8 @@ def main():
         if args.power_actual_check:
             from check_power_actual_storage import prepare_market
             market=prepare_market(market,manifest)
+            from check_power_publication_http import prepare_market as prepare_publication_market
+            market=prepare_publication_market(market,manifest)
         if args.interval_series_check:
             from check_interval_series_http import prepare_market as prepare_interval_series
             market=prepare_interval_series(market,manifest)
@@ -1123,6 +1135,11 @@ def main():
             elif args.power_actual_check:
                 from check_power_actual_http import run_checks as check_power_actual_http
                 check_power_actual_http(url,query,manifest)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--power-publication'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=240):raise RuntimeError('Owned power publication browser checks failed')
             elif args.interval_curves_check:
                 from check_interval_curves_http import run_checks as check_interval_curves_http
                 check_interval_curves_http(url,query,manifest)
@@ -1216,6 +1233,12 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--contract-dates'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=360):raise RuntimeError('Owned shared contract-date browser checks failed')
+            elif args.power_flat_check:
+                from check_power_flat import run_checks as check_power_flat
+                if args.power_context_check:
+                    from check_power_context import run_checks as check_power_context
+                    check_power_context(url,query,manifest,dotnet,temporary,env)
+                else:check_power_flat(url,query,manifest,booked_roll=args.power_booked_roll_check)
             elif args.custom_curves_check:
                 from check_custom_curves import run_checks as check_custom_curves
                 check_custom_curves(url,query,manifest)

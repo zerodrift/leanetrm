@@ -189,3 +189,8 @@ def run_checks(url, query, manifest):
     client.call('market/current', {})
     assert query('SELECT (SELECT count(*) FROM trading.trades),(SELECT count(*) FROM market_data.observations);') == before
     print('PASS actual power HTTP: current identity/reference scope and historical rejection apply without booking, fixing publication or payment writes', flush=True)
+
+    from check_power_publication_http import run_checks as check_publication
+    captured=check_publication(client,query,manifest,frame['id'],first,second,first_prices,second_prices)
+    from check_power_product_http import run_checks as check_products
+    check_products(client,query,manifest,captured,collector)

@@ -45,14 +45,16 @@ public sealed record TimeOfUse
     private static string Flip(string cells)=>new(cells.Select(c=>c=='1'?'0':'1').ToArray());
     public static TimeOfUse All(int minutes) => new(minutes,new string('1',7*1440/Valid(minutes)),new string('1',7*1440/Valid(minutes)));
     private static int Valid(int minutes) => minutes is 5 or 15 or 30 or 60 ? minutes : throw new MarketDataException("tou_resolution","Unsupported grid resolution.");
-    public static TimeOfUse WeekdayBlock(int minutes,int startHour,int endHour,bool saturday)
+    public static TimeOfUse DailyBlock(int minutes,int startHour,int endHour)=>Block(minutes,startHour,endHour,7,true);
+    public static TimeOfUse WeekdayBlock(int minutes,int startHour,int endHour,bool saturday)=>Block(minutes,startHour,endHour,saturday?6:5,false);
+    private static TimeOfUse Block(int minutes,int startHour,int endHour,int days,bool includeHolidays)
     {
         Valid(minutes);
         if(startHour<0 || endHour>24 || startHour>=endHour)
             throw new MarketDataException("tou_grid","Block hours must be ordered within a day.");
         var columns=1440/minutes;
-        var cells=new string(Enumerable.Range(0,7*columns).Select(i=>i/columns<(saturday?6:5) &&
+        var cells=new string(Enumerable.Range(0,7*columns).Select(i=>i/columns<days &&
             i%columns*minutes>=startHour*60 && i%columns*minutes<endHour*60?'1':'0').ToArray());
-        return new(minutes,cells,new string('0',cells.Length));
+        return new(minutes,cells,includeHolidays?cells:new string('0',cells.Length));
     }
 }

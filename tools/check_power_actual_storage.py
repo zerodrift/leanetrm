@@ -83,6 +83,8 @@ def run_checks(query, manifest):
     """) == 't')
     check('the delegated history query retains its explicit upper index bound', query("""
       SELECT position('p.starts_at<last_at' IN pg_get_functiondef(
+        'power_data.read_prices_pre_portfolio_worker(uuid,timestamptz,timestamptz,timestamptz,timestamptz)'::regprocedure))>0
+        AND position('power_data.read_prices_pre_portfolio_worker(source,first_at,last_at,cutoff,NULL)' IN pg_get_functiondef(
         'power_data.read_prices_pre_portfolio_worker(uuid,timestamptz,timestamptz,timestamptz)'::regprocedure))>0;
     """) == 't')
     reject('BEGIN;' + runtime(issue(), f"SELECT power_data.read_prices_pre_portfolio_worker('{source}','2021-03-01T06:30:00Z','2021-03-01T08:30:00Z',clock_timestamp());") + 'ROLLBACK;', '42501')

@@ -63,6 +63,7 @@ internal sealed class PpaPriceGraphCompiler(IntervalValuationInputs inputs, Curv
                     throw PpaErrors.Error("risk_dependency", "price", "The exact admitted connected price binding is unavailable.");
                 if (prepared.Shape is {} shape)
                 {
+                    if(!shape.Blocks.Any(b=>b.Request==request)){links[selectedCell.index]=graph.Prices(PpaQuantityGraphCompiler.Grid([resolved.Interval]),[graph.Price(point)]).Cell(0);continue;}
                     if (!shapes.TryGetValue((key, request), out var column))
                     {
                         var selectedBlock = shape.Blocks.Single(b => b.Request == request);

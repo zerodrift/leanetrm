@@ -307,8 +307,11 @@ public static partial class ScheduleDefinitionCompiler
                 while(offset<month.Intervals.Length)
                 {
                     var first=offset;var fixedPrice=side is FixedSide?FixedAt(month.Intervals[offset].OperatingDate):null;
+                    var contractual=terms.Quantity is ProfileQuantity shaped&&!shaped.HourlyFactors.IsDefaultOrEmpty
+                        ?ContractProfileQuantity.PerUnit(month.Intervals[offset],shaped.Energy,terms.Schedule.Clock,shaped.HourlyFactors):null;
                     offset++;
-                    while(offset<month.Intervals.Length&&(side is not FixedSide||FixedAt(month.Intervals[offset].OperatingDate)==fixedPrice))offset++;
+                    while(offset<month.Intervals.Length&&(side is not FixedSide||FixedAt(month.Intervals[offset].OperatingDate)==fixedPrice)&&
+                        (contractual is null||terms.Quantity is ProfileQuantity p&&ContractProfileQuantity.PerUnit(month.Intervals[offset],p.Energy,terms.Schedule.Clock,p.HourlyFactors)==contractual))offset++;
                     var intervals=month.Intervals[first..offset];var ordinal=month.FirstRowOrdinal+first;
                     var grid=ScheduleDefinitionGrid.Capture(grids.Count,"delivery/"+ordinal,terms.Delivery.Clock,month.Month,ordinal,intervals);
                     grids.Add(grid);activeGrid=grid.Ordinal;
@@ -385,7 +388,8 @@ public static partial class ScheduleDefinitionCompiler
             switch(terms.Quantity)
             {
                 case ProfileQuantity profile:
-                    quantity=Row(key+"/profile","source","profile_quantity","quantity",plan,profile.Energy);break;
+                    quantity=profile.HourlyFactors.IsDefaultOrEmpty?Row(key+"/profile","source","profile_quantity","quantity",plan,profile.Energy)
+                        :Quantity(key+"/profile",ContractProfileQuantity.PerUnit(interval,profile.Energy,terms.Schedule.Clock,profile.HourlyFactors),plan);break;
                 case SlotQuantity slots:
                     quantity=AddQuantity(key+"/linked-quantity",slots.Slots.Select(slot=>
                     {

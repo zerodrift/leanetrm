@@ -7,12 +7,13 @@ using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
 
-internal sealed class PricePublicationStore(PreviewDatabase database)
+internal sealed partial class PricePublicationStore(PreviewDatabase database)
 {
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new ExactDecimalJsonConverter() } };
-    internal async Task<ImmutableArray<PricePublicationDefinition>> Read(NpgsqlConnection connection, CancellationToken ct)
+    internal Task<ImmutableArray<PricePublicationDefinition>> Read(NpgsqlConnection connection, CancellationToken ct) => Read(connection,database.Manifest.CatalogId,ct);
+    internal static async Task<ImmutableArray<PricePublicationDefinition>> Read(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
     {
-        await using var command = ScheduleStore.Command(connection, "SELECT market_data.read_price_publications($1)::text", database.Manifest.CatalogId);
+        await using var command = ScheduleStore.Command(connection, "SELECT market_data.read_price_publications($1)::text", catalog);
         return JsonSerializer.Deserialize<ImmutableArray<PricePublicationDefinition>>((string)(await command.ExecuteScalarAsync(ct))!, Json);
     }
 
@@ -28,8 +29,14 @@ internal sealed class PricePublicationStore(PreviewDatabase database)
         return JsonSerializer.Deserialize<ImmutableArray<JsonElement>>((string)(await command.ExecuteScalarAsync(ct))!, Json);
     }
 
-    async Task<PreviewData> Data(NpgsqlConnection connection, CancellationToken ct) =>
-        await database.Read(connection, ct, observationIds: [], referenceScope: ReferenceReadScope.AllVisible, includeCalendarDays: false);
+    async Task<PreviewData> Data(NpgsqlConnection connection, CancellationToken ct, bool calendarDays = false,
+        ReferenceRevision? references = null)
+    {
+        var data=await database.Read(connection,ct,observationIds:[],referenceScope:ReferenceReadScope.AllVisible,includeCalendarDays:calendarDays);
+        if(references is {} selected&&selected!=data.ReferenceRevision)
+            throw new MarketDataException("publication_definition","The publication must use the exact reference source selected by the catalogue context.");
+        return data;
+    }
 
     internal async Task<PricePublicationCatalog> Catalog(NpgsqlConnection connection, PinnedContext pin, CancellationToken ct)
     {
@@ -43,7 +50,7 @@ internal sealed class PricePublicationStore(PreviewDatabase database)
             pin.Context is null && await PreviewDatabase.HasPermission(connection, "ImportObservations", ct),
             [..publications.Select(p => p.Publisher).DistinctBy(p => p.Key)], publications,
             Choices("commodities"), IndexChoices(data), Choices("calendars"), Choices("clock_rules"), Choices("sources"),
-            [DatedGasPublication.DailyImplementation, DatedGasPublication.MonthlyImplementation, ..UnsupportedPricePublication.Implementations],
+            [DatedGasPublication.DailyImplementation, DatedGasPublication.MonthlyImplementation, HourlyPowerPublication.Implementation, ..UnsupportedPricePublication.Implementations],
             [..(await Occurrences(connection, ct)).Where(o=>publications.Any(p=>p.Key==o.Occurrence.Publication))],
             await Releases(connection, pin.RequireFrame().At, ct));
     }
@@ -90,7 +97,7 @@ internal sealed class PricePublicationStore(PreviewDatabase database)
         if (request.RequestId == Guid.Empty || request.ExpectedVersion < 0 || request.Definition is null ||
             request.Definition.Key.Version != request.ExpectedVersion + 1)
             throw new MarketDataException("publication_command", "Supply a stable request identity and the next version after the expected current version.");
-        var data = await Data(connection, ct);
+        var data = await Data(connection, ct, references: request.Definition.References);
         _ = Validate(request.Definition, data);
         var definition = Normalize(request.Definition);
         await using var command = ScheduleStore.Command(connection, "SELECT market_data.save_price_publication($1,$2,$3,$4::jsonb)::text",
@@ -100,7 +107,9 @@ internal sealed class PricePublicationStore(PreviewDatabase database)
 
     internal async Task<object> Preview(NpgsqlConnection connection, PricePublicationPreviewRequest request, CancellationToken ct)
     {
-        var data = await Data(connection, ct);
+        if (request.Definition is null)
+            throw new MarketDataException("publication_definition", "Supply an explicit publication definition.");
+        var data = await Data(connection, ct, references: request.Definition.References);
         var behavior = Validate(request.Definition, data);
         var periods = behavior.CoveredPeriods(request.Occurrence);
         var bindings = request.Definition.Indices.Select(index => new
@@ -157,7 +166,7 @@ internal sealed class PricePublicationStore(PreviewDatabase database)
             ?? throw new MarketDataException("publication_missing", "Select a saved occurrence visible in the selected context.");
         var definition = (await Read(connection, ct)).Single(p => p.Key == occurrence.Occurrence.Publication);
         _ = PricePublicationBehavior.Create(definition).CoveredPeriods(occurrence.Occurrence);
-        var data = await Data(connection, ct);
+        var data = await Data(connection, ct, references: definition.References);
         if (!definition.Indices.Any(i => i.Key.Code == request.IndexCode) || definition.References != data.ReferenceRevision ||
             !data.References["sources"].Any(s => s.Text("code") == request.SourceCode))
             throw new MarketDataException("publication_index", "The selected publication index and source must belong to the exact visible reference bundle.");

@@ -22,6 +22,16 @@ public sealed record PricePublicationFinalIngestRequest([property: JsonRequired]
     [property: JsonRequired] string SourceEventId, [property: JsonRequired] string SourceRevisionId,
     [property: JsonRequired, JsonConverter(typeof(PublicationInstantConverter))] DateTimeOffset PublishedAt,
     [property: JsonRequired] string Value, [property: JsonRequired] Guid? CorrectsReleaseId);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PowerPublicationPreviewRequest([property: JsonRequired] Guid SnapshotId,
+    [property: JsonRequired] PricePublicationKey Publication, [property: JsonRequired] string IndexCode,
+    [property: JsonRequired] Guid SourceId, [property: JsonRequired] string Market,
+    [property: JsonRequired] DateOnly FromDate, [property: JsonRequired] DateOnly ThroughDate,
+    [property: JsonRequired, JsonConverter(typeof(PublicationInstantConverter))] DateTimeOffset KnownAt);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PowerProductPreviewRequest([property: JsonRequired] PowerPublicationPreviewRequest Capture,
+    [property: JsonRequired] string Product, [property: JsonRequired] int ProductVersion,
+    [property: JsonRequired] string Block, [property: JsonRequired] string Averaging);
 public sealed record SavedPricePublicationOccurrence(Guid Id, PricePublicationOccurrence Occurrence);
 public sealed record PricePublicationChoice(ReferenceKey Reference, string Name);
 public sealed record PricePublicationIndexChoice(ReferenceKey Key, ReferenceKey Commodity, ReferenceKey Location,
@@ -47,6 +57,15 @@ public static class PricePublications
         api.MapPost("/price-publications/preview", (HttpContext context, PricePublicationPreviewRequest request) =>
             operation(context, "ReadMarketData", request.SnapshotId,
                 async (connection, pin, ct) => Results.Ok(await new PricePublicationStore(database).Preview(connection, request, ct))));
+        api.MapPost("/price-publications/power/preview",(HttpContext context,PowerPublicationPreviewRequest request)=>
+            operation(context,"ReadMarketData",request.SnapshotId,
+                async(connection,pin,ct)=>Results.Ok(await new PricePublicationStore(database).InspectPower(connection,pin,request,ct))));
+        api.MapGet("/price-publications/power/products",(HttpContext context,Guid? snapshotId)=>
+            operation(context,"ReadMarketData",snapshotId,
+                async(connection,pin,ct)=>Results.Ok(await new PricePublicationStore(database).PowerProducts(connection,pin,ct))));
+        api.MapPost("/price-publications/power/product-preview",(HttpContext context,PowerProductPreviewRequest request)=>
+            operation(context,"ReadMarketData",request.Capture?.SnapshotId,
+                async(connection,pin,ct)=>Results.Ok(await new PricePublicationStore(database).InspectPowerProduct(connection,pin,request,ct))));
         api.MapPost("/price-publications/occurrences/save", (HttpContext context, PricePublicationOccurrenceSaveRequest request) =>
             operation(context, "WriteMarketDefinitions", request.SnapshotId,
                 async (connection, pin, ct) => Results.Ok(await new PricePublicationStore(database).SaveOccurrence(connection, request, ct))));

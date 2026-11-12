@@ -145,3 +145,20 @@ test('a fed input can change to any other operation whose output its catalog typ
  assert.deepEqual(connectableSources(d,{operators},'sample','dates'),[],'only the date sequence it already has fits');
  assert.deepEqual(connectableSources(d,{operators},'sample','curve'),['average','other','third'],'types only: the backend rejects a cycle');
 });
+
+
+test('an output offers hourly or panel sources only when its declared port admits them',async()=>{
+ const {connectableTargets,connectableSources}=await import('../dist/custom-curve-model.js');
+ const d={code:'typed',name:'Typed',output:'out',nodes:[
+  {id:'hours',kind:'power_intervals',parameters:{},inputs:{}},
+  {id:'panel',kind:'sample',parameters:{},inputs:{}},
+  {id:'dates',kind:'dates',parameters:{},inputs:{}},
+  {id:'out',kind:'output',parameters:{},inputs:{}}]};
+ const catalog={operators:[
+  {kind:'power_intervals',outputType:'power_intervals',inputPorts:[],fields:[]},
+  {kind:'sample',outputType:'panel',inputPorts:[],fields:[]},
+  {kind:'dates',outputType:'dates',inputPorts:[],fields:[]},
+  {kind:'output',outputType:'curve_result',inputPorts:[{name:'values',type:'panel|power_intervals'}],fields:[]}]};
+ assert.deepEqual(connectableTargets(d,catalog,'hours'),[{target:'out',port:'values',added:false}]);
+ assert.deepEqual(connectableSources(d,catalog,'out','values'),['hours','panel']);
+});

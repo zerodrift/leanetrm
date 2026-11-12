@@ -34,7 +34,7 @@ type Cells=(string|HTMLElement)[][];
 // soon: the hover text of each coming-soon column by index, drawn greyed with a Coming soon tag and holding no values.
 type Chosen=void|boolean|Promise<boolean>;
 export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?:boolean[];initial?:{query:string;columns:(string|null)[]};retainMissingFilters?:boolean;keys:string[];columnGroups?:Record<string,{key:string;title:string;measureTitle:string}>;layout:GridLayout;onLayout:(value:GridLayout)=>void;onReady?:()=>void;onRowOpen?:(index:number)=>Chosen;onRowSelect?:(index:number)=>Chosen;onRowEscape?:()=>void;onRowMenu?:(index:number,at:{x:number;y:number})=>void;onRowDoubleOpen?:(index:number)=>void;onMultiSelection?:(keys:string[])=>void;onCellPick?:(row:number,column:number)=>void;
-  patchValues?:boolean;cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:GridGroupOption;rowKeys?:readonly string[];rowHeight?:number;stretch?:boolean;toolbarHost?:HTMLElement;fill?:boolean;giveUp?:readonly number[];
+  patchValues?:boolean;cells?:(index:number,column:number)=>Node|null;searchText?:string[];visual?:number[];group?:GridGroupOption;rowKeys?:readonly string[];rowHeight?:number;pageSize?:number;stretch?:boolean;toolbarHost?:HTMLElement;fill?:boolean;giveUp?:readonly number[];
   tree?:{parents:(string|null)[];open:ReadonlySet<string>;onToggle:(key:string,open:boolean)=>void};totals?:string[][];headerGroups?:{title:string;colour:string;columns:number[]}[];
   decorate?:(index:number,column:number)=>{sources:string[];changed:boolean;delivered:boolean}|null;soon?:Readonly<Record<number,string>>};
 /**
@@ -42,7 +42,7 @@ export type GridOptions={displayRows?:string[][];cellTitles?:string[][];visible?
  * standing grid's rows, grouping, column visibility, filters and layout in place, so the person keeps their place in it.
  */
 export function gridIdentity(key:string,scope:string,headers:readonly string[],numeric:readonly number[],options:GridOptions){
-  return JSON.stringify([key,scope,headers,numeric,options.keys,options.visual??[],options.columnGroups??null,!!options.stretch,options.headerGroups??null,!!options.tree,!!options.totals]);
+  return JSON.stringify([key,scope,headers,numeric,options.keys,options.visual??[],options.columnGroups??null,!!options.stretch,options.headerGroups??null,!!options.tree,!!options.totals,options.pageSize??null]);
 }
 import {sideColour} from './side-colour.js';
 export {sideColour};
@@ -97,7 +97,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   // A selection can remove its hidden-row notice between native clicks. Keep
   // the notices below the grid so that change cannot move a row under the pointer.
   const container=el('div');container.className='standard-data-grid';host.replaceChildren(...(options.toolbarHost?[]:[toolbar]),filterPanel,container,staleNote,hiddenNote);options.toolbarHost?.replaceChildren(toolbar);
-  let alive=true,ready=false,markBuilt=()=>{};
+  let alive=true,ready=false,markBuilt=()=>{},focusRequest=0;
   // Resolves once the table is built, so work asked for earlier waits for it instead of being skipped.
   const built=new Promise<void>(resolve=>{markBuilt=resolve;});
   const current=()=>alive&&host.isConnected&&container.parentElement===host&&!isBusy();
@@ -225,7 +225,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       .sort((a,b)=>options.group?options.group.order.indexOf(groupOf(a))-options.group.order.indexOf(groupOf(b)):0);
     return options.tree?nested(flat):flat;
   };
-  const height=()=>options.fill?'100%':Math.min(560,Math.max(140,values.length*(options.rowHeight??35)+(options.group?.order.length??0)*36+(groups.size?82:46)+(options.totals?options.totals.length*24+14:0)))+'px';
+  const height=()=>options.fill?'100%':Math.min(560,Math.max(140,Math.min(values.length,options.pageSize??values.length)*(options.rowHeight??35)+(options.group?.order.length??0)*36+(groups.size?82:46)+(options.totals?options.totals.length*24+14:0)+(options.pageSize?44:0)))+'px';
   function groupHeading(key:string,count:number,group:GridGroup){
       // A group header opens and closes its rows from the keyboard as well as the arrow, and says whether its rows show.
       const header=options.group!.header(key,count);header.tabIndex=0;header.setAttribute('role','button');header.setAttribute('aria-expanded',String(group.isVisible()));
@@ -258,6 +258,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
     },
     columns:definitions,
     layout:options.stretch?'fitDataStretch':'fitDataFill',height:drawnHeight,movableColumns:true,columnDefaults:{tooltip:false},placeholder:'No rows match this selection.',
+    ...(options.pageSize?{pagination:true,paginationMode:'local',paginationSize:options.pageSize,paginationButtonCount:3}:{}),
     groupHeader:(key:string,count:number,_rows:unknown,group:GridGroup)=>groupHeading(key,count,group),
     ...(options.group?{groupBy:groupOf}:{}),
     ...(options.tree?{dataTree:true,dataTreeStartExpanded:(row:GridRow)=>options.tree?.open.has(keyOf(row))??false}:{}),
@@ -522,7 +523,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
   function report(){
     const shown=values.filter((_,index)=>matchesSource(index)).length;count.textContent=`${shown} of ${values.length} rows`;clear.hidden=!state.query&&!state.columns.some(v=>v!==null);
     const at=opened===null?-1:keys.indexOf(opened),hidden=at>=0&&!matchesSource(at);
-    noteText.textContent=hidden?(selectionLost?'The selected position is no longer shown: it is hidden by this table’s row search or column filters. ':'The selected position is hidden by this table’s row search or column filters. ')
+    noteText.textContent=hidden?(selectionLost?'The selected position is no longer shown: it is hidden by this table’s row search or column filters. ':'The selected row is hidden by this table’s row search or column filters. ')
       :selectionLost?'The selected row is no longer shown, so no row is selected.':'';
     showHidden.hidden=!hidden;hiddenNote.hidden=!hidden&&!selectionLost;
   }
@@ -575,13 +576,22 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
       // A row already where it is wanted, by default whole in view, is used where it is: the place the person has in the rows stands.
       if(view&&stays(row,view)){use(row);return;}
       placing++;
-      return row.scrollTo('nearest',false).catch(()=>undefined).then(()=>{if(alive&&stillCurrent())use(row);});
+      return (options.pageSize?row.pageTo():Promise.resolve()).then(()=>{if(alive&&stillCurrent())return row.scrollTo('nearest',false);}).catch(()=>undefined).then(()=>{if(alive&&stillCurrent())use(row);});
     });
   }
   /** Marks the rows as no longer stating the current read, with the reason, or clears the mark (null). */
   function markStale(reason:string|null){container.classList.toggle('stale',reason!==null);staleNote.textContent=reason===null?'':publicText(reason);staleNote.hidden=reason===null;}
   return {
     ready:()=>ready&&alive,
+    /** Restore native pager boundaries after the application's global busy pass. */
+    syncPagination(){
+      if(!options.pageSize||!ready||!alive)return;
+      const page=table.getPage(),last=table.getPageMax();
+      for(const button of container.querySelectorAll<HTMLButtonElement>('.tabulator-page')){
+        const target=button.dataset.page;
+        button.disabled=isBusy()||((target==='first'||target==='prev')&&page<=1)||((target==='next'||target==='last')&&page>=last);
+      }
+    },
     state:()=>({query:state.query,columns:state.columns.slice()}),layout,
     headers:()=>visibleIndices().map(i=>headers[i]),numeric:()=>visibleIndices().flatMap((original,i)=>numeric.includes(original)?[i]:[]),
     visibleRows:()=>{if(!current()||!ready)throw Error('Refresh this table before exporting.');return table.getData('display').filter(matches).map(row=>visibleIndices().map(i=>row[field(i)]));},
@@ -698,7 +708,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
      * Moves focus to the row of a source index, scrolling it into view first, once the grid has drawn again: a change of the
      * grid's width, such as a closing panel's, redraws its rows in the frame after it, which would take focus from a row focused sooner.
      */
-    focusRow(index:number){const at=keyAt(index);if(at!==null)whenDrawn(at,row=>row.getElement().focus({preventScroll:true}));},
+    focusRow(index:number){const at=keyAt(index),version=++focusRequest,focused=document.activeElement,openedAt=opened,selectedAt=selected;if(at!==null)whenDrawn(at,row=>row.getElement().focus({preventScroll:true}),()=>version===focusRequest&&opened===openedAt&&selected===selectedAt&&(document.activeElement===focused||!!focused&&!focused.isConnected&&focusLost()));},
     /**
      * Scrolls the row of a source index into view, in the grid and in the page, as far as it takes to show it, once the grid has drawn again.
      * A row being opened by a press stays where it is while the point pressed is still in the grid's view, whatever room the opening took:

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace OpenEtrm.Api;
@@ -24,7 +25,11 @@ public sealed record PpaQuantityInput([property:JsonRequired]string Kind,
     [property:JsonRequired]string? Energy,
     [property:JsonRequired]PpaHoursInput? Hours,
     [property:JsonRequired]PpaSlotInput[] Slots,
-    [property:JsonRequired]string[] Assets);
+    [property:JsonRequired]string[] Assets)
+{
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]
+    public JsonElement HourlyProfile {get;init;}
+}
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PpaPaymentInput([property:JsonRequired]string Frequency,
     [property:JsonRequired]string Rule,
@@ -106,7 +111,11 @@ public sealed record PpaWriteRequest([property:JsonRequired]Guid OperationId,
     [property:JsonRequired]string Reason,
     [property:JsonRequired]string Memo,
     [property:JsonRequired]PpaBookingInput? Booking,
-    [property:JsonRequired]PpaTermsInput? Terms);
+    [property:JsonRequired]PpaTermsInput? Terms)
+{
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]
+    public JsonElement Admission { get; init; }
+}
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PpaValidateRequest([property:JsonRequired]Guid SnapshotId,
     [property:JsonRequired]PpaTermsInput Terms,
@@ -132,6 +141,9 @@ public sealed record PpaPreviewRequest([property:JsonRequired]Guid SnapshotId,
 public sealed record PpaEditorRequest([property:JsonRequired]Guid SnapshotId,
     [property:JsonRequired]Guid TradeId,
     [property:JsonRequired]string KnownAt);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PpaContractChangeRequest([property:JsonRequired]string Convention,
+    [property:JsonRequired]PpaPreviewRequest Opening,[property:JsonRequired]PpaPreviewRequest Closing);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PpaStatusRequest([property:JsonRequired]Guid OperationId);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

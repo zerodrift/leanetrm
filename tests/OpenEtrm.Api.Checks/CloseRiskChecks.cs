@@ -38,6 +38,26 @@ internal static class CloseRiskChecks
             throw new Exception("Distinct curve target scenarios sharing one quote must retain their separate workload bound.");
         var native=new ConnectedMarketEvidence(Guid.NewGuid(),new string('a',64),FuturesRisk.Implementation,[],[]);
         CloseBookRiskJobs.RequireNativeEvidence([native]);
+        var position=new RiskPosition(Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),agreement.Id,agreement.UnitQuantity,
+            new(new Money(default,agreement.Currency),agreement.UnitQuantity.Specification),new(default,agreement.Currency))
+            {Coverage=new(fixture.From,fixture.From.AddHours(1))};
+        var portfolio=new ValuationPortfolio([agreement],[position],new(ValuationMeasure.PresentValue,
+            System.Collections.Immutable.ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,
+            new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)){Interval=inputs});
+        var ppaInput=new PpaPortfolioInput(portfolio,[],inputs.Receipt,0,[],
+            System.Collections.Immutable.ImmutableDictionary<Guid,System.Text.Json.JsonElement>.Empty,market.Build,[]);
+        var worker=new PortfolioValuation.Prepared(market.Snapshot.Id,new("2031-10-31",null),PilotCloseJobs.QualifiedPolicy,[],[],[],[]){Ppas=[ppaInput]};
+        CloseBookRiskJobs.RequirePowerWorkerEvidence(worker);
+        var graph=new PowerLocationEvidence(1,"synthetic_location","DA","follow_location_activation_v1",fixture.From,fixture.To,
+            new(Guid.NewGuid(),1,CurveActivations.Policy,"Synthetic worker guard",[]),
+            new(fixture.Definitions.CatalogId,Guid.NewGuid(),1,"result"),null);
+        try
+        {
+            CloseBookRiskJobs.RequirePowerWorkerEvidence(worker with{Ppas=[ppaInput with{PowerLocations=[graph]}]});
+            throw new Exception("Zero evaluated rows must not bypass the power worker evidence gate.");
+        }
+        catch(MarketDataException error)when(error.Code=="power_location_worker_unsupported"){}
+        Console.WriteLine("PASS native worker compatibility and zero-row power assignment refusal");
         foreach(var unsupported in new[]{native with{Recipes=[new(Guid.NewGuid(),Guid.NewGuid(),1,"output",0,CustomCurveProjectionBinding.SupportedSelection,CustomCurveProjectionBinding.SupportedImplementation)]},
             native with{Samples=[new(Guid.NewGuid(),market.Snapshot.ValuationAt,"synthetic_source",Guid.NewGuid(),false,[],"contract_observation",true)]}})
         {

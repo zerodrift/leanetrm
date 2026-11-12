@@ -47,6 +47,7 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
             Crude.CrudeValuationAssignment a when a.QuantityEquivalence is not null => "crude_valuation_assignment_v2",
             Crude.PhysicalCrudeSide s when s.QuantityEquivalence is not null => "physical_crude_side_v2",
             PpaInstrument p=>p.TermImplementation,
+            ProfileQuantity p when !p.HourlyFactors.IsDefaultOrEmpty=>"ppa_profile_quantity_v2",
             FloatingSidePeriod p when !p.ContractObservations.IsDefaultOrEmpty=>"floating_side_period_v2",
             FloatingProjectionBinding b when !b.ContractObservations.IsDefaultOrEmpty=>"floating_projection_binding_v2",
             _=>contract.Version
@@ -69,6 +70,7 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
                 if (field.Name == nameof(Crude.CrudeValuationAssignment.QuantityEquivalence) &&
                     (value is Crude.CrudeValuationAssignment { QuantityEquivalence: null } ||
                      value is Crude.PhysicalCrudeSide { QuantityEquivalence: null })) continue;
+                if(field.Name==nameof(ProfileQuantity.HourlyFactors)&&value is ProfileQuantity profileIdentity&&profileIdentity.HourlyFactors.IsDefaultOrEmpty)continue;
                 var selected=field.GetValue(value);
                 writer.WritePropertyName(field.Name);Write(writer,selected);
             }

@@ -10,6 +10,11 @@ internal static class PricePublicationChecks
     {
         var f = new PublicationFixture();
         var monthly = PricePublicationBehavior.Create(f.Definition);
+        var hourly=PricePublicationBehavior.Create(f.Definition with{Implementation=HourlyPowerPublication.Implementation});
+        Equal(hourly is HourlyPowerPublication,true);
+        Reject("publication_interval_required",()=>hourly.CoveredPeriods(f.Occurrence));
+        Reject("publication_interval_required",()=>hourly.PrepareLegacyFixings(f.Feed,f.Release,f.Context,[f.Target]));
+
         var period = monthly.CoveredPeriods(f.Occurrence).Single();
         Equal(period.From, new DateOnly(2041, 2, 1)); Equal(period.To, new DateOnly(2041, 3, 1));
         Equal(monthly.ExpectedRelease(f.Occurrence), At("2041-02-01T20:00:00Z"));

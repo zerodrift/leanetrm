@@ -8,7 +8,10 @@ using OpenEtrm.MarketData.Trading;
 namespace OpenEtrm.Api;
 
 internal sealed record PpaPortfolioInput(ValuationPortfolio Portfolio,ImmutableArray<PortfolioPositionEvidence> Evidence,
-    ValuationReceipt Receipt,long Rows,ImmutableArray<PpaBinding> Bindings,ImmutableDictionary<Guid,JsonElement> Heads,CurveBuild Market,ImmutableArray<Guid> ReadContexts);
+    ValuationReceipt Receipt,long Rows,ImmutableArray<PpaBinding> Bindings,ImmutableDictionary<Guid,JsonElement> Heads,CurveBuild Market,ImmutableArray<Guid> ReadContexts)
+{
+    internal ImmutableArray<PowerLocationEvidence> PowerLocations{get;init;}=[];
+}
 
 internal sealed record PpaScope(ImmutableDictionary<Guid,JsonElement> Heads,ImmutableArray<JsonElement> Bindings)
 {
@@ -147,7 +150,7 @@ internal static class PpaPortfolio
         var byBinding=rows.ToDictionary(r=>r.Id("binding_id"));
         var evidence=portfolio.Positions.Select(p=>{var row=byBinding[p.BindingId];return new PortfolioPositionEvidence(p.TradeId,row.GetProperty("revision").GetInt32(),p.BindingId,p.ValuationId,p.ValuationId,
             p.BookId,PortfolioValuation.PpaMeasure,data.DefinitionRevision.RevisionId,row.GetProperty("publication_order").GetInt32(),p.Quantity){Coverage=p.Coverage,TradeReference=tradeReferences[p.TradeId],InstrumentReference=instrumentReferences[p.ValuationId],InstrumentType="ppa"};}).ToImmutableArray();
-        return new(portfolio,evidence,prepared.Inputs.Receipt,work,bindings,heads,prepared.Market,prepared.ReadContexts);
+        return new(portfolio,evidence,prepared.Inputs.Receipt,work,bindings,heads,prepared.Market,prepared.ReadContexts){PowerLocations=prepared.PowerLocations};
     }
     // The trade and instrument reference numbers of PPA trades and instruments.
     internal static async Task<(Dictionary<Guid,string> Trades,Dictionary<Guid,string> Instruments)> References(NpgsqlConnection connection,

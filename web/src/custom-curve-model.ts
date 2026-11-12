@@ -22,13 +22,15 @@ export function curveEdges(definition:CurveDefinition):CurveEdge[]{
 export function changeCurveConnection(definition:CurveDefinition,target:string,port:string,source:string):CurveDefinition{
  return {...definition,nodes:definition.nodes.map(node=>{if(node.id!==target)return node;const inputs={...node.inputs};if(source)inputs[port]=source;else delete inputs[port];return {...node,inputs,...(node.panelWeights?{panelWeights:node.panelWeights.filter(weight=>weight.sourcePort in inputs)}:{})};})};
 }
+/** Presentation of the backend's admitted port types; backend validation is authoritative. */
+export const portAccepts=(type:string,output:string)=>type==='any'||type.split('|').includes(output);
 /** The operations that may feed an input instead of its current source: those whose output its catalog type accepts, never the operation
  * itself, its current source, or (for a dynamic input) one already feeding another of its inputs. The backend still validates, cycles included. */
 export function connectableSources(definition:CurveDefinition,catalog:{operators:OperatorPorts[]},target:string,port:string):string[]{
  const node=definition.nodes.find(n=>n.id===target),spec=catalog.operators.find(op=>op.kind===node?.kind);if(!node||!spec)return [];
  const fixed=spec.inputPorts.find(p=>p.name===port),type=fixed?.type??(port in node.inputs?spec.dynamicInputs?.type:undefined);if(type===undefined)return [];
  const fed=new Set(fixed?[node.inputs[port]]:Object.values(node.inputs));
- return definition.nodes.filter(c=>{const output=catalog.operators.find(op=>op.kind===c.kind)?.outputType;return c.id!==target&&!fed.has(c.id)&&output!==undefined&&(type===output||type==='any');}).map(c=>c.id);
+ return definition.nodes.filter(c=>{const output=catalog.operators.find(op=>op.kind===c.kind)?.outputType;return c.id!==target&&!fed.has(c.id)&&output!==undefined&&portAccepts(type,output);}).map(c=>c.id);
 }
 /** Removes one arrow. Contract rows naming the port stay, for the person to reconnect or the backend to reject. */
 export function removeCurveConnection(definition:CurveDefinition,target:string,port:string):CurveDefinition{
@@ -52,7 +54,7 @@ export type ConnectableTarget={target:string;port:string;added:boolean};
 export function connectableTargets(definition:CurveDefinition,catalog:{operators:OperatorPorts[]},source:string):ConnectableTarget[]{
  const operator=(kind:string|undefined)=>catalog.operators.find(op=>op.kind===kind);
  const output=operator(definition.nodes.find(node=>node.id===source)?.kind)?.outputType;if(output===undefined)return [];
- const accepts=(type:string)=>type===output||type==='any';
+ const accepts=(type:string)=>portAccepts(type,output);
  return definition.nodes.flatMap(node=>{
   const spec=operator(node.kind);if(node.id===source||!spec)return [];
   const fixed=spec.inputPorts.filter(port=>accepts(port.type)&&node.inputs[port.name]!==source).map(port=>({target:node.id,port:port.name,added:false}));

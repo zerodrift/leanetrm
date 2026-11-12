@@ -6,27 +6,28 @@ import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join,resolve,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {waitForBrowserPage,stopOwnedBrowserGroup} from '../../tests/browser/owned-browser.mjs';
+import {waitForBrowserPage,stopOwnedBrowser} from '../../tests/browser/owned-browser.mjs';
 
 const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const available=await access(browser).then(()=>true,()=>false);
 test('publication and contract terms editors retain exact references, server results and uncertain requests',{skip:!available,timeout:30000},async()=>{
  const root=fileURLToPath(new URL('../dist/',import.meta.url));
  const server=createServer(async(req,res)=>{try{
-  if(req.url==='/'){res.setHeader('Content-Type','text/html');res.end('<link rel="stylesheet" href="/app.css"><main style="width:1000px"><section id="publications"></section><section id="terms"></section><section id="session"></section></main>');return;}
+  if(req.url==='/'){res.setHeader('Content-Type','text/html');res.end('<link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><main style="width:1000px"><section id="publications"></section><section id="terms"></section><section id="session"></section></main>');return;}
   const file=resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!file.startsWith(root)){res.writeHead(404).end();return;}
   res.setHeader('Content-Type',extname(file)==='.js'?'text/javascript':extname(file)==='.css'?'text/css':'application/octet-stream');res.end(await readFile(file));
  }catch{res.writeHead(404).end();}});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const directory=await mkdtemp(join(tmpdir(),'openetrm-price-authoring-'));
- const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore',detached:true});
+ const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore'});
  let ws;
  try{
   ws=new WebSocket(await waitForBrowserPage(directory,chrome));await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});
   let id=0;const pending=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){pending.get(m.id)(m);pending.delete(m.id);}};
   const command=(method,params={})=>new Promise(r=>{pending.set(++id,r);ws.send(JSON.stringify({id,method,params}));});
   const evaluate=async expression=>{const reply=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});assert.ok(!reply.error&&!reply.result.exceptionDetails,JSON.stringify(reply));return reply.result.result.value;};
-  const screenshot=async(selector,path)=>{if(!path)return;await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');const clip=await evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return{x:r.x+scrollX,y:r.y+scrollY,width:r.width,height:r.height,scale:1};})()`);const shot=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip});await writeFile(path,Buffer.from(shot.result.data,'base64'));};
+  const waitFor=async expression=>{for(let i=0;i<100;i++){if(await evaluate(expression))return;await new Promise(r=>setTimeout(r,20));}assert.fail('Browser condition: '+expression);};
+  const screenshot=async(selector,path)=>{if(!path)return;await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'start'})`);await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');const clip=await evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return{x:r.x+scrollX,y:r.y+scrollY,width:r.width,height:r.height,scale:1};})()`);const shot=await command('Page.captureScreenshot',{format:'png',captureBeyondViewport:true,clip});await writeFile(path,Buffer.from(shot.result.data,'base64'));};
   await command('Page.enable');await command('Emulation.setDeviceMetricsOverride',{width:1100,height:1000,deviceScaleFactor:1,mobile:false});await command('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
   for(let i=0;i<100&&!await evaluate('!!document.querySelector("#terms")');i++)await new Promise(r=>setTimeout(r,20));
   await evaluate(`(async()=>{
@@ -48,8 +49,11 @@ test('publication and contract terms editors retain exact references, server res
    window.options={api,act:work=>{running=work().catch(e=>failures.push(String(e)));return running;},busy:()=>false,identity:()=>actor,snapshot:()=>snapshot,historical:()=>false};
    window.publications=setupPricePublications(document.querySelector('#publications'),options);window.terms=setupContractPriceTerms(document.querySelector('#terms'),options);
    window.set=(selector,value)=>{const c=document.querySelector(selector);c.value=value;c.dispatchEvent(new Event('change',{bubbles:true}));};
+   window.openPublication=async(scope,value)=>{for(let i=0;i<100;i++){const n=[...document.querySelectorAll(scope+' [data-publication-key]')].find(n=>n.dataset.publicationKey===value);if(n){n.click();await new Promise(r=>setTimeout(r,0));return;}await new Promise(r=>setTimeout(r,20));}throw Error('Missing visible publication '+value);};
    await publications.load();await terms.load({curveId:'curve',version:3,nodeId:'source'});
   })()`);
+  assert.equal(await evaluate("document.querySelector('#price-publications-library').tagName"),'FIELDSET','publications are visible in a pageable list, without a dropdown');
+  assert.equal(await evaluate("!!document.querySelector('#price-publications-library .table-search')"),true,'the publication library reuses the blotter table search');
   await evaluate(`(()=>{set('#price-publications-name','Synthetic monthly publication');set('#price-publications-publisher','publisher:1');set('#price-publications-implementation','gas_monthly_explicit_v1');set('#price-publications-calendar','publication-calendar');set('#price-publications-clock','market-clock');document.querySelector('#price-publications-commodities input[value=natural_gas]').click();document.querySelector('[data-index=gas-hub][data-quote=usd-mmbtu]').click();document.querySelector('[data-index=gas-hub][data-quote=usd-mmbtu-alternate]').click();set('[aria-label="Synthetic gas hub alternate vendor symbol"]','GAS');set('[aria-label="Synthetic gas hub alternate statistic"]','index');})()`);
   assert.equal(await evaluate("document.querySelector('[data-index=gas-hub][data-quote=usd-mmbtu]').checked"),false,'selecting another quote preserves one exact member per index');
   assert.equal(await evaluate("document.querySelector('[data-index=power-hub]').closest('tr').hidden"),true);
@@ -130,5 +134,121 @@ test('publication and contract terms editors retain exact references, server res
    await evaluate(`(async()=>{window.authoringRefusalCode=${JSON.stringify(code)};await refusedSession.save({exact:'pre-handler-refusal'},'Refused terms').catch(()=>{});})()`);
    assert.equal(await evaluate('refusedSession.blocked()'),false,code+' is a confirmed refusal before the operation runs');
   }
- }finally{ws?.close();await stopOwnedBrowserGroup(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
+  await evaluate(`(async()=>{
+   const {setupPowerPublicationPreview}=await import('/power-publication-preview.js');
+   const host=document.createElement('section');host.id='capture-preview';document.body.append(host);
+   window.captureSelection={key:{catalogId:'catalog',id:'publication',version:1},implementation:'power_placeholder_v1',indices:[{key:{revision:{catalogId:'refs',revisionId:'v1'},code:'power-index'}}]};
+   window.captureRequests=[];window.captureHistorical=false;window.captureClean=true;window.captureSnapshot='snapshot-1';
+   window.captureView=setupPowerPublicationPreview(host,{...options,snapshot:()=>{if(captureHistorical)throw Error('Apply the changed context first.');return captureSnapshot;},historical:()=>captureHistorical,api:async(path,body)=>{captureRequests.push({path,body});if(path==='power-imports')return {sources:[{id:'source',name:'Captured DA source',provider:'PJM',market:'DA',minutes:60}]};if(path.startsWith('price-publications/power/products?'))return {products:[{code:'pjm',name:'PJM',version:1}],blocks:[{code:'peak',name:'On-peak'},{code:'off',name:'Off-peak'}],averaging:[{code:'duration_weighted_price_mean_v1',name:'Native-hour mean'}]};return await new Promise(resolve=>window.resolveCapture=resolve);}},()=>captureClean?captureSelection:undefined);
+   captureView.reset();
+  })()`);
+  assert.equal(await evaluate("document.querySelector('#capture-preview #power-publication-check').matches(':disabled')"),false);
+  await evaluate("document.querySelector('#capture-preview #power-publication-load-sources').click();running");
+  assert.deepEqual(await evaluate("[...document.querySelector('#capture-preview #power-publication-market').options].map(o=>o.value)"),['','DA','RT']);
+  await evaluate("set('#capture-preview #power-publication-index','power-index');set('#capture-preview #power-publication-source','source');set('#capture-preview #power-publication-market','DA');set('#capture-preview #power-publication-from','2020-12-18');set('#capture-preview #power-publication-through','2020-12-18');set('#capture-preview #power-publication-known','2020-12-18T16:00:00Z');document.querySelector('#capture-preview #power-publication-check').click();");
+  const captureRequest=await evaluate("captureRequests.at(-1)");
+  assert.equal(captureRequest.path,'price-publications/power/preview');
+  assert.deepEqual(captureRequest.body,{snapshotId:'snapshot-1',publication:{catalogId:'catalog',id:'publication',version:1},indexCode:'power-index',sourceId:'source',market:'DA',fromDate:'2020-12-18',throughDate:'2020-12-18',knownAt:'2020-12-18T16:00:00Z'});
+  await evaluate("window.captureResponse={publication:captureSelection.key,index:captureSelection.indices[0].key,source:{id:'source'},market:'DA',fromDate:'2020-12-18',throughDate:'2020-12-18',knownAt:'2020-12-18T16:00:00+00:00',contextId:'knowledge',publicationStatus:'collected',contractuallyFinal:false,bindingSaved:false,expectedIntervals:24,missingIntervals:24,complete:false,rows:[]};resolveCapture(captureResponse);running");
+  assert.equal(await evaluate("document.querySelector('#capture-preview #power-publication-result').textContent.includes('24 missing')"),true);
+  assert.equal(await evaluate("document.querySelector('#capture-preview #power-publication-result').textContent.includes('not qualified final settlements')"),true);
+  for(const change of [{fromDate:'2020-12-17'},{throughDate:'2020-12-19'},{knownAt:'2020-12-18T16:00:00.000001Z'},
+   {index:{code:'power-index',revision:{catalogId:'other',revisionId:'v1'}}}]){
+   await evaluate(`document.querySelector('#capture-preview #power-publication-check').click();resolveCapture({...captureResponse,...${JSON.stringify(change)}});running`);
+   assert.equal(await evaluate("document.querySelector('#capture-preview #power-publication-result').textContent"),'','mismatched period, exact cutoff or index revision is refused');
+  }
+  await evaluate("document.querySelector('#capture-preview #power-publication-check').click();set('#capture-preview #power-publication-market','RT');resolveCapture({complete:true,expectedIntervals:24,missingIntervals:0,rows:[]});running");
+  assert.equal(await evaluate("document.querySelector('#capture-preview #power-publication-result').textContent"),'','input changes discard stale responses');
+  await evaluate("set('#capture-preview #power-publication-market','DA');document.querySelector('#capture-preview #power-publication-load-products').click();running");
+  assert.equal(await evaluate("document.querySelector('#capture-preview #power-publication-product').value"),'','no product convention is selected implicitly');
+  assert.equal(await evaluate("document.querySelector('#capture-preview').textContent.includes('current published product definition')"),true,'diagnostic does not claim historical product-version replay');
+  await evaluate("set('#capture-preview #power-publication-product','pjm:1');set('#capture-preview #power-publication-block','off');set('#capture-preview #power-publication-averaging','duration_weighted_price_mean_v1');document.querySelector('#capture-preview #power-publication-check-product').click()");
+  assert.equal(await evaluate('captureRequests.at(-1).path'),'price-publications/power/product-preview');
+  assert.deepEqual(await evaluate('captureRequests.at(-1).body.productVersion'),1);
+  await evaluate("window.productResponse={capture:captureResponse,product:{code:'pjm',version:1},block:'off',averaging:'duration_weighted_price_mean_v1',calendar:{code:'pjm_2020',holidays:[]},expectedIntervals:8,missingIntervals:8,complete:false,state:'incomplete_capture',average:null,formattedAverage:null,days:[{operatingDate:'2020-12-18',expectedIntervals:8,missingIntervals:8,state:'incomplete_capture',formattedAverage:null}]};resolveCapture(productResponse);running");
+  assert.equal(await evaluate("document.querySelector('#capture-preview #power-publication-result').textContent.includes('not an official monthly exchange fixing')"),true);
+  assert.equal(await evaluate("document.querySelector('#capture-preview #power-publication-result').textContent.includes('Unavailable')"),true);
+  for(const change of [{product:{code:'pjm',version:2}},{block:'peak'},{averaging:'invented'},{capture:{...captureRequest.body,source:{id:'other'}}}]){
+   await evaluate(`document.querySelector('#capture-preview #power-publication-check-product').click();resolveCapture({...productResponse,...${JSON.stringify(change)}});running`);
+   assert.equal(await evaluate("document.querySelector('#capture-preview #power-publication-result').textContent"),'','mismatched product, policy or captured context is refused');
+  }
+  await evaluate("document.querySelector('#capture-preview #power-publication-check-product').click();set('#capture-preview #power-publication-block','peak');resolveCapture(productResponse);running");
+  assert.equal(await evaluate("document.querySelector('#capture-preview #power-publication-result').textContent"),'','product edits discard pending aggregates');
+  await evaluate("set('#capture-preview #power-publication-block','peak')");
+  assert.equal(await evaluate("document.querySelector('#capture-preview #power-publication-result').textContent"),'','product edits clear previous aggregates');
+  const capturedReads=await evaluate('captureRequests.length');
+  await evaluate("captureHistorical=true;captureView.sync();captureView.reset()");
+  assert.equal(await evaluate("document.querySelector('#capture-preview #power-publication-check').matches(':disabled')"),true);
+  assert.equal(await evaluate('captureRequests.length'),capturedReads,'dirty or historical context reset starts no read and does not request a substitute snapshot');
+  await evaluate("captureHistorical=false;captureClean=false;captureView.sync()");
+  assert.equal(await evaluate("document.querySelector('#capture-preview').hidden"),true,'unsaved metadata cannot inspect a different saved definition');
+  await evaluate(`(async()=>{
+   const {setupPricePublications}=await import('/price-publications-view.js'),{setupTabs}=await import('/side-panel.js');
+   const host=document.createElement('section');host.id='paged-publications';document.body.append(host);
+   const catalog=structuredClone(publicationCatalog),base=catalog.publications[0];
+   catalog.publications=Array.from({length:23},(_,i)=>({...structuredClone(base),key:{...base.key,id:'paged-'+(i+1),version:i+1},publisher:{...base.publisher,name:i%2?'Synthetic publisher South':'Synthetic publisher North'},name:i===0?'Synthetic publication 01 · '+('Long synthetic publication name '.repeat(8)):'Synthetic publication '+String(i+1).padStart(2,'0')}));
+   window.pagedCalls=[];window.pagedBusy=false;window.pagedSnapshotUnavailable=false;
+   window.pagedSync=()=>{for(const n of host.querySelectorAll('button,input,select,textarea'))n.disabled=pagedBusy;pagedView.sync();};
+   window.pagedView=setupPricePublications(host,{...options,snapshot:()=>{if(pagedSnapshotUnavailable)throw Error('No active market context');return snapshot;},busy:()=>pagedBusy,act:work=>{running=(async()=>{pagedBusy=true;pagedSync();try{await work();}finally{pagedBusy=false;pagedSync();}})().catch(e=>failures.push(String(e)));return running;},api:async(path,body)=>{pagedCalls.push({path,body});if(body)throw Error('Paging must not write');return structuredClone(catalog);}});
+   await pagedView.load();
+   const tabs=document.createElement('div');tabs.id='price-setup-tabs';tabs.className='side-panel-tabs';const panel=document.createElement('section');panel.id='price-setup-panel';document.body.append(tabs,panel);
+   window.sectionTabs=setupTabs(tabs,[['contracts','Contract pricing'],['publications','Publications'],['dates','Date rules']],{label:'Contract setup editors',panel,selected:'contracts',select:id=>sectionTabs.mark(id)});
+  })()`);
+  await waitFor("document.querySelectorAll('#paged-publications .tabulator-row').length===5");
+  assert.equal(await evaluate("document.querySelector('#paged-publications .table-row-count').textContent"),'23 of 23 rows');
+  assert.equal(await evaluate("(()=>{const n=document.querySelector('#paged-publications [data-publication-key=\"paged-1:1\"]');return n.textContent.length>100&&n.title===n.textContent;})()"),true,'a clipped publication name has its full exact name on hover');
+  const tableHeight=await evaluate("[...document.querySelectorAll('#paged-publications #price-publications-library, #paged-publications .table-filters, #paged-publications .standard-data-grid')].map(n=>[n.className,n.getBoundingClientRect().height])");
+  assert.ok(tableHeight[0][1]<=360,'the paged table leaves room for the editor: '+JSON.stringify(tableHeight));
+  assert.equal(await evaluate("[...document.querySelectorAll('#paged-publications .tabulator-row')].every(n=>n.getBoundingClientRect().height<=36)"),true,'publication rows use the compact blotter density');
+  await evaluate("document.querySelector('#paged-publications [data-page=next]').click()");
+  await waitFor("!!document.querySelector('#paged-publications [data-publication-key=\"paged-6:6\"]')");
+  await evaluate("document.querySelector('#paged-publications .table-search').value='publication 21';document.querySelector('#paged-publications .table-search').dispatchEvent(new Event('input',{bubbles:true}))");
+  await waitFor("document.querySelectorAll('#paged-publications .tabulator-row').length===1");
+  assert.equal(await evaluate("document.querySelector('#paged-publications [data-publication-key]').dataset.publicationKey"),'paged-21:21','search includes rows beyond the current page');
+  assert.equal(await evaluate("document.querySelector('#paged-publications .table-row-count').textContent"),'1 of 23 rows');
+  await evaluate("document.querySelector('#paged-publications .table-filter-clear').click();document.querySelector('#paged-publications .column-filter-toggle').click();set('#paged-publications [aria-label=\"Filter Publisher\"]','1')");
+  await waitFor("document.querySelector('#paged-publications .table-row-count').textContent==='11 of 23 rows'");
+  assert.equal(await evaluate("[...document.querySelectorAll('#paged-publications .tabulator-row [tabulator-field=c1]')].every(n=>n.textContent==='Synthetic publisher South')"),true,'the standard column filter applies across pages');
+  assert.equal(await evaluate("pagedView.unsaved()"),false,'table filters are presentation and never dirty the publication');
+  await evaluate("document.querySelector('#paged-publications .table-filter-clear').click();document.querySelector('#paged-publications .tabulator-col[tabulator-field=c2]').click()");
+  await waitFor("document.querySelector('#paged-publications .tabulator-row [tabulator-field=c2]').textContent==='1'");
+  await evaluate("document.querySelector('#paged-publications .tabulator-col[tabulator-field=c2]').click()");
+  await waitFor("document.querySelector('#paged-publications .tabulator-row [tabulator-field=c2]').textContent==='23'");
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('#paged-publications .tabulator-row [tabulator-field=c2]')].map(n=>n.textContent)"),['23','22','21','20','19'],'versions sort numerically before paging');
+  await evaluate("document.querySelector('#paged-publications [data-publication-key=\"paged-21:21\"]').closest('.tabulator-row').focus();openPublication('#paged-publications','paged-21:21').then(()=>running)");
+  await waitFor("document.querySelector('#paged-publications #price-publications-library').dataset.selectedPublication==='paged-21:21'");
+  assert.equal(await evaluate("document.querySelector('#paged-publications #price-publications-name').value"),'Synthetic publication 21','sorting keeps the selected exact source row');
+  assert.equal(await evaluate("document.activeElement.querySelector('[data-publication-key]')?.dataset.publicationKey"),'paged-21:21','opening a row retains keyboard focus through the busy lifecycle');
+  await evaluate("document.querySelector('#paged-publications [data-publication-key=\"paged-21:21\"]').closest('.tabulator-row').focus();openPublication('#paged-publications','paged-21:21').then(async()=>{await running;document.querySelector('#paged-publications #price-publications-name').focus();await new Promise(r=>setTimeout(r,70));})");
+  assert.equal(await evaluate("document.activeElement.id"),'price-publications-name','deferred row positioning yields to a later user focus move');
+  assert.equal(await evaluate("document.querySelector('#paged-publications [data-page=prev]').disabled"),true,'the app busy reset preserves native first-page boundaries');
+  await evaluate("set('#paged-publications #price-publications-name','Retained unsaved publication');document.querySelector('#paged-publications .table-search').value='publication 22';document.querySelector('#paged-publications .table-search').dispatchEvent(new Event('input',{bubbles:true}))");
+  await waitFor("document.querySelectorAll('#paged-publications .tabulator-row').length===1");
+  assert.equal(await evaluate("document.querySelector('#paged-publications #price-publications-name').value"),'Retained unsaved publication','filtering preserves the edited form');
+  await evaluate("openPublication('#paged-publications','paged-22:22').then(()=>new Promise(r=>setTimeout(r,0)))");
+  assert.equal(await evaluate("document.querySelector('#paged-publications-prompt').hidden"),false,'opening another row still asks before discarding edits');
+  await evaluate("document.querySelector('#paged-publications-prompt button.secondary').click();running");
+  assert.equal(await evaluate("document.querySelector('#paged-publications #price-publications-name').value"),'Retained unsaved publication');
+  assert.equal(await evaluate("document.querySelector('#paged-publications #price-publications-library').dataset.selectedPublication"),'paged-21:21','keeping edits retains the prior exact publication');
+  await evaluate("openPublication('#paged-publications','paged-22:22').then(()=>new Promise(r=>setTimeout(r,0)))");
+  await evaluate("document.querySelector('#paged-publications-prompt button:last-child').click();running");
+  await waitFor("document.querySelector('#paged-publications #price-publications-library').dataset.selectedPublication==='paged-22:22'");
+  assert.equal(await evaluate("document.querySelector('#paged-publications #price-publications-name').value"),'Synthetic publication 22');
+  await evaluate("document.querySelector('#paged-publications .table-filter-clear').click();document.querySelector('#paged-publications .column-filter-toggle').click()");
+  await waitFor("document.querySelectorAll('#paged-publications .tabulator-row').length===5");
+  assert.equal(await evaluate("pagedCalls.every(r=>r.body===undefined)"),true,'filtering, sorting and paging create no write requests');
+  assert.equal(await evaluate("[...document.querySelectorAll('#price-setup-tabs button')].every(n=>{const s=getComputedStyle(n);return n.getAttribute('role')==='tab'&&parseFloat(s.borderTopWidth)>=1&&parseFloat(s.borderTopLeftRadius)>=6&&n.getBoundingClientRect().height>=40;})"),true,'section controls have visible button boundaries and touch targets');
+  assert.equal(await evaluate("getComputedStyle(document.querySelector('#price-setup-tabs-contracts')).backgroundColor!==getComputedStyle(document.querySelector('#price-setup-tabs-publications')).backgroundColor"),true,'the selected section is visibly filled');
+  await evaluate("document.querySelector('#price-setup-tabs-contracts').focus();document.querySelector('#price-setup-tabs-contracts').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))");
+  assert.equal(await evaluate("document.activeElement.id==='price-setup-tabs-publications'&&document.activeElement.getAttribute('aria-selected')==='true'"),true,'the button styling retains shared tab keyboard navigation');
+  await screenshot('#price-setup-tabs',process.env.PRICE_SETUP_TABS_SCREENSHOT);
+  await screenshot('#paged-publications #price-publications-library',process.env.PUBLICATION_LIBRARY_SCREENSHOT);
+  await evaluate("document.querySelector('#price-setup-tabs').style.width='300px';document.querySelector('#paged-publications').style.width='320px'");
+  assert.equal(await evaluate("new Set([...document.querySelectorAll('#price-setup-tabs button')].map(n=>n.getBoundingClientRect().top)).size>1"),true,'section buttons wrap at narrow widths');
+  assert.equal(await evaluate("(()=>{const n=document.querySelector('#paged-publications #price-publications-library');return n.scrollWidth<=n.clientWidth+1;})()"),true,'the visible publication list fits a narrow container');
+  const beforeReset=await evaluate('pagedCalls.length');
+  await evaluate('pagedSnapshotUnavailable=true;pagedView.reset()');
+  assert.equal(await evaluate("document.querySelector('#paged-publications .standard-data-grid')"),null,'reset destroys the table without requesting an unavailable snapshot');
+  assert.equal(await evaluate('pagedCalls.length'),beforeReset,'reset performs no contextual read');
+ }finally{ws?.close();await stopOwnedBrowser(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
 });

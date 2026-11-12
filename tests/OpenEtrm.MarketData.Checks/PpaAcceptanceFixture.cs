@@ -57,8 +57,9 @@ internal sealed class PpaAcceptanceFixture
     internal ProfileQuantity Profile=>new(Capacity.Key,Energy.Key,new(BlockMembership.All,null,[]));
     internal VolumeQuantity Volume=>new([Source.Key],QuantityStage.Generated,Energy.Key);
 
-    internal PpaAcceptanceFixture(int minutes=60)
+    internal PpaAcceptanceFixture(int minutes=60,DateOnly? month=null)
     {
+        if(month is {} selected)Month=selected;
         Minutes=minutes;
         Energy=new(R("synthetic_mwh"),R("synthetic_power"),R("synthetic_electricity"),R("megawatt_hour"),R("energy"));
         Capacity=new(R("synthetic_mw"),R("synthetic_power"),R("synthetic_electricity"),R("megawatt"),R("power"));
@@ -96,11 +97,13 @@ internal sealed class PpaAcceptanceFixture
             QuantityKnowledge,IntervalKnowledgePolicy.ResolvedCutoff,pending,"ppa_coverage_v1",ImmutableHashSet.Create(Month),selectedCoverage);
     }
 
-    internal PpaInstrument Physical(string strike="40",bool volume=false,bool discounting=false)
+    internal PpaInstrument Physical(string strike="40",bool volume=false,bool discounting=false,DeliveryHours? hours=null,ImmutableArray<ExactDecimal> hourlyFactors=default)
     {
         var normalization=Normalization(volume?[Asset.Key]:[]);
-        var physical=new PowerPhysicalSide(Guid.NewGuid(),Terms(volume?Volume:Profile,normalization:normalization),Asset.Location);
-        var cash=new FixedSide(Guid.NewGuid(),Terms(new SlotQuantity([new(PpaRole.EnergyDelivery)]),normalization:normalization),new FlatPrice(new(D(strike),EnergyPrice)));
+        var physical=new PowerPhysicalSide(Guid.NewGuid(),Terms(volume?Volume:Profile with{Hours=hours??Profile.Hours,HourlyFactors=hourlyFactors.IsDefault?[]:hourlyFactors},normalization:normalization),Asset.Location);
+        var cashTerms=Terms(new SlotQuantity([new(PpaRole.EnergyDelivery)]),normalization:normalization) with{Schedule=physical.Terms.Schedule,
+            InputPorts=[new(new(PpaRole.EnergyDelivery),Energy.Key,physical.Terms.Schedule)]};
+        var cash=new FixedSide(Guid.NewGuid(),cashTerms,new FlatPrice(new(D(strike),EnergyPrice)));
         return new(Guid.NewGuid(),Definitions,Reference,[new(new(PpaRole.EnergyDelivery),physical,D("1")),new(new(PpaRole.StrikePayment),cash,D("-1"))],discounting,"ppa_instrument_v2");
     }
 
@@ -130,7 +133,7 @@ internal sealed class PpaAcceptanceFixture
 
     internal MarketInputs Market(DateTimeOffset valuationAt,DateTimeOffset? knownAt=null,string energy="42",string certificate="5",string capacity="4",string hub="30",
         Func<PowerInterval,string?>? actuals=null,int priceDeadlineMinutes=10080,bool annualCertificate=false,bool capacityFixing=false,ImmutableArray<(DateTimeOffset From,DateTimeOffset To)> priceSpans=default,
-        ExactDecimal? energyQuoteMultiplier=null)
+        ExactDecimal? energyQuoteMultiplier=null,bool flatReplacement=false)
     {
         var cutoff=knownAt??valuationAt;
         var energyUnit=new PriceUnit(EnergyPrice.Currency,EnergyPrice.Quantity,energyQuoteMultiplier??D("1"));
@@ -153,6 +156,14 @@ internal sealed class PpaAcceptanceFixture
         var prepared=new Dictionary<CurveKey,PreparedCurve>();
         foreach(var i in new[]{0,3})
         {
+            if(flatReplacement)
+            {
+                var flat=new FlatIntervalCurve(curves[i].Key,specifications[i].Item2,new(Clock,Minutes,[]),
+                    [new(curves[i].Key,BlockMembership.All,null,[contracts[i]])],FlatIntervalCurve.ReplaceActuals)
+                    {ActualRule=new("interval_end",0,IntervalActualRule.SupportedVersion)};
+                prepared.Add(curves[i].Key,PreparedCurve.Prepare(flat,priceSpans.IsDefault?[(From,To)]:priceSpans,[],energyActuals,valuationAt,cutoff));
+                continue;
+            }
             var shape=new ShapedCurveDefinition("synthetic_ppa_shape_"+i,ShapeMethod.Additive,BlockShaping.CalibrationPolicy,BlockShaping.OperatorVersion,Guid.NewGuid(),
                 new(Clock,Minutes,[]),[new(curves[i].Key,BlockMembership.All,null,[contracts[i]])]);
             var hourly=new ShapedIntervalCurve(curves[i].Key,specifications[i].Item2,new("interval_end",priceDeadlineMinutes,IntervalActualRule.SupportedVersion),shape);

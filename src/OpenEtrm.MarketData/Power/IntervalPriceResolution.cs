@@ -16,16 +16,27 @@ public enum IntervalAggregation { Hour = 1, Day }
 public sealed record IntervalActualRule(string Anchor,int OffsetMinutes,string Version)
 {
     public const string SupportedVersion="interval_actual_due_v1";
+    public const string PjmDayAheadReplay="pjm_da_normal_release_replay_v1";
+    public PowerClock? ReleaseClock { get; init; }
     public DateTimeOffset DueAt(DateTimeOffset start,DateTimeOffset end)=>(Anchor=="interval_start"?start:end).AddMinutes(OffsetMinutes);
+    // A modeled normal release for retrospective DA valuation, not evidence of
+    // an actual publication event or finality. Capture knowledge stays separate.
+    public DateTimeOffset? ReleaseAt(DateOnly operatingDate)=>Version==PjmDayAheadReplay
+        ?(ReleaseClock??throw new MarketDataException("interval_actual","A DA replay requires its exact release clock."))
+            .AtLocal(operatingDate.AddDays(-1),new TimeOnly(13,30)).ToUniversalTime():null;
+    internal bool Eligible(IntervalActual actual,DeliveryInterval interval,DateTimeOffset valuationAt)=>
+        Version==PjmDayAheadReplay?ReleaseAt(interval.OperatingDate)<=valuationAt:valuationAt>=interval.End||actual.KnownAt<=valuationAt;
 }
 
 // One interval's price and where it came from: its actual, its live forward, or nothing yet.
 public sealed record IntervalPriceResolution(DeliveryInterval Interval,IntervalPriceState State,ExactUnitPrice? Price,
-    ImmutableHashSet<ObservationKey> ForwardLineage,IntervalActual? Actual,DateTimeOffset DueAt)
+    ImmutableHashSet<ObservationKey> ForwardLineage,IntervalActual? Actual,DateTimeOffset? DueAt)
 {
     public DateTimeOffset Start=>Interval.Start;
     public DateTimeOffset End=>Interval.End;
     public IntervalAnchor? Anchor { get; init; }
+    // Construction provenance is not a live dependency or an exposure allocation.
+    public CurveRequest? ConstructionSource { get; init; }
     public Trading.PeriodPriceAdmission? PeriodSelection { get; init; }
     public ExactUnitPrice? Estimate { get; init; }
     public string Publication { get; init; } = "mark";
@@ -54,7 +65,7 @@ public static class IntervalPricing
         return [..intervals.OrderBy(i=>i.Start).Select(i=>
         {
             var due=rule.DueAt(i.Start,i.End);
-            if(byStart.TryGetValue(i.Start,out var actual) && (valuationAt>=i.End || actual.KnownAt<=valuationAt))
+            if(byStart.TryGetValue(i.Start,out var actual) && rule.Eligible(actual,i,valuationAt))
                 return new IntervalPriceResolution(i,IntervalPriceState.Actual,ExactUnitPrice.FromPrice(actual.Price),[],actual,due)
                     {Publication="collected",LiveMarketRiskCoverage="observed"};
             if(valuationAt>=due)
@@ -97,7 +108,9 @@ public static class IntervalPricing
     internal static Dictionary<DateTimeOffset,IntervalActual> ValidateInputs(IReadOnlyList<DeliveryInterval> intervals,PriceUnit unit,
         IReadOnlyList<IntervalActual> actuals,IntervalActualRule rule,DateTimeOffset knownAt)
     {
-        if(rule is null || rule.Version!=IntervalActualRule.SupportedVersion || rule.Anchor is not ("interval_start" or "interval_end") ||
+        if(rule is null || !(rule.Version==IntervalActualRule.SupportedVersion&&rule.ReleaseClock is null ||
+            rule.Version==IntervalActualRule.PjmDayAheadReplay&&rule.ReleaseClock?.Id=="America/New_York"&&rule.Anchor=="interval_end"&&rule.OffsetMinutes==0) ||
+            rule.Anchor is not ("interval_start" or "interval_end") ||
             rule.OffsetMinutes is <0 or >10080)
             throw Invalid("Choose the supported actual-due rule.");
         var byStart=IntervalAlignment.ByStart(actuals,a=>a.Start,a=>a.End,"interval_actual","Actual prices must be distinct UTC intervals.");
@@ -110,8 +123,5 @@ public static class IntervalPricing
                 throw Invalid("Actual prices must lie exactly on the curve's intervals.");
         return byStart;
     }
-    internal static bool Eligible(IntervalActual actual,DeliveryInterval interval,DateTimeOffset valuationAt)=>
-        valuationAt>=interval.End || actual.KnownAt<=valuationAt;
-
     private static MarketDataException Invalid(string message)=>new("interval_actual",message);
 }

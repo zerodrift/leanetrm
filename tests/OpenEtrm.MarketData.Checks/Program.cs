@@ -4,6 +4,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
 if(args is ["--delivery-index"]){DeliveryIndexChecks.Run();return;}
+if(args is ["--power-product-averages"]){PowerProductChecks.Run();return;}
 if(args is ["--generic-schedules"]){GenericScheduleChecks.Run();return;}
 if(args is ["--facility-quantities"]){FacilityQuantityChecks.Run();return;}
 
@@ -74,6 +75,8 @@ if(args is ["--interval-data"]){IntervalDataChecks.Run();return;}
 if(args is ["--interval-series"]){IntervalSeriesChecks.Run();return;}
 if(args is ["--interval-curves"]){IntervalCurveChecks.Run();return;}
 if(args is ["--block-shaping"]){BlockShapingChecks.Run();return;}
+if(args is ["--power-flat"]){PowerFlatChecks.Run();return;}
+if(args is ["--power-atc"]){PowerAtcShapingChecks.Run();return;}
 if(args is ["--interval-pricing"]){IntervalPricingChecks.Run();return;}
 if(args is ["--interval-price-resolver"]){IntervalPriceResolverChecks.Run();IntervalAnchorChecks.Run();IntervalResolverReuseChecks.Run();return;}
 if(args is ["--interval-resolver-reuse"]){IntervalResolverReuseChecks.Run();return;}
@@ -145,6 +148,7 @@ ScheduleGraphChecks.Run();
 IntervalScheduleChecks.Run();
 IntervalDataChecks.Run();
 PowerHoursChecks.Run();
+PowerProductChecks.Run();
 PricePublicationChecks.Run();
 ContractPriceTermsChecks.Run();
 CustomCurveChecks.Run();

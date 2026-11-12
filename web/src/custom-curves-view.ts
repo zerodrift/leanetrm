@@ -1,4 +1,5 @@
 import {componentTypeBadge} from './curve-component-types.js';
+import {portAccepts} from './custom-curve-model.js';
 import {offersComponentHistory,setupComponentHistory,type HistoryCatalog} from './component-history-view.js';
 import {currentAuthoringVersion} from './authoring-version.js';
 import {contractPriceStatusRows,type ContractPriceStatus} from './contract-price-status.js';
@@ -30,12 +31,12 @@ type ActivationPlan={curveId:string;revision:number;policy:string;reason:string;
 type Source={code:string;name:string;catalogId?:string;revisionId?:string;contracts?:{id:string;label:string;deliveryFrom:string;deliveryTo:string}[]};
 type Schedule={id?:string;version:number;symbol?:string;name:string};
 /** Saved curves, sources and published sources carry the backend's kind (D259, `kindsVersion`). */
-type Catalog={contextSourceStatus:{id:string;available:boolean;reason:string}[];contextRecipes:Recipe[];contextSchedules:Catalog['schedules'];contextSources:Catalog['publishedSources'];componentHistory?:HistoryCatalog['componentHistory'];kindsVersion:typeof kindsVersion;context?:{effectiveOn?:string;knownAt?:string};canEdit:boolean;canPublish:boolean;operators:Operator[];templates:Template[];sources:(Source&{kind:CurveKind})[];publishedSources?:{label:string;kind:CurveKind;reference:PublishedSourceReference}[];calendars:(Source&{reference?:unknown})[];schedules:Schedule[];recipes:Recipe[];formulaSupported?:boolean};
+type Catalog={powerPriceShapes?:{id:string;name:string}[];powerPublications?:{id:string;name:string;version:number}[];powerSettlementIndices?:{code:string}[];powerSources?:{id:string;name:string;market:string}[];powerProducts?:{id:string;name:string;code:string;version:number}[];powerProfiles?:{code:string}[];contextSourceStatus:{id:string;available:boolean;reason:string}[];contextRecipes:Recipe[];contextSchedules:Catalog['schedules'];contextSources:Catalog['publishedSources'];componentHistory?:HistoryCatalog['componentHistory'];kindsVersion:typeof kindsVersion;context?:{effectiveOn?:string;knownAt?:string};canEdit:boolean;canPublish:boolean;operators:Operator[];templates:Template[];sources:(Source&{kind:CurveKind})[];publishedSources?:{label:string;kind:CurveKind;reference:PublishedSourceReference}[];calendars:(Source&{reference?:unknown})[];schedules:Schedule[];recipes:Recipe[];formulaSupported?:boolean};
 type Preview={columns:string[];rows:(string|null)[][];at?:string;snapshotId?:string;summary?:PreviewSummary;chart?:ChartSpec;context?:{effectiveOn?:string;knownAt?:string};dependencies?:unknown[];inputs?:unknown[];trace?:unknown;warnings?:string[]};
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Options={headingSlot:HTMLElement;api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;identity:()=>string;source:()=>{snapshotId:string;context?:unknown};catalogSnapshot?:()=>string;historical:()=>boolean;marketScopeChanged?:()=>void;unsavedChanged?:()=>void;
  /** Contract terms are configured against an exact saved graph version and source node. */
- openContractTerms?:(selection:{curveId:string;version:number;nodeId:string;contractId?:string})=>void;
+ openContractTerms?:(selection:{curveId:string;version:number;nodeId?:string;contractId?:string})=>void;
  /** Whether the page is too narrow to show tab groups side by side. */
  narrow:()=>boolean;
  /** The page assistant: whether this person may use it, and opening it with a question to start from. */
@@ -83,8 +84,12 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  const previewButton=button('Preview','custom-curves-preview',()=>void o.act(preview));previewButton.className='secondary';
  const saveButton=button('Save draft','custom-curves-save',()=>void o.act(save));
  const publishButton=button('Publish','custom-curves-publish',()=>void o.act(publish));publishButton.className='secondary';
+ const pricingRules=button('Pricing rules','custom-curves-pricing-rules',()=>{
+  if(o.busy()||!selected||editing()||pending.command)return;
+  o.openContractTerms?.({curveId:selected.id,version:selected.version});
+ });pricingRules.className='secondary';
  const more=el('details');more.className='custom-curve-more';const moreLabel=el('summary','⋯');moreLabel.setAttribute('aria-label','More actions');more.append(moreLabel,resetLayoutButton);
- const actions=el('div');actions.className='custom-curve-actions';actions.append(previewButton,saveButton,publishButton,more);
+ const actions=el('div');actions.className='custom-curve-actions';actions.append(pricingRules,previewButton,saveButton,publishButton,more);
  const templateHelp=el('p');templateHelp.id='custom-curves-template-help';templateHelp.className='custom-curve-about';
  const accessNote=el('p');accessNote.id='custom-curves-access-note';accessNote.className='mode-banner';accessNote.hidden=true;
  const pendingPanel=el('div');pendingPanel.id='custom-curves-pending';pendingPanel.className='mode-banner custom-curve-pending';pendingPanel.hidden=true;pendingPanel.append(el('p','The previous save or publish request needs a confirmed result. Reload the library to inspect changes, then retry the original request or discard it after checking.'));
@@ -261,6 +266,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   for(const control of [previewButton,effectiveButton,saveButton,publishButton])control.disabled ||=blend.dirty();
   effectiveButton.disabled ||=activationDirty;
   outputsPreview.disabled=previewButton.disabled;historyView.sync();
+  pricingRules.hidden=!o.openContractTerms||!selected||!definition.nodes.some(node=>node.kind==='source');
+  pricingRules.disabled=busy||editing()||!!pending.command;
   for(const control of objectBoard.querySelectorAll<HTMLButtonElement>('button'))control.disabled=busy||(control.dataset.requiresEdit==='true'&&!editable)||(control.dataset.requiresSaved==='true'&&(!selected||dirty||!!pending.command));
   for(const control of operations.querySelectorAll('select'))control.disabled=busy||!editable;
   o.unsavedChanged?.();
@@ -534,6 +541,12 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   for(const [key,g] of existing)if(!drawn.has(key))g.remove();
  }
  function choicesFor(field:Field):Choice[]{if(field.options?.length)return field.options;
+  if(field.type==='power_product')return (catalog?.powerProducts??[]).map(p=>({value:p.id,label:`${p.name} · v${p.version}`}));
+  if(field.type==='power_profile')return (catalog?.powerProfiles??[]).map(p=>({value:p.code,label:p.code}));
+  if(field.type==='power_publication')return (catalog?.powerPublications??[]).map(p=>({value:p.id,label:`${p.name} · v${p.version}`}));
+  if(field.type==='power_settlement_index')return (catalog?.powerSettlementIndices??[]).map(p=>({value:p.code,label:p.code}));
+  if(field.type==='power_shape')return (catalog?.powerPriceShapes??[]).map(p=>({value:p.id,label:p.name}));
+  if(field.type==='power_source')return (catalog?.powerSources??[]).map(p=>({value:p.id,label:`${p.name} · ${p.market}`}));
   if(field.type==='curve')return (catalog?.sources??[]).map(source=>({value:source.code,label:source.name}));
   if(field.type==='published_source')return (catalog?.contextSources??[]).map(source=>({value:source.reference,label:source.label}));
   if(field.type==='calendar')return (catalog?.calendars??[]).map(calendar=>({value:calendar.code,label:calendar.name??calendar.code}));
@@ -611,7 +624,7 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   const inputHeading=el('h4','Input connections');properties.append(inputHeading);
   const ports=nodePorts(node);
   for(const port of ports){const select=el('select');select.dataset.inputPort=port.name;select.setAttribute('aria-label',(port.label??port.name)+' input');option(select,'','Connect '+(port.label??port.name)+'…');
-   for(const candidate of definition.nodes){if(candidate.id===node.id)continue;const output=catalog?.operators.find(op=>op.kind===candidate.kind)?.outputType;if(output!==port.type&&port.type!=='any')continue;option(select,candidate.id,nodeTitle(candidate)+' · '+candidate.id);}
+   for(const candidate of definition.nodes){if(candidate.id===node.id)continue;const output=catalog?.operators.find(op=>op.kind===candidate.kind)?.outputType;if(output===undefined||!portAccepts(port.type,output))continue;option(select,candidate.id,nodeTitle(candidate)+' · '+candidate.id);}
    if(node.inputs[port.name]&&!Array.from(select.options).some(op=>op.value===node.inputs[port.name]))option(select,node.inputs[port.name],node.inputs[port.name]+' · verify type');select.value=node.inputs[port.name]??'';
    select.onchange=()=>{if(o.busy()||!editAllowed())return;definition=changeCurveConnection(definition,node.id,port.name,select.value);invalidate();renderGraph();renderInspector();};const connection=label(`${port.label??port.name} · ${port.type}`,select);if(operator?.dynamicInputs){const remove=button('Remove source','',()=>{definition=changeCurveConnection(definition,node.id,port.name,'');invalidate();render();});remove.className='text-button';connection.append(remove);}properties.append(connection);
   }

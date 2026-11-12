@@ -5,6 +5,15 @@ using OpenEtrm.MarketData.Trading;
 namespace OpenEtrm.MarketData.Power;
 
 public abstract record PriceCurve(CurveKey Key,PriceUnit Unit);
+public sealed record FlatIntervalCurve(CurveKey Key,PriceUnit Unit,DeliveryGrid Grid,
+    ImmutableArray<IntervalBlockDefinition> Blocks,string Policy):PriceCurve(Key,Unit)
+{
+    public PublishedRecipeReference? Output { get; init; }
+    public IntervalActualRule? ActualRule { get; init; }
+    public DeliveryCoverage? ActualPrefix { get; init; }
+    public ShapedCurveDefinition? PriceShape { get; init; }
+    public const string ReplaceActuals = "flat_native_mark_replace_actual_v1";
+}
 public sealed record MarkedIntervalCurve(CurveKey Key,PriceUnit Unit,IntervalActualRule Rule,PowerClock Clock,int IntervalMinutes,
     ImmutableArray<MarketContract> Contracts):PriceCurve(Key,Unit);
 public sealed record ShapedIntervalCurve(CurveKey Key,PriceUnit Unit,IntervalActualRule Rule,ShapedCurveDefinition Definition):PriceCurve(Key,Unit)
@@ -20,7 +29,10 @@ public sealed record PeriodContractCurve(CurveKey Key,PriceUnit Unit,ReferenceKe
 internal sealed record PreparedPriceMonth(ImmutableArray<DeliveryInterval> Intervals,
     ImmutableDictionary<DateTimeOffset,IntervalActual> Actuals,ImmutableArray<CurveRequest> Dependencies,
     ShapedInputs? Shape,ImmutableArray<MarketContract> Contracts,
-    ImmutableArray<(CurveRequest Request,MarketContract Contract)> Sources);
+    ImmutableArray<(CurveRequest Request,MarketContract Contract)> Sources)
+{
+    internal FlatBlockProjection? Flat { get; init; }
+}
 
 // Invariant inputs are copied and compiled once per authorized request. Object identity is deliberately
 // the reuse boundary: equal curve codes in another request do not establish equal shape/actual inputs.
@@ -55,6 +67,31 @@ public sealed class PreparedCurve
     internal PreparedPriceMonth Period(DateOnly month)=>Periods.TryGetValue(month,out var period)?period:
         throw new MarketDataException("interval_price_source","The requested month is outside the prepared coverage.");
 
+    public ImmutableArray<(Guid Series,CurveRequest Anchor,ImmutableArray<SeriesCell> Cells)> ShapeInputs=>
+        [..Periods.Values.Where(p=>p.Shape is not null).SelectMany(p=>p.Shape!.Blocks.Select(b=>(p.Shape.Definition.ShapeSeries,b.Request,b.Cells.ToImmutableArray()))).DistinctBy(p=>p.Item2)];
+
+    public PreparedCurve WithPriceShape(ShapedCurveDefinition declared,IReadOnlyList<SeriesCell> shape)
+    {
+        if(Curve is not FlatIntervalCurve{PriceShape:null} flat||declared.Method!=ShapeMethod.Additive||declared.ShapeSeries==Guid.Empty||declared.Code!=flat.Key.Code||
+            declared.CalibrationPolicy!=BlockShaping.CalibrationPolicy||declared.OperatorVersion!=BlockShaping.OperatorVersion||
+            declared.Grid.Clock.Fingerprint!=flat.Grid.Clock.Fingerprint||declared.Grid.IntervalMinutes!=flat.Grid.IntervalMinutes||
+            !declared.Grid.Holidays.SequenceEqual(flat.Grid.Holidays)||declared.Blocks.IsDefaultOrEmpty||
+            !declared.Blocks.SequenceEqual(flat.Blocks.Where(b=>b.Membership is BlockMembership.DailyPeak or BlockMembership.DailyOffPeak))||!declared.BalanceBlocks.IsEmpty)
+            throw new MarketDataException("interval_flat_policy","The additive shape must retain the exact daily-native blocks and grid; monthly sources remain flat.");
+        var declaredRequests=declared.Blocks.SelectMany(b=>b.Contracts.Select(c=>new CurveRequest(b.Curve,c.Key))).ToHashSet();
+        var periods=Periods.ToBuilder();
+        foreach(var(month,period)in Periods)
+        {
+            var compiled=period.Flat??throw Invalid("Price shaping requires an existing native-block projection.");
+            var live=period.Dependencies.ToHashSet();
+            var selected=compiled.Intervals.Select((cell,i)=>(cell,owner:compiled.Owners[i]))
+                .Where(p=>p.owner>=0&&!period.Actuals.ContainsKey(p.cell.Start)&&live.Contains(compiled.Anchors[p.owner].Request)&&declaredRequests.Contains(compiled.Anchors[p.owner].Request))
+                .ToImmutableDictionary(p=>p.cell.Start,p=>compiled.Anchors[p.owner].Request);
+            if(selected.Count>0)periods[month]=period with{Shape=BlockShaping.PrepareSelected(declared,shape,period.Intervals[0].Start,period.Intervals[^1].End,selected)};
+        }
+        return new(flat with{PriceShape=declared},ValuationAt,KnownAt,periods.ToImmutable());
+    }
+
     public static PreparedCurve Prepare(PriceCurve curve,ImmutableArray<(DateTimeOffset From,DateTimeOffset To)> spans,
         IReadOnlyList<SeriesCell> shape,IReadOnlyList<IntervalActual> actuals,DateTimeOffset valuationAt,DateTimeOffset knownAt)
     {
@@ -69,6 +106,75 @@ public sealed class PreparedCurve
             else coverage.Add(span);
         spans=[..coverage];
         var periods=ImmutableDictionary.CreateBuilder<DateOnly,PreparedPriceMonth>();
+        if(curve is FlatIntervalCurve flat)
+        {
+            if(flat.ActualRule?.ReleaseClock is {} releaseClock&&releaseClock.Fingerprint!=flat.Grid.Clock.Fingerprint)
+                throw Invalid("Actual release and delivery must retain the same exact clock rules.");
+            var replace=flat.Policy==FlatIntervalCurve.ReplaceActuals;
+            if(shape.Count!=0&&flat.PriceShape is null||(!replace&&(actuals.Count!=0||flat.ActualRule is not null))||replace&&flat.ActualRule is null)
+                throw new MarketDataException("interval_flat_policy","Select an explicit actual rule for native-mark replacement; forward-only curves take no shape or actuals.");
+            if(flat.ActualPrefix is {} prefix&&(!replace||flat.Blocks.IsDefaultOrEmpty||flat.Blocks.Any(b=>b.Contracts.IsDefaultOrEmpty)||
+                prefix.To!=flat.Grid.Clock.StartOfDay(flat.Blocks.SelectMany(b=>b.Contracts).Min(c=>c.DeliveryFrom)).ToUniversalTime()))
+                throw Invalid("An actual-only prefix must end at this curve's exact forward boundary.");
+            var parts=new Dictionary<DateOnly,List<FlatBlockProjection>>();
+            foreach(var span in spans)
+                for(var from=span.From;from<span.To;)
+                {
+                    var month=Month(DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(from,flat.Grid.Clock.Zone).DateTime));
+                    var to=flat.Grid.Clock.StartOfDay(month.AddMonths(1)).ToUniversalTime();if(to>span.To)to=span.To;
+                    if(!parts.TryGetValue(month,out var pieces))parts.Add(month,pieces=[]);
+                    if(flat.ActualPrefix is {} historical&&from<historical.To)
+                    {
+                        if(from<historical.From)throw Invalid("Actual-only demand must stay within its declared prefix.");
+                        if(to>historical.To)to=historical.To;
+                        IntervalPrices.RequireWindow(flat.Grid.Clock,flat.Grid.IntervalMinutes,from,to);
+                        var first=DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(from,flat.Grid.Clock.Zone).DateTime);
+                        var last=DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(to.AddTicks(-1),flat.Grid.Clock.Zone).DateTime).AddDays(1);
+                        ImmutableArray<PowerInterval> cells=[..PowerHours.Compile(first,last,flat.Grid.Clock,TimeOfUse.All(flat.Grid.IntervalMinutes),[..flat.Grid.Holidays],flat.Grid.IntervalMinutes)
+                            .Where(p=>p.Start>=from&&p.End<=to)];
+                        pieces.Add(new(cells,[],[..cells.Select(_=>-1)]));
+                    }
+                    else pieces.Add(replace?BlockShaping.CompileFlat(flat.Grid,flat.Blocks,from,to):
+                        BlockShaping.PrepareFlat(flat.Grid,flat.Blocks,from,to,valuationAt,flat.Policy));
+                    from=to;
+                }
+            if(parts.Count>1200)throw Invalid("At most 1,200 operating months can be prepared.");
+            foreach(var (month,pieces) in parts)
+            {
+                var anchors=pieces.SelectMany(p=>p.Anchors).Distinct().ToImmutableArray();
+                var indexes=anchors.Select((a,i)=>(a.Request,i)).ToDictionary(p=>p.Request,p=>p.i);
+                var compiled=new FlatBlockProjection([..pieces.SelectMany(p=>p.Intervals)],anchors,
+                    [..pieces.SelectMany(p=>p.Owners.Select(i=>i<0?-1:indexes[p.Anchors[i].Request]))]);
+                ImmutableArray<DeliveryInterval> intervals=[..compiled.Intervals.Select(p=>p.Delivery)];
+                var eligible=ImmutableDictionary<DateTimeOffset,IntervalActual>.Empty;
+                ImmutableArray<CurveRequest> dependencies=[..anchors.Select(a=>a.Request)];
+                if(replace)
+                {
+                    var byStart=intervals.ToDictionary(i=>i.Start);
+                    var relevant=actuals.Where(a=>a.Start<intervals[^1].End&&a.End>intervals[0].Start).ToArray();
+                    eligible=IntervalPricing.ValidateInputs(intervals,flat.Unit,relevant,flat.ActualRule!,knownAt)
+                        .Where(p=>byStart.TryGetValue(p.Key,out var cell)&&flat.ActualRule!.Eligible(p.Value,cell,valuationAt)).ToImmutableDictionary();
+                    var live=new HashSet<CurveRequest>();
+                    for(var i=0;i<intervals.Length;i++)
+                    {
+                        var interval=intervals[i];if(eligible.ContainsKey(interval.Start))continue;
+                        if(compiled.Owners[i]<0)
+                            throw new MarketDataException("interval_actual_missing",$"The actual-only prefix requires an eligible captured price for {interval.Start:O}.");
+                        if(valuationAt>=flat.ActualRule!.DueAt(interval.Start,interval.End))
+                            throw new MarketDataException("interval_actual_missing",$"The actual for {interval.Start:O} is due and missing.");
+                        if(interval.End<=valuationAt)continue;
+                        var anchor=anchors[compiled.Owners[i]];
+                        if(anchor.Contract.Expiry<=valuationAt)
+                            throw new MarketDataException("interval_flat_delivered","An unfixed live interval requires a live native mark; expired-anchor projection is not admitted.");
+                        live.Add(anchor.Request);
+                    }
+                    dependencies=[..anchors.Where(a=>live.Contains(a.Request)).Select(a=>a.Request)];
+                }
+                periods.Add(month,new(intervals,eligible,dependencies,null,[],anchors){Flat=compiled});
+            }
+            var result=new PreparedCurve(flat with{PriceShape=null},valuationAt,knownAt,periods.ToImmutable());
+            return flat.PriceShape is {} shapeDefinition?result.WithPriceShape(shapeDefinition,shape):result;
+        }
         if(curve is PeriodContractCurve pc)
         {
             if(pc.Contracts.IsDefaultOrEmpty || pc.Fixings.IsDefault || shape.Count!=0 || actuals.Count!=0 ||
@@ -142,7 +248,7 @@ public sealed class PreparedCurve
             ImmutableArray<DeliveryInterval> intervals=[..all.Select(p=>p.Delivery)];
             var relevant=actuals.Where(a=>ranges.Any(r=>a.Start<r.To && a.End>r.From)).ToArray();
             var actualMap=IntervalPricing.ValidateInputs(intervals,curve.Unit,relevant,rule,knownAt);
-            var eligible=actualMap.Where(p=>intervals.Any(i=>i.Start==p.Key && IntervalPricing.Eligible(p.Value,i,valuationAt))).ToImmutableDictionary();
+            var eligible=actualMap.Where(p=>intervals.Any(i=>i.Start==p.Key && rule.Eligible(p.Value,i,valuationAt))).ToImmutableDictionary();
             foreach(var interval in intervals)
                 if(!eligible.ContainsKey(interval.Start) && valuationAt>=rule.DueAt(interval.Start,interval.End))
                     throw new MarketDataException("interval_actual_missing",$"The actual for {interval.Start:O} is due and missing.");
@@ -213,8 +319,10 @@ public sealed class IntervalPriceResolver
     {
         ArgumentNullException.ThrowIfNull(scenario);ArgumentNullException.ThrowIfNull(curves);
         this.scenario=scenario;this.curves=curves.ToImmutableDictionary();basis=@base;values=scenario.Values.ToDictionary(v=>v.Request);
-        if(curves.Count==0 || curves.Any(p=>p.Key!=p.Value.Key || p.Key.Revision!=scenario.Definitions || p.Value.ValuationAt!=scenario.Snapshot.ValuationAt) ||
-            curves.Values.Select(c=>c.KnownAt).Distinct().Count()!=1 || scenario.NumericalPolicy!=CurveModel.NumericalPolicy)
+        // A product can select no hours in a valid window. Its price context is
+        // empty; any attempted lookup still requires an explicitly prepared curve.
+        if(curves.Any(p=>p.Key!=p.Value.Key || p.Key.Revision!=scenario.Definitions || p.Value.ValuationAt!=scenario.Snapshot.ValuationAt) ||
+            curves.Values.Select(c=>c.KnownAt).Distinct().Count()>1 || scenario.NumericalPolicy!=CurveModel.NumericalPolicy)
             throw Invalid("Every prepared curve must share the exact scenario, valuation and knowledge context.");
         if(@base is not null && (!ReferenceEquals(scenario.Model,@base.scenario.Model) || !scenario.Snapshot.HasSameInputs(@base.scenario.Snapshot) ||
             @base.scenario.Shock is not null || curves.Count!=@base.curves.Count ||
@@ -248,7 +356,32 @@ public sealed class IntervalPriceResolver
             var reused=basis.Prices(curve,month,selection);cache.Add(key,reused);ReusedMonths++;return reused;
         }
         ImmutableArray<IntervalPriceResolution> result;ShapedCurveBuild? completedShape=null;
-        if(prepared.Curve is PeriodContractCurve pc)
+        if(period.Flat is {} flat)
+        {
+            var inputs=flat.Anchors.Where(anchor=>dependencies.Contains(anchor.Request)).ToDictionary(anchor=>anchor.Request,anchor=>
+            {
+                var mark=values[anchor.Request];
+                if(scenario.Evaluations.Single(e=>e.Result.Request==anchor.Request).Use!=InputUse.Variable)
+                    throw new MarketDataException("interval_flat_delivered","Flat forward-only construction cannot consume a frozen source transition.");
+                return (Price:scenario.Pricing.Price(anchor.Request,default),Anchor:new IntervalAnchor(anchor.Request,InputUse.Variable,mark.Lineage));
+            });
+            var forward=flat.Intervals.Select((interval,i)=>(interval,owner:flat.Owners[i])).Where(p=>p.owner>=0)
+                .Select(p=>(p.interval,anchor:flat.Anchors[p.owner].Request))
+                .Where(p=>inputs.ContainsKey(p.anchor)).ToDictionary(p=>p.interval.Start,p=>new IntervalPrice(p.interval.Delivery,inputs[p.anchor].Price,inputs[p.anchor].Anchor.Lineage));
+            if(period.Shape is {} shapedInputs)
+            {
+                var shaped=BlockShaping.Evaluate(shapedInputs,scenario,basis is not null&&basis.shapes.TryGetValue((curve,month),out var old)?old:null);
+                completedShape=shaped;
+                foreach(var price in shaped.Prices)forward[price.Start]=new(price.Interval,price.Price,price.Lineage);
+            }
+            result=prepared.Curve is FlatIntervalCurve {ActualRule:{} rule}
+                ?IntervalPricing.Resolve(period.Intervals,prepared.Unit,forward,[..period.Actuals.Values],rule,prepared.ValuationAt,prepared.KnownAt)
+                :[..flat.Intervals.Select(p=>new IntervalPriceResolution(p.Delivery,IntervalPriceState.Projected,forward[p.Start].Price,forward[p.Start].Lineage,null,null))];
+            result=[..result.Select((p,i)=>p with{
+                ConstructionSource=flat.Owners[i]<0?null:flat.Anchors[flat.Owners[i]].Request,
+                Anchor=p.State==IntervalPriceState.Projected?inputs[flat.Anchors[flat.Owners[i]].Request].Anchor:null})];
+        }
+        else if(prepared.Curve is PeriodContractCurve pc)
         {
             result=[..period.Contracts.Select((contract,i)=>
             {

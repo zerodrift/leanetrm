@@ -6,7 +6,7 @@ export type CurveObject={node:CurveNode;role:'curve'|'contracts'|'result'|'opera
 export type ObjectConnection={id:string;source:string;target:string;port:string;operations:string[]};
 export type CurveObjects={nodes:CurveObject[];connections:ObjectConnection[]};
 const plumbing=new Set(['dates','sample']);
-const resultKinds=new Set(['output','average','weighted_panels','lookup']);
+const resultKinds=new Set(['output','average','weighted_panels','lookup','splice','power_intervals']);
 export function curveObjects(definition:CurveDefinition):CurveObjects{
  const byId=new Map(definition.nodes.map(n=>[n.id,n])),used=new Set(definition.nodes.flatMap(n=>Object.values(n.inputs)));
  const nodes:CurveObject[]=definition.nodes.filter(n=>!plumbing.has(n.kind)||n.id===definition.output||!used.has(n.id)).map(node=>({node,

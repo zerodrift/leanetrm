@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Power;
 
@@ -21,6 +22,20 @@ internal static class PowerIntervalQuantityChecks
   PowerQuantitySettlement Settle(PowerInterval[] selected,PowerIntervalQuantity[] rows,QuantitySpecification specification,string[] prices)=>
    PowerSettlement.Calculate(PowerIntervalQuantities.Compile(selected,rows,specification,energy),energy,Prices(selected,prices),index,PowerSettlementPolicy.Preview);
 
+  Check("firm ATC local-hour shape integrates real December and DST grids without normalization",()=>{
+   var clock=PowerClock.Capture(TimeZoneInfo.FindSystemTimeZoneById("America/New_York"));
+   var factors=Enumerable.Range(0,24).Select(h=>ExactDecimal.Parse(h is >=7 and <15?"2":"1")).ToImmutableArray();
+   var source=new ContractProfileQuantity(clock,60,new(BlockMembership.All,null,[]),power,energy,factors);
+   foreach(var (month,count,total) in new[]{(new DateOnly(2020,12,1),744,"992"),(new DateOnly(2021,3,1),743,"991"),(new DateOnly(2021,11,1),721,"961")}){
+    var rows=source.Rows(month);if(rows.Length!=count)throw new Exception("The captured native delivery grid changed.");
+    Equal(rows.Aggregate(new ExactQuantity(0,1,energy.Key),(sum,row)=>sum.Add(row.PerUnit)).ToQuantity().Amount.ToString(),total);
+    foreach(var row in rows){
+     var hour=TimeZoneInfo.ConvertTime(row.Interval.Start,clock.Zone).Hour;
+     Equal(row.PerUnit.ToQuantity().Amount.ToString(),hour is >=7 and <15?"2":"1");
+     if(row.State!=VolumeState.Contractual)throw new Exception("Firm shaping became forecast or measured generation.");
+    }
+   }
+  });
   Check("quarter-hour MW applies each explicit shape and duration once",()=>{
    var rows=periods.Select((p,n)=>Row(p,"4",power,new[]{"1","2","0.5","1"}[n])).ToArray();
    var quantities=PowerIntervalQuantities.Compile(periods,rows.Reverse().ToArray(),power,energy);

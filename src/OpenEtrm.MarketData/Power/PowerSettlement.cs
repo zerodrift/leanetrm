@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Numerics;
+using OpenEtrm.MarketData.CustomCurves;
 
 namespace OpenEtrm.MarketData.Power;
 
@@ -40,6 +41,17 @@ public static class PowerSettlement
             if(row.Components is {} c && c.Energy+c.Congestion+c.Loss!=row.Total)
                 throw new MarketDataException("lmp_components","LMP components must sum exactly to the total.");
         return result;
+    }
+    // Native-duration price diagnostic, independent of a trade's cash quantities
+    // and of any exchange's separately qualified monthly settlement statistic.
+    public static ExactUnitPrice Average(PowerInterval[] periods,PowerFixing[] rows,PowerIndex index,string implementation)
+    {
+        if(implementation!=IntervalPricing.AggregatePolicy)
+            throw new MarketDataException("power_price_average","Select the supported explicit native-duration mean.");
+        var fixings=Validate(periods,rows,index);
+        var (numerator,denominator)=DurationWeights.Mean([..periods.Select(p=>
+            (p.End-p.Start,fixings[p.Start].Total.ScaledValue,Scale))]);
+        return ExactUnitPrice.FromFraction(numerator,denominator,new(index.Currency,index.EnergyQuantity,ExactDecimal.Parse("1")));
     }
     public static PowerQuantitySettlement Calculate(PowerQuantitySchedule schedule,PowerFixing[] rows,PowerIndex index,PowerSettlementPolicy policy)
     {

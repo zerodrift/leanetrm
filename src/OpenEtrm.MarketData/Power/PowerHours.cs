@@ -19,6 +19,7 @@ public sealed class PowerClock
         Fingerprint=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Rules))).ToLowerInvariant();
     }
     public DateTimeOffset StartOfDay(DateOnly date) => AtLocal(date,TimeOnly.MinValue);
+    public DateOnly OperatingDate(DateTimeOffset instant)=>DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant,Zone).DateTime);
     public DateTimeOffset AtLocal(DateOnly date,TimeOnly time)
     {
         var local=date.ToDateTime(time,DateTimeKind.Unspecified);

@@ -21,7 +21,7 @@ public static class PowerHistory
     internal sealed record History(DateTimeOffset KnownAt,Guid ContextId,IntervalActual[] Rows);
     internal static async Task<SourceMetadata> Source(NpgsqlConnection connection,Guid id,CancellationToken ct)=>
         (await Sources(connection,id,ct)).SingleOrDefault()??throw new PreviewDeniedException();
-    private static async Task<SourceMetadata[]> Sources(NpgsqlConnection connection,Guid? id,CancellationToken ct)
+    internal static async Task<SourceMetadata[]> Sources(NpgsqlConnection connection,Guid? id,CancellationToken ct)
     {
         const string sql="""
             SELECT row_to_json(s)::text,q.commodity_code::text,c.name,l.name,m.display_code,u.symbol,row_to_json(k)::text
@@ -173,9 +173,11 @@ public static class PowerHistory
     };
     // One authorized reader for display and settlement. Preserve the immutable
     // batch identity instead of discarding provenance while formatting history.
-    internal static async Task<History> ReadPrices(NpgsqlConnection connection,Guid sourceId,DateTimeOffset from,DateTimeOffset to,DateTimeOffset cutoff,CancellationToken ct)
+    internal static async Task<History> ReadPrices(NpgsqlConnection connection,Guid sourceId,DateTimeOffset from,DateTimeOffset to,DateTimeOffset cutoff,CancellationToken ct,DateTimeOffset? eligibleAt=null)
     {
-        await using var command=ScheduleStore.Command(connection,"SELECT power_data.read_prices($1,$2,$3,$4)::text",sourceId,from,to,cutoff);
+        await using var command=eligibleAt is {} at
+            ?ScheduleStore.Command(connection,"SELECT power_data.read_prices($1,$2,$3,$4,$5)::text",sourceId,from,to,cutoff,at)
+            :ScheduleStore.Command(connection,"SELECT power_data.read_prices($1,$2,$3,$4)::text",sourceId,from,to,cutoff);
         string payload;
         try { payload=(string)(await command.ExecuteScalarAsync(ct))!; }
         catch(PostgresException e) when(e.SqlState=="P0001" && e.MessageText=="collection_window")

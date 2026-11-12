@@ -112,6 +112,10 @@ for synthetic booking, graphical break-even pricing and settlement previews.
   shapes; PPA quantity/valuation consumes forecast and meter series. PPA settlement
   has a separate read-only monthly gross preview, without cash posting; see
   [the implementation record](docs/implementation.md#audited-interval-series)
+- **Physical power:** published daily/monthly product curves, curve-owned hourly
+  LMP resolution, explicit DA availability replay, booked fixed physical Sides
+  and shaped ATC quantities/prices. Close comparisons reconcile fixing, marks
+  and captured corrections; see [support and limits](docs/power-curve-composition.md).
 - **Interval curves:** hourly and sub-hourly prices marked directly or shaped exactly
   from monthly peak and off-peak marks, delivered hours resolved to collected actuals
   under an explicit due rule, with lineage for every price, see
@@ -145,7 +149,8 @@ for synthetic booking, graphical break-even pricing and settlement previews.
 
 Full futures settlement PV and variation margin, option products beyond the
 supported listed American futures options, EVT and operating backtests,
-broader physical settlement, general physical power booking, inventory costing,
+broader physical settlement, power products outside the documented fixed hourly
+profile, inventory costing,
 post-delivery crude valuation, PPA accepted-cash accounting/payments, broader agent
 credential lifecycle and production qualification remain work. General swap/PPA
 portfolio execution directly from compact retained programs is still an integration
@@ -210,6 +215,8 @@ existing database.
 - [Volatility surfaces](docs/vol-surfaces.md)
 - [Time, delivery calendars and TOU](docs/time-and-schedules.md)
 - [Schedules and contract sequences](docs/schedules-and-contract-sequences.md)
+- [Physical power curves, hourly settlement and current limits](docs/power-curve-composition.md)
+- [Booked peak and shaped ATC close comparisons](docs/power-booked-roll.md)
 - [Power example and its limits](docs/power-preview.md)
 - [Risk calculation benchmark](docs/risk-benchmark.md)
 - [Connected curve calculation, booked projections and scenarios](docs/connected-calculation.md)

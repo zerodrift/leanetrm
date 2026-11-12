@@ -59,7 +59,7 @@ public static partial class CustomCurves
         if(frame.ContextId is not {} id)throw Invalid("Published projection choices require the editor's retained context.");
         var context=(await new KnowledgeStore(data.DefinitionRevision.CatalogId).Read(connection,id,ct)).Context;
         var versions=await new CustomCurvesStore(database).Read(connection,ct);
-        var saved=versions.Where(v=>v.State=="published"&&v.EngineVersion==RecipeEngine.Version&&
+        var saved=versions.Where(v=>RecipeEngine.PowerIntervalOutput(v.Definition) is null&&v.State=="published"&&v.EngineVersion==RecipeEngine.Version&&
             v.Sources.Values.All(s=>s.CatalogId==data.DefinitionRevision.CatalogId&&s.RevisionId==data.DefinitionRevision.RevisionId)).ToArray();
         var contextHeads=ContextVersions.Latest(saved,v=>v.Id,v=>v.Version).ToDictionary(v=>v.Id,v=>v.Version);
         if(saved.Length==0)return [];
