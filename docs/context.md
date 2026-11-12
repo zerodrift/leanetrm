@@ -447,3 +447,23 @@ the helper's original definition and privileges, and retains every knowledge,
 effective-date and current-authority predicate. Both caller planning modes read
 144 event/receipt tuples for 72 selected pins despite 4,096 unrelated facts;
 large-close and correction-history checks retain native-RLS row parity.
+
+## Reference version receipt probes
+
+Migration 0249 resolves each candidate market revision's bundle publication, and
+then that publication's certified receipt, by key in
+`security.reference_version_visible`. A generic plan previously enumerated the
+catalog's receipts in publication order, and its bundle publications for each
+candidate revision, to find one revision's publication and receipt. One
+visibility check then cost as much as the catalog had receipts whenever a
+later-published market revision preceded an earlier one in identifier order,
+and custom-curve calendar reads, which make that check for every saved curve
+row of every candidate close, exceeded their existing deadline. The migration
+changes only those two join boundaries, attests the helper's original
+definition and privileges, and retains every knowledge, effective-date and
+current-authority predicate. On the check's freshly loaded tables, with sixteen
+later-published revisions first in identifier order, a view captured before
+their publication reads 18 event/receipt tuples for seventeen market revisions
+and one captured after it reads 2; the earlier view read 49,235 before. A
+reference version that only a later publication uses stays unknown to the
+earlier view.
