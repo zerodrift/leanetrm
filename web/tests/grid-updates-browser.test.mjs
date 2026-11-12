@@ -18,7 +18,10 @@ test('revealing an open row clears its lost-selection notice and restores select
   const {renderDataGrid,emptyGridLayout}=await import('/data-grid.js'),host=document.querySelector('#host');
   const grid=renderDataGrid(host,'reveal','synthetic',['Trade','Amount'],[['A','1'],['B','2']],[1],()=>false,{keys:['id','amount'],rowKeys:['a','b'],layout:emptyGridLayout(),onLayout(){},onRowOpen:()=>true});${ready}
   grid.selectRow(0);host.querySelector('[data-row-key=a]').focus();const search=host.querySelector('.table-search');search.value='B';search.dispatchEvent(new Event('input'));await grid.updated();
-  await new Promise(resolve=>setTimeout(resolve,100));host.querySelector('.table-open-note button').click();await grid.updated();await new Promise(resolve=>setTimeout(resolve,100));
+  await new Promise(resolve=>setTimeout(resolve,100));host.querySelector('.table-open-note button').click();await grid.updated();
+  // The grid selects and focuses the row in one step, once it has drawn it: frames later, and a busy machine draws them late. The notice
+  // clears in that step, so the row is read once it has cleared; a notice that never clears fails the check below.
+  for(let n=0;n<1000&&!host.querySelector('.table-open-note').hidden;n++)await new Promise(resolve=>setTimeout(resolve,10));
   const row=host.querySelector('[data-row-key=a]'),result={note:host.querySelector('.table-open-note').hidden,query:search.value,current:row.getAttribute('aria-current'),focus:document.activeElement===row};grid.destroy();return result;
  })()`);
  assert.deepEqual(result,{note:true,query:'',current:'true',focus:true});
