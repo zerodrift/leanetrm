@@ -2790,6 +2790,15 @@ changes and stale callbacks remain cancellation boundaries. Motion respects the
 operating-system preference; the final pointer lingers briefly. Native swap entry
 reads its directory/catalog without awaiting a full Blotter valuation.
 
+Presentation controls name their scope: Stop answering cancels the model
+response; Stop walkthrough cancels presentation. A running guide hides its own
+start/replay control, a stopped guide offers Resume immediately, and a completed
+guide offers Replay with no Stop. Conversation/identity teardown clears guide
+narration and cursor state; closing the panel alone preserves a completed guide.
+Page navigation points to visible page content, including the curve board or
+selected curve details, and retains the final explanation. Existing retained-plan,
+context, authorization and native-action boundaries are unchanged.
+
 Unsaved swap filling supports explicit structure, quantity, agreed fixed pricing,
 fixed-side direction and memo through closed native setters. A complete literal
 assignment ask, or the bounded affirmative `Fill the swap ticket with ...`
