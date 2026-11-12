@@ -3932,9 +3932,16 @@ as a new command. Historical contexts cannot authorize mutation replay.
 Every recorded close retains a source matrix: exact source/reference versions,
 observation pins, frozen input uses, ordered curve members, and its session's
 source-qualified roots. A close can retain primary-source pins while all signed
-roots belong to another exact source. Retained dependencies cannot expand the signed commodity roots. Native rate
-inspection uses the close's exact primary source, rate-definition foreign keys
-and retained tenor pins; it does not promise signed rate-root coverage or extend
+roots belong to another exact source. Retained dependencies cannot expand the
+signed commodity roots. The dated, known catalogue owns generic rate choices;
+inspection requires that exact published owner's typed definition, reference
+version and selected tenor pins. Retained versions with the same local code do
+not become competing catalogue choices. Evaluation, navigation and date
+availability share that ownership rule; an absent owner has no fallback to the
+primary source or another retained version. Exact held-source valuation remains
+independent. Ambiguous commodity/rate choices fail explicitly. Recorded-source
+discovery first reattests the complete native close matrix. This does not promise
+signed rate-root coverage, add commodity curve shapes for rates, or extend
 generated-close scope.
 Normalize existing single-source relationships from their own recorded facts;
 this adds no observations, publication times, or alternate runtime path. Working

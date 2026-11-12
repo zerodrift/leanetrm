@@ -83,6 +83,21 @@ internal static class CatalogueTradingChecks
             throw new Exception("The current deployment blocked a retained graph's exact source.");
         if(await CurveVersionInputs.Resolve(database,connection,null,default)!=root.GetProperty("original").GetGuid())
             throw new Exception("New graph inputs used deployment configuration instead of the context-selected catalogue.");
+        await using(var guardConnection=await runtime.OpenConnectionAsync())
+        await using(var guardTransaction=await guardConnection.BeginTransactionAsync())
+        {
+            await using(var use=ScheduleStore.Command(guardConnection,"SELECT security.use_context($1)",root.GetProperty("shapeToken").GetGuid()))
+                await use.ExecuteNonQueryAsync();
+            var reads=new MarketReads(database);var pin=PinnedContext.Retained(context.Context,frame);
+            await pin.Bind(guardConnection,manifest.CatalogId,default);
+            var selectedCatalogue=await new CatalogueStore(manifest.CatalogId).ReadBound(guardConnection,default,frame.Time.Date);
+            try
+            {
+                await reads.Curves(guardConnection,selectedCatalogue,frame with{SourceInputs=frame.SourceInputs!.Remove(added.DefinitionRevisionId)},default);
+                throw new Exception("Navigation accepted a recorded close with an omitted exact source part.");
+            }
+            catch(OpenEtrm.MarketData.MarketDataException error)when(error.Code=="market_inputs"){}
+        }
         await using(var shapeConnection=await runtime.OpenConnectionAsync())
         await using(var shapeTransaction=await shapeConnection.BeginTransactionAsync())
         {
@@ -92,6 +107,58 @@ internal static class CatalogueTradingChecks
             var shapes=await reads.CurveShapes(shapeConnection,pin,["future","additional_future"],default);
             if(shapes[0].Points is not {Length:>0}||shapes[1].UnavailableReason!="curve_not_selected")
                 throw new Exception("An unavailable new curve broke another selected-close card or became a signed close root.");
+            var catalogue=await new CatalogueStore(manifest.CatalogId).ReadBound(shapeConnection,default,frame.Time.Date);
+            var rateChoices=await MarketInputSelection.SelectedRates(database,shapeConnection,frame,catalogue,default);
+            var rateChoice=rateChoices.Single(c=>c.Code=="interest_rates");
+            if(rateChoice.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
+                throw new Exception("A retained duplicate rate replaced the published generic rate owner.");
+            var navigation=await reads.Curves(shapeConnection,catalogue,frame,default);
+            if(navigation.Single(c=>c.Code=="interest_rates").Source!=rateChoice.Source)
+                throw new Exception("Navigation disagrees with the exact published rate owner.");
+
+        }
+        await using(var rateConnection=await runtime.OpenConnectionAsync())
+        await using(var rateTransaction=await rateConnection.BeginTransactionAsync())
+        {
+            await using(var use=ScheduleStore.Command(rateConnection,"SELECT security.use_context($1)",root.GetProperty("shapeToken").GetGuid()))
+                await use.ExecuteNonQueryAsync();
+            var ownerContext=await new KnowledgeStore(manifest.CatalogId).Read(rateConnection,root.GetProperty("rateOwnerContext").GetGuid(),default);
+            var ownerFrame=frame with{ContextId=ownerContext.Context.ContextId};
+            var read=await new MarketReads(database).Evaluate(rateConnection,PinnedContext.Retained(ownerContext.Context,ownerFrame),"interest_rates",default);
+            var result=JsonSerializer.SerializeToElement(read.Result,Json);
+            if(result.GetProperty("points")[0].GetProperty("mark").GetString()!="0.035")
+                throw new Exception("A published rate ownership change fell back to primary-source marks.");
+            var catalogue=await new CatalogueStore(manifest.CatalogId).ReadBound(rateConnection,default,frame.Time.Date);
+            var ownerRates=await MarketInputSelection.SelectedRates(database,rateConnection,ownerFrame,catalogue,default);
+            if(ownerRates.Single(c=>c.Code=="interest_rates").DefinitionRevisionId!=root.GetProperty("rateOwnerRevision").GetGuid())
+                throw new Exception("The rate owner did not follow the selected catalogue knowledge.");
+        }
+        await using(var rateCalendarConnection=await runtime.OpenConnectionAsync())
+        await using(var rateCalendarTransaction=await rateCalendarConnection.BeginTransactionAsync())
+        {
+            await using(var use=ScheduleStore.Command(rateCalendarConnection,"SELECT security.use_context($1)",root.GetProperty("shapeToken").GetGuid()))
+                await use.ExecuteNonQueryAsync();
+            var ownerContext=await new KnowledgeStore(manifest.CatalogId).Read(rateCalendarConnection,root.GetProperty("rateOwnerContext").GetGuid(),default);
+            var ownerFrame=frame with{ContextId=ownerContext.Context.ContextId};
+            var dates=await MarketDates.Read(database,rateCalendarConnection,PinnedContext.Retained(ownerContext.Context,ownerFrame),[ownerFrame],
+                new("interest_rates","UTC",frame.Close!.Session),default);
+            if(dates.Dates.Length!=1||dates.Dates[0].Frames.Single().Id!=frame.Id)
+                throw new Exception("Rate date availability disagrees with the explicit published owner and exact selected inputs.");
+        }
+        await using(var missingRateConnection=await runtime.OpenConnectionAsync())
+        await using(var missingRateTransaction=await missingRateConnection.BeginTransactionAsync())
+        {
+            await using(var use=ScheduleStore.Command(missingRateConnection,"SELECT security.use_context($1)",root.GetProperty("shapeToken").GetGuid()))
+                await use.ExecuteNonQueryAsync();
+            var ownerContext=await new KnowledgeStore(manifest.CatalogId).Read(missingRateConnection,root.GetProperty("rateOwnerContext").GetGuid(),default);
+            var working=frame with{OriginCloseId=null,Close=null,ContextId=ownerContext.Context.ContextId,
+                SourceInputs=frame.SourceInputs!.Remove(added.DefinitionRevisionId)};
+            try
+            {
+                await new MarketReads(database).Evaluate(missingRateConnection,PinnedContext.Retained(ownerContext.Context,working),"interest_rates",default);
+                throw new Exception("A missing published rate owner silently selected another retained source.");
+            }
+            catch(OpenEtrm.MarketData.MarketDataException error)when(error.Code=="market_inputs_missing"){}
         }
         await using(var calendarConnection=await runtime.OpenConnectionAsync())
         await using(var calendarTransaction=await calendarConnection.BeginTransactionAsync())

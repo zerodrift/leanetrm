@@ -126,10 +126,16 @@ public sealed class MarketReads(PreviewDatabase database)
     internal async Task<ImmutableArray<CatalogueCurve>> Curves(NpgsqlConnection connection,CataloguePublication catalogue,InputFrame? frame,CancellationToken ct)
     {
         if(frame is null)return catalogue.Curves;
+        await MarketInputSelection.RootSource(database,connection,frame,ct);
         var result=catalogue.Curves.ToDictionary(c=>c.Code,StringComparer.Ordinal);
-        var own=await MarketInputSelection.Root(database,connection,frame,ct,observationIds:[],includeCalendarDays:false);
-        foreach(var rate in own.Definitions["rate_curves"])
-            result[rate.Text("code")]=new(rate.Text("code"),"rate",own.DefinitionRevision.RevisionId,own.ReferenceRevision.CatalogId,own.ReferenceRevision.RevisionId);
+        foreach(var rates in (await MarketInputSelection.SelectedRates(database,connection,frame,catalogue,ct)).GroupBy(r=>r.Code,StringComparer.Ordinal))
+        {
+            if(rates.Count()!=1)throw new MarketDataException("market_inputs","The selected inputs declare several sources for one rate curve.");
+            var rate=rates.Single();
+            if(frame.SourceInputs!.Values.Any(p=>p.RootCurves.Contains(rate.Code,StringComparer.Ordinal)))
+                throw new MarketDataException("market_inputs","The selected inputs ambiguously name a commodity or rate curve.");
+            result[rate.Code]=rate;
+        }
         if(frame.SourceInputs is not {} matrix)return [..result.Values.OrderBy(c=>c.Code,StringComparer.Ordinal)];
         foreach(var roots in matrix.Values.SelectMany(part=>part.RootCurves.Select(code=>(code,part.Source))).GroupBy(p=>p.code,StringComparer.Ordinal))
         {
@@ -205,12 +211,13 @@ public sealed class MarketReads(PreviewDatabase database)
             throw new MarketDataException("market_date","Choose inputs for the selected context date.");
         await pin.Bind(connection,database.Manifest.CatalogId,ct);
         var root=await MarketInputSelection.Root(database,connection,frame,ct);
-        var catalogue=frame.SourceInputs is null?await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,frame.Time.Date):null;
+        var catalogue=await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,frame.Time.Date);
+        var rates=await MarketInputSelection.SelectedRates(database,connection,frame,catalogue,ct);
         var resolved=new List<(string Curve,CatalogueSource Source)>();var result=new Dictionary<string,CurveShape>(StringComparer.Ordinal);
         foreach(var curve in curves)
         {
-            try{resolved.Add((curve,MarketInputSelection.SelectedCurve(frame,curve,catalogue,root)));}
-            catch(MarketDataException error)when(error.Code is "curve_not_selected" or "catalogue_curve")
+            try{resolved.Add((curve,MarketInputSelection.SelectedCurve(frame,curve,catalogue,rates)));}
+            catch(MarketDataException error)when(error.Code is "curve_not_selected" or "catalogue_curve" or "market_inputs_missing")
             {result.Add(curve,new(curve,null,null,error.Code,null,null,null));}
         }
         foreach(var item in await ShapeSources(connection,frame,root,resolved,ct))

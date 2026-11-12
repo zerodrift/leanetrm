@@ -6,7 +6,7 @@ import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join,resolve,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {waitForBrowserPage,stopOwnedBrowser} from '../../tests/browser/owned-browser.mjs';
+import {waitForBrowserPage,stopOwnedBrowserGroup} from '../../tests/browser/owned-browser.mjs';
 
 const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const available=await access(browser).then(()=>true,()=>false);
@@ -19,7 +19,7 @@ test('publication and contract terms editors retain exact references, server res
  }catch{res.writeHead(404).end();}});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const directory=await mkdtemp(join(tmpdir(),'openetrm-price-authoring-'));
- const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore'});
+ const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore',detached:true});
  let ws;
  try{
   ws=new WebSocket(await waitForBrowserPage(directory,chrome));await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});
@@ -250,5 +250,5 @@ test('publication and contract terms editors retain exact references, server res
   await evaluate('pagedSnapshotUnavailable=true;pagedView.reset()');
   assert.equal(await evaluate("document.querySelector('#paged-publications .standard-data-grid')"),null,'reset destroys the table without requesting an unavailable snapshot');
   assert.equal(await evaluate('pagedCalls.length'),beforeReset,'reset performs no contextual read');
- }finally{ws?.close();await stopOwnedBrowser(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
+ }finally{ws?.close();await stopOwnedBrowserGroup(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
 });
