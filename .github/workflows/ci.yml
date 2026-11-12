@@ -52,8 +52,14 @@ jobs:
           # Both archives retain their own independently verified signing keys.
           sudo tee /etc/apt/openetrm-postgresql.sources >/dev/null <<'EOF'
           Types: deb
-          URIs: https://mirrors.edge.kernel.org/ubuntu
-          Suites: noble noble-updates noble-backports noble-security
+          URIs: https://archive.ubuntu.com/ubuntu
+          Suites: noble noble-updates noble-backports
+          Components: main restricted universe multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+          Types: deb
+          URIs: https://security.ubuntu.com/ubuntu
+          Suites: noble-security
           Components: main restricted universe multiverse
           Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
@@ -64,7 +70,7 @@ jobs:
           Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
           EOF
           sudo install -d -m 0755 /var/lib/openetrm-ci-apt/lists/partial
-          postgres_apt=(-o Dir::Etc::sourcelist=/etc/apt/openetrm-postgresql.sources -o Dir::Etc::sourceparts=- -o Dir::State::lists=/var/lib/openetrm-ci-apt/lists)
+          postgres_apt=(-o APT::Update::Error-Mode=any -o Dir::Etc::sourcelist=/etc/apt/openetrm-postgresql.sources -o Dir::Etc::sourceparts=- -o Dir::State::lists=/var/lib/openetrm-ci-apt/lists)
           sudo apt-get "${postgres_apt[@]}" update
           sudo apt-get "${postgres_apt[@]}" install -y postgresql-18
       - name: Record the verification environment
