@@ -7,7 +7,7 @@ import {mkdtemp,rm,stat,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {waitForBrowserPort,waitForBrowserPage,stopOwnedBrowser,stopOwnedBrowserGroup,browserPageActions,closeOwnedPageFromControl,idle} from './owned-browser.mjs';
+import {waitForBrowserPort,waitForBrowserPage,stopOwnedBrowser,stopOwnedBrowserGroup,connect,browserPageActions,closeOwnedPageFromControl,idle} from './owned-browser.mjs';
 
 async function fixture(t,args=['-e','setInterval(()=>{},1000)']){
   const directory=await mkdtemp(join(tmpdir(),'openetrm-browser-port-'));
@@ -157,6 +157,55 @@ test('failed browser cleanup retains the original failure and cleanup detail',as
   Object.assign(child,{exitCode:null,signalCode:null,pid:42,kill:signal=>{signals.push(signal);return true;}});
   await assert.rejects(stopOwnedBrowser(child,primary,20),error=>error instanceof AggregateError&&error.cause===primary&&error.errors[0]===primary&&/cleanup|stop|shutdown/i.test(error.errors[1].message));
   assert.deepEqual(signals,['SIGTERM','SIGKILL']);
+});
+
+
+// A debugger connection opened on a socket the check drives. Its deadlines run on the check's clock.
+async function connection(t){
+  t.mock.timers.enable({apis:['setTimeout']});
+  const sent=[],socket={send:text=>sent.push(JSON.parse(text))},opening=connect(socket);
+  socket.onopen();
+  return {socket,sent,...await opening};
+}
+
+test('an evaluation gives the value of its reply, or fails by the exception its page threw',async t=>{
+  const {socket,sent,evaluate}=await connection(t);
+  const value=evaluate('1+1'),thrown=evaluate('synthetic()');
+  socket.onmessage({data:JSON.stringify({id:sent[0].id,result:{result:{value:2}}})});
+  socket.onmessage({data:JSON.stringify({id:sent[1].id,result:{exceptionDetails:{text:'Uncaught synthetic failure'}}})});
+  assert.equal(await value,2);
+  await assert.rejects(thrown,/Uncaught synthetic failure/);
+});
+
+test('a command the browser never answers fails by its name, and an evaluation by the start of its expression too',async t=>{
+  const {command,evaluate}=await connection(t),long='synthetic+'.repeat(40);
+  const unanswered=[
+    assert.rejects(command('Page.enable'),{message:'Browser command timed out: Page.enable'}),
+    assert.rejects(evaluate('document.title'),{message:'Browser command timed out: Runtime.evaluate: document.title'}),
+    assert.rejects(evaluate(long),{message:'Browser command timed out: Runtime.evaluate: '+long.slice(0,160)}),
+  ];
+  t.mock.timers.tick(20000);
+  await Promise.all(unanswered);
+});
+
+test('a command sent after the connection closed fails at once as closed, not later as unanswered',async t=>{
+  const {socket,command}=await connection(t);
+  socket.onclose();
+  const sent=assert.rejects(command('Page.navigate'),{message:'Browser connection closed.'});
+  t.mock.timers.tick(20000);
+  await sent;
+});
+
+test('a command or evaluation nobody waits for is not reported by itself when the connection closes',async t=>{
+  const unhandled=[],note=reason=>unhandled.push(reason);
+  process.on('unhandledRejection',note);t.after(()=>process.off('unhandledRejection',note));
+  const {socket,command,evaluate}=await connection(t);
+  const waited=assert.rejects(command('Page.enable'),{message:'Browser connection closed.'});
+  command('Page.navigate');evaluate('document.title');
+  socket.onclose();
+  command('Page.reload');evaluate('document.title');
+  await waited;await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(unhandled,[]);
 });
 
 

@@ -1,38 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createServer} from 'node:http';
-import {readFile,mkdtemp,rm,access,writeFile} from 'node:fs/promises';
-import {spawn} from 'node:child_process';
+import {writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join,resolve,extname} from 'node:path';
-import {fileURLToPath} from 'node:url';
-import {waitForBrowserPage,stopOwnedBrowserGroup} from '../../tests/browser/owned-browser.mjs';
-import {browserTestTimeout} from './browser-page.mjs';
+import {join} from 'node:path';
+import {browserAvailable,browserTestTimeout,withBrowserPage} from './browser-page.mjs';
 
-const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const available=await access(browser).then(()=>true,()=>false);
-test('assistant authorization and page prompts require explicit human controls',{skip:!available,timeout:browserTestTimeout},async()=>{
-  const root=fileURLToPath(new URL('../dist/',import.meta.url));
-  const server=createServer(async(req,res)=>{
-    try{
-      if(req.url==='/'){res.setHeader('Content-Type','text/html');res.end('<link rel="stylesheet" href="/app.css"><form id="ai-prompt-form"><select id="ai-prompt-page"></select><p id="ai-prompt-version"></p><textarea id="ai-prompt-instructions"></textarea><button id="ai-prompt-save">Save page prompt</button><button id="ai-prompt-retry" type="button">Retry same save</button><button id="ai-prompt-discard" type="button">Discard saved request</button></form><p id="ai-prompt-status"></p>');return;}
-      const path=resolve(root,'.'+new URL(req.url,'http://localhost').pathname);if(!path.startsWith(root)){res.writeHead(404).end();return;}
-      res.setHeader('Content-Type',extname(path)==='.js'?'text/javascript':'text/css');res.end(await readFile(path));
-    }catch{res.writeHead(404).end();}
-  });
-  await new Promise(r=>server.listen(0,'127.0.0.1',r));
-  const directory=await mkdtemp(join(tmpdir(),'openetrm-assistant-ui-'));
-  const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore',detached:true});
-  let ws;
-  try{
-    ws=new WebSocket(await waitForBrowserPage(directory,chrome));await new Promise((r,j)=>{ws.onopen=r;ws.onerror=j;});
-    let id=0;const pending=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){pending.get(m.id)(m);pending.delete(m.id);}};
-    // A command the browser does not answer fails by its name and expression, so a stalled step says which it is.
-    const command=(method,params={})=>new Promise((r,j)=>{const n=++id;
-      const stalled=setTimeout(()=>{pending.delete(n);j(Error(`Browser command ${method} gave no reply in 10 s${params.expression?`: ${String(params.expression).slice(0,160)}`:''}`));},10000);
-      pending.set(n,m=>{clearTimeout(stalled);r(m);});ws.send(JSON.stringify({id:n,method,params}));});
-    const evaluate=async expression=>{const reply=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});assert.ok(!reply.error&&!reply.result.exceptionDetails,JSON.stringify(reply));return reply.result.result.value;};
-    await command('Page.enable');await command('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
+test('assistant authorization and page prompts require explicit human controls',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+  await withBrowserPage('<link rel="stylesheet" href="/app.css"><form id="ai-prompt-form"><select id="ai-prompt-page"></select><p id="ai-prompt-version"></p><textarea id="ai-prompt-instructions"></textarea><button id="ai-prompt-save">Save page prompt</button><button id="ai-prompt-retry" type="button">Retry same save</button><button id="ai-prompt-discard" type="button">Discard saved request</button></form><p id="ai-prompt-status"></p>',async(evaluate,command)=>{
     for(let n=0;n<100&&!await evaluate('!!document.querySelector("#ai-prompt-form")');n++)await new Promise(r=>setTimeout(r,20));
     await evaluate(`(async()=>{
       window.calls=[];window.identity='synthetic_user';window.failSave=true;
@@ -61,6 +35,6 @@ test('assistant authorization and page prompts require explicit human controls',
     const saves=await evaluate("calls.filter(c=>c.path.endsWith('/save')).map(c=>c.body)");
     assert.equal(saves.length,2);assert.deepEqual(saves[0],saves[1]);assert.equal(saves[0].expectedVersion,3);assert.equal(saves[0].instructions,'Synthetic revised guidance.');
     const shot=await command('Page.captureScreenshot',{format:'png'});
-    await writeFile(join(tmpdir(),'openetrm-assistant-prompts-qa.png'),Buffer.from(shot.result.data,'base64'));
-  }finally{ws?.close();await stopOwnedBrowserGroup(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
+    await writeFile(join(tmpdir(),'openetrm-assistant-prompts-qa.png'),Buffer.from(shot.data,'base64'));
+  });
 });
