@@ -120,6 +120,14 @@ def main():
             projection=','.join("'"+additional+"'::uuid" if c=='revision_id' else '"'+c+'"' for c in columns)
             condition="id" if table=='contracts' else "contract_id"
             query(f"INSERT INTO market_data.{table}({quoted}) SELECT {projection} FROM market_data.{table} WHERE catalog_id='{catalog}' AND revision_id='{revision}' AND {condition} IN(SELECT contract_id FROM market_data.curve_members WHERE catalog_id='{catalog}' AND revision_id='{revision}' AND curve_code='future');")
+        # Retained execution sources may carry an older rate with the same local
+        # code. Only the dated catalogue's exact owner is a generic rate choice.
+        for table in ['series','rate_curves','rate_curve_tenors']:
+            columns=json.loads(query(f"SELECT json_agg(attname ORDER BY attnum) FROM pg_attribute WHERE attrelid='market_data.{table}'::regclass AND attnum>0 AND NOT attisdropped AND attgenerated='';"))
+            projection=','.join("'"+additional+"'::uuid" if c=='revision_id' else '"'+c+'"' for c in columns)
+            predicate=f"catalog_id='{catalog}' AND revision_id='{revision}'"
+            if table=='series':predicate+=f" AND id IN(SELECT series_id FROM market_data.rate_curve_tenors WHERE catalog_id='{catalog}' AND revision_id='{revision}')"
+            query(f"INSERT INTO market_data.{table}({','.join(columns)}) SELECT {projection} FROM market_data.{table} WHERE {predicate};")
         columns=json.loads(query("SELECT json_agg(attname ORDER BY attnum) FROM pg_attribute WHERE attrelid='market_data.curves'::regclass AND attnum>0 AND NOT attisdropped AND attgenerated='';"))
         projection=','.join("'"+additional+"'::uuid" if c=='revision_id' else "'additional_future'" if c=='code' else "'Synthetic additional futures'" if c=='name' else '"'+c+'"' for c in columns)
         query(f"INSERT INTO market_data.curves({','.join(columns)}) SELECT {projection} FROM market_data.curves WHERE catalog_id='{catalog}' AND revision_id='{revision}' AND code='future';INSERT INTO market_data.curve_members SELECT catalog_id,'{additional}','additional_future',contract_id,ordinal FROM market_data.curve_members WHERE catalog_id='{catalog}' AND revision_id='{revision}' AND curve_code='future';UPDATE market_data.revisions SET state='sealed' WHERE catalog_id='{catalog}' AND id='{additional}';")
@@ -128,7 +136,7 @@ def main():
         # Explicit additional-source inputs have different values. No date/code
         # alias may price an original held future from these observations.
         columns=json.loads(query("SELECT json_agg(attname ORDER BY attnum) FROM pg_attribute WHERE attrelid='market_data.observations'::regclass AND attnum>0 AND NOT attisdropped AND attgenerated='';"))
-        projection=','.join("'"+additional+"'::uuid" if c=='definition_revision_id' else 'gen_random_uuid()' if c=='id' else "'additional_'||source_event_id" if c=='source_event_id' else 'value+1' if c=='value' else '"'+c+'"' for c in columns)
+        projection=','.join("'"+additional+"'::uuid" if c=='definition_revision_id' else 'gen_random_uuid()' if c=='id' else "'additional_'||source_event_id" if c=='source_event_id' else f"CASE WHEN series_id IN(SELECT series_id FROM market_data.rate_curve_tenors WHERE catalog_id='{catalog}' AND revision_id='{revision}') THEN value+0.01 ELSE value+1 END" if c=='value' else '"'+c+'"' for c in columns)
         query(f"INSERT INTO market_data.observations({','.join(columns)}) SELECT {projection} FROM market_data.observations WHERE catalog_id='{catalog}' AND definition_revision_id='{revision}' AND series_id IN(SELECT id FROM market_data.series WHERE catalog_id='{catalog}' AND revision_id='{additional}');")
         request=str(uuid4());second=publish(after,first['id'],request)
         equivalent=deepcopy(after);equivalent['curves'].reverse()
@@ -219,7 +227,14 @@ def main():
             from check_risk_jobs_db import provision_worker
             login='context_check_worker'
             provision_worker(query,manifest,login)
-            check_file.write_text(json.dumps(dict(earlierClose=earlier_close,shapeToken=shape_token,manifest=clone,connection=f'Host={directory};Port=55479;Database=postgres;Username=preview_runtime;Pooling=false',token=token,context=managed_context,frame=frame,close=close,original=revision,expected=expected)))
+            new_rate_owner=deepcopy(after)
+            for choice in new_rate_owner['curves']:
+                if choice['kind']=='rate':choice['definitionRevisionId']=additional
+            third=publish(new_rate_owner,restored['id'])
+            rate_owner_context=context()
+            assert read(managed_context)['id']==second['id'],'Retained rate ownership widened after a new publication'
+            assert read(rate_owner_context)['id']==third['id']
+            check_file.write_text(json.dumps(dict(rateOwnerContext=rate_owner_context,rateOwnerRevision=additional,earlierClose=earlier_close,shapeToken=shape_token,manifest=clone,connection=f'Host={directory};Port=55479;Database=postgres;Username=preview_runtime;Pooling=false',token=token,context=managed_context,frame=frame,close=close,original=revision,expected=expected)))
             print(run([args.dotnet,'run','--project','tests/OpenEtrm.Api.Checks','--','--catalogue-trading',check_file]))
             worker_connection=directory/'worker-connection'
             worker_connection.write_text(f'Host={directory};Port=55479;Database=postgres;Username={login};SSL Mode=Disable;Timeout=5;Command Timeout=10;Maximum Pool Size=2')
