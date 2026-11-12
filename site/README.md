@@ -10,13 +10,30 @@ illustrations with synthetic values.
 
 The files use project-owned HTML, CSS and an SVG icon. There are no JavaScript
 or third-party runtime dependencies. They are separate from the signed-in
-application's browser build. [headers.inc](headers.inc) allows styles only from
-the public stylesheet, so the page carries no inline styles.
+application's browser build. [headers.inc](headers.inc) allows styles, images
+and media only from this site, so the page carries no inline styles and no
+outside players.
 
-Each audience section holds three placeholders for planned demonstration films.
-They load no media: the public policy blocks it and the gateway serves only the
-three files below. Playing a film needs a separately reviewed policy and
-gateway change.
+The gateway also serves two media folders that an installation fills: `images/`
+and `films/`. Neither holds files in this repository. A file is served only
+under a single lowercase name of letters, digits and hyphens with a listed
+extension, and only as a regular file.
+
+Each audience section holds three demonstration films. A film that is not yet
+published is a placeholder marked "Coming soon". Films, their captions and
+their posters are operator content: they are installed in the gateway's `films/`
+folder, never committed here, and their usage rights are the installation's
+responsibility. To publish one, install `NAME.mp4`, its poster and its captions,
+then replace that tile's poster block with:
+
+```html
+<video src="/_landing/films/NAME.mp4" poster="/_landing/films/NAME.webp" controls preload="none">
+  <track kind="captions" src="/_landing/films/NAME.vtt" srclang="en" label="English" />
+</video>
+```
+
+and give the element its size in `site.css`. See D382 in the
+[decision record](../docs/decisions.md).
 
 Public walkthrough links sit inside the hosting proxy's per-link `email_off`
 exemption comments, so they remain direct mail links without an injected
@@ -38,6 +55,8 @@ The [hosted gateway template](../deploy/nginx.conf.template) consumes these file
 | `index.html` | `/` |
 | `site.css` | `/_landing/site.css` |
 | `favicon.svg` | `/_landing/favicon.svg` |
+| Operator-installed `images/NAME` | `/_landing/images/NAME` |
+| Operator-installed `films/NAME` | `/_landing/films/NAME` |
 | `headers.inc` | Nginx include; never a public route |
 
 `/app` remains protected by the application and opens its workspace. Static page
