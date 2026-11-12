@@ -242,6 +242,10 @@ def main(checks=run_checks, before_migration=None):
                     from check_fact_anchor_upgrade import run_checks as check_observation_event_upgrade
                     check_observation_event_upgrade(query,migration,number='0238',guard='observation_event_upgrade',
                         signatures=('security.observation_visibility_scope(uuid,uuid,uuid[])',))
+                if migration.name=='0249_reference_version_receipt_probes.sql':
+                    from check_fact_anchor_upgrade import run_checks as check_reference_receipt_upgrade
+                    check_reference_receipt_upgrade(query,migration,number='0249',guard='reference_receipt_upgrade',
+                        signatures=('security.reference_version_visible(uuid,uuid)',))
                 if migration.name=='0224_reference_display_close_validation.sql':
                     from check_reference_display_scale import upgrade_checks
                     upgrade_checks(query,migration)

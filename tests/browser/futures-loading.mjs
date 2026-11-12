@@ -68,6 +68,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
       return [...h.querySelectorAll('.tabulator-row[data-row-key]')].find(r=>{const b=r.getBoundingClientRect();return b.top>=box.top&&b.bottom<=box.bottom;}).dataset.rowKey;})()`);
     await click(`#desk-positions .tabulator-row[data-row-key="${pressed}"]`);
     await wait("document.querySelector('#position-details')?.hidden===false&&"+idle);
+    // The details take their room below the grid, which restores the pressed row's place over the next frames: the place is read once it holds still.
+    await evaluate("(async()=>{const h=document.querySelector('#desk-positions .tabulator-tableholder');let last=-1;for(let i=0;i<20&&h.scrollTop!==last;i++){last=h.scrollTop;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));}})()");
     const at=await evaluate(place),before=await evaluate(strip);
     await evaluate("window.__failValuation=true;document.querySelector('#futures-refresh').click()");
     await wait("document.querySelector('#futures-page').dataset.pricingState==='failed'&&"+idle);
