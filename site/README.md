@@ -2,13 +2,21 @@
 
 This is the source of the public LeanETRM landing page. It is part of the same
 Apache 2.0 licensed project as the trading application; see [LICENSE](../LICENSE).
-The page links to the public repository and distinguishes self-hosted software
-from the hosted pilot, which requires an invited account. Its trading panel is
-an illustration with synthetic prices.
+The page addresses trading, risk and physical-operations readers, links to the
+public repository and distinguishes self-hosted software from the hosted pilot,
+which requires an invited account. It offers paid installation and support from
+the operator and states the remaining work beside that offer. Its panels are
+illustrations with synthetic values.
 
 The files use project-owned HTML, CSS and an SVG icon. There are no JavaScript
 or third-party runtime dependencies. They are separate from the signed-in
-application's browser build.
+application's browser build. [headers.inc](headers.inc) allows styles only from
+the public stylesheet, so the page carries no inline styles.
+
+Each audience section holds three placeholders for planned demonstration films.
+They load no media: the public policy blocks it and the gateway serves only the
+three files below. Playing a film needs a separately reviewed policy and
+gateway change.
 
 Public walkthrough links sit inside the hosting proxy's per-link `email_off`
 exemption comments, so they remain direct mail links without an injected
