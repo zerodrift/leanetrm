@@ -137,8 +137,9 @@ GET/HEAD, restrictive public-content headers and no JavaScript (D382). A media
 name is one lowercase segment with a listed extension, and only a regular file
 is served: folders answer 404 and symbolic links inside a media folder 403.
 Media answers byte ranges, so a player can seek. Other methods are refused with
-403 whatever the name. Images, demonstration films and their posters are
-operator content installed under `LANDING_ROOT`; they are not in the repository.
+403 whatever the name. Images, demonstration films, their captions and their
+posters are operator content installed under `LANDING_ROOT`; they are not in the
+repository.
 Unknown paths under `/_landing/` return 404.
 
 Films are anonymous multi-megabyte downloads served by the same nginx that

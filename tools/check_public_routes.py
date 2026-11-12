@@ -102,9 +102,10 @@ def run_checks(nginx):
         shutil.copyfile(ROOT / 'site/headers.inc', site / 'headers.inc')
         media = {'images/synthetic-image.webp': b'SYNTHETIC PUBLIC IMAGE', 'images/synthetic-image.png': b'SYNTHETIC PNG IMAGE',
                  'images/synthetic-image.jpg': b'SYNTHETIC JPG IMAGE', 'films/synthetic-film.mp4': b'SYNTHETIC PUBLIC FILM',
-                 'films/synthetic-film.webp': b'SYNTHETIC FILM POSTER', 'films/synthetic-film.jpg': b'SYNTHETIC JPG POSTER'}
+                 'films/synthetic-film.webp': b'SYNTHETIC FILM POSTER', 'films/synthetic-film.jpg': b'SYNTHETIC JPG POSTER',
+                 'films/synthetic-film.vtt': b'WEBVTT\n\nSYNTHETIC CAPTIONS\n'}
         # Present on disk, yet outside what each folder may serve.
-        withheld = ['images/private.json', 'images/page.html', 'images/stray.mp4', 'images/Synthetic.webp',
+        withheld = ['images/private.json', 'images/page.html', 'images/stray.mp4', 'images/stray.vtt', 'images/Synthetic.webp',
                     'images/nested/inner.webp', 'images/synthetic-image.png.bak', 'images/dotless-png', 'images/-lead.webp',
                     'images/line.png\n', 'films/.hidden.mp4', 'films/notes.txt', 'films/stray.png', 'films/_lead.mp4',
                     'films/line.mp4\n']
@@ -201,7 +202,7 @@ def run_checks(nginx):
             expect('missing public file has no upstream fallback', '/_landing/site.css', 404)
         finally:
             stylesheet.write_bytes(content)
-        kinds = {'webp': 'image/webp', 'png': 'image/png', 'jpg': 'image/jpeg', 'mp4': 'video/mp4'}
+        kinds = {'webp': 'image/webp', 'png': 'image/png', 'jpg': 'image/jpeg', 'mp4': 'video/mp4', 'vtt': 'text/vtt'}
         def public_headers(label, headers):
             assert "default-src 'none'" in headers.get('Content-Security-Policy', ''), label + ': public policy missing'
             assert headers.get('X-Content-Type-Options') == 'nosniff', label + ': type sniffing must stay off'

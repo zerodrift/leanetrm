@@ -4228,8 +4228,8 @@ has no JavaScript.
 `/_landing/images/NAME` reads `LANDING_ROOT/images/` and `/_landing/films/NAME`
 reads `LANDING_ROOT/films/`. A name is one lowercase segment of letters, digits
 and hyphens that starts with a letter or digit and ends in a listed extension:
-`webp`, `png` or `jpg` for images; `mp4`, `webp` or `jpg` for films and their
-posters. Each route states those content types itself, sends the public headers
+`webp`, `png` or `jpg` for images; `mp4`, `vtt`, `webp` or `jpg` for films, their
+captions and their posters. Each route states those content types itself, sends the public headers
 and cache period on every answer, and answers byte ranges so a player can seek.
 For GET and HEAD, any other name, nested path, folder or absent file is 404, a
 symbolic link inside a media folder is 403, and none of them reaches the
@@ -4237,12 +4237,13 @@ application. Every other method is refused with 403 whatever the name. A
 request for an absent name writes nothing to the gateway's error log. No new
 operator value is required.
 
-Both folders hold installed content. Images, films and posters are operator
-content: they are installed under `LANDING_ROOT`, are not part of the repository
+Both folders hold installed content. Images, films, captions and posters are
+operator content: they are installed under `LANDING_ROOT`, are not part of the repository
 or the application-image release, and their usage and redistribution rights are
 the installation's responsibility. A film appears on the page only through a
 reviewed edit that names it on a `video` element with `controls`,
-`preload="none"` and a poster; until then its tile stays a placeholder.
+`preload="none"` and a poster, with an optional captions `track` from the same
+folder; until then its tile stays a placeholder.
 
 The owned nginx check qualifies the routes with synthetic files: content types,
 headers on served and refused answers, methods, byte ranges, withheld files that

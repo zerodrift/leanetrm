@@ -20,14 +20,16 @@ under a single lowercase name of letters, digits and hyphens with a listed
 extension, and only as a regular file.
 
 Each audience section holds three demonstration films. A film that is not yet
-published is a placeholder marked "Coming soon". Films and their posters are
-operator content: they are installed in the gateway's `films/` folder, never
-committed here, and their usage rights are the installation's responsibility.
-To publish one, install `NAME.mp4` and its poster, then replace that tile's
-poster block with:
+published is a placeholder marked "Coming soon". Films, their captions and
+their posters are operator content: they are installed in the gateway's `films/`
+folder, never committed here, and their usage rights are the installation's
+responsibility. To publish one, install `NAME.mp4`, its poster and its captions,
+then replace that tile's poster block with:
 
 ```html
-<video src="/_landing/films/NAME.mp4" poster="/_landing/films/NAME.webp" controls preload="none"></video>
+<video src="/_landing/films/NAME.mp4" poster="/_landing/films/NAME.webp" controls preload="none">
+  <track kind="captions" src="/_landing/films/NAME.vtt" srclang="en" label="English" />
+</video>
 ```
 
 and give the element its size in `site.css`. See D382 in the
