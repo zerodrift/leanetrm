@@ -1131,7 +1131,7 @@ credential entries read only "key replaced".
   filters and context; and a usage line per answer (tokens by dimension, cost per
   currency). A target that changes context, or one leaving unsaved editor changes,
   shows a button instead of moving.
-- **Composer:** Enter sends, Shift+Enter adds a line, Send becomes Stop during a turn,
+- **Composer:** Enter sends, Shift+Enter adds a line, Send becomes Stop answering during a turn,
   and a failed send keeps the draft with Retry. On `grant_required` the consent of
   §7.1 appears.
 - **Formatting:** paragraphs, lists, pipe tables, emphasis and code, built from text
