@@ -83,6 +83,21 @@ internal static class CatalogueTradingChecks
             throw new Exception("The current deployment blocked a retained graph's exact source.");
         if(await CurveVersionInputs.Resolve(database,connection,null,default)!=root.GetProperty("original").GetGuid())
             throw new Exception("New graph inputs used deployment configuration instead of the context-selected catalogue.");
+        await using(var guardConnection=await runtime.OpenConnectionAsync())
+        await using(var guardTransaction=await guardConnection.BeginTransactionAsync())
+        {
+            await using(var use=ScheduleStore.Command(guardConnection,"SELECT security.use_context($1)",root.GetProperty("shapeToken").GetGuid()))
+                await use.ExecuteNonQueryAsync();
+            var reads=new MarketReads(database);var pin=PinnedContext.Retained(context.Context,frame);
+            await pin.Bind(guardConnection,manifest.CatalogId,default);
+            var selectedCatalogue=await new CatalogueStore(manifest.CatalogId).ReadBound(guardConnection,default,frame.Time.Date);
+            try
+            {
+                await reads.Curves(guardConnection,selectedCatalogue,frame with{SourceInputs=frame.SourceInputs!.Remove(added.DefinitionRevisionId)},default);
+                throw new Exception("Navigation accepted a recorded close with an omitted exact source part.");
+            }
+            catch(OpenEtrm.MarketData.MarketDataException error)when(error.Code=="market_inputs"){}
+        }
         await using(var shapeConnection=await runtime.OpenConnectionAsync())
         await using(var shapeTransaction=await shapeConnection.BeginTransactionAsync())
         {

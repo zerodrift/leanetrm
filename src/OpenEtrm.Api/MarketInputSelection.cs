@@ -99,28 +99,49 @@ internal static class MarketInputSelection
     {
         var root=await Root(database,connection,frame,ct);
         var catalogue=frame.SourceInputs is null?await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,frame.Time.Date):null;
-        var source=SelectedCurve(frame,curve,catalogue,root);
+        var rates=await SelectedRates(database,connection,frame,ct);
+        var source=SelectedCurve(frame,curve,catalogue,rates);
         var own=new CatalogueSource(root.DefinitionRevision.RevisionId,root.ReferenceRevision.CatalogId,root.ReferenceRevision.RevisionId);
         return await Resolve(database,connection,frame,source,[(root,frame with{Source=own})],false,ct);
     }
 
-    internal static CatalogueSource SelectedCurve(InputFrame frame,string curve,CataloguePublication? catalogue,PreviewData root)
+    // Rate inspection is declared by typed native metadata in the exact selected
+    // sources. A commodity session's signed root list does not attest rate coverage.
+    internal static async Task<ImmutableArray<CatalogueCurve>> SelectedRates(PreviewDatabase database,NpgsqlConnection connection,
+        InputFrame frame,CancellationToken ct)
     {
-        // Native rate inspection has exact tenor pins in the primary source;
-        // commodity session membership does not attest signed rate coverage.
-        if(root.IsRateCurve(curve))
+        if(frame.SourceInputs is not {} parts)return [];
+        var rows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(r)::text FROM market_data.rate_curves r "+
+            "WHERE r.catalog_id=$1 AND r.revision_id=ANY($2::uuid[]) ORDER BY r.revision_id,r.code",
+            [database.Manifest.CatalogId,parts.Keys.ToArray()],ct);
+        var result=ImmutableArray.CreateBuilder<CatalogueCurve>();
+        foreach(var group in rows.GroupBy(r=>r.Id("revision_id")))
         {
-            if(root.Definitions["curves"].Any(c=>c.Text("code")==curve))throw Invalid("A code ambiguously names a commodity and rate curve.");
-            return new(root.DefinitionRevision.RevisionId,root.ReferenceRevision.CatalogId,root.ReferenceRevision.RevisionId);
+            var source=await ExactSource(database,connection,group.Key,ct);
+            if(parts[group.Key].Source!=source)throw Invalid("Selected rate inputs have different exact reference pins.");
+            foreach(var row in group)
+            {
+                if(row.Id("reference_catalog_id")!=source.ReferenceCatalogId||row.Id("reference_revision_id")!=source.ReferenceRevisionId)
+                    throw Invalid("A rate curve has different reference pins from its selected source.");
+                result.Add(new(row.Text("code"),"rate",source.DefinitionRevisionId,source.ReferenceCatalogId,source.ReferenceRevisionId));
+            }
         }
-        if(frame.SourceInputs is not null)
-        {
-            var roots=frame.SourceInputs.Values.Where(p=>p.RootCurves.Contains(curve,StringComparer.Ordinal)).ToArray();
-            if(roots.Length==0)throw new MarketDataException("curve_not_selected","The selected inputs do not declare this curve as a root.");
-            if(roots.Length!=1)throw Invalid("The selected inputs declare several sources for one root curve.");
-            return roots[0].Source;
-        }
-        return (catalogue??throw Invalid("A working input selection requires its dated catalogue membership.")).RequireCurve(curve);
+        return result.ToImmutable();
+    }
+
+    internal static CatalogueSource SelectedCurve(InputFrame frame,string curve,CataloguePublication? catalogue,
+        ImmutableArray<CatalogueCurve> rates)
+    {
+        if(frame.SourceInputs is not {} parts)
+            return (catalogue??throw Invalid("A working input selection requires its dated catalogue membership.")).RequireCurve(curve);
+        var roots=parts.Values.Where(p=>p.RootCurves.Contains(curve,StringComparer.Ordinal)).Select(p=>p.Source).ToArray();
+        var selectedRates=rates.Where(r=>r.Code==curve).ToArray();
+        if(selectedRates.Any(r=>r.Kind!="rate"||parts.GetValueOrDefault(r.DefinitionRevisionId)?.Source!=r.Source))
+            throw Invalid("Rate inspection requires an exact selected source.");
+        if(roots.Length+selectedRates.Length==0)
+            throw new MarketDataException("curve_not_selected","The selected inputs do not declare this curve as a root or typed rate curve.");
+        if(roots.Length+selectedRates.Length!=1)throw Invalid("The selected inputs ambiguously name a commodity or rate curve.");
+        return selectedRates.Length==1?selectedRates[0].Source:roots[0];
     }
 
     // Project a known exact definition onto the selected inputs without changing

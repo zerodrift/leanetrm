@@ -317,12 +317,13 @@ public static class MarketDates
     {
         var root=await MarketInputSelection.Root(database,connection,frame,ct,reads:reads);
         var catalogue=frame.SourceInputs is null?await new CatalogueStore(database.Manifest.CatalogId).ReadBound(connection,ct,frame.Time.Date):null;
+        var selectedRates=await MarketInputSelection.SelectedRates(database,connection,frame,ct);
         var codes=requested??(frame.SourceInputs is {} parts?parts.Values.SelectMany(p=>p.RootCurves):frame.CurveContracts.Keys)
-            .Concat(root.Definitions["rate_curves"].Select(r=>r.Text("code")));
+            .Concat(frame.SourceInputs is null?root.Definitions["rate_curves"].Select(r=>r.Text("code")):selectedRates.Select(r=>r.Code));
         var selected=new List<(string Code,CatalogueSource Source)>();
         foreach(var code in codes.Distinct(StringComparer.Ordinal))
         {
-            try{selected.Add((code,MarketInputSelection.SelectedCurve(frame,code,catalogue,root)));}
+            try{selected.Add((code,MarketInputSelection.SelectedCurve(frame,code,catalogue,selectedRates)));}
             catch(MarketDataException error)when(error.Code is "curve_not_selected" or "catalogue_curve"){}
         }
         var qualified=ImmutableArray.CreateBuilder<string>();

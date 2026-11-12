@@ -5,6 +5,7 @@ using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 if(args is ["--power-close-context",var powerContext]){await PowerCloseContextChecks.Run(powerContext);return;}
 if(args is ["--catalogue-trading",var catalogueFixture]){await CatalogueTradingChecks.Run(catalogueFixture);return;}
+if(args is ["--selected-rate-sources"]){SelectedRateSourceChecks.Run();return;}
 if(args is ["--context-resolution"]){ContextResolutionChecks.Run();return;}
 if(args is ["--unified-catalogue"]){UnifiedCatalogueChecks.Run();return;}
 if(args is ["--curve-version-inputs"]){CurveVersionInputChecks.Run();return;}
@@ -134,6 +135,7 @@ if (args is ["--schedules"])
     PricePublicationInputChecks.Run();
     UnifiedCatalogueChecks.Run();
     CurveVersionInputChecks.Run();
+    SelectedRateSourceChecks.Run();
     CrudeInstantChecks.Run();
     TradePositionFactsChecks.Run();
     BookScopeChecks.Run();

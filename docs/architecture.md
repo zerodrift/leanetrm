@@ -2,7 +2,9 @@
 
 D375 separates dated catalogue choices, exact retained terms and explicit pricing
 inputs. Recorded closes retain source matrices; the shared execution envelope and
-UI preserve the selected business date. Historical closes and prices obey the
+UI preserve the selected business date. Typed rate inspection uses every exact
+selected source and its own tenor inputs, with shared discovery for evaluation,
+navigation and date availability. Historical closes and prices obey the
 same knowledge cutoff. See [the decision](decisions.md#d375--exact-source-resolution-under-business-and-knowledge-time)
 for qualification status and capability boundaries.
 
