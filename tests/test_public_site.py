@@ -1,6 +1,7 @@
 from hashlib import sha256
 from html.parser import HTMLParser
 from pathlib import Path
+import re
 import unittest
 from urllib.parse import urlsplit
 
@@ -8,14 +9,28 @@ ROOT = Path(__file__).resolve().parents[1] / 'site'
 SOURCE_URL = 'https://github.com/zerodrift/leanetrm'
 CONTACT = 'mailto:joe@trustygenius.com'
 AUDIENCES = ('trading', 'risk', 'physical')
-MEDIA = {'video', 'audio', 'source', 'track', 'iframe', 'object', 'embed'}
+ORIGIN = 'https://leanetrm.com'
+EMBEDS = {'audio', 'source', 'track', 'iframe', 'object', 'embed'}
+# The names the gateway serves from its two media folders (deploy/nginx.conf.template).
+IMAGE = r'[a-z0-9][a-z0-9-]*\.(webp|png|jpg)'
+FILM = r'/_landing/films/[a-z0-9][a-z0-9-]*\.mp4'
+POSTER = r'/_landing/films/[a-z0-9][a-z0-9-]*\.(webp|jpg)'
+
+def film_faults(video):
+    """Why a video element would not play as intended under headers.inc and the gateway's film route."""
+    return [name for name, wrong in [
+        ('src', not re.fullmatch(FILM, video.get('src') or '')),
+        ('poster', not re.fullmatch(POSTER, video.get('poster') or '')),
+        ('controls', 'controls' not in video),
+        ('preload', video.get('preload') != 'none'),
+        ('autoplay', 'autoplay' in video)] if wrong]
 
 class Page(HTMLParser):
     def __init__(self, text):
         super().__init__()
         self.links, self.assets, self.headings, self.scripts = [], [], [], []
         self.sections, self.section = [], None
-        self.media, self.inline_styles = [], []
+        self.embeds, self.videos, self.inline_styles, self.meta = [], [], [], {}
         self.email_passthrough = False
         self.unmodified_email_links = []
         self.feed(text)
@@ -23,7 +38,7 @@ class Page(HTMLParser):
         a = dict(attrs)
         classes = (a.get('class') or '').split()
         if tag == 'section':
-            self.section = {'id': a.get('id'), 'text': '', 'films': 0, 'contacts': [], 'headline': False}
+            self.section = {'id': a.get('id'), 'text': '', 'films': 0, 'videos': 0, 'contacts': [], 'headline': False}
             self.sections.append(self.section)
         if tag == 'a':
             self.links.append(a.get('href', ''))
@@ -36,7 +51,11 @@ class Page(HTMLParser):
             self.headings.append(tag)
             if self.section: self.section['headline'] = True
         if tag == 'script': self.scripts.append(a)
-        if tag in MEDIA: self.media.append(tag)
+        if tag in EMBEDS: self.embeds.append(tag)
+        if tag == 'video':
+            self.videos.append(a)
+            if self.section: self.section['videos'] += 1
+        if tag == 'meta': self.meta[a.get('property') or a.get('name')] = a.get('content')
         if tag == 'style' or 'style' in a: self.inline_styles.append(tag)
         if self.section and 'film' in classes: self.section['films'] += 1
     def handle_endtag(self, tag):
@@ -92,12 +111,42 @@ class PublicSite(unittest.TestCase):
     def test_remaining_work_is_stated_beside_the_paid_offer(self):
         self.assertIn('Still being built', self.section('services')['text'])
 
-    def test_each_audience_has_three_film_placeholders_and_no_blocked_media(self):
+    def test_each_audience_has_three_films_as_placeholders_or_playable_videos(self):
         for name in AUDIENCES:
             audience = self.section(name)
             self.assertEqual(audience['films'], 3, name)
-            self.assertEqual(audience['text'].count('Coming soon'), 3, name)
-        self.assertFalse(self.page.media, 'headers.inc blocks media; keep placeholders until that policy changes.')
+            self.assertEqual(audience['text'].count('Coming soon') + audience['videos'], 3, name)
+
+    def test_film_rule_admits_only_gateway_films_that_wait_to_be_played(self):
+        film = {'src': '/_landing/films/gas-operations.mp4', 'poster': '/_landing/films/gas-operations.webp',
+                'controls': None, 'preload': 'none'}
+        self.assertEqual(film_faults(film), [])
+        for change, fault in [({'src': 'https://films.example.test/gas-operations.mp4'}, 'src'),
+                              ({'src': '/_landing/films/Gas Operations.mp4'}, 'src'),
+                              ({'src': '/_landing/films/gas-operations.mp4\n'}, 'src'),
+                              ({'poster': '/_landing/images/gas-operations.webp'}, 'poster'),
+                              ({'preload': 'auto'}, 'preload'), ({'autoplay': None}, 'autoplay')]:
+            with self.subTest(change=change):
+                self.assertEqual(film_faults({**film, **change}), [fault])
+        self.assertEqual(film_faults({name: value for name, value in film.items() if name != 'controls'}), ['controls'])
+
+    def test_films_on_the_page_play_from_the_gateway_and_wait_to_be_played(self):
+        self.assertFalse(self.page.embeds, 'headers.inc allows media from this site only; name a film on its video element.')
+        for video in self.page.videos:
+            self.assertEqual(film_faults(video), [], video.get('src'))
+
+    def test_shared_links_carry_a_public_image(self):
+        image = self.page.meta.get('og:image') or ''
+        self.assertTrue(re.fullmatch(re.escape(ORIGIN) + '/_landing/images/' + IMAGE, image), image)
+        self.assertTrue((ROOT / image.removeprefix(ORIGIN + '/_landing/')).is_file(), image)
+        self.assertEqual(self.page.meta.get('twitter:card'), 'summary_large_image')
+
+    def test_every_repository_image_is_a_file_with_a_name_the_gateway_serves(self):
+        entries = sorted(path for path in (ROOT / 'images').glob('*') if not path.name.startswith('.'))
+        self.assertTrue(entries, 'Expected the public images folder.')
+        for path in entries:
+            self.assertTrue(path.is_file() and not path.is_symlink(), path.name + ': the gateway serves regular files only')
+            self.assertTrue(re.fullmatch(IMAGE, path.name), path.name)
 
     def test_styling_stays_in_the_public_stylesheet(self):
         self.assertFalse(self.page.inline_styles, 'headers.inc allows styles only from the public stylesheet.')

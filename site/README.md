@@ -10,13 +10,29 @@ illustrations with synthetic values.
 
 The files use project-owned HTML, CSS and an SVG icon. There are no JavaScript
 or third-party runtime dependencies. They are separate from the signed-in
-application's browser build. [headers.inc](headers.inc) allows styles only from
-the public stylesheet, so the page carries no inline styles.
+application's browser build. [headers.inc](headers.inc) allows styles, images
+and media only from this site, so the page carries no inline styles and no
+outside players.
 
-Each audience section holds three placeholders for planned demonstration films.
-They load no media: the public policy blocks it and the gateway serves only the
-three files below. Playing a film needs a separately reviewed policy and
-gateway change.
+Images in `images/` belong to the repository and show synthetic values only.
+`images/share.png` is the link-preview image. The gateway serves an image or a
+film only under a single lowercase name of letters, digits and hyphens with a
+listed extension, and only as a regular file; the content checks hold every
+repository image to that rule.
+
+Each audience section holds three demonstration films. A film that is not yet
+published is a placeholder marked "Coming soon". Films and their posters are
+operator content: they are installed in the gateway's `films/` folder, never
+committed here, and their usage rights are the installation's responsibility.
+To publish one, install `NAME.mp4` and its poster, then replace that tile's
+poster block with:
+
+```html
+<video src="/_landing/films/NAME.mp4" poster="/_landing/films/NAME.webp" controls preload="none"></video>
+```
+
+and give the element its size in `site.css`. See D382 in the
+[decision record](../docs/decisions.md).
 
 Public walkthrough links sit inside the hosting proxy's per-link `email_off`
 exemption comments, so they remain direct mail links without an injected
@@ -38,6 +54,8 @@ The [hosted gateway template](../deploy/nginx.conf.template) consumes these file
 | `index.html` | `/` |
 | `site.css` | `/_landing/site.css` |
 | `favicon.svg` | `/_landing/favicon.svg` |
+| `images/NAME` | `/_landing/images/NAME` |
+| Operator-installed `films/NAME` | `/_landing/films/NAME` |
 | `headers.inc` | Nginx include; never a public route |
 
 `/app` remains protected by the application and opens its workspace. Static page
