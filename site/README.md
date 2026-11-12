@@ -14,11 +14,10 @@ application's browser build. [headers.inc](headers.inc) allows styles, images
 and media only from this site, so the page carries no inline styles and no
 outside players.
 
-Images in `images/` belong to the repository and show synthetic values only.
-`images/share.png` is the link-preview image. The gateway serves an image or a
-film only under a single lowercase name of letters, digits and hyphens with a
-listed extension, and only as a regular file; the content checks hold every
-repository image to that rule.
+The gateway also serves two media folders that an installation fills: `images/`
+and `films/`. Neither holds files in this repository. A file is served only
+under a single lowercase name of letters, digits and hyphens with a listed
+extension, and only as a regular file.
 
 Each audience section holds three demonstration films. A film that is not yet
 published is a placeholder marked "Coming soon". Films and their posters are
@@ -54,7 +53,7 @@ The [hosted gateway template](../deploy/nginx.conf.template) consumes these file
 | `index.html` | `/` |
 | `site.css` | `/_landing/site.css` |
 | `favicon.svg` | `/_landing/favicon.svg` |
-| `images/NAME` | `/_landing/images/NAME` |
+| Operator-installed `images/NAME` | `/_landing/images/NAME` |
 | Operator-installed `films/NAME` | `/_landing/films/NAME` |
 | `headers.inc` | Nginx include; never a public route |
 

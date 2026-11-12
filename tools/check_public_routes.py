@@ -103,16 +103,12 @@ def run_checks(nginx):
         media = {'images/synthetic-image.webp': b'SYNTHETIC PUBLIC IMAGE', 'images/synthetic-image.png': b'SYNTHETIC PNG IMAGE',
                  'images/synthetic-image.jpg': b'SYNTHETIC JPG IMAGE', 'films/synthetic-film.mp4': b'SYNTHETIC PUBLIC FILM',
                  'films/synthetic-film.webp': b'SYNTHETIC FILM POSTER', 'films/synthetic-film.jpg': b'SYNTHETIC JPG POSTER'}
-        repository_images = {'images/' + image.name: image.read_bytes()
-                             for image in sorted((ROOT / 'site/images').iterdir()) if image.is_file() and not image.name.startswith('.')}
-        assert repository_images, 'Expected the repository images the page names.'
         # Present on disk, yet outside what each folder may serve.
         withheld = ['images/private.json', 'images/page.html', 'images/stray.mp4', 'images/Synthetic.webp',
                     'images/nested/inner.webp', 'images/synthetic-image.png.bak', 'images/dotless-png', 'images/-lead.webp',
                     'images/line.png\n', 'films/.hidden.mp4', 'films/notes.txt', 'films/stray.png', 'films/_lead.mp4',
                     'films/line.mp4\n']
-        for name, content in [*media.items(), *repository_images.items(),
-                              *((name, b'SYNTHETIC WITHHELD FILE') for name in withheld)]:
+        for name, content in [*media.items(), *((name, b'SYNTHETIC WITHHELD FILE') for name in withheld)]:
             (site / name).parent.mkdir(parents=True, exist_ok=True)
             (site / name).write_bytes(content)
         (site / 'images/folder.png').mkdir()
@@ -211,7 +207,7 @@ def run_checks(nginx):
             assert headers.get('X-Content-Type-Options') == 'nosniff', label + ': type sniffing must stay off'
             assert headers.get('Referrer-Policy') == 'same-origin', label + ': referrer policy missing'
             assert headers.get('Strict-Transport-Security'), label + ': transport policy missing'
-        for name, content in [*media.items(), *repository_images.items()]:
+        for name, content in media.items():
             path = '/_landing/' + name
             headers = expect('public media ' + path, path, 200, answer=content)
             assert headers['Content-Type'] == kinds[name.rsplit('.', 1)[1]], path + ': each media route states its own type'

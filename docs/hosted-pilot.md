@@ -120,8 +120,8 @@ first. Conversations are kept until an installation needs a retention policy (O1
 ## Public homepage and workspace routing
 
 The open-source homepage is the buildless content in [site](../site/README.md).
-Its deployable files (the page, stylesheet, icon and `images/` folder) are
-separate from the authenticated application's browser assets. The gateway template `deploy/nginx.conf.template` requires seven
+Its three deployable files are separate from the authenticated application's
+browser assets. The gateway template `deploy/nginx.conf.template` requires seven
 explicit substitutions: `PUBLIC_HOST`, `CERTIFICATE_CHAIN`, `CERTIFICATE_KEY`,
 `UPSTREAM_ADDRESS`, `UPSTREAM_PORT`, `LANDING_ROOT` and `LANDING_HEADERS`.
 `LANDING_ROOT` names the installed public directory and
@@ -137,8 +137,8 @@ GET/HEAD, restrictive public-content headers and no JavaScript (D382). A media
 name is one lowercase segment with a listed extension, and only a regular file
 is served: folders answer 404 and symbolic links inside a media folder 403.
 Media answers byte ranges, so a player can seek. Other methods are refused with
-403 whatever the name. Demonstration films and their posters are operator
-content installed under `LANDING_ROOT/films/`; they are not in the repository.
+403 whatever the name. Images, demonstration films and their posters are
+operator content installed under `LANDING_ROOT`; they are not in the repository.
 Unknown paths under `/_landing/` return 404.
 
 Films are anonymous multi-megabyte downloads served by the same nginx that

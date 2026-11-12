@@ -4237,19 +4237,16 @@ application. Every other method is refused with 403 whatever the name. A
 request for an absent name writes nothing to the gateway's error log. No new
 operator value is required.
 
-Images belong to the repository and follow its public-content rules, with
-synthetic values only. The first is the link-preview image. Films and their
-posters are operator content: they are installed under `LANDING_ROOT/films/`, are
-not part of the repository or the application-image release, and their usage and
-redistribution rights are the installation's responsibility. A film appears on
-the page only through a reviewed edit that names it on a `video` element with
-`controls`, `preload="none"` and a poster; until then its tile stays a
-placeholder.
+Both folders hold installed content. Images, films and posters are operator
+content: they are installed under `LANDING_ROOT`, are not part of the repository
+or the application-image release, and their usage and redistribution rights are
+the installation's responsibility. A film appears on the page only through a
+reviewed edit that names it on a `video` element with `controls`,
+`preload="none"` and a poster; until then its tile stays a placeholder.
 
-The owned nginx check qualifies the routes with synthetic files and the
-repository's own images: content types, headers on served and refused answers,
-methods, byte ranges, withheld files that are present on disk, folders, links
-and the silent refusal of absent names. It does not qualify bandwidth, caching
+The owned nginx check qualifies the routes with synthetic files: content types,
+headers on served and refused answers, methods, byte ranges, withheld files that
+are present on disk, folders, links and the silent refusal of absent names. It does not qualify bandwidth, caching
 in front of the gateway or a real installation. Films are anonymous
 multi-megabyte downloads with no rate or connection limit and no access log,
 and they share the gateway's connections with the workspace; refused and absent
