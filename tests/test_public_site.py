@@ -6,26 +6,43 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1] / 'site'
 SOURCE_URL = 'https://github.com/zerodrift/leanetrm'
+CONTACT = 'mailto:joe@trustygenius.com'
+AUDIENCES = ('trading', 'risk', 'physical')
+MEDIA = {'video', 'audio', 'source', 'track', 'iframe', 'object', 'embed'}
 
 class Page(HTMLParser):
     def __init__(self, text):
         super().__init__()
         self.links, self.assets, self.headings, self.scripts = [], [], [], []
-        self.anchors = []
+        self.sections, self.section = [], None
+        self.media, self.inline_styles = [], []
         self.email_passthrough = False
         self.unmodified_email_links = []
         self.feed(text)
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
+        classes = (a.get('class') or '').split()
+        if tag == 'section':
+            self.section = {'id': a.get('id'), 'text': '', 'films': 0, 'contacts': [], 'headline': False}
+            self.sections.append(self.section)
         if tag == 'a':
             self.links.append(a.get('href', ''))
-            self.anchors.append(a)
             if self.email_passthrough:
                 self.unmodified_email_links.append(a.get('href', ''))
+            if self.section and a.get('href') == CONTACT: self.section['contacts'].append(classes)
         if tag == 'link' and a.get('rel') in ('stylesheet', 'icon'): self.assets.append(a['href'])
         if tag == 'img': self.assets.append(a['src'])
-        if tag == 'h1': self.headings.append(tag)
+        if tag == 'h1':
+            self.headings.append(tag)
+            if self.section: self.section['headline'] = True
         if tag == 'script': self.scripts.append(a)
+        if tag in MEDIA: self.media.append(tag)
+        if tag == 'style' or 'style' in a: self.inline_styles.append(tag)
+        if self.section and 'film' in classes: self.section['films'] += 1
+    def handle_endtag(self, tag):
+        if tag == 'section': self.section = None
+    def handle_data(self, data):
+        if self.section: self.section['text'] += data
     def handle_comment(self, text):
         if text.strip() == 'email_off': self.email_passthrough = True
         if text.strip() == '/email_off': self.email_passthrough = False
@@ -35,6 +52,11 @@ class PublicSite(unittest.TestCase):
     def setUpClass(cls):
         cls.text = (ROOT / 'index.html').read_text()
         cls.page = Page(cls.text)
+
+    def section(self, name):
+        found = [s for s in self.page.sections if s['id'] == name]
+        self.assertEqual(len(found), 1, f'Expected one "{name}" section.')
+        return found[0]
 
     def test_open_source_is_visible_and_links_to_the_repository_and_license(self):
         self.assertIn('Open source', self.text)
@@ -47,10 +69,38 @@ class PublicSite(unittest.TestCase):
         self.assertTrue(all(not x.startswith('https://app.') for x in self.page.links))
 
     def test_visitors_can_request_a_walkthrough_without_a_pilot_account(self):
-        contact = [a for a in self.page.anchors if a.get('href') == 'mailto:joe@trustygenius.com']
-        self.assertEqual(len(contact), 2, 'Offer contact beside the main actions and below pilot availability.')
-        self.assertTrue(any('button' in a.get('class', '').split() for a in contact))
-        self.assertEqual(self.text.count('Request a walkthrough'), 2)
+        opening = [s for s in self.page.sections if s['headline']]
+        self.assertEqual(len(opening), 1)
+        self.assertTrue(any('button' in classes for classes in opening[0]['contacts']),
+                        'Offer contact as a main action beside the headline.')
+        self.assertIn('Request a walkthrough', opening[0]['text'])
+
+    def test_navigation_reaches_every_named_section(self):
+        for name in AUDIENCES + ('ai', 'security', 'services'):
+            self.assertIn('#' + name, self.page.links)
+            self.section(name)
+
+    def test_installation_and_support_are_offered_with_their_own_contact(self):
+        offer = self.section('services')
+        self.assertIn('install', offer['text'].lower())
+        self.assertIn('support', offer['text'].lower())
+        self.assertTrue(offer['contacts'], 'Let a buyer reach the provider from the offer itself.')
+
+    def test_assistant_pitch_keeps_the_human_approval_boundary(self):
+        self.assertIn('approve', self.section('ai')['text'].lower())
+
+    def test_remaining_work_is_stated_beside_the_paid_offer(self):
+        self.assertIn('Still being built', self.section('services')['text'])
+
+    def test_each_audience_has_three_film_placeholders_and_no_blocked_media(self):
+        for name in AUDIENCES:
+            audience = self.section(name)
+            self.assertEqual(audience['films'], 3, name)
+            self.assertEqual(audience['text'].count('Coming soon'), 3, name)
+        self.assertFalse(self.page.media, 'headers.inc blocks media; keep placeholders until that policy changes.')
+
+    def test_styling_stays_in_the_public_stylesheet(self):
+        self.assertFalse(self.page.inline_styles, 'headers.inc allows styles only from the public stylesheet.')
 
     def test_operator_and_support_provider_are_visible(self):
         footer = self.text.split('<footer', 1)[1]
@@ -58,7 +108,9 @@ class PublicSite(unittest.TestCase):
         self.assertIn('Built and supported by Trusty Genius', footer)
 
     def test_public_email_links_do_not_require_an_edge_injected_script(self):
-        self.assertEqual(self.page.unmodified_email_links, ['mailto:joe@trustygenius.com'] * 2)
+        mail = [x for x in self.page.links if x.startswith('mailto:')]
+        self.assertEqual(set(mail), {CONTACT})
+        self.assertEqual(self.page.unmodified_email_links, mail, 'Limit the edge exemption to the contact links.')
         self.assertFalse(self.page.email_passthrough, 'Limit the edge exemption to the contact links.')
 
     def test_stylesheet_changes_have_a_new_cache_identity(self):
