@@ -11,6 +11,9 @@ const browser=process.env.CHROME_BIN??'/Applications/Google Chrome.app/Contents/
 // A browser test's limit covers the owned browser's 60 s startup deadline, so a slow start fails with that deadline's own reason
 // rather than as a test timeout.
 export const browserTestTimeout=90000;
+// What a page may take to load and draw its first frame: with the startup deadline it stays inside a test's limit, so a page that is
+// not ready fails with that reason.
+const pageReadyDeadline=20000;
 export const browserAvailable=await access(browser).then(()=>true,()=>false);
 
 // Presses a key in the page as a person does, by the `command` withBrowserPage hands its body. Enter carries its character, which is
@@ -44,8 +47,17 @@ export async function withBrowserPage(page,body){
   const evaluate=async expression=>{const reply=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});assert.ok(!reply.error&&!reply.result.exceptionDetails,JSON.stringify(reply));return reply.result.result.value;};
   await command('Page.enable');
   await command('Emulation.setFocusEmulationEnabled',{enabled:true});
-  await command('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
-  for(let i=0;i<100&&!await evaluate('!!document.querySelector("#host")');i++)await new Promise(r=>setTimeout(r,20));
+  const address=`http://127.0.0.1:${server.address().port}/`;
+  await command('Page.navigate',{url:address});
+  // The body starts on a page that has loaded, its stylesheets included, and drawn a frame. A stylesheet still arriving moves what the
+  // body has measured when it lands, and nothing a frame drives happens before the first one, which a busy machine draws late.
+  const loaded=`location.href===${JSON.stringify(address)}&&document.readyState==='complete'`,until=performance.now()+pageReadyDeadline;
+  while(!await evaluate(loaded)){
+   if(performance.now()>until)throw Error('The test page did not finish loading.');
+   await new Promise(r=>setTimeout(r,20));
+  }
+  if(!await evaluate(`new Promise(resolve=>{requestAnimationFrame(()=>resolve(true));setTimeout(()=>resolve(false),${Math.max(0,Math.round(until-performance.now()))});})`))
+   throw Error('The test page did not draw a frame.');
   await body(evaluate,command);
  }finally{ws?.close();await stopOwnedBrowserGroup(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
 }
