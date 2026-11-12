@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>LeanETRM · Market data</title><link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><script type="module" src="/app.js"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>LeanETRM · Market data</title><link rel="stylesheet" href="/vendor/tabulator.css"><link rel="stylesheet" href="/app.css"><script type="module" src="/app.js"></script></head>
 <body>
 <aside id="app-sidebar" class="sidebar" aria-label="Navigation">
   <div class="brand-row"><a class="brand" href="/" aria-label="LeanETRM home"><span class="brand-icon" aria-hidden="true">L</span><span class="brand-name">LeanETRM</span></a><button id="sidebar-toggle" type="button" class="sidebar-toggle" aria-expanded="true" aria-controls="sidebar-menus" aria-label="Collapse navigation" title="Collapse navigation">‹</button></div>
@@ -58,25 +58,28 @@
     <div><div id="page-section" class="eyebrow">MARKETS</div><h1 id="page-title">Curves & prices</h1><div id="page-heading-slot" class="page-heading-slot" hidden></div></div>
     <div class="header-actions">
       <div id="context-toolbar" class="context-toolbar" role="group" aria-label="View context" hidden>
+        <div class="context-as-of">
         <div id="market-close-controls" class="context-market" role="group" aria-label="Market close">
           <div class="date-control"><label for="market-date-open" title="Choose the recorded prices and business date for this view">Market close</label><div id="market-date-calendar"></div><select id="snapshot" hidden aria-hidden="true" tabindex="-1"><option value="">Choose a date…</option></select>
             <details id="close-history" class="close-history" hidden><summary>Earlier closes for this day</summary><ul id="close-history-list"></ul></details></div>
         </div>
         <div id="business-date-field" class="context-field" hidden><label for="date-context-on">Business date</label><input id="date-context-on" data-context-coordinate="Business date" type="hidden"></div>
         <div class="as-of-widget">
-        <details id="as-of-context" class="as-of-context"><summary id="as-of-context-summary" aria-describedby="knowledge-context-help">As of details</summary><div class="as-of-panel">
+        <details id="as-of-context" class="as-of-context"><summary id="as-of-context-summary" aria-describedby="knowledge-context-help"><span id="as-of-close">As of details</span></summary><div class="as-of-panel">
           <div id="close-session-control" class="date-control session-control"><label for="close-session">Close convention</label><select id="close-session" title="Choose the calendar and cutoff used for recorded closes" aria-describedby="close-session-help"><option value="">Choose a session…</option></select>
-            <span id="close-session-status" class="field-help" role="status" hidden>Your default close convention is no longer available. Choose a published convention to see prices.</span></div>
+            <span id="close-session-status" class="field-help" role="status" hidden>Your default close convention is no longer available. Choose a published convention to see prices.</span>
+            <span id="close-instant" class="field-help" role="status" hidden></span></div>
           <div id="date-context" class="context-controls" hidden><div class="knowledge-panel"><span id="knowledge-summary" class="field-help">Current knowledge</span>            <div class="context-field context-knowledge"><label for="date-context-view">As known on · <span data-user-time-zone></span></label><input id="date-context-view" data-context-coordinate="As known on" type="datetime-local" step="1" required></div>
             <p id="context-date-help" class="field-help"></p><p id="workspace-mode-label" role="status" class="field-help">Working data</p><p id="header-calculation-time" class="field-help context-read"></p><p id="environment-context-note" role="status" class="field-help">Current workspace · exact selected inputs</p>
             <div class="schedule-actions"><button id="date-context-latest" type="button" class="text-button">Use current knowledge</button><button id="follow-live" type="button" class="text-button" title="Follow committed corrections to these selected facts. Effective date, market date, observation times and contracts stay fixed.">Follow live corrections</button></div>
           </div></div>
         </div></details></div>
+        </div>
         <div id="context-actions" class="context-actions" hidden><button id="apply-view-context" type="button">Apply</button><button id="current-view-context" type="button" class="secondary" title="Return to working data">Working data</button></div>
         <p id="close-window-note" class="field-help" role="status" hidden></p><span id="live-status" class="live-status" role="status" aria-live="polite" hidden></span><button id="live-retry" type="button" class="secondary" hidden>Retry refresh</button>
         <details id="context-help" class="context-help"><summary aria-label="Explain view context" title="Explain view context">?</summary><div class="context-help-panel" role="note">
           <p id="close-session-help"><strong>Close convention</strong> defines the calendar and cutoff for a recorded close. Choose a default in Profile, or override it for this view here. Selecting a convention does not run a close.</p>
-          <p><strong>Market close</strong> selects recorded prices and their business date. Pages with a <strong>Business date</strong> use it to select effective records.</p>
+          <p><strong>Market close</strong> selects recorded prices and their business date. The close convention named beneath it sets the close's time of day, and As of details states the exact instant. Pages with a <strong>Business date</strong> use it to select effective records.</p>
           <p id="knowledge-context-help"><strong>Knowledge</strong> sets the information cutoff. Current knowledge includes records available now; an earlier cutoff excludes later corrections.</p>
           <p>A recorded close uses the close currently in force for its session and day, with its original price inputs. Other records respect the knowledge cutoff.</p>
           <p>Times are shown in <span data-user-time-zone></span>. Changes to knowledge take effect when you choose <strong>Apply</strong>. <strong>Working data</strong> returns to current knowledge and the latest available close.</p>

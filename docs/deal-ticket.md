@@ -122,7 +122,7 @@ One card per side, side by side, in instrument order. A card has a coloured top
 edge and a pill for its kind (Physical, Payment, Floating, Fee, Cargo, Freight,
 Attributes), its name, then two bands:
 
-1. **Common to all sides** (green band). The same rows in every card, in the
+1. **Common to all sides** (accent band). The same rows in every card, in the
    same order, at the same height: Direction, Start, End, Product / TOU,
    Quantity, Price, Payment. Labels may differ per side ("Price per
    MMBtu", "Rate per MMBtu"); the row is the same kind of field. The cards share
@@ -221,8 +221,8 @@ on a day that has not ended, still refuses the schedule.
 
 ### Footer
 
-Preview and Book (or Save amendment, Book close-out), with the note that green
-fields were filled from a lookup.
+Preview and Book (or Save amendment, Book close-out), with the note that
+highlighted fields were filled from a lookup.
 
 ### Pane width
 
@@ -242,7 +242,7 @@ same way on every product.
 | State | Drawn as | Sent with the trade |
 | --- | --- | --- |
 | Editable | Input or drop-down | Yes |
-| Looked up | Green field with a chip naming the source ("Close 30 Oct", "Tariff T-2", "Calendar", "Asset") | Yes, as the value shown |
+| Looked up | Accent-tinted field with a chip naming the source ("Close 30 Oct", "Tariff T-2", "Calendar", "Asset") | Yes, as the value shown |
 | Derived | Read-only value with its rule | No; the backend derives it |
 | Information | Grey read-only slot | No; not a term |
 | Coming soon | Greyed, hatched, dashed, with a *Coming soon* tag; hover explains what it will do | No; holds no value |

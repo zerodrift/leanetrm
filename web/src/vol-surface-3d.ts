@@ -183,7 +183,6 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
   draw();
  }
  const resize=new ResizeObserver(measure);resize.observe(canvas);
- const scheme=matchMedia('(prefers-color-scheme: dark)');scheme.addEventListener('change',draw);
 
  const turn=(yaw:number,pitch:number)=>{angle={yaw:angle.yaw+yaw,pitch:Math.min(pitchLimits[1],Math.max(pitchLimits[0],angle.pitch+pitch))};draw();};
  // The stalk under the pointer: the nearest market point within reach, or else the nearest stalk; the nearer to the viewer on a tie.
@@ -212,7 +211,7 @@ export function drawSurface3d(canvas:HTMLCanvasElement,surface:VolSurfaceResult,
  return {
   reset(){angle={...initial};draw();},
   dispose(){
-   resize.disconnect();scheme.removeEventListener('change',draw);unsubscribe();
+   resize.disconnect();unsubscribe();
    canvas.removeEventListener('pointerdown',down);canvas.removeEventListener('pointermove',move);canvas.removeEventListener('pointerup',up);canvas.removeEventListener('pointercancel',up);
    canvas.removeEventListener('keydown',key);
   },

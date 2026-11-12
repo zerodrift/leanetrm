@@ -399,8 +399,12 @@ resolve latest corrections again. See [risk scenarios and jobs](risk-engine.md).
 
 ## Shared context header and selected fact reads (D354)
 
-The header names the selected recorded price inputs **Market close**. Expanding
-**As of details** reveals **Close convention** and **As known on**. The convention
+The header names the selected recorded price inputs **Market close** and shows
+them as the close's business day, without a time of day; a working snapshot,
+which no convention times, keeps its instant (D384). **As of details** sits
+beneath it, collapsed, and its collapsed line names the close convention in
+use. Expanding it reveals **Close convention**, the selected close's instant
+and **As known on**. The convention
 selects the published closing calendar/cutoff; choosing it does not run a close.
 Profile stores an explicitly chosen default for opening the workspace; a header
 override applies only to the current view. Saving a default leaves that view unchanged.

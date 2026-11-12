@@ -33,7 +33,7 @@ test('time chart and overlay controls in the real chart library',{skip:!browserA
   assert.equal(await evaluate('chart.getBarSpace().bar'),20,'resizing preserves user zoom');
   await evaluate(`(()=>{window.strokes=[];const proto=CanvasRenderingContext2D.prototype;for(const method of ['beginPath','moveTo','lineTo','stroke']){const original=proto[method];proto[method]=function(...args){if(method==='beginPath')this.testPath=[];else if(method==='stroke')strokes.push({color:this.strokeStyle,path:this.testPath});else this.testPath?.push([method,...args]);return original.apply(this,args);};}view.update({...spec,points:points.slice(0,3),overlays:[{...spec.overlays[0],series:{value:spec.overlays[0].series.value.slice(0,3)}}]});})()`);
   await evaluate('new Promise(r=>setTimeout(r,100))');
-  assert.equal(await evaluate("strokes.some(s=>s.color==='#2a78d6'&&s.path?.length===2&&s.path[0][0]==='moveTo'&&s.path[1][0]==='lineTo'&&s.path[0][1]<s.path[1][1]&&s.path[0][2]===s.path[1][2])"),true,'an overlay with just two available values draws its line');
+  assert.equal(await evaluate("strokes.some(s=>s.color==='#e26d28'&&s.path?.length===2&&s.path[0][0]==='moveTo'&&s.path[1][0]==='lineTo'&&s.path[0][1]<s.path[1][1]&&s.path[0][2]===s.path[1][2])"),true,'an overlay with just two available values draws its line');
   await evaluate('view.dispose()');
   assert.equal(await evaluate("document.querySelector('#host').children.length"),0);
  });

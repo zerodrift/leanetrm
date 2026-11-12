@@ -274,7 +274,7 @@ test('swap PV by market is one horizontal, sign-colored panel per currency, larg
  // The card's heading is drawn once by the desk; each panel is captioned by its currency.
  assert.deepEqual(panels.map(p=>p.title),['EUR · bar right = gain','USD · bar right = gain']);
  const usd=panels[1].series[0].points;
- assert.deepEqual(usd.map(p=>[p.label,p.y,p.text,p.marker]),[['Power forward','230','+#230','#2a78d6'],['Gas forward','-10','−#10','#eb6834']]);
+ assert.deepEqual(usd.map(p=>[p.label,p.y,p.text,p.marker]),[['Power forward','230','+#230','#5893ee'],['Gas forward','-10','−#10','#e26d28']]);
  assert.equal(panels[1].subtitle,"Excludes 1 position that can't be valued at this close");
  assert.equal(panels[0].subtitle,undefined);
 });
@@ -284,7 +284,7 @@ test('long and short by market is one panel per quantity unit; swaps are drawn o
  assert.deepEqual(panels.map(p=>p.unit),['MMBtu (IT)','MWh']);
  assert.deepEqual(panels.map(p=>p.title),['MMBtu (IT) · bar right = long','MWh · bar right = long']);
  const [gas,power]=panels.map(p=>p.series[0].points);
- assert.deepEqual(gas.map(p=>[p.label,p.y,p.color,p.direction??null]),[['Gas forward · Swaps · mixed directions',null,'#eb6834',null],['Gas future · Futures','0','#eb6834',null]]);
+ assert.deepEqual(gas.map(p=>[p.label,p.y,p.color,p.direction??null]),[['Gas forward · Swaps · mixed directions',null,'#e26d28',null],['Gas future · Futures','0','#e26d28',null]]);
  assert.deepEqual(power.map(p=>[p.label,p.y,p.direction??null,p.text]),[['Power euro forward · Swaps','50','negative','#50 receive fixed'],['Power forward · Swaps · multi-side',null,null,undefined]]);
  assert.equal(gas[1].text,'#0');
  assert.deepEqual(panels.map(p=>p.subtitle),['Not drawn: Gas forward · Swaps · mixed directions','Not drawn: Power forward · Swaps · multi-side'],'each panel names the markets it draws no bar for');
@@ -310,15 +310,15 @@ test('the direction of every swap of a market is found in one pass over the posi
 });
 test('commodity colors follow the design identity and stay distinct for other commodities',()=>{
  const colors=commodityColors(['test_power','other_b','test_gas','other_a']);
- assert.equal(colors.get('test_gas'),'#eb6834');assert.equal(colors.get('test_power'),'#2a78d6');
+ assert.equal(colors.get('test_gas'),'#e26d28');assert.equal(colors.get('test_power'),'#5893ee');
  assert.equal(new Set(colors.values()).size,4);
- assert.deepEqual([colors.get('other_a'),colors.get('other_b')],['#2f8a66','#6250d6']);
+ assert.deepEqual([colors.get('other_a'),colors.get('other_b')],['#2dac7c','#9b7ee5']);
 });
 test('the explicit energy codes of the imported catalog take the same identity colors as the synthetic ones',()=>{
  const colors=commodityColors(['electricity','gas','test_gas','test_power','other']);
- assert.deepEqual(['gas','test_gas'].map(code=>colors.get(code)),['#eb6834','#eb6834']);
- assert.deepEqual(['electricity','test_power'].map(code=>colors.get(code)),['#2a78d6','#2a78d6']);
- assert.equal(colors.get('other'),'#2f8a66');
+ assert.deepEqual(['gas','test_gas'].map(code=>colors.get(code)),['#e26d28','#e26d28']);
+ assert.deepEqual(['electricity','test_power'].map(code=>colors.get(code)),['#5893ee','#5893ee']);
+ assert.equal(colors.get('other'),'#2dac7c');
 });
 
 // The shapes of a curve whose view selects no contract, and of one whose contracts the close prices none of, as the backend states them.
