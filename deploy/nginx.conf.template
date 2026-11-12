@@ -44,6 +44,30 @@ server {
         add_header Cache-Control "public, max-age=300" always;
         limit_except GET HEAD { deny all; }
     }
+    # Each media folder serves only regular files under single lowercase names of its listed types, and states
+    # their content types itself. Films, captions and posters are installed by the operator, not the repository.
+    location ^~ /_landing/images/ {
+        if ($uri !~ "^/_landing/images/[a-z0-9][a-z0-9-]*\.(webp|png|jpg)\z") { return 404; }
+        if (-d $request_filename) { return 404; }
+        alias ${LANDING_ROOT}/images/;
+        disable_symlinks on from=$document_root;
+        log_not_found off;
+        types { image/webp webp; image/png png; image/jpeg jpg; }
+        include ${LANDING_HEADERS};
+        add_header Cache-Control "public, max-age=300" always;
+        limit_except GET HEAD { deny all; }
+    }
+    location ^~ /_landing/films/ {
+        if ($uri !~ "^/_landing/films/[a-z0-9][a-z0-9-]*\.(mp4|vtt|webp|jpg)\z") { return 404; }
+        if (-d $request_filename) { return 404; }
+        alias ${LANDING_ROOT}/films/;
+        disable_symlinks on from=$document_root;
+        log_not_found off;
+        types { video/mp4 mp4; text/vtt vtt; image/webp webp; image/jpeg jpg; }
+        include ${LANDING_HEADERS};
+        add_header Cache-Control "public, max-age=300" always;
+        limit_except GET HEAD { deny all; }
+    }
     location ^~ /_landing/ { return 404; }
     location = /app/ { return 308 /app$is_args$args; }
     location = /app {

@@ -168,13 +168,13 @@ memory or work on untrusted input), *storage* (a stored field's length) or
 | Request deadline | `Program.cs:88` | 15 s; 20 s for `/api/ppa` | **Move:** hosted |
 | Gateway read timeout | `deploy/nginx.conf.template:25` | 20 s | **Move:** hosted, written from the same value (must exceed the longest deadline) |
 | Page request timeout | `web/src/app.ts:120` | 20 s for everything | **Move:** served by the API from the hosted deadline; the page keeps none of its own |
-| Request body | `Program.cs:35`, `:240`; `deploy/nginx.conf.template:16`, `:72`, `:79`, `:84` | 32 KiB; 8 MiB for interval-series revisions | **Move:** hosted, written to both; ceilings fixed |
+| Request body | `Program.cs:35`, `:240`; `deploy/nginx.conf.template:16`, `:96`, `:103`, `:108` | 32 KiB; 8 MiB for interval-series revisions | **Move:** hosted, written to both; ceilings fixed |
 | Database pools and timeouts | `HostedConfiguration.cs:49`; `PreviewDatabase.cs:133-168`; `Worker/Program.cs:22`, `:48` | 8, 6 and 2 connections; 5 s command and connect | **Move:** hosted |
 | Database connections | `deploy/compose.yaml:15` | `max_connections=80` | **Move:** hosted; the start check proves it exceeds the sum of pools |
 | Live contexts | `LiveContexts.cs:48`, `:74`, `:89` | 10 s heartbeat, 5 s write, 250 ms poll | **Move:** hosted |
 | Calculation change poll | `CalculationChanges.cs:42` | 1 s | **Move:** hosted |
 | Container resources | `deploy/compose.yaml:21-68`; `deploy/swarm-workers.yaml:31`, `:83`; `deploy/risk-workers.swarm.yaml:26-28`; `SwarmWorkloads.cs:145`, `:183` | memory, CPU, process and `/tmp` limits; restart delay | Already deploy configuration, with no check that they agree with the pools and workers. Add one to the release gate |
-| Gateway, timers and services | `deploy/nginx.conf.template:38`, `:44`; `openetrm-collection.service:9-10`; `openetrm-collection.timer:5`; `openetrm-deployment.service:18`; `openetrm-deployment.timer:7`; `openetrm-worker-database-proxy.service:10`, `:24` | static cache 300 s; 2 h and 10 min start timeouts; 08:00 UTC collection; 600 s waits | Already deploy configuration. Keep there |
+| Gateway, timers and services | `deploy/nginx.conf.template:38`, `:44`, `:57`, `:68`; `openetrm-collection.service:9-10`; `openetrm-collection.timer:5`; `openetrm-deployment.service:18`; `openetrm-deployment.timer:7`; `openetrm-worker-database-proxy.service:10`, `:24` | static cache 300 s; 2 h and 10 min start timeouts; 08:00 UTC collection; 600 s waits | Already deploy configuration. Keep there |
 | Release tooling | `tools/deploy_release.py:75`, `:103`, `:222`, `:403`, `:420` | 15–180 s step timeouts | Fixed: operator tooling, outside the application |
 | Swarm gateway | `SwarmGateway.cs:30`, `:95`, `:99`, `:115`; `SwarmConnection.cs:19`; `Worker/Program.cs:75` | 1,024 nodes, 4 MiB, 80-character names; 1–15 s timeout | Fixed: guard; the timeout is already configuration |
 | Infrastructure freshness | `automation.infrastructure_directory`, `request_node_command`, `resolve_node_command` | 30 s | **Move:** hosted, with the worker poll it must exceed |
