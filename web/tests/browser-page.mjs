@@ -35,7 +35,7 @@ export async function withBrowserPage(page,body){
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const directory=await mkdtemp(join(tmpdir(),'openetrm-page-'));
  const chrome=spawn(browser,['--headless=new','--no-first-run','--no-default-browser-check','--remote-debugging-port=0',`--user-data-dir=${directory}`,'about:blank'],{stdio:'ignore',detached:true});
- let ws;
+ let ws,failure;
  try{
   ws=new WebSocket(await waitForBrowserPage(directory,chrome));
   // The connection bounds its opening and each command, so a browser that stops answering fails the test with that reason and the
@@ -46,5 +46,12 @@ export async function withBrowserPage(page,body){
   await command('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
   for(let i=0;i<100&&!await evaluate('!!document.querySelector("#host")');i++)await new Promise(r=>setTimeout(r,20));
   await body(evaluate,command);
- }finally{ws?.close();await stopOwnedBrowserGroup(chrome);await new Promise(r=>server.close(r));await rm(directory,{recursive:true,force:true});}
+ }catch(error){failure=error;throw error;}
+ finally{
+  ws?.close();
+  // A browser that cannot be confirmed stopped keeps its profile and is reported beside the test's own failure. The server closes
+  // either way, so it does not keep the test file's process alive.
+  try{await stopOwnedBrowserGroup(chrome,failure);await rm(directory,{recursive:true,force:true});}
+  finally{await new Promise(r=>server.close(r));}
+ }
 }
