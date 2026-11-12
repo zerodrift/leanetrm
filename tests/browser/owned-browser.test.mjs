@@ -7,7 +7,7 @@ import {mkdtemp,rm,stat,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {waitForBrowserPort,waitForBrowserPage,stopOwnedBrowser,stopOwnedBrowserGroup,browserPageActions,idle} from './owned-browser.mjs';
+import {waitForBrowserPort,waitForBrowserPage,stopOwnedBrowser,stopOwnedBrowserGroup,browserPageActions,closeOwnedPageFromControl,idle} from './owned-browser.mjs';
 
 async function fixture(t,args=['-e','setInterval(()=>{},1000)']){
   const directory=await mkdtemp(join(tmpdir(),'openetrm-browser-port-'));
@@ -211,4 +211,35 @@ test('settlement form waits for write, holdings and inspection without submittin
   await actions.submit('#synthetic-payment-form',60000);
   assert.equal(submissions,1,'refreshing financial state must never repeat the payment');
   assert.equal(elapsed,46000);
+});
+
+test('closing a popup accepts its lost debugger reply only after that exact target disappears',async()=>{
+  let requests=0,closed=false,cleaned=0;
+  const page={evaluate:async()=>{requests++;closed=true;throw Error('Browser connection closed.');},close:async()=>{cleaned++;}};
+  await closeOwnedPageFromControl(page,async()=>!closed,'#close',{pause:async()=>{}});
+  assert.equal(requests,1);assert.equal(cleaned,1);
+});
+
+test('closing a popup still confirms disappearance after a successful action reply',async()=>{
+  let reads=0,cleaned=0;
+  const page={evaluate:async()=>true,close:async()=>{cleaned++;}};
+  await closeOwnedPageFromControl(page,async()=>++reads<3,'#close',{pause:async()=>{}});
+  assert.equal(reads,3);assert.equal(cleaned,1);
+});
+
+test('a popup disconnect cannot pass while its target still exists',async()=>{
+  let cleaned=0;
+  const page={evaluate:async()=>{throw Error('Browser connection closed.');},close:async()=>{cleaned++;}};
+  await assert.rejects(closeOwnedPageFromControl(page,async()=>true,'#close',{pause:async()=>{}}),/did not close/);
+  assert.equal(cleaned,0);
+});
+
+test('an already missing popup or an unrelated action failure cannot pass its close check',async()=>{
+  let requests=0,cleaned=0;
+  const failure=Error('Unexpected evaluation failure');
+  const page={evaluate:async()=>{requests++;throw failure;},close:async()=>{cleaned++;}};
+  await assert.rejects(closeOwnedPageFromControl(page,async()=>false,'#close'),/already closed/);
+  assert.equal(requests,0);
+  await assert.rejects(closeOwnedPageFromControl(page,async()=>true,'#close'),error=>error===failure);
+  assert.equal(cleaned,0);
 });

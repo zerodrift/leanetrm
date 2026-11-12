@@ -137,6 +137,19 @@ async function connect(socket,errors){
   return {command,evaluate,wait,click,set,submit,abandon};
 }
 
+// A page can close before its final debugger evaluation is acknowledged. Its
+// exact target must exist before the gesture and disappear before cleanup.
+export async function closeOwnedPageFromControl(page,exists,selector,{pause=delay}={}){
+  if(!await exists())throw Error('The owned popup was already closed before the close action.');
+  try{await page.evaluate(`setTimeout(()=>document.querySelector(${JSON.stringify(selector)}).click(),0);true`);}
+  catch(error){if(error.message!=='Browser connection closed.')throw error;}
+  for(let attempt=0;attempt<100;attempt++){
+    if(!await exists()){await page.close();return;}
+    await pause(50);
+  }
+  throw Error('Close window did not close the exact owned popup.');
+}
+
 // A suite whose fixture makes every action heavy may raise the ordinary wait for one action, at most to a minute.
 const actionWait=(()=>{const value=process.env.OPENETRM_BROWSER_ACTION_WAIT_MS;if(value===undefined)return 10000;const ms=Number(value);
   if(!Number.isInteger(ms)||ms<=0||ms>60000)throw Error('OPENETRM_BROWSER_ACTION_WAIT_MS must be a whole number of milliseconds up to 60000.');return ms;})();
