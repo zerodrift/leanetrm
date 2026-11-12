@@ -673,7 +673,7 @@ export function renderDataGrid(host:HTMLElement,key:string,scope:string,headers:
               if(old&&old.innerHTML!==next.innerHTML){const focused=old.contains(document.activeElement);old.replaceWith(next);if(focused)next.focus({preventScroll:true});}
             }
             for(const cell of changes){const row=table.getRow(keys[cell.row]);const element=row?row.getElement().querySelector<HTMLElement>(`[tabulator-field="${field(cell.column)}"]`):null;
-              if(element?.isConnected){const animation=element.animate([{backgroundColor:'#fff1b8'},{backgroundColor:'transparent'}],{duration:1600});animation.id='value-update';}}
+              if(element?.isConnected){const animation=element.animate([{backgroundColor:'var(--warn-border)'},{backgroundColor:'transparent'}],{duration:1600});animation.id='value-update';}}
           }else{drawFilters();report();await regroup(grouped);lay(given);applyLayout(options.layout);fit();}
           markStale(null);
         }catch(error){

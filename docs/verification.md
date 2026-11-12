@@ -4279,3 +4279,62 @@ price-inspection controls, graph types and retained hourly profile presentation.
 See [the capability contract](power-curve-composition.md) and
 [the booked numerical examples](power-booked-roll.md) for exact limits. No
 production finality, accounting or performance qualification is implied.
+
+
+## One dark theme (D382, local)
+
+The standard frontend suite holds the theme. The stylesheets state no colour
+outside the token block and read no custom property that is neither defined
+there nor set by a view. Text, mark, focus-ring, volatility and curve-kind
+tokens meet the D382 ratios on every surface they are used on. The shared
+chart's colours equal the tokens and the palette, each palette colour is 3:1
+or better on every chart surface, and heatmap cell labels keep 4:1 or better
+along each ramp. The sign-in page states only theme colours.
+
+Browser checks draw real grids (rows, an open row, groups and their totals, a
+pinned totals row, pages, a coming-soon column and the empty state), native
+controls with a dialog, and the parametric, historical and Monte Carlo VaR
+report views from synthetic reports with every collapsed section opened. An
+audit of each drawn page finds no opaque ground above a relative luminance of
+0.2 on an element 32px or more each way and no text, a form control's value
+included, under 4.5:1 on its ground; a dialog's ground is the card surface.
+The audit does not judge dimmed or disabled content, text over a background
+image, generated content or a state that needs the pointer. The grid check
+fails against the grid library's own stylesheet alone.
+
+Local checks on 2026-11-12, each preview against its own disposable database:
+`npm test --prefix web` (1583 tests); the standard preview with its HTTP and
+browser checks (market navigation, the profile dialog, administration, power
+TOUs, parties, futures, the trade editor, swaps, risk and dashboard, tables
+and the Blotter, units and notices); the hosted sign-in preview with its
+browser checks; the owned browser tests and the verification runner. The full
+`tools/check_all.py` was not run.
+
+In a local preview the market board, a business-date page, the Blotter as a
+read-only account and the header were looked at with the same audit. This
+branch's charts, VaR report views and 3D volatility surface were looked at on
+synthetic data drawn from the built bundle. No release was deployed, and no
+other page or state was looked at in a running application built from this
+branch.
+
+## Date-only As of with its details beneath (D383, local)
+
+A unit check holds the As of label: a recorded close is named by the business
+day the backend states, also where its instant falls on another day in the
+display zone, and a working snapshot by its instant. A markup check holds As
+of details after the Market close and Business date inside their own group.
+
+The browser checks of the header ran in the standard preview (its market
+navigation checks include the header's), the market close calendar preview
+(calendar and regional close session checks) and the context read preview
+(context recovery checks). They require that the As of is a
+date without a time, that the collapsed line sits beneath it and names exactly
+the close convention in use with the knowledge controls hidden, that opening
+it shows the convention, the selected close's instant and the knowledge
+cutoff, and that an absent default stays collapsed, selects nothing and asks
+for a convention.
+
+The header was also looked at in a local preview at desktop and phone width,
+collapsed and expanded, and on a page read by business date, where the line
+reads As of details beneath the Business date. A working snapshot and a
+historical view were not looked at in the running app.

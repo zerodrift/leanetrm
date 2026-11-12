@@ -174,6 +174,7 @@ function renderWorkspaceMode(){
   text('context-date-help',knowledgeHelp+' '+dateHelp);
   text('knowledge-summary',contextDirty?'Unapplied context':navigation?.live?'Live corrections':historical?'Historical · read only':'Current knowledge');
   $('as-of-context-summary').title='Expand to choose a close convention or information cutoff.';
+  renderAsOfClose();
   const expanded=$<HTMLDetailsElement>('as-of-context').open;
   $('as-of-context').dataset.contextMode=$('date-context').dataset.contextMode;
   $('context-actions').hidden=!showsContext(page)||!contextDirty&&!historical&&!expanded;
@@ -181,6 +182,17 @@ function renderWorkspaceMode(){
   $('current-view-context').hidden=!contextDirty&&!historical&&!expanded;
   $('follow-live').hidden=historical||contextDirty||!['market','curve-definitions','custom-curves','futures'].includes(page);
   $('follow-live').toggleAttribute('disabled',busy||!select('snapshot').value);
+}
+// Collapsed, As of details names the close convention in use and nothing else, and says so when one still has to be chosen; a page
+// read by business date has no close to name. Opened, it also states the selected close's instant, which the As of leaves out (D383).
+function renderAsOfClose(){
+  const byBusinessDate=usesBusinessDate(page),named=byBusinessDate?'As of details':closeSession===null?'Choose a close convention':closeSessionNames.get(closeSession)??closeSession;
+  text('as-of-close',named);
+  $('as-of-context-summary').setAttribute('aria-label',byBusinessDate?named:`As of details · ${named}`);
+  $('as-of-context').dataset.close=byBusinessDate?'none':closeSession===null?'choose':'named';
+  const shown=byBusinessDate?undefined:navigation?.frames.find(f=>f.id===select('snapshot').value);
+  $('close-instant').hidden=!shown?.close;
+  text('close-instant',shown?.close?`This close is at ${instant(shown.at)}, ${prefs.timeZone}.`:'');
 }
 async function responseFor(path:string,body?:unknown,root=apiRoot,signal?:AbortSignal):Promise<Response>{
   let response:Response;

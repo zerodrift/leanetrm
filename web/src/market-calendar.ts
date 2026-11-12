@@ -27,9 +27,17 @@ export function unavailableClosesMessage(catalog:Pick<MarketDates,'dates'|'unava
  return ['No complete close is available for this selection.',...details,'Choose another curve or ask a market-data maintainer to complete its inputs and configuration.'].join(' ');
 }
 
+/**
+ * What the As of shows for the selected frame (D383). A recorded close is named by its business day alone: its time of day is its
+ * close convention's cutoff, which As of details names. A working snapshot is a close of no convention and keeps its instant.
+ */
+export function asOfLabel(frame:{at:string;close?:{businessDate:string}|null},zone:string):string{
+ return frame.close?displayDate(frame.close.businessDate):displayInstant(frame.at,zone);
+}
+
 const badgeText:Record<CloseBadge,string>={latest:'Latest close',selected:'Selected close',newer:'Newer close available',choose:'Choose a close',working:'Working snapshot'};
 
-export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;busy:()=>boolean;enabled:()=>boolean;selected:()=>string;current:()=>{at:string}|undefined;businessDate?:()=>string;select:(id:string)=>void;open:()=>void;newer:()=>void;workspace?:{enabled:()=>boolean;open:()=>void}}){
+export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;busy:()=>boolean;enabled:()=>boolean;selected:()=>string;current:()=>{at:string;close?:{businessDate:string}|null}|undefined;businessDate?:()=>string;select:(id:string)=>void;open:()=>void;newer:()=>void;workspace?:{enabled:()=>boolean;open:()=>void}}){
  const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=publicText(text);return n;};
  const open=el('button','Choose a date…');open.type='button';open.id='market-date-open';open.className='market-date-trigger secondary';open.setAttribute('aria-haspopup','dialog');open.setAttribute('aria-controls','market-date-dialog');open.setAttribute('aria-describedby','market-date-status');
  // Says which close the control shows. Only a newer close arriving makes it a button, which selects that close.
@@ -55,9 +63,8 @@ export function setupMarketCalendar(host:HTMLElement,options:{zone:()=>string;bu
   if(focusOnOpen&&dialog.open&&!options.busy()&&!pending){focusOnOpen=false;(grid.querySelector<HTMLButtonElement>('button[tabindex="0"]:not(:disabled)')??close).focus();}
  }
  function header(){
-  const frames=allCloses(),index=frames.findIndex(frame=>frame.id===options.selected()),selected=index>=0?frames[index]:options.current();
-  const businessDate=options.businessDate?.();
-  open.textContent=index>=0?timeLabels(frames.map(frame=>frame.at),options.zone())[index]:selected?displayInstant(selected.at,options.zone()):businessDate?`${displayDate(businessDate)} · choose a close`:catalog&&!catalog.dates.length?'No available closes':'Choose a date…';
+  const selected=options.current(),businessDate=options.businessDate?.();
+  open.textContent=selected?asOfLabel(selected,options.zone()):businessDate?`${displayDate(businessDate)} · choose a close`:catalog&&!catalog.dates.length?'No available closes':'Choose a date…';
   open.title=`Choose recorded prices and their business date · ${options.zone()}`;status.textContent=pending?'Checking available closes…':message;sync();
  }
  // A close chosen closes the dialog and hands what follows to the page, which may ask a question and focus it before the dialog's close

@@ -310,7 +310,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D256 | A turn's pinned As of frame may hold up to 256 KiB | Decided by the owner (2026-10-27). Migration 0122 raises `assistant.pin_turn`'s bound on a frame's pin JSON from 64 KiB to 256 KiB (262,144 bytes); nothing else changes. It applies over 0072's definition or one already identical to its own, as the hosted pilot's has been since its hotfix. |
 | D257 | A period-contract price node returns the selected settlement index's published fixing once due, and a side may override its curve's settlement index | Decided by the owner (2026-10-28); local implementation trial in progress, qualification pending. For date-only period-contract observations (swaps and PPA period curves; interval curves are unchanged), each `FloatingSide` index price term (D253) states its settlement selection: the curve's declared single-index target, or a different named override index, never defaulted. The price node returns the bound projection before the selected index's fixing instant and that index's published final fixing, selected under the market cutoff, at or after it; between expiry and the fixing instant it is refused as today. Node dependencies follow the resolved context, so a due node depends only on its fixing. An override projects from the curve's forward marks as the recorded no-basis choice `forward_curve_no_basis_v1`, labelled in receipts and risk. The swap spread becomes the price term's adder. Refines D165 and D253; consistent with D32 and D37 |
 | D258 | Persist each booked side's complete schedule and load it for valuation | Decided by the owner (2026-10-28); local implementation trial in progress, qualification pending. Refines D253 and D195. Booking retains every logical row of a side's pricing (observations, applications, averages, quantity steps, amounts, discount and valuation steps) with explicit roles and named output roots, ordered named edges and typed exact-version bindings. The tables are immutable, published and readable only under `temporal_read`, and valuation finds a schedule through the trade revision visible at its cutoff. Rows define how values are obtained; evaluated values are valuation results. Large schedules stage unpublished and publish in one short fenced, idempotent transaction (D238). Obligation rows keep occurrence keys and digests across amendments of later periods. Normalization becomes a shared specification on the side, and cross-side inputs are typed ports. Valuation refuses rather than regenerates; drafts are transient. Amended for the local trial: stock PostgreSQL retains native calculations as compact vector operations with exact grids and cell identities, rather than separate arithmetic records per interval; scalar dated operations share the contract. Physical layout follows measurement. Within one authorized PPA preparation, exact side identities and retained manifests may share an immutable runtime adapter; every instrument still admits its own membership and sibling bindings, and current source/header authority is rechecked. Market variables and position lifecycle remain valuation inputs |
-| D259 | The backend names each curve's kind (`curve_kinds_v1`); Curve builder and Curves & prices show it as a labelled icon | Decided 2026-10-29; its icons and colours approved by the owner, and `interest_rate` added under the owner's delegation. Kinds let a person tell market, relationship and synthetic curves apart at a glance; a colour is never the only signal, since each kind also has an icon shape and a text label, and dark-scheme colours follow when the app defines a dark theme. A custom curve's kind follows its output step: `weighted_blend` from `weighted_panels`/`weighted_contracts`; `rolling_average` for `mean` over `dates` on a `prior_calendar`/`prior_business` sequence; `balance_of_month` for `mean` over `contracts` on `balance_month` dates; `prompt_contract` for a single relative `positions` selection; anything else, a pass-through included, is `custom`, never a guess. A market curve's kind follows its rule: `market_settlement` or `trader_mark` by direct role (the schema requires one of the two for a direct curve), `basis_spread` for `Add`, `scaled` for `ScaleAdd`; a stored interest-rate curve is `interest_rate`. The kind is derived at read time from the exact definition, never stored, and returned with saved curves, sources, published sources and the navigation directory with `kindsVersion`. The browser draws only what it is sent and refuses an unknown code or version. Graph cards additionally label their backend output type with a distinct icon (curve, contract selection, dates, price panel or curve output); individual exact members are labelled dated contracts. Object type and financial curve kind remain separate presentation dimensions. No migration or permission change |
+| D259 | The backend names each curve's kind (`curve_kinds_v1`); Curve builder and Curves & prices show it as a labelled icon | Decided 2026-10-29; its icons and colours approved by the owner, and `interest_rate` added under the owner's delegation. Kinds let a person tell market, relationship and synthetic curves apart at a glance; a colour is never the only signal, since each kind also has an icon shape and a text label, and its colours on the app's dark theme are those of D382. A custom curve's kind follows its output step: `weighted_blend` from `weighted_panels`/`weighted_contracts`; `rolling_average` for `mean` over `dates` on a `prior_calendar`/`prior_business` sequence; `balance_of_month` for `mean` over `contracts` on `balance_month` dates; `prompt_contract` for a single relative `positions` selection; anything else, a pass-through included, is `custom`, never a guess. A market curve's kind follows its rule: `market_settlement` or `trader_mark` by direct role (the schema requires one of the two for a direct curve), `basis_spread` for `Add`, `scaled` for `ScaleAdd`; a stored interest-rate curve is `interest_rate`. The kind is derived at read time from the exact definition, never stored, and returned with saved curves, sources, published sources and the navigation directory with `kindsVersion`. The browser draws only what it is sent and refuses an unknown code or version. Graph cards additionally label their backend output type with a distinct icon (curve, contract selection, dates, price panel or curve output); individual exact members are labelled dated contracts. Object type and financial curve kind remain separate presentation dimensions. No migration or permission change |
 | D260 | The page assistant may save a custom-curve draft for the person; this supersedes D193's "never grants agent writes" for that one tool | Decided 2026-10-29; [details](#d260--the-page-assistant-saves-custom-curve-drafts). Migration 0128 lays the database groundwork: `save_custom_curve_draft` needs `ReadMarketData` and `WriteMarketDefinitions`, the agent writes under its own `DraftCustomCurves` with its delegator's current `WriteMarketDefinitions` and only the curve version it claimed for a step of its turn, each draft generation records who saved it (a person, or the assistant with its turn and step), `security.custom_curve_agent_writable` limits the assistant to a new curve or a draft whose latest generation it saved in the same conversation, and a `draft` navigation target opens a successful save step of its own turn. The tool ships in runtime set `turns_v9` and records its successful step in the draft's own transaction; Curve builder shows **Saved by assistant** from the saver. The assistant never publishes, changes activations or overwrites a person's draft |
 | D261 | Resolve contract selectors at each observation fixing instant and retain concrete dated contracts in booked schedules | An exact contract or an explicit zero-based prompt offset and roll rule is an authoring input. Each observation selects against its own explicit fixing instant and pinned contract definitions. Booking must materialize the actual dated contract reference for every observation; later valuation consumes those references without rerunning prompt selection. Observation periods, contract delivery periods, exchange expiry and roll boundaries remain distinct. A futures curve supplies the selected dated contract's daily exchange settlement for each observation, then its official final settlement after expiry once published. It never silently substitutes the last live mark or a different index; a different settlement source requires an explicit curve configuration. Missing coverage blocks booking; labels never supply dates. The local scheduled-swap source variant retains exact dated futures observations and samples their daily/final prices through the connected graph. Its first API consumer requires explicit full-month daily arithmetic observations, source history policy and compatible side/curve final-carry rules. Migrations 0131–0132 retain authoring and executable source relationships separately from market evidence. The scheduled ticket now sends explicit clock and selector terms to backend observation generation and retains the returned receipt; ambiguous/nonexistent local times and fixing after payment refuse. Migration 0133 retains source sample manifests for interactive and queued risk, including distinct current fixed and live uses of the same observation. Financial settlement requires due, final source observations and retains determined cash independently of later source availability. Automated-close source-evidence persistence and broader source combinations remain pending; see [the scenario matrix](observation-price-scenarios.md). |
 | D262 | Component history retains raw prices and contract roll jumps | The read-only `raw_component_history_v1` contract samples supported selections through the existing managed evaluator. Each-sample binding resolves canonical contracts per date; context binding and exact weighted mappings remain fixed. Explicit date-window choices, exact saved references, knowledge cutoff and strict missing-observation refusal apply. No back adjustment, inferred roll policy or browser analytics. Coverage and remaining work are recorded in [custom curves](custom-curves.md#raw-component-history) |
@@ -3642,6 +3642,8 @@ opened while the session is historical says it did not open its close.
 **Header.** Close session and knowledge sit in a collapsed **As of details** widget
 beside the visible As of. Its summary names the session and knowledge in use, and it
 opens itself when no session is in force, so a required choice is never hidden.
+D370 keeps it collapsed when no session is in force, and D383 moves it beneath the
+As of and makes its collapsed line the close convention alone.
 
 **Curve configuration.** A gear beside a listed curve opens that curve's definition.
 The navigation read (`curveConfigurations`) names it only for a curve with an admitted
@@ -3833,7 +3835,8 @@ read and write are unchanged.
 
 The header labels recorded price inputs **Market close**. **As of details** is
 collapsed by default and reveals **Close convention** and **As known on** only
-when expanded. Profile saves the existing account/workspace close choice as the
+when expanded (D383 places it beneath the Market close and names the convention
+in use on its collapsed line). Profile saves the existing account/workspace close choice as the
 user’s explicit default; saving it does not change the active financial context.
 A header override affects that view only. Missing or withdrawn defaults never
 select the first available convention. The native published-catalog validation
@@ -4216,3 +4219,79 @@ is a model change and refuses the bounded contractual P&L comparison. Existing
 exact assignment, knowledge, expiry and worker fences remain in force.
 
 See [the ATC example and qualification boundary](power-booked-roll.md#hourly-atc-example).
+
+## D382 · One dark theme, stated as tokens
+
+Decided by the owner (2026-11-12): the application takes a dark look and the
+light theme is removed, not kept as a choice. There is no theme switch and no
+saved theme preference. This supersedes the notes in D259
+and [markets-desk.md](markets-desk.md) that a dark scheme would follow later.
+
+- **Tokens.** Every colour is stated once, in the `:root` block of
+  `web/src/app.css`, and every other rule names a token. That block declares
+  `color-scheme: dark`, and each page states the same scheme in its head, so
+  the browser's own controls, scrollbars and first paint are dark. A custom
+  property a rule reads must be defined there or set by a view; a missing one
+  is a failed check, never a fallback colour.
+- **Palette.** A navy page (`--bg`) under cards (`--surface`), their insets
+  (`--surface-2`) and pressed, hovered and pill grounds (`--surface-3`); three
+  text steps; a blue accent for fills and selection under `--on-accent` text,
+  with `--accent-text` for text in the accent's colour; and the brand's
+  light-blue and amber pair for the mark, the focus ring and highlights.
+  Headings and the brand use a display face of their own.
+- **Contrast.** Text is 4.5:1 or better on every surface it is written on,
+  accent fills included, hovered or not. Gain and loss text is above 6:1.
+  Marks, focus rings and the text of unavailable choices are 3:1 or better.
+  Volatility rich and cheap are 4.5:1 or better. A curve kind is a fill of 6:1
+  or better under an icon of 7:1 or better. Colour is never the only signal:
+  signs, bar direction, icons and labels stay.
+- **Charts.** The shared chart, whose options are composed apart from the
+  page, mirrors the tokens it draws in, and a check holds the two together.
+  Series take a fixed order of blue, orange, green, violet, magenta and
+  yellow, validated on the card surface; power and gas are the first two. A
+  heatmap of one tone rises from the surface through one hue, and a diverging
+  one passes through the surface between loss and gain. Its cell labels are
+  written in one of two inks and keep 4:1 or better along the whole ramp; no
+  pair of inks can hold 4.5:1 across a continuous ramp. The 3D volatility
+  surface is shaded in slate that stays darker than the rich and cheap stalks
+  standing on it.
+- **Grid.** The grid library's own stylesheet is a light one, so every part of
+  it a grid can draw is restated in tokens under the grid's class, and the box
+  the library draws a column's hover text in is restated too.
+- **Dialogs.** A dialog takes the card surface, not the ground the browser
+  gives one under the dark scheme.
+- **Sign-in.** The sign-in page is served without the application's
+  stylesheet and states the same colours itself; a check holds them to the
+  tokens.
+
+No business rule, operation, permission or saved state changes.
+
+## D383 · The As of is a date, and its details sit beneath it naming the close
+
+Owner-directed, 2026-11-12. Refines the header of D354, D361 and D370; no
+read, selection or authority changes.
+
+- **Date only.** Market close shows the selected close's business day and no
+  time of day. A recorded close's instant is its close convention's cutoff on
+  that business day, so the header no longer states the same instant twice.
+  The business day is the one the backend states for the close, never the day
+  of its instant in the display time zone.
+- **Working snapshots.** A working snapshot is a close of no convention, so
+  nothing else names its time: it keeps its instant, beside its Working
+  snapshot badge.
+- **Details beneath.** **As of details** sits under the Market close, or under
+  the Business date on a page read by business date, instead of beside it. It
+  stays collapsed by default (D370). Its collapsed line names the close
+  convention in use and nothing else; with no convention in force it says a
+  convention has to be chosen, without opening or choosing one. A page read by
+  business date has no close to name, and the line reads As of details.
+- **Nothing dropped.** Expanded, the details keep the Close convention choice
+  and the knowledge cutoff, and state the selected close's instant in the
+  person's time zone. A day with several saved closes is still told apart in
+  the calendar, which lists each with its instant and asks for an explicit
+  choice, and a day's replaced closes are still listed under Earlier closes
+  for this day. The Latest close badge and its other states are unchanged.
+
+This supersedes D361's Header paragraph (a summary naming session and
+knowledge, beside the As of) and the later wording that the summary stays
+As of details.

@@ -106,7 +106,7 @@ on the shared ECharts component, which preserves gaps between periods.
   A priced point with no priced neighbour gets a dot, since a line joins only
   neighbours. Hovering shows the exact backend string for the instant, for the
   price and every overlay series, never a rounded number.
-- **Theme.** Colors, fonts and grid come from the CSS tokens; a dark scheme follows when the app defines one (it defines none yet; see Remaining work).
+- **Theme.** Colors, fonts and grid come from the CSS tokens of the app's one dark theme (D382).
 - **Overlays.** The overlay menu lists the backend's overlay catalog. Choosing an
   overlay through its Show switch asks for its parameters (the window, with no prefilled value), sends
   them with the read, and draws the values the backend returns as a registered
@@ -420,9 +420,8 @@ recorded in [decisions.md](decisions.md). D238 (idempotent writes) and D237
 Listed in [plan.md](plan.md): Positions on this curve, Bollinger bands,
 per-selection resolved contracts in custom-curve previews, structured refusals
 for an empty contract or null output position, a reported refusal of a saved
-weighted draft previewed by id and version, rates curves on the market board and
-the dark color scheme. The contract history chart also lost the image export
-the old history card had.
+weighted draft previewed by id and version and rates curves on the market board.
+The contract history chart also lost the image export the old history card had.
 
 ## Verification
 

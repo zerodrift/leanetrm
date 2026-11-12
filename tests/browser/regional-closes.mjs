@@ -6,7 +6,7 @@ export async function run({command,evaluate,wait,persona,check,idle,url,click,se
  await check('the header names the remembered close session',
   "(()=>{const s=document.querySelector('#close-session');return s&&s.value==='demo_close_1600'&&s.selectedOptions[0].textContent.includes('16:00')&&document.querySelector('#close-session-status').hidden;})()");
  await check('Market close is labelled separately and convention and knowledge are collapsed initially',
-  "document.querySelector('label[for=market-date-open]').textContent==='Market close'&&!document.querySelector('#as-of-context').open&&!document.querySelector('#close-session').checkVisibility()&&!document.querySelector('#date-context-view').checkVisibility()&&document.querySelector('#as-of-context>summary').textContent.trim()==='As of details'");
+  "document.querySelector('label[for=market-date-open]').textContent==='Market close'&&!document.querySelector('#as-of-context').open&&!document.querySelector('#close-session').checkVisibility()&&!document.querySelector('#date-context-view').checkVisibility()&&document.querySelector('#as-of-context>summary').textContent.trim()===document.querySelector('#close-session').selectedOptions[0].textContent");
  const original=await evaluate("document.querySelector('#close-session').value");
  let other=await evaluate("[...document.querySelector('#close-session').options].find(o=>o.value&&o.value!==document.querySelector('#close-session').value)?.value");
  if(!other){
@@ -47,7 +47,7 @@ export async function run({command,evaluate,wait,persona,check,idle,url,click,se
    if(path.endsWith('/close-sessions/choice')&&!(args[1]&&args[1].method==='POST'))return new Response(JSON.stringify({session:null}),{status:200,headers:{'Content-Type':'application/json'}});return original(...args);};
  `});
  await command('Page.navigate',{url:url+'/'});await wait("document.querySelector('#close-session')?.options.length>1&&"+idle,30000);
- await check('an absent default keeps the convention and knowledge collapsed without choosing a replacement',"!document.querySelector('#as-of-context').open&&!document.querySelector('#close-session').checkVisibility()&&document.querySelector('#close-session').value===''&&document.querySelector('#snapshot').value===''");
+ await check('an absent default keeps the convention and knowledge collapsed without choosing a replacement, and the collapsed line asks for one',"!document.querySelector('#as-of-context').open&&!document.querySelector('#close-session').checkVisibility()&&document.querySelector('#close-session').value===''&&document.querySelector('#snapshot').value===''&&document.querySelector('#as-of-context>summary').textContent.trim()==='Choose a close convention'");
  await click('#as-of-context>summary');
  await check('expanding As of reveals the correctly labelled convention and information cutoff',"document.querySelector('#close-session').checkVisibility()&&document.querySelector('label[for=close-session]').textContent==='Close convention'&&document.querySelector('#date-context-view').checkVisibility()");
  await command('Page.removeScriptToEvaluateOnNewDocument',{identifier});
