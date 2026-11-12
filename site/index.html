@@ -3,301 +3,810 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LeanETRM · Price the deal. Understand the risk.</title>
+    <title>LeanETRM · Open source ETRM for power, gas, LNG and crude</title>
     <meta
       name="description"
-      content="Open source energy trading software for futures, financial swaps and market curves. Inspect the code, run your own instance or explore the private LeanETRM pilot."
+      content="Open source energy trading and risk management for power, gas, LNG and crude: trade capture, curves, risk and physical operations in one system. Run it yourself, or have Trusty Genius install and support it."
     />
     <link rel="canonical" href="https://leanetrm.com/" />
     <meta property="og:type" content="website" />
     <meta
       property="og:title"
-      content="LeanETRM · Price the deal. Understand the risk."
+      content="LeanETRM · Price the deal. Measure the risk. Deliver the energy."
     />
     <meta
       property="og:description"
-      content="Open source energy trading, with futures, financial swaps and market curves in view."
+      content="Open source trading, risk and physical operations for power, gas, LNG and crude."
     />
     <meta property="og:url" content="https://leanetrm.com/" />
-    <meta name="theme-color" content="#f6f7f0" />
+    <meta name="theme-color" content="#070a13" />
     <link rel="icon" href="/_landing/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/_landing/site.css?v=6601087cfbd6" />
+    <link rel="stylesheet" href="/_landing/site.css?v=70ac8b3ba544" />
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
-    <header class="header wrap">
-      <a class="brand" href="/" aria-label="LeanETRM home"
-        ><span class="brand-mark" aria-hidden="true">L</span>LeanETRM</a
-      >
-      <nav aria-label="Main navigation">
-        <a href="#workspace">Workspace</a><a href="#markets">Markets</a
-        ><a href="#risk">Risk</a
-        ><a class="button small" href="/app"
-          >Sign in <span aria-hidden="true">↗</span></a
+    <header class="header">
+      <div class="wrap header-bar">
+        <a class="brand" href="/" aria-label="LeanETRM home"
+          ><span class="brand-mark" aria-hidden="true">L</span>LeanETRM</a
         >
-      </nav>
+        <nav aria-label="Main navigation">
+          <a href="#trading">Trading</a><a href="#risk">Risk</a
+          ><a href="#physical">Physical</a><a href="#ai">AI</a
+          ><a href="#security">Security</a
+          ><a href="#services">Install &amp; support</a
+          ><a class="button ghost small" href="/app"
+            >Sign in <span aria-hidden="true">↗</span></a
+          >
+        </nav>
+      </div>
     </header>
     <main id="main">
-      <section class="hero wrap">
-        <div class="hero-copy">
+      <section class="hero">
+        <div class="wrap">
           <p class="eyebrow">
-            <span class="dot" aria-hidden="true"></span> Open source energy trading
+            <span class="dot" aria-hidden="true"></span>Open source ETRM
+            <span class="eyebrow-detail">· Power · Gas · LNG · Crude</span>
           </p>
           <h1>
-            Price the deal.<br /><em>Understand<br />the risk.</em>
+            Price the deal. Measure the risk.
+            <br /><em>Deliver the energy.</em>
           </h1>
-          <p class="intro">
-            Open source software for futures, financial swaps and market curves. Follow
-            a trade from its terms to the prices, cash flows and exposures
-            behind the result.
+          <p class="lede">
+            Open source trading, risk and physical operations in one system.
+            Run it yourself, or have us install and support it.
           </p>
           <div class="actions">
-            <a class="button" href="https://github.com/zerodrift/leanetrm"
-              >View the source <span aria-hidden="true">↗</span></a
-            ><a class="text-link" href="/app"
-              >Sign in to the pilot <span aria-hidden="true">↗</span></a
-            >
             <!--email_off-->
-            <a class="button secondary" href="mailto:joe@trustygenius.com"
+            <a class="button" href="mailto:joe@trustygenius.com"
               >Request a walkthrough <span aria-hidden="true">↗</span></a>
             <!--/email_off-->
-          </div>
-          <p class="availability">
-            Private pilot · Sign in with your invited account
-          </p>
-          <p class="pilot-contact">
-            <!--email_off-->
-            <a class="text-link" href="mailto:joe@trustygenius.com">Request a walkthrough</a>
-            <!--/email_off-->
-          </p>
-        </div>
-        <div
-          class="illustration"
-          aria-label="Illustrative energy trading workspace with synthetic prices"
-        >
-          <div class="window-top">
-            <span class="mini-brand">L <strong>LeanETRM</strong></span
-            ><span class="window-status">Market workspace</span>
-          </div>
-          <div class="window-body">
-            <div class="window-label">
-              <span>THE BOOK</span
-              ><span class="synthetic">Synthetic illustration</span>
-            </div>
-            <div class="window-heading">
-              <h2>Every position.<br />A clear reference.</h2>
-              <span class="count">03<span>contracts</span></span>
-            </div>
-            <table class="mini-blotter">
-              <caption class="sr-only">
-                Illustrative futures holdings, with synthetic quote prices
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">Contract</th>
-                  <th scope="col">Holding</th>
-                  <th scope="col">Quote</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th scope="row">
-                    <span class="contract-icon">NG</span
-                    ><span>Henry Hub<small>December 2026 · gas</small></span>
-                  </th>
-                  <td>12 <small>lots</small></td>
-                  <td>3.450 <small>USD/MMBtu</small></td>
-                </tr>
-                <tr>
-                  <th scope="row">
-                    <span class="contract-icon">PJ</span
-                    ><span
-                      >PJM Western Hub<small>December 2026 · power</small></span
-                    >
-                  </th>
-                  <td>8 <small>lots</small></td>
-                  <td>46.250 <small>USD/MWh</small></td>
-                </tr>
-                <tr>
-                  <th scope="row">
-                    <span class="contract-icon">ER</span
-                    ><span>ERCOT North<small>January 2027 · power</small></span>
-                  </th>
-                  <td>5 <small>lots</small></td>
-                  <td>51.800 <small>USD/MWh</small></td>
-                </tr>
-              </tbody>
-            </table>
-            <div class="lineage">
-              <div class="lineage-title">
-                <span class="dot" aria-hidden="true"></span> Follow the market
-                inputs
-              </div>
-              <div class="lineage-flow">
-                <span>Dated contract</span><b aria-hidden="true">→</b
-                ><span>Curve</span><b aria-hidden="true">→</b
-                ><span>Position</span>
-              </div>
-            </div>
-          </div>
-          <div class="window-foot">
-            <span>Explicit units. Retained inputs.</span
-            ><span aria-hidden="true">↗</span>
-          </div>
-        </div>
-      </section>
-      <div class="market-strip">
-        <div class="wrap">
-          <span>Built around energy</span><span>Natural gas</span
-          ><span>Power</span><span>Outright &amp; basis</span
-          ><span>Monthly &amp; daily</span>
-        </div>
-      </div>
-      <section class="section wrap" id="workspace">
-        <div class="section-head">
-          <p class="eyebrow">01 / The workspace</p>
-          <h2>The deal and its detail.<br /><em>In the same place.</em></h2>
-          <p>
-            Start with a proposed trade, inspect the result, and book it when
-            the terms are ready.
-          </p>
-        </div>
-        <div class="features">
-          <article>
-            <span class="feature-no">01</span>
-            <h3>Work the trade.</h3>
-            <p>
-              Capture futures and financial swaps in a shared blotter. Keep the
-              counterparty, legal entity and booking record alongside the
-              contract.
-            </p>
-          </article>
-          <article>
-            <span class="feature-no">02</span>
-            <h3>Price before booking.</h3>
-            <p>
-              Try a deal without creating a position. Inspect swap payments and
-              discounting, or a futures entry price and its open exposure.
-            </p>
-          </article>
-          <article>
-            <span class="feature-no">03</span>
-            <h3>Keep the context.</h3>
-            <p>
-              Choose the market close. Review versioned inputs and retain the
-              quantities, units and contract references used in a calculation.
-            </p>
-          </article>
-        </div>
-      </section>
-      <section class="markets section" id="markets">
-        <div class="wrap market-grid">
-          <div>
-            <p class="eyebrow">02 / The market</p>
-            <h2>Energy has a shape.<br /><em>Your curves should too.</em></h2>
-            <p class="section-intro">
-              Delivery periods, location basis and units belong in the model.
-              Explore market curves with the relationships in view.
-            </p>
-            <a class="text-link" href="/app"
-              >Explore the pilot <span aria-hidden="true">↗</span></a
+            <a class="button ghost" href="https://github.com/zerodrift/leanetrm"
+              >View the source <span aria-hidden="true">↗</span></a
             >
           </div>
-          <div class="market-details">
-            <div>
-              <span>Gas</span>
-              <h3>Benchmark &amp; location basis</h3>
-              <p>
-                Keep directly quoted prices and explicitly linked spread curves
-                distinct. Follow the declared dependencies behind a value.
-              </p>
-            </div>
-            <div>
-              <span>Power</span>
-              <h3>Delivery &amp; time of use</h3>
-              <p>
-                Preview delivery schedules and unit-aware quantities, including
-                total MWh or a flat MW rate over the selected hours.
-              </p>
-            </div>
-            <div>
-              <span>History</span>
-              <h3>The selected market close</h3>
-              <p>
-                Inspect dated observations and their versions. Keep historical
-                context attached to the inputs you use.
-              </p>
+          <p class="fineprint">
+            Apache 2.0 license · Standard PostgreSQL · Yours to run
+          </p>
+          <div class="shot">
+            <div
+              class="panel"
+              role="group"
+              aria-label="Illustrative risk workspace with synthetic values"
+            >
+              <div class="panel-top">
+                <span>Blotter</span><span>Curves</span
+                ><span class="on">Risk</span><span>Operations</span
+                ><span class="synthetic">Synthetic illustration</span>
+              </div>
+              <div class="panel-grid">
+                <div class="tile">
+                  <p class="tile-label">Forward curve</p>
+                  <p class="tile-title">Henry Hub · USD/MMBtu</p>
+                  <svg
+                    class="chart"
+                    viewBox="0 0 520 190"
+                    role="img"
+                    aria-label="Illustrative forward curve with an upward price scenario"
+                  >
+                    <defs>
+                      <linearGradient id="curve-fill" x1="0" y1="0" x2="0" y2="1">
+                        <stop class="fill-top" offset="0" />
+                        <stop class="fill-end" offset="1" />
+                      </linearGradient>
+                      <linearGradient id="flame" x1="0" y1="0" x2="1" y2="1">
+                        <stop class="flame-start" offset="0" />
+                        <stop class="flame-end" offset="1" />
+                      </linearGradient>
+                    </defs>
+                    <path class="grid" d="M0 40H520M0 85H520M0 130H520" />
+                    <path
+                      fill="url(#curve-fill)"
+                      d="M0 116C22 110 40 60 65 58C95 56 120 104 150 120C175 132 215 132 245 116C275 100 295 54 325 52C355 50 380 100 410 116C440 130 480 128 520 110V168H0Z"
+                    />
+                    <path
+                      class="shock"
+                      transform="translate(0 -16)"
+                      d="M0 116C22 110 40 60 65 58C95 56 120 104 150 120C175 132 215 132 245 116C275 100 295 54 325 52C355 50 380 100 410 116C440 130 480 128 520 110"
+                    />
+                    <path
+                      class="curve"
+                      pathLength="1"
+                      d="M0 116C22 110 40 60 65 58C95 56 120 104 150 120C175 132 215 132 245 116C275 100 295 54 325 52C355 50 380 100 410 116C440 130 480 128 520 110"
+                    />
+                    <circle class="point" cx="325" cy="52" r="4.5" />
+                    <rect class="chip" x="263" y="2" width="124" height="26" rx="7" />
+                    <text class="chip-text" x="325" y="20" text-anchor="middle">Jan 28 · 4.182</text>
+                    <text class="axis" x="0" y="186">Oct 26</text>
+                    <text class="axis" x="173" y="186" text-anchor="middle">Jun 27</text>
+                    <text class="axis" x="347" y="186" text-anchor="middle">Feb 28</text>
+                    <text class="axis" x="520" y="186" text-anchor="end">Oct 28</text>
+                  </svg>
+                </div>
+                <div class="tile">
+                  <p class="tile-label">VaR · 95% · 1 day</p>
+                  <p class="tile-figure">1.84m</p>
+                  <p class="tile-note">Expected shortfall 2.31m</p>
+                  <svg
+                    class="chart histogram"
+                    viewBox="0 0 252 98"
+                    role="img"
+                    aria-label="Illustrative profit and loss distribution with the loss tail marked"
+                  >
+                    <rect class="bar tail" x="1" y="91" width="11" height="5" rx="1.5" />
+                    <rect class="bar tail" x="15" y="88" width="11" height="8" rx="1.5" />
+                    <rect class="bar tail" x="29" y="83" width="11" height="13" rx="1.5" />
+                    <rect class="bar" x="43" y="76" width="11" height="20" rx="1.5" />
+                    <rect class="bar" x="57" y="65" width="11" height="31" rx="1.5" />
+                    <rect class="bar" x="71" y="50" width="11" height="46" rx="1.5" />
+                    <rect class="bar" x="85" y="34" width="11" height="62" rx="1.5" />
+                    <rect class="bar" x="99" y="19" width="11" height="77" rx="1.5" />
+                    <rect class="bar" x="113" y="8" width="11" height="88" rx="1.5" />
+                    <rect class="bar" x="127" y="4" width="11" height="92" rx="1.5" />
+                    <rect class="bar" x="141" y="11" width="11" height="85" rx="1.5" />
+                    <rect class="bar" x="155" y="25" width="11" height="71" rx="1.5" />
+                    <rect class="bar" x="169" y="42" width="11" height="54" rx="1.5" />
+                    <rect class="bar" x="183" y="58" width="11" height="38" rx="1.5" />
+                    <rect class="bar" x="197" y="71" width="11" height="25" rx="1.5" />
+                    <rect class="bar" x="211" y="81" width="11" height="15" rx="1.5" />
+                    <rect class="bar" x="225" y="87" width="11" height="9" rx="1.5" />
+                    <rect class="bar" x="239" y="91" width="11" height="5" rx="1.5" />
+                  </svg>
+                </div>
+                <div class="tile">
+                  <table class="data">
+                    <caption class="sr-only">
+                      Illustrative book of four trades, with synthetic values
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Trade</th>
+                        <th scope="col">Position</th>
+                        <th scope="col">PV · USD</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <th scope="row">Gas swap<small>Henry Hub · Dec 26</small></th>
+                        <td>310,000 MMBtu</td>
+                        <td class="gain">+184,200</td>
+                      </tr>
+                      <tr>
+                        <th scope="row">Power, peak<small>PJM West · Jan 27</small></th>
+                        <td>50 MW</td>
+                        <td class="loss">−42,650</td>
+                      </tr>
+                      <tr>
+                        <th scope="row">LNG cargo<small>DES · Feb 27</small></th>
+                        <td>3.4m MMBtu</td>
+                        <td class="gain">+611,900</td>
+                      </tr>
+                      <tr>
+                        <th scope="row">Crude, physical<small>Cushing · Mar 27</small></th>
+                        <td>250,000 bbl</td>
+                        <td class="gain">+97,300</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </section>
-      <section class="section wrap" id="risk">
-        <div class="risk-grid">
-          <div>
-            <p class="eyebrow">03 / The exposure</p>
-            <h2>Move the market.<br /><em>Reprice the book.</em></h2>
+      <section class="commodities" aria-label="Commodities covered">
+        <div class="wrap commodity-grid">
+          <article>
+            <svg class="icon" viewBox="0 0 24 24" stroke="url(#flame)" aria-hidden="true">
+              <path d="M13 2 4.5 13.5H11L10 22l8.5-11.5H12z" />
+            </svg>
+            <h2>Power</h2>
+            <p>
+              Swaps, PPAs and fixed physical deals on hourly and sub-hourly
+              curves.
+            </p>
+          </article>
+          <article>
+            <svg class="icon" viewBox="0 0 24 24" stroke="url(#flame)" aria-hidden="true">
+              <path d="M12 2.5c.5 3.5 5.5 6 5.5 11.5a5.5 5.5 0 0 1-11 0c0-2.2 1-3.8 2.2-5 .1 1.8.9 2.9 2 3.2-.4-3.3.3-6.7 1.3-9.7z" />
+            </svg>
+            <h2>Gas</h2>
+            <p>Swaps and physical supply, from nomination to daily cash.</p>
+          </article>
+          <article>
+            <svg class="icon" viewBox="0 0 24 24" stroke="url(#flame)" aria-hidden="true">
+              <path d="M2.5 15h19l-2.5 5.5h-14zM6 15v-2.5a2.5 2.5 0 0 1 5 0V15M13 15v-2.5a2.5 2.5 0 0 1 5 0V15M12 6v4" />
+            </svg>
+            <h2>LNG</h2>
+            <p>
+              Cargoes with loading and discharge terms, valued before loading.
+            </p>
+          </article>
+          <article>
+            <svg class="icon" viewBox="0 0 24 24" stroke="url(#flame)" aria-hidden="true">
+              <path d="M12 2.5c3 4 6 7.5 6 11.5a6 6 0 0 1-12 0c0-4 3-7.5 6-11.5z" />
+            </svg>
+            <h2>Crude</h2>
+            <p>
+              Physical barrels, from receipt and title transfer to invoice and
+              payment.
+            </p>
+          </article>
+        </div>
+      </section>
+      <section class="section" id="trading">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">
+              <span class="dot" aria-hidden="true"></span>For the front office
+            </p>
+            <h2>Every deal, priced <em>before it is booked.</em></h2>
             <p class="section-intro">
-              See which dated market quotes affect your futures positions, then
-              compare values under shared up and down scenarios.
-            </p>
-            <p class="scope-note">
-              The pilot reports futures execution P&amp;L and open quote
-              exposure. Complete settlement and variation-margin processing are
-              still in development.
+              Capture futures, listed options, swaps, PPAs and physical deals
+              in one blotter. Try a trade against the market before it becomes
+              a position.
             </p>
           </div>
-          <ol class="risk-steps">
-            <li>
-              <span>01</span>
-              <div>
-                <h3>Identify the inputs.</h3>
+          <div class="split">
+            <ul class="points">
+              <li>
+                <h3>Price before booking</h3>
                 <p>
-                  Instruments declare the market factors they use, including
-                  explicit curve dependencies.
+                  Preview a swap's payments and discounting, or a future's
+                  entry price and open exposure, without creating a position.
                 </p>
-              </div>
-            </li>
-            <li>
-              <span>02</span>
-              <div>
-                <h3>Share the scenario.</h3>
+              </li>
+              <li>
+                <h3>A blotter built for a desk</h3>
                 <p>
-                  Apply the same market move across the selected book, so
-                  positions are compared on a consistent basis.
+                  Filters, pivots, saved views, charts and exports, with each
+                  trade's detail docked beside the grid.
                 </p>
-              </div>
-            </li>
-            <li>
-              <span>03</span>
-              <div>
-                <h3>Inspect the change.</h3>
+              </li>
+              <li>
+                <h3>Curves you can trace</h3>
                 <p>
-                  Apply position quantities and compare the base, up and down
-                  results for the selected book.
+                  Build forwards, basis and hourly shapes from the prices you
+                  choose. A diagram shows which inputs built each price.
                 </p>
+              </li>
+              <li>
+                <h3>Volatility in view</h3>
+                <p>
+                  Fitted smiles, rich and cheap heat maps and a 3D surface for
+                  listed options on futures.
+                </p>
+              </li>
+            </ul>
+            <div
+              class="panel"
+              role="group"
+              aria-label="Illustrative swap ticket with synthetic values"
+            >
+              <div class="panel-top">
+                <span class="on">New trade · Financial swap</span
+                ><span class="synthetic">Synthetic illustration</span>
               </div>
-            </li>
-          </ol>
+              <dl class="ticket">
+                <div><dt>Market</dt><dd>Henry Hub</dd></div>
+                <div><dt>Period</dt><dd>Jan 27 to Mar 27</dd></div>
+                <div><dt>Quantity</dt><dd>10,000 MMBtu per day</dd></div>
+                <div><dt>We pay</dt><dd>Fixed 3.850</dd></div>
+                <div><dt>We receive</dt><dd>Monthly index</dd></div>
+              </dl>
+              <div class="ticket-result">
+                <p>Preview PV <strong>+62,400 USD</strong></p>
+                <span class="pill">Not booked</span>
+              </div>
+            </div>
+          </div>
+          <div class="films-head">
+            <h3>Watch it work</h3>
+            <p>Three short films</p>
+          </div>
+          <div class="films">
+            <article class="film">
+              <div class="poster">
+                <span class="soon">Coming soon</span
+                ><span class="play" aria-hidden="true"></span>
+              </div>
+              <h4>Booking a futures option</h4>
+              <p>A listed option, from ticket to blotter.</p>
+            </article>
+            <article class="film">
+              <div class="poster">
+                <span class="soon">Coming soon</span
+                ><span class="play" aria-hidden="true"></span>
+              </div>
+              <h4>Booking a swap</h4>
+              <p>Terms, schedule and price in one pass.</p>
+            </article>
+            <article class="film">
+              <div class="poster">
+                <span class="soon">Coming soon</span
+                ><span class="play" aria-hidden="true"></span>
+              </div>
+              <h4>The assistant fills a swap ticket</h4>
+              <p>Describe the deal, review the draft, book it yourself.</p>
+            </article>
+          </div>
         </div>
       </section>
-      <section class="closing wrap">
-        <p class="eyebrow">LeanETRM / Open source</p>
-        <h2>Read the code.<br /><em>Make it yours.</em></h2>
-        <p class="open-source-intro">Run your own instance, inspect how a calculation works or contribute to the project.</p>
-        <a class="button" href="https://github.com/zerodrift/leanetrm"
-          >Explore on GitHub <span aria-hidden="true">↗</span></a
-        >
-        <p>The hosted pilot is by invitation. The source is open.</p>
+      <section class="section" id="risk">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">
+              <span class="dot" aria-hidden="true"></span>For risk managers
+            </p>
+            <h2>Stress the book <em>before the market does.</em></h2>
+            <p class="section-intro">
+              Exposures come from repricing the book under shared market
+              scenarios, so every position is compared on the same basis.
+            </p>
+          </div>
+          <div class="split flip">
+            <ul class="points">
+              <li>
+                <h3>Delta and gamma by contract</h3>
+                <p>
+                  A ladder shows each shocked contract's exposure, by book and
+                  by measure.
+                </p>
+              </li>
+              <li>
+                <h3>VaR and expected shortfall, four ways</h3>
+                <p>
+                  Parametric, historical simulation, Monte Carlo and a PCA
+                  hybrid, each with its diagnostics on screen.
+                </p>
+              </li>
+              <li>
+                <h3>Stress on top of stress</h3>
+                <p>
+                  Layer temporary market stresses, then measure risk around
+                  the stressed market.
+                </p>
+              </li>
+              <li>
+                <h3>History as it was known</h3>
+                <p>
+                  Reopen a past business date at a chosen knowledge time.
+                  Corrections add revisions and never overwrite the record.
+                </p>
+              </li>
+            </ul>
+            <div
+              class="panel"
+              role="group"
+              aria-label="Illustrative delta ladder with synthetic values"
+            >
+              <div class="panel-top">
+                <span class="on">Delta ladder · Gas book, lots</span
+                ><span class="synthetic">Synthetic illustration</span>
+              </div>
+              <div class="ladder">
+                <svg
+                  class="chart"
+                  viewBox="0 0 440 204"
+                  role="img"
+                  aria-label="Illustrative delta by contract month: long December to February, short March to May"
+                >
+                  <path class="grid" d="M235 0V204" />
+                  <rect class="long" x="235" y="8" width="84" height="16" rx="3" />
+                  <rect class="long" x="235" y="42" width="141" height="16" rx="3" />
+                  <rect class="long" x="235" y="76" width="114" height="16" rx="3" />
+                  <rect class="short" x="187" y="110" width="48" height="16" rx="3" />
+                  <rect class="short" x="145" y="144" width="90" height="16" rx="3" />
+                  <rect class="short" x="195" y="178" width="40" height="16" rx="3" />
+                  <text class="axis" x="0" y="20">Dec 26</text>
+                  <text class="axis" x="0" y="54">Jan 27</text>
+                  <text class="axis" x="0" y="88">Feb 27</text>
+                  <text class="axis" x="0" y="122">Mar 27</text>
+                  <text class="axis" x="0" y="156">Apr 27</text>
+                  <text class="axis" x="0" y="190">May 27</text>
+                  <text class="value" x="440" y="20" text-anchor="end">+38</text>
+                  <text class="value" x="440" y="54" text-anchor="end">+64</text>
+                  <text class="value" x="440" y="88" text-anchor="end">+52</text>
+                  <text class="value" x="440" y="122" text-anchor="end">−22</text>
+                  <text class="value" x="440" y="156" text-anchor="end">−41</text>
+                  <text class="value" x="440" y="190" text-anchor="end">−18</text>
+                </svg>
+              </div>
+              <p class="chips">
+                <b>VaR and ES by</b><span>Parametric</span
+                ><span>Historical</span><span>Monte Carlo</span
+                ><span>PCA hybrid</span>
+              </p>
+            </div>
+          </div>
+          <div class="films-head">
+            <h3>Watch it work</h3>
+            <p>Three short films</p>
+          </div>
+          <div class="films">
+            <article class="film">
+              <div class="poster">
+                <span class="soon">Coming soon</span
+                ><span class="play" aria-hidden="true"></span>
+              </div>
+              <h4>Historical VaR</h4>
+              <p>Replay past market moves through today's book.</p>
+            </article>
+            <article class="film">
+              <div class="poster">
+                <span class="soon">Coming soon</span
+                ><span class="play" aria-hidden="true"></span>
+              </div>
+              <h4>Monte Carlo VaR</h4>
+              <p>Correlated shocks, full repricing, visible convergence.</p>
+            </article>
+            <article class="film">
+              <div class="poster">
+                <span class="soon">Coming soon</span
+                ><span class="play" aria-hidden="true"></span>
+              </div>
+              <h4>The assistant runs VaR</h4>
+              <p>Ask in plain words. Approve each step.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+      <section class="section" id="physical">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">
+              <span class="dot" aria-hidden="true"></span>For physical desks
+            </p>
+            <h2>From the deal ticket <em>to the delivery point.</em></h2>
+            <p class="section-intro">
+              Schedulers and operators work the same trades the desk booked,
+              with quantities kept for every delivery day.
+            </p>
+          </div>
+          <div class="split">
+            <ul class="points">
+              <li>
+                <h3>Gas</h3>
+                <p>
+                  Nominations, acknowledgments, scheduled quantities and
+                  imbalances, through to daily cash determinations.
+                </p>
+              </li>
+              <li>
+                <h3>Crude</h3>
+                <p>
+                  Receipts, title transfer, inventory lots and dispatch,
+                  through to invoices and payments.
+                </p>
+              </li>
+              <li>
+                <h3>LNG</h3>
+                <p>
+                  Cargoes with separate loading and discharge terms, Incoterms
+                  and energy conversion, valued before loading.
+                </p>
+              </li>
+              <li>
+                <h3>Power</h3>
+                <p>
+                  Fixed physical deals priced on hourly curves, with shaped
+                  around-the-clock quantities.
+                </p>
+              </li>
+            </ul>
+            <div
+              class="panel"
+              role="group"
+              aria-label="Illustrative gas delivery record with synthetic values"
+            >
+              <div class="panel-top">
+                <span class="on">Operations · Gas delivery, MMBtu</span
+                ><span class="synthetic">Synthetic illustration</span>
+              </div>
+              <ol class="steps">
+                <li class="done">Nominated</li>
+                <li class="done">Scheduled</li>
+                <li class="now">Delivered</li>
+                <li>Settled</li>
+              </ol>
+              <div class="ops">
+                <table class="data">
+                  <caption class="sr-only">
+                    Illustrative scheduled and delivered gas by day, with
+                    synthetic values
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Gas day</th>
+                      <th scope="col">Scheduled</th>
+                      <th scope="col">Delivered</th>
+                      <th scope="col">Imbalance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th scope="row">1 Dec</th>
+                      <td>10,000</td>
+                      <td>10,000</td>
+                      <td>0</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">2 Dec</th>
+                      <td>10,000</td>
+                      <td>9,600</td>
+                      <td class="loss">−400</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">3 Dec</th>
+                      <td>10,000</td>
+                      <td>10,000</td>
+                      <td>0</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">4 Dec</th>
+                      <td>10,000</td>
+                      <td>10,250</td>
+                      <td class="gain">+250</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="films-head">
+            <h3>Watch it work</h3>
+            <p>Three short films</p>
+          </div>
+          <div class="films">
+            <article class="film">
+              <div class="poster">
+                <span class="soon">Coming soon</span
+                ><span class="play" aria-hidden="true"></span>
+              </div>
+              <h4>Physical gas operations</h4>
+              <p>Nominate, schedule and reconcile a gas day.</p>
+            </article>
+            <article class="film">
+              <div class="poster">
+                <span class="soon">Coming soon</span
+                ><span class="play" aria-hidden="true"></span>
+              </div>
+              <h4>A gas trade in term</h4>
+              <p>Follow a deal that is already delivering.</p>
+            </article>
+            <article class="film">
+              <div class="poster">
+                <span class="soon">Coming soon</span
+                ><span class="play" aria-hidden="true"></span>
+              </div>
+              <h4>The assistant runs gas operations</h4>
+              <p>Paste a scheduled-quantity report. Approve each step.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+      <section class="section" id="ai">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">
+              <span class="dot" aria-hidden="true"></span>AI built in
+            </p>
+            <h2>AI does the legwork. <em>You make the call.</em></h2>
+            <p class="section-intro">
+              An AI agent is a user in its own right here, with its own
+              identity, only the access you grant it and the same operations
+              the screens use.
+            </p>
+          </div>
+          <div class="split flip">
+            <ul class="points">
+              <li>
+                <h3>Ask the page</h3>
+                <p>
+                  Ask about what is on screen. Each answer is pinned to the
+                  market date and knowledge time you are looking at.
+                </p>
+              </li>
+              <li>
+                <h3>Drafts, not actions</h3>
+                <p>
+                  The assistant fills tickets, sets up risk runs and prepares
+                  curve changes. Nothing is saved until you approve it.
+                </p>
+              </li>
+              <li>
+                <h3>Your choice of model</h3>
+                <p>
+                  Bring your own keys for Anthropic, OpenAI, Google, xAI or
+                  Meta models. Usage and cost are recorded for each one.
+                </p>
+              </li>
+              <li>
+                <h3>No side doors</h3>
+                <p>
+                  The assistant works through a closed list of the
+                  application's own operations. It has no SQL, no arbitrary
+                  web requests and no code execution.
+                </p>
+              </li>
+            </ul>
+            <div
+              class="panel"
+              role="group"
+              aria-label="Illustrative assistant conversation with synthetic values"
+            >
+              <div class="panel-top">
+                <span class="on">Assistant · Risk</span
+                ><span class="synthetic">Synthetic illustration</span>
+              </div>
+              <div class="chat">
+                <p class="ask">
+                  Set up a one-day 95% historical VaR for the gas book.
+                </p>
+                <p class="answer">
+                  Prepared on the close you have selected. Nothing has run
+                  yet.
+                </p>
+              </div>
+              <dl class="ticket">
+                <div><dt>Method</dt><dd>Historical simulation</dd></div>
+                <div><dt>Portfolio</dt><dd>Gas book</dd></div>
+                <div><dt>Confidence</dt><dd>95%, one day</dd></div>
+              </dl>
+              <div class="ticket-result">
+                <p>Waiting for you</p>
+                <span class="pill">Approve and run</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="section" id="security">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">
+              <span class="dot" aria-hidden="true"></span>Security and audit
+            </p>
+            <h2>Locked down by role. <em>Auditable by design.</em></h2>
+            <p class="section-intro">
+              Controls sit in the database itself, not only in the screens,
+              and every result can be traced to the inputs that produced it.
+            </p>
+          </div>
+          <ul class="cards">
+            <li>
+              <h3>Roles enforced in the database</h3>
+              <p>
+                PostgreSQL row-level security applies each person's roles to
+                every read and write, whichever screen or agent asks.
+              </p>
+            </li>
+            <li>
+              <h3>Separate duties</h3>
+              <p>
+                Editing market data and approving it are separate roles.
+                Managing access is separate from trading.
+              </p>
+            </li>
+            <li>
+              <h3>People and agents apart</h3>
+              <p>
+                People, services and AI agents sign in as distinct identities.
+                An agent acts only under a grant a person gave it.
+              </p>
+            </li>
+            <li>
+              <h3>An audit trail for access</h3>
+              <p>
+                Role changes, agent grants and revocations are written to an
+                append-only audit.
+              </p>
+            </li>
+            <li>
+              <h3>Nothing overwritten</h3>
+              <p>
+                Trades, prices and curves change by new revision. A correction
+                never replaces the record it corrects.
+              </p>
+            </li>
+            <li>
+              <h3>Results that show their inputs</h3>
+              <p>
+                Each valuation keeps the prices, units and model versions
+                behind it, so a number can be explained later.
+              </p>
+            </li>
+          </ul>
+        </div>
+      </section>
+      <section class="section" id="services">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">
+              <span class="dot" aria-hidden="true"></span>Installation and
+              support
+            </p>
+            <h2>Run it yourself. <em>Or bring us in.</em></h2>
+            <p class="section-intro">
+              The software is free under Apache 2.0. Paid installation and
+              support come from Trusty Genius, the team that builds it.
+            </p>
+          </div>
+          <div class="plans">
+            <article class="plan">
+              <p class="plan-tag">Free · Apache 2.0</p>
+              <h3>Run it yourself</h3>
+              <ul>
+                <li>The complete source, with no license fee</li>
+                <li>A disposable local preview on synthetic data</li>
+                <li>Your own infrastructure and schedule</li>
+              </ul>
+              <a class="button ghost" href="https://github.com/zerodrift/leanetrm"
+                >View the source <span aria-hidden="true">↗</span></a
+              >
+            </article>
+            <article class="plan featured">
+              <p class="plan-tag">By Trusty Genius</p>
+              <h3>Installed and supported</h3>
+              <ul>
+                <li>Installation in your environment</li>
+                <li>Your markets, curves and books set up</li>
+                <li>Ongoing support from the people who wrote it</li>
+              </ul>
+              <!--email_off-->
+              <a class="button" href="mailto:joe@trustygenius.com"
+                >Plan an installation <span aria-hidden="true">↗</span></a>
+              <!--/email_off-->
+            </article>
+          </div>
+          <p class="scope-note">
+            <strong>Still being built.</strong> Futures variation margin, LNG
+            cargo settlement, gas invoicing, VaR backtesting and single
+            sign-on are in progress, and the project is not yet qualified for
+            production use.
+            <a
+              class="text-link"
+              href="https://github.com/zerodrift/leanetrm#what-works-today"
+              >The repository lists what works today.</a
+            >
+          </p>
+        </div>
+      </section>
+      <section class="closing">
+        <div class="wrap">
+          <h2>See it run. <em>Then read the code.</em></h2>
+          <p>
+            Ask for a walkthrough, or open the repository and start a preview
+            on synthetic data.
+          </p>
+          <div class="actions">
+            <!--email_off-->
+            <a class="button" href="mailto:joe@trustygenius.com"
+              >Request a walkthrough <span aria-hidden="true">↗</span></a>
+            <!--/email_off-->
+            <a class="button ghost" href="https://github.com/zerodrift/leanetrm"
+              >Explore on GitHub <span aria-hidden="true">↗</span></a
+            >
+          </div>
+          <p class="pilot">
+            The hosted pilot is by invitation.
+            <a class="text-link" href="/app">Sign in with your invited account.</a>
+          </p>
+        </div>
       </section>
     </main>
-    <footer class="footer wrap">
-      <a class="brand" href="/"
-        ><span class="brand-mark" aria-hidden="true">L</span>LeanETRM</a
-      >
-      <p>Built and supported by Trusty Genius</p>
-      <a href="https://github.com/zerodrift/leanetrm/blob/master/LICENSE">Apache 2.0 license</a>
-      <a href="/app">Sign in <span aria-hidden="true">↗</span></a
-      ><small>© 2026 Trusty Genius LLC</small>
+    <footer class="footer">
+      <div class="wrap footer-bar">
+        <a class="brand" href="/"
+          ><span class="brand-mark" aria-hidden="true">L</span>LeanETRM</a
+        >
+        <p>Built and supported by Trusty Genius</p>
+        <a href="https://github.com/zerodrift/leanetrm/blob/master/LICENSE"
+          >Apache 2.0 license</a
+        >
+        <a href="/app">Sign in <span aria-hidden="true">↗</span></a>
+        <small>© 2026 Trusty Genius LLC</small>
+      </div>
     </footer>
   </body>
 </html>

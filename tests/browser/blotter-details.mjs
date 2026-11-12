@@ -26,6 +26,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await evaluate(`(async()=>{document.querySelector('#desk-positions .tabulator-tableholder').scrollTop=0;await ${frames};})()`);
   const grid="document.querySelector('#desk-positions .standard-data-grid')",holder="document.querySelector('#desk-positions .tabulator-tableholder')";
   const rows=`[...${holder}.querySelectorAll('.tabulator-row[data-row-key]')].sort((a,b)=>a.getBoundingClientRect().top-b.getBoundingClientRect().top)`;
+  // The grid restores the trader's place over the frames after a change: its rows are read once it holds still.
+  const settled=`(async()=>{const h=${holder};let last=-1;for(let i=0;i<20&&h.scrollTop!==last;i++){last=h.scrollTop;await ${frames};}})()`;
   const row=key=>`${holder}.querySelector('.tabulator-row[data-row-key="'+${key}+'"]')`;
   const reference=key=>`${row(key)}?.querySelector('.desk-reference')?.textContent`;
   // The key of the row drawn after (or before) the selected one, in the order on screen; the rows drawn change as the grid scrolls and resizes.
@@ -46,8 +48,8 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   // The newest trades first, which puts the swaps the earlier suites booked among the first rows, with rows beneath them to step to.
   for(let i=0;i<2;i++){await click('#desk-positions [role=columnheader][tabulator-field=c0]');await wait(idle);}
   await wait("document.querySelector('#desk-positions [role=columnheader][tabulator-field=c0]').getAttribute('aria-sort')==='descending'");
-  // A sort keeps the trader's place a frame after it draws: the rows are read once that place is restored and the grid holds still.
-  await evaluate(`(async()=>{const h=${holder};let last=-1;for(let i=0;i<20&&h.scrollTop!==last;i++){last=h.scrollTop;await ${frames};}})()`);
+  // A sort keeps the trader's place a frame after it draws.
+  await evaluate(settled);
   // A swap with a row above it, brought to the top of the grid's viewport, so that the rows stepped to below it stay in view.
   const found=await evaluate(`(async()=>{const h=${holder};
     for(let top=0;;top+=Math.floor(h.clientHeight/2)){h.scrollTop=top;await ${frames};const list=${rows},at=list.findIndex((r,i)=>i>0&&r.querySelector('.desk-pill')?.textContent==='SWAP');
@@ -63,7 +65,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   const before=await evaluate(anchor);
   await press('Enter');
   await wait(`document.querySelector('#position-details')?.hidden===false&&!!document.querySelector('#position-details-view .side-terms-list')&&${idle}`);
-  await evaluate(frames);
+  await evaluate(settled);
   await check('Enter expands the details pane below the grid on the swap\'s Terms, with its sides, and the grid keeps its rows',
     `(()=>{const pane=document.querySelector('#blotter-pane-details'),details=document.querySelector('#position-details'),gridBox=${holder}.getBoundingClientRect();
       return !pane.hidden&&pane.contains(details)&&!${holder}.contains(details)&&pane.parentElement.getBoundingClientRect().top>=gridBox.bottom&&
@@ -240,7 +242,6 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   await check('Escape straight after a press on a row collapses the details, with focus on the row',`${collapsed}&&document.activeElement===${row(JSON.stringify(pressedKey))}`);
   // A press on a row in the upper grid opens its details at once, with no wait for a second press: the details take their room below the
   // grid, whose top stays put, so the row stays under the pointer and the grid does not scroll.
-  const settled=`(async()=>{const h=${holder};let last=-1;for(let i=0;i<20&&h.scrollTop!==last;i++){last=h.scrollTop;await ${frames};}})()`;
   const upper=JSON.stringify(await evaluate(`(()=>{const h=${holder}.getBoundingClientRect();return ${rows}.filter(r=>{const b=r.getBoundingClientRect();return b.top>=h.top-0.5&&b.bottom<=h.bottom+0.5;})[1].dataset.rowKey;})()`));
   const placed=`(()=>({top:${row(upper)}?.getBoundingClientRect().top,scroll:${holder}.scrollTop}))()`,start=await evaluate(placed);
   await evaluate(`(()=>{const details=document.querySelector('#blotter-pane-details');window.__upAt=window.__expandedAt=undefined;

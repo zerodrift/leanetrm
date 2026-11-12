@@ -30,7 +30,43 @@ def check_small_point_scope(query,manifest):
         print(f'PASS cold {plan}: {len(pins)} selected pins read {work[1]-work[0]} event/receipt tuples despite 4096 unrelated facts',flush=True)
 
 
+def check_reference_version_scope(query,manifest):
+    catalog,tenant,workspace,reference_catalog,reference_revision=[manifest[k] for k in ('catalogId','tenantId','workspaceId','referenceCatalogId','referenceRevisionId')]
+    def issue():
+        return query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','viewer','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
+    def capture():
+        return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{issue()}');SELECT security.capture_date_context('{catalog}','2020-12-17',NULL);COMMIT;")
+    def seal(revision,reference):
+        query(f"INSERT INTO market_data.revisions VALUES('{catalog}','{revision}','{reference_catalog}','{reference}','draft',0);"
+              f"INSERT INTO market_data.revision_periods VALUES('{catalog}','{revision}','2020-12-01','2021-12-01');"
+              f"UPDATE market_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{catalog}','{revision}');")
+    def using(reference):
+        return query(f"SELECT id FROM market_data.revisions WHERE(catalog_id,reference_catalog_id,reference_revision_id)=('{catalog}','{reference_catalog}','{reference}') ORDER BY id;").splitlines()
+    earlier=capture()
+    # Market revisions of the fixture's reference version, published after every fixture observation. Their ids sort
+    # before the fixture's revisions, so a lookup that walks revisions in id order meets every later publication first.
+    later=[f'00000000-0000-4000-8000-{number:012x}' for number in range(1,17)]
+    for revision in later:seal(revision,reference_revision)
+    assert using(reference_revision)[:len(later)]==later
+    # A reference version that only a still later publication uses: the earlier view must not know it.
+    unpublished='00000000-0000-4000-8000-0000000000aa'
+    query(f"INSERT INTO ref_data.revisions(catalog_id,id,revision_key) VALUES('{reference_catalog}','{unpublished}','synthetic_later_reference');"
+          f"UPDATE ref_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{reference_catalog}','{unpublished}');")
+    seal('00000000-0000-4000-8000-0000000000ab',unpublished)
+    events=int(query(f"SELECT count(*) FROM market_data.knowledge_events WHERE catalog_id='{catalog}';"))
+    for view,context,published in [('before the later publications',earlier,False),('after them',capture(),True)]:
+        for reference,visible in [(reference_revision,True),(unpublished,published)]:
+            lines=query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SET LOCAL statement_timeout='5s';SELECT security.use_context('{issue()}');SELECT security.use_market_context('{catalog}','{context}');"+KNOWLEDGE_WORK+
+                f"SELECT 'VISIBLE|'||security.reference_version_visible('{reference_catalog}','{reference}');"+KNOWLEDGE_WORK+"ROLLBACK;").splitlines()
+            work=[int(line.split('|')[1]) for line in lines if line.startswith('WORK|')]
+            revisions=len(using(reference))
+            assert f'VISIBLE|{str(visible).lower()}' in lines,(view,reference,lines)
+            assert work[1]-work[0]<=2*revisions+64,(view,revisions,events,work[1]-work[0])
+            print(f"PASS reference version is {'visible' if visible else 'unknown'} in a view captured {view}: using market revisions {revisions}, event/receipt tuples read {work[1]-work[0]}, knowledge events {events}",flush=True)
+
+
 def run_checks(query,manifest):
+    check_reference_version_scope(query,manifest)
     check_small_point_scope(query,manifest)
     catalog,source_revision,tenant,workspace,reference_catalog,reference_revision=[manifest[k] for k in ['catalogId','revisionId','tenantId','workspaceId','referenceCatalogId','referenceRevisionId']]
     # Exact lookups gain nothing from JIT, and loading LLVM on a cold host can consume the read's deadline.
