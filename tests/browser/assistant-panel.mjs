@@ -343,10 +343,10 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
 
   await check('closing PPA entry releases its browser page-leave warning',`(()=>{const event=new Event('beforeunload',{cancelable:true});window.dispatchEvent(event);return !event.defaultPrevented;})()`);
 
-  // Send becomes Stop during a turn (§10.1).
+  // Send becomes Stop answering during a turn (§10.1).
   await script({hold:'stop',text:'Partial answer. ',tools:[['toolu_panel_07','read_current_page',{}]]});
-  await ask('Keep going.');await wait(`${answer}.startsWith('Partial answer.')&&${q('#assistant-send')}.textContent==='Stop'`);
-  await check('during a turn Send becomes Stop and the agent and conversation are fixed',
+  await ask('Keep going.');await wait(`${answer}.startsWith('Partial answer.')&&${q('#assistant-send')}.textContent==='Stop answering'`);
+  await check('during a turn Send becomes Stop answering and the agent and conversation are fixed',
     `!${q('#assistant-send')}.disabled&&${q('#assistant-agent')}.disabled&&${q('#assistant-new')}.disabled`);
   await click('#assistant-send');await wait(finished);await release('stop');
   await check('Stop ends the answer, marked incomplete, saying the person stopped it',
