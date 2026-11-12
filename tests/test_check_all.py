@@ -303,18 +303,24 @@ for stanza in (state / 'sources' / Path(source).name).read_text().strip().split(
     fields = dict(line.split(': ', 1) for line in stanza.splitlines())
     assert fields['Types'] == 'deb'
     host = urlparse(fields['URIs']).hostname
-    key = '/usr/share/keyrings/ubuntu-archive-keyring.gpg' if host == 'mirrors.edge.kernel.org' else '/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc'
+    assert host in {'archive.ubuntu.com', 'security.ubuntu.com', 'apt.postgresql.org'}
+    key = '/usr/share/keyrings/ubuntu-archive-keyring.gpg' if host.endswith('ubuntu.com') else '/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc'
     assert fields['Signed-By'] == key
     assert fields['URIs'].startswith('https://')
     entries.append((host, fields['Suites'].split(), fields['Components'].split()))
 if 'update' in args:
     available = [entry for entry in entries if not re.search(os.environ['UNREACHABLE'], entry[0])]
     (state / 'fresh-index.json').write_text(json.dumps(available))
-    # apt may warn yet succeed on update; install must reject missing indexes.
-    sys.exit(0)
+    assert '-o' in args and 'APT::Update::Error-Mode=any' in args
+    # A failed signed archive refresh must not be downgraded to a warning.
+    sys.exit(100 if any(re.search(os.environ['UNREACHABLE'], host) for host, _, _ in entries) else 0)
 assert 'install' in args and 'postgresql-18' in args
 available = json.loads((state / 'fresh-index.json').read_text())
-ubuntu = any(host == 'mirrors.edge.kernel.org' and 'noble' in suites and 'main' in components for host, suites, components in available)
+ubuntu = all(any(host == required_host and required_suite in suites and 'main' in components
+                 for host, suites, components in available)
+             for required_host, required_suite in [('archive.ubuntu.com', 'noble'),
+                 ('archive.ubuntu.com', 'noble-updates'), ('archive.ubuntu.com', 'noble-backports'),
+                 ('security.ubuntu.com', 'noble-security')])
 pgdg = any(host == 'apt.postgresql.org' and 'noble-pgdg' in suites for host, suites, _ in available)
 sys.exit(0 if ubuntu and pgdg else 100)
 '''
@@ -346,13 +352,13 @@ sys.exit(0 if ubuntu and pgdg else 100)
             return result.returncode, result.stderr
 
     def test_hosted_postgres_install_uses_signed_archives_without_runner_hosts(self):
-        for unavailable in ('^$', r'(^|\.)ubuntu\.com$'):
+        for unavailable in ('^$', r'^azure\.archive\.ubuntu\.com$', r'^mirrors\.edge\.kernel\.org$'):
             with self.subTest(unavailable=unavailable):
                 status, error = self.install_postgres(unavailable)
                 self.assertEqual(status, 0, error)
 
     def test_hosted_postgres_install_rejects_missing_archives_despite_stale_runner_indexes(self):
-        for unavailable in (r'^mirrors\.edge\.kernel\.org$', r'^apt\.postgresql\.org$', '.'):
+        for unavailable in (r'^archive\.ubuntu\.com$', r'^security\.ubuntu\.com$', r'^apt\.postgresql\.org$', '.'):
             with self.subTest(unavailable=unavailable):
                 status, error = self.install_postgres(unavailable)
                 self.assertEqual(status, 100, error)
