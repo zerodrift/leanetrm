@@ -571,7 +571,7 @@ command passed for the D186 cutover on the Ubuntu 24.04 hosted runner on
 2026-10-22; verification records the exact source and runs. Production deployment
 remains unqualified.
 
-The public landing source and hosted gateway route contract are available
+The default public page and hosted gateway route contract are available
 separately from the authenticated workspace (D163). An owned nginx check exercises
 static routes, native application routing and a synthetic sign-in upstream.
 This is gateway routing qualification, not verification of a real installation's

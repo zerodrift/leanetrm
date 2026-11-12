@@ -487,7 +487,7 @@ and a pinned local pull operator; schema and infrastructure changes require a
 separate qualified baseline (D135). Hosted authentication and collection boundaries are described
 in [hosted pilot operations](hosted-pilot.md); the synthetic local preview stays isolated.
 
-The public buildless homepage lives in `site/`, separately from the authenticated
+A neutral default public page lives in `site/` (D385), separately from the authenticated
 workspace assets. The hosted gateway serves only its exact homepage, two public
 assets and two bounded media folders (D382); `/app` forwards to the application's native root with its query intact.
 Only successful sign-in redirects to that native root are rewritten to `/app`.
