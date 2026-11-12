@@ -132,7 +132,8 @@ export async function connect(socket,errors){
   };
   const abandon=(reason='Browser check finished')=>{for(const p of pending.values()){clearTimeout(p.timeout);p.reject(Error(reason));}pending.clear();};
   socket.onclose=()=>abandon('Browser connection closed.');
-  function command(method,params={}){const id=++sequence;return new Promise((accept,reject)=>{const timeout=setTimeout(()=>{pending.delete(id);reject(Error('Browser command timed out: '+method));},20000);pending.set(id,{accept,reject,timeout});socket.send(JSON.stringify({id,method,params}));});}
+  // An unanswered evaluation is reported with the start of its expression, so a stalled step says which it is.
+  function command(method,params={}){const id=++sequence;return new Promise((accept,reject)=>{const timeout=setTimeout(()=>{pending.delete(id);reject(Error('Browser command timed out: '+method+(params.expression===undefined?'':': '+String(params.expression).slice(0,160))));},20000);pending.set(id,{accept,reject,timeout});socket.send(JSON.stringify({id,method,params}));});}
   async function evaluate(expression){const response=await command('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(response.exceptionDetails)throw Error(JSON.stringify(response.exceptionDetails));return response.result.value;}
   const {wait,click,set,submit}=browserPageActions(evaluate);
   return {command,evaluate,wait,click,set,submit,abandon};
