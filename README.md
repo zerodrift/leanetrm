@@ -181,7 +181,7 @@ existing database.
 
 ## Docs
 
-- [Public website source and checks](site/README.md)
+- [Default public page and checks](site/README.md)
 - [Frontend widget-to-backend operation map and verification](docs/frontend-wiring.md)
 
 **Design**
