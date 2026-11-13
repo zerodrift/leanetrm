@@ -197,6 +197,61 @@ The calendar does not choose a substitute date or alter the separate effective
 date and knowledge-cutoff controls.
 
 
+## Contract observation terms (D389)
+
+A `contract_observations` node (implementation `contract_observation_terms_v1`)
+states a contract price as averaged observations of contract positions. Its one
+`source` port takes a native curve's retained contract universe. For each target
+month from `targetFrom` (the first day of a month) through `targetCount` months
+it returns one cell: the sum of its groups. A group is the normalized weighted
+mean of its terms, so weights `2` and `1` give exactly 2/3 and 1/3. A term is
+the mean over its observation days of one position, less the mean of its
+`lessPosition` over the same days when one is stated.
+
+Each node has 1 to 16 typed `observationTerms` rows: `ordinal` (contiguous from
+0), `group`, positive exact `weight` text, `position` (1–120), `lessPosition`
+(explicitly `null`, or another position) and `period`:
+
+| Period | Observation days |
+| --- | --- |
+| `calendar_month_of_delivery_v1` | The target month's days. |
+| `trade_month_of_delivery_contract_v1` | The days on which the target's delivery contract is position 1 at that day's sampling instant, from the prior contract's expiry date through the delivery contract's expiry date. |
+
+`days` is `calendar_days_v1` or `business_days_v1`; business days also require
+an exact `calendar`, which is pinned like a business-day date sequence's. The
+node also states `roll=contract_expiry_roll_v1`, `sampling=context_utc_time` and
+`corrections=exact_context_frame_history_latest_visible`. Every setting is
+required. Explicit roll boundaries are not supported by this operator.
+
+Positions resolve at each day's sampling instant: the day at the selected
+context's UTC time of day. On a last trading day sampled at or after the
+recorded expiry, the next contract is already position 1, so that day belongs to
+the next contract's trade month; no day is priced on two contracts. Days before
+the context date read their retained historical samples and are frozen. The
+context date and later days read the live context sample of the contract
+selected for that day, so they move with that contract's quote. Nothing is
+carried or estimated: a past observation day without its sample refuses with
+`recipe_input`, and an average is never taken over fewer days. The existing
+refusal of historical `sample` nodes that read after the context date is
+unchanged.
+
+The node feeds only a curve combination (`weighted_panels`, for example to add
+a differential) or the output; other consumers refuse with `recipe_definition`.
+Such a curve's kind is `observation_formula`. Formula mode carries the rows in
+a typed `observationTerms=[...]` argument. The terms and the resolved windows
+belong to the recipe's declaration identity. Other refusals are structured: a
+trade-month target without one delivery contract or without a prior contract, a
+position beyond the universe, a calendar that does not cover a window or an
+empty window refuse with `recipe_input`; a missing or mismatched calendar pin
+refuses with `recipe_reference`.
+
+Migration 0252 retains the terms in `custom_curve_observation_terms` and
+revalidates them at publication. The synthetic crude fixture and its HTTP check
+run with `--contract-observation-curve-check`; adding `--browser-check` runs
+the Curve builder suite. The only consumer is that synthetic formula curve; no
+trade or Side consumes these outputs yet.
+
+
 ## Published outputs in booked projections
 
 `SwapFloatingInput.CustomProjection` is optional and has no inferred value. It

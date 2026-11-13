@@ -148,6 +148,45 @@ external feed. For focused reproduction, add `--authoring-browser-suite` with
 `curve-objects`, `contract-pricing-controls`, `publication-controls` or
 `price-authoring-recovery` to the appropriate owned fixture command.
 
+## Contract observation card (D389)
+
+The palette offers **Contract observations** from the backend operator catalog.
+The card is a result curve; its source connection carries the catalog label.
+Its settings use the ordinary operation controls and start at Choose…: version,
+first target month, number of months, observation days, roll, sampling time and
+corrections. The Calendar choice appears only for business days, as the catalog
+states. Every option and label comes from the catalog; none is written in
+TypeScript.
+
+Observation terms are vertical rows with Group, Weight, Position, Less position
+(blank for none) and Period, whose options are the catalog's two periods. Rows
+can be added and removed; a term's ordinal is its place in the list. The browser
+sends each weight as typed, each position as a number and an explicit `null`
+for a blank second position. It resolves no date, average or weight, and a
+cleared weight leaves Preview and Save enabled so the backend decides.
+
+A refused preview or save also shows the backend's own message beside the
+selected operation, in the inspector. This appears only for a definite refusal
+(a status below 500 that is not a request-format error); other failures keep
+the page's general error alone. Any edit, the next preview or opening another
+curve clears it. Saved curves of kind `observation_formula` appear in the library
+as Observation formula, in the Synthetic group.
+
+The focused browser suite `contract-observation-curve` runs against the
+synthetic crude fixture:
+
+```sh
+python3 tools/run_preview.py --pg-bin /path/to/stock/postgres/bin \
+  --dotnet /path/to/dotnet --contract-observation-curve-check \
+  --browser-check --browser /path/to/chromium
+```
+
+It adds the operation to a saved draft, chooses every setting by its catalog
+label, enters three terms, previews the backend price 68.46, saves an
+`observation_formula`, reloads every term and setting unchanged, and checks
+the backend's refusal of a cleared weight beside the operation. The same command
+first runs the HTTP storage and curve checks. `tools/check_all.py` includes it.
+
 ## Publication release resolution (D364)
 
 `published_release_v1` is an explicit settlement choice. A live contract resolves

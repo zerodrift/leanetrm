@@ -27,6 +27,13 @@ qualify Friday/Monday fixing, forward marks, correction replay and ordinary
 Blotter parity. Cash/invoices, physical accounting, worker graph
 replay, observed ISO releases/finality and residual recalibration remain separate.
 
+D389 adds contract observation terms to custom curves, implemented locally with
+managed, stock PostgreSQL, HTTP and browser checks on one synthetic crude fixture.
+The only consumer is that synthetic formula curve. Indexed crude consideration
+that consumes such a curve on a Side, with its booking, risk, delivery and cash,
+is separate, later work; explicit roll boundaries remain unsupported. See
+[custom curves](custom-curves.md#contract-observation-terms-d389).
+
 D363 adds the Objects canvas, explicit source-node contract pricing and
 publication definitions, occurrences and normalized final-price ingestion.
 The bounded gas implementations use supplied publisher-calendar occurrences;
@@ -503,6 +510,8 @@ contract; formulas compile only in the backend. SQL panel execution is removed.
 [Custom curves](custom-curves.md) records the supported policies and limits.
 Graph cards distinguish backend output types from financial curve kinds, with
 separate dated-contract icons on exact member rows (D259).
+D389 adds `contract_observations` nodes that average contract positions over
+calendar or trade months; their curves have the kind `observation_formula`.
 Published recipes supply explicit monthly indexed swap projections through
 booking, portfolio and retained-risk operations. The editor offers compatible
 published outputs from the authorized backend catalog and preserves the selected
@@ -1685,6 +1694,11 @@ P&L is introduced. Managed, API, native and browser checks demonstrate the compl
 populated additive-upgrade check preserves prior operational and cash history.
 Automated crude closes, amendments and cancellation remain further work.
 Production activation remains a separate release gate.
+
+Indexed crude consideration is not implemented. D389 supplies only its curve
+operator: a custom curve that averages contract positions over calendar or trade
+months. Consuming that output on a crude Side, with booking, PV, risk, delivery
+and cash, is separate, later work.
 
 D293 local implementation adds the [crude delivery setup workflow](crude-delivery-setups.md):
 versioned Save/Validate/Publish, separate exact delivery and pricing namespaces,

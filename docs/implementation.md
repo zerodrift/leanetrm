@@ -1,5 +1,15 @@
 # Current implementation record
 
+D389 adds [contract observation terms](custom-curves.md#contract-observation-terms-d389)
+to custom curves, implemented locally. A `contract_observations` node sums
+groups of weighted, averaged contract-position observations over a calendar month
+or a trade month, optionally as a spread to a second position. Past days read
+retained samples; the context day and later days read the live context sample of
+the contract selected for each day. Migration 0252 stores the terms; the API
+prepares and previews the node; the Curve builder edits it. The only consumer is
+a synthetic crude formula curve. No Side, trade, ticket or cash consumer, explicit
+roll boundaries or production activation exist yet.
+
 D376–D381 add [physical power forward-to-actual valuation](power-curve-composition.md)
 through existing product curves, physical mapping and native Instrument/Side PV.
 The bounded consumer supports daily/monthly product splices, curve-owned captured

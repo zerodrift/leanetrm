@@ -4338,3 +4338,52 @@ The header was also looked at in a local preview at desktop and phone width,
 collapsed and expanded, and on a page read by business date, where the line
 reads As of details beneath the Business date. A working snapshot and a
 historical view were not looked at in the running app.
+
+## Contract observation curve terms (D389, local)
+
+The managed core suite holds the operator's numerical oracle on synthetic crude
+futures E–J (expiry 19:30 UTC), a nine-day business calendar and 12:00 UTC
+sampling. For the 2027-01 target, a January business-day average plus 2:1
+weighted December roll spreads of F against G and H, it asserts exact rationals:
+69.96 on 2026-12-01, where F, G and H each +1 give 70.96, 69.96 − 1/15 and
+69.96 + 1/15; the same price on 2026-12-22 with F frozen, where G and H +1 give
+70.56 and 70.36; 70.02 on 2027-01-20; 70.00 on 2027-01-25 with no live future;
+69.90 when sampling at 20:00 moves the expiry day to the next contract; 68.46
+with a −1.50 differential; and a two-target case at 10724/155 and 4807/70. It
+also asserts the windows, declaration identity, formula text and each refusal.
+
+```sh
+dotnet run --project tests/OpenEtrm.MarketData.Checks -c Release -- --contract-observation-recipes
+```
+
+The owned stock PostgreSQL preview loads the synthetic crude fixture, then runs
+the storage check (table rules, security parity, publication refusals,
+immutability and the unchanged panel guard), the HTTP curve check and, with
+`--browser-check`, the Curve builder suite:
+
+```sh
+python3 tools/run_preview.py --pg-bin /path/to/postgres/bin --dotnet /path/to/dotnet \
+  --contract-observation-curve-check --browser-check --browser /path/to/chrome
+```
+
+The published curve prices 68.46 on 2026-12-01 and on 2026-12-22, 68.52 on
+2027-01-20 and 68.50 on 2027-01-25, each with the expected live inputs. Before
+the 2027-01-19 settlement is recorded the finished average refuses with
+`recipe_input`, and the knowledge view captured then still refuses afterwards.
+A correction to 69.55 gives 68.51, while the view before it reproduces 68.50.
+The fixture's observations are dated after the machine clock, so the check
+inserts that late settlement and its correction by SQL; the correction endpoint
+cannot correct an observation dated after now. The browser suite passed 12
+checks: catalog-driven settings and terms, preview at 68.46, save as
+`observation_formula`, unchanged reload and the cleared-weight refusal shown
+beside the operation. `tools/check_all.py` includes this command.
+
+Local results on 2026-11-13: the managed core suite exited 0 with 675 managed
+core checks passed (863 PASS lines); `npm test --prefix web` passed 1601 tests;
+the public-site, public-route and runner unit tests and the standalone boundary
+check passed. When the card was added, `--custom-curves-check --browser-check`
+passed 236 owned browser checks, and the API checks, `--custom-curves-check` and
+`--connected-portfolio-check` passed during the storage and preparation changes.
+These are synthetic local checks. They do not qualify a Side, trade or cash
+consumer, explicit roll boundaries, a published observation curve prepared under
+a consumer's demand, or a production activation.

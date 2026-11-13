@@ -27,6 +27,12 @@ override. See [the decision](decisions.md#d366--exact-location-forecasts-and-dat
 Selected correction-history reads use function-scoped generic planning under
 migration 0227; see [the planning qualification](context.md#selected-correction-history-planning).
 
+D389 adds a `contract_observations` custom-curve node: per target month, a sum of
+groups of weighted averages of contract positions over a calendar or trade month,
+read from retained history for past days and live context samples otherwise. It
+feeds only a curve combination or the output; the only consumer is a synthetic
+formula curve. See [the decision](decisions.md#d389--contract-observation-curve-terms).
+
 D364 connects [publication release resolution](curve-authoring.md#publication-release-resolution-d364).
 D369 removes catalogue population selection. Current curves and publications use
 one active catalogue; regional close sessions remain independent official closes.
