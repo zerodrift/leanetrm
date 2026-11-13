@@ -12,7 +12,8 @@ public sealed record RecipeContractWeight(int OutputPosition,string SourcePort,G
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record RecipePanelWeight([property:JsonRequired] string SourcePort,[property:JsonRequired] string Weight);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record RecipeObservationTerm(int Ordinal,string Group,string Weight,int Position,int? LessPosition,string Period);
+public sealed record RecipeObservationTerm([property:JsonRequired] int Ordinal,[property:JsonRequired] string Group,[property:JsonRequired] string Weight,
+    [property:JsonRequired] int Position,[property:JsonRequired] int? LessPosition,[property:JsonRequired] string Period);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PublishedRecipeReference(Guid CatalogId,Guid CurveId,int Version,string OutputNode);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

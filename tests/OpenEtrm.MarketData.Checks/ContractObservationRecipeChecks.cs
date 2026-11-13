@@ -27,6 +27,9 @@ internal static class ContractObservationRecipeChecks
         var source=new RecipeSource(new(revision,"synthetic_crude_future"),PriceUnit.FromQuote(quote),[
             Future("crude_e",2026,12,Expiry(2026,11,20)),Future("crude_f",2027,1,Expiry(2026,12,21)),Future("crude_g",2027,2,Expiry(2027,1,20)),
             Future("crude_h",2027,3,Expiry(2027,2,22)),Future("crude_j",2027,4,Expiry(2027,3,22))]);
+        // The differential curve retains one monthly contract per case; the 2027-02 contract only proves panel alignment.
+        var differentialKey=new CurveKey(revision,"synthetic_crude_differential");
+        RecipeContract[] differentials=[Future("crude_diff_f",2027,1,Expiry(2026,12,21)),Future("crude_diff_g",2027,2,Expiry(2027,1,20))];
         var calendar=DateSet.Create(new(2026,11,1),new(2027,4,1),[new(2026,12,15),new(2026,12,16),new(2026,12,17),new(2026,12,18),
             new(2027,1,18),new(2027,1,19),new(2027,1,20),new(2027,1,21),new(2027,1,22)]);
         var noon=new TimeOnly(12,0);
@@ -39,6 +42,17 @@ internal static class ContractObservationRecipeChecks
         RecipeDefinition Definition(RecipeNode observations)=>new("crude_formula","Synthetic indexed crude",[
             new("source","source",ImmutableDictionary<string,string>.Empty.Add("curve","synthetic_crude_future"),ImmutableDictionary<string,string>.Empty),observations,
             new("out","output",ImmutableDictionary<string,string>.Empty,ImmutableDictionary<string,string>.Empty.Add("values",observations.Id))],"out");
+        // The formula panel plus the differential sampled at the context date: a signed sum with weights 1 and 1.
+        RecipeDefinition WithDifferential(RecipeNode observations)=>new("crude_formula","Synthetic indexed crude",[
+            new("source","source",ImmutableDictionary<string,string>.Empty.Add("curve","synthetic_crude_future"),ImmutableDictionary<string,string>.Empty),observations,
+            new("differential","source",ImmutableDictionary<string,string>.Empty.Add("curve",differentialKey.Code),ImmutableDictionary<string,string>.Empty),
+            new("select","select",new Dictionary<string,string>{["mode"]="positions",["first"]="1",["count"]="1",["binding"]="context"}.ToImmutableDictionary(),
+                ImmutableDictionary<string,string>.Empty.Add("source","differential")),
+            new("dates","dates",ImmutableDictionary<string,string>.Empty.Add("mode","context"),ImmutableDictionary<string,string>.Empty),
+            new("sample","sample",ImmutableDictionary<string,string>.Empty,ImmutableDictionary<string,string>.Empty.Add("selection","select").Add("dates","dates")),
+            new("total","weighted_panels",ImmutableDictionary<string,string>.Empty.Add("alignment",RecipeEngine.ExactDeliveryAlignment).Add("aggregation",RecipeEngine.SignedSum),
+                ImmutableDictionary<string,string>.Empty.Add("observed",observations.Id).Add("differential","sample"),PanelWeights:[new("observed","1"),new("differential","1")]),
+            new("out","output",ImmutableDictionary<string,string>.Empty,ImmutableDictionary<string,string>.Empty.Add("values","total"))],"out");
         RecipeNode Set(RecipeNode n,string key,string value)=>n with{Parameters=n.Parameters.SetItem(key,value)};
         RecipeNode Term(RecipeNode n,int ordinal,Func<RecipeObservationTerm,RecipeObservationTerm> change)=>
             n with{ObservationTerms=n.ObservationTerms.SetItem(ordinal,change(n.ObservationTerms[ordinal]))};
@@ -91,11 +105,14 @@ internal static class ContractObservationRecipeChecks
             DateSet.Create(new(2026,11,1),new(2027,4,1),[new(2026,11,2)]),noon));
 
         // Prices through the connected plan. Each contract has one daily-settlement series; a day's rows share one snapshot.
-        var contracts=new Dictionary<string,RecipeContract>{["F"]=source.Contracts[1],["G"]=source.Contracts[2],["H"]=source.Contracts[3]};
-        var series=source.Contracts.ToDictionary(c=>c.Contract.Key,c=>new SeriesKey(revision,Guid.NewGuid()));
+        var contracts=new Dictionary<string,RecipeContract>{["F"]=source.Contracts[1],["G"]=source.Contracts[2],["H"]=source.Contracts[3],["J"]=source.Contracts[4],
+            ["D"]=differentials[0],["D2"]=differentials[1]};
+        CurveKey CurveOf(string contract)=>contract.StartsWith('D')?differentialKey:source.Key;
+        var series=source.Contracts.Concat(differentials).ToDictionary(c=>c.Contract.Key,c=>new SeriesKey(revision,Guid.NewGuid()));
+        Curve Direct(CurveKey key,IEnumerable<RecipeContract> members)=>new(key,quote.Key,R("location"),R("uniform"),new(SettlementKind.FutureSeries,null,null),CurveRule.Direct,
+            [..members.Select(c=>c.Contract.Key)],[],ObservationRole.DailySettlement,R("source"),null);
         var model=new CurveModel(revision,reference,[new QuantitySpecification(R("crude_quantity"),R("crude"),R("crude_volume"),R("barrel"),R("volume"))],[quote],
-            source.Contracts.Select(c=>c.Contract),[new(source.Key,quote.Key,R("location"),R("uniform"),new(SettlementKind.FutureSeries,null,null),CurveRule.Direct,
-                [..source.Contracts.Select(c=>c.Contract.Key)],[],ObservationRole.DailySettlement,R("source"),null)],
+            source.Contracts.Concat(differentials).Select(c=>c.Contract),[Direct(source.Key,source.Contracts),Direct(differentialKey,differentials)],
             futures,[],series.Select(s=>new MarketSeries(s.Value,s.Key,quote.Key,null)));
         (string Day,string Contract,string Value)[] Rows(string day,string f,string g,string h)=>[(day,"F",f),(day,"G",g),(day,"H",h)];
         var december=Rows("2026-12-15","70.00","69.40","68.80").Concat(Rows("2026-12-16","70.30","69.60","68.90"))
@@ -104,8 +121,10 @@ internal static class ContractObservationRecipeChecks
         (string,string)[] marks=[("F","70.00"),("G","69.40"),("H","68.80")];
         var identity=new ConnectedRecipeIdentity(revision.CatalogId,Guid.NewGuid(),1,RecipeEngine.Version);
         (ConnectedRecipeGraph Graph,ConnectedScenario Basis) Priced(string context,string time,IEnumerable<(string Day,string Contract,string Value)> history,IEnumerable<(string Contract,string Value)> live,
-            Func<ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>,ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>>? windows=null)
+            Func<ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>,ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>>? windows=null,
+            RecipeNode? terms=null,RecipeContract? differential=null)
         {
+            var stated=terms??node;
             var at=DateTimeOffset.Parse(context+"T"+time+"Z",CultureInfo.InvariantCulture);var day=DateOnly.FromDateTime(at.UtcDateTime);
             var resolved=new ResolvedCalculationContext(Guid.NewGuid(),"synthetic-crude-observations",at,at,at,at);
             var samples=history.GroupBy(r=>r.Day).Select(g=>(Date:DateOnly.ParseExact(g.Key,"yyyy-MM-dd",CultureInfo.InvariantCulture),Rows:g.Select(r=>(r.Contract,r.Value))))
@@ -115,12 +134,14 @@ internal static class ContractObservationRecipeChecks
                     var snapshot=new MarketSnapshot(Guid.NewGuid(),revision,observed,observed,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,
                         [..g.Rows.Select(r=>new SelectedObservation(new(series[contracts[r.Contract].Contract.Key],InputUse.Variable),new(new(revision.CatalogId,Guid.NewGuid()),
                             series[contracts[r.Contract].Contract.Key],R("source"),ObservationRole.DailySettlement,PublicationState.Final,observed,ExactDecimal.Parse(r.Value))))]);
-                    return g.Rows.Select(r=>new ConnectedRecipeSample(source.Key,g.Date,contracts[r.Contract].Contract.Key,model,snapshot,observed<at));
+                    return g.Rows.Select(r=>new ConnectedRecipeSample(CurveOf(r.Contract),g.Date,contracts[r.Contract].Contract.Key,model,snapshot,observed<at));
                 }).ToImmutableArray();
             var inputs=new RecipeInputs(day,at,ImmutableDictionary<string,RecipeSource>.Empty.Add("source",source),ImmutableDictionary<string,ImmutableArray<DateOnly>>.Empty)
-                {Windows=ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>.Empty.Add("crude",RecipeEngine.ObservationWindows(node,source,calendar,TimeOnly.FromDateTime(at.UtcDateTime)))};
+                {Windows=ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>.Empty.Add("crude",RecipeEngine.ObservationWindows(stated,source,
+                    stated.Parameters["days"]==RecipeEngine.BusinessDays?calendar:null,TimeOnly.FromDateTime(at.UtcDateTime)))};
             if(windows is not null)inputs=inputs with{Windows=windows(inputs.Windows)};
-            var graph=RecipeEngine.Connect(Definition(node),inputs,identity with{CurveId=Guid.NewGuid()},samples,resolved);
+            if(differential is not null)inputs=inputs with{Sources=inputs.Sources.Add("differential",new(differentialKey,source.Unit,[differential])),Dates=inputs.Dates.Add("dates",[day])};
+            var graph=RecipeEngine.Connect(differential is null?Definition(stated):WithDifferential(stated),inputs,identity,samples,resolved);
             return(graph,ConnectedScenario.Base(ConnectedCurves.Compile(graph.Definitions,[..graph.Outputs.Select(o=>o.Point)],resolved,new Visible())));
         }
         ExactUnitPrice Shifted((ConnectedRecipeGraph Graph,ConnectedScenario Basis) priced,params string[] shifted)=>priced.Basis.WithShifts([..shifted.Select(name=>
@@ -166,7 +187,49 @@ internal static class ContractObservationRecipeChecks
             ("a repeated term",w=>w.SetItem("crude",w["crude"].Add(w["crude"][2]))),("an empty window",w=>w.SetItem("crude",w["crude"].SetItem(0,w["crude"][0] with{Days=[]}))),
             ("another target",w=>w.SetItem("crude",w["crude"].SetItem(0,w["crude"][0] with{Target=new(new(2027,2,1),new(2027,3,1))})))})
             Code(label,"recipe_input",()=>Priced("2026-12-01","12:00:00",[],marks,change));
-        Console.WriteLine("PASS contract observation recipes: calendar and trade-month windows, expiry-day roll and explicit refusals");
+        // Supplied windows are self-consistent: a calendar-month day lies in its month, a trade-month day selects the delivery contract as position 1.
+        (string,string)[] allMarks=[..marks,("J","68.20")];
+        Code("a calendar-month day outside its target month","recipe_input",()=>Priced("2026-12-01","12:00:00",[],allMarks,
+            w=>w.SetItem("crude",w["crude"].SetItem(0,w["crude"][0] with{Days=w["crude"][0].Days.Add(new(2027,2,1))}))));
+        Code("a trade-month day on which G leads","recipe_input",()=>Priced("2026-12-01","12:00:00",[],allMarks,
+            w=>w.SetItem("crude",w["crude"].SetItem(1,w["crude"][1] with{Days=w["crude"][1].Days.Add(new(2026,12,22))}))));
+        // Cells feed only a panel combination or the output; a contract mean would merge target months.
+        Code("A mean over observation cells","recipe_definition",()=>RecipeEngine.Validate(Definition(node) with{Nodes=[..Definition(node).Nodes.SkipLast(1),
+            new("mean","mean",ImmutableDictionary<string,string>.Empty.Add("axis","contracts"),ImmutableDictionary<string,string>.Empty.Add("values","crude")),
+            new("out","output",ImmutableDictionary<string,string>.Empty,ImmutableDictionary<string,string>.Empty.Add("values","mean"))]}));
+
+        // Two calendar-month targets at 12:00 on 2026-12-01: January observes G on the 1st to the 20th and H on the 21st to the 31st,
+        // (20*69.40+11*68.80)/31; February observes H on the 1st to the 22nd and J on the 23rd to the 28th, (22*68.80+6*68.20)/28.
+        var twoMonths=Set(Set(node,"targetCount","2"),"days",RecipeEngine.CalendarDays) with{ObservationTerms=[new(0,"average","1",1,null,RecipeEngine.CalendarMonthPeriod)]};
+        var twoTargets=Priced("2026-12-01","12:00:00",[],[("G","69.40"),("H","68.80"),("J","68.20")],terms:twoMonths);
+        Equal("two target cells",string.Join(",",twoTargets.Graph.Outputs.Select(o=>o.Position)),"1,2");
+        Price("January target",twoTargets.Basis.Price(twoTargets.Graph.Outputs[0].Point),"10724","155");
+        Price("February target",twoTargets.Basis.Price(twoTargets.Graph.Outputs[1].Point),"4807","70");
+
+        // The 2027-01 differential at -1.50, sampled at the context date, is added to the formula panel: 69.96-1.50.
+        var withDifferential=Priced("2026-12-01","12:00:00",[],[..marks,("D","-1.50")],differential:differentials[0]);
+        Price("formula plus differential",Base(withDifferential),"3423","50");
+        Price("formula plus differential D+1",Shifted(withDifferential,"D"),"3473","50");
+        Code("A differential for another delivery month","recipe_input",()=>Priced("2026-12-01","12:00:00",[],[..marks,("D2","-1.50")],differential:differentials[1]));
+        Equal("kind",CurveKinds.Of(Definition(node)),"observation_formula");
+        Equal("kind with a differential",CurveKinds.Of(WithDifferential(node)),"observation_formula");
+        // Formula text carries the typed terms and refuses a missing or unknown term member.
+        var recipe=WithDifferential(node);var text=RecipeFormula.Format(recipe);var compiled=RecipeFormula.Compile(text,recipe.Code,recipe.Name);
+        Equal("formula round trip",RecipeFormula.Format(compiled),text);
+        Equal("formula text keeps the terms",compiled.SameGraph(recipe),true);
+        Code("A term without its explicit spread position","recipe_formula",()=>RecipeFormula.Compile(text.Replace("\"lessPosition\":null,",""),recipe.Code,recipe.Name));
+        Code("A term with an unknown member","recipe_formula",()=>RecipeFormula.Compile(text.Replace("\"ordinal\":0,","\"ordinal\":0,\"script\":\"x\",",StringComparison.Ordinal),recipe.Code,recipe.Name));
+        // The declaration retains the terms and the resolved windows.
+        string Manifest((ConnectedRecipeGraph Graph,ConnectedScenario Basis) priced)=>
+            priced.Graph.Definitions.SelectMany(d=>d.Points).Select(p=>p.Expression).OfType<ConnectedRecipeProjection>().First().Declaration.ManifestId;
+        var declared=Manifest(Priced("2026-12-01","12:00:00",[],marks));
+        Equal("the same declaration",Manifest(Priced("2026-12-01","12:00:00",[],marks)),declared);
+        Equal("a changed weight changes the graph",Definition(node).SameGraph(Definition(Term(node,1,t=>t with{Weight="3"}))),false);
+        Equal("a changed weight changes the declaration",Manifest(Priced("2026-12-01","12:00:00",[],marks,terms:Term(node,1,t=>t with{Weight="3"})))!=declared,true);
+        Equal("a changed period changes the declaration",Manifest(Priced("2026-12-01","12:00:00",[],marks,terms:Term(node,0,t=>t with{Period=RecipeEngine.TradeMonthPeriod})))!=declared,true);
+        Equal("a shorter window changes the declaration",Manifest(Priced("2026-12-01","12:00:00",[],marks,
+            w=>w.SetItem("crude",w["crude"].SetItem(0,w["crude"][0] with{Days=w["crude"][0].Days.RemoveAt(4)}))))!=declared,true);
+        Console.WriteLine("PASS contract observation recipes: calendar and trade-month windows, expiry-day roll, differential, declaration identity, formula text and explicit refusals");
     }
     private static void Price(string label,ExactUnitPrice value,string numerator,string denominator)
     {if(value.Numerator!=numerator||value.Denominator!=denominator)throw new Exception($"{label}: expected {numerator}/{denominator}, got {value.Numerator}/{value.Denominator}");}

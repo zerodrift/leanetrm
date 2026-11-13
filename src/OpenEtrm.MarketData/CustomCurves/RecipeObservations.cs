@@ -60,6 +60,11 @@ public static partial class RecipeEngine
             windows.Length!=targets.Length*terms.Length||!windows.Select(w=>(w.Target,w.Term)).ToHashSet().SetEquals(targets.SelectMany(t=>terms.Select(term=>(t,term.Ordinal)))))
             throw Missing("Supply exactly one nonempty ascending observation window for every target and term.");
         var sourceNode=node.Inputs["source"];var source=inputs.Sources[sourceNode];var time=TimeOnly.FromDateTime(inputs.ValuationAt.UtcDateTime);
+        // Supplied windows must agree with their periods: a calendar-month day lies in the target month, and on a trade-month
+        // day position 1 is the target's delivery contract (the source holds one contract per delivery period).
+        if(windows.Any(w=>terms.Single(t=>t.Ordinal==w.Term).Period==CalendarMonthPeriod?w.Days.Any(d=>d<w.Target.From||d>=w.Target.To):
+            w.Days.Any(d=>ObservedContract(source.Contracts,d,time,1).Contract is var c&&(c.DeliveryFrom!=w.Target.From||c.DeliveryTo!=w.Target.To))))
+            throw Missing("Every observation day must lie in its calendar month or its delivery contract's trade month.");
         var one=ExactDecimal.Parse("1");var index=0;var cells=ImmutableArray.CreateBuilder<Cell>();
         foreach(var (target,position) in targets.Select((t,i)=>(t,i+1)))
         {

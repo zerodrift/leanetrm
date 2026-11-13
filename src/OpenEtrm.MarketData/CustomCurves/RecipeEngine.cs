@@ -59,6 +59,8 @@ public static partial class RecipeEngine
                 if(!nodes.TryGetValue(id,out var upstream))throw Invalid($"Node {node.Id} refers to a missing input.");
                 var type=upstream.Kind switch{"sample" or "mean" or "published_source" or "weighted_panels" or "lookup" or "splice" or ContractObservations=>"panel","select" or "weighted_contracts"=>"selection",_=>upstream.Kind};
                 if(type!=ports[port])throw Invalid($"Port {port} on {node.Id} requires {ports[port]}.");
+                if(upstream.Kind==ContractObservations&&node.Kind is not ("weighted_panels" or "output"))
+                    throw Invalid("Contract observation cells feed only a curve combination or the output.");
             }
             switch(node.Kind)
             {

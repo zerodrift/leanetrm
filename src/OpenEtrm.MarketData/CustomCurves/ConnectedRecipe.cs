@@ -18,6 +18,7 @@ public sealed record ConnectedRecipeOutput(CurvePointKey Point,int Position,Immu
 public sealed record ConnectedRecipeSourceReference(string Node,CurveKey Curve);
 public sealed record ConnectedPublishedRecipeReference(string Node,PublishedRecipeReference Reference,CurveKey Curve,string ManifestId);
 public sealed record ConnectedRecipeDateBinding(string Node,ImmutableArray<DateOnly> Dates);
+public sealed record ConnectedRecipeWindowBinding(string Node,ImmutableArray<RecipeObservationWindow> Windows);
 public sealed record ConnectedRecipeCalendarPin(string Node,ReferenceKey Reference,DateSet BusinessDates);
 public sealed record ConnectedRecipeSchedulePin(string Node,Guid CatalogId,Guid ScheduleId,int Version,string EngineVersion,
     DateTimeOffset KnownFrom,int PublicationOrder,string Selection,int Origin,int First,int Count,
@@ -35,16 +36,27 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
     // independent of which outputs this consumer requests.
     [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]
     public ImmutableArray<ConnectedRecipeDeclaration> MetadataSources{get;init;}
+    // The resolved observation windows of each contract observation node, retained like resolved dates.
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]
+    public ImmutableArray<ConnectedRecipeWindowBinding> Windows{get;init;}
     public CurveKey Curve=>new(new(Identity.CatalogId,ConnectedIdentity.Id(new{Version="saved_recipe_graph_v1",Identity})),Definition.Code);
     public string ManifestId=>ConnectedIdentity.Digest(Canonical);
     internal object Canonical=>new{Adapter="saved_recipe_graph_v1",Identity,Definition.Code,Definition.Name,Definition.Output,
-        Nodes=Definition.Nodes.OrderBy(n=>n.Id,StringComparer.Ordinal).Select(NodeEvidence).ToArray(),
+        Nodes=Definition.Nodes.OrderBy(n=>n.Id,StringComparer.Ordinal).Select(DeclaredNode).ToArray(),
         Sources=Sources.OrderBy(s=>s.Node,StringComparer.Ordinal).ToArray(),Dates=Dates.OrderBy(d=>d.Node,StringComparer.Ordinal).ToArray(),
         PublishedSources=PublishedSources.IsDefault?[]:PublishedSources.OrderBy(s=>s.Node,StringComparer.Ordinal).ToArray(),
         References=new{Calendars=References.Calendars.OrderBy(c=>c.Node,StringComparer.Ordinal).Select(CalendarEvidence).ToArray(),
             Schedules=References.Schedules.OrderBy(s=>s.Node,StringComparer.Ordinal).Select(s=>new{s.Node,s.CatalogId,s.ScheduleId,s.Version,
                 s.EngineVersion,s.KnownFrom,s.PublicationOrder,s.Selection,s.Origin,s.First,s.Count,s.Occurrences,
                 Calendar=s.Calendar is {} calendar?CalendarEvidence(calendar):null}).ToArray()}};
+    // Only a contract observation node gains its windows, so every other declaration keeps its canonical bytes.
+    JsonObject DeclaredNode(RecipeNode node)
+    {
+        var result=NodeEvidence(node);
+        if(node.Kind==RecipeEngine.ContractObservations)result["Windows"]=JsonSerializer.SerializeToNode((Windows.IsDefault?[]:Windows).Where(w=>w.Node==node.Id)
+            .SelectMany(w=>w.Windows).OrderBy(w=>w.Target.From).ThenBy(w=>w.Term).Select(w=>new{w.Target.From,w.Target.To,w.Term,Days=w.Days.ToArray()}).ToArray());
+        return result;
+    }
     internal static JsonObject NodeEvidence(RecipeNode node)
     {
         var result=JsonSerializer.SerializeToNode(new{node.Id,node.Kind,
@@ -54,6 +66,7 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
         // Existing immutable declarations keep their canonical bytes. Only a
         // node that actually declares curve weights gains this evidence field.
         if(!node.PanelWeights.IsDefaultOrEmpty)result["PanelWeights"]=JsonSerializer.SerializeToNode(node.PanelWeights.OrderBy(w=>w.SourcePort,StringComparer.Ordinal).ToArray());
+        if(!node.ObservationTerms.IsDefaultOrEmpty)result["ObservationTerms"]=JsonSerializer.SerializeToNode(node.ObservationTerms.OrderBy(t=>t.Ordinal).ToArray());
         if(node.ContractTerms is not null)result["ContractTerms"]=JsonSerializer.SerializeToNode(node.ContractTerms with{Replacements=[..node.ContractTerms.Replacements.OrderBy(r=>r.Contract.Id)],Mappings=[..node.ContractTerms.Mappings.OrderBy(m=>m.Target.Id)]});
         return result;
     }
@@ -92,6 +105,10 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
                 Definition.Nodes.Single(n=>n.Id==s.Node).Parameters["curve"]!=s.Curve.Code)||
             Dates.Any(d=>d.Dates.IsDefaultOrEmpty||d.Dates.Length>366||d.Dates.Distinct().Count()!=d.Dates.Length||!d.Dates.SequenceEqual(d.Dates.Order())))
             throw new MarketDataException("recipe_input","Retain every exact source and ordered date binding in the recipe declaration.");
+        var windows=Windows.IsDefault?[]:Windows;
+        if(windows.Any(w=>w is null||w.Windows.IsDefault)||windows.Select(w=>w.Node).Distinct().Count()!=windows.Length||
+            !Definition.Nodes.Where(n=>n.Kind==RecipeEngine.ContractObservations).Select(n=>n.Id).ToHashSet().SetEquals(windows.Select(w=>w.Node)))
+            throw new MarketDataException("recipe_input","Retain the resolved windows of every contract observation node in the recipe declaration.");
         if(References is null||References.Calendars.IsDefault||References.Schedules.IsDefault||References.Calendars.Any(c=>c is null)||References.Schedules.Any(s=>s is null)||
             References.Calendars.Select(c=>c.Node).Distinct().Count()!=References.Calendars.Length||References.Schedules.Select(s=>s.Node).Distinct().Count()!=References.Schedules.Length)
             throw new MarketDataException("recipe_reference","Supply explicit unique resolved calendar and schedule pins.");
@@ -215,7 +232,8 @@ public static partial class RecipeEngine
         var declaration=new ConnectedRecipeDeclaration(identity,definition,
             inputs.Sources.Select(s=>new ConnectedRecipeSourceReference(s.Key,s.Value.Key)).ToImmutableArray(),
             inputs.Dates.Select(d=>new ConnectedRecipeDateBinding(d.Key,d.Value)).ToImmutableArray(),references??new([],[]),
-            publishedSources.Select(p=>new ConnectedPublishedRecipeReference(p.Key,definition.Nodes.Single(n=>n.Id==p.Key).PublishedSource!,p.Value.Curve,p.Value.Declaration.ManifestId)).ToImmutableArray());
+            publishedSources.Select(p=>new ConnectedPublishedRecipeReference(p.Key,definition.Nodes.Single(n=>n.Id==p.Key).PublishedSource!,p.Value.Curve,p.Value.Declaration.ManifestId)).ToImmutableArray())
+            {Windows=[..(inputs.Windows??[]).Select(w=>new ConnectedRecipeWindowBinding(w.Key,w.Value))]};
         var metadata=publishedSources.Values.Select(g=>g.Declaration with{MetadataSources=default})
             .Concat(publishedSources.Values.SelectMany(g=>g.Declaration.MetadataSources.IsDefault?[]:g.Declaration.MetadataSources)).GroupBy(d=>d.Identity).ToArray();
         if(metadata.Any(g=>g.Select(d=>d.ManifestId).Distinct().Count()!=1))throw Invalid("Conflicting metadata-only parent declarations.");
