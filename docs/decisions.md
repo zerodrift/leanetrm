@@ -4485,15 +4485,16 @@ There is no fixing-clock or expiry-policy term: selection and sampling share one
 instant, so an observation is always read while its contract is live and no
 carried final settlement is needed.
 
-Fourth, the observation of the context day is read from the live context sample,
-so in a scenario it is a live dependency; only an observation strictly before the
-context date is a frozen actual. At the fixture's 2027-01-19 close, a +1 shock to
-G therefore moves the January average by 2/5 (the 2027-01-19 and 2027-01-20
-observations of G), not 1/5. The existing swap observation path differs: it
-freezes an observation whose fixing instant equals the valuation instant. This
-difference is recorded for the owner's confirmation. Matching the frozen
-treatment requires the engine to hold a frozen and a live sample of one contract
-at the context instant; it holds one sample per source, date and contract.
+Fourth, decided by the owner on 2026-11-13, an observation day on or before the
+context date is a frozen actual with its exact observation; only a day after the
+context date is a live dependency. The context day's observation is frozen like
+a past day's, which agrees with the swap observation path: it freezes an
+observation whose fixing instant equals the valuation instant. At the fixture's
+2027-01-19 close a +1 shock to G therefore moves the January average by 1/5;
+only the 2027-01-20 observation of G is still live. A later day may select the
+same contract as the context day, so one calculation can hold a frozen and a
+live observation of one contract at the context instant. They are separate
+samples and separate leaves, and are never merged.
 
 The trade month is defined by selection. On a contract's last trading day the
 day belongs to that contract's trade month only if its sampling instant is
@@ -4503,12 +4504,16 @@ two contracts. A trade month whose delivery contract is the last in the universe
 drops its expiry day in the same way.
 
 A day before the context date reads its retained historical sample, at that day
-at the context's UTC time of day. The context date and later days read the live
-context sample of the contract selected for that day, so projected days carry
-that contract's primitive quote factor. Nothing is carried forward or estimated.
-A due observation without a retained sample refuses with `recipe_input`; an
-average is never taken over fewer days. The historical-sampling refusal for
-`sample` nodes is unchanged.
+at the context's UTC time of day. The context date reads, from the context
+frame, the observation of the contract selected for it at the valuation instant
+(that day's sampling instant), compiled as a frozen fact by the same
+current-observation freezing the swap observation path uses. It must be that
+contract's own daily settlement or trader mark observed at the valuation
+instant. Later days read the live context sample of the contract selected for
+that day, so projected days carry that contract's primitive quote factor.
+Nothing is carried forward or estimated. A due observation without its exact
+sample refuses with `recipe_input`; an average is never taken over fewer days.
+The historical-sampling refusal for `sample` nodes is unchanged.
 
 The terms enter graph equality and formula text (a typed `observationTerms=[...]`
 argument), and a saved-version preview compares them. The terms and the resolved
@@ -4536,14 +4541,17 @@ Refusals are structured:
   (for example `Observation term 1 position: …`); a group whose weights cannot be
   summed below 10^24, refused when saved because the recipe could never
   evaluate; a calendar on a calendar-day node or none on a business-day node;
-  terms on another kind; an unsupported consumer. A position that is not a whole
-  JSON number, such as `1.5`, does not bind and is refused by request binding as
-  `request_format`.
+  terms on another kind; an unsupported consumer. A position member that is
+  absent, or that is not a whole JSON number such as `1.5`, does not bind and is
+  refused by request binding as `request_format`.
 - `recipe_input`: no single delivery contract for a trade-month target, a
   delivery contract with no prior contract, a position beyond the contract
   universe, a calendar that does not cover a window, an empty window, supplied
-  windows that do not match the targets and terms or their periods, and a past
-  observation day without its retained sample.
+  windows that do not match the targets and terms or their periods, a past
+  observation day without its retained sample, and a context day whose context
+  frame holds no observation of the selected contract at the valuation instant
+  (absent, or only an earlier mark) or whose source carries contract price
+  terms.
 - `recipe_reference`: a business-day node without its exact calendar pin, a pin
   naming another calendar, or a window day that is not a business day of it.
 - `recipe_formula`: formula text whose term omits `lessPosition` or adds an
@@ -4565,11 +4573,13 @@ terms and the calendar binding at publication. It extends the panel-type list of
 the two panel guards (`guard_panel_weight`, `guard_panel_publication`) to admit
 this kind as a `weighted_panels` input, after pinning their prior definitions by
 hash. Published terms are immutable. No rows are rewritten. The preview's
-migration loop qualifies it (`tools/check_contract_observation_upgrade.py`): the
-pins refuse a changed guard body, owner, configuration, ACL and node-kind
-constraint; and on the synthetic fixture with a published `weighted_panels`
-combination seeded on the prior schema, the version reads back unchanged after
-0252 and both panel guards still refuse a source input, as they did before it.
+migration loop qualifies it (`tools/check_contract_observation_upgrade.py`). In
+every owned preview the pins refuse a changed guard body, owner, configuration,
+ACL and node-kind constraint. Under `--contract-observation-curve-check` only,
+whose fixtures it loads, the populated qualification seeds a published
+`weighted_panels` combination on the prior schema; the version reads back
+unchanged after 0252 and both panel guards still refuse a source input, as they
+did before it.
 
 The API prepares and previews the node through the ordinary custom-curve
 operations and offers it in the operator catalog with its admitted choices. The
@@ -4580,22 +4590,28 @@ Checks run on synthetic data. The managed core check asserts, for the fixture's
 roll spreads, 69.96 on 2026-12-01 with exact per-contract shocks (prompt F +1
 gives 70.96; G +1 gives 69.96 − 1/15; H +1 gives 69.96 + 1/15; all three +1
 gives 70.96); on 2026-12-22 the same price with the roll frozen (F has no live
-factor; G +1 gives 70.56, H +1 gives 70.36); 70.02 on 2027-01-20 and 70.00 on
-2027-01-25 with no live futures; a two-target case at 10724/155 and 4807/70;
-and the engine and declaration refusals above, including a missing past
-observation and the ordinal and member each term refusal names. Planning a
-consumer at 2027-01-20 refuses with `recipe_input` when only the context instant
-is supplied; with the sampling instant of every window day it plans sixteen
-native inputs (F, G and H on each December day, G on 2027-01-18 and 2027-01-19,
-and G and H at the context date), and the curve prices 70.02 under that demand.
-An API check refuses a 367th past observation day, counting a day once across
-operations and excluding days on or after the context date.
+factor; G +1 gives 70.56, H +1 gives 70.36); 70.02 on 2027-01-20 with G frozen
+(G is no live input; H +1 gives 70.42); 70.04 on 2027-01-19, where G +1 gives
+70.24 and H +1 gives 70.44; 20983/300 on 2026-12-17 inside the trade month, with
+12-15 to 12-17 frozen, where F +1 adds 1/4, G +1 adds 13/30 and H +1 adds 19/60;
+70.00 on 2027-01-25 with no live futures; a two-target case at 10724/155 and
+4807/70; and the engine and declaration refusals above, including a missing past
+observation, a context frame without the context day's contract or with only an
+earlier mark of it, and the ordinal and member each term refusal names. Planning
+a consumer at 2027-01-20 refuses with `recipe_input` when only the context
+instant is supplied; with the sampling instant of every window day it plans
+sixteen native inputs (F, G and H on each December day, G on 2027-01-18 and
+2027-01-19, G frozen at the context day and H live at the context date), and the
+curve prices 70.02 under that demand. An API check admits 366 past observation
+days and refuses more, counting a day once across operations; the context day's
+frozen observation and later days read the context frame and are not counted.
 
 Over HTTP in an owned stock PostgreSQL preview, the published curve with a −1.50
 differential prices 68.46 on 2026-12-01 and 2026-12-22, 68.52 on 2027-01-20 and
-68.50 on 2027-01-25, with the expected live inputs at each. A consumer reading
-it through `published_source` prices the same values, and calendar availability
-(`market/dates`) for either definition lists all four closes; without the window
+68.50 on 2027-01-25, with the expected live inputs at each; on 2027-01-20 only H
+and the differential are live. A consumer reading it through `published_source`
+prices the same values, with the same live inputs on 2027-01-20, and calendar
+availability (`market/dates`) for either definition lists all four closes; without the window
 days' sampling instants the consumer's three later closes are unavailable. Before
 the 2027-01-19 settlement is recorded the finished average refuses, and the
 knowledge view captured then still refuses afterwards. A later correction to
@@ -4614,8 +4630,10 @@ formula curve (indexed crude consideration on a Side is separate, later work);
 explicit roll boundaries; one synthetic fixture. Every observation day is sampled
 at one UTC time of day, so a window that crosses a daylight-saving change of a
 local-time close is not modelled. A source node carrying contract price terms
-that feeds this node is neither refused nor checked. "Feeds only" holds for the
-node itself: a consumer that reads the published output through
+that feeds this node is not refused when saved; its context-day observation
+refuses with `recipe_input`, because a frozen observation is read only from a
+direct source's own observation. No check exercises such a source. "Feeds only"
+holds for the node itself: a consumer that reads the published output through
 `published_source` may still average, look up or splice its cells. The check
 inserts the late settlement and its correction by SQL: the correction endpoint
 stamps receipt at the current time, and the observations table requires

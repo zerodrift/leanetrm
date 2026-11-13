@@ -4347,16 +4347,25 @@ sampling. For the 2027-01 target, a January business-day average plus 2:1
 weighted December roll spreads of F against G and H, it asserts exact rationals:
 69.96 on 2026-12-01, where F, G and H each +1 give 70.96, 69.96 − 1/15 and
 69.96 + 1/15; the same price on 2026-12-22 with F frozen, where G and H +1 give
-70.56 and 70.36; 70.02 on 2027-01-20; 70.00 on 2027-01-25 with no live future;
+70.56 and 70.36; 70.02 on 2027-01-20 with the context day frozen, so G is no
+live input and H +1 gives 70.42; 70.04 on 2027-01-19, where G +1 gives 70.24
+(one live day in five) and H +1 gives 70.44; 20983/300 on 2026-12-17 inside the
+trade month, where F, G and H +1 add 1/4, 13/30 and 19/60; 70.00 on 2027-01-25
+with no live future;
 69.90 when sampling at 20:00 moves the expiry day to the next contract; 68.46
 with a −1.50 differential; and a two-target case at 10724/155 and 4807/70. It
 also asserts the windows, declaration identity, formula text and each refusal,
 with the ordinal and member each term refusal names, including a `null`
-position and a group whose weights cannot be summed. Planning a consumer at
+position and a group whose weights cannot be summed, and the `recipe_input`
+refusal of a context frame without the context day's contract, with only an
+earlier mark of it, or offering a frozen observation from a past frame. Planning a consumer at
 2027-01-20 refuses with `recipe_input` given only the context instant; given
 every window day's sampling instant it plans the sixteen expected native inputs,
-and the curve prices 70.02 under that demand. The API check
-`--contract-observation-reads` refuses a 367th past observation day.
+the context day's G among them as a frozen input, and the curve prices 70.02
+under that demand. The API check `--contract-observation-reads` admits 366 past
+observation days and refuses more, counting a day once; all of 2024 with
+2025-01-01 as a frozen context day is admitted, because the context day reads
+the context frame.
 
 ```sh
 dotnet run --project tests/OpenEtrm.MarketData.Checks -c Release -- --contract-observation-recipes
@@ -4365,10 +4374,13 @@ dotnet run --project tests/OpenEtrm.Api.Checks -c Release -- --contract-observat
 
 Every owned preview qualifies migration 0252 in its migration loop
 (`tools/check_contract_observation_upgrade.py`): the hash pins refuse a changed
-panel guard body, owner, configuration, ACL and node-kind constraint, and on the
-synthetic fixture with a published `weighted_panels` combination seeded on the
-prior schema, the version reads back unchanged after 0252 and both panel guards
-still refuse a source input.
+panel guard body, owner, configuration, ACL and node-kind constraint. The
+populated qualification runs only under `--contract-observation-curve-check`,
+whose fixtures it loads: with a published `weighted_panels` combination seeded
+on the prior schema, the version reads back unchanged after 0252 and both panel
+guards still refuse a source input. Other modes' fixtures are not written for a
+one-transaction load (the contract dates fixture seals a pinned contract curve
+only after its admissions are inserted), so they run the drift checks alone.
 
 The owned stock PostgreSQL preview loads the synthetic crude fixture, then runs
 the storage check (table rules, security parity, publication refusals,
@@ -4381,8 +4393,10 @@ python3 tools/run_preview.py --pg-bin /path/to/postgres/bin --dotnet /path/to/do
 ```
 
 The published curve prices 68.46 on 2026-12-01 and on 2026-12-22, 68.52 on
-2027-01-20 and 68.50 on 2027-01-25, each with the expected live inputs. A
-consumer reading it through `published_source` prices the same values, and
+2027-01-20 and 68.50 on 2027-01-25, each with the expected live inputs; on
+2027-01-20 only H and the differential are live. A consumer reading it through
+`published_source` prices the same values, with the same live inputs on
+2027-01-20, and
 `market/dates` for either definition lists all four closes. Before the
 2027-01-19 settlement is recorded the finished average refuses with
 `recipe_input`, and the knowledge view captured then still refuses afterwards.

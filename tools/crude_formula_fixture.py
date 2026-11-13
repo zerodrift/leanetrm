@@ -32,8 +32,8 @@ SERIES = {code: key('2', n) for n, code in enumerate([f[0] for f in FUTURES] + [
 
 
 def observation(oid, contract, day, value, role='daily_settlement'):
-    """These observation instants lie after the machine clock; receipt time, audit metadata only, is the observed instant.
-    Knowledge comes from the committing transaction, never from this column."""
+    """Receipt time, audit metadata only, is the observed instant: the observations table requires observed_at <= received_at,
+    and these instants need not precede the current time. Knowledge comes from the committing transaction, never from this column."""
     return (f"INSERT INTO market_data.observations VALUES('{CAT}','{oid}','{REV}','{SERIES[contract]}',{R},'fixture',"
             f"'synthetic_crude_{contract}_{day}','1','{role}','final','{day}T12:00:00Z','{day}T12:00:00Z',{value},NULL);")
 

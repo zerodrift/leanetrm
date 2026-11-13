@@ -228,14 +228,18 @@ context's UTC time of day. On a last trading day sampled at or after the
 recorded expiry, the next contract is already position 1, so that day belongs to
 the next contract's trade month; no day is priced on two contracts. Days before
 the context date read their retained historical samples and are frozen. The
-context date and later days read the live context sample of the contract
-selected for that day, so they move with that contract's quote; the context
-day's own observation is therefore a live dependency in scenarios, not a frozen
-actual, which D389 records for the owner's confirmation. Nothing is
-carried or estimated: a past observation day without its sample refuses with
-`recipe_input`, and an average is never taken over fewer days. A preparation
-reads at most 366 past observation days across its observation nodes, one
-historical frame each, and refuses more with `custom_curve_definition`. Every
+context day is frozen too: it reads the context frame's own observation of its
+selected contract at the valuation instant, as the swap observation path fixes
+an observation at that instant, and a frame without that observation (or with
+only an earlier mark) refuses with `recipe_input`. Only later days read the live
+context sample of the contract selected for that day and move with that
+contract's quote; a later day may live-project the same contract the context
+day froze. Nothing is carried or estimated: a past observation day without its
+sample refuses with `recipe_input`, and an average is never taken over fewer
+days. A preparation reads at most 366 past observation days across its
+observation nodes, one historical frame each, and refuses more with
+`custom_curve_definition`; the context day and later days read the context
+frame and are not counted. Every
 observation day is sampled at one UTC time of day, so a window that crosses a
 daylight-saving change of a local-time close is not modelled. The existing
 refusal of historical `sample` nodes that read after the context date is
@@ -245,8 +249,9 @@ The node itself feeds only a curve combination (`weighted_panels`, for example
 to add a differential) or the output; other consumers refuse with
 `recipe_definition`. A consumer reading the published output through
 `published_source` may still average, look up or splice its cells. A source
-node carrying contract price terms that feeds this node is neither refused nor
-checked. Such a curve's kind is `observation_formula`. Formula mode carries the
+node carrying contract price terms that feeds this node is not refused when
+saved; its context-day observation refuses with `recipe_input`. No check
+exercises such a source. Such a curve's kind is `observation_formula`. Formula mode carries the
 rows in a typed `observationTerms=[...]` argument. The terms enter graph
 equality and formula text; the terms and the resolved windows enter the
 canonical declaration and its manifest. Each term refusal is
@@ -259,8 +264,9 @@ empty window refuse with `recipe_input`; a missing or mismatched calendar pin
 refuses with `recipe_reference`.
 
 Migration 0252 retains the terms in `custom_curve_observation_terms` and
-revalidates them at publication; the preview's migration loop qualifies it
-against drifted predecessors and a populated prior schema. The synthetic crude fixture and its HTTP check
+revalidates them at publication. Every owned preview's migration loop qualifies
+it against drifted predecessors; `--contract-observation-curve-check` also
+qualifies it against a populated prior schema loaded from its own fixtures. The synthetic crude fixture and its HTTP check
 run with `--contract-observation-curve-check`; adding `--browser-check` runs
 the Curve builder suite. The only consumer is that synthetic formula curve; no
 trade or Side consumes these outputs yet.

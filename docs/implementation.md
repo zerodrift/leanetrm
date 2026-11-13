@@ -4,9 +4,10 @@ D389 adds [contract observation terms](custom-curves.md#contract-observation-ter
 to custom curves, implemented locally. A `contract_observations` node sums
 groups of weighted, averaged contract-position observations over a calendar month
 or a trade month, optionally as a spread to a second position. Past days read
-retained samples; the context day and later days read the live context sample of
-the contract selected for each day, so the context day's observation is live in
-scenarios (recorded in D389 for the owner's confirmation). Migration 0252 stores
+retained samples; the context day is frozen at the context frame's own
+observation at the valuation instant, as the swap observation path does; later
+days read the live context sample of the contract selected for each day.
+Migration 0252 stores
 the terms; the API
 prepares and previews the node; the Curve builder edits it. The only consumer is
 a synthetic crude formula curve. No Side, trade, ticket or cash consumer, explicit
