@@ -4417,11 +4417,18 @@ browser suite passed 13 checks: catalog-driven settings and terms, preview at
 cleared weight and of a new term with no position shown beside the operation.
 `tools/check_all.py` includes this command.
 
-Local results on 2026-11-13: the managed core suite exited 0 with 675 managed
-core checks passed (863 PASS lines); `npm test --prefix web` passed 1601 tests;
-the public-site, public-route and runner unit tests and the standalone boundary
-check passed. When the card was added, `--custom-curves-check --browser-check`
-passed 236 owned browser checks, and the API checks, `--custom-curves-check` and
-`--connected-portfolio-check` passed during the storage and preparation changes.
+Local results on 2026-11-13, on this change merged with the current master: the
+managed core suite exited 0 with 675 managed core checks passed; the API checks
+passed (98); `npm test --prefix web` passed 1633 tests; the release-deployment,
+migration-identity, runner, public-site and public-route unit tests (65) and the
+standalone boundary check passed; and the owned previews
+`--contract-observation-curve-check --browser-check` (87 checks and 13 browser
+checks), `--custom-curves-check` and `--connected-portfolio-check` passed. On
+the final code before that merge, these owned previews also passed:
+`--custom-curves-check --browser-check`, `--price-authoring-check --browser-check`,
+`--market-dates-check --browser-check`, `--pilot-close-check --browser-check`,
+`--regional-closes-check`, `--contract-dates-check` and `--example mixed-gas`.
+A complete `tools/check_all.py` run was not performed locally on the final code;
+continuous integration runs the complete suite.
 These are synthetic local checks. They do not qualify a Side, trade or cash
 consumer, explicit roll boundaries, or a production activation.
