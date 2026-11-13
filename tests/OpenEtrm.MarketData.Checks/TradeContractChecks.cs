@@ -103,7 +103,7 @@ internal static class TradeContractChecks
         public bool ReuseResult{get;init;}
         public PvOnly(Guid id,ReferenceKey currency,ReferenceKey quantity,CurveRequest request,Func<UnitValuationContext,UnitMoney> evaluate,bool supportsScaling=true):base(id)
         {Currency=currency;UnitQuantity=new(ExactDecimal.Parse("1"),quantity);Request=request;this.evaluate=evaluate;this.supportsScaling=supportsScaling;}
-        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_pv_only_v1",[Request],UnitQuantity.Specification,Currency);
+        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_pv_only_v1",[Request],UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Independent };
         public override UnitValuation PV(UnitValuationContext context)
         {
             if(ReuseResult&&previous is not null)return previous;

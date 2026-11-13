@@ -3,6 +3,11 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--option-clock"]){FuturesOptionChecks.ClockLayers();return;}
+if(args is ["--valuation-environment"]){ValuationEnvironmentChecks.Run();return;}
+if(args is ["--pnl-attribution"]){TradingPnlAttributionChecks.Run();return;}
+if(args is ["--unpaid-cash"]){UnpaidCashChecks.Run();return;}
+if(args is ["--trading-pnl"]){TradingPnlChecks.Run();return;}
 if(args is ["--delivery-index"]){DeliveryIndexChecks.Run();return;}
 if(args is ["--power-product-averages"]){PowerProductChecks.Run();return;}
 if(args is ["--generic-schedules"]){GenericScheduleChecks.Run();return;}
@@ -547,6 +552,9 @@ passed += CommodityLookupChecks.Run();
 PhysicalGasQuantityChecks.Run();passed++;
 PhysicalGasSideChecks.Run();passed++;
 SidePaymentStateChecks.Run();passed++;
+TradingPnlChecks.Run();passed++;
+TradingPnlAttributionChecks.Run();passed++;
+UnpaidCashChecks.Run();passed++;
 PhysicalLifecycleChecks.Run();passed++;
 GasForwardSettlementExampleChecks.Run();passed++;
 SplicedCurveChecks.Run();passed++;
@@ -574,6 +582,7 @@ passed += ConnectedScenarioChecks.Run();
 ConnectedRecipeChecks.Run();
 CustomProjectionChecks.Run();
 ConnectedPortfolioChecks.Run();
+ValuationEnvironmentChecks.Run();passed++;
 JointScenarioRiskChecks.Run();
 AlignedFactorHistoryChecks.Run();
 ParametricRiskChecks.Run();

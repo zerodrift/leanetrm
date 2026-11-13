@@ -1,3 +1,4 @@
+import {isCashStatus,cashStatusLabels} from './cash-status.js';
 import type {Holding} from './desk-model.js';
 import {trackEdits} from './edit-tracking.js';
 import {keepOffered,noOptionPick,optionChoices,optionLevels,optionTicketStatus,pickOption,underlyingLabel,type LifecycleWrites,type OptionCatalog,type OptionLevel,type OptionPick} from './futures-option-model.js';
@@ -194,7 +195,7 @@ export async function readOptionView(api:Api,context:Record<string,unknown>&{sna
     ['Linked futures trades',h.linkedFuturesTrades?.length?h.linkedFuturesTrades.join(', '):'None']]},
    option?{title:'From the backend',rows:[['Settlement price',h.settlement??'None'],['Value per contract',h.unitPresentValue?`${h.unitPresentValue} ${h.currency}`:'None'],
     ['Implied volatility',h.impliedVolatility??'None'],['Calibration mode',h.calibrationMode??'None'],['Numerical policy',h.numericalPolicy??'None'],['Value measure','Option value excluding settled premium cash']]}
-    :{title:'Premium paid up front',rows:[['Premium',h.premium??''],['Premium cash',`${h.premiumAmount} ${h.currency}`],['Payment date',h.premiumPaymentDate??''],['Cash state',h.cashState??'']]}];
+    :{title:'Premium paid up front',rows:[['Premium',h.premium??''],['Premium cash',`${h.premiumAmount} ${h.currency}`],['Payment date',h.premiumPaymentDate??''],['Cash state',isCashStatus(h.cashState)?cashStatusLabels[h.cashState]:h.cashState??'']]}];
   const history:TermSection[]=[{title:`Revision ${h.revision}`,rows:[['Booked',displayInstant(h.executedAt,zone)],['Booker',h.trader??''],['Trade date',h.booking.tradeDate??'Unavailable']]},
    ...held.events.map(e=>({title:eventNames[e.kind]??publicText(e.kind),rows:[['Recorded for',displayInstant(e.businessAt,zone)],['Lots',e.lots??'Open lots at expiry'],['Open lots after',e.remainingLots],
     ['Linked future',e.futuresTradeReference??'None'],...(e.outcome?[['Outcome',publicText(e.outcome)] as const]:[])] as const}))];

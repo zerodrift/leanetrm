@@ -66,6 +66,7 @@ public sealed class PaymentSideState
     public const string Policy="explicit_paid_cash_nominal_due_v1";
     public Guid TradeId { get; }
     public Guid BindingId { get; }
+    public Guid? BookId { get; }
     public Quantity Quantity { get; }
     public Guid SideId { get; }
     public int MembershipOrdinal { get; }
@@ -83,7 +84,7 @@ public sealed class PaymentSideState
         if(policy!=Policy || determinations.IsDefault || allocations.IsDefault ||
             member.Coefficient!=ExactDecimal.Parse("1")&&member.Coefficient!=ExactDecimal.Parse("-1") || terms.Quantity.Amount.CompareTo(default)==0)
             throw Error("Select complete cash inputs, unit receive/pay direction and the explicit paid-cash/due policy.");
-        TradeId=trade.Id;BindingId=binding;Quantity=terms.Quantity;MembershipOrdinal=membership;SideId=member.Side.Id;
+        TradeId=trade.Id;BindingId=binding;BookId=trade.BookId;Quantity=terms.Quantity;MembershipOrdinal=membership;SideId=member.Side.Id;
         identity=Identity(member.Side,Quantity,member);
         membershipTerms=member;
         var amount=Quantity.Amount.ScaledValue;direction=member.Coefficient;
@@ -150,12 +151,13 @@ public sealed class CashflowBindingValuation:IBindingValuationState
 {
     public Guid TradeId { get; }
     public Guid BindingId { get; }
+    public Guid? BookId=>Sides[0].BookId;
     public Quantity Quantity { get; }
     public ImmutableArray<PaymentSideState> Sides { get; }
     public CashflowBindingValuation(Guid trade,Guid binding,Quantity quantity,ImmutableArray<PaymentSideState> sides)
     {
         if(trade==Guid.Empty||binding==Guid.Empty||quantity is null||sides.IsDefaultOrEmpty||sides.Any(s=>s is null||s.TradeId!=trade||s.BindingId!=binding||s.Quantity!=quantity)||
-            sides.Select(s=>s.MembershipOrdinal).Distinct().Count()!=sides.Length||sides.Select(s=>s.SideId).Distinct().Count()!=sides.Length)
+            sides.Select(s=>s.MembershipOrdinal).Distinct().Count()!=sides.Length||sides.Select(s=>s.SideId).Distinct().Count()!=sides.Length||sides.Select(s=>s.BookId).Distinct().Count()!=1)
             throw new MarketDataException("payment_state","Select distinct complete cash memberships for this exact held occurrence and quantity.");
         TradeId=trade;BindingId=binding;Quantity=quantity;Sides=sides;
     }

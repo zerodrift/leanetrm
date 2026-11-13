@@ -14,7 +14,7 @@ namespace OpenEtrm.Api;
 internal static class GasCashPaymentStore
 {
  internal const string LatestKnownRevision="latest_known_receipt_v1";
- internal static async Task<PhysicalCashState> Read(NpgsqlConnection connection,Guid catalog,Guid trade,Guid binding,Quantity quantity,string revisionPolicy,CancellationToken ct)
+ internal static async Task<PhysicalCashState> Read(NpgsqlConnection connection,Guid catalog,Guid trade,Guid binding,Guid book,Quantity quantity,string revisionPolicy,CancellationToken ct)
  {
   if(revisionPolicy!=LatestKnownRevision)throw new MarketDataException(PhysicalLifecycle.ContextRefusal,"Select the latest-known payment revision policy.");
   var rows=await PreviewDatabase.Rows(connection,"""
@@ -26,7 +26,7 @@ internal static class GasCashPaymentStore
    JOIN trading.gas_cash_payment_allocations a ON(a.catalog_id,a.payment_id)=(p.catalog_id,p.id)
    ORDER BY p.slot,a.occurrence,p.id
    """,[catalog,trade,binding],ct);
-  return new(trade,binding,quantity,[..rows.Select(r=>new CashOccurrencePayment(r.Id("id"),Int(r,"slot"),Int(r,"occurrence"),Instant(r,"paid_at"),Instant(r,"known_from"),
+  return new(trade,binding,quantity,book,[..rows.Select(r=>new CashOccurrencePayment(r.Id("id"),Int(r,"slot"),Int(r,"occurrence"),Instant(r,"paid_at"),Instant(r,"known_from"),
    ExactMoney.Parse(r.Text("amount"),Currency(r))))],PhysicalCashState.Policy);
  }
 

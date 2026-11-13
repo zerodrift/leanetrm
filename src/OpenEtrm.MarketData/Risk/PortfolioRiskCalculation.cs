@@ -14,7 +14,7 @@ public static partial class RiskEngine
     // scenario providers and retain their own typed receipts and work evidence.
     private sealed class PortfolioRiskCalculation
     {
-        private readonly PreparedValuationMarket market;
+        private readonly PreparedValuationEnvironment market;
         private readonly ImmutableArray<ValuationPortfolio> portfolios;
         private readonly ImmutableArray<ImmutableArray<UnitPricingContract>> contracts;
         private readonly RiskDetail detail;
@@ -35,7 +35,7 @@ public static partial class RiskEngine
                 Calibrated+=session.Resolver.CalibratedBlocks;ReusedBlocks+=session.Resolver.ReusedBlocks;
             }
         }
-        internal PortfolioRiskCalculation(PreparedValuationMarket market,ImmutableArray<ValuationPortfolio> portfolios,
+        internal PortfolioRiskCalculation(PreparedValuationEnvironment market,ImmutableArray<ValuationPortfolio> portfolios,
             ImmutableArray<ImmutableArray<UnitPricingContract>> contracts,RiskDetail detail,CancellationToken cancellation)
         {
             this.market=market;this.portfolios=portfolios;this.contracts=contracts;this.detail=detail;
@@ -44,7 +44,7 @@ public static partial class RiskEngine
             Applications=Bases.Select(value=>value.QuantityApplications).ToArray();
             IntervalWork=Bases.Select(value=>{var work=new IntervalWorkCount();work.Add(value.IntervalSession);work.Sides+=value.SideCalculations;return work;}).ToArray();
         }
-        internal PortfolioRiskMeasurement[] Measure(PreparedValuationMarket upMarket,PreparedValuationMarket downMarket,
+        internal PortfolioRiskMeasurement[] Measure(PreparedValuationEnvironment upMarket,PreparedValuationEnvironment downMarket,
             ExactDecimal size,PriceUnit unit,CancellationToken cancellation)
         {
             var upValues=Evaluate(upMarket,cancellation);var downValues=Evaluate(downMarket,cancellation);
@@ -60,7 +60,7 @@ public static partial class RiskEngine
             cancellation.ThrowIfCancellationRequested();
             return measured;
         }
-        internal PortfolioValue[] Evaluate(PreparedValuationMarket scenario,CancellationToken cancellation)
+        internal PortfolioValue[] Evaluate(PreparedValuationEnvironment scenario,CancellationToken cancellation)
         {
             var values=new PortfolioValue[portfolios.Length];
             for(var group=0;group<portfolios.Length;group++)

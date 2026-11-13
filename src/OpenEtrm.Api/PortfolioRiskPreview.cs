@@ -35,6 +35,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
     private static PortfolioValuationPolicy PricingPolicy=>new(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,
         FuturesRisk.Implementation,SwapStore.Convention,RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,"estimate_until_actual_v1",
         FuturesOptionValuationPolicy.Release1);
+    internal static PortfolioValuationPolicy AccountingPricingPolicy=>PricingPolicy;
     internal sealed record Prepared(PortfolioRiskRequest Request,RiskDetail Detail,
         ImmutableArray<Guid> BookIds,ImmutableArray<JsonElement> Books,PortfolioValuation.Prepared Portfolio,
         ImmutableArray<PortfolioCurveBump> Bumps,ImmutableArray<PortfolioCurveShift> Stress,

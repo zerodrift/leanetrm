@@ -71,9 +71,17 @@ internal sealed class FuturesOptionMarket
     internal required ImmutableDictionary<Guid,string> PremiumFailures{get;init;}
     internal required ImmutableDictionary<ReferenceKey,CurrencyDefaultDiscounting> Discounting{get;init;}
     // The snapshot's valuation instant, at which premium cash is pending or settled for both its value and its state.
-    internal required DateTimeOffset ValuationAt{get;init;}
+    internal required MarketSnapshot Snapshot{get;init;}
+    internal required ImmutableDictionary<MeasureBinding,RecordedCashValuation> CashStates{get;init;}
 
-    internal string PremiumState(Guid premium)=>Premiums[premium].Settled(ValuationAt)?"settled":"pending";
+    private RecordedCashValuation Cash(FuturesOptionPosition position)=>CashStates[new(position.Trade,position.PremiumBinding)];
+    internal string PremiumState(FuturesOptionPosition position)
+    {
+        var state=Cash(position);var remaining=state.Outstanding(Snapshot);
+        if(remaining.Numerator=="0")return state.Quantity.Amount==default?"no_amount_due":"paid";
+        if(state.Paid(Snapshot).Numerator!="0")return "part_paid";
+        return Premiums[position.PremiumBinding].Due(Snapshot.ValuationAt)?"due_unpaid":"pending";
+    }
 
     internal ImmutableArray<FuturesOptionCalibrationReceipt> Receipts=>[..Bindings.Values.OrderBy(b=>b.Instrument.Id).Select(b=>b.Receipt)];
     internal ImmutableArray<PortfolioDiscountEvidence> DiscountInputs=>[..Discounting.Values.SelectMany(d=>d.Inputs)
@@ -87,7 +95,7 @@ internal sealed class FuturesOptionMarket
     // to give.
     internal string? Reason(FuturesOptionPosition position)=>position.OpenLots==default?null:OptionFailures.GetValueOrDefault(position.OptionBinding);
     // Premium cash is valued unless its pending payment date lies outside the selected curve (discount_coverage).
-    internal string? PremiumReason(FuturesOptionPosition position)=>PremiumFailures.GetValueOrDefault(position.PremiumBinding);
+    internal string? PremiumReason(FuturesOptionPosition position)=>Cash(position).Outstanding(Snapshot).Numerator=="0"||Premiums[position.PremiumBinding].Due(Snapshot.ValuationAt)?null:PremiumFailures.GetValueOrDefault(position.PremiumBinding);
 
     internal ImmutableArray<ExcludedPosition> Unvalued(ImmutableArray<FuturesOptionPosition> positions)=>[..positions.SelectMany(p=>
         new[]{(Binding:p.OptionBinding,Reason:Reason(p)),(Binding:p.PremiumBinding,Reason:PremiumReason(p))}.Where(b=>b.Reason is not null)
@@ -108,6 +116,12 @@ internal sealed class FuturesOptionMarket
         var instruments=trades.SelectMany(t=>t.Instruments).Select(i=>i.Instrument).DistinctBy(i=>i.Id).ToArray();
         return ValuationPortfolio.FromTrades(trades,new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
         {
+            BindingStates=trades.SelectMany(t=>t.Instruments.Where(i=>CashStates.ContainsKey(new(t.Id,i.Id))).Select(i=>(Key:new MeasureBinding(t.Id,i.Id),State:(IBindingValuationState)CashStates[new(t.Id,i.Id)]))).ToImmutableDictionary(p=>p.Key,p=>p.State),
+            // Deliverable exercise/assignment needs the linked futures' variation-margin and transfer ledger.
+            // Its absence must not turn a conversion into a reported option PV loss.
+            AccountingFacts=trades.Where(t=>positions.Single(p=>p.Trade==t.Id).LinkedFutures.IsEmpty).SelectMany(t=>t.Instruments.Select(i=>(Key:new MeasureBinding(t.Id,i.Id),Facts:new BindingAccountingFacts(new(t.Id,i.Id,t.BookId),
+                Snapshot.Knowledge!.ContextId,Snapshot.Knowledge.KnownAt,CashStates.TryGetValue(new(t.Id,i.Id),out var cash)?cash.KnownFlows(Snapshot):[]))))
+                .ToImmutableDictionary(p=>p.Key,p=>p.Facts),
             OptionBindings=instruments.OfType<FuturesOptionInstrument>().ToImmutableDictionary(i=>i.Id,i=>Bindings[i.Id]),
             // Settled cash is worth nothing further and selects no discounting.
             InstrumentDiscounting=instruments.OfType<CashPayment>().Where(i=>Discounting.TryGetValue(i.Currency,out var d)&&d.Inputs.ContainsKey(i.Payment))
@@ -159,11 +173,13 @@ internal static class FuturesOptionPortfolio
             data.FuturesOptionSeries.SingleOrDefault(s=>s.Key==key)??throw new MarketDataException("option_definition",$"Option series {key.Code} is not in this market.")));
         if(positions.Any(p=>options[p.SeriesKey].Id!=p.OptionBinding))throw FuturesOptionPositions.Missing();
         var premiums=positions.Select(p=>p.Premium(options[p.SeriesKey].Series.Multiplier)).DistinctBy(p=>p.Id).ToImmutableDictionary(p=>p.Id);
-        var unsettled=premiums.Values.Where(p=>!p.Settled(snapshot.ValuationAt)).ToArray();
+        var cashTrades=positions.Select(p=>new Trade(p.Trade,p.Book.Id("id"),[new(p.PremiumBinding,premiums[p.PremiumBinding],new(p.PremiumQuantity,premiums[p.PremiumBinding].Currency))])).ToImmutableArray();
+        var cashStates=await CashPaymentStore.Read(connection,catalog,frame,snapshot,cashTrades,ct);
+        var unsettled=positions.Where(p=>cashStates[new(p.Trade,p.PremiumBinding)].Outstanding(snapshot).Numerator!="0").Select(p=>premiums[p.PremiumBinding]).DistinctBy(p=>p.Id).Where(p=>!p.Due(snapshot.ValuationAt)).ToArray();
         var held=positions.Where(p=>p.OpenLots!=default).Select(p=>options[p.SeriesKey]).ToArray();
         var calibrations=await Calibrate(connection,catalog,data,frame,snapshot,held,[..unsettled.Select(p=>p.Payment)],policy,ct);
         return new(){Bindings=calibrations.Bindings,Settlements=calibrations.Settlements,OptionFailures=calibrations.Failures,Premiums=premiums,
-            PremiumFailures=calibrations.UncoveredPayments.ToImmutableDictionary(id=>id,_=>"discount_coverage"),Discounting=calibrations.Discounting,ValuationAt=snapshot.ValuationAt};
+            PremiumFailures=calibrations.UncoveredPayments.ToImmutableDictionary(id=>id,_=>"discount_coverage"),Discounting=calibrations.Discounting,Snapshot=snapshot,CashStates=cashStates};
     }
 
     // Calibrates each distinct option series once from the unshocked base of the snapshot, in series-identity order. A

@@ -181,7 +181,7 @@ internal static class PhysicalLifecycleChecks
         Reject("payment_state",()=>demo.State([twice,twice with{Occurrence=1,PaidAt=Demo.Close.AddDays(-1)}]));
         var split=demo.Value(Demo.Close,[twice,twice with{Occurrence=1}],Demo.Undiscounted).Rows.Where(r=>Cash(r)&&r.DeliveryFrom.Month==9&&r.DeliveryFrom.Day<=2).ToArray();
         Require(split.All(r=>r.Settlement==SettlementState.PartPaid&&r.PaidAt==Demo.Close),"One payment may allocate to several occurrences.");
-        Reject("payment_state",()=>new PhysicalCashState(demo.Trade.Id,demo.Binding,demo.Held,[],"explicit_paid_cash_nominal_due_v1"));
+        Reject("payment_state",()=>new PhysicalCashState(demo.Trade.Id,demo.Binding,demo.Held,demo.Trade.BookId,[],"explicit_paid_cash_nominal_due_v1"));
         Reject("payment_state",()=>demo.Value(Demo.Close,[demo.Payment(Demo.Months+3,0,Demo.Close,Demo.Close,"-352")],Demo.Undiscounted));
         Reject("payment_state",()=>demo.Value(Demo.Close,[demo.Payment(0,0,Demo.Close,Demo.Close,"-290")],Demo.Undiscounted));
         Reject("settlement_conservation",()=>demo.Value(Demo.Close,[demo.Payment(Demo.Months,0,Demo.Close,Demo.Close,"290")],Demo.Undiscounted));
@@ -275,7 +275,7 @@ internal static class PhysicalLifecycleChecks
             new(Guid.NewGuid(),slot,occurrence,paidAt,knownAt,ExactMoney.Parse(amount,quote.Currency));
         internal ImmutableArray<CashOccurrencePayment> SeptemberPaid(DateTimeOffset knownAt)=>
             [..Enumerable.Range(0,30).Select(n=>Payment(Months,n,Fixture.Utc("2026-10-10T00:00:00Z"),knownAt,"-290"))];
-        internal PhysicalCashState State(ImmutableArray<CashOccurrencePayment> paid)=>new(Trade.Id,Binding,Held,paid,PhysicalCashState.Policy);
+        internal PhysicalCashState State(ImmutableArray<CashOccurrencePayment> paid)=>new(Trade.Id,Binding,Held,Trade.BookId,paid,PhysicalCashState.Policy);
 
         // Fixings visible at the instant; each curve contract's live mark, or its final settlement once expired, equal to the
         // fixing unless `marked` sets one day's (a null price leaves that day with neither); the knowledge cutoff is the close.
@@ -401,7 +401,7 @@ internal static class PhysicalLifecycleChecks
                     return new RetainedGasMember(m.Id,ExactDecimal.Parse("1"),ExactRatio.One,BookedSideProgram.Compile(physical?.Invoke(d)??d));}),
                 new(price.Id,ExactDecimal.Parse("-1"),ExactRatio.One,Book(price))],[..members.SelectMany(m=>m.Assignments)]);
             var binding=Guid.NewGuid();var trade=new Trade(Guid.NewGuid(),Guid.NewGuid(),[new(binding,instrument,Held)]);
-            return Lifecycle(trade,instrument,new(trade.Id,binding,Held,[],PhysicalCashState.Policy),at,Undiscounted,null,null);
+            return Lifecycle(trade,instrument,new(trade.Id,binding,Held,trade.BookId,[],PhysicalCashState.Policy),at,Undiscounted,null,null);
         }
         internal void Crude()
         {
@@ -410,7 +410,7 @@ internal static class PhysicalLifecycleChecks
             var instrument=new RetainedCrudeInstrument(Guid.NewGuid(),crude.Assignment,[new(crude.Id,ExactDecimal.Parse("1"),Book(crude)),new(cash.Id,ExactDecimal.Parse("-1"),Book(cash))]);
             var binding=Guid.NewGuid();var held=new Quantity(ExactDecimal.Parse("1"),instrument.UnitQuantity.Specification);
             var trade=new Trade(Guid.NewGuid(),Guid.NewGuid(),[new(binding,instrument,held)]);
-            var state=new PhysicalCashState(trade.Id,binding,held,[],PhysicalCashState.Policy);
+            var state=new PhysicalCashState(trade.Id,binding,held,trade.BookId,[],PhysicalCashState.Policy);
             ValuationPortfolio.FromTrades([trade],new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,Undiscounted)
                 {BindingStates=ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty.Add(new(trade.Id,binding),state)});
         }

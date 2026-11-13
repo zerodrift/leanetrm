@@ -40,7 +40,7 @@ internal static class ConnectedCurveChecks
         var nested=ConnectedScenario.Base(plan);
         var smallShift=new CurveShift(CurveShockCoordinate.ComputedOutput,new PointCurveTarget(f.Mean.Key.Curve,[f.Mean.Key.PointId]),f.Mean.Unit,ExactDecimal.Parse("0.001"),CurveShift.ParentAdditive);
         for(var i=0;i<64;i++)nested=nested.WithShifts([smallShift]);
-        try{nested.WithShifts([smallShift]);throw new Exception("Expected graph_depth.");}catch(MarketDataException e)when(e.Code=="graph_depth"){}
+        try{nested.WithShifts([smallShift]);throw new Exception("Expected scenario_depth.");}catch(MarketDataException e)when(e.Code=="scenario_depth"){}
 
         ConnectedCurvePlan ReplaceMean(ConnectedCurveExpression expression,PriceUnit? unit=null)=>ConnectedCurves.Compile(
             f.Definitions.Select(d=>d.Key==f.Mean.Key.Curve?d with{Points=[f.Mean with{Expression=expression,Unit=unit??f.Mean.Unit}]}:d),[f.Spread.Key],f.Context,f.Resolver);

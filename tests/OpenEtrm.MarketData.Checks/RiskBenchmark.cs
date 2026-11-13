@@ -131,7 +131,7 @@ internal static class RiskBenchmark
             Snapshot=new(Id(5),revision,at,at,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,series.Select((s,n)=>
                 new SelectedObservation(new(s.Key,InputUse.Variable),new(new(revision.CatalogId,Id(30000+n)),s.Key,R("source"),ObservationRole.TraderMark,PublicationState.Final,at,ExactDecimal.Parse(n==0?"3":"0.2")))).ToImmutableArray());
             requests=members.Select(k=>new CurveRequest(C("output"),k)).ToImmutableArray();
-            Pricers=requests.Select((r,n)=>(Instrument)new RiskChecks.TestPricer(new(Id(40000+n),"synthetic_mark_v1",[r],quantity.Key,quote.Currency),
+            Pricers=requests.Select((r,n)=>(Instrument)new RiskChecks.TestPricer(new(Id(40000+n),"synthetic_mark_v1",[r],quantity.Key,quote.Currency) { Time = ValuationTimeDependency.Independent },
                 i=>i.Price(r).Times(new Quantity(one,quantity.Key)))).ToImmutableArray();
             markets=Pricers.ToDictionary(p=>p.Id,p=>((RiskChecks.TestPricer)p).Contract.Dependencies.Single());
             Positions=Enumerable.Range(0,count).Select(n=>new RiskPosition(Id(50000+n),Id(70000+n),Id(n%2==0?8:9),Pricers[n%unique].Id,

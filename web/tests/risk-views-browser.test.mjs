@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {withBrowserPage,browserAvailable,browserTestTimeout} from './browser-page.mjs';
 
-const html=['risk','risk-scenarios','risk-var','risk-runs'].map(view=>`<button id="nav-${view}">${view}</button>`).join('');
+const html=['risk','risk-pnl','risk-scenarios','risk-var','risk-runs'].map(view=>`<button id="nav-${view}">${view}</button>`).join('');
 const setup=`(async()=>{window.shown=[];window.opened=0;window.onRisk=true;window.blocked=false;
  window.views=(await import('/risk-views.js')).setupRiskViews({show:view=>shown.push(view),open:()=>opened++,onPage:()=>onRisk,busy:()=>blocked,available:()=>true});})()`;
 const browser={skip:!browserAvailable,timeout:browserTestTimeout};

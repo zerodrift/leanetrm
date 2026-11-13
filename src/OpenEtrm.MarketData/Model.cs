@@ -193,8 +193,8 @@ public sealed record CurveBuild
     internal ImmutableArray<CurveRequest> Requests { get; }
     private readonly Lazy<Calculation.ConnectedValuation> valuation;
     private readonly Lazy<ImmutableDictionary<CurveRequest,Calculation.CurvePointKey>> pricingBindings;
-    private readonly Lazy<Trading.PreparedValuationMarket> pricing;
-    internal Trading.PreparedValuationMarket Pricing=>pricing.Value;
+    private readonly Lazy<Trading.PreparedValuationEnvironment> pricing;
+    internal Trading.PreparedValuationEnvironment Pricing=>pricing.Value;
     internal Calculation.ConnectedValuation Connected=>valuation.Value;
     internal ImmutableDictionary<CurveRequest,Calculation.CurvePointKey> PricingBindings=>pricingBindings.Value;
     // Native interval consumers see prices from the same shared graph as ordinary

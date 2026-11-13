@@ -64,10 +64,12 @@ those future examples.
 | [Meter finality](meter-finality.md), [PPA preview](settlement-preview.md) | Exact native power evidence/finality, payment continuity and bounded gross preview | Meter evidence is not accepted cash or a payment. PPA cash acceptance remains deferred under D204. |
 | [Shared utilities](../src/OpenEtrm.Shared/README.md) | Exact arithmetic/rounding, temporal primitives and reusable mechanisms | Keep commodity rules, currency policy, domain entities, authorization and persistence in their owning managed modules. |
 
-`CashPayment_v1` is a specific instrument whose supported contract treats cash as
-settled from its payment date. It must not stand in for unpaid physical receivables
-or payables. Neither that definition nor existing swap/crude policy changes merely
-because a new shared interface exists.
+`CashPayment_v1` retains the economic identity of one currency unit due on an exact
+date. Its `cash_payment_explicit_paid_state_v2` valuation requires recorded payment
+state: future unpaid cash is discounted, due unpaid cash remains nominal, and paid
+cash leaves remaining PV (D386). It supplies no physical delivery, invoice or
+acceptance capability. Existing swap/crude policies keep their own supported
+contracts; a shared interface alone does not change them.
 
 ## Object ownership
 

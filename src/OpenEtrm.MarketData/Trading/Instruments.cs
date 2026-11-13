@@ -147,7 +147,7 @@ public abstract record SidedInstrument : Instrument
     }
 
     public override UnitPricingContract Declare(UnitValuationContext context)=>
-        new(Id,"independent_side_unit_pv_v1",DependenciesAt(context.Snapshot),UnitQuantity.Specification,Currency);
+        new(Id,"independent_side_unit_pv_v1",DependenciesAt(context.Snapshot),UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Pinned };
 
     // The instrument delegates valuation; it never interprets a side's cashflows.
     public override InstrumentValuation PV(SideValuationContext context)

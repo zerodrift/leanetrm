@@ -56,7 +56,10 @@ public sealed record FuturesOptionInstrument : Instrument
     public override UnitPricingContract Declare(UnitValuationContext context)
     {
         var binding = Binding(context);
-        return new(Id, AmericanFuturesOptionModel.Id, [binding.Underlying], UnitQuantity.Specification, Currency);
+        return new(Id, AmericanFuturesOptionModel.Id, [binding.Underlying], UnitQuantity.Specification, Currency) { Time = binding.Calibration is SolvedVolatility?
+            ValuationTimeDependency.Between(context.Snapshot.ValuationAt,Series.InstructionCutoffAt is {} cutoff&&cutoff>context.Snapshot.ValuationAt?cutoff:Series.Terms.ExpiryAt):ValuationTimeDependency.Pinned,
+            DiscountInputs=[new(new(Id,0,Series.Terms.ExpiryAt,Currency),binding.Discounting)],
+            Volatility=binding.Calibration is SolvedVolatility solved?[new(binding.Id,solved.Volatility.ToString(),VolatilityInput.Annualized)]:[] };
     }
 
     // The unit price at the scenario futures price is rounded once, half-even, to
@@ -71,13 +74,22 @@ public sealed record FuturesOptionInstrument : Instrument
             throw Error("option_context", $"Option series {Series.Key.Code} was calibrated on another snapshot.");
         context.Market!.Model.RequireFuturesOptionDefinition(Series, binding.Underlying, binding.Settlement);
         var futures = LatticeDecimal.From(inputs.ExactPrice(binding.Underlying).ToUnitPriceExact().Value);
-        var unit = binding.UnitPrice(futures, inputs.ValuationAt, context.Cancellation).ToExact();
+        var discount=inputs.Discounts([new(Id,0,Series.Terms.ExpiryAt,Currency)]).Single();
+        var volatility=binding.Calibration is SolvedVolatility?LatticeDecimal.Parse(inputs.Volatility(binding.Id).Format(30,MidpointRounding.ToEven)):(LatticeDecimal?)null;
+        if(LatticeDecimal.From(discount.ClockRoll?.SourceFactor??discount.DiscountFactor)!=binding.DiscountToExpiry)
+            throw Error("option_context","The discount provider must retain the calibration's exact source factor.");
+        var unit = binding.UnitPrice(futures, inputs.ValuationAt, context.Cancellation,LatticeDecimal.From(discount.DiscountFactor),volatility).ToExact();
         return new(context, ExactMoney.FromMoney(new Money(unit, Currency)).Scale(Series.Multiplier), UnitQuantity.Specification);
     }
 
     private FuturesOptionMarketBinding Binding(UnitValuationContext context)
     {
         var binding = context.FuturesOption(Id);
+        var payment=new SidePaymentKey(Id,0,Series.Terms.ExpiryAt,Currency);
+        var factors=binding.Discounting?.Resolve([payment],context.Snapshot)??throw Error("option_context","The calibration requires its exact source discount provider.");
+        if(factors.IsDefault||factors.Length!=1||factors[0].Payment!=payment||!factors[0].Snapshot.HasSameInputs(context.Snapshot)||
+            LatticeDecimal.From(factors[0].DiscountFactor)!=binding.DiscountToExpiry)
+            throw Error("option_context","The source expiry factor must match the retained volatility calibration.");
         if (binding.Instrument.Series != Series)
             throw Error("valuation_binding", "The selected binding must retain the exact option terms.");
         return binding;
@@ -93,6 +105,7 @@ public sealed record FuturesOptionMarketBinding(Guid Id, FuturesOptionInstrument
     CurveRequest Settlement, string ObservationRole, OptionCalibration Calibration, LatticeDecimal BaseFutures,
     LatticeDecimal BaseSettlement, LatticeDecimal DiscountToExpiry, OptionNumericalPolicy Policy, Guid SnapshotId)
 {
+    public required ISideDiscounting Discounting {get;init;}
     public Guid Id { get; } = Id != Guid.Empty ? Id : throw FuturesOptionInstrument.Error("valuation_binding", "A binding needs an exact identity.");
     public FuturesOptionInstrument Instrument { get; } = Instrument ?? throw FuturesOptionInstrument.Error("valuation_binding", "A binding needs its option.");
     public string ObservationRole { get; } = ObservationRole == FuturesOptionPricing.DailySettlement ? ObservationRole
@@ -104,13 +117,13 @@ public sealed record FuturesOptionMarketBinding(Guid Id, FuturesOptionInstrument
 
     // Solved: the tree at the held volatility. Fallback: treated as exercised, so
     // intrinsic at the scenario price plus the base residual, floored at zero.
-    public LatticeDecimal UnitPrice(LatticeDecimal futures, DateTimeOffset valuationAt, CancellationToken ct)
+    public LatticeDecimal UnitPrice(LatticeDecimal futures, DateTimeOffset valuationAt, CancellationToken ct,LatticeDecimal discount,LatticeDecimal? volatility)
     {
         switch (Calibration)
         {
             case SolvedVolatility solved:
                 Interlocked.Increment(ref trees.Count);
-                return AmericanFuturesOptionModel.UnitPrice(Instrument.Series.Terms, futures, solved.Volatility, DiscountToExpiry, valuationAt, Policy, ct);
+                return AmericanFuturesOptionModel.UnitPrice(Instrument.Series.Terms, futures, volatility??throw FuturesOptionInstrument.Error("risk_dependency","Solved option pricing requires its declared volatility input."), discount, valuationAt, Policy, ct);
             case IntrinsicFallback fallback:
                 return LatticeDecimal.Max(Intrinsic(futures) + fallback.Residual, LatticeDecimal.Parse("0"));
             default:
@@ -185,7 +198,7 @@ public static class FuturesOptionPricing
         catch (MarketDataException error) { throw new MarketDataException(error.Code, $"{label}: {error.Message}", error); }
         var id = ContractIdentity.FromCanonical($"futures_option_binding_v1:{option.Id:D}:{snapshot.Id:D}:{underlying.Curve.Code}:{underlying.Contract.Id:D}:" +
             $"{settlement.Curve.Code}:{settlement.Contract.Id:D}:{observationRole}:{policy.Id}:{fallbackDeclared}:{discount}");
-        return new(id, option, underlying, settlement, observationRole, calibration, futures, optionPrice, discount, policy, snapshot.Id);
+        return new(id, option, underlying, settlement, observationRole, calibration, futures, optionPrice, discount, policy, snapshot.Id){Discounting=discounting};
     }
 
     // FuturesRisk.Calculate's contract plus the option inputs. Each distinct option

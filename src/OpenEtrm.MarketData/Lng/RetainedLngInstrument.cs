@@ -55,7 +55,7 @@ public sealed record RetainedLngInstrument : Instrument
     }
     public override UnitPricingContract Declare(UnitValuationContext context) => new(Id, "retained_lng_unit_pv_v1",
         PeriodPriceSelector.ProjectionAt(Assignment.Lookup, context.Snapshot) is {} market ? [market] : [],
-        UnitQuantity.Specification, Currency) { ScheduleIdentity = RetainedScheduleIdentity };
+        UnitQuantity.Specification, Currency) { Time = ValuationTimeDependency.Pinned,  ScheduleIdentity = RetainedScheduleIdentity };
 
     public override ExactMoney Value(UnitValuationContext context)
     {

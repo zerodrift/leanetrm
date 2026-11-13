@@ -145,7 +145,7 @@ internal static class ConnectedScenarioChecks
         public InstrumentValuation? Saved{get;init;}
         public CurvePv(Guid id,PriceUnit unit,ImmutableArray<CurveRequest> dependencies,Func<SideValuationContext,ExactMoney> calculate):base(id)
         {Currency=unit.Currency;UnitQuantity=new(ExactDecimal.Parse("1"),unit.Quantity);this.dependencies=dependencies;this.calculate=calculate;}
-        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_connected_curve_pv_v1",dependencies,UnitQuantity.Specification,Currency);
+        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_connected_curve_pv_v1",dependencies,UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Independent };
         public override InstrumentValuation PV(SideValuationContext context)=>Saved??new(this,context,calculate(context),"synthetic_connected_curve_pv_v1");
     }
 }

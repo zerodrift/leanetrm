@@ -1,5 +1,16 @@
 # Architecture and domain contracts
 
+The [valuation context and scenario layers](valuation-context-layers.md) separate
+certified source selection from calculation time. The initial local implementation
+extends Instrument/Side PV, immutable scenarios and dependency-based reuse to
+forward clock changes, dated discount roll and calibrated series IV. Source
+certificates and recorded facts remain fixed. General source composition, event
+projections and non-price worker requests remain later scope.
+
+The framework trading P&L report is in implementation. Its agreed remaining-value,
+paid-cash, generic scenario and Run → Save contracts and current boundaries are
+recorded in [trading P&L](trading-pnl.md).
+
 D375 separates dated catalogue choices, exact retained terms and explicit pricing
 inputs. Recorded closes retain source matrices; the shared execution envelope and
 UI preserve the selected business date. Typed rate inspection requires the dated,

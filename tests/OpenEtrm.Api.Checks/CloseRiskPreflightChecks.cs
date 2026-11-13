@@ -123,7 +123,7 @@ internal static class CloseRiskPreflightChecks
         public override ReferenceKey Currency=>Unit.Currency;
         public override Quantity UnitQuantity=>new(ExactDecimal.Parse("1"),Unit.Quantity);
         public override bool SupportsQuantityScaling=>true;
-        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"declared_work_check_v1",[Request],Unit.Quantity,Unit.Currency);
+        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"declared_work_check_v1",[Request],Unit.Quantity,Unit.Currency) { Time = ValuationTimeDependency.Independent };
         public override long WorkRows(UnitValuationContext context)=>Rows;
         public override ExactMoney Value(UnitValuationContext context)=>throw new Exception("Work admission must not value an instrument.");
     }

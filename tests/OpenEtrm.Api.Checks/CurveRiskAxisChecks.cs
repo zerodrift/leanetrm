@@ -173,7 +173,7 @@ internal static class CurveRiskAxisChecks
         public override Quantity UnitQuantity{get;}
         public MeanInstrument(CurveRequest dependency,PriceUnit unit):base(Guid.NewGuid())
         {this.dependency=dependency;Currency=unit.Currency;UnitQuantity=new(ExactDecimal.Parse("1"),unit.Quantity);}
-        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_history_mean_pv_v1",[dependency],UnitQuantity.Specification,Currency);
+        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_history_mean_pv_v1",[dependency],UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Independent };
         public override InstrumentValuation PV(SideValuationContext context)=>new(this,context,context.ExactPrice(dependency).ExactTimes(UnitQuantity),"synthetic_history_mean_pv_v1");
     }
 }

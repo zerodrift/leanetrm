@@ -10,7 +10,7 @@ export const navigationGroups:readonly NavigationGroup[]=[
  {id:'overview',label:'Overview',pages:['dashboard']},
  {id:'trading',label:'Trading',pages:['futures'],opened:['ppa','gas','crude']},
  {id:'markets',label:'Markets',pages:['market','delivery','interval-series','vol-surfaces','interval-curves']},
- {id:'risk',label:'Risk',pages:['risk','risk-scenarios','risk-var','risk-runs']},
+ {id:'risk',label:'Risk',pages:['risk','risk-pnl','risk-scenarios','risk-var','risk-runs']},
  {id:'scheduling',label:'Scheduling',pages:['physical-operations','facilities']},
  {id:'reference',label:'Reference Data',pages:['reference'],opened:['curve-definitions','custom-curves','configuration','schedules','power','parties','gas-setup','crude-setup']},
  {id:'administration',label:'Administration',pages:['jobs','admin','ai']},
@@ -33,7 +33,7 @@ export function pageAvailable(page:string,permissions:string[]):boolean{
   case 'dashboard':case 'market':case 'custom-curves':case 'curve-definitions':case 'delivery':case 'interval-series':case 'interval-curves':
   case 'configuration':case 'schedules':case 'power':case 'gas-setup':case 'crude-setup':case 'reference':return has('ReadMarketData');
   case 'parties':return has('ReadMarketData','ReadTradeParties');
-  case 'risk':case 'risk-scenarios':case 'risk-var':case 'risk-runs':return has('ReadMarketData','ReadTrades','RunScenario');
+  case 'risk':case 'risk-pnl':case 'risk-scenarios':case 'risk-var':case 'risk-runs':return has('ReadMarketData','ReadTrades','RunScenario');
   case 'jobs':return true; // listed for every account
   case 'admin':return has('ManageAccess');
   case 'ai':return aiTabs(permissions).length>0;

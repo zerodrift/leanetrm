@@ -79,6 +79,9 @@ def run_checks(url, query, manifest, *, run_worker):
     # In the other book, a premium paid on the day after the first close: settled at the last close.
     other_book = catalog['books'][-1]['id']
     paid = book_option(lapsing, '1', '1.25', into=other_book, paid=SETTLED_DATE)
+    c.call('cash-payments/record',{'snapshotId':frame['id'],'knowledgeMode':'current','operationId':str(uuid4()),'allocationId':str(uuid4()),
+           'tradeId':paid['tradeId'],'bindingId':paid['premiumInstrumentId'],'expectedRevision':0,'paidAt':SETTLED_DATE+'T00:00:00Z',
+           'amount':format(-Decimal('1.25')*Decimal(lapsing['multiplier']),'f'),'policy':'explicit_paid_cash_nominal_due_v1'})
     exercised = c.call('options/exercise', {'operationId': str(uuid4()), **booking, 'convention': OPTION, 'tradeId': held['on'][0]['tradeId'], 'lots': '1'})
     # One lot of the short LO put is assigned at the last close: earlier closes still hold it open, without the future it booked.
     assigned = c.call('options/assignment', {'operationId': str(uuid4()), **current, 'convention': OPTION, 'tradeId': held['lo'][0]['tradeId'], 'lots': '1'})
@@ -261,7 +264,7 @@ def run_checks(url, query, manifest, *, run_worker):
     paid_cash = -Fraction(booked_premium(query, manifest, paid['tradeId'])) * Fraction(lapsing['multiplier'])
     check('premium cash paid before the close is settled: its amount and payment date, a zero value under the measure that excludes settled cash',
           (settled['cashState'], Fraction(settled['quantity']), settled['premiumPaymentDate'], Fraction(settled['presentValue']), settled['unavailableReason'],
-           settled['measureLabel']) == ('settled', paid_cash, SETTLED_DATE, 0, None, 'Option value excluding settled premium cash'), settled)
+           settled['measureLabel']) == ('paid', paid_cash, SETTLED_DATE, 0, None, 'Option value excluding settled premium cash'), settled)
     c.call('profile', {'profile': 'risk'})
     other_context = {**retained, 'contextId': other['context']['contextId']}
     other_catalog = c.call('portfolio/risk/catalog', dict(context=other_context, bookIds=[other_book], portfolioIds=[]), timeout=TIMEOUT)

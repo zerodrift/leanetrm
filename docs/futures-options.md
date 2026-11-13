@@ -73,8 +73,8 @@ Exchange specifics are reference data, never code:
 
 The premium payment date is explicit and may not precede the execution date, the UTC
 date of the trade's execution; an earlier date is refused with `option_booking_input`.
-A premium dated on the execution date is settled cash from the start of that UTC day,
-so it adds no value at or after the execution.
+A premium dated on the execution date is due from the start of that UTC day.
+Payment is a separate recorded fact; due but unpaid premium remains in PV.
 
 Premium style is a booked term. Only premium paid up front is accepted. A request for
 margined premium is refused with `option_unsupported`, and a product whose own
@@ -143,10 +143,13 @@ positions. A policy that does not declare it raises
 the model's bound or without convergence raise named errors.
 
 **Discounting and premium cash.** The tree discounts with the currency's existing
-payment-discount selection, the one swaps use. Before its payment date the premium's
-unit value is that discount factor. From the payment date the cash is settled: the
-row shows its settled state, amount and date, and contributes no value under the
-labeled measure `futures_option_value_excluding_settled_cash`.
+payment-discount selection, the one swaps use. Recorded payment allocations reduce
+the outstanding premium under the selected knowledge cutoff. Before its payment
+date, that remainder is discounted; due but unpaid cash remains nominal. Fully
+paid cash contributes no remaining value under
+`futures_option_value_excluding_settled_cash`. The row distinguishes pending, due
+unpaid, partially paid and paid states. This supersedes D288's date-as-payment
+premise (D386); booking a premium date does not record a payment.
 
 **Exclusions.** A position the close cannot value is listed with its reason and no
 value: `option_settlement_missing`, `option_underlying_missing`, or `option_expired`
@@ -217,8 +220,11 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
 - **Volatility.** Stored volatility surfaces under a versioned vol model, with
   rich/cheap and their graphics, are shipped for viewing as
   [volatility surfaces](vol-surfaces.md) (D304). Valuing options from the surface,
-  interpolated values for unsettled series, vega, volatility shocks, scheduled
-  fitting, strategies and payoff diagrams remain.
+  interpolated values for unsettled series, surface-driven vega, scheduled
+  fitting, strategies and payoff diagrams remain. The shared valuation layer
+  supports held calibrated-series IV and weighted-node shocks with explicit
+  annualized-volatility units; the stored analytical surface is still not a pricing
+  source. See [valuation layers](valuation-context-layers.md).
 - **Margined premium.** Futures-style margined premium needs futures variation
   margin first.
 - **Other option types.** European, cash-settled, weekly, calendar spread, crack

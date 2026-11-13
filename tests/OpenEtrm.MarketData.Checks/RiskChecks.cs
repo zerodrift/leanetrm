@@ -79,7 +79,7 @@ internal static class RiskChecks
             Reject("price_domain",()=>model.BuildScenarios(snapshot,[power],[Bump(size:"999")]));
             Reject("risk_bump",()=>model.BuildScenarios(snapshot,[power],[Bump(),Bump()]));
         });
-        var contract=new UnitPricingContract(Guid.NewGuid(),"test_power_mark_v1",[power],f.R("power_quantity"),f.R("currency"));
+        var contract=new UnitPricingContract(Guid.NewGuid(),"test_power_mark_v1",[power],f.R("power_quantity"),f.R("currency")) { Time = ValuationTimeDependency.Independent };
         var pricer=new TestPricer(contract,inputs=>inputs.Price(power).Times(new Quantity(ExactDecimal.Parse("1"),f.R("power_quantity"))));
         var bookA=Guid.NewGuid();var bookB=Guid.NewGuid();
         RiskPosition Position(Guid book,string quantity,string basis="0")=>new(Guid.NewGuid(),Guid.NewGuid(),book,contract.Id,

@@ -6,6 +6,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Options;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.MarketData.Calculation;
 
 internal static class FuturesOptionChecks
 {
@@ -35,6 +36,7 @@ internal static class FuturesOptionChecks
         Check("implied volatility rejects settlements below intrinsic or above the bound", ImpliedVolatilityOutOfBounds);
         Check("implied volatility rejects invalid inputs and non-convergence", ImpliedVolatilityErrors);
         Check("futures option base unit PV equals settlement times multiplier", BasePvEqualsSettlement);
+        Check("option clock layers retain calibrated IV, update model time and refuse expiry", ClockLayers);
         Check("futures option delta reprices at the held volatility under futures bumps", HeldVolatilityDelta);
         Check("short futures option holdings flip delta", ShortPositionsFlipSign);
         Check("futures option fallback delta is one contract in the money and zero out of it", FallbackDelta);
@@ -46,6 +48,34 @@ internal static class FuturesOptionChecks
         Check("futures option binding is refused by another market definition with the same snapshot", ForeignMarketBinding);
         Check("futures option receipts record every calibration input", ReceiptInputs);
         Check("an expired futures option settlement is never frozen as a forward block's final settlement", NoFrozenOptionSettlement);
+    }
+
+    internal static void ClockLayers()
+    {
+        var market=new OptionMarket();var source=market.Snapshot();var model=market.Model();var option=market.Option(11);
+        var discount=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted);
+        var requests=FuturesOptionPricing.Requests(model,option.Series,FuturesOptionPricing.DailySettlement);
+        var built=model.Build(source,[requests.Underlying,requests.Settlement]);
+        var binding=FuturesOptionPricing.Prepare(option,built,source,discount,FuturesOptionPricing.DailySettlement,Policy,true,CancellationToken.None);
+        var holdings=ValuationPortfolio.FromTrades([OptionMarket.Holding(19,1,option,"3")],new(ValuationMeasure.PresentValue,
+            ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null){OptionBindings=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty.Add(option.Id,binding)});
+        var prepared=RiskEngine.PrepareConnected(built.Connected,built.PricingBindings,[holdings],built);
+        var target=source.ValuationAt.AddDays(1);
+        var shifted=RiskEngine.WithClock(prepared,new(target,ClockChange.FrozenInputs));
+        var actual=RiskEngine.CalculateExact(shifted,[],RiskEngine.ExactNumericalPolicy).Groups.Single().BaseValues.Single().Value;
+        var iv=((SolvedVolatility)binding.Calibration).Volatility;
+        var expected=AmericanFuturesOptionModel.UnitPrice(option.Series.Terms,L(OptionMarket.Futures),iv,L("1"),target,Policy,CancellationToken.None).ToExact();
+        Equal(actual.ToExactString(),ExactMoney.FromMoney(new(expected,option.Currency)).Scale(option.Series.Multiplier*ExactDecimal.Parse("3")).ToExactString());
+        if(!ReferenceEquals(prepared.Valuation.Snapshot,shifted.Valuation.Snapshot)||binding.Calibration is not SolvedVolatility)
+            throw new Exception("A clock shift changed source or calibration.");
+        Reject("valuation_time_coverage",()=>RiskEngine.CalculateExact(RiskEngine.WithClock(prepared,new(option.Series.Terms.ExpiryAt,ClockChange.FrozenInputs)),[],RiskEngine.ExactNumericalPolicy));
+        var scalar=binding with{Discounting=new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Explicit)};
+        var scalarPortfolio=ValuationPortfolio.FromTrades([OptionMarket.Holding(19,1,option,"3")],holdings.Setup with{OptionBindings=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty.Add(option.Id,scalar)});
+        var scalarPrepared=RiskEngine.PrepareConnected(built.Connected,built.PricingBindings,[scalarPortfolio],built);
+        Reject("discount_roll_unsupported",()=>RiskEngine.CalculateExact(RiskEngine.WithClock(scalarPrepared,new(target,ClockChange.FrozenInputs)),[],RiskEngine.ExactNumericalPolicy));
+        var wrong=binding with{Discounting=new ExplicitDiscounting(OptionMarket.Discount,DiscountFactorSource.Explicit)};
+        var wrongPortfolio=ValuationPortfolio.FromTrades([OptionMarket.Holding(19,1,option,"3")],holdings.Setup with{OptionBindings=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty.Add(option.Id,wrong)});
+        Reject("option_context",()=>RiskEngine.PrepareConnected(built.Connected,built.PricingBindings,[wrongPortfolio],built));
     }
 
     private static readonly DateTimeOffset ValuationAt = new(2026, 1, 5, 19, 30, 0, TimeSpan.Zero);

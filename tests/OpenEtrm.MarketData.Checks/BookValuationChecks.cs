@@ -147,7 +147,7 @@ internal static class BookValuationChecks
         private readonly Func<UnitValuationContext,ImmutableArray<QuoteFactor>>? factors;
         public Probe(Guid id,ReferenceKey currency,ReferenceKey quantity,ImmutableArray<CurveRequest> dependencies,Func<PricingInputs,ExactMoney> evaluate,Func<UnitValuationContext,ImmutableArray<QuoteFactor>>? factors=null):base(id)
         {Currency=currency;UnitQuantity=new(ExactDecimal.Parse("1"),quantity);Inputs=dependencies;this.evaluate=evaluate;this.factors=factors;}
-        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,ModelVersion,Inputs,UnitQuantity.Specification,Currency);
+        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,ModelVersion,Inputs,UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Independent };
         public override ExactMoney Value(UnitValuationContext context)=>evaluate(context.Inputs);
         public override InstrumentValuation PV(SideValuationContext context)=>throw new Exception("The selected probe uses its explicitly declared unit valuation method.");
     }

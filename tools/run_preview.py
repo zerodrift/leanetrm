@@ -107,6 +107,7 @@ def main():
     parser.add_argument('--desk-fields-check',action='store_true',help='Qualify the commodity, swap direction and mark minus price of Blotter rows, commodity pivots, and the desk\'s summary groupings and curve shapes, in the seeded standard example')
     parser.add_argument('--with-custom-curves',action='store_true',help='Load synthetic monthly and daily NG panels for the custom curve editor')
     parser.add_argument('--exchange-check',action='store_true',help='Qualify the independent exchange futures dataset')
+    parser.add_argument('--cash-pnl-check',action='store_true',help='Qualify currency cash and two-close P&L in an owned exchange fixture')
     parser.add_argument('--with-exchange',action='store_true',help='Publish the independent exchange futures dataset in this newly owned database')
     parser.add_argument('--party-check', action='store_true', help='Run party-editor integration checks in an owned fixture')
     parser.add_argument('--identity-check', action='store_true', help='Run economic-key integration checks in the owned standard fixture, then clean up')
@@ -177,10 +178,11 @@ def main():
     if args.power_booked_roll_check:args.power_flat_check=True
     if args.power_flat_check:
         args.check=True
+    if args.cash_pnl_check:args.with_exchange=True
     if args.context_read_check:
         args.check=True
         if args.example!='standard':parser.error('--context-read-check requires the standard fixture')
-    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.regional_closes_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
+    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.regional_closes_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.cash_pnl_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -390,7 +392,7 @@ def main():
             if args.assistant_check and migration.name=='0087_hosted_turn_sessions.sql':
                 from check_agent_turns import check_hosted_upgrade
                 check_hosted_upgrade(query,migration.read_text())
-            if args.check and args.example=='standard' and not args.exchange_check and migration.name=='0052_unambiguous_discount_defaults.sql':
+            if args.check and args.example=='standard' and not (args.exchange_check or args.cash_pnl_check) and migration.name=='0052_unambiguous_discount_defaults.sql':
                 from check_discount_default_upgrade import run_checks as check_default_upgrade
                 from swap_fixture import fixture as swap_fixture
                 from preview_fixture import trading_fixture
@@ -646,7 +648,7 @@ def main():
         if args.factor_swap_check:
             from check_factor_swap_upgrade import run_checks as check_factor_upgrade
             check_factor_upgrade(query,psql,env,ROOT)
-        if args.check and args.example=='standard' and not args.exchange_check:
+        if args.check and args.example=='standard' and not (args.exchange_check or args.cash_pnl_check):
             from check_trade_revision_upgrade import run_checks as check_upgrade
             legacy_reference,legacy_market,legacy_security,_=fixture(ROOT,current_schema=False)
             check_upgrade(query,psql,env,ROOT,[legacy_reference,legacy_market,legacy_security,trading_fixture(manifest['catalogId'],annotations=False)],manifest)
@@ -1332,39 +1334,46 @@ def main():
                 check_definition_publication(query,manifest)
                 from check_booking_facts import run_checks as check_booking_facts
                 check_booking_facts(url,query,manifest)
-            elif args.exchange_check:
-                from check_exchange_preview import run_checks as check_exchange
-                check_exchange(url,query,exchange_manifest)
-                from seed_exchange_positions import seed_positions as seed_exchange
-                seeded=seed_exchange(url,run_id,temporary)
-                assert len(seeded)==13 and seeded==seed_exchange(url,run_id,temporary)
-                print('PASS exchange examples populate thirteen source-listed monthly product families through idempotent authorized bookings.',flush=True)
-                if args.browser_check:
-                    target=temporary/'browser-target.json'
-                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
-                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--exchange'],cwd=ROOT,env=env,start_new_session=True)
-                    if browser_process.wait(timeout=120):raise RuntimeError('Owned exchange browser checks failed')
-                # Option bookings, lifecycle and portfolio risk, after the Blotter reads above that count the seeded futures.
-                from check_futures_option_lifecycle import run_checks as check_option_booking,run_lifecycle_checks as check_option_lifecycle,check_agent_catalog
-                check_option_booking(url,query,exchange_manifest)
-                check_option_lifecycle(url,query,exchange_manifest)
-                check_agent_catalog(url,query,exchange_manifest,fake_provider)
-                from check_futures_option_portfolio import run_checks as check_option_portfolio
-                check_option_portfolio(url,query,exchange_manifest,run_worker=risk_worker_runner(exchange_manifest,'exchange_risk_worker'))
-                # The volatility surface fit of each option product, in the managed calculation against the example's settlements.
-                from check_vol_surface_fit import run_checks as check_vol_surface_fit
-                check_vol_surface_fit(url,query,exchange_manifest,dotnet,temporary,app_env)
-                # Surfaces fitted as jobs on the risk queue, recorded and read back over HTTP.
-                from check_vol_surface_api import run_checks as check_vol_surface_api
-                check_vol_surface_api(url,query,exchange_manifest,run_worker=risk_worker_runner(exchange_manifest,'exchange_fit_worker',timeout=300),worker_login='exchange_fit_worker')
-                if args.browser_check:
-                    # The option ticket and position window, beside the options the checks above booked; then Vol surfaces, whose fits
-                    # the trader submits and a served risk worker runs.
-                    from check_vol_surface_api import grant_browser_fitter
-                    grant_browser_fitter(query,exchange_manifest)
-                    risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=prepare_risk_worker(exchange_manifest,'exchange_browser_worker',timeout=300),start_new_session=True)
-                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--futures-options'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},start_new_session=True)
-                    if browser_process.wait(timeout=720):raise RuntimeError('Owned futures option browser checks failed')
+            elif args.exchange_check or args.cash_pnl_check:
+                if args.exchange_check:
+                    from check_exchange_preview import run_checks as check_exchange
+                    check_exchange(url,query,exchange_manifest)
+                    from seed_exchange_positions import seed_positions as seed_exchange
+                    seeded=seed_exchange(url,run_id,temporary)
+                    assert len(seeded)==13 and seeded==seed_exchange(url,run_id,temporary)
+                    print('PASS exchange examples populate thirteen source-listed monthly product families through idempotent authorized bookings.',flush=True)
+                    if args.browser_check:
+                        target=temporary/'browser-target.json'
+                        target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                        browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--exchange'],cwd=ROOT,env=env,start_new_session=True)
+                        if browser_process.wait(timeout=120):raise RuntimeError('Owned exchange browser checks failed')
+                    # Option bookings, lifecycle and portfolio risk, after the Blotter reads above that count the seeded futures.
+                    from check_futures_option_lifecycle import run_checks as check_option_booking,run_lifecycle_checks as check_option_lifecycle,check_agent_catalog
+                    check_option_booking(url,query,exchange_manifest)
+                    check_option_lifecycle(url,query,exchange_manifest)
+                    check_agent_catalog(url,query,exchange_manifest,fake_provider)
+                    from check_futures_option_portfolio import run_checks as check_option_portfolio
+                    check_option_portfolio(url,query,exchange_manifest,run_worker=risk_worker_runner(exchange_manifest,'exchange_risk_worker'))
+                    # The volatility surface fit of each option product, in the managed calculation against the example's settlements.
+                    from check_vol_surface_fit import run_checks as check_vol_surface_fit
+                    check_vol_surface_fit(url,query,exchange_manifest,dotnet,temporary,app_env)
+                    # Surfaces fitted as jobs on the risk queue, recorded and read back over HTTP.
+                    from check_vol_surface_api import run_checks as check_vol_surface_api
+                    check_vol_surface_api(url,query,exchange_manifest,run_worker=risk_worker_runner(exchange_manifest,'exchange_fit_worker',timeout=300),worker_login='exchange_fit_worker')
+                    if args.browser_check:
+                        # The option ticket and position window, beside the options the checks above booked; then Vol surfaces, whose fits
+                        # the trader submits and a served risk worker runs.
+                        from check_vol_surface_api import grant_browser_fitter
+                        grant_browser_fitter(query,exchange_manifest)
+                        risk_worker_process=subprocess.Popen([str(dotnet),str(frozen_dll),'--risk-worker','serve'],cwd=ROOT,env=prepare_risk_worker(exchange_manifest,'exchange_browser_worker',timeout=300),start_new_session=True)
+                        browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--futures-options'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},start_new_session=True)
+                        if browser_process.wait(timeout=720):raise RuntimeError('Owned futures option browser checks failed')
+                from check_recorded_cash import run_checks as check_recorded_cash
+                def verify_pnl_persistence(fixture):
+                    path=temporary/'pnl-persistence.json'
+                    path.write_text(json.dumps(fixture));path.chmod(0o600)
+                    subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--pnl-persistence',str(path)],cwd=ROOT,env=app_env,check=True,timeout=120)
+                check_recorded_cash(url,query,exchange_manifest,verify_persistence=verify_pnl_persistence)
             elif args.party_check:
                 from check_party_editors import run_checks as check_parties
                 check_parties(url)

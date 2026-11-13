@@ -53,7 +53,7 @@ internal static class JointScenarioRiskChecks
             var f=new Fixture((x,y)=>x*y,"5");
             var run=RiskEngine.CalculateFiniteDifferences(f.Prepared,Derivatives(f),RiskEngine.ExactNumericalPolicy,detail:RiskDetail.Holdings);
             var mixed=run.Derivatives.Single(d=>d.Formula==RiskEngine.CentralMixedGamma);
-            if(!mixed.Axes.SequenceEqual(new[]{"x","y"})||!mixed.FactorUnits.SequenceEqual(new[]{f.Unit,f.Unit}))throw new Exception("Mixed units and ordered axes are required.");
+            if(!mixed.Axes.SequenceEqual(new[]{"x","y"})||!mixed.FactorUnits.Select(u=>u.Price).SequenceEqual(new[]{f.Unit,f.Unit}))throw new Exception("Mixed units and ordered axes are required.");
             var value=mixed.Groups.Single().Totals.Single().Estimate;
             Equal(value.Half,"5");Equal(value.Nominal,"5");Equal(value.Double,"5");
             if(!value.Stable||run.Repricing.Work.ScenarioCount!=25)throw new Exception("Two axes and one pair require 24 sibling samples and one base.");
@@ -165,7 +165,7 @@ internal static class JointScenarioRiskChecks
             var parent=RiskEngine.WithShifts(f.Prepared,[f.Shift(0,"2"),f.Shift(1,"3")]);
             var run=RiskEngine.CalculateFiniteDifferences(parent,request,RiskEngine.ExactNumericalPolicy);
             var mixed=run.Derivatives.Single(d=>d.Formula==RiskEngine.CentralMixedGamma);
-            if(!mixed.FactorUnits.SequenceEqual(new[]{f.Points[0].Unit,f.Points[1].Unit})||mixed.FactorUnits[0]==mixed.FactorUnits[1])
+            if(!mixed.FactorUnits.Select(u=>u.Price).SequenceEqual(new[]{f.Points[0].Unit,f.Points[1].Unit})||mixed.FactorUnits[0]==mixed.FactorUnits[1])
                 throw new Exception("The denominator must retain each factor's distinct price unit.");
             var estimate=mixed.Groups.Single().Totals.Single().Estimate;
             Equal(estimate.Half,"20");Equal(estimate.Nominal,"20");Equal(estimate.Double,"20");
@@ -268,8 +268,11 @@ internal static class JointScenarioRiskChecks
         internal readonly ImmutableDictionary<CurveRequest,CurvePointKey> Bindings;
         internal readonly Guid? UnaffectedId;
         internal readonly Guid Book=Guid.NewGuid();
+        internal readonly AccountingPositionKey LedgerOnly=new(Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid());
         internal Fixture(Func<ExactDecimal,ExactDecimal,ExactDecimal> price,string quantity="1",bool repeat=false,bool unaffected=false,
-            string basis="0",string fixedBasis="0",string? divisor=null,bool differentUnits=false,ValuationMeasure measure=ValuationMeasure.PresentValue,int copies=1)
+            string basis="0",string fixedBasis="0",string? divisor=null,bool differentUnits=false,ValuationMeasure measure=ValuationMeasure.PresentValue,int copies=1,
+            bool accounting=false,Guid? accountingContext=null,bool ledgerOnlyCash=false,
+            Func<PricingInputs,ExactMoney>? contextualPrice=null,ValuationTimeDependency? time=null,ImmutableArray<VolatilityInput> volatility=default)
         {
             var graph=new ConnectedCurveChecks.Fixture();Unit=graph.Mean.Unit;
             Points=graph.RawPoints.Select((p,n)=>p with{Expression=((ConnectedSource)p.Expression) with{
@@ -288,9 +291,10 @@ internal static class JointScenarioRiskChecks
                 InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,Points.Select(p=>(ConnectedSource)p.Expression).Select(s=>new SelectedObservation(s.Input,s.Observation)).ToImmutableArray());
             var instrument=new Probe(Guid.NewGuid(),Unit,[Requests[0],Requests[1]],c=>
             {
+                if(contextualPrice is not null)return contextualPrice(c);
                 var money=ExactMoney.FromMoney(new(price(c.Price(Requests[0]).Value,c.Price(Requests[1]).Value),Unit.Currency));
                 return divisor is null?money:money.DivideBy(ExactDecimal.Parse(divisor));
-            });
+            },time??ValuationTimeDependency.Independent,volatility.IsDefault?[]:volatility);
             RiskPosition Holding(Instrument held,string size)=>new(Guid.NewGuid(),Guid.NewGuid(),Book,held.Id,new(ExactDecimal.Parse(size),Unit.Quantity),
                 new(new Money(ExactDecimal.Parse(basis),Unit.Currency),Unit.Quantity),new(ExactDecimal.Parse(fixedBasis),Unit.Currency));
             var instruments=ImmutableArray.CreateBuilder<Instrument>();instruments.Add(instrument);
@@ -300,8 +304,16 @@ internal static class JointScenarioRiskChecks
                 var other=new Probe(Guid.NewGuid(),Unit,[Requests[2]],c=>ExactMoney.FromMoney(new(c.Price(Requests[2]).Value,Unit.Currency)));
                 UnaffectedId=other.Id;instruments.Add(other);positions.Add(Holding(other,quantity));
             }
-            Portfolio=new(instruments.ToImmutable(),positions.ToImmutable(),
-                new(measure,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+            var ledger=accounting?
+                    positions.ToImmutableDictionary(p=>new MeasureBinding(p.TradeId,p.BindingId),p=>new BindingAccountingFacts(new(p.TradeId,p.BindingId,p.BookId),
+                        accountingContext??graph.Context.ContextId,graph.Context.KnownAt,[])):ImmutableDictionary<MeasureBinding,BindingAccountingFacts>.Empty;
+            if(ledgerOnlyCash)
+            {
+                LedgerOnly=LedgerOnly with{BookId=Book};
+                ledger=ledger.Add(new(LedgerOnly.TradeId,LedgerOnly.BindingId),new(LedgerOnly,graph.Context.ContextId,graph.Context.KnownAt,
+                    [new(Guid.NewGuid(),1,LedgerOnly,graph.Context.ValuationAt.AddDays(1),graph.Context.KnownAt,ExactMoney.Parse("7",Unit.Currency),AccountingFlowKind.EconomicCash)]));
+            }
+            Portfolio=new(instruments.ToImmutable(),positions.ToImmutable(),new(measure,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null){AccountingFacts=ledger});
             Bindings=Requests.Select((r,n)=>(r,Points[n].Key)).ToImmutableDictionary(p=>p.r,p=>p.Key);
             Prepared=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(ConnectedScenario.Base(plan),snapshot),Bindings,[Portfolio]);
         }
@@ -317,12 +329,14 @@ internal static class JointScenarioRiskChecks
     {
         private readonly ImmutableArray<CurveRequest> inputs;
         private readonly Func<PricingInputs,ExactMoney> price;
+        private readonly ValuationTimeDependency time;
+        private readonly ImmutableArray<VolatilityInput> volatility;
         public override ReferenceKey Currency{get;}
         public override Quantity UnitQuantity{get;}
         public override bool SupportsQuantityScaling=>true;
-        internal Probe(Guid id,PriceUnit unit,ImmutableArray<CurveRequest> inputs,Func<PricingInputs,ExactMoney> price):base(id)
-        {Currency=unit.Currency;UnitQuantity=new(ExactDecimal.Parse("1"),unit.Quantity);this.inputs=inputs;this.price=price;}
-        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_joint_pv_v1",inputs,UnitQuantity.Specification,Currency);
+        internal Probe(Guid id,PriceUnit unit,ImmutableArray<CurveRequest> inputs,Func<PricingInputs,ExactMoney> price,ValuationTimeDependency? time=null,ImmutableArray<VolatilityInput> volatility=default):base(id)
+        {Currency=unit.Currency;UnitQuantity=new(ExactDecimal.Parse("1"),unit.Quantity);this.inputs=inputs;this.price=price;this.time=time??ValuationTimeDependency.Independent;this.volatility=volatility.IsDefault?[]:volatility;}
+        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_joint_pv_v1",inputs,UnitQuantity.Specification,Currency){Time=time,Volatility=volatility};
         public override UnitValuation PV(UnitValuationContext context)=>new(context,price(context.Inputs),UnitQuantity.Specification);
     }
 }

@@ -40,7 +40,7 @@ public sealed record IndexedPhysicalGasPurchase:SidedInstrument
         if(context.Measure!=ValuationMeasure.UnpaidCashPresentValue)
             throw new MarketDataException("valuation_measure","Select unpaid contractual cash PV for this indexed purchase profile.");
         var state=((CashflowBindingValuation)context.BindingState!).Sides[0];
-        return new(Id,"indexed_physical_purchase_cash_pv_v1",state.DependenciesAt(Consideration,context.Snapshot),UnitQuantity.Specification,Currency);
+        return new(Id,"indexed_physical_purchase_cash_pv_v1",state.DependenciesAt(Consideration,context.Snapshot),UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Pinned };
     }
     internal override UnitPricingContract DeclareScope(UnitValuationContext context,bool lifecycle)=>Declare(context);
     public override ExactMoney Value(UnitValuationContext context)

@@ -1,7 +1,7 @@
-export const riskViews=['risk','risk-scenarios','risk-var','risk-runs'] as const;
+export const riskViews=['risk','risk-pnl','risk-scenarios','risk-var','risk-runs'] as const;
 export type RiskView=typeof riskViews[number];
 export const isRiskView=(page:string):page is RiskView=>(riskViews as readonly string[]).includes(page);
-export const riskViewNames:Record<RiskView,string>={risk:'Reports','risk-scenarios':'Scenarios & Greeks','risk-var':'VaR / ES','risk-runs':'Run history'};
+export const riskViewNames:Record<RiskView,string>={risk:'Reports','risk-pnl':'P&L explain','risk-scenarios':'Scenarios & Greeks','risk-var':'VaR / ES','risk-runs':'Run history'};
 
 // Navigation only: Risk is one page, and its sidebar entries are views of it. From another page an entry opens Risk through the existing
 // guards and takes effect once the page has moved; a refused leave changes nothing.

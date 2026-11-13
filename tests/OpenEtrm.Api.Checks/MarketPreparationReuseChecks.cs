@@ -11,7 +11,7 @@ internal static class MarketPreparationReuseChecks
     {
         public override ReferenceKey Currency=>Unit.Currency;
         public override Quantity UnitQuantity=>new(ExactDecimal.Parse("1"),Unit.Quantity);
-        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_market_consumer_v1",Dependencies,Unit.Quantity,Unit.Currency);
+        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_market_consumer_v1",Dependencies,Unit.Quantity,Unit.Currency) { Time = ValuationTimeDependency.Independent };
     }
     internal static void Run()
     {

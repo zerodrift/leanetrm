@@ -39,7 +39,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Logging.ClearProviders(); builder.Logging.AddSimpleConsole(o=>o.SingleLine=true); builder.Logging.SetMinimumLevel(LogLevel.Warning);
 var bodyLimit=processLimits.RequestBytes;
 builder.WebHost.ConfigureKestrel(o=> { o.Listen(hosted is null?IPAddress.Loopback:IPAddress.Any,port); o.Limits.MaxRequestBodySize=bodyLimit; });
-if(hosted is null)builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
+if(hosted is null)ApplicationDataProtection.ConfigurePreview(builder.Services.AddDataProtection(),root);
 else {HostedAuthentication.Configure(builder,hosted);builder.Services.AddSingleton(hostedAuthentication!);}
 builder.Services.AddSingleton<IAntiforgeryAdditionalDataProvider,PreviewAntiforgeryScope>();
 builder.Services.AddAntiforgery(o=> { o.HeaderName="X-Preview-CSRF"; o.Cookie.Name=hosted is null?"openetrm_preview_csrf":"__Host-openetrm_csrf"; o.Cookie.HttpOnly=true; o.Cookie.SameSite=SameSiteMode.Strict; o.Cookie.SecurePolicy=hosted is null?CookieSecurePolicy.None:CookieSecurePolicy.Always; });
@@ -100,7 +100,11 @@ const string malformed="The request is incomplete or malformed.";
     // A missing or ended session is session_ended on the assistant's routes, which offer a reload; pages keep access_denied (§8).
     PreviewSessionEnded when apiPath.StartsWithSegments("/api/assistant") => (403,"session_ended",TurnStream.Refusal("session_ended")),
     PreviewDeniedException or PreviewSessionEnded => (403,"access_denied","The selected test identity cannot perform this operation."),
-    MarketDataException m when m.Code is "swap_conflict" or "ppa_conflict" => (409,m.Code,m.Message),
+    MarketDataException m when m.Code is "swap_conflict" or "ppa_conflict" or "pnl_save_conflict" => (409,m.Code,m.Message),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText is "cash_payment_conflict" or "cash_payment_revision"
+        => (409,p.MessageText,"The payment revision or request changed. Reload the current allocation or retry the unchanged original request."),
+    PostgresException p when p.SqlState=="P0001" && p.MessageText=="cash_payment_input"
+        => (422,p.MessageText,"Supply exact payment references, an explicit paid instant, signed amount and the supported cash policy."),
     MarketDataException m when m.Code=="contract_materialization_conflict" => (409,m.Code,m.Message),
     PostgresException p when p.SqlState is "23503" or "23514" && (apiPath.StartsWithSegments("/api/date-schedules/contracts/materialize")||apiPath.StartsWithSegments("/api/curve-definitions/admit-contracts")) => (422,"contract_materialization","Select compatible exact reference terms and published date-list occurrences."),
     PostgresException p when apiPath.StartsWithSegments("/api/price-publications") && p.SqlState=="40001" && p.MessageText.StartsWith("publication_",StringComparison.Ordinal)
@@ -1947,6 +1951,36 @@ api.MapPost("/futures/draft-risk",(HttpContext c,FuturesDraftRiskRequest body)=>
 api.MapPost("/swaps/price",(HttpContext c,SwapDraftRequest body)=>FuturesRead(c,body.Context??throw new MarketDataException("draft_context","Choose the draft market context."),(connection,data,frame,ct)=>swapStore.PriceDraft(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention));
 api.MapPost("/swaps/draft-risk",(HttpContext c,SwapDraftRiskRequest body)=>FuturesRead(c,body.Draft?.Context??throw new MarketDataException("draft_context","Choose the draft and market context."),(connection,data,frame,ct)=>swapStore.RiskDraft(connection,data,frame,body,ct),expectedConvention:SwapStore.Convention,dealRisk:true));
 var portfolioRisk=new PortfolioRiskPreview(database);
+var pnlReports=new TradingPnlReport(database);
+var pnlArtifacts=new PnlReportArtifacts(database,app.Services.GetRequiredService<IDataProtectionProvider>().CreateProtector(ApplicationDataProtection.PnlPurpose));
+app.Lifetime.ApplicationStopped.Register(pnlArtifacts.Dispose);
+api.MapGet("/portfolio/pnl/policies",()=>Results.Ok(TradingPnlReport.Policies));
+api.MapPost("/portfolio/pnl/run",(HttpContext c,TradingPnlRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>
+{
+    if(body.Opening is not {KnowledgeMode:"at",ContextId:null,Convention:TradingBlotter.Convention}||body.Closing is not {KnowledgeMode:"at",ContextId:null,Convention:TradingBlotter.Convention}||body.KnownAt is null)
+        throw new MarketDataException("pnl_context","Supply both explicit trading frames and one exact shared knowledge cutoff.");
+    var owner=await PnlReportArtifacts.Owner(connection,ct);
+    async Task<TradingView> PnlView(Guid id)
+    {
+        var frame=Frame(session,id);
+        var retained=(await knowledgeStore.Capture(connection,new(frame.BusinessDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),body.KnownAt,"at"),ct)).Context;
+        return TradingView.Reread(frame with{ContextId=null},retained);
+    }
+    var opening=await PnlView(body.Opening.SnapshotId);var closing=await PnlView(body.Closing.SnapshotId);
+    var calculation=(PnlCalculated)await pnlReports.Run(connection,opening,closing,body,ct);
+    if(await PnlReportArtifacts.Owner(connection,ct)!=owner)throw new PreviewDeniedException();
+    return Results.Ok(new{report=calculation.Report,artifact=pnlArtifacts.Seal(owner,calculation,DateTimeOffset.UtcNow)});
+},c.RequestAborted)));
+api.MapPost("/portfolio/pnl/save",(HttpContext c,SavePnlReportRequest body)=>Locked(c,async session=>
+{
+    var result=await database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>Results.Ok(await pnlArtifacts.Save(connection,body,ct)),c.RequestAborted);
+    pnlArtifacts.Release(body.Artifact); // Release CPU memo only after the durable transaction commits.
+    return result;
+}));
+api.MapGet("/portfolio/pnl/saved",(Func<HttpContext,Task<IResult>>)(c=>Locked(c,session=>database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>
+    Results.Ok(await pnlArtifacts.List(connection,ct)),c.RequestAborted))));
+api.MapGet("/portfolio/pnl/saved/{id:guid}",(HttpContext c,Guid id)=>Locked(c,session=>database.WithIdentity(Profile(session),"RunScenario",async(connection,ct)=>
+    Results.Ok(await pnlArtifacts.Read(connection,id,ct)),c.RequestAborted)));
 Task<IResult> PortfolioRead(HttpContext c,FuturesReadRequest body,Func<NpgsqlConnection,PreviewData,InputFrame,CancellationToken,Task<object>> read)=>
     TradingRead(c,body,(connection,view,ct)=>tradeReads.Read(connection,view,
         data=>read(connection,data,view.CalculationFrame,ct),ct,
@@ -2066,6 +2100,13 @@ api.MapPost("/futures/book",(HttpContext c,FuturesBookRequest body)=>Locked(c,as
 }));
 api.MapPost("/futures/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
     Results.Ok(await futuresStore.Status(connection,body.OperationId,ct)),c.RequestAborted)));
+// Actual currency cash recording is a shared membership operation, independently of the parent product.
+api.MapPost("/cash-payments/record",(HttpContext c,RecordCashPaymentRequest body)=>Locked(c,async session=>
+{
+    if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before recording a payment.");
+    return await database.WithIdentity(Profile(session),"AmendTrade",async(connection,ct)=>
+        Results.Ok(await CashPaymentStore.Record(connection,database.Manifest.CatalogId,Frame(session,body.SnapshotId),body,ct)),c.RequestAborted);
+}));
 // Listed futures options: the bookable series at a frame, and booking with premium paid up front under the futures booking authority.
 var optionStore=new FuturesOptionStore(database);
 api.MapPost("/options/catalog",(HttpContext c,FuturesReadRequest body)=>FuturesRead(c,body,optionStore.Catalog,expectedConvention:FuturesOptionStore.Convention));

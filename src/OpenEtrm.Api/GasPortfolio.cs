@@ -45,7 +45,7 @@ internal static class GasPortfolio
      throw Invalid("Held quantity, currency and instrument must match the retained gas programs.");
     var quantity=new Quantity(execution.Quantity,position.Quantity);var book=position.Book.Id("id");
     // A started-delivery trade is valued with its recorded cash; older programs keep their own refusals.
-    if(execution.Started)states.Add(new(position.Trade,position.Binding),await GasCashPaymentStore.Read(connection,database.Manifest.CatalogId,position.Trade,position.Binding,quantity,GasCashPaymentStore.LatestKnownRevision,ct));
+    if(execution.Started)states.Add(new(position.Trade,position.Binding),await GasCashPaymentStore.Read(connection,database.Manifest.CatalogId,position.Trade,position.Binding,book,quantity,GasCashPaymentStore.LatestKnownRevision,ct));
     var measure=execution.Started?GasPositions.LifecycleMeasure:GasPositions.Measure;
     held.Add((measure,new(position.Trade,book,[new(position.Binding,instrument,quantity)]),new(position.Trade,int.Parse(position.Head.Text("revision"),CultureInfo.InvariantCulture),position.Binding,
      instrument.Id,instrument.Id,book,measure,group.Key,int.Parse(position.Head.Text("publication_order"),CultureInfo.InvariantCulture),quantity)

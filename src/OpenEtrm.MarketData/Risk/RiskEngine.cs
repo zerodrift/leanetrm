@@ -2,29 +2,76 @@ using System.Collections.Immutable;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.MarketData.Power;
 using OpenEtrm.MarketData.CustomCurves;
+using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Risk;
 
 public sealed record UnitPricingContract(Guid Id,string ModelVersion,ImmutableArray<CurveRequest> Dependencies,
     ReferenceKey Quantity,ReferenceKey Currency)
 {
+    public required ValuationTimeDependency Time {get;init;}
+    public ImmutableArray<DiscountInput> DiscountInputs {get;init;}=[];
+    public ImmutableArray<VolatilityInput> Volatility {get;init;}=[];
+    internal bool SameInputFence(UnitPricingContract other)=>Time==other.Time&&
+        Dependencies.Length==other.Dependencies.Length&&Dependencies.All(other.Dependencies.Contains)&&
+        Volatility.Length==other.Volatility.Length&&Volatility.All(other.Volatility.Contains)&&
+        DiscountInputs.Length==other.DiscountInputs.Length&&DiscountInputs.All(d=>other.DiscountInputs.Any(o=>o.Payment==d.Payment&&ReferenceEquals(o.Provider,d.Provider)));
+    internal int InputFenceHash()
+    {
+        var hash=Time.GetHashCode();
+        foreach(var price in Dependencies)hash^=price.GetHashCode();
+        foreach(var vol in Volatility)hash^=vol.GetHashCode();
+        foreach(var discount in DiscountInputs)hash^=HashCode.Combine(discount.Payment,System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(discount.Provider));
+        return HashCode.Combine(hash,Dependencies.Length,Volatility.Length,DiscountInputs.Length);
+    }
+    internal void RequireInputs()
+    {
+        if(Time is null||Dependencies.IsDefault||Dependencies.Distinct().Count()!=Dependencies.Length||Volatility.IsDefault||
+            Volatility.Any(v=>v is null)||Volatility.Select(v=>v.Id).Distinct().Count()!=Volatility.Length||DiscountInputs.IsDefault||
+            DiscountInputs.Any(d=>d is null||d.Provider is null)||DiscountInputs.Select(d=>d.Payment).Distinct().Count()!=DiscountInputs.Length||
+            Time.Use==ValuationTimeDependency.TimeUse.Independent&&!DiscountInputs.IsEmpty)
+            throw new MarketDataException("risk_contract","Declare complete distinct price, clock, discount and volatility inputs.");
+    }
     public string? ScheduleIdentity { get; init; }
     public ImmutableArray<SettlementProjection> SettlementProjections { get; init; }=[];
 }
 // A pricer sees only its declared inputs. No ambient market lookup or services.
 public sealed class PricingInputs
 {
-    private readonly PreparedValuationMarket market;
+    private readonly PreparedValuationEnvironment market;
     private readonly CancellationToken cancellation;
     private readonly ImmutableHashSet<CurveRequest> permitted;
     public Guid SnapshotId{get;}
-    public DateTimeOffset ValuationAt{get;}
+    private readonly UnitPricingContract contract;
+    public DateTimeOffset ValuationAt=>contract.Time.Use!=ValuationTimeDependency.TimeUse.Independent?market.CalculationAt:
+        throw new MarketDataException("risk_dependency","A calculation-clock read requires a declared time dependency.");
     public DateTimeOffset MarketCutoff{get;}
     public string ScenarioId{get;}
     public string NumericalPolicy=>market.NumericalPolicy;
-    internal PricingInputs(PreparedValuationMarket market,UnitPricingContract contract,CancellationToken cancellation)
-    {SnapshotId=market.Snapshot.Id;ValuationAt=market.Snapshot.ValuationAt;MarketCutoff=market.Snapshot.MarketCutoff;ScenarioId=market.ScenarioId;
+    internal PricingInputs(PreparedValuationEnvironment market,UnitPricingContract contract,CancellationToken cancellation)
+    {this.contract=contract;SnapshotId=market.Snapshot.Id;MarketCutoff=market.Snapshot.MarketCutoff;ScenarioId=market.ScenarioId;
         this.market=market;this.cancellation=cancellation;permitted=contract.Dependencies.ToImmutableHashSet();}
+    public SignedRatio Volatility(Guid input)
+    {
+        var declared=contract.Volatility.SingleOrDefault(v=>v.Id==input)??
+            throw new MarketDataException("risk_dependency","A volatility read requires its exact declared calibration input.");
+        SignedRatio.TryParse(market.VolatilityOffset(input).ToString(),out var offset);
+        var result=declared.Ratio+offset;
+        if(result.Numerator.Sign<0)throw new MarketDataException("scenario_volatility","A shifted volatility cannot be negative.");
+        return result;
+    }
+    public ImmutableArray<SidePaymentFactor> Discounts(ImmutableArray<SidePaymentKey> payments)
+    {
+        if(payments.IsDefault||payments.Distinct().Count()!=payments.Length)
+            throw new MarketDataException("risk_dependency","Supply distinct exact declared discount payments.");
+        return [..payments.Select(payment=>
+        {
+            var input=contract.DiscountInputs.SingleOrDefault(d=>d.Payment==payment)??
+                throw new MarketDataException("risk_dependency","A discount read requires the exact declared payment and provider.");
+            _=ValuationAt; // The provider's time dependence is part of this declaration.
+            return market.Discount(input);
+        })];
+    }
     public ExactUnitPrice ExactPrice(CurveRequest request)=>permitted.Contains(request)?market.Price(request,cancellation):
         throw new MarketDataException("risk_dependency","A pricer requested an undeclared or unavailable market input.");
     public UnitPrice Price(CurveRequest request)=>permitted.Contains(request)?market.WorkingPrice(request,cancellation):
@@ -197,7 +244,7 @@ public static partial class RiskEngine
             throw Error("risk_bump","Admission requires an explicit distinct set of the prepared native factor scenarios.");
         return IntervalWork(prepared.Market,prepared.Portfolios,prepared.Contracts,selectedNativeFactors.ToImmutableHashSet());
     }
-    private static (long Rows,long RowScenarios) IntervalWork(PreparedValuationMarket market,ImmutableArray<ValuationPortfolio> portfolios,
+    private static (long Rows,long RowScenarios) IntervalWork(PreparedValuationEnvironment market,ImmutableArray<ValuationPortfolio> portfolios,
         ImmutableArray<ImmutableArray<UnitPricingContract>> contracts,ImmutableHashSet<InputKey> selected)
     {
         long rows=0,work=0;

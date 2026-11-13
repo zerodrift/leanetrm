@@ -81,7 +81,7 @@ internal static class PpaConnectedChecks
         public override Quantity UnitQuantity => new(ExactDecimal.Parse("1"), PriceUnit.Quantity);
         public override bool SupportsQuantityScaling => true;
         internal override bool RequiresNativeProgramMarket => true;
-        public override UnitPricingContract Declare(UnitValuationContext context) => new(Id, "synthetic_native_program_probe_v1", [Request], PriceUnit.Quantity, PriceUnit.Currency);
+        public override UnitPricingContract Declare(UnitValuationContext context) => new(Id, "synthetic_native_program_probe_v1", [Request], PriceUnit.Quantity, PriceUnit.Currency) { Time = ValuationTimeDependency.Independent };
         public override ExactMoney Value(UnitValuationContext context)
         {
             var (basis, scenario) = context.RetainedProgramMarkets([Request]);

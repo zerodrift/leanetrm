@@ -1,6 +1,7 @@
 // What the Blotter desk shows: which backend groups and rows each tile, chart, group header and position row
 // presents, and in which words. It selects, orders and labels exact server values; it never adds, nets, converts
 // or infers them (AGENTS.md: TypeScript is presentation only).
+import {isCashStatus,cashStatusLabels,type CashStatus} from './cash-status.js';
 import {compareDecimalStrings,type PivotGroup} from './analytics-model.js';
 import {amountText,type DisplayPrecision} from './amount-display.js';
 import {exactNumber} from './exact-number.js';
@@ -30,7 +31,7 @@ export type Holding={booking:Booking;commodity:{code:string;name:string};priceTi
  */
 export type OptionFacts={component:'option'|'premium';series:string;product:string;exchange:{code:string;name:string};right:string;strike:string;expiryAt:string;
   underlyingSeries:string;underlyingName:string;productName:string;openLots:string;lifecycleState:string;linkedFuturesTradeIds:string[];linkedFuturesTrades:string[];premium:string;premiumAmount:string;premiumPaymentDate:string;
-  cashState:'pending'|'settled'|null;impliedVolatility:string|null;calibrationMode:string|null;numericalPolicy:string|null;
+  cashState:CashStatus|null;impliedVolatility:string|null;calibrationMode:string|null;numericalPolicy:string|null;
   actions:Record<'exercise'|'assignment'|'instruction',{allowed:boolean;reason:string|null}>|null;closableLots:string|null;unitPresentValue:string|null};
 export type Summary={view:{groupBy:string[];measures:string[];pivotConvention:string|null};groups:PivotGroup[]};
 
@@ -452,9 +453,9 @@ export function positionRows(holdings:readonly Holding[],zone='UTC'):DeskRow[]{
     if(type===instruments.futures_option){
       const option=h.component==='option';
       if(!['option','premium'].includes(h.component??'')||h.contractIdentityKind!==(option?'futures_option':'cash_payment')||h.measure!=='futures_option_value_excluding_settled_cash'||h.quantity===null||
-        typeof h.openLots!=='string'||!/^-?\d+$/.test(h.openLots)||typeof h.right!=='string'||typeof h.strike!=='string'||(!option&&!['pending','settled'].includes(h.cashState??'')))
+        typeof h.openLots!=='string'||!/^-?\d+$/.test(h.openLots)||typeof h.right!=='string'||typeof h.strike!=='string'||(!option&&!isCashStatus(h.cashState)))
         throw Error('The option position must retain its series, open lots or premium cash, and its valuation measure.');
-      side=option?`${h.right.charAt(0).toUpperCase()}${h.right.slice(1)} ${h.strike} · ${lotsText(h.openLots)}`:`Premium ${h.cashState}`;
+      side=option?`${h.right.charAt(0).toUpperCase()}${h.right.slice(1)} ${h.strike} · ${lotsText(h.openLots)}`:`Premium ${isCashStatus(h.cashState)?cashStatusLabels[h.cashState]:h.cashState}`;
       exposure=option?(signOf(h.openLots)==='zero'?'flat':h.openLots.startsWith('-')?'short':'long'):null;
       // The option's mark is its settlement price at the close.
       mark=option?h.settlement:null;
