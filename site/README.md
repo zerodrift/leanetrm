@@ -11,9 +11,9 @@ offer, illustration or media (D385 in the
 
 The files use project-owned HTML, CSS and an SVG icon. There are no JavaScript
 or third-party runtime dependencies. They are separate from the signed-in
-application's browser build. [headers.inc](headers.inc) allows styles, images
-and media only from this site, so a page carries no inline styles and no
-outside players.
+application's browser build. [headers.inc](headers.inc) allows styles and
+images only from this site and no media, so a page carries no inline styles and
+plays nothing (D388).
 
 The stylesheet URL carries its first 12 SHA-256 hex characters as a cache version.
 Update it when the stylesheet changes; the content checks enforce the match.
@@ -32,28 +32,26 @@ The [hosted gateway template](../deploy/nginx.conf.template) consumes these file
 | `site.css` | `/_landing/site.css` |
 | `favicon.svg` | `/_landing/favicon.svg` |
 | Operator-installed `images/NAME` | `/_landing/images/NAME` |
-| Operator-installed `films/NAME` | `/_landing/films/NAME` |
 | `headers.inc` | Nginx include; never a public route |
 
 ## An installation's own page
 
 An operator may install its own `index.html`, `site.css` and `favicon.svg` in
-the gateway's landing folder, with images and films in the two media folders.
+the gateway's landing folder, with images in its images folder.
 That content is the installation's: it is never committed here, and its claims,
 data and usage rights are the installation's responsibility.
 
 The gateway holds any such page to the same rules. Styles come only from the
-stylesheet. A media file is served only under a single lowercase name of
-letters, digits and hyphens with a listed extension, and only as a regular
-file. A page plays a film with:
+stylesheet. An image is served only under a single lowercase name of letters,
+digits and hyphens ending in `webp`, `png` or `jpg`, and only as a regular file.
+The gateway serves no films: a page shows one as a poster that links to the film
+where it is hosted, and plays nothing itself:
 
 ```html
-<video src="/_landing/films/NAME.mp4" poster="/_landing/films/NAME.webp" controls preload="none">
-  <track kind="captions" src="/_landing/films/NAME.vtt" srclang="en" label="English" />
-</video>
+<a href="https://video.example.test/watch/NAME"><img src="/_landing/images/NAME.webp" alt="Film: what it shows" /></a>
 ```
 
-See D382 for the media routes.
+See D382 and D388 for the images route and films.
 
 `/app` remains protected by the application and opens its workspace. Static page
 publication is a separate reviewed gateway operation; it does not change the
