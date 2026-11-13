@@ -21,8 +21,7 @@ public static partial class RecipeEngine
         if((days==BusinessDays)!=(businessDays is not null))throw Invalid("Supply a business-day calendar exactly when the node observes business days.");
         if(source is null||source.Contracts.IsDefaultOrEmpty)throw Missing("Observation windows require a retained contract universe.");
         var contracts=source.Contracts;
-        RecipeContract Resolve(DateOnly day,int position)=>
-            ResolveContracts(contracts,"positions",position,1,new(day.ToDateTime(samplingTime),TimeSpan.Zero),day,requireLive:false)[0];
+        RecipeContract Resolve(DateOnly day,int position)=>ObservedContract(contracts,day,samplingTime,position);
         var windows=ImmutableArray.CreateBuilder<RecipeObservationWindow>();
         foreach(var target in targets)
         foreach(var term in terms)
@@ -33,9 +32,9 @@ public static partial class RecipeEngine
                 var index=contracts.Select((c,i)=>(c,i)).Where(p=>p.c.Contract.DeliveryFrom==target.From&&p.c.Contract.DeliveryTo==target.To).Select(p=>p.i).ToArray();
                 if(index.Length!=1)throw Missing($"The source has no single delivery contract for {target.From:yyyy-MM}.");
                 if(index[0]==0)throw Missing($"The delivery contract for {target.From:yyyy-MM} has no prior contract to start its trade month.");
-                var delivery=contracts[index[0]].Contract.Key;
-                first=DateOnly.FromDateTime(contracts[index[0]-1].Contract.Expiry.UtcDateTime);last=DateOnly.FromDateTime(contracts[index[0]].Contract.Expiry.UtcDateTime);
-                member=day=>Resolve(day,1).Contract.Key==delivery;
+                var delivery=contracts[index[0]].Contract;
+                first=DateOnly.FromDateTime(contracts[index[0]-1].Contract.Expiry.UtcDateTime);last=DateOnly.FromDateTime(delivery.Expiry.UtcDateTime);
+                member=day=>Instant(day,samplingTime)<delivery.Expiry&&Resolve(day,1).Contract.Key==delivery.Key;
             }
             if(businessDays is not null&&(first<businessDays.From||last>=businessDays.To))throw Missing("The business-day calendar does not cover the observation window.");
             var kept=ImmutableArray.CreateBuilder<DateOnly>();
@@ -50,6 +49,52 @@ public static partial class RecipeEngine
         }
         return windows.ToImmutable();
     }
+    // One cell per target month: the sum of its groups, each the weighted mean of its terms' values, each value an equally
+    // weighted mean of one leaf per observation day, less the mean of its spread position. A day before the context date
+    // reads its retained sample; the context date and later days read today's live sample of the contract selected for that day.
+    private static Panel ObservationPanel(RecipeNode node,RecipeInputs inputs,Func<string,int,string,DateOnly,RecipeContract,int,DateOnly,DateTimeOffset,Cell> leaf,
+        Func<CurveKey,DateOnly,DateTimeOffset> sampledAt)
+    {
+        var (targets,_,terms)=ObservationSettings(node);var windows=inputs.Windows[node.Id];
+        if(windows.IsDefault||windows.Any(w=>w is null||w.Target is null||w.Days.IsDefaultOrEmpty||w.Days.Distinct().Count()!=w.Days.Length||!w.Days.SequenceEqual(w.Days.Order()))||
+            windows.Length!=targets.Length*terms.Length||!windows.Select(w=>(w.Target,w.Term)).ToHashSet().SetEquals(targets.SelectMany(t=>terms.Select(term=>(t,term.Ordinal)))))
+            throw Missing("Supply exactly one nonempty ascending observation window for every target and term.");
+        var sourceNode=node.Inputs["source"];var source=inputs.Sources[sourceNode];var time=TimeOnly.FromDateTime(inputs.ValuationAt.UtcDateTime);
+        var one=ExactDecimal.Parse("1");var index=0;var cells=ImmutableArray.CreateBuilder<Cell>();
+        foreach(var (target,position) in targets.Select((t,i)=>(t,i+1)))
+        {
+            var leaves=new List<Cell>();
+            CellFormula Mean(ImmutableArray<DateOnly> days,int stated)
+            {
+                var parts=days.Select(day=>
+                {
+                    var instant=Instant(day,time);var contract=ObservedContract(source.Contracts,day,time,stated);
+                    if(day<inputs.ContextDate&&sampledAt(source.Key,day)!=instant)throw Missing($"Observation day {day:yyyy-MM-dd} must be sampled at the context time of day.");
+                    var cell=day<inputs.ContextDate?leaf(node.Id,index++,sourceNode,day,contract,position,day,instant):
+                        leaf(node.Id,index++,sourceNode,inputs.ContextDate,contract,position,day,inputs.ValuationAt);
+                    leaves.Add(cell);return cell.Formula;
+                }).ToImmutableArray();
+                return new(node.Id,index++,null,parts,[..parts.Select(_=>one)],WeightedMean);
+            }
+            var groups=terms.GroupBy(t=>t.Group,StringComparer.Ordinal).Select(group=>
+            {
+                var values=group.Select(term=>
+                {
+                    var days=windows.Single(w=>w.Target==target&&w.Term==term.Ordinal).Days;var mean=Mean(days,term.Position);
+                    if(term.LessPosition is not {} less)return mean;
+                    var lessMean=Mean(days,less);return new CellFormula(node.Id,index++,null,[mean,lessMean],[one,-one],SignedSum);
+                }).ToImmutableArray();
+                return new CellFormula(node.Id,index++,null,values,[..group.Select(t=>Weight(t.Weight))],WeightedMean);
+            }).ToImmutableArray();
+            cells.Add(new(position,[..windows.Where(w=>w.Target==target).SelectMany(w=>w.Days).Distinct().Order()],inputs.ContextDate,source.Unit,
+                [..leaves.SelectMany(c=>c.Inputs)],new(node.Id,index++,null,groups,[..groups.Select(_=>one)],SignedSum),target.From,target.To));
+        }
+        return new(cells.ToImmutable());
+    }
+    // The contract at a stated position at one observation day's sampling instant; selection and sampling share that instant.
+    private static RecipeContract ObservedContract(ImmutableArray<RecipeContract> contracts,DateOnly day,TimeOnly samplingTime,int position)=>
+        ResolveContracts(contracts,"positions",position,1,Instant(day,samplingTime),day,requireLive:false)[0];
+    private static DateTimeOffset Instant(DateOnly day,TimeOnly time)=>new(day.ToDateTime(time),TimeSpan.Zero);
     private static (ImmutableArray<RecipeDelivery> Targets,string Days,ImmutableArray<RecipeObservationTerm> Terms) ObservationSettings(RecipeNode node)
     {
         if(node?.Kind!=ContractObservations)throw Invalid("Choose a contract observation node.");

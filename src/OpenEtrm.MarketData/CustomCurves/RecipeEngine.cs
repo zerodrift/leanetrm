@@ -166,8 +166,9 @@ public static partial class RecipeEngine
         cancellation.ThrowIfCancellationRequested();Validate(definition);
         if(inputs.ValuationAt.Offset!=TimeSpan.Zero||inputs.ContextDate!=DateOnly.FromDateTime(inputs.ValuationAt.UtcDateTime)||
             !definition.Nodes.Where(n=>n.Kind=="source").Select(n=>n.Id).ToHashSet().SetEquals(inputs.Sources.Keys)||
-            !definition.Nodes.Where(n=>n.Kind=="dates").Select(n=>n.Id).ToHashSet().SetEquals(inputs.Dates.Keys))
-            throw Missing("Supply exact source/date bindings and a coherent UTC valuation context.");
+            !definition.Nodes.Where(n=>n.Kind=="dates").Select(n=>n.Id).ToHashSet().SetEquals(inputs.Dates.Keys)||
+            inputs.Windows is null||!definition.Nodes.Where(n=>n.Kind==ContractObservations).Select(n=>n.Id).ToHashSet().SetEquals(inputs.Windows.Keys))
+            throw Missing("Supply exact source/date/observation-window bindings and a coherent UTC valuation context.");
         var nodes=definition.Nodes.ToDictionary(n=>n.Id);var cache=new Dictionary<string,object>();
         var available=samples.ToDictionary(s=>new SampleKey(s.Source,s.Date,s.Contract));var work=0;
         foreach(var node in definition.Nodes.Where(n=>n.Kind=="source"))ValidateSource(node,inputs.Sources[node.Id]);
@@ -264,6 +265,7 @@ public static partial class RecipeEngine
                     result=CombinePanels(node,node.Inputs.ToDictionary(p=>p.Key,p=>(Panel)Node(p.Value)),inputs.ContextDate,cancellation,ref work);break;
                 case "splice":
                     result=SplicePanels(node,(Panel)Node(node.Inputs["before"]),(Panel)Node(node.Inputs["after"]),cancellation);break;
+                case ContractObservations:result=ObservationPanel(node,inputs,Leaf,At);break;
                 case "output":result=Node(node.Inputs["values"]);break;
                 default:throw Invalid("Unsupported node.");
             }
