@@ -4527,3 +4527,22 @@ policy or authority changes.
 Open: the list reauthorizes each report it reads, on every read. Its cost at a
 hundred reports is unmeasured and it has no paging. See
 [trading P&L](trading-pnl.md).
+
+## D391 · Risk reports which of its views it shows
+
+2026-11-13. Refines the page report of D191 for Risk. No read, authority or
+calculation changes.
+
+- **The report names the view.** Risk is one page with five views. Its
+  selection is exactly `{"view"}`, one of `reports`, `pnl_explain`,
+  `scenarios_greeks`, `var_es` and `run_history`. On Reports alone it also names
+  the retained report open there, as the page's own read
+  (`portfolio.risk.jobs.id_v1`). A report naming no view, another view, or a
+  selected report outside Reports is refused before admission
+  (`page_report_invalid`).
+- **Looking at and the assistant see the same view.** Looking at reads "Risk ·"
+  and the view's sidebar name, and follows each change of view. Read workspace
+  page returns the selection as asked, and the page digest names the view. The
+  reads behind Risk are the same in every view.
+- **Back reopens the view.** Back to a place on Risk reopens the view it showed.
+  A Navigate target to Risk still opens the page on Reports.

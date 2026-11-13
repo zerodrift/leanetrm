@@ -30,8 +30,10 @@ static class AssistantWorkspaceChecks
             "blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","gas_setup","crude_setup","facility_quantities"};
         foreach(var page in pages)
         {
-            PageReports.Require(JsonSerializer.SerializeToElement(new{page,selection=new{}}));
-            if(PageReports.Dispatch(JsonSerializer.SerializeToElement(new{page,selection=new{}}))?.Call is null)
+            // Risk names the view it shows (D391); the other pages show one view as they open.
+            var report=page=="risk_jobs"?JsonSerializer.SerializeToElement(new{page,selection=new{view="reports"}}):JsonSerializer.SerializeToElement(new{page,selection=new{}});
+            PageReports.Require(report);
+            if(PageReports.Dispatch(report)?.Call is null)
                 throw new Exception($"The assistant cannot inspect {page}.");
         }
         foreach(var operation in new[]{"swaps.book_v1","futures.amend_v1","admin.update_v1","jobs.control_v1","settings.ai.agents.save_v1"})

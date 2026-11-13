@@ -328,8 +328,19 @@ test('Prepare curve draft is named in plain words, with each of its refusals',()
     assert.equal(stepLine({ordinal:2,tool:'save_custom_curve_draft',code}),`Prepare curve draft · ${reason}`);
 });
 
-test('the dedicated risk directory is explicitly outside assistant reads',()=>{
- assert.deepEqual(pageReport({page:'risk'}),{page:'risk_jobs',selection:{}});
+test('Risk reports the view it shows, and only Reports the retained report open there (D391)',()=>{
+  const job={operation:'portfolio.risk.jobs.id_v1',inputJson:JSON.stringify({body:null,parameters:{id:trade}})};
+  const working={mode:'current',frameId:frame,frameLabel:'Synthetic close'},names={curve:String,table:String};
+  for(const [view,shown,name] of [['risk','reports','Reports'],['risk-pnl','pnl_explain','P&L explain'],['risk-scenarios','scenarios_greeks','Scenarios & Greeks'],
+    ['risk-var','var_es','VaR / ES'],['risk-runs','run_history','Run history']]){
+    const report=pageReport({page:'risk',view});
+    assert.deepEqual(report,{page:'risk_jobs',selection:{view:shown}});
+    const seen=lookingAt(report,working,names);
+    assert.equal(seen.page,`Risk · ${name}`);assert.equal(seen.supported,true);assert.equal(seen.askable,true);
+    assert.deepEqual(pageReport({page:'risk',view,assistant:job}).selection,view==='risk'?{view:shown,...job}:{view:shown});
+  }
+  assert.match(lookingAt(pageReport({page:'risk',view:'risk',assistant:job}),working,names).shows,/^The retained report open here · /);
+  assert.throws(()=>lookingAt({page:'risk_jobs',selection:{}},working,names),/inconsistent/);
 });
 
 test('the Blotter report carries its pane state and whether it is popped out, and names no identifier for them',()=>{
@@ -365,10 +376,6 @@ test('an ask sends the Blotter report whole, its layout with it, and a kept ask 
   const stored={operationId:trade,path:'assistant/turns/ask',body};
   assert.deepEqual(keptAsk(JSON.stringify(stored)).body.pageReport,report);
   assert.equal(keptAsk(JSON.stringify({...stored,body:{...body,pageReport:{...report,extra:1}}})),undefined);
-});
-
-test('the dedicated risk directory is explicitly outside assistant reads',()=>{
- assert.deepEqual(pageReport({page:'risk'}),{page:'risk_jobs',selection:{}});
 });
 
 test('facility questions retain the selected operating date and ledger without borrowing a pricing frame',()=>{

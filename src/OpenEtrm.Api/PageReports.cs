@@ -128,18 +128,14 @@ static class PageReports
             if(page.Tool=="read_workspace_page")
             {
                 _=new ToolInput(selection);
-                if(id=="physical_operations"&&selection.EnumerateObject().Any())PhysicalSelection(selection);
+                if(id=="risk_jobs")RiskSelection(selection);
+                else if(id=="physical_operations"&&selection.EnumerateObject().Any())PhysicalSelection(selection);
                 else if(id=="facility_quantities"&&selection.EnumerateObject().Any())
                 {
                     var facility=new ToolInput(selection);facility.Exactly("ledgerId");
                     if(facility.Has("ledgerId"))_=facility.Id("ledgerId");
                 }
-                else if(selection.EnumerateObject().Any())
-                {
-                    var selected=AgentTools.Parse("read_page_operation",selection).Arguments as WorkspaceArguments;
-                    var operation=selected?.Operation is {} code?AssistantOperations.Find(code):null;
-                    if(operation is null||operation.RequiresApproval||operation.Page!=(id=="blotter_risk_lens"?"blotter_risk":id))throw ToolInput.Invalid();
-                }
+                else if(selection.EnumerateObject().Any())Selected(id,selection);
                 return new(id,AgentTools.Parse(page.Tool,JsonSerializer.SerializeToElement(new{page=id})),layout);
             }
             // Curve builder reports the curve it has open, if any, and whether it holds unsaved edits, and reads its catalog (D260).
@@ -157,6 +153,41 @@ static class PageReports
         }
         catch(ToolRefusal){return new(id,null,layout);}
     }
+
+    // A workspace page's selected read: one of the page's own reads, never a command (the Blotter's lens reads as its risk report).
+    static void Selected(string id,JsonElement selection)
+    {
+        var operation=SelectedRead(id,selection)?.Operation is {} code?AssistantOperations.Find(code):null;
+        if(operation is null||operation.RequiresApproval||operation.Page!=(id=="blotter_risk_lens"?"blotter_risk":id))throw ToolInput.Invalid();
+    }
+
+    // The read a workspace page's selection names, if any: Risk's selection without its view, any other page's as it is.
+    internal static WorkspaceArguments? SelectedRead(string page,JsonElement selection)
+    {
+        if(!selection.TryGetProperty("operation",out _))return null;
+        var read=page=="risk_jobs"?JsonSerializer.SerializeToElement(selection.EnumerateObject().Where(m=>m.Name!="view").ToDictionary(m=>m.Name,m=>m.Value)):selection;
+        return (WorkspaceArguments)AgentTools.Parse("read_page_operation",read).Arguments;
+    }
+
+    // Risk's views, by the name its report gives each and the name Looking at and the page digest show (D391).
+    static readonly ImmutableDictionary<string,string> RiskViews=new Dictionary<string,string>
+    {
+        ["reports"]="Reports",["pnl_explain"]="P&L explain",["scenarios_greeks"]="Scenarios & Greeks",["var_es"]="VaR / ES",["run_history"]="Run history"
+    }.ToImmutableDictionary(StringComparer.Ordinal);
+
+    // Risk's selection: exactly the view it shows and, in Reports only, the retained report open there, read by its id.
+    static void RiskSelection(JsonElement selection)
+    {
+        var input=new ToolInput(selection);
+        var view=input.Choice("view",[..RiskViews.Keys]);
+        if(!input.Has("operation")){input.Exactly("view");return;}
+        input.Exactly("view","operation","inputJson");
+        if(view!="reports"||SelectedRead("risk_jobs",selection) is not {Operation:"portfolio.risk.jobs.id_v1",Input:{} read})throw ToolInput.Invalid();
+        var request=new ToolInput(read);request.Exactly("body","parameters");request.Null("body");
+        var parameters=request.Members("parameters");parameters.Exactly("id");_=parameters.Id("id");
+    }
+
+    internal static string RiskViewName(JsonElement selection)=>RiskViews[selection.GetProperty("view").GetString()!];
 
     // Physical operations' instrument and tab and, on a selected gas delivery row, its day, delivery side and stage: all of them or
     // none of them. They identify what the page shows; the assistant reads them with its own authorized operations.
