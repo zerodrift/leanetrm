@@ -1,9 +1,12 @@
-"""Migration 0252 against its reviewed predecessors and a populated database, inside the owned preview only."""
+"""Migration 0252 against its reviewed predecessors and a populated database, inside the owned preview only.
+
+The drift checks run in every owned preview. The populated-database qualification loads the preview's own fixtures in
+one transaction, so it runs only under the contract observation curve check, whose fixtures it was written for."""
 from uuid import uuid4
 from assistant_context import check_guard, migration_body
 
 
-def run_checks(query, migration, retained, manifest):
+def run_checks(query, migration):
     text = migration.read_text()
     signatures = ('market_data.guard_panel_weight()', 'market_data.guard_panel_publication()')
     changes = tuple((change, signature) for signature in signatures for change in (
@@ -21,6 +24,9 @@ def run_checks(query, migration, retained, manifest):
         raise AssertionError('Migration 0252 admitted an unreviewed node-kind constraint')
     print('PASS migration 0252 refuses panel guard body, owner, configuration, ACL and node-constraint drift', flush=True)
 
+
+def populated_checks(query, migration, retained, manifest):
+    text = migration.read_text()
     # A populated database from the prior schema: the fixtures and one published computed-curve combination, then a
     # draft successor on which each panel guard is probed before and after the migration. Everything is rolled back.
     catalog, curve = manifest['catalogId'], str(uuid4())

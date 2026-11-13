@@ -312,8 +312,10 @@ def main():
                 from check_curve_splice_upgrade import run_checks as check_curve_splice_upgrade
                 check_curve_splice_upgrade(query,migration)
             if migration.name=='0252_contract_observation_nodes.sql':
-                from check_contract_observation_upgrade import run_checks as check_contract_observation_upgrade
-                check_contract_observation_upgrade(query,migration,[reference,market,security],manifest)
+                from check_contract_observation_upgrade import run_checks as check_contract_observation_upgrade,populated_checks
+                check_contract_observation_upgrade(query,migration)
+                # The populated qualification loads this mode's fixtures as they stand, so it runs only for the fixtures it was written for.
+                if args.contract_observation_curve_check:populated_checks(query,migration,[reference,market,security],manifest)
             if args.lng_cargo_check and migration.name=='0176_lng_cargo_references.sql':
                 from check_lng_upgrade import run_checks as check_lng_upgrade
                 check_lng_upgrade(query,ROOT,manifest,[reference,market,security,trading_fixture(manifest['catalogId'])])
