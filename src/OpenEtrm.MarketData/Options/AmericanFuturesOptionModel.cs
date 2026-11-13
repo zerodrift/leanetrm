@@ -106,8 +106,7 @@ public static class AmericanFuturesOptionModel
         RequirePositive(discountToExpiry, "discount factor");
         if (discountToExpiry.CompareTo(One) > 0)
             throw new MarketDataException("option_input", $"The discount factor {discountToExpiry} must not exceed 1.");
-        if (policy.Steps < 1)
-            throw new MarketDataException("option_numerical_policy", $"The policy needs at least one step; got {policy.Steps}.");
+        RequireSteps(policy);
         return YearFraction(valuationAt, terms.ExpiryAt, policy);
     }
 
@@ -118,6 +117,31 @@ public static class AmericanFuturesOptionModel
     }
 
     private static LatticeDecimal Integer(long value) => LatticeDecimal.Parse(value.ToString(CultureInfo.InvariantCulture));
+
+    // The lattice's log step: sigma * sqrt(T / Steps).
+    private static LatticeDecimal Spread(LatticeDecimal volatility, LatticeDecimal years, int steps) =>
+        volatility * (years / Integer(steps)).Sqrt();
+
+    // The gap in futures price between neighbouring strike crossings, at this futures price. The lattice is rebuilt
+    // around each futures price and its levels of one step lie a factor exp(2 * spread) apart, so the value is piecewise
+    // linear in the futures price. Its bends are where a level crosses the strike, once per such factor, and, under
+    // discounting, at far smaller ones where an exercise decision changes. A second difference of the value is meaningful
+    // only across whole steps of this size.
+    public static LatticeDecimal PriceStep(LatticeDecimal futures, LatticeDecimal volatility, DateTimeOffset valuationAt,
+        DateTimeOffset expiryAt, OptionNumericalPolicy policy)
+    {
+        RequirePositive(futures, "futures price");
+        RequirePositive(volatility, "volatility");
+        RequireSteps(policy);
+        var spread = Spread(volatility, YearFraction(valuationAt, expiryAt, policy), policy.Steps);
+        return futures * ((spread + spread).Exp() - One);
+    }
+
+    private static void RequireSteps(OptionNumericalPolicy policy)
+    {
+        if (policy.Steps < 1)
+            throw new MarketDataException("option_numerical_policy", $"The policy needs at least one step; got {policy.Steps}.");
+    }
 
     // Recombining tree: node i at step k has had i down moves, so its futures price
     // is F*exp((k-2i)*s) with s = sigma*sqrt(T/n). The 2n+1 distinct levels are
@@ -136,8 +160,7 @@ public static class AmericanFuturesOptionModel
         public FuturesLattice(LatticeDecimal futures, LatticeDecimal volatility, LatticeDecimal years, LatticeDecimal discountToExpiry, int steps)
         {
             Steps = steps;
-            var count = Integer(steps);
-            var spread = volatility * (years / count).Sqrt();
+            var spread = Spread(volatility, years, steps);
             var u = spread.Exp();
             var d = One / u;
             var up = (One - d) / (u - d);
@@ -146,7 +169,7 @@ public static class AmericanFuturesOptionModel
             // occurs. These arrays belong only to this volatility's lattice.
             successors=new (int Node,LatticeDecimal Probability)[steps][];
             for(var node=0;node<steps;node++)successors[node]=[(node,up),(node+1,down)];
-            discount = (discountToExpiry.Ln() / count).Exp();
+            discount = (discountToExpiry.Ln() / Integer(steps)).Exp();
             levels = new LatticeDecimal[2 * steps + 1];
             for (var j = -steps; j <= steps; j++)
                 levels[j + steps] = futures * (Integer(j) * spread).Exp();

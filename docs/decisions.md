@@ -4473,11 +4473,11 @@ returns the same explained and residual amounts.
   holding. The report format is `trading_pnl_report_v2`; a result saved in the
   earlier format is listed, and opening it says that it cannot be shown.
 
-Undecided: the one-tick bump of the selected factor policy does not give a
-convergent central gamma for tree-priced options, so their curvature stays in
-the residual. A run is one request under the process request limit and values
-each held option nine times; a ten-option report did not finish within 15
-seconds on the hosted CI runner. See [trading P&L](trading-pnl.md).
+Decided since by D394: the one-tick bump of the selected factor policy did not
+give a convergent central gamma for tree-priced options, so their curvature
+stayed in the residual. Open: a run is one request under the process request
+limit and values each held option nine times; a ten-option report did not finish
+within 15 seconds on the hosted CI runner. See [trading P&L](trading-pnl.md).
 
 ## D390 · The P&L page shows what moved, and the report states every figure the page shows
 
@@ -4825,3 +4825,78 @@ The bounded implementation has pure eligibility/output/frozen-anchor checks,
 owned PostgreSQL/HTTP capture, concurrency and revocation checks, and browser
 visibility and lost-response recovery checks. This does not implement futures
 variation margin, exercise, delivery, cash lifecycle or economic horizon risk.
+
+## D394 · A P&L report's price bump is selected in its request and offered at two declared price steps
+
+2026-11-13. Decided by the owner: the bump is the person's to set, in the page's
+advanced settings, and what the page offers follows the measurements. Decides the
+point D389 left undecided. Accounting, valuation and authority are unchanged.
+
+- **Cause.** A listed American option is priced on a tree rebuilt around each
+  futures price, so its value is piecewise linear in that price. It bends where
+  a lattice level crosses the strike, and those prices lie one price step apart:
+  the futures price times exp(2 · volatility · √(years ÷ steps)) − 1. A one-tick
+  central gamma across such a bend is the bend divided by the bump and doubles
+  as the bump halves; between bends it is close to zero.
+- **Declared price step.** A valuation may declare, for a price dependency, the
+  smallest move of that price its model resolves. It is a property of the model:
+  it identifies no repricing and assigns no exposure. A solved futures option
+  declares its lattice's step; one valued at intrinsic declares none. A step
+  names one directly quoted live price input.
+- **Selected bump.** Factor policy `held_primitive_prices_selected_bump_central_v1`
+  takes its bump and agreement from the request, every member stated: 1 to 1,000
+  trading ticks; 2 or 4 price steps, or null for ticks alone; a nonnegative
+  absolute tolerance; and relative tolerances from 0 to 1 for deltas and for
+  gammas. A factor priced by a holding in scope that declares a step is bumped by
+  the selected steps of the largest such step, rounded up to whole ticks. Every
+  other factor, and every factor when no steps are selected, is bumped by the
+  selected ticks. A tick bump smaller than two declared steps is refused before
+  pricing, naming the factor and the ticks they span. Nothing is filled in.
+  A run costs what it did: the six price samples move, and none is added.
+- **What is offered.** The policies the page reads offer two price steps, one
+  tick, 0.000001, 0.15 for deltas and 0.10 for gammas. Two steps put the half,
+  nominal and double steps on one, two and four whole steps of the declaring
+  holding. A factor has one bump, so another option on the same future, with
+  another volatility and step, is bumped between its own bends: of fourteen
+  such options fewer than ten keep their gamma within 5% and thirteen within
+  10%, hence 0.10. One bump serves both Greeks, and a small delta changes by
+  more than 5% of itself across four steps while its nominal errs a third as
+  far: hence 0.15. The page shows the offer in a closed Advanced settings
+  section, states it in that section's title line and sends it explicitly.
+- **One tick retired.** Decided by the owner.
+  `held_primitive_prices_one_tick_central_v1` is retired, and a request that
+  names it is refused. Under it an at-the-money tree-priced option had no gamma
+  amount. Away from a bend, with nothing discounted, its three estimates were
+  exactly zero and agreed, so it stated a zero gamma the option does not have.
+  A book with no declared price step can still select one tick.
+- **Measured error.** No bound is claimed for every option. The calculation
+  checks pin, at the offered agreement: on the oracle's options and five more
+  at the money, each at two of its own price steps, a used gamma within 7% of
+  Black-76 at a unit discount and of an independent 2,000-step tree under
+  discounting, and a used delta within 5%, low-delta options included; on 48
+  options drawn from a fixed sequence, every gamma used within 3.5% and every
+  delta within 4%; and the largest errors found for an option with time value,
+  a used gamma 7.8% high far from the money, 8.2% low beside an early-exercise
+  boundary and 8.1% high under another option's step, and a used delta 5.6%
+  high under another option's step.
+- **Report.** The format keeps its name. A report gains each factor's bump, the
+  request's selection and, in its sources, the declared steps.
+
+Not chosen. A flat tick multiple fits one range of maturities. The realized
+move as the bump reproduces the tree's price-only revaluation exactly, but for
+a move under one price step the gamma it shows is not the option's. A looser
+agreement at one tick admits estimates near zero. A single 5% agreement
+withholds the delta of low-delta options and the gamma of options that share a
+future. The first three were measured on 2026-11-13 on the exchange example
+and are pinned by no check; the calculation checks pin the fourth.
+
+Open. A holding's estimates depend on the other holdings in scope that price
+its factor, so reports over parts of a scope need not add up: under another
+holding's larger step an option exactly on a bend can have no gamma and a
+low-delta option no delta. An option worth its intrinsic value close inside its
+exercise boundary can be given a gamma, because its down legs reach outside
+the boundary. A bump that takes a futures price to zero or below fails in the
+option's valuation without naming the factor. Portfolio risk, VaR and deal risk
+still bump by ticks; scenario values smooth in the futures price would remove
+the cause for every consumer and need their own model version. See
+[trading P&L](trading-pnl.md) and [futures options](futures-options.md).

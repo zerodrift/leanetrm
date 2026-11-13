@@ -12,24 +12,74 @@ namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record TradingPnlRequest(FuturesReadRequest Opening,FuturesReadRequest Closing,ImmutableArray<Guid> BookIds,
-    ImmutableArray<Guid> PortfolioIds,ImmutableArray<Guid>? TradeIds,string AccountingPolicy,string AttributionPolicy,string FactorPolicy,string KnownAt,PnlTimeSelection Time);
+    ImmutableArray<Guid> PortfolioIds,ImmutableArray<Guid>? TradeIds,string AccountingPolicy,string AttributionPolicy,string FactorPolicy,string KnownAt,PnlTimeSelection Time,
+    PnlBumpSelection? FactorBump);
+
+// The price bump and the agreement of estimates that a request selects. Every member is stated: a null PriceSteps
+// selects ticks alone, a missing one selects nothing.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PnlBumpSelection([property:JsonRequired]int Ticks,[property:JsonRequired]int? PriceSteps,[property:JsonRequired]string AbsoluteTolerance,
+    [property:JsonRequired]string DeltaRelativeTolerance,[property:JsonRequired]string GammaRelativeTolerance);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PnlTimeSelection(string Mode,string Policy,ClockRule? Clock);
 
 internal sealed class TradingPnlReport(PreviewDatabase database)
 {
-    internal const string FactorPolicy="held_primitive_prices_one_tick_central_v1";
-    private const string AbsoluteTolerance="0.000001",RelativeTolerance="0.01";
+    // The factor policy: the request states its own bump, in trading ticks or in price steps where holdings declare one,
+    // and the agreement its estimates must reach.
+    internal const string SelectedBump="held_primitive_prices_selected_bump_central_v1";
+    // What the page shows until the person changes it: two price steps where a holding declares one, one tick elsewhere,
+    // and agreement within 0.000001 plus 15% of a delta or 10% of a gamma. One bump serves both Greeks: a delta's double
+    // step errs about three times as far as its nominal, and an option bumped by another option's larger step has its
+    // half step between its own bends. It is offered, never filled in: a request names its selection in full.
+    private static readonly PnlBumpSelection Offered=new(1,2,"0.000001","0.15","0.1");
+    private const string Covered="Opening price delta and gamma for each held factor, and mixed gamma for factors one holding prices together.",
+        Remaining="Unavailable estimates and time, volatility, discount, fixing, position and other effects remain in the explicit residual.";
     private static readonly (string Formula,string Label)[] Greeks=
         [(RiskEngine.CentralDelta,"Delta"),(RiskEngine.CentralGamma,"Gamma"),(RiskEngine.CentralMixedGamma,"Cross gamma")];
-    private static readonly FiniteDifferenceTolerance Tolerance=new(ExactDecimal.Parse(AbsoluteTolerance),ExactDecimal.Parse(RelativeTolerance));
-    internal static object Policies=>new{accounting=TradingPnlAccounting.Version1,attribution=TradingPnlAttribution.OpeningGreeks,factors=FactorPolicy,
-        timeModes=new[]{new{id="one_calendar_day_model_decay_v1",label="One-day model decay"},new{id="opening_to_closing_clock_v1",label="Opening-to-closing time roll"}},
-        clockPolicy=ClockChange.FrozenInputs,clocks=new[]{new ClockRule("UTC","fixed_offset",0,null,null),
-            new ClockRule("New York","iana",null,"America/New_York",TimeZoneDatabase.Installed().Version())},
-        maxAxes=RiskEngine.MaxSensitivityAxes,absoluteTolerance=AbsoluteTolerance,relativeTolerance=RelativeTolerance,
-        coverage="Opening price delta and gamma for each held factor, and mixed gamma for factors one holding prices together. Unavailable estimates and time, volatility, discount, fixing, position and other effects remain in the explicit residual."};
+    private static readonly object[] TimeModes=[new{id="one_calendar_day_model_decay_v1",label="One-day model decay"},new{id="opening_to_closing_clock_v1",label="Opening-to-closing time roll"}];
+    private static ClockRule[] Clocks()=>[new("UTC","fixed_offset",0,null,null),new("New York","iana",null,"America/New_York",TimeZoneDatabase.Installed().Version())];
+    // What a request may select, with the bump the page offers and its bounds.
+    internal static object Policies=>new{accounting=TradingPnlAccounting.Version1,attribution=TradingPnlAttribution.OpeningGreeks,factors=SelectedBump,
+        factorBump=new{offered=Offered,ticks=new{min=1,max=PnlFactorBump.MaximumTicks},priceSteps=PnlFactorBump.SelectablePriceSteps},
+        timeModes=TimeModes,clockPolicy=ClockChange.FrozenInputs,clocks=Clocks(),maxAxes=RiskEngine.MaxSensitivityAxes,coverage=Covered+" "+Remaining};
+    // What one request selects: its bump, and the agreement its deltas and gammas must reach.
+    internal sealed record FactorSelection(PnlFactorBump Bump,FiniteDifferenceTolerance Delta,FiniteDifferenceTolerance Gamma);
+    internal static FactorSelection Select(TradingPnlRequest request)
+    {
+        if(request.FactorPolicy!=SelectedBump)throw Error("pnl_context","Select increasing closes, nondecreasing knowledge cutoffs and the explicit supported P&L policies.");
+        if(request.FactorBump is not {} selected)throw Error("pnl_factor_bump","Select the price bump and the agreement of estimates explicitly.");
+        var bump=new PnlFactorBump(selected.Ticks,selected.PriceSteps);bump.Require();
+        return new(bump,Agreement(selected.AbsoluteTolerance,selected.DeltaRelativeTolerance),Agreement(selected.AbsoluteTolerance,selected.GammaRelativeTolerance));
+    }
+    private static FiniteDifferenceTolerance Agreement(string? absolute,string? relative)
+    {
+        try
+        {
+            var tolerance=new FiniteDifferenceTolerance(ExactDecimal.Parse(absolute??""),ExactDecimal.Parse(relative??""));
+            if(tolerance.Absolute.CompareTo(default)>=0&&tolerance.Relative.CompareTo(default)>=0&&tolerance.Relative.CompareTo(ExactDecimal.Parse("1"))<=0)return tolerance;
+        }
+        catch(MarketDataException e)when(e.Code is "numeric_format" or "numeric_range"){}
+        throw Error("pnl_factor_bump","State the agreement of estimates as a nonnegative absolute tolerance and relative tolerances from 0 to 1.");
+    }
+    // The largest price step the opening holdings declare for each factor, in whichever market partition they are priced:
+    // a factor has one bump in every partition.
+    internal static Dictionary<InputKey,ExactDecimal> LargestSteps(IEnumerable<KeyValuePair<InputKey,ExactDecimal>> declared)
+    {
+        var steps=new Dictionary<InputKey,ExactDecimal>();
+        foreach(var (input,step) in declared)if(!steps.TryGetValue(input,out var largest)||largest.CompareTo(step)<0)steps[input]=step;
+        return steps;
+    }
+    // What a report explains, in the words the page shows, with the bump and the agreement it used.
+    internal static string Coverage(FactorSelection selection)
+    {
+        var ticks=selection.Bump.Ticks==1?"1 trading tick":selection.Bump.Ticks+" trading ticks";
+        var bumped=selection.Bump.PriceSteps is {} steps?
+            $"Each factor is bumped by {steps} price steps where a holding that prices it declares a price step, and otherwise by {ticks}.":
+            $"Each factor is bumped by {ticks}.";
+        return $"{Covered} {bumped} An estimate is used when its half, nominal and double steps agree within {selection.Delta.Absolute} plus {selection.Delta.Relative} of the nominal estimate for a delta and {selection.Gamma.Relative} for a gamma. {Remaining}";
+    }
     private static ClockChange TimeTarget(PnlTimeSelection selection,DateTimeOffset from,DateTimeOffset to)
     {
         if(selection is null||selection.Policy!=ClockChange.FrozenInputs)throw Error("pnl_time_policy","Select the explicit frozen-input time convention.");
@@ -46,9 +96,10 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
 
     internal async Task<object> Run(NpgsqlConnection connection,TradingView opening,TradingView closing,TradingPnlRequest request,CancellationToken ct)
     {
-        if(request.AccountingPolicy!=TradingPnlAccounting.Version1||request.AttributionPolicy!=TradingPnlAttribution.OpeningGreeks||request.FactorPolicy!=FactorPolicy||
+        if(request.AccountingPolicy!=TradingPnlAccounting.Version1||request.AttributionPolicy!=TradingPnlAttribution.OpeningGreeks||
             opening.Frame.At>=closing.Frame.At||SchedulePreview.ParseAt(opening.Context.KnownAt)>SchedulePreview.ParseAt(closing.Context.KnownAt))
             throw Error("pnl_context","Select increasing closes, nondecreasing knowledge cutoffs and the explicit supported P&L policies.");
+        var selection=Select(request);
         if(request.TradeIds is {} ids&&(ids.IsDefaultOrEmpty||ids.Length>RiskTradeScope.MaxSelected||ids.Any(i=>i==Guid.Empty)||ids.Distinct().Count()!=ids.Length))
             throw Error("risk_trade_scope","Choose distinct trades, or explicitly select the whole book scope.");
         _=TimeTarget(request.Time,opening.Frame.At,closing.Frame.At);
@@ -69,13 +120,20 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             throw Error("pnl_factor_limit",$"This scope has {axes.Length} price factors. The opening-Greeks explanation covers at most {RiskEngine.MaxSensitivityAxes}; choose a smaller scope.");
         var ordinals=axes.Select((f,n)=>(f.Input,Ordinal:n)).ToDictionary(a=>a.Input,a=>a.Ordinal);
         string Axis(QuoteFactor factor)=>"price_"+ordinals[factor.Input];
+        var steps=LargestSteps((first.Prepared?.Markets??[]).SelectMany(m=>m.Connected.DeclaredPriceSteps));
+        var bumps=new Dictionary<InputKey,ExactDecimal>();
         foreach(var factor in axes)
         {
+            ExactDecimal? priceStep=steps.TryGetValue(factor.Input,out var declared)?declared:null;
+            var label=CurveRiskAxes.Quote(first.Prepared!,factor,ct).Label;
+            try{bumps[factor.Input]=selection.Bump.Size(factor.TradingTick,priceStep);}
+            catch(MarketDataException e)when(e.Code=="pnl_factor_bump"){throw Error(e.Code,$"{label}: {e.Message}");}
             // A factor with no exact closing price keeps its opening estimates and has no movement to explain.
             var end=closingFactors.TryGetValue(factor.Input,out var quoted)&&quoted.Unit==factor.Unit&&quoted.Quote==factor.Quote?quoted:null;
             var change=end is null?(ExactDecimal?)null:end.BaseValue-factor.BaseValue;
             movements.Add(new(Axis(factor),factor.Unit,change));
-            factorDetails.Add(new{axis=Axis(factor),label=CurveRiskAxes.Quote(first.Prepared!,factor,ct).Label,input=factor.Input,unit=factor.Unit,priceTick=factor.TradingTick.ToString(),
+            factorDetails.Add(new{axis=Axis(factor),label,input=factor.Input,unit=factor.Unit,priceTick=factor.TradingTick.ToString(),
+                bump=new{size=bumps[factor.Input].ToString(),priceStep=priceStep?.ToString()},
                 opening=new{price=factor.BaseValue.ToString(),observation=factor.Observation},
                 closing=end is null?null:(object)new{price=end.BaseValue.ToString(),observation=end.Observation},
                 change=change is null?null:(object)new{price=change.Value.ToString()},
@@ -86,7 +144,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             ct.ThrowIfCancellationRequested();
             var priceAxes=market.Connected.Factors.OrderBy(factor=>ordinals[factor.Input]).Select(factor=>(
                 Axis:new ConnectedSensitivityAxis(Axis(factor),new PriceSensitivityInput(new(CurveShockCoordinate.MarketQuote,new ContractCurveTarget(factor.Curves[0],factor.Contract),
-                    factor.Unit,factor.TradingTick,ConnectedRiskBump.Convention)),Tolerance,Tolerance),factor.Input)).ToArray();
+                    factor.Unit,bumps[factor.Input],ConnectedRiskBump.Convention)),selection.Delta,selection.Gamma),factor.Input)).ToArray();
             ConnectedRiskScenario? timeSample=null;
             var clock=TimeTarget(request.Time,opening.Frame.At,closing.Frame.At);
             try
@@ -97,7 +155,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             catch(MarketDataException e)when(e.Code is "valuation_time_unsupported" or "valuation_time_coverage" or "discount_roll_unsupported" or "discount_coverage" or "valuation_time_event")
             {missingTime=true;timeDiagnostics.Add(new{snapshotId=market.Snapshot.Id,status="unavailable",code=e.Code,detail=e.Message,clock,request.Time.Mode});}
             if(priceAxes.Length==0&&timeSample is null){plans.Add(new(market,null));continue;}
-            var mixed=TradingPnlAttribution.JointPairs(market.Connected,[..priceAxes.Select(a=>(a.Axis.Id,a.Input))],Tolerance);
+            var mixed=TradingPnlAttribution.JointPairs(market.Connected,[..priceAxes.Select(a=>(a.Axis.Id,a.Input))],selection.Gamma);
             if(mixed.Length>RiskEngine.MaxMixedSensitivities)
                 throw Error("pnl_factor_limit",$"Holdings in this scope price {mixed.Length} pairs of factors together. The mixed-gamma explanation covers at most {RiskEngine.MaxMixedSensitivities}; choose a smaller scope.");
             plans.Add(new(market,new(ConnectedFiniteDifferenceRequest.HalfNominalDouble,[..priceAxes.Select(a=>a.Axis)],mixed){AdditionalScenarios=timeSample is null?[]:[timeSample]}));
@@ -133,8 +191,13 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         // Holdings read by trade reference, then instrument reference. Ledger cash of a trade held at neither close has no reference and comes last.
         var listed=report.Positions.Select(p=>(Row:p,Held:identities.GetValueOrDefault((p.Accounting.Position.TradeId,p.Accounting.Position.BindingId))))
             .OrderBy(p=>p.Held is null).ThenBy(p=>p.Held?.TradeReference,StringComparer.Ordinal).ThenBy(p=>p.Held?.InstrumentReference,StringComparer.Ordinal).ToArray();
+        // The policies a report ran under, with the agreement of its deltas and of its gammas.
+        var policies=new{accounting=request.AccountingPolicy,attribution=request.AttributionPolicy,factors=request.FactorPolicy,timeModes=TimeModes,clockPolicy=ClockChange.FrozenInputs,
+            clocks=Clocks(),maxAxes=RiskEngine.MaxSensitivityAxes,absoluteTolerance=selection.Delta.Absolute.ToString(),deltaRelativeTolerance=selection.Delta.Relative.ToString(),
+            gammaRelativeTolerance=selection.Gamma.Relative.ToString(),coverage=Coverage(selection)};
         var result=new{id=Guid.NewGuid(),version="trading_pnl_report_v2",engineVersion=RiskJobs.EngineVersion,valuationPolicy=PortfolioRiskPreview.AccountingPricingPolicy,
-            request,scope=new{books=first.BookDescriptions.Concat(last.BookDescriptions).DistinctBy(b=>b.Id("id")).ToArray(),tradeSelection=request.TradeIds is null?"All trades in the selected books":"Selected trades"},policies=Policies,opening=new{opening.Frame.Id,opening.Frame.Name,opening.Frame.At,opening.Context},
+            request,scope=new{books=first.BookDescriptions.Concat(last.BookDescriptions).DistinctBy(b=>b.Id("id")).ToArray(),tradeSelection=request.TradeIds is null?"All trades in the selected books":"Selected trades"},
+            policies,opening=new{opening.Frame.Id,opening.Frame.Name,opening.Frame.At,opening.Context},
             closing=new{closing.Frame.Id,closing.Frame.Name,closing.Frame.At,closing.Context},time=new{request.Time.Mode,status=missingTime?"unavailable":"complete",
                 totals=missingTime?null:timeValues.GroupBy(v=>v.Currency).Select(g=>new{currency=g.Key,value=Money(g.Aggregate((a,b)=>a.Add(b)))}).ToArray(),partitions=timeDiagnostics},factors=factorDetails,
             totals=report.Positions.GroupBy(p=>p.Accounting.Currency).Select(g=>

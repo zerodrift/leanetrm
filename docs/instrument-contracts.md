@@ -35,6 +35,16 @@ contexts and measures returned values. It does not select pricing formulas by
 concrete instrument type. Binding validation, scoped workload estimates and
 lifecycle dispatch belong to the instrument contracts.
 
+A declaration may also state the price step of one of its price dependencies:
+the smallest move of that price the valuation's model resolves, below which its
+value is piecewise linear in it. It is a property of the model, not an input: it
+identifies no repricing and assigns no exposure. A step names one directly quoted
+live price input. The [trading P&L bump](trading-pnl.md#price-bump) is its
+consumer: a report reads the steps its scope declares and refuses a scope in
+which a holding declares one on any other dependency. The
+[listed American futures option](futures-options.md) declares its lattice's
+step.
+
 `MarketFactors(context)` returns the canonical shared market factors resolved
 from those declarations. The portfolio unions them by exact factor identity,
 independently of instrument family: several sides and instruments referencing

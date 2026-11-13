@@ -59,7 +59,10 @@ public sealed record FuturesOptionInstrument : Instrument
         return new(Id, AmericanFuturesOptionModel.Id, [binding.Underlying], UnitQuantity.Specification, Currency) { Time = binding.Calibration is SolvedVolatility?
             ValuationTimeDependency.Between(context.Snapshot.ValuationAt,Series.InstructionCutoffAt is {} cutoff&&cutoff>context.Snapshot.ValuationAt?cutoff:Series.Terms.ExpiryAt):ValuationTimeDependency.Pinned,
             DiscountInputs=[new(new(Id,0,Series.Terms.ExpiryAt,Currency),binding.Discounting)],
-            Volatility=binding.Calibration is SolvedVolatility solved?[new(binding.Id,solved.Volatility.ToString(),VolatilityInput.Annualized)]:[] };
+            Volatility=binding.Calibration is SolvedVolatility solved?[new(binding.Id,solved.Volatility.ToString(),VolatilityInput.Annualized)]:[],
+            // The tree's value bends once per price step of the underlying. An option valued at intrinsic has no lattice.
+            PriceSteps=binding.Calibration is SolvedVolatility held?[new(binding.Underlying,AmericanFuturesOptionModel.PriceStep(binding.BaseFutures,
+                held.Volatility,context.Snapshot.ValuationAt,Series.Terms.ExpiryAt,binding.Policy).ToExact())]:[] };
     }
 
     // The unit price at the scenario futures price is rounded once, half-even, to

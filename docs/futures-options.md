@@ -132,6 +132,17 @@ only. Its settlement curve is a calibration input read from the base market, not
 risk factor, so no scenario shocks it; this is intentional. A new settlement revision
 changes the snapshot, and every run recalibrates from its pinned inputs.
 
+**Price step.** The tree is rebuilt around each scenario futures price, so its
+value is piecewise linear in that price. It bends where a lattice level crosses
+the strike and, under discounting, far less where an exercise decision changes.
+The strike crossings lie one price step apart: the futures
+price times exp(2 · volatility · √(years ÷ steps)) − 1, which is 63 to 165 trading
+ticks for the example's at-the-money calls. A solved option declares that step on
+its underlying futures dependency, at its base futures price and held volatility.
+An option valued at intrinsic has no lattice and declares none. A second
+difference of the value is meaningful only across whole steps; the
+[trading P&L bump](trading-pnl.md#price-bump) is sized from it.
+
 **Intrinsic fallback.** When a settlement lies at or below the tree's price at the
 bracket's lowest volatility, and no more than one clearing increment below intrinsic,
 no volatility reproduces it. If the valuation policy declares
@@ -225,6 +236,12 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
   supports held calibrated-series IV and weighted-node shocks with explicit
   annualized-volatility units; the stored analytical surface is still not a pricing
   source. See [valuation layers](valuation-context-layers.md).
+- **Tick-sized risk bumps.** Portfolio risk, VaR and deal risk bump futures by
+  trading ticks. For a tree-priced option delta is then the slope of one straight
+  piece of its value, and a second difference is not its gamma. Only the trading
+  P&L sizes its bump from the declared price step. Scenario values that are smooth
+  in the futures price would remove the cause for every consumer; they change
+  every option scenario value and need their own model version.
 - **Margined premium.** Futures-style margined premium needs futures variation
   margin first.
 - **Other option types.** European, cash-settled, weekly, calendar spread, crack

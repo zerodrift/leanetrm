@@ -6,12 +6,17 @@ using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Risk;
 
+// The smallest move of a declared price input that a valuation's model resolves, in that input's own price unit. Below
+// it the value is piecewise linear in the input, so a second difference is meaningful only across whole steps of it.
+public sealed record DeclaredPriceStep(CurveRequest Dependency,ExactDecimal Size);
 public sealed record UnitPricingContract(Guid Id,string ModelVersion,ImmutableArray<CurveRequest> Dependencies,
     ReferenceKey Quantity,ReferenceKey Currency)
 {
     public required ValuationTimeDependency Time {get;init;}
     public ImmutableArray<DiscountInput> DiscountInputs {get;init;}=[];
     public ImmutableArray<VolatilityInput> Volatility {get;init;}=[];
+    // A property of the model, not an input: it identifies no repricing and assigns no exposure.
+    public ImmutableArray<DeclaredPriceStep> PriceSteps {get;init;}=[];
     internal bool SameInputFence(UnitPricingContract other)=>Time==other.Time&&
         Dependencies.Length==other.Dependencies.Length&&Dependencies.All(other.Dependencies.Contains)&&
         Volatility.Length==other.Volatility.Length&&Volatility.All(other.Volatility.Contains)&&
@@ -29,8 +34,10 @@ public sealed record UnitPricingContract(Guid Id,string ModelVersion,ImmutableAr
         if(Time is null||Dependencies.IsDefault||Dependencies.Distinct().Count()!=Dependencies.Length||Volatility.IsDefault||
             Volatility.Any(v=>v is null)||Volatility.Select(v=>v.Id).Distinct().Count()!=Volatility.Length||DiscountInputs.IsDefault||
             DiscountInputs.Any(d=>d is null||d.Provider is null)||DiscountInputs.Select(d=>d.Payment).Distinct().Count()!=DiscountInputs.Length||
-            Time.Use==ValuationTimeDependency.TimeUse.Independent&&!DiscountInputs.IsEmpty)
-            throw new MarketDataException("risk_contract","Declare complete distinct price, clock, discount and volatility inputs.");
+            Time.Use==ValuationTimeDependency.TimeUse.Independent&&!DiscountInputs.IsEmpty||PriceSteps.IsDefault||
+            PriceSteps.Any(s=>s is null||!Dependencies.Contains(s.Dependency)||s.Size.CompareTo(default)<=0)||
+            PriceSteps.Select(s=>s.Dependency).Distinct().Count()!=PriceSteps.Length)
+            throw new MarketDataException("risk_contract","Declare complete distinct price, clock, discount and volatility inputs, and a positive price step only for a declared price input.");
     }
     public string? ScheduleIdentity { get; init; }
     public ImmutableArray<SettlementProjection> SettlementProjections { get; init; }=[];

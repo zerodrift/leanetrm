@@ -128,8 +128,74 @@ internal static class TradingPnlAttributionChecks
             Derivatives=greeks.Risk.Derivatives.Replace(xy,xy with{Axes=["x","w"]})};
         Reject("pnl_greek_context",()=>TradingPnlAttribution.Explain(steady,[PnlGreekRun.Capture(two.Prepared,stray)],
             [..explained.Moves,new("w",two.Unit,ExactDecimal.Parse("1"))],TradingPnlAttribution.OpeningGreeks));
+        DeclaredPriceSteps();
+        FactorBumps();
         Console.WriteLine("PASS P&L attribution reuses black-box finite differences, exact quadratic/mixed effects and explicit unstable residuals.");
         Console.WriteLine("PASS P&L attribution lists each holding's own declared price inputs and never reads an unavailable Greek as zero.");
+    }
+    // A valuation may declare the price step of one of its inputs: the smallest move of that price its model resolves.
+    // The prepared portfolio states, for each directly quoted input, the largest step its holdings declare.
+    private static void DeclaredPriceSteps()
+    {
+        var plain=new JointScenarioRiskChecks.Fixture((x,_)=>x);
+        if(!plain.Prepared.DeclaredPriceSteps.IsEmpty)throw new Exception("Holdings that declare no price step were given one.");
+        var stepped=new JointScenarioRiskChecks.Fixture((x,_)=>x,priceStep:"0.25",sharedPriceStep:"0.75");
+        InputKey Source(JointScenarioRiskChecks.Fixture f,int point)=>((ConnectedSource)f.Points[point].Expression).Input;
+        var steps=stepped.Prepared.DeclaredPriceSteps;
+        if(steps.Count!=1||steps[Source(stepped,0)]!=ExactDecimal.Parse("0.75"))throw new Exception("An input's price step must be the largest its holdings declare.");
+        var smaller=new JointScenarioRiskChecks.Fixture((x,_)=>x,priceStep:"0.75",sharedPriceStep:"0.25").Prepared.DeclaredPriceSteps;
+        if(smaller.Single().Value!=ExactDecimal.Parse("0.75"))throw new Exception("The largest declared price step must not depend on the order of holdings.");
+        // A step belongs to an input the valuation itself declares, and is positive.
+        Reject("risk_contract",()=>new JointScenarioRiskChecks.Fixture((x,_)=>x,priceStep:"0.25",priceStepInput:2));
+        Reject("risk_contract",()=>new JointScenarioRiskChecks.Fixture((x,_)=>x,priceStep:"0"));
+        // It states a move of one directly quoted price. A dependency built from several inputs, or from another curve's quote, has none:
+        // a step declared on the mean of three quoted points is refused when the declared steps are read.
+        Reject("risk_price_step",()=>_=new JointScenarioRiskChecks.Fixture((x,_)=>x,derivedPriceStep:"0.25").Prepared.DeclaredPriceSteps);
+        var factors=stepped.Prepared.Factors;var onX=new DeclaredPriceStep(stepped.Requests[0],ExactDecimal.Parse("0.25"));
+        var x=factors.Single(f=>f.Input==Source(stepped,0));var y=factors.Single(f=>f.Input==Source(stepped,1));
+        if(PreparedConnectedPortfolioRisk.DirectInput(onX,[x])!=x.Input)throw new Exception("A step on a directly quoted input must name that input.");
+        Reject("risk_price_step",()=>PreparedConnectedPortfolioRisk.DirectInput(onX,[x,y]));
+        Reject("risk_price_step",()=>PreparedConnectedPortfolioRisk.DirectInput(onX,[y]));
+        Reject("risk_price_step",()=>PreparedConnectedPortfolioRisk.DirectInput(onX,[]));
+    }
+    // The bump a report's request selects: price steps where a holding declares one, and trading ticks elsewhere or
+    // everywhere.
+    private static void FactorBumps()
+    {
+        static ExactDecimal D(string value)=>ExactDecimal.Parse(value);
+        static void Size(PnlFactorBump bump,string tick,string? step,string expected)
+        {
+            var size=bump.Size(D(tick),step is null?null:D(step));
+            if(size!=D(expected))throw new Exception($"Expected a bump of {expected}, got {size}.");
+        }
+        static string Refused(PnlFactorBump bump,string tick,string step)
+        {
+            try{bump.Size(D(tick),D(step));}catch(MarketDataException e)when(e.Code=="pnl_factor_bump"){return e.Message;}
+            throw new Exception("A tick bump below two declared price steps must be refused.");
+        }
+        var steps=new PnlFactorBump(1,2);
+        // Two declared steps of 0.0629 are 0.1258, which is 126 ticks of 0.001 once rounded up to whole ticks. The bump is
+        // rounded, not each step: two steps of 2.3 ticks are 5 ticks, not 6.
+        Size(steps,"0.001","0.0629","0.126");Size(steps,"0.001","0.063","0.126");Size(new(1,4),"0.01","1.6501","6.61");
+        Size(steps,"0.001","0.0023","0.005");
+        // Where a step is declared the steps decide, whatever the ticks; a factor without one is bumped by the ticks.
+        Size(new(500,2),"0.001","0.0629","0.126");Size(steps,"0.001",null,"0.001");Size(new(5,2),"0.01",null,"0.05");
+        // Ticks alone bump every factor alike, but never by less than two declared price steps: the half step would lie
+        // inside one step, where a second difference reads the model's grid, not its curvature. The refusal says how many
+        // ticks two steps span, and advises ticks only where that many can be selected.
+        var ticks=new PnlFactorBump(330,null);
+        Size(ticks,"0.01",null,"3.3");Size(ticks,"0.01","1.65","3.3");Size(new(126,null),"0.001","0.0629","0.126");
+        foreach(var small in new[]{1,63,125})
+            if(Refused(new(small,null),"0.001","0.0629") is var message&&!(message.Contains("span 126 ticks")&&message.Contains("or at least 126 ticks")))
+                throw new Exception("The refusal must name the ticks two declared price steps span: "+message);
+        if(Refused(new(1000,null),"0.001","1.5") is var beyond&&(!beyond.Contains("span 3000 ticks")||beyond.Contains("at least")))
+            throw new Exception("The refusal must not advise more ticks than can be selected: "+beyond);
+        // A selection is explicit and bounded, and its half step is exact. Price steps are two or four: an odd count puts
+        // the half step between two bends, and more than four put the double step more than eight steps out.
+        foreach(var invalid in new PnlFactorBump[]{new(0,2),new(1001,null),new(1,1),new(1,3),new(1,5),new(1,6)})Reject("pnl_factor_bump",()=>invalid.Size(D("0.001"),null));
+        Reject("pnl_factor_bump",()=>steps.Size(D("0"),null));
+        Reject("pnl_factor_bump",()=>steps.Size(D("0.001"),D("0")));
+        Reject("pnl_factor_bump",()=>steps.Size(D("0.000000000000000001"),null));
     }
     private static void Check(Func<ExactDecimal,ExactDecimal,ExactDecimal> price,string quantity,string dx,string dy,string actual,string formula,string explained)
     {

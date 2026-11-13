@@ -76,6 +76,10 @@ public sealed class PreparedConnectedPortfolioRisk
     // The live price inputs each holding's unit valuation reaches through its declared dependencies. Dependencies
     // identify the repricing a factor can affect; they assign no exposure.
     public ImmutableDictionary<(Guid TradeId,Guid BindingId),ImmutableHashSet<InputKey>> DeclaredPriceInputs=>declaredPriceInputs.Value;
+    private readonly Lazy<ImmutableDictionary<InputKey,ExactDecimal>> declaredPriceSteps;
+    // For each directly quoted live price input, the largest price step the held valuations declare for it. A step is a
+    // model's own resolution in that price; it identifies no repricing and assigns no exposure.
+    public ImmutableDictionary<InputKey,ExactDecimal> DeclaredPriceSteps=>declaredPriceSteps.Value;
     // Immutable source coverage, available before pricing any historical scenario.
     public ImmutableArray<ConnectedHoldingIdentity> Holdings=>[..Portfolios.SelectMany((p,n)=>p.Positions.Select(v=>
         new ConnectedHoldingIdentity(n,v.TradeId,v.BindingId,v.BookId,v.ValuationId,v.FixedBasis.Currency)))];
@@ -94,7 +98,23 @@ public sealed class PreparedConnectedPortfolioRisk
         baseFactors=parent?.baseFactors??factors;
         this.factors=new(parent is null?()=>baseFactors:ResolveFactors);
         declaredPriceInputs=parent?.declaredPriceInputs??new(ResolveDeclaredPriceInputs);
+        declaredPriceSteps=parent?.declaredPriceSteps??new(ResolveDeclaredPriceSteps);
     }
+    private ImmutableDictionary<InputKey,ExactDecimal> ResolveDeclaredPriceSteps()
+    {
+        var steps=ImmutableDictionary.CreateBuilder<InputKey,ExactDecimal>();
+        foreach(var step in Contracts.SelectMany(group=>group).SelectMany(contract=>contract.PriceSteps))
+        {
+            var input=DirectInput(step,Market.Factors([step.Dependency],default));
+            if(!steps.TryGetValue(input,out var largest)||largest.CompareTo(step.Size)<0)steps[input]=step.Size;
+        }
+        return steps.ToImmutable();
+    }
+    // A step states a move of one quoted price. A dependency built from several inputs, or from another curve's quote,
+    // has no single quote whose move it could be.
+    internal static InputKey DirectInput(DeclaredPriceStep step,ImmutableArray<QuoteFactor> reached)=>
+        reached is [{} quoted]&&quoted.Contract==step.Dependency.Contract&&quoted.Curves.Contains(step.Dependency.Curve)?quoted.Input:
+            throw new MarketDataException("risk_price_step","A declared price step needs its dependency to be one directly quoted live price input.");
     private ImmutableDictionary<(Guid,Guid),ImmutableHashSet<InputKey>> ResolveDeclaredPriceInputs()
     {
         var holdings=ImmutableDictionary.CreateBuilder<(Guid,Guid),ImmutableHashSet<InputKey>>();

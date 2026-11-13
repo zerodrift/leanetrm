@@ -60,6 +60,89 @@ available has no amount in a currency's bridge, where it moves nothing. A partly
 available effect keeps its amount with the count of unavailable estimates. Either
 way the unexplained part stays in the visible residual.
 
+## Price bump
+
+The request selects the bump of its opening Greeks and the agreement their
+estimates must reach. Nothing is filled in. Factor policy
+`held_primitive_prices_selected_bump_central_v1` takes `factorBump`, every member
+stated: 1 to 1,000 trading ticks; 2 or 4 price steps, or null for ticks alone; a
+nonnegative absolute tolerance; and two relative tolerances from 0 to 1, one for
+deltas and one for gammas, mixed gammas included. The former
+`held_primitive_prices_one_tick_central_v1` is retired (D394): a request that
+names it is refused.
+
+A valuation may declare the price step of one of its price inputs: the smallest
+move of that price its model resolves, below which its value is piecewise linear
+in it. A factor priced by a holding in scope that declares a step is bumped by
+the selected number of steps of the largest such step, rounded up to whole
+ticks. Every other factor, and every factor when no price steps are selected, is
+bumped by the selected ticks. A tick bump smaller than two declared steps is
+refused before pricing, naming the factor and the ticks two steps span: its half
+step would lie inside one step, where a second difference reads the model's
+grid, not its curvature.
+
+An estimate is used when its half, nominal and double steps agree within the
+absolute tolerance plus its Greek's relative tolerance times the nominal
+estimate. The agreement applies to every factor of the report. A bump whose
+double step leaves a quote's domain fails the run in the shared scenario
+operation, and one that takes a price past what a valuation accepts fails it in
+that valuation. For a [tree-priced option](futures-options.md) two price steps
+reach a non-positive futures price only where volatility times the square root
+of the years to expiry, its width, exceeds 2.2; four steps do above 1.18. That
+failure names neither the factor nor the bump.
+
+The policies the page reads offer two price steps, one tick, 0.000001, 0.15 for
+deltas and 0.10 for gammas. The offer is shown and sent; it is never applied to
+a request that names none. Its reasons, for a tree-priced option:
+
+- **Two steps.** The half, nominal and double steps land on one, two and four
+  whole steps of the holding that declared the step. Four steps are the only
+  other count accepted: an odd count puts the half step between two bends.
+- **0.10 for gammas.** A factor has one bump. Another option on the same future
+  has another volatility and so another step, and under that step its half
+  step lands between its own bends. Of fourteen such options, under steps 1.2
+  and 1.5 times their own, fewer than ten have a gamma within 5% and thirteen
+  within 10%.
+- **0.15 for deltas.** One bump serves both Greeks. Across four price steps a
+  small delta changes by more than 5% of itself, so a 5% agreement withholds
+  it. The double step errs about three times as far as the nominal, so 15%
+  keeps a used delta within about 5%.
+
+What the calculation checks measure for a tree-priced option under the offer.
+No bound is claimed for every option.
+
+- **Listed options.** On the oracle's options and five more at the money, each
+  bumped by two of its own price steps, a gamma's estimates agree up to a width
+  of 1.5 and not from 2, and a used gamma is within 7% of its reference:
+  Black-76 at a unit discount, and an independent 2,000-step tree under
+  discounting. At the money it reads high by about 0.4 times the price step as
+  a share of the futures price, because the bumps are additive and the lattice
+  is geometric. A used delta is within 5% of Black-76, low-delta options
+  included.
+- **Seeded sample.** Of 48 undiscounted options drawn from a fixed sequence,
+  one week to eighteen months from expiry and within two standard deviations of
+  the money, every gamma and every delta is used, the worst 3.0% and 3.5% from
+  Black-76.
+- **Largest errors found.** For an option with time value a used gamma was
+  found up to about 8% from its reference: 7.8% high for a put 1.6 standard
+  deviations out of the money at a width of 0.9, 8.2% low for a call beside its
+  early-exercise boundary, and 8.1% high for a put 2.2 deviations out under
+  another option's step 1.1 times its own. A used delta was found up to 5.6%
+  high, for a five-delta call under a step 1.75 times its own.
+- **Other holdings.** A holding's estimates depend on the other holdings in
+  scope that price its factor, since the largest declared step sets its bump.
+  Reports over parts of a scope need not add up to the report over the whole.
+  Under another option's larger step an option exactly on a bend can lose its
+  gamma and a low-delta option its delta: the checks pin one option on a bend
+  under a step 1.5 times its own, and two low-delta options under a step twice
+  their own.
+- **Exercise.** Deep inside its exercise region an option's estimates are
+  exactly zero and agree. Nearer the boundary they reach across it and mostly
+  do not agree, and the option has no gamma. Close inside the boundary
+  they can agree again, because every down leg lies outside it: the option is
+  worth its intrinsic value, which has no curvature at that price, and is
+  still given a gamma. The checks pin one such call.
+
 The [valuation context and scenario layers](valuation-context-layers.md)
 contract supplies the shared mechanism for time, discount and volatility inputs.
 Both one-calendar-day model decay and opening-to-closing time roll are required,
@@ -107,7 +190,8 @@ decimal or a fraction where no decimal is exact, with its currency reference.
 The page sends the amounts it shows to the shared amount display and keeps the
 exact value beside each; the evidence a report carries is not sent for display.
 `factors` lists every opening price factor with its name, exact opening and
-closing prices and their change. A factor with no exact closing price has
+closing prices and their change, its bump and the largest price step its
+holdings declare, if any. A factor with no exact closing price has
 neither a closing price nor a change, and says why. Factors read one curve
 after the other, each by delivery period. Each currency total carries its
 reconciled values, its bridge, what each factor's delta and gamma explain by
@@ -123,7 +207,13 @@ closes the header lists, named as the header names them. Until the person
 chooses, they show the header's close and what came before it: the close before
 it of its own close convention, where it has one and such a close exists, and
 otherwise the frame before it of any kind. Both are visible and can be changed
-before Run, and the request names both closes explicitly. When the header names
+before Run, and the request names both closes explicitly. A closed Advanced
+settings section holds the price bump: price steps or ticks alone, their counts
+and the three agreement tolerances, shown as the backend offers them, bounded as
+it states and sent as selected. Its title line states the selection while it is
+closed. Changing a setting clears the result, a selection is dropped when
+another person takes over, and a run pressed before the offer could be shown
+shows it and stops. When the header names
 no close, what the page offered is withdrawn; closes the person chose stay. The
 knowledge cutoff reads as local time: untouched, it is the exact instant of the
 Risk scope; edited, the backend resolves it. Whenever the Risk scope is read
@@ -182,21 +272,30 @@ Report format `trading_pnl_report_v2` carries the bridge and Greek coverage with
 each currency total. The disposable check passes one saved report over three
 option trades on futures of two curves, with no cross-factor repricing, and the
 refusal, with its count, of a run over futures on two delivery months of each
-listed family. Central gamma at the one-tick bump has converged for no
-tree-priced option run so far: the report shows that effect without an amount
-and leaves it in the residual. A bump policy that makes their curvature
-explainable is undecided. A factor without a closing price is covered by the
-calculation checks alone; the synthetic datasets have no such close.
+listed family. Under the offered bump every option's delta and gamma in that
+report is available, and each gamma is within 2% of the Black-76 gamma at its
+held volatility. Under a selection of four price steps and a 2% gamma agreement
+the same three options have no gamma amount: each double step, eight price
+steps out, reads about 4% below its nominal. The check also passes the refusal
+of a missing, incomplete or out-of-bounds selection, of the retired one-tick
+policy and of a tick bump smaller than two declared price steps. The
+calculation checks pin what the [price bump](#price-bump) section states for
+tree-priced options: the listed options at two of their own price steps, the
+seeded sample, the largest errors found, the effect of another option's step
+and a call close inside its exercise boundary.
+A factor without a closing price is covered by the calculation checks alone;
+the synthetic datasets have no such close.
 
 A run is one request and is bound by the process request limit. It values each
 held option nine times: once at each close, under six price samples and under
-one clock sample. On 2026-11-13 a report over ten options held on ten
-underlying futures, 62 opening scenarios and 90 unit valuations besides the
-closing values, took about nine seconds on an Apple-silicon development machine.
-On the hosted CI runner it did not finish within the 15-second request limit and
-was cancelled, so the check holds three options, a run of about four seconds
-on the development machine. Memory was not measured. Wider option scopes need a
-faster valuation or a run outside the request limit; both are later work.
+one clock sample. A selected bump moves the six price samples and adds none. On
+2026-11-13 a report over ten options held on ten underlying futures, 62 opening
+scenarios and 90 unit valuations besides the closing values, took about nine
+seconds on an Apple-silicon development machine. On the hosted CI runner it did
+not finish within the 15-second request limit and was cancelled, so the check
+holds three options, a run of about four seconds on the development machine.
+Memory was not measured. Wider option scopes need a faster valuation or a run
+outside the request limit; both are later work.
 
 Recorded currency payments have an independent complete known ledger, including
 facts whose owner is not held at an endpoint. Complete accounting capability is
