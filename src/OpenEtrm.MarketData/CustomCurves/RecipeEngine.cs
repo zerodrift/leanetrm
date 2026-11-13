@@ -156,7 +156,7 @@ public static partial class RecipeEngine
     private static string Required(RecipeNode node,string key)=>node.Parameters.TryGetValue(key,out var value)&&!string.IsNullOrWhiteSpace(value)?value:throw Invalid($"Node {node.Id} requires {key}.");
     private static int Number(RecipeNode node,string key,int min,int max)=>int.TryParse(Required(node,key),NumberStyles.None,CultureInfo.InvariantCulture,out var value)&&value>=min&&value<=max?value:throw Invalid($"Node {node.Id} requires {key} between {min} and {max}.");
     private static bool Identity(string? value)=>value is {Length:>0 and <=32}&&value[0] is >= 'a' and <= 'z'&&value.All(c=>c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_');
-    internal sealed record SampleKey(CurveKey Source,DateOnly Date,ContractKey Contract);
+    internal sealed record SampleKey(CurveKey Source,DateOnly Date,ContractKey Contract,bool FreezeObservation=false);
     internal sealed record CellFormula(string Node,int Index,SampleKey? Sample,ImmutableArray<CellFormula> Inputs,ImmutableArray<ExactDecimal> Weights,string Aggregation,CurvePointKey? PublishedPoint=null);
     internal sealed record Cell(int Position,ImmutableArray<DateOnly> Dates,DateOnly ObservationDate,PriceUnit Unit,ImmutableArray<SampleKey> Inputs,CellFormula Formula,
         DateOnly DeliveryFrom,DateOnly DeliveryTo);
@@ -172,12 +172,12 @@ public static partial class RecipeEngine
             inputs.Windows is null||!definition.Nodes.Where(n=>n.Kind==ContractObservations).Select(n=>n.Id).ToHashSet().SetEquals(inputs.Windows.Keys))
             throw Missing("Supply exact source/date/observation-window bindings and a coherent UTC valuation context.");
         var nodes=definition.Nodes.ToDictionary(n=>n.Id);var cache=new Dictionary<string,object>();
-        var available=samples.ToDictionary(s=>new SampleKey(s.Source,s.Date,s.Contract));var work=0;
+        var available=samples.ToDictionary(s=>new SampleKey(s.Source,s.Date,s.Contract,s.FreezeObservation));var work=0;
         foreach(var node in definition.Nodes.Where(n=>n.Kind=="source"))ValidateSource(node,inputs.Sources[node.Id]);
-        Cell Leaf(string node,int index,string sourceNode,DateOnly date,RecipeContract contract,int position,DateOnly displayDate,DateTimeOffset at)
+        Cell Leaf(string node,int index,string sourceNode,DateOnly date,RecipeContract contract,int position,DateOnly displayDate,DateTimeOffset at,bool freezeObservation=false)
         {
             cancellation.ThrowIfCancellationRequested();if(++work>50000)throw Missing("The recipe exceeds its 50,000-sample preparation limit.");
-            var source=inputs.Sources[sourceNode];var key=new SampleKey(source.Key,date,contract.Contract.Key);
+            var source=inputs.Sources[sourceNode];var key=new SampleKey(source.Key,date,contract.Contract.Key,freezeObservation);
             if(demand is null&&(!available.TryGetValue(key,out var sample)||sample.Snapshot.ValuationAt!=at||contract.EligibleFrom>at||contract.Contract.Expiry<=at&&sample.PriceTerms is null))
                 throw Missing("A required exact live contract sample is absent or ineligible at its sampling instant.");
             return new(position,[displayDate],date,source.Unit,[key],new(node,index,key,[],[],SignedSum),contract.Contract.DeliveryFrom,contract.Contract.DeliveryTo);

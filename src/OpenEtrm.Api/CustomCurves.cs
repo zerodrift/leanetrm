@@ -395,17 +395,19 @@ public static partial class CustomCurves
                     selectedContracts.UnionWith(selected.Select(c=>c.Contract.Key));
                 }
             }
-            foreach(var (_,observationDate,contract) in observed.Samples.Where(s=>s.Source==sourceNode.Id&&(admitted is null||admitted.Contains(new(source.Key,s.Date,s.Contract)))))
+            // The context day's observations are frozen samples read from the same context frame as the live ones.
+            var frozenContracts=new HashSet<ContractKey>();
+            foreach(var (_,observationDate,contract,freezeObservation) in observed.Samples.Where(s=>s.Source==sourceNode.Id&&(admitted is null||admitted.Contains(new(source.Key,s.Date,s.Contract,s.FreezeObservation)))))
             {
                 if(!required.TryGetValue(observationDate,out var selectedContracts))required.Add(observationDate,selectedContracts=[]);
-                selectedContracts.Add(contract);
+                if(freezeObservation)frozenContracts.Add(contract);else selectedContracts.Add(contract);
             }
-            if(required.Values.Sum(s=>s.Count)>16384)throw Invalid("The preview exceeds its explicit 16,384 contract-sample bound.");
+            if(required.Values.Sum(s=>s.Count)+frozenContracts.Count>16384)throw Invalid("The preview exceeds its explicit 16,384 contract-sample bound.");
             foreach(var (sampleDay,requiredContracts) in required.OrderBy(p=>p.Key))
             {
                 ct.ThrowIfCancellationRequested();
                 var sampleFrame=frames[sampleDay];
-                var selected=requiredContracts.Select(target=>new{Target=target,Source=sourceNode.ContractTerms?.SourceFor(target)??target}).ToArray();
+                var selected=(sampleDay==day?requiredContracts.Union(frozenContracts):requiredContracts).Select(target=>new{Target=target,Source=sourceNode.ContractTerms?.SourceFor(target)??target}).ToArray();
                 var requests=selected.Select(p=>new CurveRequest(new(data.DefinitionRevision,reference.Code),p.Source)).Distinct().ToImmutableArray();
                 var terms=new Dictionary<CurveRequest,ContractPriceTermsBinding>();
                 if(sourceNode.ContractTerms is {} set)
@@ -425,7 +427,9 @@ public static partial class CustomCurves
                 foreach(var pair in selected)
                 {
                     var key=new CurveKey(data.DefinitionRevision,reference.Code);var request=new CurveRequest(key,pair.Source);
-                    connected.Add(new(key,sampleDay,pair.Target,data.Model,snapshot,sampleDay!=day){PriceTerms=terms.GetValueOrDefault(request),MappedContract=sourceNode.ContractTerms is null?null:pair.Source});
+                    var sample=new ConnectedRecipeSample(key,sampleDay,pair.Target,data.Model,snapshot,sampleDay!=day){PriceTerms=terms.GetValueOrDefault(request),MappedContract=sourceNode.ContractTerms is null?null:pair.Source};
+                    if(requiredContracts.Contains(pair.Target))connected.Add(sample);
+                    if(sampleDay==day&&frozenContracts.Contains(pair.Target))connected.Add(sample with{FreezeObservation=true});
                 }
             }
         }

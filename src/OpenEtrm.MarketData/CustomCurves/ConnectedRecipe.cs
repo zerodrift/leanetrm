@@ -12,7 +12,11 @@ namespace OpenEtrm.MarketData.CustomCurves;
 
 public sealed record ConnectedRecipeIdentity(Guid CatalogId,Guid CurveId,int Version,string EngineVersion);
 public sealed record ConnectedRecipeSample(CurveKey Source,DateOnly Date,ContractKey Contract,CurveModel Model,MarketSnapshot Snapshot,bool FreezeHistorical)
-{ public ContractPriceTermsBinding? PriceTerms{get;init;} public ContractKey? MappedContract{get;init;} }
+{
+    public ContractPriceTermsBinding? PriceTerms{get;init;} public ContractKey? MappedContract{get;init;}
+    // A contract observation frozen at the valuation instant from the context frame: its own sample beside the live one.
+    public bool FreezeObservation{get;init;}
+}
 public sealed record ConnectedRecipeOutput(CurvePointKey Point,int Position,ImmutableArray<DateOnly> Dates,
     ImmutableArray<ContractKey> Contracts,int SampleCount);
 public sealed record ConnectedRecipeSourceReference(string Node,CurveKey Curve);
@@ -223,7 +227,7 @@ public static partial class RecipeEngine
             demand.SamplingInstants is null||demand.SamplingInstants.Any(s=>s.Value.Offset!=TimeSpan.Zero||DateOnly.FromDateTime(s.Value.UtcDateTime)!=s.Key)))
             throw Missing("Output demand requires an explicit delivery set and coherent UTC sampling instants; an empty set requests metadata only.");
         publishedSources??=ImmutableDictionary<string,ConnectedRecipeGraph>.Empty;
-        if(samples.Any(s=>s is null)||samples.Select(s=>(s.Source,s.Date,s.Contract)).Distinct().Count()!=samples.Length)
+        if(samples.Any(s=>s is null)||samples.Select(s=>(s.Source,s.Date,s.Contract,s.FreezeObservation)).Distinct().Count()!=samples.Length)
             throw Missing("Each directly declared source sample must be supplied once.");
         if(!definition.Nodes.Where(n=>n.Kind=="published_source").Select(n=>n.Id).ToHashSet().SetEquals(publishedSources.Keys)||
             publishedSources.Any(p=>p.Value is null||p.Value.Context!=context||p.Value.PreparedPanel is null||
@@ -256,11 +260,13 @@ public static partial class RecipeEngine
                 sample.Snapshot.Definitions!=sample.Source.Revision||sample.Date!=DateOnly.FromDateTime(sample.Snapshot.ValuationAt.UtcDateTime)||
                 sample.FreezeHistorical!=(sample.Snapshot.ValuationAt<inputs.ValuationAt))
                 throw Missing("Each exact source/date/contract requires one coherent snapshot and historical-use policy.");
-            var key=new SampleKey(sample.Source,sample.Date,sample.Contract);
+            var key=new SampleKey(sample.Source,sample.Date,sample.Contract,sample.FreezeObservation);
             var declared=definition.Nodes.Where(n=>n.Kind=="source"&&inputs.Sources[n.Id].Key==sample.Source).Select(n=>n.ContractTerms?.For(sample.Contract)).ToArray();
             var mapped=definition.Nodes.Where(n=>n.Kind=="source"&&inputs.Sources[n.Id].Key==sample.Source).Select(n=>n.ContractTerms?.SourceFor(sample.Contract)).ToArray();
             if(declared.Length==0||declared.Any(t=>t!=declared[0])||declared[0]!=sample.PriceTerms?.Terms||mapped.Any(m=>m!=mapped[0])||mapped[0]!=sample.MappedContract)
                 throw Missing("A source sample must retain its exact declared contract terms; conflicting aliases require separate source identities.");
+            if(sample.FreezeObservation&&(sample.FreezeHistorical||sample.Snapshot.ValuationAt!=inputs.ValuationAt||sample.PriceTerms is not null||sample.MappedContract is not null))
+                throw Missing("A frozen context observation is read from the context frame of a source without contract price terms.");
             retained.Add(key,sample);
         }
         if(samples.Any(s=>!inputs.Sources.Values.Any(v=>v.Key==s.Source)))throw Missing("A sample belongs to an undeclared source.");
@@ -285,15 +291,20 @@ public static partial class RecipeEngine
                 throw Missing("Every consumed forecast requires its exact live eligible sample; actuals cannot supply forecasts.");
         }
         var exports=new List<ConnectedCurveExport>();var samplePoints=new Dictionary<SampleKey,CurvePointKey>();
-        foreach(var group in local.Select(k=>(Key:k,Binding:retained[k])).GroupBy(s=>(s.Binding.Model,s.Binding.Snapshot,s.Binding.FreezeHistorical)))
+        foreach(var group in local.Select(k=>(Key:k,Binding:retained[k])).GroupBy(s=>(s.Binding.Model,s.Binding.Snapshot,s.Binding.FreezeHistorical,s.Binding.FreezeObservation)))
         {
             cancellation.ThrowIfCancellationRequested();
             var requests=group.Select(s=>new CurveRequest(s.Key.Source,s.Binding.MappedContract??s.Key.Contract)).Distinct().ToImmutableArray();
             var termGroups=group.Where(s=>s.Binding.PriceTerms is not null).GroupBy(s=>new CurveRequest(s.Key.Source,s.Binding.MappedContract??s.Key.Contract));
             if(termGroups.Any(g=>g.Select(s=>ConnectedIdentity.Digest(s.Binding.PriceTerms!)).Distinct().Count()!=1))throw Missing("One exact source contract cannot carry conflicting settlement terms in a calculation.");
             var terms=termGroups.ToDictionary(g=>g.Key,g=>g.First().Binding.PriceTerms!);
-            var export=terms.Count==0?group.Key.Model.Compile(group.Key.Snapshot,requests,group.Key.FreezeHistorical,context,cancellation):
-                group.Key.Model.CompileContractTerms(group.Key.Snapshot,requests,terms,group.Key.FreezeHistorical,context,cancellation);exports.Add(export);
+            ConnectedCurveExport export;
+            // A frozen observation is the context frame's own economic observation at the valuation instant; an absent or earlier mark refuses.
+            try{export=terms.Count==0?group.Key.Model.Compile(group.Key.Snapshot,requests,group.Key.FreezeHistorical,context,cancellation,group.Key.FreezeObservation):
+                group.Key.Model.CompileContractTerms(group.Key.Snapshot,requests,terms,group.Key.FreezeHistorical,context,cancellation);}
+            catch(MarketDataException error)when(group.Key.FreezeObservation&&error.Code is "missing_observation" or "connected_curve_source")
+            {throw Missing("The context frame has no observation at the valuation instant of a contract frozen on the context day.");}
+            exports.Add(export);
             var exportedPoints=export.Definitions.SelectMany(d=>d.Points).ToDictionary(p=>p.Key);
             foreach(var item in group)
             {

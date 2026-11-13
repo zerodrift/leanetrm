@@ -67,8 +67,10 @@ public static partial class RecipeEngine
     }
     // One cell per target month: the sum of its groups, each the weighted mean of its terms' values, each value an equally
     // weighted mean of one leaf per observation day, less the mean of its spread position. A day before the context date
-    // reads its retained sample; the context date and later days read today's live sample of the contract selected for that day.
-    private static Panel ObservationPanel(RecipeNode node,RecipeInputs inputs,Func<string,int,string,DateOnly,RecipeContract,int,DateOnly,DateTimeOffset,Cell> leaf,
+    // reads its retained sample; the context date reads the context frame's observation frozen at the valuation instant, as the
+    // swap observation path freezes an observation at that instant; only a later day reads today's live sample of the contract
+    // selected for that day. The frozen and live samples of one contract are separate leaves.
+    private static Panel ObservationPanel(RecipeNode node,RecipeInputs inputs,Func<string,int,string,DateOnly,RecipeContract,int,DateOnly,DateTimeOffset,bool,Cell> leaf,
         Func<CurveKey,DateOnly,DateTimeOffset> sampledAt)
     {
         var (targets,_,terms)=ObservationSettings(node);var windows=inputs.Windows[node.Id];
@@ -91,8 +93,8 @@ public static partial class RecipeEngine
                 {
                     var instant=Instant(day,time);var contract=ObservedContract(source.Contracts,day,time,stated);
                     if(day<inputs.ContextDate&&sampledAt(source.Key,day)!=instant)throw Missing($"Observation day {day:yyyy-MM-dd} must be sampled at the context time of day.");
-                    var cell=day<inputs.ContextDate?leaf(node.Id,index++,sourceNode,day,contract,position,day,instant):
-                        leaf(node.Id,index++,sourceNode,inputs.ContextDate,contract,position,day,inputs.ValuationAt);
+                    var cell=day<inputs.ContextDate?leaf(node.Id,index++,sourceNode,day,contract,position,day,instant,false):
+                        leaf(node.Id,index++,sourceNode,inputs.ContextDate,contract,position,day,inputs.ValuationAt,day==inputs.ContextDate);
                     leaves.Add(cell);return cell.Formula;
                 }).ToImmutableArray();
                 return new(node.Id,index++,null,parts,[..parts.Select(_=>one)],WeightedMean);

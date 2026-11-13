@@ -8,10 +8,11 @@ namespace OpenEtrm.Api;
 public static partial class CustomCurves
 {
     // The resolved windows of every contract observation node and the source samples they read. A day before the context
-    // date reads the historical sample of each contract a term selects that day; the context date and later days read the
-    // live context sample of the contract selected for that day.
+    // date reads the historical sample of each contract a term selects that day; the context date reads the context frame's
+    // observation of the contract selected for it, frozen at the valuation instant; later days read the live context sample
+    // of the contract selected for that day.
     internal sealed record ObservationPlan(ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>> Windows,
-        ImmutableArray<(string Source,DateOnly Date,ContractKey Contract)> Samples);
+        ImmutableArray<(string Source,DateOnly Date,ContractKey Contract,bool FreezeObservation)> Samples);
 
     // Windows resolve from each source's retained contract universe at the context's UTC time of day and, for business days,
     // from the node's exact pinned calendar.
@@ -29,15 +30,16 @@ public static partial class CustomCurves
     {
         var context=DateOnly.FromDateTime(at.UtcDateTime);var time=TimeOnly.FromDateTime(at.UtcDateTime);
         var windows=ImmutableDictionary.CreateBuilder<string,ImmutableArray<RecipeObservationWindow>>();
-        var samples=new HashSet<(string,DateOnly,ContractKey)>();
+        var samples=new HashSet<(string,DateOnly,ContractKey,bool)>();
         foreach(var (node,source,businessDays) in nodes)
         {
             var sourceNode=node.Inputs["source"];
             var resolved=RecipeEngine.ObservationWindows(node,source,businessDays,time);
             windows.Add(node.Id,resolved);
-            samples.UnionWith(RecipeEngine.ObservationContracts(node,source,resolved,time).Select(o=>(sourceNode,o.Day<context?o.Day:context,o.Contract.Contract.Key)));
+            samples.UnionWith(RecipeEngine.ObservationContracts(node,source,resolved,time).Select(o=>(sourceNode,o.Day<context?o.Day:context,o.Contract.Contract.Key,o.Day==context)));
         }
         // One historical frame is read per past observation day; as for date sequences, a preparation reads at most 366 of them.
+        // The context day's frozen observation and later days read the context frame and are not counted.
         if(samples.Where(s=>s.Item2<context).Select(s=>s.Item2).Distinct().Count()>366)
             throw Invalid("A preview can read at most 366 past observation days across its contract observation operations.");
         return new(windows.ToImmutable(),[..samples]);

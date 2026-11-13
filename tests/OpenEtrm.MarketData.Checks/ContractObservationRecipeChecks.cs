@@ -152,7 +152,9 @@ internal static class ContractObservationRecipeChecks
                     var snapshot=new MarketSnapshot(Guid.NewGuid(),revision,observed,observed,InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,
                         [..g.Rows.Select(r=>new SelectedObservation(new(series[contracts[r.Contract].Contract.Key],InputUse.Variable),new(new(revision.CatalogId,Guid.NewGuid()),
                             series[contracts[r.Contract].Contract.Key],R("source"),ObservationRole.DailySettlement,PublicationState.Final,observed,ExactDecimal.Parse(r.Value))))]);
-                    return g.Rows.Select(r=>new ConnectedRecipeSample(CurveOf(r.Contract),g.Date,contracts[r.Contract].Contract.Key,model,snapshot,observed<at));
+                    // The context frame supplies each contract twice: live for later days and frozen for the context day's own observation.
+                    return g.Rows.SelectMany(r=>new ConnectedRecipeSample(CurveOf(r.Contract),g.Date,contracts[r.Contract].Contract.Key,model,snapshot,observed<at) is var sample&&observed<at?
+                        [sample]:new[]{sample,sample with{FreezeObservation=true}});
                 }).ToImmutableArray();
             var inputs=new RecipeInputs(day,at,ImmutableDictionary<string,RecipeSource>.Empty.Add("source",source),ImmutableDictionary<string,ImmutableArray<DateOnly>>.Empty)
                 {Windows=ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>.Empty.Add("crude",RecipeEngine.ObservationWindows(stated,source,
@@ -190,9 +192,42 @@ internal static class ContractObservationRecipeChecks
         var settledRoll=Priced("2026-12-22","12:00:00",december,marks.Skip(1));
         Price("settled roll",Base(settledRoll),"1749","25");Equal("F is settled",Variable(settledRoll,"F"),false);
         Price("settled roll G+1",Shifted(settledRoll,"G"),"1764","25");Price("settled roll H+1",Shifted(settledRoll,"H"),"1759","25");
-        // Inside January: two settled days, the context day and two later days at today's prices.
+        // Inside January: two settled days, the context day frozen at its own close and two later days at today's prices.
+        // (69.60+69.50+69.40+68.80+68.80)/5+0.80: G's only observation from here on is today's, so G no longer moves the price.
         var during=Priced("2027-01-20","12:00:00",[..december,..january.Take(2)],marks.Skip(1));
-        Price("during",Base(during),"3501","50");Price("during G+1",Shifted(during,"G"),"3511","50");
+        Price("during",Base(during),"3501","50");Equal("during G is frozen",Variable(during,"G"),false);
+        Price("during H+1",Shifted(during,"H"),"3521","50");
+        // The day before: 2027-01-19 is frozen and 2027-01-20 projects the same contract, so one calculation holds a frozen and a
+        // live observation of G at the context instant. (69.60+69.50+69.50+68.80+68.80)/5+0.80; G+1 moves one day in five.
+        var dayBefore=Priced("2027-01-19","12:00:00",[..december,..january.Take(1)],[("G","69.50"),("H","68.80")]);
+        Price("day before",Base(dayBefore),"1751","25");Price("day before G+1",Shifted(dayBefore,"G"),"1756","25");
+        Price("day before H+1",Shifted(dayBefore,"H"),"1761","25");
+        // Inside the trade month: 12-15 and 12-16 settled, 12-17 frozen at its close, 12-18 and January projected.
+        // January (3*69.40+2*68.80)/5=69.16; F, G and H average 70.025, 69.45 and 68.825; roll (2*0.575+1.20)/3; total 20983/300.
+        // F+1 moves 12-18 only: (2+1)/4/3=1/4. G+1: 3/5 in January less 2/4/3 in the roll, 13/30. H+1: 2/5 less 1/4/3, 19/60.
+        var tradeMonth=Priced("2026-12-17","12:00:00",december.Take(6),[("F","69.90"),("G","69.40"),("H","68.80")]);
+        Price("trade month",Base(tradeMonth),"20983","300");Price("trade month F+1",Shifted(tradeMonth,"F"),"10529","150");
+        Price("trade month G+1",Shifted(tradeMonth,"G"),"21113","300");Price("trade month H+1",Shifted(tradeMonth,"H"),"3513","50");
+        // The context day is frozen only from the context frame's own observation at the valuation instant: an absent or earlier
+        // mark of the selected contract refuses, and is never carried into the average.
+        ImmutableArray<ConnectedRecipeSample> ContextG(ImmutableArray<ConnectedRecipeSample> samples,Func<MarketSnapshot,MarketSnapshot> change)
+        {
+            var context=new DateOnly(2027,1,20);var changed=change(samples.First(s=>s.Date==context).Snapshot);
+            return[..samples.Select(s=>s.Date==context?s with{Snapshot=changed}:s)];
+        }
+        var gSeries=series[contracts["G"].Contract.Key];
+        foreach(var (label,change) in new (string,Func<MarketSnapshot,MarketSnapshot>)[]{
+            ("a context frame without the context day's contract",s=>s with{Selections=[..s.Selections.Where(o=>o.Input.Series!=gSeries)]}),
+            ("a context day's contract marked before the valuation instant",s=>s with{Selections=[..s.Selections.Select(o=>o.Input.Series!=gSeries?o:
+                o with{Observation=o.Observation with{ObservedAt=o.Observation.ObservedAt.AddHours(-1)}})]})})
+        {
+            var stale=Prepared("2027-01-20","12:00:00",[..december,..january.Take(2)],marks.Skip(1),null,node,null,null);
+            Code(label,"recipe_input",()=>RecipeEngine.Connect(Definition(node),stale.Inputs,identity,ContextG(stale.Samples,change),stale.Resolved,references:stale.Pins));
+        }
+        // A frozen observation belongs to the context frame: a past day's frame cannot supply one.
+        var pastFrozen=Prepared("2027-01-20","12:00:00",[..december,..january.Take(2)],marks.Skip(1),null,node,null,null);
+        Message("a frozen observation from a past frame","recipe_input","A frozen context observation",()=>RecipeEngine.Connect(Definition(node),pastFrozen.Inputs,identity,
+            pastFrozen.Samples.Add(pastFrozen.Samples.Single(s=>s.Date==new DateOnly(2027,1,19)) with{FreezeObservation=true}),pastFrozen.Resolved,references:pastFrozen.Pins));
         // A consumer of the published curve plans it before reading prices: topology needs the sampling instant of every
         // observation day, past days included, not only of the context date.
         var planned=Prepared("2027-01-20","12:00:00",[..december,..january.Take(2)],marks.Skip(1),null,node,null,null);
@@ -203,10 +238,10 @@ internal static class ContractObservationRecipeChecks
         var topology=RecipeEngine.Topology(Definition(node),planned.Inputs,ImmutableDictionary<string,RecipeTopology>.Empty,instants);
         var january2027=new RecipeDelivery(new(2027,1,1),new(2027,2,1));
         Equal("planned cells",string.Join(",",topology.Outputs.Select(o=>$"{o.Position}:{o.DeliveryFrom:yyyy-MM-dd}..{o.DeliveryTo:yyyy-MM-dd}")),"1:2027-01-01..2027-02-01");
-        // Each past observation day's own sample of every contract its terms select, and the context date's live G and H.
-        Equal("planned native inputs",string.Join(",",topology.NativeInputs([january2027]).Select(d=>(d.Date,Name:contracts.Single(c=>c.Value.Contract.Key==d.Contract).Key))
+        // Each past observation day's own sample of every contract its terms select, the context day's frozen G and the context date's live H.
+        Equal("planned native inputs",string.Join(",",topology.NativeInputs([january2027]).Select(d=>(d.Date,Name:contracts.Single(c=>c.Value.Contract.Key==d.Contract).Key+(d.FreezeObservation?" frozen":"")))
             .OrderBy(d=>d.Date).ThenBy(d=>d.Name,StringComparer.Ordinal).Select(d=>d.Date.ToString("MM-dd",CultureInfo.InvariantCulture)+d.Name)),
-            "12-15F,12-15G,12-15H,12-16F,12-16G,12-16H,12-17F,12-17G,12-17H,12-18F,12-18G,12-18H,01-18G,01-19G,01-20G,01-20H");
+            "12-15F,12-15G,12-15H,12-16F,12-16G,12-16H,12-17F,12-17G,12-17H,12-18F,12-18G,12-18H,01-18G,01-19G,01-20G frozen,01-20H");
         Price("priced under the planned demand",Base(Priced("2027-01-20","12:00:00",[..december,..january.Take(2)],marks.Skip(1),
             demand:new([january2027],instants))),"3501","50");
         // After the pricing period nothing is variable.

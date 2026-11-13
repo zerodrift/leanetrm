@@ -89,10 +89,11 @@ def run_checks(url,query,manifest):
     settled=preview('2026-12-22')
     price(settled,'68.46')
     assert live(settled)=={CONTRACT[c] for c in 'GHD'},settled['dependencies']
-    # Inside January: two settled days, the context day and two later days at today's mark of H.
+    # Inside January: two settled days, the context day frozen at its own close, and two later days at today's mark of H.
+    # G's only remaining observation is today's, so G is no longer live.
     during=preview('2027-01-20')
     price(during,'68.52')
-    assert live(during)=={CONTRACT[c] for c in 'GHD'},during['dependencies']
+    assert live(during)=={CONTRACT[c] for c in 'HD'},during['dependencies']
     # After the pricing period the formula is fixed; only the differential remains live.
     after=preview('2027-01-25')
     price(after,'68.50')
@@ -104,6 +105,9 @@ def run_checks(url,query,manifest):
         {'id':'output','kind':'output','parameters':{},'inputs':{'values':'formula'}}]}
     for day,expected in (('2026-12-01','68.46'),('2026-12-22','68.46'),('2027-01-20','68.52'),('2027-01-25','68.50')):
         price(preview(day,consumer),expected)
+    # The consumer prepares the published curve under its demand with the same frozen context day.
+    consumed=preview('2027-01-20',consumer)
+    assert live(consumed)=={CONTRACT[c] for c in 'HD'},consumed['dependencies']
     # Calendar availability plans the consumer's published input at the sampling instant of every observation day, past
     # days included, so every close of the fixture prices both curves.
     closes={'2026-12-01','2026-12-22','2027-01-20','2027-01-25'}
