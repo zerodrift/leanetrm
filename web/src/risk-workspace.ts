@@ -17,7 +17,7 @@ type Trade={tradeId:string;bookId:string;tradeReference:string;product:string;av
 type TradePage={trades:Trade[];selectedTrades:Trade[];total:number;allAvailable:boolean;nextOffset:number|null;contextId:string;snapshotId:string;maxSelectedTrades:number};
 type Directory={kind:string;asOf:string;context:{contextId:string;knownAt:string};books:{id:string;name:string;portfolio_id:string;portfolio:string}[]};
 type Options={api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;
- identity:()=>string;canRun:()=>boolean;instant:(value:string)=>string;source:()=>Source;frames:()=>{id:string;name:string;at:string}[];changed:()=>void;view:(view:RiskView)=>void};
+ identity:()=>string;canRun:()=>boolean;instant:(value:string)=>string;source:()=>Source;frames:()=>{id:string;at:string;label:string;session:string|null}[];changed:()=>void;view:(view:RiskView)=>void};
 /** Risk owns its setup and report, while using the same editor, request contracts and result widget as the Blotter. */
 export function setupRiskWorkspace(o:Options){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -68,7 +68,9 @@ export function setupRiskWorkspace(o:Options){
   return {...scope,context:{snapshotId:selection.snapshotId,convention:'trading_workspace_v1',knowledgeMode:'retained',contextId:directory.context.contextId}};
  }
  const pnl=setupPnlView(get('risk-pnl-view'),{...o,scope:()=>{const selected=requestScope();return {bookIds:selected.bookIds,portfolioIds:selected.portfolioIds,tradeIds:selected.tradeIds};},
-  knownAt:()=>directory?.context.knownAt??''});
+  knownAt:()=>directory?.context.knownAt??'',
+  // The header's close, when it can be read: the P&L page starts its comparison from it.
+  selected:()=>{try{return o.source().snapshotId;}catch{return undefined;}}});
  engine=setupRisk({api:reportApi,act:o.act,busy:o.busy,zone:o.zone,profile:o.identity,canRun:o.canRun,prefix,onDenied:reset,onChange:changed,ranNow:()=>o.view('risk'),edited:o.changed,scope:requestScope});
  history=setupFactorHistory({api:o.api,act:o.act,busy:o.busy,identity:o.identity,scope:requestScope,instant:o.instant,unconfirmed:()=>!!engine?.unconfirmed()||unreadRecovery,async calculate(request,metadata,queued){
   if(unreadRecovery)throw Error('Inspect Reports and runs before resolving the unreadable retained submission.');
@@ -149,7 +151,8 @@ export function setupRiskWorkspace(o:Options){
  }
  async function load(selectedAddress?:string){
   if(owner!==o.identity())scope={bookIds:[],portfolioIds:[],tradeIds:null};
-  clear();owner=o.identity();const version=epoch;unreadRecovery=false;
+  // The scope is read again: a P&L result, and the cutoff it was read at, belong to the scope as it was.
+  clear();pnl.reset();owner=o.identity();const version=epoch;unreadRecovery=false;
   results.show(undefined);get('risk-workspace-note').textContent='Reading the selected scope and recent reports…';
   // A retained report does not depend on the current header being priceable.
   await jobs.load();if(version!==epoch)return;
@@ -167,12 +170,14 @@ export function setupRiskWorkspace(o:Options){
   if(version!==epoch)return;
   try{const kept=sessionStorage.getItem(storedKey());if(kept&&!engine!.unconfirmed())engine!.adopt(JSON.parse(kept));}catch(error){unreadRecovery=true;get('risk-workspace-note').textContent='A retained submission could not be read. Inspect Reports and runs before submitting another request.';throw error;}
   if(engine!.unconfirmed()){editor.open=true;engine!.mountInto(get('risk-workspace-editor-body'));await engine!.open();o.view('risk-scenarios');return;}
-  const address=selectedAddress??riskAddress(location.hash);if(address){await openJob(address);return;}
+  // Opening a retained report ends the load without entering the view; P&L explain still reads its closes for the header now shown.
+  const openRetained=async(open:()=>Promise<void>)=>{await open();if(version===epoch&&view==='risk-pnl')await pnl.load();};
+  const address=selectedAddress??riskAddress(location.hash);if(address){await openRetained(()=>openJob(address));return;}
   if(directory&&selection&&scopeValid()){
    for(const candidate of recentCompletedRuns(jobs.recent(),scope,directory.asOf)){
     const job=await o.api<RiskJob>('portfolio/risk/jobs/'+encodeURIComponent(candidate.id));if(version!==epoch)return;
     if(job.result?.snapshotId!==selection.snapshotId)continue;
-    await openJob(job.id,job,false);return;
+    await openRetained(()=>openJob(job.id,job,false));return;
    }
    get('risk-workspace-note').textContent='No completed recent report matches these books and this close. Run risk here, or open a retained report from Reports and runs.';
   }
@@ -194,7 +199,7 @@ export function setupRiskWorkspace(o:Options){
  function showView(next:RiskView){view=next;for(const part of host.querySelectorAll<HTMLElement>('[data-risk-view]'))part.classList.toggle('risk-view-off',part.dataset.riskView!==next);entering=true;if(!o.busy()&&directory)enterView();}
  get('risk-workspace-refresh').onclick=()=>void (async()=>{if(!o.busy()&&await leave())await o.act(load);})();
  get('risk-workspace-export').onclick=()=>void o.act(()=>engine!.download());
- return {load,reset,leave,openJob,refresh:()=>{if(!host.hidden)results.refresh();engine!.refresh();},
+ return {load,reset,leave,openJob,refresh:()=>{if(!host.hidden)results.refresh();engine!.refresh();void pnl.refresh();},
   showView,sync(){pnl.sync(scopeValid());history?.sync(scopeValid()&&o.canRun());engine!.sync();get<HTMLButtonElement>('risk-jobs-new').disabled=o.busy()||!o.canRun()||!scopeValid()||unreadRecovery;if(entering&&!o.busy()&&directory)enterView();
    for(const id of ['risk-workspace-portfolios','risk-workspace-books','risk-workspace-trade-mode','risk-workspace-trades'])get<HTMLSelectElement>(id).disabled=o.busy()||!directory;
    get<HTMLButtonElement>('risk-workspace-trades-more').disabled=o.busy()||!tradesReady;scopePicker.sync();},

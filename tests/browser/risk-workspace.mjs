@@ -28,6 +28,16 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  if(otherClose){const here=await evaluate("document.querySelector('#snapshot').value");await set('#snapshot',otherClose);await wait(idle);
   await check('changing the close on Scenarios & Greeks with no matching report leaves its form open',`document.querySelector('#page-title').textContent==='Scenarios & Greeks'&&document.querySelector('#risk-workspace-editor').open&&!${off('#risk-workspace-editor')}`);
   await set('#snapshot',here);await wait(idle);}
+ // P&L explain reads its closes with the header, not with the market catalog, which Risk does not load.
+ await click('#nav-risk-pnl');await wait(idle);
+ const closes="[...document.querySelectorAll('#risk-pnl-view .pnl-close select')]";
+ const pnlCloses=`({header:document.querySelector('#snapshot').value,picked:${closes}.map(s=>s.value),offered:${closes}.map(s=>s.options.length),note:document.querySelector('#risk-pnl-view [role=status]').textContent})`;
+ const offersHeader=`(()=>{const [opening,closing]=${closes},listed=[...document.querySelector('#snapshot').options].map(o=>o.value).filter(Boolean);`+
+  `return closing.value===document.querySelector('#snapshot').value&&listed.every(id=>[...closing.options].some(o=>o.value===id))&&(opening.value!==''||[...closing.options].filter(o=>o.value)[0].value===closing.value);})()`;
+ await check('P&L explain lists the closes the header lists and offers the header close with the frame before it',offersHeader,pnlCloses);
+ if(otherClose){const here=await evaluate("document.querySelector('#snapshot').value");await set('#snapshot',otherClose);await wait(idle);
+  await check('P&L explain follows a header close changed while it is open',offersHeader,pnlCloses);
+  await set('#snapshot',here);await wait(idle);}
  await click('#nav-risk');await wait(idle);
  await check('Risk opens on report availability and owns Run risk, with run history in its own view',
   "document.querySelector('#risk-workspace-results').textContent.includes('No report selected')&&document.querySelectorAll('#risk-workspace-results .empty-state button').length===2&&document.querySelector('#risk-workspace-note').textContent.includes('No completed recent report')&&!document.querySelector('#risk-jobs-new').disabled&&document.querySelector('.risk-report-library').classList.contains('risk-view-off')&&!document.querySelector('#snapshot').closest('.date-control').hidden",
@@ -105,6 +115,13 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  await check('discarding setup edits permits account change and clears previous report content',"document.querySelector('#risk-workspace-results').textContent===''&&document.querySelector('#nav-risk').hidden");
  await persona('risk');await set('#snapshot',frame);await wait(idle);await click('#nav-risk');await wait(idle);
  await check('Risk automatically opens the recent completed report matching the selected scope and exact close',"!!document.querySelector('#risk-workspace-results canvas')&&location.hash.startsWith('#risk/job/')&&document.querySelector('#risk-workspace-context-note').textContent.startsWith('Retained report:')");
+ // A header close changed on P&L explain can open a retained report, which ends the reload early: the pickers still follow the header.
+ if(otherClose){
+  await evaluate("history.replaceState(null,'',location.pathname+location.search);true");await set('#snapshot',otherClose);await wait(idle);
+  await click('#nav-risk-pnl');await wait(idle);await set('#snapshot',frame);await wait(idle);
+  await check('P&L explain follows the header close when the reload opens a retained report',`location.hash.startsWith('#risk/job/')&&${offersHeader}`,pnlCloses);
+  await click('#nav-risk');await wait(idle);
+ }
  const book=await evaluate("document.querySelector('#risk-workspace-books option').value");await set('#risk-workspace-books',book);await wait(idle);
  await click('#nav-risk-scenarios');await wait(idle);
  await click('#workspace-risk-form input[value=custom]');await set('#workspace-risk-factor',await evaluate(`${catalog}.scenarioTargets.find(t=>t.kind==='contract').id`));await set('#workspace-risk-bump','0.05');await click('#workspace-risk-run');await wait(idle);

@@ -32,7 +32,7 @@ internal static class PnlPersistenceChecks
             // An authenticated result with a new identity has never been saved.
             var unsavedReport=System.Text.Json.Nodes.JsonNode.Parse(expected.GetRawText())!;
             unsavedReport["id"]=Guid.NewGuid();
-            var unavailable=store.Seal(owner,new(JsonSerializer.SerializeToElement(unsavedReport),[]),DateTimeOffset.UtcNow);
+            var unavailable=store.Seal(owner,new(JsonSerializer.SerializeToElement(unsavedReport),[]),DateTimeOffset.UtcNow).Artifact!;
             await using(var otherDatabase=new PreviewDatabase(root))
             using(var otherCatalogue=new PnlReportArtifacts(otherDatabase,provider.CreateProtector(ApplicationDataProtection.PnlPurpose)))
             {

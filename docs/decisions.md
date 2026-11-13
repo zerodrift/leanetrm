@@ -4441,3 +4441,87 @@ expects each to answer 404 without reaching the application, and expects the
 homepage policy to carry no `media-src`. It no longer probes byte ranges, which only a
 film player needed; D382's range qualification lapses with the films folder. Activation remains the separately
 reviewed gateway operation of D163.
+
+## D389 · A P&L report covers what holdings price, shows missing Greeks as missing and is returned even when it cannot be saved
+
+2026-11-13. Refines the report of D386 and D387. Accounting, valuation,
+numerical policy and authority are unchanged, and every scope that ran before
+returns the same explained and residual amounts.
+
+- **Cross terms by dependency.** Mixed gamma is requested for each pair of price
+  factors that one holding's valuation declares together. A pair with no such
+  holding has an exactly zero mixed difference and is not repriced. The former
+  request for every pair refused any market partition of more than six factors.
+  A report still covers at most 16 factors, and 16 jointly priced pairs in one
+  market partition.
+- **A holding's own inputs.** A holding lists Greek estimates only for the price
+  inputs its valuation declares. Evidence in which its value moves with any other
+  input is refused.
+- **Missing is not zero.** An estimate is unavailable when its central
+  differences do not converge or when one of its factors has no exact closing
+  price; that factor keeps its opening estimates and has no movement. A Greek
+  effect none of whose estimates is available has no amount in a currency's
+  bridge and moves nothing there. A partly available effect keeps its amount with
+  the count of unavailable estimates. Both remain in the residual.
+- **Returned, then optionally saved.** Run returns its completed result even when
+  that result exceeds the capture bound or the unsaved-result memo cannot admit
+  it. The response then carries no save handle and states the reason. The
+  returned result is bounded by the valuation admission limits alone.
+- **Smaller evidence.** An endpoint's discount evidence states each rate-curve
+  definition once; a payment names that curve and its endpoint market snapshot by
+  identity. The bridge is kept once per currency total rather than for every
+  holding. The report format is `trading_pnl_report_v2`; a result saved in the
+  earlier format is listed, and opening it says that it cannot be shown.
+
+Undecided: the one-tick bump of the selected factor policy does not give a
+convergent central gamma for tree-priced options, so their curvature stays in
+the residual. See [trading P&L](trading-pnl.md).
+
+## D390 · The P&L page shows what moved, and the report states every figure the page shows
+
+2026-11-13. Refines the page and the report format of D386 and D389. No amount,
+policy or authority changes.
+
+- **The backend states every figure.** The report lists every opening price
+  factor with its name, its two exact prices, its change and what its delta and
+  gamma explain in each currency. Factors read one curve after the other, each
+  by delivery period. Holdings read by trade reference, then instrument
+  reference. A bridge step names its kind, an estimate its Greek, and the report
+  its time modes. The page counts, orders and lays out what it shows, and words
+  a status or a reason; every amount, price, estimate and factor name is the
+  backend's.
+- **Missing is not zero, for a holding too.** What opening Greeks explain is an
+  amount, or nothing when none of the estimates is available, for a currency
+  and for each holding. The page then reads Unavailable. A partly available
+  explanation keeps its amount and is marked partial.
+- **One amount format.** A report amount is its exact text, a decimal or a
+  fraction where no decimal is exact, with its currency reference. The page
+  sends the amounts it shows, and not the report's evidence, to the shared
+  amount display, and keeps the exact value beside each. The report carries no
+  display text of its own.
+- **Closes are offered, never assumed.** The pickers list the closes the header
+  lists, named as the header names them. Until the person chooses, they show
+  the header's close and what came before it: the close before it of its own
+  close convention, where it has one and such a close exists, and otherwise the
+  frame before it of any kind. Both are visible, can be changed before Run, and
+  are sent as explicit identities. When the header names no close, what the
+  page offered is withdrawn and Run is refused. Closes the person chose stay.
+- **The knowledge cutoff is a local time.** An untouched cutoff stays the exact
+  instant of the Risk scope; an edited one is resolved by the backend's time
+  inspection. Whenever the Risk scope is read again or changed, the result and
+  the cutoff are cleared, and the empty cutoff is refilled from the scope, never
+  from the browser's clock.
+- **Unsaved and unconfirmed states end.** A save the server refuses outright
+  leaves nothing outstanding. A save whose outcome is unknown can be retried
+  with its original request or discarded. After a discard or a refusal the
+  saved reports are read again, and a result they hold reads as saved under its
+  name. A confirmed save stays confirmed when that list cannot be read. Saving
+  redraws the save bar alone.
+- **Saved reports describe themselves.** The list gives each report's save time,
+  the two closes it compares, its books and its trade selection. It reads the
+  100 most recently saved, lists those the person may still read, and says when
+  older ones exist.
+
+Open: the list reauthorizes each report it reads, on every read. Its cost at a
+hundred reports is unmeasured and it has no paging. See
+[trading P&L](trading-pnl.md).

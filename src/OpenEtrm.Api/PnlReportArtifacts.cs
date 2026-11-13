@@ -21,6 +21,8 @@ internal sealed record PnlCalculated(JsonElement Report,ImmutableArray<PnlEndpoi
 internal sealed record PnlArtifactOwner(Guid TenantId,Guid WorkspaceId,Guid PrincipalId);
 internal sealed record PnlArtifact(PnlArtifactOwner Owner,DateTimeOffset SaveBefore,PnlCalculated Calculation);
 internal sealed record PnlArtifactTicket(PnlArtifactOwner Owner,Guid ResultId,DateTimeOffset SaveBefore,string ResultHash);
+internal sealed record PnlCaptureRefusal(string Code,string Message);
+internal sealed record PnlCapture(string? Artifact,PnlCaptureRefusal? Refusal);
 internal sealed record StoredPnlArtifact(PnlArtifactOwner Owner,Guid FirstRequestId,string Name,DateTimeOffset SavedAt,string TransportHash,PnlCalculated Calculation);
 internal sealed record PnlSaveReceipt(PnlArtifactOwner Owner,Guid RequestId,Guid ReportId,string Name,string ResultHash,string TransportHash);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -37,16 +39,18 @@ internal sealed class PnlReportArtifacts(PreviewDatabase database,IDataProtector
     private readonly IDataProtector scoped=protector.CreateProtector("Catalogue",database.Manifest.CatalogId.ToString("D"));
     private readonly MemoryCache completed=new(new MemoryCacheOptions{SizeLimit=32_000_000});
     public void Dispose()=>completed.Dispose();
-    internal string Seal(PnlArtifactOwner owner,PnlCalculated result,DateTimeOffset now)
+    // A completed result is its caller's to present whether or not it is kept. Keeping it for a later Save is
+    // bounded; a result that cannot be kept returns the reason in place of a handle.
+    internal PnlCapture Seal(PnlArtifactOwner owner,PnlCalculated result,DateTimeOffset now)
     {
         var size=Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(result,RiskJobs.Json));
-        if(size>1_400_000)throw new MarketDataException("pnl_result_capacity","Choose a smaller report scope for exact result capture.");
+        if(size>1_400_000)return new(null,new("pnl_result_capacity","This result is too large to save. Choose a smaller scope to keep a copy."));
         var id=result.Report.GetProperty("id").GetGuid();var expiry=now.AddHours(24);
         var artifact=new PnlArtifact(owner,expiry,result);
         completed.Set(id,artifact,new MemoryCacheEntryOptions{Size=size,AbsoluteExpiration=expiry});
         if(!completed.TryGetValue(id,out PnlArtifact? admitted)||!ReferenceEquals(admitted,artifact))
-            throw new MarketDataException("pnl_result_capacity","Completed result capacity is unavailable. Save an open report before running another.");
-        return scoped.Protect(JsonSerializer.Serialize(new PnlArtifactTicket(owner,id,expiry,ResultHash(result.Report)),RiskJobs.Json));
+            return new(null,new("pnl_result_capacity","Too many unsaved results are being kept to add this one. Run again to keep a copy."));
+        return new(scoped.Protect(JsonSerializer.Serialize(new PnlArtifactTicket(owner,id,expiry,ResultHash(result.Report)),RiskJobs.Json)),null);
     }
     private PnlArtifactTicket Ticket(string token,PnlArtifactOwner owner,DateTimeOffset now,bool saving)
     {
@@ -187,18 +191,25 @@ internal sealed class PnlReportArtifacts(PreviewDatabase database,IDataProtector
     internal async Task<object> List(NpgsqlConnection connection,CancellationToken ct)
     {
         _=await Owner(connection,ct);
-        var rows=await PreviewDatabase.Rows(connection,"SELECT json_build_object('id',id)::text FROM risk.saved_pnl_reports WHERE catalog_id=$1 ORDER BY saved_at DESC,id LIMIT 100",[database.Manifest.CatalogId],ct);
+        // The hundred most recently saved reports, and whether older ones exist beyond them.
+        var rows=await PreviewDatabase.Rows(connection,"SELECT json_build_object('id',id)::text FROM risk.saved_pnl_reports WHERE catalog_id=$1 ORDER BY saved_at DESC,id LIMIT 101",[database.Manifest.CatalogId],ct);
         var visible=new List<object>();
-        foreach(var row in rows)
+        foreach(var row in rows.Take(100))
         {
             // Read reauthorizes the exact saved scope and sources without pricing.
             // An unavailable report reveals no saved name, hash or timestamp.
             await using(var save=ScheduleStore.Command(connection,"SAVEPOINT pnl_list_item"))await save.ExecuteNonQueryAsync(ct);
-            try{var result=await Read(connection,row.Id("id"),ct);visible.Add(new{result.Id,result.Name,result.SavedAt,result.ResultHash});}
+            try
+            {
+                var result=await Read(connection,row.Id("id"),ct);var scope=result.Report.GetProperty("scope");
+                visible.Add(new{result.Id,result.Name,result.SavedAt,result.ResultHash,openingAt=result.Report.GetProperty("opening").GetProperty("at"),
+                    closingAt=result.Report.GetProperty("closing").GetProperty("at"),books=scope.GetProperty("books").EnumerateArray().Select(b=>b.GetProperty("name")),
+                    tradeSelection=scope.GetProperty("tradeSelection")});
+            }
             catch(PreviewDeniedException){}
             catch(PostgresException e)when(e.SqlState=="42501"){}
             finally{await using var rollback=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT pnl_list_item; RELEASE SAVEPOINT pnl_list_item");await rollback.ExecuteNonQueryAsync(ct);}
         }
-        _=await Owner(connection,ct);return visible;
+        _=await Owner(connection,ct);return new{reports=visible,more=rows.Length>100};
     }
 }
