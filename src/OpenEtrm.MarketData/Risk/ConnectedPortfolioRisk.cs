@@ -72,6 +72,10 @@ public sealed class PreparedConnectedPortfolioRisk
     private readonly ImmutableArray<QuoteFactor> baseFactors;
     private readonly Lazy<ImmutableArray<QuoteFactor>> factors;
     public ImmutableArray<QuoteFactor> Factors=>factors.Value;
+    private readonly Lazy<ImmutableDictionary<(Guid TradeId,Guid BindingId),ImmutableHashSet<InputKey>>> declaredPriceInputs;
+    // The live price inputs each holding's unit valuation reaches through its declared dependencies. Dependencies
+    // identify the repricing a factor can affect; they assign no exposure.
+    public ImmutableDictionary<(Guid TradeId,Guid BindingId),ImmutableHashSet<InputKey>> DeclaredPriceInputs=>declaredPriceInputs.Value;
     // Immutable source coverage, available before pricing any historical scenario.
     public ImmutableArray<ConnectedHoldingIdentity> Holdings=>[..Portfolios.SelectMany((p,n)=>p.Positions.Select(v=>
         new ConnectedHoldingIdentity(n,v.TradeId,v.BindingId,v.BookId,v.ValuationId,v.FixedBasis.Currency)))];
@@ -89,6 +93,18 @@ public sealed class PreparedConnectedPortfolioRisk
         Valuation=valuation;Market=market;IntervalBasis=intervalBasis;Portfolios=portfolios;Contracts=contracts;Parent=parent;Bindings=bindings;
         baseFactors=parent?.baseFactors??factors;
         this.factors=new(parent is null?()=>baseFactors:ResolveFactors);
+        declaredPriceInputs=parent?.declaredPriceInputs??new(ResolveDeclaredPriceInputs);
+    }
+    private ImmutableDictionary<(Guid,Guid),ImmutableHashSet<InputKey>> ResolveDeclaredPriceInputs()
+    {
+        var holdings=ImmutableDictionary.CreateBuilder<(Guid,Guid),ImmutableHashSet<InputKey>>();
+        for(var group=0;group<Portfolios.Length;group++)
+        {
+            var portfolio=Portfolios[group];
+            var reached=Contracts[group].Select(contract=>Market.Factors(contract.Dependencies,default).Select(factor=>factor.Input).ToImmutableHashSet()).ToArray();
+            foreach(var position in portfolio.Positions)holdings.Add((position.TradeId,position.BindingId),reached[portfolio.ScopeIndex(position)]);
+        }
+        return holdings.ToImmutable();
     }
     /// <summary>
     /// The graph points the held instruments are priced from: the binding of each dependency they declare, each point once, in the

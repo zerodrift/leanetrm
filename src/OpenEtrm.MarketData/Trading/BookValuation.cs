@@ -304,6 +304,8 @@ public sealed class ValuationPortfolio
     }
     private (Guid ValuationId,DeliveryCoverage? Coverage,MeasureBinding? BindingState) ScopeKey(RiskPosition p) =>
         (p.ValuationId,p.Coverage,Setup.BindingStates.ContainsKey(new(p.TradeId,p.BindingId))?new(p.TradeId,p.BindingId):null);
+    // The index of a holding's unit valuation in Scopes and in this portfolio's declarations.
+    internal int ScopeIndex(RiskPosition position)=>scopeIndexes[ScopeKey(position)];
     public ImmutableArray<BookRiskFactors> RiskFactors(CurveModel model,MarketSnapshot snapshot,CancellationToken cancellation=default)
     {
         cancellation.ThrowIfCancellationRequested();

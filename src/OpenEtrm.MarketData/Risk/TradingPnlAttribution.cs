@@ -4,7 +4,8 @@ using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.MarketData.Risk;
 
-public sealed record PnlFactorMovement(string Axis,PriceUnit Unit,ExactDecimal Change);
+// A factor's exact price change between the closes. It has none when the closing endpoint has no exact price for it.
+public sealed record PnlFactorMovement(string Axis,PriceUnit Unit,ExactDecimal? Change);
 public sealed record PnlGreekRun
 {
     public ResolvedCalculationContext Context{get;}
@@ -34,12 +35,14 @@ public sealed record PnlGreekContribution(string Formula,ImmutableArray<string> 
     ExactFiniteDifferenceEstimate Estimate,ExactMoney? Amount,string? UnavailableReason);
 public sealed record PnlAttributionPosition(PnlAccountingPosition Accounting,ImmutableArray<PnlGreekContribution> Contributions,
     ExactMoney ExplainedValueMovement,ExactMoney ResidualValueMovement);
+public sealed record PnlGreekEffect(ExactMoney? Amount,int Unavailable);
 public sealed record PnlAttributionReport(PnlAccountingReport Accounting,string Policy,
     ImmutableArray<PnlAttributionPosition> Positions,ImmutableArray<PnlGreekRun> Evidence,ImmutableArray<PnlFactorMovement> Moves);
 
 public static class TradingPnlAttribution
 {
     public const string OpeningGreeks="opening_central_greeks_value_movement_v1";
+    public const string UnstableEstimate="finite_difference_unstable",ClosingPriceUnavailable="closing_exact_price_unavailable";
     public static PnlAttributionReport Explain(PnlAccountingReport accounting,ImmutableArray<PnlGreekRun> evidence,
         ImmutableArray<PnlFactorMovement> moves,string policy)
     {
@@ -72,6 +75,7 @@ public static class TradingPnlAttribution
                         throw Error("pnl_greek_context","Each repriced opening holding must match its exact owned accounting value.");
                 }
             }
+            var runInputs=new Dictionary<string,InputKey>(StringComparer.Ordinal);
             foreach(var axis in run.Request.Axes)
             {
                 if(!changes.TryGetValue(axis.Id,out var movement)||axis.Bump.Unit.Price!=movement.Unit)
@@ -79,9 +83,10 @@ public static class TradingPnlAttribution
                 var input=PrimitiveInput(repricing,axis);
                 if(inputOwners.TryGetValue(input,out var priorAxis)&&priorAxis!=axis.Id||axisInputs.TryGetValue(axis.Id,out var priorInput)&&priorInput!=input)
                     throw Error("pnl_factor_overlap","Attribution requires one canonical axis per primitive live quote, across every market partition.");
-                inputOwners[input]=axis.Id;axisInputs[axis.Id]=input;
+                inputOwners[input]=axis.Id;axisInputs[axis.Id]=input;runInputs[axis.Id]=input;
                 used.Add(axis.Id);
             }
+            var declared=source.Prepared.DeclaredPriceInputs;
             foreach(var derivative in run.Derivatives)
             {
                 FiniteDifferenceTolerance tolerance;
@@ -98,7 +103,7 @@ public static class TradingPnlAttribution
                     if(pair is null||!derivative.Axes.SequenceEqual(new[]{pair.FirstAxis,pair.SecondAxis}))throw Error("pnl_greek_context","A mixed derivative must retain its selected ordered axes.");
                     tolerance=pair.Tolerance;
                 }
-                else throw Error("pnl_attribution_policy","Only the declared central first, diagonal second and mixed second derivatives are supported.");
+                else throw UnsupportedFormula();
                 var denominators=derivative.Formula==RiskEngine.CentralGamma?ImmutableArray.Create(derivative.Axes[0],derivative.Axes[0]):derivative.Axes;
                 if(derivative.FactorUnits.Length!=denominators.Length||denominators.Where((a,n)=>!changes.TryGetValue(a,out var m)||m.Unit!=derivative.FactorUnits[n].Price).Any())
                     throw Error("pnl_factor_unit","Derivative movements require their exact retained factor units.");
@@ -111,6 +116,10 @@ public static class TradingPnlAttribution
                     if(group.Positions.Length!=basis.Length||!group.Positions.Select(p=>(p.TradeId,p.BindingId,p.BookId,p.ValuationId)).ToHashSet().SetEquals(basis.Select(p=>(p.TradeId,p.BindingId,p.BookId,p.ValuationId))))
                         throw Error("pnl_greek_coverage","Every derivative must retain the exact base trade, binding, book and valuation identities.");
                 }
+                // The inputs this derivative moves, and each factor's closing movement: none without an exact closing price.
+                var inputs=derivative.Axes.Select(a=>runInputs.TryGetValue(a,out var input)?input:
+                    throw Error("pnl_greek_context","A derivative must address the axes its own run selected.")).ToArray();
+                var moved=derivative.Axes.Select(a=>changes[a].Change).ToArray();
                 foreach(var group in derivative.Groups)foreach(var position in group.Positions)
                 {
                     var key=new AccountingPositionKey(position.TradeId,position.BindingId,position.BookId);
@@ -122,15 +131,25 @@ public static class TradingPnlAttribution
                     if(new[]{estimate.Half,estimate.Nominal,estimate.Double}.Any(v=>v.Currency!=row.Currency)||
                         RiskEngine.AssessFiniteDifference(estimate.Half,estimate.Nominal,estimate.Double,tolerance).Stable!=estimate.Stable)
                         throw Error("pnl_greek_context","Derivative currencies and convergence must match their retained numerical contract.");
-                    ExactMoney? amount=null;
-                    if(estimate.Stable)
+                    // A holding is explained by the price inputs its valuation declares; no other input can move its value.
+                    if(!declared.TryGetValue((position.TradeId,position.BindingId),out var priced))
+                        throw Error("pnl_greek_context","A repriced holding must belong to its captured valuation source.");
+                    if(!inputs.All(priced.Contains))
                     {
-                        amount=estimate.Nominal.Scale(changes[derivative.Axes[0]].Change);
-                        if(derivative.Formula==RiskEngine.CentralGamma)amount=amount.Scale(changes[derivative.Axes[0]].Change).DivideBy(ExactDecimal.Parse("2"));
-                        if(derivative.Formula==RiskEngine.CentralMixedGamma)amount=amount.Scale(changes[derivative.Axes[1]].Change);
+                        if(new[]{estimate.Half,estimate.Nominal,estimate.Double}.Any(v=>v.Numerator!="0"))
+                            throw Error("pnl_greek_context","A holding's value moved with a price input outside its declared dependencies.");
+                        continue;
+                    }
+                    // An estimate explains an amount only when it converged and every factor it uses has a closing movement.
+                    ExactMoney? amount=null;
+                    if(estimate.Stable&&moved.All(m=>m is not null))
+                    {
+                        amount=estimate.Nominal.Scale(moved[0]!.Value);
+                        if(derivative.Formula==RiskEngine.CentralGamma)amount=amount.Scale(moved[0]!.Value).DivideBy(ExactDecimal.Parse("2"));
+                        if(derivative.Formula==RiskEngine.CentralMixedGamma)amount=amount.Scale(moved[1]!.Value);
                     }
                     if(!contributions.TryGetValue(key,out var values))contributions.Add(key,values=[]);
-                    values.Add(new(derivative.Formula,derivative.Axes,[..derivative.FactorUnits.Select(u=>u.Price??throw Error("pnl_factor_unit","This attribution policy requires price-coordinate units."))],estimate,amount,estimate.Stable?null:"finite_difference_unstable"));
+                    values.Add(new(derivative.Formula,derivative.Axes,[..derivative.FactorUnits.Select(u=>u.Price??throw Error("pnl_factor_unit","This attribution policy requires price-coordinate units."))],estimate,amount,amount is not null?null:moved.Any(m=>m is null)?ClosingPriceUnavailable:UnstableEstimate));
                 }
             }
         }
@@ -143,6 +162,35 @@ public static class TradingPnlAttribution
         }).ToImmutableArray();
         return new(accounting,policy,rows,evidence,moves);
     }
+    // The mixed second differences an attribution needs: one for each pair of axes whose price inputs a single
+    // holding's valuation declares together. Dependencies identify this work; every other pair's mixed difference
+    // is exactly zero.
+    public static ImmutableArray<ConnectedMixedSensitivity> JointPairs(PreparedConnectedPortfolioRisk prepared,
+        ImmutableArray<(string Axis,InputKey Input)> axes,FiniteDifferenceTolerance tolerance)
+    {
+        if(prepared is null||axes.IsDefault)throw Error("pnl_greek_context","Supply the prepared opening valuation and its selected price axes.");
+        var priced=prepared.DeclaredPriceInputs.Values.Distinct().ToArray();
+        return [..axes.SelectMany((a,n)=>axes.Skip(n+1).Where(b=>priced.Any(inputs=>inputs.Contains(a.Input)&&inputs.Contains(b.Input)))
+            .Select(b=>new ConnectedMixedSensitivity(a.Axis+"_"+b.Axis,a.Axis,b.Axis,tolerance)))];
+    }
+    // One formula's opening-Greek amounts over holdings of one currency, for every factor or for one axis.
+    public static PnlGreekEffect Effect(IEnumerable<PnlAttributionPosition> positions,string formula,string? axis=null)=>
+        formula is RiskEngine.CentralDelta or RiskEngine.CentralGamma or RiskEngine.CentralMixedGamma
+            ?Summarize(positions,c=>c.Formula==formula&&(axis is null||c.Axes.Contains(axis))):throw UnsupportedFormula();
+    // What every opening Greek explains together, over holdings of one currency.
+    public static PnlGreekEffect Explained(IEnumerable<PnlAttributionPosition> positions)=>Summarize(positions,_=>true);
+    // Unavailable estimates are counted, never read as zero: an effect none of whose estimates is available has no amount.
+    private static PnlGreekEffect Summarize(IEnumerable<PnlAttributionPosition> positions,Func<PnlGreekContribution,bool> selected)
+    {
+        var rows=positions?.ToArray()??[];
+        if(rows.Length==0||rows.Any(r=>r is null||r.Accounting.Currency!=rows[0].Accounting.Currency))
+            throw Error("pnl_position","Summarize the holdings of one currency.");
+        var terms=rows.SelectMany(r=>r.Contributions).Where(selected).ToArray();
+        var unavailable=terms.Count(c=>c.Amount is null);
+        var amount=unavailable>0&&unavailable==terms.Length?null:
+            terms.Where(c=>c.Amount is not null).Select(c=>c.Amount!).Aggregate(ExactMoney.Parse("0",rows[0].Accounting.Currency),(a,b)=>a.Add(b));
+        return new(amount,unavailable);
+    }
     private static InputKey PrimitiveInput(ConnectedScenarioRiskRun run,ConnectedSensitivityAxis axis)
     {
         if(axis.Bump is not PriceSensitivityInput {Bump:{} bump}||bump.Coordinate!=CurveShockCoordinate.MarketQuote)throw Error("pnl_factor_basis","This policy explains primitive live market quotes only.");
@@ -154,5 +202,7 @@ public static class TradingPnlAttribution
             throw Error("pnl_factor_basis","One explicit scalar movement must resolve to one primitive live input in the exact unit; baskets and output overlays require a different policy.");
         return inputs[0];
     }
+    private static MarketDataException UnsupportedFormula()=>
+        Error("pnl_attribution_policy","Only the declared central first, diagonal second and mixed second derivatives are supported.");
     private static MarketDataException Error(string code,string message)=>new(code,message);
 }

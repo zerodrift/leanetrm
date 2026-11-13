@@ -20,12 +20,16 @@ public sealed record PnlTimeSelection(string Mode,string Policy,ClockRule? Clock
 internal sealed class TradingPnlReport(PreviewDatabase database)
 {
     internal const string FactorPolicy="held_primitive_prices_one_tick_central_v1";
+    private const string AbsoluteTolerance="0.000001",RelativeTolerance="0.01";
+    private static readonly (string Formula,string Label)[] Greeks=
+        [(RiskEngine.CentralDelta,"Delta"),(RiskEngine.CentralGamma,"Gamma"),(RiskEngine.CentralMixedGamma,"Cross gamma")];
+    private static readonly FiniteDifferenceTolerance Tolerance=new(ExactDecimal.Parse(AbsoluteTolerance),ExactDecimal.Parse(RelativeTolerance));
     internal static object Policies=>new{accounting=TradingPnlAccounting.Version1,attribution=TradingPnlAttribution.OpeningGreeks,factors=FactorPolicy,
         timeModes=new[]{new{id="one_calendar_day_model_decay_v1",label="One-day model decay"},new{id="opening_to_closing_clock_v1",label="Opening-to-closing time roll"}},
         clockPolicy=ClockChange.FrozenInputs,clocks=new[]{new ClockRule("UTC","fixed_offset",0,null,null),
             new ClockRule("New York","iana",null,"America/New_York",TimeZoneDatabase.Installed().Version())},
-        maxAxes=RiskEngine.MaxSensitivityAxes,absoluteTolerance="0.000001",relativeTolerance="0.01",
-        coverage="Opening price delta, gamma and mixed gamma. Time, volatility, discount, fixing, position and other effects remain in the explicit residual."};
+        maxAxes=RiskEngine.MaxSensitivityAxes,absoluteTolerance=AbsoluteTolerance,relativeTolerance=RelativeTolerance,
+        coverage="Opening price delta and gamma for each held factor, and mixed gamma for factors one holding prices together. Unavailable estimates and time, volatility, discount, fixing, position and other effects remain in the explicit residual."};
     private static ClockChange TimeTarget(PnlTimeSelection selection,DateTimeOffset from,DateTimeOffset to)
     {
         if(selection is null||selection.Policy!=ClockChange.FrozenInputs)throw Error("pnl_time_policy","Select the explicit frozen-input time convention.");
@@ -57,29 +61,32 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         var openingPoints=ImmutableArray.CreateBuilder<PnlAccountingPoint>();
         if(first.Point is {} emptyOpening)openingPoints.Add(emptyOpening);
         var plans=new List<Samples>();
-        var factorDetails=new List<object>();var omissions=new List<object>();
+        var factorDetails=new List<object>();
         var closingFactors=Canonical(last.Prepared?.Markets.SelectMany(m=>m.Data.Model.QuoteFactors(m.Snapshot))??[]).ToDictionary(f=>f.Input);
-        var axes=Canonical(first.Prepared?.Markets.SelectMany(m=>m.Connected.Factors)??[]);
-        if(axes.Length>RiskEngine.MaxSensitivityAxes)throw Error("pnl_factor_limit","Choose a smaller scope for the bounded central-Greeks explanation.");
-        var names=axes.Select((f,n)=>(f.Input,Id:"price_"+n)).ToDictionary(a=>a.Input,a=>a.Id);
+        // The opening holdings' price factors in reading order: one curve after the other, each by delivery period.
+        var axes=first.Prepared is {} held?CurveRiskAxes.ByCurveAndDelivery(held,Canonical(held.Markets.SelectMany(m=>m.Connected.Factors)),ct):[];
+        if(axes.Length>RiskEngine.MaxSensitivityAxes)
+            throw Error("pnl_factor_limit",$"This scope has {axes.Length} price factors. The opening-Greeks explanation covers at most {RiskEngine.MaxSensitivityAxes}; choose a smaller scope.");
+        var ordinals=axes.Select((f,n)=>(f.Input,Ordinal:n)).ToDictionary(a=>a.Input,a=>a.Ordinal);
+        string Axis(QuoteFactor factor)=>"price_"+ordinals[factor.Input];
+        foreach(var factor in axes)
+        {
+            // A factor with no exact closing price keeps its opening estimates and has no movement to explain.
+            var end=closingFactors.TryGetValue(factor.Input,out var quoted)&&quoted.Unit==factor.Unit&&quoted.Quote==factor.Quote?quoted:null;
+            var change=end is null?(ExactDecimal?)null:end.BaseValue-factor.BaseValue;
+            movements.Add(new(Axis(factor),factor.Unit,change));
+            factorDetails.Add(new{axis=Axis(factor),label=CurveRiskAxes.Quote(first.Prepared!,factor,ct).Label,input=factor.Input,unit=factor.Unit,priceTick=factor.TradingTick.ToString(),
+                opening=new{price=factor.BaseValue.ToString(),observation=factor.Observation},
+                closing=end is null?null:(object)new{price=end.BaseValue.ToString(),observation=end.Observation},
+                change=change is null?null:(object)new{price=change.Value.ToString()},
+                unavailableReason=end is null?TradingPnlAttribution.ClosingPriceUnavailable:null});
+        }
         foreach(var market in first.Prepared?.Markets??[])
         {
             ct.ThrowIfCancellationRequested();
-            var selectedAxes=ImmutableArray.CreateBuilder<ConnectedSensitivityAxis>();
-            foreach(var factor in market.Connected.Factors)
-            {
-                if(!closingFactors.TryGetValue(factor.Input,out var end)||end.Unit!=factor.Unit||end.Quote!=factor.Quote)
-                {omissions.Add(new{axis=names[factor.Input],factor=factor.Input,reason="closing_exact_price_unavailable"});continue;}
-                var id=names[factor.Input];
-                selectedAxes.Add(new(id,new PriceSensitivityInput(new(CurveShockCoordinate.MarketQuote,new ContractCurveTarget(factor.Curves[0],factor.Contract),factor.Unit,
-                    factor.TradingTick,ConnectedRiskBump.Convention)),new(ExactDecimal.Parse("0.000001"),ExactDecimal.Parse("0.01")),new(ExactDecimal.Parse("0.000001"),ExactDecimal.Parse("0.01"))));
-                if(!movements.Any(m=>m.Axis==id))
-                {
-                    movements.Add(new(id,factor.Unit,end.BaseValue-factor.BaseValue));
-                    factorDetails.Add(new{axis=id,input=factor.Input,unit=factor.Unit,opening=factor.BaseValue.ToString(),closing=end.BaseValue.ToString(),
-                        change=(end.BaseValue-factor.BaseValue).ToString(),openingObservation=factor.Observation,closingObservation=end.Observation,bump=factor.TradingTick.ToString()});
-                }
-            }
+            var priceAxes=market.Connected.Factors.OrderBy(factor=>ordinals[factor.Input]).Select(factor=>(
+                Axis:new ConnectedSensitivityAxis(Axis(factor),new PriceSensitivityInput(new(CurveShockCoordinate.MarketQuote,new ContractCurveTarget(factor.Curves[0],factor.Contract),
+                    factor.Unit,factor.TradingTick,ConnectedRiskBump.Convention)),Tolerance,Tolerance),factor.Input)).ToArray();
             ConnectedRiskScenario? timeSample=null;
             var clock=TimeTarget(request.Time,opening.Frame.At,closing.Frame.At);
             try
@@ -89,11 +96,11 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             }
             catch(MarketDataException e)when(e.Code is "valuation_time_unsupported" or "valuation_time_coverage" or "discount_roll_unsupported" or "discount_coverage" or "valuation_time_event")
             {missingTime=true;timeDiagnostics.Add(new{snapshotId=market.Snapshot.Id,status="unavailable",code=e.Code,detail=e.Message,clock,request.Time.Mode});}
-            if(selectedAxes.Count==0&&timeSample is null){plans.Add(new(market,null));continue;}
-            var mixed=selectedAxes.SelectMany((a,n)=>selectedAxes.Skip(n+1).Select(b=>new ConnectedMixedSensitivity(a.Id+"_"+b.Id,a.Id,b.Id,
-                new(ExactDecimal.Parse("0.000001"),ExactDecimal.Parse("0.01"))))).ToImmutableArray();
-            if(mixed.Length>RiskEngine.MaxMixedSensitivities)throw Error("pnl_factor_limit","Choose a scope with fewer interacting price factors for complete mixed-gamma coverage.");
-            plans.Add(new(market,new(ConnectedFiniteDifferenceRequest.HalfNominalDouble,selectedAxes.ToImmutable(),mixed){AdditionalScenarios=timeSample is null?[]:[timeSample]}));
+            if(priceAxes.Length==0&&timeSample is null){plans.Add(new(market,null));continue;}
+            var mixed=TradingPnlAttribution.JointPairs(market.Connected,[..priceAxes.Select(a=>(a.Axis.Id,a.Input))],Tolerance);
+            if(mixed.Length>RiskEngine.MaxMixedSensitivities)
+                throw Error("pnl_factor_limit",$"Holdings in this scope price {mixed.Length} pairs of factors together. The mixed-gamma explanation covers at most {RiskEngine.MaxMixedSensitivities}; choose a smaller scope.");
+            plans.Add(new(market,new(ConnectedFiniteDifferenceRequest.HalfNominalDouble,[..priceAxes.Select(a=>a.Axis)],mixed){AdditionalScenarios=timeSample is null?[]:[timeSample]}));
         }
         var workload=new List<RiskValuationWork>();
         if(first.Prepared is {} initial)workload.Add(RiskValuationAdmission.Work(initial,[..plans.Select(p=>1+(p.Request?.SampleCount??0))],RiskDetail.Holdings));
@@ -123,38 +130,28 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         var accounting=TradingPnlAccounting.Compare(openingPoint,closingPoint,request.AccountingPolicy);
         var report=TradingPnlAttribution.Explain(accounting,evidence.ToImmutable(),movements.ToImmutable(),request.AttributionPolicy);
         var identities=(first.Prepared?.Positions??[]).Concat(last.Prepared?.Positions??[]).GroupBy(p=>(p.TradeId,p.BindingId)).ToDictionary(g=>g.Key,g=>g.Last());
-        object Money(ExactMoney m)=>new{numerator=m.Numerator,denominator=m.Denominator,currency=m.Currency,display=m.ToMoney(new(2,CashTieRule.ToEven,false,true)).Amount.ToString()};
-        object Parts(IEnumerable<PnlAttributionPosition> positions)
-        {
-            var rows=positions.ToArray();ExactMoney Sum(Func<PnlAttributionPosition,ExactMoney> read)=>rows.Select(read).Aggregate((a,b)=>a.Add(b));
-            var zero=ExactMoney.Parse("0",rows[0].Accounting.Currency);
-            ExactMoney GreekAmount(string formula)=>rows.SelectMany(r=>r.Contributions).Where(c=>c.Formula==formula&&c.Amount is not null)
-                .Select(c=>c.Amount!).Aggregate(zero,(a,b)=>a.Add(b));
-            var steps=new[]{("Delta",GreekAmount(RiskEngine.CentralDelta)),("Gamma",GreekAmount(RiskEngine.CentralGamma)),
-                ("Cross gamma",GreekAmount(RiskEngine.CentralMixedGamma)),("Residual",Sum(r=>r.ResidualValueMovement)),("Cash",Sum(r=>r.Accounting.PeriodCash)),
-                ("Prior cash corrections",Sum(r=>r.Accounting.PriorCashKnowledgeAdjustment)),("Transfers",Sum(r=>r.Accounting.NonEarningTransfers).Scale(ExactDecimal.Parse("-1")))};
-            var cumulative=zero;
-            var bridge=steps.Select(s=>{var start=cumulative;cumulative=cumulative.Add(s.Item2);return new{label=s.Item1,amount=Money(s.Item2),start=Money(start),end=Money(cumulative)};}).ToArray();
-            return new{openingValue=Money(Sum(r=>r.Accounting.OpeningValue)),closingValue=Money(Sum(r=>r.Accounting.ClosingValue)),
-                valueMovement=Money(Sum(r=>r.Accounting.ValueMovement)),cash=Money(Sum(r=>r.Accounting.PeriodCash)),priorCash=Money(Sum(r=>r.Accounting.PriorCashKnowledgeAdjustment)),
-                transfers=Money(Sum(r=>r.Accounting.NonEarningTransfers)),economicPnl=Money(Sum(r=>r.Accounting.EconomicPnl)),
-                explained=Money(Sum(r=>r.ExplainedValueMovement)),residual=Money(Sum(r=>r.ResidualValueMovement)),
-                delta=Money(GreekAmount(RiskEngine.CentralDelta)),gamma=Money(GreekAmount(RiskEngine.CentralGamma)),mixed=Money(GreekAmount(RiskEngine.CentralMixedGamma)),bridge,
-                greekCoverage=omissions.Count>0||rows.SelectMany(r=>r.Contributions).Any(c=>c.UnavailableReason is not null)?"partial":"selected_price_factors",
-                unavailableEstimates=rows.SelectMany(r=>r.Contributions).Count(c=>c.UnavailableReason is not null)};
-        }
-        var result=new{id=Guid.NewGuid(),version="trading_pnl_report_v1",engineVersion=RiskJobs.EngineVersion,valuationPolicy=PortfolioRiskPreview.AccountingPricingPolicy,
+        // Holdings read by trade reference, then instrument reference. Ledger cash of a trade held at neither close has no reference and comes last.
+        var listed=report.Positions.Select(p=>(Row:p,Held:identities.GetValueOrDefault((p.Accounting.Position.TradeId,p.Accounting.Position.BindingId))))
+            .OrderBy(p=>p.Held is null).ThenBy(p=>p.Held?.TradeReference,StringComparer.Ordinal).ThenBy(p=>p.Held?.InstrumentReference,StringComparer.Ordinal).ToArray();
+        var result=new{id=Guid.NewGuid(),version="trading_pnl_report_v2",engineVersion=RiskJobs.EngineVersion,valuationPolicy=PortfolioRiskPreview.AccountingPricingPolicy,
             request,scope=new{books=first.BookDescriptions.Concat(last.BookDescriptions).DistinctBy(b=>b.Id("id")).ToArray(),tradeSelection=request.TradeIds is null?"All trades in the selected books":"Selected trades"},policies=Policies,opening=new{opening.Frame.Id,opening.Frame.Name,opening.Frame.At,opening.Context},
             closing=new{closing.Frame.Id,closing.Frame.Name,closing.Frame.At,closing.Context},time=new{request.Time.Mode,status=missingTime?"unavailable":"complete",
-                totals=missingTime?null:timeValues.GroupBy(v=>v.Currency).Select(g=>new{currency=g.Key,value=Money(g.Aggregate((a,b)=>a.Add(b)))}).ToArray(),partitions=timeDiagnostics},factors=factorDetails,unavailableFactors=omissions,
-            totals=report.Positions.GroupBy(p=>p.Accounting.Currency).Select(g=>new{currency=g.Key,values=Parts(g)}).ToArray(),
-            positions=report.Positions.Select(p=>new{position=p.Accounting.Position,
-                tradeReference=identities.GetValueOrDefault((p.Accounting.Position.TradeId,p.Accounting.Position.BindingId))?.TradeReference,
-                instrumentReference=identities.GetValueOrDefault((p.Accounting.Position.TradeId,p.Accounting.Position.BindingId))?.InstrumentReference,
-                state=p.Accounting.HeldAtOpening?p.Accounting.HeldAtClosing?"continuing":"closed":p.Accounting.HeldAtClosing?"new":"cash_only",values=Parts([p]),
-                contributions=p.Contributions.Select(c=>new{c.Formula,c.Axes,c.Units,c.Estimate,amount=c.Amount is null?null:Money(c.Amount),c.UnavailableReason})}).ToArray(),
+                totals=missingTime?null:timeValues.GroupBy(v=>v.Currency).Select(g=>new{currency=g.Key,value=Money(g.Aggregate((a,b)=>a.Add(b)))}).ToArray(),partitions=timeDiagnostics},factors=factorDetails,
+            totals=report.Positions.GroupBy(p=>p.Accounting.Currency).Select(g=>
+            {
+                var rows=g.ToArray();
+                return new{currency=g.Key,values=Values(rows),bridge=Bridge(rows),
+                    // What each factor these holdings price explains by itself.
+                    factorEffects=movements.Select(m=>m.Axis).Where(axis=>rows.Any(r=>r.Contributions.Any(c=>c.Axes.Contains(axis)))).Select(axis=>new{axis,
+                        delta=Greek(TradingPnlAttribution.Effect(rows,RiskEngine.CentralDelta,axis)),gamma=Greek(TradingPnlAttribution.Effect(rows,RiskEngine.CentralGamma,axis))}),
+                    greekCoverage=rows.SelectMany(r=>r.Contributions).Any(c=>c.Amount is null)?"partial":"selected_price_factors"};
+            }).ToArray(),
+            positions=listed.Select(p=>new{position=p.Row.Accounting.Position,tradeReference=p.Held?.TradeReference,instrumentReference=p.Held?.InstrumentReference,
+                state=p.Row.Accounting.HeldAtOpening?p.Row.Accounting.HeldAtClosing?"continuing":"closed":p.Row.Accounting.HeldAtClosing?"new":"cash_only",values=Values([p.Row]),
+                contributions=p.Row.Contributions.Select(c=>new{c.Formula,label=Greeks.Single(g=>g.Formula==c.Formula).Label,c.Axes,c.Units,c.Estimate,
+                    amount=c.Amount is null?null:Money(c.Amount),c.UnavailableReason})}).ToArray(),
             holdings=new{opening=first.Prepared?.Positions??[],closing=last.Prepared?.Positions??[]},
-            discounts=new{opening=first.Prepared?.DiscountInputs??[],closing=last.Prepared?.DiscountInputs??[]},
+            discounts=new{opening=DiscountEvidence(first.Prepared?.DiscountInputs??[]),closing=DiscountEvidence(last.Prepared?.DiscountInputs??[])},
             sensitivities=evidence.Select(e=>new{e.Context,e.GraphManifestId,e.Risk.Repricing.NumericalPolicy,e.Risk.Request.Convention,
                 axes=e.Risk.Request.Axes.Select(a=>new{a.Id,a.Bump.Size,a.Bump.Unit,a.DeltaTolerance,a.GammaTolerance}),e.Risk.Request.Mixed,
                 e.Risk.Repricing.BaseScenario,samples=e.Risk.Repricing.Scenarios.Select(s=>new{s.Id,s.Scenario,s.GraphWork}),
@@ -201,6 +198,47 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             await using var release=ScheduleStore.Command(connection,"RELEASE SAVEPOINT pnl_endpoint");await release.ExecuteNonQueryAsync(ct);
         }
     }
+    // An exact amount as the shared amount display reads it; the page asks the backend for its display text.
+    private static object Money(ExactMoney m)=>new{amount=m.ToExactString(),currency=m.Currency};
+    private static object Greek(PnlGreekEffect effect)=>new{amount=effect.Amount is null?null:Money(effect.Amount),unavailableEstimates=effect.Unavailable};
+    private static ExactMoney Sum(PnlAttributionPosition[] rows,Func<PnlAttributionPosition,ExactMoney> read)=>rows.Select(read).Aggregate((a,b)=>a.Add(b));
+    // The reconciled amounts of one currency's holdings, or of one holding. What opening Greeks explain has no amount
+    // when none of the estimates is available; the residual is the value movement less the available ones either way.
+    private static object Values(PnlAttributionPosition[] rows)
+    {
+        var explained=TradingPnlAttribution.Explained(rows);
+        return new{openingValue=Money(Sum(rows,r=>r.Accounting.OpeningValue)),closingValue=Money(Sum(rows,r=>r.Accounting.ClosingValue)),
+            valueMovement=Money(Sum(rows,r=>r.Accounting.ValueMovement)),cash=Money(Sum(rows,r=>r.Accounting.PeriodCash)),priorCash=Money(Sum(rows,r=>r.Accounting.PriorCashKnowledgeAdjustment)),
+            transfers=Money(Sum(rows,r=>r.Accounting.NonEarningTransfers)),economicPnl=Money(Sum(rows,r=>r.Accounting.EconomicPnl)),
+            explained=explained.Amount is null?null:Money(explained.Amount),residual=Money(Sum(rows,r=>r.ResidualValueMovement)),unavailableEstimates=explained.Unavailable};
+    }
+    // The steps from zero to one currency's economic P&L, each of a kind: an opening Greek, the residual, period cash
+    // or an adjustment. A Greek effect with no available estimate has no amount and moves nothing here: whatever it
+    // would explain stays in the residual.
+    private static object Bridge(PnlAttributionPosition[] rows)
+    {
+        (string Label,string Kind,ExactMoney? Amount,int Unavailable)[] steps=[..Greeks.Select(g=>
+            {var effect=TradingPnlAttribution.Effect(rows,g.Formula);return(g.Label,"greek",effect.Amount,effect.Unavailable);}),
+            ("Residual","residual",Sum(rows,r=>r.ResidualValueMovement),0),("Cash","cash",Sum(rows,r=>r.Accounting.PeriodCash),0),
+            ("Prior cash corrections","adjustment",Sum(rows,r=>r.Accounting.PriorCashKnowledgeAdjustment),0),
+            ("Transfers","adjustment",Sum(rows,r=>r.Accounting.NonEarningTransfers).Scale(ExactDecimal.Parse("-1")),0)];
+        var cumulative=ExactMoney.Parse("0",rows[0].Accounting.Currency);
+        return steps.Select(step=>
+        {
+            var start=cumulative;if(step.Amount is not null)cumulative=cumulative.Add(step.Amount);
+            return new{label=step.Label,kind=step.Kind,amount=step.Amount is null?null:Money(step.Amount),start=Money(start),end=Money(cumulative),unavailableEstimates=step.Unavailable};
+        }).ToArray();
+    }
+    // One endpoint's discount evidence: each rate-curve definition once, and for each payment its factor and pillars
+    // with the identities of its curve mapping and market snapshot. The snapshot's own inputs are the endpoint's sources.
+    internal static object DiscountEvidence(ImmutableArray<PortfolioDiscountEvidence> payments)=>new
+    {
+        curves=payments.Where(p=>p.Input.Definition is not null).GroupBy(p=>p.Input.MappingId).Select(mapping=>
+            mapping.Select(p=>(p.Input.Definition!.DefinitionId,p.Input.Definition.DefinitionVersion)).Distinct().Count()==1?new{MappingId=mapping.Key,mapping.First().Input.Definition}:
+                throw Error("pnl_discount_evidence","One discount mapping resolved to more than one rate-curve definition at an endpoint.")).ToArray(),
+        payments=payments.Select(p=>new{p.InstrumentId,p.Payment,p.Ppa,p.SettlementDeterminationId,
+            input=new{p.Input.Enabled,p.Input.Factor,p.Input.MappingId,p.Input.Currency,p.Input.PaymentDate,snapshotId=p.Input.Snapshot.Id,p.Input.Pillars,p.Input.RateNumericalPolicy}})
+    };
     private static void RequireScope(Endpoint endpoint,PnlAccountingPoint point)
     {
         var trades=endpoint.Trades.Select(t=>t.TradeId).ToHashSet();

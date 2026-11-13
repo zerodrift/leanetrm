@@ -1969,7 +1969,8 @@ api.MapPost("/portfolio/pnl/run",(HttpContext c,TradingPnlRequest body)=>Locked(
     var opening=await PnlView(body.Opening.SnapshotId);var closing=await PnlView(body.Closing.SnapshotId);
     var calculation=(PnlCalculated)await pnlReports.Run(connection,opening,closing,body,ct);
     if(await PnlReportArtifacts.Owner(connection,ct)!=owner)throw new PreviewDeniedException();
-    return Results.Ok(new{report=calculation.Report,artifact=pnlArtifacts.Seal(owner,calculation,DateTimeOffset.UtcNow)});
+    var capture=pnlArtifacts.Seal(owner,calculation,DateTimeOffset.UtcNow);
+    return Results.Ok(new{report=calculation.Report,artifact=capture.Artifact,saveRefusal=capture.Refusal});
 },c.RequestAborted)));
 api.MapPost("/portfolio/pnl/save",(HttpContext c,SavePnlReportRequest body)=>Locked(c,async session=>
 {
