@@ -4475,15 +4475,25 @@ explicit `sampling=context_utc_time` and
 defaults. The arithmetic is the existing `SignedSum` and `WeightedMean` cell
 formulas in the connected plan, so results stay exact rationals.
 
-The approved design was refined in three ways. Weights are normalized within a
-group, and a spread is a declared second position rather than a signed
-coefficient, because two thirds and one third are not exact decimals and formula
-weights are exact decimals; weights 2 and 1 give exactly 2/3 and 1/3. Only
+Four choices define this contract. Weights are normalized within a group, and
+a spread is a declared second position rather than a signed coefficient, because
+two thirds and one third are not exact decimals and formula weights are exact
+decimals; weights 2 and 1 give exactly 2/3 and 1/3. Only
 `contract_expiry_roll_v1` is admitted, because recipe position selection already
 rolls at recorded expiry; `explicit_contract_roll_v1` refuses in this operator.
 There is no fixing-clock or expiry-policy term: selection and sampling share one
 instant, so an observation is always read while its contract is live and no
 carried final settlement is needed.
+
+Fourth, the observation of the context day is read from the live context sample,
+so in a scenario it is a live dependency; only an observation strictly before the
+context date is a frozen actual. At the fixture's 2027-01-19 close, a +1 shock to
+G therefore moves the January average by 2/5 (the 2027-01-19 and 2027-01-20
+observations of G), not 1/5. The existing swap observation path differs: it
+freezes an observation whose fixing instant equals the valuation instant. This
+difference is recorded for the owner's confirmation. Matching the frozen
+treatment requires the engine to hold a frozen and a live sample of one contract
+at the context instant; it holds one sample per source, date and contract.
 
 The trade month is defined by selection. On a contract's last trading day the
 day belongs to that contract's trade month only if its sampling instant is
@@ -4500,16 +4510,16 @@ A due observation without a retained sample refuses with `recipe_input`; an
 average is never taken over fewer days. The historical-sampling refusal for
 `sample` nodes is unchanged.
 
-The terms and the resolved windows are part of the node's declaration: they
-enter graph equality, formula text (a typed `observationTerms=[...]` argument),
-the canonical declaration and its manifest, and a saved-version preview compares
-terms. Other node kinds keep their exact declaration bytes. A business-day node
+The terms enter graph equality and formula text (a typed `observationTerms=[...]`
+argument), and a saved-version preview compares them. The terms and the resolved
+windows enter the canonical declaration and its manifest. Other node kinds keep
+their exact declaration bytes. A business-day node
 requires its calendar pin, which must name the node's calendar and contain every
 resolved window day. Supplied windows must cover exactly the targets and terms,
 and their days must belong to their stated period.
 
-The node feeds only `weighted_panels` (for example, to add a differential) and
-`output`. The engine refuses any other consumer with `recipe_definition`; in the
+The node itself feeds only `weighted_panels` (for example, to add a differential)
+and `output`. The engine refuses any other consumer with `recipe_definition`; in the
 database, migration 0252 extends the panel guards so a saved `weighted_panels`
 node may take this kind as an input. A curve whose output is this node, or a
 `weighted_panels` node directly fed by it, has the curve kind
@@ -4519,9 +4529,16 @@ Refusals are structured:
 
 - `recipe_definition`: a missing, extra or unsupported parameter, version, roll,
   day rule, sampling or correction policy; a target month not on day 1; missing,
-  gapped or more than 16 terms; a weight that is not positive exact decimal text;
-  equal positions; a calendar on a calendar-day node or none on a business-day
-  node; terms on another kind; an unsupported consumer.
+  gapped or more than 16 terms; a term with an invalid group, a missing (`null`)
+  or out-of-range position, an invalid or equal second position, an unsupported
+  period, or a weight that is not positive exact decimal text below 10^24 with at
+  most 18 fractional digits, each message naming the term's ordinal and member
+  (for example `Observation term 1 position: …`); a group whose weights cannot be
+  summed below 10^24, refused when saved because the recipe could never
+  evaluate; a calendar on a calendar-day node or none on a business-day node;
+  terms on another kind; an unsupported consumer. A position that is not a whole
+  JSON number, such as `1.5`, does not bind and is refused by request binding as
+  `request_format`.
 - `recipe_input`: no single delivery contract for a trade-month target, a
   delivery contract with no prior contract, a position beyond the contract
   universe, a calendar that does not cover a window, an empty window, supplied
@@ -4531,8 +4548,11 @@ Refusals are structured:
   naming another calendar, or a window day that is not a business day of it.
 - `recipe_formula`: formula text whose term omits `lessPosition` or adds an
   unknown member. An explicit `null` second position is required.
-- `custom_curve_definition` (API): a business-day node without its calendar, and
-  a preview body that differs from its saved version, including by a term weight.
+- `custom_curve_definition` (API): a business-day node without its calendar; a
+  preparation that would read more than 366 past observation days across the
+  definition's observation nodes (one historical frame each, the bound of date
+  sequences), refused before any is read; and a preview body that differs from
+  its saved version, including by a term weight.
 - Database: `recipe_observation_terms`, `recipe_observation_policy` and
   `recipe_observation_calendar` from the term and publication guards.
 
@@ -4544,7 +4564,12 @@ tables, refuses a term row on another node kind, and revalidates parameters,
 terms and the calendar binding at publication. It extends the panel-type list of
 the two panel guards (`guard_panel_weight`, `guard_panel_publication`) to admit
 this kind as a `weighted_panels` input, after pinning their prior definitions by
-hash. Published terms are immutable. No rows are rewritten.
+hash. Published terms are immutable. No rows are rewritten. The preview's
+migration loop qualifies it (`tools/check_contract_observation_upgrade.py`): the
+pins refuse a changed guard body, owner, configuration, ACL and node-kind
+constraint; and on the synthetic fixture with a published `weighted_panels`
+combination seeded on the prior schema, the version reads back unchanged after
+0252 and both panel guards still refuse a source input, as they did before it.
 
 The API prepares and previews the node through the ordinary custom-curve
 operations and offers it in the operator catalog with its admitted choices. The
@@ -4558,23 +4583,41 @@ gives 70.96); on 2026-12-22 the same price with the roll frozen (F has no live
 factor; G +1 gives 70.56, H +1 gives 70.36); 70.02 on 2027-01-20 and 70.00 on
 2027-01-25 with no live futures; a two-target case at 10724/155 and 4807/70;
 and the engine and declaration refusals above, including a missing past
-observation. Over HTTP in an owned stock PostgreSQL preview, the published curve
-with a −1.50 differential prices 68.46 on 2026-12-01 and 2026-12-22, 68.52 on
-2027-01-20 and 68.50 on 2027-01-25, with the expected live inputs at each.
-Before the 2027-01-19 settlement is recorded the finished average refuses, and
-the knowledge view captured then still refuses afterwards. A later correction
-to 69.55 gives 68.51 while the knowledge view before it reproduces 68.50. The storage check covers the table rules, security
-parity with the other node tables, publication refusals and immutability. The
-browser suite builds the curve through the Curve builder's controls, previews
-68.46, saves, reloads every term unchanged and shows the backend's refusal of a
-cleared weight beside the operation.
+observation and the ordinal and member each term refusal names. Planning a
+consumer at 2027-01-20 refuses with `recipe_input` when only the context instant
+is supplied; with the sampling instant of every window day it plans sixteen
+native inputs (F, G and H on each December day, G on 2027-01-18 and 2027-01-19,
+and G and H at the context date), and the curve prices 70.02 under that demand.
+An API check refuses a 367th past observation day, counting a day once across
+operations and excluding days on or after the context date.
+
+Over HTTP in an owned stock PostgreSQL preview, the published curve with a −1.50
+differential prices 68.46 on 2026-12-01 and 2026-12-22, 68.52 on 2027-01-20 and
+68.50 on 2027-01-25, with the expected live inputs at each. A consumer reading
+it through `published_source` prices the same values, and calendar availability
+(`market/dates`) for either definition lists all four closes; without the window
+days' sampling instants the consumer's three later closes are unavailable. Before
+the 2027-01-19 settlement is recorded the finished average refuses, and the
+knowledge view captured then still refuses afterwards. A later correction to
+69.55 gives 68.51, also through the consumer, while the knowledge view before it
+reproduces 68.50. A term whose position is `null` refuses with
+`recipe_definition` naming that term. The storage check covers the table rules,
+security parity with the other node tables, publication refusals and
+immutability. The browser suite builds the curve through the Curve builder's
+controls, previews 68.46, saves, reloads every term unchanged and shows the
+backend's refusals of a cleared weight and of a new term with no position beside
+the operation.
 
 Not implemented or qualified: no settlement finality is exposed to a Side; no
 trade, ticket or cash consumer exists, and the only consumer is the synthetic
 formula curve (indexed crude consideration on a Side is separate, later work);
-explicit roll boundaries; a published observation curve prepared under a
-consumer's demand is not exercised over HTTP; one synthetic fixture. The fixture's
-observations are dated after the machine clock, so the check inserts the late
-settlement and its correction by SQL: the correction endpoint stamps receipt at
-the current time and cannot correct an observation dated after now. No production
-activation is implied.
+explicit roll boundaries; one synthetic fixture. Every observation day is sampled
+at one UTC time of day, so a window that crosses a daylight-saving change of a
+local-time close is not modelled. A source node carrying contract price terms
+that feeds this node is neither refused nor checked. "Feeds only" holds for the
+node itself: a consumer that reads the published output through
+`published_source` may still average, look up or splice its cells. The check
+inserts the late settlement and its correction by SQL: the correction endpoint
+stamps receipt at the current time, and the observations table requires
+`observed_at <= received_at`, so a correction of an observation dated after now
+cannot be recorded through it. No production activation is implied.

@@ -4350,11 +4350,25 @@ weighted December roll spreads of F against G and H, it asserts exact rationals:
 70.56 and 70.36; 70.02 on 2027-01-20; 70.00 on 2027-01-25 with no live future;
 69.90 when sampling at 20:00 moves the expiry day to the next contract; 68.46
 with a −1.50 differential; and a two-target case at 10724/155 and 4807/70. It
-also asserts the windows, declaration identity, formula text and each refusal.
+also asserts the windows, declaration identity, formula text and each refusal,
+with the ordinal and member each term refusal names, including a `null`
+position and a group whose weights cannot be summed. Planning a consumer at
+2027-01-20 refuses with `recipe_input` given only the context instant; given
+every window day's sampling instant it plans the sixteen expected native inputs,
+and the curve prices 70.02 under that demand. The API check
+`--contract-observation-reads` refuses a 367th past observation day.
 
 ```sh
 dotnet run --project tests/OpenEtrm.MarketData.Checks -c Release -- --contract-observation-recipes
+dotnet run --project tests/OpenEtrm.Api.Checks -c Release -- --contract-observation-reads
 ```
+
+Every owned preview qualifies migration 0252 in its migration loop
+(`tools/check_contract_observation_upgrade.py`): the hash pins refuse a changed
+panel guard body, owner, configuration, ACL and node-kind constraint, and on the
+synthetic fixture with a published `weighted_panels` combination seeded on the
+prior schema, the version reads back unchanged after 0252 and both panel guards
+still refuse a source input.
 
 The owned stock PostgreSQL preview loads the synthetic crude fixture, then runs
 the storage check (table rules, security parity, publication refusals,
@@ -4367,16 +4381,21 @@ python3 tools/run_preview.py --pg-bin /path/to/postgres/bin --dotnet /path/to/do
 ```
 
 The published curve prices 68.46 on 2026-12-01 and on 2026-12-22, 68.52 on
-2027-01-20 and 68.50 on 2027-01-25, each with the expected live inputs. Before
-the 2027-01-19 settlement is recorded the finished average refuses with
+2027-01-20 and 68.50 on 2027-01-25, each with the expected live inputs. A
+consumer reading it through `published_source` prices the same values, and
+`market/dates` for either definition lists all four closes. Before the
+2027-01-19 settlement is recorded the finished average refuses with
 `recipe_input`, and the knowledge view captured then still refuses afterwards.
-A correction to 69.55 gives 68.51, while the view before it reproduces 68.50.
-The fixture's observations are dated after the machine clock, so the check
-inserts that late settlement and its correction by SQL; the correction endpoint
-cannot correct an observation dated after now. The browser suite passed 12
-checks: catalog-driven settings and terms, preview at 68.46, save as
-`observation_formula`, unchanged reload and the cleared-weight refusal shown
-beside the operation. `tools/check_all.py` includes this command.
+A correction to 69.55 gives 68.51, also through the consumer, while the view
+before it reproduces 68.50. A term whose position is `null` refuses with
+`recipe_definition` naming the term. The check inserts the late settlement and
+its correction by SQL: the correction endpoint stamps receipt at the current
+time, and the observations table requires `observed_at <= received_at`, so a
+correction of an observation dated after now cannot be recorded through it. The
+browser suite passed 13 checks: catalog-driven settings and terms, preview at
+68.46, save as `observation_formula`, unchanged reload, and the refusals of a
+cleared weight and of a new term with no position shown beside the operation.
+`tools/check_all.py` includes this command.
 
 Local results on 2026-11-13: the managed core suite exited 0 with 675 managed
 core checks passed (863 PASS lines); `npm test --prefix web` passed 1601 tests;
@@ -4385,5 +4404,4 @@ check passed. When the card was added, `--custom-curves-check --browser-check`
 passed 236 owned browser checks, and the API checks, `--custom-curves-check` and
 `--connected-portfolio-check` passed during the storage and preparation changes.
 These are synthetic local checks. They do not qualify a Side, trade or cash
-consumer, explicit roll boundaries, a published observation curve prepared under
-a consumer's demand, or a production activation.
+consumer, explicit roll boundaries, or a production activation.

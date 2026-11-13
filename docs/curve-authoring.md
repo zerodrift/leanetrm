@@ -161,8 +161,9 @@ TypeScript.
 Observation terms are vertical rows with Group, Weight, Position, Less position
 (blank for none) and Period, whose options are the catalog's two periods. Rows
 can be added and removed; a term's ordinal is its place in the list. The browser
-sends each weight as typed, each position as a number and an explicit `null`
-for a blank second position. It resolves no date, average or weight, and a
+sends each weight as typed, each position as a number, and an explicit `null`
+for a blank position or second position; the backend refuses a blank position
+with a message that names the term. It resolves no date, average or weight, and a
 cleared weight leaves Preview and Save enabled so the backend decides.
 
 A refused preview or save also shows the backend's own message beside the
@@ -184,7 +185,8 @@ python3 tools/run_preview.py --pg-bin /path/to/stock/postgres/bin \
 It adds the operation to a saved draft, chooses every setting by its catalog
 label, enters three terms, previews the backend price 68.46, saves an
 `observation_formula`, reloads every term and setting unchanged, and checks
-the backend's refusal of a cleared weight beside the operation. The same command
+the backend's refusals of a cleared weight and of a new term with no position
+beside the operation. The same command
 first runs the HTTP storage and curve checks. `tools/check_all.py` includes it.
 
 ## Publication release resolution (D364)

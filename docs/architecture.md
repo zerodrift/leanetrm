@@ -29,8 +29,8 @@ migration 0227; see [the planning qualification](context.md#selected-correction-
 
 D389 adds a `contract_observations` custom-curve node: per target month, a sum of
 groups of weighted averages of contract positions over a calendar or trade month,
-read from retained history for past days and live context samples otherwise. It
-feeds only a curve combination or the output; the only consumer is a synthetic
+read from retained history for past days and live context samples otherwise. The
+node itself feeds only a curve combination or the output; the only consumer is a synthetic
 formula curve. See [the decision](decisions.md#d389--contract-observation-curve-terms).
 
 D364 connects [publication release resolution](curve-authoring.md#publication-release-resolution-d364).
