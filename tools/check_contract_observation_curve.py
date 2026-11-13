@@ -94,6 +94,10 @@ def run_checks(url,query,manifest):
     during=preview('2027-01-20')
     price(during,'68.52')
     assert live(during)=={CONTRACT[c] for c in 'HD'},during['dependencies']
+    # A context frame without the context day's own observation of its selected contract refuses; no other mark is taken,
+    # not even the 2027-01-22 settlement of H read as history at other contexts.
+    incomplete=preview('2027-01-22',expected=422)
+    assert incomplete['code']=='recipe_input' and '2027-01-22' in incomplete['message'],incomplete
     # After the pricing period the formula is fixed; only the differential remains live.
     after=preview('2027-01-25')
     price(after,'68.50')
@@ -118,7 +122,7 @@ def run_checks(url,query,manifest):
     unknown=preview('2027-01-25',snapshot=historical(unsettled),expected=422)
     assert (unknown['code'],unknown['message'])==(missing['code'],missing['message']),unknown
     client.call('market/current',{})
-    print('PASS contract observation curve: projected, settling and settled formula prices, live inputs by context, a published-source consumer, calendar availability and a refused incomplete history',flush=True)
+    print('PASS contract observation curve: projected, settling and settled formula prices, live inputs by context, a published-source consumer, calendar availability, a refused incomplete history and a refused incomplete context frame',flush=True)
 
     # Review focus 5: a correction of a settlement already read is a new revision with a later knowledge time.
     recorded=known()

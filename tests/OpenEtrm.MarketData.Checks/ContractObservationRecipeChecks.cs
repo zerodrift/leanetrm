@@ -129,9 +129,19 @@ internal static class ContractObservationRecipeChecks
         var series=source.Contracts.Concat(differentials).ToDictionary(c=>c.Contract.Key,c=>new SeriesKey(revision,Guid.NewGuid()));
         Curve Direct(CurveKey key,IEnumerable<RecipeContract> members)=>new(key,quote.Key,R("location"),R("uniform"),new(SettlementKind.FutureSeries,null,null),CurveRule.Direct,
             [..members.Select(c=>c.Contract.Key)],[],ObservationRole.DailySettlement,R("source"),null);
-        var model=new CurveModel(revision,reference,[new QuantitySpecification(R("crude_quantity"),R("crude"),R("crude_volume"),R("barrel"),R("volume"))],[quote],
-            source.Contracts.Concat(differentials).Select(c=>c.Contract),[Direct(source.Key,source.Contracts),Direct(differentialKey,differentials)],
-            futures,[],series.Select(s=>new MarketSeries(s.Value,s.Key,quote.Key,null)));
+        // A composite (basis-spread) source: monthly forwards priced as the future of the same delivery month plus a direct basis.
+        var basisQuote=quote with{Key=R("crude_basis"),Kind=QuoteKind.Basis};
+        var forwards=source.Contracts.Select(c=>new RecipeContract(c.Contract with{Key=new(revision,Guid.NewGuid()),Kind=ContractKind.Forward,FuturesSeries=null},c.EligibleFrom)).ToImmutableArray();
+        var basisKey=new CurveKey(revision,"synthetic_crude_basis");var compositeKey=new CurveKey(revision,"synthetic_crude_composite");
+        var forwardMaps=forwards.Zip(source.Contracts).Select(p=>new ConstituentMapping(p.First.Contract.Key,p.Second.Contract.Key)).ToImmutableArray();
+        var model=new CurveModel(revision,reference,[new QuantitySpecification(R("crude_quantity"),R("crude"),R("crude_volume"),R("barrel"),R("volume"))],[quote,basisQuote],
+            source.Contracts.Concat(differentials).Concat(forwards).Select(c=>c.Contract),[Direct(source.Key,source.Contracts),Direct(differentialKey,differentials),
+                new(basisKey,basisQuote.Key,R("location"),R("uniform"),new(SettlementKind.IndexDifference,R("crude_composite_index"),R("crude_index")),CurveRule.Direct,
+                    [..forwards.Select(c=>c.Contract.Key)],[],ObservationRole.TraderMark,R("source"),null),
+                new(compositeKey,quote.Key,R("location"),R("uniform"),new(SettlementKind.Index,R("crude_composite_index"),null),CurveRule.Add,[..forwards.Select(c=>c.Contract.Key)],
+                    [new(InputSlot.Base,source.Key,SourceExpiryRule.RequireLive,forwardMaps),
+                     new(InputSlot.Spread,basisKey,SourceExpiryRule.RequireLive,[..forwards.Select(c=>new ConstituentMapping(c.Contract.Key,c.Contract.Key))])],null,null,null)],
+            futures,[],series.Select(s=>new MarketSeries(s.Value,s.Key,quote.Key,null)).Concat(forwards.Select(c=>new MarketSeries(new(revision,Guid.NewGuid()),c.Contract.Key,basisQuote.Key,null))));
         (string Day,string Contract,string Value)[] Rows(string day,string f,string g,string h)=>[(day,"F",f),(day,"G",g),(day,"H",h)];
         var december=Rows("2026-12-15","70.00","69.40","68.80").Concat(Rows("2026-12-16","70.30","69.60","68.90"))
             .Concat(Rows("2026-12-17","69.90","69.40","68.80")).Concat(Rows("2026-12-18","70.20","69.60","69.10")).ToArray();
@@ -202,6 +212,9 @@ internal static class ContractObservationRecipeChecks
         var dayBefore=Priced("2027-01-19","12:00:00",[..december,..january.Take(1)],[("G","69.50"),("H","68.80")]);
         Price("day before",Base(dayBefore),"1751","25");Price("day before G+1",Shifted(dayBefore,"G"),"1756","25");
         Price("day before H+1",Shifted(dayBefore,"H"),"1761","25");
+        // Samples are ordered by source, date, contract and then frozen after live, so the order never depends on graph traversal.
+        Equal("day before G samples, live then frozen",string.Join(",",dayBefore.Graph.Result(dayBefore.Basis).Inputs
+            .Where(i=>i.Date==new DateOnly(2027,1,19)&&i.Contract==contracts["G"].Contract.Key).Select(i=>i.Fixed?"frozen":"live")),"live,frozen");
         // Inside the trade month: 12-15 and 12-16 settled, 12-17 frozen at its close, 12-18 and January projected.
         // January (3*69.40+2*68.80)/5=69.16; F, G and H average 70.025, 69.45 and 68.825; roll (2*0.575+1.20)/3; total 20983/300.
         // F+1 moves 12-18 only: (2+1)/4/3=1/4. G+1: 3/5 in January less 2/4/3 in the roll, 13/30. H+1: 2/5 less 1/4/3, 19/60.
@@ -226,8 +239,29 @@ internal static class ContractObservationRecipeChecks
         }
         // A frozen observation belongs to the context frame: a past day's frame cannot supply one.
         var pastFrozen=Prepared("2027-01-20","12:00:00",[..december,..january.Take(2)],marks.Skip(1),null,node,null,null);
-        Message("a frozen observation from a past frame","recipe_input","A frozen context observation",()=>RecipeEngine.Connect(Definition(node),pastFrozen.Inputs,identity,
+        Message("a frozen observation from a past frame","recipe_input","A frozen context observation is read from the context frame only.",()=>RecipeEngine.Connect(Definition(node),pastFrozen.Inputs,identity,
             pastFrozen.Samples.Add(pastFrozen.Samples.Single(s=>s.Date==new DateOnly(2027,1,19)) with{FreezeObservation=true}),pastFrozen.Resolved,references:pastFrozen.Pins));
+        // A composite source has no settlement of its own to freeze: on an observation-day context its frozen sample refuses with
+        // its own message, before any price is compiled.
+        var composite=Prepared("2027-01-20","12:00:00",[..december,..january.Take(2)],marks.Skip(1),null,node,null,null);
+        var compositeSource=new RecipeSource(compositeKey,source.Unit,forwards);var forwardG=forwards[2].Contract.Key;
+        var compositeDefinition=Definition(node) with{Nodes=Definition(node).Nodes.SetItem(0,Definition(node).Nodes[0] with{Parameters=
+            ImmutableDictionary<string,string>.Empty.Add("curve",compositeKey.Code)})};
+        Message("a composite source on an observation day","recipe_input","A frozen context observation needs a direct source curve; synthetic_crude_composite",
+            ()=>RecipeEngine.Connect(compositeDefinition,composite.Inputs with{Sources=composite.Inputs.Sources.SetItem("source",compositeSource)},identity,
+                [new ConnectedRecipeSample(compositeKey,new(2027,1,20),forwardG,model,composite.Samples.First(s=>s.Date==new DateOnly(2027,1,20)).Snapshot,false){FreezeObservation=true}],
+                composite.Resolved,references:composite.Pins));
+        // A source carrying contract price terms settles through those terms, not through its own observation: its frozen sample refuses.
+        var exchangeFinal=new OpenEtrm.MarketData.Curves.ContractPriceTerms(OpenEtrm.MarketData.Curves.ContractPriceTerms.ExchangeFinal,null,null,
+            OpenEtrm.MarketData.Curves.ContractPriceTerms.SingleAssessment,OpenEtrm.MarketData.Curves.ContractPriceTerms.RequireFinal,null);
+        var termsSet=new OpenEtrm.MarketData.Curves.ContractPriceTermsSet(exchangeFinal,[],OpenEtrm.MarketData.Curves.ContractPriceMappings.SameDeliveryPeriod,
+            OpenEtrm.MarketData.Curves.ContractPriceMappings.Resolve(OpenEtrm.MarketData.Curves.ContractPriceMappings.SameDeliveryPeriod,
+                [..source.Contracts.Select(c=>c.Contract)],[..source.Contracts.Select(c=>c.Contract)],[]));
+        var termed=Prepared("2027-01-20","12:00:00",[..december,..january.Take(2)],marks.Skip(1),null,node,null,null);
+        var termedDefinition=Definition(node) with{Nodes=Definition(node).Nodes.SetItem(0,Definition(node).Nodes[0] with{ContractTerms=termsSet})};
+        Message("a source with contract price terms on an observation day","recipe_input","A frozen context observation reads the source contract's own settlement or mark",
+            ()=>RecipeEngine.Connect(termedDefinition,termed.Inputs,identity,[..termed.Samples.Select(s=>s.Source==source.Key?s with{MappedContract=s.Contract,
+                PriceTerms=new OpenEtrm.MarketData.Curves.ContractPriceTermsBinding(exchangeFinal,null,R("crude"),null)}:s)],termed.Resolved,references:termed.Pins));
         // A consumer of the published curve plans it before reading prices: topology needs the sampling instant of every
         // observation day, past days included, not only of the context date.
         var planned=Prepared("2027-01-20","12:00:00",[..december,..january.Take(2)],marks.Skip(1),null,node,null,null);

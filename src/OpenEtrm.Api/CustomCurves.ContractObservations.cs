@@ -45,11 +45,15 @@ public static partial class CustomCurves
         return new(windows.ToImmutable(),[..samples]);
     }
 
-    // A past observation day without its retained sample refuses the whole average; it is never taken over fewer days.
+    // A past observation day without its retained sample refuses the whole average; it is never taken over fewer days. A context
+    // frame without an observation that a frozen context day reads refuses in the same way: no other mark is taken. The frame
+    // read covers every contract of the source that day, so the refusal names the day, not the series.
     static async Task<MarketSnapshot> ObservedHistory(ObservationPlan plan,string sourceNode,DateOnly sampleDay,DateOnly context,Func<Task<MarketSnapshot>> read)
     {
         try{return await read();}
         catch(MarketDataException error)when(error.Code=="missing_observation"&&sampleDay<context&&plan.Samples.Any(s=>s.Source==sourceNode&&s.Date==sampleDay))
         {throw new MarketDataException("recipe_input",$"Observation day {sampleDay:yyyy-MM-dd} has no retained sample of a contract it observes.");}
+        catch(MarketDataException error)when(error.Code=="missing_observation"&&sampleDay==context&&plan.Samples.Any(s=>s.Source==sourceNode&&s.Date==sampleDay&&s.FreezeObservation))
+        {throw new MarketDataException("recipe_input",$"The context frame for observation day {sampleDay:yyyy-MM-dd} lacks an observation of a contract that day or a later day reads.");}
     }
 }

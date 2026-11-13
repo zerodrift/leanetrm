@@ -1,8 +1,8 @@
 """Synthetic crude futures, a monthly differential and a nine-day business calendar for contract observation curves.
 
 Every name, date and price is synthetic. Five monthly futures E to J expire at 19:30 UTC and settle daily; every observation
-is sampled at 12:00 UTC. Four closes hold the context marks; the other settlements are history read at their own day's
-12:00. The 2027-01-19 settlement of G is recorded by the check, after its first knowledge view."""
+is sampled at 12:00 UTC. Four closes hold the context marks, and a fifth omits one for a refusal; the other settlements
+are history read at their own day's 12:00. The 2027-01-19 settlement of G is recorded by the check, after its first knowledge view."""
 from preview_fixture import CAT, REV, R, M
 
 CURVE, DIFFERENTIAL, CALENDAR = 'synthetic_crude_future', 'synthetic_crude_differential', 'synthetic_crude_days'
@@ -14,7 +14,10 @@ BUSINESS_DAYS = ['2026-12-15', '2026-12-16', '2026-12-17', '2026-12-18', '2027-0
 CLOSES = {'2026-12-01': {'F': '70.00', 'G': '69.40', 'H': '68.80', 'J': '68.20'},
           '2026-12-22': {'G': '69.40', 'H': '68.80', 'J': '68.20'},
           '2027-01-20': {'G': '69.30', 'H': '68.85', 'J': '68.25'},
-          '2027-01-25': {'H': '68.60', 'J': '68.10'}}
+          '2027-01-25': {'H': '68.60', 'J': '68.10'},
+          # Incomplete on purpose: it omits H, the contract the 2027-01-22 observation day selects, so the frozen context-day
+          # observation has nothing to read and the preview refuses rather than take another mark.
+          '2027-01-22': {'J': '68.20'}}
 DIFFERENTIAL_MARK = '-1.50'
 # Settlements read as history at 12:00 on observation days that are no context date.
 HISTORY = {'2026-12-15': {'F': '70.00', 'G': '69.40', 'H': '68.80'}, '2026-12-16': {'F': '70.30', 'G': '69.60', 'H': '68.90'},

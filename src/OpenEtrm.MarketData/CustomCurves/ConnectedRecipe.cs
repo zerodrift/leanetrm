@@ -265,8 +265,12 @@ public static partial class RecipeEngine
             var mapped=definition.Nodes.Where(n=>n.Kind=="source"&&inputs.Sources[n.Id].Key==sample.Source).Select(n=>n.ContractTerms?.SourceFor(sample.Contract)).ToArray();
             if(declared.Length==0||declared.Any(t=>t!=declared[0])||declared[0]!=sample.PriceTerms?.Terms||mapped.Any(m=>m!=mapped[0])||mapped[0]!=sample.MappedContract)
                 throw Missing("A source sample must retain its exact declared contract terms; conflicting aliases require separate source identities.");
-            if(sample.FreezeObservation&&(sample.FreezeHistorical||sample.Snapshot.ValuationAt!=inputs.ValuationAt||sample.PriceTerms is not null||sample.MappedContract is not null))
-                throw Missing("A frozen context observation is read from the context frame of a source without contract price terms.");
+            if(sample.FreezeObservation&&(sample.FreezeHistorical||sample.Snapshot.ValuationAt!=inputs.ValuationAt))
+                throw Missing("A frozen context observation is read from the context frame only.");
+            if(sample.FreezeObservation&&(sample.PriceTerms is not null||sample.MappedContract is not null))
+                throw Missing("A frozen context observation reads the source contract's own settlement or mark; a source carrying contract price terms cannot supply one.");
+            if(sample.FreezeObservation&&sample.Model.AssetDefinition(sample.Source).Rule!=CurveRule.Direct)
+                throw Missing($"A frozen context observation needs a direct source curve; {sample.Source.Code} derives its prices from other curves and has no settlement or mark of its own to freeze.");
             retained.Add(key,sample);
         }
         if(samples.Any(s=>!inputs.Sources.Values.Any(v=>v.Key==s.Source)))throw Missing("A sample belongs to an undeclared source.");
@@ -281,7 +285,7 @@ public static partial class RecipeEngine
             if(formula.Sample is {} key)localKeys.Add(key);
             foreach(var child in formula.Inputs)pending.Push(child);
         }
-        var local=localKeys.OrderBy(k=>k.Source.Code,StringComparer.Ordinal).ThenBy(k=>k.Date).ThenBy(k=>k.Contract.Id).ToArray();
+        var local=localKeys.OrderBy(k=>k.Source.Code,StringComparer.Ordinal).ThenBy(k=>k.Date).ThenBy(k=>k.Contract.Id).ThenBy(k=>k.FreezeObservation).ToArray();
         if(demand is not null)
         foreach(var key in local)
         {
