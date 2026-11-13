@@ -314,7 +314,8 @@ def main():
             if migration.name=='0252_contract_observation_nodes.sql':
                 from check_contract_observation_upgrade import run_checks as check_contract_observation_upgrade,populated_checks
                 check_contract_observation_upgrade(query,migration)
-                # The populated qualification loads this mode's fixtures as they stand, so it runs only for the fixtures it was written for.
+                # The populated qualification runs once, on the base fixture in one transaction; the contract dates mode's window_frames
+                # fixture cannot load that way, because its pinned curve's date admissions arrive only through a rewritten load.
                 if args.contract_observation_curve_check:populated_checks(query,migration,[reference,market,security],manifest)
             if args.lng_cargo_check and migration.name=='0176_lng_cargo_references.sql':
                 from check_lng_upgrade import run_checks as check_lng_upgrade

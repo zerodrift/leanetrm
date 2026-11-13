@@ -250,8 +250,10 @@ to add a differential) or the output; other consumers refuse with
 `recipe_definition`. A consumer reading the published output through
 `published_source` may still average, look up or splice its cells. A source
 node carrying contract price terms that feeds this node is not refused when
-saved; its context-day observation refuses with `recipe_input`. No check
-exercises such a source. Such a curve's kind is `observation_formula`. Formula mode carries the
+saved; its context-day observation refuses with `recipe_input`, and so does a
+composite (`Add` or `ScaleAdd`) source curve, which derives its prices from other
+curves and has no settlement or mark of its own to freeze. Managed checks cover
+both; each has its own message. Such a curve's kind is `observation_formula`. Formula mode carries the
 rows in a typed `observationTerms=[...]` argument. The terms enter graph
 equality and formula text; the terms and the resolved windows enter the
 canonical declaration and its manifest. Each term refusal is
@@ -266,7 +268,8 @@ refuses with `recipe_reference`.
 Migration 0252 retains the terms in `custom_curve_observation_terms` and
 revalidates them at publication. Every owned preview's migration loop qualifies
 it against drifted predecessors; `--contract-observation-curve-check` also
-qualifies it against a populated prior schema loaded from its own fixtures. The synthetic crude fixture and its HTTP check
+qualifies it once against a populated prior schema, the base preview fixture
+loaded in one transaction. The synthetic crude fixture and its HTTP check
 run with `--contract-observation-curve-check`; adding `--browser-check` runs
 the Curve builder suite. The only consumer is that synthetic formula curve; no
 trade or Side consumes these outputs yet.

@@ -4550,8 +4550,11 @@ Refusals are structured:
   windows that do not match the targets and terms or their periods, a past
   observation day without its retained sample, and a context day whose context
   frame holds no observation of the selected contract at the valuation instant
-  (absent, or only an earlier mark) or whose source carries contract price
-  terms.
+  (absent, or only an earlier mark), whose source carries contract price terms,
+  or whose source is a composite (`Add` or `ScaleAdd`) curve. Each of the last
+  two has its own message: a frozen observation reads the source contract's own
+  settlement or mark, and a composite curve derives its prices from other
+  curves and has none to freeze.
 - `recipe_reference`: a business-day node without its exact calendar pin, a pin
   naming another calendar, or a window day that is not a business day of it.
 - `recipe_formula`: formula text whose term omits `lessPosition` or adds an
@@ -4575,11 +4578,14 @@ this kind as a `weighted_panels` input, after pinning their prior definitions by
 hash. Published terms are immutable. No rows are rewritten. The preview's
 migration loop qualifies it (`tools/check_contract_observation_upgrade.py`). In
 every owned preview the pins refuse a changed guard body, owner, configuration,
-ACL and node-kind constraint. Under `--contract-observation-curve-check` only,
-whose fixtures it loads, the populated qualification seeds a published
-`weighted_panels` combination on the prior schema; the version reads back
-unchanged after 0252 and both panel guards still refuse a source input, as they
-did before it.
+ACL and node-kind constraint. The populated qualification runs once, under
+`--contract-observation-curve-check`, on the base preview fixture loaded in one
+transaction on the prior schema (the crude fixture is applied after the
+migration loop). It seeds a published `weighted_panels` combination; the version
+reads back unchanged after 0252 and both panel guards still refuse a source
+input, as they did before it. The contract dates mode's `window_frames` fixture
+cannot load in one transaction, because it seals a pinned contract curve whose
+date admissions that mode inserts only by rewriting the load.
 
 The API prepares and previews the node through the ordinary custom-curve
 operations and offers it in the operator catalog with its admitted choices. The
@@ -4597,7 +4603,9 @@ factor; G +1 gives 70.56, H +1 gives 70.36); 70.02 on 2027-01-20 with G frozen
 70.00 on 2027-01-25 with no live futures; a two-target case at 10724/155 and
 4807/70; and the engine and declaration refusals above, including a missing past
 observation, a context frame without the context day's contract or with only an
-earlier mark of it, and the ordinal and member each term refusal names. Planning
+earlier mark of it, a frozen sample from a past frame, a composite (`Add`)
+source and a source carrying contract price terms on an observation-day context,
+and the ordinal and member each term refusal names. Planning
 a consumer at 2027-01-20 refuses with `recipe_input` when only the context
 instant is supplied; with the sampling instant of every window day it plans
 sixteen native inputs (F, G and H on each December day, G on 2027-01-18 and
@@ -4611,12 +4619,15 @@ differential prices 68.46 on 2026-12-01 and 2026-12-22, 68.52 on 2027-01-20 and
 68.50 on 2027-01-25, with the expected live inputs at each; on 2027-01-20 only H
 and the differential are live. A consumer reading it through `published_source`
 prices the same values, with the same live inputs on 2027-01-20, and calendar
-availability (`market/dates`) for either definition lists all four closes; without the window
+availability (`market/dates`) for either definition lists the four priced closes; without the window
 days' sampling instants the consumer's three later closes are unavailable. Before
 the 2027-01-19 settlement is recorded the finished average refuses, and the
 knowledge view captured then still refuses afterwards. A later correction to
 69.55 gives 68.51, also through the consumer, while the knowledge view before it
-reproduces 68.50. A term whose position is `null` refuses with
+reproduces 68.50. A fifth, deliberately incomplete close on 2027-01-22 omits
+H, the contract that observation day selects, and the preview refuses with
+`recipe_input` naming the day rather than take the 2027-01-22 settlement read
+as history elsewhere. A term whose position is `null` refuses with
 `recipe_definition` naming that term. The storage check covers the table rules,
 security parity with the other node tables, publication refusals and
 immutability. The browser suite builds the curve through the Curve builder's
@@ -4629,10 +4640,15 @@ trade, ticket or cash consumer exists, and the only consumer is the synthetic
 formula curve (indexed crude consideration on a Side is separate, later work);
 explicit roll boundaries; one synthetic fixture. Every observation day is sampled
 at one UTC time of day, so a window that crosses a daylight-saving change of a
-local-time close is not modelled. A source node carrying contract price terms
-that feeds this node is not refused when saved; its context-day observation
-refuses with `recipe_input`, because a frozen observation is read only from a
-direct source's own observation. No check exercises such a source. "Feeds only"
+local-time close is not modelled. A source node carrying contract price terms,
+or a composite (`Add` or `ScaleAdd`) source curve, that feeds this node is not
+refused when saved, but its context-day observation refuses with `recipe_input`
+on every observation-day context, because a frozen observation is read only
+from a direct source's own settlement or mark; past and later days of such a
+source are not refused by this rule. The managed check covers both refusals; no
+HTTP check builds such a source. Over the API, a context frame that lacks any
+observation the context day's source read needs is refused for the day, without
+naming the contract or saying whether a frozen or a live day needed it. "Feeds only"
 holds for the node itself: a consumer that reads the published output through
 `published_source` may still average, look up or splice its cells. The check
 inserts the late settlement and its correction by SQL: the correction endpoint

@@ -1,7 +1,9 @@
 """Migration 0252 against its reviewed predecessors and a populated database, inside the owned preview only.
 
-The drift checks run in every owned preview. The populated-database qualification loads the preview's own fixtures in
-one transaction, so it runs only under the contract observation curve check, whose fixtures it was written for."""
+The drift checks run in every owned preview. The populated-database qualification runs once, under the contract
+observation curve check, on the base preview fixture loaded in one transaction on the prior schema (the crude fixture is
+applied after the migration loop). The contract dates mode's window_frames fixture cannot load in one transaction: it seals
+a pinned contract curve whose date admissions that mode inserts only by rewriting the load."""
 from uuid import uuid4
 from assistant_context import check_guard, migration_body
 

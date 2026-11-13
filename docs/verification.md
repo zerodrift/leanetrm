@@ -4358,7 +4358,9 @@ also asserts the windows, declaration identity, formula text and each refusal,
 with the ordinal and member each term refusal names, including a `null`
 position and a group whose weights cannot be summed, and the `recipe_input`
 refusal of a context frame without the context day's contract, with only an
-earlier mark of it, or offering a frozen observation from a past frame. Planning a consumer at
+earlier mark of it, or offering a frozen observation from a past frame, and the
+refusals, each with its own message, of a composite (`Add`) source and of a source
+carrying contract price terms on an observation-day context. Planning a consumer at
 2027-01-20 refuses with `recipe_input` given only the context instant; given
 every window day's sampling instant it plans the sixteen expected native inputs,
 the context day's G among them as a frozen input, and the curve prices 70.02
@@ -4375,12 +4377,14 @@ dotnet run --project tests/OpenEtrm.Api.Checks -c Release -- --contract-observat
 Every owned preview qualifies migration 0252 in its migration loop
 (`tools/check_contract_observation_upgrade.py`): the hash pins refuse a changed
 panel guard body, owner, configuration, ACL and node-kind constraint. The
-populated qualification runs only under `--contract-observation-curve-check`,
-whose fixtures it loads: with a published `weighted_panels` combination seeded
-on the prior schema, the version reads back unchanged after 0252 and both panel
-guards still refuse a source input. Other modes' fixtures are not written for a
-one-transaction load (the contract dates fixture seals a pinned contract curve
-only after its admissions are inserted), so they run the drift checks alone.
+populated qualification runs once, under `--contract-observation-curve-check`,
+on the base preview fixture loaded in one transaction on the prior schema (the
+crude fixture is applied after the migration loop): with a published
+`weighted_panels` combination seeded there, the version reads back unchanged
+after 0252 and both panel guards still refuse a source input. The contract
+dates mode's `window_frames` fixture is the one that cannot load in one
+transaction: it seals a pinned contract curve whose date admissions that mode
+inserts only by rewriting the load.
 
 The owned stock PostgreSQL preview loads the synthetic crude fixture, then runs
 the storage check (table rules, security parity, publication refusals,
@@ -4397,11 +4401,13 @@ The published curve prices 68.46 on 2026-12-01 and on 2026-12-22, 68.52 on
 2027-01-20 only H and the differential are live. A consumer reading it through
 `published_source` prices the same values, with the same live inputs on
 2027-01-20, and
-`market/dates` for either definition lists all four closes. Before the
+`market/dates` for either definition lists the four priced closes. Before the
 2027-01-19 settlement is recorded the finished average refuses with
 `recipe_input`, and the knowledge view captured then still refuses afterwards.
 A correction to 69.55 gives 68.51, also through the consumer, while the view
-before it reproduces 68.50. A term whose position is `null` refuses with
+before it reproduces 68.50. A deliberately incomplete fifth close on 2027-01-22
+omits H, the contract that observation day selects, and the preview refuses with
+`recipe_input` naming the day. A term whose position is `null` refuses with
 `recipe_definition` naming the term. The check inserts the late settlement and
 its correction by SQL: the correction endpoint stamps receipt at the current
 time, and the observations table requires `observed_at <= received_at`, so a
