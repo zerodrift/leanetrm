@@ -3,7 +3,7 @@ import {portAccepts} from './custom-curve-model.js';
 import {offersComponentHistory,setupComponentHistory,type HistoryCatalog} from './component-history-view.js';
 import {currentAuthoringVersion} from './authoring-version.js';
 import {contractPriceStatusRows,type ContractPriceStatus} from './contract-price-status.js';
-import {type CurveDefinition,type CurveNode,type CurveLayout,type ContractWeight,type ObservationTerm,changeObservationTerms,type PublishedSourceReference,type PreviewSummary,type ConnectableTarget,changeContractWeights,curveEdges,curveLayout,changeCurveConnection,previewTable,previewTiles,recipeStateLabel,knownCurveRejection,curveFieldVisible,editCurveParameters,nextDynamicPort,removeCurveConnection,contractObjects,connectableTargets,contractTargets,pickContract,missingContractInputs,contractPort,connectableSources} from './custom-curve-model.js';
+import {type CurveDefinition,type CurveNode,type CurveLayout,type ContractWeight,type ObservationTerm,changeObservationTerms,type PublishedSourceReference,type PreviewSummary,type ConnectableTarget,changeContractWeights,curveEdges,curveLayout,changeCurveConnection,previewTable,previewTiles,recipeStateLabel,knownCurveRejection,curveRefusalMessage,curveFieldVisible,editCurveParameters,nextDynamicPort,removeCurveConnection,contractObjects,connectableTargets,contractTargets,pickContract,missingContractInputs,contractPort,connectableSources} from './custom-curve-model.js';
 import {renderRegularTable} from './regular-table.js';
 import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
 import {displayInstant,publicText} from './market-view.js';
@@ -223,8 +223,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
  function notifyMarketScope(){if(initialized)o.marketScopeChanged?.();}
  function dateDefinition():CurveDefinition|undefined{return catalog&&!formulaDirty&&definition.nodes.length?clone(definition):undefined;}
  function invalidate(){showRefusal();opened=true;generation++;dirty=true;effectiveCurve=undefined;templateHelp.textContent='';markPreviewOutOfDate();renderStatus();notifyMarketScope();}
- /** Shows the message a refusal carries from the backend; with none, or with no error, clears it. */
- function showRefusal(error?:unknown){const message=(error as {details?:{message?:unknown}}|undefined)?.details?.message;refusal.textContent=typeof message==='string'?publicText(message):'';refusal.hidden=!refusal.textContent;}
+ /** Shows the backend's message of a definite refusal; anything else, or no error, clears it. */
+ function showRefusal(error?:unknown){refusal.textContent=publicText(curveRefusalMessage(error));refusal.hidden=!refusal.textContent;}
  // An edit leaves the last chart and tiles in view, subdued and labeled. They are display only: every value that can be read or acted on goes.
  function markPreviewOutOfDate(){if(result.hidden){clearPreview();return;}clearValues();previewStale.hidden=false;result.classList.add('out-of-date');}
  function clearValues(){historyView.clear();lastPreview=undefined;lineageEmpty.hidden=false;receipt.textContent='';table.replaceChildren();lineageBody.replaceChildren();}

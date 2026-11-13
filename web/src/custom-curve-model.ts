@@ -115,6 +115,12 @@ export function previewTable(preview:{columns:string[];rows:(string|null)[][]}){
 export function knownCurveRejection(code:string|undefined):boolean{
  return !!code&&['curve_activation_conflict','curve_activation_input','curve_activation_overlap','custom_curve_conflict','custom_curve_definition','recipe_definition','recipe_transform','custom_curve_limit','access_denied','historical_read_only','request_format','request_too_large','request_token','definition_rejected'].includes(code);
 }
+/** The backend's own message for a definite refusal of a curve request, or ''. A server failure (status 500 or above) cannot confirm a
+ * refusal, and a request the server could not read (request_format) is resolved by a refresh, so neither carries a message to show. */
+export function curveRefusalMessage(error:unknown):string{
+ const refusal=error as {status?:unknown;code?:unknown;details?:{message?:unknown}}|undefined,message=refusal?.details?.message;
+ return typeof refusal?.status==='number'&&refusal.status<500&&refusal.code!=='request_format'&&typeof message==='string'?message:'';
+}
 export type ConditionalCurveField={key:string;when?:{key:string;values:string[]}};
 export function curveFieldVisible(field:ConditionalCurveField,parameters:Record<string,unknown>):boolean{
  return !field.when||field.when.values.includes(String(parameters[field.when.key]));

@@ -198,3 +198,12 @@ test('observation terms keep their list order as ordinals when a term is removed
  const added=changeObservationTerms(observed(),'crude',[...observationTerms(),blank]).nodes[1].observationTerms;
  assert.deepEqual(added.at(-1),{...blank,ordinal:3},'a new term carries no chosen weight, position or period');
 });
+test('only a definite refusal gives the backend message shown beside the operation',async()=>{
+ const {curveRefusalMessage}=await import('../dist/custom-curve-model.js');
+ const refused=(status,code,message)=>Object.assign(Error('Workbench wording'),{status,code,details:{code,message}});
+ assert.equal(curveRefusalMessage(refused(422,'recipe_definition','Every weight must be explicit exact decimal text.')),'Every weight must be explicit exact decimal text.');
+ assert.equal(curveRefusalMessage(refused(400,'request_format','The JSON value could not be converted.')),'','a request the server could not read is not a business refusal');
+ assert.equal(curveRefusalMessage(Object.assign(Error('Server failure'),{status:500,code:undefined,details:{code:'internal',message:'Diagnostic text'}})),'','a server failure cannot confirm a refusal');
+ assert.equal(curveRefusalMessage(Error('Network failure')),'');assert.equal(curveRefusalMessage(undefined),'');
+ assert.equal(curveRefusalMessage(refused(422,'recipe_definition',{text:'not a string'})),'');
+});
