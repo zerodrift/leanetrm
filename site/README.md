@@ -11,9 +11,9 @@ offer, illustration or media (D385 in the
 
 The files use project-owned HTML, CSS and an SVG icon. There are no JavaScript
 or third-party runtime dependencies. They are separate from the signed-in
-application's browser build. [headers.inc](headers.inc) allows styles, images
-and media only from this site, so a page carries no inline styles and no
-outside players.
+application's browser build. [headers.inc](headers.inc) allows styles and
+images only from this site and no media, so a page carries no inline styles and
+plays nothing (D388).
 
 The stylesheet URL carries its first 12 SHA-256 hex characters as a cache version.
 Update it when the stylesheet changes; the content checks enforce the match.
