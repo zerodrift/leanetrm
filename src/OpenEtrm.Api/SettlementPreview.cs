@@ -136,7 +136,8 @@ internal sealed class SettlementPreview(PreviewDatabase database,PpaStore trades
                 priceSources.Add(new{curve=group.Key,unit=curve.Unit,read.SourceId,read.Contexts,frozenContext,publication="collected",contractuallyFinal=false});
             }
             var dependencies=curves.Values.SelectMany(c=>c.Months.SelectMany(m=>c.Dependencies(m))).Distinct().ToImmutableArray();
-            if(dependencies.Any(d=>!frame.CurveContracts.GetValueOrDefault(d.Curve.Code,[]).Contains(d.Contract.Id)))
+            if(!PreparedCurve.MissingInputs(data.Model,snapshot,curves.Values,dependencies,
+                frame.CurveContracts.Keys.SelectMany(code=>data.Requests(frame,code)).ToHashSet(),ct).IsEmpty)
                 throw Error("index_evidence","The frame omits a required index dependency.");
             indexPrices=GrossIndexedPrices.Resolve(plan,curves.ToImmutable(),data.Model.Build(snapshot,dependencies),known);
         }

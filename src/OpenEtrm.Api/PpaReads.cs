@@ -188,7 +188,8 @@ internal sealed class PpaReads
         ImmutableArray<CurveRequest> Dependencies()=>[..bindings.SelectMany(b=>requestedBindings.Where(r=>r.Key.Binding==b.BindingId)
             .SelectMany(r=>curves[r.Key.Curve].Months.Where(r.Value.Contains).SelectMany(m=>bindingSelections[r.Key].SelectMany(selection=>curves[r.Key.Curve].Dependencies(m,selection))))).Distinct()];
         var dependencies=Dependencies();
-        var missing=dependencies.Where(d=>!frame.CurveContracts.GetValueOrDefault(d.Curve.Code,[]).Contains(d.Contract.Id)).ToArray();
+        var missing=PreparedCurve.MissingInputs(data.Model,snapshot,curves.Values,dependencies,
+            frame.CurveContracts.Keys.SelectMany(code=>data.Requests(frame,code)).ToHashSet(),ct);
         if(missing.Length>0)
         {
             if(closeRiskInputs)

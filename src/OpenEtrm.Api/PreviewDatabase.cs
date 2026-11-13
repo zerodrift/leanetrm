@@ -1173,7 +1173,7 @@ public sealed class PreviewData
     }
     static string RateChoiceLabel(string field,string code)=>RateCurveMath.Choices.Single(c=>c.Field==field&&c.Code==code).Label;
     // A rate curve's inspection view at one close (D359): each tenor's maturity, mark in its declared unit and discount factor.
-    public object Result(InputFrame frame,string code,RateCurveDefinition? rateDefinition=null)
+    public object Result(InputFrame frame,string code,RateCurveDefinition? rateDefinition=null,CurveBuild? viewBuild=null)
     {
         if(IsRateCurve(code))
         {
@@ -1189,10 +1189,9 @@ public sealed class PreviewData
         if(frame.CurveContracts.TryGetValue(code,out var selected) && selected.IsEmpty)
         {
             if(!DefinitionRows("curves","code",code).Any())throw new MarketDataException("missing_curve","Select an exact curve definition.");
-            return new {snapshotId=frame.Id,frame.Name,at=frame.At,curve=code,availability="no_remaining_contracts",
-                evaluated=0,numericalPolicy=CurveModel.NumericalPolicy,summary=ContractSummary(0,null,CurveSummary.NoRemainingContracts),trace=Array.Empty<object>(),points=Array.Empty<object>(),observationIds=frame.ObservationIds};
+            return EmptyContractResult(frame,code);
         }
-        var build=Build(frame,code);
+        var build=viewBuild??Build(frame,code);
         var nodeIds=build.Evaluations.Select((e,i)=>(e,i)).ToDictionary(p=>(p.e.Result.Request,p.e.Use),p=>"step_"+p.i.ToString(System.Globalization.CultureInfo.InvariantCulture));
         var trace=build.Evaluations.Select(e=>
         {
@@ -1224,6 +1223,8 @@ public sealed class PreviewData
                     interval=IntervalCurveDefinitions.Label(contractRows[v.Request.Contract.Id].Single().Interval) };
             }).ToArray(), observationIds=frame.ObservationIds };
     }
+    internal object EmptyContractResult(InputFrame frame,string code)=>new {snapshotId=frame.Id,frame.Name,at=frame.At,curve=code,availability="no_remaining_contracts",
+        evaluated=0,numericalPolicy=CurveModel.NumericalPolicy,summary=ContractSummary(0,null,CurveSummary.NoRemainingContracts),trace=Array.Empty<object>(),points=Array.Empty<object>(),observationIds=frame.ObservationIds};
 }
 public static class JsonFields
 {

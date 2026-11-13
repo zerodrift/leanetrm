@@ -1,6 +1,8 @@
+import type {ContractDisplaySelection} from './contract-display.js';
+import {defaultContractDisplay,readContractDisplay} from './contract-display.js';
 import {navigationGroups} from './navigation-groups.js';
 // market is the Market filter's commodity code, or null for All markets.
-export type Preferences={version:1;timeZone:string;browseBy:'commodity'|'marketType';market:string|null;marketType:'all'|'futures'|'forwards'|'rates';tab:'prices'|'inputs'|'dependencies';sidebarCollapsed:boolean;libraryCollapsed:boolean;assistantHidden:boolean;assistantMinimized:boolean;collapsedMenus:string[];collapsedCurveGroups:string[]};
+export type Preferences={version:1;contractDisplay:ContractDisplaySelection;timeZone:string;browseBy:'commodity'|'marketType';market:string|null;marketType:'all'|'futures'|'forwards'|'rates';tab:'prices'|'inputs'|'dependencies';sidebarCollapsed:boolean;libraryCollapsed:boolean;assistantHidden:boolean;assistantMinimized:boolean;collapsedMenus:string[];collapsedCurveGroups:string[]};
 // Collapsed groups are saved by navigation group id. The earlier three-group sidebar saved other ids; they name no current
 // group, so a saved profile loses them instead of failing to load.
 const groupIds:string[]=navigationGroups.map(group=>group.id),retiredMenus=['market-menu','settings-menu','trading-menu','settings','admin'];
@@ -9,7 +11,7 @@ export function validTimeZone(zone:unknown):zone is string {if(typeof zone!=='st
 export function zoneChoices(current:string){return [...new Set(['UTC',current,...Intl.supportedValuesOf('timeZone')])].map(zone=>({value:zone,name:zone.replaceAll('_',' ')}));}
 export function newPreferences(zone:string):Preferences {
   if(!validTimeZone(zone))throw Error('Choose a valid time zone.');
-  return {version:1,timeZone:zone,browseBy:'commodity',market:null,marketType:'all',tab:'prices',sidebarCollapsed:false,libraryCollapsed:false,assistantHidden:false,assistantMinimized:false,collapsedMenus:[],collapsedCurveGroups:[]};
+  return {version:1,contractDisplay:defaultContractDisplay(),timeZone:zone,browseBy:'commodity',market:null,marketType:'all',tab:'prices',sidebarCollapsed:false,libraryCollapsed:false,assistantHidden:false,assistantMinimized:false,collapsedMenus:[],collapsedCurveGroups:[]};
 }
 export function parsePreferences(raw:string):Preferences {
   const v=JSON.parse(raw);
@@ -18,5 +20,5 @@ export function parsePreferences(raw:string):Preferences {
   for(const name of ['collapsedMenus','collapsedCurveGroups'])if(v[name]!==undefined&&(!Array.isArray(v[name])||v[name].length>64||v[name].some((x:unknown)=>typeof x!=='string'||x.length>128)||new Set(v[name]).size!==v[name].length))throw Error('Saved menu settings could not be read.');
   const menus:string[]=(v.collapsedMenus??[]).filter((x:string)=>!retiredMenus.includes(x));
   if(menus.some(x=>!groupIds.includes(x)))throw Error('Saved menu settings could not be read.');
-  return {version:1,timeZone:v.timeZone,browseBy:v.browseBy,market:v.market??null,marketType:v.marketType,tab:v.tab,sidebarCollapsed:v.sidebarCollapsed??false,libraryCollapsed:v.libraryCollapsed??false,assistantHidden:v.assistantHidden??false,assistantMinimized:v.assistantMinimized??false,collapsedMenus:menus,collapsedCurveGroups:v.collapsedCurveGroups??[]};
+  return {version:1,contractDisplay:v.contractDisplay===undefined?defaultContractDisplay():readContractDisplay(v.contractDisplay),timeZone:v.timeZone,browseBy:v.browseBy,market:v.market??null,marketType:v.marketType,tab:v.tab,sidebarCollapsed:v.sidebarCollapsed??false,libraryCollapsed:v.libraryCollapsed??false,assistantHidden:v.assistantHidden??false,assistantMinimized:v.assistantMinimized??false,collapsedMenus:menus,collapsedCurveGroups:v.collapsedCurveGroups??[]};
 }

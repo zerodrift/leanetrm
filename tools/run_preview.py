@@ -76,6 +76,7 @@ def main():
     parser.add_argument('--index-fixing-check',action='store_true',help='Qualify published monthly and partially fixed daily index observations')
     parser.add_argument('--contract-dates-check',action='store_true',help='Qualify the shared contract-date library')
     parser.add_argument('--regional-closes-check',action='store_true',help='Qualify D334 regional close sessions, grants and the close in force')
+    parser.add_argument('--curve-eligibility-check',action='store_true',help='Qualify fresh live outputs and retained frozen dependencies in an owned fixture')
     parser.add_argument('--pilot-close-check',action='store_true',help='Qualify explicitly generated pilot closes in an owned fixture')
     parser.add_argument('--swap-risk-holdings-check',action='store_true',help='Qualify stored swap risk materialization in an owned fixture')
     parser.add_argument('--close-out-drafts-check',action='store_true',help='Qualify Blotter close-out drafts of futures and swaps, settled periods and refusals in an owned fixture')
@@ -136,6 +137,10 @@ def main():
             parser.error('--markets-desk-check runs alone; omit other named checks and benchmarks')
         args.check=True
         args.browser_check=True
+    if args.curve_eligibility_check:
+        args.check=True
+        if args.example!='standard' or args.browser_check:
+            parser.error('--curve-eligibility-check requires the standard fixture without browser checks')
     if args.reference_import_check:
         args.check=True
         if args.example!='standard' or args.browser_check:
@@ -268,6 +273,9 @@ def main():
             from demo_date_plan import compile_plan
             date_plan=compile_plan(dotnet,dll,temporary) if not args.check and not gas_demo else None
             reference,market,security,manifest=fixture(ROOT,fixing_frames=fixing_frames,date_plan=date_plan,window_frames=args.contract_dates_check)
+            if args.curve_eligibility_check:
+                from check_curve_eligibility import prepare as prepare_curve_eligibility
+                reference,market,manifest=prepare_curve_eligibility(reference,market,manifest)
             if args.gas_indexed_check:
                 from gas_indexed_fixture import add_fixture
                 reference,market,security,manifest=add_fixture(reference,market,security,manifest)
@@ -1181,6 +1189,9 @@ def main():
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id,'closeOut':close_out_fixture}))
                     browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--close-out'],cwd=ROOT,env=env,start_new_session=True)
                     if browser_process.wait(timeout=240):raise RuntimeError('Owned Blotter close-out browser checks failed')
+            elif args.curve_eligibility_check:
+                from check_curve_eligibility import run_checks as check_curve_eligibility
+                check_curve_eligibility(url,query,manifest)
             elif args.regional_closes_check:
                 from check_close_sessions import run_checks as check_close_sessions
                 check_close_sessions(url,query,manifest)

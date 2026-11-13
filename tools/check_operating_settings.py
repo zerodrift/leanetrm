@@ -67,6 +67,10 @@ def run_checks(query, manifest):
     assert prefer() == first
     assert json.loads(call('viewer', "SELECT presentation.user_preferences('api')::text"))['current'] is None, 'Another human must not see the administrator preferences'
     assert json.loads(call('admin', "SELECT presentation.user_preferences('exchange')::text"))['current'] is None
+    display_preferences = {**preferences, 'contractDisplay': {'version':'curve_display_v1','contracts':'captured_contracts_with_status_v1'}}
+    assert query("SELECT presentation.valid_user_preferences('"+json.dumps(display_preferences).replace("'", "''")+"'::jsonb)") == 't'
+    for display in [None,{},dict(version='unknown',contracts='eligible_contracts_v1'),dict(version='curve_display_v1',contracts='guess')]:
+        refused(lambda display=display: prefer(op=str(uuid4()), expected=1, values={**preferences,'contractDisplay':display}), 'user_preferences_input')
     changed_preferences = {**preferences, 'timeZone': 'UTC'}
     second = prefer(op=str(uuid4()), expected=1, values=changed_preferences)
     assert second['version'] == 2 and prefer() == first

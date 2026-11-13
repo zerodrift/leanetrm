@@ -38,6 +38,31 @@ internal static class IntervalAnchorChecks
         PreparedCurve Prepare(ShapedIntervalCurve c,IReadOnlyList<IntervalActual>? observed=null,DateTimeOffset? known=null)=>
             PreparedCurve.Prepare(c,[(from,to)],cells,observed??actuals,at,known??at);
         var prepared=Prepare(curve);var requests=prepared.Dependencies(new(2031,11,1));
+        var selectedOutputs=ImmutableHashSet.Create(new CurveRequest(bal.Key,balance.Key));
+        Equal(PreparedCurve.MissingInputs(model,snapshot,[prepared],requests,selectedOutputs).Length,0);
+        var missingLive=PreparedCurve.MissingInputs(model,snapshot,[prepared],requests,ImmutableHashSet<CurveRequest>.Empty);
+        Equal(missingLive.SequenceEqual([new CurveRequest(bal.Key,balance.Key)]),true);
+        void RefuseAnchor(string code,SelectedObservation? changed,PreparedCurve? consumer=null)
+        {
+            var source=snapshot with{Selections=changed is null?[live]:[changed,live]};
+            Reject(code,()=>PreparedCurve.MissingInputs(model,source,[consumer??prepared],requests,selectedOutputs));
+        }
+        RefuseAnchor("missing_observation",null);
+        RefuseAnchor("missing_observation",final with{Input=final.Input with{Use=InputUse.Variable}});
+        RefuseAnchor("frozen_fact",final with{Observation=final.Observation with{Role=ObservationRole.TraderMark}});
+        RefuseAnchor("selection_mismatch",final with{Observation=final.Observation with{Source=f.R("other_source")}});
+        RefuseAnchor("frozen_fact",final with{Observation=final.Observation with{State=PublicationState.Preliminary}});
+        RefuseAnchor("frozen_fact",final with{Observation=final.Observation with{ObservedAt=monthly.Expiry.AddHours(-1)}});
+        RefuseAnchor("observation_cutoff",final with{Observation=final.Observation with{ObservedAt=at.AddHours(1)}});
+        RefuseAnchor("observation_type",final with{Observation=final.Observation with{Series=live.Observation.Series}});
+        RefuseAnchor("frozen_fact",final,Prepare(curve with{FrozenKnowledge=ImmutableDictionary<ObservationKey,DateTimeOffset>.Empty}));
+        RefuseAnchor("frozen_fact",final,Prepare(curve with{FrozenKnowledge=curve.FrozenKnowledge.SetItem(final.Observation.Key,at.AddHours(1))},known:at.AddHours(2)));
+        var noFreeze=new CurveModel(f.Revision,f.Reference,f.Quantities,f.Quotes,[monthly,balance],
+            [period with{ConstituentExpiry=ConstituentExpiryRule.RequireLive},bal],[],[],
+            [new(f.S(9201),monthly.Key,quote.Key,null),new(f.S(9202),balance.Key,quote.Key,null)]);
+        Equal(PreparedCurve.MissingInputs(noFreeze,snapshot,[prepared],requests,selectedOutputs).SequenceEqual([new CurveRequest(period.Key,monthly.Key)]),true);
+        var unrelated=new CurveRequest(period.Key,f.K(9299));
+        Equal(PreparedCurve.MissingInputs(model,snapshot,[prepared],[unrelated],selectedOutputs).SequenceEqual([unrelated]),true);
         var built=model.Build(snapshot,requests);var curves=new Dictionary<CurveKey,PreparedCurve>{{curve.Key,prepared}};
         void RejectKnowledge(ImmutableDictionary<ObservationKey,DateTimeOffset> knowledge,DateTimeOffset known)
         {

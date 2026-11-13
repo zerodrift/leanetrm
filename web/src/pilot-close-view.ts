@@ -5,6 +5,7 @@ type Policy={curveNumericalPolicy:string;riskNumericalPolicy:string;futuresConve
 const policies=['generator','tickBasis','parameterPolicy','frozenPolicy','membershipPolicy','calendarPolicy','closePolicy'] as const;
 type Catalog={operation:string;operationName:string;canCreate:boolean;warning:string;
  priorCloses:{id:string;name:string;at:string;kind:string}[];anchorFrames:{id:string;name:string;at:string;businessDate:string}[];
+ anchorScopes:Choice[];
  books:{id:string;name:string}[];curves:{code:string;name:string;leafCurves:string[]}[];sources:{code:string;name:string}[];
  policies:Record<typeof policies[number],Choice[]>;valuationPolicyChoices:{value:string;label:string;policy:Policy}[];
  scheduleChoices:{value:string;label:string;intervalSeconds:number|null}[];schedulePolicy:{timeZone:string;misfire:string;overlap:string};
@@ -43,6 +44,7 @@ export function setupPilotClose(options:{api:<T>(path:string,body?:unknown)=>Pro
   catalog=result;get('pilot-close-warning').textContent=result.warning;
   choices('prior',result.priorCloses.map(c=>({value:c.id,label:`${c.name} · ${options.instant(c.at)}`})));
   choices('anchor',result.anchorFrames.map(f=>({value:f.id,label:`${f.name} · ${options.instant(f.at)}`})));
+  choices('anchor-scope',result.anchorScopes);
   choices('source',result.sources.map(s=>({value:s.code,label:s.name})));choices('policy',result.valuationPolicyChoices);
   choices('frequency',result.scheduleChoices);
   for(const p of policies)choices(p,result.policies[p]);
@@ -57,9 +59,12 @@ export function setupPilotClose(options:{api:<T>(path:string,body?:unknown)=>Pro
   const identity=options.identity(),request=generation;
   const frame=catalog?.anchorFrames.find(f=>f.id===input('anchor').value);if(!frame)throw Error('Choose an exact existing market close.');
   if(!input('anchor-session').value)throw Error('Choose the close session to record this close for.');
-  await options.mutate('market/closes/register',{snapshotId:frame.id,name:input('anchor-name').value,session:input('anchor-session').value,businessDate:frame.businessDate});
+  const scope=catalog?.anchorScopes.find(s=>s.value===input('anchor-scope').value);
+  if(!scope||!['live_contract_outputs_v1','exact_selected_inputs_v1'].includes(scope.value))throw Error('Choose which outputs to retain for this close.');
+  await options.mutate(scope.value==='live_contract_outputs_v1'?'market/closes/capture-live':'market/closes/register',
+   {snapshotId:frame.id,name:input('anchor-name').value,session:input('anchor-session').value,businessDate:frame.businessDate});
   if(identity!==options.identity()||request!==generation)return;
-  await load();if(identity===options.identity()&&request+1===generation)get('pilot-close-status').textContent='The exact existing inputs are retained. Choose the new anchor close explicitly before creating a job.';
+  await load();if(identity===options.identity()&&request+1===generation)get('pilot-close-status').textContent='The close is retained with the selected output scope. Choose the new anchor close explicitly before creating a job.';
  });};
  get<HTMLFormElement>('pilot-close-form').onsubmit=event=>{event.preventDefault();void options.act(async()=>{
   const source=catalog,identity=options.identity(),request=generation;

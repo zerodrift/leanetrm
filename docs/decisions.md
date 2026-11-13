@@ -4527,3 +4527,41 @@ policy or authority changes.
 Open: the list reauthorizes each report it reads, on every read. Its cost at a
 hundred reports is unmeasured and it has no paging. See
 [trading P&L](trading-pnl.md).
+
+## D391 · Live curve outputs and explicit close capture
+
+Live contract displays and fresh close capture select outputs at the selected
+business instant under `live_contract_outputs_v1`, using each exact contract's
+recorded marking cutoff. They never compare with the wall clock or infer an
+exchange first-trading time from definition creation. The existing bounded
+new-trade window stays separate.
+
+The display preference `curve_display_v1` initially shows eligible contracts;
+users can include captured inactive contracts as muted, labelled metadata. Both
+displays price the same eligible outputs. Definitions, observations, dependency
+edges, held instruments and exact historical requests remain intact. An expired
+source remains usable only under its explicit supported transition and certified
+final evidence. An interval anchor omitted from live outputs is admitted only
+when every consuming shaped curve qualifies that frozen input.
+
+Close capture requires an explicit choice: retain exact selected inputs or create
+a fresh live output selection. Live capture trims only session-declared roots,
+keeps retained dependency inputs and refuses an empty required root or missing
+final evidence. It never rolls to another contract implicitly. Exact capture
+continues to refuse unsupported expired roots.
+
+Both commands retain the original request and first outcome before resolving
+mutable source frames or session setup on a retry. Policy changes under a reused
+request ID conflict. Every attempt rechecks current authority and source
+visibility. Migration 0252 validates the display preference; migration 0253
+retains authenticated capture receipts. These require an operator-qualified
+schema upgrade under D135 before image promotion. The release now contains
+258 regular files, so the bounded archive inventory increases from 256 to 512;
+byte/path/type/hash limits remain unchanged. Qualify and install the matching
+operator archive reader before admission; this does not authorize automatic
+schema changes.
+
+The bounded implementation has pure eligibility/output/frozen-anchor checks,
+owned PostgreSQL/HTTP capture, concurrency and revocation checks, and browser
+visibility and lost-response recovery checks. This does not implement futures
+variation margin, exercise, delivery, cash lifecycle or economic horizon risk.

@@ -160,7 +160,9 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment,psql):
     # Build/publish qualification stays in this tree; output is private to the
     # owned cluster and removed by its existing owner-fenced cleanup.
     published=root/'pilot-worker'
-    subprocess.run([str(dotnet),'publish','src/OpenEtrm.Worker','--no-restore','-o',str(published)],cwd=repository,env=worker_environment,check=True,timeout=90,capture_output=True,text=True)
+    built=subprocess.run([str(dotnet),'publish','src/OpenEtrm.Worker','--no-restore','-o',str(published)],cwd=repository,env=worker_environment,timeout=90,capture_output=True,text=True)
+    if built.returncode:
+        raise RuntimeError('Owned pilot worker publish failed:\n'+built.stdout[-6000:]+'\n'+built.stderr[-2000:])
     from check_pilot_worker_configuration import run_checks as check_worker_configuration
     check_worker_configuration(query,manifest,claim,[str(dotnet),str(published/'OpenEtrm.Worker.dll'),'--once'],worker_environment,root,repository)
     def once(extra=None):

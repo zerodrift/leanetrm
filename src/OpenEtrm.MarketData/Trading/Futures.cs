@@ -18,6 +18,7 @@ public sealed record FuturesMarketBinding
     public FuturesSeriesSpecification Series => Instrument.Series;
     public QuoteSpecification Quote { get; }
     public DateTimeOffset EligibleFrom { get; }
+    public ContractOperationWindow TradingWindow=>new(Contract.Key,ContractOperation.NewTrade,EligibleFrom,Contract.Expiry,ContractOperationWindow.Version);
     public string SettlementMethod => Series.SettlementMethod;
     public Guid Id { get; }
     public Quantity UnitQuantity => Instrument.UnitQuantity;
@@ -205,7 +206,7 @@ public sealed record FuturesExecution:TradeExecution
     {
         if(marketBinding is null||executionPrice is null)throw FuturesMarketBinding.Error("futures_execution","Execution requires an explicit instrument and price.");
         var side=marketBinding;
-        if (!TradingInstant.IsSupported(executedAt) || executedAt < side.EligibleFrom || executedAt >= side.Contract.Expiry ||
+        if (!TradingInstant.IsSupported(executedAt) || ContractEligibility.At(side.TradingWindow,executedAt)!=EligibilityState.Eligible ||
             executionPrice.Unit != PriceUnit.FromQuote(side.Quote) || !executionPrice.Value.IsMultipleOf(side.Quote.TradingTick))
             throw FuturesMarketBinding.Error("futures_execution", "Execution requires an exact identity, supported trading instant, price unit and trading tick.");
         if (settlement != FuturesSettlementState.Unprocessed)

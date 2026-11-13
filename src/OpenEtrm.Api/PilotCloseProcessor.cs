@@ -49,7 +49,8 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
             {
                 if(!anchor.CurveContracts.TryGetValue(code,out var selected))throw Invalid("Every selected root curve requires exact anchor membership.");
                 if(selected.Any(id=>!contracts.ContainsKey(id)))throw Invalid("Every anchored member must remain visible in the exact definition bundle.");
-                var live=selected.Where(id=>contracts[id].Expiry>claim.DueAt).ToImmutableArray();
+                var requests=selected.Select(id=>new CurveRequest(new(data.DefinitionRevision,code),contracts[id].Key)).ToImmutableArray();
+                var live=data.Model.SelectLiveOutputs(claim.DueAt,requests,CurveModel.LiveOutputsPolicy).Selected.Select(r=>r.Contract.Id).ToImmutableArray();
                 if(live.IsEmpty)throw Invalid("Every selected root curve requires retained contracts live at the scheduled close.");
                 return live;
             },StringComparer.Ordinal);

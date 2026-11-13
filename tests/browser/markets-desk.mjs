@@ -10,7 +10,7 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
  await command('Runtime.enable');await command('Page.enable');
  await command('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
  const {identifier}=await command('Page.addScriptToEvaluateOnNewDocument',{source:`
-  window.__shapeReads=[];window.__evaluates=0;const send=window.fetch;window.fetch=async(input,init)=>{
+  window.__shapeReads=[];window.__evaluates=0;window.__contractViewReads=[];const send=window.fetch;window.fetch=async(input,init)=>{
    const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;
    if(path==='/api/evaluate')window.__evaluates++;
    if(path==='/api/history'){let response=await send(input,init);
@@ -20,6 +20,17 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
    if(path==='/api/market/curve-shapes'&&window.__holdShapes)await new Promise(resolve=>window.__releaseShapes=()=>{window.__holdShapes=false;window.__releaseShapes=undefined;resolve();});
    if(path==='/api/market/curve-shapes'&&window.__failShapes){window.__failShapes=false;window.__shapeReads.push({curves:JSON.parse(init.body).curves,snapshotId:JSON.parse(init.body).snapshotId,shapes:null});return new Response(JSON.stringify({code:'request_failed'}),{status:503,headers:{'Content-Type':'application/json'}});}
    const response=await send(input,init);
+   if(path==='/api/evaluate'&&response.ok){
+    const body=JSON.parse(init.body),data=await response.clone().json();window.__contractViewReads.push({body,data});
+    // Presentation fixture only: the native API checks independently qualify a
+    // captured expired root. This exercises its backend-supplied status in UI.
+    if(window.__inactiveMarkingExample&&body.contractDisplay?.contracts==='captured_contracts_with_status_v1'){
+     data.contractDisplay.capturedCount++;data.contractDisplay.contracts.push({contractId:'80000000-0000-0000-0000-000000000001',
+      deliveryFrom:'2020-12-01',deliveryTo:'2020-12-02',expiry:'2020-12-02T21:00:00Z',expired:true,
+      status:'Live marking ended',unavailableReason:'eligibility_ended'});
+     return new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
+    }
+   }
    if(path==='/api/market/curve-shapes')window.__shapeReads.push({curves:JSON.parse(init.body).curves,snapshotId:JSON.parse(init.body).snapshotId,shapes:response.ok?(await response.clone().json()).curves:null});
    return response;
   };`});
@@ -118,6 +129,23 @@ export async function run({command,evaluate,wait,click,set,check,shot,idle,fitsW
   await check('All markets in the curve\'s header returns to the market board with no curve selected',
    "!document.querySelector('#market-board').hidden&&document.querySelector('#curve-detail').hidden&&!document.querySelector('.curve-button[aria-pressed=true]')&&document.querySelectorAll('.market-card[data-state=priced]').length>0&&document.querySelector('#error').hidden");
   await evaluate("[...document.querySelectorAll('.market-card-open')].find(b=>b.textContent==='Gas futures').click()");await wait(idle);
+  await check('live browsing initially hides inactive contracts and explicitly requests eligible outputs',
+   "!document.querySelector('#show-inactive-contracts').checked&&window.__contractViewReads.at(-1).body.contractDisplay.contracts==='eligible_contracts_v1'");
+  const livePrices=await evaluate('JSON.stringify(window.__contractViewReads.at(-1).data.points)');
+  await evaluate('window.__inactiveMarkingExample=true');await click('#show-inactive-contracts');
+  await check('Show inactive displays a readable marking status beside unchanged live prices',
+   `document.querySelector('#show-inactive-contracts').checked&&!document.querySelector('#inactive-contracts').hidden&&document.querySelector('#inactive-contracts').textContent.includes('Live marking ended')&&JSON.stringify(window.__contractViewReads.at(-1).data.points)===${JSON.stringify(livePrices)}&&window.__contractViewReads.at(-1).body.contractDisplay.contracts==='captured_contracts_with_status_v1'`);
+  await check('inactive status is muted and its boundary uses the shared user-time formatter',
+   "getComputedStyle(document.querySelector('#inactive-contracts')).color!==getComputedStyle(document.querySelector('#contracts')).color&&!document.querySelector('#inactive-contracts').textContent.includes('2020-12-02T21:00:00Z')");
+  await shot('markets-inactive-contracts');
+  const markingFrame=await evaluate("document.querySelector('#snapshot').value");
+  await set('#snapshot','');await wait(idle);
+  await check('clearing the close removes inactive marking statuses from the previous context',
+   "document.querySelector('#inactive-contracts').hidden&&document.querySelector('#inactive-contracts').childElementCount===0");
+  await set('#snapshot',markingFrame);await wait(idle);
+  await click('#show-inactive-contracts');await evaluate('window.__inactiveMarkingExample=false');
+  await check('returning to the live view hides inactive rows and preserves price identities and values',
+   `!document.querySelector('#show-inactive-contracts').checked&&document.querySelector('#inactive-contracts').hidden&&JSON.stringify(window.__contractViewReads.at(-1).data.points)===${JSON.stringify(livePrices)}`);
   await click('#contracts tbody tr:nth-child(2)');
   const history="window.__historyReads.at(-1)";
   await check('choosing a contract row opens it in the panel, docked beside the curve at 1440 pixels, on History at exact closes',

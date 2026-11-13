@@ -1383,6 +1383,14 @@ Curves own common constituent specifications, with dated market contracts retain
 their identities and dated terms. Commodity, yield and composite/algorithmic curves
 have explicitly typed specifications. Versioned source bindings and delivery
 mappings support multiple dependency layers, including forwards consuming futures.
+Live output selection is a separate operation from exact captured builds
+(D391). The selected business instant and the exact contract's marking cutoff
+determine output eligibility. The display can include inactive metadata without
+pricing expired roots or removing dependency inputs. Fresh capture requires an
+explicit exact/live scope and retains its first outcome for authorized retries.
+An expired frozen interval anchor outside the displayed output matrix remains
+usable only when every consumer declares and qualifies that transition.
+
 Pricing construction and contractual settlement remain separate. Source expiry
 requires an explicit frozen-final/transition/end-eligibility rule; never silently
 roll or replace missing inputs. See the agreed domain structure and five-layer

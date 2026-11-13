@@ -4,6 +4,7 @@ import {JobRequest} from './job-requests.js';
 import {setupPilotClose} from './pilot-close-view.js';
 import {setupPilotCloseReport} from './pilot-close-report.js';
 import {findJob,directoryPage} from './job-target.js';
+const closeCapturePaths=['market/closes/register','market/closes/capture-live'];
 
 // Paging controls appear only when there is another page to reach.
 export const pagingNeeded=(page:number,hasNext:boolean)=>page>0||hasNext;
@@ -64,7 +65,7 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
       if(identity!==options.identity()||pending.command!==command)return;
       if(command.path==='jobs/collection/update'&&(!result||result.requestId!==command.operationId||result.id!==command.body.id||typeof result.generation!=='string'||result.generation===command.body.expectedGeneration||!['name','scheduleEnabled','fromDay','throughDay'].every(key=>result[key]===command.body[key])))
         throw Object.assign(Error('The collection update has an unconfirmed response. Retry the retained request.'),{code:'response_unknown'});
-      if(['jobs/pilot-close/create','market/closes/register'].includes(command.path)&&(!result||result.requestId!==command.operationId||typeof result.id!=='string'||!result.id))
+      if(['jobs/pilot-close/create',...closeCapturePaths].includes(command.path)&&(!result||result.requestId!==command.operationId||typeof result.id!=='string'||!result.id))
         throw Object.assign(Error('The pilot request has an unconfirmed response. Retry the retained request.'),{code:'response_unknown'});
     }
     catch(error){if(identity!==options.identity()||pending.command!==command)return;clear();pilotClose.reset();const code=(error as {code?:string}).code;pending.failed(code,previouslyUncertain);save();throw error;}
@@ -155,5 +156,5 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
   async function locateJob(id:string){
     return (await findJob(id,async page=>{await load(page);if(!directory)throw Error('The job selection changed. Refresh before continuing.');return directory;})).job;
   }
-  return{load,locateJob,showJob,shown:()=>selected?.id??null,sync,unconfirmed:()=>!!pending.command,contextChanged(){pilotClose.reset();pilotReport.reset();},refresh(){dueInput.refresh();expiryInput.refresh();pilotClose.refresh();pilotReport.refresh();render();sync();},reset(){generation++;clear();pending.clear();pilotClose.reset();pilotReport.reset();try{const stored=sessionStorage.getItem(key());if(stored){const value=JSON.parse(stored);if(['jobs/create','jobs/update','jobs/control','jobs/collection/update','jobs/pilot-close/create','market/closes/register','infrastructure/availability','infrastructure/resolve'].includes(value.path)&&typeof value.operationId==='string'&&value.body&&typeof value.body==='object')pending.command={...value,uncertain:true};}}catch{/* Invalid browser state cannot grant authority. */}fields();get('job-pending').hidden=!pending.command;sync();}};
+  return{load,locateJob,showJob,shown:()=>selected?.id??null,sync,unconfirmed:()=>!!pending.command,contextChanged(){pilotClose.reset();pilotReport.reset();},refresh(){dueInput.refresh();expiryInput.refresh();pilotClose.refresh();pilotReport.refresh();render();sync();},reset(){generation++;clear();pending.clear();pilotClose.reset();pilotReport.reset();try{const stored=sessionStorage.getItem(key());if(stored){const value=JSON.parse(stored);if(['jobs/create','jobs/update','jobs/control','jobs/collection/update','jobs/pilot-close/create',...closeCapturePaths,'infrastructure/availability','infrastructure/resolve'].includes(value.path)&&typeof value.operationId==='string'&&value.body&&typeof value.body==='object')pending.command={...value,uncertain:true};}}catch{/* Invalid browser state cannot grant authority. */}fields();get('job-pending').hidden=!pending.command;sync();}};
 }

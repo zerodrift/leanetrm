@@ -11,6 +11,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await wait(idle);await click('#current-view-context');
  await check('new generated-close setup starts collapsed',"document.querySelector('#pilot-close-editor')?.open===false");
  await click('#pilot-close-editor summary');await click('#pilot-close-load');
+ await check('retaining a close requires an explicit output scope from the backend catalog',"document.querySelector('#pilot-close-anchor-scope').required&&document.querySelector('#pilot-close-anchor-scope').value===''&&[...document.querySelector('#pilot-close-anchor-scope').options].filter(o=>o.value).length===2");
  await check('pilot setup loads backend policies without choosing financial inputs',"document.querySelector('#error').hidden&&document.querySelector('#pilot-close-source').options.length>1&&document.querySelector('#pilot-close-source').value===''&&document.querySelector('#pilot-close-policy').value===''&&document.querySelector('#pilot-close-prior').value===''","({error:document.querySelector('#error').textContent,sources:[...document.querySelector('#pilot-close-source').options].map(o=>({value:o.value,label:o.textContent})),policy:document.querySelector('#pilot-close-policy').value,prior:document.querySelector('#pilot-close-prior').value})");
  await check('generated prices and separate futures/swap measures are clearly labelled',"document.querySelector('#pilot-close-warning').textContent.includes('synthetic')&&document.querySelector('#pilot-close-policy').textContent.includes('Futures execution P&L and swap PV')");
  await evaluate(`window.pilotCommands=[];window.badPilotReceipt=true;{const original=window.fetch;window.fetch=async(...args)=>{const response=await original(...args);if(String(args[0]).endsWith('/jobs/pilot-close/create')){window.pilotCommands.push(JSON.parse(args[1].body));if(window.badPilotReceipt&&response.ok){window.badPilotReceipt=false;return new Response(JSON.stringify({...await response.json(),requestId:'different-request'}),{status:200,headers:{'Content-Type':'application/json'}});}}return response;};}`);
@@ -26,6 +27,29 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
  await check('saved pilot schedules retain their backend operation label',"document.querySelector('#job-editor').open&&document.querySelector('#job-operation').disabled&&document.querySelector('#job-operation').selectedOptions[0].textContent.includes('Generated pilot close')");
  await set('#job-name','Synthetic revised mixed close');await submit('#job-create');
  await check('the owner can edit the saved pilot schedule without replacing its terms',"document.querySelector('#error').hidden&&document.querySelector('#jobs-table').textContent.includes('Synthetic revised mixed close')");
+ if(!await evaluate("document.querySelector('#pilot-close-editor').open"))await click('#pilot-close-editor summary');
+ await click('#pilot-close-load');
+ await evaluate(`document.querySelector('#pilot-close-anchor-form').closest('details').open=true;
+  for(const id of ['anchor','anchor-session']){const field=document.querySelector('#pilot-close-'+id);field.value=[...field.options].find(o=>o.value).value;}
+  document.querySelector('#pilot-close-anchor-session').value='test_pilot_utc';
+  document.querySelector('#pilot-close-anchor-scope').value='live_contract_outputs_v1';
+  sessionStorage.removeItem('synthetic-live-capture-commands');sessionStorage.removeItem('synthetic-live-capture-intercepted');`);
+ await set('#pilot-close-anchor-name','Synthetic browser live close');
+ const hook=`if(!window.fetch.__liveCaptureHook){const send=window.fetch;window.fetch=async(input,init)=>{const response=await send(input,init);
+  if(new URL(typeof input==='string'?input:input.url,location.href).pathname==='/api/market/closes/capture-live'){
+   const commands=JSON.parse(sessionStorage.getItem('synthetic-live-capture-commands')??'[]');commands.push(JSON.parse(init.body));sessionStorage.setItem('synthetic-live-capture-commands',JSON.stringify(commands));
+   if(response.ok&&!sessionStorage.getItem('synthetic-live-capture-intercepted')){sessionStorage.setItem('synthetic-live-capture-intercepted','true');return new Response(JSON.stringify({...await response.json(),requestId:'wrong-request'}),{status:200,headers:{'Content-Type':'application/json'}});}
+  }return response;};window.fetch.__liveCaptureHook=true;}`;
+ const {identifier}=await command('Page.addScriptToEvaluateOnNewDocument',{source:hook});await evaluate(hook);
+ try{
+  await submit('#pilot-close-anchor-form');
+  await check('a malformed committed live-capture response retains its original command',"!document.querySelector('#job-pending').hidden&&!document.querySelector('#error').hidden&&JSON.parse(sessionStorage.getItem('synthetic-live-capture-commands')).length===1");
+  await command('Page.navigate',{url:url+'/'});await wait("document.querySelectorAll('.curve-button').length>0&&"+idle);await click('#nav-jobs');await evaluate(hook);
+  await check('reloading preserves the unconfirmed live-capture command',"!document.querySelector('#job-pending').hidden&&JSON.parse(sessionStorage.getItem('synthetic-live-capture-commands')).length===1");
+  await click('#job-retry-request');
+  await check('live-capture recovery retries the identical command and acknowledges its first result',"(()=>{const commands=JSON.parse(sessionStorage.getItem('synthetic-live-capture-commands'));return document.querySelector('#job-pending').hidden&&document.querySelector('#error').hidden&&commands.length===2&&JSON.stringify(commands[0])===JSON.stringify(commands[1]);})()",
+   "({pending:!document.querySelector('#job-pending').hidden,error:document.querySelector('#error').textContent,commands:JSON.parse(sessionStorage.getItem('synthetic-live-capture-commands'))})");
+ }finally{await command('Page.removeScriptToEvaluateOnNewDocument',{identifier});}
  await persona('viewer');await click('#nav-jobs');
  await check('identity changes clear retained pilot configuration',"document.querySelector('#pilot-close-source').options.length===0&&document.querySelector('#pilot-close-editor').open===false");
 }

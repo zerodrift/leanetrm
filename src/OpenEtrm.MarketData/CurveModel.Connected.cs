@@ -75,11 +75,7 @@ public sealed partial class CurveModel
                 if(!inputs.TryGetValue(key,out var selection))
                     throw new MarketDataException("missing_observation","Exact required variable/frozen input is absent.");
                 var observation=selection.Observation;
-                var expectedRole=use==InputUse.FrozenFact?ObservationRole.FinalContractSettlement:curve.DirectRole;
-                if(observation.Source!=curve.DirectSource||observation.Role!=expectedRole||observation.State!=PublicationState.Final)
-                    throw new MarketDataException("selection_mismatch","Selected quote, source, role or finality is incompatible.");
-                if(use==InputUse.FrozenFact&&(contract.Kind==ContractKind.FutureOption||contract.Kind!=ContractKind.Future&&curve.ConstituentExpiry!=ConstituentExpiryRule.FreezeFinalSettlement||observation.ObservedAt<contract.Expiry))
-                    throw new MarketDataException("frozen_fact","Final future settlement must be observed at or after its explicit expiry; a futures option has none.");
+                RequireDirectEvidence(curve,contract,use,observation);
                 if(freezeObservation&&(use!=InputUse.Variable||observation.ObservedAt!=snapshot.ValuationAt||
                     observation.Role is not(ObservationRole.DailySettlement or ObservationRole.TraderMark)))
                     throw new MarketDataException("connected_curve_source","Explicit current fixing requires its exact current economic observation and live original source.");
@@ -122,5 +118,36 @@ public sealed partial class CurveModel
         }
         return new(declarations.GroupBy(p=>p.Key.Curve).OrderBy(g=>g.Key.Code,StringComparer.Ordinal)
             .Select(g=>new ConnectedCurveDefinition(g.Key,g.OrderBy(p=>p.Key.PointId).ToImmutableArray())).ToImmutableArray(),points.ToImmutableDictionary());
+    }
+
+    internal ImmutableDictionary<CurveRequest,MarketObservation> FrozenAnchors(MarketSnapshot snapshot,
+        ImmutableArray<CurveRequest> requests,CancellationToken cancellation)
+    {
+        if(requests.IsEmpty)return ImmutableDictionary<CurveRequest,MarketObservation>.Empty;
+        var inputs=ValidateSnapshot(snapshot,cancellation);
+        var result=ImmutableDictionary.CreateBuilder<CurveRequest,MarketObservation>();
+        foreach(var request in requests)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var curve=AssetDefinition(request.Curve);var contract=ContractDefinition(request.Contract);
+            if(curve.Rule!=CurveRule.Direct||curve.ConstituentExpiry!=ConstituentExpiryRule.FreezeFinalSettlement||
+                contract.Interval is not null||!curveMembers[curve.Key].Contains(contract.Key)||snapshot.ValuationAt<contract.Expiry)
+                throw new MarketDataException("unsupported_expiry","A frozen anchor requires its exact qualified direct date-only contract policy.");
+            if(!inputs.TryGetValue(new(priceSeries[(request.Contract,curve.Quote)],InputUse.FrozenFact),out var selected))
+                throw new MarketDataException("missing_observation","The exact final frozen anchor is absent.");
+            RequireDirectEvidence(curve,contract,InputUse.FrozenFact,selected.Observation);
+            result.Add(request,selected.Observation);
+        }
+        return result.ToImmutable();
+    }
+
+    private static void RequireDirectEvidence(Curve curve,MarketContract contract,InputUse use,MarketObservation observation)
+    {
+        var expectedRole=use==InputUse.FrozenFact?ObservationRole.FinalContractSettlement:curve.DirectRole;
+        if(observation.Source!=curve.DirectSource||observation.Role!=expectedRole||observation.State!=PublicationState.Final)
+            throw new MarketDataException("selection_mismatch","Selected quote, source, role or finality is incompatible.");
+        if(use==InputUse.FrozenFact&&(contract.Kind==ContractKind.FutureOption||contract.Kind!=ContractKind.Future&&
+            curve.ConstituentExpiry!=ConstituentExpiryRule.FreezeFinalSettlement||observation.ObservedAt<contract.Expiry))
+            throw new MarketDataException("frozen_fact","Final future settlement must be observed at or after its explicit expiry; a futures option has none.");
     }
 }
