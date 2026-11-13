@@ -9,6 +9,7 @@ if (args is ["--benchmark"] or ["--benchmark", _])
 }
 if (args.Length != 0) throw new ArgumentException("Use no arguments for checks, or --benchmark [output-path].");
 UserTimeChecks.Run();
+RetainedTimeZoneChecks.Run();
 DependencyPlanChecks.Run();
 var connectionCeiling=new OpenEtrm.Shared.Configuration.ConnectionBudget(5,30,8);
 if(!new OpenEtrm.Shared.Configuration.ConnectionBudget(2,3,4).IsWithin(connectionCeiling)

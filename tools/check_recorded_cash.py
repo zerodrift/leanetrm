@@ -112,11 +112,12 @@ def run_checks(url,query,manifest,verify_persistence=None):
     # A trade opened and paid inside the interval has no opening holdings. Its cash must survive in full P&L.
     c.call('profile',{'profile':'risk'})
     policies=c.call('portfolio/pnl/policies')
+    ny_clock,=[clock for clock in policies['clocks'] if clock['ianaZone']=='America/New_York']
     earlier=next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2026-10-13T16'))
     cutoff=c.call('options/catalog',context)['context']['knownAt']
     endpoint=lambda f:dict(snapshotId=f['id'],convention='trading_workspace_v1',knowledgeMode='at')
     request=dict(opening=endpoint(earlier),closing=endpoint(frame),knownAt=cutoff,bookIds=[book],portfolioIds=[],tradeIds=[booked['tradeId']],
-                 accountingPolicy=policies['accounting'],attributionPolicy=policies['attribution'],factorPolicy=policies['factors'],time=dict(mode=policies['timeModes'][0]['id'],policy=policies['clockPolicy'],clock=policies['clocks'][0]))
+                 accountingPolicy=policies['accounting'],attributionPolicy=policies['attribution'],factorPolicy=policies['factors'],time=dict(mode='one_calendar_day_model_decay_v1',policy=policies['clockPolicy'],clock=ny_clock))
     run=c.call('portfolio/pnl/run',request,timeout=300)
     assert len(json.dumps(dict(requestId=str(uuid4()),name='Close reconciliation',artifact=run['artifact'])).encode())<32768
     report=run['report'];assert report['version']=='trading_pnl_report_v1' and report['positions']
