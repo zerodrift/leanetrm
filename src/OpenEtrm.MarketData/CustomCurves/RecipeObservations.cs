@@ -14,6 +14,7 @@ public static partial class RecipeEngine
     public const string TradeMonthPeriod="trade_month_of_delivery_contract_v1";
     public const string CalendarDays="calendar_days_v1";
     public const string BusinessDays="business_days_v1";
+    public static readonly ImmutableArray<string> ObservationParameters=["implementation","targetFrom","targetCount","days","roll","sampling","corrections"];
     public static ImmutableArray<RecipeDelivery> ObservationTargets(RecipeNode node)=>ObservationSettings(node).Targets;
     public static ImmutableArray<RecipeObservationWindow> ObservationWindows(RecipeNode node,RecipeSource source,DateSet? businessDays,TimeOnly samplingTime)
     {

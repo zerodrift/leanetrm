@@ -99,6 +99,7 @@ def main():
     parser.add_argument('--power-context-check',action='store_true',help='Qualify exact non-primary power inputs and historical close admission')
     parser.add_argument('--power-booked-roll-check',action='store_true',help='Qualify booked power and the in-term close-roll consumer in an owned fixture')
     parser.add_argument('--custom-curves-check',action='store_true',help='Qualify custom curve definitions and calculations in an owned synthetic fixture')
+    parser.add_argument('--contract-observation-curve-check',action='store_true',help='Qualify stored contract observation curve terms in an owned synthetic fixture')
     parser.add_argument('--price-authoring-check',action='store_true',help='Qualify publication schedules, final releases and contract price terms through authenticated HTTP')
     parser.add_argument('--market-read-check',action='store_true',help='Qualify per-row market authority in the owned standard fixture')
     parser.add_argument('--market-dates-check',action='store_true',help='Qualify scoped market-close availability and the calendar in an owned fixture')
@@ -182,7 +183,7 @@ def main():
     if args.context_read_check:
         args.check=True
         if args.example!='standard':parser.error('--context-read-check requires the standard fixture')
-    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.regional_closes_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.cash_pnl_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
+    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.regional_closes_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.cash_pnl_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.contract_observation_curve_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -497,7 +498,7 @@ def main():
             if args.close_risk_check:
                 from close_risk_fixture import prepare as prepare_close_risk
                 reference,market,security,manifest=prepare_close_risk(reference,market,security,manifest)
-        if args.live_calculation_check or args.connected_portfolio_check or args.custom_curves_check or args.with_custom_curves or args.market_dates_check or args.valuation_status_check:
+        if args.live_calculation_check or args.connected_portfolio_check or args.custom_curves_check or args.contract_observation_curve_check or args.with_custom_curves or args.market_dates_check or args.valuation_status_check:
             from custom_curve_fixture import prepare as prepare_custom_curves
             reference,market,manifest=prepare_custom_curves(reference,market,manifest,daily_lifecycle=args.connected_portfolio_check)
         if args.hosted_check:
@@ -1241,6 +1242,9 @@ def main():
                     from check_power_context import run_checks as check_power_context
                     check_power_context(url,query,manifest,dotnet,temporary,env)
                 else:check_power_flat(url,query,manifest,booked_roll=args.power_booked_roll_check)
+            elif args.contract_observation_curve_check:
+                from check_contract_observation_storage import run_checks as check_contract_observation_storage
+                check_contract_observation_storage(url,query,manifest)
             elif args.custom_curves_check:
                 from check_custom_curves import run_checks as check_custom_curves
                 check_custom_curves(url,query,manifest)
