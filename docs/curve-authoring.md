@@ -148,7 +148,7 @@ external feed. For focused reproduction, add `--authoring-browser-suite` with
 `curve-objects`, `contract-pricing-controls`, `publication-controls` or
 `price-authoring-recovery` to the appropriate owned fixture command.
 
-## Contract observation card (D389)
+## Contract observation card (D391)
 
 The palette offers **Contract observations** from the backend operator catalog.
 The card is a result curve; its source connection carries the catalog label.

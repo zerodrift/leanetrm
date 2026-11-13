@@ -2715,29 +2715,57 @@ header>div:first-child{flex:1 1 160px}
 /* Trading P&L: managed results and the shared theme. */
 .pnl-view{padding:32px;overflow:hidden}
 .pnl-section .table-wrap{overflow-x:auto}
-.pnl-eyebrow{font-size:11px!important;letter-spacing:.16em;font-weight:700;color:var(--accent-text)!important}
-.pnl-intro h2{font-size:clamp(25px,3vw,38px);font-weight:600;letter-spacing:-.045em;margin:8px 0}
-.pnl-intro>p:last-child{color:var(--text-2);max-width:650px;line-height:1.6}
+.pnl-intro>p{color:var(--text-2);max-width:650px;line-height:1.6;margin:0}
 .pnl-controls{display:flex;gap:16px;align-items:end;flex-wrap:wrap;padding:24px 0;border-bottom:1px solid var(--border)}
-.pnl-controls label{flex:1;min-width:190px;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2)}
+/* The closes and the cutoff fill the first row at a desk width; the time effect, its clock and Run follow on the second. */
+.pnl-controls label{flex:1;min-width:190px;max-width:320px;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2)}
+.pnl-controls .pnl-close{flex:2;min-width:320px;max-width:none}
+.pnl-controls .pnl-known{flex:1.4;min-width:260px;max-width:none}
 .pnl-controls input,.pnl-controls select{display:block;width:100%;margin-top:8px;min-height:40px;text-transform:none;letter-spacing:normal}
 .pnl-controls button{min-height:40px;padding:0 24px}
-.pnl-empty{text-align:center;padding:64px 20px 80px;color:var(--text-2)}
-.pnl-empty>span{font-family:var(--mono);font-size:32px;color:var(--accent-text);letter-spacing:.5em}
-.pnl-empty h3{font-size:22px;color:var(--text);font-weight:500;letter-spacing:-.02em}
+.pnl-empty{text-align:center;padding:48px 20px 56px;color:var(--text-2)}
+.pnl-empty h3{font-size:18px;color:var(--text);font-weight:500;letter-spacing:-.02em}
 .pnl-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:34px 0 24px}
 .pnl-hero>div:first-child{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
-.pnl-hero p{width:100%;margin:0;font-size:11px;font-weight:600;letter-spacing:.12em;color:var(--text-3)}
-.pnl-hero .pnl-money{font-size:clamp(32px,5vw,54px);letter-spacing:-.055em;font-weight:500}
+.pnl-hero p{width:100%;margin:0;font-size:12px;font-weight:600;color:var(--text-3)}
+/* The page's one hero figure, in the page's own sans and proportional figures. */
+.pnl-hero .pnl-money{font-family:inherit;font-variant-numeric:normal;font-size:clamp(32px,5vw,54px);letter-spacing:-.04em;font-weight:500}
 .pnl-hero small{font-size:13px;color:var(--text-3)}
 .pnl-period{display:grid;gap:7px;font-size:12px;color:var(--text-3);text-align:right}
 .pnl-period strong{color:var(--text-2);font-weight:500}
 .pnl-money{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
 .pnl-money.gain{color:var(--gain-ink)}.pnl-money.loss{color:var(--loss-ink)}.pnl-money.flat{color:var(--text-3)}
+.pnl-unavailable{color:var(--text-3)}.pnl-metrics .pnl-unavailable{font-size:15px}
 .pnl-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden}
 .pnl-metrics>div{padding:20px;background:var(--surface);display:grid;gap:10px}.pnl-metrics>div>span:first-child{font-size:12px;color:var(--text-3)}.pnl-metrics .pnl-money{font-size:21px;letter-spacing:-.03em}
 .pnl-section{padding:26px 0;border-bottom:1px solid var(--border)}.pnl-section h3{font-size:16px;font-weight:600;letter-spacing:-.02em;margin:0 0 8px}.pnl-section>p{font-size:12px;line-height:1.6;color:var(--text-3);max-width:850px}.pnl-section details{margin-top:12px}.pnl-section table{font-size:12px}
-.pnl-waterfall{overflow-x:auto}.pnl-waterfall svg{display:block;min-width:700px;width:100%;max-height:340px}.pnl-zero{stroke:var(--border-strong);stroke-width:1}.pnl-connector{stroke:var(--border-strong);stroke-dasharray:3 3}.pnl-bar.gain{fill:var(--gain)}.pnl-bar.loss{fill:var(--loss)}.pnl-bar.flat{fill:var(--text-3)}.pnl-bar-value{fill:var(--text);font-size:12px;font-family:var(--mono)}.pnl-bar-label{fill:var(--text-3);font-size:11px}
-.pnl-save{display:flex;gap:12px;align-items:center;justify-content:flex-end;padding:24px 0}.pnl-save>span{font-size:12px;color:var(--text-3);margin-right:auto}.pnl-save input{max-width:260px}
-.pnl-library{border-top:1px solid var(--border);padding-top:16px}.pnl-saved-link{display:block;margin-top:10px;background:transparent;color:var(--accent-text);border:0;text-align:left}
-@media(max-width:750px){.pnl-view{padding:18px}.pnl-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.pnl-hero{align-items:start;flex-direction:column}.pnl-period{text-align:left}.pnl-save{flex-wrap:wrap}.pnl-save>span{width:100%}}
+/* The bridge: a column a step, each level a share of the plot's height. Bars are thin; the zero line and the connectors are hairlines.
+   Gain and loss fills always come with a signed figure and a direction; the hollow bar is the residual, the grey one the result. */
+.pnl-chart{overflow-x:auto;margin-top:8px;padding-bottom:8px}
+.pnl-waterfall{display:grid;grid-template-columns:repeat(var(--pnl-steps),minmax(min-content,1fr))}
+.pnl-bar-value{padding:0 8px 8px;text-align:center;white-space:nowrap;color:var(--text);font:12px var(--mono)}
+.pnl-plot{position:relative;height:190px}
+.pnl-plot::before{content:"";position:absolute;left:0;right:0;bottom:var(--pnl-zero);border-top:1px solid var(--border-strong)}
+.pnl-bar{position:absolute;left:calc(50% - 12px);width:24px;min-height:2px;border-radius:3px;box-sizing:border-box}
+.pnl-bar.gain{background:var(--gain)}.pnl-bar.loss{background:var(--loss)}.pnl-bar.flat,.pnl-bar.total{background:var(--text-3)}
+.pnl-bar.hollow{background:none;border:2px solid var(--gain)}.pnl-bar.loss.hollow{border-color:var(--loss)}.pnl-bar.flat.hollow{border-color:var(--text-3)}
+.pnl-connector{position:absolute;left:calc(50% + 12px);width:calc(100% - 24px);border-top:1px solid var(--border-strong)}
+.pnl-step:hover .pnl-bar{filter:brightness(1.2)}
+.pnl-bar-label{padding:8px 4px 0;text-align:center;font-size:11px;line-height:1.3;color:var(--text-3)}
+.pnl-section>.pnl-legend{margin-top:10px}
+/* A factor's name wraps in its cell, so the figures beside it stay in view. */
+.pnl-factor-name{display:inline-block;min-width:150px;white-space:normal;vertical-align:top}
+/* Ten columns of holdings sit a little closer than the application's tables, so all of them show at a desk width. */
+.pnl-positions :is(th,td){padding-left:9px;padding-right:9px}
+/* Holdings: a sortable column heading and a holding with estimates are quiet buttons; the estimates open in a row of their own. */
+.pnl-positions .pnl-sort,.pnl-positions .pnl-holding{background:none;border:0;padding:0;font:inherit;color:inherit}
+.pnl-positions .pnl-sort:hover,.pnl-positions .pnl-holding:hover{background:none;text-decoration:underline}
+.pnl-positions .pnl-holding{color:var(--accent-text)}
+.pnl-positions .pnl-holding::before{content:"▸ "}.pnl-positions .pnl-holding[aria-expanded=true]::before{content:"▾ "}
+.pnl-positions th[aria-sort=descending] .pnl-sort::after{content:" ↓"}.pnl-positions th[aria-sort=ascending] .pnl-sort::after{content:" ↑"}
+.pnl-detail>td{background:var(--surface-2);padding:8px 16px 14px 28px}
+.pnl-save{display:flex;gap:12px;align-items:center;justify-content:flex-end;padding:24px 0}.pnl-save>span,.pnl-save>p{font-size:12px;color:var(--text-3);margin:0 auto 0 0}.pnl-save input{max-width:260px}
+.pnl-library{border-top:1px solid var(--border);padding-top:16px}.pnl-saved{margin-top:10px}
+.pnl-saved-link{display:block;background:transparent;color:var(--accent-text);border:0;padding:0;text-align:left}
+.pnl-saved small,.pnl-library-more{display:block;margin-top:2px;font-size:12px;color:var(--text-3)}
+@media(max-width:750px){.pnl-view{padding:18px}.pnl-controls label{max-width:none}.pnl-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.pnl-hero{align-items:start;flex-direction:column}.pnl-period{text-align:left}.pnl-save{flex-wrap:wrap}.pnl-save>span,.pnl-save>p{width:100%}}

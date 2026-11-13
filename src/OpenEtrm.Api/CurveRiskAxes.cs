@@ -251,15 +251,23 @@ internal static class CurveRiskAxes
             throw Invalid("risk_contract","Every held target must be one the risk catalog offers.");
         return new([..offered.Where(contracts.Contains)],[..offered.Where(curves.Contains)],[..contractGaps],[..curveGaps]);
     }
-    public static PortfolioRiskAxis Quote(PortfolioValuation.Prepared prepared,QuoteFactor factor,CancellationToken ct)
+    private static (PortfolioValuation.MarketPartition Market,ConnectedCurvePoint Point) LiveSource(PortfolioValuation.Prepared prepared,QuoteFactor factor,CancellationToken ct)
     {
         if(!Index(prepared,ct).Revisions.TryGetValue(factor.Input.Series.Revision,out var market))
             throw Invalid("risk_factor","The declared quote requires its exact prepared financial market.");
-        var index=Index(market,ct);
-        if(!index.LiveSources.TryGetValue(factor.Input,out var point))
+        if(!Index(market,ct).LiveSources.TryGetValue(factor.Input,out var point))
             throw Invalid("risk_factor","A declared live market input is absent from the prepared graph.");
-        return Resolve(market,CurveShockCoordinate.MarketQuote,index.PointTarget(point,CurveShockCoordinate.MarketQuote),ct);
+        return(market,point);
     }
+    public static PortfolioRiskAxis Quote(PortfolioValuation.Prepared prepared,QuoteFactor factor,CancellationToken ct)
+    {
+        var (market,point)=LiveSource(prepared,factor,ct);
+        return Resolve(market,CurveShockCoordinate.MarketQuote,Index(market,ct).PointTarget(point,CurveShockCoordinate.MarketQuote),ct);
+    }
+    // Quote factors in reading order: one curve after the other by its code, each by delivery period.
+    public static ImmutableArray<QuoteFactor> ByCurveAndDelivery(PortfolioValuation.Prepared prepared,IEnumerable<QuoteFactor> factors,CancellationToken ct)=>
+        [..factors.Select(factor=>(Factor:factor,LiveSource(prepared,factor,ct).Point)).OrderBy(f=>f.Point.Key.Curve.Code,StringComparer.Ordinal)
+            .ThenBy(f=>f.Point.DeliveryFrom).ThenBy(f=>f.Point.DeliveryTo).ThenBy(f=>f.Point.Key.PointId).Select(f=>f.Factor)];
     public static ImmutableArray<RetainedRiskAxis> Retained(PortfolioRiskPreview.Prepared prepared)=>prepared.Bumps.Select(b=>b.Axis)
         .Concat(prepared.Stress.Select(s=>s.Axis)).Concat(prepared.Joint?.Factors??[]).Concat(prepared.HistoricalAxes).DistinctBy(a=>a.Id).OrderBy(a=>a.Id,StringComparer.Ordinal)
         .Select(a=>new RetainedRiskAxis(a.Id,a.Market.RevisionId,a.Request,a.Points.OrderBy(p=>p.Curve.Revision.RevisionId)

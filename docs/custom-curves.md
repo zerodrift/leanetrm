@@ -197,7 +197,7 @@ The calendar does not choose a substitute date or alter the separate effective
 date and knowledge-cutoff controls.
 
 
-## Contract observation terms (D389)
+## Contract observation terms (D391)
 
 A `contract_observations` node (implementation `contract_observation_terms_v1`)
 states a contract price as averaged observations of contract positions. Its one

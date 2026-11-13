@@ -1,6 +1,6 @@
 # Current implementation record
 
-D389 adds [contract observation terms](custom-curves.md#contract-observation-terms-d389)
+D391 adds [contract observation terms](custom-curves.md#contract-observation-terms-d391)
 to custom curves, implemented locally. A `contract_observations` node sums
 groups of weighted, averaged contract-position observations over a calendar month
 or a trade month, optionally as a spread to a second position. Past days read

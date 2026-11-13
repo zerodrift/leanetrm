@@ -4339,7 +4339,7 @@ collapsed and expanded, and on a page read by business date, where the line
 reads As of details beneath the Business date. A working snapshot and a
 historical view were not looked at in the running app.
 
-## Contract observation curve terms (D389, local)
+## Contract observation curve terms (D391, local)
 
 The managed core suite holds the operator's numerical oracle on synthetic crude
 futures E–J (expiry 19:30 UTC), a nine-day business calendar and 12:00 UTC

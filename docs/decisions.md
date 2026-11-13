@@ -310,7 +310,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D256 | A turn's pinned As of frame may hold up to 256 KiB | Decided by the owner (2026-10-27). Migration 0122 raises `assistant.pin_turn`'s bound on a frame's pin JSON from 64 KiB to 256 KiB (262,144 bytes); nothing else changes. It applies over 0072's definition or one already identical to its own, as the hosted pilot's has been since its hotfix. |
 | D257 | A period-contract price node returns the selected settlement index's published fixing once due, and a side may override its curve's settlement index | Decided by the owner (2026-10-28); local implementation trial in progress, qualification pending. For date-only period-contract observations (swaps and PPA period curves; interval curves are unchanged), each `FloatingSide` index price term (D253) states its settlement selection: the curve's declared single-index target, or a different named override index, never defaulted. The price node returns the bound projection before the selected index's fixing instant and that index's published final fixing, selected under the market cutoff, at or after it; between expiry and the fixing instant it is refused as today. Node dependencies follow the resolved context, so a due node depends only on its fixing. An override projects from the curve's forward marks as the recorded no-basis choice `forward_curve_no_basis_v1`, labelled in receipts and risk. The swap spread becomes the price term's adder. Refines D165 and D253; consistent with D32 and D37 |
 | D258 | Persist each booked side's complete schedule and load it for valuation | Decided by the owner (2026-10-28); local implementation trial in progress, qualification pending. Refines D253 and D195. Booking retains every logical row of a side's pricing (observations, applications, averages, quantity steps, amounts, discount and valuation steps) with explicit roles and named output roots, ordered named edges and typed exact-version bindings. The tables are immutable, published and readable only under `temporal_read`, and valuation finds a schedule through the trade revision visible at its cutoff. Rows define how values are obtained; evaluated values are valuation results. Large schedules stage unpublished and publish in one short fenced, idempotent transaction (D238). Obligation rows keep occurrence keys and digests across amendments of later periods. Normalization becomes a shared specification on the side, and cross-side inputs are typed ports. Valuation refuses rather than regenerates; drafts are transient. Amended for the local trial: stock PostgreSQL retains native calculations as compact vector operations with exact grids and cell identities, rather than separate arithmetic records per interval; scalar dated operations share the contract. Physical layout follows measurement. Within one authorized PPA preparation, exact side identities and retained manifests may share an immutable runtime adapter; every instrument still admits its own membership and sibling bindings, and current source/header authority is rechecked. Market variables and position lifecycle remain valuation inputs |
-| D259 | The backend names each curve's kind (`curve_kinds_v1`); Curve builder and Curves & prices show it as a labelled icon | Decided 2026-10-29; its icons and colours approved by the owner, and `interest_rate` added under the owner's delegation. Kinds let a person tell market, relationship and synthetic curves apart at a glance; a colour is never the only signal, since each kind also has an icon shape and a text label, and its colours on the app's dark theme are those of D383. A custom curve's kind follows its output step: `observation_formula` when it reads a `contract_observations` node directly or through a `weighted_panels` node that node feeds (D389); otherwise `weighted_blend` from `weighted_panels`/`weighted_contracts`; `rolling_average` for `mean` over `dates` on a `prior_calendar`/`prior_business` sequence; `balance_of_month` for `mean` over `contracts` on `balance_month` dates; `prompt_contract` for a single relative `positions` selection; anything else, a pass-through included, is `custom`, never a guess. A market curve's kind follows its rule: `market_settlement` or `trader_mark` by direct role (the schema requires one of the two for a direct curve), `basis_spread` for `Add`, `scaled` for `ScaleAdd`; a stored interest-rate curve is `interest_rate`. The kind is derived at read time from the exact definition, never stored, and returned with saved curves, sources, published sources and the navigation directory with `kindsVersion`. The browser draws only what it is sent and refuses an unknown code or version. Graph cards additionally label their backend output type with a distinct icon (curve, contract selection, dates, price panel or curve output); individual exact members are labelled dated contracts. Object type and financial curve kind remain separate presentation dimensions. No migration or permission change |
+| D259 | The backend names each curve's kind (`curve_kinds_v1`); Curve builder and Curves & prices show it as a labelled icon | Decided 2026-10-29; its icons and colours approved by the owner, and `interest_rate` added under the owner's delegation. Kinds let a person tell market, relationship and synthetic curves apart at a glance; a colour is never the only signal, since each kind also has an icon shape and a text label, and its colours on the app's dark theme are those of D383. A custom curve's kind follows its output step: `observation_formula` when it reads a `contract_observations` node directly or through a `weighted_panels` node that node feeds (D391); otherwise `weighted_blend` from `weighted_panels`/`weighted_contracts`; `rolling_average` for `mean` over `dates` on a `prior_calendar`/`prior_business` sequence; `balance_of_month` for `mean` over `contracts` on `balance_month` dates; `prompt_contract` for a single relative `positions` selection; anything else, a pass-through included, is `custom`, never a guess. A market curve's kind follows its rule: `market_settlement` or `trader_mark` by direct role (the schema requires one of the two for a direct curve), `basis_spread` for `Add`, `scaled` for `ScaleAdd`; a stored interest-rate curve is `interest_rate`. The kind is derived at read time from the exact definition, never stored, and returned with saved curves, sources, published sources and the navigation directory with `kindsVersion`. The browser draws only what it is sent and refuses an unknown code or version. Graph cards additionally label their backend output type with a distinct icon (curve, contract selection, dates, price panel or curve output); individual exact members are labelled dated contracts. Object type and financial curve kind remain separate presentation dimensions. No migration or permission change |
 | D260 | The page assistant may save a custom-curve draft for the person; this supersedes D193's "never grants agent writes" for that one tool | Decided 2026-10-29; [details](#d260--the-page-assistant-saves-custom-curve-drafts). Migration 0128 lays the database groundwork: `save_custom_curve_draft` needs `ReadMarketData` and `WriteMarketDefinitions`, the agent writes under its own `DraftCustomCurves` with its delegator's current `WriteMarketDefinitions` and only the curve version it claimed for a step of its turn, each draft generation records who saved it (a person, or the assistant with its turn and step), `security.custom_curve_agent_writable` limits the assistant to a new curve or a draft whose latest generation it saved in the same conversation, and a `draft` navigation target opens a successful save step of its own turn. The tool ships in runtime set `turns_v9` and records its successful step in the draft's own transaction; Curve builder shows **Saved by assistant** from the saver. The assistant never publishes, changes activations or overwrites a person's draft |
 | D261 | Resolve contract selectors at each observation fixing instant and retain concrete dated contracts in booked schedules | An exact contract or an explicit zero-based prompt offset and roll rule is an authoring input. Each observation selects against its own explicit fixing instant and pinned contract definitions. Booking must materialize the actual dated contract reference for every observation; later valuation consumes those references without rerunning prompt selection. Observation periods, contract delivery periods, exchange expiry and roll boundaries remain distinct. A futures curve supplies the selected dated contract's daily exchange settlement for each observation, then its official final settlement after expiry once published. It never silently substitutes the last live mark or a different index; a different settlement source requires an explicit curve configuration. Missing coverage blocks booking; labels never supply dates. The local scheduled-swap source variant retains exact dated futures observations and samples their daily/final prices through the connected graph. Its first API consumer requires explicit full-month daily arithmetic observations, source history policy and compatible side/curve final-carry rules. Migrations 0131–0132 retain authoring and executable source relationships separately from market evidence. The scheduled ticket now sends explicit clock and selector terms to backend observation generation and retains the returned receipt; ambiguous/nonexistent local times and fixing after payment refuse. Migration 0133 retains source sample manifests for interactive and queued risk, including distinct current fixed and live uses of the same observation. Financial settlement requires due, final source observations and retains determined cash independently of later source availability. Automated-close source-evidence persistence and broader source combinations remain pending; see [the scenario matrix](observation-price-scenarios.md). |
 | D262 | Component history retains raw prices and contract roll jumps | The read-only `raw_component_history_v1` contract samples supported selections through the existing managed evaluator. Each-sample binding resolves canonical contracts per date; context binding and exact weighted mappings remain fixed. Explicit date-window choices, exact saved references, knowledge cutoff and strict missing-observation refusal apply. No back adjustment, inferred roll policy or browser analytics. Coverage and remaining work are recorded in [custom curves](custom-curves.md#raw-component-history) |
@@ -4442,7 +4442,93 @@ homepage policy to carry no `media-src`. It no longer probes byte ranges, which 
 film player needed; D382's range qualification lapses with the films folder. Activation remains the separately
 reviewed gateway operation of D163.
 
-## D389 · Contract observation curve terms
+## D389 · A P&L report covers what holdings price, shows missing Greeks as missing and is returned even when it cannot be saved
+
+2026-11-13. Refines the report of D386 and D387. Accounting, valuation,
+numerical policy and authority are unchanged, and every scope that ran before
+returns the same explained and residual amounts.
+
+- **Cross terms by dependency.** Mixed gamma is requested for each pair of price
+  factors that one holding's valuation declares together. A pair with no such
+  holding has an exactly zero mixed difference and is not repriced. The former
+  request for every pair refused any market partition of more than six factors.
+  A report still covers at most 16 factors, and 16 jointly priced pairs in one
+  market partition.
+- **A holding's own inputs.** A holding lists Greek estimates only for the price
+  inputs its valuation declares. Evidence in which its value moves with any other
+  input is refused.
+- **Missing is not zero.** An estimate is unavailable when its central
+  differences do not converge or when one of its factors has no exact closing
+  price; that factor keeps its opening estimates and has no movement. A Greek
+  effect none of whose estimates is available has no amount in a currency's
+  bridge and moves nothing there. A partly available effect keeps its amount with
+  the count of unavailable estimates. Both remain in the residual.
+- **Returned, then optionally saved.** Run returns its completed result even when
+  that result exceeds the capture bound or the unsaved-result memo cannot admit
+  it. The response then carries no save handle and states the reason. The
+  returned result is bounded by the valuation admission limits alone.
+- **Smaller evidence.** An endpoint's discount evidence states each rate-curve
+  definition once; a payment names that curve and its endpoint market snapshot by
+  identity. The bridge is kept once per currency total rather than for every
+  holding. The report format is `trading_pnl_report_v2`; a result saved in the
+  earlier format is listed, and opening it says that it cannot be shown.
+
+Undecided: the one-tick bump of the selected factor policy does not give a
+convergent central gamma for tree-priced options, so their curvature stays in
+the residual. A run is one request under the process request limit and values
+each held option nine times; a ten-option report did not finish within 15
+seconds on the hosted CI runner. See [trading P&L](trading-pnl.md).
+
+## D390 · The P&L page shows what moved, and the report states every figure the page shows
+
+2026-11-13. Refines the page and the report format of D386 and D389. No amount,
+policy or authority changes.
+
+- **The backend states every figure.** The report lists every opening price
+  factor with its name, its two exact prices, its change and what its delta and
+  gamma explain in each currency. Factors read one curve after the other, each
+  by delivery period. Holdings read by trade reference, then instrument
+  reference. A bridge step names its kind, an estimate its Greek, and the report
+  its time modes. The page counts, orders and lays out what it shows, and words
+  a status or a reason; every amount, price, estimate and factor name is the
+  backend's.
+- **Missing is not zero, for a holding too.** What opening Greeks explain is an
+  amount, or nothing when none of the estimates is available, for a currency
+  and for each holding. The page then reads Unavailable. A partly available
+  explanation keeps its amount and is marked partial.
+- **One amount format.** A report amount is its exact text, a decimal or a
+  fraction where no decimal is exact, with its currency reference. The page
+  sends the amounts it shows, and not the report's evidence, to the shared
+  amount display, and keeps the exact value beside each. The report carries no
+  display text of its own.
+- **Closes are offered, never assumed.** The pickers list the closes the header
+  lists, named as the header names them. Until the person chooses, they show
+  the header's close and what came before it: the close before it of its own
+  close convention, where it has one and such a close exists, and otherwise the
+  frame before it of any kind. Both are visible, can be changed before Run, and
+  are sent as explicit identities. When the header names no close, what the
+  page offered is withdrawn and Run is refused. Closes the person chose stay.
+- **The knowledge cutoff is a local time.** An untouched cutoff stays the exact
+  instant of the Risk scope; an edited one is resolved by the backend's time
+  inspection. Whenever the Risk scope is read again or changed, the result and
+  the cutoff are cleared, and the empty cutoff is refilled from the scope, never
+  from the browser's clock.
+- **Unsaved and unconfirmed states end.** A save the server refuses outright
+  leaves nothing outstanding. A save whose outcome is unknown can be retried
+  with its original request or discarded. After a discard or a refusal the
+  saved reports are read again, and a result they hold reads as saved under its
+  name. A confirmed save stays confirmed when that list cannot be read. Saving
+  redraws the save bar alone.
+- **Saved reports describe themselves.** The list gives each report's save time,
+  the two closes it compares, its books and its trade selection. It reads the
+  100 most recently saved, lists those the person may still read, and says when
+  older ones exist.
+
+Open: the list reauthorizes each report it reads, on every read. Its cost at a
+hundred reports is unmeasured and it has no paging. See
+[trading P&L](trading-pnl.md).
+
+## D391 · Contract observation curve terms
 
 Implemented locally, 2026-11-13. A custom curve can state a contract price as a
 sum of averaged contract-position observations over a calendar month or a trade
