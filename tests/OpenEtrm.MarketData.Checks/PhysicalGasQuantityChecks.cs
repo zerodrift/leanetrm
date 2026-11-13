@@ -8,6 +8,15 @@ internal static class PhysicalGasQuantityChecks
     {
         var revision = new ReferenceRevision(Guid.NewGuid(), Guid.NewGuid());
         ReferenceKey R(string code) => new(revision, code);
+        var ny=GasDayClock.Capture(R("iana_gas_clock"),TimeZoneInfo.FindSystemTimeZoneById("America/New_York"),9*60);
+        if(ny.Boundary(new(2026,3,7))!=new DateTimeOffset(2026,3,7,14,0,0,TimeSpan.Zero)||
+            ny.Boundary(new(2026,3,8))!=new DateTimeOffset(2026,3,8,13,0,0,TimeSpan.Zero)||
+            ny.Boundary(new(2026,10,31))!=new DateTimeOffset(2026,10,31,13,0,0,TimeSpan.Zero)||
+            ny.Boundary(new(2026,11,1))!=new DateTimeOffset(2026,11,1,14,0,0,TimeSpan.Zero))
+            throw new Exception("Captured IANA gas clocks must preserve their 23-hour and 25-hour operating days.");
+        var retainedNy=new GasDayClock(ny.Key,ny.Rules,ny.StartMinute);
+        if(DefinitionIdentity.For(retainedNy)!=DefinitionIdentity.For(ny))
+            throw new Exception("Restoring captured IANA rules changed the gas clock's economic identity.");
         var clock = GasDayClock.Capture(R("gas_clock"), Zone(), 9 * 60);
         var unit = R("synthetic_gas_energy");
         Quantity Q(string value) => new(ExactDecimal.Parse(value), unit);

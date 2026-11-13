@@ -1,5 +1,6 @@
 using OpenEtrm.MarketData.Power;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.Shared.Temporal;
 
 namespace OpenEtrm.MarketData.Calculation;
 
@@ -27,7 +28,7 @@ public sealed record ClockChange(DateTimeOffset At,string Policy)
         {
             if(calendar.Rules is null||calendar.Rules.Length>65536||calendar.From!=parent||calendar.Convention!=CalendarClockRoll.NextDay)
                 throw new ArgumentException();
-            var clock=PowerClock.Capture(TimeZoneInfo.FromSerializedString(calendar.Rules));
+            var clock=PowerClock.Capture(RetainedTimeZone.Restore(calendar.Rules,calendar.Zone));
             if(clock.Id!=calendar.Zone||clock.Fingerprint!=calendar.Fingerprint||NextCalendarDay(calendar.From,clock).At!=At)
                 throw new ArgumentException();
         }

@@ -420,6 +420,14 @@ choice. Retain source instant, target instant, calendar date and actual elapsed
 time. The endpoint mode takes its target from the selected closing context but
 does not import that context's prices, knowledge or facts.
 
+Calendar layers and gas-day schedules share exact retained-rule restoration.
+Restored rules must serialize back to the complete retained payload. Some IANA
+histories cannot be deserialized by the framework that serialized them; their
+zone ID may locate an installed representation only when its entire serialized
+payload matches exactly. Changed or unavailable rules refuse. Calendar layers
+also verify the declared zone ID and fingerprint before accepting their target.
+No historical rule is trimmed or replaced by a newer installed rule.
+
 The initial frozen-state clock policy supports forward rolls within its
 declared domain. Backward rolls, especially across an already-recorded fixing,
 payment or exercise, require an explicit historical-state projection and otherwise

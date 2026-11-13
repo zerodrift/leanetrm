@@ -26,6 +26,16 @@ internal static class ValuationEnvironmentChecks
                 ExactDecimal.Parse(((c.ValuationAt-source).Ticks/TimeSpan.TicksPerDay).ToString())).ToString(),f!.Unit.Currency),
             time:ValuationTimeDependency.Between(source,end));
         var original=f.Prepared.Valuation.Snapshot;
+        var calendar=ClockChange.NextCalendarDay(source,ny);
+        var calendarChild=RiskEngine.WithClock(f.Prepared,calendar);
+        if(calendarChild.Scenario.CalculationAt!=calendar.At)
+            throw new Exception("A retained IANA calendar roll failed to reach the next local day.");
+        Reject("scenario_clock",()=>RiskEngine.WithClock(f.Prepared,calendar with{
+            Calendar=calendar.Calendar! with{Zone="UTC"}}));
+        Reject("scenario_clock",()=>RiskEngine.WithClock(f.Prepared,calendar with{
+            Calendar=calendar.Calendar! with{Fingerprint=new string('0',64)}}));
+        Reject("scenario_clock",()=>RiskEngine.WithClock(f.Prepared,calendar with{
+            Calendar=calendar.Calendar! with{Rules=calendar.Calendar.Rules+"invalid"}}));
         var child=RiskEngine.WithClock(f.Prepared,new(source.AddDays(1),ClockChange.FrozenInputs));
         if(!ReferenceEquals(original,child.Valuation.Snapshot)||child.Scenario.Plan!=f.Prepared.Scenario.Plan)
             throw new Exception("A clock layer changed its retained source snapshot or plan.");

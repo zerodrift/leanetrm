@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.Serialization;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.Shared.Temporal;
 
 namespace OpenEtrm.MarketData.Gas;
 
@@ -19,7 +20,7 @@ public sealed record GasDayClock
         Money.RequireKey(key);
         if (string.IsNullOrWhiteSpace(rules) || rules.Length > 65_536 || startMinute is < 0 or >= 1440)
             throw new MarketDataException("gas_day_clock", "Supply captured clock rules and a gas-day start minute within the local day.");
-        try { zone = TimeZoneInfo.FromSerializedString(rules); }
+        try { zone = RetainedTimeZone.Restore(rules); }
         catch (Exception error) when (error is SerializationException or ArgumentException)
         {
             throw new MarketDataException("gas_day_clock", "The captured gas-day clock rules are invalid.");
