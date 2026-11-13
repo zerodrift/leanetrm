@@ -239,8 +239,8 @@ INSERT INTO market_data.custom_curve_requests(catalog_id,actor_id,request_id,ope
             {
                 await using var insert=ScheduleStore.Command(connection,"""
 INSERT INTO market_data.custom_curve_observation_terms(catalog_id,curve_id,version,node_id,ordinal,term_group,weight,position,less_position,period)
- VALUES($1,$2,$3,$4,$5,$6,$7::numeric,$8,$9::integer,$10)
-""",Catalog,id,version,node.Id,term.Ordinal,term.Group,term.Weight,term.Position,(object?)term.LessPosition??DBNull.Value,term.Period);
+ VALUES($1,$2,$3,$4,$5,$6,$7::numeric,$8::integer,$9::integer,$10)
+""",Catalog,id,version,node.Id,term.Ordinal,term.Group,term.Weight,(object?)term.Position??DBNull.Value,(object?)term.LessPosition??DBNull.Value,term.Period);
                 await insert.ExecuteNonQueryAsync(ct);
             }
             if(node.PublishedSource is {} published)

@@ -97,11 +97,24 @@ def run_checks(url,query,manifest):
     after=preview('2027-01-25')
     price(after,'68.50')
     assert live(after)=={CONTRACT['D']},after['dependencies']
+    # A consumer reads the published curve through a published source and prices the same cell.
+    consumer={'code':'synthetic_crude_consumer','name':'Synthetic crude consumer','output':'output','nodes':[
+        {'id':'formula','kind':'published_source','parameters':{'selection':'all_output_points_v1'},'inputs':{},
+         'publishedSource':{'catalogId':catalog,'curveId':curve,'version':1,'outputNode':'output'}},
+        {'id':'output','kind':'output','parameters':{},'inputs':{'values':'formula'}}]}
+    for day,expected in (('2026-12-01','68.46'),('2026-12-22','68.46'),('2027-01-20','68.52'),('2027-01-25','68.50')):
+        price(preview(day,consumer),expected)
+    # Calendar availability plans the consumer's published input at the sampling instant of every observation day, past
+    # days included, so every close of the fixture prices both curves.
+    closes={'2026-12-01','2026-12-22','2027-01-20','2027-01-25'}
+    for definition in (published['definition'],consumer):
+        dates=client.call('market/dates',{'curve':None,'timeZone':'UTC','session':frame('2026-12-01')['close']['session'],'definition':definition})
+        assert closes<={row['date'] for row in dates['dates']},(definition['code'],dates)
     # The knowledge view before the settlement was recorded still refuses.
     unknown=preview('2027-01-25',snapshot=historical(unsettled),expected=422)
     assert (unknown['code'],unknown['message'])==(missing['code'],missing['message']),unknown
     client.call('market/current',{})
-    print('PASS contract observation curve: projected, settling and settled formula prices, live inputs by context and a refused incomplete history',flush=True)
+    print('PASS contract observation curve: projected, settling and settled formula prices, live inputs by context, a published-source consumer, calendar availability and a refused incomplete history',flush=True)
 
     # Review focus 5: a correction of a settlement already read is a new revision with a later knowledge time.
     recorded=known()
@@ -110,6 +123,7 @@ def run_checks(url,query,manifest):
         source_code,source_event_id,'{correction}',role,publication_state,observed_at,greatest(observed_at,clock_timestamp()),69.55,id
         FROM market_data.observations WHERE catalog_id='{catalog}' AND id='{late}';""")
     price(preview('2027-01-25'),'68.51')
+    price(preview('2027-01-25',consumer),'68.51')
     price(preview('2027-01-25',snapshot=historical(recorded)),'68.50')
     client.call('market/current',{})
     print('PASS contract observation correction: the latest view averages the corrected settlement and the earlier knowledge view reproduces the original',flush=True)
@@ -119,6 +133,10 @@ def run_checks(url,query,manifest):
     for parameter in [p for p in OBSERVED if p!='calendar']:
         draft=deepcopy(DEFINITION);del observed(draft)['parameters'][parameter]
         assert preview(None,draft,422,context)['code']=='recipe_definition',parameter
+    # A term whose position is blank reaches validation, which names the term and its position.
+    draft=deepcopy(DEFINITION);observed(draft)['observationTerms'][1]['position']=None
+    refused=preview(None,draft,422,context)
+    assert refused['code']=='recipe_definition' and refused['message'].startswith('Observation term 1 position:'),refused
     draft=deepcopy(DEFINITION);del observed(draft)['parameters']['calendar']
     refused=preview(None,draft,422,context)
     assert (refused['code'],refused['message'])==('custom_curve_definition','Business-day windows require an exact reference calendar.'),refused
@@ -133,4 +151,4 @@ def run_checks(url,query,manifest):
         query(f"INSERT INTO security.market_catalog_scopes VALUES('{catalog}','{tenant}','{workspace}');")
     assert scope==f'{tenant},{workspace}',scope
     price(preview('2027-01-25'),'68.51')
-    print('PASS contract observation refusals: every required setting, the business-day calendar, a reweighted saved version and a reader without market access',flush=True)
+    print('PASS contract observation refusals: every required setting, a blank term position, the business-day calendar, a reweighted saved version and a reader without market access',flush=True)

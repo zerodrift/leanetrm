@@ -11,9 +11,10 @@ namespace OpenEtrm.MarketData.CustomCurves;
 public sealed record RecipeContractWeight(int OutputPosition,string SourcePort,Guid ContractId,string Weight);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record RecipePanelWeight([property:JsonRequired] string SourcePort,[property:JsonRequired] string Weight);
+// Every member is required; a blank position is an explicit null that validation refuses for its term.
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record RecipeObservationTerm([property:JsonRequired] int Ordinal,[property:JsonRequired] string Group,[property:JsonRequired] string Weight,
-    [property:JsonRequired] int Position,[property:JsonRequired] int? LessPosition,[property:JsonRequired] string Period);
+    [property:JsonRequired] int? Position,[property:JsonRequired] int? LessPosition,[property:JsonRequired] string Period);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PublishedRecipeReference(Guid CatalogId,Guid CurveId,int Version,string OutputNode);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

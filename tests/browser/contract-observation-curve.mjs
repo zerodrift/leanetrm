@@ -79,4 +79,10 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await check('clearing a weight disables nothing else',`!document.querySelector('#custom-curves-preview').disabled&&!document.querySelector('#custom-curves-save').disabled&&[...document.querySelectorAll('#custom-curves-properties input,#custom-curves-properties select')].every(n=>!n.disabled)`);
  await click('#custom-curves-preview');
  await check('the backend refuses the cleared weight and its message is shown beside the operation',`(()=>{const r=${last('preview')},n=r${observed};return r.status===422&&r.data.code==='recipe_definition'&&n.observationTerms[1].weight===''&&!document.querySelector('#error').hidden&&document.querySelector('#custom-curves-refusal').textContent===r.data.message&&document.querySelector('#custom-curves-inspector').contains(document.querySelector('#custom-curves-refusal'));})()`,detail);
+
+ // A new term whose position is not yet entered is sent with an explicit null; the backend names that term's position.
+ await set(term('Weight',2),'2');await click('#custom-curve-add-term');
+ for(const [field,value] of [['Group','roll'],['Weight','1'],['Period','trade_month_of_delivery_contract_v1']])await set(term(field,4),value);
+ await click('#custom-curves-preview');
+ await check('the backend refuses the blank position of the new term and its message is shown beside the operation',`(()=>{const r=${last('preview')},n=r${observed};return r.status===422&&r.data.code==='recipe_definition'&&n.observationTerms.length===4&&n.observationTerms[3].position===null&&r.data.message.startsWith('Observation term 3 position:')&&!document.querySelector('#error').hidden&&document.querySelector('#custom-curves-refusal').textContent===r.data.message&&document.querySelector('#custom-curves-inspector').contains(document.querySelector('#custom-curves-refusal'));})()`,detail);
 }

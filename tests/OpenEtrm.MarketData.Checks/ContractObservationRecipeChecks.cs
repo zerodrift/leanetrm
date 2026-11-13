@@ -95,6 +95,21 @@ internal static class ContractObservationRecipeChecks
         Refused("A gap in ordinals",Term(node,2,t=>t with{Ordinal=3}));
         foreach(var weight in new[]{"0","-1","2/3"})Refused($"Weight {weight}",Term(node,1,t=>t with{Weight=weight}));
         Refused("A spread against its own position",Term(node,1,t=>t with{LessPosition=1}));
+        // Every term refusal names the term's ordinal and the member at fault, so an editor row in progress is answered beside the operation.
+        void Names(string label,int ordinal,string member,RecipeNode candidate)=>
+            Message(label,"recipe_definition",$"Observation term {ordinal} {member}:",()=>RecipeEngine.Validate(Definition(candidate)));
+        Names("A blank position",1,"position",Term(node,1,t=>t with{Position=null}));
+        Names("Position 0",1,"position",Term(node,1,t=>t with{Position=0}));
+        Names("Position 121",2,"position",Term(node,2,t=>t with{Position=121}));
+        Names("Spread position 121",1,"lessPosition",Term(node,1,t=>t with{LessPosition=121}));
+        Names("A spread named by its own position",1,"lessPosition",Term(node,1,t=>t with{LessPosition=1}));
+        Names("An invalid group",0,"group",Term(node,0,t=>t with{Group="Average"}));
+        Names("An unsupported period",2,"period",Term(node,2,t=>t with{Period="average_month_v1"}));
+        foreach(var weight in new[]{"0","-1","2/3",""," 1","1e2","1.0000000000000000001","9999999999999999999999999"})
+            Names($"Weight '{weight}'",1,"weight",Term(node,1,t=>t with{Weight=weight}));
+        // Each weight is in range but their group's sum is not: the recipe could never evaluate, so it refuses when saved.
+        Message("A group whose weights cannot be summed","recipe_definition","Observation group roll weights:",()=>RecipeEngine.Validate(Definition(
+            Term(Term(node,1,t=>t with{Weight="999999999999999999999999"}),2,t=>t with{Weight="999999999999999999999999"}))));
         Code("Observation terms on another kind","recipe_definition",()=>RecipeEngine.Validate(Definition(node) with{Nodes=Definition(node).Nodes.SetItem(0,
             Definition(node).Nodes[0] with{ObservationTerms=node.ObservationTerms})}));
         Code("A missing source port","recipe_definition",()=>RecipeEngine.Validate(Definition(node with{Inputs=ImmutableDictionary<string,string>.Empty})));
@@ -123,11 +138,11 @@ internal static class ContractObservationRecipeChecks
         (string,string,string)[] january=[("2027-01-18","G","69.60"),("2027-01-19","G","69.50"),("2027-01-20","G","69.30"),("2027-01-21","H","68.90"),("2027-01-22","H","68.70")];
         (string,string)[] marks=[("F","70.00"),("G","69.40"),("H","68.80")];
         var identity=new ConnectedRecipeIdentity(revision.CatalogId,Guid.NewGuid(),1,RecipeEngine.Version);
-        (ConnectedRecipeGraph Graph,ConnectedScenario Basis) Priced(string context,string time,IEnumerable<(string Day,string Contract,string Value)> history,IEnumerable<(string Contract,string Value)> live,
-            Func<ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>,ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>>? windows=null,
-            RecipeNode? terms=null,RecipeContract? differential=null,ConnectedRecipeReferencePins? pins=null)
+        (RecipeInputs Inputs,ImmutableArray<ConnectedRecipeSample> Samples,ResolvedCalculationContext Resolved,ConnectedRecipeReferencePins? Pins) Prepared(string context,string time,
+            IEnumerable<(string Day,string Contract,string Value)> history,IEnumerable<(string Contract,string Value)> live,
+            Func<ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>,ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>>? windows,
+            RecipeNode stated,RecipeContract? differential,ConnectedRecipeReferencePins? pins)
         {
-            var stated=terms??node;
             var at=DateTimeOffset.Parse(context+"T"+time+"Z",CultureInfo.InvariantCulture);var day=DateOnly.FromDateTime(at.UtcDateTime);
             var resolved=new ResolvedCalculationContext(Guid.NewGuid(),"synthetic-crude-observations",at,at,at,at);
             var samples=history.GroupBy(r=>r.Day).Select(g=>(Date:DateOnly.ParseExact(g.Key,"yyyy-MM-dd",CultureInfo.InvariantCulture),Rows:g.Select(r=>(r.Contract,r.Value))))
@@ -146,8 +161,16 @@ internal static class ContractObservationRecipeChecks
             if(differential is not null)inputs=inputs with{Sources=inputs.Sources.Add("differential",new(differentialKey,source.Unit,[differential])),Dates=inputs.Dates.Add("dates",[day])};
             // A business-day node is declared with its exact resolved calendar, as a business-day date sequence is.
             pins??=stated.Parameters["days"]==RecipeEngine.BusinessDays?new([new("crude",R(stated.Parameters["calendar"]),calendar)],[]):null;
-            var graph=RecipeEngine.Connect(differential is null?Definition(stated):WithDifferential(stated),inputs,identity,samples,resolved,references:pins);
-            return(graph,ConnectedScenario.Base(ConnectedCurves.Compile(graph.Definitions,[..graph.Outputs.Select(o=>o.Point)],resolved,new Visible())));
+            return(inputs,samples,resolved,pins);
+        }
+        (ConnectedRecipeGraph Graph,ConnectedScenario Basis) Priced(string context,string time,IEnumerable<(string Day,string Contract,string Value)> history,IEnumerable<(string Contract,string Value)> live,
+            Func<ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>,ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>>? windows=null,
+            RecipeNode? terms=null,RecipeContract? differential=null,ConnectedRecipeReferencePins? pins=null,RecipeOutputDemand? demand=null)
+        {
+            var stated=terms??node;var prepared=Prepared(context,time,history,live,windows,stated,differential,pins);
+            var graph=RecipeEngine.Connect(differential is null?Definition(stated):WithDifferential(stated),prepared.Inputs,identity,prepared.Samples,prepared.Resolved,
+                references:prepared.Pins,demand:demand);
+            return(graph,ConnectedScenario.Base(ConnectedCurves.Compile(graph.Definitions,[..graph.Outputs.Select(o=>o.Point)],prepared.Resolved,new Visible())));
         }
         ExactUnitPrice Shifted((ConnectedRecipeGraph Graph,ConnectedScenario Basis) priced,params string[] shifted)=>priced.Basis.WithShifts([..shifted.Select(name=>
         {
@@ -170,6 +193,22 @@ internal static class ContractObservationRecipeChecks
         // Inside January: two settled days, the context day and two later days at today's prices.
         var during=Priced("2027-01-20","12:00:00",[..december,..january.Take(2)],marks.Skip(1));
         Price("during",Base(during),"3501","50");Price("during G+1",Shifted(during,"G"),"3511","50");
+        // A consumer of the published curve plans it before reading prices: topology needs the sampling instant of every
+        // observation day, past days included, not only of the context date.
+        var planned=Prepared("2027-01-20","12:00:00",[..december,..january.Take(2)],marks.Skip(1),null,node,null,null);
+        ImmutableDictionary<DateOnly,DateTimeOffset> Instants(IEnumerable<DateOnly> days)=>
+            days.Append(new DateOnly(2027,1,20)).Distinct().ToImmutableDictionary(d=>d,d=>new DateTimeOffset(d.ToDateTime(noon),TimeSpan.Zero));
+        Code("topology at the context instant only","recipe_input",()=>RecipeEngine.Topology(Definition(node),planned.Inputs,ImmutableDictionary<string,RecipeTopology>.Empty,Instants([])));
+        var instants=Instants(planned.Inputs.Windows["crude"].SelectMany(w=>w.Days));
+        var topology=RecipeEngine.Topology(Definition(node),planned.Inputs,ImmutableDictionary<string,RecipeTopology>.Empty,instants);
+        var january2027=new RecipeDelivery(new(2027,1,1),new(2027,2,1));
+        Equal("planned cells",string.Join(",",topology.Outputs.Select(o=>$"{o.Position}:{o.DeliveryFrom:yyyy-MM-dd}..{o.DeliveryTo:yyyy-MM-dd}")),"1:2027-01-01..2027-02-01");
+        // Each past observation day's own sample of every contract its terms select, and the context date's live G and H.
+        Equal("planned native inputs",string.Join(",",topology.NativeInputs([january2027]).Select(d=>(d.Date,Name:contracts.Single(c=>c.Value.Contract.Key==d.Contract).Key))
+            .OrderBy(d=>d.Date).ThenBy(d=>d.Name,StringComparer.Ordinal).Select(d=>d.Date.ToString("MM-dd",CultureInfo.InvariantCulture)+d.Name)),
+            "12-15F,12-15G,12-15H,12-16F,12-16G,12-16H,12-17F,12-17G,12-17H,12-18F,12-18G,12-18H,01-18G,01-19G,01-20G,01-20H");
+        Price("priced under the planned demand",Base(Priced("2027-01-20","12:00:00",[..december,..january.Take(2)],marks.Skip(1),
+            demand:new([january2027],instants))),"3501","50");
         // After the pricing period nothing is variable.
         var after=Priced("2027-01-25","12:00:00",[..december,..january],[]);
         Price("after",Base(after),"70","1");Equal("after G is fixed",Variable(after,"G"),false);Equal("after H is fixed",Variable(after,"H"),false);
@@ -230,6 +269,8 @@ internal static class ContractObservationRecipeChecks
         Equal("formula round trip",RecipeFormula.Format(compiled),text);
         Equal("formula text keeps the terms",compiled.SameGraph(recipe),true);
         Code("A term without its explicit spread position","recipe_formula",()=>RecipeFormula.Compile(text.Replace("\"lessPosition\":null,",""),recipe.Code,recipe.Name));
+        Message("A blank position in formula text","recipe_definition","Observation term 1 position:",()=>RecipeFormula.Compile(
+            text.Replace("\"ordinal\":1,\"group\":\"roll\",\"weight\":\"2\",\"position\":1,","\"ordinal\":1,\"group\":\"roll\",\"weight\":\"2\",\"position\":null,",StringComparison.Ordinal),recipe.Code,recipe.Name));
         Code("A term with an unknown member","recipe_formula",()=>RecipeFormula.Compile(text.Replace("\"ordinal\":0,","\"ordinal\":0,\"script\":\"x\",",StringComparison.Ordinal),recipe.Code,recipe.Name));
         // The declaration retains the terms and the resolved windows.
         string Manifest((ConnectedRecipeGraph Graph,ConnectedScenario Basis) priced)=>
@@ -257,6 +298,14 @@ internal static class ContractObservationRecipeChecks
     }
     private static void Equal<T>(string label,T actual,T expected) where T:notnull
     {if(!actual.Equals(expected))throw new Exception($"{label}: expected {expected}, got {actual}");}
+    private static void Message(string label,string code,string fragment,Action action)
+    {
+        try{action();}
+        catch(MarketDataException error)when(error.Code==code)
+        {if(!error.Message.Contains(fragment,StringComparison.Ordinal))throw new Exception($"{label}: expected a refusal naming '{fragment}', got: {error.Message}");return;}
+        catch(MarketDataException error){throw new Exception($"{label}: expected {code}, got {error.Code}: {error.Message}");}
+        throw new Exception(label+" was accepted.");
+    }
     private static void Code(string label,string code,Action action)
     {
         try{action();}catch(MarketDataException error)when(error.Code==code){return;}

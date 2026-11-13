@@ -44,7 +44,7 @@ public static partial class RecipeEngine
             for(var day=first;day<=last;day=day.AddDays(1))
             {
                 if(businessDays?.Contains(day)==false||!member(day))continue;
-                _=Resolve(day,term.Position);if(term.LessPosition is {} less)_=Resolve(day,less);
+                _=Resolve(day,term.Position!.Value);if(term.LessPosition is {} less)_=Resolve(day,less);
                 kept.Add(day);
             }
             if(kept.Count==0)throw Missing($"Term {term.Ordinal} has no observation day for {target.From:yyyy-MM}.");
@@ -61,7 +61,7 @@ public static partial class RecipeEngine
         {
             var term=terms.Single(t=>t.Ordinal==window.Term);
             foreach(var day in window.Days)
-            foreach(var position in term.LessPosition is {} less?[term.Position,less]:new[]{term.Position})
+            foreach(var position in term.LessPosition is {} less?[term.Position!.Value,less]:new[]{term.Position!.Value})
                 yield return(day,ObservedContract(source.Contracts,day,samplingTime,position));
         }
     }
@@ -101,7 +101,7 @@ public static partial class RecipeEngine
             {
                 var values=group.Select(term=>
                 {
-                    var days=windows.Single(w=>w.Target==target&&w.Term==term.Ordinal).Days;var mean=Mean(days,term.Position);
+                    var days=windows.Single(w=>w.Target==target&&w.Term==term.Ordinal).Days;var mean=Mean(days,term.Position!.Value);
                     if(term.LessPosition is not {} less)return mean;
                     var lessMean=Mean(days,less);return new CellFormula(node.Id,index++,null,[mean,lessMean],[one,-one],SignedSum);
                 }).ToImmutableArray();
@@ -128,14 +128,25 @@ public static partial class RecipeEngine
         var count=Number(node,"targetCount",1,120);var terms=node.ObservationTerms;
         if(terms.IsDefaultOrEmpty||terms.Length>16||terms.Any(t=>t is null)||!terms.Select(t=>t.Ordinal).Order().SequenceEqual(Enumerable.Range(0,terms.Length)))
             throw Invalid("State one to 16 observation terms with contiguous ordinals from 0.");
-        foreach(var term in terms)
+        // Each refusal names the term and the member at fault.
+        var weights=new Dictionary<int,ExactDecimal>();
+        foreach(var term in terms.OrderBy(t=>t.Ordinal))
         {
-            if(!Identity(term.Group)||term.Position is <1 or >120||term.LessPosition is <1 or >120||term.LessPosition==term.Position||term.Period is not (CalendarMonthPeriod or TradeMonthPeriod))
-                throw Invalid("Each observation term requires a group, distinct positions from 1 to 120 and a supported period.");
-            ExactDecimal weight;
-            try{weight=Weight(term.Weight);}catch(MarketDataException error)when(error.Code=="numeric_format"){throw Invalid("Every weight must be explicit exact decimal text.");}
-            if(weight.CompareTo(default)<=0)throw Invalid("Every observation term weight must be positive.");
+            MarketDataException Term(string member,string requirement)=>Invalid($"Observation term {term.Ordinal} {member}: {requirement}");
+            if(!Identity(term.Group))throw Term("group","name its group with a lowercase identifier of at most 32 characters.");
+            if(term.Position is not (>=1 and <=120))throw Term("position","choose a contract position from 1 to 120.");
+            if(term.LessPosition is <1 or >120||term.LessPosition==term.Position)throw Term("lessPosition","choose none or a contract position from 1 to 120 other than its position.");
+            if(term.Period is not (CalendarMonthPeriod or TradeMonthPeriod))throw Term("period","choose a supported observation period.");
+            try{weights[term.Ordinal]=Weight(term.Weight);}
+            catch(MarketDataException error)when(error.Code is "recipe_definition" or "numeric_format" or "numeric_range")
+            {throw Term("weight","state exact decimal text below 10^24 with at most 18 fractional digits.");}
+            if(weights[term.Ordinal].CompareTo(default)<=0)throw Term("weight","state a positive weight.");
         }
+        // A group's weighted mean divides by the sum of its weights; a sum beyond range could never evaluate.
+        foreach(var group in terms.GroupBy(t=>t.Group,StringComparer.Ordinal))
+            try{_=group.Aggregate(default(ExactDecimal),(sum,term)=>sum+weights[term.Ordinal]);}
+            catch(MarketDataException error)when(error.Code=="numeric_range")
+            {throw Invalid($"Observation group {group.Key} weights: the weights of terms {string.Join(", ",group.Select(t=>t.Ordinal).Order())} must sum below 10^24.");}
         return([..Enumerable.Range(0,count).Select(i=>new RecipeDelivery(from.AddMonths(i),from.AddMonths(i+1)))],days,[..terms.OrderBy(t=>t.Ordinal)]);
     }
 }
