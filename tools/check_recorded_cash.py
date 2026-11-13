@@ -3,6 +3,7 @@ import json
 import re
 import threading
 import time
+from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
 from uuid import uuid4
@@ -27,22 +28,23 @@ def effect_matches(effect,terms):
     return len(missing)
 
 
-def check_option_strip(report,opening,closing):
-    """One call on each of ten underlying futures months, held across both closes."""
-    factors=report['factors'];assert len(factors)==10
-    # Each factor is named by its futures curve and delivery month, and moved between two exact prices. Factors read in order:
-    # one curve after the other, each by delivery month.
-    labels=[f['label'] for f in factors];curves=list(dict.fromkeys(label.rsplit(' · ',1)[0] for label in labels))
-    assert len(curves)==2 and labels==[f'{curve} · {month}' for curve in curves for month in ('Dec 2026','Jan 2027','Feb 2027','Mar 2027','Apr 2027')],labels
+def check_option_strip(report,opening,closing,months):
+    """One call on each of a few underlying futures months of two curves, held across both closes."""
+    held=len(months);factors=report['factors'];assert len(factors)==held
+    # Each factor is named by its futures curve and delivery month, and moved between two exact prices. Factors read one curve
+    # after the other, here by the curves' tickers, which sort as their codes do, and each curve by delivery month.
+    labels=[f['label'] for f in factors];named=[label.rsplit(' · ',2) for label in labels]
+    assert sorted(month for _,_,month in named)==sorted(months) and len({name for name,_,_ in named})==2,labels
+    assert named==sorted(named,key=lambda factor:(factor[1],datetime.strptime(factor[2],'%b %Y'))),labels
     for f in factors:
         assert f['unavailableReason'] is None and Fraction(f['change']['price'])==Fraction(f['closing']['price'])-Fraction(f['opening']['price']) and Fraction(f['priceTick'])>0,f
     # No holding prices two of these futures together, so no cross-factor repricing is requested.
     assert report['sensitivities'] and not any(s['mixed'] for s in report['sensitivities'])
-    assert {p['state'] for p in report['positions']}=={'continuing'} and len(report['positions'])==20
+    assert {p['state'] for p in report['positions']}=={'continuing'} and len(report['positions'])==2*held
     # Holdings read by trade reference, then by instrument reference.
     references=[(p['tradeReference'],p['instrumentReference']) for p in report['positions']];assert references==sorted(references),references
     # Each option lists estimates for its own underlying alone; premium cash prices no factor.
-    assert sorted(len({k['axes'][0] for k in p['contributions']}) for p in report['positions'])==[0]*10+[1]*10
+    assert sorted(len({k['axes'][0] for k in p['contributions']}) for p in report['positions'])==[0]*held+[1]*held
     estimates=[k for p in report['positions'] for k in p['contributions']];assert all(k['label']==GREEKS[k['formula']] for k in estimates)
     total,=report['totals'];steps={s['label']:s for s in total['bridge']}
     assert [(s['label'],s['kind']) for s in total['bridge']]==[('Delta','greek'),('Gamma','greek'),('Cross gamma','greek'),('Residual','residual'),('Cash','cash'),
@@ -69,7 +71,7 @@ def check_option_strip(report,opening,closing):
     # Each endpoint states its rate-curve definition once; each payment names that curve and its endpoint snapshot.
     for side,at in (('opening',opening),('closing',closing)):
         evidence=report['discounts'][side];curve,=evidence['curves']
-        assert len(evidence['payments'])==10 and curve['definition']['tenors'],evidence['curves']
+        assert len(evidence['payments'])==held and curve['definition']['tenors'],evidence['curves']
         assert all(p['input']['snapshotId']==at['id'] and p['input']['mappingId']==curve['mappingId'] and p['input']['pillars'] and
                    'snapshot' not in p['input'] and 'definition' not in p['input'] for p in evidence['payments']),evidence['payments'][:1]
 
@@ -230,25 +232,30 @@ def run_checks(url,query,manifest,verify_persistence=None):
     assert all(p['clock']['at']==frame['at'] for p in rolled['time']['partitions'])
     print('PASS continuing option P&L: shared price Greeks, one-calendar-day decay and exact endpoint clock roll with retained opening inputs.',flush=True)
 
-    # One report explains holdings across every listed underlying month: the centre call of each, booked at the opening close.
+    # One report explains holdings priced on two curves: the centre call of the first product's first two listed underlying
+    # months and of the other product's first, booked at the opening close. A run values each held option nine times, at both
+    # closes, under six price samples and under one clock sample, all inside one request: the strip is kept to what the
+    # request limit admits on a slow host.
     c.call('profile',{'profile':'trader'})
     calls={}
     for o in early_catalog['options']:
-        if o['right']=='call':calls.setdefault(o['underlyingSeries'],[]).append(o)
-    strip=[]
-    for listed in calls.values():
-        centre=sorted(listed,key=lambda o:Decimal(o['strike']))[len(listed)//2]
-        strip.append(c.call('options/book',dict(operationId=str(uuid4()),**early_context,bookId=book,series=centre['series'],definitionRevisionId=centre['definitionRevisionId'],
-                                               side='buy',lots='1',premium='1',premiumPaymentDate=earlier['at'][:10],premiumStyle='premium_paid_up_front',**early_parties)))
-    assert len(strip)==10,len(strip)
+        if o['right']=='call':calls.setdefault(o['product'],{}).setdefault(o['underlyingSeries'],[]).append(o)
+    strip,months=[],[]
+    for position,product in enumerate(sorted(calls)):
+        for underlying in sorted(calls[product])[:2 if position==0 else 1]:
+            listed=calls[product][underlying];centre=sorted(listed,key=lambda o:Decimal(o['strike']))[len(listed)//2]
+            months.append(datetime.strptime(underlying.rsplit('_',1)[1],'%Y%m%d').strftime('%b %Y'))
+            strip.append(c.call('options/book',dict(operationId=str(uuid4()),**early_context,bookId=book,series=centre['series'],definitionRevisionId=centre['definitionRevisionId'],
+                                                   side='buy',lots='1',premium='1',premiumPaymentDate=earlier['at'][:10],premiumStyle='premium_paid_up_front',**early_parties)))
+    assert len(strip)==3,len(strip)
     cutoff=c.call('options/catalog',context)['context']['knownAt']
     c.call('profile',{'profile':'risk'})
-    wide=c.call('portfolio/pnl/run',{**request,'knownAt':cutoff,'tradeIds':[t['tradeId'] for t in strip]},timeout=600)
-    strip_report=wide['report'];check_option_strip(strip_report,earlier,frame)
+    wide=c.call('portfolio/pnl/run',{**request,'knownAt':cutoff,'tradeIds':[t['tradeId'] for t in strip]},timeout=300)
+    strip_report=wide['report'];check_option_strip(strip_report,earlier,frame,months)
     assert wide['saveRefusal'] is None
     kept=c.call('portfolio/pnl/save',dict(requestId=str(uuid4()),name='Option strip',artifact=wide['artifact']));assert kept['report']==strip_report
     assert c.call('portfolio/pnl/saved/'+strip_report['id'])['report']==strip_report
-    print('PASS wide option P&L: ten underlyings in one saved report, no cross-factor work without a joint dependent, and no amount for an effect without an available estimate.',flush=True)
+    print('PASS multi-curve option P&L: three underlyings on two curves in one saved report, no cross-factor work without a joint dependent, and no amount for an effect without an available estimate.',flush=True)
     reference=manifest['referenceCatalogId']
     query(f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{reference}' AND tenant_id='{manifest['tenantId']}' AND workspace_id='{manifest['workspaceId']}';")
     try:
@@ -260,18 +267,19 @@ def run_checks(url,query,manifest,verify_persistence=None):
     assert c.call('portfolio/pnl/saved/'+report['id'])['report']==report
     print('PASS saved P&L source revocation: reads, retries and library visibility recheck current exact reference access.',flush=True)
 
-    # A future on each listed family, held at the opening close beside the options: the book is then priced on more factors
-    # than one report explains, and the run is refused before pricing, with its count.
+    # Futures on two delivery months of each listed family, held at the opening close, are more factors than one report
+    # explains: a run over them is refused before pricing, with its count.
     c.call('profile',{'profile':'trader'})
     futures_context={**early_context,'convention':manifest['futuresConvention']}
     families={}
-    for contract in sorted(c.call('futures/catalog',futures_context)['contracts'],key=lambda listed:listed['deliveryFrom']):families.setdefault(contract['curve'],contract)
-    for curve,contract in sorted(families.items()):
-        c.call('futures/book',dict(operationId=str(uuid4()),**futures_context,bookId=book,curve=curve,contractId=contract['id'],definitionRevisionId=contract['definitionRevisionId'],
-                                   lots='1',executionPrice=str(Decimal(contract['mark'])-Decimal(contract['tick'])),**early_parties))
+    for contract in sorted(c.call('futures/catalog',futures_context)['contracts'],key=lambda listed:listed['deliveryFrom']):families.setdefault(contract['curve'],[]).append(contract)
+    chosen=[contract for curve in sorted(families) for contract in families[curve][:2]];assert len(chosen)>16,len(chosen)
+    futures=[c.call('futures/book',dict(operationId=str(uuid4()),**futures_context,bookId=book,curve=contract['curve'],contractId=contract['id'],
+                                        definitionRevisionId=contract['definitionRevisionId'],lots='1',executionPrice=str(Decimal(contract['mark'])-Decimal(contract['tick'])),**early_parties))
+             for contract in chosen]
     cutoff=c.call('options/catalog',context)['context']['knownAt']
     c.call('profile',{'profile':'risk'})
-    refused=c.call('portfolio/pnl/run',{**request,'knownAt':cutoff,'tradeIds':None},expected=422)
+    refused=c.call('portfolio/pnl/run',{**request,'knownAt':cutoff,'tradeIds':[future['tradeId'] for future in futures]},expected=422)
     counted=re.fullmatch(r'This scope has (\d+) price factors\. The opening-Greeks explanation covers at most 16; choose a smaller scope\.',refused['message'])
     assert refused['code']=='pnl_factor_limit' and counted and int(counted.group(1))>16,refused
     print('PASS P&L factor limit: a scope priced on more factors than one report explains is refused before pricing, with its count.',flush=True)

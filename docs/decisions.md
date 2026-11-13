@@ -4475,7 +4475,9 @@ returns the same explained and residual amounts.
 
 Undecided: the one-tick bump of the selected factor policy does not give a
 convergent central gamma for tree-priced options, so their curvature stays in
-the residual. See [trading P&L](trading-pnl.md).
+the residual. A run is one request under the process request limit and values
+each held option nine times; a ten-option report did not finish within 15
+seconds on the hosted CI runner. See [trading P&L](trading-pnl.md).
 
 ## D390 · The P&L page shows what moved, and the report states every figure the page shows
 

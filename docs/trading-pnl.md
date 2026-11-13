@@ -179,15 +179,24 @@ owners of a shared premium unit and no inferred payment facts.
 Both time modes consume the shared clock layer; unsupported portfolio members
 produce an unavailable whole-scope time diagnostic, never an invented zero.
 Report format `trading_pnl_report_v2` carries the bridge and Greek coverage with
-each currency total. The disposable check passes one saved report over ten option
-trades on ten underlying futures months, with no cross-factor repricing, and
-the refusal, with its count, of a book that also holds a future on each listed
-family. Central
-gamma at the one-tick bump converged for none of those ten tree-priced options:
-the report shows that effect without an amount and leaves it in the residual. A
-bump policy that makes their curvature explainable is undecided. A factor without
-a closing price is covered by the calculation checks alone; the synthetic
-datasets have no such close.
+each currency total. The disposable check passes one saved report over three
+option trades on futures of two curves, with no cross-factor repricing, and the
+refusal, with its count, of a run over futures on two delivery months of each
+listed family. Central gamma at the one-tick bump has converged for no
+tree-priced option run so far: the report shows that effect without an amount
+and leaves it in the residual. A bump policy that makes their curvature
+explainable is undecided. A factor without a closing price is covered by the
+calculation checks alone; the synthetic datasets have no such close.
+
+A run is one request and is bound by the process request limit. It values each
+held option nine times: once at each close, under six price samples and under
+one clock sample. On 2026-11-13 a report over ten options held on ten
+underlying futures, 62 opening scenarios and 90 unit valuations besides the
+closing values, took about nine seconds on an Apple-silicon development machine.
+On the hosted CI runner it did not finish within the 15-second request limit and
+was cancelled, so the check holds three options, a run of about four seconds
+on the development machine. Memory was not measured. Wider option scopes need a
+faster valuation or a run outside the request limit; both are later work.
 
 Recorded currency payments have an independent complete known ledger, including
 facts whose owner is not held at an endpoint. Complete accounting capability is
