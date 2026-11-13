@@ -500,7 +500,7 @@ in [hosted pilot operations](hosted-pilot.md); the synthetic local preview stays
 
 A neutral default public page lives in `site/` (D385), separately from the authenticated
 workspace assets. The hosted gateway serves only its exact homepage, two public
-assets and two bounded media folders (D382); `/app` forwards to the application's native root with its query intact.
+assets and one bounded images folder (D382, D388); `/app` forwards to the application's native root with its query intact.
 Only successful sign-in redirects to that native root are rewritten to `/app`.
 All other application and API paths retain the authenticated upstream routing.
 The site and gateway configuration require a separately reviewed installation;

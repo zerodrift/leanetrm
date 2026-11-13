@@ -101,15 +101,14 @@ def run_checks(nginx):
         (site / 'favicon.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
         shutil.copyfile(ROOT / 'site/headers.inc', site / 'headers.inc')
         media = {'images/synthetic-image.webp': b'SYNTHETIC PUBLIC IMAGE', 'images/synthetic-image.png': b'SYNTHETIC PNG IMAGE',
-                 'images/synthetic-image.jpg': b'SYNTHETIC JPG IMAGE', 'films/synthetic-film.mp4': b'SYNTHETIC PUBLIC FILM',
-                 'films/synthetic-film.webp': b'SYNTHETIC FILM POSTER', 'films/synthetic-film.jpg': b'SYNTHETIC JPG POSTER',
-                 'films/synthetic-film.vtt': b'WEBVTT\n\nSYNTHETIC CAPTIONS\n'}
-        # Present on disk, yet outside what each folder may serve.
+                 'images/synthetic-image.jpg': b'SYNTHETIC JPG IMAGE'}
+        # Present on disk, yet outside what the images folder may serve.
         withheld = ['images/private.json', 'images/page.html', 'images/stray.mp4', 'images/stray.vtt', 'images/Synthetic.webp',
                     'images/nested/inner.webp', 'images/synthetic-image.png.bak', 'images/dotless-png', 'images/-lead.webp',
-                    'images/line.png\n', 'films/.hidden.mp4', 'films/notes.txt', 'films/stray.png', 'films/_lead.mp4',
-                    'films/line.mp4\n']
-        for name, content in [*media.items(), *((name, b'SYNTHETIC WITHHELD FILE') for name in withheld)]:
+                    'images/line.png\n']
+        # Films are hosted elsewhere and only linked (D388): installed ones are never served.
+        films = ['films/synthetic-film.mp4', 'films/synthetic-film.webp', 'films/synthetic-film.vtt']
+        for name, content in [*media.items(), *((name, b'SYNTHETIC WITHHELD FILE') for name in [*withheld, *films])]:
             (site / name).parent.mkdir(parents=True, exist_ok=True)
             (site / name).write_bytes(content)
         (site / 'images/folder.png').mkdir()
@@ -202,7 +201,7 @@ def run_checks(nginx):
             expect('missing public file has no upstream fallback', '/_landing/site.css', 404)
         finally:
             stylesheet.write_bytes(content)
-        kinds = {'webp': 'image/webp', 'png': 'image/png', 'jpg': 'image/jpeg', 'mp4': 'video/mp4', 'vtt': 'text/vtt'}
+        kinds = {'webp': 'image/webp', 'png': 'image/png', 'jpg': 'image/jpeg'}
         def public_headers(label, headers):
             assert "default-src 'none'" in headers.get('Content-Security-Policy', ''), label + ': public policy missing'
             assert headers.get('X-Content-Type-Options') == 'nosniff', label + ': type sniffing must stay off'
@@ -217,25 +216,20 @@ def run_checks(nginx):
             expect('public media HEAD ' + path, path, 200, method='HEAD')
             public_headers(path + ' by another method',
                            expect('public media method restriction ' + path, path, 403, method='POST', body='synthetic'))
-        headers = expect('film byte range', '/_landing/films/synthetic-film.mp4', 206, answer=b'SYNT',
-                         headers={'Range': 'bytes=0-3'})
-        assert headers.get('Content-Range') == 'bytes 0-3/21', 'A player must be able to seek within a film.'
-        public_headers('film byte range', headers)
-        headers = expect('public page may play films from this site', '/', 200)
-        assert "media-src 'self'" in headers.get('Content-Security-Policy', '')
+        headers = expect('public page plays no media', '/', 200)
+        assert 'media-src' not in headers.get('Content-Security-Policy', ''), 'The public page links to films; it plays none.'
         for name in withheld:
             public_headers(name, expect('withheld media file ' + name, '/_landing/' + quote(name), 404))
             expect('withheld media file by another method ' + name, '/_landing/' + quote(name), 403, method='POST', body='synthetic')
         expect('folder named like an image', '/_landing/images/folder.png', 404)
         expect('symbolic link named like an image', '/_landing/images/link.png', 403)
-        for path in ['/_landing/images/', '/_landing/films/', '/_landing/images', '/_landing/images/absent.webp',
-                     '/_landing/films/absent.mp4', '/_landing/images/absent.png%0a',
-                     '/_landing/images/synthetic-image.webp/extra', '/_landing/images/../index.html',
-                     '/_landing/images/%2e%2e/index.html', '/_landing/films/..%2findex.html',
-                     '/_landing/films/%2e%2e%2fheaders.inc']:
+        for path in [*('/_landing/' + name for name in films), '/_landing/images/', '/_landing/films/', '/_landing/images', '/_landing/images/absent.webp',
+                     '/_landing/images/absent.png%0a', '/_landing/images/synthetic-image.webp/extra',
+                     '/_landing/images/../index.html', '/_landing/images/%2e%2e/index.html',
+                     '/_landing/images/..%2findex.html', '/_landing/images/%2e%2e%2fheaders.inc']:
             expect('rejected media path ' + path, path, 404)
         unopened = [line for line in (temporary / 'error.log').read_bytes().splitlines()
-                    if b'failed (2:' in line and (b'/images/' in line or b'/films/' in line)]
+                    if b'failed (2:' in line and b'/images/' in line]
         assert not unopened, 'An anonymous request for an absent media name must write nothing.'
         assert not upstream.requests, 'Public files and rejected public paths must never reach the application.'
         expect('HTTP canonical origin', '/app?synthetic=1', 308,

@@ -47,7 +47,7 @@ class DefaultPublicPage(unittest.TestCase):
         self.assertEqual(elsewhere, [])
 
     def test_default_page_loads_no_images_or_media(self):
-        self.assertFalse(self.page.media, 'The default page installs no media; an installation adds its own (D382, D385).')
+        self.assertFalse(self.page.media, 'The default page installs no media; an installation adds its own (D382, D385, D388).')
 
     def test_software_copyright_notice_is_kept(self):
         self.assertIn('© 2026 Trusty Genius LLC', self.text.split('<footer', 1)[1])

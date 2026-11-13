@@ -132,25 +132,20 @@ writes the derived size/deadline placeholders and preserves nginx's own `$reques
 `$request_filename`, `$document_root`, `$is_args`, `$args`, `$remote_addr` and `$openetrm_backend` variables. Keep rendered configuration,
 certificate keys and installation addresses outside source control.
 
-Only `/`, `/_landing/site.css`, `/_landing/favicon.svg` and the two bounded media
-folders `/_landing/images/` and `/_landing/films/` serve public files, with
-GET/HEAD, restrictive public-content headers and no JavaScript (D382). A media
-name is one lowercase segment with a listed extension, and only a regular file
-is served: folders answer 404 and symbolic links inside a media folder 403.
-Media answers byte ranges, so a player can seek. Other methods are refused with
-403 whatever the name. Images, demonstration films, their captions and their
-posters are operator content installed under `LANDING_ROOT`; they are not in the
-repository.
-Unknown paths under `/_landing/` return 404.
+Only `/`, `/_landing/site.css`, `/_landing/favicon.svg` and the bounded images
+folder `/_landing/images/` serve public files, with GET/HEAD, restrictive
+public-content headers and no JavaScript (D382, D388). An image name is one
+lowercase segment with a listed extension, and only a regular file is served:
+folders answer 404 and symbolic links inside the folder 403. Other methods are
+refused with 403 whatever the name. Images are operator content installed under
+`LANDING_ROOT`; they are not in the repository. A request for an absent image
+writes nothing to the gateway's log, and error answers carry the same
+five-minute public cache period as successful ones, so install an image before
+the page names it. Unknown paths under `/_landing/` return 404.
 
-Films are anonymous multi-megabyte downloads served by the same nginx that
-fronts the workspace. The template sets no rate or connection limit for them,
-access logging is off, and a request for an absent media name writes nothing,
-so film traffic leaves no record at the gateway. Slow or parallel downloads
-hold gateway connections that the workspace and its event streams share. Size
-the gateway for that, or put a cache in front of it, before publishing films.
-Error answers on the media routes carry the same five-minute public cache
-period as successful ones, so install a film before the page names it. `/app` proxies to the application's existing
+The gateway serves no films. A page shows a film as a poster image from the
+images folder that links to the film on an outside video host; the page plays
+nothing itself (D388). `/app` proxies to the application's existing
 root, preserving the raw query; `/app/` redirects to `/app`. Successful login's
 upstream `Location: /` becomes `/app` only on the exact `/auth/login` endpoint.
 Failed login and other upstream redirects retain their original destinations.
