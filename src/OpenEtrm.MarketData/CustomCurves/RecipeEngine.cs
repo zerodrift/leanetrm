@@ -115,7 +115,7 @@ public static partial class RecipeEngine
                 "dates"=>["mode","sampling","corrections","count","includeContext","calendar","schedule","first","from","to"],
                 "lookup"=>["axis","method","maxGapDays","leftBoundary","rightBoundary","implementation","output"],
                 "splice"=>["from","cutover","to","implementation"],
-                PowerIntervals=>PowerIntervalParameters.ToArray(),ContractObservations=>ObservationParameters.ToArray(),
+                PowerIntervals=>PowerIntervalParameters.ToArray(),ContractObservations=>ObservationParametersOf(node).ToArray(),
                 "mean"=>["axis"],"weighted_contracts"=>["aggregation"],"weighted_panels"=>["alignment","aggregation"],"published_source"=>["selection"],_=>[]
             };
             if(node.Parameters.Keys.Any(key=>!parameters.Contains(key,StringComparer.Ordinal)))throw Invalid($"Node {node.Id} contains an unsupported or conflicting parameter.");

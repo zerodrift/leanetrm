@@ -113,9 +113,10 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
             References.Calendars.Select(c=>c.Node).Distinct().Count()!=References.Calendars.Length||References.Schedules.Select(s=>s.Node).Distinct().Count()!=References.Schedules.Length)
             throw new MarketDataException("recipe_reference","Supply explicit unique resolved calendar and schedule pins.");
         var dateNodes=Definition.Nodes.Where(n=>n.Kind=="dates").ToDictionary(n=>n.Id);
-        if(!dateNodes.Values.Where(n=>n.Parameters.GetValueOrDefault("mode")=="prior_business").Select(n=>n.Id).ToHashSet().SetEquals(References.Calendars.Select(c=>c.Node))||
+        var observed=Definition.Nodes.Where(n=>n.Kind==RecipeEngine.ContractObservations&&n.Parameters.GetValueOrDefault("days")==RecipeEngine.BusinessDays).ToDictionary(n=>n.Id);
+        if(!dateNodes.Values.Where(n=>n.Parameters.GetValueOrDefault("mode")=="prior_business").Select(n=>n.Id).Concat(observed.Keys).ToHashSet().SetEquals(References.Calendars.Select(c=>c.Node))||
             !dateNodes.Values.Where(n=>n.Parameters.GetValueOrDefault("mode")=="schedule").Select(n=>n.Id).ToHashSet().SetEquals(References.Schedules.Select(s=>s.Node)))
-            throw new MarketDataException("recipe_reference","Business-calendar and scheduled date nodes require their exact resolved reference pins.");
+            throw new MarketDataException("recipe_reference","Business-calendar date and observation nodes and scheduled date nodes require their exact resolved reference pins.");
         void Calendar(ConnectedRecipeCalendarPin calendar)
         {
             Money.RequireKey(calendar.Reference);
@@ -127,7 +128,15 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
         var contextDate=DateOnly.FromDateTime(context.ValuationAt.UtcDateTime);
         foreach(var calendar in References.Calendars)
         {
-            Calendar(calendar);var node=dateNodes[calendar.Node];
+            Calendar(calendar);
+            if(observed.TryGetValue(calendar.Node,out var observation))
+            {
+                if(observation.Parameters.GetValueOrDefault("calendar")!=calendar.Reference.Code||
+                    windows.Where(w=>w.Node==calendar.Node).SelectMany(w=>w.Windows).SelectMany(w=>w.Days.IsDefault?[]:w.Days).Any(day=>!calendar.BusinessDates.Contains(day)))
+                    throw new MarketDataException("recipe_reference","The resolved observation days differ from their exact business calendar.");
+                continue;
+            }
+            var node=dateNodes[calendar.Node];
             if(node.Parameters.GetValueOrDefault("calendar")!=calendar.Reference.Code||
                 !int.TryParse(node.Parameters.GetValueOrDefault("count"),NumberStyles.None,CultureInfo.InvariantCulture,out var count)||
                 !bool.TryParse(node.Parameters.GetValueOrDefault("includeContext"),out var includeContext)||

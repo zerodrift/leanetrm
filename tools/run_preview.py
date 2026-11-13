@@ -99,7 +99,7 @@ def main():
     parser.add_argument('--power-context-check',action='store_true',help='Qualify exact non-primary power inputs and historical close admission')
     parser.add_argument('--power-booked-roll-check',action='store_true',help='Qualify booked power and the in-term close-roll consumer in an owned fixture')
     parser.add_argument('--custom-curves-check',action='store_true',help='Qualify custom curve definitions and calculations in an owned synthetic fixture')
-    parser.add_argument('--contract-observation-curve-check',action='store_true',help='Qualify stored contract observation curve terms in an owned synthetic fixture')
+    parser.add_argument('--contract-observation-curve-check',action='store_true',help='Qualify stored contract observation terms and the synthetic crude formula curve in an owned synthetic fixture')
     parser.add_argument('--price-authoring-check',action='store_true',help='Qualify publication schedules, final releases and contract price terms through authenticated HTTP')
     parser.add_argument('--market-read-check',action='store_true',help='Qualify per-row market authority in the owned standard fixture')
     parser.add_argument('--market-dates-check',action='store_true',help='Qualify scoped market-close availability and the calendar in an owned fixture')
@@ -501,6 +501,9 @@ def main():
         if args.live_calculation_check or args.connected_portfolio_check or args.custom_curves_check or args.contract_observation_curve_check or args.with_custom_curves or args.market_dates_check or args.valuation_status_check:
             from custom_curve_fixture import prepare as prepare_custom_curves
             reference,market,manifest=prepare_custom_curves(reference,market,manifest,daily_lifecycle=args.connected_portfolio_check)
+            if args.contract_observation_curve_check:
+                from crude_formula_fixture import prepare as prepare_crude_formula
+                market,manifest=prepare_crude_formula(market,manifest)
         if args.hosted_check:
             from provision_hosted import prepare as prepare_hosted
             prepared=temporary/'fresh-pilot-check'
@@ -1245,6 +1248,8 @@ def main():
             elif args.contract_observation_curve_check:
                 from check_contract_observation_storage import run_checks as check_contract_observation_storage
                 check_contract_observation_storage(url,query,manifest)
+                from check_contract_observation_curve import run_checks as check_contract_observation_curve
+                check_contract_observation_curve(url,query,manifest)
             elif args.custom_curves_check:
                 from check_custom_curves import run_checks as check_custom_curves
                 check_custom_curves(url,query,manifest)

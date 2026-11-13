@@ -34,7 +34,7 @@ internal static class ContractObservationRecipeChecks
             new(2027,1,18),new(2027,1,19),new(2027,1,20),new(2027,1,21),new(2027,1,22)]);
         var noon=new TimeOnly(12,0);
         var node=new RecipeNode("crude",RecipeEngine.ContractObservations,new Dictionary<string,string>{
-                ["implementation"]=RecipeEngine.ObservationTermsVersion,["targetFrom"]="2027-01-01",["targetCount"]="1",["days"]=RecipeEngine.BusinessDays,
+                ["implementation"]=RecipeEngine.ObservationTermsVersion,["targetFrom"]="2027-01-01",["targetCount"]="1",["days"]=RecipeEngine.BusinessDays,["calendar"]="synthetic_crude_days",
                 ["roll"]=ContractRollRule.ExpiryImplementation,["sampling"]="context_utc_time",["corrections"]="exact_context_frame_history_latest_visible"}.ToImmutableDictionary(),
             ImmutableDictionary<string,string>.Empty.Add("source","source"),
             ObservationTerms:[new(0,"average","1",1,null,RecipeEngine.CalendarMonthPeriod),new(1,"roll","2",1,2,RecipeEngine.TradeMonthPeriod),
@@ -57,6 +57,7 @@ internal static class ContractObservationRecipeChecks
         RecipeNode Term(RecipeNode n,int ordinal,Func<RecipeObservationTerm,RecipeObservationTerm> change)=>
             n with{ObservationTerms=n.ObservationTerms.SetItem(ordinal,change(n.ObservationTerms[ordinal]))};
         RecipeNode TargetFebruary(RecipeNode n)=>Set(n,"targetFrom","2027-02-01");
+        RecipeNode CalendarDaysOf(RecipeNode n)=>n with{Parameters=n.Parameters.SetItem("days",RecipeEngine.CalendarDays).Remove("calendar")};
         RecipeNode RollOnly(RecipeNode n)=>n with{ObservationTerms=[..n.ObservationTerms.Skip(1).Select(t=>t with{Ordinal=t.Ordinal-1})]};
 
         RecipeEngine.Validate(Definition(node));
@@ -70,7 +71,7 @@ internal static class ContractObservationRecipeChecks
         Days(RecipeEngine.ObservationWindows(TargetFebruary(RollOnly(node)),source,calendar,noon),term:0,"2027-01-18","2027-01-19","2027-01-20");
         Days(RecipeEngine.ObservationWindows(TargetFebruary(RollOnly(node)),source,calendar,new TimeOnly(20,0)),term:0,"2027-01-18","2027-01-19");
         // The last contract of the universe drops its own expiry day the same way: J leads from 2027-02-22 20:00 to 2027-03-21.
-        var april=RecipeEngine.ObservationWindows(Set(Set(RollOnly(node),"targetFrom","2027-04-01"),"days",RecipeEngine.CalendarDays) with{
+        var april=RecipeEngine.ObservationWindows(CalendarDaysOf(Set(RollOnly(node),"targetFrom","2027-04-01")) with{
             ObservationTerms=[new(0,"roll","1",1,null,RecipeEngine.TradeMonthPeriod)]},source,null,new TimeOnly(20,0)).Single().Days;
         Equal("last trade month starts after the prior expiry",april[0],new DateOnly(2027,2,22));
         Equal("last trade month drops its expiry day",april[^1],new DateOnly(2027,3,21));
@@ -81,7 +82,9 @@ internal static class ContractObservationRecipeChecks
             Code(label,"recipe_definition",()=>RecipeEngine.Validate(Definition(candidate)));
             Code(label,"recipe_definition",()=>RecipeEngine.ObservationWindows(candidate,source,calendar,noon));
         }
-        foreach(var key in node.Parameters.Keys)Refused($"Missing {key}",node with{Parameters=node.Parameters.Remove(key)});
+        // The calendar is a reference: its absence is refused where the declaration pins it, below.
+        foreach(var key in node.Parameters.Keys.Where(k=>k!="calendar"))Refused($"Missing {key}",node with{Parameters=node.Parameters.Remove(key)});
+        Code("A calendar on a calendar-day node","recipe_definition",()=>RecipeEngine.Validate(Definition(Set(node,"days",RecipeEngine.CalendarDays))));
         Refused("Another implementation",Set(node,"implementation","contract_observation_terms_v2"));
         Refused("Another roll",Set(node,"roll","contract_roll_boundaries_v1"));
         Refused("Another day basis",Set(node,"days","trading_days_v1"));
@@ -122,7 +125,7 @@ internal static class ContractObservationRecipeChecks
         var identity=new ConnectedRecipeIdentity(revision.CatalogId,Guid.NewGuid(),1,RecipeEngine.Version);
         (ConnectedRecipeGraph Graph,ConnectedScenario Basis) Priced(string context,string time,IEnumerable<(string Day,string Contract,string Value)> history,IEnumerable<(string Contract,string Value)> live,
             Func<ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>,ImmutableDictionary<string,ImmutableArray<RecipeObservationWindow>>>? windows=null,
-            RecipeNode? terms=null,RecipeContract? differential=null)
+            RecipeNode? terms=null,RecipeContract? differential=null,ConnectedRecipeReferencePins? pins=null)
         {
             var stated=terms??node;
             var at=DateTimeOffset.Parse(context+"T"+time+"Z",CultureInfo.InvariantCulture);var day=DateOnly.FromDateTime(at.UtcDateTime);
@@ -141,7 +144,9 @@ internal static class ContractObservationRecipeChecks
                     stated.Parameters["days"]==RecipeEngine.BusinessDays?calendar:null,TimeOnly.FromDateTime(at.UtcDateTime)))};
             if(windows is not null)inputs=inputs with{Windows=windows(inputs.Windows)};
             if(differential is not null)inputs=inputs with{Sources=inputs.Sources.Add("differential",new(differentialKey,source.Unit,[differential])),Dates=inputs.Dates.Add("dates",[day])};
-            var graph=RecipeEngine.Connect(differential is null?Definition(stated):WithDifferential(stated),inputs,identity,samples,resolved);
+            // A business-day node is declared with its exact resolved calendar, as a business-day date sequence is.
+            pins??=stated.Parameters["days"]==RecipeEngine.BusinessDays?new([new("crude",R(stated.Parameters["calendar"]),calendar)],[]):null;
+            var graph=RecipeEngine.Connect(differential is null?Definition(stated):WithDifferential(stated),inputs,identity,samples,resolved,references:pins);
             return(graph,ConnectedScenario.Base(ConnectedCurves.Compile(graph.Definitions,[..graph.Outputs.Select(o=>o.Point)],resolved,new Visible())));
         }
         ExactUnitPrice Shifted((ConnectedRecipeGraph Graph,ConnectedScenario Basis) priced,params string[] shifted)=>priced.Basis.WithShifts([..shifted.Select(name=>
@@ -188,11 +193,18 @@ internal static class ContractObservationRecipeChecks
             ("another target",w=>w.SetItem("crude",w["crude"].SetItem(0,w["crude"][0] with{Target=new(new(2027,2,1),new(2027,3,1))})))})
             Code(label,"recipe_input",()=>Priced("2026-12-01","12:00:00",[],marks,change));
         // Supplied windows are self-consistent: a calendar-month day lies in its month, a trade-month day selects the delivery contract as position 1.
+        // Calendar days, so that no business calendar refuses the added day first.
         (string,string)[] allMarks=[..marks,("J","68.20")];
         Code("a calendar-month day outside its target month","recipe_input",()=>Priced("2026-12-01","12:00:00",[],allMarks,
-            w=>w.SetItem("crude",w["crude"].SetItem(0,w["crude"][0] with{Days=w["crude"][0].Days.Add(new(2027,2,1))}))));
+            w=>w.SetItem("crude",w["crude"].SetItem(0,w["crude"][0] with{Days=w["crude"][0].Days.Add(new(2027,2,1))})),terms:CalendarDaysOf(node)));
         Code("a trade-month day on which G leads","recipe_input",()=>Priced("2026-12-01","12:00:00",[],allMarks,
-            w=>w.SetItem("crude",w["crude"].SetItem(1,w["crude"][1] with{Days=w["crude"][1].Days.Add(new(2026,12,22))}))));
+            w=>w.SetItem("crude",w["crude"].SetItem(1,w["crude"][1] with{Days=w["crude"][1].Days.Add(new(2026,12,22))})),terms:CalendarDaysOf(node)));
+        // A business-day node requires the pin of exactly its named calendar, and every observation day is a business day of it.
+        Code("a business-day node without its calendar pin","recipe_reference",()=>Priced("2026-12-01","12:00:00",[],marks,pins:new([],[])));
+        Code("a calendar pin naming another calendar","recipe_reference",()=>Priced("2026-12-01","12:00:00",[],marks,
+            pins:new([new("crude",R("synthetic_other_days"),calendar)],[])));
+        Code("an observation day that is not a business day","recipe_reference",()=>Priced("2026-12-01","12:00:00",[],marks,
+            w=>w.SetItem("crude",w["crude"].SetItem(0,w["crude"][0] with{Days=[..w["crude"][0].Days.Add(new(2027,1,23)).Order()]}))));
         // Cells feed only a panel combination or the output; a contract mean would merge target months.
         Code("A mean over observation cells","recipe_definition",()=>RecipeEngine.Validate(Definition(node) with{Nodes=[..Definition(node).Nodes.SkipLast(1),
             new("mean","mean",ImmutableDictionary<string,string>.Empty.Add("axis","contracts"),ImmutableDictionary<string,string>.Empty.Add("values","crude")),
@@ -200,7 +212,7 @@ internal static class ContractObservationRecipeChecks
 
         // Two calendar-month targets at 12:00 on 2026-12-01: January observes G on the 1st to the 20th and H on the 21st to the 31st,
         // (20*69.40+11*68.80)/31; February observes H on the 1st to the 22nd and J on the 23rd to the 28th, (22*68.80+6*68.20)/28.
-        var twoMonths=Set(Set(node,"targetCount","2"),"days",RecipeEngine.CalendarDays) with{ObservationTerms=[new(0,"average","1",1,null,RecipeEngine.CalendarMonthPeriod)]};
+        var twoMonths=CalendarDaysOf(Set(node,"targetCount","2")) with{ObservationTerms=[new(0,"average","1",1,null,RecipeEngine.CalendarMonthPeriod)]};
         var twoTargets=Priced("2026-12-01","12:00:00",[],[("G","69.40"),("H","68.80"),("J","68.20")],terms:twoMonths);
         Equal("two target cells",string.Join(",",twoTargets.Graph.Outputs.Select(o=>o.Position)),"1,2");
         Price("January target",twoTargets.Basis.Price(twoTargets.Graph.Outputs[0].Point),"10724","155");

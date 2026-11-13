@@ -15,6 +15,8 @@ public static partial class RecipeEngine
     public const string CalendarDays="calendar_days_v1";
     public const string BusinessDays="business_days_v1";
     public static readonly ImmutableArray<string> ObservationParameters=["implementation","targetFrom","targetCount","days","roll","sampling","corrections"];
+    // A business-day node also names its exact reference calendar, as a business-day date sequence does; a calendar-day node names none.
+    public static ImmutableArray<string> ObservationParametersOf(RecipeNode node)=>node.Parameters.GetValueOrDefault("days")==BusinessDays?ObservationParameters.Add("calendar"):ObservationParameters;
     public static ImmutableArray<RecipeDelivery> ObservationTargets(RecipeNode node)=>ObservationSettings(node).Targets;
     public static ImmutableArray<RecipeObservationWindow> ObservationWindows(RecipeNode node,RecipeSource source,DateSet? businessDays,TimeOnly samplingTime)
     {
@@ -49,6 +51,19 @@ public static partial class RecipeEngine
             windows.Add(new(target,term.Ordinal,kept.ToImmutable()));
         }
         return windows.ToImmutable();
+    }
+    // The contract each window day observes at each stated position: the samples a preparation supplies for the windows.
+    public static IEnumerable<(DateOnly Day,RecipeContract Contract)> ObservationContracts(RecipeNode node,RecipeSource source,
+        ImmutableArray<RecipeObservationWindow> windows,TimeOnly samplingTime)
+    {
+        var terms=ObservationSettings(node).Terms;
+        foreach(var window in windows)
+        {
+            var term=terms.Single(t=>t.Ordinal==window.Term);
+            foreach(var day in window.Days)
+            foreach(var position in term.LessPosition is {} less?[term.Position,less]:new[]{term.Position})
+                yield return(day,ObservedContract(source.Contracts,day,samplingTime,position));
+        }
     }
     // One cell per target month: the sum of its groups, each the weighted mean of its terms' values, each value an equally
     // weighted mean of one leaf per observation day, less the mean of its spread position. A day before the context date

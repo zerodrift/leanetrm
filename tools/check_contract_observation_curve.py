@@ -1,0 +1,136 @@
+"""The synthetic indexed crude formula curve, saved, published and previewed over HTTP in an owned preview.
+
+The output for 2027-01 is the business-day average of the prompt future over January, plus the 2:1 weighted December
+roll spreads of F against G and H, plus the 2027-01 differential. Each context's price is stated literally."""
+from copy import deepcopy
+from fractions import Fraction
+from uuid import uuid4
+from preview_client import PreviewClient, initial_frame
+from crude_formula_fixture import CALENDAR, CONTRACT, CURVE, DIFFERENTIAL, LATE_SETTLEMENT, observation
+
+TERMS=[{'ordinal':0,'group':'average','weight':'1','position':1,'lessPosition':None,'period':'calendar_month_of_delivery_v1'},
+       {'ordinal':1,'group':'roll','weight':'2','position':1,'lessPosition':2,'period':'trade_month_of_delivery_contract_v1'},
+       {'ordinal':2,'group':'roll','weight':'1','position':1,'lessPosition':3,'period':'trade_month_of_delivery_contract_v1'}]
+POLICY={'sampling':'context_utc_time','corrections':'exact_context_frame_history_latest_visible'}
+OBSERVED={'implementation':'contract_observation_terms_v1','targetFrom':'2027-01-01','targetCount':'1','days':'business_days_v1',
+          'calendar':CALENDAR,'roll':'contract_expiry_roll_v1',**POLICY}
+DEFINITION={'code':'synthetic_crude_formula','name':'Synthetic indexed crude','output':'output','nodes':[
+    {'id':'source','kind':'source','parameters':{'curve':CURVE},'inputs':{}},
+    {'id':'crude','kind':'contract_observations','parameters':OBSERVED,'inputs':{'source':'source'},'observationTerms':TERMS},
+    {'id':'differential','kind':'source','parameters':{'curve':DIFFERENTIAL},'inputs':{}},
+    {'id':'select','kind':'select','parameters':{'mode':'positions','first':'1','count':'1','binding':'context'},'inputs':{'source':'differential'}},
+    {'id':'dates','kind':'dates','parameters':{'mode':'context',**POLICY},'inputs':{}},
+    {'id':'sample','kind':'sample','parameters':{},'inputs':{'selection':'select','dates':'dates'}},
+    {'id':'total','kind':'weighted_panels','parameters':{'aggregation':'signed_sum_v1','alignment':'exact_delivery_intervals_v1'},
+     'inputs':{'formula':'crude','differential':'sample'},'panelWeights':[{'sourcePort':'formula','weight':'1'},{'sourcePort':'differential','weight':'1'}]},
+    {'id':'output','kind':'output','parameters':{},'inputs':{'values':'total'}}]}
+
+
+def observed(definition):
+    return next(node for node in definition['nodes'] if node['id']=='crude')
+
+
+def run_checks(url,query,manifest):
+    catalog,tenant,workspace=(manifest[key] for key in ('catalogId','tenantId','workspaceId'))
+    client=PreviewClient(url)
+    client.bootstrap()
+    client.call('profile',{'profile':'viewer'})
+    # The catalog offers the operator with its admitted periods and day rules, so no client states them.
+    operator=next(o for o in client.call('custom-curves')['operators'] if o['kind']=='contract_observations')
+    fields={field['key']:field for field in operator['fields']}
+    assert (operator['label'],operator['outputType'],[p['name'] for p in operator['inputPorts']])==('Contract observations','panel',['source']),operator
+    assert [o['value'] for o in fields['days']['options']]==['calendar_days_v1','business_days_v1'],fields['days']
+    assert fields['calendar']['when']=={'key':'days','values':['business_days_v1']},fields['calendar']
+    assert [o['value'] for o in fields['observationTerms']['options']]==['calendar_month_of_delivery_v1','trade_month_of_delivery_contract_v1'],fields['observationTerms']
+    assert all(o['label'] for field in fields.values() for o in field['options'])
+
+    client.call('profile',{'profile':'editor'})
+    def frame(day):
+        return initial_frame(client.call('workspace'),day)
+    saved=client.call('custom-curves/save',{'requestId':str(uuid4()),'snapshotId':frame('2026-12-01')['id'],'definition':deepcopy(DEFINITION),'layout':{}})
+    curve=saved['id']
+    assert saved['kind']=='observation_formula' and observed(saved['definition'])['parameters']==OBSERVED,saved
+    assert query(f"SELECT calendar_code FROM market_data.custom_curve_node_calendars WHERE(catalog_id,curve_id,version,node_id)=('{catalog}','{curve}',1,'crude');")==CALENDAR
+    client.call('profile',{'profile':'approver'})
+    published=client.call('custom-curves/publish',{'requestId':str(uuid4()),'id':curve,'version':1,'generation':1})
+    assert published['state']=='published'
+
+    client.call('profile',{'profile':'viewer'})
+    def preview(day,definition=None,expected=200,snapshot=None):
+        body={'definition':definition or published['definition'],'snapshotId':snapshot or frame(day)['id']}
+        if definition is None:body|={'id':curve,'version':1}
+        return client.call('custom-curves/preview',body,expected=expected)
+    def price(result,expected):
+        # The point's exact rational is the stated decimal; the row presents the same value.
+        point=result['points'][0]['price']
+        assert len(result['rows'])==1 and Fraction(int(point['numerator']),int(point['denominator']))==Fraction(expected),(point,result['rows'])
+        assert Fraction(result['rows'][0][1])==Fraction(expected),result['rows']
+    def live(result):
+        return {d['contract']['id'] for d in result['dependencies']}
+    def known():
+        return client.call('date-schedules/context',{'effectiveOn':'2027-01-25','mode':'current','knownAt':None})['context']['knownAt']
+    def historical(knownAt):
+        client.call('market/context',{'effectiveOn':'2027-01-25','knownAt':knownAt,'mode':'at','selection':'latest_correction'})
+        return initial_frame(client.call('workspace/navigation'),'2027-01-25')['id']
+
+    # Review focus 2: until G's 2027-01-19 settlement is recorded, the finished average refuses rather than averaging four days.
+    missing=preview('2027-01-25',expected=422)
+    assert missing['code']=='recipe_input' and '2027-01-19' in missing['message'],missing
+    unsettled=known()
+    day,contract,value=LATE_SETTLEMENT
+    late=str(uuid4())
+    query(observation(late,contract,day,value))
+
+    # Before the pricing period every observation is projected at today's mark of the contract it selects.
+    before=preview('2026-12-01')
+    price(before,'68.46')
+    assert live(before)=={CONTRACT[c] for c in 'FGHD'},before['dependencies']
+    # The December roll window is settled history; January is still projected.
+    settled=preview('2026-12-22')
+    price(settled,'68.46')
+    assert live(settled)=={CONTRACT[c] for c in 'GHD'},settled['dependencies']
+    # Inside January: two settled days, the context day and two later days at today's mark of H.
+    during=preview('2027-01-20')
+    price(during,'68.52')
+    assert live(during)=={CONTRACT[c] for c in 'GHD'},during['dependencies']
+    # After the pricing period the formula is fixed; only the differential remains live.
+    after=preview('2027-01-25')
+    price(after,'68.50')
+    assert live(after)=={CONTRACT['D']},after['dependencies']
+    # The knowledge view before the settlement was recorded still refuses.
+    unknown=preview('2027-01-25',snapshot=historical(unsettled),expected=422)
+    assert (unknown['code'],unknown['message'])==(missing['code'],missing['message']),unknown
+    client.call('market/current',{})
+    print('PASS contract observation curve: projected, settling and settled formula prices, live inputs by context and a refused incomplete history',flush=True)
+
+    # Review focus 5: a correction of a settlement already read is a new revision with a later knowledge time.
+    recorded=known()
+    correction=str(uuid4())
+    query(f"""INSERT INTO market_data.observations SELECT catalog_id,'{correction}',definition_revision_id,series_id,reference_catalog_id,reference_revision_id,
+        source_code,source_event_id,'{correction}',role,publication_state,observed_at,greatest(observed_at,clock_timestamp()),69.55,id
+        FROM market_data.observations WHERE catalog_id='{catalog}' AND id='{late}';""")
+    price(preview('2027-01-25'),'68.51')
+    price(preview('2027-01-25',snapshot=historical(recorded)),'68.50')
+    client.call('market/current',{})
+    print('PASS contract observation correction: the latest view averages the corrected settlement and the earlier knowledge view reproduces the original',flush=True)
+
+    # Refusals: each required setting, the business-day calendar, and a body that differs from the saved version only in a weight.
+    context=frame('2027-01-20')['id']
+    for parameter in [p for p in OBSERVED if p!='calendar']:
+        draft=deepcopy(DEFINITION);del observed(draft)['parameters'][parameter]
+        assert preview(None,draft,422,context)['code']=='recipe_definition',parameter
+    draft=deepcopy(DEFINITION);del observed(draft)['parameters']['calendar']
+    refused=preview(None,draft,422,context)
+    assert (refused['code'],refused['message'])==('custom_curve_definition','Business-day windows require an exact reference calendar.'),refused
+    reweighted=deepcopy(published['definition']);observed(reweighted)['observationTerms'][1]['weight']='3'
+    refused=client.call('custom-curves/preview',{'definition':reweighted,'snapshotId':context,'id':curve,'version':1},expected=422)
+    assert (refused['code'],refused['message'])==('custom_curve_definition','The selected graph or exact references differ from its retained version.'),refused
+    # A reader without access to the market catalog is denied.
+    scope=query(f"DELETE FROM security.market_catalog_scopes WHERE catalog_id='{catalog}' RETURNING tenant_id||','||workspace_id;")
+    try:
+        assert client.call('custom-curves/preview',{'definition':published['definition'],'snapshotId':context,'id':curve,'version':1},expected=403)['code']=='access_denied'
+    finally:
+        query(f"INSERT INTO security.market_catalog_scopes VALUES('{catalog}','{tenant}','{workspace}');")
+    assert scope==f'{tenant},{workspace}',scope
+    price(preview('2027-01-25'),'68.51')
+    print('PASS contract observation refusals: every required setting, the business-day calendar, a reweighted saved version and a reader without market access',flush=True)

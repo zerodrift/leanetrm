@@ -105,7 +105,11 @@ def run_checks(url,query,manifest):
     # Writing terms needs authoring permission: a publisher sees the draft but cannot change it, and a reader cannot see it.
     refused(term(),'42501',profile='approver')
     refused(term(),'55000',profile='viewer')
-    print('PASS contract observation storage DB: exact key and node relationship, column rules, node-kind admission, security parity and immutable published terms',flush=True)
+    # The rewritten panel guards still refuse a weight on an unlisted input kind: a source feeding a combination.
+    refused(f"INSERT INTO market_data.custom_curve_panel_weights VALUES('{catalog}','{curve}',2,'combined','formula','source',1)",'P0001','recipe_panel_weights',
+            setup=f"""INSERT INTO market_data.custom_curve_nodes VALUES('{catalog}','{curve}',2,'combined','weighted_panels','{{"aggregation":"signed_sum_v1","alignment":"exact_delivery_intervals_v1"}}');
+            INSERT INTO market_data.custom_curve_edges VALUES('{catalog}','{curve}',2,'combined','formula','source');""")
+    print('PASS contract observation storage DB: exact key and node relationship, column rules, node-kind admission, security parity, immutable published terms and the panel input-kind guard',flush=True)
 
     # Publication refuses a malformed node; each draft change is made and published by one authorized approver.
     generation=query(f"SELECT generation FROM market_data.custom_curve_versions WHERE(catalog_id,curve_id,version)=('{catalog}','{curve}',2);")
