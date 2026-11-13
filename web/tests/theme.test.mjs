@@ -52,7 +52,7 @@ test('volatility rich and cheap are 4.5:1 or better on every surface',()=>{
 });
 test('each curve kind is a fill of 6:1 or better on every surface under an icon of 7:1 or better',()=>{
  const kinds=tokenNames.filter(name=>name.startsWith('--kind-'));
- assert.equal(kinds.length,10);
+ assert.equal(kinds.length,11);
  for(const kind of kinds){holds(kind,surfaces,6);holds('--on-kind',[kind],7);}
 });
 
