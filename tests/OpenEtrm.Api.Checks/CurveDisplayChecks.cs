@@ -58,11 +58,25 @@ internal static class CurveDisplayChecks
             throw new Exception("The shared domain selector must retain exact candidate identities and explain excluded output roots.");
         try{data.Build(fixture.Frame,"future");throw new Exception("The strict captured request must retain its expired root.");}
         catch(MarketDataException e)when(e.Code=="source_expired"){}
+        var exactShape=MarketReads.Shape(data,data.Snapshot(fixture.Frame),fixture.Frame,"future");
+        var exactWire=JsonSerializer.SerializeToElement(exactShape,new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        if(exactWire.TryGetProperty("contractDisplay",out _))
+            throw new Exception("An exact shape without a display selection must preserve its existing wire contract.");
         var live=CurveDisplay.Shape(data,data.Snapshot(fixture.Frame),fixture.Frame,"future",new(CurveDisplay.Version,CurveDisplay.Live));
         var all=CurveDisplay.Shape(data,data.Snapshot(fixture.Frame),fixture.Frame,"future",new(CurveDisplay.Version,CurveDisplay.All));
         if(live.Points?.Length!=1||all.Points?.Length!=2||all.Points.Value[0] is not{Price:null,UnavailableReason:"eligibility_ended"}||
             live.Front?.ContractId!=captured[1].Contract.Id||all.Front!=live.Front||live.ContractDisplay?.EligibleCount!=1||all.ContractDisplay?.CapturedCount!=2)
             throw new Exception("Inactive visibility must not alter eligible output prices or silently value the expired root.");
+        var incomplete=fixture.Frame with{ObservationIds=fixture.Frame.ObservationIds.Remove(observations[1].Id("id"))};
+        foreach(var display in new[]{CurveDisplay.Live,CurveDisplay.All})
+        {
+            try{CurveDisplay.Result(data,incomplete,"future",new(CurveDisplay.Version,display));}
+            catch(MarketDataException e)when(e.Code=="missing_observation"){continue;}
+            throw new Exception("A live curve evaluation must refuse a required missing input, rather than return a successful empty price result.");
+        }
+        var unavailable=CurveDisplay.Shape(data,data.Snapshot(incomplete),incomplete,"future",new(CurveDisplay.Version,CurveDisplay.Live));
+        if(unavailable.Front is not null||unavailable.Points is not[{Price:null,UnavailableReason:"missing_observation"}])
+            throw new Exception("The browsing shape must retain the missing-input reason without fabricating a price.");
         MarketDates.QualifyCurve(data,fixture.Frame,"future",ImmutableDictionary<string,RateTenorSource>.Empty);
         var liveCapture=MarketCloses.LivePart(data,fixture.Frame,["future"]);
         if(!liveCapture.CurveContracts["future"].SequenceEqual([captured[1].Contract.Id])||

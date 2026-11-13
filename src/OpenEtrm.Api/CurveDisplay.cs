@@ -50,7 +50,7 @@ public static class CurveDisplay
     }
 
     private sealed record Prepared(ImmutableArray<CurveRequest> Requests,CurveBuild? Build,CurveDisplayInfo Info);
-    private static Prepared Prepare(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve,CurveDisplaySelection selection)
+    private static Prepared Prepare(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve,CurveDisplaySelection selection,bool allowUnvalued)
     {
         Require(selection);
         if(snapshot.Id!=frame.Id||snapshot.ValuationAt!=frame.At||snapshot.Definitions!=data.DefinitionRevision)
@@ -65,7 +65,13 @@ public static class CurveDisplay
         // are metadata; the same eligible output set is priced in either view.
         var requests=scope.Selected;
         CurveBuild? build=null;ImmutableDictionary<CurveRequest,string> unvalued=ImmutableDictionary<CurveRequest,string>.Empty;
-        if(!requests.IsEmpty)(build,unvalued)=ValuationStatus.BuildValued(set=>data.Model.Build(snapshot,set),requests);
+        if(!requests.IsEmpty)
+        {
+            // Shapes describe unavailable contracts; an evaluation still requires
+            // every eligible output's declared price inputs and final evidence.
+            if(allowUnvalued)(build,unvalued)=ValuationStatus.BuildValued(set=>data.Model.Build(snapshot,set),requests);
+            else build=data.Model.Build(snapshot,requests);
+        }
         var display=captured.Where(r=>selection.Contracts==All||states[r.Contract.Id]==EligibilityState.Eligible).Select(request=>
         {
             var contract=contracts[request.Contract.Id];var state=states[request.Contract.Id];
@@ -77,7 +83,7 @@ public static class CurveDisplay
     }
     public static object Result(PreviewData data,InputFrame frame,string curve,CurveDisplaySelection selection)
     {
-        var prepared=Prepare(data,data.Snapshot(frame),frame,curve,selection);
+        var prepared=Prepare(data,data.Snapshot(frame),frame,curve,selection,allowUnvalued:false);
         var value=prepared.Build is {} build?data.Result(frame,curve,viewBuild:build):data.EmptyContractResult(frame,curve);
         var json=JsonSerializer.SerializeToNode(value,new JsonSerializerOptions(JsonSerializerDefaults.Web))!.AsObject();
         json["contractDisplay"]=JsonSerializer.SerializeToNode(prepared.Info,new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -89,7 +95,7 @@ public static class CurveDisplay
     }
     public static CurveShape Shape(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve,CurveDisplaySelection selection)
     {
-        var prepared=Prepare(data,snapshot,frame,curve,selection);
+        var prepared=Prepare(data,snapshot,frame,curve,selection,allowUnvalued:true);
         var values=(prepared.Build?.Values??[]).ToDictionary(v=>v.Request.Contract.Id,v=>v.Price.Value.ToString());
         var points=prepared.Info.Contracts.Select(c=>new CurveShapePoint(c.ContractId,c.DeliveryFrom,c.DeliveryTo,values.GetValueOrDefault(c.ContractId),c.UnavailableReason)).ToImmutableArray();
         var front=Front(prepared);

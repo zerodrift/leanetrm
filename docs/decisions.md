@@ -4538,10 +4538,11 @@ new-trade window stays separate.
 
 The display preference `curve_display_v1` initially shows eligible contracts;
 users can include captured inactive contracts as muted, labelled metadata. Both
-displays price the same eligible outputs. Definitions, observations, dependency
-edges, held instruments and exact historical requests remain intact. An expired
-source remains usable only under its explicit supported transition and certified
-final evidence. An interval anchor omitted from live outputs is admitted only
+displays price the same eligible outputs. Evaluation still refuses missing
+required inputs; browsing shapes can describe an unavailable contract without
+a price. Definitions, observations, dependency edges, held instruments and exact
+historical requests remain intact. An expired source remains usable only under
+its explicit supported transition and certified final evidence. An interval anchor omitted from live outputs is admitted only
 when every consuming shaped curve qualifies that frozen input.
 
 Close capture requires an explicit choice: retain exact selected inputs or create

@@ -51,6 +51,7 @@ public sealed record CurveShapePoint(Guid ContractId,string DeliveryFrom,string 
 public sealed record CurveShape(string Curve,string? Unit,ImmutableArray<CurveShapePoint>? Points,string? UnavailableReason,int? ContractCount,CurveFront? Front,string? Availability)
 {
     public Guid DefinitionRevisionId{get;init;}
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CurveDisplayInfo? ContractDisplay{get;init;}
 }
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
