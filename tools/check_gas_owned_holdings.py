@@ -6,7 +6,7 @@ from check_reference_editing import main
 from preview_fixture import catalogue_fixture, trade_booking, trading_fixture
 
 
-def checks(query, manifest):
+def checks(query, manifest, economic_worker=None):
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
     query(trading_fixture(catalog))
     from rate_curve_fixture import discount_default
@@ -377,6 +377,7 @@ def checks(query, manifest):
         cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=60)
     if profile_result.returncode:raise RuntimeError(profile_result.stdout+profile_result.stderr)
     print(profile_result.stdout.strip(),flush=True)
+    if economic_worker is not None:economic_worker(query,manifest,path)
 
     # At the historical opening this separate book has no owned balances. The
     # source cutoff nevertheless knows a future title; risk must detect it and

@@ -9,6 +9,8 @@ if(args is ["--economic-risk-contract"]){EconomicRiskContractChecks.Run();return
 if(args is ["--lifecycle-schedule-no-result",var lifecycleNoResultPath]){await LifecycleScheduleNativeChecks.WithoutResult(lifecycleNoResultPath);return;}
 if(args is ["--lifecycle-schedule-read",var lifecycleScheduleReadPath]){await LifecycleScheduleNativeChecks.Read(lifecycleScheduleReadPath);return;}
 if(args is ["--lifecycle-schedule-run",var lifecycleSchedulePath]){await LifecycleScheduleNativeChecks.Run(lifecycleSchedulePath);return;}
+if(args is ["--economic-worker-submit",var economicWorkerFixture]){await EconomicWorkerChecks.Run(economicWorkerFixture,false);return;}
+if(args is ["--economic-worker-verify",var economicWorkerResult]){await EconomicWorkerChecks.Run(economicWorkerResult,true);return;}
 if(args is ["--lifecycle-schedule-contract"]){LifecycleScheduleChecks.Run();return;}
 if(args is ["--lifecycle-actions-native",var lifecycleFixture]){await LifecycleActionChecks.RunNative(lifecycleFixture);return;}
 if(args is ["--lifecycle-swap-native",var lifecycleSwapFixture]){await LifecycleSwapChecks.Run(lifecycleSwapFixture);return;}

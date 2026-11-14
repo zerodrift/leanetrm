@@ -25,14 +25,6 @@ internal sealed record GasOwnedPortfolioRead(Guid ContextId,DateTimeOffset At,Da
 // source purchase or loan trade remains in the requested trade population.
 internal static class GasOwnedHoldings
 {
-    private sealed record Admission(Guid Catalog,Guid Context,DateTimeOffset At,DateTimeOffset Until):ICommitAdmission
-    {
-        public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
-        {
-            await using var command=ScheduleStore.Command(connection,"SELECT security.require_gas_owned_read($1,$2,$3,$4)",Catalog,Context,At,Until);
-            await command.ExecuteNonQueryAsync(ct);
-        }
-    }
     internal static async Task<GasOwnedPortfolioRead> Read(NpgsqlConnection connection,PreviewDatabase database,
         InputFrame frame,MarketSnapshot snapshot,ImmutableArray<Guid> bookIds,CancellationToken ct,
         ImmutableArray<(PreviewData Data,InputFrame Frame)> supplied=default,bool requirePinnedSources=false)
@@ -45,7 +37,7 @@ internal static class GasOwnedHoldings
         if(envelope.Id("contextId")!=context||envelope.Instant("knownAt")!=snapshot.Knowledge.KnownAt||envelope.Instant("asOf")!=frame.At||
             DateWorkspace.Date(envelope.Text("effectiveOn"))!=frame.BusinessDate)
             throw Error("The gas-owned read must retain the exact business and knowledge coordinates.");
-        var admission=new Admission(catalog,context,frame.At,envelope.Instant("authorityUntil"));
+        var admission=new GasOwnedSourceReadAdmission(catalog,context,frame.At,envelope.Instant("authorityUntil"));
         database.RegisterCommitAdmission(connection,admission);
         var root=await MarketInputSelection.Root(database,connection,frame,ct);
         var available=supplied.IsDefault?ImmutableArray.Create((Data:root,Frame:frame)):supplied;

@@ -175,6 +175,18 @@ a future successor grant cannot revive an expired source read. These database
 custody checks are separate from whole-product numerical worker replay and its
 remaining delivery gates.
 
+An owned native gas fixture now runs the actual managed historical and Monte
+Carlo workers from frozen admitted binaries. Each complete report, including
+native owner attribution, horizon, history and source evidence, equals the
+interactive report. A worker without selected gas authority cannot claim the
+job. Cancellation while the managed worker waits on its first native source
+read ends cancelled without a result. No market observation, trading publication
+or owned position is written by these calculations. This qualifies the
+single-definition native-gas baseline; mixed definitions and additional product
+branches still require their own managed-worker checks. Profile completion uses
+the exact source context, opening instant and original source-read deadline;
+workers receive no interactive-preview capability.
+
 The pure listed-option adapter retains the source calibration and open signed
 remaining lots. At expiry it applies the exact versioned automatic exercise rule
 or the captured contrary instruction, then replaces the option with the ordinary

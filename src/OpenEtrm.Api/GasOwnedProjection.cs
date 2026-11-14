@@ -52,7 +52,7 @@ internal static class GasOwnedProjection
             var header=native.GetProperty("profile");
             if(header.Id("id")!=selection.ProfileId||header.Id("account_id")!=selection.AccountId||header.GetProperty("revision").GetInt32()!=selection.Revision)
                 throw Error("gas_projection_policy","The selected gas projection profile belongs to another exact account or revision.");
-            var admission=new GasOwnedOperationReadAdmission(database.Manifest.CatalogId,native.Instant("authorityUntil"));database.RegisterCommitAdmission(connection,admission);
+            var admission=new GasOwnedSourceReadAdmission(database.Manifest.CatalogId,knowledge.ContextId,source.ValuationAt,native.Instant("authorityUntil"));database.RegisterCommitAdmission(connection,admission);
             var rows=native.GetProperty("performances").EnumerateArray().ToImmutableArray();var supplies=native.GetProperty("supply").EnumerateArray().ToImmutableArray();
             if(rows.Any(row=>known.Positions[row.Id("position_id")].AccountId!=selection.AccountId))
                 throw Error("gas_projection_policy","A saved account profile cannot select another account's quantity-performance policy.");

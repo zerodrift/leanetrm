@@ -41,18 +41,10 @@ internal static class GasOwnedKnownHistoryStore
             database.Manifest.CatalogId,context,frame.At,books.ToArray());
         if(native.Id("contextId")!=context||native.Instant("asOf")!=frame.At||DateWorkspace.Date(native.Text("effectiveOn"))!=frame.BusinessDate)
             throw Error("The gas profile choices must retain this source business date and opening instant.");
-        var admission=new Admission(database.Manifest.CatalogId,context,frame.At,native.Instant("authorityUntil"));database.RegisterCommitAdmission(connection,admission);
+        var admission=new GasOwnedSourceReadAdmission(database.Manifest.CatalogId,context,frame.At,native.Instant("authorityUntil"));database.RegisterCommitAdmission(connection,admission);
         var result=native.GetProperty("accounts").EnumerateArray().Select(a=>new GasOwnedProjectionAccountChoice(a.Id("accountId"),a.Text("code"),a.Id("bookId"),a.Text("book"),a.Instant("effectiveAt"),
             [..a.GetProperty("profiles").EnumerateArray().Select(p=>new GasOwnedProjectionProfileChoice(p.Id("profileId"),p.GetProperty("revision").GetInt32(),p.Text("implementation"),p.Text("quantityDisposition"),p.Instant("effectiveAt")))])).ToImmutableArray();
         await admission.RequireCommit(connection,ct);return result;
-    }
-    private sealed record Admission(Guid Catalog,Guid Context,DateTimeOffset At,DateTimeOffset Until):ICommitAdmission
-    {
-        public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
-        {
-            await using var call=ScheduleStore.Command(connection,"SELECT security.require_gas_owned_read($1,$2,$3,$4)",Catalog,Context,At,Until);
-            await call.ExecuteNonQueryAsync(ct);
-        }
     }
     private sealed record ScopeAdmission(Guid Catalog,Guid Context,DateTimeOffset At,ImmutableArray<Guid> Books,bool Configured,DateTimeOffset Until):ICommitAdmission
     {
@@ -90,7 +82,7 @@ internal static class GasOwnedKnownHistoryStore
         if(native.Text("stateProfile")!="known_gas_owned_journal_projection_source_v1"||native.Id("contextId")!=context||native.Instant("asOf")!=frame.At||
             native.Instant("knownAt")!=knowledge.KnownAt||DateWorkspace.Date(native.Text("effectiveOn"))!=frame.BusinessDate)
             throw Error("The gas journal must preserve opening business time and its original resolved knowledge cutoff.");
-        var admission=new Admission(catalog,context,frame.At,native.Instant("authorityUntil"));database.RegisterCommitAdmission(connection,admission);
+        var admission=new GasOwnedSourceReadAdmission(catalog,context,frame.At,native.Instant("authorityUntil"));database.RegisterCommitAdmission(connection,admission);
         ImmutableArray<JsonElement> Rows(string key)=>[..native.GetProperty(key).EnumerateArray()];
         GasOwnedKnownTime Time(JsonElement row,string effective="effective_at")
         {
