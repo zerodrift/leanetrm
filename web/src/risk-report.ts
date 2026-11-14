@@ -19,13 +19,16 @@ export type ExcludedPosition={tradeId:string;bindingId:string;bookId:string;trad
 export type RiskPosition={tradeId:string;bindingId:string;bookId:string;book:string;tradeReference:string;instrumentReference:string;instrumentType:string;
   measure:string;measureLabel:string;values:RiskValues};
 
+/** The option valuation a run's request selected, as the run states it among its inputs. */
+export type OptionValuationPolicy={observationRole:string;numericalPolicy:string;scenarioPolicy:string;calibrationFallback:string};
 export type RiskWorkReport={heldInstruments:number;work:{positionCount:number;uniqueValuations:number;scenarioCount:number;preparationScenarioCount:number;unitPricerCalls:number;rebuiltCurveNodes:number;reusedCurveNodes:number;repeatedInstrumentReferences:number;quantityApplications:number};connectedScenarios:{definitions:{revisionId:string};work:{evaluatedNodes:number;reusedReads:number;affectedNodes:number;traversedAffectedEdges:number};preparation:{sourceCompilations:number;declaredSourceNodes:number}}[]};
 /**
  * A portfolio risk report: each factor's results by book and by holding, and the positions the run leaves out. An earlier job's
  * result can lack its list of those positions, which is refused when it is shown, never read as leaving out none.
  */
 type ReportBase=RiskWorkReport&{projectionPolicies:ProjectionPolicyReceipt[];displayPolicy:unknown;scenario:{depth:number;isBase:boolean};context:{contextId:string};snapshotId:string;tradeIds?:string[]|null;
-  detail?:string;inputs?:{positions:{tradeId:string;bindingId:string;bookId:string;measure:string}[];markets:{definitions:{revisionId:string}}[]};excludedPositions?:ExcludedPosition[]};
+  detail?:string;inputs?:{positions:{tradeId:string;bindingId:string;bookId:string;measure:string}[];markets:{definitions:{revisionId:string}}[];pricingPolicy?:{futuresOptions?:Partial<OptionValuationPolicy>|null}};
+  excludedPositions?:ExcludedPosition[];scenarioPolicy?:string|null;optionCalibrations?:unknown[]};
 export type RiskFactorResult={factor:RiskFactor;bump:string;totals:RiskTotal[];positions:RiskPosition[]};
 export type RiskSensitivityReport=ReportBase&{monteCarlo?:undefined;joint?:undefined;parametric?:undefined;historical?:undefined;factors:RiskFactorResult[]};
 export type RiskReport=RiskSensitivityReport|(ReportBase&{monteCarlo?:undefined;joint:JointReport;parametric?:undefined;historical?:undefined;factors?:never})|(ReportBase&{monteCarlo?:undefined;parametric:ParametricView;joint?:undefined;historical?:undefined;factors?:never})|(ReportBase&{monteCarlo?:undefined;historical:HistoricalView;parametric?:undefined;joint?:undefined;factors?:never})|(ReportBase&{monteCarlo:MonteCarloView;historical?:undefined;parametric?:undefined;joint?:undefined;factors?:never});

@@ -63,7 +63,7 @@ internal static class HistoricalRiskContractChecks
         Console.WriteLine("PASS historical comparison: narrow domain unavailability preserves historical risk; shared custody/coverage and cancellation remain fatal");
         var at=DateTimeOffset.Parse("2026-01-01T16:00:00Z");
         var terms=new FuturesOptionTerms(OptionRight.Call,ExactDecimal.Parse("1"),at.AddDays(30),"american","exercise_into_future");
-        var tree=OptionNumericalPolicies.Require(AmericanFuturesOptionModel.Id) with{Steps=8};
+        var tree=OptionNumericalPolicies.Require(OptionNumericalPolicies.CoxRossRubinstein) with{Steps=8};
         string Price(string forward)=>AmericanFuturesOptionModel.UnitPrice(terms,LatticeDecimal.Parse(forward),LatticeDecimal.Parse("0.3"),
             LatticeDecimal.Parse("0.99"),at,tree,default).ToExact().ToString();
         var exposure=new HistoricalExposure("option",Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid(),"present_value",new(reference.Revision,"usd"),Price("1"));

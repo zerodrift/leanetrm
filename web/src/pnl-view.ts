@@ -6,7 +6,11 @@ import {drawReport} from './pnl-report.js';
 import {reportVersion,type Report} from './pnl-model.js';
 
 type ClockChoice={code:string;kind:string;fixedOffsetSeconds:number|null;ianaZone:string|null;tzdbVersion:string|null};
-type Policies={accounting:string;attribution:string;factors:string;clockPolicy:string;timeModes:{id:string;label:string}[];clocks:ClockChoice[]};
+// The price bump of the opening estimates and the agreement they must reach, as a request states them.
+type BumpSelection={ticks:number;priceSteps:number|null;absoluteTolerance:string;deltaRelativeTolerance:string;gammaRelativeTolerance:string};
+type Bounds={min:number;max:number};
+type Policies={accounting:string;attribution:string;factors:string;factorBump:{offered:BumpSelection;ticks:Bounds;priceSteps:number[]};clockPolicy:string;
+ timeModes:{id:string;label:string}[];clocks:ClockChoice[]};
 // A close the person can compare, labelled as the header names it, with its close convention when it is a recorded close.
 type Frame={id:string;at:string;label:string;session:string|null};
 type SavedEntry={id:string;name:string;savedAt:string;openingAt:string;closingAt:string;books:string[];tradeSelection:string};
@@ -29,11 +33,25 @@ export function setupPnlView(host:HTMLElement,o:Options){
   if(input===opening||input===closing)field.className='pnl-close';else if(input===known)field.className='pnl-known';
  }
  controls.append(run);
+ // The price bump is an advanced setting: closed until opened, filled with what the backend offers, and sent as selected.
+ const advanced=node('details'),selection=node('summary'),bumpFields=node('div'),basis=node('select'),steps=node('select'),ticks=node('input'),absolute=node('input'),deltaAgreement=node('input'),gammaAgreement=node('input'),
+  agreements=[absolute,deltaAgreement,gammaAgreement],ticksName=node('label','Trading ticks'),offer=node('button','Restore offered values');
+ advanced.className='pnl-advanced';bumpFields.className='pnl-controls';offer.type='button';offer.className='secondary';
+ basis.append(new Option('Price steps the pricing models declare','steps'),new Option('Trading ticks','ticks'));
+ ticks.type='number';ticks.step='1';
+ for(const agreement of agreements)agreement.inputMode='decimal';
+ for(const [label,input] of [['Price bump',basis],['Price steps',steps],[ticksName,ticks],['Agreement · absolute tolerance',absolute],
+  ['Delta agreement · relative tolerance',deltaAgreement],['Gamma agreement · relative tolerance',gammaAgreement]] as const){
+  const field=typeof label==='string'?node('label',label):label;field.append(input);bumpFields.append(field);
+ }
+ bumpFields.append(offer);
+ advanced.append(selection,node('p','How far each price is moved to estimate delta and gamma, and how closely the estimates at half, full and double that move must agree to be used. '+
+  'A pricing model may declare a price step: the smallest price move it resolves.'),bumpFields);
  // The cutoff reads as local time. Untouched, it stays the exact instant it was given; edited, the backend resolves it.
  const knownAt=zonedInput(known,o.zone,o.api);
  const result=node('div'),library=node('details'),libraryBody=node('div');library.append(node('summary','Saved P&L reports'),libraryBody);library.className='pnl-library';
- host.classList.add('pnl-view');host.replaceChildren(title,controls,note,result,library);
- let epoch=0,owner=o.identity(),current:Shown|undefined,currency=0,policies:Policies|undefined,chosen=false;
+ host.classList.add('pnl-view');host.replaceChildren(title,controls,advanced,note,result,library);
+ let epoch=0,owner=o.identity(),current:Shown|undefined,currency=0,policies:Policies|undefined,chosen=false,bumpChosen=false;
  const pending=new PendingCommand(refused);
  const transport=actorTransport<RequestCommand>(()=>'openetrm-pnl-save:'+o.identity(),()=>sessionStorage);
  function restore(){
@@ -117,9 +135,35 @@ export function setupPnlView(host:HTMLElement,o:Options){
   await readLibrary();
  }
  const clockNeeded=()=>timeMode.value===oneDay;
+ // The closed section still says what will be sent.
+ function describeBump(){
+  const byStep=basis.value==='steps',count=(value:string,unit:string)=>`${value} ${unit}${value==='1'?'':'s'}`;
+  steps.parentElement!.hidden=!byStep;ticksName.firstChild!.textContent=byStep?'Trading ticks · where no model declares a step':'Trading ticks';
+  selection.textContent=policies?'Advanced settings · price bump of '+(byStep?`${count(steps.value,'price step')} where a model declares one, otherwise `:'')+count(ticks.value,'tick')+
+   ` · agreement within ${absolute.value.trim()} + ${deltaAgreement.value.trim()} of a delta, ${gammaAgreement.value.trim()} of a gamma`:'Advanced settings';
+ }
+ // Until the person changes it, the selection is what the backend offers. Its bounds are the backend's.
+ function offerBump(){
+  const {offered,ticks:tickBounds,priceSteps:stepCounts}=policies!.factorBump,stepCount=steps.value;
+  steps.replaceChildren(...stepCounts.map(count=>new Option(String(count))));steps.value=stepCount;ticks.min=String(tickBounds.min);ticks.max=String(tickBounds.max);
+  if(!bumpChosen){
+   basis.value=offered.priceSteps===null?'ticks':'steps';steps.value=String(offered.priceSteps??stepCounts[0]);ticks.value=String(offered.ticks);
+   absolute.value=offered.absoluteTolerance;deltaAgreement.value=offered.deltaRelativeTolerance;gammaAgreement.value=offered.gammaRelativeTolerance;
+  }
+  describeBump();
+ }
+ // What the request states. The backend decides what a selection means; the page only refuses to send one it cannot read.
+ function selectedBump():BumpSelection{
+  const tickCount=Number(ticks.value);
+  if(!ticks.value.trim()||!Number.isInteger(tickCount)||tickCount<Number(ticks.min)||tickCount>Number(ticks.max)||agreements.some(agreement=>!agreement.value.trim()))
+   throw Error(`Enter whole trading ticks from ${ticks.min} to ${ticks.max} and the three agreement tolerances.`);
+  // A count chosen earlier that the backend no longer offers leaves none chosen.
+  if(basis.value==='steps'&&!steps.value)throw Error('Choose the number of price steps.');
+  return{ticks:tickCount,priceSteps:basis.value==='steps'?Number(steps.value):null,absoluteTolerance:absolute.value.trim(),deltaRelativeTolerance:deltaAgreement.value.trim(),gammaRelativeTolerance:gammaAgreement.value.trim()};
+ }
  async function loadPolicies(){
   const version=epoch,loaded=await o.api<Policies>('portfolio/pnl/policies');if(!guarded(version))return;
-  policies=loaded;const mode=timeMode.value,selectedClock=clock.value;
+  policies=loaded;offerBump();const mode=timeMode.value,selectedClock=clock.value;
   timeMode.replaceChildren(...loaded.timeModes.map(m=>new Option(m.label,m.id)));timeMode.value=loaded.timeModes.some(m=>m.id===mode)?mode:oneDay;
   clock.replaceChildren(new Option('Choose a clock…',''),...loaded.clocks.map(c=>new Option(c.code,c.code)));clock.value=selectedClock;clock.disabled=o.busy()||!clockNeeded();
  }
@@ -148,12 +192,15 @@ export function setupPnlView(host:HTMLElement,o:Options){
   if(!opening.value||!closing.value||!known.value)throw Error('Choose both closes and an explicit knowledge cutoff.');
   const version=++epoch;setNote('Preparing both closes and repricing shared factor scenarios…');
   try{
-   if(!policies)await loadPolicies();if(!guarded(version))return;
+   // What the backend offers is shown before it is sent: a run pressed before it arrived shows it and stops.
+   const unseen=!policies;if(unseen)await loadPolicies();if(!guarded(version))return;
+   if(unseen)throw Error('The settings the backend offers are now shown, Advanced settings included. Check them, then run again.');
    const calendar=policies!.clocks.find(c=>c.code===clock.value)??null;if(clockNeeded()&&!calendar)throw Error('Choose the calendar clock explicitly.');
+   const factorBump=selectedBump();
    const cutoff=await knownAt.instant();if(!guarded(version))return;
    const endpoint=(id:string)=>({snapshotId:id,convention:'trading_workspace_v1',knowledgeMode:'at'});
    const response=await o.api<{report:Report;artifact:string|null;saveRefusal:{code:string;message:string}|null}>('portfolio/pnl/run',{...o.scope(),opening:endpoint(opening.value),closing:endpoint(closing.value),
-    knownAt:cutoff,accountingPolicy:policies!.accounting,attributionPolicy:policies!.attribution,factorPolicy:policies!.factors,
+    knownAt:cutoff,accountingPolicy:policies!.accounting,attributionPolicy:policies!.attribution,factorPolicy:policies!.factors,factorBump,
     time:{mode:timeMode.value,policy:policies!.clockPolicy,clock:clockNeeded()?calendar:null}});
    if(!guarded(version))return;
    // The result is presented whether or not the backend could keep it for a later Save.
@@ -166,6 +213,11 @@ export function setupPnlView(host:HTMLElement,o:Options){
  function inputsChanged(){epoch++;current=undefined;draw();setNote('Inputs changed. Run P&L for this selection.');}
  for(const field of [opening,closing])field.onchange=()=>{chosen=true;inputsChanged();};
  known.onchange=clock.onchange=inputsChanged;timeMode.onchange=()=>{clock.disabled=o.busy()||!clockNeeded();inputsChanged();};
+ for(const field of [basis,steps,ticks,...agreements])field.onchange=()=>{bumpChosen=true;describeBump();inputsChanged();};
+ // A selection is one person's: it is dropped for what the backend offers when they ask, and when another person takes over.
+ function forgetBump(){bumpChosen=false;if(policies)offerBump();}
+ offer.onclick=()=>{forgetBump();inputsChanged();};
+ describeBump();
  function refreshFrames(){
   const frames=o.frames().slice().sort((a,b)=>a.at.localeCompare(b.at)),before=[opening.value,closing.value];
   for(const [index,select] of [opening,closing].entries()){
@@ -188,12 +240,13 @@ export function setupPnlView(host:HTMLElement,o:Options){
  return{
   async load(){refreshFrames();draw();await Promise.all([loadPolicies(),readLibrary()]);},
   sync(available:boolean){
-   if(owner!==o.identity()){owner=o.identity();epoch++;current=undefined;pending.clear();restore();knownAt.clear();chosen=false;draw();}
+   if(owner!==o.identity()){owner=o.identity();epoch++;current=undefined;pending.clear();restore();knownAt.clear();chosen=false;forgetBump();draw();}
    knownField.firstChild!.textContent=knownName();knownAt.refresh();if(available)followKnowledge();
-   run.disabled=o.busy()||!o.canRun()||!available;for(const field of [opening,closing,known,timeMode])field.disabled=o.busy();clock.disabled=o.busy()||!clockNeeded();
+   run.disabled=o.busy()||!o.canRun()||!available;for(const field of [opening,closing,known,timeMode,basis,steps,ticks,...agreements,offer])field.disabled=o.busy();
+   clock.disabled=o.busy()||!clockNeeded();
   },
   // A change of scope or market context. The closes a person chose stay chosen; ones they did not follow the header again.
-  reset(){epoch++;current=undefined;knownAt.clear();setNote('');if(owner!==o.identity()){owner=o.identity();pending.clear();restore();chosen=false;}draw();},
+  reset(){epoch++;current=undefined;knownAt.clear();setNote('');if(owner!==o.identity()){owner=o.identity();pending.clear();restore();chosen=false;forgetBump();}draw();},
   // The display precision changed: the report on screen is formatted again.
   async refresh(){const version=epoch,shown=current;if(!shown)return;await prepared(shown.report);if(guarded(version)&&current===shown)draw();},
   unconfirmed:()=>!!pending.command};

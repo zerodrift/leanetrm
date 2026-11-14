@@ -43,13 +43,25 @@ custom and joint modes. It retains the backend catalog's conventions, numerical
 policy and complete captured context. The owning source is revalidated before
 every submission. A market/context replacement invalidates the catalog.
 
+A held-contract, parallel-curve or custom shock is refused with `risk_bump` when
+it is smaller than two price steps that a holding in scope declares for a price
+it moves (D395). The report reads each delta and gamma from one up and one down
+move, and a [tree-priced option](futures-options.md) bends once per price step,
+so a smaller move reads the tree's grid. The refusal names the target and the
+smallest shock that is taken; the size is never changed for the person. Nested
+stresses are not differenced and take any size. Where one moves a price that
+declares a step, the shock must span two steps at the stressed price.
+
 ## Reports and graphics
 
 Risk opens a recent completed run matching the chosen scope and market close
 when one is available. Candidate selection requires every unique part, matching
 scope/context and completed state. The retained report's exact snapshot is checked
-before automatic selection. An older or unrelated report is never substituted
-as a current calculation. The directory is bounded; it is not a complete archive.
+before automatic selection, and so is the backend's statement, on each job it
+reads in full, that the run was valued under the pricing policy the risk catalog
+states: a run requested under another policy is opened from Reports and runs,
+never as the scope's current report (D396). An older or unrelated report is never
+substituted as a current calculation. The directory is bounded; it is not a complete archive.
 Matching includes the exact trade subset. A retained subset never becomes a
 whole-book report; its caption states its captured selection independently of
 the current filters. Multipart display and export also require matching subsets.
@@ -57,7 +69,11 @@ the current filters. Multipart display and export also require matching subsets.
 The shared report widget appears in Risk and in the Blotter's **Full risk report
 and graphics** section. It presents backend delta, diagonal gamma and up/down
 P&L as sensitivity ladders or heatmaps, with accessible exact report data and
-factor-to-position/side-binding drill-through. Units, valuation measures,
+factor-to-position/side-binding drill-through. A report that values options
+states in its heading the option valuation policy its run selected, by the
+backend's own identifiers: numerical policy, scenario policy, calibration
+fallback and observation role. One that values options without stating that
+policy in full says it is not recorded. Units, valuation measures,
 currencies and market-factor/computed-output coordinates remain separate.
 Independent shocks overlap and have no browser-computed portfolio total.
 

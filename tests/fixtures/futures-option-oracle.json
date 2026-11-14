@@ -617,5 +617,153 @@
       "undiscounted_call": "87.346930059512671592035224991617",
       "undiscounted_put": "67.346930059512671592035224991617"
     }
+  ],
+  "leisen_reimer": [
+    {
+      "right": "call",
+      "futures": "3",
+      "strike": "3",
+      "volatility": "0.5",
+      "years": "0.25",
+      "discount": "0.99",
+      "steps": 1,
+      "value": "0.289187527274974220406427005530"
+    },
+    {
+      "right": "put",
+      "futures": "3",
+      "strike": "3.5",
+      "volatility": "0.5",
+      "years": "0.25",
+      "discount": "0.9",
+      "steps": 1,
+      "value": "0.565957460930476613477802803531"
+    },
+    {
+      "right": "put",
+      "futures": "100",
+      "strike": "100",
+      "volatility": "0.446287102628419511532590180620",
+      "years": "0.5",
+      "discount": "0.81",
+      "steps": 3,
+      "value": "10.609001282489084387003575596397"
+    },
+    {
+      "right": "call",
+      "futures": "6",
+      "strike": "3",
+      "volatility": "0.8",
+      "years": "1",
+      "discount": "0.96",
+      "steps": 3,
+      "value": "3.246842273387813095171358780919"
+    },
+    {
+      "right": "call",
+      "futures": "3",
+      "strike": "3",
+      "volatility": "0.5",
+      "years": "0.25",
+      "discount": "0.99",
+      "steps": 401,
+      "value": "0.295944377750906563899315944727"
+    },
+    {
+      "right": "put",
+      "futures": "3.5",
+      "strike": "3",
+      "volatility": "0.6",
+      "years": "0.1",
+      "discount": "0.995",
+      "steps": 401,
+      "value": "0.071777235327538617996715239645"
+    },
+    {
+      "right": "put",
+      "futures": "60",
+      "strike": "120",
+      "volatility": "0.6",
+      "years": "2",
+      "discount": "0.9",
+      "steps": 401,
+      "value": "64.535356258701257612312847852850"
+    },
+    {
+      "right": "call",
+      "futures": "150",
+      "strike": "150",
+      "volatility": "3",
+      "years": "0.25",
+      "discount": "0.99",
+      "steps": 401,
+      "value": "81.348790991044006991073882415425"
+    },
+    {
+      "right": "put",
+      "futures": "120",
+      "strike": "100",
+      "volatility": "1.2",
+      "years": "3",
+      "discount": "0.88",
+      "steps": 401,
+      "value": "61.732123806308339323799789292816"
+    },
+    {
+      "right": "call",
+      "futures": "80",
+      "strike": "80",
+      "volatility": "0.3",
+      "years": "0.25",
+      "discount": "1",
+      "steps": 401,
+      "value": "4.782821532204393232861419503047"
+    },
+    {
+      "right": "put",
+      "futures": "85",
+      "strike": "82.5",
+      "volatility": "1.2",
+      "years": "0.01",
+      "discount": "0.9998",
+      "steps": 401,
+      "value": "2.879638818929495275644946666563"
+    },
+    {
+      "right": "call",
+      "futures": "3",
+      "strike": "3.3",
+      "volatility": "0.05",
+      "years": "0.0025",
+      "discount": "0.9999",
+      "steps": 401,
+      "value": "0.000000000000000000000000000000"
+    },
+    {
+      "right": "call",
+      "futures": "3.095230222497385393571805879512",
+      "strike": "3",
+      "volatility": "0.5",
+      "years": "0.25",
+      "discount": "1",
+      "steps": 401,
+      "value": "0.353133820820337005091441045911"
+    }
+  ],
+  "black76_wide": [
+    {
+      "futures": "60",
+      "strike": "443.3434",
+      "volatility": "1",
+      "years": "1",
+      "undiscounted_call": "1.255417937739807494978791249832"
+    },
+    {
+      "futures": "60",
+      "strike": "3275.889",
+      "volatility": "2",
+      "years": "1",
+      "undiscounted_call": "5.097199122948744357404723706467"
+    }
   ]
 }

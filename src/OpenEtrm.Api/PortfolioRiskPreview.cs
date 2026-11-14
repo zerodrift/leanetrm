@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Npgsql;
 using OpenEtrm.MarketData;
@@ -36,6 +37,11 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         FuturesRisk.Implementation,SwapStore.Convention,RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,"estimate_until_actual_v1",
         FuturesOptionValuationPolicy.Release1);
     internal static PortfolioValuationPolicy AccountingPricingPolicy=>PricingPolicy;
+    // Whether a retained run was valued under the pricing policy the catalog states now. A page opens a retained run as a
+    // scope's current report only then. A result that states no pricing policy is not.
+    internal static bool UnderStatedPricingPolicy(JsonNode? result)=>
+        result is JsonObject&&result["inputs"] is JsonObject inputs&&inputs["pricingPolicy"] is {} policy&&
+        JsonNode.DeepEquals(policy,JsonSerializer.SerializeToNode(PricingPolicy,RiskJobs.Json));
     internal sealed record Prepared(PortfolioRiskRequest Request,RiskDetail Detail,
         ImmutableArray<Guid> BookIds,ImmutableArray<JsonElement> Books,PortfolioValuation.Prepared Portfolio,
         ImmutableArray<PortfolioCurveBump> Bumps,ImmutableArray<PortfolioCurveShift> Stress,
@@ -177,6 +183,8 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
                 throw new MarketDataException("risk_stress","Choose the explicit additive convention and a nonzero signed shift.");
             return new PortfolioCurveShift(axis,size);
         }).ToImmutableArray();
+        // A parametric request sizes its own bumps in trading ticks; the refusal is the bump report's.
+        if(body.Parametric is null&&!bumps.IsEmpty)RequireTwoPriceSteps(DeclaredSteps(portfolio,bumps,stress,ct));
         var historicalAxes=body.Historical is null&&body.MonteCarlo is null?ImmutableArray<PortfolioRiskAxis>.Empty:
             history!.Columns.Select(c=>CurveRiskAxes.Quote(portfolio,c.Mapping.Factor,ct)).ToImmutableArray();
         if(body.Historical is {} historicalSpec)

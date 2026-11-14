@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {reportPresentation,recentCompletedRuns,riskAddress,riskReportAddress,movedTotals} from '../dist/risk-results.js';
+import {reportPresentation,recentCompletedRuns,riskAddress,riskReportAddress,movedTotals,optionValuation,opensAsCurrent} from '../dist/risk-results.js';
 
 const amounts={base:'100',up:'102',down:'98',upPnl:'2',downPnl:'-2',delta:'20/3',gamma:'0'};
 const values=(o={})=>({...amounts,display:{...amounts,delta:'6.666666666667'},currency:'USD',currencyReference:{revision:'r1',code:'usd'},deltaUnit:'USD / gas',gammaUnit:'USD / gas²',...o});
@@ -91,3 +91,33 @@ test('a factor shows the book measures it moves: an unmoved total draws no row o
  assert.deepEqual(shown.charts.map(c=>c.spec.title),['Delta · pv · Market factors']);
  assert.deepEqual(shown.charts[0].spec.series.map(s=>s.name),['A']);
 });
+
+const optionPolicy={observationRole:'daily_settlement',numericalPolicy:'american_futures_option_crr_v1',scenarioPolicy:'option_implied_volatility_held_v1',calibrationFallback:'option_settlement_at_intrinsic_v1'};
+const stated=policy=>`Option valuation · numerical policy ${policy.numericalPolicy} · scenario policy ${policy.scenarioPolicy} · calibration fallback ${policy.calibrationFallback} · observation role ${policy.observationRole}`;
+// A report that values options carries their scenario policy; the policy its request selected is among its inputs.
+const valuingOptions=(policy,o={})=>report([factor('jan',[total()])],{scenarioPolicy:'option_implied_volatility_held_v1',optionCalibrations:[{mode:'solved'}],inputs:{positions:[],markets:[],pricingPolicy:{futuresOptions:policy}},...o});
+test('a report that values options states the option valuation policy its run selected, in the backend’s own identifiers',()=>{
+ assert.deepEqual(optionValuation(run([valuingOptions(optionPolicy)])),[stated(optionPolicy)]);
+ const centred={...optionPolicy,numericalPolicy:'american_futures_option_leisen_reimer_v1',calibrationFallback:'none'};
+ assert.deepEqual(optionValuation(run([valuingOptions(centred)])),[stated(centred)],'another policy is shown as the run names it');
+ assert.deepEqual(optionValuation(run([valuingOptions(optionPolicy),valuingOptions(optionPolicy,{factors:[factor('feb',[total()])]})])),[stated(optionPolicy)],'parts under one policy state it once');
+ assert.deepEqual(optionValuation(run([valuingOptions(optionPolicy),valuingOptions(centred,{factors:[factor('feb',[total()])]})])),[stated(optionPolicy),stated(centred)],'parts under different policies state each');
+});
+test('a report that values no option states no option policy, and one that values options without stating theirs says so',()=>{
+ assert.deepEqual(optionValuation(run([report([factor('jan',[total()])])])),[]);
+ assert.deepEqual(optionValuation(run([report([factor('jan',[total()])],{scenarioPolicy:null,optionCalibrations:[],inputs:{positions:[],markets:[],pricingPolicy:{futuresOptions:optionPolicy}}})])),[],'a selected policy alone is no option holding');
+ const waiting=run([valuingOptions(optionPolicy)]);waiting.parts.push({unknown:false,unlisted:true});
+ assert.deepEqual(optionValuation(waiting),[stated(optionPolicy)],'a part without a report states nothing');
+ for(const missing of [undefined,null,{...optionPolicy,numericalPolicy:undefined},{...optionPolicy,calibrationFallback:''}])
+  assert.deepEqual(optionValuation(run([valuingOptions(missing)])),['Option valuation policy not recorded'],'nothing stands in for a policy the report does not state in full');
+ assert.deepEqual(optionValuation(run([valuingOptions(optionPolicy,{inputs:undefined})])),['Option valuation policy not recorded']);
+});
+test('a retained run opens as the scope’s current report only at the selected close and under the pricing policy the backend says is the stated one',()=>{
+ const read=o=>job('read',{result:report([factor('jan',[total()])]),underStatedPricingPolicy:true,...o});
+ assert.equal(opensAsCurrent(read(),'s1'),true);
+ assert.equal(opensAsCurrent(read(),'s2'),false,'another close');
+ assert.equal(opensAsCurrent(read({underStatedPricingPolicy:false}),'s1'),false,'another pricing policy');
+ assert.equal(opensAsCurrent(read({underStatedPricingPolicy:undefined}),'s1'),false,'a job that does not say is not assumed to');
+ assert.equal(opensAsCurrent(read({result:undefined}),'s1'),false,'a job without a result');
+});
+
