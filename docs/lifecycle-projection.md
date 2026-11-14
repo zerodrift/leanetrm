@@ -532,3 +532,10 @@ source assembly, selected ordinary principal-carrying policy, initially active
 delivery obligations, connected multiple-parent composition and complete worker
 replay remain qualification gates. This bounded pure wrapper admits one exact
 future parent and refuses another physical parent in its quantity component.
+
+Ordinary cash valuation can retain a carrying provider per exact held owner and
+binding when memberships share one currency/due instrument. Its scope and
+discount-input reuse fence stay separate; position subsets retain only their
+selected inputs. An absent binding selection preserves existing shared-provider
+behavior. Native saved-profile selection and worker qualification remain separate
+gates for this calculation capability.

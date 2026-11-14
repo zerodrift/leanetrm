@@ -20,6 +20,8 @@ public sealed record ValuationSetup(ValuationMeasure Measure,
     public ImmutableDictionary<Guid,FuturesOptionMarketBinding> OptionBindings{get;init;}=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty;
     public ImmutableDictionary<MeasureBinding,FuturesMarginValueBinding> FuturesValueBindings{get;init;}=ImmutableDictionary<MeasureBinding,FuturesMarginValueBinding>.Empty;
     public ImmutableDictionary<MeasureBinding,FuturesOptionPhysicalValueBinding> PhysicalOptionValueBindings{get;init;}=ImmutableDictionary<MeasureBinding,FuturesOptionPhysicalValueBinding>.Empty;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public ImmutableDictionary<MeasureBinding,ISideDiscounting> BindingDiscounting{get;init;}=ImmutableDictionary<MeasureBinding,ISideDiscounting>.Empty;
     // A lifecycle component keeps one held consumer from a source portfolio;
     // unrelated instruments and bindings cannot travel into its ordinary PV.
     internal ValuationSetup ForPositions(ImmutableArray<RiskPosition> positions)
@@ -34,13 +36,14 @@ public sealed record ValuationSetup(ValuationMeasure Measure,
     }
     private ValuationSetup ForInputs(HashSet<Guid> instruments,HashSet<MeasureBinding> bindings)
     {
-        if(FuturesBindings is null||InstrumentDiscounting is null||OptionBindings is null||BindingStates is null||AccountingFacts is null||FuturesValueBindings is null||PhysicalOptionValueBindings is null)
+        if(FuturesBindings is null||InstrumentDiscounting is null||OptionBindings is null||BindingStates is null||AccountingFacts is null||FuturesValueBindings is null||PhysicalOptionValueBindings is null||BindingDiscounting is null)
             throw new MarketDataException("valuation_context","Retain complete explicit valuation inputs.");
         return this with{FuturesBindings=FuturesBindings.Where(p=>instruments.Contains(p.Key)).ToImmutableDictionary(),
             InstrumentDiscounting=InstrumentDiscounting.Where(p=>instruments.Contains(p.Key)).ToImmutableDictionary(),
             OptionBindings=OptionBindings.Where(p=>instruments.Contains(p.Key)).ToImmutableDictionary(),
             FuturesValueBindings=FuturesValueBindings.Where(p=>bindings.Contains(p.Key)).ToImmutableDictionary(),
             PhysicalOptionValueBindings=PhysicalOptionValueBindings.Where(p=>bindings.Contains(p.Key)).ToImmutableDictionary(),
+            BindingDiscounting=BindingDiscounting.Where(p=>bindings.Contains(p.Key)).ToImmutableDictionary(),
             BindingStates=BindingStates.Where(p=>bindings.Contains(p.Key)).ToImmutableDictionary(),
             AccountingFacts=AccountingFacts.Where(p=>bindings.Contains(p.Key)).ToImmutableDictionary()};
     }
@@ -116,9 +119,10 @@ public sealed class UnitValuationContext
         Measures=measures;
     }
     public IntervalValuationSession? IntervalSession{get;}
-    public ISideDiscounting PaymentDiscounting(Guid instrument)=>Setup.Discounting??Setup.InstrumentDiscounting.GetValueOrDefault(instrument)??
+    private ISideDiscounting? BindingDiscounting=>BindingState is {} state?Setup.BindingDiscounting.GetValueOrDefault(new(state.Owner,state.BindingId)):null;
+    public ISideDiscounting PaymentDiscounting(Guid instrument)=>BindingDiscounting??Setup.Discounting??Setup.InstrumentDiscounting.GetValueOrDefault(instrument)??
         throw new MarketDataException("side_context","Supply this instrument's explicit payment discount inputs.");
-    public ISideDiscounting DiscountProvider=>Setup.Discounting??(declaration is {} selected?PaymentDiscounting(selected.Id):
+    public ISideDiscounting DiscountProvider=>BindingDiscounting??Setup.Discounting??(declaration is {} selected?PaymentDiscounting(selected.Id):
         throw new MarketDataException("side_context","Select this instrument before reading its payment discount inputs."));
     internal FuturesMarginValueBinding? FuturesValue()=>BindingState is {} state?
         Setup.FuturesValueBindings.GetValueOrDefault(new(state.Owner,state.BindingId)):null;
@@ -344,6 +348,12 @@ public sealed class ValuationPortfolio
             throw Error("risk_contract","Every unit instrument must have a held consumer.");
         if(Setup.BindingStates is null||Setup.FuturesValueBindings is null||Setup.PhysicalOptionValueBindings is null)throw Error("settlement_scope","Supply explicit binding valuation inputs.");
         var held=Positions.ToDictionary(p=>new MeasureBinding(p.Owner,p.BindingId));
+        if(Setup.BindingDiscounting is null)throw Error("payment_discount_scope","Retain explicit held cash carrying inputs.");
+        foreach(var(binding,provider)in Setup.BindingDiscounting)
+            if(provider is null||Setup.Measure!=ValuationMeasure.PresentValue||!held.TryGetValue(binding,out var position)||
+                Instruments[indexes[position.ValuationId]] is not CashPaymentInstrument||!Setup.BindingStates.ContainsKey(binding)||
+                provider is IProjectionCurrencyCurve curve&&curve.Currency!=Instruments[indexes[position.ValuationId]].Currency)
+                throw Error("payment_discount_scope","Selected cash carrying belongs to an exact held payment, native binding state and matching currency.");
         foreach(var(binding,value)in Setup.FuturesValueBindings)
             if(Setup.Measure!=ValuationMeasure.PresentValue||value is null||!held.TryGetValue(binding,out var position)||Instruments[indexes[position.ValuationId]] is not FuturesContract||
                 !Setup.BindingStates.ContainsKey(binding))throw Error("futures_margin_value","Pending-VM inputs must belong to the exact held future with retained valuation state.");
