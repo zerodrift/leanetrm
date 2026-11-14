@@ -37,6 +37,7 @@ internal static class GasPhysicalKnownAttachmentStore
         var admission=new GasOwnedSourceReadAdmission(catalog,context,frame.At,originalUntil<nativeUntil?originalUntil:nativeUntil);
         database.RegisterCommitAdmission(connection,admission);
         var journal=GasOwnedKnownHistoryStore.Materialize(native.GetProperty("journal"),catalog,snapshot,books,admission.Until);
+        if(journal.Scope!=GasOwnedKnownScope.PhysicalDependencies)throw Error("A physical attachment requires the exact native dependency source contract.");
         var result=Materialize(native,journal,snapshot);
         if(!parents.IsDefault&&result.Any(a=>!parents.Contains(new(a.FutureOwner.Owner,a.FutureOwner.BindingId))))
             throw Error("A physical attachment escaped the exact selected parent bindings.");

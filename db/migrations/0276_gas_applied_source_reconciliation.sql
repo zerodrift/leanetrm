@@ -14,6 +14,7 @@ DO $guard$DECLARE p pg_proc;definition text;needle text=' PERFORM security.requi
  SELECT * INTO STRICT p FROM pg_proc WHERE oid='security.read_gas_owned_known_history(uuid,uuid,timestamptz,uuid[])'::regprocedure;
  IF md5(p.prosrc)<>'0bd19cf50ad3026865838f7ad251508c' OR p.proowner<>'openetrm_security_owner'::regrole OR p.prorettype<>'jsonb'::regtype
   OR p.proretset OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof
+  OR p.proargnames IS DISTINCT FROM ARRAY['catalog','context','at_time','books'] OR p.proallargtypes IS NOT NULL OR p.pronargdefaults<>0 OR p.proargdefaults IS NOT NULL
   OR p.provolatile<>'v' OR p.proparallel<>'u' OR p.prosecdef IS DISTINCT FROM true
   OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql' OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
@@ -144,9 +145,9 @@ DECLARE until_at timestamptz;cut timestamptz;prefix integer;market_prefix intege
    SELECT s.position_id FROM trading.gas_owned_claim_settlements s WHERE s.catalog_id=catalog AND s.receipt_lot_id=ANY(position_ids)
     AND security.trading_visible(s.catalog_id,s.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00'))r;
   next_ids=coalesce(next_ids,'{}');
+  IF cardinality(next_ids)>16384 THEN RAISE EXCEPTION 'gas_owned_scope';END IF;
   IF next_ids=position_ids OR cardinality(next_ids)=0 THEN EXIT;END IF;
   position_ids=next_ids;
-  IF cardinality(position_ids)>16384 THEN RAISE EXCEPTION 'gas_owned_scope';END IF;
  END LOOP;
  SELECT coalesce(array_agg(DISTINCT p.account_id),'{}') INTO account_ids FROM trading.gas_owned_positions p WHERE p.catalog_id=catalog AND p.id=ANY(position_ids);
  journal=security.gas_physical_journal_source(catalog,context,at_time,books,position_ids);
@@ -176,6 +177,7 @@ DECLARE until_at timestamptz;cut timestamptz;prefix integer;market_prefix intege
    journal=jsonb_set(journal,ARRAY[key],item);
   END IF;
  END LOOP;
+ journal=jsonb_set(journal,ARRAY['stateProfile'],to_jsonb('known_gas_physical_dependency_journal_v1'::text));
  result=jsonb_build_object('stateProfile','known_gas_physical_attachments_v1','contextId',context,'asOf',at_time,'knownAt',cut,'effectiveOn',day,
   'authorityUntil',until_at,'attachments',attachments,'journal',journal-'authorityUntil');
  IF pg_column_size(result)>16777216 OR jsonb_array_length(attachments)>16384 THEN RAISE EXCEPTION 'gas_owned_scope';END IF;

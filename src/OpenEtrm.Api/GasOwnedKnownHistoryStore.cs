@@ -22,7 +22,8 @@ internal sealed record GasOwnedKnownFee(AccountingPositionKey Owner,Guid Account
     Quantity Quantity,RecordedCashValuation State,GasOwnedKnownTime Time);
 internal sealed record GasOwnedKnownMark(Guid PositionId,int Revision,CurveRequest Mark,GasOwnedKnownTime Time);
 internal sealed record GasOwnedKnownCashout(Guid PositionId,ReferenceKey Source,ObservationRole Role,DateTimeOffset ObservedAt,DateTimeOffset CashDueAt,string Rounding);
-internal sealed record GasOwnedKnownHistory(MarketSnapshot Source,[property:JsonIgnore]DateTimeOffset AuthorityUntil,
+internal enum GasOwnedKnownScope { WholeBooks=1,PhysicalDependencies }
+internal sealed record GasOwnedKnownHistory(MarketSnapshot Source,GasOwnedKnownScope Scope,[property:JsonIgnore]DateTimeOffset AuthorityUntil,
     ImmutableDictionary<Guid,GasOwnedKnownAccount> Accounts,ImmutableDictionary<Guid,GasOwnedKnownPosition> Positions,
     ImmutableArray<GasOwnedLot> Lots,ImmutableArray<GasStockReservation> Reservations,ImmutableArray<GasOwnedKnownRelease> Releases,
     ImmutableArray<GasStockConsumption> Consumptions,ImmutableArray<GasCommodityLoan> Loans,ImmutableArray<GasLoanRepayment> Repayments,
@@ -89,6 +90,10 @@ internal static class GasOwnedKnownHistoryStore
     internal static GasOwnedKnownHistory Materialize(JsonElement native,Guid catalog,MarketSnapshot snapshot,ImmutableArray<Guid> books,DateTimeOffset until)
     {
         if(snapshot.Knowledge is not {} knowledge)throw Error("Retain the exact source knowledge certificate for native gas facts.");
+        var scope=native.Text("stateProfile") switch{
+            "known_gas_owned_journal_projection_source_v1"=>GasOwnedKnownScope.WholeBooks,
+            "known_gas_physical_dependency_journal_v1"=>GasOwnedKnownScope.PhysicalDependencies,
+            _=>throw Error("Select the explicit native whole-book or linked physical dependency source contract.")};
         var context=knowledge.ContextId;
         if(native.Id("contextId")!=context||native.Instant("asOf")!=snapshot.ValuationAt||native.Instant("knownAt")!=knowledge.KnownAt)
             throw Error("Native gas facts cannot change their certified business or knowledge coordinates.");
@@ -148,7 +153,7 @@ internal static class GasOwnedKnownHistoryStore
                 "daily_settlement"=>ObservationRole.DailySettlement,"final_contract_settlement"=>ObservationRole.FinalContractSettlement,_=>throw Error("Unknown native operator final role.")},
             row.Instant("observed_at"),row.Instant("cash_due_at"),row.Text("rounding"))).ToImmutableArray();
         if(evidence.Any(e=>e.KnownAt>knowledge.KnownAt)||positions.Values.Any(p=>!evidence.Any(e=>e.Id==p.EvidenceId)))throw Error("Each known gas position requires its exact retained source evidence.");
-        return new(snapshot,until,accounts,positions,lots,reservations,releases,consumptions,loans,repayments,settlements,fees,evidence,marks,cashouts);
+        return new(snapshot,scope,until,accounts,positions,lots,reservations,releases,consumptions,loans,repayments,settlements,fees,evidence,marks,cashouts);
     }
     private static DateTimeOffset? OptionalInstant(JsonElement row,string key)=>row.OptionalText(key) is {} value?TradingInstant.Parse(value,"gas_owned_known_context"):null;
     private static MarketDataException Error(string message)=>new("gas_owned_known_context",message);

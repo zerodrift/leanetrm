@@ -15,6 +15,11 @@ def upgrade_checks(query, migration):
     from assistant_context import check_guard
     signature='security.read_gas_owned_known_history(uuid,uuid,timestamptz,uuid[])'
     changes=[(change,signature) for change in (
+        f"UPDATE pg_proc SET proargnames=ARRAY['catalog','context','changed_at','books'] WHERE oid='{signature}'::regprocedure;",
+        f"UPDATE pg_proc SET proallargtypes=ARRAY['uuid'::regtype::oid,'uuid'::regtype::oid,'timestamptz'::regtype::oid,'uuid[]'::regtype::oid] WHERE oid='{signature}'::regprocedure;",
+        f"UPDATE pg_proc SET pronargdefaults=1 WHERE oid='{signature}'::regprocedure;",
+        "CREATE FUNCTION security.synthetic_gas_default_guard(value uuid[] DEFAULT NULL) RETURNS uuid[] LANGUAGE sql AS 'SELECT value';"
+        f"UPDATE pg_proc SET proargdefaults=(SELECT proargdefaults FROM pg_proc WHERE oid='security.synthetic_gas_default_guard(uuid[])'::regprocedure) WHERE oid='{signature}'::regprocedure;",
         f"UPDATE pg_proc SET proargmodes=array_fill('i'::\"char\",ARRAY[4]) WHERE oid='{signature}'::regprocedure;",
         f"UPDATE pg_proc SET provariadic='uuid'::regtype WHERE oid='{signature}'::regprocedure;",
         f"ALTER FUNCTION {signature} SET work_mem='64kB';",f"ALTER FUNCTION {signature} STRICT;",

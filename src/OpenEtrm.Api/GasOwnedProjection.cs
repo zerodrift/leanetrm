@@ -30,6 +30,8 @@ internal static class GasOwnedProjection
         GasOwnedKnownHistory known,GasOwnedPortfolioRead? opening,MarketSnapshot source,DateTimeOffset horizon,
         ImmutableArray<GasOwnedProjectionSelection> selected,ImmutableDictionary<DefinitionRevision,GasOwnedProjectionMarket> markets,CancellationToken ct)
     {
+        if(known.Scope!=GasOwnedKnownScope.WholeBooks)
+            throw Error("gas_projection_scope","A linked physical dependency journal cannot replace complete independently selected gas holdings.");
         var knowledge=source.Knowledge??throw Error("gas_projection_source","Retain the certified gas opening knowledge context.");
         if(selected.IsDefault||selected.Any(s=>s is null||s.AccountId==Guid.Empty||s.ProfileId==Guid.Empty||s.Revision<1)||
             selected.Select(s=>s.AccountId).Distinct().Count()!=selected.Length||!known.Source.HasSameInputs(source)||markets is null||

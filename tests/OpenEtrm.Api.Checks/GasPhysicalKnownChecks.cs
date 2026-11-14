@@ -39,8 +39,15 @@ internal static class GasPhysicalKnownChecks
                 throw new Exception("The physical closure omitted complete principal runs, native stock or corrected payment allocations.");
             var narrowed=await GasPhysicalKnownAttachmentStore.Read(connection,database,frame,snapshot,books,ct,[new(longSide.FutureOwner.Owner,longSide.FutureOwner.BindingId)]);
             if(narrowed.Attachments.Length!=1||narrowed.Attachments.Single().DeliveryOwner!=longSide.DeliveryOwner||
-                narrowed.Journal.Positions.ContainsKey(read.Attachments.Single(a=>a!=longSide).DeliveryOwner.Owner.Id))
+                narrowed.Journal.Scope!=GasOwnedKnownScope.PhysicalDependencies||narrowed.Journal.Positions.ContainsKey(read.Attachments.Single(a=>a!=longSide).DeliveryOwner.Owner.Id))
                 throw new Exception("An exact parent source widened to an unrelated physical obligation in the same account.");
+            try
+            {
+                await GasOwnedProjection.Prepare(connection,database,narrowed.Journal,null,snapshot,at.AddDays(3),[],
+                    ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty,ct);
+                throw new Exception("A dependency-only physical source was treated as a complete whole-book gas portfolio.");
+            }
+            catch(MarketDataException error)when(error.Code=="gas_projection_scope"){}
             try
             {
                 await GasPhysicalKnownAttachmentStore.Read(connection,database,frame,snapshot with{Id=Guid.NewGuid()},books,ct);
