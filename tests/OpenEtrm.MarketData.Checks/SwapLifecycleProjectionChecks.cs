@@ -85,6 +85,36 @@ internal static class SwapLifecycleProjectionChecks
         var beforeKnown=horizon with{Closes=[new(new(2041,2,18),f.Payment.AddMinutes(30),0)]};
         var reserved=LifecycleProjection.Prepare(f.Model,knownSource,beforeKnown,policy,[knownComponent],[]).Evaluate("reserve",[]).Values.Single();
         Equal(reserved.ResidualValue,"6");Equal(reserved.PeriodCash,"-16");Equal(reserved.EconomicPnl,"0");
+        foreach(var contribution in new[]{receive,fixedPay})
+        {
+            var signed=contribution.Amount.CompareTo(zero)>0?"6":"-6";var opposite=signed=="6"?"-6":"6";
+            var paid=payment with{Amount=ExactMoney.Parse(signed,swap.Currency),Allocations=[new(contribution.Id,contribution.MembershipOrdinal,
+                f.From,f.To,ExactMoney.Parse(signed,swap.Currency))]};
+            var reversal=new SwapKnownPayment(Guid.NewGuid(),paid.PaymentId,f.Payment.AddHours(3),knownSource.Knowledge.KnownAt,4,
+                ExactMoney.Parse(opposite,swap.Currency),[paid.Allocations[0] with{Amount=ExactMoney.Parse(opposite,swap.Currency)}]);
+            var reversed=new SwapLifecycleProjection(trade,owner.BindingId,knownActual,setup,new(f.Model.Build(knownSource,[]),discount),
+                ImmutableDictionary<SchedulePriceTerm,ProjectedFixingKey>.Empty,knownHistory with{Payments=[paid,reversal]},rounding,knownSource);
+            var paidOnly=LifecycleProjection.Prepare(f.Model,knownSource,horizon,policy,[reversed],[]).Evaluate("before_actual_reversal",[]).Values.Single();
+            Equal(paidOnly.PeriodCash,"-10");Equal(paidOnly.ResidualValue,"0");
+            var afterReverse=horizon with{Closes=[new(new(2041,2,18),f.Payment.AddHours(4),0)]};
+            var restored=LifecycleProjection.Prepare(f.Model,knownSource,afterReverse,policy,[reversed],[]).Evaluate("after_actual_reversal",[]).Values.Single();
+            Equal(restored.PeriodCash,signed=="6"?"-16":"-4");Equal(restored.ResidualValue,signed);Equal(restored.EconomicPnl,"0");
+            var beforeDue=knownSource.ValuationAt+(f.Payment-knownSource.ValuationAt)/2;
+            var earlierPaid=paid with{EffectiveAt=beforeDue};var earlierReverse=reversal with{EffectiveAt=beforeDue.AddMinutes(1)};
+            var completedBeforeDue=new SwapLifecycleProjection(trade,owner.BindingId,knownActual,setup,new(f.Model.Build(knownSource,[]),discount),
+                ImmutableDictionary<SchedulePriceTerm,ProjectedFixingKey>.Empty,knownHistory with{Payments=[earlierPaid,earlierReverse]},rounding,knownSource);
+            var completed=LifecycleProjection.Prepare(f.Model,knownSource,horizon,policy,[completedBeforeDue],[]).Evaluate("reversed_before_due",[]).Values.Single();
+            Equal(completed.PeriodCash,"-10");Equal(completed.ResidualValue,"0");Equal(completed.EconomicPnl,"0");
+            var openingPaid=paid with{EffectiveAt=knownSource.ValuationAt};
+            var prepaidInputs=new SwapSettlementInputs(trade.Id,owner.BindingId,qty,
+                [..knownInputs.Contributions.Select(c=>c.Id==contribution.Id?c with{Applied=paid.Amount}:c)],paid.Amount,zero,completions,
+                "swap_due_nominal_v1","swap_completed_period_trading_pnl_v1");
+            var prepaidActual=new SwapBindingValuation(prepaidInputs,discount,trade.BookId);
+            var refundBeforeDue=new SwapLifecycleProjection(trade,owner.BindingId,prepaidActual,setup,new(f.Model.Build(knownSource,[]),discount),
+                ImmutableDictionary<SchedulePriceTerm,ProjectedFixingKey>.Empty,knownHistory with{Payments=[openingPaid,earlierReverse]},rounding,knownSource);
+            var refunded=LifecycleProjection.Prepare(f.Model,knownSource,horizon,policy,[refundBeforeDue],[]).Evaluate("opening_prepayment_refunded",[]).Values.Single();
+            Equal(refunded.PeriodCash,signed=="6"?"-16":"-4");Equal(refunded.ResidualValue,"0");Equal(refunded.EconomicPnl,"0");
+        }
         var unpaidKnown=LifecycleProjection.Prepare(f.Model,knownSource,horizon,policy with{CashDisposition=LifecycleProjectionPolicy.Outstanding},[knownComponent],[])
             .Evaluate("known_unpaid",[]).Values.Single();Equal(unpaidKnown.ResidualValue,"-16");Equal(unpaidKnown.PeriodCash,"6");Equal(unpaidKnown.EconomicPnl,"0");
         try

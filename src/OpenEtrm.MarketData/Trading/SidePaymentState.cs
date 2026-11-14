@@ -21,6 +21,18 @@ internal static class CashAllocationBalance
         if(applied.Currency!=amount.Currency||amount.CompareTo(zero)==0||applied.CompareTo(zero)!=amount.CompareTo(zero))
             throw new MarketDataException("settlement_conservation","A cash allocation must be nonzero and retain its accrued amount's direction.");
     }
+    internal static ExactMoney ReserveFuture(ExactMoney amount,IEnumerable<(DateTimeOffset At,ExactMoney Amount)> payments)
+    {
+        var reserve=ExactMoney.Parse("0",amount.Currency);var through=reserve;var direction=amount.CompareTo(reserve);
+        // A later reversal cannot release a reservation before the payment.
+        // Actual valuation sees simultaneous allocations as one net change.
+        foreach(var instant in payments.GroupBy(p=>p.At).OrderBy(g=>g.Key))
+        {
+            through=instant.Aggregate(through,(total,payment)=>total.Add(payment.Amount));
+            if(direction>0&&through.CompareTo(reserve)>0||direction<0&&through.CompareTo(reserve)<0)reserve=through;
+        }
+        return reserve;
+    }
 }
 
 public sealed record FinalSidePayment

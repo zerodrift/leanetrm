@@ -34,8 +34,8 @@ public sealed class CashLifecycleProjection:ILifecycleProjection
         if(occurrence.At!=instrument.PaymentAt||!Events.Contains(occurrence))
             throw new MarketDataException("projection_cash_state","Select this exact declared cash due event.");
         if(context.Policy.CashDisposition==LifecycleProjectionPolicy.Outstanding)return state;
-        var futureActual=actual.KnownFlows(source).Where(p=>p.EffectiveAt>occurrence.At).Select(p=>p.Amount)
-            .Aggregate(ExactMoney.Parse("0",Currency),(a,b)=>a.Add(b));
+        var futureActual=CashAllocationBalance.ReserveFuture(ExactMoney.FromMoney(new(actual.Quantity.Amount,Currency)),
+            actual.KnownFlows(source).Where(p=>p.EffectiveAt>occurrence.At).Select(p=>(p.EffectiveAt,p.Amount)));
         var remaining=actual.UnitOutstanding(source,occurrence.At).Scale(actual.Quantity.Amount).Subtract(futureActual);
         if(remaining.Numerator=="0")return state;
         CashAllocationBalance.RequireDirection(ExactMoney.FromMoney(new(actual.Quantity.Amount,Currency)),remaining);

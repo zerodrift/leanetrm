@@ -88,9 +88,9 @@ public sealed record ProjectedSwapValuation:IBindingValuationState
     internal ExactMoney FutureApplied(Guid contribution,DateTimeOffset at)=>Payments.Payments.Where(p=>p.EffectiveAt>Source.ValuationAt&&p.EffectiveAt<=at)
         .SelectMany(p=>p.Allocations).Where(a=>a.ContributionId==contribution).Select(a=>a.Amount)
         .Aggregate(ExactMoney.Parse("0",instrument.Currency),(a,b)=>a.Add(b));
-    internal ExactMoney Reserved(Guid contribution)=>Payments.Payments.Where(p=>p.EffectiveAt>Source.ValuationAt)
-        .SelectMany(p=>p.Allocations).Where(a=>a.ContributionId==contribution).Select(a=>a.Amount)
-        .Aggregate(ExactMoney.Parse("0",instrument.Currency),(a,b)=>a.Add(b));
+    internal ExactMoney Reserved(Guid contribution,ExactMoney amount,DateTimeOffset after)=>CashAllocationBalance.ReserveFuture(amount,
+        Payments.Payments.Where(p=>p.EffectiveAt>after)
+        .SelectMany(p=>p.Allocations.Where(a=>a.ContributionId==contribution).Select(a=>(p.EffectiveAt,a.Amount))));
     private IEnumerable<(Guid Id,DateTimeOffset Due,ExactMoney Amount)> Obligations(SidedInstrument instrument,UnitValuationContext context)
     {
         foreach(var period in Periods)
@@ -236,7 +236,8 @@ public sealed class SwapLifecycleProjection:ILifecycleProjection
         if(selected.Id==periodFor.Id&&!current.Contributions(periodFor).IsEmpty)return state;
         var native=current.Contributions(periodFor).SingleOrDefault(c=>c.Id==selected.Id);
         var nominal=native?.Amount??current.Amounts.GetValueOrDefault(selected.Id)??ExactMoney.FromMoney(current.Amount(instrument,periodFor,_=>throw Error("A due payment has an unfixed contractual price.")).ToMoney(current.Rounding(periodFor).Format));
-        var remaining=nominal.Subtract(native?.Applied??ExactMoney.Parse("0",Currency)).Subtract(current.Reserved(selected.Id));
+        var remaining=nominal.Subtract(native?.Applied??ExactMoney.Parse("0",Currency))
+            .Subtract(current.FutureApplied(selected.Id,occurrence.At)).Subtract(current.Reserved(selected.Id,nominal,occurrence.At));
         if(context.Policy.CashDisposition==LifecycleProjectionPolicy.Outstanding)
         {
             if(native is null)current=current with{Amounts=current.Amounts.SetItem(selected.Id,nominal)};

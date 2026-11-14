@@ -32,6 +32,34 @@ internal static class CashLifecycleProjectionChecks
         var overpaid=Value("16","20",false);Equal(overpaid.PeriodCash,"20");Equal(overpaid.ResidualValue,"-4");Equal(overpaid.EconomicPnl,"0");
         try{Value("16","20",true);throw new Exception("A scheduled-payment assumption invented an opposite-direction refund.");}
         catch(MarketDataException error)when(error.Code=="settlement_conservation"){}
+        LifecycleProjectionValue Timeline(string face,ImmutableArray<(Guid Id,int Revision,int Hour,string Amount,int KnownDay)> rows,int horizonHours,int knownDay=2)
+        {
+            var selected=f.Snapshot().WithKnowledge(Guid.NewGuid(),at.AddDays(knownDay));
+            var cash=new TimedCashPayment(currency,at.AddHours(2));var binding=Guid.NewGuid();
+            var trade=new Trade(Guid.NewGuid(),Guid.NewGuid(),[new(binding,cash,new(ExactDecimal.Parse(face),currency))]);
+            var owner=new AccountingPositionKey(trade.Id,binding,trade.BookId);
+            var actual=new RecordedCashValuation(trade,binding,[..rows.Where(r=>r.KnownDay<=knownDay).Select(r=>new AccountingFlow(r.Id,r.Revision,owner,
+                at.AddHours(r.Hour),at.AddDays(r.KnownDay),ExactMoney.Parse(r.Amount,currency),AccountingFlowKind.EconomicCash))],RecordedCashValuation.Policy,
+                selected.Knowledge!.ContextId,selected.Knowledge.KnownAt);
+            var projection=new CashLifecycleProjection(owner,cash,actual,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted),selected);
+            var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.PayAtDue,
+                LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical);
+            var horizon=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_cash_reversal",1),f.R("calendar"),[new(new(2040,12,18),at.AddHours(horizonHours),0)]);
+            return LifecycleProjection.Prepare(f.Model(),selected,horizon,policy,[projection],[]).Evaluate("cash_reversal",[]).Values.Single();
+        }
+        foreach(var sign in new[]{1,-1})
+        {
+            string S(string amount)=>sign<0?"-"+amount:amount;
+            var receipt=Guid.NewGuid();var reversal=Guid.NewGuid();
+            ImmutableArray<(Guid,int,int,string,int)> flows=[(receipt,1,4,S("2"),1),(receipt,2,4,S("6"),2),(reversal,1,7,sign<0?"6":"-6",2)];
+            var during=Timeline(S("16"),flows,5);Equal(during.PeriodCash,S("16"));Equal(during.ResidualValue,"0");Equal(during.EconomicPnl,"0");
+            var after=Timeline(S("16"),flows,8);Equal(after.PeriodCash,S("10"));Equal(after.ResidualValue,S("6"));Equal(after.EconomicPnl,"0");
+            var earlier=Timeline(S("16"),flows,3,1);Equal(earlier.PeriodCash,S("14"));Equal(earlier.ResidualValue,S("2"));
+            var latest=Timeline(S("16"),flows,3);Equal(latest.PeriodCash,S("10"));Equal(latest.ResidualValue,S("6"));
+            ImmutableArray<(Guid,int,int,string,int)> simultaneous=[(Guid.Parse("00000000-0000-0000-0000-000000000001"),1,4,S("10"),1),
+                (Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"),1,4,sign<0?"4":"-4",1),(Guid.NewGuid(),1,7,sign<0?"6":"-6",1)];
+            var net=Timeline(S("16"),simultaneous,5);Equal(net.PeriodCash,S("16"));Equal(net.ResidualValue,"0");
+        }
         var face=new TimedCashPayment(currency,at.AddHours(8));var faceBinding=Guid.NewGuid();
         var faceTrade=new Trade(Guid.NewGuid(),Guid.NewGuid(),[new(faceBinding,face,new(ExactDecimal.Parse("100"),currency))]);
         var faceOwner=new AccountingPositionKey(faceTrade.Id,faceBinding,faceTrade.BookId);
