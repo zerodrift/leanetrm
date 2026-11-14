@@ -31,14 +31,21 @@ public sealed partial class GasQuantityLifecycleProjection
     private ImmutableDictionary<Guid,GasKnownQuantityTransition> knownTransitions=ImmutableDictionary<Guid,GasKnownQuantityTransition>.Empty;
     internal void RequirePhysicalContinuation(GasPhysicalKnownAttachment native,KnownFuturesPhysicalFinal accepted)
     {
-        if(holdings.Values.Any(h=>h.Kind==GasProjectionHoldingKind.PhysicalDelivery&&h.Position!=native.DeliveryOwner)||
-            knownTransitions.Values.SelectMany(t=>t.PhysicalOrigins??[]).Any(o=>o.Accepted.FutureOwner!=native.FutureOwner))
-            throw Error("gas_projection_scope","Compose every exact physical parent before sharing its connected native quantity resources.");
+        if(!holdings.TryGetValue(native.DeliveryOwner,out var held)||held.Kind!=GasProjectionHoldingKind.PhysicalDelivery||
+            held.Instrument.ValuationInstrument is not GasPhysicalDeliveryObligationInstrument instrument||instrument.Terms!=native.Terms||
+            instrument.FinalPrice!=native.CurrentFinal.Price)throw Error("gas_projection_source","Retain the exact native obligation and accepted final price.");
         var origins=knownTransitions.Values.SelectMany(t=>(t.PhysicalOrigins??[]).Select(o=>(Transition:t,Origin:o)))
             .Where(o=>o.Origin.Holding.Position==native.DeliveryOwner).ToArray();
-        if(origins.Length!=1||origins[0].Origin.Accepted!=accepted)
+        var future=native.EffectiveAt>SourceSnapshot.ValuationAt;
+        if(future?(origins.Length!=1||origins[0].Origin.Accepted!=accepted):origins.Length!=0)
             throw Error("gas_projection_source","Retain this exact physical origin before composing its accepted quantity continuation.");
-        var active=native.Performances.Where(p=>!p.Retracted).ToArray();
+        var past=native.Performances.Where(p=>!p.Retracted&&p.PerformedAt<=SourceSnapshot.ValuationAt)
+            .Aggregate(default(ExactDecimal),(sum,p)=>sum+Abs(p.SignedQuantity.Amount));
+        var remaining=Abs(native.OriginalQuantity.Amount)-past;
+        var expected=native.OriginalQuantity.Amount.CompareTo(default)>0?remaining:-remaining;
+        if(remaining.CompareTo(default)<=0||held.Quantity.Specification!=native.OriginalQuantity.Specification||held.Quantity.Amount!=(future?native.OriginalQuantity.Amount:expected))
+            throw Error("gas_projection_source","Opening physical quantity must reconcile its complete accepted past performance prefix.");
+        var active=native.Performances.Where(p=>!p.Retracted&&p.PerformedAt>SourceSnapshot.ValuationAt).ToArray();
         var discharges=knownTransitions.Values.SelectMany(t=>t.Discharges.Where(d=>d.Obligation==native.DeliveryOwner).Select(d=>(Transition:t,Discharge:d))).ToArray();
         if(discharges.Length!=active.Length)throw Error("gas_projection_source","Retain every selected accepted physical performance exactly once.");
         foreach(var performance in active)
@@ -50,6 +57,23 @@ public sealed partial class GasQuantityLifecycleProjection
                     d.Transition.Receipts.Any(r=>r.Obligation==native.DeliveryOwner&&r.Stock.Position==performance.ReceiptStockOwner):
                     d.Transition.Stock.Where(s=>s.Obligation==native.DeliveryOwner).Select(s=>s.Operation.Id).ToHashSet().SetEquals(performance.Supply.Where(s=>!s.Retracted).Select(s=>s.ConsumptionId))));
             if(selected.Transition is null)throw Error("gas_projection_source","Physical title requires its exact native receipt or independently owned supply counterfacts.");
+            if(performance.SignedQuantity.Amount.CompareTo(default)>0)
+            {
+                var receipt=selected.Transition.Receipts.Single(r=>r.Obligation==native.DeliveryOwner).Stock;
+                var stock=native.Stocks.SingleOrDefault(s=>s.Owner==performance.ReceiptStockOwner);
+                if(stock is null||stock.Retracted||stock.Lot.Id!=stock.Owner.Owner.Id||stock.Lot.AccountId!=stock.AccountId||
+                    stock.Lot.EvidenceId!=performance.TitleEvidenceId||stock.Lot.TitleAt!=performance.PerformedAt||
+                    receipt.Account.Id!=stock.AccountId||receipt.Account.LegalOwner!=stock.LegalOwner||receipt.Account.Location!=native.Terms.Location||
+                    receipt.Quantity!=stock.Lot.Quantity||receipt.AvailableAt!=stock.Lot.AvailableAt||
+                    receipt.Instrument.ValuationInstrument is not GasCommodityHoldingInstrument commodity||commodity!=stock.OriginalInstrument)
+                    throw Error("gas_projection_source","An accepted receipt must retain its exact native stock instrument, title, account and availability.");
+            }
+            else foreach(var supply in performance.Supply.Where(s=>!s.Retracted))
+            {
+                var movement=selected.Transition.Stock.SingleOrDefault(s=>s.Obligation==native.DeliveryOwner&&s.Stock==supply.StockOwner&&s.Operation.Id==supply.ConsumptionId);
+                if(movement is null||movement.Operation.Quantity!=supply.Quantity||movement.Operation.ReservationId!=supply.ReservationId)
+                    throw Error("gas_projection_source","Every supplied native stock movement must retain its exact owner, quantity and reservation.");
+            }
             var owners=performance.Supply.Where(s=>!s.Retracted).Select(s=>s.StockOwner).Concat(performance.ReceiptStockOwner is {} owner?[owner]:[]).ToHashSet();
             var requiredKnown=performance.Supply.Where(s=>!s.Retracted).Select(s=>s.Receipt.KnownAt)
                 .Concat(native.Stocks.Where(s=>owners.Contains(s.Owner)).Select(s=>s.Receipt.KnownAt)).Append(performance.Receipt.KnownAt).Max();
@@ -58,6 +82,7 @@ public sealed partial class GasQuantityLifecycleProjection
                 throw Error("gas_projection_source","A physical performance requires every selected financial receipt and its same-instant native final prerequisite.");
         }
     }
+    internal ImmutableArray<AccountingPositionKey> PhysicalOwners=>[..holdings.Values.Where(h=>h.Kind==GasProjectionHoldingKind.PhysicalDelivery).Select(h=>h.Position)];
     internal ISideDiscounting? PhysicalCarrying(AccountingPositionKey owner)=>holdings.TryGetValue(owner,out var holding)&&
         holding.Kind==GasProjectionHoldingKind.PhysicalDelivery?holding.Discounting:
         throw Error("gas_projection_source","Select the exact native physical obligation before reading its carrying policy.");

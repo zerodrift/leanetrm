@@ -353,3 +353,23 @@ mid-query original-grant expiry despite a successor grant, and the original
 29-position dated-observation worker under its unchanged five-second input
 read deadline. Historical and Monte Carlo jobs, delegated financial actions,
 native ledger corrections and exact replay also pass the complete swap flow.
+
+The pure accepted-physical adapter can compose a complete array of native
+parents through one shared quantity engine. It retains each future, delivery,
+stock and principal owner, including an already active partial delivery with no
+synthetic opening future. Opening quantity reconciles accepted past performance;
+source-known future receipts and identified dispatches activate once. Parent
+order does not select the primary source or change component identity. Each
+parent retains its own declared principal carrying source; already-due cash
+requires no unused rate input. Past memberships open as ordinary outstanding
+cash, while future memberships activate at their original effective instant,
+even when the contractual due date has already passed.
+
+Independent checks cover a long receipt supplying a short delivery through one
+stock state, partial active obligations, past and future principal, overdue
+claims, unchanged wealth and stock-price exposure. Missing or duplicate parents,
+substituted receipt instruments and changed supply reservations refuse before
+projection. The current native future consumer has one binding per trade; a
+component with multiple future bindings of one trade requires a separately
+qualified cash-lineage route and is refused. Native/API assembly remains a
+separate qualification gate for this expanded pure consumer.
