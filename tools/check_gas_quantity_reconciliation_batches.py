@@ -1,7 +1,10 @@
 """A receipt and every identified dispatch are amended in one native boundary."""
 import json
+import os
+import subprocess
 from datetime import datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 from uuid import uuid4
 
 from check_reference_editing import main
@@ -74,7 +77,13 @@ def checks(query,manifest):
         'missing_request_array':"NEW.request=jsonb_set(NEW.request,ARRAY['body'],(NEW.request->'body')-'corrections');",
         'missing_both_arrays':"NEW.request=jsonb_set(NEW.request,ARRAY['body'],(NEW.request->'body')-'corrections');NEW.outcome=NEW.outcome-'corrections';",
         'principal_version':"NEW.outcome=jsonb_set(NEW.outcome,ARRAY['corrections'],(SELECT jsonb_agg(value||jsonb_build_object('currentPrincipalVersion',99999999)) FROM jsonb_array_elements(NEW.outcome->'corrections')));",
-        'reported_quantity':"NEW.outcome=jsonb_set(NEW.outcome,ARRAY['corrections'],(SELECT jsonb_agg(value||jsonb_build_object('currentQuantity','999')) FROM jsonb_array_elements(NEW.outcome->'corrections')));"}
+        'reported_quantity':"NEW.outcome=jsonb_set(NEW.outcome,ARRAY['corrections'],(SELECT jsonb_agg(value||jsonb_build_object('currentQuantity','999')) FROM jsonb_array_elements(NEW.outcome->'corrections')));",
+        'continuation_exact_total':"NEW.request=jsonb_set(NEW.request,ARRAY['continuation','positions','0','steps','0','exactTotal'],'\"999\"'::jsonb);",
+        'continuation_causal_prior':"NEW.request=jsonb_set(NEW.request,ARRAY['continuation','positions','0','steps','0','previousDeterminationId'],'\"00000000-0000-0000-0000-000000000000\"'::jsonb);",
+        'continuation_source':"NEW.request=jsonb_set(NEW.request,ARRAY['continuation','positions','0','sourceObservationId'],'\"00000000-0000-0000-0000-000000000000\"'::jsonb);",
+        'continuation_prefix_order':"NEW.request=jsonb_set(NEW.request,ARRAY['continuation','positions','0','steps'],(SELECT jsonb_agg(value ORDER BY ordinal DESC) FROM jsonb_array_elements(NEW.request#>'{continuation,positions,0,steps}') WITH ORDINALITY s(value,ordinal)));",
+        'continuation_missing_positions':"NEW.request=jsonb_set(NEW.request,ARRAY['continuation'],(NEW.request->'continuation')-'positions');",
+        'continuation_duplicate_position':"NEW.request=jsonb_set(NEW.request,ARRAY['continuation','positions'],(NEW.request#>'{continuation,positions}')||jsonb_build_array(NEW.request#>'{continuation,positions,0}'));"}
     for label,fault in faults.items():
         query("CREATE FUNCTION trading.synthetic_batch_command_fault() RETURNS trigger LANGUAGE plpgsql AS $fault$BEGIN "
             f"IF NEW.request_id='{operation}'::uuid THEN {fault}END IF;RETURN NEW;END$fault$;"
@@ -89,7 +98,19 @@ def checks(query,manifest):
             else:missing.append(label)
         finally:query('DROP TRIGGER synthetic_batch_command_fault ON trading.gas_owned_commands;DROP FUNCTION trading.synthetic_batch_command_fault();')
     assert not missing,'The native batch seal accepted malformed command facts: '+', '.join(missing)
-    sql=f"SELECT security.reconcile_gas_futures_delivery_batch('{catalog}','{operation}','{account}',{literal(body)},'{at}','{context}','{policy}',1,false,{literal(continuation)})::text;"
+    host=query('SHOW unix_socket_directories;')
+    packet=Path(host)/'synthetic-linked-quantity-batch.json'
+    packet.write_text(json.dumps(dict(manifest=manifest,host=host,contextId=context,at=at,accountId=account,policyId=policy,operationId=operation,selection=body)))
+    packet.chmod(0o600)
+    managed=subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks','--','--gas-quantity-batch',str(packet)],
+        cwd=Path(__file__).resolve().parents[1],text=True,capture_output=True,timeout=60)
+    assert managed.returncode==0,managed.stdout+managed.stderr
+    print(managed.stdout.strip(),flush=True)
+    retained=json.loads(query(f"SELECT request->'continuation' FROM trading.gas_owned_commands WHERE(catalog_id,request_id)=('{catalog}','{operation}');"))
+    def oracle(plan):
+        return {**plan,'steps':[{**step,**{key:Decimal(step[key]) for key in ('cumulativeQuantity','exactTotal','roundedTotal','contribution','adjustment')}} for step in plan['steps']]}
+    assert {p['positionId']:oracle(p) for p in retained['positions']}=={p['positionId']:oracle(p) for p in continuation['positions']}
+    sql=f"SELECT security.reconcile_gas_futures_delivery_batch('{catalog}','{operation}','{account}',{literal(body)},'{at}','{context}','{policy}',1,false,{literal(retained)})::text;"
     accepted=json.loads(call(sql))
     assert accepted['changed'] and len(accepted['corrections'])==2
     assert json.loads(call(sql))==accepted

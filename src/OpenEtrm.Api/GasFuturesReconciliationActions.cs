@@ -108,7 +108,7 @@ internal sealed class GasFuturesReconciliationActions(PreviewDatabase database):
         var outcome=(await Record(connection,request,body,principal.Continuation,false,ct))!.Value;
         _=AllocationReview(outcome);return new(outcome,admission);
     }
-    private static JsonElement? AllocationReview(JsonElement outcome)
+    internal static JsonElement? AllocationReview(JsonElement outcome)
     {
         if(!outcome.GetProperty("changed").GetBoolean())return null;
         var policy=outcome.Text("sourceAllocation");var rows=outcome.GetProperty("sourceAllocations").EnumerateArray().ToImmutableArray();

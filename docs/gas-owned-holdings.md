@@ -213,9 +213,17 @@ members retain their exact financial revisions. Its deferred seal independently
 checks the closed command, member closure, reported quantities and principal
 versions. An older acknowledged snapshot never rewinds a mixed batch.
 
-The managed batch review and operational form retain a separate qualification
-gate. General operator and loan amendments, and changes to observed event times
-or advance-payment treatment, remain separate implementation gates.
+The same native producer supports managed batch review and execution. Its
+classified source reader retains exact account and performance identities,
+current financial heads and the earliest original read admission. Review shows
+the complete source allocation and one principal prefix per changed obligation;
+unchanged obligations need no financial continuation. The native command seals
+every retained continuation step to the exact accepted principal run, including
+causal predecessors and chronological order. An exact retry returns its first
+outcome without reloading the source frame. The operational batch form retains
+a separate qualification gate. General operator and loan amendments, and changes
+to observed event times or advance-payment treatment, remain separate
+implementation gates.
 
 `tools/check_gas_physical_known.py` qualifies the attachment scope and complete
 native histories. `tools/check_gas_applied_sources.py` independently corrects a
@@ -226,4 +234,6 @@ same-instant amendments, complete principal refunds, partial source allocation,
 explicit stock replacement, immutable old views and first-outcome recovery.
 `tools/check_gas_quantity_reconciliation_batches.py` qualifies the native linked
 batch, principal conservation, unchanged bank payments, immutable first outcomes
-and malformed-command rollback through the independent deferred seal.
+and malformed-command rollback through the independent deferred seal. It also
+checks the actual default-registry managed preview, source allocation and
+principal review, stale-hash refusal, atomic execution and evicted-frame retry.

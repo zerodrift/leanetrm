@@ -41,13 +41,20 @@ internal static class GasFuturesDeliveryStore
         return Review(source,price,finalOccurrence,observation,planned);
     }
     internal static GasFuturesDeliveryReview Correct(GasFuturesDeliveryPrincipalSource source,GasFuturesQuantityReconciliationSelection selection,
+        ExactUnitPrice price,Guid finalOccurrence,Guid observation)=>CorrectMany(source,[selection],price,finalOccurrence,observation);
+
+    internal static GasFuturesDeliveryReview CorrectMany(GasFuturesDeliveryPrincipalSource source,ImmutableArray<GasFuturesQuantityReconciliationSelection> selections,
         ExactUnitPrice price,Guid finalOccurrence,Guid observation)
     {
-        if(source.PositionId!=selection.PositionId||source.Revision!=selection.ExpectedPrincipalVersion||source.Previous.Length!=source.Performances.Length||
-            !source.Performances.Any(p=>p.Id==selection.PerformanceId))throw Error("Retain the complete current financial prefix and selected physical performance.");
-        var changed=source.Performances.Select(p=>p.Id==selection.PerformanceId?p with{SignedQuantity=new(
-            ExactDecimal.Parse(selection.Quantity)*(source.Quantity.Amount.CompareTo(default)>0?ExactDecimal.Parse("1"):ExactDecimal.Parse("-1")),p.SignedQuantity.Specification)}:p).ToImmutableArray();
-        var retractions=source.Retractions.Where(id=>id!=selection.PerformanceId).Concat(selection.Retracted?[selection.PerformanceId]:Array.Empty<Guid>()).ToImmutableArray();
+        if(selections.IsDefaultOrEmpty||selections.Select(s=>s.PerformanceId).Distinct().Count()!=selections.Length||
+            selections.Any(s=>source.PositionId!=s.PositionId||source.Revision!=s.ExpectedPrincipalVersion)||source.Previous.Length!=source.Performances.Length)
+            throw Error("Retain the complete current financial prefix and every selected physical performance.");
+        var selected=selections.ToImmutableDictionary(s=>s.PerformanceId);
+        if(selected.Keys.Except(source.Performances.Select(p=>p.Id)).Any())throw Error("Every selected performance must belong to this exact principal prefix.");
+        var sign=source.Quantity.Amount.CompareTo(default)>0?ExactDecimal.Parse("1"):ExactDecimal.Parse("-1");
+        var changed=source.Performances.Select(p=>selected.TryGetValue(p.Id,out var selection)?p with{
+            SignedQuantity=new(ExactDecimal.Parse(selection.Quantity)*sign,p.SignedQuantity.Specification)}:p).ToImmutableArray();
+        var retractions=source.Retractions.Where(id=>!selected.ContainsKey(id)).Concat(selections.Where(s=>s.Retracted).Select(s=>s.PerformanceId)).ToImmutableArray();
         var contributions=source.Previous.ToImmutableDictionary(p=>p.PerformanceId,p=>p.Contribution);
         var previous=source.Performances.Select(p=>new GasDeliveryPrincipalQuantityPrior(p.Id,p.At,contributions[p.Id])).ToImmutableArray();
         var planned=GasDeliveryPrincipal.CorrectQuantities(source.Quantity,price,source.Profile.PrincipalRounding,source.Profile.PrincipalScope,changed,retractions,previous);

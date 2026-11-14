@@ -56,6 +56,30 @@ CREATE FUNCTION trading.gas_futures_quantity_snapshot(catalog uuid,body jsonb) R
   AND trading.gas_futures_quantity_supplies_match($1,q.performance_id,q.revision,$2->'supply') ORDER BY q.revision LIMIT 1
 $$;
 
+CREATE FUNCTION security.read_gas_futures_quantity_batch(catalog uuid,account uuid,body jsonb,context uuid,as_of timestamptz) RETURNS jsonb
+ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE until_at timestamptz;item jsonb;source jsonb;rows jsonb='[]';result jsonb;head integer;BEGIN
+ until_at=security.gas_futures_delivery_discovery_authority(catalog);
+ body=trading.gas_futures_quantity_batch_fact(body);
+ IF account IS NULL OR account='00000000-0000-0000-0000-000000000000'::uuid THEN RAISE EXCEPTION 'gas_quantity_input';END IF;
+ FOR item IN SELECT value FROM jsonb_array_elements(body->'corrections') LOOP
+  source=security.read_gas_futures_reconciliation(catalog,(item->>'positionId')::uuid,(item->>'performanceId')::uuid,context,as_of);
+  until_at=least(until_at,(source->>'authorityUntil')::timestamptz);
+  IF(source#>>'{position,account_id}')::uuid IS DISTINCT FROM account THEN RAISE EXCEPTION 'gas_quantity_source';END IF;
+  SELECT max(q.revision) INTO head FROM trading.gas_futures_performance_quantities q WHERE(q.catalog_id,q.performance_id)=(catalog,(item->>'performanceId')::uuid);
+  IF head IS DISTINCT FROM(source#>>'{performance,revision}')::integer THEN RAISE EXCEPTION 'gas_quantity_revision';END IF;
+  rows=rows||jsonb_build_array(jsonb_build_object('selection',item,'source',source,'currentRevision',head,
+   'acknowledgedRevision',trading.gas_futures_quantity_snapshot(catalog,item)));
+  IF pg_column_size(rows)>16777216 THEN RAISE EXCEPTION 'gas_owned_scope';END IF;
+ END LOOP;
+ result=jsonb_build_object('implementation','gas_futures_quantity_batch_source_v1','accountId',account,'contextId',context,'asOf',as_of,
+  'authorityUntil',until_at,'corrections',rows);
+ IF pg_column_size(result)>16777216 THEN RAISE EXCEPTION 'gas_owned_scope';END IF;
+ PERFORM security.require_gas_owned_read(catalog,context,as_of,until_at);RETURN result;
+EXCEPTION WHEN NO_DATA_FOUND THEN
+ PERFORM security.require_gas_owned_read(catalog,context,as_of,until_at);RAISE EXCEPTION 'gas_quantity_source';
+END$$;
+
 CREATE FUNCTION trading.require_gas_quantity_batch_funding(catalog uuid,amended uuid[],body jsonb,context uuid,as_of timestamptz) RETURNS void
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE positions uuid[];books uuid[]='{}';account trading.gas_owned_accounts;conflict jsonb;BEGIN
@@ -278,7 +302,8 @@ DECLARE admission jsonb;actor uuid;canonical jsonb;prior trading.gas_owned_comma
   PERFORM trading.require_gas_quantity_snapshot_references(catalog,(item->>'performanceId')::uuid,acknowledged);
   results=results||jsonb_build_array(jsonb_build_object('performanceId',(item->>'performanceId')::uuid,'positionId',(item->>'positionId')::uuid,
    'acknowledgedRevision',acknowledged,'currentRevision',head.revision,'currentPrincipalVersion',principal,'currentQuantity',trim_scale(head.quantity)::text,
-   'changed',NOT all_ack AND state->>'acknowledgedRevision' IS NULL));
+   'changed',NOT all_ack AND state->>'acknowledgedRevision' IS NULL,'sourceAllocation',item->>'sourceAllocation',
+   'sourceAllocations',CASE WHEN NOT all_ack AND state->>'acknowledgedRevision' IS NULL THEN trading.gas_futures_allocation_facts(catalog,(item->>'performanceId')::uuid,head.revision) ELSE NULL END));
  END LOOP;
  outcome=jsonb_build_object('operationId',operation,'accountId',account,'action','futures_quantity_reconciliation_batch','changed',NOT all_ack,
   'semanticAcknowledgement',all_ack,'publicationOrder',publication,'corrections',results);
@@ -389,6 +414,47 @@ BEGIN
  RETURN NEW;
 END$$;
 CREATE TRIGGER sealed_batch BEFORE INSERT ON trading.gas_futures_quantity_batch_members FOR EACH ROW EXECUTE FUNCTION trading.guard_gas_quantity_batch_member();
+CREATE FUNCTION trading.require_gas_quantity_batch_continuation(catalog uuid,operation uuid) RETURNS void
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE batch trading.gas_futures_quantity_batches;command trading.gas_owned_commands;proposal jsonb;
+ principal trading.gas_futures_delivery_principal_runs;link settlement_data.futures_delivery_obligations;
+ final settlement_data.futures_margin_determinations;positions integer;BEGIN
+ SELECT * INTO STRICT batch FROM trading.gas_futures_quantity_batches b WHERE(b.catalog_id,b.operation_id)=(catalog,operation);
+ SELECT * INTO STRICT command FROM trading.gas_owned_commands c WHERE(c.catalog_id,c.request_id)=(catalog,operation);
+ PERFORM trading.gas_owned_projection_keys(command.request->'continuation',ARRAY['implementation','positions'],ARRAY[]::text[]);
+ IF command.request#>>'{continuation,implementation}' IS DISTINCT FROM 'gas_futures_quantity_batch_continuation_v1'
+  OR jsonb_typeof(command.request#>'{continuation,positions}') IS DISTINCT FROM 'array'
+ THEN RAISE EXCEPTION 'gas_quantity_batch_seal';END IF;
+ SELECT count(DISTINCT p.position_id) INTO positions FROM trading.gas_futures_quantity_batch_members m JOIN trading.gas_futures_delivery_performances p
+  ON(p.catalog_id,p.id)=(m.catalog_id,m.performance_id) WHERE(m.catalog_id,m.operation_id,m.changed)=(catalog,operation,true);
+ IF positions NOT BETWEEN 1 AND 16384 OR positions<>jsonb_array_length(command.request#>'{continuation,positions}')
+  OR positions<>(SELECT count(DISTINCT(value->>'positionId')::uuid) FROM jsonb_array_elements(command.request#>'{continuation,positions}'))
+ THEN RAISE EXCEPTION 'gas_quantity_batch_seal';END IF;
+ FOR proposal IN SELECT value FROM jsonb_array_elements(command.request#>'{continuation,positions}') LOOP
+  PERFORM trading.require_futures_delivery_continuation(proposal);
+  SELECT * INTO STRICT principal FROM trading.gas_futures_delivery_principal_runs r
+   WHERE(r.catalog_id,r.position_id,r.publication_order)=(catalog,(proposal->>'positionId')::uuid,batch.publication_order);
+  SELECT * INTO STRICT link FROM settlement_data.futures_delivery_obligations l WHERE(l.catalog_id,l.position_id)=(catalog,principal.position_id);
+  SELECT * INTO STRICT final FROM settlement_data.futures_margin_determinations d WHERE(d.catalog_id,d.id)=(catalog,principal.final_determination_id);
+  IF(proposal->>'expectedVersion')::integer IS DISTINCT FROM principal.revision-1
+   OR(proposal->>'finalOccurrenceId')::uuid IS DISTINCT FROM link.final_occurrence_id
+   OR(proposal->>'sourceObservationId')::uuid IS DISTINCT FROM final.source_observation_id
+   OR principal.performance_count<>jsonb_array_length(proposal->'steps')
+   OR ARRAY(SELECT(value->>'performanceId')::uuid FROM jsonb_array_elements(proposal->'steps') WITH ORDINALITY s(value,n) ORDER BY n)
+    IS DISTINCT FROM ARRAY(SELECT p.id FROM trading.gas_futures_delivery_principal_determinations d JOIN trading.gas_futures_delivery_performances p
+     ON(p.catalog_id,p.id)=(d.catalog_id,d.performance_id) WHERE(d.catalog_id,d.position_id,d.run_revision)=(catalog,principal.position_id,principal.revision)
+     ORDER BY p.performed_at,convert_to(p.business_reference,'UTF8'))
+   OR NOT EXISTS(SELECT 1 FROM trading.gas_futures_quantity_batch_members m JOIN trading.gas_futures_delivery_performances p
+    ON(p.catalog_id,p.id)=(m.catalog_id,m.performance_id) WHERE(m.catalog_id,m.operation_id,m.changed,p.position_id)=(catalog,operation,true,principal.position_id))
+   OR EXISTS(SELECT 1 FROM jsonb_array_elements(proposal->'steps') s LEFT JOIN trading.gas_futures_delivery_principal_determinations d
+    ON(d.catalog_id,d.position_id,d.run_revision,d.performance_id)=(catalog,principal.position_id,principal.revision,(s->>'performanceId')::uuid)
+    WHERE d.id IS NULL OR(d.previous_id,d.cumulative_quantity,d.exact_total,d.rounded_total,d.contribution,d.adjustment)
+     IS DISTINCT FROM((s->>'previousDeterminationId')::uuid,trading.gas_owned_quantity(s->>'cumulativeQuantity'),s->>'exactTotal',
+      trading.gas_owned_quantity(s->>'roundedTotal'),trading.gas_owned_quantity(s->>'contribution'),trading.gas_owned_quantity(s->>'adjustment')))
+  THEN RAISE EXCEPTION 'gas_quantity_batch_seal';END IF;
+ END LOOP;
+EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'gas_quantity_batch_seal';
+END$$;
 CREATE FUNCTION trading.check_gas_quantity_batch() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE b trading.gas_futures_quantity_batches;c trading.gas_owned_commands;m trading.gas_futures_quantity_batch_members;
  q trading.gas_futures_performance_quantities;p trading.gas_futures_delivery_performances;item jsonb;reported jsonb;counted integer;current_principal integer;BEGIN
@@ -403,12 +469,13 @@ DECLARE b trading.gas_futures_quantity_batches;c trading.gas_owned_commands;m tr
    OR trading.gas_futures_quantity_batch_fact(c.request->'body') IS DISTINCT FROM c.request->'body'
   THEN RAISE EXCEPTION 'gas_quantity_batch_seal';END IF;
   FOR reported IN SELECT value FROM jsonb_array_elements(c.outcome->'corrections') LOOP
-   PERFORM trading.gas_owned_projection_keys(reported,ARRAY['performanceId','positionId','acknowledgedRevision','currentRevision','currentPrincipalVersion','currentQuantity','changed'],ARRAY[]::text[]);
+   PERFORM trading.gas_owned_projection_keys(reported,ARRAY['performanceId','positionId','acknowledgedRevision','currentRevision','currentPrincipalVersion','currentQuantity','changed','sourceAllocation','sourceAllocations'],ARRAY['sourceAllocations']);
    IF jsonb_typeof(reported->'performanceId') IS DISTINCT FROM 'string' OR jsonb_typeof(reported->'positionId') IS DISTINCT FROM 'string'
     OR jsonb_typeof(reported->'acknowledgedRevision') IS DISTINCT FROM 'number' OR reported->>'acknowledgedRevision'!~'^[1-9][0-9]{0,8}$'
     OR jsonb_typeof(reported->'currentRevision') IS DISTINCT FROM 'number' OR reported->>'currentRevision'!~'^[1-9][0-9]{0,8}$'
     OR jsonb_typeof(reported->'currentPrincipalVersion') IS DISTINCT FROM 'number' OR reported->>'currentPrincipalVersion'!~'^[1-9][0-9]{0,8}$'
     OR jsonb_typeof(reported->'currentQuantity') IS DISTINCT FROM 'string' OR jsonb_typeof(reported->'changed') IS DISTINCT FROM 'boolean'
+    OR jsonb_typeof(reported->'sourceAllocation') IS DISTINCT FROM 'string'
    THEN RAISE EXCEPTION 'gas_quantity_batch_seal';END IF;
   END LOOP;
  EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'gas_quantity_batch_seal';END;
@@ -442,6 +509,8 @@ DECLARE b trading.gas_futures_quantity_batches;c trading.gas_owned_commands;m tr
    OR((reported->>'positionId')::uuid,(reported->>'acknowledgedRevision')::integer,(reported->>'currentRevision')::integer,
     (reported->>'currentPrincipalVersion')::integer,trading.gas_owned_quantity(reported->>'currentQuantity'),(reported->>'changed')::boolean)
     IS DISTINCT FROM(p.position_id,q.revision,q.revision,current_principal,q.quantity,m.changed)
+   OR reported->>'sourceAllocation' IS DISTINCT FROM item->>'sourceAllocation'
+   OR reported->'sourceAllocations' IS DISTINCT FROM(CASE WHEN m.changed THEN trading.gas_futures_allocation_facts(b.catalog_id,p.id,q.revision) ELSE 'null'::jsonb END)
   THEN RAISE EXCEPTION 'gas_quantity_batch_seal';END IF;
   IF m.changed AND NOT EXISTS(SELECT 1 FROM trading.gas_futures_delivery_principal_runs r WHERE
    (r.catalog_id,r.position_id,r.publication_order,r.source_context_id,r.as_of,r.actor_id)=(b.catalog_id,p.position_id,b.publication_order,b.source_context_id,b.as_of,b.actor_id)
@@ -453,6 +522,7 @@ DECLARE b trading.gas_futures_quantity_batches;c trading.gas_owned_commands;m tr
   OR EXISTS(SELECT 1 FROM trading.gas_futures_delivery_principal_runs r WHERE(r.catalog_id,r.publication_order)=(b.catalog_id,b.publication_order) AND NOT EXISTS(
    SELECT 1 FROM trading.gas_futures_quantity_batch_members member_link JOIN trading.gas_futures_delivery_performances origin ON(origin.catalog_id,origin.id)=(member_link.catalog_id,member_link.performance_id)
     WHERE(member_link.catalog_id,member_link.operation_id,origin.position_id,member_link.changed)=(b.catalog_id,b.operation_id,r.position_id,true))) THEN RAISE EXCEPTION 'gas_quantity_batch_seal';END IF;
+ PERFORM trading.require_gas_quantity_batch_continuation(b.catalog_id,b.operation_id);
  RETURN NULL;
 EXCEPTION WHEN NO_DATA_FOUND OR TOO_MANY_ROWS THEN RAISE EXCEPTION 'gas_quantity_batch_seal';
 END$$;
@@ -467,12 +537,15 @@ DO $$DECLARE f regprocedure;BEGIN
   'trading.gas_futures_quantity_snapshot(uuid,jsonb)'::regprocedure,'trading.require_gas_quantity_batch_funding(uuid,uuid[],jsonb,uuid,timestamptz)'::regprocedure,
   'trading.require_gas_futures_quantity_amendment(uuid,uuid,jsonb,uuid,timestamptz,uuid,integer,uuid[])'::regprocedure,
   'trading.apply_gas_futures_quantity_amendment(uuid,jsonb,uuid,integer)'::regprocedure,
+  'security.read_gas_futures_quantity_batch(uuid,uuid,jsonb,uuid,timestamptz)'::regprocedure,
   'security.reconcile_gas_futures_delivery_batch(uuid,uuid,uuid,jsonb,timestamptz,uuid,uuid,integer,boolean,jsonb)'::regprocedure,
   'trading.gas_quantity_batch_position(uuid,integer,uuid)'::regprocedure,'trading.gas_quantity_batch_consumption(uuid,integer,uuid,boolean)'::regprocedure,
   'trading.gas_quantity_batch_reconciles(uuid,integer,uuid,timestamptz,jsonb)'::regprocedure,
-  'trading.guard_gas_quantity_batch_member()'::regprocedure,'trading.check_gas_quantity_batch()'::regprocedure] LOOP
+  'trading.guard_gas_quantity_batch_member()'::regprocedure,'trading.require_gas_quantity_batch_continuation(uuid,uuid)'::regprocedure,
+  'trading.check_gas_quantity_batch()'::regprocedure] LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f);EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,openetrm_runtime,openetrm_risk_worker',f);
  END LOOP;
 END$$;
 GRANT EXECUTE ON FUNCTION security.reconcile_gas_futures_delivery_batch(uuid,uuid,uuid,jsonb,timestamptz,uuid,uuid,integer,boolean,jsonb) TO openetrm_runtime;
+GRANT EXECUTE ON FUNCTION security.read_gas_futures_quantity_batch(uuid,uuid,jsonb,uuid,timestamptz) TO openetrm_runtime;
 COMMIT;

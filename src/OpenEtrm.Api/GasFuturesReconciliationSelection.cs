@@ -19,3 +19,7 @@ public sealed record GasFuturesQuantityReconciliationSelection(
     [property:JsonRequired]bool Retracted,[property:JsonRequired]Guid? TitleEvidenceId,
     [property:JsonRequired]ImmutableArray<GasFuturesSupplyReconciliationSelection> Supply,
     string SourceAllocation,string Evidence);
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record GasFuturesQuantityBatchSelection(
+    [property:JsonRequired]ImmutableArray<GasFuturesQuantityReconciliationSelection> Corrections);
