@@ -248,3 +248,31 @@ and a contrary-enabled right with a genuinely open future cutoff. It checks
 stable receipts, same-fact acknowledgements, historical prefix/effective fences,
 closed/unknown cutoffs and private helper upgrade drift without rewriting
 accepted reference rows or changing the system clock.
+
+## Physical option model qualification
+
+The bounded pure `physical_futures_option_reference_strategy_v1` model selects
+the quoted-reference calibration, frozen quoted asset-minus-futures basis,
+reference American stopping strategy and explicit intrinsic fallback strategy.
+It reuses the selected CRR or strike-centred reference tree and its stopping
+decisions. The native A expiry rule, threshold and selected contrary instruction
+govern terminal exercise; a negative physical continuation does not change that
+rule or become zero.
+
+At a stopping node the generated future's pending VM uses the next eligible
+saved occurrence's due factor. The physical exchange uses its separately
+declared asset and principal carrying factors. These are root values and are
+rolled back with the selected tree probabilities once. The result reports the
+vanilla reference, contractual VM, delivery continuation and total separately.
+The quoted vanilla calibrates the reference process; it does not calibrate the
+composite value. An intrinsic fallback explicitly exercises positive intrinsic
+immediately and otherwise holds a flat reference to the contractual terminal
+decision. Its calibration residual remains a reference-mark diagnostic and does
+not create a financial cash flow.
+
+Independent pure checks cover signed basis, negative continuation, distinct
+carrying dates, the exact saved VM due, native terminal decisions and the
+zero-basis/carry-compatible collapse under both selected numerical policies.
+Native source admission, ordinary portfolio integration, full economic worker
+replay and UI selection are separate qualification gates. This pure model does
+not establish an accepted exercise, margin determination, title or payment.

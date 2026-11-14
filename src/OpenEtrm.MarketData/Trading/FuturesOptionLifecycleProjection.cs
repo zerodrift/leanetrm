@@ -11,12 +11,26 @@ public sealed record FuturesOptionAutomaticRule(ReferenceKey Key,int Version,str
 {
     public string Decide(OptionRight right,ExactDecimal strike,ExactDecimal settlement)
     {
+        Require(right,strike.CompareTo(default)>0);
+        var moneyness=right==OptionRight.Call?settlement-strike:strike-settlement;
+        return Decide(right,moneyness==default,moneyness.CompareTo(Threshold));
+    }
+    internal string Decide(OptionRight right,LatticeDecimal strike,LatticeDecimal settlement)
+    {
+        Require(right,strike.CompareTo(default)>0);
+        var moneyness=right==OptionRight.Call?settlement-strike:strike-settlement;
+        return Decide(right,moneyness==default,moneyness.CompareTo(LatticeDecimal.From(Threshold)));
+    }
+    private void Require(OptionRight right,bool positiveStrike)
+    {
         Money.RequireKey(Key);
-        if(Version<1||Evaluation!="settlement_moneyness_v1"||Threshold.CompareTo(default)<0||strike.CompareTo(default)<=0||
+        if(Version<1||Evaluation!="settlement_moneyness_v1"||Threshold.CompareTo(default)<0||!positiveStrike||
             !Enum.IsDefined(right)||AtTheMoneyCall is not("exercise" or "abandon")||AtTheMoneyPut is not("exercise" or "abandon"))
             throw new MarketDataException("option_exercise_rule","Select an exact supported automatic exercise rule and explicit at-the-money decisions.");
-        var moneyness=right==OptionRight.Call?settlement-strike:strike-settlement;
-        var exercise=moneyness==default?(right==OptionRight.Call?AtTheMoneyCall:AtTheMoneyPut)=="exercise":moneyness.CompareTo(Threshold)>0;
+    }
+    private string Decide(OptionRight right,bool atTheMoney,int comparison)
+    {
+        var exercise=atTheMoney?(right==OptionRight.Call?AtTheMoneyCall:AtTheMoneyPut)=="exercise":comparison>0;
         return exercise?"exercised":"abandoned";
     }
 }

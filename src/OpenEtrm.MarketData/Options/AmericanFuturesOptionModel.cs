@@ -114,15 +114,22 @@ public static class AmericanFuturesOptionModel
 
     internal static InductionResult<FuturesOptionState> Solve(FuturesOptionTerms terms, LatticeDecimal futures, LatticeDecimal volatility,
         LatticeDecimal discountToExpiry, DateTimeOffset valuationAt, OptionNumericalPolicy policy, bool recordDecisions, CancellationToken ct)
+        => SolveReference(terms,CreateLattice(terms,futures,volatility,discountToExpiry,valuationAt,policy),recordDecisions,ct);
+
+    // Composite contracts retain this exact selected reference process and its
+    // stopping decisions rather than recreating a second approximation.
+    internal static ILattice CreateLattice(FuturesOptionTerms terms,LatticeDecimal futures,LatticeDecimal volatility,
+        LatticeDecimal discountToExpiry,DateTimeOffset valuationAt,OptionNumericalPolicy policy)
     {
         var years = ValidateInputs(terms, futures, discountToExpiry, valuationAt, policy);
         RequirePositive(volatility, "volatility");
         var strike = LatticeDecimal.From(terms.Strike);
-        ILattice lattice = policy.Lattice == OptionLattice.CentredOnStrike
+        return policy.Lattice == OptionLattice.CentredOnStrike
             ? new StrikeCentredLattice(futures, strike, volatility, years, discountToExpiry, policy.Steps)
             : new FuturesLattice(futures, volatility, years, discountToExpiry, policy.Steps);
-        return BackwardInduction.Solve(lattice, new AmericanOption(terms.Right, strike), ct, recordDecisions);
     }
+    internal static InductionResult<FuturesOptionState> SolveReference(FuturesOptionTerms terms,ILattice lattice,bool recordDecisions,CancellationToken ct)=>
+        BackwardInduction.Solve(lattice,new AmericanOption(terms.Right,LatticeDecimal.From(terms.Strike)),ct,recordDecisions);
 
     // The checks on everything but volatility, shared with the implied-volatility
     // solver so that both reject the same inputs with the same codes. Returns the
