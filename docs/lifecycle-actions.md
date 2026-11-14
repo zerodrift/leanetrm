@@ -373,3 +373,11 @@ projection. The current native future consumer has one binding per trade; a
 component with multiple future bindings of one trade requires a separately
 qualified cash-lineage route and is refused. Native/API assembly remains a
 separate qualification gate for this expanded pure consumer.
+
+Principal carrying is required for an effective unpaid claim before due at the
+opening or selected horizon. A fully paid claim or a membership not yet effective
+at that endpoint introduces no unused discount input; every supplied provider
+still matches the exact saved carrying and source. Connected projected operator
+receipts retain their original economic owner and exact declared stock binding,
+including an independently captured inventory source. Unknown bindings and books
+do not acquire a route through that association.

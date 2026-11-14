@@ -91,6 +91,8 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
     private readonly ImmutableDictionary<CurveRequest,MarketSnapshot> dependencySources;
     public MarketSnapshot DependencySource(CurveRequest request)=>dependencySources.GetValueOrDefault(request)??
         throw Error("gas_projection_source","The selected gas mark requires its exact declared source.");
+    internal bool CanRoute(AccountingPositionKey position)=>holdings.ContainsKey(position)||performances.Values.Any(p=>p.Receipt is not null&&
+        position==new AccountingPositionKey(p.Obligation.Owner,ProjectedStockBinding(p.Obligation,p.Id),p.Obligation.BookId));
     public MarketSnapshot ValuationSource(AccountingPositionKey position,Instrument instrument)
     {
         if(instrument is not IGasQuantityInstrument gas)return SourceSnapshot;

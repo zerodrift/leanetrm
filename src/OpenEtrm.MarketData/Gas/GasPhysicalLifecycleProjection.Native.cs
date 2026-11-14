@@ -22,10 +22,9 @@ public sealed partial class GasPhysicalLifecycleProjection
         {
             var principalDiscounting=parent.PrincipalDiscounting;
             RequirePrincipalPrefix();
-            var needsPrincipal=!native.Cash.IsEmpty&&native.Terms.CashDueAt>SourceSnapshot.ValuationAt;
             if((!native.Performances.IsEmpty||!native.Stocks.IsEmpty)&&quantities is null||native.Cash.IsDefault||native.Cash.Any(c=>c is null)||
-                needsPrincipal&&principalDiscounting is null||native.Cash.Select(c=>c.Owner).Distinct().Count()!=native.Cash.Length)throw Error();
-            if(needsPrincipal)
+                native.Cash.Select(c=>c.Owner).Distinct().Count()!=native.Cash.Length)throw Error();
+            if(principalDiscounting is not null)
             {
                 if(native.Terms.Carrying==GasHoldingCarrying.CurrencyCurve)
                 {
@@ -78,6 +77,12 @@ public sealed partial class GasPhysicalLifecycleProjection
                 }
                 CashOwners=CashOwners.Add(cash.Owner);
             }
+            RequirePrincipalAt(SourceSnapshot.ValuationAt);
+        }
+        internal void RequirePrincipalAt(DateTimeOffset at)
+        {
+            if(parent.PrincipalDiscounting is null&&native.Cash.Any(c=>c.EffectiveAt<=at&&c.Instrument.PaymentAt>at&&
+                c.State.UnitOutstanding(Source,at).Numerator!="0"))throw Error();
         }
         private void RequirePrincipalPrefix()
         {

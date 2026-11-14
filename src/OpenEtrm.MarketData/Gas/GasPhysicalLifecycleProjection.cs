@@ -30,6 +30,7 @@ public sealed partial class GasPhysicalLifecycleProjection:ILifecycleProjection
     private readonly ImmutableDictionary<Guid,NativeContinuation> nativeEvents;
     private readonly ImmutableDictionary<AccountingPositionKey,NativeContinuation> cashOwners;
     private readonly ImmutableDictionary<Guid,NativeContinuation> nativeCash;
+    private readonly ImmutableArray<NativeContinuation> continuations;
 
     public GasPhysicalLifecycleProjection(ImmutableArray<GasPhysicalProjectionParent> parents,GasQuantityLifecycleProjection quantities)
         :this(parents,quantities??throw Error(),true){}
@@ -79,7 +80,7 @@ public sealed partial class GasPhysicalLifecycleProjection:ILifecycleProjection
         var members=quantities?.Opening.Members??parents.ToImmutableDictionary(p=>p.Native.DeliveryOwner,
             p=>new LifecycleProjectionState([],[]){KnownResidualOwners=[p.Native.DeliveryOwner]});
         foreach(var child in children)members=members.Add(child.Owner,child.Opening with{KnownResidualOwners=[]});
-        var continuations=parents.Select(p=>new NativeContinuation(p,SourceSnapshot,quantities)).ToArray();
+        continuations=[..parents.Select(p=>new NativeContinuation(p,SourceSnapshot,quantities))];
         foreach(var continuation in continuations)continuation.Prepare(ref members);
         Opening=LifecycleProjectionState.Compose(members);EconomicOwners=[..LifecycleProjectionState.Order(members).Select(p=>p.Key)];
         var finalIds=parents.Where(p=>p.Future is not null).ToDictionary(p=>LifecycleProjectionEvent.ScopedId(p.Native.FutureOwner,p.Native.FinalOccurrence.Id),p=>p.Native.EffectiveAt);
@@ -95,7 +96,7 @@ public sealed partial class GasPhysicalLifecycleProjection:ILifecycleProjection
     }
     public MarketSnapshot DependencySource(CurveRequest market)=>dependencySources.GetValueOrDefault(market)??throw Error();
     public MarketSnapshot ValuationSource(AccountingPositionKey position,Instrument instrument)=>cashOwners.TryGetValue(position,out var cash)?cash.Source:
-        quantities?.EconomicOwners.Contains(position)==true?quantities.ValuationSource(position,instrument):
+        quantities?.CanRoute(position)==true?quantities.ValuationSource(position,instrument):
             deliverySources.TryGetValue(position,out var source)?source:Future(position).ValuationSource(position,instrument);
     public MarketSnapshot CashSource(ProjectedCashContribution cash)=>nativeCash.TryGetValue(cash.Id,out var native)?native.Source:
         childEvents.TryGetValue(cash.Id,out var child)?((ILifecycleProjection)child).CashSource(cash):throw Error();
@@ -106,7 +107,12 @@ public sealed partial class GasPhysicalLifecycleProjection:ILifecycleProjection
     public ImmutableArray<LifecycleMarketUse> MarketUsesFor(DateTimeOffset horizon)=>[..parents.Where(p=>p.Future is not null).SelectMany(p=>p.Future!.MarketUsesFor(horizon))
         .Concat(quantities?.MarketUsesFor(horizon)??[]).GroupBy(u=>u.Market).Select(g=>new LifecycleMarketUse(g.Key,g.Max(u=>u.Through)))];
     public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)
-    {foreach(var parent in parents)_=parent.Future?.EventsFor(horizon);_=quantities?.EventsForConnected(horizon);return [..Events.Where(e=>e.At<=horizon)];}
+    {
+        foreach(var parent in parents)_=parent.Future?.EventsFor(horizon);
+        _=quantities?.EventsForConnected(horizon);
+        foreach(var continuation in continuations)continuation.RequirePrincipalAt(horizon);
+        return [..Events.Where(e=>e.At<=horizon)];
+    }
     public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
     {
         if(!Events.Contains(occurrence)||state.Members.Count!=EconomicOwners.Length)throw Error();
