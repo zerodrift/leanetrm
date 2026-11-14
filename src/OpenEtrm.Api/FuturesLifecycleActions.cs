@@ -10,7 +10,7 @@ namespace OpenEtrm.Api;
 internal sealed record FuturesMarginActionSelection(int ExpectedRevision,int ExpectedMarginRevision,Guid ThroughOccurrence,
     ImmutableArray<FuturesMarginCorrectionDue> CorrectionDue);
 
-internal sealed class FuturesLifecycleActions(PreviewDatabase database):ILifecycleActionHandler
+internal sealed class FuturesLifecycleActions(PreviewDatabase database,Action<LifecycleReadContext> requireFrame):ILifecycleActionHandler
 {
     public string Kind=>"futures";
     public ImmutableArray<string> Permissions=>["ReadMarketData","ReadTrades","AmendTrade"];
@@ -45,6 +45,7 @@ internal sealed class FuturesLifecycleActions(PreviewDatabase database):ILifecyc
         var s=Selection(request);var body=LifecycleNative.Body(request,s);var until=await LifecycleNative.ActionAuthority(connection,database,request.Action,body,ct);
         await using(var status=ScheduleStore.Command(connection,"SELECT lifecycle.command_status($1,$2,$3,$4::jsonb,'AmendTrade',$5)::text",Catalog,request.OperationId,request.Action,body.GetRawText(),until))
             if(await status.ExecuteScalarAsync(ct) is string previous)return new(JsonSerializer.Deserialize<JsonElement>(previous),Admission(request,body,until));
+        requireFrame(request.Context);
         await LifecycleNative.Source(connection,database,request.Context,ct);
         await CheckPolicy(connection,request,ct);
         var accepted=await FuturesMarginCoordinator.Determine(connection,database,NativeBody(request,s),ct);

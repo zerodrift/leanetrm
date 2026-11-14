@@ -79,6 +79,9 @@ internal static class LifecycleActionChecks
             discovery.MarginPolicies.Any(p=>p.Id("id")==f.Id("marginPolicyId")),"Lifecycle settings must expose authoritative supported choices and retained margin policies.");
         Require(discovery.OptionSources.Any(p=>p.Text("curve_code")=="nymex_ng_alternate")&&discovery.FuturesSetup.Any(),
             "Lifecycle setup must expose exact native source choices and held futures independently of an action picker.");
+        var retainedPolicy=await database.WithIdentity("editor",null,(c,t)=>LifecycleFuturesSettings.Save(c,database,request.Context,
+            f.GetProperty("marginPolicySave"),true,()=>throw new Exception("The original settings frame was evicted."),t),default);
+        Require(retainedPolicy.Outcome.Id("policyId")==f.Id("marginPolicyId"),"Settings replay must recover its first native outcome before mutable frame lookup.");
         var review=await database.WithIdentity("trader",null,(c,t)=>operations.Preview(c,request,t),default);
         request=request with{PreviewHash=review.Hash};
         var first=await database.WithIdentity("trader",null,(c,t)=>operations.Execute(c,request,t),default);

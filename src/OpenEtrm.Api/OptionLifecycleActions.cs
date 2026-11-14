@@ -9,7 +9,7 @@ namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record OptionActionSelection(Guid EvidenceId,string? Lots,[property:JsonRequired]int ExpectedEventVersion,int ProfileRevision);
-internal sealed class OptionLifecycleActions(PreviewDatabase database):ILifecycleActionHandler
+internal sealed class OptionLifecycleActions(PreviewDatabase database,Action<LifecycleReadContext> requireFrame):ILifecycleActionHandler
 {
     public string Kind=>"listed_option";
     public ImmutableArray<string> Permissions=>["ReadMarketData","ReadTrades","BookTrade"];
@@ -48,6 +48,7 @@ internal sealed class OptionLifecycleActions(PreviewDatabase database):ILifecycl
         var body=Body(request);var until=await LifecycleNative.ActionAuthority(connection,database,request.Action,body,ct);
         await using(var status=ScheduleStore.Command(connection,"SELECT lifecycle.command_status($1,$2,$3,$4::jsonb,'BookTrade',$5)::text",Catalog,request.OperationId,request.Action,body.GetRawText(),until))
             if(await status.ExecuteScalarAsync(ct) is string prior)return new(JsonSerializer.Deserialize<JsonElement>(prior),new LifecycleNativeAdmission(Catalog,request.OperationId,request.Action,body,"BookTrade",until));
+        requireFrame(request.Context);
         await LifecycleNative.Source(connection,database,request.Context,ct);
         var result=await LifecycleNative.Read(connection,"SELECT lifecycle.execute_option_action($1,$2::jsonb)::text",ct,Catalog,body.GetRawText());
         return new(result,new LifecycleNativeAdmission(Catalog,request.OperationId,request.Action,body,"BookTrade",until));

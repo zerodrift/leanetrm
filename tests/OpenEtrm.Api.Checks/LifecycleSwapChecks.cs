@@ -33,6 +33,9 @@ internal static class LifecycleSwapChecks
                 if(offers.Length!=expected.Count||offers.Select(a=>a.OccurrenceId).Distinct().Count()!=expected.Count||
                     !offers.Select(a=>a.Selection!.Value.Deserialize<SwapActionSelection>(LifecycleNative.Json)!.ProfileId).ToHashSet().SetEquals(expected))
                     throw new Exception("Concurrent native swap periods lost their distinct occurrence or saved profile identity.");
+                foreach(var profile in discovery.SwapProfiles.Where(p=>p.Id("trade_id")==target.ScopeId))
+                    if(offers.Single(a=>a.Selection!.Value.Deserialize<SwapActionSelection>(LifecycleNative.Json)!.ProfileId==profile.Id("id")).OccurrenceId!=profile.Id("occurrence_id"))
+                        throw new Exception("Saved profile metadata must carry the same exact native occurrence as its offer.");
                 Console.WriteLine("PASS native multi-period swap discovery: every saved occurrence and profile remains independently selectable");return;
             }
             if(f.TryGetProperty("history",out var history)&&history.GetBoolean())
@@ -106,6 +109,9 @@ internal static class LifecycleSwapChecks
         var reviewed=await database.WithIdentity("trader",null,(c,t)=>operations.Preview(c,request,t),default);
         request=request with{PreviewHash=reviewed.Hash};
         var first=await database.WithIdentity("trader",null,(c,t)=>operations.Execute(c,request,t),default);
+        var restarted=new LifecycleOperations(database,_=>throw new Exception("The original frame was evicted."));
+        var recovered=await database.WithIdentity("trader",null,(c,t)=>restarted.Execute(c,request,t),default);
+        if(!JsonElement.DeepEquals(first.Outcome,recovered.Outcome))throw new Exception("An evicted working frame prevented first-outcome recovery.");
         var retry=await database.WithIdentity("trader",null,(c,t)=>operations.Execute(c,request,t),default);
         if(!JsonElement.DeepEquals(first.Outcome,retry.Outcome))throw new Exception("A swap lifecycle retry lost its first outcome.");
         var acknowledged=await database.WithIdentity("trader",null,(c,t)=>operations.Execute(c,request with{OperationId=Guid.NewGuid()},t),default);

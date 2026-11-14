@@ -67,17 +67,17 @@ internal static class LifecycleEndpoints
         }
         api.MapPost("/lifecycle/futures/policies/save",(HttpContext c,LifecycleMarginPolicySave body)=>locked(c,async session=>
         {
-            RequireSource(session,body.Context);
+            if(body.Context is null)throw new MarketDataException("lifecycle_context","Supply the original exact source context.");
             var payload=JsonSerializer.SerializeToElement(new{body.OperationId,body.ExpectedRevision,body.Context.ContextId,asOf=LifecycleNative.Instant(body.Context.AsOf),body.Policy},LifecycleNative.Json);
-            var result=await database.WithIdentity(profile(session),"WriteMarketDefinitions",(connection,ct)=>LifecycleFuturesSettings.Save(connection,database,body.Context,payload,true,ct),c.RequestAborted);
+            var result=await database.WithIdentity(profile(session),"WriteMarketDefinitions",(connection,ct)=>LifecycleFuturesSettings.Save(connection,database,body.Context,payload,true,()=>RequireSource(session,body.Context),ct),c.RequestAborted);
             return Results.Ok(result.Outcome);
         }));
         api.MapPost("/lifecycle/futures/adopt",(HttpContext c,LifecycleFuturesAdoption body)=>locked(c,async session=>
         {
-            RequireSource(session,body.Context);
+            if(body.Context is null)throw new MarketDataException("lifecycle_context","Supply the original exact source context.");
             var payload=JsonSerializer.SerializeToElement(new{body.OperationId,body.TradeId,body.BindingId,body.ExpectedRevision,body.PolicyId,body.PolicyRevision,
                 body.Context.ContextId,asOf=LifecycleNative.Instant(body.Context.AsOf),body.Adoption},LifecycleNative.Json);
-            var result=await database.WithIdentity(profile(session),"AmendTrade",(connection,ct)=>LifecycleFuturesSettings.Save(connection,database,body.Context,payload,false,ct),c.RequestAborted);
+            var result=await database.WithIdentity(profile(session),"AmendTrade",(connection,ct)=>LifecycleFuturesSettings.Save(connection,database,body.Context,payload,false,()=>RequireSource(session,body.Context),ct),c.RequestAborted);
             return Results.Ok(result.Outcome);
         }));
     }

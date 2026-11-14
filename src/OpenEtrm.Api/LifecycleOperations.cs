@@ -33,7 +33,7 @@ public sealed class LifecycleOperations
     internal LifecycleOperations(PreviewDatabase database,Func<Guid,InputFrame> frame,IEnumerable<ILifecycleActionHandler>? additional=null)
     {
         this.database=database;frames=frame;
-        registry=new([new OptionLifecycleActions(database),new SwapLifecycleActions(database,frame),new FuturesLifecycleActions(database),..additional??[]]);
+        registry=new([new OptionLifecycleActions(database,RequireFrame),new SwapLifecycleActions(database,frame),new FuturesLifecycleActions(database,RequireFrame),..additional??[]]);
     }
     internal async Task<LifecycleDiscovery> View(NpgsqlConnection connection,FuturesReadRequest request,TradingReadSelection selection,CancellationToken ct)
     {
@@ -66,7 +66,7 @@ public sealed class LifecycleOperations
             actions=result.ToImmutable();
             policies=await PreviewDatabase.Rows(connection,"SELECT row_to_json(p)::text FROM lifecycle.action_policies p WHERE p.catalog_id=$1 ORDER BY p.id,p.revision",[database.Manifest.CatalogId],ct);
             optionProfiles=await PreviewDatabase.Rows(connection,"SELECT row_to_json(p)::text FROM lifecycle.option_profiles p WHERE p.catalog_id=$1 ORDER BY p.trade_id,p.action,p.revision",[database.Manifest.CatalogId],ct);
-            swapProfiles=await PreviewDatabase.Rows(connection,"SELECT row_to_json(p)::text FROM lifecycle.swap_profiles p WHERE p.catalog_id=$1 ORDER BY p.trade_id,p.action,p.revision",[database.Manifest.CatalogId],ct);
+            swapProfiles=await PreviewDatabase.Rows(connection,"SELECT(to_jsonb(p)||jsonb_build_object('occurrence_id',lifecycle.swap_profile_occurrence(p.catalog_id,p.id,p.revision)))::text FROM lifecycle.swap_profiles p WHERE p.catalog_id=$1 ORDER BY p.trade_id,p.action,p.revision",[database.Manifest.CatalogId],ct);
             marginPolicies=await PreviewDatabase.Rows(connection,"""
                 SELECT(to_jsonb(p)||jsonb_build_object('series_code',c.futures_series_code,'settlement_curve_name',v.name))::text
                 FROM settlement_data.futures_margin_policies p JOIN market_data.contracts c ON(c.catalog_id,c.revision_id,c.id)=(p.catalog_id,p.definition_revision_id,p.contract_id)
@@ -138,7 +138,6 @@ public sealed class LifecycleOperations
     internal async Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)
     {
         if(request.Context is null)throw new MarketDataException("lifecycle_context","Select an exact certified context.");
-        RequireFrame(request.Context);
         var value=await Handler(request).Execute(connection,request,ct);
         database.RegisterCommitAdmission(connection,value);return value;
     }

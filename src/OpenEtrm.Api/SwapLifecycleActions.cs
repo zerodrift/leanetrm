@@ -26,7 +26,7 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
     public string Kind=>"financial_swap";
     public ImmutableArray<string> Permissions=>["ReadMarketData","ReadTrades","AmendTrade"];
     private Guid Catalog=>database.Manifest.CatalogId;
-    private SwapActionSelection Read(LifecycleActionRequest request,bool writing)
+    private SwapActionSelection Read(LifecycleActionRequest request)
     {
         LifecycleNative.Require(request,Kind);
         SwapActionSelection selection;
@@ -40,14 +40,18 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
         if(selection.Determination is {} determination&&(determination.Preview.Context.SnapshotId!=selection.SnapshotId||determination.Preview.Context.Convention!=SwapStore.Convention||
             determination.Preview.Context.KnowledgeMode!="current"||determination.Preview.Context.ContextId is not null||determination.Preview.TradeId!=request.Target.ScopeId))
             throw new MarketDataException("lifecycle_context","Retain the host's exact current swap frame and target.");
+        return selection;
+    }
+    private void RequireFrame(LifecycleActionRequest request,SwapActionSelection selection,bool writing)
+    {
         var frame=frames(selection.SnapshotId);
         if((writing?frame.ContextId is not null:frame.ContextId is {} retained&&retained!=request.Context.ContextId)||frame.At!=request.Context.AsOf||frame.BusinessDate!=request.Context.BusinessDate||request.Context.SnapshotId!=selection.SnapshotId)
             throw new MarketDataException("historical_read_only","Swap actions require the exact explicitly selected host working frame.");
-        return selection;
     }
     public async Task<LifecycleActionReview> Preview(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)
     {
-        var selection=Read(request,false);var until=await LifecycleNative.ActionAuthority(connection,database,request.Action,LifecycleNative.Body(request,selection),ct);
+        var selection=Read(request);RequireFrame(request,selection,false);
+        var until=await LifecycleNative.ActionAuthority(connection,database,request.Action,LifecycleNative.Body(request,selection),ct);
         var source=await LifecycleNative.Source(connection,database,request.Context,ct);
         var profile=await CheckProfile(connection,request,selection,ct);
         await CheckPolicy(connection,request,ct);
@@ -92,9 +96,10 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
     }
     public async Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)
     {
-        var selection=Read(request,true);var body=LifecycleNative.Body(request,selection);var until=await LifecycleNative.ActionAuthority(connection,database,request.Action,body,ct);
+        var selection=Read(request);var body=LifecycleNative.Body(request,selection);var until=await LifecycleNative.ActionAuthority(connection,database,request.Action,body,ct);
         await using(var status=ScheduleStore.Command(connection,"SELECT lifecycle.command_status($1,$2,$3,$4::jsonb,'AmendTrade',$5)::text",Catalog,request.OperationId,request.Action,body.GetRawText(),until))
             if(await status.ExecuteScalarAsync(ct) is string prior)return new(JsonSerializer.Deserialize<JsonElement>(prior),Admission(request,body,until));
+        RequireFrame(request,selection,true);
         var source=await LifecycleNative.Source(connection,database,request.Context,ct);
         await CheckPolicy(connection,request,ct);
         await CheckProfile(connection,request,selection,ct);

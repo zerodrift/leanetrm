@@ -23,6 +23,9 @@ guard. A reviewed hash identifies financial inputs; approval remains the host's
 separate exact-request authorization.
 
 Every write carries a request ID and returns its first outcome on exact replay.
+Receipt lookup precedes mutable host-frame and fresh-source lookup, so evicting a
+working frame does not prevent recovery of an accepted outcome. Replay still
+checks current authority and exact retained references.
 A new request acknowledging an identical accepted financial snapshot returns
 that accepted version and the current financial version. It neither creates
 cash nor advances the financial sequence. Changed source lineage is a new fact

@@ -38,6 +38,9 @@ def checks(query,manifest):
     issuer=manifest['identityIssuer']
     query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
     query(catalogue_fixture(manifest,issuer))
+    # This settings reader explicitly holds both market configuration and trade
+    # source access; neither permission is inferred from the other.
+    query(f"INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,'a0000000-0000-0000-0000-000000000002','{tenant}','{workspace}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '1 day',false FROM security.identity_bindings WHERE issuer='{issuer}' AND subject='editor';")
     def lit(body):return "'"+json.dumps(body).replace("'","''")+"'::jsonb"
     def call(sql,profile='trader'):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
@@ -109,14 +112,14 @@ def checks(query,manifest):
     host=query('SHOW unix_socket_directories;')
     assert Path(host).resolve().name.startswith('oetrm-ref-')
     path=Path(host)/'lifecycle-action-check.json'
-    path.write_text(json.dumps(dict(manifest=manifest,host=host,request=managed,marginPolicyId=margin['id'])))
+    path.write_text(json.dumps(dict(manifest=manifest,host=host,request=managed,marginPolicyId=margin['id'],marginPolicySave=save)))
     path.chmod(0o600)
     checked=subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks','--',
                             '--lifecycle-actions-native',str(path)],cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=90)
     if checked.returncode:raise RuntimeError(checked.stdout+checked.stderr)
     print(checked.stdout.strip(),flush=True)
     with successor_grants(query,manifest,'trader','ReadTrades',issuer):
-        path.write_text(json.dumps(dict(manifest=manifest,host=host,request=managed,marginPolicyId=margin['id'],wrappedRead=True)))
+        path.write_text(json.dumps(dict(manifest=manifest,host=host,request=managed,marginPolicyId=margin['id'],marginPolicySave=save,wrappedRead=True)))
         checked=subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks','--',
                                '--lifecycle-actions-native',str(path)],cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=90)
         if checked.returncode:raise RuntimeError(checked.stdout+checked.stderr)

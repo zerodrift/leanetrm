@@ -45,10 +45,10 @@ internal static class LifecycleFuturesSettings
           ORDER BY v.trade_reference,v.binding_id
           """,[catalog],ct);
 
-    internal static async Task<FuturesMarginWrite> Save(NpgsqlConnection connection,PreviewDatabase database,LifecycleReadContext context,JsonElement body,bool policy,CancellationToken ct)
+    internal static async Task<FuturesMarginWrite> Save(NpgsqlConnection connection,PreviewDatabase database,LifecycleReadContext context,JsonElement body,bool policy,Action requireSource,CancellationToken ct)
     {
         var catalog=database.Manifest.CatalogId;var kind=policy?"policy_save":"adopt";
-        await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_command_authority($1,$2)",catalog,kind);
+        await using var capture=ScheduleStore.Command(connection,"SELECT least(settlement_data.futures_margin_command_authority($1,$2),settlement_data.futures_margin_preview_authority($1))",catalog,kind);
         var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
         database.RegisterCommitAdmission(connection,new LifecycleReadAdmission(catalog,until));
         // Receipt replay precedes the mutable source. Its first native result
@@ -59,6 +59,7 @@ internal static class LifecycleFuturesSettings
             var replay=new FuturesMarginWrite(catalog,body.Id("operationId"),kind,body.Clone(),until,JsonSerializer.Deserialize<JsonElement>(recorded));
             database.RegisterCommitAdmission(connection,replay);return replay;
         }
+        requireSource();
         await LifecycleNative.Source(connection,database,context,ct);
         var result=policy?await FuturesMarginCommands.SavePolicy(connection,catalog,body,ct):await FuturesMarginCommands.Adopt(connection,catalog,body,ct);
         var pending=result with{AuthorityUntil=until<result.AuthorityUntil?until:result.AuthorityUntil};
