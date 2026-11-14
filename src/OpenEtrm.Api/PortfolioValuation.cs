@@ -20,7 +20,8 @@ public sealed record PortfolioValuationPolicy(string CurveNumericalPolicy,string
     string BumpConvention,string BumpBasis,int BumpTicks,
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]string? PpaPendingActuals=null,
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]FuturesOptionValuationPolicy? FuturesOptions=null,
-    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]FuturesMarginValuationPolicy? NativeFutures=null);
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]FuturesMarginValuationPolicy? NativeFutures=null,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]GasOwnedValuationPolicy? GasOwned=null);
 public sealed record PortfolioPositionEvidence(Guid TradeId,int Revision,Guid BindingId,Guid InstrumentId,
     Guid ValuationId,Guid BookId,string Measure,Guid DefinitionRevisionId,int PublicationOrder,Quantity Quantity)
 {
@@ -121,6 +122,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             policy.BumpConvention!=QuoteBump.Convention||policy.BumpBasis!="trading_tick"||policy.BumpTicks is <1 or >100)
             throw new MarketDataException("portfolio_policy","Select the supported exact valuation policies and one to 100 symmetric trading ticks explicitly.");
         policy.FuturesOptions?.Validate();
+        policy.GasOwned?.Validate();
         if(policy.FuturesConvention==FuturesMarginValuationPolicy.Convention)
             (policy.NativeFutures??throw new MarketDataException("portfolio_policy","Native futures valuation requires explicit cash-discount and timing policies.")).Validate();
         else if(policy.NativeFutures is not null)throw new MarketDataException("portfolio_policy","The selected futures valuation convention conflicts with native margin inputs.");
