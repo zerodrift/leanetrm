@@ -7,6 +7,7 @@ if(args is ["--curve-display"]){CurveDisplayChecks.Run();return;}
 if(args is ["--pnl-persistence",var pnlFixture]){await PnlPersistenceChecks.Run(pnlFixture);return;}
 if(args is ["--pnl-artifacts"]){PnlArtifactChecks.Run();return;}
 if(args is ["--pnl-factors"]){PnlFactorSelectionChecks.Run();return;}
+if(args is ["--risk-bump-price-steps"]){RiskBumpPriceStepChecks.Run();return;}
 if(args is ["--power-close-context",var powerContext]){await PowerCloseContextChecks.Run(powerContext);return;}
 if(args is ["--catalogue-trading",var catalogueFixture]){await CatalogueTradingChecks.Run(catalogueFixture);return;}
 if(args is ["--selected-rate-sources"]){SelectedRateSourceChecks.Run();return;}
@@ -116,6 +117,7 @@ if (args is ["--schedules"])
     RiskValuationAdmissionChecks.Run();
     PnlArtifactChecks.Run();
     PnlFactorSelectionChecks.Run();
+    RiskBumpPriceStepChecks.Run();
     ReferencePresentationChecks.Run();
     CurveActivationInputChecks.Run();
     ConnectedSampleChecks.Run();

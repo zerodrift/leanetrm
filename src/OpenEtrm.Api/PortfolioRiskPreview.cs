@@ -170,6 +170,8 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         }).ToImmutableArray();
         if(bumps.Select(b=>b.Axis.Id).Distinct().Count()!=bumps.Length)
             throw new MarketDataException("risk_bump","Select each exact factor once per risk run.");
+        // A parametric request sizes its own bumps in trading ticks and tests the agreement of its deltas.
+        if(body.Parametric is null)RequireTwoPriceSteps(DeclaredSteps(portfolio,bumps,ct));
         var stress=(body.Stress.IsDefault?ImmutableArray<CurveShiftRequest>.Empty:body.Stress).Select(s=>
         {
             var axis=CurveRiskAxes.Resolve(portfolio,s.Factor,ct);var size=ExactDecimal.Parse(s.Size??"");

@@ -54,7 +54,7 @@ internal static class PnlFactorSelectionChecks
         static InputKey Input(int series)=>new(new(new(Guid.Empty,Guid.Empty),new Guid(series,0,0,0,0,0,0,0,0,0,0)),InputUse.Variable);
         KeyValuePair<InputKey,ExactDecimal>[] declared=[new(Input(1),ExactDecimal.Parse("0.063")),new(Input(2),ExactDecimal.Parse("0.97")),new(Input(1),ExactDecimal.Parse("0.07"))];
         foreach(var order in new[]{declared,[..declared.Reverse()]})
-            if(TradingPnlReport.LargestSteps(order) is not {Count:2} largest||largest[Input(1)]!=ExactDecimal.Parse("0.07")||largest[Input(2)]!=ExactDecimal.Parse("0.97"))
+            if(PortfolioValuation.LargestPriceSteps(order) is not {Count:2} largest||largest[Input(1)]!=ExactDecimal.Parse("0.07")||largest[Input(2)]!=ExactDecimal.Parse("0.97"))
                 throw new Exception("Each factor takes the largest price step declared for it in any market partition.");
         // A report says, in words the page shows, which bump and agreements it used.
         static void Says(string text,string part){if(!text.Contains(part,StringComparison.Ordinal))throw new Exception($"Expected “{part}” in “{text}”.");}

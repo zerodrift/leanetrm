@@ -63,14 +63,6 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         catch(MarketDataException e)when(e.Code is "numeric_format" or "numeric_range"){}
         throw Error("pnl_factor_bump","State the agreement of estimates as a nonnegative absolute tolerance and relative tolerances from 0 to 1.");
     }
-    // The largest price step the opening holdings declare for each factor, in whichever market partition they are priced:
-    // a factor has one bump in every partition.
-    internal static Dictionary<InputKey,ExactDecimal> LargestSteps(IEnumerable<KeyValuePair<InputKey,ExactDecimal>> declared)
-    {
-        var steps=new Dictionary<InputKey,ExactDecimal>();
-        foreach(var (input,step) in declared)if(!steps.TryGetValue(input,out var largest)||largest.CompareTo(step)<0)steps[input]=step;
-        return steps;
-    }
     // What a report explains, in the words the page shows, with the bump and the agreement it used.
     internal static string Coverage(FactorSelection selection)
     {
@@ -120,7 +112,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             throw Error("pnl_factor_limit",$"This scope has {axes.Length} price factors. The opening-Greeks explanation covers at most {RiskEngine.MaxSensitivityAxes}; choose a smaller scope.");
         var ordinals=axes.Select((f,n)=>(f.Input,Ordinal:n)).ToDictionary(a=>a.Input,a=>a.Ordinal);
         string Axis(QuoteFactor factor)=>"price_"+ordinals[factor.Input];
-        var steps=LargestSteps((first.Prepared?.Markets??[]).SelectMany(m=>m.Connected.DeclaredPriceSteps));
+        var steps=PortfolioValuation.LargestPriceSteps((first.Prepared?.Markets??[]).SelectMany(m=>m.Connected.DeclaredPriceSteps));
         var bumps=new Dictionary<InputKey,ExactDecimal>();
         foreach(var factor in axes)
         {

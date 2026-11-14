@@ -4900,3 +4900,56 @@ option's valuation without naming the factor. Portfolio risk, VaR and deal risk
 still bump by ticks; scenario values smooth in the futures price would remove
 the cause for every consumer and need their own model version. See
 [trading P&L](trading-pnl.md) and [futures options](futures-options.md).
+
+Decided since by D395: the portfolio risk bump report refuses a shock under two
+declared price steps. Deal risk values futures and swaps only and reaches no
+option. Parametric VaR and the PCA hybrid still bump by ticks.
+
+## D395 · A bump report refuses a shock under two declared price steps
+
+2026-11-13. Decided by the owner as the first step of a staged change whose
+second step is a tree with values smooth in the futures price. Extends the
+declared price step of D394 from the trading P&L to the portfolio risk bump
+report. Valuation, every value the report states and authority are unchanged.
+
+- **Cause.** The bump report reads each delta and gamma from one up and one down
+  revaluation at the shock the request states, and tests no agreement. A
+  valuation that declares a price step (D394) is straight between bends, so a
+  shock inside one step reads the slope of one piece and a second difference
+  that is not its gamma. Measured through the report on the exchange example on
+  2026-11-13, at the one-tick shock its live check then used: a held call's
+  gamma read 3.0% of the option's gamma and a held put's 0.3%. Across a bend the
+  same figure reads 61 to 149 times too large.
+- **Refusal.** A bump report is refused with `risk_bump`, before any scenario is
+  priced, when a shock is smaller than two price steps that a holding in scope
+  declares for a quoted price the shocked target moves. A target that moves
+  several such prices is held to the largest step. The message names each such
+  target, up to three, with the smallest shock in whole trading ticks that spans
+  two steps, and counts the rest. Nothing is resized or filled in: the shock is
+  also the scenario the person reads.
+- **Reach.** Every way a bump report is asked for: the immediate report, a
+  queued job when it is submitted and when it runs, and each part of a saved run
+  definition. The Blotter's risk tab, the delta ladder, the Positions widget and
+  the desk's Delta column read those runs.
+- **Not covered.** Nested stresses move the scenario and are not differenced, so
+  they take any size. Joint derivatives state whether their half, nominal and
+  double estimates agree. A parametric request sizes its own bumps in trading
+  ticks and tests the agreement of its deltas; the gamma it shows beside them is
+  still a one-bump figure. Historical and Monte Carlo VaR reprice in full.
+- **Measured error.** No bound is claimed. On 22 options of the exchange
+  example, one pair at two to six of the option's own price steps read a gamma
+  within 4% of the option's and a delta within 1.5 points; the error grows with
+  the shock, to 7% at ten steps. Those figures were measured on 2026-11-13 and
+  are pinned by no check. The live check pins the two solved options it holds at
+  two price steps: a delta within half a point and a gamma within 2% of
+  discounted Black-76 at the held volatility.
+
+Not chosen. Sizing the shock for the person changes the scenario they asked
+for. Withholding an option's delta and gamma at a small shock leaves the person
+with none.
+
+Open. A shock has no upper bound, and a delta read across many price steps
+drifts from the option's own. The parametric report's shown gamma. The catalog
+does not state a factor's smallest shock, so a page learns it from the refusal.
+A run definition saved with a smaller shock is refused when it next runs.
+

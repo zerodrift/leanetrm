@@ -43,6 +43,14 @@ custom and joint modes. It retains the backend catalog's conventions, numerical
 policy and complete captured context. The owning source is revalidated before
 every submission. A market/context replacement invalidates the catalog.
 
+A held-contract, parallel-curve or custom shock is refused with `risk_bump` when
+it is smaller than two price steps that a holding in scope declares for a price
+it moves (D395). The report reads each delta and gamma from one up and one down
+move, and a [tree-priced option](futures-options.md) bends once per price step,
+so a smaller move reads the tree's grid. The refusal names the target and the
+smallest shock that is taken; the size is never changed for the person. Nested
+stresses are not differenced and take any size.
+
 ## Reports and graphics
 
 Risk opens a recent completed run matching the chosen scope and market close

@@ -28,10 +28,10 @@ public sealed record PnlFactorBump(int Ticks,int? PriceSteps)
         if(tick.CompareTo(default)<=0||priceStep is {} declared&&declared.CompareTo(default)<=0)
             throw Error("A factor needs a positive trading tick and, where one is declared, a positive price step.");
         // The whole ticks that span this many declared steps.
-        BigInteger Spanning(int steps)=>priceStep is {} step?(step.ScaledValue*steps+tick.ScaledValue-1)/tick.ScaledValue:BigInteger.Zero;
+        BigInteger Spanning(int steps)=>priceStep is {} step?DeclaredPriceStep.TicksSpanning(step,steps,tick):BigInteger.Zero;
         // However it is selected, a bump is never under two declared steps: its half step would lie inside one step,
         // where a second difference reads the model's grid, not its curvature.
-        if(PriceSteps is null&&Spanning(SelectablePriceSteps[0]) is var needed&&needed>Ticks)
+        if(PriceSteps is null&&Spanning(DeclaredPriceStep.FewestSpanned) is var needed&&needed>Ticks)
             throw Error($"The selected bump of {(Ticks==1?"1 tick":Ticks+" ticks")} is smaller than two price steps that a holding declares for this factor, which span {needed} ticks. "+
                 (needed<=MaximumTicks?$"Select price steps, or at least {needed} ticks.":"Select price steps."));
         var ticks=priceStep is not null&&PriceSteps is {} count?Spanning(count):Ticks;

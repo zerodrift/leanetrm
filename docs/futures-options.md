@@ -140,8 +140,10 @@ price times exp(2 · volatility · √(years ÷ steps)) − 1, which is 63 to 16
 ticks for the example's at-the-money calls. A solved option declares that step on
 its underlying futures dependency, at its base futures price and held volatility.
 An option valued at intrinsic has no lattice and declares none. A second
-difference of the value is meaningful only across whole steps; the
-[trading P&L bump](trading-pnl.md#price-bump) is sized from it.
+difference of the value is meaningful only across whole steps. The
+[trading P&L bump](trading-pnl.md#price-bump) is sized from the step, and the
+portfolio risk bump report refuses a shock of the underlying under two steps
+(D395).
 
 **Intrinsic fallback.** When a settlement lies at or below the tree's price at the
 bracket's lowest volatility, and no more than one clearing increment below intrinsic,
@@ -207,6 +209,9 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
 - **Portfolio risk.** Options and premiums join the shared base/up/down scenarios
   with futures, swaps and other holdings. Reports and retained jobs carry the
   scenario policy, calibration receipts, tree-price counts and fallback count.
+  A bump report's shock of a solved option's underlying spans at least two of
+  its price steps, or the request is refused naming the smallest shock that
+  does (D395).
 - **New trade.** The option ticket selects exchange, commodity, underlying future,
   call or put, then strike; each list comes from the backend catalog and resets
   those below it. Once a series is chosen, the ticket links to its product's
@@ -236,12 +241,14 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
   supports held calibrated-series IV and weighted-node shocks with explicit
   annualized-volatility units; the stored analytical surface is still not a pricing
   source. See [valuation layers](valuation-context-layers.md).
-- **Tick-sized risk bumps.** Portfolio risk, VaR and deal risk bump futures by
-  trading ticks. For a tree-priced option delta is then the slope of one straight
-  piece of its value, and a second difference is not its gamma. Only the trading
-  P&L sizes its bump from the declared price step. Scenario values that are smooth
-  in the futures price would remove the cause for every consumer; they change
-  every option scenario value and need their own model version.
+- **Tick-sized risk bumps.** Parametric VaR and the PCA hybrid bump futures by
+  trading ticks. For a tree-priced option a one-tick delta is the slope of one
+  straight piece of its value, and the gamma a parametric report shows beside
+  its deltas is not the option's. The trading P&L sizes its bump from the
+  declared price step and the bump report refuses a shock under two steps
+  (D395); neither removes the cause. Scenario values that are smooth in the
+  futures price would, for every consumer; they change every option value and
+  need their own model version.
 - **Margined premium.** Futures-style margined premium needs futures variation
   margin first.
 - **Other option types.** European, cash-settled, weekly, calendar spread, crack

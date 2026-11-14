@@ -39,9 +39,11 @@ A declaration may also state the price step of one of its price dependencies:
 the smallest move of that price the valuation's model resolves, below which its
 value is piecewise linear in it. It is a property of the model, not an input: it
 identifies no repricing and assigns no exposure. A step names one directly quoted
-live price input. The [trading P&L bump](trading-pnl.md#price-bump) is its
-consumer: a report reads the steps its scope declares and refuses a scope in
-which a holding declares one on any other dependency. The
+live price input. It has two consumers, each reading the steps its scope
+declares and refusing a scope in which a holding declares one on any other
+dependency: the [trading P&L bump](trading-pnl.md#price-bump) is sized from
+them, and the [portfolio risk bump report](risk-workspace.md) refuses a shock
+under two of them (D395). The
 [listed American futures option](futures-options.md) declares its lattice's
 step.
 
