@@ -52,6 +52,7 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
     public MarketSnapshot ValuationSource(AccountingPositionKey position,Instrument instrument)=>deliveryMarket is {} selected&&
         instrument is OpenEtrm.MarketData.Gas.GasPhysicalDeliveryObligationInstrument gas&&gas.Terms==selected.Terms?selected.Source:source;
     private readonly FuturesDeliveryProjectionMarket? deliveryMarket;
+    private readonly KnownFuturesPhysicalFinal? nativeDelivery;
     public ImmutableArray<CurveRequest> Dependencies{get;}
     public LifecycleProjectionState Opening{get;}
     public ImmutableArray<LifecycleInputFinal> InputFinals{get;}
@@ -59,18 +60,18 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
     public LifecycleProjectionEvent? Activation{get;}
     private readonly Guid? pricingExpiryId;
     public FuturesLifecycleProjection(Trade trade,Guid bindingId,FuturesMarginState state,FuturesMarginHistory history,
-        ValuationSetup setup,CurveRequest settlementProjection,CurveModel model,MarketSnapshot source,FuturesKnownHistory? known=null,FuturesDeliveryProjectionMarket? deliveryMarket=null)
-        :this(trade,bindingId,state,history,setup,settlementProjection,model,source,known,null,deliveryMarket){}
+        ValuationSetup setup,CurveRequest settlementProjection,CurveModel model,MarketSnapshot source,FuturesKnownHistory? known=null,FuturesDeliveryProjectionMarket? deliveryMarket=null,KnownFuturesPhysicalFinal? nativeDelivery=null)
+        :this(trade,bindingId,state,history,setup,settlementProjection,model,source,known,null,deliveryMarket,nativeDelivery){}
     public FuturesLifecycleProjection(KnownFuturesOptionEvent causal,FuturesKnownHistory known,ValuationSetup setup,
-        CurveRequest settlementProjection,CurveModel model,MarketSnapshot source,FuturesDeliveryProjectionMarket? deliveryMarket=null)
+        CurveRequest settlementProjection,CurveModel model,MarketSnapshot source,FuturesDeliveryProjectionMarket? deliveryMarket=null,KnownFuturesPhysicalFinal? nativeDelivery=null)
         :this(causal.Future?.Trade??throw Error("Retain the accepted option's exact linked future."),causal.Future.BindingId,null,null,
-            setup,settlementProjection,model,source,known,causal,deliveryMarket){}
+            setup,settlementProjection,model,source,known,causal,deliveryMarket,nativeDelivery){}
     private FuturesLifecycleProjection(Trade trade,Guid bindingId,FuturesMarginState? state,FuturesMarginHistory? history,
-        ValuationSetup setup,CurveRequest settlementProjection,CurveModel model,MarketSnapshot source,FuturesKnownHistory? known,KnownFuturesOptionEvent? causal,FuturesDeliveryProjectionMarket? deliveryMarket)
+        ValuationSetup setup,CurveRequest settlementProjection,CurveModel model,MarketSnapshot source,FuturesKnownHistory? known,KnownFuturesOptionEvent? causal,FuturesDeliveryProjectionMarket? deliveryMarket,KnownFuturesPhysicalFinal? nativeDelivery)
     {
         if(deliveryMarket is not null&&(deliveryMarket.Terms is null||deliveryMarket.Model is null||deliveryMarket.Source is null))
             throw new MarketDataException("projection_delivery_source","Retain the selected delivery terms, native mark model and exact source certificate.");
-        this.deliveryMarket=deliveryMarket;this.trade=trade;holding=trade.Instruments.SingleOrDefault(b=>b.Id==bindingId)??throw Error("Select the exact held future.");
+        this.deliveryMarket=deliveryMarket;this.nativeDelivery=nativeDelivery;this.trade=trade;holding=trade.Instruments.SingleOrDefault(b=>b.Id==bindingId)??throw Error("Select the exact held future.");
         market=FuturesExecution.Require(holding).MarketBinding;policy=(history?.Terms??known?.Terms??throw Error("Retain the exact native execution policy.")).Policy;this.source=source;this.model=model;
         var terms=state is null?market.Instrument.RetainKnownMarginTerms(trade,bindingId,policy,model,source):
             market.Instrument.ProposeMarginTerms(trade,bindingId,policy,model,source);
@@ -108,13 +109,22 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
             PriceUnit.FromQuote(model.QuoteFor(settlementProjection))!=PriceUnit.FromQuote(market.Quote))
             throw Error("Select the exact future contract and native quotation for its explicit scenario-event market mapping.");
         SettlementProjection=settlementProjection;
+        if(known is not null)RequireKnown(known,history,terms,model);
+        var acceptedFinal=known?.Determinations.SingleOrDefault(d=>d.Occurrence.Phase==FuturesMarginPhase.Final);
+        if(nativeDelivery is not null&&(nativeDelivery.CatalogId!=policy.Contract.Revision.CatalogId||
+            nativeDelivery.SourceContextId!=source.Knowledge!.ContextId||nativeDelivery.SourceAt!=source.ValuationAt||nativeDelivery.KnownThrough!=source.Knowledge.KnownAt||
+            nativeDelivery.FutureOwner!=Owner||nativeDelivery.OriginalQuantity!=holding.Quantity||nativeDelivery.PolicyId!=policy.Id||nativeDelivery.PolicyRevision!=policy.Revision||
+            nativeDelivery.Configuration!=policy.Delivery||nativeDelivery.Determination!=acceptedFinal||
+            nativeDelivery.FinalPrice.Unit!=PriceUnit.FromQuote(market.Quote)))
+            throw new MarketDataException("projection_native_delivery","The accepted physical continuation must retain this exact native future, source, quantity, final and saved policy/profile.");
         InputFinals=state?.Status==FuturesMarginStatus.FinalMarginDetermined?[]:
             [..new[]{market.Market,settlementProjection}.Distinct().Select(m=>new LifecycleInputFinal(m,
-                policy.Occurrences.Single(o=>o.Phase==FuturesMarginPhase.Final).At,null))];
+                policy.Occurrences.Single(o=>o.Phase==FuturesMarginPhase.Final).At,acceptedFinal is null?null:
+                    new(new(policy.SettlementCurve,policy.Contract),acceptedFinal.Observation,acceptedFinal.ObservationKnownAt,source.Knowledge!.ContextId)))];
         Dependencies=state?.Status==FuturesMarginStatus.FinalMarginDetermined?[]:[..market.Dependencies.Append(settlementProjection)
             .Concat(ProjectedFuturesDelivery.Dependencies(policy,deliveryMarket)).Distinct()];
-        if(known is not null)RequireKnown(known,history,terms,model);
         Opening=new(state is null?[]:[ValuationPortfolio.FromTrades([new(trade.Id,trade.BookId,[holding],trade.Booking)],setup)],[]){
+            KnownResidualOwners=nativeDelivery is not null&&nativeDelivery.Determination.Occurrence.At>source.ValuationAt?[nativeDelivery.DeliveryOwner]:[],
             KnownCashSources=known is null?[]:[..known.Cash.Select(c=>c.State)],
             KnownPayments=known is null?[]:[..known.Cash.SelectMany(c=>c.State.KnownFlows(source)).Where(p=>p.EffectiveAt>source.ValuationAt)]};
         Activation=causal is null?null:new(LifecycleProjectionEvent.ScopedId(Owner,causal.EventId),terms.ExecutedAt,[],"known_future_execution");
@@ -190,7 +200,7 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
         var(_,cash,_)=FuturesMargin.Difference(basis,price,holding.Quantity,policy.Rounding,policy.RoundingScope);
         ValuationPortfolio residual;
         if(selected.Phase==FuturesMarginPhase.Final&&market.SettlementMethod=="physical")
-            residual=ProjectedFuturesDelivery.Residual(Owner,market.Instrument,policy,holding.Quantity,price,setup);
+            residual=ProjectedFuturesDelivery.Residual(Owner,market.Instrument,policy,holding.Quantity,price,setup,actual is null?null:nativeDelivery);
         else
         {
             var projectedState=new ProjectedFuturesMarginState(trade.Id,holding.Id,trade.BookId,holding.Quantity,market.Series.Key,price,selected.At,
@@ -215,8 +225,8 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
     }
     public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)
     {
-        if(market.SettlementMethod!="cash")
-            ProjectedFuturesDelivery.Require(market.Instrument,policy,model,setup,source,actualEvents.Values.Any(e=>e.Occurrence.Phase==FuturesMarginPhase.Final&&e.Occurrence.At<=horizon),deliveryMarket);
+        if(market.SettlementMethod!="cash"&&policy.Occurrences.Single(o=>o.Phase==FuturesMarginPhase.Final).At>source.ValuationAt)
+            ProjectedFuturesDelivery.Require(market.Instrument,policy,model,setup,source,actualEvents.Values.SingleOrDefault(e=>e.Occurrence.Phase==FuturesMarginPhase.Final&&e.Occurrence.At<=horizon),deliveryMarket,nativeDelivery);
         return [..Events.Where(e=>e.At<=horizon)];
     }
     private void RequireKnown(FuturesKnownHistory known,FuturesMarginHistory? opening,FuturesMarginTerms terms,CurveModel model)

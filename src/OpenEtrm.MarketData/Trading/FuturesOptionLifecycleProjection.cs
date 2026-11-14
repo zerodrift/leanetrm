@@ -155,7 +155,7 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
     {
         foreach(var child in children)_=child.EventsFor(horizon);
         if(instruction?.Instruction!="abandon"&&future.SettlementMethod!="cash"&&Events.Any(e=>e.At<=horizon&&e.Kind=="final_margin"))
-            ProjectedFuturesDelivery.Require(future.Instrument,margin,model,FutureSetup(),SourceSnapshot,false);
+            ProjectedFuturesDelivery.Require(future.Instrument,margin,model,FutureSetup(),SourceSnapshot,null);
         return [..Events.Where(e=>e.At<=horizon)];
     }
     public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)

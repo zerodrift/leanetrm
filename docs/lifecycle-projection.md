@@ -496,7 +496,19 @@ reports from frozen binaries and exact retained history, without financial
 writes. Cash-only workers need no gas permission; physical consumers retain
 represented-user and service gas-read requirements. The physical checks also
 refuse an omitted source matrix part and missing or unheld binding settings.
-Activation of accepted physical final obligations, title, funding stock and
+Native API activation of accepted physical final obligations, title, funding stock and
 principal descendants remains a separate delivery gate. A selected trade-only
 full-value scope after accepted physical final refuses rather than omitting
 independent physical ownership.
+
+The composable pure future adapter also accepts an explicitly selected native
+final-to-obligation link. Its source clock, exact future and delivery owners,
+saved policy/profile, original quantity, full terminal price unit and complete
+initial-to-current final ancestry must agree with the retained accepted margin.
+The final transition activates that native obligation identity rather than
+creating a second hypothetical holding. Actual final observations freeze their
+shared native input at their own effective instant. Independent checks cover
+corrected lineage, substituted units/owners/receipts and a dependent late price
+read under a market shock. Native authorization and complete performance,
+funding-stock and principal composition remain source-coordinator obligations;
+this pure fact establishes no title or bank payment.

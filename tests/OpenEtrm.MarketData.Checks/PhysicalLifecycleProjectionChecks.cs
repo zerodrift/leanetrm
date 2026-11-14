@@ -74,6 +74,40 @@ internal static class PhysicalLifecycleProjectionChecks
         Reject("projection_policy",()=>LifecycleProjection.Prepare(cross.Model,cross.Source,beforeFinal,cross.Policy with{PhysicalDelivery=""},[cross.Component],[]));
         var actualFinal=new PhysicalFixture("1",nativeFinal:true);
         Reject("futures_delivery_transition",()=>LifecycleProjection.Prepare(actualFinal.Model,actualFinal.Source,actualFinal.Horizon,actualFinal.Policy,[actualFinal.Component],[]));
+        var native=new PhysicalFixture("1",nativeFinal:true,nativeLink:true);
+        var nativeValue=native.Prepare().Evaluate("accepted_native_delivery",[]);
+        Equal(nativeValue.Values.Single().OpeningValue,"80");Equal(nativeValue.Values.Single().ResidualValue,"80");Equal(nativeValue.Values.Single().EconomicPnl,"0");
+        if(nativeValue.States.Single().Residuals.Single().Positions.Single().Owner!=native.NativeOwner!.Value.Owner||
+            !nativeValue.States.Single().KnownResidualOwners.Contains(native.NativeOwner.Value))
+            throw new Exception("An accepted final must activate its exact predeclared native delivery owner, without another hypothetical obligation.");
+        var probe=new FinalProbe(new(Guid.NewGuid(),Guid.NewGuid(),native.Component.Owner.BookId),native.Source,native.Component.Currency,
+            native.Component.SettlementProjection,native.Horizon.Closes[0].Instant);
+        var withProbe=native.Prepare(extra:[probe]);var primitive=withProbe.Factors.Single(f=>f.Curves.Contains(native.Component.SettlementProjection.Curve));
+        var fixedInput=withProbe.Evaluate("shared_native_actual_final",[new(primitive.Input,primitive.Quote,primitive.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
+        Equal(fixedInput.Values.Single(v=>v.Owner==probe.Owner).PeriodCash,"3");
+        var originalNative=native.NativeAttachment!;var prior=originalNative.CurrentFinal with{DeterminationId=Guid.NewGuid(),MarginRevision=2,
+            Receipt=new(1,originalNative.CurrentFinal.Receipt.KnownAt.AddMinutes(-1))};
+        var current=originalNative.CurrentFinal with{MarginRevision=3,PreviousDeterminationId=prior.DeterminationId};
+        var corrected=native.NativeFact! with{RunRevision=3,PreviousDeterminationId=prior.DeterminationId};
+        var ancestry=originalNative with{InitialDeterminationId=prior.DeterminationId,CurrentFinal=current,Finals=[current,prior],Receipt=prior.Receipt};
+        var correction=KnownFuturesPhysicalFinal.Create(ancestry,corrected);
+        if(correction.InitialDeterminationId!=prior.DeterminationId||correction.Determination!=corrected)
+            throw new Exception("Native final ancestry must preserve the exact initial link and selected corrected head independently of array order.");
+        Reject("projection_native_delivery",()=>KnownFuturesPhysicalFinal.Create(originalNative with{Finals=originalNative.Finals.Add(prior)},native.NativeFact!));
+        Reject("projection_native_delivery",()=>KnownFuturesPhysicalFinal.Create(originalNative,native.NativeFact! with{
+            Observation=native.NativeFact!.Observation with{Role=ObservationRole.DailySettlement}}));
+        foreach(var invalid in new Func<GasPhysicalKnownAttachment,GasPhysicalKnownAttachment>[] {
+            a=>a with{DeliveryOwner=new(a.FutureOwner.TradeId,Guid.NewGuid(),a.FutureOwner.BookId)},
+            a=>a with{DeliveryOwner=a.DeliveryOwner with{BookId=Guid.NewGuid()}},
+            a=>a with{InitialDeterminationId=Guid.NewGuid()},
+            a=>a with{Receipt=a.Receipt with{PublicationOrder=7},CurrentFinal=a.CurrentFinal with{Receipt=a.CurrentFinal.Receipt with{PublicationOrder=7}},
+                Finals=[a.CurrentFinal with{Receipt=a.CurrentFinal.Receipt with{PublicationOrder=7}}]},
+            a=>a with{OriginalQuantity=new(ExactDecimal.Parse("80"),a.OriginalQuantity.Specification)},
+            a=>a with{CurrentFinal=a.CurrentFinal with{Price=ExactUnitPrice.Parse(a.CurrentFinal.Price.ToExactString(),new PriceUnit(a.CurrentFinal.Price.Unit.Currency,a.CurrentFinal.Price.Unit.Quantity,ExactDecimal.Parse("2")))},
+                Finals=[..a.Finals.Select(f=>f with{Price=ExactUnitPrice.Parse(f.Price.ToExactString(),new PriceUnit(f.Price.Unit.Currency,f.Price.Unit.Quantity,ExactDecimal.Parse("2")))})]},
+            a=>a with{ProfileId=Guid.NewGuid()},
+            a=>a with{SourceSnapshot=a.SourceSnapshot with{ValuationAt=a.SourceSnapshot.ValuationAt.AddHours(1)}}})
+            Reject("projection_native_delivery",()=>new PhysicalFixture("1",nativeFinal:true,nativeLink:true,nativeTransform:invalid));
         Console.WriteLine("PASS physical lifecycle projection: signed final VM plus ordinary retained delivery wealth, full branch factors and no assumed title");
     }
     private static void Equal(ExactMoney value,string expected)
@@ -89,10 +123,14 @@ internal static class PhysicalLifecycleProjectionChecks
         public LifecycleProjectionPolicy Policy{get;}
         public FuturesLifecycleProjection Component{get;}
         public FuturesDeliveryProjectionMarket? DeliveryMarket{get;}
+        public AccountingPositionKey? NativeOwner{get;}
+        public GasPhysicalKnownAttachment? NativeAttachment{get;}
+        public KnownFuturesMargin? NativeFact{get;}
         private IProjectionCurrencyCurve CashCurve{get;}
-        public PreparedLifecycleProjection Prepare(LifecycleProjectionPolicy? policy=null,LifecycleProjectionHorizon? horizon=null)
+        public PreparedLifecycleProjection Prepare(LifecycleProjectionPolicy? policy=null,LifecycleProjectionHorizon? horizon=null,ImmutableArray<ILifecycleProjection> extra=default)
         {
-            if(DeliveryMarket is not {} selected)return LifecycleProjection.Prepare(Model,Source,horizon??Horizon,policy??Policy,[Component],[],cashCurves:ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty.Add(CashCurve.Currency,CashCurve));
+            var components=ImmutableArray.Create<ILifecycleProjection>(Component).AddRange(extra.IsDefault?[]:extra);
+            if(DeliveryMarket is not {} selected)return LifecycleProjection.Prepare(Model,Source,horizon??Horizon,policy??Policy,components,[],cashCurves:ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty.Add(CashCurve.Currency,CashCurve));
             var a=Model.Build(Source,[..Component.Dependencies.Where(d=>d.Curve.Revision==Source.Definitions)]);
             var b=selected.Model.Build(selected.Source,[selected.Terms.Mark]);var context=a.Graph.Plan.Context;
             var exportA=Model.Compile(Source,[..a.Values.Select(v=>v.Request)],false,context);
@@ -100,10 +138,11 @@ internal static class PhysicalLifecycleProjectionChecks
             var bindings=exportA.Points.Concat(exportB.Points).ToImmutableDictionary(p=>p.Key.Request,p=>p.Value);
             var plan=ConnectedCurves.Compile(ConnectedCurves.MergeDefinitions(exportA.Definitions.Concat(exportB.Definitions)),[..bindings.Values],context,new Visible());
             var valuation=ConnectedValuation.Prepare(ConnectedScenario.Base(plan),Source,[selected.Source]);
-            return LifecycleProjection.Prepare(valuation,bindings,a,horizon??Horizon,policy??Policy,[Component],[],cashCurves:ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty.Add(CashCurve.Currency,CashCurve),additionalMarkets:[new(b,
+            return LifecycleProjection.Prepare(valuation,bindings,a,horizon??Horizon,policy??Policy,components,[],cashCurves:ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty.Add(CashCurve.Currency,CashCurve),additionalMarkets:[new(b,
                 selected.Discounting is null?ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty:ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty.Add(selected.Terms.Currency,selected.Discounting),[])]);
         }
-        public PhysicalFixture(string signed,GasHoldingCarrying carrying=GasHoldingCarrying.Nominal,bool crossDefinition=false,bool provideCurve=true,bool nativeFinal=false,bool prepareForeign=false,string execution="3",bool delayedVm=false)
+        public PhysicalFixture(string signed,GasHoldingCarrying carrying=GasHoldingCarrying.Nominal,bool crossDefinition=false,bool provideCurve=true,bool nativeFinal=false,bool prepareForeign=false,string execution="3",bool delayedVm=false,bool nativeLink=false,
+            Func<GasPhysicalKnownAttachment,GasPhysicalKnownAttachment>? nativeTransform=null)
         {
             var f=new Fixture();var quote=f.Quotes[0];var contract=f.Contracts[0];var at=contract.Expiry;
             var series=new FuturesSeriesSpecification(f.R("future_jan"),quote.Quantity,quote.Currency,quote.Multiplier,quote.TradingTick,
@@ -155,7 +194,20 @@ internal static class PhysicalLifecycleProjectionChecks
                         new(terms.Mark,captured.Connected,captured.PricingBindings[terms.Mark]),carrying==GasHoldingCarrying.CurrencyCurve&&provideCurve?
                             DeliveryMarket?.Discounting??setup.Discounting:null)})};
             }
-            Component=new(trade,binding,state,history,setup,market.Market,Model,Source,accepted,DeliveryMarket);
+            KnownFuturesPhysicalFinal? native=null;
+            if(nativeLink)
+            {
+                var fact=accepted!.Determinations.Single();var receipt=new GasPhysicalKnownReceipt(fact.PublicationOrder,fact.KnownAt);
+                var final=new GasPhysicalKnownFinal(fact.DeterminationId,fact.RunRevision,fact.PreviousDeterminationId,fact.Observation.Key.Id,
+                    ExactUnitPrice.FromPrice(new(fact.Observation.Value,quote)),receipt);
+                NativeOwner=new(new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,Guid.NewGuid()),Guid.NewGuid(),trade.BookId);
+                var attachment=new GasPhysicalKnownAttachment(Source,new(trade.Id,binding,trade.BookId),NativeOwner.Value,1,margin.Id,margin.Revision,
+                    margin.Delivery!.ProfileId,margin.Delivery.ProfileRevision,terms,margin.Rounding,GasDeliveryPrincipal.Scope,"contractual_principal_due_v1",
+                    margin.Occurrences.Single(),holding.Quantity,fact.DeterminationId,final,[final],at,receipt,[],[],[],[]);
+                NativeAttachment=attachment;NativeFact=fact;
+                native=KnownFuturesPhysicalFinal.Create(nativeTransform?.Invoke(attachment)??attachment,fact);
+            }
+            Component=new(trade,binding,state,history,setup,market.Market,Model,Source,accepted,DeliveryMarket,native);
             Policy=new(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.PayAtDue,LifecycleProjectionPolicy.Nominal,
                 LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical);
             Horizon=new(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,29),at.AddHours(36),0)]);
@@ -163,6 +215,19 @@ internal static class PhysicalLifecycleProjectionChecks
     }
     private sealed class Visible:ICurveBindingResolver
     {public CurveKey Resolve(LogicalCurveKey key,ResolvedCalculationContext context)=>throw new NotSupportedException();public void RequireVisible(CurveKey key,ResolvedCalculationContext context){}}
+    private sealed record FinalProbe(AccountingPositionKey Owner,MarketSnapshot SourceSnapshot,ReferenceKey Currency,CurveRequest Request,DateTimeOffset At):ILifecycleProjection
+    {
+        public string Implementation=>"synthetic_known_final_probe_v1";
+        public ImmutableArray<CurveRequest> Dependencies=>[Request];
+        public LifecycleProjectionState Opening=>new([],[]);
+        public ImmutableArray<LifecycleProjectionEvent> Events=>[new(LifecycleProjectionEvent.ScopedId(Owner,Guid.Parse("f0000000-0000-0000-0000-000000000001")),At,[],"synthetic_final_read")];
+        public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)=>[..Events.Where(e=>e.At<=horizon)];
+        public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
+        {
+            var price=context.Fix(new(Request,ObservationRole.IndexFixing,At)).Price;
+            return state with{Cash=state.Cash.Add(new(occurrence.Id,At,At,price.ExactTimes(new(ExactDecimal.Parse("1"),price.Unit.Quantity))))};
+        }
+    }
     private sealed class HeldCurve(MarketSnapshot source,ReferenceKey currency,DateTimeOffset horizon,DateTimeOffset due,DateTimeOffset? vmDue=null):IProjectionCurrencyCurve
     {
         public ReferenceKey Currency=>currency;
