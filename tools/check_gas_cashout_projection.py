@@ -12,13 +12,13 @@ from check_gas_owned_holdings import checks as owned_checks
 
 before={}
 def upgrade_checks(query,migration):
-    if migration.name!='0293_gas_cashout_projection.sql':return
+    if migration.name!='0294_gas_cashout_projection.sql':return
     signatures=('trading.gas_owned_projection_fact(jsonb)',
         'security.configure_gas_owned_projection(uuid,uuid,text,uuid,jsonb,timestamptz,uuid,boolean)',
         'security.read_gas_owned_projection_profile_pre_risk(uuid,uuid,integer,uuid,timestamptz)')
     for signature in signatures:before[signature]=query(f"SELECT oid FROM pg_proc WHERE oid='{signature}'::regprocedure;")
     from check_fact_anchor_upgrade import run_checks
-    run_checks(query,migration,number='0293',guard='gas_cashout_projection_upgrade',signatures=signatures)
+    run_checks(query,migration,number=migration.name[:4],guard='gas_cashout_projection_upgrade',signatures=signatures)
     from assistant_context import check_guard
     changes=[]
     for signature in signatures:
@@ -27,7 +27,7 @@ def upgrade_checks(query,migration):
             "proallargtypes=ARRAY["+','.join("'"+value+"'::regtype::oid" for value in types)+"]",
             'pronargdefaults=1',f"proargmodes=array_fill('i'::\"char\",ARRAY[{count}])",'proretset=true'):
             changes.append((f"UPDATE pg_proc SET {alteration} WHERE oid='{signature}'::regprocedure;",signature))
-    check_guard(query,migration.read_text(),'0293','gas_cashout_projection_upgrade',changes)
+    check_guard(query,migration.read_text(),migration.name[:4],'gas_cashout_projection_upgrade',changes)
 
 
 def checks(query,manifest):

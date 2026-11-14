@@ -13,7 +13,7 @@ def checks(query,manifest):
     # public writer. No receipt/history row is deleted or edited. This temporary
     # code window exists only in this disposable upgrade-compatibility fixture.
     root=Path(__file__).resolve().parents[1]
-    old_source=(root/'db/migrations/0272_futures_delivery_obligations.sql').read_text()
+    old_source=(root/'db/migrations/0273_futures_delivery_obligations.sql').read_text()
     old=re.search(r'CREATE OR REPLACE FUNCTION settlement_data.determine_futures_margin\(catalog uuid,body jsonb,steps jsonb\).*?END\$\$;',old_source,re.S).group(0)
     body=old.split('AS $$',1)[1].rsplit('$$;',1)[0]
     assert hashlib.md5(body.encode()).hexdigest()=='308b7182904cf08f1d5a19a69567052e'

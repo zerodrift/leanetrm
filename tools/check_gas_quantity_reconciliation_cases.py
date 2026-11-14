@@ -7,7 +7,7 @@ from gas_quantity_fixture import principal_plan
 
 
 def upgrade_checks(query, migration):
-    if migration.name != '0289_gas_quantity_reconciliation.sql':return
+    if migration.name != '0290_gas_quantity_reconciliation.sql':return
     from assistant_context import check_guard
     private='security.read_gas_owned_holdings_original(uuid,uuid,timestamptz,uuid[])'
     public='security.read_gas_physical_known_attachments(uuid,uuid,timestamptz,uuid[],jsonb)'
@@ -25,7 +25,7 @@ def upgrade_checks(query, migration):
         (f"GRANT EXECUTE ON FUNCTION {producer} TO openetrm_runtime;",producer),
         (f"ALTER FUNCTION {producer} SET work_mem='64kB';",producer),
         (f"DO $$DECLARE d text=pg_get_functiondef('{producer}'::regprocedure);BEGIN EXECUTE replace(d,'AS $function$','AS $function$ /* synthetic drift */ ');END$$;",producer)]
-    check_guard(query,migration.read_text(),'0289','gas_quantity_upgrade',changes)
+    check_guard(query,migration.read_text(),migration.name[:4],'gas_quantity_upgrade',changes)
 
 
 def checks(query, manifest):

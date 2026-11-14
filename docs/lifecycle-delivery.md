@@ -1,6 +1,6 @@
 # Shared lifecycle delivery contract
 
-D397 selects the following implementation contract. This document records required
+D399 selects the following implementation contract. This document records required
 behavior, not a claim that every capability is implemented or production-qualified.
 
 ## Ownership and extension

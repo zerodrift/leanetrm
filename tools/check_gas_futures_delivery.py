@@ -10,9 +10,9 @@ from check_lifecycle_actions import upgrade_checks as common_upgrade_checks
 
 def upgrade_checks(query,migration):
     common_upgrade_checks(query,migration)
-    if migration.name=='0273_gas_futures_delivery_principal.sql':
+    if migration.name=='0274_gas_futures_delivery_principal.sql':
         groups=[('futures_delivery_holdings_upgrade','security.read_gas_owned_holdings(uuid,uuid,timestamptz,uuid[])')]
-    elif migration.name=='0274_gas_futures_delivery_commands.sql':
+    elif migration.name=='0275_gas_futures_delivery_commands.sql':
         groups=[('futures_delivery_principal_upgrade','settlement_data.determine_futures_margin(uuid,jsonb,jsonb)'),
             ('futures_delivery_principal_upgrade','settlement_data.determine_futures_margin_native(uuid,jsonb,jsonb,timestamptz)'),
             ('futures_delivery_principal_upgrade','settlement_data.finish_futures_margin_run(uuid,uuid,jsonb,timestamptz)'),

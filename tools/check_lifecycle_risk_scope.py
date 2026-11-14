@@ -12,16 +12,16 @@ original_needs_gas=None
 def upgrade_checks(query,migration):
     global original_needs_gas
     action_upgrade_checks(query,migration)
-    if migration.name=='0290_risk_gas_consumers.sql':
+    if migration.name=='0291_risk_gas_consumers.sql':
         original_needs_gas=query("SELECT pg_get_functiondef('risk.needs_gas(risk.jobs)'::regprocedure);")
         from check_fact_anchor_upgrade import run_checks
-        run_checks(query,migration,number='0290',guard='risk_gas_consumers_upgrade',signatures=('risk.needs_gas(risk.jobs)',))
+        run_checks(query,migration,number=migration.name[:4],guard='risk_gas_consumers_upgrade',signatures=('risk.needs_gas(risk.jobs)',))
         from assistant_context import check_guard
-        check_guard(query,migration.read_text(),'0290','risk_gas_consumers_upgrade',[(
+        check_guard(query,migration.read_text(),migration.name[:4],'risk_gas_consumers_upgrade',[(
             "UPDATE pg_proc SET proargnames=ARRAY['synthetic_changed']::text[] WHERE oid='risk.needs_gas(risk.jobs)'::regprocedure;",'risk.needs_gas(risk.jobs)')])
-    if migration.name=='0297_risk_full_futures_gas.sql':
+    if migration.name=='0298_risk_full_futures_gas.sql':
         from check_fact_anchor_upgrade import run_checks
-        run_checks(query,migration,number='0297',guard='risk_full_futures_gas_upgrade',signatures=('risk.needs_gas(risk.jobs)',))
+        run_checks(query,migration,number=migration.name[:4],guard='risk_full_futures_gas_upgrade',signatures=('risk.needs_gas(risk.jobs)',))
 
 
 def checks(query, manifest):

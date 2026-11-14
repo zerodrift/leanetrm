@@ -17,7 +17,7 @@ def bootstrap(query, manifest):
 
 
 def before_migration(query, migration):
-    if migration.name != '0270_lifecycle_projection_horizon.sql':
+    if migration.name != '0271_lifecycle_projection_horizon.sql':
         return
     reference, market, security, manifest = fixture(Path(__file__).resolve().parents[1])
     for sql in (reference, market, security):

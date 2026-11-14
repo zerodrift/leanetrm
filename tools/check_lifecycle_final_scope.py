@@ -17,12 +17,12 @@ SIGNATURES = ('security.require_lifecycle_projection_input(uuid,uuid,text,text,u
 
 def before_migration(query, migration):
     economic.before_migration(query, migration)
-    if migration.name != '0280_lifecycle_projection_final_scope.sql':
+    if migration.name != '0281_lifecycle_projection_final_scope.sql':
         return
     for signature in SIGNATURES:
         _before[signature] = query(f"SELECT to_regprocedure('{signature}')::oid;")
     from check_fact_anchor_upgrade import run_checks
-    run_checks(query, migration, number='0280', guard='lifecycle_final_upgrade', signatures=SIGNATURES)
+    run_checks(query, migration, number=migration.name[:4], guard='lifecycle_final_upgrade', signatures=SIGNATURES)
 
 
 def final_scope(query, manifest):

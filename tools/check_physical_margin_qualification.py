@@ -37,7 +37,7 @@ def checks(query,manifest):
 
 
 def upgrade_checks(query,migration):
-    if migration.name!='0284_qualified_physical_margin.sql':return
+    if migration.name!='0285_qualified_physical_margin.sql':return
     # Rehearse the actual old schema and accepted facts in a separate native
     # physical clone. No trigger is disabled and no historical fact is edited.
     name='synthetic_physical_margin_upgrade'

@@ -10,7 +10,7 @@ SIGNATURES=('security.stamp_trade_booking(uuid)','security.record_trade_booking(
 OIDS={}
 
 def upgrade_checks(query,migration):
-    if migration.name!='0287_scheduled_option_booking.sql':return
+    if migration.name!='0288_scheduled_option_booking.sql':return
     from assistant_context import check_guard
     for signature in SIGNATURES:
         OIDS[signature]=query(f"SELECT '{signature}'::regprocedure::oid;")
@@ -25,8 +25,8 @@ def upgrade_checks(query,migration):
             f"UPDATE pg_proc SET proallargtypes=proargtypes::oid[] WHERE oid='{signature}'::regprocedure;",
             f"UPDATE pg_proc SET pronargdefaults=1 WHERE oid='{signature}'::regprocedure;",
             f"UPDATE pg_proc SET proargnames=ARRAY['synthetic_changed_name'] WHERE oid='{signature}'::regprocedure;")]
-        check_guard(query,migration.read_text(),'0287','scheduled_option_booking_upgrade',changes)
-    check_guard(query,migration.read_text(),'0287','scheduled_option_booking_upgrade',[
+        check_guard(query,migration.read_text(),migration.name[:4],'scheduled_option_booking_upgrade',changes)
+    check_guard(query,migration.read_text(),migration.name[:4],'scheduled_option_booking_upgrade',[
         ("ALTER TABLE trading.trades DISABLE TRIGGER record_booking;",'booking trigger')])
 
 

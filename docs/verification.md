@@ -7,7 +7,7 @@ selects one CI partition. CI requires every partition and its aggregate check
 to succeed. The implementation records below retain the results and limits of
 each dated increment; older check counts are not the current suite size.
 
-D397's local native futures increment has focused owned PostgreSQL consumers:
+D399's local native futures increment has focused owned PostgreSQL consumers:
 `tools/check_futures_margin_sources.py`, `tools/check_futures_margin_adoption.py`
 and `tools/check_futures_margin_journal.py`. Each takes `--pg-bin`; its managed
 child uses the explicitly selected `DOTNET` executable and already-built API check

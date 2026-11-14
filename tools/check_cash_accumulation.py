@@ -27,7 +27,7 @@ def request():
 
 
 def before_migration(query,migration):
-    if migration.name!='0291_portfolio_cash_accumulation.sql':return
+    if migration.name!='0292_portfolio_cash_accumulation.sql':return
     try:query('SELECT risk.economic_commands('+literal(request())+');')
     except RuntimeError as error:assert 'risk_economic_input'in str(error),str(error)
     else:raise AssertionError('The predecessor unexpectedly admitted the new explicit funding profile.')

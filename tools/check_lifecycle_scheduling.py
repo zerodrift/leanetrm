@@ -24,10 +24,10 @@ SCOPE_HELPERS=('lifecycle.capture_action_authority(uuid,text,jsonb)','lifecycle.
 
 def upgrade_checks(query,migration):
     action_upgrade_checks(query,migration)
-    selected=SCHEDULE_HELPERS if migration.name=='0278_lifecycle_schedules.sql' else SCOPE_HELPERS if migration.name=='0283_lifecycle_scheduled_action_scope.sql' else ()
+    selected=SCHEDULE_HELPERS if migration.name=='0279_lifecycle_schedules.sql' else SCOPE_HELPERS if migration.name=='0284_lifecycle_scheduled_action_scope.sql' else ()
     if not selected:return
     from assistant_context import check_guard
-    guard='lifecycle_schedule_upgrade' if migration.name.startswith('0278') else 'lifecycle_schedule_scope_upgrade'
+    guard='lifecycle_schedule_upgrade' if migration.name.startswith('0279') else 'lifecycle_schedule_scope_upgrade'
     for signature in selected:
         _PUBLIC_OIDS[signature]=query(f"SELECT to_regprocedure('{signature}')::oid;")
         changes=[(sql,signature) for sql in (

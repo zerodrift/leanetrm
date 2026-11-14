@@ -15,9 +15,9 @@ from check_futures_margin_adoption import successor_grants
 
 def upgrade_checks(query, migration):
     from assistant_context import check_guard
-    if migration.name == '0261_option_lifecycle_actions.sql':
+    if migration.name == '0262_option_lifecycle_actions.sql':
         groups=[('lifecycle_option_status_upgrade','security.futures_option_operation_status(uuid,uuid)')]
-    elif migration.name == '0271_futures_delivery_profiles.sql':
+    elif migration.name == '0272_futures_delivery_profiles.sql':
         groups=[('futures_delivery_admission_upgrade','security.gas_owned_admission(uuid,text,jsonb,boolean)'),
                 ('futures_delivery_hash_upgrade','settlement_data.futures_margin_policy_value(settlement_data.futures_margin_policies,jsonb)'),
                 ('futures_delivery_policy_upgrade','settlement_data.save_futures_margin_policy(uuid,jsonb)'),
@@ -25,10 +25,10 @@ def upgrade_checks(query, migration):
                 ('futures_delivery_policy_upgrade','settlement_data.read_futures_margin_origin(uuid,uuid,uuid,uuid,timestamptz)'),
                 ('futures_delivery_policy_upgrade','settlement_data.read_futures_known_linked_history(uuid,uuid,uuid,uuid,timestamptz,uuid)'),
                 ('futures_delivery_policy_upgrade','lifecycle.read_option_known_history(uuid,uuid,uuid,integer,uuid,timestamptz,date)')]
-    elif migration.name == '0272_futures_delivery_obligations.sql':
+    elif migration.name == '0273_futures_delivery_obligations.sql':
         groups=[('futures_delivery_writer_upgrade','settlement_data.determine_futures_margin(uuid,jsonb,jsonb)'),
                 ('futures_delivery_writer_upgrade','settlement_data.finish_futures_margin_run(uuid,uuid,jsonb,timestamptz)')]
-    elif migration.name == '0281_selected_physical_authority.sql':
+    elif migration.name == '0282_selected_physical_authority.sql':
         groups=[('selected_physical_authority_upgrade',signature) for signature in (
             'lifecycle.capture_action_authority(uuid,text,jsonb)','lifecycle.option_proposal(uuid,jsonb)',
             'settlement_data.futures_margin_command_status(uuid,uuid,text,jsonb)','settlement_data.save_futures_margin_policy(uuid,jsonb)',
@@ -40,10 +40,10 @@ def upgrade_checks(query, migration):
             'settlement_data.read_futures_delivery_position_pre_risk(uuid,uuid,uuid,timestamptz)',
             'settlement_data.read_futures_delivery_settings(uuid,uuid,timestamptz)',
             'settlement_data.read_futures_delivery_profile_pre_risk(uuid,uuid,integer,uuid,timestamptz)')]
-    elif migration.name == '0282_swap_net_lifecycle_actions.sql':
+    elif migration.name == '0283_swap_net_lifecycle_actions.sql':
         groups=[('swap_net_lifecycle_upgrade','lifecycle.finish_command(uuid,uuid,text,jsonb,text,timestamptz)'),
                 ('swap_net_lifecycle_upgrade','lifecycle.record_native_action(uuid,jsonb,jsonb,timestamptz)')]
-    elif migration.name == '0275_retained_swap_status.sql':
+    elif migration.name == '0276_retained_swap_status.sql':
         groups=[('retained_swap_status_upgrade','settlement_data.swap_operation_status(uuid,uuid)')]
     else: return
     for guard,signature in groups:
@@ -59,7 +59,7 @@ def upgrade_checks(query, migration):
             f"GRANT EXECUTE ON FUNCTION {signature} TO openetrm_runtime WITH GRANT OPTION;",
             f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;",
             f"DO $$DECLARE d text=pg_get_functiondef('{signature}'::regprocedure);BEGIN EXECUTE replace(d,'AS $function$','AS $function$ /* synthetic drift */ ');END$$;")]
-        if migration.name in('0275_retained_swap_status.sql','0281_selected_physical_authority.sql','0282_swap_net_lifecycle_actions.sql'):
+        if migration.name in('0276_retained_swap_status.sql','0282_selected_physical_authority.sql','0283_swap_net_lifecycle_actions.sql'):
             changes.extend((change,signature) for change in (
                 f"UPDATE pg_proc SET provariadic='uuid'::regtype WHERE oid='{signature}'::regprocedure;",
                 f"UPDATE pg_proc SET proargmodes=array_fill('i'::\"char\",ARRAY[{signature.count(',')+1}]) WHERE oid='{signature}'::regprocedure;"))

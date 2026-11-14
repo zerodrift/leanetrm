@@ -18,7 +18,7 @@ CASES=(('call_itm','call','2','2','exercised','2'),('call_atm','call','3','2','e
 
 
 def upgrade_checks(query,migration):
-    if migration.name!='0292_option_instruction_review.sql':return
+    if migration.name!='0293_option_instruction_review.sql':return
     from assistant_context import check_guard
     for signature in ('lifecycle.option_proposal_base(uuid,jsonb)','lifecycle.execute_option_action_pre_schedule_scope(uuid,jsonb)'):
         changes=[(change,signature) for change in (

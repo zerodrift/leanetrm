@@ -30,10 +30,10 @@ def run_owned(arguments,root,environment,timeout):
 
 def upgrade_checks(query,migration):
     cashout_upgrade(query,migration)
-    if migration.name!='0295_gas_accepted_projection.sql':return
+    if migration.name!='0296_gas_accepted_projection.sql':return
     for signature in SIGNATURES:before[signature]=query(f"SELECT oid FROM pg_proc WHERE oid='{signature}'::regprocedure;")
     from check_fact_anchor_upgrade import run_checks
-    run_checks(query,migration,number='0295',guard='gas_accepted_projection_upgrade',signatures=SIGNATURES)
+    run_checks(query,migration,number=migration.name[:4],guard='gas_accepted_projection_upgrade',signatures=SIGNATURES)
     from assistant_context import check_guard
     changes=[]
     for signature in SIGNATURES:
@@ -41,7 +41,7 @@ def upgrade_checks(query,migration):
         for alteration in (f"proargnames=array_fill('changed'::text,ARRAY[{count}])",'pronargdefaults=1',
             f"proargmodes=array_fill('i'::\"char\",ARRAY[{count}])",'proretset=true','provariadic=23'):
             changes.append((f"UPDATE pg_proc SET {alteration} WHERE oid='{signature}'::regprocedure;",signature))
-    check_guard(query,migration.read_text(),'0295','gas_accepted_projection_upgrade',changes)
+    check_guard(query,migration.read_text(),migration.name[:4],'gas_accepted_projection_upgrade',changes)
 
 
 def accepted_checks(query,manifest,fixture):

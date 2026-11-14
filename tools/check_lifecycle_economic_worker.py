@@ -146,9 +146,9 @@ def checks(query, manifest):
 
 
 def upgrade_checks(query,migration):
-    if migration.name=='0286_gas_owned_valuation_labels.sql':
+    if migration.name=='0287_gas_owned_valuation_labels.sql':
         from check_fact_anchor_upgrade import run_checks
-        run_checks(query,migration,number='0286',guard='gas_owned_labels_upgrade',signatures=('security.read_gas_owned_holdings(uuid,uuid,timestamptz,uuid[])',))
+        run_checks(query,migration,number=migration.name[:4],guard='gas_owned_labels_upgrade',signatures=('security.read_gas_owned_holdings(uuid,uuid,timestamptz,uuid[])',))
 
 
 if __name__=='__main__':

@@ -246,19 +246,19 @@ def main(checks=run_checks, before_migration=None, fixture_factory=None, argumen
                     from check_fact_anchor_upgrade import run_checks as check_reference_receipt_upgrade
                     check_reference_receipt_upgrade(query,migration,number='0249',guard='reference_receipt_upgrade',
                         signatures=('security.reference_version_visible(uuid,uuid)',))
-                if migration.name=='0258_explicit_trading_business_date.sql':
+                if migration.name=='0259_explicit_trading_business_date.sql':
                     from check_fact_anchor_upgrade import run_checks as check_trading_date_upgrade
-                    check_trading_date_upgrade(query,migration,number='0258',guard='trading_business_date_upgrade',signatures=(
+                    check_trading_date_upgrade(query,migration,number=migration.name[:4],guard='trading_business_date_upgrade',signatures=(
                         'settlement_data.require_futures_margin_source(uuid,uuid,timestamptz,uuid)',
                         'settlement_data.determine_swap(uuid,uuid,uuid,integer,integer,uuid,timestamptz,integer,date,date,timestamptz,uuid,uuid,text,integer,timestamptz,text,text,text,numeric,numeric,numeric,jsonb,jsonb,timestamptz)',
                         'settlement_data.apply_swap_cash(uuid,uuid,uuid,integer,integer,uuid,timestamptz,jsonb,numeric,uuid,uuid,text,timestamptz,text,uuid,jsonb,text)'))
-                if migration.name=='0259_known_futures_history.sql':
+                if migration.name=='0260_known_futures_history.sql':
                     from check_fact_anchor_upgrade import run_checks as check_known_futures_upgrade
-                    check_known_futures_upgrade(query,migration,number='0259',guard='known_futures_upgrade',
+                    check_known_futures_upgrade(query,migration,number=migration.name[:4],guard='known_futures_upgrade',
                         signatures=('security.record_cash_payment(uuid,jsonb,timestamptz)',))
-                if migration.name=='0269_gas_owned_projection.sql':
+                if migration.name=='0270_gas_owned_projection.sql':
                     from check_fact_anchor_upgrade import run_checks as check_gas_projection_upgrade
-                    check_gas_projection_upgrade(query,migration,number='0269',guard='gas_projection_upgrade',signatures=(
+                    check_gas_projection_upgrade(query,migration,number=migration.name[:4],guard='gas_projection_upgrade',signatures=(
                         'security.read_gas_owned_holdings(uuid,uuid,timestamptz,uuid[])',
                         'security.gas_owned_admission(uuid,text,jsonb,boolean)',
                         'trading.require_gas_owned_head(uuid,uuid,uuid,timestamptz)'))

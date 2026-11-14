@@ -1,6 +1,6 @@
 # Delivery plan and acceptance criteria
 
-The current lifecycle increment follows [D397’s delivery contract](lifecycle-delivery.md).
+The current lifecycle increment follows [D399’s delivery contract](lifecycle-delivery.md).
 It requires native operations, inventory continuation, event-aware risk, independent
 review and disposable browser qualification. Incompatible synthetic demo records
 may be rebuilt; there is no legacy financial conversion layer. This increment

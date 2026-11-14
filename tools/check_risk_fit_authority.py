@@ -10,13 +10,13 @@ from preview_fixture import catalogue_fixture
 
 before={}
 def upgrade_checks(query,migration):
-    if migration.name!='0294_risk_fit_read_admission.sql':return
+    if migration.name!='0295_risk_fit_read_admission.sql':return
     signatures=('risk.bind(uuid,uuid)','security.authority_until_pre_lifecycle_jobs(text)')
     for signature in signatures:before[signature]=query(f"SELECT oid FROM pg_proc WHERE oid='{signature}'::regprocedure;")
     from check_fact_anchor_upgrade import run_checks
-    run_checks(query,migration,number='0294',guard='risk_fit_admission_upgrade',signatures=signatures)
+    run_checks(query,migration,number=migration.name[:4],guard='risk_fit_admission_upgrade',signatures=signatures)
     from assistant_context import check_guard
-    check_guard(query,migration.read_text(),'0294','risk_fit_admission_upgrade',[(
+    check_guard(query,migration.read_text(),migration.name[:4],'risk_fit_admission_upgrade',[(
         f"UPDATE pg_proc SET proargnames=ARRAY['synthetic_changed']::text[] WHERE oid='{signature}'::regprocedure;",signature)for signature in signatures])
 
 def checks(query,manifest):

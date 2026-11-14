@@ -18,7 +18,7 @@ from check_futures_margin_adoption import successor_grants
 
 def upgrade_checks(query,migration):
     action_upgrade_checks(query,migration)
-    if migration.name!='0288_lifecycle_swap_task_sources.sql':return
+    if migration.name!='0289_lifecycle_swap_task_sources.sql':return
     from assistant_context import check_guard
     for signature in ('automation.create_lifecycle_job(uuid,jsonb)','automation.require_lifecycle_settings(automation.lifecycle_profiles)'):
         changes=[(change,signature) for change in (
@@ -30,7 +30,7 @@ def upgrade_checks(query,migration):
             f"UPDATE pg_proc SET provariadic='uuid'::regtype WHERE oid='{signature}'::regprocedure;",
             f"UPDATE pg_proc SET proargmodes=array_fill('i'::\"char\",ARRAY[{signature.count(',')+1}]) WHERE oid='{signature}'::regprocedure;",
             f"UPDATE pg_proc SET proargnames=ARRAY['synthetic_changed']::text[] WHERE oid='{signature}'::regprocedure;")]
-        check_guard(query,migration.read_text(),'0288','lifecycle_swap_task_source_upgrade',changes)
+        check_guard(query,migration.read_text(),migration.name[:4],'lifecycle_swap_task_source_upgrade',changes)
 
 
 def fixture(root):return baseline(root,fixing_frames=True)

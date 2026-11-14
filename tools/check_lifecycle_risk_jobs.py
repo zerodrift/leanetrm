@@ -45,11 +45,11 @@ def helper_metadata(query):
 
 _before = {}
 def before_migration(query, migration):
-    if migration.name != '0277_economic_lifecycle_risk_jobs.sql':
+    if migration.name != '0278_economic_lifecycle_risk_jobs.sql':
         return
     _before.update(helper_metadata(query))
     from check_fact_anchor_upgrade import run_checks
-    run_checks(query,migration,number='0277',guard='risk_economic_upgrade',signatures=(
+    run_checks(query,migration,number=migration.name[:4],guard='risk_economic_upgrade',signatures=(
         'security.authority_until(text)','risk.retain_axes(risk.jobs,jsonb)',
         'risk.submit(uuid,uuid,uuid,uuid,timestamptz,jsonb,jsonb)','risk.require_worker_attempt()',
         'security.read_gas_owned_holdings(uuid,uuid,timestamptz,uuid[])'))

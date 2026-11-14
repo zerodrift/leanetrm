@@ -287,7 +287,7 @@ def main():
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
-            if args.scheduled_swap_check and migration.name=='0296_retained_swap_schedule_reads.sql':
+            if args.scheduled_swap_check and migration.name=='0297_retained_swap_schedule_reads.sql':
                 from check_retained_swap_schedule_reads import predecessor_readers
                 predecessor_readers(query)
             if migration.name.startswith(('0228_','0229_')):

@@ -36,7 +36,7 @@ SIGNATURE='trading.scheduled_swap_terms(uuid,uuid,integer,uuid)'
 def upgrade_checks(query,migration):
     from check_lifecycle_risk_jobs import before_migration as risk_upgrade_checks
     risk_upgrade_checks(query,migration)
-    if migration.name!='0296_retained_swap_schedule_reads.sql':return
+    if migration.name!='0297_retained_swap_schedule_reads.sql':return
     body=migration_body(migration.read_text())
     function=[
         f"ALTER FUNCTION {SIGNATURE} SET work_mem='64kB';",

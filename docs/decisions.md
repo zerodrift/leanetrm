@@ -5052,7 +5052,7 @@ change of the stated pricing policy is no longer opened as a scope's current
 report after it.
 
 
-## D397 · Shared lifecycle, ownership and economic horizon risk
+## D399 · Shared lifecycle, ownership and economic horizon risk
 
 Owner-directed, 2026-11-13. Adopt the [shared lifecycle delivery contract](lifecycle-delivery.md).
 Product-owned pure rules compose existing Instrument/Side and native typed stores;
@@ -5099,7 +5099,7 @@ acknowledgement does not reinstate an older basis. Whole-portfolio, worker,
 physical-delivery and user/agent/browser workflows remain unfinished.
 
 
-D397’s scheduled execution choice retains one source-derived occurrence at one
+D399’s scheduled execution choice retains one source-derived occurrence at one
 recorded close, exact native trade/product and action-policy versions, and fresh
 certified knowledge at execution. It invokes the same managed Lifecycle registry
 for manual notice, review or automatic execution. Observed facts remain separate

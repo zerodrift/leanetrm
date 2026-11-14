@@ -11,7 +11,7 @@ from check_gas_futures_delivery import checks as performance_checks, fixture, up
 
 def upgrade_checks(query, migration):
     performance_upgrade_checks(query, migration)
-    if migration.name != '0276_gas_applied_source_reconciliation.sql':return
+    if migration.name != '0277_gas_applied_source_reconciliation.sql':return
     from assistant_context import check_guard
     signature='security.read_gas_owned_known_history(uuid,uuid,timestamptz,uuid[])'
     changes=[(change,signature) for change in (
@@ -29,7 +29,7 @@ def upgrade_checks(query, migration):
         f"GRANT EXECUTE ON FUNCTION {signature} TO openetrm_runtime WITH GRANT OPTION;",
         f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;",
         f"DO $$DECLARE d text=pg_get_functiondef('{signature}'::regprocedure);BEGIN EXECUTE replace(d,'AS $function$','AS $function$ /* synthetic drift */ ');END$$;")]
-    check_guard(query,migration.read_text(),'0276','gas_physical_source_upgrade',changes)
+    check_guard(query,migration.read_text(),migration.name[:4],'gas_physical_source_upgrade',changes)
 
 
 def checks(query, manifest):
