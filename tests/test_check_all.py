@@ -23,7 +23,7 @@ LIFECYCLE_NATIVE={f'tools/{name}.py' for name in (
     'check_lifecycle_option_scheduling','check_lifecycle_option_expiries',
     'check_lifecycle_scheduling','check_lifecycle_scheduled_bookings',
     'check_gas_source_ancestors','check_gas_physical_known','check_gas_cashout_projection','check_gas_accepted_projection','check_gas_quantity_reconciliation',
-    'check_gas_quantity_reconciliation_batches','check_cash_accumulation',
+    'check_gas_quantity_reconciliation_batches','check_cash_accumulation','check_gas_principal_carrying',
     'check_risk_fit_authority','check_lifecycle_browser','check_retained_swap_schedule_reads')}
 LIFECYCLE_PORTFOLIO={f'tools/{name}.py' for name in (
     'check_lifecycle_risk_jobs','check_lifecycle_risk_scope','check_lifecycle_final_scope',
@@ -182,7 +182,7 @@ class CheckAllTests(unittest.TestCase):
                          [['--', flag] for flag in ('--context-resolution', '--schedules', '--historical-risk', '--monte-carlo-risk', '--close-risk', '--automation',
                            '--live-calculation', '--reference-intake', '--preview-data', '--side-observation-compatibility',
                            '--lifecycle-actions','--economic-risk-contract','--lifecycle-schedule-contract','--gas-owned-setup',
-                           '--shared-native-markets','--derivative-methods','--gas-accepted-order')])
+                           '--shared-native-markets','--derivative-methods','--gas-accepted-order','--lifecycle-residual-currencies')])
         self.assertTrue(any('--historical-risk-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--monte-carlo-risk-check' in c and '--with-exchange' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--reference-import-check' in c for c in commands))

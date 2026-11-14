@@ -90,6 +90,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_gas_quantity_reconciliation','native quantity corrections, exact source allocations and retained principal refunds'),
         ('check_gas_quantity_reconciliation_batches','atomic linked gas corrections, exact review metadata and complete native principal prefixes'),
         ('check_cash_accumulation','explicit cash funding choices, native source custody and economic worker replay'),
+        ('check_gas_principal_carrying','saved delivery principal carrying and exact residual curve demand'),
         ('check_risk_fit_authority','volatility fitting actor and delegated worker authority'),
         ('check_retained_swap_schedule_reads','retained swap hydration and original worker read admission')):
         check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='trading')
@@ -106,7 +107,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         check(helper,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),
             '--browser',str(browser),'--no-build'],suite=suite)
     for flag in ('--lifecycle-actions','--economic-risk-contract','--lifecycle-schedule-contract','--gas-owned-setup',
-        '--shared-native-markets','--derivative-methods','--gas-accepted-order'):
+        '--shared-native-markets','--derivative-methods','--gas-accepted-order','--lifecycle-residual-currencies'):
         check('managed lifecycle '+flag,[str(dotnet),'run','--no-restore','--project',
             'tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--',flag])
     check('exact temporal sources, retained close upgrade and claimed worker replay',
