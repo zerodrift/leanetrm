@@ -11,7 +11,7 @@ namespace OpenEtrm.MarketData.Trading;
 // neither an accepted exercise nor a generated future, title or cash payment.
 public sealed record FuturesOptionPhysicalValueBinding(PhysicalOptionPolicy Policy,FuturesOptionAutomaticRule Rule,
     PhysicalOptionTerminal Terminal,FuturesMarginPolicy Margin,CapturedPriceSource Asset,
-    [property:JsonIgnore]ISideDiscounting? Carrying,[property:JsonIgnore]ISideDiscounting MarginDiscounting,string MarkInterpretation);
+    [property:JsonIgnore]ISideDiscounting? Carrying,[property:JsonIgnore]ISideDiscounting MarginDiscounting,string MarkInterpretation,FuturesMarketBinding Underlying);
 
 public sealed partial record FuturesOptionInstrument
 {
@@ -26,6 +26,8 @@ public sealed partial record FuturesOptionInstrument
             selected.Asset.Valuation.Scenario.Plan.GetPoint(selected.Asset.Point).Unit.Currency!=Currency||
             selected.Asset.Valuation.Scenario.Plan.GetPoint(selected.Asset.Point).Unit.Quantity!=gas.Quantity||
             (gas.Carrying==GasHoldingCarrying.CurrencyCurve)!=(selected.Carrying is not null)||selected.MarginDiscounting is null||
+            selected.Underlying is null||selected.Underlying.Market!=reference.Underlying||selected.Underlying.Series.Key!=Series.UnderlyingSeries||
+            selected.Underlying.SettlementMethod!="physical"||selected.Underlying.EligibleFrom>context.CalculationAt||
             selected.Rule is null||selected.Rule.Key.Revision!=Series.Key.Revision||selected.Rule.Key.Code!=Series.AutomaticExerciseRule||selected.Rule.Version<1||
             !Enum.IsDefined(selected.Terminal)||selected.Terminal!=PhysicalOptionTerminal.Automatic&&!Series.ContraryInstructionsAllowed||
             selected.MarkInterpretation is not(FuturesPhysicalBasisValueBinding.SameDeliverable or FuturesPhysicalBasisValueBinding.ValuationProxy))
@@ -53,7 +55,7 @@ public sealed partial record FuturesOptionInstrument
             StaticDerivatives=new(StaticDerivativeRestriction.Version,"physical_option_reference_strategy_derivatives_not_qualified"),
             ScheduleIdentity=$"{PhysicalOptionPolicy.Version}:{selected.Margin.Delivery!.ProfileId:D}:{selected.Margin.Delivery.ProfileRevision}:{selected.MarkInterpretation}:"+
                 ConnectedIdentity.Digest(new{selected.Policy,selected.Rule,selected.Terminal,selected.Margin,gas,
-                    selected.Asset.Market,selected.Asset.Point,selected.Asset.ManifestId,selected.Asset.Snapshot})};
+                    selected.Asset.Market,selected.Asset.Point,selected.Asset.ManifestId,selected.Asset.Snapshot,selected.Underlying})};
     }
     private UnitValuation PhysicalValue(UnitValuationContext context,FuturesOptionMarketBinding reference,FuturesOptionPhysicalValueBinding selected)
     {
@@ -64,9 +66,7 @@ public sealed partial record FuturesOptionInstrument
         var future=model.FuturesContract(selected.Margin.Contract);var quote=model.QuoteFor(reference.Underlying);
         if(future.Series.SettlementMethod!="physical"||Series.Multiplier!=future.LotSize.Amount*future.Series.Multiplier||
             selected.Asset.Valuation.Scenario.Plan.GetPoint(selected.Asset.Point).Unit!=PriceUnit.FromQuote(quote))throw PhysicalBindingError();
-        var market=new FuturesMarketBinding(ContractIdentity.FromCanonical($"physical_option_future_market_v1:{Id:D}:{selected.Margin.Id:D}:{selected.Margin.Revision}"),
-            reference.Underlying,model.ContractDefinition(selected.Margin.Contract),future.Series,quote,"physical",FuturesMarketBinding.Implementation);
-        _=future.ValidateMarginPolicy(market,selected.Margin,model,context.Snapshot);
+        _=future.ValidateMarginPolicy(selected.Underlying,selected.Margin,model,context.Snapshot);
         inputs.RequireSource(selected.Asset);
         var a=inputs.ExactPrice(reference.Underlying);var b=inputs.ExactPrice(gas.Mark);
         if(a.Unit!=PriceUnit.FromQuote(quote)||b.Unit!=a.Unit)throw PhysicalBindingError();

@@ -396,3 +396,10 @@ Checks cover the native two-source proxy PV and historical/Monte Carlo workers,
 a compatible quote on a nonmember curve, a contradictory same-deliverable
 selection and a positive same-deliverable metadata candidate. Profile admission
 and each ordinary or projected consumer remain separate qualification gates.
+
+The selected physical-option binding also retains the qualified underlying
+futures market and its explicit eligibility interval. It does not reconstruct a
+trading start from the margin window or manufacture a linked future. Ordinary
+source assembly uses the existing native execution-policy resolver when public
+first-trading metadata is unknown. The same retained binding enters margin-policy
+validation and pricing identity; a missing or not-yet-eligible selection refuses.

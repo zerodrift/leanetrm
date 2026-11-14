@@ -28,7 +28,8 @@ internal static class PhysicalOptionBindingChecks
         var policy=new PhysicalOptionPolicy(PhysicalOptionPolicy.Version,PhysicalOptionPolicy.FrozenBasis,PhysicalOptionPolicy.ReferenceStopping,
             PhysicalOptionPolicy.ReferenceCalibration,PhysicalOptionPolicy.IntrinsicStrategy);
         var selected=new FuturesOptionPhysicalValueBinding(policy,new(f.R(option.Series.AutomaticExerciseRule),1,"settlement_moneyness_v1",ExactDecimal.Parse("0"),"abandon","abandon"),
-            PhysicalOptionTerminal.Automatic,margin,asset,null,new ExplicitDiscounting(ExactDecimal.Parse("0.9"),DiscountFactorSource.Explicit),FuturesPhysicalBasisValueBinding.SameDeliverable);
+            PhysicalOptionTerminal.Automatic,margin,asset,null,new ExplicitDiscounting(ExactDecimal.Parse("0.9"),DiscountFactorSource.Explicit),FuturesPhysicalBasisValueBinding.SameDeliverable,
+            model.BindFutures(Guid.NewGuid(),a,"physical",FuturesMarketBinding.Implementation));
         var first=FuturesOptionChecks.OptionMarket.Holding(71,1,option,"1");
         var second=FuturesOptionChecks.OptionMarket.Holding(72,1,option,"1");
         var vanilla=FuturesOptionChecks.OptionMarket.Holding(73,1,option,"1");
@@ -111,6 +112,10 @@ internal static class PhysicalOptionBindingChecks
                 new PointCurveTarget(a.Curve,[bindings[a].PointId]),PriceUnit.FromQuote(f.FuturesQuote),ExactDecimal.Parse("0.01"),ConnectedRiskBump.Convention)],RiskEngine.ExactNumericalPolicy));
             Reject("valuation_time_unsupported",()=>RiskEngine.CalculateExact(RiskEngine.WithClock(mixed,new(at.AddHours(1),ClockChange.FrozenInputs)),[],RiskEngine.ExactNumericalPolicy));
             void Bad(FuturesOptionPhysicalValueBinding terms)=>Reject("physical_option_binding",()=>Prepare(terms));
+            Bad(selectedB with{Underlying=null!});
+            var underlying=selectedB.Underlying;
+            Bad(selectedB with{Underlying=new(underlying.Id,underlying.Market,underlying.Contract,underlying.Series,underlying.Quote,
+                underlying.SettlementMethod,underlying.Convention,underlying.Instrument,at.AddMinutes(1))});
             Bad(selectedB with{Carrying=null});Bad(selectedB with{Asset=asset});Bad(selectedB with{MarkInterpretation=""});
             Bad(selectedB with{Rule=selectedB.Rule with{Key=f.R("another_rule")}});
             Bad(selectedB with{Margin=selectedB.Margin with{Implementation=FuturesMarginPolicy.Version,Delivery=null}});
