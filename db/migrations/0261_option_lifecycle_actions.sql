@@ -417,14 +417,18 @@ DECLARE until_at timestamptz;source_until timestamptz;prefix integer;market_pref
  SELECT count(DISTINCT budget_event.id),coalesce(sum(budget_policy.occurrence_count),0) INTO event_count,occurrence_count
  FROM trading.futures_option_events budget_event LEFT JOIN settlement_data.futures_margin_adoptions budget_adoption
   ON(budget_adoption.catalog_id,budget_adoption.trade_id)=(budget_event.catalog_id,budget_event.futures_trade_id)
+  AND budget_adoption.publication_order<=prefix AND EXISTS(SELECT 1 FROM trading.knowledge_receipts budget_known
+   WHERE(budget_known.catalog_id,budget_known.publication_order)=(budget_adoption.catalog_id,budget_adoption.publication_order) AND budget_known.known_from<=cut)
  LEFT JOIN settlement_data.futures_margin_policies budget_policy
   ON(budget_policy.catalog_id,budget_policy.id,budget_policy.revision)=(budget_adoption.catalog_id,budget_adoption.policy_id,budget_adoption.policy_revision)
+  AND budget_policy.publication_order<=prefix AND EXISTS(SELECT 1 FROM trading.knowledge_receipts budget_known
+   WHERE(budget_known.catalog_id,budget_known.publication_order)=(budget_policy.catalog_id,budget_policy.publication_order) AND budget_known.known_from<=cut)
  WHERE(budget_event.catalog_id,budget_event.trade_id)=(catalog,trade) AND budget_event.publication_order<=prefix;
  IF event_count>4096 OR occurrence_count>65536 THEN RAISE EXCEPTION 'lifecycle_option_source_capacity'
   USING DETAIL='known_futures_option_events_v1 permits at most 4096 events and 65536 repeated policy occurrences.';END IF;
  result=jsonb_build_object('stateProfile','known_futures_option_events_v1','contextId',context,'knownAt',cut,'asOf',as_of,'businessDate',business_date,
   'origin',to_jsonb(r),'referenceCatalogId',c.reference_catalog_id,'referenceRevisionId',c.reference_revision_id,'seriesCode',s.code);
- native_bytes=octet_length(result::text)+16;
+ native_bytes=octet_length(convert_to(result::text,'UTF8'))+16;
  remaining=abs(r.lots);previous_at=r.execution_at;
  FOR e IN SELECT t.*,k.known_from known_at FROM trading.futures_option_events t
  LEFT JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(t.catalog_id,t.publication_order)
@@ -481,7 +485,7 @@ DECLARE until_at timestamptz;source_until timestamptz;prefix integer;market_pref
   END IF;
   event_value=(to_jsonb(e)-'request')||jsonb_build_object('settlement_source',observation,'settlement_known_at',observation->'source_known',
    'settlement_quote_code',observation->'quote_code','future',linked);
-  native_bytes=native_bytes+octet_length(event_value::text)+2;
+  native_bytes=native_bytes+octet_length(convert_to(event_value::text,'UTF8'))+2;
   IF native_bytes>16777216 THEN RAISE EXCEPTION 'lifecycle_option_source_capacity'
    USING DETAIL='known_futures_option_events_v1 permits at most 16 MiB of complete native source JSON.';END IF;
   events=events||jsonb_build_array(event_value);
