@@ -139,6 +139,19 @@ exact version. It uses no synthetic session UUID. Native certification of that
 configuration and complete next-close calendar resolution remain source-reader
 responsibilities.
 
+The native horizon reader records immutable close-session publication links in
+the existing certified trading publication stream. Existing published settings
+receive their real migration commit time, with no historical backdating. Reads
+bind the exact source context, verify the selected governing opening version and
+follow only the source-known effective session schedule to the next close.
+Every consumed calendar/clock/version is authorized and retained; unrelated
+versions are excluded from evidence. Missing coverage, an unreadable consumed
+version or an ambiguous/nonexistent cutoff refuses rather than rolling the date.
+Managed source admission retains the original read deadline through commit.
+Owned native checks cover old-cutoff refusal, migration receipts, calendar
+holidays/weekends, a known future version change, an unreadable unused version,
+source-context binding and successor-grant deadline refusal.
+
 Qualified connected economic components can update one flat immutable member
 map atomically, as required when delivery consumes an explicitly linked owned
 stock position. `Compose` builds the sole valued residual/cash aggregates, and

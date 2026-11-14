@@ -61,6 +61,8 @@ public sealed record PortfolioHoldingRisk(string Measure,string Factor,ExactRisk
 internal sealed record PortfolioProductSource(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,ValuationPortfolio Portfolio,string Measure)
 {
     internal ImmutableArray<Trade> Trades{get;init;}=[];
+    internal ImmutableArray<SwapStore.ResolvedSwapHolding> Swaps{get;init;}=[];
+    internal ImmutableArray<FuturesOptionPosition> Options{get;init;}=[];
 }
 public sealed record PortfolioValuationResult(Guid SnapshotId,ScheduleContext Context,PortfolioValuationPolicy Policy,
     ImmutableArray<UnitPricingContract> ModelContracts,ImmutableArray<PortfolioPositionEvidence> Positions,
@@ -87,7 +89,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         PreparedConnectedPortfolioRisk Connected,ImmutableArray<string> Measures,
         ConnectedMarketEvidence Evidence,ConnectedPreparationWork Preparation)
     {
-        public ImmutableArray<QuoteFactor> Factors=>Connected.Factors;
+        internal ImmutableArray<QuoteFactor>? EconomicFactors{get;init;}
+        public ImmutableArray<QuoteFactor> Factors=>EconomicFactors??Connected.Factors;
         public string ScenarioId=>Connected.Scenario.Id;
     }
     public sealed record Prepared(Guid SnapshotId,ScheduleContext Context,PortfolioValuationPolicy Policy,
@@ -377,7 +380,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         foreach(var marketHoldings in swaps.GroupBy(h=>h.Snapshot.Definitions).OrderBy(g=>g.Key.RevisionId))
         {
             var holdings=marketHoldings.ToImmutableArray();var portfolio=SwapPortfolio(holdings);
-            var source=holdings[0];materialized.Add(new(source.Data,source.Frame,source.Snapshot,portfolio,SwapMeasure){Trades=SwapTrades(holdings)});
+            var source=holdings[0];materialized.Add(new(source.Data,source.Frame,source.Snapshot,portfolio,SwapMeasure){Trades=SwapTrades(holdings),Swaps=holdings});
             var rows=marketHoldings.ToDictionary(h=>h.Row.Id("trade_id"),h=>h.Row);
             foreach(var position in portfolio.Positions)
                 evidence.Add(Evidence(rows[position.TradeId],position,SwapMeasure,"publication_order",marketHoldings.Single(h=>h.Row.Id("trade_id")==position.TradeId).Instrument is CrossCommodityScheduledSwap?"heat_rate":SwapType));
@@ -401,7 +404,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             optionWork=new(optionWork.Positions+work.Positions,optionWork.UniqueSeries+work.UniqueSeries,optionWork.SolvedSeries+work.SolvedSeries,
                 optionWork.FallbackSeries+work.FallbackSeries,optionWork.CalibrationTreePrices+work.CalibrationTreePrices);
             if(options.Portfolio(source.Positions) is not {} portfolio)continue;
-            materialized.Add(new(source.Data,source.Frame,selected,portfolio,FuturesOptionPositions.Measure){Trades=options.Trades(source.Positions)});
+            materialized.Add(new(source.Data,source.Frame,selected,portfolio,FuturesOptionPositions.Measure){Trades=options.Trades(source.Positions),Options=source.Positions});
             var heads=source.Positions.ToDictionary(p=>p.Trade);
             foreach(var position in portfolio.Positions)
             {
