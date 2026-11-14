@@ -604,8 +604,7 @@ graph and complete declared bindings. Independent A/B native checks and workers
 cover these routes and reject missing or substituted sources and bindings.
 
 The qualified active-parent fixture currently shares one native market source.
-Actual source-before-final activation through the portfolio coordinator,
-foreign-market active title/principal continuation, fully performed cash-only
+Foreign-market active title/principal continuation, fully performed cash-only
 parents without unused mark inputs, selected physical-option continuation and
 its real application browser flow remain qualification gates.
 
@@ -616,3 +615,11 @@ source admission through the explicit preflight-to-publication context transitio
 Configured gas keeps its full gas-specific scope admission. Original source
 deadlines remain commit checks. The generated-close worker, report recovery and
 15 real-browser checks exercise this publication boundary.
+The source-before-final native qualifier opens one minute before the real final
+occurrence at a later explicit knowledge cutoff. No accepted opening margin or
+physical holding is invented. The path activates the exact already-accepted
+native obligation and VM cash at the final event, with later principal/title facts
+still governed by their original dates. Every original owner's economic opening
+matches its selected ordinary PV. Historical and Monte Carlo worker reports
+match the interactive source exactly, under both the pre-final and active-parent
+fixtures, without recording financial events during projection.
