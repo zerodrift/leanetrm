@@ -29,7 +29,7 @@ internal static class LifecycleCurrencyChecks
         if(conditional.DiscountFactor.ToString()!="0.9987531789458179"||conditional.RateDefinition?.Timing?.CalculationAt!=horizon||
             !conditional.Snapshot.HasSameInputs(source)||conditional.RateDefinition.Pillars.Length!=3)
             throw new Exception("Lifecycle currency cash lost its exact conditional factor, actual source pins or required pillar geometry.");
-        var component=new CashProjection(new(new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,Guid.NewGuid()),Guid.NewGuid(),Guid.NewGuid()),R("usd"),at.AddHours(1),due);
+        var component=new CashProjection(new(new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,Guid.NewGuid()),Guid.NewGuid(),Guid.NewGuid()),R("usd"),at.AddHours(1),due,source);
         var model=new CurveModel(revision,reference,[],[],[],[],[],[new(R("rate"),NumericKind.Dimensionless,null,null,ExactDecimal.Parse("-0.1"),ExactDecimal.Parse("1"))],
             series.Select(s=>new MarketSeries(s,null,null,R("rate"))));
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Linear,LifecycleProjectionPolicy.PayAtDue,
@@ -54,12 +54,13 @@ internal static class LifecycleCurrencyChecks
         Console.WriteLine("PASS lifecycle currency curve: exact intraday conditional cash and retained three-pillar source evidence");
         return 1;
     }
-    private sealed record CashProjection(AccountingPositionKey Owner,ReferenceKey Currency,DateTimeOffset At,DateTimeOffset Due):ILifecycleProjection
+    private sealed record CashProjection(AccountingPositionKey Owner,ReferenceKey Currency,DateTimeOffset At,DateTimeOffset Due,MarketSnapshot SourceSnapshot):ILifecycleProjection
     {
         public string Implementation=>"synthetic_currency_cash_projection_v1";
         public ImmutableArray<CurveRequest> Dependencies=>[];
         public LifecycleProjectionState Opening=>new([],[]);
         public ImmutableArray<LifecycleProjectionEvent> Events=>[new(LifecycleProjectionEvent.ScopedId(Owner,Guid.Parse("22000000-0000-0000-0000-000000000001")),At,[],"cash")];
+        public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)=>[..Events.Where(e=>e.At<=horizon)];
         public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)=>
             state with{Cash=state.Cash.Add(new(occurrence.Id,At,Due,ExactMoney.Parse("100",Currency)))};
     }

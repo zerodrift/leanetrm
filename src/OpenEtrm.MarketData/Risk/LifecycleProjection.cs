@@ -44,10 +44,12 @@ public interface ILifecycleProjection
     string Implementation{get;}
     AccountingPositionKey Owner{get;}
     ReferenceKey Currency{get;}
+    MarketSnapshot SourceSnapshot{get;}
     // Complete transition and every possible residual branch, before sampling.
     ImmutableArray<CurveRequest> Dependencies{get;}
     LifecycleProjectionState Opening{get;}
     ImmutableArray<LifecycleProjectionEvent> Events{get;}
+    ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon);
     LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context);
 }
 public sealed record LifecycleProjectionValue(AccountingPositionKey Owner,ReferenceKey Currency,ExactMoney OpeningValue,
@@ -123,6 +125,8 @@ public static class LifecycleProjection
             components.Select(c=>c.Owner).Distinct().Count()!=components.Length)
             throw Error("projection_scope","Supply complete distinct native economic owners and qualified projection handlers.");
         foreach(var component in components)Money.RequireKey(component.Currency);
+        if(components.Any(c=>c.SourceSnapshot is null||!c.SourceSnapshot.HasSameInputs(source)))
+            throw Error("projection_source","Every projection handler must retain this exact source certificate, inputs and opening clock.");
         // Actual fixing admission is exact captured evidence, never a forecast.
         if(knownFixings.IsDefault||knownFixings.Any(f=>f is null||f.Key is null||f.Evidence is null||f.Evidence.Input.Use!=InputUse.FrozenFact||
             !source.Selections.Contains(f.Evidence)||f.Evidence.Observation.State!=PublicationState.Final||f.Evidence.Observation.ObservedAt>source.ValuationAt))

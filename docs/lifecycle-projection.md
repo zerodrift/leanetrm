@@ -12,6 +12,12 @@ contributions belong to the event that creates them; earlier contributions canno
 be rewritten or removed. Independent native holdings use typed accounting owners,
 without creating artificial trades.
 
+Every handler retains the exact source snapshot and admits its event schedule for
+the common horizon before history is read. A component prepared under another
+source clock or input set cannot be reused. Potential physical branches require
+their qualified delivery policies during this preparation, even when a particular
+sample later abandons an option and never creates that physical future.
+
 `CashLifecycleProjection` retains actual source-known payments as a separate
 immutable collection. Those payments enter period cash at their effective
 instants under both hypothetical disposition choices. A projected scheduled

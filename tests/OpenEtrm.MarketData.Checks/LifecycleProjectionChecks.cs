@@ -15,8 +15,10 @@ internal static class LifecycleProjectionChecks
         var horizon=new LifecycleProjectionHorizon(Guid.NewGuid(),1,f.R("calendar"),
             [new(new(2040,12,18),source.ValuationAt.AddHours(8),0),new(new(2040,12,19),source.ValuationAt.AddDays(1),0)]);
         var request=new CurveRequest(f.C("local_gas"),f.K(3));
-        var component=new FixAndCash(owner,f.R("currency"),request,source.ValuationAt.AddHours(4));
+        var component=new FixAndCash(owner,f.R("currency"),request,source.ValuationAt.AddHours(4),source);
         var prepared=LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[component],[]);
+        Reject("projection_source",()=>LifecycleProjection.Prepare(f.Model(),source,horizon,policy,
+            [component with{SourceSnapshot=source with{ValuationAt=source.ValuationAt.AddHours(1)}}],[]));
         var factor=prepared.Factors.Single(factor=>factor.Input.Series==f.S(1));
         var result=prepared.Evaluate("path",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
         // Opening price is 3 + .1 + .2. Half of a +2 terminal future move
@@ -71,7 +73,7 @@ internal static class LifecycleProjectionChecks
             BindingStates=ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty.Add(new(trade.Id,binding),state)};
         var history=new FuturesMarginHistory(market.Instrument.ProposeMarginTerms(trade,binding,margin,model,source),source.Knowledge.ContextId,source.Knowledge.KnownAt,[]);
         var end=source.ValuationAt.AddDays(1);var horizon=new LifecycleProjectionHorizon(Guid.NewGuid(),1,f.R("calendar"),[new(new(2040,12,28),end,0)]);
-        var derived=new FixAndCash(new(Guid.NewGuid(),Guid.NewGuid(),trade.BookId),market.Quote.Currency,new(f.C("local_gas"),f.K(3)),end);
+        var derived=new FixAndCash(new(Guid.NewGuid(),Guid.NewGuid(),trade.BookId),market.Quote.Currency,new(f.C("local_gas"),f.K(3)),end,source);
         var prepared=LifecycleProjection.Prepare(model,source,horizon,policy,[new FuturesLifecycleProjection(trade,binding,state,history,setup,market.Market,model,source),derived],[]);
         var factor=prepared.Factors.Single(factor=>factor.Input.Series==f.S(1));
         var result=prepared.Evaluate("final_freeze",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
@@ -191,14 +193,14 @@ internal static class LifecycleProjectionChecks
         Reject("projection_scope",()=>late.Evaluate("duplicate_residual",[]));
         var changed=source with{Id=Guid.NewGuid(),Selections=source.Selections.SetItem(0,source.Selections[0] with{
             Observation=source.Selections[0].Observation with{Value=ExactDecimal.Parse("4")}})};
-        var inconsistent=LifecycleProjection.Prepare(f.Model(),changed,horizon,policy,[component with{Owner=second.Owner}],[]);
+        var inconsistent=LifecycleProjection.Prepare(f.Model(),changed,horizon,policy,[component with{Owner=second.Owner,SourceSnapshot=changed}],[]);
         Reject("risk_economic_history",()=>LifecycleEconomicRisk.Factors([prepared,inconsistent]));
     }
     private static void Reject(string code,Action action)
     {try{action();}catch(MarketDataException error)when(error.Code==code){return;}throw new Exception("Expected "+code);}
     private static void Equal(ExactMoney value,string expected)
     {if(value.CompareTo(ExactMoney.Parse(expected,value.Currency))!=0)throw new Exception($"Expected {expected}; got {value.ToExactString()}.");}
-    private sealed record FixAndCash(AccountingPositionKey Owner,ReferenceKey Currency,CurveRequest Request,DateTimeOffset At):ILifecycleProjection
+    private sealed record FixAndCash(AccountingPositionKey Owner,ReferenceKey Currency,CurveRequest Request,DateTimeOffset At,MarketSnapshot SourceSnapshot):ILifecycleProjection
     {
         public bool FailOnDown{get;init;}
         public DateTimeOffset? DueAt{get;init;}
@@ -210,6 +212,7 @@ internal static class LifecycleProjectionChecks
         public ImmutableArray<CurveRequest> Dependencies=>[Request];
         public LifecycleProjectionState Opening=>new(OpeningSelection??[],[]);
         public ImmutableArray<LifecycleProjectionEvent> Events=>EventSelection??[new(LifecycleProjectionEvent.ScopedId(Owner,Guid.Parse("11000000-0000-0000-0000-000000000001")),At,[],"fix")];
+        public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)=>[..Events.Where(e=>e.At<=horizon)];
         public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
         {
             if(FailOnDown&&context.Price(Request).ToUnitPriceExact().Value.CompareTo(ExactDecimal.Parse("3.3"))<0)

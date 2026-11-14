@@ -10,6 +10,7 @@ public sealed class CashLifecycleProjection:ILifecycleProjection
     public string Implementation=>"native_cash_economic_projection_v1";
     public AccountingPositionKey Owner{get;}
     public ReferenceKey Currency=>instrument.Currency;
+    public MarketSnapshot SourceSnapshot=>source;
     public ImmutableArray<CurveRequest> Dependencies=>[];
     public LifecycleProjectionState Opening{get;}
     public ImmutableArray<LifecycleProjectionEvent> Events{get;}
@@ -41,6 +42,7 @@ public sealed class CashLifecycleProjection:ILifecycleProjection
         var projected=new ProjectedCashDischargeValuation(actual,remaining,occurrence.At);
         return state with{Residuals=[Portfolio(projected)],Cash=state.Cash.Add(new(occurrence.Id,occurrence.At,occurrence.At,remaining))};
     }
+    public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)=>[..Events.Where(e=>e.At<=horizon)];
     private ValuationPortfolio Portfolio(ICashPaymentValuation state)
     {
         var setup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,discounting){

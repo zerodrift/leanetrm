@@ -42,6 +42,7 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
     public string Implementation=>"futures_margin_economic_projection_v1";
     public AccountingPositionKey Owner=>new(trade.Id,holding.Id,trade.BookId);
     public ReferenceKey Currency=>market.Instrument.Currency;
+    public MarketSnapshot SourceSnapshot=>source;
     public ImmutableArray<CurveRequest> Dependencies{get;}
     public LifecycleProjectionState Opening{get;}
     public ImmutableArray<LifecycleProjectionEvent> Events{get;}
@@ -100,6 +101,12 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
         var projectedSetup=setup with{BindingStates=setup.BindingStates.SetItem(new(trade.Id,holding.Id),projectedState)};
         return state with{Residuals=[ValuationPortfolio.FromTrades([new(trade.Id,trade.BookId,[holding],trade.Booking)],projectedSetup)],
             Cash=cash.Amount==default?state.Cash:state.Cash.Add(new(occurrence.Id,occurrence.At,selected.DueAt,ExactMoney.FromMoney(cash)))};
+    }
+    public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)
+    {
+        if(market.SettlementMethod!="cash"&&Events.Any(e=>e.At<=horizon&&e.Kind=="final_margin"))
+            throw new MarketDataException("futures_delivery_transition","Prepare the qualified gas delivery adapter for every physical final branch before economic sampling.");
+        return [..Events.Where(e=>e.At<=horizon)];
     }
     private static MarketDataException Error(string message)=>new("projection_futures_state",message);
 }

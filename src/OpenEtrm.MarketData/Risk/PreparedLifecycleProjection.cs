@@ -186,7 +186,9 @@ public sealed class PreparedLifecycleProjection
     }
     private static ImmutableArray<(int,LifecycleProjectionEvent)> Order(ImmutableArray<ILifecycleProjection> components,DateTimeOffset opening,DateTimeOffset horizon)
     {
-        var all=components.SelectMany((c,i)=>c.Events.Select(e=>(Component:i,Event:e))).ToArray();
+        var schedules=components.Select(c=>c.EventsFor(horizon)).ToArray();
+        if(schedules.Any(s=>s.IsDefault))throw LifecycleProjection.Error("projection_events","Every handler must admit its exact horizon event schedule before sampling.");
+        var all=schedules.SelectMany((schedule,i)=>schedule.Select(e=>(Component:i,Event:e))).ToArray();
         if(all.Any(e=>e.Event is null||e.Event.Id==Guid.Empty||!TradingInstant.IsSupported(e.Event.At)||e.Event.Requires.IsDefault||
             e.Event.Requires.Distinct().Count()!=e.Event.Requires.Length||string.IsNullOrWhiteSpace(e.Event.Kind))||
             all.Select(e=>e.Event.Id).Distinct().Count()!=all.Length)
