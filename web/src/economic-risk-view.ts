@@ -14,6 +14,7 @@ type Options={api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promi
 
 /** Financial choices and the complete branch universe come from the managed source adapter. */
 export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Options){
+ host.dataset.ownControls='';
  const form=node('form'),fields=node('fieldset'),sourceFields=node('div'),riskFields=node('div'),note=node('p'),sourceSummary=node('p'),coverage=node('div'),pendingHost=node('div');
  form.dataset.economic='form';fields.dataset.economic='fields';sourceFields.dataset.economic='source-fields';sourceSummary.dataset.economic='source-summary';pendingHost.dataset.economic='pending';note.dataset.economic='note';note.setAttribute('role','status');
  sourceFields.className=riskFields.className='factor-history-fields';pendingHost.className='actions';

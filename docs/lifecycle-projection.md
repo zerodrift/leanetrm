@@ -187,6 +187,15 @@ branches still require their own managed-worker checks. Profile completion uses
 the exact source context, opening instant and original source-read deadline;
 workers receive no interactive-preview capability.
 
+An owned full-application browser check now exercises the same native-gas
+baseline through the actual API and managed worker, without substituting API
+responses. It selects every lifecycle policy, prepares the complete source and
+aligned history, checks the independently calculated signed tail, queues a job,
+reopens its completed report after a full reload, and changes the display zone
+without another financial calculation. The economic form owns its busy and
+method-specific control state; static-risk synchronization preserves the
+selected economic report address and captured context.
+
 The pure listed-option adapter retains the source calibration and open signed
 remaining lots. At expiry it applies the exact versioned automatic exercise rule
 or the captured contrary instruction, then replaces the option with the ordinary

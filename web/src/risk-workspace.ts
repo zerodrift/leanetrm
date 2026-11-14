@@ -50,6 +50,10 @@ export function setupRiskWorkspace(o:Options){
  };
  function changed(){
   if(!engine)return;retain();const run=engine.current();
+  if(economic?.shown()){
+   selectedJob=economic.jobId();
+   get<HTMLButtonElement>('risk-workspace-export').disabled=o.busy()||!economic.canDownload();o.changed();return;
+  }
   const idsOfJobs=run?.retained?run.parts.flatMap(p=>p.job?.id?[p.job.id]:[]):[];
   const next=selectedJob&&idsOfJobs.includes(selectedJob)?selectedJob:idsOfJobs[0];
   if(next!==selectedJob){const before=selectedJob;selectedJob=next;if(!host.hidden&&(next||location.hash==='#risk/job/'+before))window.history.replaceState(null,'',location.pathname+location.search+(next?'#risk/job/'+encodeURIComponent(next):''));}
@@ -80,6 +84,7 @@ export function setupRiskWorkspace(o:Options){
    engine?.reset();
    results.reset();get('risk-workspace-results').hidden=true;shown=undefined;selectedJob=id;
    window.history.replaceState(null,'',location.pathname+location.search+(id?'#risk/job/'+encodeURIComponent(id):''));
+   get('risk-workspace-note').textContent='';
    get('risk-workspace-context-note').textContent='Event-aware report: its captured opening source, knowledge cutoff and common horizon are shown below.';
    o.view('risk');get<HTMLButtonElement>('risk-workspace-export').disabled=o.busy()||!economic?.canDownload();
   }});
