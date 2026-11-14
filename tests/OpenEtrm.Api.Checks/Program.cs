@@ -6,6 +6,7 @@ using OpenEtrm.MarketData;
 if(args is ["--lifecycle-actions"]){LifecycleActionChecks.Run();return;}
 if(args is ["--lifecycle-actions-native",var lifecycleFixture]){await LifecycleActionChecks.RunNative(lifecycleFixture);return;}
 if(args is ["--lifecycle-swap-native",var lifecycleSwapFixture]){await LifecycleSwapChecks.Run(lifecycleSwapFixture);return;}
+if(args is ["--gas-owned",var gasOwnedFixture]){await GasOwnedChecks.Run(gasOwnedFixture);return;}
 if(args is ["--futures-margin-journal",var marginJournalFixture]){await FuturesMarginJournalChecks.Run(marginJournalFixture);return;}
 if(args is ["--futures-margin-adoption",var marginAdoptionFixture]){await FuturesMarginAdoptionChecks.Run(marginAdoptionFixture);return;}
 if(args is ["--futures-margin-sources"]){FuturesMarginSourceChecks.Run();return;}
