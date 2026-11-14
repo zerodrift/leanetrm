@@ -440,3 +440,23 @@ negative-price and distinct-due checks qualify the bounded ordinary value and
 its no-event horizon reuse. A foreign dependency in that unit must match its
 independently admitted source graph exactly. Final conversion, native portfolio
 policy selection and full lifecycle source wiring remain qualification gates.
+
+The pure `gas_accepted_quantity_lifecycle_projection_v3` adapter preserves exact
+source-known stock reservations, releases and consumptions together with their
+linked quantity-obligation reductions and native receipt owners. Actual events
+precede hypothetical events at the same instant through explicit prerequisites.
+Remaining obligations are checked after the accepted event prefix. A stated
+hypothetical allocation overlapping an accepted performance refuses; no quantity
+or supply list is silently resized. The original knowledge cutoff remains fixed.
+This version does not infer funding for an independent future title or loan.
+
+Each hypothetical stock use must leave enough stock for the complete remaining
+accepted resource schedule. The check replays the chronological reserve, use and
+release operations, so released stock may be reserved again without counting the
+same units twice. Depleted stock with a later accepted reservation release keeps
+an explicit zero-valued, projection-only resource binding. It has no commodity
+mark dependency, admits only zero quantity and disappears after its final
+release. Independent tests cover partial repayment, loss, distinct receipt
+ownership, actual-first ordering, expired marks after depletion and refusal to
+suppress nonzero value. Native profile selection, source assembly and full API
+and worker qualification for this version remain delivery gates.
