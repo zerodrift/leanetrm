@@ -256,4 +256,38 @@ END$$;
 ALTER FUNCTION security.require_lifecycle_projection_profile(uuid,text,uuid,uuid,integer,uuid,timestamptz,date,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.require_lifecycle_projection_profile(uuid,text,uuid,uuid,integer,uuid,timestamptz,date,timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION security.require_lifecycle_projection_profile(uuid,text,uuid,uuid,integer,uuid,timestamptz,date,timestamptz) TO openetrm_runtime,openetrm_risk_worker;
+-- Source-known governing choices for the economic horizon selector. Choose each
+-- head before checking visibility so an unreadable newer setting cannot expose
+-- an older setting as its substitute.
+CREATE FUNCTION security.lifecycle_projection_sessions(catalog uuid,context uuid,as_of timestamptz,business_date date) RETURNS jsonb
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE q security.request_contexts;until_at timestamptz;prefix integer;cut timestamptz;choices jsonb;BEGIN
+ PERFORM 1 FROM security.epoch FOR SHARE;
+ until_at=security.admit_trading_business_source(catalog,context,as_of,business_date);
+ SELECT * INTO STRICT q FROM security.request_contexts r WHERE r.backend_pid=pg_backend_pid()
+  AND r.transaction_id=pg_current_xact_id_if_assigned() AND r.runtime_login=session_user AND r.expires_at>clock_timestamp();
+ IF q.market_context_id IS NULL THEN PERFORM security.use_market_context(catalog,context);
+ ELSIF(q.market_catalog_id,q.market_context_id) IS DISTINCT FROM(catalog,context)
+ THEN RAISE EXCEPTION 'projection_horizon_denied' USING ERRCODE='42501';END IF;
+ SELECT x.known_through,t.known_at INTO STRICT prefix,cut FROM trading.contexts x JOIN market_data.temporal_contexts t
+ ON(t.catalog_id,t.id)=(x.catalog_id,x.context_id) WHERE(x.catalog_id,x.context_id)=(catalog,context);
+ WITH governing AS MATERIALIZED(
+  SELECT DISTINCT ON(s.code)s.*,p.publication_order,k.known_from FROM market_data.close_session_versions s
+  JOIN market_data.lifecycle_close_session_publications p ON(p.catalog_id,p.session_code,p.session_version)=(s.catalog_id,s.code,s.version)
+  JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(p.catalog_id,p.publication_order)
+  WHERE(s.catalog_id,s.state)=(catalog,'published') AND s.effective_from<=business_date AND business_date<s.effective_to
+   AND p.publication_order<=prefix AND k.known_from<=cut ORDER BY s.code,s.effective_from DESC)
+ SELECT coalesce(jsonb_agg(jsonb_build_object('catalogId',v.catalog_id,'code',v.code,'version',v.version,'name',c.name,
+  'definitionRevisionId',v.definition_revision_id,'calendar',jsonb_build_object('catalogId',v.reference_catalog_id,'revisionId',v.reference_revision_id,'code',v.calendar_code),
+  'cutoff',v.cutoff_local,'effectiveFrom',v.effective_from,'effectiveTo',v.effective_to,'publicationOrder',v.publication_order,'knownFrom',v.known_from)
+  ORDER BY c.name,v.code),'[]'::jsonb) INTO choices FROM governing v JOIN market_data.close_sessions c ON(c.catalog_id,c.code)=(v.catalog_id,v.code)
+ WHERE security.market_fact_visible(v.catalog_id,v.definition_revision_id,NULL) IS TRUE
+  AND security.reference_access(v.reference_catalog_id,'ReadMarketData') IS TRUE
+  AND security.reference_version_visible(v.reference_catalog_id,v.reference_revision_id) IS TRUE;
+ PERFORM security.require_admitted_business_source(catalog,context,as_of,business_date,until_at);
+ RETURN jsonb_build_object('contextId',context,'knownAt',cut,'asOf',as_of,'businessDate',business_date,'sessions',choices,'authorityUntil',until_at);
+END$$;
+ALTER FUNCTION security.lifecycle_projection_sessions(uuid,uuid,timestamptz,date) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.lifecycle_projection_sessions(uuid,uuid,timestamptz,date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION security.lifecycle_projection_sessions(uuid,uuid,timestamptz,date) TO openetrm_runtime,openetrm_risk_worker;
 COMMIT;

@@ -222,3 +222,10 @@ remain private. The exact-instant currency provider also supports ordinary sourc
 PV without a fictitious clock roll, while every forward roll requires its
 explicit policy. An explicitly undiscounted swap with nominal cash needs no unused
 currency curve mapping.
+
+The economic session chooser reads only the source-known published version that
+governs the opening business day. It selects governing versions before applying
+current reference/definition visibility, so an unreadable head never falls back
+to an older readable version. Future-effective versions and settings published
+after the selected cutoff are absent from choices. Choice reads retain the same
+original source admission through commit as the selected horizon calculation.

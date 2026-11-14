@@ -84,6 +84,10 @@ def checks(query, manifest):
         return (f"SELECT security.read_lifecycle_projection_horizon('{catalog}','{session['code']}',{version},'{context}',"
                 f"'{opening}','{day}')::text;")
 
+    def choices(context, day='2020-12-18', opening='2020-12-18T16:00:00Z'):
+        return json.loads(call(f"SELECT security.lifecycle_projection_sessions('{catalog}','{context}','{opening}','{day}')::text;"))['sessions']
+    assert not any(s['code'] == session['code'] for s in choices(old_context))
+    assert next(s for s in choices(current) if s['code'] == session['code'])['version'] == 1
     value = json.loads(call(read(current)))
     assert value['contextId'] == current and value['session']['code'] == session['code'] and value['session']['version'] == 1
     assert value['closes'] == [{'date': '2020-12-21', 'instant': '2020-12-21T16:00:00+00:00', 'offsetSeconds': 0}], value
@@ -128,6 +132,11 @@ def checks(query, manifest):
                 f"SELECT security.market_fact_visible('{catalog}','{private_definition}',NULL);") == 'f'
     scoped = json.loads(call(read(unused_version_context)))
     assert [v['version'] for v in scoped['versions']] == [1, 2], scoped['versions']
+    available=choices(unused_version_context)
+    assert next(s for s in available if s['code']==session['code'])['version']==1
+    assert not any(s['code']=='synthetic_private_projection' for s in available), available
+    assert next(s for s in choices(newer,'2020-12-21','2020-12-21T16:00:00Z') if s['code']==session['code'])['version']==2
+
     reject(f"SELECT security.read_lifecycle_projection_horizon('{catalog}','synthetic_private_projection',1,'{unused_version_context}',"
            "'2020-12-18T16:00:00Z','2020-12-18')::text;", 'projection_horizon_denied')
     assert json.loads(call(read(current)))['closes'] == value['closes']

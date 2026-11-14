@@ -46,6 +46,18 @@ internal static partial class LifecyclePortfolioProjection
             await command.ExecuteNonQueryAsync(ct);
         }
     }
+    internal static async Task<JsonElement> ReadSessions(NpgsqlConnection connection,PreviewDatabase database,ScheduleContext source,DateTimeOffset at,CancellationToken ct)
+    {
+        var context=PinnedContext.Exact(source);var day=PublishedSchedules.ContextDate(context);
+        if(!TradingInstant.IsSupported(at))throw new MarketDataException("projection_source","Select an exact supported UTC source instant.");
+        var value=await ModelProviders.Read(connection,"SELECT security.lifecycle_projection_sessions($1,$2,$3,$4)::text",
+            [database.Manifest.CatalogId,context.ContextId!.Value,at,day],ct);
+        database.RegisterCommitAdmission(connection,new SourceAdmission(database.Manifest.CatalogId,context.ContextId.Value,at,day,value.Instant("authorityUntil")));
+        if(value.Id("contextId")!=context.ContextId||value.Instant("knownAt")!=SchedulePreview.ParseAt(context.KnownAt)||value.Instant("asOf")!=at||
+            DateWorkspace.Date(value.Text("businessDate"))!=day||value.GetProperty("sessions").ValueKind!=JsonValueKind.Array)
+            throw new MarketDataException("projection_horizon_evidence","Session choices must retain their exact selected business and knowledge source.");
+        return JsonSerializer.SerializeToElement(value.EnumerateObject().Where(p=>p.Name!="authorityUntil").ToDictionary(p=>p.Name,p=>p.Value.Clone()),RiskJobs.Json);
+    }
     internal static async Task<LifecycleHorizonSource> ReadHorizon(NpgsqlConnection connection,PreviewDatabase database,
         PortfolioValuation.Prepared opening,PortfolioEconomicProjectionRequest request,CancellationToken ct)
     {
