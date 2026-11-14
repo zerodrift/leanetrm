@@ -515,26 +515,26 @@ GRANT EXECUTE ON FUNCTION security.reconcile_gas_futures_delivery(uuid,uuid,uuid
 CREATE FUNCTION security.read_gas_futures_reconciliations(catalog uuid,context uuid,as_of timestamptz) RETURNS jsonb
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE state jsonb;rows jsonb;BEGIN
- state=security.read_gas_owned_operations(catalog,context,as_of,NULL);
+ state=security.read_gas_owned_operations(read_gas_futures_reconciliations.catalog,read_gas_futures_reconciliations.context,read_gas_futures_reconciliations.as_of,NULL);
  SELECT coalesce(jsonb_agg(jsonb_build_object('positionId',p.position_id,'performanceId',p.id,'reference',p.business_reference,
   'performedAt',p.performed_at,'quantity',trim_scale(p.quantity)::text,'financialRevision',q.revision,'retracted',q.retracted,
   'principalVersion',principal.revision,'accountId',a.id,'account',a.code,'bookId',a.book_id,'book',book.name,
   'policyId',binding.policy_id,'policyRevision',binding.policy_revision,'policyFrom',policy.from_at,'policyUntil',policy.until_at,'policyMode',policy.mode)
   ORDER BY p.performed_at,convert_to(p.business_reference,'UTF8'),p.id),'[]') INTO rows
- FROM trading.gas_futures_performances_at(catalog,context,as_of) p
+ FROM trading.gas_futures_performances_at(read_gas_futures_reconciliations.catalog,read_gas_futures_reconciliations.context,read_gas_futures_reconciliations.as_of) p
  JOIN trading.gas_owned_positions parent ON(parent.catalog_id,parent.id)=(p.catalog_id,p.position_id)
  JOIN trading.gas_owned_accounts a ON(a.catalog_id,a.id)=(parent.catalog_id,parent.account_id)
  JOIN trading.books book ON(book.catalog_id,book.id)=(a.catalog_id,a.book_id)
  JOIN trading.gas_futures_performance_quantities q ON(q.catalog_id,q.performance_id,q.publication_order)=(p.catalog_id,p.id,p.publication_order)
- CROSS JOIN LATERAL(SELECT r.revision FROM trading.gas_futures_delivery_principal_runs r WHERE(r.catalog_id,r.position_id)=(catalog,p.position_id)
-  AND trading.gas_owned_visible(catalog,r.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of) ORDER BY r.revision DESC LIMIT 1)principal
- LEFT JOIN LATERAL(SELECT b.* FROM trading.gas_owned_action_bindings b WHERE(b.catalog_id,b.account_id,b.action)=(catalog,a.id,'gas.futures.reconcile_quantity')
-  AND trading.gas_owned_visible(catalog,b.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of) ORDER BY b.revision DESC LIMIT 1)binding ON true
+ CROSS JOIN LATERAL(SELECT r.revision FROM trading.gas_futures_delivery_principal_runs r WHERE(r.catalog_id,r.position_id)=(read_gas_futures_reconciliations.catalog,p.position_id)
+  AND trading.gas_owned_visible(read_gas_futures_reconciliations.catalog,r.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',read_gas_futures_reconciliations.context,read_gas_futures_reconciliations.as_of) ORDER BY r.revision DESC LIMIT 1)principal
+ LEFT JOIN LATERAL(SELECT b.* FROM trading.gas_owned_action_bindings b WHERE(b.catalog_id,b.account_id,b.action)=(read_gas_futures_reconciliations.catalog,a.id,'gas.futures.reconcile_quantity')
+  AND trading.gas_owned_visible(read_gas_futures_reconciliations.catalog,b.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',read_gas_futures_reconciliations.context,read_gas_futures_reconciliations.as_of) ORDER BY b.revision DESC LIMIT 1)binding ON true
  LEFT JOIN lifecycle.action_policies policy ON(policy.catalog_id,policy.id,policy.revision)=(binding.catalog_id,binding.policy_id,binding.policy_revision)
- WHERE p.performed_at<=as_of AND EXISTS(SELECT 1 FROM jsonb_array_elements(state->'accounts') selected WHERE(selected->>'id')::uuid=a.id);
+ WHERE p.performed_at<=read_gas_futures_reconciliations.as_of AND EXISTS(SELECT 1 FROM jsonb_array_elements(state->'accounts') selected WHERE(selected->>'id')::uuid=a.id);
  IF jsonb_array_length(rows)>16384 OR pg_column_size(rows)>16777216 THEN RAISE EXCEPTION 'gas_owned_scope';END IF;
- PERFORM security.require_gas_owned_read(catalog,context,as_of,(state->>'authorityUntil')::timestamptz);
- RETURN jsonb_build_object('contextId',context,'asOf',as_of,'authorityUntil',state->'authorityUntil','corrections',rows);
+ PERFORM security.require_gas_owned_read(read_gas_futures_reconciliations.catalog,read_gas_futures_reconciliations.context,read_gas_futures_reconciliations.as_of,(state->>'authorityUntil')::timestamptz);
+ RETURN jsonb_build_object('contextId',read_gas_futures_reconciliations.context,'asOf',read_gas_futures_reconciliations.as_of,'authorityUntil',state->'authorityUntil','corrections',rows);
 END$$;
 ALTER FUNCTION security.read_gas_futures_reconciliations(uuid,uuid,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.read_gas_futures_reconciliations(uuid,uuid,timestamptz) FROM PUBLIC;

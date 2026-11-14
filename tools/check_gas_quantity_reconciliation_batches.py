@@ -2,7 +2,7 @@
 import json
 import os
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -22,6 +22,18 @@ def checks(query,manifest):
             f"'{manifest['identityIssuer']}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
     def capture():return call(f"SELECT security.capture_date_context('{catalog}','2026-11-06',NULL);")
+    context=capture()
+    listed=json.loads(call(f"SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{at}');"
+        f"SELECT security.read_gas_futures_reconciliations('{catalog}','{context}','{at}')::text;"))
+    assert listed['corrections'],'Global discovery must retain the accepted observed performances.'
+    earliest=query(f"SELECT min(performed_at) FROM trading.gas_futures_delivery_performances WHERE catalog_id='{catalog}';")
+    empty_at=datetime.fromisoformat(earliest).astimezone(timezone.utc)-timedelta(microseconds=1)
+    empty_instant=empty_at.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+    empty_context=call(f"SELECT security.capture_date_context('{catalog}','{empty_at.date().isoformat()}',NULL);")
+    empty=json.loads(call(f"SELECT security.use_market_context('{catalog}','{empty_context}');SELECT security.use_trading_context('{catalog}','{empty_instant}');"
+        f"SELECT security.read_gas_futures_reconciliations('{catalog}','{empty_context}','{empty_instant}')::text;"))
+    assert empty['corrections']==[],'A source-known future performance must not become a currently executable correction.'
+    print('PASS global correction discovery: populated native history and empty-before-performance context retain explicit source time without SQL ambiguity',flush=True)
     receipt=json.loads(query("SELECT to_jsonb(p)||jsonb_build_object('account_id',stock.account_id,'source_key',e.source_key,'source_revision',e.revision) "
         "FROM trading.gas_futures_performances_current p JOIN trading.gas_owned_positions_current stock ON(stock.catalog_id,stock.id)=(p.catalog_id,p.receipt_lot_id) "
         "JOIN trading.gas_owned_evidence e ON(e.catalog_id,e.id)=(p.catalog_id,p.title_evidence_id) "
