@@ -167,8 +167,7 @@ public sealed partial record FuturesContract
         RequireMarginExecutionPolicy(policy,market,executedAt,context);
         if(context.ValuationAt<executedAt)
             throw TimelineError("futures_margin_policy","The selected policy must apply to this exact execution and business instant.");
-        return [..policy.Occurrences.Where(e=>e.At>executedAt||e.At==executedAt&&policy.Opening==FuturesMarginOpening.IncludeOpeningInstant)
-            .OrderBy(e=>e.At).ThenBy(e=>e.Phase)];
+        return FuturesMarginSchedule.Eligible(policy,executedAt);
     }
 
     private void RequireMarginExecutionPolicy(FuturesMarginPolicy policy,FuturesMarketBinding market,DateTimeOffset executedAt,MarketSnapshot context)

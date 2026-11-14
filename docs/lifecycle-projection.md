@@ -371,3 +371,10 @@ Historical frozen samples retain their own identities. Factor union rejects
 conflicting native declarations and merges only declared curve reachability.
 Independent checks qualify A/B shocks, hedge cancellation, joint scenarios and
 derivatives, historical freezing and substituted upstream evidence.
+
+Margin occurrence selection uses the adopted dated schedule and its explicit
+execution-opening convention. A held valuation requires the complete accepted
+causal prefix; a completed final has no next due. An exact new include-opening
+inception may retain its first pending occurrence, while older missing events
+refuse. A rational lattice execution offset selects the same saved due without
+creating an event or rounding a node to a fabricated business instant.

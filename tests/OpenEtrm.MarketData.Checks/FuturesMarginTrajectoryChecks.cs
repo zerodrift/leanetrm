@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.Shared.Numerics;
 
 internal static class FuturesMarginTrajectoryChecks
 {
@@ -18,6 +19,37 @@ internal static class FuturesMarginTrajectoryChecks
         var policy=new FuturesMarginPolicy(Guid.NewGuid(),1,c.Key,f.C("future"),at.AddDays(-2),c.Expiry.AddDays(1),[
             new(a,at,at.AddDays(1),FuturesMarginPhase.Daily),new(b,at.AddDays(1),at.AddDays(2),FuturesMarginPhase.Daily),
             new(terminal,c.Expiry,c.Expiry,FuturesMarginPhase.Final)],round,FuturesMargin.HeldBindingRounding,FuturesMarginOpening.IncludeOpeningInstant,FuturesMarginPolicy.Version);
+        var executedAt=at.AddDays(-1);
+        if(FuturesMarginSchedule.NextUnsettled(policy,executedAt,[],at.AddTicks(-10))?.Id!=a||
+            FuturesMarginSchedule.NextUnsettled(policy,executedAt,[a],at)?.Id!=b||
+            FuturesMarginSchedule.NextUnsettled(policy,executedAt,[a,b],at.AddDays(1))?.Id!=terminal||
+            FuturesMarginSchedule.NextUnsettled(policy,executedAt,[a,b,terminal],c.Expiry) is not null)
+            throw new Exception("Pending VM must select the next exact saved due after the complete accepted causal prefix.");
+        Reject("futures_margin_schedule",()=>FuturesMarginSchedule.NextUnsettled(policy,executedAt,[],at));
+        Reject("futures_margin_schedule",()=>FuturesMarginSchedule.NextUnsettled(policy,executedAt,[b],at));
+        Reject("futures_margin_schedule",()=>FuturesMarginSchedule.NextUnsettled(policy,executedAt,[a,a],at));
+        Reject("futures_margin_schedule",()=>FuturesMarginSchedule.NextUnsettled(policy,executedAt,[a],at.AddTicks(-10)));
+        if(FuturesMarginSchedule.NextUnsettled(policy,at,[],at)?.Id!=a)
+            throw new Exception("An exact include-opening inception must retain its pending saved due before a separate actual determination.");
+        Reject("futures_margin_schedule",()=>FuturesMarginSchedule.NextUnsettled(policy,at,[],at.AddTicks(10)));
+        if(FuturesMarginSchedule.NextAfterExecution(policy,at,SignedRatio.Zero).Id!=a||
+            FuturesMarginSchedule.NextAfterExecution(policy with{Opening=FuturesMarginOpening.AfterOpeningInstant},at,SignedRatio.Zero).Id!=b||
+            FuturesMarginSchedule.NextAfterExecution(policy,at,new SignedRatio(-1,3)).Id!=a||
+            FuturesMarginSchedule.NextAfterExecution(policy,at,new SignedRatio(1,3)).Id!=b)
+            throw new Exception("Fresh linked futures must preserve the exact opening convention even at fractional lattice ticks.");
+        Reject("futures_margin_schedule",()=>FuturesMarginSchedule.NextAfterExecution(policy,c.Expiry,new SignedRatio(1,3)));
+        Reject("futures_margin_schedule",()=>FuturesMarginSchedule.NextAfterExecution(policy,at,default));
+        Reject("futures_margin_schedule",()=>FuturesMarginSchedule.Eligible(policy,policy.From.AddTicks(-10)));
+        Reject("futures_margin_schedule",()=>FuturesMarginSchedule.NextAfterExecution(policy,at.ToOffset(TimeSpan.FromHours(1)),SignedRatio.Zero));
+        Reject("futures_margin_schedule",()=>FuturesMarginSchedule.NextAfterExecution(policy with{Occurrences=[]},at,SignedRatio.Zero));
+        Reject("futures_margin_schedule",()=>FuturesMarginSchedule.NextAfterExecution(policy with{Occurrences=policy.Occurrences.SetItem(0,
+            policy.Occurrences[0] with{DueAt=at.AddTicks(-10)})},at,SignedRatio.Zero));
+        if(FuturesMarginSchedule.NextUnsettled(policy with{Occurrences=[..policy.Occurrences.Reverse()]},executedAt,[a],at)?.DueAt!=at.AddDays(2))
+            throw new Exception("Transport row order cannot replace the native occurrence order or due.");
+        var sameInstant=policy with{Occurrences=[policy.Occurrences[0],new(b,c.Expiry,c.Expiry.AddDays(1),FuturesMarginPhase.Daily),policy.Occurrences[2]]};
+        Reject("futures_margin_schedule",()=>FuturesMarginSchedule.NextUnsettled(sameInstant,executedAt,[a,b],c.Expiry));
+        if(FuturesMarginSchedule.NextUnsettled(sameInstant,executedAt,[a,b,terminal],c.Expiry) is not null)
+            throw new Exception("A fully accepted same-instant daily/final prefix must be complete.");
         var context=(f.Snapshot() with{ValuationAt=at.AddDays(2),MarketCutoff=at.AddDays(2)}).WithKnowledge(Guid.NewGuid(),at.AddDays(2));
         ExactUnitPrice Price(string value)=>ExactUnitPrice.Parse(value,PriceUnit.FromQuote(quote));
         ExactMoney Money(string value)=>ExactMoney.Parse(value,quote.Currency);
