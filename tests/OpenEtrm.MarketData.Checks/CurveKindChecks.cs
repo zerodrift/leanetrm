@@ -20,6 +20,10 @@ internal static class CurveKindChecks
         Equal("Version",CurveKinds.Version,"curve_kinds_v1");
         Equal("Weighted panels",CurveKinds.Of(Graph(Source(),Node("a","weighted_panels",ports:[("source_1","source")]),Out("a"))),"weighted_blend");
         Equal("Weighted contracts",CurveKinds.Of(Graph(Source(),Node("a","weighted_contracts",ports:[("source_1","source")]),Out("a"))),"weighted_blend");
+        RecipeNode Observations()=>Node("terms","contract_observations",ports:[("source","source")]);
+        Equal("Contract observations",CurveKinds.Of(Graph(Source(),Observations(),Out("terms"))),"observation_formula");
+        Equal("Contract observations plus a differential",CurveKinds.Of(Graph(Source(),Observations(),Positions(),Dates("context"),Sample(),
+            Node("a","weighted_panels",ports:[("observed","terms"),("differential","sample")]),Out("a"))),"observation_formula");
         Equal("Prior calendar window",Mean("dates","prior_calendar"),"rolling_average");
         Equal("Prior business window",Mean("dates","prior_business"),"rolling_average");
         Equal("Schedule window",Mean("dates","schedule"),"custom");

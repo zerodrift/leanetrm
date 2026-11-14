@@ -4,7 +4,7 @@ using OpenEtrm.MarketData.Calculation;
 namespace OpenEtrm.MarketData.CustomCurves;
 
 public sealed record RecipeOutputShape(int Position,DateOnly DeliveryFrom,DateOnly DeliveryTo,PriceUnit Unit);
-public sealed record RecipeNativeDemand(CurveKey Source,DateOnly Date,ContractKey Contract);
+public sealed record RecipeNativeDemand(CurveKey Source,DateOnly Date,ContractKey Contract,bool FreezeObservation=false);
 // Price-free preparation retains the full declared panel shape. Consumer demand
 // walks formula edges before observations are loaded or live eligibility checked.
 public sealed class RecipeTopology
@@ -25,7 +25,7 @@ public sealed class RecipeTopology
         }
     }
     public ImmutableHashSet<RecipeNativeDemand> NativeInputs(ImmutableHashSet<RecipeDelivery>? deliveries)=>
-        Formulas(deliveries).Where(f=>f.Sample is not null).Select(f=>new RecipeNativeDemand(f.Sample!.Source,f.Sample.Date,f.Sample.Contract)).ToImmutableHashSet();
+        Formulas(deliveries).Where(f=>f.Sample is not null).Select(f=>new RecipeNativeDemand(f.Sample!.Source,f.Sample.Date,f.Sample.Contract,f.Sample.FreezeObservation)).ToImmutableHashSet();
     public ImmutableDictionary<PublishedRecipeReference,ImmutableHashSet<RecipeDelivery>> PublishedInputs(ImmutableHashSet<RecipeDelivery>? deliveries)=>
         Formulas(deliveries).Where(f=>f.PublishedPoint is not null).Select(f=>published[f.PublishedPoint!.Value])
             .GroupBy(p=>p.Reference).ToImmutableDictionary(g=>g.Key,g=>g.Select(p=>p.Delivery).ToImmutableHashSet());

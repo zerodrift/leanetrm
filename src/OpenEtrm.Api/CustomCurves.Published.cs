@@ -62,7 +62,8 @@ public static partial class CustomCurves
                 var parents=new Dictionary<string,RecipeTopology>();
                 foreach(var node in version.Definition.Nodes.Where(n=>n.Kind=="published_source"))parents.Add(node.Id,await Topology(node.PublishedSource!,ct));
                 var metadata=await Inputs(connection,database,version.Definition,data,frame,version.Sources,version.Calendars,version.Schedules,context,ct,topologyOnly:true,calendarReads:calendarReads);
-                var instants=metadata.Values.Dates.Values.SelectMany(d=>d).Append(metadata.Values.ContextDate).Distinct()
+                var instants=metadata.Values.Dates.Values.SelectMany(d=>d).Concat(metadata.Values.Windows.Values.SelectMany(w=>w).SelectMany(w=>w.Days))
+                    .Append(metadata.Values.ContextDate).Distinct()
                     .ToImmutableDictionary(d=>d,d=>new DateTimeOffset(d.ToDateTime(TimeOnly.FromDateTime(frame.At.UtcDateTime),DateTimeKind.Utc)));
                 var result=RecipeEngine.Topology(version.Definition,metadata.Values,parents,instants,ct);topologies.Add(key,result);return result;
             }

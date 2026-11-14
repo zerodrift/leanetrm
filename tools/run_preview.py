@@ -99,6 +99,7 @@ def main():
     parser.add_argument('--power-context-check',action='store_true',help='Qualify exact non-primary power inputs and historical close admission')
     parser.add_argument('--power-booked-roll-check',action='store_true',help='Qualify booked power and the in-term close-roll consumer in an owned fixture')
     parser.add_argument('--custom-curves-check',action='store_true',help='Qualify custom curve definitions and calculations in an owned synthetic fixture')
+    parser.add_argument('--contract-observation-curve-check',action='store_true',help='Qualify stored contract observation terms and the synthetic crude formula curve in an owned synthetic fixture')
     parser.add_argument('--price-authoring-check',action='store_true',help='Qualify publication schedules, final releases and contract price terms through authenticated HTTP')
     parser.add_argument('--market-read-check',action='store_true',help='Qualify per-row market authority in the owned standard fixture')
     parser.add_argument('--market-dates-check',action='store_true',help='Qualify scoped market-close availability and the calendar in an owned fixture')
@@ -182,7 +183,7 @@ def main():
     if args.context_read_check:
         args.check=True
         if args.example!='standard':parser.error('--context-read-check requires the standard fixture')
-    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.regional_closes_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.cash_pnl_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
+    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.regional_closes_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.cash_pnl_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.contract_observation_curve_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -310,6 +311,12 @@ def main():
             if migration.name=='0200_curve_delivery_splice.sql':
                 from check_curve_splice_upgrade import run_checks as check_curve_splice_upgrade
                 check_curve_splice_upgrade(query,migration)
+            if migration.name=='0252_contract_observation_nodes.sql':
+                from check_contract_observation_upgrade import run_checks as check_contract_observation_upgrade,populated_checks
+                check_contract_observation_upgrade(query,migration)
+                # The populated qualification runs once, on the base fixture in one transaction; the contract dates mode's window_frames
+                # fixture cannot load that way, because its pinned curve's date admissions arrive only through a rewritten load.
+                if args.contract_observation_curve_check:populated_checks(query,migration,[reference,market,security],manifest)
             if args.lng_cargo_check and migration.name=='0176_lng_cargo_references.sql':
                 from check_lng_upgrade import run_checks as check_lng_upgrade
                 check_lng_upgrade(query,ROOT,manifest,[reference,market,security,trading_fixture(manifest['catalogId'])])
@@ -497,9 +504,12 @@ def main():
             if args.close_risk_check:
                 from close_risk_fixture import prepare as prepare_close_risk
                 reference,market,security,manifest=prepare_close_risk(reference,market,security,manifest)
-        if args.live_calculation_check or args.connected_portfolio_check or args.custom_curves_check or args.with_custom_curves or args.market_dates_check or args.valuation_status_check:
+        if args.live_calculation_check or args.connected_portfolio_check or args.custom_curves_check or args.contract_observation_curve_check or args.with_custom_curves or args.market_dates_check or args.valuation_status_check:
             from custom_curve_fixture import prepare as prepare_custom_curves
             reference,market,manifest=prepare_custom_curves(reference,market,manifest,daily_lifecycle=args.connected_portfolio_check)
+            if args.contract_observation_curve_check:
+                from crude_formula_fixture import prepare as prepare_crude_formula
+                market,manifest=prepare_crude_formula(market,manifest)
         if args.hosted_check:
             from provision_hosted import prepare as prepare_hosted
             prepared=temporary/'fresh-pilot-check'
@@ -1241,6 +1251,16 @@ def main():
                     from check_power_context import run_checks as check_power_context
                     check_power_context(url,query,manifest,dotnet,temporary,env)
                 else:check_power_flat(url,query,manifest,booked_roll=args.power_booked_roll_check)
+            elif args.contract_observation_curve_check:
+                from check_contract_observation_storage import run_checks as check_contract_observation_storage
+                check_contract_observation_storage(url,query,manifest)
+                from check_contract_observation_curve import run_checks as check_contract_observation_curve
+                check_contract_observation_curve(url,query,manifest,dotnet,temporary,app_env)
+                if args.browser_check:
+                    target=temporary/'browser-target.json'
+                    target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                    browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--contract-observation-curve'],cwd=ROOT,env=env,start_new_session=True)
+                    if browser_process.wait(timeout=180):raise RuntimeError('Owned contract observation curve browser checks failed')
             elif args.custom_curves_check:
                 from check_custom_curves import run_checks as check_custom_curves
                 check_custom_curves(url,query,manifest)

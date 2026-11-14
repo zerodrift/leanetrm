@@ -45,7 +45,7 @@ public static partial class CustomCurves
     internal static ImmutableArray<ConnectedRecipeSample> RetainSamples(IEnumerable<ConnectedRecipeSample> samples)
     {
         var all=samples.ToImmutableArray();
-        var retained=all.DistinctBy(s=>(s.Source,s.Date,s.Contract)).ToList();
+        var retained=all.DistinctBy(s=>(s.Source,s.Date,s.Contract,s.FreezeObservation)).ToList();
         var frames=retained.Select(s=>(s.Snapshot.Id,s.Snapshot.Definitions)).ToHashSet();
         // Each row carries its complete exact frame. Preserve existing receipt
         // rows, adding evidence only when an independently required frame would
@@ -202,7 +202,7 @@ public static partial class CustomCurves
             samples.OrderBy(s=>s.Source.Code,StringComparer.Ordinal).ThenBy(s=>s.Date).ThenBy(s=>s.Contract.Id).ThenBy(s=>s.Snapshot.Id)
                 .Select(s=>new ConnectedSampleEvidence(s.Snapshot.Id,s.Snapshot.ValuationAt,s.Source.Code,s.Contract.Id,s.FreezeHistorical,
                     s.Snapshot.Selections.OrderBy(o=>o.Input.Series.Id).ThenBy(o=>o.Input.Use)
-                        .Select(o=>new ConnectedSampleObservation(o.Observation.Key.Id,o.Input.Series.Id,o.Input.Use.ToString())).ToImmutableArray()))
+                        .Select(o=>new ConnectedSampleObservation(o.Observation.Key.Id,o.Input.Series.Id,o.Input.Use.ToString())).ToImmutableArray(),FreezeObservation:s.FreezeObservation))
                 .Concat(observationSamples.Select(sample=>ContractObservationSamples.Evidence(sample,frame.At)))
                 .DistinctBy(sample=>JsonSerializer.Serialize(sample,RiskJobs.Json))
                 .OrderBy(sample=>sample.Kind,StringComparer.Ordinal).ThenBy(sample=>sample.SourceCurve,StringComparer.Ordinal)

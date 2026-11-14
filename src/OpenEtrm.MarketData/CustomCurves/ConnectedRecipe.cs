@@ -12,12 +12,17 @@ namespace OpenEtrm.MarketData.CustomCurves;
 
 public sealed record ConnectedRecipeIdentity(Guid CatalogId,Guid CurveId,int Version,string EngineVersion);
 public sealed record ConnectedRecipeSample(CurveKey Source,DateOnly Date,ContractKey Contract,CurveModel Model,MarketSnapshot Snapshot,bool FreezeHistorical)
-{ public ContractPriceTermsBinding? PriceTerms{get;init;} public ContractKey? MappedContract{get;init;} }
+{
+    public ContractPriceTermsBinding? PriceTerms{get;init;} public ContractKey? MappedContract{get;init;}
+    // A contract observation frozen at the valuation instant from the context frame: its own sample beside the live one.
+    public bool FreezeObservation{get;init;}
+}
 public sealed record ConnectedRecipeOutput(CurvePointKey Point,int Position,ImmutableArray<DateOnly> Dates,
     ImmutableArray<ContractKey> Contracts,int SampleCount);
 public sealed record ConnectedRecipeSourceReference(string Node,CurveKey Curve);
 public sealed record ConnectedPublishedRecipeReference(string Node,PublishedRecipeReference Reference,CurveKey Curve,string ManifestId);
 public sealed record ConnectedRecipeDateBinding(string Node,ImmutableArray<DateOnly> Dates);
+public sealed record ConnectedRecipeWindowBinding(string Node,ImmutableArray<RecipeObservationWindow> Windows);
 public sealed record ConnectedRecipeCalendarPin(string Node,ReferenceKey Reference,DateSet BusinessDates);
 public sealed record ConnectedRecipeSchedulePin(string Node,Guid CatalogId,Guid ScheduleId,int Version,string EngineVersion,
     DateTimeOffset KnownFrom,int PublicationOrder,string Selection,int Origin,int First,int Count,
@@ -35,16 +40,27 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
     // independent of which outputs this consumer requests.
     [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]
     public ImmutableArray<ConnectedRecipeDeclaration> MetadataSources{get;init;}
+    // The resolved observation windows of each contract observation node, retained like resolved dates.
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]
+    public ImmutableArray<ConnectedRecipeWindowBinding> Windows{get;init;}
     public CurveKey Curve=>new(new(Identity.CatalogId,ConnectedIdentity.Id(new{Version="saved_recipe_graph_v1",Identity})),Definition.Code);
     public string ManifestId=>ConnectedIdentity.Digest(Canonical);
     internal object Canonical=>new{Adapter="saved_recipe_graph_v1",Identity,Definition.Code,Definition.Name,Definition.Output,
-        Nodes=Definition.Nodes.OrderBy(n=>n.Id,StringComparer.Ordinal).Select(NodeEvidence).ToArray(),
+        Nodes=Definition.Nodes.OrderBy(n=>n.Id,StringComparer.Ordinal).Select(DeclaredNode).ToArray(),
         Sources=Sources.OrderBy(s=>s.Node,StringComparer.Ordinal).ToArray(),Dates=Dates.OrderBy(d=>d.Node,StringComparer.Ordinal).ToArray(),
         PublishedSources=PublishedSources.IsDefault?[]:PublishedSources.OrderBy(s=>s.Node,StringComparer.Ordinal).ToArray(),
         References=new{Calendars=References.Calendars.OrderBy(c=>c.Node,StringComparer.Ordinal).Select(CalendarEvidence).ToArray(),
             Schedules=References.Schedules.OrderBy(s=>s.Node,StringComparer.Ordinal).Select(s=>new{s.Node,s.CatalogId,s.ScheduleId,s.Version,
                 s.EngineVersion,s.KnownFrom,s.PublicationOrder,s.Selection,s.Origin,s.First,s.Count,s.Occurrences,
                 Calendar=s.Calendar is {} calendar?CalendarEvidence(calendar):null}).ToArray()}};
+    // Only a contract observation node gains its windows, so every other declaration keeps its canonical bytes.
+    JsonObject DeclaredNode(RecipeNode node)
+    {
+        var result=NodeEvidence(node);
+        if(node.Kind==RecipeEngine.ContractObservations)result["Windows"]=JsonSerializer.SerializeToNode((Windows.IsDefault?[]:Windows).Where(w=>w.Node==node.Id)
+            .SelectMany(w=>w.Windows).OrderBy(w=>w.Target.From).ThenBy(w=>w.Term).Select(w=>new{w.Target.From,w.Target.To,w.Term,Days=w.Days.ToArray()}).ToArray());
+        return result;
+    }
     internal static JsonObject NodeEvidence(RecipeNode node)
     {
         var result=JsonSerializer.SerializeToNode(new{node.Id,node.Kind,
@@ -54,6 +70,7 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
         // Existing immutable declarations keep their canonical bytes. Only a
         // node that actually declares curve weights gains this evidence field.
         if(!node.PanelWeights.IsDefaultOrEmpty)result["PanelWeights"]=JsonSerializer.SerializeToNode(node.PanelWeights.OrderBy(w=>w.SourcePort,StringComparer.Ordinal).ToArray());
+        if(!node.ObservationTerms.IsDefaultOrEmpty)result["ObservationTerms"]=JsonSerializer.SerializeToNode(node.ObservationTerms.OrderBy(t=>t.Ordinal).ToArray());
         if(node.ContractTerms is not null)result["ContractTerms"]=JsonSerializer.SerializeToNode(node.ContractTerms with{Replacements=[..node.ContractTerms.Replacements.OrderBy(r=>r.Contract.Id)],Mappings=[..node.ContractTerms.Mappings.OrderBy(m=>m.Target.Id)]});
         return result;
     }
@@ -92,13 +109,18 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
                 Definition.Nodes.Single(n=>n.Id==s.Node).Parameters["curve"]!=s.Curve.Code)||
             Dates.Any(d=>d.Dates.IsDefaultOrEmpty||d.Dates.Length>366||d.Dates.Distinct().Count()!=d.Dates.Length||!d.Dates.SequenceEqual(d.Dates.Order())))
             throw new MarketDataException("recipe_input","Retain every exact source and ordered date binding in the recipe declaration.");
+        var windows=Windows.IsDefault?[]:Windows;
+        if(windows.Any(w=>w is null||w.Windows.IsDefault)||windows.Select(w=>w.Node).Distinct().Count()!=windows.Length||
+            !Definition.Nodes.Where(n=>n.Kind==RecipeEngine.ContractObservations).Select(n=>n.Id).ToHashSet().SetEquals(windows.Select(w=>w.Node)))
+            throw new MarketDataException("recipe_input","Retain the resolved windows of every contract observation node in the recipe declaration.");
         if(References is null||References.Calendars.IsDefault||References.Schedules.IsDefault||References.Calendars.Any(c=>c is null)||References.Schedules.Any(s=>s is null)||
             References.Calendars.Select(c=>c.Node).Distinct().Count()!=References.Calendars.Length||References.Schedules.Select(s=>s.Node).Distinct().Count()!=References.Schedules.Length)
             throw new MarketDataException("recipe_reference","Supply explicit unique resolved calendar and schedule pins.");
         var dateNodes=Definition.Nodes.Where(n=>n.Kind=="dates").ToDictionary(n=>n.Id);
-        if(!dateNodes.Values.Where(n=>n.Parameters.GetValueOrDefault("mode")=="prior_business").Select(n=>n.Id).ToHashSet().SetEquals(References.Calendars.Select(c=>c.Node))||
+        var observed=Definition.Nodes.Where(n=>n.Kind==RecipeEngine.ContractObservations&&n.Parameters.GetValueOrDefault("days")==RecipeEngine.BusinessDays).ToDictionary(n=>n.Id);
+        if(!dateNodes.Values.Where(n=>n.Parameters.GetValueOrDefault("mode")=="prior_business").Select(n=>n.Id).Concat(observed.Keys).ToHashSet().SetEquals(References.Calendars.Select(c=>c.Node))||
             !dateNodes.Values.Where(n=>n.Parameters.GetValueOrDefault("mode")=="schedule").Select(n=>n.Id).ToHashSet().SetEquals(References.Schedules.Select(s=>s.Node)))
-            throw new MarketDataException("recipe_reference","Business-calendar and scheduled date nodes require their exact resolved reference pins.");
+            throw new MarketDataException("recipe_reference","Business-calendar date and observation nodes and scheduled date nodes require their exact resolved reference pins.");
         void Calendar(ConnectedRecipeCalendarPin calendar)
         {
             Money.RequireKey(calendar.Reference);
@@ -110,7 +132,15 @@ public sealed record ConnectedRecipeDeclaration(ConnectedRecipeIdentity Identity
         var contextDate=DateOnly.FromDateTime(context.ValuationAt.UtcDateTime);
         foreach(var calendar in References.Calendars)
         {
-            Calendar(calendar);var node=dateNodes[calendar.Node];
+            Calendar(calendar);
+            if(observed.TryGetValue(calendar.Node,out var observation))
+            {
+                if(observation.Parameters.GetValueOrDefault("calendar")!=calendar.Reference.Code||
+                    windows.Where(w=>w.Node==calendar.Node).SelectMany(w=>w.Windows).SelectMany(w=>w.Days.IsDefault?[]:w.Days).Any(day=>!calendar.BusinessDates.Contains(day)))
+                    throw new MarketDataException("recipe_reference","The resolved observation days differ from their exact business calendar.");
+                continue;
+            }
+            var node=dateNodes[calendar.Node];
             if(node.Parameters.GetValueOrDefault("calendar")!=calendar.Reference.Code||
                 !int.TryParse(node.Parameters.GetValueOrDefault("count"),NumberStyles.None,CultureInfo.InvariantCulture,out var count)||
                 !bool.TryParse(node.Parameters.GetValueOrDefault("includeContext"),out var includeContext)||
@@ -197,7 +227,7 @@ public static partial class RecipeEngine
             demand.SamplingInstants is null||demand.SamplingInstants.Any(s=>s.Value.Offset!=TimeSpan.Zero||DateOnly.FromDateTime(s.Value.UtcDateTime)!=s.Key)))
             throw Missing("Output demand requires an explicit delivery set and coherent UTC sampling instants; an empty set requests metadata only.");
         publishedSources??=ImmutableDictionary<string,ConnectedRecipeGraph>.Empty;
-        if(samples.Any(s=>s is null)||samples.Select(s=>(s.Source,s.Date,s.Contract)).Distinct().Count()!=samples.Length)
+        if(samples.Any(s=>s is null)||samples.Select(s=>(s.Source,s.Date,s.Contract,s.FreezeObservation)).Distinct().Count()!=samples.Length)
             throw Missing("Each directly declared source sample must be supplied once.");
         if(!definition.Nodes.Where(n=>n.Kind=="published_source").Select(n=>n.Id).ToHashSet().SetEquals(publishedSources.Keys)||
             publishedSources.Any(p=>p.Value is null||p.Value.Context!=context||p.Value.PreparedPanel is null||
@@ -215,7 +245,8 @@ public static partial class RecipeEngine
         var declaration=new ConnectedRecipeDeclaration(identity,definition,
             inputs.Sources.Select(s=>new ConnectedRecipeSourceReference(s.Key,s.Value.Key)).ToImmutableArray(),
             inputs.Dates.Select(d=>new ConnectedRecipeDateBinding(d.Key,d.Value)).ToImmutableArray(),references??new([],[]),
-            publishedSources.Select(p=>new ConnectedPublishedRecipeReference(p.Key,definition.Nodes.Single(n=>n.Id==p.Key).PublishedSource!,p.Value.Curve,p.Value.Declaration.ManifestId)).ToImmutableArray());
+            publishedSources.Select(p=>new ConnectedPublishedRecipeReference(p.Key,definition.Nodes.Single(n=>n.Id==p.Key).PublishedSource!,p.Value.Curve,p.Value.Declaration.ManifestId)).ToImmutableArray())
+            {Windows=[..(inputs.Windows??[]).Select(w=>new ConnectedRecipeWindowBinding(w.Key,w.Value))]};
         var metadata=publishedSources.Values.Select(g=>g.Declaration with{MetadataSources=default})
             .Concat(publishedSources.Values.SelectMany(g=>g.Declaration.MetadataSources.IsDefault?[]:g.Declaration.MetadataSources)).GroupBy(d=>d.Identity).ToArray();
         if(metadata.Any(g=>g.Select(d=>d.ManifestId).Distinct().Count()!=1))throw Invalid("Conflicting metadata-only parent declarations.");
@@ -229,11 +260,17 @@ public static partial class RecipeEngine
                 sample.Snapshot.Definitions!=sample.Source.Revision||sample.Date!=DateOnly.FromDateTime(sample.Snapshot.ValuationAt.UtcDateTime)||
                 sample.FreezeHistorical!=(sample.Snapshot.ValuationAt<inputs.ValuationAt))
                 throw Missing("Each exact source/date/contract requires one coherent snapshot and historical-use policy.");
-            var key=new SampleKey(sample.Source,sample.Date,sample.Contract);
+            var key=new SampleKey(sample.Source,sample.Date,sample.Contract,sample.FreezeObservation);
             var declared=definition.Nodes.Where(n=>n.Kind=="source"&&inputs.Sources[n.Id].Key==sample.Source).Select(n=>n.ContractTerms?.For(sample.Contract)).ToArray();
             var mapped=definition.Nodes.Where(n=>n.Kind=="source"&&inputs.Sources[n.Id].Key==sample.Source).Select(n=>n.ContractTerms?.SourceFor(sample.Contract)).ToArray();
             if(declared.Length==0||declared.Any(t=>t!=declared[0])||declared[0]!=sample.PriceTerms?.Terms||mapped.Any(m=>m!=mapped[0])||mapped[0]!=sample.MappedContract)
                 throw Missing("A source sample must retain its exact declared contract terms; conflicting aliases require separate source identities.");
+            if(sample.FreezeObservation&&(sample.FreezeHistorical||sample.Snapshot.ValuationAt!=inputs.ValuationAt))
+                throw Missing("A frozen context observation is read from the context frame only.");
+            if(sample.FreezeObservation&&(sample.PriceTerms is not null||sample.MappedContract is not null))
+                throw Missing("A frozen context observation reads the source contract's own settlement or mark; a source carrying contract price terms cannot supply one.");
+            if(sample.FreezeObservation&&sample.Model.AssetDefinition(sample.Source).Rule!=CurveRule.Direct)
+                throw Missing($"A frozen context observation needs a direct source curve; {sample.Source.Code} derives its prices from other curves and has no settlement or mark of its own to freeze.");
             retained.Add(key,sample);
         }
         if(samples.Any(s=>!inputs.Sources.Values.Any(v=>v.Key==s.Source)))throw Missing("A sample belongs to an undeclared source.");
@@ -248,7 +285,7 @@ public static partial class RecipeEngine
             if(formula.Sample is {} key)localKeys.Add(key);
             foreach(var child in formula.Inputs)pending.Push(child);
         }
-        var local=localKeys.OrderBy(k=>k.Source.Code,StringComparer.Ordinal).ThenBy(k=>k.Date).ThenBy(k=>k.Contract.Id).ToArray();
+        var local=localKeys.OrderBy(k=>k.Source.Code,StringComparer.Ordinal).ThenBy(k=>k.Date).ThenBy(k=>k.Contract.Id).ThenBy(k=>k.FreezeObservation).ToArray();
         if(demand is not null)
         foreach(var key in local)
         {
@@ -258,15 +295,20 @@ public static partial class RecipeEngine
                 throw Missing("Every consumed forecast requires its exact live eligible sample; actuals cannot supply forecasts.");
         }
         var exports=new List<ConnectedCurveExport>();var samplePoints=new Dictionary<SampleKey,CurvePointKey>();
-        foreach(var group in local.Select(k=>(Key:k,Binding:retained[k])).GroupBy(s=>(s.Binding.Model,s.Binding.Snapshot,s.Binding.FreezeHistorical)))
+        foreach(var group in local.Select(k=>(Key:k,Binding:retained[k])).GroupBy(s=>(s.Binding.Model,s.Binding.Snapshot,s.Binding.FreezeHistorical,s.Binding.FreezeObservation)))
         {
             cancellation.ThrowIfCancellationRequested();
             var requests=group.Select(s=>new CurveRequest(s.Key.Source,s.Binding.MappedContract??s.Key.Contract)).Distinct().ToImmutableArray();
             var termGroups=group.Where(s=>s.Binding.PriceTerms is not null).GroupBy(s=>new CurveRequest(s.Key.Source,s.Binding.MappedContract??s.Key.Contract));
             if(termGroups.Any(g=>g.Select(s=>ConnectedIdentity.Digest(s.Binding.PriceTerms!)).Distinct().Count()!=1))throw Missing("One exact source contract cannot carry conflicting settlement terms in a calculation.");
             var terms=termGroups.ToDictionary(g=>g.Key,g=>g.First().Binding.PriceTerms!);
-            var export=terms.Count==0?group.Key.Model.Compile(group.Key.Snapshot,requests,group.Key.FreezeHistorical,context,cancellation):
-                group.Key.Model.CompileContractTerms(group.Key.Snapshot,requests,terms,group.Key.FreezeHistorical,context,cancellation);exports.Add(export);
+            ConnectedCurveExport export;
+            // A frozen observation is the context frame's own economic observation at the valuation instant; an absent or earlier mark refuses.
+            try{export=terms.Count==0?group.Key.Model.Compile(group.Key.Snapshot,requests,group.Key.FreezeHistorical,context,cancellation,group.Key.FreezeObservation):
+                group.Key.Model.CompileContractTerms(group.Key.Snapshot,requests,terms,group.Key.FreezeHistorical,context,cancellation);}
+            catch(MarketDataException error)when(group.Key.FreezeObservation&&error.Code is "missing_observation" or "connected_curve_source")
+            {throw Missing("The context frame has no observation at the valuation instant of a contract frozen on the context day.");}
+            exports.Add(export);
             var exportedPoints=export.Definitions.SelectMany(d=>d.Points).ToDictionary(p=>p.Key);
             foreach(var item in group)
             {

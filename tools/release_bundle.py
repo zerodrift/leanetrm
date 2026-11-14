@@ -8,7 +8,7 @@ import re
 import tarfile
 
 MAXIMUM_BYTES = 2 * 1024 ** 3
-MAXIMUM_FILES = 256
+MAXIMUM_FILES = 512
 ENTRYPOINT = ['dotnet', '/opt/openetrm/api/OpenEtrm.Api.dll', '--hosted-pilot']
 FILE_NAME = re.compile(r'(?:release\.json|compose\.yaml|bootstrap\.sql|LICENSE|image\.tar|migrations/[0-9]{4}_[a-z0-9_]+\.sql)\Z')
 SHA256 = re.compile(r'[a-f0-9]{64}\Z')
