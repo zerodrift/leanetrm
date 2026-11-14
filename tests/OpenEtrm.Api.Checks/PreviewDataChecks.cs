@@ -408,6 +408,16 @@ internal static class PreviewDataChecks
             if(Of(mismatched,fixture.Frame,"future") is not {Unit:null,Points:null,UnavailableReason:"selection_mismatch"})throw new Exception("A curve failing for another reason states that reason.");
             Reject("selection_mismatch",()=>mismatched.Result(fixture.Frame,"future"));
             if(Of(both,fixture.Frame,"future") is not {UnavailableReason:null,Points:{Length:405}})throw new Exception("A curve beside an unreadable one is shaped.");
+            // The curve-shapes read shows live contracts by default; it states a curve that cannot be read as the exact shape does,
+            // with the code the curve's own live evaluation raises, rather than failing the curves read beside it.
+            var live=new CurveDisplaySelection(CurveDisplay.Version,CurveDisplay.Live);
+            foreach(var (read,curve,code) in new[]{(both,"unlisted","missing_curve"),(both,"completed_future","missing_curve_view"),(mismatched,"future","selection_mismatch")})
+            {
+                if(MarketReads.Shape(read,read.Snapshot(fixture.Frame),fixture.Frame,curve,live) is not {Unit:null,Points:null,ContractDisplay:null} shape||
+                    shape.UnavailableReason!=code||shape!=Of(read,fixture.Frame,curve))
+                    throw new Exception($"The live display does not state {curve} unavailable as {code}.");
+                Reject(code,()=>CurveDisplay.Result(read,fixture.Frame,curve,live));
+            }
         });
         Check("a catalog inconsistency in the references of a readable curve's price unit fails the read, and does not reach a curve that cannot be read",()=>
         {
@@ -416,6 +426,7 @@ internal static class PreviewDataChecks
             inconsistent.Result(fixture.Frame,"future");
             var snapshot=inconsistent.Snapshot(fixture.Frame);
             Reject("ambiguous_reference",()=>MarketReads.Shape(inconsistent,snapshot,fixture.Frame,"future"));
+            Reject("ambiguous_reference",()=>MarketReads.Shape(inconsistent,snapshot,fixture.Frame,"future",new(CurveDisplay.Version,CurveDisplay.Live)));
             if(MarketReads.Shape(inconsistent,snapshot,fixture.Frame,"unlisted") is not {Unit:null,Points:null,UnavailableReason:"missing_curve"})
                 throw new Exception("A curve that cannot be read states its own failure, whatever its unit's references are.");
         });
@@ -428,6 +439,17 @@ internal static class PreviewDataChecks
             if(MarketReads.Shape(both,snapshot,frame,"future") is not {Curve:"future",Unit:null,Points:null,UnavailableReason:"source_expired"})
                 throw new Exception("A curve states the failure of its own read, not one met while its contracts were isolated.");
             Reject("selection_mismatch",()=>ValuationStatus.BuildValued(set=>both.Model.Build(snapshot,set),both.Requests(frame,"future")));
+        });
+        Check("under the live display, a curve whose contracts cannot be isolated states the failure of its own evaluation, not one met while isolating them",()=>
+        {
+            // The first contract has no pinned observation, and the sixth has an observation the curve cannot take.
+            var (both,frame)=Unpriceable(0,true,fixture.Observations.SetItem(5,Change(fixture.Observations[5],"role","final_contract_settlement")));
+            var live=new CurveDisplaySelection(CurveDisplay.Version,CurveDisplay.Live);
+            var snapshot=both.Snapshot(frame);
+            Reject("missing_observation",()=>CurveDisplay.Result(both,frame,"future",live));
+            Reject("selection_mismatch",()=>ValuationStatus.BuildValued(set=>both.Model.Build(snapshot,set),both.Requests(frame,"future")));
+            if(MarketReads.Shape(both,snapshot,frame,"future",live) is not {Curve:"future",Unit:null,Points:null,UnavailableReason:"missing_observation"})
+                throw new Exception("A live shape states the failure of its own evaluation, not one met while its contracts were isolated.");
         });
         Check("duplicate typed definitions retain their domain error",()=>
         {

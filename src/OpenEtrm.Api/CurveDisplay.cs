@@ -93,9 +93,21 @@ public static class CurveDisplay
         if(prepared.Build is null)json["availability"]=Availability(prepared,front);
         return json;
     }
+    // A curve that cannot be read, or whose contracts cannot be isolated, has no unit or points and states the code its own
+    // evaluation raises, as the exact shape does, so the curves read beside it are still shaped. A wrong view or price unit
+    // is not the curve's own failure, and fails the read.
     public static CurveShape Shape(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve,CurveDisplaySelection selection)
     {
-        var prepared=Prepare(data,snapshot,frame,curve,selection,allowUnvalued:true);
+        static bool CurvesOwn(MarketDataException error)=>error.Code is not("curve_display_policy" or "curve_display_context");
+        Prepared prepared;
+        try{prepared=Prepare(data,snapshot,frame,curve,selection,allowUnvalued:true);}
+        catch(MarketDataException error)when(CurvesOwn(error))
+        {
+            try{_=Prepare(data,snapshot,frame,curve,selection,allowUnvalued:false);}
+            catch(MarketDataException whole)when(CurvesOwn(whole))
+            {return new(curve,null,null,whole.Code,null,null,null){DefinitionRevisionId=data.DefinitionRevision.RevisionId};}
+            throw;
+        }
         var values=(prepared.Build?.Values??[]).ToDictionary(v=>v.Request.Contract.Id,v=>v.Price.Value.ToString());
         var points=prepared.Info.Contracts.Select(c=>new CurveShapePoint(c.ContractId,c.DeliveryFrom,c.DeliveryTo,values.GetValueOrDefault(c.ContractId),c.UnavailableReason)).ToImmutableArray();
         var front=Front(prepared);
