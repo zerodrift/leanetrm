@@ -23,11 +23,11 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
         }
         if(claim.Operation==CloseBookRiskJobs.Operation)
         {
-            var prepared=await WithRun(claim,(connection,cancellation)=>PrepareReport(connection,claim,cancellation),ct,RunPhase.Preparation);
+            var prepared=await WithRun(claim,(connection,database,cancellation)=>PrepareReport(connection,database,claim,cancellation),ct,RunPhase.Preparation);
             // Immutable admitted inputs only. No transaction or authorization
             // locks span the potentially long deterministic calculation.
             var result=PortfolioValuation.Calculate(prepared.Preparation.Prepared,prepared.Preparation.Bumps,[],RiskDetail.Books,ct);
-            await WithRun(claim,async(connection,cancellation)=>
+            await WithRun(claim,async(connection,database,cancellation)=>
             {
                 await Bind(connection,manifest.CatalogId,prepared.Preparation.Context,prepared.At,cancellation);
                 return await PilotCloseReports.Publish(connection,claim.Id,result,cancellation);
@@ -35,18 +35,17 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
             return;
         }
         if(claim.Operation!=PilotCloseJobs.Operation)throw new AutomationException("job_operation","Select an admitted pilot close occurrence.");
-        await WithRun(claim,async(connection,cancellation)=>
+        await WithRun(claim,async(connection,database,cancellation)=>
         {
             var existing=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT id FROM market_data.market_closes WHERE run_id=$1)t",[claim.Id],cancellation);
             if(!existing.IsEmpty)return true;
             var definition=await Definition(connection,cancellation);
             var header=await MarketCloses.Read(connection,manifest.CatalogId,definition.PriorCloseId,cancellation);
-            await using var database=new PreviewDatabase(PinnedManifest(header),runtime);
             var context=(await new KnowledgeStore(header.Definition.CatalogId).Capture(connection,
                 new(Date(claim.DueAt),null,"current"),cancellation)).Context;
             await Bind(connection,header.Definition.CatalogId,context,claim.DueAt,cancellation);
             var anchor=await MarketCloses.Frame(connection,header.Definition.CatalogId,header.Id,context.ContextId,cancellation);
-            var data=await database.Read(connection,cancellation,observationIds:anchor.ObservationIds,
+            var data=await database.Read(connection,cancellation,ppaBundle:Source(header),observationIds:anchor.ObservationIds,
                 referenceScope:ReferenceReadScope.TradeValuation,includeCalendarDays:true,observationScope:ObservationReadScope.ExactPins);
             var contracts=data.Contracts.ToDictionary(c=>c.Key.Id);
             var members=definition.CurveCodes.ToImmutableDictionary(code=>code,code=>
@@ -104,26 +103,25 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
     }
     private async Task Report(JobClaim claim,CancellationToken ct)
     {
-        await WithRun(claim,async(connection,cancellation)=>
+        await WithRun(claim,async(connection,database,cancellation)=>
         {
             if(await PilotCloseReports.Exists(connection,claim.Id,cancellation))return true;
             var definition=await Definition(connection,cancellation);
             var header=await MarketCloses.Read(connection,manifest.CatalogId,claim.Id,cancellation);
-            await using var database=new PreviewDatabase(PinnedManifest(header),runtime);
             await using var stamp=ScheduleStore.Command(connection,"SELECT automation.pilot_close_commit()");
             var known=new DateTimeOffset((DateTime)(await stamp.ExecuteScalarAsync(cancellation))!);
             var context=(await new KnowledgeStore(header.Definition.CatalogId).Capture(connection,
                 new(header.BusinessDate.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),known.ToString("O",CultureInfo.InvariantCulture),"at"),cancellation)).Context;
             await Bind(connection,header.Definition.CatalogId,context,header.At,cancellation);
             var frame=await MarketCloses.Frame(connection,header.Definition.CatalogId,header.Id,context.ContextId,cancellation);
-            var data=await database.Read(connection,cancellation,observationIds:frame.ObservationIds,
+            var data=await database.Read(connection,cancellation,ppaBundle:Source(header),observationIds:frame.ObservationIds,
                 referenceScope:ReferenceReadScope.TradeValuation,includeCalendarDays:true,observationScope:ObservationReadScope.ExactPins);
             var result=await new PortfolioValuation(database).Calculate(connection,data,frame,context,definition.BookIds,definition.ValuationPolicy,cancellation,requireNativeEvidence:true);
             _=await PilotCloseReports.Publish(connection,claim.Id,result,cancellation);
             return true;
         },ct);
     }
-    private async Task<(ClosePortfolioPreparation Preparation,DateTimeOffset At)> PrepareReport(NpgsqlConnection connection,JobClaim claim,CancellationToken cancellation)
+    private async Task<(ClosePortfolioPreparation Preparation,DateTimeOffset At)> PrepareReport(NpgsqlConnection connection,PreviewDatabase database,JobClaim claim,CancellationToken cancellation)
     {
         await using var load=ScheduleStore.Command(connection,"SELECT automation.close_risk_run_definition()::text");
         using var json=JsonDocument.Parse((string)(await load.ExecuteScalarAsync(cancellation))!);
@@ -134,10 +132,9 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
         var declaredRows=json.RootElement.GetProperty("declaredRows").GetInt64();
         var declaredRowScenarios=json.RootElement.GetProperty("declaredRowScenarios").GetInt64();
         var factorPins=json.RootElement.GetProperty("factors").Clone();
-        await using var database=new PreviewDatabase(PinnedManifest(header),runtime);
         await Bind(connection,header.Definition.CatalogId,context,header.At,cancellation);
         var frame=await MarketCloses.Frame(connection,header.Definition.CatalogId,header.Id,context.ContextId,cancellation);
-        var data=await database.Read(connection,cancellation,observationIds:frame.ObservationIds,
+        var data=await database.Read(connection,cancellation,ppaBundle:Source(header),observationIds:frame.ObservationIds,
             referenceScope:ReferenceReadScope.TradeValuation,includeCalendarDays:true,observationScope:ObservationReadScope.ExactPins);
         var preparation=await CloseBookRiskJobs.Prepare(database,connection,data,frame,context,retained,cancellation);
         if(preparation.DeclaredRows!=declaredRows||preparation.DeclaredRowScenarios!=declaredRowScenarios)throw Invalid("Declared work differs from the immutable admission plan.");
@@ -146,10 +143,10 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
             throw Invalid("Resolved factors differ from the immutable admission bumps.");
         return(preparation,header.At);
     }
-    private PreviewManifest PinnedManifest(MarketCloseInfo close)
+    private CatalogueSource Source(MarketCloseInfo close)
     {
         if(close.Definition.CatalogId!=manifest.CatalogId)throw Invalid("This worker is configured for a different market catalog.");
-        return manifest with{RevisionId=close.Definition.RevisionId,ReferenceCatalogId=close.Reference.CatalogId,ReferenceRevisionId=close.Reference.RevisionId};
+        return new(close.Definition.RevisionId,close.Reference.CatalogId,close.Reference.RevisionId);
     }
     private static async Task<PilotCloseDefinition> Definition(NpgsqlConnection connection,CancellationToken ct)
     {
@@ -164,26 +161,28 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
         await trading.ExecuteNonQueryAsync(ct);
     }
     private enum RunPhase{GeneratedClose,Preparation,Publication}
-    private async Task<T> WithRun<T>(JobClaim claim,Func<NpgsqlConnection,CancellationToken,Task<T>> work,CancellationToken ct,RunPhase phase=RunPhase.GeneratedClose)
+    private async Task<T> WithRun<T>(JobClaim claim,Func<NpgsqlConnection,PreviewDatabase,CancellationToken,Task<T>> work,CancellationToken ct,RunPhase phase=RunPhase.GeneratedClose)
     {
         await using var issue=scheduler.CreateCommand("SELECT automation.issue_pilot_context($1,$2,$3)");
         issue.Parameters.AddWithValue(claim.Id);issue.Parameters.AddWithValue(claim.Fence);issue.Parameters.AddWithValue(claim.WorkerId);
         var token=(Guid)(await issue.ExecuteScalarAsync(ct)??throw Invalid("The service run context was not admitted."));
         await using var connection=await runtime.OpenConnectionAsync(ct);
         await using var transaction=await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted,ct);
+        await using var database=new PreviewDatabase(manifest,runtime);
+        using var admissions=database.OwnReadTransaction(connection,transaction);
         await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_context($1)",token))await bind.ExecuteNonQueryAsync(ct);
         if(phase!=RunPhase.GeneratedClose)
             await using(var limits=ScheduleStore.Command(connection,"SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='1s'"))await limits.ExecuteNonQueryAsync(ct);
         var guard=phase==RunPhase.GeneratedClose?"SELECT automation.lock_pilot_run()":"SELECT automation.check_close_risk_run()";
         await using(var fence=ScheduleStore.Command(connection,guard))await fence.ExecuteNonQueryAsync(ct);
-        var result=await work(connection,ct);
+        var result=await work(connection,database,ct);
         // Existing-close publication already performed its final fence and
         // terminal transition atomically inside the database operation.
         if(phase!=RunPhase.Publication)
             await using(var fence=ScheduleStore.Command(connection,guard))await fence.ExecuteNonQueryAsync(ct);
         // A lost commit acknowledgement leaves the occurrence unresolved. The
         // worker never guesses failure or repeats the native facts on retry.
-        await transaction.CommitAsync(ct);
+        await admissions.Commit(ct);
         return result;
     }
     private static string Date(DateTimeOffset value)=>DateOnly.FromDateTime(value.UtcDateTime).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);

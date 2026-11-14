@@ -45,12 +45,21 @@ internal static class GasOwnedPortfolio
     internal static async Task<bool> RequireScope(NpgsqlConnection connection,PreviewDatabase database,InputFrame frame,
         ImmutableArray<Guid> books,bool configured,CancellationToken ct)
     {
-        await using var capture=ScheduleStore.Command(connection,configured?
-            "SELECT least(settlement_data.futures_margin_preview_authority($1),security.authority_until('ReadGasOwnedHoldings'))":
-            "SELECT settlement_data.futures_margin_preview_authority($1)",database.Manifest.CatalogId);
-        var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
-        var admission=new ScopeAdmission(database.Manifest.CatalogId,frame.ContextId!.Value,frame.At,books,configured,until);
-        database.RegisterCommitAdmission(connection,admission);
+        DateTimeOffset until;
+        if(configured)
+        {
+            await using var capture=ScheduleStore.Command(connection,
+                "SELECT least(settlement_data.futures_margin_preview_authority($1),security.authority_until('ReadGasOwnedHoldings'))",database.Manifest.CatalogId);
+            until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
+            database.RegisterCommitAdmission(connection,new ScopeAdmission(database.Manifest.CatalogId,frame.ContextId!.Value,frame.At,books,true,until));
+        }
+        else
+        {
+            // A successful unconfigured probe proves an empty immutable source
+            // scope. Its read authority must survive the explicit transition
+            // from close preflight to publication, which clears the bound view.
+            until=await TradingContext.AdmitSource(database,connection,frame.ContextId!.Value,frame.At,frame.BusinessDate,ct);
+        }
         await using var command=ScheduleStore.Command(connection,"SELECT security.require_gas_owned_valuation_scope($1,$2,$3,$4::uuid[],$5,$6)",
             database.Manifest.CatalogId,frame.ContextId.Value,frame.At,books.ToArray(),configured,until);
         try{return(bool)(await command.ExecuteScalarAsync(ct))!;}
