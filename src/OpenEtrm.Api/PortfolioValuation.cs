@@ -117,6 +117,14 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             .ThenBy(f=>f.Input.Series.Id).ToImmutableArray();
         public ImmutableArray<ConnectedMarketEvidence> ConnectedMarkets=>Markets.Select(m=>m.Evidence).ToImmutableArray();
     }
+    // The largest price step the held valuations declare for each quoted price, in whichever market partition they are
+    // priced: a price has one step in every partition.
+    internal static Dictionary<InputKey,ExactDecimal> LargestPriceSteps(IEnumerable<KeyValuePair<InputKey,ExactDecimal>> declared)
+    {
+        var steps=new Dictionary<InputKey,ExactDecimal>();
+        foreach(var (input,step) in declared)if(!steps.TryGetValue(input,out var largest)||largest.CompareTo(step)<0)steps[input]=step;
+        return steps;
+    }
     public static void ValidatePolicy(PortfolioValuationPolicy policy)
     {
         if(policy is null||policy.CurveNumericalPolicy!=CurveModel.NumericalPolicy||policy.RiskNumericalPolicy!=RiskEngine.ExactNumericalPolicy||

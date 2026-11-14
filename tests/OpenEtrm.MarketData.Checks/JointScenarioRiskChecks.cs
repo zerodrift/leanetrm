@@ -272,7 +272,8 @@ internal static class JointScenarioRiskChecks
         internal Fixture(Func<ExactDecimal,ExactDecimal,ExactDecimal> price,string quantity="1",bool repeat=false,bool unaffected=false,
             string basis="0",string fixedBasis="0",string? divisor=null,bool differentUnits=false,ValuationMeasure measure=ValuationMeasure.PresentValue,int copies=1,
             bool accounting=false,Guid? accountingContext=null,bool ledgerOnlyCash=false,
-            Func<PricingInputs,ExactMoney>? contextualPrice=null,ValuationTimeDependency? time=null,ImmutableArray<VolatilityInput> volatility=default)
+            Func<PricingInputs,ExactMoney>? contextualPrice=null,ValuationTimeDependency? time=null,ImmutableArray<VolatilityInput> volatility=default,
+            string? priceStep=null,int priceStepInput=0,string? sharedPriceStep=null,string? derivedPriceStep=null)
         {
             var graph=new ConnectedCurveChecks.Fixture();Unit=graph.Mean.Unit;
             Points=graph.RawPoints.Select((p,n)=>p with{Expression=((ConnectedSource)p.Expression) with{
@@ -286,7 +287,10 @@ internal static class JointScenarioRiskChecks
                     Expression=source with{Request=source.Request with{Curve=curve},Quote=quote,Series=source.Series with{Quote=quote.Key}}});
             }
             Requests=Points.Select(p=>((ConnectedSource)p.Expression).Request).ToImmutableArray();
-            var plan=ConnectedCurves.Compile(Points.GroupBy(p=>p.Key.Curve).Select(g=>new ConnectedCurveDefinition(g.Key,[..g])),Points.Select(p=>p.Key).ToImmutableArray(),graph.Context,graph.Resolver);
+            // With a derived step, the plan also holds the mean of the three quoted points, requested as a price of its own.
+            var mean=derivedPriceStep is null?(CurveRequest?)null:new CurveRequest(graph.Mean.Key.Curve,Requests[0].Contract);
+            var plan=ConnectedCurves.Compile(Points.GroupBy(p=>p.Key.Curve).Select(g=>new ConnectedCurveDefinition(g.Key,[..g])).Concat(mean is null?[]:[new(graph.Mean.Key.Curve,[graph.Mean])]),
+                [..Points.Select(p=>p.Key),..mean is null?[]:new[]{graph.Mean.Key}],graph.Context,graph.Resolver);
             var snapshot=new MarketSnapshot(graph.Context.ContextId,Requests[0].Curve.Revision,graph.Context.ValuationAt,graph.Context.MarketAsOf,
                 InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,Points.Select(p=>(ConnectedSource)p.Expression).Select(s=>new SelectedObservation(s.Input,s.Observation)).ToImmutableArray());
             var instrument=new Probe(Guid.NewGuid(),Unit,[Requests[0],Requests[1]],c=>
@@ -294,7 +298,8 @@ internal static class JointScenarioRiskChecks
                 if(contextualPrice is not null)return contextualPrice(c);
                 var money=ExactMoney.FromMoney(new(price(c.Price(Requests[0]).Value,c.Price(Requests[1]).Value),Unit.Currency));
                 return divisor is null?money:money.DivideBy(ExactDecimal.Parse(divisor));
-            },time??ValuationTimeDependency.Independent,volatility.IsDefault?[]:volatility);
+            },time??ValuationTimeDependency.Independent,volatility.IsDefault?[]:volatility)
+                {PriceSteps=priceStep is null?[]:[new(Requests[priceStepInput],ExactDecimal.Parse(priceStep))]};
             RiskPosition Holding(Instrument held,string size)=>new(Guid.NewGuid(),Guid.NewGuid(),Book,held.Id,new(ExactDecimal.Parse(size),Unit.Quantity),
                 new(new Money(ExactDecimal.Parse(basis),Unit.Currency),Unit.Quantity),new(ExactDecimal.Parse(fixedBasis),Unit.Currency));
             var instruments=ImmutableArray.CreateBuilder<Instrument>();instruments.Add(instrument);
@@ -303,6 +308,20 @@ internal static class JointScenarioRiskChecks
             {
                 var other=new Probe(Guid.NewGuid(),Unit,[Requests[2]],c=>ExactMoney.FromMoney(new(c.Price(Requests[2]).Value,Unit.Currency)));
                 UnaffectedId=other.Id;instruments.Add(other);positions.Add(Holding(other,quantity));
+            }
+            if(sharedPriceStep is not null)
+            {
+                // A second instrument priced on x alone, declaring its own price step there.
+                var shared=new Probe(Guid.NewGuid(),Unit,[Requests[0]],c=>ExactMoney.FromMoney(new(c.Price(Requests[0]).Value,Unit.Currency)))
+                    {PriceSteps=[new(Requests[0],ExactDecimal.Parse(sharedPriceStep))]};
+                instruments.Add(shared);positions.Add(Holding(shared,quantity));
+            }
+            if(mean is {} averaged)
+            {
+                // An instrument priced on that mean, declaring a price step on it.
+                var derived=new Probe(Guid.NewGuid(),Unit,[averaged],c=>ExactMoney.FromMoney(new(c.Price(averaged).Value,Unit.Currency)))
+                    {PriceSteps=[new(averaged,ExactDecimal.Parse(derivedPriceStep!))]};
+                instruments.Add(derived);positions.Add(Holding(derived,quantity));
             }
             var ledger=accounting?
                     positions.ToImmutableDictionary(p=>new MeasureBinding(p.TradeId,p.BindingId),p=>new BindingAccountingFacts(new(p.TradeId,p.BindingId,p.BookId),
@@ -315,6 +334,7 @@ internal static class JointScenarioRiskChecks
             }
             Portfolio=new(instruments.ToImmutable(),positions.ToImmutable(),new(measure,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null){AccountingFacts=ledger});
             Bindings=Requests.Select((r,n)=>(r,Points[n].Key)).ToImmutableDictionary(p=>p.r,p=>p.Key);
+            if(mean is {} requested)Bindings=Bindings.Add(requested,graph.Mean.Key);
             Prepared=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(ConnectedScenario.Base(plan),snapshot),Bindings,[Portfolio]);
         }
         internal CurveShift Shift(int axis,string size)=>new(CurveShockCoordinate.MarketQuote,new ContractCurveTarget(Requests[axis].Curve,Requests[axis].Contract),
@@ -331,12 +351,13 @@ internal static class JointScenarioRiskChecks
         private readonly Func<PricingInputs,ExactMoney> price;
         private readonly ValuationTimeDependency time;
         private readonly ImmutableArray<VolatilityInput> volatility;
+        internal ImmutableArray<DeclaredPriceStep> PriceSteps{get;init;}=[];
         public override ReferenceKey Currency{get;}
         public override Quantity UnitQuantity{get;}
         public override bool SupportsQuantityScaling=>true;
         internal Probe(Guid id,PriceUnit unit,ImmutableArray<CurveRequest> inputs,Func<PricingInputs,ExactMoney> price,ValuationTimeDependency? time=null,ImmutableArray<VolatilityInput> volatility=default):base(id)
         {Currency=unit.Currency;UnitQuantity=new(ExactDecimal.Parse("1"),unit.Quantity);this.inputs=inputs;this.price=price;this.time=time??ValuationTimeDependency.Independent;this.volatility=volatility.IsDefault?[]:volatility;}
-        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_joint_pv_v1",inputs,UnitQuantity.Specification,Currency){Time=time,Volatility=volatility};
+        public override UnitPricingContract Declare(UnitValuationContext context)=>new(Id,"synthetic_joint_pv_v1",inputs,UnitQuantity.Specification,Currency){Time=time,Volatility=volatility,PriceSteps=PriceSteps};
         public override UnitValuation PV(UnitValuationContext context)=>new(context,price(context.Inputs),UnitQuantity.Specification);
     }
 }

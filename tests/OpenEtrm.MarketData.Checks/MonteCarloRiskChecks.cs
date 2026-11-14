@@ -105,7 +105,7 @@ internal static class MonteCarloRiskChecks
         Console.WriteLine("PASS Monte Carlo: exact interior zero pivot, unlike native units and zero-rank unchanged samples");
         var at=DateTimeOffset.Parse("2026-01-01T16:00:00Z",CultureInfo.InvariantCulture);
         var terms=new FuturesOptionTerms(OptionRight.Call,ExactDecimal.Parse("1"),at.AddDays(30),"american","exercise_into_future");
-        var tree=OptionNumericalPolicies.Require(AmericanFuturesOptionModel.Id) with{Steps=8};
+        var tree=OptionNumericalPolicies.Require(OptionNumericalPolicies.CoxRossRubinstein) with{Steps=8};
         ExactDecimal Option(ExactDecimal move)=>AmericanFuturesOptionModel.UnitPrice(terms,LatticeDecimal.Parse((ExactDecimal.Parse("1")+move).ToString()),
             LatticeDecimal.Parse("0.3"),LatticeDecimal.Parse("0.99"),at,tree,default).ToExact();
         var option=new JointScenarioRiskChecks.Fixture((x,_)=>Option(x));

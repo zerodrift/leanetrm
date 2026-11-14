@@ -5,7 +5,7 @@ import {renderHistorical,newHistoricalView} from './historical-risk-view.js';
 import {renderParametric,newParametricView} from './parametric-risk-view.js';
 import {renderChart,clearChart} from './chart-view.js';
 import {signOf} from './desk-model.js';
-import {moved,movedTotals,reportPresentation,riskMetricLabels,type RiskMetric} from './risk-results.js';
+import {moved,movedTotals,optionValuation,reportPresentation,riskMetricLabels,type RiskMetric} from './risk-results.js';
 import type {RunView} from './risk-view.js';
 import type {RiskFactorResult,RiskValues} from './risk-report.js';
 import {publicText,displayInstant} from './market-view.js';
@@ -54,6 +54,7 @@ export function setupRiskResults(host:HTMLElement,zone:()=>string,reportUrl:(id:
   status.append(node('strong',view.state==='running'?'Waiting for every running part':`${counted} · ${view.excluded.length} excluded positions · ${view.gaps.length} unavailable parts`));
   if(!current.scope)status.append(node('p','The original book and portfolio scope is not recorded. Complete scope coverage cannot be confirmed.'));
   else head.append(node('p',`Captured scope · ${current.scope.portfolioIds.length?`${current.scope.portfolioIds.length} selected portfolio filters`:'no portfolio filter'} · ${current.scope.bookIds.length?`${current.scope.bookIds.length} selected book filters`:'all readable books at submission'} · ${current.scope.tradeIds==null?'all trades in those books':`${current.scope.tradeIds.length} selected trade${current.scope.tradeIds.length===1?'':'s'}`}. Book totals below keep their retained names.`));
+  for(const line of optionValuation(current))head.append(node('p',line));
   if(view.excluded.length){const list=node('ul');for(const p of view.excluded)list.append(node('li',`${p.tradeReference} · ${valuationReason(p.reason,p.instrumentType)}`));status.append(list);}
   for(const gap of view.gaps)status.append(node('p',gap.text));host.append(status);
   if(view.monteCarlo){renderMonteCarlo(host,view.monteCarlo,monteCarloState,draw,plots);return;}

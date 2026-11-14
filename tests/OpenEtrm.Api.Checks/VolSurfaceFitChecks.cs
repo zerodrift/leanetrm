@@ -58,7 +58,7 @@ internal static class VolSurfaceFitChecks
         var curves=new Dictionary<ReferenceKey,CurrencyDiscountCurve?>();
         foreach(var currency in live.Select(o=>o.Currency).Distinct())
             curves[currency]=await Session(connection=>SwapStore.CurrencyDefault(connection,catalog,settled.Data,settled.Frame,currency,ct));
-        var policy=OptionNumericalPolicies.Require(AmericanFuturesOptionModel.Id);
+        var policy=OptionNumericalPolicies.Require(OptionNumericalPolicies.CoxRossRubinstein);
         var alone=live.AsParallel().Select(option=>
         {
             var (underlying,settlement)=FuturesOptionPricing.Requests(settled.Data.Model,option.Series,FuturesOptionPricing.DailySettlement);

@@ -35,6 +35,11 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  const offersHeader=`(()=>{const [opening,closing]=${closes},listed=[...document.querySelector('#snapshot').options].map(o=>o.value).filter(Boolean);`+
   `return closing.value===document.querySelector('#snapshot').value&&listed.every(id=>[...closing.options].some(o=>o.value===id))&&(opening.value!==''||[...closing.options].filter(o=>o.value)[0].value===closing.value);})()`;
  await check('P&L explain lists the closes the header lists and offers the header close with the frame before it',offersHeader,pnlCloses);
+ // The price bump is an advanced setting: closed, and filled with what the backend's policies offer.
+ const bump="document.querySelector('#risk-pnl-view .pnl-advanced')";
+ await check('P&L explain keeps its price bump in closed Advanced settings, filled with what the backend offers',
+  `!!${bump}&&!${bump}.open&&${bump}.querySelector('summary').textContent==='Advanced settings · price bump of 2 price steps where a model declares one, otherwise 1 tick · agreement within 0.000001 + 0.15 of a delta, 0.1 of a gamma'`,
+  `${bump}?.querySelector('summary').textContent`);
  if(otherClose){const here=await evaluate("document.querySelector('#snapshot').value");await set('#snapshot',otherClose);await wait(idle);
   await check('P&L explain follows a header close changed while it is open',offersHeader,pnlCloses);
   await set('#snapshot',here);await wait(idle);}

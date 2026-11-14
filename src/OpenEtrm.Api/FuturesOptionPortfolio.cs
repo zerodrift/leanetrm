@@ -17,7 +17,7 @@ public sealed record FuturesOptionValuationPolicy(string ObservationRole,string 
 {
     public const string NoFallback="none";
     // The policy the Blotter's trading_workspace_v1 convention and the portfolio risk catalog state.
-    public static FuturesOptionValuationPolicy Release1=>new(FuturesOptionPricing.DailySettlement,AmericanFuturesOptionModel.Id,
+    public static FuturesOptionValuationPolicy Release1=>new(FuturesOptionPricing.DailySettlement,OptionNumericalPolicies.CoxRossRubinstein,
         FuturesOptionPricing.ScenarioPolicy,ImpliedVolatility.FallbackMode);
     internal bool FallbackDeclared=>CalibrationFallback==ImpliedVolatility.FallbackMode;
     internal OptionNumericalPolicy Validate()

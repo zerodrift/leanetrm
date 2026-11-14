@@ -2723,6 +2723,9 @@ header>div:first-child{flex:1 1 160px}
 .pnl-controls .pnl-known{flex:1.4;min-width:260px;max-width:none}
 .pnl-controls input,.pnl-controls select{display:block;width:100%;margin-top:8px;min-height:40px;text-transform:none;letter-spacing:normal}
 .pnl-controls button{min-height:40px;padding:0 24px}
+.pnl-advanced{padding:14px 0;border-bottom:1px solid var(--border)}.pnl-advanced>summary{font-size:12px;color:var(--text-3)}
+.pnl-advanced>p{max-width:650px;margin:12px 0 0;font-size:12px;line-height:1.6;color:var(--text-3)}
+.pnl-advanced .pnl-controls{padding:16px 0 4px;border-bottom:0}.pnl-advanced label[hidden]{display:none}
 .pnl-empty{text-align:center;padding:48px 20px 56px;color:var(--text-2)}
 .pnl-empty h3{font-size:18px;color:var(--text);font-weight:500;letter-spacing:-.02em}
 .pnl-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:34px 0 24px}

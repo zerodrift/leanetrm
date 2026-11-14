@@ -56,10 +56,14 @@ public sealed record FuturesOptionInstrument : Instrument
     public override UnitPricingContract Declare(UnitValuationContext context)
     {
         var binding = Binding(context);
-        return new(Id, AmericanFuturesOptionModel.Id, [binding.Underlying], UnitQuantity.Specification, Currency) { Time = binding.Calibration is SolvedVolatility?
+        return new(Id, binding.Policy.Id, [binding.Underlying], UnitQuantity.Specification, Currency) { Time = binding.Calibration is SolvedVolatility?
             ValuationTimeDependency.Between(context.CalculationAt,Series.InstructionCutoffAt is {} cutoff&&cutoff>context.CalculationAt?cutoff:Series.Terms.ExpiryAt):ValuationTimeDependency.Pinned,
             DiscountInputs=[new(new(Id,0,Series.Terms.ExpiryAt,Currency),binding.Discounting)],
-            Volatility=binding.Calibration is SolvedVolatility solved?[new(binding.Id,solved.Volatility.ToString(),VolatilityInput.Annualized)]:[] };
+            Volatility=binding.Calibration is SolvedVolatility solved?[new(binding.Id,solved.Volatility.ToString(),VolatilityInput.Annualized)]:[],
+            // The tree's value repeats its pattern once per price step of the underlying. A tree centred on the strike has
+            // none at a unit discount, and an option valued at intrinsic has no lattice.
+            PriceSteps=binding.Calibration is SolvedVolatility held&&AmericanFuturesOptionModel.PriceStep(Series.Terms,binding.BaseFutures,held.Volatility,
+                binding.DiscountToExpiry,context.CalculationAt,binding.Policy) is {} step?[new(binding.Underlying,step.ToExact())]:[] };
     }
 
     // The unit price at the scenario futures price is rounded once, half-even, to

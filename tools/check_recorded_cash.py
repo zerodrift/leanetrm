@@ -1,11 +1,13 @@
 """Owned currency-cash checks: actual payment, revision replay, history and native expiry fences."""
 import json
+import math
 import re
 import threading
 import time
 from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
+from statistics import NormalDist
 from uuid import uuid4
 from preview_client import PreviewClient
 
@@ -19,6 +21,11 @@ def value(money):
     return Fraction(money['amount'])
 
 
+def exact(estimate):
+    """One exact step of a finite-difference estimate."""
+    return Fraction(int(estimate['numerator']),int(estimate['denominator']))
+
+
 def effect_matches(effect,terms):
     """A Greek effect over these estimates: no amount when none is available, otherwise the sum of the available ones."""
     missing=[k for k in terms if k['amount'] is None]
@@ -28,8 +35,10 @@ def effect_matches(effect,terms):
     return len(missing)
 
 
-def check_option_strip(report,opening,closing,months):
-    """One call on each of a few underlying futures months of two curves, held across both closes."""
+def check_option_strip(report,opening,closing,months,options,selection):
+    """One call on each of a few underlying futures months of two curves, held across both closes, under one bump selection.
+    Each option is at the money, where its tree value bends. Two price steps put its half, nominal and double steps on one,
+    two and four whole steps. Four put its double step eight steps out, where its gamma estimate lies more than 2% below its nominal."""
     held=len(months);factors=report['factors'];assert len(factors)==held
     # Each factor is named by its futures curve and delivery month, and moved between two exact prices. Factors read one curve
     # after the other, here by the curves' tickers, which sort as their codes do, and each curve by delivery month.
@@ -54,9 +63,45 @@ def check_option_strip(report,opening,closing,months):
     for formula,label in GREEKS.items():
         step=steps[label];unavailable+=effect_matches(step,[k for k in estimates if k['formula']==formula])
         if step['amount'] is None:assert step['start']==step['end'],step
-    assert unavailable,'The option strip no longer exercises an unavailable Greek estimate.'
-    assert total['values']['unavailableEstimates']==unavailable and total['greekCoverage']=='partial',total['values']
+    assert total['values']['unavailableEstimates']==unavailable
     assert value(total['bridge'][-1]['end'])==value(total['values']['economicPnl'])
+    # The report states the selection it ran under, and bumps each factor by that many price steps of the step its option
+    # declares, rounded up to whole ticks.
+    policies=report['policies'];absolute=Fraction(policies['absoluteTolerance'])
+    agreement={'Delta':Fraction(policies['deltaRelativeTolerance']),'Gamma':Fraction(policies['gammaRelativeTolerance'])}
+    assert report['request']['factorBump']==selection and (absolute,agreement['Delta'],agreement['Gamma'])==tuple(
+        Fraction(selection[member]) for member in ('absoluteTolerance','deltaRelativeTolerance','gammaRelativeTolerance')),policies
+    assert f"by {selection['priceSteps']} price steps where a holding that prices it declares a price step, and otherwise by 1 trading tick" in policies['coverage']
+    for f in factors:
+        tick,step,size=(Fraction(f['priceTick']),Fraction(f['bump']['priceStep']),Fraction(f['bump']['size']))
+        assert size==math.ceil(selection['priceSteps']*step/tick)*tick and step>tick,f['bump']
+    # An estimate is used exactly when its half and double steps lie within its Greek's agreement of its nominal.
+    for k in estimates:
+        half,nominal,double=(exact(k['estimate'][name]) for name in ('half','nominal','double'))
+        assert k['estimate']['stable']==(max(abs(half-nominal),abs(double-nominal))<=absolute+agreement[k['label']]*abs(nominal))==(k['amount'] is not None),k
+    gammas=[k for k in estimates if k['label']=='Gamma'];assert len(gammas)==held and value(steps['Delta']['amount'])>0
+    if selection['priceSteps']==2:
+        assert unavailable==0 and total['greekCoverage']=='selected_price_factors' and value(steps['Gamma']['amount'])>0,total['values']
+        # Each gamma is the option's own: within 2% of the Black-76 gamma at its held volatility, strike, expiry and discount.
+        # The reference leaves out early exercise, which adds under half a percent for these options.
+        contracts={c['id']:c for source in report['sources'] if source['id']==opening['id'] for c in source['contracts']}
+        discount={p['instrumentId']:float(p['input']['factor']) for p in report['discounts']['opening']['payments']}
+        by_axis={f['axis']:f for f in factors}
+        for p in report['positions']:
+            for k in p['contributions']:
+                if k['label']!='Gamma':continue
+                instrument=p['position']['bindingId'];option=options[instrument];factor=by_axis[k['axes'][0]]
+                futures,strike=float(factor['opening']['price']),float(option['strike'])
+                years=(datetime.fromisoformat(option['expiryAt'])-datetime.fromisoformat(opening['at'])).total_seconds()/(365*86400)
+                width=float(contracts[instrument]['volatility'][0]['value'])*math.sqrt(years)
+                d1=(math.log(futures/strike)+width*width/2)/width
+                reference=discount[instrument]*NormalDist().pdf(d1)/(futures*width)*float(option['multiplier'])
+                assert abs(float(exact(k['estimate']['nominal']))/reference-1)<0.02,(factor['label'],float(exact(k['estimate']['nominal'])),reference)
+                assert Fraction(contracts[instrument]['priceSteps'][0]['size'])==Fraction(factor['bump']['priceStep'])
+    else:
+        # No gamma agrees: the effect has no amount, is never shown as zero and moves nothing in the bridge.
+        assert unavailable==held and all(k['amount'] is None and k['unavailableReason']=='finite_difference_unstable' for k in gammas),gammas[:1]
+        assert steps['Gamma']['amount'] is None and total['greekCoverage']=='partial',total['values']
     # What Greeks explain is the sum of the available effects. A holding states its own: an amount, or none when it has
     # estimates and none of them is available.
     assert value(total['values']['explained'])==sum(value(steps[label]['amount']) for label in GREEKS.values() if steps[label]['amount'] is not None)
@@ -184,7 +229,7 @@ def run_checks(url,query,manifest,verify_persistence=None):
     cutoff=c.call('options/catalog',context)['context']['knownAt']
     endpoint=lambda f:dict(snapshotId=f['id'],convention='trading_workspace_v1',knowledgeMode='at')
     request=dict(opening=endpoint(earlier),closing=endpoint(frame),knownAt=cutoff,bookIds=[book],portfolioIds=[],tradeIds=[booked['tradeId']],
-                 accountingPolicy=policies['accounting'],attributionPolicy=policies['attribution'],factorPolicy=policies['factors'],time=dict(mode='one_calendar_day_model_decay_v1',policy=policies['clockPolicy'],clock=ny_clock))
+                 accountingPolicy=policies['accounting'],attributionPolicy=policies['attribution'],factorPolicy=policies['factors'],factorBump=policies['factorBump']['offered'],time=dict(mode='one_calendar_day_model_decay_v1',policy=policies['clockPolicy'],clock=ny_clock))
     run=c.call('portfolio/pnl/run',request,timeout=300);assert run['saveRefusal'] is None
     assert len(json.dumps(dict(requestId=str(uuid4()),name='Close reconciliation',artifact=run['artifact'])).encode())<32768
     report=run['report'];assert report['version']=='trading_pnl_report_v2' and report['positions']
@@ -240,22 +285,43 @@ def run_checks(url,query,manifest,verify_persistence=None):
     calls={}
     for o in early_catalog['options']:
         if o['right']=='call':calls.setdefault(o['product'],{}).setdefault(o['underlyingSeries'],[]).append(o)
-    strip,months=[],[]
+    strip,months,centres=[],[],{}
     for position,product in enumerate(sorted(calls)):
         for underlying in sorted(calls[product])[:2 if position==0 else 1]:
-            listed=calls[product][underlying];centre=sorted(listed,key=lambda o:Decimal(o['strike']))[len(listed)//2]
+            listed=calls[product][underlying];centre=sorted(listed,key=lambda o:Decimal(o['strike']))[len(listed)//2];centres[centre['instrumentId']]=centre
             months.append(datetime.strptime(underlying.rsplit('_',1)[1],'%Y%m%d').strftime('%b %Y'))
             strip.append(c.call('options/book',dict(operationId=str(uuid4()),**early_context,bookId=book,series=centre['series'],definitionRevisionId=centre['definitionRevisionId'],
                                                    side='buy',lots='1',premium='1',premiumPaymentDate=earlier['at'][:10],premiumStyle='premium_paid_up_front',**early_parties)))
     assert len(strip)==3,len(strip)
     cutoff=c.call('options/catalog',context)['context']['knownAt']
     c.call('profile',{'profile':'risk'})
-    wide=c.call('portfolio/pnl/run',{**request,'knownAt':cutoff,'tradeIds':[t['tradeId'] for t in strip]},timeout=300)
-    strip_report=wide['report'];check_option_strip(strip_report,earlier,frame,months)
+    strip_scope={**request,'knownAt':cutoff,'tradeIds':[t['tradeId'] for t in strip]}
+    wide=c.call('portfolio/pnl/run',strip_scope,timeout=300)
+    offered=policies['factorBump']['offered']
+    strip_report=wide['report'];check_option_strip(strip_report,earlier,frame,months,centres,offered)
     assert wide['saveRefusal'] is None
     kept=c.call('portfolio/pnl/save',dict(requestId=str(uuid4()),name='Option strip',artifact=wide['artifact']));assert kept['report']==strip_report
     assert c.call('portfolio/pnl/saved/'+strip_report['id'])['report']==strip_report
-    print('PASS multi-curve option P&L: three underlyings on two curves in one saved report, no cross-factor work without a joint dependent, and no amount for an effect without an available estimate.',flush=True)
+    print('PASS multi-curve option P&L: three underlyings on two curves in one saved report, no cross-factor work without a joint dependent, and every option gamma explained at two declared price steps.',flush=True)
+    # A selection of the person's own is used as stated. Four price steps and a 2% gamma agreement leave every gamma
+    # unavailable here: each has no amount, and its curvature stays in the residual.
+    narrow={**offered,'priceSteps':4,'gammaRelativeTolerance':'0.02'}
+    check_option_strip(c.call('portfolio/pnl/run',{**strip_scope,'factorBump':narrow},timeout=300)['report'],earlier,frame,months,centres,narrow)
+    # Nothing is filled in: the policy needs its selection, a selection is bounded, and it states every member. The retired
+    # one-tick policy selects nothing. A tick bump smaller than two price steps a holding declares is refused before
+    # pricing, naming the factor and the ticks those steps span.
+    for body in ({'factorBump':None},{'factorBump':{**offered,'ticks':0}},{'factorBump':{**offered,'priceSteps':3}},{'factorBump':{**offered,'gammaRelativeTolerance':'-0.05'}}):
+        assert c.call('portfolio/pnl/run',{**strip_scope,**body},expected=422)['code']=='pnl_factor_bump',body
+    for bump in (None,offered):
+        assert c.call('portfolio/pnl/run',{**strip_scope,'factorPolicy':'held_primitive_prices_one_tick_central_v1','factorBump':bump},expected=422)['code']=='pnl_context'
+    unstated={member:stated for member,stated in offered.items() if member!='priceSteps'}
+    assert c.call('portfolio/pnl/run',{**strip_scope,'factorBump':unstated},expected=400)['code']=='request_format'
+    below=c.call('portfolio/pnl/run',{**strip_scope,'factorBump':{**offered,'priceSteps':None}},expected=422)
+    needed=re.fullmatch(r'.+ · \w{3} \d{4}: The selected bump of 1 tick is smaller than two price steps that a holding declares for this factor, which span (\d+) ticks\. '
+                        r'Select price steps, or at least (\d+) ticks\.',below['message'])
+    assert below['code']=='pnl_factor_bump' and needed and needed.group(1)==needed.group(2) and int(needed.group(1))>120,below
+    print('PASS P&L factor bump: a selection of the person\'s own is used as stated, with no amount for a gamma that does not agree; it is fully stated and bounded; '
+          'the one-tick policy is retired; a tick bump below two declared price steps is refused.',flush=True)
     reference=manifest['referenceCatalogId']
     query(f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{reference}' AND tenant_id='{manifest['tenantId']}' AND workspace_id='{manifest['workspaceId']}';")
     try:

@@ -74,6 +74,21 @@ export function reportPresentation(run:RunView,metric:RiskMetric,window?:{offset
  return {state:gaps.length||excluded.length||!run.scope?'incomplete':'complete',excluded,gaps,factors,charts};
 }
 
+/**
+ * The option valuation policy a run's reports were valued under, in the backend's own identifiers: one line for each distinct policy and
+ * none for a run that values no option. A report states that it values options by their scenario policy or their calibrations. One
+ * that does so without stating its selected policy in full says so: nothing stands in for it.
+ */
+export function optionValuation(run:RunView):string[]{
+ return [...new Set(run.parts.flatMap(p=>{
+  const report=p.report;
+  if(!report||report.scenarioPolicy==null&&!report.optionCalibrations?.length)return [];
+  const {numericalPolicy,scenarioPolicy,calibrationFallback,observationRole}=report.inputs?.pricingPolicy?.futuresOptions??{};
+  if([numericalPolicy,scenarioPolicy,calibrationFallback,observationRole].some(member=>typeof member!=='string'||!member))return ['Option valuation policy not recorded'];
+  return [`Option valuation · numerical policy ${numericalPolicy} · scenario policy ${scenarioPolicy} · calibration fallback ${calibrationFallback} · observation role ${observationRole}`];
+ }))];
+}
+
 type Scope=RiskScope;
 /** Only complete, consistently identified recent runs are candidates; a bounded list is never proof that an absent part completed. */
 export function recentCompletedRuns(jobs:readonly RiskJob[],scope:Scope,asOf:string):RiskJob[]{
@@ -88,6 +103,11 @@ export function recentCompletedRuns(jobs:readonly RiskJob[],scope:Scope,asOf:str
   return [{...first,finishedAt:parts.flatMap(j=>j.finishedAt?[j.finishedAt]:[]).sort().at(-1)}];
  }).sort((a,b)=>(b.finishedAt??'').localeCompare(a.finishedAt??'')||a.id.localeCompare(b.id));
 }
+/**
+ * A retained run opens as a scope's current report only when it was valued at the selected close and under the pricing policy the risk
+ * catalog states, which the backend says of each job it reads in full. A job that does not say so is not assumed to have been.
+ */
+export const opensAsCurrent=(job:RiskJob,snapshotId:string):boolean=>job.result?.snapshotId===snapshotId&&job.underStatedPricingPolicy===true;
 export function riskAddress(hash:string):string|undefined{
  return /^#risk\/job\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(hash)?.[1];
 }

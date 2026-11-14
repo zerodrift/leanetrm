@@ -31,7 +31,8 @@ const setup=`(async()=>{window.calls=[];window.actor='risk';window.failSave=fals
  window.capture={artifact:'protected-result',saveRefusal:null};window.saved={reports:[],more:false};window.stored=undefined;window.selectedFrame='closing';window.display=undefined;
  window.frames=[{id:'opening',at:'2026-01-01T21:00:00Z',label:'Evening close · Jan 1, 2026',session:'evening'},{id:'closing',at:'2026-01-02T21:00:00Z',label:'Evening close · Jan 2, 2026',session:'evening'}];
  window.api=async(path,body)=>{calls.push({path,body});
-  if(path==='portfolio/pnl/policies')return {accounting:'accounting',attribution:'greeks',factors:'factors',clockPolicy:'clock',timeModes:[{id:'one_calendar_day_model_decay_v1',label:'One-day model decay'},{id:'opening_to_closing_clock_v1',label:'Opening-to-closing time roll'}],
+  if(path==='portfolio/pnl/policies')return {accounting:'accounting',attribution:'greeks',factors:'factors',
+   factorBump:{offered:{ticks:1,priceSteps:2,absoluteTolerance:'0.000001',deltaRelativeTolerance:'0.15',gammaRelativeTolerance:'0.1'},ticks:{min:1,max:1000},priceSteps:[2,4]},clockPolicy:'clock',timeModes:[{id:'one_calendar_day_model_decay_v1',label:'One-day model decay'},{id:'opening_to_closing_clock_v1',label:'Opening-to-closing time roll'}],
    clocks:[{code:'UTC',kind:'fixed_offset',fixedOffsetSeconds:0,ianaZone:null,tzdbVersion:null}]};
   if(path==='portfolio/pnl/run')return {report,...capture};if(path==='portfolio/pnl/saved')return saved;if(path.startsWith('portfolio/pnl/saved/'))return stored;
   if(path==='amounts/display'&&display)return body.map(display);
@@ -42,6 +43,8 @@ const setup=`(async()=>{window.calls=[];window.actor='risk';window.failSave=fals
  window.desk=setupPnlView(document.querySelector('#host'),options);await desk.load();desk.sync(true);
  window.field=label=>[...document.querySelectorAll('.pnl-controls label')].find(e=>e.firstChild.textContent===label)?.querySelector('select,input');
  window.button=text=>[...document.querySelectorAll('button')].find(b=>b.textContent===text);
+ window.advanced=label=>[...document.querySelectorAll('.pnl-advanced label')].find(e=>e.firstChild.textContent===label)?.querySelector('select,input');
+ window.choose=(label,value)=>{const control=advanced(label);control.value=value;control.dispatchEvent(new Event('change'));};
  window.texts=selector=>[...document.querySelectorAll(selector)].map(e=>e.textContent);
  window.rows=selector=>[...document.querySelectorAll(selector)].map(row=>[...row.cells].map(cell=>cell.textContent));
  window.run=async()=>{field('Opening close').value='opening';field('Closing close').value='closing';field('Calendar clock').value='UTC';button('Run P&L').click();await lastWork;};})()`;
@@ -58,6 +61,71 @@ test('P&L offers theta modes, sends explicit inputs and presents results before 
  assert.equal(await evaluate("!!button('Save report')"),true);
  assert.match(await evaluate("document.querySelector('#host').textContent"),/One-day model decay/);
  assert.equal(await evaluate("calls.filter(c=>c.path==='portfolio/pnl/save').length"),0);
+}));
+test('the price bump sits in closed Advanced settings, shows what the backend offers and is sent as selected',browser,()=>page(async evaluate=>{
+ await evaluate(setup);
+ const summary="document.querySelector('.pnl-advanced > summary').textContent",bump="calls.filter(c=>c.path==='portfolio/pnl/run').at(-1).body.factorBump";
+ const offered='Advanced settings · price bump of 2 price steps where a model declares one, otherwise 1 tick · agreement within 0.000001 + 0.15 of a delta, 0.1 of a gamma';
+ const ticksElsewhere='Trading ticks · where no model declares a step',agreements=['Agreement · absolute tolerance','Delta agreement · relative tolerance','Gamma agreement · relative tolerance'];
+ // Closed until the person opens it, and saying what will be sent.
+ assert.deepEqual(await evaluate(`[document.querySelector('.pnl-advanced').open,${summary}]`),[false,offered]);
+ assert.deepEqual(await evaluate(`['Price bump','Price steps',${JSON.stringify(ticksElsewhere)},...${JSON.stringify(agreements)}].map(label=>advanced(label).value)`),
+  ['steps','2','1','0.000001','0.15','0.1']);
+ assert.deepEqual(await evaluate(`[[...advanced('Price steps').options].map(o=>o.value),advanced(${JSON.stringify(ticksElsewhere)}).min,advanced(${JSON.stringify(ticksElsewhere)}).max]`),[['2','4'],'1','1000']);
+ await evaluate('run()');
+ assert.deepEqual(await evaluate(bump),{ticks:1,priceSteps:2,absoluteTolerance:'0.000001',deltaRelativeTolerance:'0.15',gammaRelativeTolerance:'0.1'});
+ // Ticks alone: the steps count goes, the result is cleared, and the request says exactly that.
+ await evaluate("choose('Price bump','ticks');choose('Trading ticks','300');choose('Gamma agreement · relative tolerance','0.05')");
+ assert.deepEqual(await evaluate(`[document.querySelector('[role=status]').textContent,document.querySelector('.pnl-hero'),advanced('Price steps').parentElement.hidden,${summary}]`),
+  ['Inputs changed. Run P&L for this selection.',null,true,'Advanced settings · price bump of 300 ticks · agreement within 0.000001 + 0.15 of a delta, 0.05 of a gamma']);
+ await evaluate('run()');
+ assert.deepEqual(await evaluate(bump),{ticks:300,priceSteps:null,absoluteTolerance:'0.000001',deltaRelativeTolerance:'0.15',gammaRelativeTolerance:'0.05'});
+ // A tick count that is not a whole number within the stated bounds is not sent, and neither is an empty tolerance.
+ const refused=async(change,message)=>{
+  await evaluate(`errors.length=0;${change};run()`);
+  assert.deepEqual(await evaluate("[errors,calls.filter(c=>c.path==='portfolio/pnl/run').length,document.querySelector('[role=status]').textContent]"),[[message],2,'P&L did not run.'],change);
+ };
+ for(const change of ["choose('Trading ticks','2.5')","choose('Trading ticks','1001')","choose('Trading ticks','')","choose('Trading ticks','300');choose('Delta agreement · relative tolerance',' ')"])
+  await refused(change,'Enter whole trading ticks from 1 to 1000 and the three agreement tolerances.');
+ // What the backend offers can be restored.
+ await evaluate("button('Restore offered values').click()");
+ assert.deepEqual(await evaluate(`[advanced('Price bump').value,advanced('Price steps').value,advanced('Price steps').parentElement.hidden,advanced(${JSON.stringify(ticksElsewhere)}).value,advanced('Delta agreement · relative tolerance').value,${summary}]`),
+  ['steps','2',false,'1','0.15',offered]);
+ await evaluate(`choose('Price steps','4');choose(${JSON.stringify(ticksElsewhere)},'2')`);
+ assert.equal(await evaluate(summary),'Advanced settings · price bump of 4 price steps where a model declares one, otherwise 2 ticks · agreement within 0.000001 + 0.15 of a delta, 0.1 of a gamma');
+}));
+test('a selection the person made in Advanced settings survives the policies being read again, and is not handed to another person',browser,()=>page(async evaluate=>{
+ await evaluate(setup);
+ await evaluate("choose('Price bump','ticks');choose('Trading ticks','40');desk.load()");
+ assert.deepEqual(await evaluate("[advanced('Price bump').value,advanced('Trading ticks').value]"),['ticks','40']);
+ const shown="[advanced('Price bump').value,advanced('Price steps').value,advanced('Trading ticks · where no model declares a step')?.value]";
+ await evaluate("actor='other';desk.sync(true)");
+ assert.deepEqual(await evaluate(shown),['steps','2','1']);
+ await evaluate("choose('Price steps','4');actor='risk';desk.reset()");
+ assert.deepEqual(await evaluate(shown),['steps','2','1']);
+}));
+test('a price-step count the person chose that the backend no longer offers is not sent, and the page asks for one',browser,()=>page(async evaluate=>{
+ await evaluate(setup);
+ // The person chose four steps. The policies, read again, offer two alone.
+ await evaluate("(async()=>{choose('Price steps','4');const served=options.api;options.api=(path,body)=>Promise.resolve(served(path,body)).then(answer=>"+
+  "path==='portfolio/pnl/policies'?{...answer,factorBump:{...answer.factorBump,priceSteps:[2]}}:answer);await desk.load();})()");
+ assert.deepEqual(await evaluate("[[...advanced('Price steps').options].map(o=>o.value),advanced('Price steps').value]"),[['2'],'']);
+ await evaluate('errors.length=0;run()');
+ assert.deepEqual(await evaluate("[errors,calls.filter(c=>c.path==='portfolio/pnl/run').length]"),[['Choose the number of price steps.'],0]);
+ await evaluate("choose('Price steps','2');errors.length=0;run()");
+ assert.deepEqual(await evaluate("[errors,calls.filter(c=>c.path==='portfolio/pnl/run').map(c=>c.body.factorBump.priceSteps)]"),[[],[2]]);
+}));
+test('a run pressed before the offered settings could be shown shows them and waits to be pressed again',browser,()=>page(async evaluate=>{
+ await evaluate(setup);
+ // The page's first read of the policies fails: nothing is offered yet, and the section says so.
+ await evaluate("(async()=>{let failed=false;const served=options.api;options.api=(path,body)=>path==='portfolio/pnl/policies'&&!failed?(failed=true,Promise.reject(Error('offline'))):served(path,body);"+
+  "document.querySelector('#host').replaceChildren();window.desk=setupPnlView(document.querySelector('#host'),options);await desk.load().catch(()=>undefined);desk.sync(true);})()");
+ assert.equal(await evaluate("document.querySelector('.pnl-advanced > summary').textContent"),'Advanced settings');
+ await evaluate('errors.length=0;run()');
+ assert.deepEqual(await evaluate("[errors,calls.filter(c=>c.path==='portfolio/pnl/run').length]"),[['The settings the backend offers are now shown, Advanced settings included. Check them, then run again.'],0]);
+ assert.match(await evaluate("document.querySelector('.pnl-advanced > summary').textContent"),/price bump of 2 price steps/);
+ await evaluate('errors.length=0;run()');
+ assert.deepEqual(await evaluate("[errors,calls.filter(c=>c.path==='portfolio/pnl/run').length]"),[[],1]);
 }));
 test('the page says plainly what it does and what to do before a result exists, under the application\'s own page title',browser,()=>page(async evaluate=>{
  await evaluate(setup);

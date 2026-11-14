@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
@@ -8,7 +9,7 @@ using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.MarketData.Calculation;
 
-internal static class FuturesOptionChecks
+internal static partial class FuturesOptionChecks
 {
     public static void Run()
     {
@@ -24,6 +25,15 @@ internal static class FuturesOptionChecks
         Check("american futures options respect no-arbitrage bounds", Bounds);
         Check("american futures options rise with volatility and time and move with the futures price", Monotonic);
         Check("american futures options converge at the pinned step count", Convergence);
+        Check("an american futures option's price step is the gap between neighbouring strike crossings", PriceStepSpansStrikeCrossings);
+        Check("on the listed options a gamma that agrees at two price steps is within 7% of Black-76 at a unit discount", TwoStepGammaEqualsBlack76);
+        Check("on the oracle's options a gamma that agrees at two price steps is within 7% of an independent high-resolution tree under discounting", TwoStepGammaEqualsHighResolutionTree);
+        Check("at two of its own price steps a delta agrees within 15% and is within 5% of Black-76, low-delta options included", TwoStepDeltaKeepsLowDeltaOptions);
+        Check("two low-delta options lose their delta when another option on the same future declares a step twice their own", LargerStepLosesLowDelta);
+        Check("thirteen of fourteen options keep their gamma when another option on the same future sets the bump", OtherOptionsStepKeepsGamma);
+        Check("of 48 seeded options every gamma is used within 3.5% of Black-76 and every delta within 4%", SeededOptionsWithinMeasuredError);
+        Check("the largest errors found in a used estimate are about 8% for a gamma and 5.6% for a delta", UsedEstimateTails);
+        Check("a call valued at intrinsic close inside its exercise boundary is still given a gamma", GammaCloseInsideExerciseBoundary);
         Check("american futures option year fractions use act/365 fixed instants", YearFractions);
         Check("american futures options reject valuation at or after expiry", ExpiredValuation);
         Check("american futures options reject unsupported terms, policies and inputs", RejectsUnsupportedTerms);
@@ -41,6 +51,8 @@ internal static class FuturesOptionChecks
         Check("short futures option holdings flip delta", ShortPositionsFlipSign);
         Check("futures option fallback delta is one contract in the money and zero out of it", FallbackDelta);
         Check("futures option declares only its underlying futures input", DeclaredDependencies);
+        Check("a solved futures option declares its lattice's price step on its underlying; an intrinsic fallback declares none", DeclaredPriceSteps);
+        Check("an option's opening gamma is explained at two declared price steps and is unavailable at one tick", GammaAtDeclaredPriceSteps);
         Check("futures option risk replays identically", ReplayIdentical);
         Check("futures option risk digest is host independent", HostIndependentDigest);
         Check("futures option binding rejects unsupported roles, terms and missing inputs", OptionBindingErrors);
@@ -48,6 +60,7 @@ internal static class FuturesOptionChecks
         Check("futures option binding is refused by another market definition with the same snapshot", ForeignMarketBinding);
         Check("futures option receipts record every calibration input", ReceiptInputs);
         Check("an expired futures option settlement is never frozen as a forward block's final settlement", NoFrozenOptionSettlement);
+        StrikeCentredChecks();
     }
 
     internal static void ClockLayers()
@@ -79,7 +92,7 @@ internal static class FuturesOptionChecks
     }
 
     private static readonly DateTimeOffset ValuationAt = new(2026, 1, 5, 19, 30, 0, TimeSpan.Zero);
-    private static readonly OptionNumericalPolicy Policy = OptionNumericalPolicies.Require(AmericanFuturesOptionModel.Id);
+    private static readonly OptionNumericalPolicy Policy = OptionNumericalPolicies.Require(OptionNumericalPolicies.CoxRossRubinstein);
 
     private sealed record Black76Case(string Futures, string Strike, string Volatility, string Years, string Discount,
         string Call, string Put, string UndiscountedCall, string UndiscountedPut);
@@ -211,6 +224,318 @@ internal static class FuturesOptionChecks
             foreach (var right in new[] { OptionRight.Call, OptionRight.Put })
                 Within(Price(c, right, c.Discount), Price(c, right, c.Discount, fine), Policy.PriceTolerance,
                     $"{right} F={c.Futures} K={c.Strike} at {Policy.Steps} vs {fine.Steps} steps");
+    }
+
+    // The tree is rebuilt around each futures price, so its value is straight between the prices at which a lattice
+    // level crosses the strike and bends only there. Undiscounted there is no early exercise to add smaller bends.
+    // At the money the base price is such a crossing, and the next one lies one price step above it.
+    private static void PriceStepSpansStrikeCrossings()
+    {
+        var terms = new FuturesOptionTerms(OptionRight.Call, ExactDecimal.Parse("3"), ExpiryAfter("0.25"), "american", "exercise_into_future");
+        var (strike, volatility) = (L("3"), L("0.5"));
+        var step = AmericanFuturesOptionModel.PriceStep(terms, strike, volatility, L("1"), ValuationAt, Policy)
+            ?? throw new Exception("A tree rebuilt around the futures price has a price step.");
+        var quarter = step / L("4");
+        LatticeDecimal Value(LatticeDecimal futures) =>
+            AmericanFuturesOptionModel.UnitPrice(terms, futures, volatility, L("1"), ValuationAt, Policy, CancellationToken.None);
+        LatticeDecimal Bend(LatticeDecimal centre) => Value(centre + quarter) + Value(centre - quarter) - L("2") * Value(centre);
+        Within(Bend(strike + step / L("2")), L("0"), L("0.00000000000000000001"), "the value between two strike crossings");
+        AtLeast(Bend(strike), L("0.0001"), "the bend at the strike");
+        AtLeast(Bend(strike + step), L("0.0001"), "the bend one price step above the strike");
+    }
+
+    private static double Number(string value) => double.Parse(value, CultureInfo.InvariantCulture);
+
+    // The agreement the P&L report offers for its estimates, as relative tolerances: 15% for a delta and 10% for a gamma.
+    private const double DeltaAgreement = 0.15, GammaAgreement = 0.10;
+
+    private sealed record Quoted(OptionRight Right, string Futures, string Strike, string Volatility, string Years, string Discount)
+    {
+        // Volatility times the square root of the years: the option's range as a share of its futures price.
+        public double Width => Number(Volatility) * Math.Sqrt(Number(Years));
+        public FuturesOptionTerms Terms => new(Right, ExactDecimal.Parse(Strike), ExpiryAfter(Years), "american", "exercise_into_future");
+        // The price step of the tree rebuilt around the futures price.
+        public LatticeDecimal Step => AmericanFuturesOptionModel.PriceStep(Terms, L(Futures), L(Volatility), L(Discount), ValuationAt, Policy)!.Value;
+        // The bump the report offers where the option's own step sets it, before rounding to ticks.
+        public LatticeDecimal TwoSteps => Step + Step;
+        public override string ToString() => $"{Right} F={Futures} K={Strike} sigma={Volatility} T={Years} DF={Discount}";
+    }
+
+    // The estimates the shared finite differences form at half, the whole and double a bump.
+    private readonly record struct Estimate(double Half, double Nominal, double Double)
+    {
+        // The report's agreement without its absolute term: the half and double estimates lie within a share of the nominal.
+        public bool Agrees(double relative) =>
+            Math.Abs(Half - Nominal) <= relative * Math.Abs(Nominal) && Math.Abs(Double - Nominal) <= relative * Math.Abs(Nominal);
+        public double Off(double reference) => Math.Abs(Nominal / reference - 1);
+    }
+
+    private static readonly ConcurrentDictionary<(Quoted, LatticeDecimal, OptionNumericalPolicy), (Estimate Delta, Estimate Gamma)> CentralEstimates = new();
+
+    // Central first and second differences of the unit price, as the engine forms them from seven values.
+    private static (Estimate Delta, Estimate Gamma) Central(Quoted option, LatticeDecimal bump, OptionNumericalPolicy? policy = null) => CentralEstimates.GetOrAdd((option, bump, policy ?? Policy), _ =>
+    {
+        var futures = L(option.Futures);
+        LatticeDecimal Value(LatticeDecimal at) => Price(option.Right, at.ToString(), option.Strike, option.Volatility, option.Years, option.Discount, policy);
+        var centre = Value(futures);
+        (double Delta, double Gamma) At(LatticeDecimal step)
+        {
+            var (up, down) = (Value(futures + step), Value(futures - step));
+            return (Number(((up - down) / (step + step)).ToString()), Number(((up + down - centre - centre) / (step * step)).ToString()));
+        }
+        var (half, nominal, twice) = (At(bump / L("2")), At(bump), At(bump + bump));
+        return (new(half.Delta, nominal.Delta, twice.Delta), new(half.Gamma, nominal.Gamma, twice.Gamma));
+    });
+
+    // Seven tree prices stand behind each estimate. A check of many options prices them side by side, then reads them.
+    private static void PriceTogether(IEnumerable<(Quoted Option, LatticeDecimal Bump)> estimates, OptionNumericalPolicy? policy = null) =>
+        Parallel.ForEach(estimates, estimate => Central(estimate.Option, estimate.Bump, policy));
+
+    // Black-76 delta and gamma of a European option on a future at a unit discount. The distribution function is
+    // Simpson's rule on the density from ten deviations below.
+    private static (double Delta, double Gamma) Black76(Quoted option)
+    {
+        static double Density(double x) => Math.Exp(-x * x / 2) / Math.Sqrt(2 * Math.PI);
+        double futures = Number(option.Futures), width = option.Width, d1 = (Math.Log(futures / Number(option.Strike)) + width * width / 2) / width;
+        const int intervals = 4000;
+        double from = Math.Min(-10, d1 - 1), size = (d1 - from) / intervals, sum = Density(from) + Density(d1);
+        for (var i = 1; i < intervals; i++) sum += (i % 2 == 0 ? 2 : 4) * Density(from + i * size);
+        var below = sum * size / 3;
+        return (option.Right == OptionRight.Call ? below : below - 1, Density(d1) / (futures * width));
+    }
+
+    private static IEnumerable<Quoted> OracleOptions(bool discounted) => Black76Cases().SelectMany(c =>
+        new[] { OptionRight.Call, OptionRight.Put }.Select(right => new Quoted(right, c.Futures, c.Strike, c.Volatility, c.Years, discounted ? c.Discount : "1")));
+
+    // On the listed options a gamma at two of its own price steps agrees within the offered 10%, except those whose width
+    // is two or more, and a used one is within 7% of its reference (measured 6.6%). At the money the estimate reads high
+    // by about 0.4 of a price step over the futures price, because the bumps are additive and the lattice is geometric.
+    // This pins the listed cases. It is no bound for every option: SeededOptionsWithinMeasuredError samples others and
+    // UsedEstimateTails pins the largest errors found.
+    private static void RequireGamma(Quoted option, double reference)
+    {
+        var gamma = Central(option, option.TwoSteps).Gamma;
+        var agrees = gamma.Agrees(GammaAgreement);
+        if (agrees != (option.Width < 1.9))
+            throw new Exception($"{option}: the gamma estimates {gamma} {(agrees ? "agree" : "do not agree")} at a width of {option.Width}.");
+        if (agrees && gamma.Off(reference) > 0.07) throw new Exception($"{option}: gamma {gamma.Nominal} is not within 7% of {reference}.");
+    }
+
+    // At a unit discount the American value is the European one. Besides the oracle's options, five at the money cover
+    // widths of 0.5 to 1.1: at the money the estimate reads highest, and the oracle has no such option there.
+    private static void TwoStepGammaEqualsBlack76()
+    {
+        var atTheMoney = new[] { ("0.5", "1"), ("0.5", "2"), ("0.6", "2"), ("0.5", "4"), ("0.7", "2.5") }
+            .Select(c => new Quoted(OptionRight.Call, "60", "60", c.Item1, c.Item2, "1"));
+        var options = OracleOptions(false).Concat(atTheMoney).ToArray();
+        PriceTogether(options.Select(option => (option, option.TwoSteps)));
+        foreach (var option in options)
+        {
+            var reference = Black76(option).Gamma;
+            // 31 standard deviations in the money the reference is below 1e-200: there is no gamma, and none is estimated.
+            if (reference >= 1e-100) RequireGamma(option, reference);
+            else if (Math.Abs(Central(option, option.TwoSteps).Gamma.Nominal) > 1e-18) throw new Exception($"{option}: a gamma was estimated where there is none.");
+        }
+    }
+
+    // An independent binary64 Cox-Ross-Rubinstein tree with early exercise. It starts two steps before the valuation
+    // instant, so the valuation price and both its neighbours are tree nodes, and reads the value, delta and gamma from
+    // those three nodes.
+    private static (double Value, double Delta, double Gamma) HighResolution(Quoted option, int steps)
+    {
+        double futures = Number(option.Futures), strike = Number(option.Strike), spread = option.Width / Math.Sqrt(steps);
+        double up = (1 - Math.Exp(-spread)) / (Math.Exp(spread) - Math.Exp(-spread)), discount = Math.Exp(Math.Log(Number(option.Discount)) / steps);
+        // The exercise value at each level: level steps + 2 + j is the futures price times exp(j * spread).
+        var payoffs = new double[2 * steps + 5];
+        for (var level = 0; level < payoffs.Length; level++)
+        {
+            var price = futures * Math.Exp((level - steps - 2) * spread);
+            payoffs[level] = Math.Max(option.Right == OptionRight.Call ? price - strike : strike - price, 0);
+        }
+        var values = new double[steps + 3];
+        for (var node = 0; node < values.Length; node++) values[node] = payoffs[2 * (steps + 2 - node)];
+        for (var step = steps + 1; step >= 2; step--)
+            for (var node = 0; node <= step; node++)
+                values[node] = Math.Max(discount * (up * values[node] + (1 - up) * values[node + 1]), payoffs[step - 2 * node + steps + 2]);
+        double above = futures * Math.Exp(2 * spread), below = futures * Math.Exp(-2 * spread);
+        return (values[1], (values[0] - values[2]) / (above - below),
+            ((values[0] - values[1]) / (above - futures) - (values[1] - values[2]) / (futures - below)) / ((above - below) / 2));
+    }
+
+    private static double HighResolutionGamma(Quoted option, int steps) => HighResolution(option, steps).Gamma;
+
+    // Under each case's own discount, against 2,000 steps of the independent tree (within 0.08% of 4,000 steps). Two
+    // options have no curvature within reach, one exercised at once and one worthless: their estimates are exactly zero.
+    // One call is exercised at once well inside its boundary: its estimates reach across the boundary and do not agree.
+    // Close inside the boundary they can agree: see GammaCloseInsideExerciseBoundary.
+    private static void TwoStepGammaEqualsHighResolutionTree()
+    {
+        var (compared, flat, exercised) = (0, 0, 0);
+        var options = OracleOptions(true).ToArray();
+        PriceTogether(options.Select(option => (option, option.TwoSteps)));
+        foreach (var option in options)
+        {
+            var reference = HighResolutionGamma(option, 2000);
+            var gamma = Central(option, option.TwoSteps).Gamma;
+            if (reference >= 1e-100) { RequireGamma(option, reference); compared++; }
+            else if (gamma is { Half: 0, Nominal: 0, Double: 0 }) flat++;
+            else if (gamma.Agrees(GammaAgreement)) throw new Exception($"{option}: a gamma agreed for an option exercised at once.");
+            else exercised++;
+        }
+        if (compared != 31 || flat != 2 || exercised != 1)
+            throw new Exception($"Expected 31 live options, two with no curvature within reach and one exercised at once; found {compared}, {flat} and {exercised}.");
+    }
+
+    // A call and a put with under 7% of a contract's delta, a week from expiry.
+    private static readonly Quoted[] Wings = [new(OptionRight.Call, "3", "3.4", "0.49", "0.02", "1"), new(OptionRight.Put, "3", "2.7", "0.49", "0.02", "1")];
+
+    // One bump serves both Greeks. Across four price steps a small delta changes by more than 5% of itself, so a 5%
+    // agreement would withhold the delta of a low-delta option; the double step's error is about three times the
+    // nominal's, so 15% keeps it within 5% on these options (measured 3.6%), where the option's own step sets the bump.
+    // A larger step of another option on the same future widens the bump, and a low-delta option can lose its delta.
+    private static void TwoStepDeltaKeepsLowDeltaOptions()
+    {
+        foreach (var option in OracleOptions(false).Concat(Wings))
+        {
+            var reference = Black76(option).Delta;
+            if (Math.Abs(reference) < 1e-6 || option.Width > 1.9) continue;
+            var delta = Central(option, option.TwoSteps).Delta;
+            if (!delta.Agrees(DeltaAgreement) || delta.Off(reference) > 0.05)
+                throw new Exception($"{option}: the delta estimates {delta} must agree within {DeltaAgreement:P0} and lie within 5% of {reference}.");
+        }
+        foreach (var option in Wings)
+            if (Central(option, option.TwoSteps).Delta.Agrees(0.05) || Math.Abs(Black76(option).Delta) > 0.07)
+                throw new Exception($"{option}: the case must be a low-delta option whose delta a 5% agreement withholds.");
+    }
+
+    // The same two options when another option on their future declares a step twice their own: the bump is four of
+    // their steps, its double step eight, and neither delta agrees (the double reads 24% and 27% above the nominal).
+    private static void LargerStepLosesLowDelta()
+    {
+        foreach (var option in Wings)
+            if (Central(option, option.Step * L("4")).Delta.Agrees(DeltaAgreement))
+                throw new Exception($"{option}: the delta estimates agree under a step twice the option's own.");
+    }
+
+    // A factor has one bump: two steps of the largest price step its holdings declare. An option whose own step is
+    // smaller is then bumped by a number of its steps that is not whole, and its half-step estimate lands between its
+    // bends. Seven strikes of one future at a volatility of 0.50, bumped by two steps 1.2 and 1.5 times their own: within
+    // 10% all but one gamma agrees, each within 5% of Black-76 (measured 3.6%); within 5% fewer than ten of fourteen would.
+    // The one that does not is the strike on a bend at 1.5 times, whose half step reads 10.5% above its nominal.
+    private static void OtherOptionsStepKeepsGamma()
+    {
+        var (agreeing, withinFive) = (0, 0);
+        var cases = (
+            from ratio in new[] { "1.2", "1.5" }
+            from strike in new[] { "3", "3.1", "3.2", "3.25", "3.3", "3.4", "3.5" }
+            let option = new Quoted(Number(strike) >= 3.25 ? OptionRight.Call : OptionRight.Put, "3.25", strike, "0.5", "0.125", "1")
+            let bump = LatticeDecimal.From(new PnlFactorBump(1, 2).Size(ExactDecimal.Parse("0.001"), (option.Step * L(ratio)).ToExact()))
+            select (Option: option, Bump: bump, Ratio: ratio)).ToArray();
+        PriceTogether(cases.Select(c => (c.Option, c.Bump)));
+        foreach (var (option, bump, ratio) in cases)
+        {
+            var gamma = Central(option, bump).Gamma;
+            if (gamma.Agrees(0.05)) withinFive++;
+            if (!gamma.Agrees(GammaAgreement))
+            {
+                if (option.Strike != "3.25" || ratio != "1.5") throw new Exception($"{option} at {ratio} steps: the gamma estimates {gamma} do not agree.");
+                continue;
+            }
+            agreeing++;
+            if (gamma.Off(Black76(option).Gamma) > 0.05) throw new Exception($"{option} at {ratio} steps: gamma {gamma.Nominal} is not within 5% of Black-76.");
+        }
+        if (agreeing != 13 || withinFive >= 10) throw new Exception($"Expected 13 of 14 gammas to agree within 10% and fewer than 10 within 5%; found {agreeing} and {withinFive}.");
+    }
+
+    // Forty-eight options drawn from a fixed sequence, undiscounted: futures near 3.25 and 60.5, volatilities 0.2 to 1.0,
+    // one week to eighteen months, strikes within two standard deviations. Each is bumped as the report would bump it:
+    // two of its own price steps, rounded up to whole ticks. The listed cases above are chosen; these are not.
+    // Measured: every gamma used, the worst 3.0% from Black-76, and every delta, the worst 3.5%. A sample this small
+    // misses the tails, which UsedEstimateTails pins.
+    private static void SeededOptionsWithinMeasuredError()
+    {
+        var sample = SeededOptions(rate: 0).Select(drawn =>
+            (drawn.Option, Bump: LatticeDecimal.From(new PnlFactorBump(1, 2).Size(ExactDecimal.Parse(drawn.Tick), drawn.Option.Step.ToExact())))).ToList();
+        PriceTogether(sample);
+        var (options, usedGammas, usedDeltas, worstGamma, worstDelta) = (0, 0, 0, 0.0, 0.0);
+        foreach (var (option, bump) in sample)
+        {
+            var (delta, gamma) = Central(option, bump);
+            var reference = Black76(option);
+            // An option with under 1% of a contract's delta has too little of either Greek to judge a share of it.
+            if (Math.Abs(reference.Delta) < 0.01 || Math.Abs(reference.Delta) > 0.99) continue;
+            options++;
+            if (gamma.Agrees(GammaAgreement)) { usedGammas++; worstGamma = Math.Max(worstGamma, gamma.Off(reference.Gamma)); }
+            if (delta.Agrees(DeltaAgreement)) { usedDeltas++; worstDelta = Math.Max(worstDelta, delta.Off(reference.Delta)); }
+        }
+        if (options != 48 || usedGammas != 48 || usedDeltas != 48 || worstGamma > 0.035 || worstDelta > 0.04)
+            throw new Exception($"{options} options: {usedGammas} gammas used, worst {worstGamma:P1}; {usedDeltas} deltas used, worst {worstDelta:P1}.");
+    }
+
+    // The forty-eight options, each with the trading tick of its futures price, discounted from expiry at one
+    // continuously compounded rate.
+    private static List<(Quoted Option, string Tick)> SeededOptions(double rate)
+    {
+        // A fixed linear congruential sequence in [0, 1), so the sample is the same on every host and runtime.
+        var state = 20261113UL;
+        double Next() { state = unchecked(state * 6364136223846793005UL + 1442695040888963407UL); return (state >> 11) / 9007199254740992.0; }
+        string[] years = ["0.02", "0.05", "0.1", "0.25", "0.5", "0.75", "1", "1.5"];
+        var sample = new List<(Quoted Option, string Tick)>();
+        for (var n = 0; n < 48; n++)
+        {
+            var (futures, tick) = n % 2 == 0 ? ("3.25", "0.001") : ("60.5", "0.01");
+            var volatility = (0.2 + 0.8 * Next()).ToString("F2", CultureInfo.InvariantCulture);
+            var term = years[(int)(Next() * years.Length)];
+            var width = Number(volatility) * Math.Sqrt(Number(term));
+            var strike = (Number(futures) * Math.Exp(-(4 * Next() - 2) * width)).ToString("F4", CultureInfo.InvariantCulture);
+            var discount = rate == 0 ? "1" : Math.Exp(-rate * Number(term)).ToString("F6", CultureInfo.InvariantCulture);
+            sample.Add((new Quoted(Next() < 0.5 ? OptionRight.Call : OptionRight.Put, futures, strike, volatility, term, discount), tick));
+        }
+        return sample;
+    }
+
+    // No bound holds for every option. These are the largest errors found in a used estimate of an option with time
+    // value, each beyond what the checks above pin: far from the money at a wide option, beside an early-exercise
+    // boundary (against the independent tree, whose gamma moves 0.1% at 4,000 steps), and under another option's
+    // larger step. If one moves, the documented limits move too.
+    private static void UsedEstimateTails()
+    {
+        // Two steps of another option's price step, a multiple of this option's own, rounded up to whole ticks.
+        static LatticeDecimal Others(Quoted option, string ratio) =>
+            LatticeDecimal.From(new PnlFactorBump(1, 2).Size(ExactDecimal.Parse("0.01"), (option.Step * L(ratio)).ToExact()));
+        Quoted wide = new(OptionRight.Put, "60", "14.2157", "0.6", "2.25", "1"),
+            exercisable = new(OptionRight.Call, "4.121", "1.6816", "0.4505", "1.08", "0.9786"),
+            far = new(OptionRight.Put, "60", "19.9723", "0.5", "1", "1"),
+            wing = new(OptionRight.Call, "60", "113.3795", "0.5", "0.5", "1");
+        (string Case, Quoted Option, LatticeDecimal Bump, bool Delta, double Reference, double From, double To)[] tails =
+        [
+            ("the gamma of a put 1.6 deviations out of the money at a width of 0.9", wide, wide.TwoSteps, false, Black76(wide).Gamma, 0.075, 0.085),
+            ("the gamma of a call beside its early-exercise boundary", exercisable, exercisable.TwoSteps, false, HighResolutionGamma(exercisable, 2000), -0.09, -0.075),
+            ("the gamma of a put 2.2 deviations out under a step 1.1 times its own", far, Others(far, "1.1"), false, Black76(far).Gamma, 0.075, 0.085),
+            ("the delta of a five-delta call under a step 1.75 times its own", wing, Others(wing, "1.75"), true, Black76(wing).Delta, 0.05, 0.06),
+        ];
+        PriceTogether(tails.Select(tail => (tail.Option, tail.Bump)));
+        foreach (var tail in tails)
+        {
+            var central = Central(tail.Option, tail.Bump);
+            var (estimate, agreement) = tail.Delta ? (central.Delta, DeltaAgreement) : (central.Gamma, GammaAgreement);
+            var off = estimate.Nominal / tail.Reference - 1;
+            if (!estimate.Agrees(agreement) || off < tail.From || off > tail.To)
+                throw new Exception($"{tail.Case}: the estimates {estimate} must agree within {agreement:P0} and read {tail.From:P1} to {tail.To:P1} from {tail.Reference}; read {off:P1}.");
+        }
+    }
+
+    // An option exercised at once is worth its intrinsic value, which has no curvature at its price. Close inside the
+    // exercise boundary every down leg lies outside it, where time value grows about quadratically, so the three
+    // estimates agree and a gamma is used that the option does not have at that price.
+    private static void GammaCloseInsideExerciseBoundary()
+    {
+        var call = new Quoted(OptionRight.Call, "4.3", "1.6816", "0.4505", "1.08", "0.9786");
+        var value = Price(call.Right, call.Futures, call.Strike, call.Volatility, call.Years, call.Discount);
+        if (value.CompareTo(L(call.Futures) - L(call.Strike)) != 0) throw new Exception($"{call}: the case must be valued at intrinsic; got {value}.");
+        var gamma = Central(call, call.TwoSteps).Gamma;
+        if (!gamma.Agrees(GammaAgreement) || gamma.Nominal < 0.017 || gamma.Nominal > 0.019)
+            throw new Exception($"{call}: the gamma estimates {gamma} must agree within {GammaAgreement:P0} near 0.018.");
     }
 
     private static void YearFractions()
@@ -654,9 +979,10 @@ internal static class FuturesOptionChecks
         public static Trade Holding(int trade, int book, FuturesOptionInstrument option, string lots) => new(G(1000 + trade), G(2000 + book),
             [new TradeInstrument(G(3000 + trade), option, new Quantity(ExactDecimal.Parse(lots), option.UnitQuantity.Specification))]);
         public RiskRun Calculate(ImmutableArray<Trade> trades, ImmutableArray<QuoteBump> bumps, bool fallbackDeclared = true,
-            ISideDiscounting? discounting = null, string role = "daily_settlement", CurveModel? model = null, MarketSnapshot? snapshot = null) =>
+            ISideDiscounting? discounting = null, string role = "daily_settlement", CurveModel? model = null, MarketSnapshot? snapshot = null,
+            OptionNumericalPolicy? policy = null) =>
             FuturesOptionPricing.Calculate(trades, snapshot ?? Snapshot(), model ?? Model(), bumps, FuturesOptionPricing.ScenarioPolicy,
-                RiskEngine.NumericalPolicy, Policy, fallbackDeclared, discounting ?? new ExplicitDiscounting(Discount, DiscountFactorSource.Explicit), role);
+                RiskEngine.NumericalPolicy, policy ?? Policy, fallbackDeclared, discounting ?? new ExplicitDiscounting(Discount, DiscountFactorSource.Explicit), role);
     }
 
     // The fixed four-option case: long and short holdings across two books, with a
@@ -757,7 +1083,7 @@ internal static class FuturesOptionChecks
         var (market, run) = Portfolio.Value;
         foreach (var contract in run.Contracts)
         {
-            Equal(contract.ModelVersion, AmericanFuturesOptionModel.Id);
+            Equal(contract.ModelVersion, OptionNumericalPolicies.CoxRossRubinstein);
             if (contract.Dependencies.Length != 1 || contract.Dependencies[0] != market.UnderlyingRequest)
                 throw new Exception("An option must declare exactly its underlying futures request.");
         }
@@ -772,6 +1098,99 @@ internal static class FuturesOptionChecks
             Same(position.Up.Amount, position.Base.Amount, "settlement-bumped up");
             Same(position.Delta.Value, D("0"), "settlement-bumped delta");
         }
+    }
+
+    // A solved option is priced on the tree, whose value bends once per price step of its underlying futures price at the
+    // held volatility. A fallback option is valued at intrinsic and has no lattice to declare.
+    private static void DeclaredPriceSteps()
+    {
+        var (market, run) = Portfolio.Value;
+        var solved = 0;
+        foreach (var contract in run.Contracts)
+        {
+            var receipt = run.OptionCalibrations.Single(r => r.InstrumentId == contract.Id);
+            if (receipt.Mode != FuturesOptionPricing.SolvedMode)
+            {
+                if (!contract.PriceSteps.IsEmpty) throw new Exception("An option valued at intrinsic declares no price step.");
+                continue;
+            }
+            // The futures price times exp(2 * volatility * sqrt(years / steps)) - 1, at the base price and the held volatility.
+            var years = (OptionMarket.Expiry - OptionMarket.At).TotalSeconds / (365 * 86400.0);
+            var expected = Number(OptionMarket.Futures) * (Math.Exp(2 * Number(receipt.Volatility!) * Math.Sqrt(years / Policy.Steps)) - 1);
+            if (contract.PriceSteps is not [{ } step] || step.Dependency != market.UnderlyingRequest || Math.Abs(Number(step.Size.ToString()) / expected - 1) > 1e-12)
+                throw new Exception("A solved option must declare its lattice's price step on its underlying futures request.");
+            solved++;
+        }
+        if (solved != 2 || run.Contracts.Length != 4) throw new Exception($"Expected two solved options among four; found {solved} of {run.Contracts.Length}.");
+    }
+
+    // Three contracts of the at-the-money call, prepared under one numerical policy and discount for the shared finite
+    // differences and the P&L attribution of a move of 0.03.
+    private sealed class AtTheMoneyCalls
+    {
+        private static readonly FiniteDifferenceTolerance DeltaAgreement = new(D("0.000001"), D("0.15")), GammaAgreement = new(D("0.000001"), D("0.1"));
+        public static readonly ExactDecimal Move = D("0.03");
+        public PreparedConnectedPortfolioRisk Prepared { get; }
+        public QuoteFactor Factor { get; }
+        // Black-76's discounted gamma of the three contracts of 10,000 units: at the money d1 is half the width.
+        public double Black76Gamma { get; }
+
+        public AtTheMoneyCalls(OptionNumericalPolicy policy, string discount = "1")
+        {
+            var market = new OptionMarket(); var source = market.Snapshot(); var model = market.Model(); var option = market.Option(11);
+            var requests = FuturesOptionPricing.Requests(model, option.Series, FuturesOptionPricing.DailySettlement);
+            var built = model.Build(source, [requests.Underlying, requests.Settlement]);
+            var binding = FuturesOptionPricing.Prepare(option, built, source,
+                new ExplicitDiscounting(D(discount), discount == "1" ? DiscountFactorSource.Undiscounted : DiscountFactorSource.Explicit),
+                FuturesOptionPricing.DailySettlement, policy, true, CancellationToken.None);
+            var holdings = ValuationPortfolio.FromTrades([OptionMarket.Holding(19, 1, option, "3")], new(ValuationMeasure.PresentValue,
+                ImmutableDictionary<Guid, FuturesMarketBinding>.Empty, null) { OptionBindings = ImmutableDictionary<Guid, FuturesOptionMarketBinding>.Empty.Add(option.Id, binding) });
+            Prepared = RiskEngine.PrepareConnected(built.Connected, built.PricingBindings, [holdings], built);
+            Factor = Prepared.Factors.Single();
+            double volatility = Number(((SolvedVolatility)binding.Calibration).Volatility.ToString()), futures = Number(OptionMarket.Futures);
+            var width = volatility * Math.Sqrt(Number(AmericanFuturesOptionModel.YearFraction(OptionMarket.At, OptionMarket.Expiry, policy).ToString()));
+            Black76Gamma = Number(discount) * Math.Exp(-width * width / 8) / Math.Sqrt(2 * Math.PI) / (futures * width) * 30000;
+        }
+
+        // The gamma term of the move's explanation, from estimates at half, the whole and double the bump.
+        public PnlGreekContribution Gamma(ExactDecimal bump)
+        {
+            var run = RiskEngine.CalculateFiniteDifferences(Prepared, new(ConnectedFiniteDifferenceRequest.HalfNominalDouble,
+                [new("price", new PriceSensitivityInput(new(CurveShockCoordinate.MarketQuote, new ContractCurveTarget(Factor.Curves[0], Factor.Contract),
+                    Factor.Unit, bump, ConnectedRiskBump.Convention)), DeltaAgreement, GammaAgreement)], []), RiskEngine.ExactNumericalPolicy, detail: RiskDetail.Holdings);
+            var greeks = PnlGreekRun.Capture(Prepared, run);
+            var opening = greeks.OpeningPoint([], PnlAccountingCoverage.Complete);
+            var closing = opening with { ContextId = Guid.NewGuid(), SnapshotId = Guid.NewGuid(), At = opening.At.AddDays(1), KnownAt = opening.KnownAt.AddDays(1) };
+            return TradingPnlAttribution.Explain(TradingPnlAccounting.Compare(opening, closing, TradingPnlAccounting.Version1), [greeks],
+                [new("price", Factor.Unit, Move)], TradingPnlAttribution.OpeningGreeks).Positions.Single().Contributions.Single(c => c.Formula == RiskEngine.CentralGamma);
+        }
+
+        // An exact amount reads as a decimal, or as a fraction where no decimal is exact.
+        public static double Nominal(PnlGreekContribution gamma)
+        {
+            var exact = gamma.Estimate.Nominal.ToExactString().Split('/');
+            return Number(exact[0]) / (exact.Length == 2 ? Number(exact[1]) : 1);
+        }
+    }
+
+    // On the rebuilt tree, at the money, the base price is a strike crossing, so a one-tick second difference is the bend
+    // there divided by the bump: it doubles as the bump halves and is no gamma. Two declared price steps give the Black-76
+    // gamma within 2.5%, with the half and double steps agreeing within the offered 10%.
+    private static void GammaAtDeclaredPriceSteps()
+    {
+        var calls = new AtTheMoneyCalls(Policy);
+        var oneTick = calls.Gamma(calls.Factor.TradingTick);
+        if (oneTick.Amount is not null || oneTick.UnavailableReason != TradingPnlAttribution.UnstableEstimate ||
+            oneTick.Estimate.Half.CompareTo(oneTick.Estimate.Nominal.Scale(D("1.9"))) < 0)
+            throw new Exception("A one-tick gamma across a strike crossing must be unavailable: it doubles as the bump halves.");
+        var bump = new PnlFactorBump(1, 2).Size(calls.Factor.TradingTick, calls.Prepared.DeclaredPriceSteps[calls.Factor.Input]);
+        var twoSteps = calls.Gamma(bump);
+        var move = AtTheMoneyCalls.Move;
+        if (!twoSteps.Estimate.Stable || twoSteps.Amount is null || twoSteps.UnavailableReason is not null ||
+            twoSteps.Amount.CompareTo(twoSteps.Estimate.Nominal.Scale(move).Scale(move).DivideBy(D("2"))) != 0)
+            throw new Exception("A gamma at two declared price steps must be available and explain half its estimate times the move squared.");
+        var estimate = AtTheMoneyCalls.Nominal(twoSteps);
+        if (Math.Abs(estimate / calls.Black76Gamma - 1) > 0.025) throw new Exception($"Gamma {estimate} at a bump of {bump} is not within 2.5% of {calls.Black76Gamma}.");
     }
 
     // The result fields a replay must reproduce: every holding's values under every

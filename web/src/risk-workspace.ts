@@ -2,7 +2,7 @@ import {setupFactorHistory} from './factor-history-view.js';
 import {setupRisk,type RiskJob,type RunView} from './risk-view.js';
 import {setupRiskJobs} from './risk-jobs-view.js';
 import {copyRiskEditor,setupRiskResults} from './risk-results-view.js';
-import {recentCompletedRuns,riskAddress} from './risk-results.js';
+import {opensAsCurrent,recentCompletedRuns,riskAddress} from './risk-results.js';
 import {askInPanel} from './side-panel.js';
 import {prepareAmountDisplay,riskReportRead} from './amount-display.js';
 import {publicText} from './market-view.js';
@@ -201,7 +201,7 @@ export function setupRiskWorkspace(o:Options){
   if(directory&&selection&&scopeValid()){
    for(const candidate of recentCompletedRuns(jobs.recent(),scope,directory.asOf)){
     const job=await o.api<RiskJob>('portfolio/risk/jobs/'+encodeURIComponent(candidate.id));if(version!==epoch)return;
-    if(job.result?.snapshotId!==selection.snapshotId)continue;
+    if(!opensAsCurrent(job,selection.snapshotId))continue;
     await openRetained(()=>openJob(job.id,job,false));return;
    }
    get('risk-workspace-note').textContent='No completed recent report matches these books and this close. Run risk here, or open a retained report from Reports and runs.';
