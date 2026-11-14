@@ -82,7 +82,7 @@ public static class RiskJobs
     }
 
     internal static JsonObject EconomicFrame(PreparedLifecyclePortfolio prepared)=>JsonSerializer.SerializeToNode(new{
-        horizon=prepared.HorizonEvidence,products=prepared.ProductEvidence,optionCalibrations=prepared.CalibrationReceipts},Json)!.AsObject();
+        horizon=prepared.HorizonEvidence,products=prepared.ProductEvidence,optionCalibrations=prepared.CalibrationReceipts,inputFinals=prepared.FinalEvidence},Json)!.AsObject();
 
     internal static void RequireEconomicFrame(JsonNode? retained,PreparedLifecyclePortfolio? prepared)
     {

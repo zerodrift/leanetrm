@@ -50,16 +50,23 @@ internal static class EconomicRiskContractChecks
         var unprepared=new PortfolioRiskPreview.Prepared(outer,RiskDetail.Holdings,outer.BookIds,[],empty,[],[],[]);
         Reject("risk_economic_scope",()=>PortfolioRiskPreview.Calculate(unprepared,default));
         var proof=new PreparedLifecyclePortfolio(projection,JsonSerializer.SerializeToElement(new{openingAt="2026-01-01T00:00:00Z",closeAt="2026-01-02T00:00:00Z"}),[],empty,
-            [JsonSerializer.SerializeToElement(new{owner="synthetic",revision=2})],[]);
+            [JsonSerializer.SerializeToElement(new{owner="synthetic",revision=2})],[],[]);
         var retained=RiskJobs.EconomicFrame(proof);
+        if(retained["inputFinals"] is not System.Text.Json.Nodes.JsonArray {Count:0})
+            throw new Exception("Economic worker evidence must explicitly retain an empty final-input scope for an all-cash portfolio.");
         RiskJobs.RequireEconomicFrame(retained,proof);RiskJobs.RequireEconomicFrame(null,null);
         Reject("risk_economic_evidence",()=>RiskJobs.RequireEconomicFrame(null,proof));
         Reject("risk_economic_evidence",()=>RiskJobs.RequireEconomicFrame(retained,null));
-        foreach(var field in new[]{"horizon","products","optionCalibrations"})
+        foreach(var field in new[]{"horizon","products","optionCalibrations","inputFinals"})
         {
             var changed=retained.DeepClone().AsObject();changed.Remove(field);
             Reject("risk_economic_evidence",()=>RiskJobs.RequireEconomicFrame(changed,proof));
         }
+        var declared=proof with{FinalEvidence=[JsonSerializer.SerializeToElement(new{projectionCurve="synthetic",officialCurve="synthetic_final",contractId=Guid.NewGuid(),finalAt="2026-01-02T00:00:00Z",observation=(object?)null})]};
+        var finalProof=RiskJobs.EconomicFrame(declared);RiskJobs.RequireEconomicFrame(finalProof,declared);
+        Reject("risk_economic_evidence",()=>RiskJobs.RequireEconomicFrame(finalProof,proof));
+        var forged=finalProof.DeepClone();forged["inputFinals"]![0]!["officialCurve"]="other";
+        Reject("risk_economic_evidence",()=>RiskJobs.RequireEconomicFrame(forged,declared));
         var altered=retained.DeepClone();altered["products"]![0]!["revision"]=1;
         Reject("risk_economic_evidence",()=>RiskJobs.RequireEconomicFrame(altered,proof));
         Console.WriteLine("PASS economic risk contract: exclusive complete scope, explicit no-factor method, required null choices and separate event-aware policy");

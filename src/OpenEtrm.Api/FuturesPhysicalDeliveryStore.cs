@@ -33,8 +33,8 @@ internal static class FuturesPhysicalDeliveryStore
         {
             if(retained.ValueKind!=JsonValueKind.Null)
             {
-                var profile=Materialize(retained);
-                database.RegisterCommitAdmission(connection,new FuturesPhysicalReadAdmission(database.Manifest.CatalogId,profile.Id,profile.Revision,retained.Instant("authorityUntil")));
+                var retainedProfile=Materialize(retained);
+                database.RegisterCommitAdmission(connection,new FuturesPhysicalReadAdmission(database.Manifest.CatalogId,retainedProfile.Id,retainedProfile.Revision,retained.Instant("authorityUntil")));
             }
             return FuturesMarginStore.ReadPolicy(header,occurrences);
         }

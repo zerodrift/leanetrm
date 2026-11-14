@@ -31,7 +31,7 @@ public sealed record PortfolioEconomicProjectionRequest([property:JsonRequired]s
 internal sealed record LifecycleHorizonSource(LifecycleProjectionHorizon Horizon,JsonElement Evidence);
 internal sealed record PreparedLifecyclePortfolio(PortfolioEconomicProjectionRequest Request,JsonElement HorizonEvidence,
     ImmutableArray<PreparedLifecycleProjection> Projections,PortfolioValuation.Prepared HistoryPortfolio,
-    ImmutableArray<JsonElement> ProductEvidence,ImmutableArray<FuturesOptionCalibrationReceipt> CalibrationReceipts)
+    ImmutableArray<JsonElement> ProductEvidence,ImmutableArray<FuturesOptionCalibrationReceipt> CalibrationReceipts,ImmutableArray<JsonElement> FinalEvidence)
 {
     internal ImmutableArray<QuoteFactor> Factors=>LifecycleEconomicRisk.Factors(Projections);
 }

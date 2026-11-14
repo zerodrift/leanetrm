@@ -26,7 +26,7 @@ internal static partial class LifecyclePortfolioProjection
         if(opening.Policy.FuturesConvention!=FuturesMarginValuationPolicy.Convention)
             throw Error("projection_futures_state","Economic risk requires the explicit native margin remaining-value profile.");
         var sources=ImmutableArray.CreateBuilder<(PortfolioProductSource Source,ImmutableArray<ILifecycleProjection> Components,ImmutableDictionary<ReferenceKey,ISideDiscounting> Curves,ImmutableArray<ValuationPortfolio> Histories,ImmutableDictionary<CurveRequest,CurveKey> Officials,ImmutableArray<SchedulePriceTerm> ActivePrices)>();
-        var productEvidence=ImmutableArray.CreateBuilder<JsonElement>();var receipts=ImmutableArray.CreateBuilder<FuturesOptionCalibrationReceipt>();
+        var productEvidence=ImmutableArray.CreateBuilder<JsonElement>();var finalEvidence=ImmutableArray.CreateBuilder<JsonElement>();var receipts=ImmutableArray.CreateBuilder<FuturesOptionCalibrationReceipt>();
         foreach(var group in opening.Sources.GroupBy(s=>s.Snapshot.Definitions).OrderBy(g=>g.Key.RevisionId))
         {
             var first=group.First();
@@ -180,15 +180,15 @@ internal static partial class LifecyclePortfolioProjection
             if(retainedGraphs is not null&&retained is null)throw Error("risk_graph_manifest","Retain every complete economic market partition.");
             var connected=await CustomCurves.PrepareMarket(connection,database,source.Data,source.Frame,source.Snapshot,opening.Context,
                 ValuationPortfolio.DistinctInstruments(portfolios),dependencies,CustomCurves.MarketPreparation.ScenarioUniverse,ct,retained,activePrices);
-            var finals=await FinalInputs(connection,database,source,components,officials,request.Policy,horizon.Horizon.Closes.First(c=>c.Instant>source.Snapshot.ValuationAt).Instant,ct);
-            productEvidence.AddRange(finals.Evidence);
+            var finals=await FinalInputs(connection,database,source,components,officials,request.Policy,horizon.Horizon.Closes.First(c=>c.Instant>source.Snapshot.ValuationAt).Instant,connected.Valuation.Scenario.Plan,ct);
+            productEvidence.AddRange(finals.Evidence);finalEvidence.AddRange(finals.Evidence);
             var projection=LifecycleProjection.Prepare(connected.Valuation,connected.Bindings,connected.Authority,horizon.Horizon,request.Policy,components,[],curves,ct,finals.Inputs);
             projections.Add(projection);
             markets.Add(new(source.Data,source.Frame,source.Snapshot,RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,histories,connected.Authority,ct),
                 [..histories.Select(_=>"economic_opening_present_value")],connected.Evidence,connected.Preparation){EconomicFactors=projection.Factors});
         }
         if(retainedGraphs is not null&&retainedGraphs.Value.Length!=markets.Count)throw Error("risk_graph_manifest","The retained economic market set differs from its complete prepared source.");
-        return new(request,horizon.Evidence,projections.ToImmutable(),opening with{Markets=markets.ToImmutable()},productEvidence.ToImmutable(),receipts.ToImmutable());
+        return new(request,horizon.Evidence,projections.ToImmutable(),opening with{Markets=markets.ToImmutable()},productEvidence.ToImmutable(),receipts.ToImmutable(),finalEvidence.ToImmutable());
     }
     private static async Task<DateTimeOffset> ConfigurationAuthority(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
     {

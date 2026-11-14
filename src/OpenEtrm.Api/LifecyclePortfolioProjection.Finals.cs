@@ -3,6 +3,7 @@ using System.Text.Json;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Calculation;
 
 namespace OpenEtrm.Api;
 
@@ -19,7 +20,7 @@ internal static partial class LifecyclePortfolioProjection
     }
     private static async Task<(ImmutableArray<LifecycleInputFinal> Inputs,ImmutableArray<JsonElement> Evidence)> FinalInputs(NpgsqlConnection connection,
         PreviewDatabase database,PortfolioProductSource source,ImmutableArray<ILifecycleProjection> components,
-        ImmutableDictionary<CurveRequest,CurveKey> officialSources,LifecycleProjectionPolicy policy,DateTimeOffset horizon,CancellationToken ct)
+        ImmutableDictionary<CurveRequest,CurveKey> officialSources,LifecycleProjectionPolicy policy,DateTimeOffset horizon,ConnectedCurvePlan plan,CancellationToken ct)
     {
         var uses=components.SelectMany(c=>c.MarketUsesFor(horizon)).GroupBy(u=>u.Market).ToImmutableDictionary(g=>g.Key,g=>g.Max(u=>u.Through));
         var selected=components.SelectMany(c=>c.InputFinals).GroupBy(f=>f.Market).ToImmutableDictionary(g=>g.Key,g=>g.Select(f=>f.At).Distinct().Single());
@@ -42,7 +43,14 @@ internal static partial class LifecyclePortfolioProjection
                 var row=native.GetProperty("observation");actual=new(new(official,market.Contract),source.Data.ReadObservation(row),row.Instant("known_from"),context);
             }
             inputs.Add(new(market,at,actual));
-            evidence.Add(JsonSerializer.SerializeToElement(native.EnumerateObject().Where(p=>p.Name!="authorityUntil").ToDictionary(p=>p.Name,p=>p.Value.Clone()),RiskJobs.Json));
+            var openingInputs=plan.Primitives.Select(p=>p.Source).Where(p=>p.Request==market).Select(p=>new{
+                snapshotId=p.Sample?.SnapshotId??snapshot.Id,at=p.Sample?.ValuationAt??snapshot.ValuationAt,
+                observationId=p.Observation.Key.Id,seriesId=p.Input.Series.Id,use=(p.Sample?.OriginalUse??p.Input.Use).ToString()})
+                .Distinct().OrderBy(p=>p.snapshotId).ThenBy(p=>p.seriesId).ThenBy(p=>p.use,StringComparer.Ordinal).ThenBy(p=>p.observationId).ToArray();
+            if(openingInputs.Length==0)throw Error("projection_input_evidence","Every final-input declaration must retain its actual prepared opening primitive sources.");
+            var retained=native.EnumerateObject().Where(p=>p.Name!="authorityUntil").ToDictionary(p=>p.Name,p=>p.Value.Clone());
+            retained.Add("openingInputs",JsonSerializer.SerializeToElement(openingInputs,RiskJobs.Json));
+            evidence.Add(JsonSerializer.SerializeToElement(retained,RiskJobs.Json));
         }
         return(inputs.ToImmutable(),evidence.ToImmutable());
     }
