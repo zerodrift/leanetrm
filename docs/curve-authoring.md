@@ -189,9 +189,13 @@ python3 tools/run_preview.py --pg-bin /path/to/stock/postgres/bin \
   --browser-check --browser /path/to/chromium
 ```
 
-It adds the operation to a saved draft, chooses every setting by its catalog
-label, enters three terms, previews the backend price 68.46, saves an
-`observation_formula`, reloads every term and setting unchanged, and checks
+It finds the draft and the published observation curve in the library, the
+latter as Observation formula, adds the operation to the draft, chooses every
+setting by its catalog label, enters three terms, previews the backend price
+68.46 and saves an `observation_formula`. After a reload it reads back every
+term, the first target month, the number of months, each chosen setting
+(version, days, calendar, roll, sampling and corrections) and the source
+connection unchanged, and checks
 the backend's refusals of a cleared weight and of a new term with no position
 beside the operation. It then types `2e` into Less position and into Position
 of a spread term and checks that each preview sends the typed text, is refused,

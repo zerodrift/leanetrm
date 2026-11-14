@@ -31,9 +31,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  const detail=`({error:document.querySelector('#error')?.textContent,refusal:document.querySelector('#custom-curves-refusal')?.textContent,state:document.querySelector('#custom-curves-state')?.textContent,requests:window.observationRequests.slice(-2)})`;
  const observed=`.body.definition.nodes.find(n=>n.kind==='contract_observations')`;
  // A setting is chosen by the label the catalog gives its value.
+ const offered=(key,value)=>{const field=operator.fields.find(f=>f.key===key);return field.type==='calendar'?catalog.calendars.find(c=>c.code===value)?.name??value:field.options.find(o=>o.value===value)?.label;};
  async function choose(key,value){
-  const field=operator.fields.find(f=>f.key===key),label=field.type==='calendar'?catalog.calendars.find(c=>c.code===value)?.name??value:field.options.find(o=>o.value===value)?.label;
-  const selector='#custom-curve-property-'+key,index=await evaluate(`[...document.querySelector(${JSON.stringify(selector)}).options].find(o=>o.textContent===${JSON.stringify(label)})?.value`);
+  const label=offered(key,value),selector='#custom-curve-property-'+key,index=await evaluate(`[...document.querySelector(${JSON.stringify(selector)}).options].find(o=>o.textContent===${JSON.stringify(label)})?.value`);
   if(index===undefined)throw Error('Missing offered choice '+key+' · '+label);await set(selector,index);
  }
  async function selectObject(id){await click(card(id)+' .curve-object-title');}
@@ -47,7 +47,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await check('the fixture close is selected',`document.querySelector('#snapshot').value===${JSON.stringify(frame.id)}`,"[...document.querySelector('#snapshot').options].map(o=>o.value+' '+o.textContent)");
  await click('#nav-custom-curves');
  // The library already holds the HTTP check's published observation formula; every saved curve is listed with its kind.
- await check('the library lists the draft beside the saved observation curve',`!!document.querySelector('#custom-curves-library [data-recipe-edit="${draft.id}|${draft.version}"]')`,"document.querySelector('#error')?.textContent");
+ const published=catalog.recipes.find(r=>r.definition.code==='synthetic_crude_formula'&&r.state==='published');
+ if(!published)throw Error('The HTTP check did not publish the synthetic crude formula curve');
+ await check('the library lists the draft beside the published observation curve, listed under its kind',`!!document.querySelector('#custom-curves-library [data-recipe-edit="${draft.id}|${draft.version}"]')&&!!document.querySelector('#custom-curves-library [data-recipe="${published.id}|${published.version}"]')?.getAttribute('aria-label').includes('Observation formula')`,"document.querySelector('#error')?.textContent");
  await click(`#custom-curves-library [data-recipe-edit="${draft.id}|${draft.version}"]`);await click('#custom-curves-dock-graph');await click('#custom-curves-mode-objects');
 
  await set('#custom-curves-add-source','synthetic_crude_future');await click('#custom-curves-add-source-button');
@@ -73,7 +75,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await check('the library lists the saved curve under its kind',`document.querySelector('#custom-curves-library [data-recipe="${draft.id}|${draft.version}"]')?.getAttribute('aria-label').includes('Observation formula')&&document.querySelector('#custom-curves-kind-observation_formula')?.textContent==='Observation formula'`);
 
  await click('#custom-curves-reload');await click('#custom-curves-dock-graph');await click('#custom-curves-mode-objects');await selectObject(node);
- await check('reload reads back every term and setting unchanged',`${readBack}===${JSON.stringify(JSON.stringify(TERMS.map(t=>[t.group,t.weight,t.position,t.lessPosition,t.period])))}&&document.querySelector('#custom-curve-property-targetFrom').value==='2027-01-01'&&document.querySelector('#custom-curve-property-calendar').selectedOptions[0].textContent===${JSON.stringify(catalog.calendars.find(c=>c.code===SETTINGS.calendar)?.name??SETTINGS.calendar)}`,readBack);
+ await check('reload reads back every term and setting unchanged',`${readBack}===${JSON.stringify(JSON.stringify(TERMS.map(t=>[t.group,t.weight,t.position,t.lessPosition,t.period])))}&&document.querySelector('#custom-curve-property-targetFrom').value==='2027-01-01'&&document.querySelector('#custom-curve-property-targetCount').value==='1'&&${JSON.stringify(JSON.stringify(Object.entries(SETTINGS).map(([key,value])=>[key,offered(key,value)])))}===JSON.stringify(Object.keys(${JSON.stringify(SETTINGS)}).map(k=>[k,document.querySelector('#custom-curve-property-'+k)?.selectedOptions[0]?.textContent]))&&document.querySelector('#custom-curves-properties [data-input-port=source]').value==='source_1'`,`[${readBack},document.querySelector('#custom-curve-property-targetCount').value,Object.keys(${JSON.stringify(SETTINGS)}).map(k=>document.querySelector('#custom-curve-property-'+k)?.selectedOptions[0]?.textContent),document.querySelector('#custom-curves-properties [data-input-port=source]').value]`);
 
  await set(term('Weight',2),'');
  await check('clearing a weight disables nothing else',`!document.querySelector('#custom-curves-preview').disabled&&!document.querySelector('#custom-curves-save').disabled&&[...document.querySelectorAll('#custom-curves-properties input,#custom-curves-properties select')].every(n=>!n.disabled)`);
