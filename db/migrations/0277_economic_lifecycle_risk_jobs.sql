@@ -846,7 +846,7 @@ GRANT EXECUTE ON FUNCTION security.require_gas_owned_read(uuid,uuid,timestamptz,
 DO $guard$DECLARE p pg_proc;BEGIN
  SELECT * INTO p FROM pg_proc WHERE oid=to_regprocedure('security.read_gas_owned_holdings(uuid,uuid,timestamptz,uuid[])');
  IF NOT FOUND THEN RAISE EXCEPTION 'risk_economic_upgrade: missing security.read_gas_owned_holdings(uuid,uuid,timestamptz,uuid[])';END IF;
- IF md5(p.prosrc)<>'4e229bd3f85252f62a34917135f49053' OR p.proowner<>'openetrm_security_owner'::regrole OR p.prorettype<>'jsonb'::regtype OR p.proretset
+ IF md5(p.prosrc)<>'ecfcf04d8377d077db490a2729b38331' OR p.proowner<>'openetrm_security_owner'::regrole OR p.prorettype<>'jsonb'::regtype OR p.proretset
   OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof OR p.provolatile<>'v' OR p.proparallel<>'u'
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
