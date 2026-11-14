@@ -16,7 +16,7 @@ from check_lifecycle_economic_worker import ROOT
 def fixture(root):return baseline(root,fixing_frames=True)
 
 
-def checks(query,manifest):
+def checks(query,manifest,*,execution_price='3',daily_at='2020-12-21T16:00:00Z',daily_due_at='2020-12-22T16:00:00Z',source_fields=None,job_checks=None):
     catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'))
     query(trading_fixture(catalog))
     from rate_curve_fixture import discount_default
@@ -33,19 +33,22 @@ def checks(query,manifest):
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
     def capture():return call(f"SELECT security.capture_date_context('{catalog}','2020-12-18',NULL);")
     book='d1000000-0000-0000-0000-000000000001';contract='50000000-0000-0000-0000-000000000001'
-    booked=json.loads(call(f"SELECT security.book_futures_with_parties('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','future','{contract}','2020-12-18T15:00:00Z',NULL,2,3,'contract_lot_execution_pnl_v2',NULL,NULL,NULL,{literal(trade_booking())})::text;"))
+    booked=json.loads(call(f"SELECT security.book_futures_with_parties('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','future','{contract}','2020-12-18T15:00:00Z',NULL,2,{execution_price},'contract_lot_execution_pnl_v2',NULL,NULL,NULL,{literal(trade_booking())})::text;"))
     final=query(f"SELECT to_char(expiry_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') FROM market_data.contracts WHERE(catalog_id,revision_id,id)=('{catalog}','{manifest['revisionId']}','{contract}');")
     policy=dict(id=str(uuid4()),definitionRevisionId=manifest['revisionId'],contractId=contract,settlementCurve='future',referenceCatalogId=manifest['referenceCatalogId'],
         referenceRevisionId=manifest['referenceRevisionId'],currency='usd',fromAt='2020-01-01T00:00:00Z',untilAt='2021-01-01T00:00:00Z',opening='include_opening_instant',
         increment='0.01',tie='to_even',stage='payment_total',roundingScope='held_binding_difference_payment_total_v1',implementation='dated_futures_margin_policy_v1',
-        occurrences=[dict(id=str(uuid4()),at='2020-12-21T16:00:00Z',dueAt='2020-12-22T16:00:00Z',phase='daily'),dict(id=str(uuid4()),at=final,dueAt='2020-12-29T16:00:00Z',phase='final')])
+        occurrences=[dict(id=str(uuid4()),at=daily_at,dueAt=daily_due_at,phase='daily'),dict(id=str(uuid4()),at=final,dueAt='2020-12-29T16:00:00Z',phase='final')])
     call(f"SELECT settlement_data.save_futures_margin_policy('{catalog}',{literal(dict(operationId=str(uuid4()),expectedRevision=0,contextId=capture(),asOf='2020-12-18T16:00:00Z',policy=policy))});",'editor')
     call(f"SELECT settlement_data.adopt_futures_margin('{catalog}',{literal(dict(operationId=str(uuid4()),tradeId=booked['tradeId'],bindingId=booked['bindingId'],expectedRevision=1,policyId=policy['id'],policyRevision=1,contextId=capture(),asOf='2020-12-18T16:00:00Z',adoption='native_execution_inception_v1'))});")
     sql_session(query,manifest,'synthetic_future_economic','test_business','16:00',['future'],[])
     directory=Path(query('SHOW unix_socket_directories;')).resolve();assert directory.name.startswith('oetrm-ref-')
     source=next(f for f in manifest['frames'] if f['at']=='2020-12-18T16:00:00Z')
-    path=directory/'future-economic-check.json';path.write_text(json.dumps(dict(manifest=manifest,host=str(directory),contextId=capture(),at=source['at'],pins=source['observationIds'],
-        bookId=book,tradeId=booked['tradeId'],contractId=contract,session='synthetic_future_economic')));path.chmod(0o600)
+    packet=dict(manifest=manifest,host=str(directory),at=source['at'],pins=source['observationIds'],
+        bookId=book,tradeId=booked['tradeId'],contractId=contract,session='synthetic_future_economic')
+    if source_fields is not None:packet.update(source_fields(query,manifest,source))
+    packet['contextId']=capture()
+    path=directory/'future-economic-check.json';path.write_text(json.dumps(packet));path.chmod(0o600)
     login='synthetic_future_economic_worker';provision_worker(query,manifest,login)
     assert query(f"SELECT NOT has_function_privilege('{login}','settlement_data.require_futures_margin_preview(uuid,timestamptz)','EXECUTE');")=='t'
     frozen=directory/'future-worker-binaries';shutil.copytree(ROOT/'tests/OpenEtrm.Api.Checks/bin/Debug/net10.0',frozen)
@@ -56,6 +59,7 @@ def checks(query,manifest):
         print(result.stdout.strip(),flush=True)
     managed('--economic-future-worker-submit')
     receipts=json.loads(path.with_suffix('.economic-worker.json').read_text());assert len(receipts['jobs'])==2
+    if job_checks is not None:job_checks(query,manifest,receipts['jobs'])
     assert all(len(r['report']['factors'])==1 for r in receipts['jobs'])
     connection=directory/'future-worker-connection';connection.write_text(f'Host={directory};Port=55439;Database=postgres;Username={login};SSL Mode=Disable;Timeout=5;Command Timeout=10;Maximum Pool Size=2');connection.chmod(0o600)
     config=directory/'future-worker.json';config.write_text(json.dumps(dict(connectionFile=str(connection),leaseSeconds=30,pollSeconds=1,timeoutSeconds=60)));config.chmod(0o600)

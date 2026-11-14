@@ -33,7 +33,7 @@ internal static partial class LifecyclePortfolioProjection
         {
             var first=group.First();
             if(group.Any(s=>!s.Snapshot.HasSameInputs(first.Snapshot)))throw Error("projection_source","A market partition requires one exact source certificate and input selection.");
-            var currencies=group.SelectMany(s=>s.Portfolio.Instruments).Where(i=>request.Policy.CashAccumulation==LifecycleProjectionPolicy.Accumulated||i switch{
+            var currencies=group.SelectMany(s=>s.Portfolio.Instruments).Where(i=>request.Implementation==PortfolioEconomicProjectionRequest.Version&&request.Policy.CashAccumulation==LifecycleProjectionPolicy.Accumulated||i switch{
                 FinancialSwapInstrument swap=>swap.Discounting,MonthlyFinancialSwap swap=>swap.Discounting,ScheduledFinancialSwap swap=>swap.Discounting,
                 CrossCommodityScheduledSwap swap=>swap.Discounting,CashPaymentInstrument cash=>cash.PaymentAt>first.Snapshot.ValuationAt,
                 GasCommodityHoldingInstrument gas=>gas.Carrying==GasHoldingCarrying.CurrencyCurve&&gas.ReturnAt>first.Snapshot.ValuationAt,
@@ -210,6 +210,8 @@ internal static partial class LifecyclePortfolioProjection
             productEvidence.AddRange(finals.Evidence);finalEvidence.AddRange(finals.Evidence);
             preparedMarkets.Add(source.Snapshot.Definitions,(connected,finals.Inputs));
         }
+        var accumulation=await LifecycleCashAccumulationInputs.Prepare(connection,database,opening,request,
+            [..sources.SelectMany(s=>s.Components).Select(c=>c.Currency).Distinct()],ct);
         var projections=ImmutableArray.CreateBuilder<PreparedLifecycleProjection>();var markets=ImmutableArray.CreateBuilder<PortfolioValuation.MarketPartition>();
         foreach(var (source,components,curves,histories,officials,activePrices) in sources)
         {
@@ -222,7 +224,7 @@ internal static partial class LifecyclePortfolioProjection
             PreparedLifecycleProjection? projection=null;
             if(!components.IsEmpty)
             {
-                projection=LifecycleProjection.Prepare(connected.Valuation,connected.Bindings,connected.Authority,horizon.Horizon,request.Policy,components,[],curves,ct,finals,additional);
+                projection=LifecycleProjection.Prepare(connected.Valuation,connected.Bindings,connected.Authority,horizon.Horizon,request.Policy,components,[],curves,ct,finals,additional,cashAccumulation:accumulation.For(components));
                 projections.Add(projection);
             }
             var dependencies=allComponents.SelectMany(c=>c.Dependencies.Where(d=>c.DependencySource(d).HasSameInputs(source.Snapshot))).Distinct().ToImmutableArray();
@@ -235,7 +237,8 @@ internal static partial class LifecyclePortfolioProjection
         if(!LifecycleEconomicRisk.Factors(projections.ToImmutable()).Select(f=>f.Input).ToHashSet().SetEquals(markets.SelectMany(m=>m.Factors).Select(f=>f.Input)))
             throw Error("projection_source","Every projected native factor requires its exact retained market and complete history-source partition.");
         return LifecycleEconomicOwners.Attach(new(request,horizon.Evidence,projections.ToImmutable(),opening with{Markets=markets.ToImmutable()},
-            productEvidence.ToImmutable(),receipts.ToImmutable(),finalEvidence.ToImmutable()),additionalOwners.ToImmutable());
+            productEvidence.ToImmutable(),receipts.ToImmutable(),finalEvidence.ToImmutable()){
+            CashAccumulationEvidence=accumulation.Evidence,CashAccumulationInputs=accumulation.Inputs},additionalOwners.ToImmutable());
     }
     private static async Task<DateTimeOffset> ConfigurationAuthority(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
     {

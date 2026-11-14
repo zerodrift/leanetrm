@@ -22,6 +22,21 @@ internal static class EconomicRiskContractChecks
         var deterministic=new PortfolioEconomicRiskRequest(projection,policy,null,null,[]);
         var outer=new PortfolioRiskRequest(context,[Guid.NewGuid()],[],[],PortfolioRiskPreview.Convention,RiskEngine.ExactNumericalPolicy,pricing,"holdings",[],Economic:deterministic);
         PortfolioRiskPreview.ValidateEconomic(outer,deterministic);
+        var explicitNominal=projection with{Implementation=PortfolioEconomicProjectionRequest.Version2,CashAccumulationSelections=[]};
+        explicitNominal.Validate();
+        if(JsonSerializer.Serialize(projection,RiskJobs.Json).Contains("cashAccumulationSelections",StringComparison.Ordinal))
+            throw new Exception("An absent explicit accumulation selection changed the v1 wire contract.");
+        Reject("projection_cash_policy",()=>(projection with{CashAccumulationSelections=[]}).Validate());
+        Reject("projection_cash_policy",()=>(explicitNominal with{CashAccumulationSelections=null}).Validate());
+        Reject("projection_cash_policy",()=>(explicitNominal with{CashAccumulationSelections=default(ImmutableArray<PortfolioCashAccumulationSelection>)}).Validate());
+        var cashCurrency=new ReferenceKey(new(Guid.NewGuid(),Guid.NewGuid()),"usd");
+        var cashSelection=new PortfolioCashAccumulationSelection(cashCurrency,context.SnapshotId,new(new(Guid.NewGuid(),Guid.NewGuid()),"synthetic_rates"),Guid.NewGuid(),Guid.NewGuid(),1);
+        var accumulated=explicitNominal with{Policy=projection.Policy with{CashAccumulation=LifecycleProjectionPolicy.Accumulated},CashAccumulationSelections=[cashSelection]};
+        accumulated.Validate();
+        Reject("projection_cash_policy",()=>(explicitNominal with{CashAccumulationSelections=[cashSelection]}).Validate());
+        Reject("projection_cash_policy",()=>(accumulated with{CashAccumulationSelections=[]}).Validate());
+        Reject("projection_cash_policy",()=>(accumulated with{CashAccumulationSelections=[cashSelection,cashSelection]}).Validate());
+        Reject("projection_cash_policy",()=>(accumulated with{CashAccumulationSelections=[cashSelection with{MappingId=Guid.Empty}]}).Validate());
         Reject("risk_economic_scope",()=>PortfolioRiskPreview.ValidateEconomic(outer with{Detail="books"},deterministic));
         Reject("risk_economic_scope",()=>PortfolioRiskPreview.ValidateEconomic(outer with{Stress=default},deterministic));
         Reject("risk_economic_scope",()=>PortfolioRiskPreview.ValidateEconomic(outer,deterministic with{Factors=default}));

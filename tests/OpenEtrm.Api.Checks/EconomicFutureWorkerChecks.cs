@@ -20,13 +20,15 @@ internal static class EconomicFutureWorkerChecks
         await database.WithIdentity("trader",null,async(connection,ct)=>
         {
             var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,fixture.Id("contextId"),ct)).Context;
-            var frame=new InputFrame(Guid.NewGuid(),"Synthetic economic futures source",fixture.Instant("at"),PublishedSchedules.ContextDate(context),
+            var frame=new InputFrame(fixture.TryGetProperty("snapshotId",out var selectedSnapshot)?selectedSnapshot.GetGuid():Guid.NewGuid(),"Synthetic economic futures source",fixture.Instant("at"),PublishedSchedules.ContextDate(context),
                 [..fixture.GetProperty("pins").EnumerateArray().Select(v=>v.GetGuid())],
                 ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("future",[fixture.Id("contractId")]),context.ContextId);
+            if(fixture.TryGetProperty("sourceInputs",out var matrix))frame=frame with{Source=new(manifest.RevisionId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId),
+                SourceInputs=matrix.Deserialize<ImmutableDictionary<Guid,MarketSourceInputs>>(RiskJobs.Json)};
             await PinnedContext.BindExact(connection,manifest.CatalogId,context,ct);await TradingContext.Bind(connection,manifest.CatalogId,context,frame.At,ct);
             var data=await MarketInputSelection.Root(database,connection,frame,ct);
             var part=new MarketSourceInputs(CatalogueSource.From(data),frame.ObservationIds,[],frame.CurveContracts,["future"]);
-            frame=frame with{Source=part.Source,SourceInputs=ImmutableDictionary<Guid,MarketSourceInputs>.Empty.Add(data.DefinitionRevision.RevisionId,part)};
+            frame=frame with{Source=part.Source,SourceInputs=frame.SourceInputs??ImmutableDictionary<Guid,MarketSourceInputs>.Empty.Add(data.DefinitionRevision.RevisionId,part)};
             var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),context.ContextId!.Value,SchedulePreview.ParseAt(context.KnownAt));
             var books=ImmutableArray.Create(fixture.Id("bookId"));var trades=ImmutableArray.Create(fixture.Id("tradeId"));
             var scope=await RiskTradeScope.Resolve(connection,manifest.CatalogId,books,trades,ct);
@@ -52,9 +54,21 @@ internal static class EconomicFutureWorkerChecks
                 PortfolioEconomicProjectionRequest.SourceKnownSchedule,RateDiscountTiming.Version,PortfolioEconomicProjectionRequest.SelectedContractMarkets,
                 new(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Linear,LifecycleProjectionPolicy.PayAtDue,LifecycleProjectionPolicy.Nominal,
                     LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical),[]);
+            if(fixture.TryGetProperty("cashAccumulation",out var accumulation))projection=projection with{
+                Implementation=PortfolioEconomicProjectionRequest.Version2,Policy=projection.Policy with{CashAccumulation=LifecycleProjectionPolicy.Accumulated},
+                CashAccumulationSelections=[accumulation.Deserialize<PortfolioCashAccumulationSelection>(RiskJobs.Json)!]};
             var prepared=await LifecyclePortfolioProjection.Prepare(connection,database,opening,projection,null,ct);
             if(prepared.Factors.Length!=1||prepared.Projections.Single().Components.Single() is not FuturesLifecycleProjection)
                 throw new Exception("The future worker must prepare its native adopted owner, margin state and full primitive factor closure.");
+            if(fixture.TryGetProperty("fundingOracle",out var oracle))
+            {
+                var actual=prepared.Projections.Single().Evaluate("explicit_cash_funding",[]).Values.Single().PeriodCash;
+                if(actual.CompareTo(ExactMoney.Parse(oracle.GetString()!,actual.Currency))!=0)
+                    throw new Exception($"Independent funding oracle {oracle.GetString()} differs from {actual.ToExactString()}.");
+                if(prepared.CashAccumulationInputs.Length!=1||prepared.HistoryPortfolio.Markets.Length!=1||prepared.CashAccumulationEvidence is null)
+                    throw new Exception("Rate-only funding created a price portfolio/graph or omitted its native input proof.");
+                Console.WriteLine("PASS native explicit funding: independent signed rational cash oracle and rate-only source custody without another holding or price factor");
+            }
             await EconomicWorkerChecks.Submit(database,connection,data,frame,new(new(frame.Id,TradingBlotter.Convention,"retained",context.ContextId),books,[],trades),
                 fullPricing,projection,prepared,path,ct);
             return true;

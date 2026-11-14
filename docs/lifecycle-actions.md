@@ -321,9 +321,17 @@ partitions must agree on both the exact native curve and its original captured
 source. Nominal accumulation requires an empty map. The legacy absent-map
 profile retains its existing source-local behavior and rejects ambiguous curve
 identities. Signed rational checks use independently selected funding and
-residual factors and retain the original provider snapshots. API selection,
-native input custody, worker replay and UI controls are separate qualification
-gates for this new explicit-map consumer.
+residual factors and retain the original provider snapshots. The v2 API selects
+each exact full-reference currency, original snapshot, native mapping and rate
+definition. Rate-only sources remain in the complete original input matrix and
+job observation custody without creating a holding, price factor or dummy graph.
+The existing supplemental graph requirement remains in force for every price
+input. Native checks refuse substituted parameters, tenor series, conventions,
+mappings, omitted sources and a fabricated rate-only price axis. Historical and
+Monte Carlo workers reproduce the complete interactive result, including an
+independent signed rational cash oracle, with no financial writes. Original
+authority expiry still refuses a source read under a live successor grant.
+Authorized choice discovery and UI controls remain separate qualification gates.
 
 Retained scheduled-swap reads share exact invoker relational projections for
 their native period inputs. They preserve the predecessor's complete JSON and

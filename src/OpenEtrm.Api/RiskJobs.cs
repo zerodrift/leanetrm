@@ -55,9 +55,21 @@ public static class RiskJobs
         var payload=JsonSerializer.SerializeToNode(request,Json)!.AsObject();
         payload["engineVersion"]=EngineVersion;
         var supplemental=new JsonObject();
-        foreach(var market in prepared.SupplementalMarkets.OrderBy(m=>m.Data.DefinitionRevision.RevisionId))
+        var supplementalInputs=prepared.SupplementalMarkets.Concat(prepared.Economic?.CashAccumulationInputs??[])
+            .Where(m=>m.Data.DefinitionRevision.RevisionId!=data.DefinitionRevision.RevisionId)
+            .GroupBy(m=>m.Data.DefinitionRevision.RevisionId).Select(group=>
+            {
+                var first=group.First();var source=first.Data.Snapshot(first.Frame).WithKnowledge(contextId,SchedulePreview.ParseAt(prepared.Portfolio.Context.KnownAt));
+                if(group.Any(m=>m.Data.ReferenceRevision!=first.Data.ReferenceRevision||
+                    !m.Data.Snapshot(m.Frame).WithKnowledge(contextId,source.Knowledge!.KnownAt).HasSameInputs(source)))
+                    throw new MarketDataException("risk_job_context","One retained native definition requires one exact complete source input selection.");
+                return first;
+            }).ToImmutableArray();
+        foreach(var market in supplementalInputs.OrderBy(m=>m.Data.DefinitionRevision.RevisionId))
             supplemental.Add(market.Data.DefinitionRevision.RevisionId.ToString(),RetainedFrames.Record(market.Frame with {ContextId=contextId,SwapMarketSelections=null}));
-        var pinnedFrame=RetainedFrames.Record(frame with {ContextId=contextId,SwapMarketSelections=prepared.SupplementalMarkets
+        var retainedRoot=prepared.Economic?.Request.Implementation==PortfolioEconomicProjectionRequest.Version2?
+            frame with{Source=frame.Source??CatalogueSource.From(data)}:frame;
+        var pinnedFrame=RetainedFrames.Record(retainedRoot with {ContextId=contextId,SwapMarketSelections=supplementalInputs
             .ToImmutableDictionary(m=>m.Data.DefinitionRevision.RevisionId,m=>m.Frame.ObservationIds)});
         pinnedFrame["supplementalMarkets"]=supplemental;
         pinnedFrame["connectedMarkets"]=JsonSerializer.SerializeToNode(prepared.Portfolio.ConnectedMarkets,Json);
@@ -81,8 +93,17 @@ public static class RiskJobs
         return await Read(connection,manifest.CatalogId,(submitted["id"]??submitted["jobId"])!.GetValue<Guid>(),ct);
     }
 
-    internal static JsonObject EconomicFrame(PreparedLifecyclePortfolio prepared)=>JsonSerializer.SerializeToNode(new{
-        horizon=prepared.HorizonEvidence,products=prepared.ProductEvidence,optionCalibrations=prepared.CalibrationReceipts,inputFinals=prepared.FinalEvidence},Json)!.AsObject();
+    internal static JsonObject EconomicFrame(PreparedLifecyclePortfolio prepared)
+    {
+        var proof=JsonSerializer.SerializeToNode(new{horizon=prepared.HorizonEvidence,products=prepared.ProductEvidence,
+            optionCalibrations=prepared.CalibrationReceipts,inputFinals=prepared.FinalEvidence},Json)!.AsObject();
+        if(prepared.Request.Implementation==PortfolioEconomicProjectionRequest.Version2)
+            proof["cashAccumulation"]=JsonSerializer.SerializeToNode(prepared.CashAccumulationEvidence??
+                throw new MarketDataException("risk_economic_evidence","Retain the explicit portfolio accumulation source proof."),Json);
+        else if(prepared.CashAccumulationEvidence is not null||!prepared.CashAccumulationInputs.IsEmpty)
+            throw new MarketDataException("risk_economic_evidence","Legacy economic profiles cannot carry explicit accumulation selections.");
+        return proof;
+    }
 
     internal static void RequireEconomicFrame(JsonNode? retained,PreparedLifecyclePortfolio? prepared)
     {

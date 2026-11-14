@@ -10,18 +10,32 @@ using OpenEtrm.Rates;
 namespace OpenEtrm.Api;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PortfolioCashAccumulationSelection([property:JsonRequired]ReferenceKey Currency,[property:JsonRequired]Guid SnapshotId,
+    [property:JsonRequired]CurveKey Curve,[property:JsonRequired]Guid MappingId,[property:JsonRequired]Guid DefinitionId,[property:JsonRequired]int DefinitionVersion);
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PortfolioEconomicProjectionRequest([property:JsonRequired]string Implementation,[property:JsonRequired]string Session,
     [property:JsonRequired]int SessionVersion,[property:JsonRequired]string HorizonPolicy,[property:JsonRequired]string RateTimingPolicy,
     [property:JsonRequired]string EventMarketPolicy,[property:JsonRequired]LifecycleProjectionPolicy Policy,[property:JsonRequired]ImmutableArray<GasOwnedProjectionSelection> GasOwned)
 {
-    public const string Version="native_portfolio_economic_lifecycle_v1",SourceKnownSchedule="source_known_effective_session_schedule_v1",
+    public const string Version="native_portfolio_economic_lifecycle_v1",Version2="native_portfolio_economic_lifecycle_v2",SourceKnownSchedule="source_known_effective_session_schedule_v1",
         SelectedContractMarkets="selected_contract_projection_curves_v1";
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<PortfolioCashAccumulationSelection>? CashAccumulationSelections{get;init;}
     public void Validate()
     {
-        if(Implementation!=Version||string.IsNullOrWhiteSpace(Session)||SessionVersion<1||HorizonPolicy!=SourceKnownSchedule||
+        if(Implementation is not(Version or Version2)||string.IsNullOrWhiteSpace(Session)||SessionVersion<1||HorizonPolicy!=SourceKnownSchedule||
             RateTimingPolicy!=RateDiscountTiming.Version||EventMarketPolicy!=SelectedContractMarkets)
             throw new MarketDataException("projection_policy","Select the exact source-known session schedule, opening version, rate timing and economic projection profile.");
         LifecycleProjection.Validate(Policy);
+        if(Implementation==Version?CashAccumulationSelections is not null:
+            CashAccumulationSelections is not {} selections||selections.IsDefault||
+            (Policy.CashAccumulation==LifecycleProjectionPolicy.Nominal?!selections.IsEmpty:selections.IsEmpty)||
+            selections.Length>256||selections.Any(s=>s is null||s.Currency.Revision.CatalogId==Guid.Empty||s.Currency.Revision.RevisionId==Guid.Empty||
+                string.IsNullOrWhiteSpace(s.Currency.Code)||s.SnapshotId==Guid.Empty||s.Curve.Revision.CatalogId==Guid.Empty||
+                s.Curve.Revision.RevisionId==Guid.Empty||string.IsNullOrWhiteSpace(s.Curve.Code)||s.MappingId==Guid.Empty||s.DefinitionId==Guid.Empty||s.DefinitionVersion<1)||
+            selections.Select(s=>s.Currency).Distinct().Count()!=selections.Length)
+            throw new MarketDataException("projection_cash_policy","Select explicit empty nominal funding or one exact native accumulation source per portfolio currency.");
         if(GasOwned.IsDefault||GasOwned.Any(s=>s is null||s.AccountId==Guid.Empty||s.ProfileId==Guid.Empty||s.Revision<1)||
             GasOwned.Select(s=>s.AccountId).Distinct().Count()!=GasOwned.Length)
             throw new MarketDataException("projection_gas_policy","Select exact saved gas projection profiles, or explicitly select an empty gas profile list.");
@@ -35,6 +49,8 @@ internal sealed record PreparedLifecyclePortfolio(PortfolioEconomicProjectionReq
 {
     internal ImmutableArray<LifecycleEconomicOwnerDescription> AdditionalOwners{get;init;}=[];
     internal ImmutableArray<QuoteFactor> Factors=>LifecycleEconomicRisk.Factors(Projections);
+    internal JsonElement? CashAccumulationEvidence{get;init;}
+    internal ImmutableArray<(PreviewData Data,InputFrame Frame)> CashAccumulationInputs{get;init;}=[];
 }
 
 internal static partial class LifecyclePortfolioProjection
