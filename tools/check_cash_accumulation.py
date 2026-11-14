@@ -35,7 +35,9 @@ def before_migration(query,migration):
     signatures=('risk.economic_commands(jsonb)','risk.retain_economic(risk.jobs)','risk.retain_connected(risk.jobs,jsonb)')
     for signature in signatures:
         for change in (
-            f'ALTER FUNCTION {signature} STABLE;',f'ALTER FUNCTION {signature} STRICT;',f'ALTER FUNCTION {signature} LEAKPROOF;',
+            f'ALTER FUNCTION {signature} STABLE;',f'ALTER FUNCTION {signature} COST 101;',
+            f"UPDATE pg_proc SET prosupport='pg_catalog.textlike_support'::regproc WHERE oid='{signature}'::regprocedure;",
+            f"UPDATE pg_proc SET prorows=1 WHERE oid='{signature}'::regprocedure;",f'ALTER FUNCTION {signature} STRICT;',f'ALTER FUNCTION {signature} LEAKPROOF;',
             f'ALTER FUNCTION {signature} PARALLEL SAFE;',f"ALTER FUNCTION {signature} SET work_mem='64kB';",
             f'GRANT EXECUTE ON FUNCTION {signature} TO PUBLIC;',f'GRANT EXECUTE ON FUNCTION {signature} TO openetrm_runtime;',
             f'GRANT EXECUTE ON FUNCTION {signature} TO openetrm_risk_worker WITH GRANT OPTION;',f'ALTER FUNCTION {signature} OWNER TO CURRENT_USER;',

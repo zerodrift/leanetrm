@@ -15,7 +15,7 @@ DO $guard$DECLARE p pg_proc;s record;BEGIN
  )v(signature,name,returns,checksum,definer,names,types) LOOP
   SELECT * INTO p FROM pg_proc WHERE oid=to_regprocedure(s.signature);
   IF NOT FOUND OR md5(p.prosrc)<>s.checksum OR p.proowner<>'openetrm_security_owner'::regrole OR p.prorettype<>s.returns::regtype
-   OR p.proretset OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof OR p.prosecdef<>s.definer OR p.provolatile<>'v' OR p.proparallel<>'u'
+   OR p.prosupport<>0 OR p.procost<>100 OR p.prorows<>0 OR p.proretset OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof OR p.prosecdef<>s.definer OR p.provolatile<>'v' OR p.proparallel<>'u'
    OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR p.proallargtypes IS NOT NULL OR p.prosqlbody IS NOT NULL
    OR p.pronargdefaults<>0 OR p.proargdefaults IS NOT NULL OR p.proargnames IS DISTINCT FROM s.names
    OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql' OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
