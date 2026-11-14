@@ -24,6 +24,7 @@ public sealed class PreparedLifecycleProjection
     private readonly ImmutableDictionary<ProjectedFixingKey,ExactUnitPrice> known;
     private readonly ImmutableDictionary<ReferenceKey,ISideDiscounting> cashCurves;
     private readonly ImmutableDictionary<AccountingPositionKey,ExactMoney> openings;
+    private readonly ImmutableDictionary<(AccountingOwnerKey Owner,Guid Binding),AccountingPositionKey> economicRoots;
     internal PreparedLifecycleProjection(CurveBuild basis,DateTimeOffset horizon,LifecycleProjectionPolicy policy,
         ImmutableArray<ILifecycleProjection> components,ImmutableDictionary<ProjectedFixingKey,ExactUnitPrice> known,
         ImmutableDictionary<ReferenceKey,ISideDiscounting> cashCurves,CancellationToken ct)
@@ -51,16 +52,26 @@ public sealed class PreparedLifecycleProjection
         events=Order(components,SourceSnapshot.ValuationAt,Horizon);
         foreach(var component in components)RequireState(component.Opening,component,SourceSnapshot.ValuationAt);
         RequireUniqueResiduals([..components.Select(c=>c.Opening)]);
+        var roots=new Dictionary<(AccountingOwnerKey,Guid),AccountingPositionKey>();
+        foreach(var owner in components.SelectMany(c=>c.EconomicOwners))
+            if(!roots.TryAdd((owner.Owner,owner.BindingId),owner))
+                throw LifecycleProjection.Error("projection_scope","One original native owner/binding requires one economic root and book.");
+        RequireEconomicRoots([..components.Select(c=>c.Opening)],roots);economicRoots=roots.ToImmutableDictionary();
         openings=components.SelectMany(c=>Leaves(c.Opening,c).Select(p=>new KeyValuePair<AccountingPositionKey,ExactMoney>(p.Key,
             Value(p.Value,c,p.Key,SourceSnapshot.ValuationAt,basis,ct)))).ToImmutableDictionary();
         foreach(var component in components)foreach(var member in Leaves(component.Opening,component))
         {
-            var captured=member.Value.Residuals.SelectMany(p=>p.Setup.BindingStates.Values)
+            var states=member.Value.Residuals.SelectMany(p=>p.Positions.Select(position=>p.Setup.BindingStates.GetValueOrDefault(new(position.Owner,position.BindingId))))
+                .Where(s=>s is not null).ToArray();
+            if(states.OfType<RecordedCashValuation>().Any(s=>s.SourceContextId!=SourceSnapshot.Knowledge!.ContextId||s.KnownThrough!=SourceSnapshot.Knowledge.KnownAt))
+                throw LifecycleProjection.Error("projection_cash","Native opening cash must retain this exact certified source context.");
+            var captured=states
                 .SelectMany(s=>s switch{RecordedCashValuation cash=>cash.KnownFlows(SourceSnapshot),
                     ProjectedSwapValuation swap=>swap.KnownPayments(SourceSnapshot),_=>[]})
-                .Concat(member.Value.KnownCashSources.SelectMany(s=>s.KnownFlows(SourceSnapshot))).ToHashSet();
-            if(member.Value.KnownPayments.Any(p=>!captured.Contains(p)))
-                throw LifecycleProjection.Error("projection_cash","A known period payment must retain its exact opening native cash-state evidence.");
+                .Concat(member.Value.KnownCashSources.SelectMany(s=>s.KnownFlows(SourceSnapshot)))
+                .Where(p=>p.EffectiveAt>SourceSnapshot.ValuationAt).ToHashSet();
+            if(!captured.SetEquals(member.Value.KnownPayments))
+                throw LifecycleProjection.Error("projection_cash","Retain every source-known future payment exactly once with its native owner-specific cash evidence.");
         }
     }
     public LifecycleProjectionResult Evaluate(string id,ImmutableArray<QuoteShift> terminalChanges,CancellationToken ct=default)
@@ -98,6 +109,7 @@ public sealed class PreparedLifecycleProjection
             foreach(var time in markets.Keys.Where(time=>time>fact.Key.At).ToArray())markets.Remove(time);
         }
         var states=Components.Select(c=>c.Opening).ToArray();
+        var roots=economicRoots.ToDictionary(p=>p.Key,p=>p.Value);
         var contexts=Components.Select(c=>new LifecycleProjectionContext(SourceSnapshot,Horizon,Policy,At,c.Dependencies.ToImmutableHashSet(),known,facts,FreezeFinal)).ToArray();
         foreach(var (index,occurrence) in events)
         {
@@ -118,6 +130,7 @@ public sealed class PreparedLifecycleProjection
             }
             states[index]=next with{CompletedEvents=states[index].CompletedEvents.Add(occurrence.Id)};
             RequireUniqueResiduals(states);
+            RequireEconomicRoots(states,roots);
         }
         var values=ImmutableArray.CreateBuilder<LifecycleProjectionValue>(openings.Count);
         for(var i=0;i<Components.Length;i++)
@@ -223,6 +236,20 @@ public sealed class PreparedLifecycleProjection
         var payments=retained.SelectMany(s=>s.KnownPayments).ToArray();
         if(payments.Select(p=>(p.Position.Owner,p.AllocationId,p.Revision)).Distinct().Count()!=payments.Length)
             throw LifecycleProjection.Error("projection_scope","One native actual payment cannot be counted by multiple economic components.");
+    }
+    private void RequireEconomicRoots(LifecycleProjectionState[] states,Dictionary<(AccountingOwnerKey,Guid),AccountingPositionKey> roots)
+    {
+        void Retain(AccountingOwnerKey native,Guid binding,AccountingPositionKey economic)
+        {
+            if(roots.TryGetValue((native,binding),out var existing)&&existing!=economic)
+                throw LifecycleProjection.Error("projection_scope","An existing native owner/binding cannot be reassigned to another economic member.");
+            roots[(native,binding)]=economic;
+        }
+        for(var i=0;i<states.Length;i++)foreach(var member in Leaves(states[i],Components[i]))
+        {
+            foreach(var position in member.Value.Residuals.SelectMany(p=>p.Positions))Retain(position.Owner,position.BindingId,member.Key);
+            foreach(var source in member.Value.KnownCashSources)Retain(source.Owner,source.BindingId,member.Key);
+        }
     }
     private static ImmutableArray<(int,LifecycleProjectionEvent)> Order(ImmutableArray<ILifecycleProjection> components,DateTimeOffset opening,DateTimeOffset horizon)
     {

@@ -206,7 +206,12 @@ internal static class LifecycleProjectionChecks
         if(!futureSource.States.Single().Residuals.IsEmpty)throw new Exception("Future native cash evidence fabricated an opening position.");
         Equal(futureSource.Values.Single().PeriodCash,"6");
         Reject("projection_cash",()=>LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[onlyEvidence with{KnownCashSources=[]}],[]));
+        Reject("projection_cash",()=>LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[onlyEvidence with{KnownPayments=[]}],[]));
         Reject("projection_scope",()=>LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[onlyEvidence,onlyEvidence with{
+            Owner=new(Guid.NewGuid(),Guid.NewGuid(),component.Owner.BookId)}],[]));
+        var noPayments=new RecordedCashValuation(futureTrade,futureOwner.BindingId,[],RecordedCashValuation.Policy,source.Knowledge.ContextId,source.Knowledge.KnownAt);
+        var inactive=onlyEvidence with{KnownPayments=[],KnownCashSources=[noPayments]};
+        Reject("projection_scope",()=>LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[inactive,inactive with{
             Owner=new(Guid.NewGuid(),Guid.NewGuid(),component.Owner.BookId)}],[]));
     }
     private static void Reject(string code,Action action)

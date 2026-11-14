@@ -42,11 +42,18 @@ internal static class LifecycleCompositeChecks
             throw new Exception("The composite top-level value omitted member residuals.");
         }
         catch(MarketDataException e)when(e.Code=="projection_composition"){}
+        try
+        {
+            _=LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[component with{MoveExistingResidual=true}],[]).Evaluate("forged_member_move",[]);
+            throw new Exception("An unchanged native holding moved to another economic member and reassigned its P&L.");
+        }
+        catch(MarketDataException e)when(e.Code=="projection_scope"){}
         Console.WriteLine("PASS lifecycle composite: atomic member transition, exact separate owner P&L/tail contributions, no nested double PV and complete aggregate proof");
     }
     private sealed record Composite(AccountingPositionKey Owner,AccountingPositionKey Other,ReferenceKey Currency,MarketSnapshot SourceSnapshot,
         LifecycleProjectionState Opening):ILifecycleProjection
     {
+        public bool MoveExistingResidual{get;init;}
         public string Implementation=>"synthetic_atomic_projection_v1";
         public ImmutableArray<AccountingPositionKey> EconomicOwners=>[Owner,Other];
         public ImmutableArray<CurveRequest> Dependencies=>[];
@@ -54,6 +61,8 @@ internal static class LifecycleCompositeChecks
         public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)=>[..Events.Where(e=>e.At<=horizon)];
         public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
         {
+            if(MoveExistingResidual)return LifecycleProjectionState.Compose(state.Members.SetItem(Owner,state.Members[Owner] with{Residuals=[]})
+                .SetItem(Other,state.Members[Other] with{Residuals=state.Members[Other].Residuals.AddRange(state.Members[Owner].Residuals)})) with{CompletedEvents=state.CompletedEvents};
             var members=state.Members.SetItem(Owner,state.Members[Owner] with{Residuals=[]}).SetItem(Other,state.Members[Other] with{
                 Cash=[new(occurrence.Id,occurrence.At,occurrence.At,ExactMoney.Parse("100",Currency))]});
             return LifecycleProjectionState.Compose(members) with{CompletedEvents=state.CompletedEvents};
