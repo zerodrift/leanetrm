@@ -88,6 +88,7 @@ internal static class PhysicalLifecycleProjectionChecks
         PrincipalCashDemand(native);
         var title=Title(native.NativeAttachment!);
         ProjectedOperatorReceipt(native);
+        Reject("gas_projection_performance",()=>TitleQuantities(title,native.NativeFact!,hypotheticalPhysical:true));
         Reject("gas_projection_scope",()=>native.Prepare(projection:TitleQuantities(title,native.NativeFact!)));
         var active=ActivePhysicalQuantity(title);
         Reject("gas_projection_scope",()=>LifecycleProjection.Prepare(native.Model,active.SourceSnapshot,native.Horizon,native.Policy,[active],[]));
@@ -459,7 +460,7 @@ internal static class PhysicalLifecycleProjectionChecks
             Cash=[new(cashId,determination,cashOwner,instrument,amount,state,at,receipt)]};
     }
     private static GasQuantityLifecycleProjection TitleQuantities(GasPhysicalKnownAttachment native,KnownFuturesMargin final,MarketSnapshot? markSource=null,bool receiveThenReturn=false,ISideDiscounting? physicalCarrying=null,
-        Func<GasKnownQuantityTransition,GasKnownQuantityTransition>? transitionChange=null,bool anotherPhysicalParent=false,bool projectedOperator=false)
+        Func<GasKnownQuantityTransition,GasKnownQuantityTransition>? transitionChange=null,bool anotherPhysicalParent=false,bool projectedOperator=false,bool hypotheticalPhysical=false)
     {
         var stock=native.Stocks.Single();var performance=native.Performances.Single();
         var account=new GasProjectionAccount(stock.AccountId,native.FutureOwner.BookId,stock.LegalOwner,native.Terms.Location);
@@ -511,6 +512,13 @@ internal static class PhysicalLifecycleProjectionChecks
                 quantity,null,ImmutableDictionary<Guid,ExactDecimal>.Empty,null){Source=markSource});
             projected=[new(Guid.NewGuid(),owner,at,quantity,[],new(account,stock.OriginalInstrument,at){Source=markSource},[])];
             policies=policies.Add(operatorAccount.Id,new(GasQuantityProjectionPolicy.KnownVersion,GasQuantityProjectionPolicy.AtDue));
+        }
+        if(hypotheticalPhysical)
+        {
+            var at=performance.PerformedAt.AddHours(1);
+            var remaining=new Quantity(native.OriginalQuantity.Amount-ExactDecimal.Parse("10"),native.Terms.Quantity);
+            projected=[new(Guid.NewGuid(),native.DeliveryOwner,at,remaining,[],new(account,stock.OriginalInstrument,at),[])];
+            policies=policies.SetItem(account.Id,new(GasQuantityProjectionPolicy.KnownVersion,GasQuantityProjectionPolicy.AtDue));
         }
         return new(policies,native.SourceSnapshot,opening,projected,known);
     }
