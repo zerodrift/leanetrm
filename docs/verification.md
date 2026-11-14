@@ -4440,6 +4440,26 @@ number terms from 1. Results on the final code: the preview above exited 0 with
 `--scheduled-swap-check` (113) exited 0; the managed core suite passed 675; the
 API checks passed (98); `npm test --prefix web` passed 1634 tests.
 
+Review fix round (local, 2026-11-13). A `position` or `lessPosition` present as
+text, a fraction, a boolean or an object is refused while the body is read as
+`recipe_definition`, `An observation term position must be a whole number.`:
+the managed core check binds each case and keeps `null`, a whole number and an
+absent member (a JSON error); the HTTP check gets `422` with that message from
+preview and save for `"2e"` and `1.5` and `400 request_format` for an absent
+`position`; the browser suite shows that message beside the operation for `2e`
+in Less position and in Position, with no price. Before the change all four
+HTTP answers were `400 request_format`. The API check also publishes a second
+version of the ordinary curve that reads the formula curve: its first version
+stays offered and accepted but is no longer marked as the version in force
+(before the fix it was). `swaps/observation-options` now refuses a forged
+reference with `custom_projection` (before, it answered 200 with no options).
+Results on the final code: `--contract-observation-curve-check --browser-check`
+97 checks and 15 browser checks; `--gas-amendments-check --browser-check` (102),
+`--gas-in-term-check` (87), `--index-fixing-check` (90),
+`--close-out-drafts-check --browser-check` (123) and `--side-observation-check
+--browser-check` (305) exited 0; the managed core suite passed 675, the API
+checks 98 and `npm test --prefix web` 1634 tests.
+
 Local results on 2026-11-13, on this change merged with the current master: the
 managed core suite exited 0 with 675 managed core checks passed; the API checks
 passed (98); `npm test --prefix web` passed 1633 tests; the release-deployment,
