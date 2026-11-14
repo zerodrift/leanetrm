@@ -231,3 +231,16 @@ an actual task with primary B and independent price source A, refuse omitted A
 without a job or command, and reconcile all four retained views to the independent
 50-value oracle. Existing fixed-only swap composition remains explicitly
 unsupported rather than acquiring a guessed floating source.
+
+Instruction review uses the selected trading prefix, certified knowledge cutoff
+and effective instant. A visible opposite instruction or different effective
+time refuses; an identical immutable instruction can acknowledge its original
+event under a new command or evidence key. The receipt identifies both the
+current command and acknowledged command without another financial event.
+Native execution retains its current-head and real recording-cutoff checks.
+The disposable qualifier seeds separate synthetic rights before sealing: seven
+historical expiry cases, an unprocessed expired right in ordinary Blotter/risk,
+and a contrary-enabled right with a genuinely open future cutoff. It checks
+stable receipts, same-fact acknowledgements, historical prefix/effective fences,
+closed/unknown cutoffs and private helper upgrade drift without rewriting
+accepted reference rows or changing the system clock.

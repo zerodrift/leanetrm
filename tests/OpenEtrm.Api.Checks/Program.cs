@@ -5,6 +5,7 @@ using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 if(args is ["--gas-owned-setup-native",var gasSetupPath]){await GasOwnedSetupChecks.RunNative(gasSetupPath);return;}
 if(args is ["--gas-owned-setup"]){GasOwnedSetupChecks.Run();return;}
+if(args is ["--lifecycle-option-expiry-read",var expiryReadFixture]){await LifecycleOptionExpiryChecks.Run(expiryReadFixture);return;}
 if(args is ["--lifecycle-delivery-choices"]){LifecycleDeliveryChoiceChecks.Run();return;}
 if(args is ["--lifecycle-actions"]){LifecycleActionChecks.Run();return;}
 if(args is ["--economic-risk-contract"]){EconomicRiskContractChecks.Run();return;}
