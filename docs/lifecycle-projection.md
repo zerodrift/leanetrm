@@ -347,3 +347,10 @@ declarations refuse preparation. Independent two-definition checks qualify
 ordinary residual PV and exact future-cash carrying through this router. Native
 physical source assembly and accepted performance activation remain separate
 integration gates.
+
+A native adopted cash future is also qualified through actual retained historical
+and Monte Carlo workers. The source adapter rechecks the exact selected context,
+opening instant and original read deadline through the same native source-read
+contract used by state materialization. Read-only workers acquire no interactive
+preview grant. Complete worker reports match interactive results under frozen
+binaries, with no appended market, margin or trading facts.
