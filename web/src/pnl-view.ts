@@ -11,26 +11,30 @@ type BumpSelection={ticks:number;priceSteps:number|null;absoluteTolerance:string
 type Bounds={min:number;max:number};
 type Policies={accounting:string;attribution:string;factors:string;factorBump:{offered:BumpSelection;ticks:Bounds;priceSteps:number[]};clockPolicy:string;
  timeModes:{id:string;label:string}[];clocks:ClockChoice[]};
-// A close the person can compare, labelled as the header names it, with its close convention when it is a recorded close.
+// A date the person can compare: a recorded close of the header's close convention, named by its business day, or a working
+// snapshot, named by its instant. A working snapshot has no convention.
 type Frame={id:string;at:string;label:string;session:string|null};
 type SavedEntry={id:string;name:string;savedAt:string;openingAt:string;closingAt:string;books:string[];tradeSelection:string};
 type Shown={report:Report;artifact?:string;name?:string;unsaved?:string};
+// convention names the close convention the header has in use, or is null when none is chosen.
 type Options={api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRun:()=>boolean;identity:()=>string;zone:()=>string;
- frames:()=>Frame[];selected:()=>string|undefined;scope:()=>{bookIds:string[];portfolioIds:string[];tradeIds:string[]|null};knownAt:()=>string;instant:(at:string)=>string;changed:()=>void};
+ convention:()=>string|null;frames:()=>Frame[];selected:()=>string|undefined;scope:()=>{bookIds:string[];portfolioIds:string[];tradeIds:string[]|null};knownAt:()=>string;instant:(at:string)=>string;changed:()=>void};
 const oneDay='one_calendar_day_model_decay_v1';
 // What the server answers when it refuses a save outright. Such a refusal of a first attempt leaves nothing saved.
 const refused=(code:string|undefined)=>!!code&&(code.startsWith('pnl_')||code==='access_denied'||code==='request_format');
 
-/** The trading P&L page: two closes, one knowledge cutoff, Run, and an optional Save of the exact result. */
+/** The trading P&L page: a prior date and a current date, one knowledge cutoff, Run, and an optional Save of the exact result. */
 export function setupPnlView(host:HTMLElement,o:Options){
- const title=node('div'),controls=node('div'),opening=node('select'),closing=node('select'),known=node('input'),timeMode=node('select'),clock=node('select'),run=node('button','Run P&L'),note=node('p');
+ const title=node('div'),controls=node('div'),convention=node('output'),opening=node('select'),closing=node('select'),known=node('input'),timeMode=node('select'),clock=node('select'),
+  clockField=node('label','Calendar clock'),run=node('button','Run P&L'),note=node('p');
  // The application's page title names the page; the card says what it does.
- title.className='pnl-intro';title.append(node('p','Compare two closes of the selected Risk scope. The result reconciles value and cash, and shows what opening price Greeks explain.'));
+ title.className='pnl-intro';title.append(node('p','Compare a prior date with a current date for the selected Risk scope. The result reconciles value and cash, and shows what price Greeks at the prior date explain.'));
  controls.className='pnl-controls';run.type='button';note.setAttribute('role','status');known.type='datetime-local';known.step='1';
  const knownName=()=>'Known as of · '+o.zone(),knownField=node('label',knownName());
- for(const [label,input] of [['Opening close',opening],['Closing close',closing],[knownField,known],['Time effect',timeMode],['Calendar clock',clock]] as const){
+ // The header chooses the close convention. It is stated once here: every recorded close the two pickers list is a business day of it.
+ for(const [label,input] of [['Close convention',convention],['Prior date',opening],['Current date',closing],[knownField,known],['Time effect',timeMode],[clockField,clock]] as const){
   const field=typeof label==='string'?node('label',label):label;field.append(input);controls.append(field);
-  if(input===opening||input===closing)field.className='pnl-close';else if(input===known)field.className='pnl-known';
+  if(input===opening||input===closing)field.className='pnl-close';else if(input===known)field.className='pnl-known';else if(input===convention)field.className='pnl-convention';
  }
  controls.append(run);
  // The price bump is an advanced setting: closed until opened, filled with what the backend offers, and sent as selected.
@@ -51,7 +55,7 @@ export function setupPnlView(host:HTMLElement,o:Options){
  const knownAt=zonedInput(known,o.zone,o.api);
  const result=node('div'),library=node('details'),libraryBody=node('div');library.append(node('summary','Saved P&L reports'),libraryBody);library.className='pnl-library';
  host.classList.add('pnl-view');host.replaceChildren(title,controls,advanced,note,result,library);
- let epoch=0,owner=o.identity(),current:Shown|undefined,currency=0,policies:Policies|undefined,chosen=false,bumpChosen=false;
+ let epoch=0,owner=o.identity(),current:Shown|undefined,currency=0,policies:Policies|undefined,chosen=false,bumpChosen=false,listed:Frame[]=[];
  const pending=new PendingCommand(refused);
  const transport=actorTransport<RequestCommand>(()=>'openetrm-pnl-save:'+o.identity(),()=>sessionStorage);
  function restore(){
@@ -96,7 +100,7 @@ export function setupPnlView(host:HTMLElement,o:Options){
   }
   if(!current){
    const empty=node('div');empty.className='pnl-empty';
-   empty.append(node('h3','No result yet'),node('p','Choose two closes and run the selected Risk scope. A result stays unsaved until you choose to keep it.'));
+   empty.append(node('h3','No result yet'),node('p','Choose a prior date and a current date, then run the selected Risk scope. A result stays unsaved until you choose to keep it.'));
    result.append(empty);return;
   }
   const report=current.report;if(report.version!==reportVersion||!report.totals.length)throw Error('The backend P&L result is incomplete.');
@@ -134,7 +138,10 @@ export function setupPnlView(host:HTMLElement,o:Options){
   // The save is confirmed whether or not the saved reports can then be read.
   await readLibrary();
  }
- const clockNeeded=()=>timeMode.value===oneDay;
+ // One calendar day is counted on a calendar clock, from the prior date. A recorded close brings its convention's clock; a
+ // working snapshot has no convention, so the person names the clock. The clock is asked only then.
+ const clockNeeded=()=>timeMode.value===oneDay&&listed.some(f=>f.id===opening.value&&f.session===null);
+ function askClock(){clockField.hidden=!clockNeeded();}
  // The closed section still says what will be sent.
  function describeBump(){
   const byStep=basis.value==='steps',count=(value:string,unit:string)=>`${value} ${unit}${value==='1'?'':'s'}`;
@@ -165,7 +172,7 @@ export function setupPnlView(host:HTMLElement,o:Options){
   const version=epoch,loaded=await o.api<Policies>('portfolio/pnl/policies');if(!guarded(version))return;
   policies=loaded;offerBump();const mode=timeMode.value,selectedClock=clock.value;
   timeMode.replaceChildren(...loaded.timeModes.map(m=>new Option(m.label,m.id)));timeMode.value=loaded.timeModes.some(m=>m.id===mode)?mode:oneDay;
-  clock.replaceChildren(new Option('Choose a clock…',''),...loaded.clocks.map(c=>new Option(c.code,c.code)));clock.value=selectedClock;clock.disabled=o.busy()||!clockNeeded();
+  clock.replaceChildren(new Option('Choose a clock…',''),...loaded.clocks.map(c=>new Option(c.code,c.code)));clock.value=selectedClock;askClock();
  }
  async function readLibrary(){
   const version=epoch,listed=await o.api<{reports:SavedEntry[];more:boolean}>('portfolio/pnl/saved');if(!guarded(version))return;
@@ -189,19 +196,20 @@ export function setupPnlView(host:HTMLElement,o:Options){
  }
  run.onclick=()=>void o.act(async()=>{
   if(pending.command)throw Error('Reconcile the outstanding save before running another report.');
-  if(!opening.value||!closing.value||!known.value)throw Error('Choose both closes and an explicit knowledge cutoff.');
-  const version=++epoch;setNote('Preparing both closes and repricing shared factor scenarios…');
+  if(!opening.value||!closing.value||!known.value)throw Error('Choose both dates and an explicit knowledge cutoff.');
+  const version=++epoch;setNote('Preparing both dates and repricing shared factor scenarios…');
   try{
    // What the backend offers is shown before it is sent: a run pressed before it arrived shows it and stops.
    const unseen=!policies;if(unseen)await loadPolicies();if(!guarded(version))return;
    if(unseen)throw Error('The settings the backend offers are now shown, Advanced settings included. Check them, then run again.');
-   const calendar=policies!.clocks.find(c=>c.code===clock.value)??null;if(clockNeeded()&&!calendar)throw Error('Choose the calendar clock explicitly.');
+   const calendar=clockNeeded()?policies!.clocks.find(c=>c.code===clock.value)??null:null;
+   if(clockNeeded()&&!calendar)throw Error('Choose the calendar clock. A working snapshot has no close convention to take it from.');
    const factorBump=selectedBump();
    const cutoff=await knownAt.instant();if(!guarded(version))return;
    const endpoint=(id:string)=>({snapshotId:id,convention:'trading_workspace_v1',knowledgeMode:'at'});
    const response=await o.api<{report:Report;artifact:string|null;saveRefusal:{code:string;message:string}|null}>('portfolio/pnl/run',{...o.scope(),opening:endpoint(opening.value),closing:endpoint(closing.value),
     knownAt:cutoff,accountingPolicy:policies!.accounting,attributionPolicy:policies!.attribution,factorPolicy:policies!.factors,factorBump,
-    time:{mode:timeMode.value,policy:policies!.clockPolicy,clock:clockNeeded()?calendar:null}});
+    time:{mode:timeMode.value,policy:policies!.clockPolicy,clock:calendar}});
    if(!guarded(version))return;
    // The result is presented whether or not the backend could keep it for a later Save.
    if(!response.artifact&&!response.saveRefusal)throw Error('The backend P&L result is incomplete.');
@@ -211,42 +219,50 @@ export function setupPnlView(host:HTMLElement,o:Options){
   }catch(error){if(guarded(version))setNote('P&L did not run.');throw error;}
  });
  function inputsChanged(){epoch++;current=undefined;draw();setNote('Inputs changed. Run P&L for this selection.');}
- for(const field of [opening,closing])field.onchange=()=>{chosen=true;inputsChanged();};
- known.onchange=clock.onchange=inputsChanged;timeMode.onchange=()=>{clock.disabled=o.busy()||!clockNeeded();inputsChanged();};
+ for(const field of [opening,closing])field.onchange=()=>{chosen=true;askClock();inputsChanged();};
+ known.onchange=clock.onchange=inputsChanged;timeMode.onchange=()=>{askClock();inputsChanged();};
  for(const field of [basis,steps,ticks,...agreements])field.onchange=()=>{bumpChosen=true;describeBump();inputsChanged();};
  // A selection is one person's: it is dropped for what the backend offers when they ask, and when another person takes over.
  function forgetBump(){bumpChosen=false;if(policies)offerBump();}
+ // So is the clock a person chose for a working snapshot: another person is asked again.
+ function forgetSelections(){forgetBump();clock.value='';}
  offer.onclick=()=>{forgetBump();inputsChanged();};
- describeBump();
+ describeBump();askClock();
  function refreshFrames(){
-  const frames=o.frames().slice().sort((a,b)=>a.at.localeCompare(b.at)),before=[opening.value,closing.value];
+  const named=o.convention(),stated=named??'None chosen',before=[opening.value,closing.value];listed=o.frames().slice().sort((a,b)=>a.at.localeCompare(b.at));
+  // The convention is written when it changes, not on every read: an output is announced when it is written. A name too
+  // long for its field can be read in full where the person points.
+  if(convention.textContent!==stated){convention.textContent=stated;convention.title=named??'';}
+  // A date the person chose that is no longer listed is not replaced by another: its picker is left for them to choose again.
   for(const [index,select] of [opening,closing].entries()){
-   select.replaceChildren(new Option(frames.length?'Choose a close…':'No closes to compare',''),...frames.map(f=>new Option(f.label,f.id)));
-   select.value=frames.some(f=>f.id===before[index])?before[index]:'';
+   select.replaceChildren(new Option(listed.length?'Choose a date…':'No dates to compare',''),...listed.map(f=>new Option(f.label,f.id)));
+   select.value=listed.some(f=>f.id===before[index])?before[index]:'';
   }
-  // Until the person chooses, the header's close is compared with what came before it: the close before it of its own close
-  // convention, where it has a convention and such a close exists, and otherwise the frame before it of any kind. Both show in
-  // the pickers and can be changed before Run. When the header names no close among them, nothing is offered.
+  const dropped=chosen&&before.some((id,index)=>id&&![opening,closing][index].value);
+  // Until the person chooses, the header's date is the current date and what came before it is the prior date: the recorded
+  // close before it, where it is a recorded close and one exists, and otherwise the date before it of either kind. Both show
+  // in the pickers and can be changed before Run. When the header names no date among them, nothing is offered.
   if(!chosen){
-   const end=frames.find(f=>f.id===o.selected()),earlier=end?frames.filter(f=>f.at<end.at):[];
+   const end=listed.find(f=>f.id===o.selected()),earlier=end?listed.filter(f=>f.at<end.at):[];
    const start=(end?.session?earlier.filter(f=>f.session===end.session).at(-1):undefined)??earlier.at(-1);
    closing.value=end?.id??'';opening.value=start?.id??'';
   }
-  if(!frames.length)setNote('Choose a market close in the header to list the closes you can compare.');
-  followKnowledge();
+  if(named===null)setNote('Choose a close convention in the header’s As of details to list its dates.');
+  else if(!listed.length)setNote('Choose a market close in the header to list the dates you can compare.');
+  else if(dropped)setNote('A date you chose is no longer listed. Choose it again.');
+  askClock();followKnowledge();
  }
  // An empty cutoff takes the Risk scope's own knowledge cutoff, once that scope can be read.
  function followKnowledge(){if(!known.value){const cutoff=o.knownAt();if(cutoff)knownAt.set(cutoff);}}
  return{
   async load(){refreshFrames();draw();await Promise.all([loadPolicies(),readLibrary()]);},
   sync(available:boolean){
-   if(owner!==o.identity()){owner=o.identity();epoch++;current=undefined;pending.clear();restore();knownAt.clear();chosen=false;forgetBump();draw();}
+   if(owner!==o.identity()){owner=o.identity();epoch++;current=undefined;pending.clear();restore();knownAt.clear();chosen=false;forgetSelections();draw();}
    knownField.firstChild!.textContent=knownName();knownAt.refresh();if(available)followKnowledge();
-   run.disabled=o.busy()||!o.canRun()||!available;for(const field of [opening,closing,known,timeMode,basis,steps,ticks,...agreements,offer])field.disabled=o.busy();
-   clock.disabled=o.busy()||!clockNeeded();
+   run.disabled=o.busy()||!o.canRun()||!available;for(const field of [opening,closing,known,timeMode,clock,basis,steps,ticks,...agreements,offer])field.disabled=o.busy();
   },
-  // A change of scope or market context. The closes a person chose stay chosen; ones they did not follow the header again.
-  reset(){epoch++;current=undefined;knownAt.clear();setNote('');if(owner!==o.identity()){owner=o.identity();pending.clear();restore();chosen=false;forgetBump();}draw();},
+  // A change of scope or market context. The dates a person chose stay chosen; ones they did not follow the header again.
+  reset(){epoch++;current=undefined;knownAt.clear();setNote('');if(owner!==o.identity()){owner=o.identity();pending.clear();restore();chosen=false;forgetSelections();}draw();},
   // The display precision changed: the report on screen is formatted again.
   async refresh(){const version=epoch,shown=current;if(!shown)return;await prepared(shown.report);if(guarded(version)&&current===shown)draw();},
   unconfirmed:()=>!!pending.command};

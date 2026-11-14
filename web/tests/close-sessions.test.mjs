@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {otherSessionRefusal,sessionOffer} from '../dist/close-sessions.js';
+import {comparableDates,otherSessionRefusal,sessionOffer} from '../dist/close-sessions.js';
 
 const close=(id,session,businessDate)=>({id,at:`${businessDate}T16:00:00Z`,businessDate,name:id,originCloseId:id,close:{session,sessionVersion:1,businessDate,replacedBy:null}});
 const working=(id,at)=>({id,at,businessDate:at.slice(0,10),name:'Edited inputs',originCloseId:null});
@@ -31,4 +31,14 @@ test('a derived pricing snapshot keeps its server business date across UTC midni
  const source={id:'source',name:'Source inputs',at:'2020-12-19T00:00:00Z',businessDate:'2020-12-18',close:null};
  assert.deepEqual(sessionOffer([source],null,'2020-12-18').working,[source]);
  assert.deepEqual(sessionOffer([source],null,'2020-12-19').working,[]);
+});
+
+test('P&L compares the chosen convention\'s closes by business day and working snapshots by instant, and no other convention\'s close',()=>{
+ const frames=[close('a','london','2020-12-16'),close('b','new_york','2020-12-16'),working('w','2020-12-17T09:30:00Z'),close('c','london','2020-12-17')];
+ const day=date=>'day '+date,instant=at=>'at '+at;
+ assert.deepEqual(comparableDates(frames,'london',day,instant),[
+  {id:'a',at:'2020-12-16T16:00:00Z',label:'day 2020-12-16',session:'london'},{id:'c',at:'2020-12-17T16:00:00Z',label:'day 2020-12-17',session:'london'},
+  {id:'w',at:'2020-12-17T09:30:00Z',label:'Working snapshot · at 2020-12-17T09:30:00Z',session:null}]);
+ // With no convention chosen no close is compared: nothing picks a convention.
+ assert.deepEqual(comparableDates(frames,null,day,instant).map(f=>f.id),['w']);
 });

@@ -3,13 +3,16 @@ import {amountText} from './amount-display.js';
 import {compareDecimalStrings} from './analytics-model.js';
 import {currencyKey} from './currency-labels.js';
 import {bridgeChart} from './pnl-bridge.js';
-import {amount,estimates,isZero,unavailable,type Contribution,type Currency,type GreekEffect,type Position,type Report,type Total,type Values} from './pnl-model.js';
+import {displayDate} from './market-view.js';
+import {amount,estimates,isZero,unavailable,type Contribution,type Currency,type Endpoint,type GreekEffect,type Position,type Report,type Total,type Values} from './pnl-model.js';
 
 type Shown={instant:(at:string)=>string;currency:number;chooseCurrency:(index:number)=>void};
 const currencyId=(c:Currency)=>currencyKey({code:c.code,...c.revision});
 const section=(name:string,heading:string)=>{const part=node('section');part.className='pnl-section '+name;part.append(node('h3',heading));return part;};
 const states:Record<string,string>={continuing:'Held',new:'New',closed:'Closed',cash_only:'Cash only'};
 const reasons:Record<string,string>={finite_difference_unstable:'Estimate did not converge',closing_exact_price_unavailable:'No closing price'};
+// Whose calendar clock one calendar day was counted on.
+const clockOwners:Record<string,(name:string|null)=>string>={prior_close_convention:name=>`of the prior date’s close convention, ${name}`,request:()=>'chosen for the prior date, a working snapshot'};
 // A factor's name, which wraps in its cell so that the figures beside it stay in view.
 const factorName=(label:string)=>{const name=node('span',label);name.className='pnl-factor-name';return name;};
 // A Greek effect as a table cell: its amount, that it is unavailable, or its amount with what is missing from it.
@@ -25,10 +28,19 @@ export function drawReport(host:HTMLElement,report:Report,shown:Shown){
  host.append(hero(report,total,rows.length,shown),metrics(total.values),factorsSection(report,total),bridgeSection(report,total),timeSection(report,total,shown),positionsSection(report,rows));
 }
 
+// The period a report compares. A recorded close reads as its business day, since its convention names its time of day; any
+// other date reads as its instant. Two closes of one convention name it once; otherwise each close names its own.
+function comparedDates(report:Report,shown:Shown){
+ const {opening:from,closing:to}=report,day=(end:Endpoint)=>end.close?displayDate(end.close.businessDate):shown.instant(end.at);
+ if(from.close&&to.close&&from.close.session===to.close.session)return `${from.close.name} · ${day(from)} → ${day(to)}`;
+ const named=(end:Endpoint)=>end.close?`${end.close.name} · ${day(end)}`:day(end);
+ return `${named(from)} → ${named(to)}`;
+}
+
 function hero(report:Report,total:Total,rows:number,shown:Shown){
  const top=node('div'),result=node('div'),period=node('div');top.className='pnl-hero';period.className='pnl-period';
  result.append(node('p','Economic P&L'),amount(total.values.economicPnl),node('small',total.currency.code.toUpperCase()));
- period.append(node('span',report.scope.books.map(b=>b.name).join(' · ')+' · '+report.scope.tradeSelection),node('strong',`${shown.instant(report.opening.at)} → ${shown.instant(report.closing.at)}`),
+ period.append(node('span',report.scope.books.map(b=>b.name).join(' · ')+' · '+report.scope.tradeSelection),node('strong',comparedDates(report,shown)),
   node('span',rows===1?'1 holding or cash item':`${rows} holdings and cash items`),node('span',`Known as of ${shown.instant(report.opening.context.knownAt)}`));
  top.append(result,period);
  if(report.totals.length>1){
@@ -86,6 +98,13 @@ function timeSection(report:Report,total:Total,shown:Shown){
   part.append(value?amount(value.value):node('span','No opening exposure in this currency.'));
  }else part.append(node('p','Time effect unavailable for the complete opening scope.'));
  part.append(node('p','Frozen opening markets and knowledge. This diagnostic is separate from the period reconciliation.'));
+ const counted=report.time.clock;
+ if(counted){
+  const owner=clockOwners[counted.source];if(!owner)throw Error('The backend P&L result is incomplete.');
+  // A rule's code is a name: where it does not say what the clock is, what the clock is follows it.
+  const clock=counted.rule.code===counted.zone?counted.zone:`${counted.rule.code} (${counted.zone})`;
+  part.append(node('p',`One calendar day is counted on ${clock}, the calendar clock ${owner(counted.name)}.`));
+ }
  for(const p of report.time.partitions)part.append(node('small',p.status==='complete'?`Value at ${shown.instant(p.clock.at)}${p.clock.calendar?' · '+p.clock.calendar.zone:''}`:p.detail??'This part of the scope has no time effect.'));
  return part;
 }

@@ -228,12 +228,24 @@ def run_checks(url,query,manifest,verify_persistence=None):
     earlier=next(f for f in c.call('workspace')['frames'] if f['at'].startswith('2026-10-13T16'))
     cutoff=c.call('options/catalog',context)['context']['knownAt']
     endpoint=lambda f:dict(snapshotId=f['id'],convention='trading_workspace_v1',knowledgeMode='at')
+    # The prior date is a working snapshot, which belongs to no close convention: the request names the calendar clock one
+    # calendar day is counted on, and one that names none is refused. Nothing fills a clock in.
+    assert 'close' not in earlier,earlier
+    one_day=dict(mode='one_calendar_day_model_decay_v1',policy=policies['clockPolicy'],clock=ny_clock)
     request=dict(opening=endpoint(earlier),closing=endpoint(frame),knownAt=cutoff,bookIds=[book],portfolioIds=[],tradeIds=[booked['tradeId']],
-                 accountingPolicy=policies['accounting'],attributionPolicy=policies['attribution'],factorPolicy=policies['factors'],factorBump=policies['factorBump']['offered'],time=dict(mode='one_calendar_day_model_decay_v1',policy=policies['clockPolicy'],clock=ny_clock))
+                 accountingPolicy=policies['accounting'],attributionPolicy=policies['attribution'],factorPolicy=policies['factors'],factorBump=policies['factorBump']['offered'],time=one_day)
+    assert c.call('portfolio/pnl/run',{**request,'time':{**one_day,'clock':None}},expected=422)['code']=='pnl_time_policy'
     run=c.call('portfolio/pnl/run',request,timeout=300);assert run['saveRefusal'] is None
     assert len(json.dumps(dict(requestId=str(uuid4()),name='Close reconciliation',artifact=run['artifact'])).encode())<32768
     report=run['report'];assert report['version']=='trading_pnl_report_v2' and report['positions']
     assert report['engineVersion'] and report['valuationPolicy']
+    # The report states each date's recorded close, or none for a working snapshot, and that the request named the clock.
+    def states(stated,listed):
+        close=listed.get('close')
+        return stated is None if close is None else stated['name'] and {key:stated[key] for key in ('session','sessionVersion','businessDate')}=={key:close[key] for key in ('session','sessionVersion','businessDate')}
+    assert states(report['opening']['close'],earlier) and states(report['closing']['close'],frame),(report['opening'],report['closing'])
+    named=dict(source='request',session=None,sessionVersion=None,name=None,calendar=None,rule=ny_clock,zone='America/New_York')
+    assert report['time']['clock']==named,report['time']['clock']
     total=report['totals'][0]['values']
     assert value(total['openingValue'])==0 and value(total['cash'])==Fraction(owed),total
     assert value(total['economicPnl'])==value(total['closingValue'])+Fraction(owed),total
@@ -270,12 +282,34 @@ def run_checks(url,query,manifest,verify_persistence=None):
     assert {p['state'] for p in continuing['positions']}=={'continuing'}
     assert continuing['factors'] and continuing['time']['status']=='complete',continuing['time']
     assert continuing['time']['totals'] and any(value(t['value'])!=0 for t in continuing['time']['totals'])
+    assert continuing['time']['clock']==named and all(p['clock']['calendar']['zone']==named['zone'] for p in continuing['time']['partitions']),continuing['time']
     assert any(p['contributions'] for p in continuing['positions'])
     assert continuing['sensitivities'] and all('estimate' in c and 'units' in c for p in continuing['positions'] for c in p['contributions'])
     rolled=c.call('portfolio/pnl/run',{**request,'time':dict(mode='opening_to_closing_clock_v1',policy=policies['clockPolicy'],clock=None)},timeout=300)['report']
-    assert rolled['time']['status']=='complete' and rolled['time']['totals'],rolled['time']
+    assert rolled['time']['status']=='complete' and rolled['time']['totals'] and rolled['time']['clock'] is None,rolled['time']
     assert all(p['clock']['at']==frame['at'] for p in rolled['time']['partitions'])
-    print('PASS continuing option P&L: shared price Greeks, one-calendar-day decay and exact endpoint clock roll with retained opening inputs.',flush=True)
+    # The same holding from a recorded close of the same instant and inputs. One calendar day is counted on the calendar clock
+    # of that close's convention, which keeps Chicago time: the request names no clock, and naming one is refused, not obeyed
+    # or ignored. No offset changes between these dates on either clock, so the convention's reaches the instant the named
+    # New York clock reached, with the same amounts, and the report states Chicago.
+    from seed_session_closes import publish_session,record_close
+    publish_session(query,manifest,'synthetic_prior_close','Synthetic prior close',
+                    [{'curves':sorted(earlier['curveContracts']),'cutoff':earlier['at'][11:16],'from':earlier['at'][:10],'to':frame['at'][:10]}],calendar='cpt_published_peak')
+    recorded=record_close(query,manifest,'synthetic_prior_close',1,earlier)
+    prior=next(f for f in c.call('workspace')['frames'] if f.get('originCloseId')==recorded)
+    assert prior['at']==earlier['at'] and prior['close']['session']=='synthetic_prior_close',prior
+    from_close={**request,'knownAt':c.call('options/catalog',context)['context']['knownAt'],'opening':endpoint(prior),'time':{**one_day,'clock':None}}
+    assert c.call('portfolio/pnl/run',{**from_close,'time':one_day},expected=422)['code']=='pnl_time_policy'
+    closed=c.call('portfolio/pnl/run',from_close,timeout=300)['report'];counted=closed['time']['clock']
+    assert states(closed['opening']['close'],prior) and closed['opening']['close']['name']=='Synthetic prior close',closed['opening']
+    assert {key:counted[key] for key in named if key not in ('rule','zone')}==dict(source='prior_close_convention',session='synthetic_prior_close',sessionVersion=1,
+        name='Synthetic prior close',calendar='cpt_published_peak'),counted
+    assert counted['rule']=={**ny_clock,'code':'cpt','ianaZone':'America/Chicago'} and counted['zone']=='America/Chicago' and closed['request']['time']['clock'] is None,counted
+    assert closed['time']['status']=='complete' and all(p['clock']['calendar']['zone']==counted['zone'] for p in closed['time']['partitions']),closed['time']
+    assert [p['clock']['at'] for p in closed['time']['partitions']]==[p['clock']['at'] for p in continuing['time']['partitions']],closed['time']
+    assert closed['time']['totals']==continuing['time']['totals'],(closed['time']['totals'],continuing['time']['totals'])
+    assert all(closed['totals'][0]['values'][key]==continuing['totals'][0]['values'][key] for key in ('openingValue','closingValue','economicPnl')),closed['totals']
+    print('PASS continuing option P&L: shared price Greeks, one calendar day on a named clock from a working snapshot and on the convention\'s clock from a recorded close, and exact endpoint clock roll with retained opening inputs.',flush=True)
 
     # One report explains holdings priced on two curves: the centre call of the first product's first two listed underlying
     # months and of the other product's first, booked at the opening close. A run values each held option nine times, at both

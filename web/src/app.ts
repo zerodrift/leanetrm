@@ -29,7 +29,7 @@ import {setupCustomCurves} from './custom-curves-view.js';
 import {setupPriceSetup} from './price-setup.js';
 import {LiveUpdates,liveContextUpdate,type LiveSelection,type LiveContextUpdate,type LiveStatus} from './live-context.js';
 import {setupMarketCalendar,type MarketDates} from './market-calendar.js';
-import {otherSessionRefusal,sessionOffer,linkedFrame,type FrameClose} from './close-sessions.js';
+import {comparableDates,otherSessionRefusal,sessionOffer,linkedFrame,workingSnapshot,type FrameClose} from './close-sessions.js';
 import {closeConventionProfile} from './close-convention-profile.js';
 import {newestDate,newestClose,closeBadge,latestInstant,type CloseBadge,type CloseChoice} from './latest-close.js';
 import {setupPowerImports} from './power-imports-view.js';
@@ -110,6 +110,8 @@ let overlayCatalog:{scope:string;catalog:OverlayCatalog}|undefined;
 let consoleTables:string[]=[],contextDirty=false,currentProfile='',administrationScope='',permissions:string[]=[];
 // The active view's convention starts from the profile default; an explicit override belongs to this window.
 let closeSession:string|null=null,closeSessionNames:ReadonlyMap<string,string>=new Map();
+// The name of the close convention in use, or null while none is chosen.
+const closeSessionName=()=>closeSession===null?null:closeSessionNames.get(closeSession)??closeSession;
 let navigation:MarketNavigation|undefined,marketGeneration=0;
 // The curve shapes the market board and the library draw, read at one close for one directory and account (markets-desk.md).
 let boardShapes:{owner:MarketNavigation;scope:string;shapes:ReadonlyMap<string,CurveShape|string>}|undefined;
@@ -186,7 +188,7 @@ function renderWorkspaceMode(){
 // Collapsed, As of details names the close convention in use and nothing else, and says so when one still has to be chosen; a page
 // read by business date has no close to name. Opened, it also states the selected close's instant, which the As of leaves out (D384).
 function renderAsOfClose(){
-  const byBusinessDate=usesBusinessDate(page),named=byBusinessDate?'As of details':closeSession===null?'Choose a close convention':closeSessionNames.get(closeSession)??closeSession;
+  const byBusinessDate=usesBusinessDate(page),named=byBusinessDate?'As of details':closeSessionName()??'Choose a close convention';
   text('as-of-close',named);
   $('as-of-context-summary').setAttribute('aria-label',byBusinessDate?named:`As of details · ${named}`);
   $('as-of-context').dataset.close=byBusinessDate?'none':closeSession===null?'choose':'named';
@@ -453,7 +455,7 @@ function offeredFrames(){const offer=sessionOffer(directory().frames,closeSessio
 // A working snapshot is offered apart from the session's closes and named as working data (D334).
 function renderFrames(value:string){const frames=offeredFrames(),working=new Set(frames.filter(f=>!f.close).map(f=>f.id));
  choose('snapshot',[{value:'',name:closeSession===null?'Choose a session first':frames.length?'Choose a date…':'No inputs for this context date'},
-  ...frameOptions(frames,prefs.timeZone).map(o=>working.has(o.value)?{...o,name:'Working snapshot · '+o.name}:o)],value);select('snapshot').title=`Times shown in ${prefs.timeZone}`;shownClose=select('snapshot').value;invalidateMarketDates();}
+  ...frameOptions(frames,prefs.timeZone).map(o=>working.has(o.value)?{...o,name:workingSnapshot(o.name)}:o)],value);select('snapshot').title=`Times shown in ${prefs.timeZone}`;shownClose=select('snapshot').value;invalidateMarketDates();}
 // The board's shapes are those of one close of one directory, read for one account and context: any change of them leaves none read.
 const boardScope=()=>JSON.stringify([administrationScope,currentProfile,select('snapshot').value,contextDirty]);
 function readShapes():ReadonlyMap<string,CurveShape|string>{const kept=boardShapes;return kept&&kept.owner===navigation&&kept.scope===boardScope()?kept.shapes:new Map();}
@@ -536,7 +538,7 @@ async function renderCurveCloses(){
  const label=el('span','Closes');label.className='vol-closes-label';host.replaceChildren(label,list);host.hidden=!curveCloses.closes.length;
 }
 // A close another page offers, other than the header's As of, is the person's to take: nothing moves until they choose (D361). Only a recorded close has an address a separate window can open.
-const frameName=(f:FrameSummary)=>f.close?`${closeSessionNames.get(f.close.session)??f.close.session} · ${displayDate(f.close.businessDate)}`:`Working snapshot · ${instant(f.at)}`;
+const frameName=(f:FrameSummary)=>f.close?`${closeSessionNames.get(f.close.session)??f.close.session} · ${displayDate(f.close.businessDate)}`:workingSnapshot(instant(f.at));
 async function offerClose(id:string,target:CloseTarget){
  if(id===select('snapshot').value)return;
  // A close recorded after this page listed its closes is in the backend's answer before it is in the directory.
@@ -1270,8 +1272,10 @@ function dashboardMarket():DashboardMarket{
 }
 const dashboard=setupDashboard({api,act,busy:()=>busy,historical:()=>contextDirty||!!historicalContext(),market:dashboardMarket});
 const riskJobs=setupRiskWorkspace({api,act,instant,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>exampleId+':'+administrationScope+':'+currentProfile,canRun:()=>can('RunScenario'),
-  // The closes the header lists, each named as the header names it. They are read with the header, not with the market catalog, which Risk does not load.
-  frames:()=>(navigation?.frames??[]).map(f=>({id:f.id,at:f.at,label:frameName(f),session:f.close?.session??null})),view:next=>riskViewsNav.select(next),changed:()=>{if(initialWorkspaceReady)syncUnloadQuestion();},source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});
+  // What P&L explain compares: the header's close convention, named once, and its dates. They are read with the header, not with
+  // the market catalog, which Risk does not load.
+  convention:closeSessionName,frames:()=>comparableDates(navigation?.frames??[],closeSession,displayDate,instant),
+  view:next=>riskViewsNav.select(next),changed:()=>{if(initialWorkspaceReady)syncUnloadQuestion();},source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});
 const jobs=setupJobs({api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,contextReady:()=>!contextDirty});
 // A committed label changes current curves' names and units as well as the item's page: the market is read again, as after a correction,
 // and so is the page.

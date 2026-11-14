@@ -38,7 +38,9 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         Remaining="Unavailable estimates and time, volatility, discount, fixing, position and other effects remain in the explicit residual.";
     private static readonly (string Formula,string Label)[] Greeks=
         [(RiskEngine.CentralDelta,"Delta"),(RiskEngine.CentralGamma,"Gamma"),(RiskEngine.CentralMixedGamma,"Cross gamma")];
-    private static readonly object[] TimeModes=[new{id="one_calendar_day_model_decay_v1",label="One-day model decay"},new{id="opening_to_closing_clock_v1",label="Opening-to-closing time roll"}];
+    internal const string OneDay="one_calendar_day_model_decay_v1",Roll="opening_to_closing_clock_v1";
+    private static readonly object[] TimeModes=[new{id=OneDay,label="One-day model decay"},new{id=Roll,label="Opening-to-closing time roll"}];
+    // The clocks a request may name for one calendar day from a working snapshot, which has no close convention.
     private static ClockRule[] Clocks()=>[new("UTC","fixed_offset",0,null,null),new("New York","iana",null,"America/New_York",TimeZoneDatabase.Installed().Version())];
     // What a request may select, with the bump the page offers and its bounds.
     internal static object Policies=>new{accounting=TradingPnlAccounting.Version1,attribution=TradingPnlAttribution.OpeningGreeks,factors=SelectedBump,
@@ -72,17 +74,44 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             $"Each factor is bumped by {ticks}.";
         return $"{Covered} {bumped} An estimate is used when its half, nominal and double steps agree within {selection.Delta.Absolute} plus {selection.Delta.Relative} of the nominal estimate for a delta and {selection.Gamma.Relative} for a gamma. {Remaining}";
     }
-    private static ClockChange TimeTarget(PnlTimeSelection selection,DateTimeOffset from,DateTimeOffset to)
+    // A recorded close's convention, as the exact session version the close names states it. Its clock is the clock of the
+    // calendar that version pins, and is absent when that calendar cannot be read at the endpoint.
+    internal sealed record CloseConvention(string Session,int SessionVersion,string Name,string Calendar,ClockRule? Clock);
+    // The calendar clock one calendar day was counted on, and whose it is: the prior date's close convention's, or the one
+    // the request named for a working snapshot. Its zone is its IANA zone, or its fixed offset from UTC.
+    internal sealed record CalendarClock(string Source,string? Session,int? SessionVersion,string? Name,string? Calendar,ClockRule Rule,string Zone);
+    // The instant the opening holdings are valued at for the time effect, with the clock one calendar day was counted on.
+    internal sealed record TimeEffect(ClockChange Target,CalendarClock? Clock);
+    // What a request decides by itself, before any endpoint is read: the roll to the closing instant, or one calendar day
+    // on the clock it names. One calendar day starts at the prior date. A working snapshot has no convention, so its
+    // request names the clock; a recorded close states its convention's calendar clock, so its request names none and
+    // nothing is decided here. A clock is never taken from anywhere else.
+    internal static TimeEffect? RequestTime(PnlTimeSelection selection,bool recordedPrior,DateTimeOffset from,DateTimeOffset to)
     {
         if(selection is null||selection.Policy!=ClockChange.FrozenInputs)throw Error("pnl_time_policy","Select the explicit frozen-input time convention.");
         return selection.Mode switch
         {
-            "one_calendar_day_model_decay_v1" when selection.Clock is {} clock=>ClockChange.NextCalendarDay(from,PowerClock.FromRule(clock,TimeZoneDatabase.Installed())),
-            "opening_to_closing_clock_v1" when selection.Clock is null=>new(to,selection.Policy),
-            _=>throw Error("pnl_time_policy","Choose one calendar day with a retained clock, or the explicit endpoint instant.")
+            Roll when selection.Clock is null=>new(new(to,selection.Policy),null),
+            OneDay when recordedPrior&&selection.Clock is null=>null,
+            OneDay when !recordedPrior&&selection.Clock is {} named=>OneCalendarDay(from,named,null),
+            OneDay when recordedPrior=>throw Error("pnl_time_policy","The prior date is a recorded close: one calendar day is counted on its close convention's calendar clock. Name no clock."),
+            OneDay=>throw Error("pnl_time_policy","The prior date is a working snapshot, which has no close convention. Name the calendar clock one calendar day is counted on."),
+            _=>throw Error("pnl_time_policy","Choose one calendar day, or the roll to the closing instant, which takes no clock.")
         };
     }
-    private sealed record Endpoint(TradingView View,PnlAccountingPoint? Point,PortfolioValuation.Prepared? Prepared,
+    // One calendar day from a recorded prior close, on its convention's calendar clock.
+    internal static TimeEffect ConventionTime(CloseConvention prior,DateTimeOffset from)=>OneCalendarDay(from,prior.Clock??
+        throw Error("pnl_time_clock",$"The calendar clock of the prior date's close convention, {prior.Name}, cannot be read for this prior date and knowledge cutoff, so one calendar day cannot be counted. Choose the roll to the closing instant, or another prior date."),prior);
+    private static TimeEffect OneCalendarDay(DateTimeOffset from,ClockRule rule,CloseConvention? prior)
+    {
+        var clock=PowerClock.FromRule(rule,TimeZoneDatabase.Installed());
+        return new(ClockChange.NextCalendarDay(from,clock),
+            new(prior is null?"request":"prior_close_convention",prior?.Session,prior?.SessionVersion,prior?.Name,prior?.Calendar,rule,ReferenceClockJson.Zone(rule)));
+    }
+    // A recorded close as a report states it: its convention and the business day it closes. A working snapshot states none.
+    private static object? Close(Endpoint endpoint)=>endpoint.View.Frame.Close is {} close?
+        new{session=close.Session,sessionVersion=close.SessionVersion,name=endpoint.Convention!.Name,businessDate=close.BusinessDate}:null;
+    private sealed record Endpoint(TradingView View,CloseConvention? Convention,PnlAccountingPoint? Point,PortfolioValuation.Prepared? Prepared,
         ImmutableArray<RiskTradeChoice> Trades,ImmutableArray<Guid> Books,ImmutableArray<JsonElement> BookDescriptions,ImmutableArray<AccountingFlow> Cash,ImmutableArray<Guid>? CashTradeSelection);
     private sealed record Samples(PortfolioValuation.MarketPartition Market,ConnectedFiniteDifferenceRequest? Request);
 
@@ -94,9 +123,11 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         var selection=Select(request);
         if(request.TradeIds is {} ids&&(ids.IsDefaultOrEmpty||ids.Length>RiskTradeScope.MaxSelected||ids.Any(i=>i==Guid.Empty)||ids.Distinct().Count()!=ids.Length))
             throw Error("risk_trade_scope","Choose distinct trades, or explicitly select the whole book scope.");
-        _=TimeTarget(request.Time,opening.Frame.At,closing.Frame.At);
+        var time=RequestTime(request.Time,opening.Frame.Close is not null,opening.Frame.At,closing.Frame.At);
         var timeDiagnostics=new List<object>();var timeValues=new List<ExactMoney>();var missingTime=false;
         var first=await Read(connection,opening,request,ct);
+        // A recorded prior close's clock is read with its endpoint, and decided before the closing endpoint is prepared.
+        time??=ConventionTime(first.Convention!,opening.Frame.At);
         var last=await Read(connection,closing,request,ct);
         if(request.TradeIds is {} selected&&!selected.ToHashSet().SetEquals(first.Trades.Concat(last.Trades).Select(t=>t.TradeId)))
             throw Error("risk_trade_scope","Every selected trade must be available in the named books at one or both endpoints.");
@@ -138,7 +169,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
                 Axis:new ConnectedSensitivityAxis(Axis(factor),new PriceSensitivityInput(new(CurveShockCoordinate.MarketQuote,new ContractCurveTarget(factor.Curves[0],factor.Contract),
                     factor.Unit,bumps[factor.Input],ConnectedRiskBump.Convention)),selection.Delta,selection.Gamma),factor.Input)).ToArray();
             ConnectedRiskScenario? timeSample=null;
-            var clock=TimeTarget(request.Time,opening.Frame.At,closing.Frame.At);
+            var clock=time.Target;
             try
             {
                 _=RiskEngine.WithClock(market.Connected,clock,ct);
@@ -189,8 +220,9 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             gammaRelativeTolerance=selection.Gamma.Relative.ToString(),coverage=Coverage(selection)};
         var result=new{id=Guid.NewGuid(),version="trading_pnl_report_v2",engineVersion=RiskJobs.EngineVersion,valuationPolicy=PortfolioRiskPreview.AccountingPricingPolicy,
             request,scope=new{books=first.BookDescriptions.Concat(last.BookDescriptions).DistinctBy(b=>b.Id("id")).ToArray(),tradeSelection=request.TradeIds is null?"All trades in the selected books":"Selected trades"},
-            policies,opening=new{opening.Frame.Id,opening.Frame.Name,opening.Frame.At,opening.Context},
-            closing=new{closing.Frame.Id,closing.Frame.Name,closing.Frame.At,closing.Context},time=new{request.Time.Mode,status=missingTime?"unavailable":"complete",
+            policies,opening=new{opening.Frame.Id,opening.Frame.Name,opening.Frame.At,opening.Context,close=Close(first)},
+            closing=new{closing.Frame.Id,closing.Frame.Name,closing.Frame.At,closing.Context,close=Close(last)},
+            time=new{request.Time.Mode,status=missingTime?"unavailable":"complete",clock=time.Clock,
                 totals=missingTime?null:timeValues.GroupBy(v=>v.Currency).Select(g=>new{currency=g.Key,value=Money(g.Aggregate((a,b)=>a.Add(b)))}).ToArray(),partitions=timeDiagnostics},factors=factorDetails,
             totals=report.Positions.GroupBy(p=>p.Accounting.Currency).Select(g=>
             {
@@ -233,6 +265,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             if(chosen.IsEmpty)throw Error("pnl_position","Select readable books before running P&L.");
             var available=await RiskTradeScope.Read(connection,database.Manifest.CatalogId,chosen,ct,request.TradeIds);
             if(!available.AllAvailable)throw new PreviewDeniedException();
+            var convention=view.Frame.Close is {} close?await Convention(connection,close,ct):null;
             var frame=view.CalculationFrame;var data=await MarketInputSelection.Root(database,connection,frame,ct,referenceScope:ReferenceReadScope.TradeValuation);
             PortfolioValuation.Prepared? prepared=null;
             PnlAccountingPoint? point=null;
@@ -245,13 +278,26 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             }
             await RequireBound(connection,view,ct);
             var cash=await CashPaymentStore.Ledger(connection,database.Manifest.CatalogId,view.CalculationFrame,chosen,request.TradeIds,ct);
-            return new(view,point,prepared,available.Trades,chosen,selectedBooks,cash,request.TradeIds);
+            return new(view,convention,point,prepared,available.Trades,chosen,selectedBooks,cash,request.TradeIds);
         }
         finally
         {
             await using(var rollback=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT pnl_endpoint"))await rollback.ExecuteNonQueryAsync(ct);
             await using var release=ScheduleStore.Command(connection,"RELEASE SAVEPOINT pnl_endpoint");await release.ExecuteNonQueryAsync(ct);
         }
+    }
+    // The convention of a recorded close. The exact session version the close names is immutable configuration and gives
+    // the name and the calendar; the calendar's clock rule is reference data, read under the endpoint's bound context.
+    private async Task<CloseConvention> Convention(NpgsqlConnection connection,FrameClose close,CancellationToken ct)
+    {
+        var rows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT s.name,v.calendar_code,CASE WHEN r.code IS NOT NULL THEN to_jsonb(r) END clock "+
+            "FROM market_data.close_session_versions v JOIN market_data.close_sessions s USING(catalog_id,code) "+
+            "LEFT JOIN ref_data.calendars c ON(c.catalog_id,c.revision_id,c.code)=(v.reference_catalog_id,v.reference_revision_id,v.calendar_code) "+
+            "LEFT JOIN ref_data.clock_rules r ON(r.catalog_id,r.revision_id,r.code)=(c.catalog_id,c.revision_id,c.clock_code) "+
+            "WHERE(v.catalog_id,v.code,v.version)=($1,$2,$3))t",[database.Manifest.CatalogId,close.Session,close.SessionVersion],ct);
+        if(rows.Length!=1)throw new PreviewDeniedException();
+        var clock=rows[0].GetProperty("clock");
+        return new(close.Session,close.SessionVersion,rows[0].Text("name"),rows[0].Text("calendar_code"),clock.ValueKind==JsonValueKind.Null?null:ReferenceClockJson.Read(clock));
     }
     // An exact amount as the shared amount display reads it; the page asks the backend for its display text.
     private static object Money(ExactMoney m)=>new{amount=m.ToExactString(),currency=m.Currency};

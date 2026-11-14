@@ -7,6 +7,7 @@ if(args is ["--curve-display"]){CurveDisplayChecks.Run();return;}
 if(args is ["--pnl-persistence",var pnlFixture]){await PnlPersistenceChecks.Run(pnlFixture);return;}
 if(args is ["--pnl-artifacts"]){PnlArtifactChecks.Run();return;}
 if(args is ["--pnl-factors"]){PnlFactorSelectionChecks.Run();return;}
+if(args is ["--pnl-time"]){PnlTimeSelectionChecks.Run();return;}
 if(args is ["--risk-bump-price-steps"]){RiskBumpPriceStepChecks.Run();return;}
 if(args is ["--option-policy"]){OptionPolicySelectionChecks.Run();return;}
 if(args is ["--power-close-context",var powerContext]){await PowerCloseContextChecks.Run(powerContext);return;}
@@ -119,6 +120,7 @@ if (args is ["--schedules"])
     RiskValuationAdmissionChecks.Run();
     PnlArtifactChecks.Run();
     PnlFactorSelectionChecks.Run();
+    PnlTimeSelectionChecks.Run();
     RiskBumpPriceStepChecks.Run();
     OptionPolicySelectionChecks.Run();
     ReferencePresentationChecks.Run();

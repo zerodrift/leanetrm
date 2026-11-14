@@ -18,7 +18,9 @@ The initial [valuation context and scenario layers](valuation-context-layers.md)
 are implemented locally: complete time/discount/IV declarations, immutable
 combined children, source-anchored discount and held-IV inputs, shared finite
 differences and dependency-aware unit/Side reuse. The P&L UI offers both time
-modes, initially selecting one-calendar-day model decay, with an explicit calendar.
+modes, initially selecting one-calendar-day model decay. That day is counted on
+the calendar clock of the prior close's convention, or on a clock the person
+names where the prior date is a working snapshot (D398).
 Source admission and hypothetical calculation time remain separate. The bounded
 report passed native run/save/read/restart and both time-mode checks on disposable
 PostgreSQL 18, and the web suite passed. Development deployment remains a separate
