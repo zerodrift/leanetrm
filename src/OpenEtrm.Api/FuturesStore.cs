@@ -285,11 +285,16 @@ public sealed partial class FuturesStore(PreviewDatabase database)
         var resolvedTrades=rows.GroupBy(r=>r.Id("trade_id")).Select(group=>new Trade(group.Key,group.First().Id("book_id"),group.Select(row=>
         {
             var binding=sides[row.Id("side_id")];
-            if(row.Text("settlement_state")!="unprocessed")throw Error("futures_settlement","This holding requires a separately supported settlement model.");
-            return FuturesExecution.Bind(row.Id("binding_id"),binding,row.Number("lots"),new UnitPrice(row.Number("execution_price"),binding.Quote),
-                row.Instant("effective_at"),FuturesSettlementState.Unprocessed,row.Id("instrument_id"));
+            return MaterializeHolding(row,binding);
         }).ToImmutableArray(),TradeParties.Read(manifest.CatalogId,group.First()))).ToImmutableArray();
         return new(rows,sides,resolvedTrades){Sources=sources.ToImmutable()};
+    }
+    internal static TradeInstrument MaterializeHolding(JsonElement row,FuturesMarketBinding binding)
+    {
+        Convention(row.Text("implementation"));
+        if(row.Text("settlement_state")!="unprocessed")throw Error("futures_settlement","This holding requires a separately supported settlement model.");
+        return FuturesExecution.Bind(row.Id("binding_id"),binding,row.Number("lots"),new UnitPrice(row.Number("execution_price"),binding.Quote),
+            row.Instant("effective_at"),FuturesSettlementState.Unprocessed,row.Id("instrument_id"));
     }
     public async Task<JsonElement> Book(NpgsqlConnection connection,PreviewData data,InputFrame frame,FuturesBookRequest body,CancellationToken ct)
     {

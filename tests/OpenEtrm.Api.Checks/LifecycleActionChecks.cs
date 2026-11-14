@@ -54,6 +54,30 @@ internal static class LifecycleActionChecks
         await using var database=new PreviewDatabase(manifest,new NpgsqlConnectionStringBuilder(login.ConnectionString){Username="preview_authenticator"},login);
         var operations=new LifecycleOperations(database,_=>throw new Exception("This option action consumes no host pricing frame."));
         var request=f.GetProperty("request").Deserialize<LifecycleActionRequest>(LifecycleNative.Json)!;
+        if(f.TryGetProperty("historyContext",out var selectedHistory))
+        {
+            var source=selectedHistory.Deserialize<LifecycleReadContext>(LifecycleNative.Json)!;
+            var frame=new InputFrame(Guid.NewGuid(),"Synthetic retained option source",source.AsOf,source.BusinessDate,[],
+                System.Collections.Immutable.ImmutableDictionary<string,System.Collections.Immutable.ImmutableArray<Guid>>.Empty,ContextId:source.ContextId);
+            var history=await database.WithIdentity("trader",null,async(c,t)=>
+            {
+                await using var capture=ScheduleStore.Command(c,"SELECT settlement_data.futures_margin_preview_authority($1)",manifest.CatalogId);
+                var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(t))!);
+                database.RegisterCommitAdmission(c,new LifecycleReadAdmission(manifest.CatalogId,until));
+                var context=(await new KnowledgeStore(manifest.CatalogId).Read(c,source.ContextId,t)).Context;
+                await PinnedContext.BindExact(c,manifest.CatalogId,context,t);
+                await TradingContext.Bind(c,manifest.CatalogId,context,frame.At,t);
+                var positions=await FuturesOptionPositions.Read(c,manifest,[],[],t,trades:System.Collections.Immutable.ImmutableHashSet.Create(request.Target.ScopeId));
+                var position=positions.Single();
+                Require(position.OpenLots==position.BookedLots,"Future-effective accepted events must not close the opening right early.");
+                var data=await database.Read(c,t,observationIds:[],referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins);
+                return await FuturesOptionKnownHistoryStore.Read(c,database,data,frame,context,position,t);
+            },default);
+            Require(history.Events.Length==2&&history.Events.All(e=>e.EffectiveAt>frame.At&&e.Future is not null)&&
+                history.Events.Select(e=>e.Future!.Trade.Id).Distinct().Count()==2,
+                "Knowledge-only option history must retain every future-effective actual event and its independent native future without closing the opening right.");
+            Console.WriteLine("PASS known option source: future-effective accepted events, exact causal futures and margin policy, unchanged opening lots");return;
+        }
         if(f.TryGetProperty("wrappedRead",out var wrapped)&&wrapped.GetBoolean())
         {
             try
@@ -85,6 +109,10 @@ internal static class LifecycleActionChecks
         var review=await database.WithIdentity("trader",null,(c,t)=>operations.Preview(c,request,t),default);
         request=request with{PreviewHash=review.Hash};
         var first=await database.WithIdentity("trader",null,(c,t)=>operations.Execute(c,request,t),default);
+        var status=await database.WithIdentity("trader",null,(c,t)=>new FuturesOptionStore(database).Status(c,request.OperationId,t),default);
+        Require(status.GetProperty("found").GetBoolean()&&status.Id("eventId")==first.Outcome.Id("eventId"),"Owned status must recover the exact actor's accepted option event with final native admission.");
+        var other=await database.WithIdentity("editor",null,(c,t)=>new FuturesOptionStore(database).Status(c,request.OperationId,t),default);
+        Require(!other.GetProperty("found").GetBoolean(),"An authorized reader cannot recover another actor's command receipt.");
         var retry=await database.WithIdentity("trader",null,(c,t)=>operations.Execute(c,request,t),default);
         Require(JsonElement.DeepEquals(first.Outcome,retry.Outcome),"The shared owned adapter must preserve its first native outcome on retry.");
         var same=await database.WithIdentity("trader",null,(c,t)=>operations.Execute(c,request with{OperationId=Guid.NewGuid()},t),default);

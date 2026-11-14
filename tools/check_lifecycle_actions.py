@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import time
+from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 from check_reference_editing import main
 from exchange_fixture import fixture as exchange
@@ -62,7 +64,7 @@ def checks(query,manifest):
     for role,table in [('legalEntity','legal_entities'),('counterparty','counterparties')]:
         row=query(f"SELECT id::text||'|'||revision::text FROM trading.{table} WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1;").split('|')
         parties[role+'Id'],parties[role+'Revision']=row[0],int(row[1])
-    booked=json.loads(call(f"SELECT security.book_futures_option('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','{series}',2,0.1,'2026-10-19','premium_paid_up_front','2026-10-16T16:00:00Z',NULL,'futures_option_premium_v1',NULL,NULL,NULL,{lit(parties)})::text;"))
+    booked=json.loads(call(f"SELECT security.book_futures_option('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','{series}',2,0.1,'2026-10-19','premium_paid_up_front','2026-10-16T14:00:00Z',NULL,'futures_option_premium_v1',NULL,NULL,NULL,{lit(parties)})::text;"))
     margin=dict(id=str(uuid4()),definitionRevisionId=manifest['revisionId'],contractId=future,settlementCurve='nymex_ng',
                 referenceCatalogId=manifest['referenceCatalogId'],referenceRevisionId=manifest['referenceRevisionId'],currency='usd',
                 fromAt='2026-10-01T00:00:00Z',untilAt='2027-01-01T00:00:00Z',opening='include_opening_instant',increment='0.01',tie='to_even',stage='payment_total',
@@ -99,7 +101,16 @@ def checks(query,manifest):
     before=query(f"SELECT count(*) FROM trading.futures_option_events WHERE catalog_id='{catalog}';")
     reject(f"SELECT lifecycle.execute_option_action('{catalog}',{lit({**request,'previewHash':'f'*64})});",'lifecycle_stale_review')
     assert query(f"SELECT count(*) FROM trading.futures_option_events WHERE catalog_id='{catalog}';")==before
-    result=json.loads(call(f"SELECT lifecycle.execute_option_action('{catalog}',{lit(request)})::text;"))
+    with ThreadPoolExecutor(max_workers=1) as pending:
+        recorded=pending.submit(call,f"SET application_name='lifecycle_owned_option_pending';SELECT pg_advisory_xact_lock(730849102);SELECT pg_sleep(2);SELECT lifecycle.execute_option_action('{catalog}',{lit(request)})::text;")
+        limit=time.monotonic()+5
+        while query("SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a USING(pid) WHERE a.application_name='lifecycle_owned_option_pending' AND l.locktype='advisory' AND l.classid=0 AND l.objid=730849102 AND l.granted;")!='1':
+            assert time.monotonic()<limit,'The owned pending event did not take its publication fence.'
+            time.sleep(0.02)
+        status=json.loads(call(f"SELECT security.futures_option_operation_status('{catalog}','{request['operationId']}')::text;"))
+        result=json.loads(recorded.result(timeout=10))
+    assert status['found'] and status['eventId']==result['eventId'] and status['operationId']==request['operationId']
+    assert json.loads(call(f"SELECT security.futures_option_operation_status('{catalog}','{request['operationId']}')::text;",'editor'))==dict(found=False)
     historical=json.loads(call(f"SELECT lifecycle.option_proposal('{catalog}',{lit(request)})::text;"))
     assert historical['hash']==proposal['hash'],'A retained option proposal consumed a later accepted event.'
     assert json.loads(call(f"SELECT lifecycle.execute_option_action('{catalog}',{lit(request)})::text;"))==result
@@ -133,6 +144,12 @@ def checks(query,manifest):
                                '--lifecycle-actions-native',str(path)],cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=90)
         if checked.returncode:raise RuntimeError(checked.stdout+checked.stderr)
         print(checked.stdout.strip(),flush=True)
+    path.write_text(json.dumps(dict(manifest=manifest,host=host,request=managed,marginPolicyId=margin['id'],marginPolicySave=save,
+        historyContext=dict(contextId=capture(),asOf='2026-10-16T15:00:00Z',businessDate='2026-10-16'))))
+    checked=subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks','--',
+                           '--lifecycle-actions-native',str(path)],cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=90)
+    if checked.returncode:raise RuntimeError(checked.stdout+checked.stderr)
+    print(checked.stdout.strip(),flush=True)
     print('PASS explicit lifecycle policies: reviewed scope, native option economics, stable evidence retry and atomic generated-future margin adoption',flush=True)
 
 

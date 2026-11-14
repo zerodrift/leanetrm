@@ -319,10 +319,157 @@ END $explicit_mark$;
 -- private for its qualified native wrapper. No legacy event bypass is admitted.
 REVOKE ALL ON FUNCTION security.record_futures_option_event(uuid,uuid,uuid,text,numeric,timestamptz),
  security.process_futures_option_expiry(uuid,uuid,uuid,uuid,uuid[]) FROM openetrm_runtime;
+CREATE FUNCTION lifecycle.require_option_origin(catalog uuid,trade uuid,revision integer,until_at timestamptz)
+ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE r trading.futures_option_trade_revisions;c market_data.contracts;BEGIN
+ PERFORM lifecycle.require_read(catalog,until_at);
+ SELECT * INTO r FROM trading.futures_option_trade_revisions t WHERE(t.catalog_id,t.trade_id,t.revision)=(catalog,trade,require_option_origin.revision);
+ SELECT * INTO c FROM market_data.contracts t WHERE(t.catalog_id,t.revision_id,t.id)=(catalog,r.definition_revision_id,r.contract_id);
+ IF r.trade_id IS NULL OR c.id IS NULL OR security.reference_access(c.reference_catalog_id,'ReadMarketData') IS NOT TRUE
+ OR security.reference_version_visible(c.reference_catalog_id,c.reference_revision_id) IS NOT TRUE
+ OR security.market_fact_visible(catalog,r.definition_revision_id,NULL) IS NOT TRUE
+ THEN RAISE EXCEPTION 'lifecycle_denied' USING ERRCODE='42501';END IF;
+ PERFORM security.require_trade_parties(catalog,jsonb_build_object('tradeDate',r.trade_date,'legalEntityId',r.legal_entity_id,
+  'legalEntityRevision',r.legal_entity_revision,'counterpartyId',r.counterparty_id,'counterpartyRevision',r.counterparty_revision),r.execution_at);
+ PERFORM lifecycle.require_read(catalog,until_at);
+END$$;
+DO $status_upgrade$DECLARE f pg_proc;BEGIN
+ SELECT * INTO STRICT f FROM pg_proc WHERE oid='security.futures_option_operation_status(uuid,uuid)'::regprocedure;
+ IF md5(f.prosrc)<>'878131d481fe8a9a062b9f58a75a9e9a' OR NOT f.prosecdef OR f.proowner<>'openetrm_security_owner'::regrole
+ OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR has_function_privilege('public',f.oid,'EXECUTE')
+ OR NOT has_function_privilege('openetrm_runtime',f.oid,'EXECUTE') THEN RAISE EXCEPTION 'lifecycle_option_status_upgrade';END IF;
+END$status_upgrade$;
+CREATE OR REPLACE FUNCTION security.futures_option_operation_status(catalog uuid,operation uuid) RETURNS jsonb
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE actor uuid;until_at timestamptz;r trading.futures_option_trade_revisions;e trading.futures_option_events;result jsonb;BEGIN
+ until_at=settlement_data.futures_margin_preview_authority(catalog);
+ IF operation IS NULL OR operation='00000000-0000-0000-0000-000000000000'::uuid THEN RAISE EXCEPTION 'lifecycle_input';END IF;
+ -- Previous producers use this fence. A negative status cannot race an already
+ -- executing native event and cause a retained request to be dismissed early.
+ PERFORM pg_advisory_xact_lock(730849102);PERFORM lifecycle.require_read(catalog,until_at);
+ SELECT actor_id INTO STRICT actor FROM security.request_contexts q WHERE q.backend_pid=pg_backend_pid()
+  AND q.transaction_id=pg_current_xact_id_if_assigned() AND q.runtime_login=session_user;
+ SELECT * INTO r FROM trading.futures_option_trade_revisions t WHERE(t.catalog_id,t.operation_id,t.actor_id)=(catalog,operation,actor);
+ IF r.trade_id IS NOT NULL THEN
+  PERFORM lifecycle.require_option_origin(catalog,r.trade_id,r.revision,until_at);
+  result=jsonb_build_object('found',true,'operationId',operation,'tradeId',r.trade_id,'revision',r.revision,
+   'optionInstrumentId',r.option_instrument_id,'premiumInstrumentId',r.premium_instrument_id);
+ ELSE
+  SELECT * INTO e FROM trading.futures_option_events t WHERE(t.catalog_id,t.request_id,t.actor_id)=(catalog,operation,actor);
+  IF e.id IS NULL THEN result=jsonb_build_object('found',false);
+  ELSE
+   PERFORM lifecycle.require_option_origin(catalog,e.trade_id,e.trade_revision,until_at);
+   IF e.rule_code IS NOT NULL AND(security.reference_access(e.rule_catalog_id,'ReadMarketData') IS NOT TRUE
+    OR security.reference_version_visible(e.rule_catalog_id,e.rule_revision_id) IS NOT TRUE)
+    OR e.settlement_observation_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM market_data.observations o
+     WHERE(o.catalog_id,o.id)=(catalog,e.settlement_observation_id) AND security.market_fact_visible(catalog,o.definition_revision_id,o.id))
+   THEN RAISE EXCEPTION 'lifecycle_denied' USING ERRCODE='42501';END IF;
+   result=security.futures_option_event_outcome(e)||jsonb_build_object('found',true,'revision',e.trade_revision);
+  END IF;
+ END IF;
+ PERFORM lifecycle.require_read(catalog,until_at);RETURN result;
+END$$;
+-- Economic projection needs every accepted event known at the source cutoff,
+-- including events that have not reached their business time at opening.
+CREATE FUNCTION lifecycle.read_option_known_history(catalog uuid,trade uuid,binding uuid,revision integer,context uuid,as_of timestamptz,business_date date)
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE until_at timestamptz;source_until timestamptz;prefix integer;market_prefix integer;cut timestamptz;
+ r trading.futures_option_trade_revisions;c market_data.contracts;s ref_data.futures_option_series;underlying market_data.contracts;
+ e record;source record;fr trading.trade_revisions;fm trading.futures_revision_markets;a settlement_data.futures_margin_adoptions;
+ p settlement_data.futures_margin_policies;profile lifecycle.option_profiles;party record;known_at timestamptz;
+ events jsonb='[]';linked jsonb;observation jsonb;terms jsonb;occurrences jsonb;items jsonb;
+ remaining numeric;previous_at timestamptz;result jsonb;BEGIN
+ until_at=settlement_data.futures_margin_preview_authority(catalog);
+ SELECT q.business_source_until INTO source_until FROM security.request_contexts q WHERE q.backend_pid=pg_backend_pid()
+ AND q.transaction_id=pg_current_xact_id_if_assigned() AND q.runtime_login=session_user
+ AND(q.business_source_catalog_id,q.business_source_context_id,q.business_source_as_of,q.business_source_on)=(catalog,context,as_of,business_date);
+ IF source_until IS NULL THEN RAISE EXCEPTION 'trading_source_denied' USING ERRCODE='42501';END IF;
+ PERFORM security.require_admitted_business_source(catalog,context,as_of,business_date,source_until);
+ SELECT x.known_through,m.known_through,t.known_at INTO prefix,market_prefix,cut FROM market_data.temporal_contexts t
+ JOIN trading.contexts x ON(x.catalog_id,x.context_id)=(t.catalog_id,t.id)
+ JOIN market_data.market_contexts m ON(m.catalog_id,m.context_id)=(t.catalog_id,t.id)
+ WHERE(t.catalog_id,t.id,t.effective_on)=(catalog,context,business_date);
+ SELECT h.* INTO r FROM trading.futures_option_trade_revisions h JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(h.catalog_id,h.publication_order)
+ WHERE(h.catalog_id,h.trade_id,h.option_instrument_id,h.revision)=(catalog,trade,binding,read_option_known_history.revision)
+ AND h.publication_order<=prefix AND k.known_from<=cut AND h.effective_at<=as_of;
+ IF r.trade_id IS NULL THEN RAISE EXCEPTION 'lifecycle_option_source';END IF;
+ PERFORM lifecycle.require_option_origin(catalog,trade,r.revision,until_at);
+ SELECT * INTO STRICT c FROM market_data.contracts t WHERE(t.catalog_id,t.revision_id,t.id)=(catalog,r.definition_revision_id,r.contract_id);
+ SELECT * INTO STRICT s FROM ref_data.futures_option_series t WHERE(t.catalog_id,t.revision_id,t.code)=(c.reference_catalog_id,c.reference_revision_id,c.futures_option_series_code);
+ SELECT * INTO STRICT underlying FROM market_data.contracts t WHERE(t.catalog_id,t.revision_id,t.kind,t.futures_series_code)=(catalog,r.definition_revision_id,'future',s.underlying_series_code);
+ IF NOT EXISTS(SELECT 1 FROM market_data.knowledge_events me JOIN market_data.market_knowledge_receipts mk
+ ON(mk.catalog_id,mk.event_order,mk.publication_xid)=(me.catalog_id,me.event_order,me.publication_xid)
+ JOIN market_data.revision_periods v ON(v.catalog_id,v.revision_id)=(me.catalog_id,me.revision_id)
+ WHERE(me.catalog_id,me.revision_id)=(catalog,r.definition_revision_id) AND me.observation_id IS NULL
+ AND me.event_order<=market_prefix AND mk.known_from<=cut AND v.effective_from<=business_date AND business_date<v.effective_to)
+ THEN RAISE EXCEPTION 'lifecycle_option_source';END IF;
+ remaining=abs(r.lots);previous_at=r.execution_at;
+ FOR e IN SELECT t.*,k.known_from known_at FROM trading.futures_option_events t
+ LEFT JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(t.catalog_id,t.publication_order)
+ WHERE(t.catalog_id,t.trade_id)=(catalog,trade) AND t.publication_order<=prefix ORDER BY t.publication_order,t.id LOOP
+  IF e.known_at IS NULL OR e.known_at>cut OR e.trade_revision<>r.revision OR e.business_at<previous_at OR e.effective_at<>e.business_at
+  THEN RAISE EXCEPTION 'lifecycle_option_source';END IF;
+  IF e.kind IN('exercise','assignment','expiry') THEN remaining=remaining-e.lots;END IF;
+  IF remaining<0 OR e.remaining_lots<>remaining OR e.kind='expiry' AND remaining<>0 THEN RAISE EXCEPTION 'lifecycle_option_source';END IF;
+  previous_at=e.business_at;observation=NULL;linked=NULL;
+  IF e.instruction_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM trading.futures_option_events i JOIN trading.knowledge_receipts k
+   ON(k.catalog_id,k.publication_order)=(i.catalog_id,i.publication_order) WHERE(i.catalog_id,i.trade_id,i.id)=(catalog,trade,e.instruction_id)
+   AND i.kind IN('exercise_instruction','abandon_instruction') AND i.publication_order<e.publication_order AND k.known_from<=e.known_at)
+  THEN RAISE EXCEPTION 'lifecycle_option_source';END IF;
+  IF e.rule_code IS NOT NULL AND(security.reference_access(e.rule_catalog_id,'ReadMarketData') IS NOT TRUE
+   OR security.reference_version_visible(e.rule_catalog_id,e.rule_revision_id) IS NOT TRUE) THEN RAISE EXCEPTION 'lifecycle_denied' USING ERRCODE='42501';END IF;
+  IF e.settlement_observation_id IS NOT NULL THEN
+   SELECT o.*,ss.quote_code,ss.contract_id source_contract,mk.known_from source_known,me.event_order INTO source
+   FROM market_data.observations o JOIN market_data.series ss ON(ss.catalog_id,ss.revision_id,ss.id)=(o.catalog_id,o.definition_revision_id,o.series_id)
+   JOIN market_data.knowledge_events me ON(me.catalog_id,me.observation_id)=(o.catalog_id,o.id)
+   JOIN market_data.market_knowledge_receipts mk ON(mk.catalog_id,mk.event_order,mk.publication_xid)=(me.catalog_id,me.event_order,me.publication_xid)
+   WHERE(o.catalog_id,o.id)=(catalog,e.settlement_observation_id);
+   IF source.id IS NULL OR(source.definition_revision_id,source.source_contract,source.role,source.publication_state,source.value) IS DISTINCT FROM
+    (r.definition_revision_id,underlying.id,'daily_settlement','final',e.settlement_price) OR source.event_order>market_prefix OR source.source_known>least(cut,e.known_at)
+   THEN RAISE EXCEPTION 'lifecycle_option_source';END IF;
+   observation=to_jsonb(source);
+  END IF;
+  IF e.futures_trade_id IS NOT NULL THEN
+   SELECT h.* INTO fr FROM trading.trade_revisions h JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(h.catalog_id,h.publication_order)
+   WHERE(h.catalog_id,h.trade_id,h.revision,h.publication_order)=(catalog,e.futures_trade_id,1,e.publication_order) AND k.known_from=e.known_at;
+   SELECT * INTO fm FROM trading.futures_revision_markets h WHERE(h.catalog_id,h.trade_id,h.revision,h.instrument_id)=(catalog,fr.trade_id,fr.revision,fr.instrument_id);
+   SELECT * INTO a FROM settlement_data.futures_margin_adoptions d WHERE(d.catalog_id,d.trade_id,d.binding_id)=(catalog,fr.trade_id,fr.binding_id);
+   SELECT k.known_from INTO known_at FROM trading.knowledge_receipts k WHERE(k.catalog_id,k.publication_order)=(catalog,a.publication_order);
+   SELECT * INTO p FROM settlement_data.futures_margin_policies h WHERE(h.catalog_id,h.id,h.revision)=(catalog,a.policy_id,a.policy_revision);
+   SELECT * INTO profile FROM lifecycle.option_profiles h WHERE(h.catalog_id,h.trade_id,h.action,h.revision)=
+    (catalog,trade,e.request->>'action',(e.request#>>'{selection,profileRevision}')::integer);
+   IF fr.trade_id IS NULL OR fm.contract_id IS NULL OR a.trade_id IS NULL OR p.id IS NULL OR profile.trade_id IS NULL
+   OR(fr.book_id,fr.legal_entity_id,fr.legal_entity_revision,fr.counterparty_id,fr.counterparty_revision,fr.execution_at,fr.effective_at,fr.execution_price,fr.lots) IS DISTINCT FROM
+    (r.book_id,r.legal_entity_id,r.legal_entity_revision,r.counterparty_id,r.counterparty_revision,e.business_at,e.effective_at,s.strike,e.lots*sign(r.lots)*CASE s.option_right WHEN 'call' THEN 1 ELSE -1 END)
+   OR(fm.definition_revision_id,fm.contract_id,fm.curve_code,a.origin_revision,a.origin_publication,a.publication_order,a.effective_at,a.policy_id,a.policy_revision,a.source_context_id) IS DISTINCT FROM
+    (r.definition_revision_id,underlying.id,profile.future_mark_curve,1,e.publication_order,e.publication_order,e.effective_at,profile.margin_policy_id,profile.margin_policy_revision,(e.request#>>'{context,contextId}')::uuid)
+   OR known_at IS DISTINCT FROM e.known_at OR p.publication_order>e.publication_order
+   OR NOT EXISTS(SELECT 1 FROM trading.knowledge_receipts k WHERE(k.catalog_id,k.publication_order)=(catalog,p.publication_order) AND k.known_from<=e.known_at)
+   THEN RAISE EXCEPTION 'lifecycle_option_source';END IF;
+   PERFORM lifecycle.require_option_reference(catalog,trade,profile.action,profile.revision);
+   SELECT jsonb_agg(to_jsonb(o) ORDER BY o.at,o.phase,o.id),jsonb_agg(jsonb_build_object('id',o.id,'at',o.at,'dueAt',o.due_at,'phase',o.phase))
+    INTO occurrences,items FROM settlement_data.futures_margin_policy_occurrences o WHERE(o.catalog_id,o.policy_id,o.policy_revision)=(catalog,p.id,p.revision);
+   IF coalesce(jsonb_array_length(occurrences),0)<>p.occurrence_count
+    OR encode(sha256(convert_to(settlement_data.futures_margin_policy_value(p,items)::text,'UTF8')),'hex')<>p.terms_hash THEN RAISE EXCEPTION 'lifecycle_option_source';END IF;
+   SELECT le.code legal_entity_code,le.name legal_entity_name,cp.code counterparty_code,cp.name counterparty_name INTO STRICT party
+    FROM trading.legal_entities le CROSS JOIN trading.counterparties cp WHERE(le.catalog_id,le.id,le.revision,cp.catalog_id,cp.id,cp.revision)=
+     (catalog,fr.legal_entity_id,fr.legal_entity_revision,catalog,fr.counterparty_id,fr.counterparty_revision);
+   terms=to_jsonb(fr)||to_jsonb(fm)||to_jsonb(party)||jsonb_build_object('side_id',fm.market_binding_id,'effective_at',fr.execution_at);
+   linked=jsonb_build_object('revision',terms,'adoption',to_jsonb(a),'known_at',known_at,'policy',to_jsonb(p),'occurrences',occurrences);
+  END IF;
+  events=events||jsonb_build_array(to_jsonb(e)||jsonb_build_object('settlement_source',observation,'settlement_known_at',observation->'source_known',
+   'settlement_quote_code',observation->'quote_code','future',linked));
+ END LOOP;
+ result=jsonb_build_object('stateProfile','known_futures_option_events_v1','contextId',context,'knownAt',cut,'asOf',as_of,'businessDate',business_date,
+  'origin',to_jsonb(r),'referenceCatalogId',c.reference_catalog_id,'referenceRevisionId',c.reference_revision_id,'seriesCode',s.code,'events',events);
+ PERFORM lifecycle.require_option_origin(catalog,trade,r.revision,until_at);RETURN result;
+END$$;
 DO $functions$DECLARE f regprocedure;BEGIN
  FOR f IN SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='lifecycle' LOOP
   EXECUTE format('ALTER FUNCTION %s OWNER TO openetrm_security_owner',f);EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',f);
  END LOOP;
 END$functions$;
-GRANT EXECUTE ON FUNCTION lifecycle.save_option_profile(uuid,jsonb),lifecycle.option_proposal(uuid,jsonb),lifecycle.execute_option_action(uuid,jsonb) TO openetrm_runtime;
+GRANT EXECUTE ON FUNCTION lifecycle.save_option_profile(uuid,jsonb),lifecycle.option_proposal(uuid,jsonb),lifecycle.execute_option_action(uuid,jsonb),
+ lifecycle.require_option_origin(uuid,uuid,integer,timestamptz) TO openetrm_runtime;
+GRANT EXECUTE ON FUNCTION lifecycle.read_option_known_history(uuid,uuid,uuid,integer,uuid,timestamptz,date) TO openetrm_runtime;
 COMMIT;

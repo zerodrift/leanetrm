@@ -80,6 +80,19 @@ Paid-cash allocations require an existing obligation; payment before its due
 time is supported, while an advance before ownership requires a separate asset
 contract.
 
+The option history reader retains every source-known accepted event, including
+later effective exercise or assignment. Each linked future retains its actual
+execution terms and the exact policy adopted in the same causal publication.
+Opening option lots remain unchanged until the event's effective instant. The
+source read registers its original deadline and exact origin reference guard
+before source admission; hypothetical futures margin is a separate projection
+state.
+
+Option operation status can recover an actor's previously accepted booking or
+event. It takes the native publication fence before reporting an absent outcome,
+then rechecks current authority and the exact retained references. It dispatches
+no financial action and discloses no other actor's command receipt.
+
 ## Qualification
 
 The disposable PostgreSQL checks exercise actual managed booking and source

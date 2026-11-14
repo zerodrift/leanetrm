@@ -143,8 +143,14 @@ public sealed partial class FuturesOptionStore(PreviewDatabase database)
     public async Task<JsonElement> Status(NpgsqlConnection connection,Guid operation,CancellationToken ct)
     {
         if(operation==Guid.Empty)throw Input("Supply an exact operation identity.");
+        await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_preview_authority($1)",manifest.CatalogId);
+        var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
+        database.RegisterCommitAdmission(connection,new LifecycleReadAdmission(manifest.CatalogId,until));
         await using var command=ScheduleStore.Command(connection,"SELECT security.futures_option_operation_status($1,$2)::text",manifest.CatalogId,operation);
-        return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
+        var result=JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
+        if(result.GetProperty("found").GetBoolean())
+            database.RegisterCommitAdmission(connection,new FuturesOptionOriginAdmission(manifest.CatalogId,result.Id("tradeId"),result.GetProperty("revision").GetInt32(),until));
+        return result;
     }
 
     // Event writes require the explicit saved lifecycle policy, source and
