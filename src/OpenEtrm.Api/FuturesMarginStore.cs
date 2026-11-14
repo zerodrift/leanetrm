@@ -44,31 +44,8 @@ internal static class FuturesMarginStore
         }
         if(result.Text("stateProfile")!=(inceptionOnly?"native_execution_inception_v1":FuturesMarginCoordinator.Version))
             throw Invalid("Select the supported actual margin-state producer; inception cannot substitute for accepted settlement history.");
-        var origin=result.GetProperty("origin");var head=result.GetProperty("head");var nativeMarket=result.GetProperty("market");
-        var adoption=result.GetProperty("adoption");
-        var booking=trade.Booking??throw Invalid("Retain the native booking date and exact legal-entity and counterparty versions.");
-        if(booking.TradeDate!=DateWorkspace.Date(origin.Text("trade_date"))||
-            booking.LegalEntity.Key!=new PartyKey(catalog,origin.Id("legal_entity_id"),Integer(origin,"legal_entity_revision"))||
-            booking.Counterparty.Key!=new PartyKey(catalog,origin.Id("counterparty_id"),Integer(origin,"counterparty_revision")))
-            throw Invalid("The native inception must retain this exact booking date and party identities.");
-        if(origin.Id("trade_id")!=trade.Id||origin.Id("binding_id")!=bindingId||origin.Id("book_id")!=trade.BookId||
-            origin.Id("instrument_id")!=binding.RetainedInstrumentId||origin.Number("lots")!=execution.Lots(binding.Quantity)||
-            origin.Number("execution_price")!=execution.ExecutionPrice.Value||origin.Instant("execution_at")!=execution.ExecutedAt||
-            head.Id("trade_id")!=trade.Id||head.Id("binding_id")!=bindingId||head.Id("book_id")!=trade.BookId||
-            head.Id("instrument_id")!=binding.RetainedInstrumentId||head.Number("lots")!=origin.Number("lots")||
-            head.Number("execution_price")!=origin.Number("execution_price")||head.Instant("execution_at")!=origin.Instant("execution_at")||
-            nativeMarket.Id("definition_revision_id")!=market.Contract.Key.Revision.RevisionId||nativeMarket.Id("contract_id")!=market.Contract.Key.Id||
-            nativeMarket.Text("curve_code")!=market.Market.Curve.Code||nativeMarket.Text("implementation")!=market.Convention||
-            new ReferenceKey(new(nativeMarket.Id("reference_catalog_id"),nativeMarket.Id("reference_revision_id")),nativeMarket.Text("series_code"))!=market.Series.Key||
-            adoption.Id("trade_id")!=trade.Id||adoption.Id("binding_id")!=bindingId||adoption.Id("book_id")!=trade.BookId||
-            adoption.Instant("effective_at")!=origin.Instant("effective_at")||origin.Instant("effective_at")>frame.At)
-            throw Invalid("The native adoption must retain this exact visible owner, execution, quantity and pricing reference.");
-        var policyHeader=result.GetProperty("policy");
-        if(policyHeader.Text("quote_code")!=market.Quote.Key.Code)
-            throw Invalid("The adopted policy must retain the held contract's exact native quotation.");
-        var policy=ReadPolicy(policyHeader,result.GetProperty("occurrences"));
-        if(policy.Id!=adoption.Id("policy_id")||policy.Revision!=Integer(adoption,"policy_revision"))
-            throw Invalid("The adopted policy must equal the exact native version read at this cutoff.");
+        var policy=RequireHeldOrigin(catalog,trade,binding,frame,market,result);
+        var origin=result.GetProperty("origin");var head=result.GetProperty("head");var adoption=result.GetProperty("adoption");
         var terms=market.Instrument.ProposeMarginTerms(trade,bindingId,policy,data.Model,snapshot);
         var state=new FuturesMarginState(trade.Id,bindingId,trade.BookId,binding.Quantity,market.Series.Key,
             ExactUnitPrice.FromPrice(new(origin.Number("execution_price"),market.Quote)),origin.Instant("execution_at"),result.Instant("knownFrom"),
@@ -108,6 +85,38 @@ internal static class FuturesMarginStore
         return new(state,history,Integer(head,"revision"),until){MarginRevision=result.TryGetProperty("version",out _)?Integer(result,"version"):1,CashBindings=cash,
             CashOrigins=result.TryGetProperty("obligations",out var origins)?[..origins.EnumerateArray().Select(row=>
                 new FuturesMarginCashOrigin(row.Id("cash_binding_id"),row.Id("id"),Integer(row,"publication_order"),row.Instant("at")))]:[]};
+    }
+
+    internal static FuturesMarginPolicy RequireHeldOrigin(Guid catalog,Trade trade,TradeInstrument binding,InputFrame frame,
+        FuturesMarketBinding market,JsonElement result)
+    {
+        var bindingId=binding.Id;var execution=FuturesExecution.Require(binding);
+        var origin=result.GetProperty("origin");var head=result.GetProperty("head");var nativeMarket=result.GetProperty("market");
+        var adoption=result.GetProperty("adoption");
+        var booking=trade.Booking??throw Invalid("Retain the native booking date and exact legal-entity and counterparty versions.");
+        if(booking.TradeDate!=DateWorkspace.Date(origin.Text("trade_date"))||
+            booking.LegalEntity.Key!=new PartyKey(catalog,origin.Id("legal_entity_id"),Integer(origin,"legal_entity_revision"))||
+            booking.Counterparty.Key!=new PartyKey(catalog,origin.Id("counterparty_id"),Integer(origin,"counterparty_revision")))
+            throw Invalid("The native inception must retain this exact booking date and party identities.");
+        if(origin.Id("trade_id")!=trade.Id||origin.Id("binding_id")!=bindingId||origin.Id("book_id")!=trade.BookId||
+            origin.Id("instrument_id")!=binding.RetainedInstrumentId||origin.Number("lots")!=execution.Lots(binding.Quantity)||
+            origin.Number("execution_price")!=execution.ExecutionPrice.Value||origin.Instant("execution_at")!=execution.ExecutedAt||
+            head.Id("trade_id")!=trade.Id||head.Id("binding_id")!=bindingId||head.Id("book_id")!=trade.BookId||
+            head.Id("instrument_id")!=binding.RetainedInstrumentId||head.Number("lots")!=origin.Number("lots")||
+            head.Number("execution_price")!=origin.Number("execution_price")||head.Instant("execution_at")!=origin.Instant("execution_at")||
+            nativeMarket.Id("definition_revision_id")!=market.Contract.Key.Revision.RevisionId||nativeMarket.Id("contract_id")!=market.Contract.Key.Id||
+            nativeMarket.Text("curve_code")!=market.Market.Curve.Code||nativeMarket.Text("implementation")!=market.Convention||
+            new ReferenceKey(new(nativeMarket.Id("reference_catalog_id"),nativeMarket.Id("reference_revision_id")),nativeMarket.Text("series_code"))!=market.Series.Key||
+            adoption.Id("trade_id")!=trade.Id||adoption.Id("binding_id")!=bindingId||adoption.Id("book_id")!=trade.BookId||
+            adoption.Instant("effective_at")!=origin.Instant("effective_at")||origin.Instant("effective_at")>frame.At)
+            throw Invalid("The native adoption must retain this exact visible owner, execution, quantity and pricing reference.");
+        var policyHeader=result.GetProperty("policy");
+        if(policyHeader.Text("quote_code")!=market.Quote.Key.Code)
+            throw Invalid("The adopted policy must retain the held contract's exact native quotation.");
+        var policy=ReadPolicy(policyHeader,result.GetProperty("occurrences"));
+        if(policy.Id!=adoption.Id("policy_id")||policy.Revision!=Integer(adoption,"policy_revision"))
+            throw Invalid("The adopted policy must equal the exact native version read at this cutoff.");
+        return policy;
     }
 
     internal static FuturesMarginPolicy ReadPolicy(JsonElement header,JsonElement occurrences)

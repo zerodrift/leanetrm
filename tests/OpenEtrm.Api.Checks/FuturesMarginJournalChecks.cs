@@ -108,7 +108,65 @@ internal static class FuturesMarginJournalChecks
                     throw new Exception("The scoped portfolio lost native margin basis, surviving cash, exact provenance or ordinary holding detail.");
             }
         }
+        await using(var connection=await runtime.OpenConnectionAsync())
+        await using(var transaction=await connection.BeginTransactionAsync())
+        {
+            using var admissions=database.OwnReadTransaction(connection,transaction);
+            var cancelled=new CancelledRead();
+            try{await admissions.Commit(new CancellationToken(true),cancelled,commitUncancelled:true);throw new Exception("A cancelled source check reached commit.");}
+            catch(OperationCanceledException){}
+            if(!cancelled.SawCancellation)throw new Exception("An uncancelled commit swallowed the original source-read cancellation token.");
+            await transaction.RollbackAsync();
+        }
+        if(fixture.TryGetProperty("knownSamples",out var knownSamples))foreach(var sample in knownSamples.EnumerateArray())
+        {
+            await using var connection=await runtime.OpenConnectionAsync();
+            await using var transaction=await connection.BeginTransactionAsync();
+            using var admissions=database.OwnReadTransaction(connection,transaction);
+            await using(var identity=ScheduleStore.Command(connection,"SELECT security.use_context($1)",sample.Id("token")))await identity.ExecuteNonQueryAsync();
+            var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,sample.Id("contextId"),default)).Context;
+            await PinnedContext.BindExact(connection,manifest.CatalogId,context,default);
+            var at=sample.Instant("at");await TradingContext.Bind(connection,manifest.CatalogId,context,at,default);
+            var data=await database.Read(connection,default,selectedRevision:manifest.RevisionId,observationIds:[],includeCalendarDays:false,observationScope:ObservationReadScope.ExactPins);
+            var frame=new InputFrame(Guid.NewGuid(),"Synthetic known margin history",at,PublishedSchedules.ContextDate(context),[],
+                ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("future",[fixture.Id("contract")]),context.ContextId);
+            var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),context.ContextId!.Value,SchedulePreview.ParseAt(context.KnownAt));
+            var store=new FuturesStore(database);var books=await store.Books(connection,default);
+            var trades=await store.ReadTrades(connection,data,books,[],[],default,trades:ImmutableHashSet.Create(fixture.Id("tradeId")));
+            var trade=trades.Trades.Single();var binding=trade.Instruments.Single();
+            var opening=await FuturesMarginStore.Read(connection,manifest.CatalogId,data,frame,snapshot,trade,binding.Id,default);
+            var history=await FuturesKnownHistoryStore.Read(connection,database,data,frame,snapshot,trade,binding.Id,opening,default);
+            var changed=new TradeInstrument(binding.Id,binding.Instrument,new(binding.Quantity.Amount+FuturesExecution.Require(binding).MarketBinding.Instrument.LotSize.Amount,
+                binding.Quantity.Specification),binding.Execution,binding.RetainedInstrumentId,binding.Coverage);
+            try
+            {
+                await FuturesKnownHistoryStore.Read(connection,database,data,frame,snapshot,new(trade.Id,trade.BookId,[changed],trade.Booking),binding.Id,opening,default);
+                throw new Exception("Knowledge-only native history accepted a changed held quantity.");
+            }
+            catch(MarketDataException error)when(error.Code=="futures_known_history_context"){}
+            var changedInputsRefused=false;
+            try{await FuturesKnownHistoryStore.Read(connection,database,data,frame,snapshot with{Id=Guid.NewGuid()},trade,binding.Id,opening,default);}
+            catch(MarketDataException error)when(error.Code=="futures_known_history_context"){changedInputsRefused=true;}
+            var currency=binding.Instrument.Currency;
+            var cash=history.Cash.Select(c=>ExactMoney.FromMoney(new(c.Holding.Quantity.Amount,currency))).Aggregate(ExactMoney.Parse("0",currency),(a,b)=>a.Add(b));
+            var paid=history.Cash.SelectMany(c=>c.State.KnownFlows(snapshot)).Select(f=>f.Amount).Aggregate(ExactMoney.Parse("0",currency),(a,b)=>a.Add(b));
+            if(history.Determinations.Length!=sample.GetProperty("heads").GetInt32()||history.Cash.Length!=sample.GetProperty("cashCount").GetInt32()||
+                cash!=ExactMoney.Parse(sample.Text("cashTotal"),currency)||paid!=ExactMoney.Parse(sample.Text("paidTotal"),currency)||
+                !opening.History.Determinations.IsEmpty||opening.State.SettledBasis.ToExactString()!="3"||!snapshot.Selections.IsEmpty)
+                throw new Exception("Knowledge-only history lost accepted future margin/cash or changed opening effective state/source inputs.");
+            await using(var save=ScheduleStore.Command(connection,"SAVEPOINT expired_known_opening"))await save.ExecuteNonQueryAsync();
+            var expiredOpeningRefused=false;
+            try{await FuturesKnownHistoryStore.Read(connection,database,data,frame,snapshot,trade,binding.Id,opening with{AuthorityUntil=DateTimeOffset.UtcNow.AddSeconds(-1)},default);}
+            catch(PostgresException error)when(error.SqlState=="42501"&&error.MessageText=="futures_margin_denied"){expiredOpeningRefused=true;}
+            finally{await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT expired_known_opening;RELEASE SAVEPOINT expired_known_opening");await restore.ExecuteNonQueryAsync();}
+            if(!changedInputsRefused||!expiredOpeningRefused)
+                throw new Exception($"Known history admitted changed source inputs: {!changedInputsRefused}; extended expired original opening authority: {!expiredOpeningRefused}.");
+            try{await admissions.Commit(default);throw new Exception("Restoring a savepoint discarded the expired original known-history admission.");}
+            catch(PostgresException error)when(error.SqlState=="42501"&&error.MessageText=="futures_margin_denied"){}
+            await transaction.RollbackAsync();
+        }
         Console.WriteLine("PASS native margin through ordinary PV: exact history, surviving cash, actual partial payment and historical replay; inception fallback refuses");
+        Console.WriteLine("PASS knowledge-only accepted futures source: complete future heads, independent original/adjustment cash and exact actual-payment evidence without opening PV");
     }
 
     private static async Task CheckCommand(PreviewManifest manifest,string host,JsonElement check)
@@ -209,6 +267,14 @@ internal static class FuturesMarginJournalChecks
             await using var command=ScheduleStore.Command(connection,"SELECT 1");
             if(!Equals(await command.ExecuteScalarAsync(ct),1))throw new Exception("The read transaction ended before its final admission.");
             Calls++;
+        }
+    }
+    private sealed class CancelledRead:ICommitAdmission
+    {
+        internal bool SawCancellation;
+        public Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
+        {
+            SawCancellation=ct.IsCancellationRequested;ct.ThrowIfCancellationRequested();return Task.CompletedTask;
         }
     }
 }

@@ -135,6 +135,8 @@ def checks(query, manifest):
     payment = dict(operationId=str(uuid4()), allocationId=str(uuid4()), tradeId=booked['tradeId'],
                    bindingId=state['obligations'][0]['cash_binding_id'], expectedRevision=0, paidAt='2020-12-20T15:30:00Z',
                    amount=str(size*Decimal('.15')),policy='explicit_paid_cash_nominal_due_v1')
+    premature = {**payment,'operationId':str(uuid4()),'allocationId':str(uuid4()),'paidAt':'2020-12-18T16:00:00Z','amount':'1'}
+    rejected(f"SELECT security.record_cash_payment('{catalog}',{literal(premature)},'2020-12-20T16:00:00Z');",'cash_payment_membership_time')
     call(f"SELECT security.record_cash_payment('{catalog}',{literal(payment)},'2020-12-20T16:00:00Z');")
     paid_context = capture()
     samples.append(dict(contextId=paid_context,basis='3.3',cashCount=2,expectedPv=str(size*Decimal('.35'))))
@@ -205,6 +207,21 @@ def checks(query, manifest):
                      'expectedMarginRevision':4,'throughOccurrence':occurrences[2]['id']}
     final = json.loads(call(f"SELECT settlement_data.determine_futures_margin('{catalog}',{literal(final_request)},{literal(final_steps)})::text;"))
     assert final['version'] == 5 and final['changed'] == 1
+    # A retrospective source knows committed future events without presenting
+    # their cash or settlement basis as already effective at its opening.
+    early_known = capture('2020-12-18')
+    def known_history(context, at):
+        return json.loads(call(f"SELECT security.use_market_context('{catalog}','{context}');"
+                               f"SELECT security.use_trading_context('{catalog}','{at}');"
+                               f"SELECT settlement_data.read_futures_known_history('{catalog}','{booked['tradeId']}',"
+                               f"'{booked['bindingId']}','{context}','{at}')::text;"), parse_float=Decimal)
+    known = known_history(early_known, '2020-12-18T16:00:00Z')
+    assert len(known['heads']) == 3 and len(known['cash']) == 5
+    assert [Decimal(h['source']['value']) for h in known['heads']] == [Decimal('3.6'), Decimal('3.3'), Decimal('3.7')]
+    assert sum(Decimal(c['adjustment']) for c in known['cash']) == size*Decimal('.7')
+    assert sum(Decimal(p['amount']) for c in known['cash'] for p in c['payments']) == size*Decimal('.15')
+    assert known_history(request['contextId'], '2020-12-20T16:00:00Z')['heads'] == []
+    print('PASS knowledge-only futures history freezes later known corrections and payment facts without advancing opening effectiveness', flush=True)
     samples.append(dict(contextId=capture('2020-12-28'),basis='3.7',cashCount=5,noOpenMark=True,discount='0.95',
                         at='2020-12-28T16:00:00Z',expectedPv=str(size*(Decimal('.15')+Decimal('.4')*Decimal('.95')))))
     for sample in samples:
@@ -212,7 +229,11 @@ def checks(query, manifest):
         sample.setdefault('at','2020-12-20T16:00:00Z')
     host = query('SHOW unix_socket_directories;')
     path = Path(host)/'margin-journal-check.json'
-    path.write_text(json.dumps(dict(manifest=manifest,host=host,samples=samples,tradeId=booked['tradeId'],mark=observations[2],contract=contract)))
+    known_samples = [dict(contextId=early_known,token=issue('risk'),at='2020-12-18T16:00:00Z',heads=3,cashCount=5,
+                          cashTotal=str(size*Decimal('.7')),paidTotal=str(size*Decimal('.15'))),
+                     dict(contextId=request['contextId'],token=issue('risk'),at='2020-12-20T16:00:00Z',heads=0,cashCount=0,cashTotal='0',paidTotal='0')]
+    path.write_text(json.dumps(dict(manifest=manifest,host=host,samples=samples,knownSamples=known_samples,
+                                   tradeId=booked['tradeId'],bindingId=booked['bindingId'],mark=observations[2],contract=contract)))
     path.chmod(0o600)
     result = subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks',
                              '--','--futures-margin-journal',str(path)],cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=60)

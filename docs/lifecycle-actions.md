@@ -71,6 +71,15 @@ receipts. Ordinary opening state continues to recognize facts only when their
 effective time is reached. Hypothetical projection consumes the separate typed
 history; it does not manufacture native accepted facts.
 
+The knowledge-only futures reader separately retains the complete accepted
+margin heads, every original and correction cash membership, and native payment
+revision history. Future effective facts remain inactive at the opening. The
+read verifies the held execution and exact source inputs, and preserves the
+earlier opening-read deadline through source lookup and final commit admission.
+Paid-cash allocations require an existing obligation; payment before its due
+time is supported, while an advance before ownership requires a separate asset
+contract.
+
 ## Qualification
 
 The disposable PostgreSQL checks exercise actual managed booking and source

@@ -252,6 +252,10 @@ def main(checks=run_checks, before_migration=None, fixture_factory=None):
                         'settlement_data.require_futures_margin_source(uuid,uuid,timestamptz,uuid)',
                         'settlement_data.determine_swap(uuid,uuid,uuid,integer,integer,uuid,timestamptz,integer,date,date,timestamptz,uuid,uuid,text,integer,timestamptz,text,text,text,numeric,numeric,numeric,jsonb,jsonb,timestamptz)',
                         'settlement_data.apply_swap_cash(uuid,uuid,uuid,integer,integer,uuid,timestamptz,jsonb,numeric,uuid,uuid,text,timestamptz,text,uuid,jsonb,text)'))
+                if migration.name=='0259_known_futures_history.sql':
+                    from check_fact_anchor_upgrade import run_checks as check_known_futures_upgrade
+                    check_known_futures_upgrade(query,migration,number='0259',guard='known_futures_upgrade',
+                        signatures=('security.record_cash_payment(uuid,jsonb,timestamptz)',))
                 if migration.name=='0224_reference_display_close_validation.sql':
                     from check_reference_display_scale import upgrade_checks
                     upgrade_checks(query,migration)
