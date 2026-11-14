@@ -182,10 +182,37 @@ valuation refuses unresolved effects effective by its selected instant;
 economic projection refuses them when effective by its horizon, including a
 fully consumed source lot or an extinguished claim with surviving cash.
 Operational and configuration readers remain available for repair. An older
-certified view retains its original accepted source. Explicit financial
-reconciliation of these effects remains a separate implementation gate.
+certified view retains its original accepted source. Reconciliation requires an
+explicit financial action within its qualified scope.
+
+The physical quantity amendment consumer retains the observed performance,
+business reference, title instant and availability. It records immutable
+financial quantity revisions linked to the exact original performance, stock
+and identified consumption versions. Each accepted amendment recomputes the
+complete chronological principal prefix, including later source-known
+performances. Principal differences become separate signed cash memberships;
+existing bank payments and historical views remain unchanged. An acknowledgement
+of an older fact reports its acknowledged revision and the current revision
+without reactivating that older state.
+
+Raw source quantities are bounded allocation capacity. They do not establish
+stock for an unused remainder. A correction explicitly selects either
+`preserve_unallocated_source_quantity_v1`, which preserves source capacity minus
+the complete allocated quantity, or `withdraw_all_source_allocations_v1`, which
+requires an explicit zero-capacity source revision and closes every allocation
+from that source. Stock replacement names all existing consumption revisions and
+each replacement lot; it supplies no implicit procurement or negative stock.
+
+The current amendment consumer handles one performance and requires all affected
+source allocations to belong to that performance. A shared-source batch is
+required for corrections spanning other performances or already consumed receipt
+stock. General operator and loan amendments, and changes to observed event times
+or advance-payment treatment, remain separate implementation gates.
 
 `tools/check_gas_physical_known.py` qualifies the attachment scope and complete
 native histories. `tools/check_gas_applied_sources.py` independently corrects a
 fully consumed dispatch source and an extinguished cashout price, verifies the
 old views and operational reads, and checks both valuation and horizon gates.
+`tools/check_gas_quantity_reconciliation.py` qualifies native and managed
+same-instant amendments, complete principal refunds, partial source allocation,
+explicit stock replacement, immutable old views and first-outcome recovery.
