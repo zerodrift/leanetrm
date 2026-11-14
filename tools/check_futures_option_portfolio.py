@@ -65,11 +65,17 @@ def run_checks(url, query, manifest, *, run_worker):
     lo = next(o for o in catalog['options'] if o['product'] == 'nymex_lo' and o['right'] == 'put' and o['underlyingSeries'] == 'nymex_cl_20270101')
     deep = options[FALLBACK_SERIES]
     book = catalog['books'][0]['id']
+    from lifecycle_option_client import LifecycleOptionClient
+    query("INSERT INTO security.role_permissions SELECT role_id,p FROM security.role_permissions CROSS JOIN unnest(ARRAY['ReadGasOwnedHoldings','RecordGasOwnedHoldings','ConfigureGasOwnedHoldings'])p WHERE permission='AmendTrade' ON CONFLICT DO NOTHING;")
+    query("INSERT INTO security.role_permissions SELECT role_id,p FROM security.role_permissions CROSS JOIN unnest(ARRAY['ReadTrades','ReadGasOwnedHoldings'])p WHERE permission='WriteMarketDefinitions' ON CONFLICT DO NOTHING;")
+    action_clients={product:LifecycleOptionClient(c,query,manifest,issuer='https://exchange-preview.invalid',context={**booking,'convention':OPTION},as_of=first['at'],business_date='2026-10-13',
+        from_at='2026-10-01T00:00:00Z',until_at='2030-01-01T00:00:00Z',mark_curve=curve,carrying='currency_curve_v1')
+        for product,curve in [('nymex_on','nymex_ng'),('nymex_lo','nymex_cl')]}
     parties = {'legalEntityId': catalog['legalEntities'][0]['id'], 'legalEntityRevision': catalog['legalEntities'][0]['revision'],
                'counterpartyId': catalog['counterparties'][0]['id'], 'counterpartyRevision': catalog['counterparties'][0]['revision']}
 
     def book_option(option, lots, premium, into=book, paid=PAYMENT_DATE):
-        return c.call('options/book', {'operationId': str(uuid4()), **booking, 'convention': OPTION, 'bookId': into, 'series': option['series'], 'definitionRevisionId': option['definitionRevisionId'],
+        return action_clients[option['product']].call('options/book', {'operationId': str(uuid4()), **booking, 'convention': OPTION, 'bookId': into, 'series': option['series'], 'definitionRevisionId': option['definitionRevisionId'],
                                        **side_lots(lots), 'premium': premium, 'premiumPaymentDate': paid,
                                        'premiumStyle': 'premium_paid_up_front', **parties})
     futures_context = {**booking, 'convention': 'contract_lot_execution_pnl_v2'}
@@ -77,18 +83,18 @@ def run_checks(url, query, manifest, *, run_worker):
     future = c.call('futures/book', {'operationId': str(uuid4()), **futures_context, 'bookId': book, 'curve': 'nymex_cl',
                                      'contractId': crude['id'], 'definitionRevisionId': crude['definitionRevisionId'], 'lots': '1', 'executionPrice': crude['mark'], **parties})
     held = {'on': (book_option(on, '3', '0.125'), on, 3), 'lo': (book_option(lo, '-2', '1.25'), lo, -2), 'deep': (book_option(deep, '1', '1.000'), deep, 1)}
-    # A series this check alone holds, later moved past its expiry without a recorded expiry.
+    # Another independent live series exercises the ordinary calibration scope.
     lapsing = next(o for o in catalog['options'] if o['product'] == 'nymex_lo' and o['right'] == 'call' and o['underlyingSeries'] == 'nymex_cl_20270201')
-    unexpired = book_option(lapsing, '1', '1.25')
+    book_option(lapsing, '1', '1.25')
     # In the other book, a premium paid on the day after the first close: settled at the last close.
     other_book = catalog['books'][-1]['id']
     paid = book_option(lapsing, '1', '1.25', into=other_book, paid=SETTLED_DATE)
     c.call('cash-payments/record',{'snapshotId':frame['id'],'knowledgeMode':'current','operationId':str(uuid4()),'allocationId':str(uuid4()),
            'tradeId':paid['tradeId'],'bindingId':paid['premiumInstrumentId'],'expectedRevision':0,'paidAt':SETTLED_DATE+'T00:00:00Z',
            'amount':format(-Decimal('1.25')*Decimal(lapsing['multiplier']),'f'),'policy':'explicit_paid_cash_nominal_due_v1'})
-    exercised = c.call('options/exercise', {'operationId': str(uuid4()), **booking, 'convention': OPTION, 'tradeId': held['on'][0]['tradeId'], 'lots': '1'})
+    exercised = action_clients['nymex_on'].call('options/exercise', {'operationId': str(uuid4()), **booking, 'convention': OPTION, 'tradeId': held['on'][0]['tradeId'], 'lots': '1'})
     # One lot of the short LO put is assigned at the last close: earlier closes still hold it open, without the future it booked.
-    assigned = c.call('options/assignment', {'operationId': str(uuid4()), **current, 'convention': OPTION, 'tradeId': held['lo'][0]['tradeId'], 'lots': '1'})
+    assigned = action_clients['nymex_lo'].call('options/assignment', {'operationId': str(uuid4()), **current, 'convention': OPTION, 'tradeId': held['lo'][0]['tradeId'], 'lots': '1'})
     open_lots = {'on': 2, 'lo': -1, 'deep': 1}
     exercised_trade = held['on'][0]['tradeId']
     linked = c.call('options/holding', {'context': {**booking, 'convention': OPTION}, 'tradeId': exercised_trade})['events']
@@ -405,33 +411,9 @@ def run_checks(url, query, manifest, *, run_worker):
     check('portfolio risk leaves out none of that trade',
           not any(e['tradeId'] == paid['tradeId'] for e in early_excluded), early_excluded)
 
-    # A held series whose expiry instant passes with no recorded expiry stays visibly unprocessed: option_expired, no value.
-    R, M = f"'{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}'", f"'{manifest['catalogId']}','{manifest['revisionId']}'"
-    terms = query(f"SELECT concat_ws('|',s.last_trading_date,s.expiry_at,k.expiry_at) FROM ref_data.futures_option_series s JOIN market_data.contracts k "
-                  f"ON(k.reference_catalog_id,k.reference_revision_id,k.futures_option_series_code)=(s.catalog_id,s.revision_id,s.code) "
-                  f"WHERE (s.catalog_id,s.revision_id,s.code)=({R},'{lapsing['series']}') AND (k.catalog_id,k.revision_id)=({M});").split('|')
-
-    def expire_at(day, series_at, contract_at):
-        query("ALTER TABLE ref_data.futures_option_series DISABLE TRIGGER USER;ALTER TABLE market_data.contracts DISABLE TRIGGER USER;"
-              f"UPDATE ref_data.futures_option_series SET last_trading_date='{day}',expiry_at='{series_at}' WHERE (catalog_id,revision_id,code)=({R},'{lapsing['series']}');"
-              f"UPDATE market_data.contracts SET expiry_at='{contract_at}' WHERE (catalog_id,revision_id,futures_option_series_code)=({M},'{lapsing['series']}');"
-              "ALTER TABLE ref_data.futures_option_series ENABLE TRIGGER USER;ALTER TABLE market_data.contracts ENABLE TRIGGER USER;")
-    # The configured 14:30 New York close on the day before the last close.
-    expire_at('2026-10-15', '2026-10-15T18:30:00Z', '2026-10-15T18:30:00Z')
-    try:
-        c.call('profile', {'profile': 'trader'})
-        lapsed_read = blotter(current)
-        c.call('profile', {'profile': 'risk'})
-        lapsed_context = {**retained, 'contextId': lapsed_read['context']['contextId']}
-        lapsed_excluded = c.call('portfolio/risk/catalog', dict(context=lapsed_context, bookIds=[book], portfolioIds=[]), timeout=TIMEOUT)['excludedPositions']
-    finally:
-        expire_at(*terms)
-    lapsed = next(r for r in lapsed_read['holdings'] if r['tradeId'] == unexpired['tradeId'] and r['bindingId'] == unexpired['optionInstrumentId'])
-    check('the Blotter shows a held option past its expiry with no recorded expiry as option_expired and no value',
-          (lapsed['unavailableReason'], lapsed['presentValue'], lapsed['openLots']) == ('option_expired', None, '1'), lapsed)
-    check('portfolio risk lists it as excluded with option_expired and keeps its premium',
-          (unexpired['tradeId'], unexpired['optionInstrumentId'], 'option_expired') in {(e['tradeId'], e['bindingId'], e['reason']) for e in lapsed_excluded}
-          and not any(e['tradeId'] == unexpired['tradeId'] and e['bindingId'] == unexpired['premiumInstrumentId'] for e in lapsed_excluded), lapsed_excluded)
+    # Genuine historical unprocessed-expiry Blotter and risk coverage lives in
+    # check_lifecycle_option_expiries.py, using a separately sealed synthetic
+    # right and its actual expiry instant. Accepted reference rows stay immutable.
     c.call('profile', {'profile': 'trader'})
     defaults = query(f"SELECT coalesce(json_agg(d),'[]')::text FROM trading.currency_discount_defaults d WHERE catalog_id='{manifest['catalogId']}';")
     query(f"ALTER TABLE trading.currency_discount_defaults DISABLE TRIGGER USER;DELETE FROM trading.currency_discount_defaults WHERE catalog_id='{manifest['catalogId']}';"

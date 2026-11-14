@@ -35,16 +35,18 @@ public sealed record UnitPricingContract(Guid Id,string ModelVersion,ImmutableAr
     public ImmutableArray<VolatilityInput> Volatility {get;init;}=[];
     // A property of the model, not an input: it identifies no repricing and assigns no exposure.
     public ImmutableArray<DeclaredPriceStep> PriceSteps {get;init;}=[];
-    internal bool SameInputFence(UnitPricingContract other)=>Time==other.Time&&
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public StaticDerivativeRestriction? StaticDerivatives {get;init;}
+    internal bool SameInputFence(UnitPricingContract other)=>Time==other.Time&&ScheduleIdentity==other.ScheduleIdentity&&
         Dependencies.Length==other.Dependencies.Length&&Dependencies.All(other.Dependencies.Contains)&&
         Volatility.Length==other.Volatility.Length&&Volatility.All(other.Volatility.Contains)&&
-        DiscountInputs.Length==other.DiscountInputs.Length&&DiscountInputs.All(d=>other.DiscountInputs.Any(o=>o.Payment==d.Payment&&ReferenceEquals(o.Provider,d.Provider)));
+        DiscountInputs.Length==other.DiscountInputs.Length&&DiscountInputs.All(d=>other.DiscountInputs.Any(o=>o.Payment==d.Payment&&ReferenceEquals(o.Provider,d.Provider)&&d.SameSource(o)));
     internal int InputFenceHash()
     {
-        var hash=Time.GetHashCode();
+        var hash=HashCode.Combine(Time,ScheduleIdentity);
         foreach(var price in Dependencies)hash^=price.GetHashCode();
         foreach(var vol in Volatility)hash^=vol.GetHashCode();
-        foreach(var discount in DiscountInputs)hash^=HashCode.Combine(discount.Payment,System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(discount.Provider));
+        foreach(var discount in DiscountInputs)hash^=HashCode.Combine(discount.Payment,System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(discount.Provider),discount.SourceHash());
         return HashCode.Combine(hash,Dependencies.Length,Volatility.Length,DiscountInputs.Length);
     }
     internal void RequireInputs()
@@ -54,11 +56,16 @@ public sealed record UnitPricingContract(Guid Id,string ModelVersion,ImmutableAr
             DiscountInputs.Any(d=>d is null||d.Provider is null)||DiscountInputs.Select(d=>d.Payment).Distinct().Count()!=DiscountInputs.Length||
             Time.Use==ValuationTimeDependency.TimeUse.Independent&&!DiscountInputs.IsEmpty||PriceSteps.IsDefault||
             PriceSteps.Any(s=>s is null||!Dependencies.Contains(s.Dependency)||s.Size.CompareTo(default)<=0)||
-            PriceSteps.Select(s=>s.Dependency).Distinct().Count()!=PriceSteps.Length)
+            PriceSteps.Select(s=>s.Dependency).Distinct().Count()!=PriceSteps.Length||StaticDerivatives is {} restriction&&!restriction.Valid)
             throw new MarketDataException("risk_contract","Declare complete distinct price, clock, discount and volatility inputs, and a positive price step only for a declared price input.");
     }
     public string? ScheduleIdentity { get; init; }
     public ImmutableArray<SettlementProjection> SettlementProjections { get; init; }=[];
+}
+public sealed record StaticDerivativeRestriction(string Implementation,string Reason)
+{
+    public const string Version="static_derivatives_not_qualified_v1";
+    internal bool Valid=>Implementation==Version&&!string.IsNullOrWhiteSpace(Reason)&&Reason.Length<=256&&Reason==Reason.Trim();
 }
 // A pricer sees only its declared inputs. No ambient market lookup or services.
 public sealed class PricingInputs
@@ -99,6 +106,11 @@ public sealed class PricingInputs
     }
     public ExactUnitPrice ExactPrice(CurveRequest request)=>permitted.Contains(request)?market.Price(request,cancellation):
         throw new MarketDataException("risk_dependency","A pricer requested an undeclared or unavailable market input.");
+    public void RequireSource(Calculation.CapturedPriceSource source)
+    {
+        if(source is null||!permitted.Contains(source.Market))throw new MarketDataException("risk_dependency","A captured source requires its exact declared price dependency.");
+        market.RequirePriceSource(source,cancellation);
+    }
     public UnitPrice Price(CurveRequest request)=>permitted.Contains(request)?market.WorkingPrice(request,cancellation):
         throw new MarketDataException("risk_dependency","A pricer requested an undeclared or unavailable market input.");
 }
@@ -107,15 +119,20 @@ public record UnitMoney(ExactMoney Money,ReferenceKey Quantity)
     public UnitMoney(Money money,ReferenceKey quantity):this(ExactMoney.FromMoney(money),quantity){}
 }
 public sealed record UnitValuation(UnitValuationContext Context,ExactMoney Money,ReferenceKey Quantity):UnitMoney(Money,Quantity);
+[method:System.Text.Json.Serialization.JsonConstructor]
 public sealed record RiskPosition(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,Quantity Quantity,UnitMoney UnitBasis,Money FixedBasis)
 {
+    public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
+    public RiskPosition(AccountingOwnerKey owner,Guid bindingId,Guid bookId,Guid valuationId,Quantity quantity,UnitMoney unitBasis,Money fixedBasis)
+        :this(owner.TradeId,bindingId,bookId,valuationId,quantity,unitBasis,fixedBasis){Owner=owner;}
     public DeliveryCoverage? Coverage{get;init;}
 }
 public sealed record DerivativeUnit(ReferenceKey Currency,PriceUnit Factor,int Order);
 public sealed record RiskDerivative(ExactDecimal Value,DerivativeUnit Unit);
 public sealed record RiskValues(Money Base,Money Up,Money Down,Money UpPnl,Money DownPnl,RiskDerivative Delta,RiskDerivative Gamma);
 public sealed record RiskPositionResult(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,
-    Money Base,Money Up,Money Down,Money UpPnl,Money DownPnl,RiskDerivative Delta,RiskDerivative Gamma);
+    Money Base,Money Up,Money Down,Money UpPnl,Money DownPnl,RiskDerivative Delta,RiskDerivative Gamma)
+{public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);}
 public sealed record RiskBookTotal(Guid BookId,ReferenceKey Currency,Money Base,Money Up,Money Down,Money UpPnl,Money DownPnl,RiskDerivative Delta,RiskDerivative Gamma);
 public sealed record ScenarioWork(int RebuiltCurveNodes,int ReusedCurveNodes,int UnitPricerCalls,int ReusedUnitValues);
 public sealed record RiskFactorResult(QuoteBump Bump,ImmutableArray<RiskPositionResult> Positions,
@@ -174,10 +191,12 @@ public sealed record ExactRiskBookTotal(Guid BookId,ExactDealRiskValues Values);
 // Components: the instrument's named parts of Value, which sum to it exactly; empty for an instrument without components.
 public sealed record ExactRiskPositionValue(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactMoney Value)
 {
+    public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
     public ImmutableArray<ValueComponent> Components{get;init;}=[];
 }
 public sealed record ExactRiskPositionResult(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactDealRiskValues Values)
 {
+    public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
     public ImmutableArray<ComponentRiskValues> Components{get;init;}=[];
 }
 // One named component of a position under the base and the two scenarios of a bump.
@@ -197,6 +216,15 @@ public sealed record ExactGroupedRiskRun(Guid SnapshotId,ImmutableArray<ExactBoo
 
 public static partial class RiskEngine
 {
+    public static void RequireStaticDerivatives(IEnumerable<UnitPricingContract> contracts)
+    {
+        if(contracts is null)throw Error("risk_contract","Retain the selected model declarations before requesting static derivatives.");
+        var selected=contracts.ToArray();
+        if(selected.Any(c=>c is null))throw Error("risk_contract","Retain complete selected model declarations.");
+        foreach(var contract in selected)contract.RequireInputs();
+        if(selected.Any(c=>c.StaticDerivatives is not null))throw Error("risk_static_derivatives_unavailable",
+            "Static derivatives are not qualified for every selected valuation model. Choose full PV scenarios or a pricing model with qualified derivatives.");
+    }
     public const string NumericalPolicy="exact_18_fractional_book_repricing_v2";
     public const string ExactNumericalPolicy="exact_rational_portfolio_repricing_v1";
     private static MarketDataException Error(string code,string text)=>new(code,text);
@@ -222,11 +250,11 @@ public static partial class RiskEngine
     {
         if(portfolios.IsDefaultOrEmpty||portfolios.Length>16||portfolios.Any(p=>p is null))
             throw Error("risk_contract","Select one to sixteen explicit valuation groups.");
-        var instruments=portfolios.SelectMany(p=>p.Instruments).ToArray();
+        _=ValuationPortfolio.DistinctInstruments(portfolios);
         var positions=portfolios.SelectMany(p=>p.Positions).ToArray();
-        if(instruments.Select(i=>i.Id).Distinct().Count()!=instruments.Length||
-            positions.Select(p=>(p.TradeId,p.BindingId)).Distinct().Count()!=positions.Length)
-            throw Error("risk_contract","A shared operation must assign each unit instrument and trade binding to exactly one valuation group.");
+        if(positions.Select(p=>(p.Owner,p.BindingId)).Distinct().Count()!=positions.Length||
+            positions.GroupBy(p=>p.Owner).Any(g=>g.Select(p=>p.BookId).Distinct().Count()!=1))
+            throw Error("risk_contract","A shared operation must assign each held binding to one valuation group and each owner to one book.");
         return portfolios.Select(p=>p.Declare(snapshot)).ToImmutableArray();
     }
     private static PreparedPortfolioRisk Prepare(CurveBuild market,ImmutableArray<ValuationPortfolio> portfolios,
@@ -311,6 +339,7 @@ public static partial class RiskEngine
     {
         if(prepared is null)throw Error("snapshot_pin","Select an explicit prepared portfolio scenario.");
         if(bumps.IsDefault)throw Error("risk_bump","Supply an explicit shock list, including an empty list for base-only valuation.");
+        if(!bumps.IsEmpty)RequireStaticDerivatives(prepared.Contracts.SelectMany(c=>c));
         return RunQuoteGroups(prepared,bumps.IsEmpty?Enumerable.Empty<FactorScenarios>():prepared.Market.Model.Scenarios(prepared.Market,bumps,cancellation),
             detail,workingDecimal,cancellation);
     }
@@ -325,8 +354,10 @@ public static partial class RiskEngine
         var factors=prepared.Portfolios.Select(_=>ImmutableArray.CreateBuilder<ExactBookRiskFactor>()).ToArray();
         var rebuilt=prepared.Market.EvaluatedConstituents+prepared.PriorRebuilt;
         var reused=prepared.Market.ReusedConstituents+prepared.PriorReused;var count=1;
+        var derivativesAdmitted=false;
         foreach(var factor in scenarios)
         {
+            if(!derivativesAdmitted){RequireStaticDerivatives(prepared.Contracts.SelectMany(c=>c));derivativesAdmitted=true;}
             cancellation.ThrowIfCancellationRequested();
             var measured=calculation.Measure(factor.Up.Pricing,factor.Down.Pricing,factor.Bump.Size,factor.Bump.Unit,cancellation);
             for(var group=0;group<measured.Length;group++)
@@ -407,7 +438,7 @@ public static partial class RiskEngine
             {
                 var value=WorkingValues(position.Values);
                 return new RiskPositionResult(position.TradeId,position.BindingId,position.BookId,position.ValuationId,
-                    value.Base,value.Up,value.Down,value.UpPnl,value.DownPnl,value.Delta,value.Gamma);
+                    value.Base,value.Up,value.Down,value.UpPnl,value.DownPnl,value.Delta,value.Gamma){Owner=position.Owner};
             }).ToImmutableArray(),factor.Totals.Select(total=>
             {
                 var value=WorkingValues(total.Values);

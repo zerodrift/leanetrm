@@ -69,7 +69,7 @@ def run_foundation(c,query,url,body,before,after,before_at,currency):
     c.call('swaps/settlement/pnl',{**bridge,'opening':after,'closing':before},expected=422)
     concurrent=deepcopy(terms);concurrent['operationId']=str(uuid4());other=c.call('swaps/book',concurrent)
     selected=preview(other['tradeId'],after);value=c.call('swaps/settlement/preview',selected)
-    clients=[PreviewClient(url),PreviewClient(url)]
+    clients=[c.with_client(PreviewClient(url)),c.with_client(PreviewClient(url))]
     after_at=next(f['at'] for f in c.call('workspace')['frames'] if f['id']==after['snapshotId'])
     attempts=[]
     for client in clients:
@@ -84,7 +84,8 @@ def run_foundation(c,query,url,body,before,after,before_at,currency):
             if 'got 409:' not in str(error) or not any(code in str(error) for code in ('settlement_version_conflict','settlement_stale_preview')):raise
             return None
     with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(write,attempts))
-    assert sum(result is not None for result in results)==1
+    recorded=[result for result in results if result is not None]
+    assert recorded and len({result['determinationId'] for result in recorded})==1
     earlier=preview(other['tradeId'],before);early_value=c.call('swaps/settlement/preview',earlier)
     c.call('swaps/settlement/determine',command(earlier,early_value,1),expected=422)
     if query:assert query(f"SELECT count(*) FROM settlement_data.swap_determinations WHERE trade_id='{other['tradeId']}';").strip()=='1'
@@ -107,7 +108,7 @@ def run_lifecycle(c, workspace, context, trade, currency):
         return c.call('swaps/settlement/payment',dict(context=selected,tradeId=trade,operationId=str(uuid4()),
             expectedRevision=1,expectedVersion=version,determinationId=determination,amount=amount,currency=currency,
             effectiveAt=frames[next(k for k,v in frames.items() if v['id']==selected['snapshotId'])]['at'],
-            reference='Synthetic contractual cash',reversesId=None))
+            reference=f'Synthetic contractual cash {determination}',reversesId=None))
     january=at('2021-01-15T08:00:00')
     first=inspect(january)
     projected=held_row(c,january,trade)
@@ -148,7 +149,10 @@ def run_lifecycle(c, workspace, context, trade, currency):
     assert c.call('swaps/settlement/determine',adjustment)==revised
     fresh=c.call('swaps/settlement/preview',preview(correction_context,1))
     assert fresh['previousTotal']=='370' and fresh['proposedContribution']=='0' and not fresh['inputsChanged']
-    c.call('swaps/settlement/determine',{**adjustment,'operationId':str(uuid4()),'expectedVersion':6,'previewHash':fresh['previewHash']},expected=422)
+    accepted_state=inspect(correction_context)['settlement']
+    acknowledged=c.call('swaps/settlement/determine',{**adjustment,'operationId':str(uuid4()),'expectedVersion':6,'previewHash':fresh['previewHash']})
+    assert acknowledged['determinationId']==revised['determinationId'] and acknowledged['version']==acknowledged['currentVersion']==6
+    assert inspect(correction_context)['settlement']==accepted_state
     changed=inspect(correction_context)
     assert changed['valuation']['remainingValue']=='20' and changed['valuation']['realized']=='70'
     assert changed['valuation']['netCash']=='50' and changed['valuation']['corrections']=='20'

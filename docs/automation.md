@@ -20,6 +20,8 @@ The managed API exposes:
 | `GET /api/jobs?page=0&collectionPage=0` | Authorized automation and collection jobs, independently paged at 100 rows, recent run metadata, profiles and shared infrastructure |
 | `POST /api/jobs/create` | Exact request identity and explicit execution terms |
 | `POST /api/jobs/update` | Amend an idle active/paused job's name, next due time, expiry, interval and run limits, with its expected version |
+| `POST /api/jobs/lifecycle/create` | One exact source-derived lifecycle occurrence, saved product and action-policy versions, and explicit one-off execution terms |
+| `GET /api/jobs/lifecycle/{id}` | Current authorized read of the task’s retained source, mode, proposal or actual outcome |
 | `POST /api/jobs/control` | Pause, resume, cancel or run again, with expected job version |
 | `POST /api/jobs/collection/update` | Amend an existing collection job's name, schedule switch and inclusive delivery-day offsets, with its exact generation |
 | `POST /api/infrastructure/availability` | Pause/resume scheduling or drain an idle approved worker node, with exact node version |
@@ -488,3 +490,60 @@ Publication has a hard database deadline. Physical calculation stops at its next
 cancellation check after failed renewal, so cessation can lag that deadline by
 heartbeat cadence, the bounded renewal call and cooperative cancellation latency.
 Generated-close, readiness and controller worker paths are unchanged.
+
+## Source-derived lifecycle tasks
+
+`lifecycle_action_v1` is a separately admitted operation. The Lifecycle page offers
+scheduling only for an exact recorded close and a native offer that declares its
+saved product versions. The current adapters are futures margin, listed-option
+expiry and financial-swap period determination. They use the ordinary managed
+Lifecycle discovery, preview and execution operations. No scheduler implements a
+second pricing rule or accepts client-derived monetary operands.
+
+The saved definition names the recorded close, native owner/binding, action,
+occurrence, exact action-policy version and exact trade/product-setting versions.
+Every request explicitly selects `current_knowledge_at_execution_v1`,
+`source_known_exact_action_settings_v1` and
+`source_derived_only_no_cash_corrections_v1`. Execution captures fresh certified
+knowledge for the recorded close’s business date. The close’s market source
+matrix remains pinned. Changed current product settings stop new work; a retry
+acknowledges its original outcome before mutable setting-head reads.
+
+The selected saved action policy controls behavior. Manual mode records that
+manual action is required. Review mode retains a complete scoped proposal without
+financial writes. Automatic mode reviews and executes the same shared product
+operation. Observed title transfer, assignment and payment cannot be manufactured
+by a task. A correction requiring an explicit cash due time stops for user input.
+Review results reopen through the ordinary Lifecycle workspace for a fresh review
+against current native state.
+
+Tasks run once, with explicit wall-clock run/expiry choices shown in the user’s
+configured time zone. The managed time resolver handles ambiguous or invalid
+local times. The persisted schedule uses UTC instants, `run_once` misfire and
+`forbid` overlap. Execution timeout is explicitly chosen from one through thirty
+seconds and maximum attempts from one through three. The original attempt’s
+lease/deadline is never extended by issuing a successor context. These are bounded
+single-occurrence tasks, not a recurring exchange-calendar enrollment.
+
+The existing protected scheduler/runtime file pair and exact market manifest
+configure execution. The scheduler login only claims work and issues an owned
+context; a separate registered runtime login performs the operation. Each attempt
+uses the required capability intersection of its owner, delegator and service,
+including gas authority when the saved product requires it. Capability deadlines
+and generation are captured before the first epoch/row wait and checked again
+before commit. Extra service permissions do not widen a task’s context.
+
+Automatic financial effects, the shared command receipt and the terminal task
+result commit in one owned transaction. Omitting the result or draining deferred
+checks early cannot publish those financial effects. The managed admission still
+rechecks original deadlines immediately before commit; deferred checks supplement
+that boundary. Lost acknowledgements reconcile the exact owned native terminal
+receipt before the worker records any failure. An unresolved transport failure
+leaves the fenced attempt for normal recovery rather than guessing its outcome.
+
+The disposable native qualification exercises real physical-future manual,
+review and automatic tasks, exact-version and semantic retries, capability
+intersection, first-wait/read deadline expiry, malformed review scope/hash, and
+rollback of real financial work without its exact task result. It also probes
+helper metadata/privilege drift and public function identity. Product-specific
+option/swap worker and complete app/browser qualification remain separate gates.

@@ -1,0 +1,149 @@
+using System.Collections.Immutable;
+using OpenEtrm.MarketData.Trading;
+using System.Security.Cryptography;
+using System.Text.Json;
+
+namespace OpenEtrm.MarketData.Risk;
+
+public sealed record LifecycleEconomicRiskPolicy(string Implementation,string Confidence,string QuantilePolicy,string TailPolicy)
+{
+    public const string Historical="economic_lifecycle_historical_full_revaluation_v1",MonteCarlo="economic_lifecycle_monte_carlo_full_revaluation_v1",
+        Deterministic="economic_lifecycle_no_variable_factors_v1",Measure="economic_pnl_v1",MarketOnly="market_only_horizon_diagnostic_v1";
+}
+public sealed record LifecycleEconomicRiskReport(LifecycleEconomicRiskPolicy Policy,string HistoryId,DateTimeOffset Horizon,
+    ImmutableArray<LifecycleProjectionValue> NoShockTimeCarry,ImmutableArray<HistoricalPartition> Economic,
+    ImmutableArray<HistoricalPartition> MarketOnlyDiagnostic,int Samples)
+{
+    public ImmutableArray<MonteCarloDiagnostic> MonteCarloDiagnostics{get;init;}=[];
+}
+// An exact point mass, explicitly separate from calibrated historical or Monte
+// Carlo sampling. No history dates, covariance or random paths are invented.
+public sealed record LifecycleDeterministicRiskReport(LifecycleEconomicRiskPolicy Policy,DateTimeOffset Horizon,
+    ImmutableArray<LifecycleProjectionValue> NoShockTimeCarry,ImmutableArray<HistoricalPartition> Economic,
+    ImmutableArray<HistoricalPartition> MarketOnlyDiagnostic);
+
+// Sampling supplies terminal native primitive moves. Every sample runs the same
+// pure event path and ordinary residual pricers. A failed path aborts reduction;
+// no catch/drop/resample path exists here.
+public static class LifecycleEconomicRisk
+{
+    public static void ValidatePolicy(LifecycleEconomicRiskPolicy policy)
+    {
+        if(policy?.Implementation is not(LifecycleEconomicRiskPolicy.Historical or LifecycleEconomicRiskPolicy.MonteCarlo or LifecycleEconomicRiskPolicy.Deterministic))
+            throw Error("risk_economic_policy","Select historical, Monte Carlo or the explicit no-variable-factor economic method.");
+        RequirePolicy(policy,policy.Implementation);
+    }
+    public static LifecycleDeterministicRiskReport Deterministic(ImmutableArray<PreparedLifecycleProjection> prepared,
+        LifecycleEconomicRiskPolicy policy,CancellationToken cancellation=default)
+    {
+        RequirePolicy(policy,LifecycleEconomicRiskPolicy.Deterministic);RequireScope(prepared);
+        if(!Factors(prepared).IsEmpty)throw Error("risk_economic_factors","Deterministic economic risk requires successful complete preparation proving that every branch has zero variable factors.");
+        var baseline=prepared.SelectMany(p=>p.Evaluate("no_variable_factors",[],cancellation).Values).ToImmutableArray();
+        var exposures=baseline.Select((v,i)=>new HistoricalExposure(Id(i),v.Owner.BookId,v.Owner.Owner,v.Owner.BindingId,
+            LifecycleEconomicRiskPolicy.Measure,v.Currency,v.OpeningValue.ToExactString())).ToImmutableArray();
+        var diagnostic=exposures.Select((e,i)=>e with{Measure=LifecycleEconomicRiskPolicy.MarketOnly,
+            BaseValue=baseline[i].ResidualValue.Add(baseline[i].PeriodCash).ToExactString()}).ToImmutableArray();
+        ImmutableArray<HistoricalObservation> values=[new("no_variable_factors",[..baseline.Select((v,i)=>new HistoricalScenarioValue(Id(i),v.ResidualValue.Add(v.PeriodCash).ToExactString()))])];
+        var identity=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{policy,
+            Source=prepared.SelectMany(p=>p.Markets),prepared[0].Horizon,Values=baseline})));
+        var economic=EmpiricalRisk.Calculate(identity,["no_variable_factors"],policy.Confidence,exposures,values,cancellation,true);
+        var market=EmpiricalRisk.Calculate(identity,["no_variable_factors"],policy.Confidence,diagnostic,values,cancellation,true);
+        return new(policy,prepared[0].Horizon,baseline,economic.Partitions,market.Partitions);
+    }
+    // Called by the source adapter before history reads, as well as by replay.
+    public static ImmutableArray<QuoteFactor> Factors(ImmutableArray<PreparedLifecycleProjection> prepared)
+    {
+        if(prepared.IsDefaultOrEmpty||prepared.Any(p=>p is null))throw Error("risk_economic_scope","Supply the complete prepared market partitions.");
+        try{return QuoteFactors.Union(prepared.SelectMany(p=>p.Factors));}
+        catch(MarketDataException e)when(e.Code=="risk_factor_conflict")
+        {throw new MarketDataException("risk_economic_history","One native factor input cannot name inconsistent source observations, units, roles or base levels across partitions.",e);}
+    }
+    public static LifecycleEconomicRiskReport Historical(ImmutableArray<PreparedLifecycleProjection> prepared,AlignedFactorHistory history,
+        LifecycleEconomicRiskPolicy policy,CancellationToken cancellation=default)
+    {
+        history=FactorHistory.Replay(history,cancellation);
+        Require(prepared,history,policy,LifecycleEconomicRiskPolicy.Historical);
+        var samples=history.Samples.Select(s=>(s.Id,s.Changes)).ToImmutableArray();
+        return Calculate(prepared,history,policy,samples,null,cancellation);
+    }
+    public static LifecycleEconomicRiskReport MonteCarlo(ImmutableArray<PreparedLifecycleProjection> prepared,AlignedFactorHistory history,
+        LifecycleEconomicRiskPolicy policy,MonteCarloRiskPolicy simulation,CancellationToken cancellation=default)
+    {
+        history=FactorHistory.Replay(history,cancellation);
+        Require(prepared,history,policy,LifecycleEconomicRiskPolicy.MonteCarlo);
+        if(simulation.Convention!=MonteCarloRiskPolicy.Economic||simulation.ValuationPolicy!=MonteCarloRiskPolicy.EconomicValuation||simulation.Confidence!=policy.Confidence)
+            throw Error("risk_economic_policy","Choose the explicit economic full-revaluation simulation policy and matching confidence.");
+        var generation=MonteCarloRisk.Generate(history,simulation,cancellation:cancellation);
+        if(!generation.Available)throw Error("risk_economic_history","The complete covariance sample is unavailable; simulation cannot drop factors.");
+        return Calculate(prepared,history,policy,[..generation.Samples.Select(s=>(s.Id,s.Changes))],generation,cancellation);
+    }
+    public static void RequireParametricAvailable()=>throw Error("risk_economic_parametric_unavailable",
+        "Event-aware parametric economic risk requires separate qualification. Select historical or Monte Carlo full revaluation.");
+    private static LifecycleEconomicRiskReport Calculate(ImmutableArray<PreparedLifecycleProjection> prepared,AlignedFactorHistory history,
+        LifecycleEconomicRiskPolicy policy,ImmutableArray<(string Id,ImmutableArray<ExactDecimal> Changes)> samples,
+        MonteCarloGeneration? generation,CancellationToken cancellation)
+    {
+        if((long)(1+samples.Length)*prepared.Sum(p=>p.Components.Sum(c=>c.EconomicOwners.Length))>HistoricalRisk.MaximumValues)
+            throw Error("risk_economic_capacity","The complete economic base/path matrix exceeds the retained value capacity.");
+        var baseline=prepared.Select(p=>p.Evaluate("no_shock",[],cancellation)).SelectMany(p=>p.Values).ToImmutableArray();
+        var exposure=baseline.Select((v,i)=>new HistoricalExposure(Id(i),v.Owner.BookId,v.Owner.Owner,v.Owner.BindingId,
+            LifecycleEconomicRiskPolicy.Measure,v.Currency,v.OpeningValue.ToExactString())).ToImmutableArray();
+        var marketExposure=exposure.Select((e,i)=>e with{Measure=LifecycleEconomicRiskPolicy.MarketOnly,
+            BaseValue=baseline[i].ResidualValue.Add(baseline[i].PeriodCash).ToExactString()}).ToImmutableArray();
+        var observations=ImmutableArray.CreateBuilder<HistoricalObservation>(samples.Length);
+        foreach(var sample in samples)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if(sample.Changes.Length!=history.Columns.Length)throw Error("risk_economic_samples","Each path must retain every prepared factor exactly once.");
+            var shifts=history.Columns.Select((column,i)=>new QuoteShift(column.Mapping.Factor.Input,column.Mapping.Factor.Quote,
+                column.Mapping.Factor.Unit,sample.Changes[i],QuoteShift.Convention)).ToImmutableArray();
+            var values=prepared.SelectMany(p=>p.Evaluate(sample.Id,[..shifts.Where(s=>p.Factors.Any(f=>f.Input==s.Input))],cancellation).Values).ToArray();
+            if(values.Length!=baseline.Length||values.Where((v,i)=>v.Owner!=baseline[i].Owner||v.Currency!=baseline[i].Currency).Any())
+                throw Error("risk_economic_samples","A path changed the prepared economic owner or currency scope.");
+            observations.Add(new(sample.Id,[..values.Select((v,i)=>new HistoricalScenarioValue(Id(i),v.ResidualValue.Add(v.PeriodCash).ToExactString()))]));
+        }
+        var expected=samples.Select(s=>s.Id).ToImmutableArray();var complete=observations.ToImmutable();
+        var economic=EmpiricalRisk.Calculate(history.Id,expected,policy.Confidence,exposure,complete,cancellation);
+        var diagnostic=EmpiricalRisk.Calculate(history.Id,expected,policy.Confidence,marketExposure,complete,cancellation);
+        return new(policy,history.Id,prepared[0].Horizon,baseline,economic.Partitions,diagnostic.Partitions,samples.Length){
+            MonteCarloDiagnostics=generation is null?[]:MonteCarloRisk.Calculate(generation,exposure,complete,cancellation).Diagnostics};
+    }
+    private static void Require(ImmutableArray<PreparedLifecycleProjection> prepared,AlignedFactorHistory history,LifecycleEconomicRiskPolicy policy,string implementation)
+    {
+        RequirePolicy(policy,implementation);RequireScope(prepared);
+        var source=prepared[0].SourceSnapshot;
+        if(history is null||!history.Available||history.Samples.Length<2||history.Forecast.ContextId!=source.Knowledge!.ContextId||
+            history.Forecast.KnownAt!=source.Knowledge.KnownAt||history.Forecast.ValuationAt!=source.ValuationAt||
+            prepared.SelectMany(p=>p.Markets).Any(m=>!history.Forecast.Markets.Contains(m))||
+            history.Columns.IsDefault||history.Columns.Select(c=>c.Mapping.Factor.Input).Distinct().Count()!=history.Columns.Length)
+            throw Error("risk_economic_history","Supply complete aligned native factor history from the exact opening forecast.");
+        var factors=Factors(prepared);
+        if(factors.Length!=history.Columns.Length||history.Columns.Any(c=>!factors.Any(f=>SameFactor(f,c.Mapping.Factor))))
+            throw Error("risk_economic_history","Prepare the full transition and every residual branch factor union before loading history or generating paths.");
+    }
+    private static void RequirePolicy(LifecycleEconomicRiskPolicy policy,string implementation)
+    {
+        if(policy is null||policy.Implementation!=implementation||policy.QuantilePolicy!=HistoricalRiskPolicy.Quantile||policy.TailPolicy!=HistoricalRiskPolicy.Tail)
+            throw Error("risk_economic_policy","Select the explicit economic full-revaluation method and empirical tail conventions.");
+        HistoricalRisk.ValidatePolicy(new(HistoricalRiskPolicy.Version1,HistoricalRiskPolicy.Numerics,HistoricalRiskPolicy.Session,HistoricalRiskPolicy.Sampling,
+            policy.QuantilePolicy,policy.TailPolicy,HistoricalRiskPolicy.Valuation,policy.Confidence));
+    }
+    private static void RequireScope(ImmutableArray<PreparedLifecycleProjection> prepared)
+    {
+        if(prepared.IsDefaultOrEmpty||prepared.Any(p=>p is null)||prepared.Select(p=>p.Horizon).Distinct().Count()!=1||
+            prepared.Select(p=>p.SourceSnapshot.ValuationAt).Distinct().Count()!=1||prepared.Select(p=>p.SourceSnapshot.Knowledge).Distinct().Count()!=1||
+            prepared.Select(p=>p.CashAccumulation is null).Distinct().Count()!=1||
+            prepared.Select(p=>p.Policy).Distinct().Count()!=1||
+            prepared.SelectMany(p=>p.Components).SelectMany(c=>c.EconomicOwners).Distinct().Count()!=prepared.Sum(p=>p.Components.Sum(c=>c.EconomicOwners.Length)))
+            throw Error("risk_economic_scope","Every market partition must retain one common opening, certified cutoff, next close and complete distinct owners.");
+        if(prepared[0].Policy.CashAccumulation==LifecycleProjectionPolicy.Accumulated&&prepared.SelectMany(p=>p.CashCurveIdentities)
+            .GroupBy(p=>p.Key).Any(g=>g.Select(p=>p.Value).Distinct().Count()!=1))
+            throw Error("risk_economic_scope","Accumulated cash must use one explicitly selected retained curve version per currency across the portfolio.");
+        if(prepared[0].CashAccumulation is not null&&prepared.SelectMany(p=>p.CashAccumulation!.Curves).GroupBy(p=>p.Key)
+            .Any(g=>g.Any(p=>p.Value.CurveIdentity!=g.First().Value.CurveIdentity||!p.Value.SourceSnapshot.HasSameInputs(g.First().Value.SourceSnapshot))))
+            throw Error("risk_economic_scope","Each currency's explicit accumulation source and exact native curve must agree across the portfolio.");
+    }
+    internal static bool SameFactor(QuoteFactor a,QuoteFactor b)=>QuoteFactors.SameDeclaration(a,b);
+    private static string Id(int n)=>"economic_"+n.ToString("D5",System.Globalization.CultureInfo.InvariantCulture);
+    private static MarketDataException Error(string code,string message)=>new(code,message);
+}

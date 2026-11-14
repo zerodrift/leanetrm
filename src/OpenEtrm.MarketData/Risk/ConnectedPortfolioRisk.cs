@@ -48,7 +48,8 @@ public sealed record ConnectedBookRiskRun(Guid SnapshotId,string NumericalPolicy
     public ImmutableArray<ExactRiskPositionValue> BasePositions{get;init;}=[];
 }
 public sealed record ConnectedGroupedRiskRun(Guid SnapshotId,ImmutableArray<ConnectedBookRiskRun> Groups,ConnectedRiskWork Work,GraphWork GraphWork);
-public sealed record ConnectedHoldingIdentity(int Group,Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ReferenceKey Currency);
+public sealed record ConnectedHoldingIdentity(int Group,Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ReferenceKey Currency)
+{public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);}
 public sealed record ConnectedPreparationCounters(long EvaluatedNodes,long ReusedReads,int VolumeComputations);
 public sealed class PreparedConnectedPortfolioRisk
 {
@@ -70,19 +71,20 @@ public sealed class PreparedConnectedPortfolioRisk
     }
 
     private readonly ImmutableArray<QuoteFactor> baseFactors;
+    private readonly ImmutableArray<CurveRequest> inputDependencies;
     private readonly Lazy<ImmutableArray<QuoteFactor>> factors;
     public ImmutableArray<QuoteFactor> Factors=>factors.Value;
-    private readonly Lazy<ImmutableDictionary<(Guid TradeId,Guid BindingId),ImmutableHashSet<InputKey>>> declaredPriceInputs;
+    private readonly Lazy<ImmutableDictionary<(AccountingOwnerKey Owner,Guid BindingId),ImmutableHashSet<InputKey>>> declaredPriceInputs;
     // The live price inputs each holding's unit valuation reaches through its declared dependencies. Dependencies
     // identify the repricing a factor can affect; they assign no exposure.
-    public ImmutableDictionary<(Guid TradeId,Guid BindingId),ImmutableHashSet<InputKey>> DeclaredPriceInputs=>declaredPriceInputs.Value;
+    public ImmutableDictionary<(AccountingOwnerKey Owner,Guid BindingId),ImmutableHashSet<InputKey>> DeclaredPriceInputs=>declaredPriceInputs.Value;
     private readonly Lazy<ImmutableDictionary<InputKey,ExactDecimal>> declaredPriceSteps;
     // For each directly quoted live price input, the largest price step the held valuations declare for it. A step is a
     // model's own resolution in that price; it identifies no repricing and assigns no exposure.
     public ImmutableDictionary<InputKey,ExactDecimal> DeclaredPriceSteps=>declaredPriceSteps.Value;
     // Immutable source coverage, available before pricing any historical scenario.
     public ImmutableArray<ConnectedHoldingIdentity> Holdings=>[..Portfolios.SelectMany((p,n)=>p.Positions.Select(v=>
-        new ConnectedHoldingIdentity(n,v.TradeId,v.BindingId,v.BookId,v.ValuationId,v.FixedBasis.Currency)))];
+        new ConnectedHoldingIdentity(n,v.TradeId,v.BindingId,v.BookId,v.ValuationId,v.FixedBasis.Currency){Owner=v.Owner}))];
     public ImmutableArray<UnitPricingContract> UnitContracts=>[..Contracts.SelectMany(group=>group)];
     internal PreparedValuationEnvironment Market{get;}
     internal CurveBuild? IntervalBasis{get;}
@@ -92,13 +94,14 @@ public sealed class PreparedConnectedPortfolioRisk
     internal ImmutableDictionary<CurveRequest,CurvePointKey> Bindings{get;}
     internal PreparedConnectedPortfolioRisk(ConnectedValuation valuation,PreparedValuationEnvironment market,ImmutableArray<ValuationPortfolio> portfolios,
         ImmutableArray<ImmutableArray<UnitPricingContract>> contracts,ImmutableArray<QuoteFactor> factors,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,
-        PreparedConnectedPortfolioRisk? parent=null,CurveBuild? intervalBasis=null)
+        PreparedConnectedPortfolioRisk? parent=null,CurveBuild? intervalBasis=null,ImmutableArray<CurveRequest> inputDependencies=default)
     {
         Valuation=valuation;Market=market;IntervalBasis=intervalBasis;Portfolios=portfolios;Contracts=contracts;Parent=parent;Bindings=bindings;
         baseFactors=parent?.baseFactors??factors;
+        this.inputDependencies=parent?.inputDependencies??(inputDependencies.IsDefault?[]:inputDependencies);
         this.factors=new(parent is null?()=>baseFactors:ResolveFactors);
         declaredPriceInputs=parent?.declaredPriceInputs??new(ResolveDeclaredPriceInputs);
-        declaredPriceSteps=parent?.declaredPriceSteps??new(ResolveDeclaredPriceSteps);
+        declaredPriceSteps=parent is null||market.CalculationAt!=parent.Market.CalculationAt?new(ResolveDeclaredPriceSteps):parent.declaredPriceSteps;
     }
     private ImmutableDictionary<InputKey,ExactDecimal> ResolveDeclaredPriceSteps()
     {
@@ -115,14 +118,14 @@ public sealed class PreparedConnectedPortfolioRisk
     internal static InputKey DirectInput(DeclaredPriceStep step,ImmutableArray<QuoteFactor> reached)=>
         reached is [{} quoted]&&quoted.Contract==step.Dependency.Contract&&quoted.Curves.Contains(step.Dependency.Curve)?quoted.Input:
             throw new MarketDataException("risk_price_step","A declared price step needs its dependency to be one directly quoted live price input.");
-    private ImmutableDictionary<(Guid,Guid),ImmutableHashSet<InputKey>> ResolveDeclaredPriceInputs()
+    private ImmutableDictionary<(AccountingOwnerKey,Guid),ImmutableHashSet<InputKey>> ResolveDeclaredPriceInputs()
     {
-        var holdings=ImmutableDictionary.CreateBuilder<(Guid,Guid),ImmutableHashSet<InputKey>>();
+        var holdings=ImmutableDictionary.CreateBuilder<(AccountingOwnerKey,Guid),ImmutableHashSet<InputKey>>();
         for(var group=0;group<Portfolios.Length;group++)
         {
             var portfolio=Portfolios[group];
             var reached=Contracts[group].Select(contract=>Market.Factors(contract.Dependencies,default).Select(factor=>factor.Input).ToImmutableHashSet()).ToArray();
-            foreach(var position in portfolio.Positions)holdings.Add((position.TradeId,position.BindingId),reached[portfolio.ScopeIndex(position)]);
+            foreach(var position in portfolio.Positions)holdings.Add((position.Owner,position.BindingId),reached[portfolio.ScopeIndex(position)]);
         }
         return holdings.ToImmutable();
     }
@@ -130,7 +133,7 @@ public sealed class PreparedConnectedPortfolioRisk
     /// The graph points the held instruments are priced from: the binding of each dependency they declare, each point once, in the
     /// order of their declarations.
     /// </summary>
-    public ImmutableArray<CurvePointKey> DeclaredPoints=>Contracts.SelectMany(group=>group).SelectMany(contract=>contract.Dependencies)
+    public ImmutableArray<CurvePointKey> DeclaredPoints=>Contracts.SelectMany(group=>group).SelectMany(contract=>contract.Dependencies).Concat(inputDependencies)
         .Select(dependency=>Bindings.TryGetValue(dependency,out var point)?point:
             throw new MarketDataException("risk_dependency","Every declared pricing dependency requires its exact connected binding."))
         .Distinct().ToImmutableArray();
@@ -151,6 +154,16 @@ public sealed class PreparedConnectedPortfolioRisk
 
 public static partial class RiskEngine
 {
+    public static PreparedConnectedPortfolioRisk PrepareConnectedInputs(ConnectedValuation valuation,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,
+        ImmutableArray<CurveRequest> dependencies,CurveBuild authority,CancellationToken cancellation=default)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if(valuation is null||authority is null||bindings is null||dependencies.IsDefaultOrEmpty||dependencies.Distinct().Count()!=dependencies.Length||
+            dependencies.Any(d=>!bindings.ContainsKey(d))||valuation.Scenario.Depth!=0||!authority.Snapshot.HasSameInputs(valuation.Snapshot))
+            throw Error("instrument_context","Retain an explicit nonempty input-only dependency set under its original admitted source graph and authority.");
+        var market=valuation.Market(bindings,authority,cancellation,authority.BindConnected(valuation,bindings,cancellation));
+        return new(valuation,market,[],[],market.Factors(dependencies,cancellation),bindings,inputDependencies:dependencies);
+    }
     public static PreparedConnectedPortfolioRisk PrepareConnected(ConnectedValuation valuation,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,
         ImmutableArray<ValuationPortfolio> portfolios,CurveBuild? authority=null,CancellationToken cancellation=default)
     {
@@ -165,11 +178,11 @@ public static partial class RiskEngine
         if(portfolios.Any(p=>p.Instruments.Any(i=>i.RequiresNativeProgramMarket)))
             intervalBasis??=authority??throw Error("native_program_context","Retained programs require the complete qualified native market authority.");
         var market=valuation.Market(bindings,authority,cancellation,intervalBasis?.BindConnected(valuation,bindings,cancellation));
-        var factors=portfolios.SelectMany((portfolio,n)=>portfolio.RiskFactors(market,contracts[n],cancellation))
-            .SelectMany(book=>book.Factors).DistinctBy(factor=>factor.Input).OrderBy(factor=>factor.Input.Series.Id).ToImmutableArray();
-        var prepared=new PreparedConnectedPortfolioRisk(valuation,market,portfolios,contracts,factors,bindings,intervalBasis:intervalBasis);
+        var factors=QuoteFactors.Union(portfolios.SelectMany((portfolio,n)=>portfolio.RiskFactors(market,contracts[n],cancellation))
+            .SelectMany(book=>book.Factors));
         market.RequireInputs(contracts.SelectMany(g=>g));
-        return prepared;
+        var resolved=portfolios.Select((p,n)=>p.ResolvePriceSteps(market,contracts[n],cancellation)).ToImmutableArray();
+        return new(valuation,market,portfolios,resolved,factors,bindings,intervalBasis:intervalBasis);
     }
     public static PreparedConnectedPortfolioRisk WithShifts(PreparedConnectedPortfolioRisk prepared,ImmutableArray<CurveShift> shifts,CancellationToken cancellation=default)
         =>WithLayer(prepared,shifts,null,[],cancellation);
@@ -184,8 +197,10 @@ public static partial class RiskEngine
         var valuation=prepared.Valuation.WithScenario(scenario);
         var environment=ConnectedValuation.WithScenario(prepared.Market,valuation,prepared.IntervalBasis?.BindConnected(valuation,prepared.Bindings,cancellation));
         environment.RequireInputs(prepared.Contracts.SelectMany(g=>g));
+        var contracts=environment.CalculationAt==prepared.Market.CalculationAt?prepared.Contracts:
+            prepared.Portfolios.Select((p,n)=>p.ResolvePriceSteps(environment,prepared.Contracts[n],cancellation)).ToImmutableArray();
         return new(valuation,environment,
-            prepared.Portfolios,prepared.Contracts,[],prepared.Bindings,prepared,prepared.IntervalBasis);
+            prepared.Portfolios,contracts,[],prepared.Bindings,prepared,prepared.IntervalBasis);
     }
     public static ConnectedGroupedRiskRun CalculateExact(PreparedConnectedPortfolioRisk prepared,ImmutableArray<ConnectedRiskBump> bumps,
         string numericalPolicy,CancellationToken cancellation=default,RiskDetail detail=RiskDetail.Holdings)
@@ -196,6 +211,7 @@ public static partial class RiskEngine
         if(prepared is null)throw Error("instrument_context","Supply the exact prepared connected portfolio.");
         if(bumps.IsDefault||bumps.Any(bump=>bump is null||bump.Target is null||bump.Unit is null||bump.Size.CompareTo(default)<=0||bump.ConventionId!=ConnectedRiskBump.Convention))
             throw Error("risk_bump","Supply explicit positive symmetric curve-coordinate bumps, or an explicit empty list for base valuation.");
+        if(!bumps.IsEmpty)RequireStaticDerivatives(prepared.UnitContracts);
         var portfolios=prepared.Portfolios;var contracts=prepared.Contracts;
         var calculation=new PortfolioRiskCalculation(prepared.Market,portfolios,contracts,detail,cancellation);
         var bases=calculation.Bases;

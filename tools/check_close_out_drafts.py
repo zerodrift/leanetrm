@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 from uuid import uuid4
 from preview_client import PreviewClient
+from lifecycle_swap_client import LifecycleSwapClient,SYNTHETIC_SWAP_REVIEW
 from preview_fixture import CAT, R, REV, identity, trade_booking
 
 # A close after the January and February monthly index fixings, before March's: two periods can then be settled.
@@ -26,6 +27,7 @@ def prepare(market,manifest):
 def run_checks(url,query,dotnet,owned_root,environment):
     """Run the close-out draft checks and return the fixture they booked, which the browser scenario reads."""
     client=PreviewClient(url);client.bootstrap();client.call('profile',{'profile':'trader'})
+    client=LifecycleSwapClient(client,**SYNTHETIC_SWAP_REVIEW)
     frames=client.call('workspace')['frames']
     booking=next(f for f in frames if f['at'].startswith('2020-12-18'))
     february=next(f for f in frames if f['at'].startswith(FEBRUARY[:19]))

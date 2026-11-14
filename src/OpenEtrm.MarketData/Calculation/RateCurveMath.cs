@@ -30,7 +30,7 @@ public sealed record RateNode(int Days, ExactDecimal DecimalRate, ExactDecimal F
 
 // Project-owned rate conventions. Exponentials and logarithms use LatticeDecimal (30 digits with
 // guard digits), and every factor rounds once to 18 places, half-even.
-public static class RateCurveMath
+public static partial class RateCurveMath
 {
     public const string Policy = "rate_curve_lattice30_to_even_18_v1";
 
@@ -133,20 +133,41 @@ public static class RateCurveMath
                 throw new MarketDataException("rate_maturity", "Pillars must follow the reference date in strictly increasing order.");
             return new RateNode(days, p.DecimalRate, Factor(p.DecimalRate, days, c));
         }).ToImmutableArray();
+        var used=RequiredPillars(referenceDate,[..pillars.Select(p=>p.Maturity)],payment,c);
         var target = payment.DayNumber - referenceDate.DayNumber;
-        if (target == 0) return new(ExactDecimal.Parse("1"), []);
-        var right = nodes.TakeWhile(n => n.Days < target).Count();
-        if (right < nodes.Length)
-        {
-            if (nodes[right].Days == target) return new(nodes[right].Factor, [right]);
-            return right == 0
-                ? new(Interpolate(RateNode.Anchor(nodes[0]), nodes[0], target, c), [0])
-                : new(Interpolate(nodes[right - 1], nodes[right], target, c), [right - 1, right]);
-        }
+        if (target == 0) return new(ExactDecimal.Parse("1"),used);
+        var right=used[^1];
+        if(nodes[right].Days==target)return new(nodes[right].Factor,used);
+        if(target<nodes[^1].Days)return new(Interpolate(used.Length==1?RateNode.Anchor(nodes[0]):nodes[used[0]],nodes[right],target,c),used);
         var last = nodes.Length - 1;
         var before = last == 0 ? RateNode.Anchor(nodes[0]) : nodes[last - 1];
         var factor = Extrapolate(before, nodes[last], target, c);
-        return new(factor, c.Extrapolation == "flat_forward" && last > 0 ? [last - 1, last] : [last]);
+        return new(factor,used);
+    }
+
+    // Dependency geometry is independent of mark levels. Equal rates cannot
+    // erase a pillar that another scenario needs.
+    public static ImmutableArray<int> RequiredPillars(DateOnly reference,ImmutableArray<DateOnly> maturities,DateOnly payment,RateConventionSet conventions)
+    {
+        if(maturities.IsDefaultOrEmpty||payment<reference||conventions is null)
+            throw new MarketDataException("discount_context","Select a nonempty exact tenor geometry and a date on or after its origin.");
+        if(maturities.Select((date,i)=>date<=reference||i>0&&date<=maturities[i-1]).Any(invalid=>invalid))
+            throw new MarketDataException("rate_maturity","Tenor maturities must follow the origin in strictly increasing order.");
+        if(payment==reference)return [];
+        var right=maturities.TakeWhile(date=>date<payment).Count();
+        if(right<maturities.Length)
+        {
+            if(maturities[right]==payment)return [right];
+            var left=right==0?reference:maturities[right-1];
+            if(maturities[right].DayNumber-left.DayNumber>DiscountInterpolation.MaximumPillarDays)
+                throw new MarketDataException("discount_interpolation","The requested bracket exceeds the supported interpolation span.");
+            return right==0?[0]:[right-1,right];
+        }
+        var last=maturities.Length-1;
+        return conventions.Extrapolation switch{
+            "none"=>throw new MarketDataException("discount_coverage","This curve does not extrapolate after its last pillar."),
+            "flat_zero"=>[last],"flat_forward"=>last==0?[last]:[last-1,last],
+            _=>throw Unsupported(conventions.Extrapolation)};
     }
 
     private static readonly DateOnly Epoch = new(2000, 1, 1);

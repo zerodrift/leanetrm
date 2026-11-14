@@ -11,6 +11,8 @@ public abstract class PreparedValuationEnvironment
     public abstract MarketSnapshot Snapshot{get;}
     public abstract string ScenarioId{get;}
     public abstract DateTimeOffset CalculationAt{get;}
+    internal virtual DateTimeOffset LifecycleAt=>Snapshot.ValuationAt;
+    internal virtual bool IsLifecycleProjection=>false;
     public abstract string? ClockPolicy{get;}
     internal abstract ExactDecimal VolatilityOffset(Guid input);
     internal abstract ImmutableHashSet<Guid> ShiftedVolatilityInputs{get;}
@@ -19,7 +21,7 @@ public abstract class PreparedValuationEnvironment
         var contracts=declarations.ToArray();
         foreach(var contract in contracts)
         {
-            contract.RequireInputs();contract.Time.Require(Snapshot.ValuationAt,CalculationAt);
+            contract.RequireInputs();contract.Time.Require(LifecycleAt,CalculationAt);
             foreach(var discount in contract.DiscountInputs)Discount(discount);
         }
         var declared=contracts.SelectMany(c=>c.Volatility).GroupBy(v=>v.Id).ToDictionary(g=>g.Key,g=>
@@ -36,11 +38,27 @@ public abstract class PreparedValuationEnvironment
     }
     internal SidePaymentFactor Discount(DiscountInput input)
     {
-        var factors=input.Provider.ResolveForValuation([input.Payment],Snapshot,CalculationAt,ClockPolicy);
+        var selected=input.Source??Snapshot;
+        RequireDiscountSource(selected);
+        var factors=input.Provider.ResolveForValuation([input.Payment],selected,CalculationAt,ClockPolicy);
         if(factors.IsDefault||factors.Length!=1||factors[0] is null||factors[0].Payment!=input.Payment||
-            !factors[0].Snapshot.HasSameInputs(Snapshot)||factors[0].DiscountFactor.CompareTo(default)<=0)
+            !factors[0].Snapshot.HasSameInputs(selected)||factors[0].DiscountFactor.CompareTo(default)<=0)
             throw new MarketDataException("risk_dependency","A discount provider must return its exact declared payment and retained source context.");
+        var factor=factors[0];
+        if(factor.Source==DiscountFactorSource.CurrencyDefault&&factor.RateDefinition is null)
+            throw new MarketDataException("discount_curve","Currency-default discounting requires its retained rate evidence.");
+        if(factor.RateDefinition is {} definition&&(CalculationAt==selected.ValuationAt||definition.Timing is not null||definition.CurveTerms is not null))
+        {
+            if(definition.Timing is {} timing&&timing.CalculationAt!=CalculationAt)
+                throw new MarketDataException("discount_timing","Exact-instant evidence must retain this calculation instant.");
+            definition.Require(factor,CalculationAt);
+        }
         return factors[0];
+    }
+    internal virtual void RequireDiscountSource(MarketSnapshot selected)
+    {
+        if(!selected.HasSameInputs(Snapshot))
+            throw new MarketDataException("risk_dependency","An explicit discount source requires its exact independently admitted snapshot and calculation context.");
     }
     public abstract string NumericalPolicy{get;}
     internal abstract object Identity{get;}
@@ -48,6 +66,7 @@ public abstract class PreparedValuationEnvironment
     internal virtual CurveBuild? NativeIntervalScenario=>null;
     internal virtual CurveBuild? NativeProgramBasis=>null;
     internal abstract ExactUnitPrice Price(CurveRequest request,CancellationToken cancellation);
+    internal abstract void RequirePriceSource(Calculation.CapturedPriceSource source,CancellationToken cancellation);
     internal virtual UnitPrice WorkingPrice(CurveRequest request,CancellationToken cancellation)=>Price(request,cancellation).ToUnitPriceExact();
     internal abstract ImmutableHashSet<ObservationKey> Lineage(CurveRequest request,CancellationToken cancellation);
     internal abstract ImmutableArray<QuoteFactor> Factors(ImmutableArray<CurveRequest> requests,CancellationToken cancellation);

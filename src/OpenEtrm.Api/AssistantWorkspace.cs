@@ -193,7 +193,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
             "settings_ai"=>new[]{"ManageAgents","ManageModelProviders","ReadModelUsage","ManageAssistantPrompts"}.Any(held.Contains),
             "risk_jobs" or "blotter_risk" or "blotter_risk_lens"=>held.Contains("ReadTrades")&&held.Contains("RunScenario"),
             "blotter_new_trade" or "blotter_new_future" or "blotter_new_swap"=>held.Contains("ReadTrades"),
-            "physical_operations"=>held.Contains("ReadMarketData")&&held.Contains("ReadTrades"),
+            "physical_operations" or "lifecycle"=>held.Contains("ReadMarketData")&&held.Contains("ReadTrades"),
             "facility_quantities"=>new[]{"ReadMarketData","ReadTrades","ReadFacilityQuantities"}.All(held.Contains),
             _=>held.Contains("ReadMarketData")
         };
@@ -266,6 +266,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         var certificate=await Certificate(turn,ct);
         Validate(operation,request,certificate);
         RequireFacilityContext(operation,request,certificate,false);
+        RequireLifecycleContext(operation,request,turn.Pin);
         DateTimeOffset? selectedCutoff=null;
         if(operation.CurrentOnly&&turn.PageReport.GetProperty("selection") is {} selection&&selection.TryGetProperty("operation",out var selectedOperation)&&
             selectedOperation.GetString()==id&&selection.TryGetProperty("inputJson",out var selectedInput))
@@ -314,6 +315,16 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         else if(value is JsonArray array)foreach(var item in array)RequirePin(item,pin,currentOnly,selectedCutoff);
     }
 
+    internal static void RequireLifecycleContext(AssistantOperation operation,AssistantOperationInput request,TurnPin pin)
+    {
+        if(operation.Path is not("lifecycle/discover" or "lifecycle/policies/read" or "lifecycle/preview" or "lifecycle/execute" or "lifecycle/gas/read" or "lifecycle/gas/setup" or "lifecycle/gas/configure" or "lifecycle/futures/delivery/configure" or "lifecycle/futures/adopt" or "lifecycle/futures/policies/save"))return;
+        var frame=pin.Frame??throw new ToolRefusal("context_required");
+        if(request.Body?["context"] is not JsonObject context||context["contextId"]?.GetValue<string>()!=pin.ContextId.ToString()||
+            context["asOf"]?.GetValue<string>() is not {} at||!DateTimeOffset.TryParse(at,CultureInfo.InvariantCulture,DateTimeStyles.None,out var instant)||instant!=frame.At||
+            context["businessDate"]?.GetValue<string>()!=frame.BusinessDate.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture))
+            throw new ToolRefusal("operation_context_mismatch");
+    }
+
     public async Task<JsonObject> Propose(TurnReads turn,string id,JsonElement input,int step,CancellationToken ct)
     {
         var operation=AssistantOperations.Find(id)??throw new ToolRefusal("tool_arguments_invalid");
@@ -323,6 +334,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
         if(!operation.Permissions.All(permissions.Contains))throw new PreviewDeniedException();
         var request=Input(input);var certificate=await Certificate(turn,ct);Validate(operation,request,certificate);
         RequireFacilityContext(operation,request,certificate,true);
+        RequireLifecycleContext(operation,request,turn.Pin);
         RequirePin(request.Body,turn.Pin,true);RequirePin(request.Parameters,turn.Pin,true);
         return new(){["status"]="awaiting_user_approval",["operation"]=id,["proposal"]=new JsonObject{["turnId"]=turn.TurnId.ToString(),["step"]=step},
             ["message"]="Prepared for review. No business change has been saved. The user must review and authorize this exact command in the application."};

@@ -85,6 +85,75 @@ internal static class PreviewDataChecks
             Reject(missingCode,()=>CustomCurves.PrepareMarket(connection,database,data,missing,missingSnapshot,context,[],[request],
                 CustomCurves.MarketPreparation.ValuationDependencies,default).GetAwaiter().GetResult());
         });
+        Check("a selected physical asset input retains its original foreign graph without a holding",()=>
+        {
+            var other=Fixture(2);var manifest=fixture.Manifest with{RevisionId=other.Manifest.RevisionId};
+            other.Definitions["revisions"]=[Row(new{catalog_id=manifest.CatalogId,id=manifest.RevisionId,reference_catalog_id=manifest.ReferenceCatalogId,
+                reference_revision_id=manifest.ReferenceRevisionId,state="sealed"})];
+            var b=new PreviewData(manifest,other.Definitions,fixture.References,other.Observations);
+            using var runtime=Npgsql.NpgsqlDataSource.Create("Host=127.0.0.1;Database=synthetic_unopened;Username=synthetic");
+            var database=new PreviewDatabase(fixture.Manifest,runtime);using var connection=runtime.CreateConnection();
+            var partA=new MarketSourceInputs(CatalogueSource.From(data),fixture.Frame.ObservationIds,[],fixture.Frame.CurveContracts,["future"]);
+            var partB=new MarketSourceInputs(CatalogueSource.From(b),other.Frame.ObservationIds,[],other.Frame.CurveContracts,["future"]);
+            var frame=fixture.Frame with{ContextId=Guid.NewGuid(),Source=partA.Source,SourceInputs=ImmutableDictionary<Guid,MarketSourceInputs>.Empty
+                .Add(data.DefinitionRevision.RevisionId,partA).Add(b.DefinitionRevision.RevisionId,partB)};
+            var context=new ScheduleContext("2040-01-10",1,frame.At.ToString("O"),frame.ContextId);
+            var aSource=data.Snapshot(frame).WithKnowledge(frame.ContextId.Value,frame.At);
+            var bFrame=partB.Project(frame);var bSource=b.Snapshot(bFrame).WithKnowledge(frame.ContextId.Value,frame.At);
+            var aRequest=new CurveRequest(new(data.DefinitionRevision,"future"),data.Contracts[0].Key);
+            var bRequest=new CurveRequest(new(b.DefinitionRevision,"future"),b.Contracts[0].Key);
+            var common=CustomCurves.CompleteContext(frame,aSource,context);
+            var selectedB=CustomCurves.PrepareMarket(connection,database,b,bFrame,bSource,context,[],[bRequest],CustomCurves.MarketPreparation.ScenarioUniverse,default,
+                calculationContext:common).GetAwaiter().GetResult();
+            var combined=CustomCurves.PrepareMarket(connection,database,data,frame,aSource,context,[],[aRequest,bRequest],CustomCurves.MarketPreparation.ScenarioUniverse,default,
+                calculationContext:common,linkedMarkets:[selectedB]).GetAwaiter().GetResult();
+            var expected=ExactUnitPrice.FromPrice(b.Model.Build(bSource,[bRequest]).Values.Single().Price);
+            if(combined.Valuation.Scenario.Price(combined.Bindings[bRequest])!=expected||!combined.Valuation.SourceSnapshots.Any(s=>s.HasSameInputs(bSource))||
+                combined.Valuation.Scenario.Plan.Context!=selectedB.Valuation.Scenario.Plan.Context)
+                throw new Exception("The combined physical source lost its exact admitted foreign graph or common calculation context.");
+            Reject("custom_curve_definition",()=>CustomCurves.CompleteContext(frame with{SourceInputs=null},aSource,context));
+            Reject("custom_curve_definition",()=>CustomCurves.PrepareMarket(connection,database,data,frame,aSource,context,[],[aRequest,bRequest],
+                CustomCurves.MarketPreparation.ScenarioUniverse,default,calculationContext:common).GetAwaiter().GetResult());
+            var substituted=bSource with{Selections=[..bSource.Selections.Select(o=>o with{Observation=o.Observation with{Value=o.Observation.Value+ExactDecimal.Parse("1")}})]};
+            Reject("custom_curve_definition",()=>CustomCurves.PrepareMarket(connection,database,b,bFrame,substituted,context,[],[bRequest],
+                CustomCurves.MarketPreparation.ScenarioUniverse,default,calculationContext:common).GetAwaiter().GetResult());
+            var changed=new OpenEtrm.MarketData.Calculation.ResolvedCalculationContext(common.ContextId,common.ManifestId+"changed",common.EffectiveAt,common.KnownAt,common.ValuationAt,common.MarketAsOf);
+            Reject("custom_curve_definition",()=>CustomCurves.PrepareMarket(connection,database,b,bFrame,bSource,context,[],[bRequest],
+                CustomCurves.MarketPreparation.ScenarioUniverse,default,calculationContext:changed).GetAwaiter().GetResult());
+            var point=selectedB.Bindings[bRequest];var unit=selectedB.Valuation.Scenario.Plan.Points[point].Unit;
+            var child=selectedB with{Valuation=selectedB.Valuation.WithScenario(selectedB.Valuation.Scenario.WithShifts([
+                new(OpenEtrm.MarketData.Calculation.CurveShockCoordinate.MarketQuote,new OpenEtrm.MarketData.Calculation.PointCurveTarget(point.Curve,[point.PointId]),unit,
+                    ExactDecimal.Parse("1"),OpenEtrm.MarketData.Calculation.CurveShift.ParentAdditive)]))};
+            Reject("custom_curve_definition",()=>CustomCurves.PrepareMarket(connection,database,data,frame,aSource,context,[],[aRequest,bRequest],
+                CustomCurves.MarketPreparation.ScenarioUniverse,default,calculationContext:common,linkedMarkets:[child]).GetAwaiter().GetResult());
+            var replay=CustomCurves.PrepareMarket(connection,database,data,frame,aSource,context,[],[aRequest,bRequest],CustomCurves.MarketPreparation.ScenarioUniverse,default,
+                combined.Evidence,calculationContext:common,linkedMarkets:[selectedB]).GetAwaiter().GetResult();
+            if(replay.Evidence.ManifestId!=combined.Evidence.ManifestId)throw new Exception("The exact complete-source graph changed on retained replay.");
+            var legacyFrame=frame with{SourceInputs=null};
+            var legacyA=CustomCurves.PrepareMarket(connection,database,data,legacyFrame,aSource,context,[],[aRequest],CustomCurves.MarketPreparation.ScenarioUniverse,default).GetAwaiter().GetResult();
+            var legacyContext=legacyA.Valuation.Scenario.Plan.Context;
+            CustomCurves.PreparedMarket NativeBAt(OpenEtrm.MarketData.Calculation.ResolvedCalculationContext selected)
+            {
+                var export=b.Model.Compile(bSource,[bRequest],false,selected);
+                var graph=OpenEtrm.MarketData.Calculation.ConnectedCurves.Compile(export.Definitions,[..export.Points.Values],selected,
+                    new CustomCurves.PreparedBindings(export.Definitions.Select(d=>d.Key).ToHashSet(),selected));
+                return new(OpenEtrm.MarketData.Calculation.ConnectedValuation.Prepare(OpenEtrm.MarketData.Calculation.ConnectedScenario.Base(graph),bSource),
+                    selectedB.Authority,export.Points.ToImmutableDictionary(p=>p.Key.Request,p=>p.Value),selectedB.Evidence,new(1,2));
+            }
+            var legacyB=NativeBAt(legacyContext);
+            Reject("custom_curve_definition",()=>CustomCurves.PrepareMarket(connection,database,data,legacyFrame,aSource,context,[],[aRequest,bRequest],
+                CustomCurves.MarketPreparation.ScenarioUniverse,default,linkedMarkets:[legacyB]).GetAwaiter().GetResult());
+            foreach(var matrix in new[]{frame.SourceInputs.Remove(b.DefinitionRevision.RevisionId),
+                frame.SourceInputs.SetItem(b.DefinitionRevision.RevisionId,partB with{ObservationIds=partB.ObservationIds.RemoveAt(1)}),
+                frame.SourceInputs.SetItem(b.DefinitionRevision.RevisionId,partB with{FrozenObservationIds=[partB.ObservationIds[0]]})})
+            {
+                var selection=frame with{SourceInputs=matrix};var selected=CustomCurves.CompleteContext(selection,aSource,context);
+                var unselectedB=NativeBAt(selected);
+                Reject("custom_curve_definition",()=>CustomCurves.PrepareMarket(connection,database,data,selection,aSource,context,[],[aRequest,bRequest],
+                    CustomCurves.MarketPreparation.ScenarioUniverse,default,calculationContext:selected,linkedMarkets:[unselectedB]).GetAwaiter().GetResult());
+            }
+
+        });
         Check("mixed portfolio snapshots bind one explicit knowledge context without replacing any input",()=>
         {
             var source=data.Snapshot(fixture.Frame);var context=Guid.NewGuid();var known=fixture.Frame.At.AddDays(1);

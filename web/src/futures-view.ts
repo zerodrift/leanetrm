@@ -19,6 +19,7 @@ import {setupTradeEditor,readTradeView} from './trade-editor.js';
 import {type FuturesContract as Contract} from './futures-contract.js';
 import {PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
 import {releasesRetained,retainedText,retryAllowed,isLifecycleCommand,isCrudeOperation,tradeStatusPath} from './trade-requests.js';
+import {isRetiredSwapRequest,retiredSwapRequest} from './retired-swap-request.js';
 import {setupRisk,riskDenied,type RunView} from './risk-view.js';
 import {setupRiskResults} from './risk-results-view.js';
 import {validateHistorical} from './historical-risk.js';
@@ -102,6 +103,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   riskReportUrl?:(id:string)=>string;
   // Opens an option product's volatility surface; null in a window with no Vol surfaces page.
   volSurface:((product:string,definitionRevisionId:string)=>void)|null;
+  lifecycle?:()=>void;
   // Says why work that does not run under act failed: a read in the background, or an action the person took that was refused; and
   // takes that away again once the person acts anew.
   failed:(error:unknown)=>void;failureCleared:()=>void;notice:(message:string)=>void;
@@ -168,6 +170,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   let pendingShapes=new Set<string>();
   let requestShape:((holding:Holding)=>void)|undefined;
   const pending=new PendingCommand();
+  let earlierSwap:ReturnType<typeof retiredSwapRequest>|undefined;
   // Price before booking draws the curve of each market the draft is for: from the desk's own read when it holds the curve, and otherwise
   // from one read of that curve, kept until the desk reads again.
   const drafts=draftShapes({
@@ -305,7 +308,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   const editor=setupTradeEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,
     queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request before submitting another command.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
 
-  const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),
+  const swapEditor=setupSwapEditor({api,act,busy,zone:options.zone,context:readContext,pending:()=>pending.command,onDenied:clear,host:()=>panel.element('form'),leave:()=>panel.leave(),unsavedChanged:options.unsavedChanged,shape:market=>drafts.shape(market),lifecycle:options.lifecycle,
     ask:question=>detailsPane.ask(question),
     queue:async command=>{takeHanded();if(pending.command)throw Error('Reconcile the retained request first.');pending.command=structuredClone(command);uncertain=false;store();sync();await send(command);}});
   // The form of a new future, which the panel hosts as it hosts the forms of the amendments. What it books is kept as the request it was first sent as.
@@ -324,6 +327,9 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // A request whose outcome is not known is kept with its Check status and Retry in a card on the page, above the panes, whatever the details
   // show, so that nothing leaves the person with no way to find out what became of it.
   const retained=get('futures-pending');
+  earlierSwap=retiredSwapRequest(retained,{api,actor:options.profile,command:()=>pending.command,busy,act,
+    resolved:async command=>{pending.clear();uncertain=false;store();sync();await settled(command);},
+    dismissed:()=>{pending.clear();uncertain=false;store();options.notice('The earlier unrecorded settlement request was dismissed. Review new actions in Lifecycle.');sync();}});
   // A PPA or physical gas request whose outcome is not known offers its reconciliation beside the futures and swap request's card.
   const productPending=document.createElement('section');productPending.className='card';productPending.id='product-trade-pending';get('futures-retained').append(productPending);
   function syncProductPending(){
@@ -360,7 +366,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       const stale=!holdings,context=readContext();
       const displayed=displayedContext();if(!displayed?.contextId)throw Error('Read the Blotter before inspecting its Side schedules.');
       const inspectionContext={...context,knowledgeMode:'retained',contextId:displayed.contextId};
-      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:options.profile,recorded:()=>void act(load),surface:options.volSurface}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:clear,actor:options.profile,readOnly:stale,amend:options.window.kind==='main'?()=>void perform({kind:'amend',key:rowKey(h)}):undefined}):h.instrumentType==='ppa'?readPpaView(api,context,h,displayed.knownAt,()=>void manage('ppa',h.tradeId)):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):h.instrumentType==='future'?readTradeView(api,context,h,formats):genericPositionView(h));
+      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{actor:options.profile,recorded:()=>void act(load),surface:options.volSurface,lifecycle:options.lifecycle}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:clear,actor:options.profile,readOnly:stale,amend:options.window.kind==='main'?()=>void perform({kind:'amend',key:rowKey(h)}):undefined}):h.instrumentType==='ppa'?readPpaView(api,context,h,displayed.knownAt,()=>void manage('ppa',h.tradeId)):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):h.instrumentType==='future'?readTradeView(api,context,h,formats):genericPositionView(h));
 
       // Details kept on screen while the Blotter is read again do not transition into a working settlement editor.
       const scheduled=withSideSchedules(read,api,inspectionContext,h,clear);
@@ -942,7 +948,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
     if(!busy())workspace.busy(false);
     const awaitingValues=!holdings&&loading!==undefined;get('blotter-workspace').querySelectorAll<HTMLElement>('.table-menu').forEach(menu=>{menu.inert=busy()||awaitingValues&&menu.id!=='blotter-scope';});field('blotter-saved').disabled=busy()||awaitingValues;get<HTMLButtonElement>('blotter-retry').disabled=busy();
     // Rows on screen while no valued read is, kept stale from the previous one, are not offered: opening them only says why.
-    const grid=get('desk-positions').querySelector('[role=grid]');if(holdings)grid?.removeAttribute('aria-disabled');else grid?.setAttribute('aria-disabled','true');syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();options.tickets.sync();syncProductPending();position.sync();entry.sync();panel.place();syncRiskReport();if(busy())workspace.busy(true);syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));get<HTMLButtonElement>('blotter-export').disabled=busy()||!holdings||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
+    const grid=get('desk-positions').querySelector('[role=grid]');if(holdings)grid?.removeAttribute('aria-disabled');else grid?.setAttribute('aria-disabled','true');syncLens();booking.sync();risk.sync();editor.sync();swapEditor.sync();options.tickets.sync();syncProductPending();position.sync();entry.sync();panel.place();syncRiskReport();if(busy())workspace.busy(true);syncNewTrade();retained.hidden=!pending.command;if(pending.command)text('futures-pending-text',retainedText(pending.command));get<HTMLButtonElement>('blotter-export').disabled=busy()||!holdings||!table?.ready();get<HTMLButtonElement>('futures-retry').disabled=busy()||!pending.command||!retryAllowed(pending.command.path,catalog);get<HTMLButtonElement>('futures-reconcile').disabled=busy();const retiredSettlement=!!pending.command&&isRetiredSwapRequest(pending.command.path);get('futures-retry').hidden=retiredSettlement;get('futures-reconcile').hidden=retiredSettlement;earlierSwap?.sync();if(view.mode==='pivot')get('blotter-column-choices').querySelectorAll<HTMLInputElement>('input').forEach(n=>{if(['instrumentType','unit','currency','priceUnit'].includes(n.value))n.disabled=true;});}
   function clearDesk(){get('desk').hidden=true;get('desk-charts').hidden=true;get('blotter-strip').replaceChildren();clearDeskCharts(get('desk-chart-pv'));clearDeskCharts(get('desk-chart-position'));for(const id of ['desk-chart-books','desk-chart-mix'])get(id).replaceChildren(get(id).querySelector('h3')!);}
   function cancelRead(){stopUpdates();stopUpdates=()=>{};stopShapeReads();requestShape=undefined;shapesRead=Promise.resolve();generation++;pricingController?.abort();pricingController=undefined;}
   function clear(){clearRead(false);}
@@ -1460,6 +1466,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   // What the backend says of a trade request it has committed: the trade, and the binding the request left it with.
   type Receipt={tradeId?:string;bindingId?:string};
   async function send(command:RequestCommand){
+    if(isRetiredSwapRequest(command.path))throw Error('Check the earlier settlement request status. Review new actions in Lifecycle.');
     const retrying=uncertain;uncertain=true;store();
     let receipt:Receipt|undefined;
     try{receipt=await api<Receipt>(command.path,{...command.body,operationId:command.operationId});}
@@ -1520,6 +1527,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   get('futures-retry').onclick=()=>retainedAction(async()=>{if(!pending.command)throw Error('No retained booking to retry.');await send(pending.command);});
   get('futures-reconcile').onclick=()=>retainedAction(async()=>{
     if(!pending.command)throw Error('No retained booking to reconcile.');
+    if(isRetiredSwapRequest(pending.command.path))return;
     try{
       const result=await api<Receipt>(tradeStatusPath(pending.command.path),{operationId:pending.command.operationId});
       if(!result.tradeId)throw Error('No committed outcome is visible yet. Retry the original request with the same identity.');
@@ -1764,6 +1772,15 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       restore();await loadViews();
       const saved=savedViews.find(v=>v.name===name);if(!saved)throw Error(`The saved view ${name} is no longer saved to your account.`);
       if(draftBase?.name!==name||draftBase.version!==versions.get(name))useSaved(saved);
+    },
+    // Current native lifecycle facts changed outside the Blotter. Keep explicit
+    // historical views pinned; ordinary inputs must be read again on return.
+    financialCommitted(){
+      if(options.source().context)return;
+      const plan=riskRefreshPlan({open:panel.current()?.kind==='risk',edited:risk.edited(),run:!!risk.current(),retained:risk.unconfirmed()},'settlement');
+      inputsChanged(plan);cancelRead();cachedRead=undefined;
+      get('futures-page').dataset.pricingState='stale';delete get('futures-page').dataset.pricingContext;
+      markStale('Lifecycle facts changed · refresh to read current values.');
     },
     // A live correction reads the desk again, a position or new trade in the panel with it unless the person has edits in it, and the risk
     // report at the corrected inputs, carrying a setup's choices over; it clears a risk run with a note. No live view can book, so no form of

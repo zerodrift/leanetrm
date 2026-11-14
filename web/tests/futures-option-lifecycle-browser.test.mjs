@@ -52,35 +52,22 @@ test('an open option ticket refreshes its clock without changing edits or an unc
  });
 });
 
-// A lifecycle request asks its host again whether events may be recorded before it is sent. While that question is open the request is
-// being sent, so it is not sent twice; when the question fails, the request is not sent and the status line says why.
-test('an exercise whose recording authority cannot be read again is not sent, says why and is sent only once',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
- await withBrowserPage('<div id="host"></div>',async evaluate=>{
-  await evaluate(`(async()=>{
-   const {readOptionView}=await import('/futures-option-view.js');
-   window.sent=[];window.asked=0;
-   const api=async(path,body)=>{if(path==='options/holding')return {tradeId:'t1',lots:'2',openLots:'2',events:[]};sent.push(path);return {};};
-   let refuse;
-   const writes=()=>{asked++;return asked===1?{enabled:true,reason:null}:new Promise((_,reject)=>{refuse=()=>reject(Error('Your permissions could not be read.'));});};
-   const allowed={allowed:true,reason:null},not={allowed:false,reason:'Not here.'};
-   const h={tradeId:'t1',component:'option',tradeReference:'T-1',instrumentReference:'I-1',book:'Book A',revision:'1',executedAt:'2026-10-16T18:00:00Z',
-    booking:{tradeDate:'2026-10-16'},currency:'USD',closableLots:'2',actions:{exercise:allowed,assignment:not,instruction:not}};
-   const read=await readOptionView(api,{snapshotId:'s1'},h,{writes,actor:()=>'trader',recorded:()=>{}});
-   read.view('UTC').termsContent(document.querySelector('#host'));
-   document.querySelector('#option-exercise-lots').value='1';
-   document.querySelector('#option-exercise').click();
-   await new Promise(r=>setTimeout(r,20));
-   window.during={asked,exercise:document.querySelector('#option-exercise').disabled,retry:document.querySelector('#option-lifecycle-retry').disabled};
-   document.querySelector('#option-lifecycle-retry').click();
-   await new Promise(r=>setTimeout(r,20));
-   window.twice=asked;
-   refuse();
-   await new Promise(r=>setTimeout(r,20));
-  })()`);
-  assert.deepEqual(await evaluate('during'),{asked:2,exercise:true,retry:true});
-  assert.equal(await evaluate('twice'),2);
-  assert.deepEqual(await evaluate('sent'),[]);
-  assert.match(await evaluate("document.querySelector('.option-lifecycle [role=status]').textContent"),/^Not sent: Your permissions could not be read\./);
-  assert.equal(await evaluate("document.querySelector('#option-lifecycle-retry').disabled"),false);
- });
-});
+test('an earlier option event status failure retains its request and cannot start a duplicate check',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
+ await evaluate(`(async()=>{
+  const {readOptionView}=await import('/futures-option-view.js');window.sent=[];window.asked=0;
+  window.retained={operationId:'earlier-operation',path:'options/exercise',body:{tradeId:'t1',lots:'1'},uncertain:true};
+  sessionStorage.setItem('option-lifecycle-request:trader:t1',JSON.stringify(retained));
+  const api=async(path,body)=>{sent.push(path);if(path==='options/holding')return {tradeId:'t1',lots:'2',openLots:'2',events:[]};asked++;return new Promise((_,reject)=>{window.refuse=()=>reject(Error('Your permissions could not be read.'));});};
+  const h={tradeId:'t1',component:'option',tradeReference:'T-1',instrumentReference:'I-1',book:'Synthetic book',revision:'1',executedAt:'2026-10-16T18:00:00Z',booking:{tradeDate:'2026-10-16'},currency:'USD'};
+  const read=await readOptionView(api,{snapshotId:'s1'},h,{writes(){throw Error('No legacy write authority is needed for a status read.');},actor:()=>'trader',recorded(){}});
+  read.view('America/Chicago').termsContent(document.querySelector('#host'));
+  document.querySelector('#option-lifecycle-status').click();document.querySelector('#option-lifecycle-status').click();
+  await new Promise(r=>setTimeout(r,20));window.during={asked,disabled:document.querySelector('#option-lifecycle-status').disabled};
+  refuse();await new Promise(r=>setTimeout(r,20));
+ })()`);
+ assert.deepEqual(await evaluate('during'),{asked:1,disabled:true});
+ assert.deepEqual(await evaluate('sent'),['options/holding','options/status']);
+ assert.match(await evaluate("document.querySelector('.option-lifecycle [role=status]').textContent"),/^Status not confirmed: Your permissions could not be read\./);
+ assert.equal(await evaluate("document.querySelector('#option-lifecycle-status').disabled"),false);
+ assert.deepEqual(await evaluate("JSON.parse(sessionStorage.getItem('option-lifecycle-request:trader:t1'))"),await evaluate('retained'));
+}));

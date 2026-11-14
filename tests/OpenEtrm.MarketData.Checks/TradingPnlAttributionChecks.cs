@@ -81,7 +81,7 @@ internal static class TradingPnlAttributionChecks
         var pair=two.Portfolio.Positions.Single(p=>p.ValuationId!=two.UnaffectedId);var single=two.Portfolio.Positions.Single(p=>p.ValuationId==two.UnaffectedId);
         InputKey Source(int point)=>((ConnectedSource)two.Points[point].Expression).Input;
         var reached=two.Prepared.DeclaredPriceInputs;
-        if(reached.Count!=2||!reached[(pair.TradeId,pair.BindingId)].SetEquals([Source(0),Source(1)])||!reached[(single.TradeId,single.BindingId)].SetEquals([Source(2)]))
+        if(reached.Count!=2||!reached[(pair.Owner,pair.BindingId)].SetEquals([Source(0),Source(1)])||!reached[(single.Owner,single.BindingId)].SetEquals([Source(2)]))
             throw new Exception("Each holding must name exactly the live price inputs its declared dependencies reach.");
         var exact=new FiniteDifferenceTolerance(default,default);var both=JointScenarioRiskChecks.Derivatives(two);
         // Cross terms are requested only where one holding prices both factors: x with y, and neither with z.
@@ -112,7 +112,7 @@ internal static class TradingPnlAttributionChecks
             throw new Exception("One factor's unavailable effect was given an amount.");
         // The same market prepared for other holdings cannot stand in as these Greeks' valuation source.
         var others=RiskEngine.PrepareConnected(two.Prepared.Valuation,two.Bindings,[new(two.Portfolio.Instruments,
-            [..two.Portfolio.Positions.Select(p=>p with{TradeId=Guid.NewGuid(),BindingId=Guid.NewGuid()})],two.Portfolio.Setup with{AccountingFacts=ImmutableDictionary<MeasureBinding,BindingAccountingFacts>.Empty})]);
+            [..two.Portfolio.Positions.Select(p=>new RiskPosition(Guid.NewGuid(),Guid.NewGuid(),p.BookId,p.ValuationId,p.Quantity,p.UnitBasis,p.FixedBasis){Coverage=p.Coverage})],two.Portfolio.Setup with{AccountingFacts=ImmutableDictionary<MeasureBinding,BindingAccountingFacts>.Empty})]);
         var misplaced=PnlGreekRun.Capture(others,greeks.Risk);
         Reject("pnl_greek_context",()=>TradingPnlAttribution.Explain(TradingPnlAccounting.Compare(misplaced.OpeningPoint([],PnlAccountingCoverage.Complete),later,TradingPnlAccounting.Version1),
             [misplaced],explained.Moves,TradingPnlAttribution.OpeningGreeks));

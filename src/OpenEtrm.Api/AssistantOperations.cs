@@ -56,6 +56,15 @@ internal static class AssistantOperations
         // The native record handler also checks command-specific limit/adoption capabilities.
         Add("facility_quantities","ReadMarketData|ReadTrades|ReadFacilityQuantities",true,"facilities/quantities/status","facilities/quantities/record");
         Add("physical_operations","ReadMarketData|ReadTrades",false,"physical/operations/directory");
+        Add("lifecycle","ReadMarketData|ReadTrades",false,"lifecycle/view lifecycle/discover lifecycle/policies/read lifecycle/preview");
+        // Product-native handlers select their own write/configuration permissions and
+        // first-outcome receipts. Assistant approval never substitutes for either.
+        Add("lifecycle","ReadMarketData|ReadTrades",true,"","lifecycle/execute lifecycle/policies/save lifecycle/options/configure lifecycle/swaps/configure lifecycle/swaps/net/configure");
+        Add("lifecycle","ReadMarketData|ReadTrades|WriteMarketDefinitions",true,"","lifecycle/futures/policies/save");
+        Add("lifecycle","ReadMarketData|ReadTrades|AmendTrade",true,"","lifecycle/futures/adopt");
+        Add("lifecycle","ReadMarketData|ReadTrades|ReadGasOwnedHoldings",false,"lifecycle/gas/read lifecycle/gas/setup");
+        Add("lifecycle","ReadMarketData|ReadTrades|ReadGasOwnedHoldings",true,"","lifecycle/gas/configure");
+        Add("lifecycle","ReadMarketData|ReadTrades|ReadGasOwnedHoldings|ConfigureGasOwnedHoldings",true,"","lifecycle/futures/delivery/configure");
         Add("blotter","ReadGasOperations|ReadMarketData|ReadTrades",false,"gas/operations/read gas/operations/preview");
         Add("blotter","ReadGasOperations|ReadMarketData|ReadTrades",true,"gas/operations/status");
         Add("blotter","ConfigureGasServices|ReadGasOperations|ReadMarketData|ReadTrades",true,"","gas/operations/configure");
@@ -84,7 +93,6 @@ internal static class AssistantOperations
         Add("blotter","BookTrade|ReadTrades|ReadMarketData",true,"","futures/book swaps/book");
         Add("blotter","AmendTrade|ReadTrades|ReadMarketData",true,"","futures/amend swaps/amend trade-formats/save");
         Add("blotter","ReadTrades|ReadMarketData",false,"futures/status swaps/status swaps/settlement/preview swaps/settlement/inspect swaps/settlement/pnl swaps/settlement/net-preview swaps/settlement/status");
-        Add("blotter","AmendTrade|ReadTrades|ReadMarketData",true,"","swaps/settlement/determine swaps/settlement/net swaps/settlement/payment");
         Add("blotter_risk","RunScenario|ReadTrades|ReadMarketData",false,"portfolio/risk/catalog portfolio/risk");
         Add("risk_jobs","RunScenario|ReadTrades|ReadMarketData",true,"!portfolio/risk/jobs !portfolio/risk/jobs/{id:guid}","portfolio/risk/jobs portfolio/risk/jobs/{id:guid}/cancel");
         // The page's full VaR catalog, history and report exceed a tool result; these bounded reads run the same calculation.
@@ -92,8 +100,8 @@ internal static class AssistantOperations
         Add("ppa","ReadTrades|ReadMarketData",true,"!ppa/frames ppa/catalog ppa/directory ppa/editor ppa/legs ppa/validate ppa/preview ppa/inspect ppa/break-even ppa/status settlement/payment-lineages/plan settlement/ppa/preview");
         Add("ppa","BookTrade|ReadTrades|ReadMarketData",true,"","ppa/book");
         Add("ppa","AmendTrade|ReadTrades|ReadMarketData",true,"","ppa/amend ppa/terminate");
-        Add("jobs","ReadJobs",true,"!jobs !jobs/pilot-close/catalog !jobs/pilot-close/definition !jobs/pilot-close/results");
-        Add("jobs","RunJobs",true,"","jobs/create jobs/close-book-risk/create jobs/pilot-close/create");
+        Add("jobs","ReadJobs",true,"!jobs !jobs/pilot-close/catalog !jobs/pilot-close/definition !jobs/pilot-close/results !jobs/lifecycle/{id:guid}");
+        Add("jobs","RunJobs",true,"","jobs/create jobs/close-book-risk/create jobs/pilot-close/create jobs/lifecycle/create");
         // Own-job control and infrastructure operations also enforce ownership, exact versions and their distinct
         // capabilities inside the ordinary handlers; proposing one never confers any of those rights.
         Add("jobs","ReadJobs",true,"","jobs/control jobs/update jobs/collection/update infrastructure/availability infrastructure/resolve");
@@ -112,6 +120,7 @@ internal static class AssistantOperations
         ImmutableHashSet<string> shared=page switch
         {
             "physical_operations"=>["physical/operations/directory",..Catalog.Where(o=>o.Path.StartsWith("gas/operations/",StringComparison.Ordinal)||o.Path.StartsWith("gas/billing/",StringComparison.Ordinal)||o.Path.StartsWith("gas/quantities/",StringComparison.Ordinal)||o.Path.StartsWith("crude/operations/",StringComparison.Ordinal)).Select(o=>o.Path)],
+            "lifecycle"=>["jobs/lifecycle/create","jobs/lifecycle/{id:guid}"],
             "blotter_new_trade"=>["futures/catalog","swaps/catalog"],
             "blotter_new_future"=>["futures/catalog","futures/book"],
             "blotter_new_swap"=>["swaps/catalog","swaps/quantity-schedule","swaps/scheduled-periods","swaps/contract-observation-preview","swaps/observation-options","swaps/book"],
@@ -166,6 +175,25 @@ internal static class AssistantOperations
             if(type==typeof(GasOperationPreviewRequest)&&property.Name==nameof(GasOperationPreviewRequest.Details)){
                 var variants=new JsonObject();foreach(var entry in GasDeliveryOperationsStore.DetailTypes)variants[entry.Key]=Describe(entry.Value,path.Add(type));
                 properties["details"]=new JsonObject{["type"]="object",["discriminator"]="kind",["contracts"]=variants};
+            }else if(type==typeof(GasOwnedConfigurationRequest)&&property.Name==nameof(GasOwnedConfigurationRequest.Selection)){
+                var variants=new JsonObject();foreach(var command in GasOwnedOperations.ConfigurationCommands)
+                    variants[command]=Describe(GasOwnedOperations.SelectionTypes[command],path.Add(type));
+                properties["selection"]=new JsonObject{["type"]="object",["discriminator"]="action",["contracts"]=variants};
+            }else if(type==typeof(LifecycleActionRequest)&&property.Name==nameof(LifecycleActionRequest.Selection)){
+                var variants=new JsonObject
+                {
+                    ["listed_option"]=Describe(typeof(OptionActionSelection),path.Add(type)),
+                    ["financial_swap"]=Describe(typeof(SwapActionSelection),path.Add(type)),
+                    ["financial_swap_net"]=Describe(typeof(SwapNetActionSelection),path.Add(type)),
+                    ["futures"]=Describe(typeof(FuturesMarginActionSelection),path.Add(type))
+                };
+                var gas=new JsonObject();foreach(var action in GasOwnedOperations.Commands)
+                    gas[action.Key]=Describe(GasOwnedOperations.SelectionTypes[action.Value],path.Add(type));
+                variants[GasFuturesDeliveryActions.Handler]=new JsonObject{["type"]="object",["discriminator"]="action",["contracts"]=new JsonObject{
+                    ["gas.futures.delivery"]=Describe(typeof(GasFuturesPerformanceSelection),path.Add(type)),
+                    ["gas.cash.record_payment"]=Describe(typeof(GasFuturesPaymentSelection),path.Add(type))}};
+                variants[GasOwnedOperations.Handler]=new JsonObject{["type"]="object",["discriminator"]="action",["contracts"]=gas};
+                properties["selection"]=new JsonObject{["type"]="object",["discriminator"]="target.handler",["contracts"]=variants};
             }else properties[JsonNamingPolicy.CamelCase.ConvertName(property.Name)]=Describe(property.PropertyType,path.Add(type));
         }
         return new JsonObject{["type"]="object",["properties"]=properties,["contract"]=type.Name};

@@ -11,7 +11,7 @@ export const navigationGroups:readonly NavigationGroup[]=[
  {id:'trading',label:'Trading',pages:['futures'],opened:['ppa','gas','crude']},
  {id:'markets',label:'Markets',pages:['market','delivery','interval-series','vol-surfaces','interval-curves']},
  {id:'risk',label:'Risk',pages:['risk','risk-pnl','risk-scenarios','risk-var','risk-runs']},
- {id:'scheduling',label:'Scheduling',pages:['physical-operations','facilities']},
+ {id:'scheduling',label:'Scheduling',pages:['lifecycle','physical-operations','facilities']},
  {id:'reference',label:'Reference Data',pages:['reference'],opened:['curve-definitions','custom-curves','configuration','schedules','power','parties','gas-setup','crude-setup']},
  {id:'administration',label:'Administration',pages:['jobs','admin','ai']},
 ];
@@ -29,7 +29,7 @@ export function pageAvailable(page:string,permissions:string[]):boolean{
  switch(page){
   case 'facilities':return has('ReadMarketData','ReadTrades','ReadFacilityQuantities');
   // Vol surfaces read option products, which trade readers see.
-  case 'physical-operations':case 'futures':case 'ppa':case 'gas':case 'crude':case 'vol-surfaces':return has('ReadMarketData','ReadTrades');
+  case 'lifecycle':case 'physical-operations':case 'futures':case 'ppa':case 'gas':case 'crude':case 'vol-surfaces':return has('ReadMarketData','ReadTrades');
   case 'dashboard':case 'market':case 'custom-curves':case 'curve-definitions':case 'delivery':case 'interval-series':case 'interval-curves':
   case 'configuration':case 'schedules':case 'power':case 'gas-setup':case 'crude-setup':case 'reference':return has('ReadMarketData');
   case 'parties':return has('ReadMarketData','ReadTradeParties');

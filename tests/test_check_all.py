@@ -15,6 +15,19 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from check_all import GROUPS, run_checks
 
+LIFECYCLE_NATIVE={f'tools/{name}.py' for name in (
+    'check_lifecycle_actions','check_lifecycle_swaps','check_futures_physical_delivery',
+    'check_selected_physical_authority','check_physical_delivery_authority','check_physical_margin_qualification',
+    'check_lifecycle_option_scheduling','check_lifecycle_option_expiries',
+    'check_lifecycle_scheduling','check_lifecycle_scheduled_bookings',
+    'check_gas_source_ancestors','check_gas_physical_known','check_gas_cashout_projection','check_gas_accepted_projection','check_gas_quantity_reconciliation',
+    'check_gas_quantity_reconciliation_batches','check_cash_accumulation','check_gas_principal_carrying',
+    'check_risk_fit_authority','check_lifecycle_browser','check_retained_swap_schedule_reads')}
+LIFECYCLE_PORTFOLIO={f'tools/{name}.py' for name in (
+    'check_lifecycle_risk_jobs','check_lifecycle_risk_scope','check_lifecycle_final_scope',
+    'check_lifecycle_projection_horizon','check_lifecycle_swap_worker','check_lifecycle_future_worker',
+    'check_lifecycle_economic_browser','check_physical_futures_value')}
+
 
 class CheckAllTests(unittest.TestCase):
     def setUp(self):
@@ -96,6 +109,52 @@ class CheckAllTests(unittest.TestCase):
         restores = [c for c in commands if 'restore' in c and c[c.index('restore') + 1] == market]
         self.assertEqual(len(restores), 1)
 
+    def test_native_margin_consumers_use_selected_sdk_in_trading_partition(self):
+        helpers={f'tools/check_futures_margin_{name}.py' for name in ('sources','adoption','journal')}|{'tools/check_trading_business_date.py'}
+        for group in ('trading','standard'):
+            selected=[]
+            def run(command,**options):
+                if helpers.intersection(command):
+                    self.assertEqual(options['env']['DOTNET'],'/selected sdk/dotnet')
+                    selected.append(command)
+            with patch.dict(os.environ,{'DOTNET':'/unrelated sdk/dotnet'}):
+                run_checks(Path('/pg'),Path('/selected sdk/dotnet'),Path('/browser'),group=group,run=run)
+            self.assertEqual({value for command in selected for value in command if value in helpers},helpers if group=='trading' else set())
+            self.assertEqual(len(selected),4 if group=='trading' else 0)
+
+    def test_native_lifecycle_consumers_run_once_in_trading_with_the_selected_sdk(self):
+        for group in ('trading','standard'):
+            selected=[]
+            def run(command,**options):
+                if LIFECYCLE_NATIVE.intersection(command):
+                    self.assertEqual(options['env']['DOTNET'],'/selected sdk/dotnet')
+                    self.assertEqual(command[command.index('--pg-bin')+1],'/stock pg')
+                    selected.append(command)
+            with patch.dict(os.environ,{'DOTNET':'/unrelated sdk/dotnet'}):
+                run_checks(Path('/stock pg'),Path('/selected sdk/dotnet'),Path('/browser'),group=group,run=run)
+            actual=[value for command in selected for value in command if value in LIFECYCLE_NATIVE]
+            self.assertEqual(set(actual),LIFECYCLE_NATIVE if group=='trading' else set())
+            self.assertEqual(len(actual),len(LIFECYCLE_NATIVE) if group=='trading' else 0)
+
+    def test_economic_workers_and_real_browsers_keep_selected_tools_and_partitions(self):
+        browsers={'tools/check_lifecycle_browser.py':'trading','tools/check_lifecycle_economic_browser.py':'portfolio'}
+        for group in ('portfolio','trading','standard'):
+            selected=[]
+            def run(command,**options):
+                if LIFECYCLE_PORTFOLIO.intersection(command):selected.append(command)
+                for helper,partition in browsers.items():
+                    if helper not in command:continue
+                    self.assertEqual(group,partition)
+                    self.assertEqual(command[command.index('--dotnet')+1],'/selected sdk')
+                    self.assertEqual(command[command.index('--browser')+1],'/selected browser')
+                    self.assertIn('--no-build',command)
+                    self.assertEqual(options['env']['OPENETRM_CHECK_BROWSER'],'/selected browser')
+            with patch.dict(os.environ,{'OPENETRM_CHECK_BROWSER':'/unrelated browser'}):
+                run_checks(Path('/pg'),Path('/selected sdk'),Path('/selected browser'),group=group,run=run)
+            actual=[value for command in selected for value in command if value in LIFECYCLE_PORTFOLIO]
+            self.assertEqual(set(actual),LIFECYCLE_PORTFOLIO if group=='portfolio' else set())
+            self.assertEqual(len(actual),len(LIFECYCLE_PORTFOLIO) if group=='portfolio' else 0)
+
     def test_every_executable_check_project_is_restored_and_run(self):
         expected = {
             str(project.relative_to(ROOT))
@@ -119,7 +178,9 @@ class CheckAllTests(unittest.TestCase):
         schedule_commands = [c for c in commands if '--project' in c and 'Api.Checks' in c[c.index('--project') + 1]]
         self.assertEqual([c[-2:] for c in schedule_commands],
                          [['--', flag] for flag in ('--context-resolution', '--schedules', '--historical-risk', '--monte-carlo-risk', '--close-risk', '--automation',
-                           '--live-calculation', '--reference-intake', '--preview-data', '--side-observation-compatibility')])
+                           '--live-calculation', '--reference-intake', '--preview-data', '--side-observation-compatibility',
+                           '--lifecycle-actions','--economic-risk-contract','--lifecycle-schedule-contract','--gas-owned-setup',
+                           '--shared-native-markets','--derivative-methods','--gas-accepted-order','--lifecycle-residual-currencies')])
         self.assertTrue(any('--historical-risk-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--monte-carlo-risk-check' in c and '--with-exchange' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--reference-import-check' in c for c in commands))
@@ -204,8 +265,10 @@ class CheckAllTests(unittest.TestCase):
             with self.subTest(group=name):
                 # Each group starts from a clean checkout, including restores,
                 # managed/frontend builds and all shared verification contracts.
-                self.assertEqual([c for c in selected if 'tools/run_preview.py' not in c],
-                                 [c for c in complete if 'tools/run_preview.py' not in c])
+                margin={f'tools/check_futures_margin_{part}.py' for part in ('sources','adoption','journal')}|{'tools/check_trading_business_date.py'}
+                shared=lambda c:'tools/run_preview.py' not in c and not (margin|LIFECYCLE_NATIVE|LIFECYCLE_PORTFOLIO).intersection(c)
+                self.assertEqual([c for c in selected if shared(c)],
+                                 [c for c in complete if shared(c)])
                 self.assertEqual(selected, [c for c in complete if c in selected])
         previews = {name: [c for c in value if 'tools/run_preview.py' in c]
                     for name, value in groups.items()}

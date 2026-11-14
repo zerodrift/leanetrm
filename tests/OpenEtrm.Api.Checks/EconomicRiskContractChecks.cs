@@ -1,0 +1,101 @@
+using System.Collections.Immutable;
+using System.Text.Json;
+using OpenEtrm.Api;
+using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Trading;
+using OpenEtrm.Rates;
+
+internal static class EconomicRiskContractChecks
+{
+    internal static void Run()
+    {
+        EconomicOwnerDescriptionChecks.Run();
+        var context=new FuturesReadRequest(Guid.NewGuid(),TradingBlotter.Convention,"retained",Guid.NewGuid());
+        var pricing=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,SwapStore.Convention,
+            RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
+        var projection=new PortfolioEconomicProjectionRequest(PortfolioEconomicProjectionRequest.Version,"synthetic_close",1,
+            PortfolioEconomicProjectionRequest.SourceKnownSchedule,RateDiscountTiming.Version,PortfolioEconomicProjectionRequest.SelectedContractMarkets,
+            new(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.Outstanding,LifecycleProjectionPolicy.Nominal,
+                LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical),[]);
+        var policy=new LifecycleEconomicRiskPolicy(LifecycleEconomicRiskPolicy.Deterministic,"0.99",HistoricalRiskPolicy.Quantile,HistoricalRiskPolicy.Tail);
+        var deterministic=new PortfolioEconomicRiskRequest(projection,policy,null,null,[]);
+        var outer=new PortfolioRiskRequest(context,[Guid.NewGuid()],[],[],PortfolioRiskPreview.Convention,RiskEngine.ExactNumericalPolicy,pricing,"holdings",[],Economic:deterministic);
+        PortfolioRiskPreview.ValidateEconomic(outer,deterministic);
+        var explicitNominal=projection with{Implementation=PortfolioEconomicProjectionRequest.Version2,CashAccumulationSelections=[]};
+        explicitNominal.Validate();
+        if(JsonSerializer.Serialize(projection,RiskJobs.Json).Contains("cashAccumulationSelections",StringComparison.Ordinal))
+            throw new Exception("An absent explicit accumulation selection changed the v1 wire contract.");
+        Reject("projection_cash_policy",()=>(projection with{CashAccumulationSelections=[]}).Validate());
+        Reject("projection_cash_policy",()=>(explicitNominal with{CashAccumulationSelections=null}).Validate());
+        Reject("projection_cash_policy",()=>(explicitNominal with{CashAccumulationSelections=default(ImmutableArray<PortfolioCashAccumulationSelection>)}).Validate());
+        var cashCurrency=new ReferenceKey(new(Guid.NewGuid(),Guid.NewGuid()),"usd");
+        var cashSelection=new PortfolioCashAccumulationSelection(cashCurrency,context.SnapshotId,new(new(Guid.NewGuid(),Guid.NewGuid()),"synthetic_rates"),Guid.NewGuid(),Guid.NewGuid(),1);
+        var accumulated=explicitNominal with{Policy=projection.Policy with{CashAccumulation=LifecycleProjectionPolicy.Accumulated},CashAccumulationSelections=[cashSelection]};
+        accumulated.Validate();
+        (accumulated with{CashAccumulationSelections=null}).ValidateCashFundingRead();
+        Reject("projection_cash_choices",()=>accumulated.ValidateCashFundingRead());
+        Reject("projection_cash_choices",()=>projection.ValidateCashFundingRead());
+        Reject("projection_cash_policy",()=>(accumulated with{CashAccumulationSelections=null}).Validate());
+        Reject("projection_cash_policy",()=>(explicitNominal with{CashAccumulationSelections=[cashSelection]}).Validate());
+        Reject("projection_cash_policy",()=>(accumulated with{CashAccumulationSelections=[]}).Validate());
+        Reject("projection_cash_policy",()=>(accumulated with{CashAccumulationSelections=[cashSelection,cashSelection]}).Validate());
+        Reject("projection_cash_policy",()=>(accumulated with{CashAccumulationSelections=[cashSelection with{MappingId=Guid.Empty}]}).Validate());
+        Reject("risk_economic_scope",()=>PortfolioRiskPreview.ValidateEconomic(outer with{Detail="books"},deterministic));
+        Reject("risk_economic_scope",()=>PortfolioRiskPreview.ValidateEconomic(outer with{Stress=default},deterministic));
+        Reject("risk_economic_scope",()=>PortfolioRiskPreview.ValidateEconomic(outer,deterministic with{Factors=default}));
+        var reference=new ReferenceKey(new(Guid.NewGuid(),Guid.NewGuid()),"calendar");
+        var history=new PortfolioHistoryRequest(new(context,outer.BookIds,[],null),pricing,
+            new(RiskHistoryPolicy.Version1,CurveModel.NumericalPolicy,RiskHistoryPolicy.Raw,RiskHistoryPolicy.Heads,RiskHistoryPolicy.ExactCloses,
+                RiskHistoryPolicy.Absolute,RiskHistoryPolicy.Complete,RiskHistoryPolicy.Fixed,2),reference,
+            "2026-01-01","2026-02-01","16:00:00","reject","reject",new('a',64));
+        Reject("risk_economic_scope",()=>PortfolioRiskPreview.ValidateEconomic(outer,deterministic with{History=history}));
+        var historical=deterministic with{Policy=policy with{Implementation=LifecycleEconomicRiskPolicy.Historical},History=history};
+        PortfolioRiskPreview.ValidateEconomic(outer with{Economic=historical},historical);
+        Reject("risk_economic_scope",()=>PortfolioRiskPreview.ValidateEconomic(outer,historical with{History=history with{ExpectedManifestId=null}}));
+        Reject("risk_economic_scope",()=>PortfolioRiskPreview.ValidateEconomic(outer,historical with{History=history with{Scope=history.Scope with{TradeIds=[]}}}));
+        Reject("risk_economic_scope",()=>PortfolioRiskPreview.ValidateEconomic(outer with{Historical=new(history,new(HistoricalRiskPolicy.Version1,HistoricalRiskPolicy.Numerics,
+            HistoricalRiskPolicy.Session,HistoricalRiskPolicy.Sampling,HistoricalRiskPolicy.Quantile,HistoricalRiskPolicy.Tail,HistoricalRiskPolicy.Valuation,"0.99"))},historical));
+        Reject("risk_economic_policy",()=>PortfolioRiskPreview.ValidateEconomic(outer,deterministic with{Policy=policy with{Implementation="parametric"}}));
+        var json=JsonSerializer.Serialize(deterministic,RiskJobs.Json);
+        foreach(var field in new[]{"history","simulation","factors"})
+        {
+            var node=System.Text.Json.Nodes.JsonNode.Parse(json)!.AsObject();node.Remove(field);
+            try{JsonSerializer.Deserialize<PortfolioEconomicRiskRequest>(node.ToJsonString(),RiskJobs.Json);throw new Exception("Missing explicit economic choice accepted: "+field);}
+            catch(JsonException){}
+        }
+        if(JsonSerializer.Serialize(outer with{Economic=null},RiskJobs.Json).Contains("economic",StringComparison.Ordinal))
+            throw new Exception("An absent economic envelope changed legacy serialized requests.");
+        var empty=new PortfolioValuation.Prepared(context.SnapshotId,new("2026-01-01",0,"2026-01-02T00:00:00Z",context.ContextId),pricing,[],[],[],[]);
+        var unprepared=new PortfolioRiskPreview.Prepared(outer,RiskDetail.Holdings,outer.BookIds,[],empty,[],[],[]);
+        Reject("risk_economic_scope",()=>PortfolioRiskPreview.Calculate(unprepared,default));
+        var proof=new PreparedLifecyclePortfolio(projection,JsonSerializer.SerializeToElement(new{openingAt="2026-01-01T00:00:00Z",closeAt="2026-01-02T00:00:00Z"}),[],empty,
+            [JsonSerializer.SerializeToElement(new{owner="synthetic",revision=2})],[],[]);
+        var retained=RiskJobs.EconomicFrame(proof);
+        if(!ReferenceEquals(LifecycleEconomicOwners.Attach(proof,[]),proof))
+            throw new Exception("An empty future-owner description set changed an existing retained economic receipt.");
+        if(retained["inputFinals"] is not System.Text.Json.Nodes.JsonArray {Count:0})
+            throw new Exception("Economic worker evidence must explicitly retain an empty final-input scope for an all-cash portfolio.");
+        RiskJobs.RequireEconomicFrame(retained,proof);RiskJobs.RequireEconomicFrame(null,null);
+        Reject("risk_economic_evidence",()=>RiskJobs.RequireEconomicFrame(null,proof));
+        Reject("risk_economic_evidence",()=>RiskJobs.RequireEconomicFrame(retained,null));
+        foreach(var field in new[]{"horizon","products","optionCalibrations","inputFinals"})
+        {
+            var changed=retained.DeepClone().AsObject();changed.Remove(field);
+            Reject("risk_economic_evidence",()=>RiskJobs.RequireEconomicFrame(changed,proof));
+        }
+        var declared=proof with{FinalEvidence=[JsonSerializer.SerializeToElement(new{projectionCurve="synthetic",officialCurve="synthetic_final",contractId=Guid.NewGuid(),finalAt="2026-01-02T00:00:00Z",observation=(object?)null})]};
+        var finalProof=RiskJobs.EconomicFrame(declared);RiskJobs.RequireEconomicFrame(finalProof,declared);
+        Reject("risk_economic_evidence",()=>RiskJobs.RequireEconomicFrame(finalProof,proof));
+        var forged=finalProof.DeepClone();forged["inputFinals"]![0]!["officialCurve"]="other";
+        Reject("risk_economic_evidence",()=>RiskJobs.RequireEconomicFrame(forged,declared));
+        var altered=retained.DeepClone();altered["products"]![0]!["revision"]=1;
+        Reject("risk_economic_evidence",()=>RiskJobs.RequireEconomicFrame(altered,proof));
+        Console.WriteLine("PASS economic risk contract: exclusive complete scope, explicit no-factor method, required null choices and separate event-aware policy");
+    }
+    private static void Reject(string code,Action work)
+    {
+        try{work();}catch(MarketDataException error)when(error.Code==code){return;}
+        throw new Exception("Expected economic refusal "+code);
+    }
+}

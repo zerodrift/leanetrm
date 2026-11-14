@@ -19,14 +19,15 @@ public sealed partial class SwapStore
         if(prior.ValueKind!=JsonValueKind.Object||prior.Id("book_id")!=current.Id("book_id"))
             throw Error("settlement_book_transfer","The bridge does not support book transfers.");
         var oldParties=TradeParties.Read(manifest.CatalogId,prior);var parties=TradeParties.Read(manifest.CatalogId,current);
-        var terms=Terms(data,prior,frame.Id);var revised=Terms(data,current,frame.Id);
+        var closingData=data;var closingFrame=frame;
+        var priorMarket=await ScheduledMarket(connection,data,frame,prior.Id("definition_revision_id"),ct);
+        var currentMarket=await ScheduledMarket(connection,closingData,closingFrame,current.Id("definition_revision_id"),ct);
+        (data,frame)=priorMarket;
+        var terms=Terms(data,prior,frame.Id);var revised=Terms(currentMarket.Data,current,currentMarket.Frame.Id);
         if(oldParties is null||parties is null||oldParties.LegalEntity.Key!=parties.LegalEntity.Key||oldParties.Counterparty.Key!=parties.Counterparty.Key||terms.SwapType!=revised.SwapType)
             throw Error("settlement_contract_change","Party changes and instrument-family transformations are not supported by this bridge.");
-        var closingData=data;var closingFrame=frame;
-        (data,frame)=await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct);
         var old=await ResolveRetained(connection,data,frame,terms,prior.Id("instrument_id"),prior.Id("fixed_side_id"),prior.Id("floating_side_id"),ct);
-        var revisedData=(await ScheduledMarket(connection,closingData,closingFrame,revised.DefinitionRevisionId,ct)).Data;
-        var now=await ResolveRetained(connection,revisedData,closingFrame,revised,current.Id("instrument_id"),current.Id("fixed_side_id"),current.Id("floating_side_id"),ct);
+        var now=await ResolveRetained(connection,currentMarket.Data,currentMarket.Frame,revised,current.Id("instrument_id"),current.Id("fixed_side_id"),current.Id("floating_side_id"),ct);
         if(old.Instrument.Currency!=now.Instrument.Currency||old.Quantity.Specification!=now.Quantity.Specification)
             throw Error("settlement_contract_change","Contractual changes must retain exact currency and quantity basis.");
         var completions=await SettlementCompletions(connection,prior,old.Instrument,ct);
@@ -62,8 +63,8 @@ public sealed partial class SwapStore
     private sealed record BridgePeriod(int Slot,DateOnly From,DateOnly To,string Hash,DateTimeOffset Starts);
     private async Task<(ReferenceKey Currency,ReferenceKey Quantity,ImmutableArray<BridgePeriod> Periods)> BridgePeriods(NpgsqlConnection connection,PreviewData data,InputFrame frame,JsonElement row,CancellationToken ct)
     {
+        (data,frame)=await ScheduledMarket(connection,data,frame,row.Id("definition_revision_id"),ct);
         var terms=Terms(data,row,frame.Id);
-        (data,frame)=await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct);
         var resolved=await ResolveRetained(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
         var completions=await SettlementCompletions(connection,row,resolved.Instrument,ct);
         var starts=completions.Any(completion=>completion.Source=="retained_quantity_interval_end_v1")
@@ -89,13 +90,15 @@ public sealed partial class SwapStore
             int.Parse(r.Text("revision"),CultureInfo.InvariantCulture)<=last).OrderBy(r=>r.Number("revision")).ToArray();
         if(chain.Length!=last-initial+1)throw Error("settlement_contract_change","Every intervening exact amendment must be visible under closing authority.");
         var basis=await BridgePeriods(connection,data,frame,chain[0],ct);var previous=basis.Periods;
-        var initialParties=TradeParties.Read(manifest.CatalogId,chain[0]);var initialTerms=Terms(data,chain[0],frame.Id);
+        var initialMarket=await ScheduledMarket(connection,data,frame,chain[0].Id("definition_revision_id"),ct);
+        var initialParties=TradeParties.Read(manifest.CatalogId,chain[0]);var initialTerms=Terms(initialMarket.Data,chain[0],initialMarket.Frame.Id);
         foreach(var revision in chain.Skip(1))
         {
             var parties=TradeParties.Read(manifest.CatalogId,revision);
+            var market=await ScheduledMarket(connection,data,frame,revision.Id("definition_revision_id"),ct);
             if(revision.Id("book_id")!=opening.Id("book_id"))throw Error("settlement_book_transfer","Book transfers are not supported by this bridge.");
             if(initialParties is null||parties is null||initialParties.LegalEntity.Key!=parties.LegalEntity.Key||initialParties.Counterparty.Key!=parties.Counterparty.Key||
-                Terms(data,revision,frame.Id).SwapType!=initialTerms.SwapType)
+                Terms(market.Data,revision,market.Frame.Id).SwapType!=initialTerms.SwapType)
                 throw Error("settlement_contract_change","Every intervening amendment must retain the supported instrument family and exact parties.");
             var contract=await BridgePeriods(connection,data,frame,revision,ct);
             if(contract.Currency!=basis.Currency||contract.Quantity!=basis.Quantity)

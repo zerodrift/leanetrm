@@ -4,22 +4,22 @@ import {readFileSync} from 'node:fs';
 import {browserAvailable,browserTestTimeout,withBrowserPage} from './browser-page.mjs';
 const fixture=JSON.parse(readFileSync(new URL('./fixtures/desk.json',import.meta.url),'utf8'));
 
-test('an option action retains its widget and one command while its current write permission is checked',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"><div id="head"></div><div id="tabs"></div><div id="body"><div id="view"></div></div></div>',async evaluate=>{
+test('an earlier option status retains its widget and exact request through panel updates and tab changes',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"><div id="head"></div><div id="tabs"></div><div id="body"><div id="view"></div></div></div>',async evaluate=>{
  const result=await evaluate(`(async()=>{
   const {setupPositionPanel}=await import('/position-panel.js'),{readOptionView}=await import('/futures-option-view.js'),{positionRows}=await import('/desk-model.js'),{setCurveNames}=await import('/market-view.js');
   const fixture=${JSON.stringify(fixture)};setCurveNames(fixture.curveNames);const holding={...fixture.holdings[0],executedAt:'2026-11-04T00:00:00Z',booking:{tradeDate:'2026-11-04'},component:'option',actions:{exercise:{allowed:true,reason:null},assignment:{allowed:false,reason:'Synthetic rule'},instruction:{allowed:false,reason:'Synthetic rule'}}},row=positionRows([fixture.holdings[0]])[0];
-  let permissionReads=0,release,calls=0;const writes=()=>++permissionReads===1?{enabled:true,reason:null}:new Promise(resolve=>release=resolve);
-  const api=async(path)=>{if(path==='options/holding')return {tradeId:holding.tradeId,lots:'2',openLots:'2',events:[]};if(path==='options/exercise'){calls++;return {kind:'exercise',lots:'1',remainingLots:'1',futuresTradeId:null};}throw Error('Unexpected '+path);};
+  let release,calls=0;const writes=()=>({enabled:true,reason:null});sessionStorage.setItem('option-lifecycle-request:synthetic:'+holding.tradeId,JSON.stringify({operationId:'earlier-operation',path:'options/exercise',body:{tradeId:holding.tradeId,lots:'1'},uncertain:true}));
+  const api=async(path)=>{if(path==='options/holding')return {tradeId:holding.tradeId,lots:'2',openLots:'2',events:[]};if(path==='options/status'){calls++;return new Promise(resolve=>release=resolve);}throw Error('Unexpected '+path);};
   const read=await readOptionView(api,{snapshotId:'synthetic'},holding,{writes,actor:()=> 'synthetic',recorded(){},surface:null});
   const formats=Object.fromEntries(['money','quantity','price','mark','markMinusPrice'].map(k=>[k,v=>v])),input={holding,row,formats,color:'#123456',risk:{state:'none'}};
   const panel=setupPositionPanel({element:part=>document.querySelector('#'+part),form(){},reveal(){},focusForm(){}},{zone:()=> 'UTC',busy:()=>false,canAmend:()=>false,curveListed:()=>false,context:()=> 'same',read:async()=>read,amendment:{shown:()=>false,open(){},close:async()=>{}},onDenied(){throw Error('Unexpected denial');}});
   const tick=()=>new Promise(resolve=>setTimeout(resolve,0));panel.show(input,'terms');await tick();const widget=document.querySelector('.option-lifecycle');
-  if(!document.querySelector('#option-exercise-lots'))throw Error(document.querySelector('#view').textContent);
-  document.querySelector('#option-exercise-lots').value='1';const editing=panel.updatesBlocked();document.querySelector('#option-exercise').click();await tick();panel.update(input);
-  const held=panel.updatesBlocked(),retained=widget===document.querySelector('.option-lifecycle'),disabled=document.querySelector('#option-exercise').disabled;
+  if(!document.querySelector('#option-lifecycle-status'))throw Error(document.querySelector('#view').textContent);
+  const editing=panel.updatesBlocked();document.querySelector('#option-lifecycle-status').click();await tick();panel.update(input);
+  const held=panel.updatesBlocked(),retained=widget===document.querySelector('.option-lifecycle'),disabled=document.querySelector('#option-lifecycle-status').disabled;
   document.querySelector('#tabs-schedules').click();const ownTab=document.querySelector('#view').textContent.includes('No side schedule view is available')&&!document.querySelector('.option-lifecycle');
-  document.querySelector('#tabs-terms').click();const restored=document.querySelector('#option-exercise').disabled&&!document.querySelector('#option-lifecycle-retry').hidden;
-  release({enabled:true,reason:null});await tick();return {editing,held,retained,disabled,calls,ownTab,restored};
+  document.querySelector('#tabs-terms').click();const restored=document.querySelector('#option-lifecycle-status').disabled||!document.querySelector('#option-lifecycle-status').hidden;
+  release({operationId:'earlier-operation',tradeId:holding.tradeId});await tick();return {editing,held,retained,disabled,calls,ownTab,restored};
  })()`);
  assert.deepEqual(result,{editing:true,held:true,retained:true,disabled:true,calls:1,ownTab:true,restored:true});
 }));

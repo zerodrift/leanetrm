@@ -1,7 +1,7 @@
 import {isCashStatus,cashStatusLabels} from './cash-status.js';
 import type {Holding} from './desk-model.js';
 import {trackEdits} from './edit-tracking.js';
-import {keepOffered,noOptionPick,optionChoices,optionLevels,optionTicketStatus,pickOption,underlyingLabel,type LifecycleWrites,type OptionCatalog,type OptionLevel,type OptionPick} from './futures-option-model.js';
+import {keepOffered,noOptionPick,optionChoices,optionLevels,optionTicketStatus,pickOption,underlyingLabel,type OptionCatalog,type OptionLevel,type OptionPick} from './futures-option-model.js';
 import {displayInstant,publicText} from './market-view.js';
 import {bookingAllowed} from './new-trade.js';
 import {actorTransport,PendingCommand,restoreTradeRequest,type RequestCommand} from './pending-command.js';
@@ -172,11 +172,10 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
 type Outcome={eventId:string;kind:string;lots:string|null;remainingLots:string;futuresTradeId:string|null;futuresTradeReference?:string|null;businessAt:string;outcome?:string|null};
 type HoldingRead={tradeId:string;lots:string;openLots:string;events:Outcome[]};
 const eventNames:Record<string,string>={exercise:'Exercise',assignment:'Assignment',expiry:'Expiry',exercise_instruction:'Exercise at expiry instruction',abandon_instruction:'Abandon instruction'};
-const lotsWord=(lots:string)=>`${lots} ${lots.replace(/^-/,'')==='1'?'lot':'lots'}`;
 /** What an option view needs of its host: whether lifecycle events may be recorded now, asked again when one is sent; who is recording,
  *  whose unanswered requests it keeps; what hears a recorded event; and what opens a product's volatility surface, null where the
  *  host has no Vol surfaces page. */
-export type OptionHost={writes:()=>LifecycleWrites|Promise<LifecycleWrites>;actor:()=>string;recorded:(note:string)=>void;surface:((product:string,definitionRevisionId:string)=>void)|null};
+export type OptionHost={actor:()=>string;recorded:(note:string)=>void;surface:((product:string,definitionRevisionId:string)=>void)|null;lifecycle?:()=>void};
 
 /**
  * An option trade's Details: its series, lots, settlement and value per contract from the Blotter row, its recorded events from
@@ -185,7 +184,7 @@ export type OptionHost={writes:()=>LifecycleWrites|Promise<LifecycleWrites>;acto
 export async function readOptionView(api:Api,context:Record<string,unknown>&{snapshotId:string},h:Holding,host:OptionHost):Promise<DetailRead>{
  const held=await api<HoldingRead>('options/holding',{context:{...context,convention:optionConvention},tradeId:h.tradeId});
  if(held.tradeId!==h.tradeId)throw Error('The option holding read is for another trade. Refresh the Blotter.');
- const option=h.component==='option',writes=await host.writes();
+ const option=h.component==='option';
  let widget:ReturnType<typeof lifecycle>|undefined;
  return {amend:{allowed:false,reason:'Option trades are not amended; exercise, assignment and expiry are recorded as their own events.'},updatesBlocked:()=>!!widget?.blocked(),view:zone=>{
   const terms:TermSection[]=[{title:'Futures option trade',rows:[['Trade',h.tradeReference],['Instrument',h.instrumentReference],['Book',h.book],['Exchange',h.exchange?.name??''],
@@ -200,7 +199,7 @@ export async function readOptionView(api:Api,context:Record<string,unknown>&{sna
    ...held.events.map(e=>({title:eventNames[e.kind]??publicText(e.kind),rows:[['Recorded for',displayInstant(e.businessAt,zone)],['Lots',e.lots??'Open lots at expiry'],['Open lots after',e.remainingLots],
     ['Linked future',e.futuresTradeReference??'None'],...(e.outcome?[['Outcome',publicText(e.outcome)] as const]:[])] as const}))];
   const surface=host.surface,product=h.product;
-  return {terms,history,...(option&&h.actions?{termsContent:(box:HTMLElement)=>{widget=lifecycle(box,api,context.snapshotId,h,writes,host);return()=>{widget?.dispose();widget=undefined;};}}:{}),
+  return {terms,history,...(option?{termsContent:(box:HTMLElement)=>{widget=lifecycle(box,api,h,host);return()=>{widget?.dispose();widget=undefined;};}}:{}),
    ...(surface&&product&&h.definitionRevisionId?{actions:[{id:'option-trade-vol-surface',label:'Volatility surface',run:()=>surface(product,h.definitionRevisionId)}]}:{})};
  }};
 }
@@ -213,60 +212,38 @@ function lifecycleTransport(actor:string,trade:string){
  return transport;
 }
 
-// The holding's lifecycle actions, drawn from the row's `actions` and the host's `writes`; each request is sent once with its own identity
-// and retried with it until its outcome is known. Once an event is recorded, the view offers no other.
-function lifecycle(host:HTMLElement,api:Api,snapshotId:string,h:Holding,writes:LifecycleWrites,o:OptionHost){
- const actions=h.actions!,box=section('Lifecycle');box.classList.add('option-lifecycle');box.dataset.ownControls='';host.append(box);
- const blocked=el('p','field-help option-lifecycle-reason'),said=el('p','field-help');said.setAttribute('role','status');
- const owner=o.actor(),transport=lifecycleTransport(owner,h.tradeId),pending=new PendingCommand(definite);let sending=false,recorded=false,alive=true;
- const current=()=>alive&&o.actor()===owner,owns=(command:RequestCommand)=>restoreTradeRequest(transport.read())?.operationId===command.operationId;
- const saved=restoreTradeRequest(transport.read());if(saved)pending.command={...saved,uncertain:true};
- const lots=el('input'),all=el('button','secondary','All open lots'),retry=el('button',undefined,'Retry the original request');
- lots.inputMode='numeric';all.type=retry.type='button';all.id='option-exercise-all';retry.id='option-lifecycle-retry';
- const button=(id:string,label:string,action:keyof NonNullable<Holding['actions']>)=>{const b=el('button','secondary',label);b.type='button';b.id=id;b.dataset.for=action;return b;};
- const exercise=button('option-exercise','Exercise','exercise'),assign=button('option-assign','Record assignment','assignment'),
-  abandon=button('option-abandon','Abandon at expiry','instruction'),atExpiry=button('option-instruct-exercise','Exercise at expiry','instruction');
- const why=(action:keyof NonNullable<Holding['actions']>)=>{const line=el('p','field-help option-action-reason',actions[action].reason??'');line.dataset.action=action;line.hidden=actions[action].allowed;return line;};
- box.append(blocked,row('option-exercise-lots','Lots',lots),all,exercise,assign,why('assignment'),why('exercise'),abandon,atExpiry,why('instruction'),retry,said);
- if(saved)said.textContent=publicText(`The ${saved.label??'lifecycle'} request for this holding awaits its outcome. Retry it as it was sent.`);
+// Older releases retained event requests in the Details pane. Their status is
+// recoverable here; new actions use the policy-bound workspace.
+function lifecycle(host:HTMLElement,api:Api,h:Holding,o:OptionHost){
+ const box=section('Lifecycle');box.classList.add('option-lifecycle');box.dataset.ownControls='';host.append(box);
+ box.append(el('p','field-help','Review exercise, assignment and expiry with the saved action policies in Scheduling → Lifecycle.'));
+ const owner=o.actor(),transport=lifecycleTransport(owner,h.tradeId);
+ let command=restoreTradeRequest(transport.read()),checking=false,alive=true,notFound=false;
+ const current=()=>alive&&o.actor()===owner;
+ const said=el('p','field-help');said.setAttribute('role','status');
+ const open=el('button','secondary','Open Lifecycle');open.id='option-open-lifecycle';open.type='button';open.onclick=()=>{if(current()&&!command)o.lifecycle?.();};
+ if(o.lifecycle)box.append(open);else box.append(el('p','field-help','Open Lifecycle under Scheduling in the main workspace.'));
+ const check=el('button','secondary','Check earlier request');check.id='option-lifecycle-status';check.type='button';
+ const dismiss=el('button','secondary','Dismiss unrecorded request');dismiss.id='option-lifecycle-dismiss';dismiss.type='button';
  function sync(){
-  const held=!!pending.command,open=writes.enabled&&!recorded&&!held&&!sending;
-  blocked.textContent=recorded?'An event was recorded here. Open the trade again from the Blotter to read it at current knowledge.':writes.enabled?'':writes.reason;blocked.hidden=!blocked.textContent;
-  for(const b of [exercise,assign,abandon,atExpiry])b.disabled=!open||!actions[b.dataset.for as keyof typeof actions].allowed;
-  lots.disabled=all.disabled=!open||!(actions.exercise.allowed||actions.assignment.allowed);
-  retry.hidden=!held;retry.disabled=sending||!writes.enabled;
+  open.disabled=checking||!!command;check.hidden=!command;check.disabled=checking;
+  dismiss.hidden=!command||!notFound;dismiss.disabled=checking;
  }
- async function send(){
-  const command=pending.command;if(!current()||!command||sending)return;
-  sending=true;said.textContent='Checking that events may be recorded…';sync();
-  // Null until the request is sent: a failure before then sent nothing, and the request is kept as it was entered.
-  let uncertain:boolean|null=null;
-  try{
-   // The view is asked again when the request is sent: its context or the person's authority may have changed since it was drawn.
-   const now=await o.writes();if(o.actor()!==owner||!owns(command))return;
-   if(!now.enabled){writes=now;if(current())said.textContent=now.reason;return;}
-   uncertain=pending.sending();transport.write(pending.command);said.textContent='Recording…';
-   const r=await api<Outcome>(command.path,{...command.body,operationId:command.operationId});pending.clear();if(owns(command))transport.write(undefined);recorded=true;
-   if(!current())return;
-   const note=`${eventNames[r.kind]??publicText(r.kind)} recorded${r.lots?` for ${lotsWord(r.lots)}`:''} · ${lotsWord(r.remainingLots)} open${r.futuresTradeId?' · a linked futures trade was booked':''}.`;
-   said.textContent=note;o.recorded(note);
-  }catch(error){
-   if(uncertain===null){if(current())said.textContent=publicText(`Not sent: ${reason(error)} Retry the request once events may be recorded.`);return;}
-   pending.failed(codeOf(error),uncertain);if(owns(command))transport.write(pending.command);
-   if(current())said.textContent=pending.command?`Not confirmed: ${reason(error)} The request awaits its outcome; retry it as it was sent.`:`Refused: ${reason(error)}`;
-  }finally{sending=false;if(current())sync();}
- }
- const begin=(path:string,label:string,body:Record<string,unknown>)=>{
-  if(!current()||pending.command)return;
-  pending.begin(path,{snapshotId,convention:optionConvention,knowledgeMode:'current',tradeId:h.tradeId,...body},undefined,label);
-  transport.write(pending.command);void send();
+ if(command)said.textContent='An earlier event request has an unconfirmed outcome. Check its status before recording another action.';
+ check.onclick=()=>{if(!current()||!command||checking)return;const sent=command;checking=true;notFound=false;sync();
+  void(async()=>{try{
+   const status=await api<{found?:boolean;operationId?:string;tradeId?:string}>('options/status',{operationId:sent.operationId});
+   if(status.found===false){if(current()){notFound=true;said.textContent='No accepted event was found for this earlier request. Dismiss it before reviewing an action in Lifecycle.';}return;}
+   if(status.operationId!==sent.operationId||status.tradeId!==h.tradeId)throw Error('The earlier request status did not identify this exact operation and trade.');
+   if(restoreTradeRequest(transport.read())?.operationId===sent.operationId)transport.write(undefined);
+   if(!current())return;command=undefined;said.textContent='The earlier request was recorded. Refresh the trade to read its accepted events.';o.recorded(said.textContent);
+  }catch(error){if(current())said.textContent=`Status not confirmed: ${reason(error)} The original request remains retained.`;}
+  finally{checking=false;if(current())sync();}})();
  };
- all.onclick=()=>{lots.value=h.closableLots??'';};
- exercise.onclick=()=>begin('options/exercise','exercise',{lots:lots.value});
- assign.onclick=()=>begin('options/assignment','assignment',{lots:lots.value});
- abandon.onclick=()=>begin('options/instruction','abandon instruction',{instruction:'abandon'});
- atExpiry.onclick=()=>begin('options/instruction','exercise at expiry instruction',{instruction:'exercise'});
- retry.onclick=()=>void send();
- sync();
- return {dispose:()=>{alive=false;box.remove();},blocked:()=>sending||!!pending.command||!recorded&&lots.value!==''};
+ dismiss.onclick=()=>{if(!current()||!notFound||checking||!command)return;
+  if(restoreTradeRequest(transport.read())?.operationId!==command.operationId)return;
+  transport.write(undefined);command=undefined;notFound=false;said.textContent='The unrecorded request was dismissed. Review the action in Lifecycle.';sync();
+ };
+ box.append(check,dismiss,said);sync();
+ return {dispose:()=>{alive=false;box.remove();},blocked:()=>checking||!!command};
 }

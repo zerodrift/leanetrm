@@ -74,7 +74,7 @@ public static class TradingPnlAccounting
         var flowsAtOpening=opening.Flows.Where(f=>f.EffectiveAt<=opening.At).ToLookup(f=>f.Position);
         var flowsAtClosing=closing.Flows.Where(f=>f.EffectiveAt<=closing.At).ToLookup(f=>f.Position);
         var rows=ImmutableArray.CreateBuilder<PnlAccountingPosition>(currencies.Count);
-        foreach(var (position,currency) in currencies.OrderBy(p=>p.Key.BookId).ThenBy(p=>p.Key.TradeId).ThenBy(p=>p.Key.BindingId))
+        foreach(var (position,currency) in currencies.OrderBy(p=>p.Key.BookId).ThenBy(p=>p.Key.Owner.Kind).ThenBy(p=>p.Key.Owner.Id).ThenBy(p=>p.Key.BindingId))
         {
             var zero=ExactMoney.Parse("0",currency);
             ExactMoney Sum(IEnumerable<AccountingFlow> flows,AccountingFlowKind kind)=>flows.Where(f=>f.Kind==kind).Select(f=>f.Amount).Aggregate(zero,(a,b)=>a.Add(b));
@@ -97,7 +97,7 @@ public static class TradingPnlAccounting
             throw Error("pnl_context","Supply both exact retained contexts and complete known position and flow projections.");
         if(point.Coverage!=PnlAccountingCoverage.Complete)
             throw Error("pnl_accounting_coverage","Full trading P&L requires complete remaining value, signed cash and non-earning transfer coverage.");
-        static bool Key(AccountingPositionKey key)=>key.TradeId!=Guid.Empty&&key.BindingId!=Guid.Empty&&key.BookId!=Guid.Empty;
+        static bool Key(AccountingPositionKey key)=>key.IsValid;
         if(point.Positions.Any(p=>p is null||!Key(p.Position)||p.RemainingValue is null)||point.Positions.Select(p=>p.Position).Distinct().Count()!=point.Positions.Length)
             throw Error("pnl_position","Each retained holding requires one distinct exact trade/binding/book value.");
         if(point.Flows.Any(f=>f is null||f.AllocationId==Guid.Empty||f.Revision<=0||!Key(f.Position)||f.Amount is null||!Enum.IsDefined(f.Kind))||

@@ -901,7 +901,7 @@ internal static partial class FuturesOptionChecks
     // A synthetic two-curve market with fixed identities, so serialized results
     // can be compared across runs and hosts: one NG-style future and a direct
     // daily-settlement curve over four option series on it.
-    private sealed class OptionMarket
+    internal sealed class OptionMarket
     {
         public static Guid G(int n) => Guid.Parse($"00000000-0000-0000-0000-{n:000000000000}");
         public readonly DefinitionRevision Revision = new(G(901), G(902));

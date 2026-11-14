@@ -242,6 +242,7 @@ public static class RiskWorker
             FuturesConvention:sourceConventions[0]);
         var context=(await new KnowledgeStore(catalog).Read(connection,requestContext.ContextId!.Value,ct)).Context;
         await using var database=new PreviewDatabase(manifest,source);
+        using var admissions=database.OwnReadTransaction(connection,transaction);
         var data=await RetainedFrames.ReadBoundJobInputs(database,connection,frame,revision,ReferenceReadScope.TradeValuation,ct);
         var markets=ImmutableArray.CreateBuilder<(PreviewData Data,InputFrame Frame)>();
         foreach(var market in supplemental.OrderBy(p=>p.Key))
@@ -251,7 +252,8 @@ public static class RiskWorker
             throw new MarketDataException("risk_job_context","The retained job must list the positions its submission left out.");
         var historyPlan=job["frame"]!["factorHistory"]?.Deserialize<RetainedFactorHistory>(RiskJobs.Json);
         var historical=ImmutableArray<RiskHistoryObservation>.Empty;
-        if(request.Parametric is not null||request.Historical is not null||request.MonteCarlo is not null)
+        var requiresHistory=request.Parametric is not null||request.Historical is not null||request.MonteCarlo is not null||request.Economic?.History is not null;
+        if(requiresHistory)
         {
             if(historyPlan is null)throw new MarketDataException("risk_parametric_history","A statistical job must retain its complete history input plan.");
             var values=await PreviewDatabase.Rows(connection,"SELECT risk.history_inputs($1,$2)::text",[id,lease],ct);
@@ -259,6 +261,7 @@ public static class RiskWorker
             historical=[..values.GroupBy(r=>r.Id("definition_revision_id")).SelectMany(g=>PortfolioRiskPreview.ReadHistoryEvidence(sources[g.Key],[..g],ct))];
         }
         var prepared=await new PortfolioRiskPreview(database).Prepare(connection,data,frame,request,ct,markets.ToImmutable(),new(connected,excluded),historyPlan,historical);
+        RiskJobs.RequireEconomicFrame(job["frame"]!["economicLifecycle"],prepared.Economic);
         var axes=job["frame"]!["scenarioAxes"]?.Deserialize<ImmutableArray<RetainedRiskAxis>>(RiskJobs.Json)
             ??throw new MarketDataException("risk_graph_manifest","The retained job must include its exact resolved scenario coordinates.");
         if(JsonSerializer.Serialize(axes,RiskJobs.Json)!=JsonSerializer.Serialize(CurveRiskAxes.Retained(prepared),RiskJobs.Json))
@@ -266,13 +269,13 @@ public static class RiskWorker
         if(job["frame"]!["optionCalibrations"] is not JsonArray calibrations||
             !JsonNode.DeepEquals(calibrations,JsonSerializer.SerializeToNode(prepared.Portfolio.OptionCalibrations,RiskJobs.Json)))
             throw new MarketDataException("risk_option_calibration","The replayed option calibrations differ from the receipts the job retained.");
-        if(request.Parametric is not null||request.Historical is not null||request.MonteCarlo is not null)
+        if(requiresHistory)
         {
             await using var authority=ScheduleStore.Command(connection,"SELECT risk.check_history($1,$2)",id,lease);
             await authority.ExecuteScalarAsync(ct);
         }
         var loaded=new Loaded(token=>PortfolioRiskPreview.Calculate(prepared,token),context,frame.At);
-        await transaction.CommitAsync(ct);
+        await admissions.Commit(ct);
         return loaded;
     }
 }

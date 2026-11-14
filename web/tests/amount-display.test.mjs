@@ -17,6 +17,11 @@ test('incomplete formatter responses fail visibly instead of silently truncating
  selectDisplayPrecision(initialDisplayPrecision());
  await assert.rejects(prepareAmountDisplay({quantity:'9.123'},async()=>[]),/incomplete/);
 });
+test('economic residual, period cash and carry use the backend money display without modifying their exact text',async()=>{
+ selectDisplayPrecision(initialDisplayPrecision());const row={openingValue:'100.12345',residualValue:'1/3',periodCash:'-2.55555',economicPnl:'-101.2'},before=JSON.stringify(row),sent=[];
+ await prepareAmountDisplay(row,async body=>{sent.push(...body);return body.map(r=>'formatted:'+r.value);});
+ assert.equal(JSON.stringify(row),before);assert.equal(sent.length,4);assert.equal(sent.every(r=>r.decimalPlaces===3&&!r.trimTrailingZeros),true);assert.equal(amountText('1/3','money'),'formatted:1/3');
+});
 test('precision is scoped to the deal rather than the user profile',()=>{
  const p=newPreferences('UTC');
  assert.equal('displayPrecision' in p,false);

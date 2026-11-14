@@ -72,6 +72,13 @@ public sealed record ExactMoney
         return new(ExactDecimal.FromScaled(scaled), Currency);
     }
     public Money ToMoney(AmountFormat rounding)=>new(rounding.RoundFraction(numerator,denominator),Currency);
+    public Money Round(CashRoundingConvention convention,CashRoundingStage stage)
+    {
+        convention.Require(Currency,stage);
+        var units=IntegerRounding.RoundQuotient(numerator*ExactDecimal.WorkingScale,denominator*convention.Increment.ScaledValue,
+            convention.TieRule==CashTieRule.ToEven?MidpointRounding.ToEven:MidpointRounding.AwayFromZero);
+        return new(ExactDecimal.FromScaled(units*convention.Increment.ScaledValue),Currency);
+    }
 
     internal static ExactMoney WeightedSum(ReferenceKey currency,
         IEnumerable<(IEnumerable<(ExactDecimal Value, ExactDecimal Weight)> Values, ExactDecimal[] Factors)> contributions)

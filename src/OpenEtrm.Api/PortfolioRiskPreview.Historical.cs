@@ -9,6 +9,7 @@ using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.Api;
@@ -90,14 +91,20 @@ public sealed partial class PortfolioRiskPreview
         RiskValuationAdmission.Require(rows,nodes,checked(width*historicalScenarios+normalWidth*comparisonScenarios),history.Columns.Length,1);
     }
 
-    private readonly record struct HistoricalPositionKey(Guid BookId,Guid TradeId,Guid BindingId,string Measure,ReferenceKey Currency);
+    private readonly record struct HistoricalPositionKey(Guid BookId,AccountingOwnerKey Owner,Guid BindingId,string Measure,ReferenceKey Currency);
     private static HistoricalPositionKey[] HistoricalHoldings(PortfolioValuation.Prepared portfolio)=>
         portfolio.Markets.SelectMany(m=>m.Connected.Holdings.Select(p=>
-            new HistoricalPositionKey(p.BookId,p.TradeId,p.BindingId,m.Measures[p.Group],p.Currency))).ToArray();
+            new HistoricalPositionKey(p.BookId,p.Owner,p.BindingId,m.Measures[p.Group],p.Currency))).ToArray();
     private static HistoricalPositionKey HistoricalKey(string measure,ExactRiskPositionValue position)=>
-        new(position.BookId,position.TradeId,position.BindingId,measure,position.Value.Currency);
-    private static string HistoricalExposureId(HistoricalPositionKey key)=>
-        Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(key,RiskJobs.Json)));
+        new(position.BookId,position.Owner,position.BindingId,measure,position.Value.Currency);
+    private static string HistoricalExposureId(HistoricalPositionKey key)
+    {
+        // Retained trade-only reports keep their original exposure identity.
+        var bytes=key.Owner.Kind==AccountingOwnerKind.Trade?
+            JsonSerializer.SerializeToUtf8Bytes(new{key.BookId,TradeId=key.Owner.Id,key.BindingId,key.Measure,key.Currency},RiskJobs.Json):
+            JsonSerializer.SerializeToUtf8Bytes(key,RiskJobs.Json);
+        return Convert.ToHexStringLower(SHA256.HashData(bytes));
+    }
 
     // Only called after the complete frozen historical PV run succeeded. FD steps were admitted in Prepare.
     // Coverage, history, pricing identity and authority failures must never become optional-comparison unavailability.
@@ -151,14 +158,14 @@ public sealed partial class PortfolioRiskPreview
         if(basis.Length!=expected.Length||basis.Select(v=>v.Key).Distinct().Count()!=expected.Length||!basis.Select(v=>v.Key).ToHashSet().SetEquals(expected))
             throw new MarketDataException("risk_historical_exposures","The frozen base must account for every prepared native holding exactly once.");
         var bases=basis.ToDictionary(v=>v.Key,v=>v.Value.Value);
-        ImmutableArray<HistoricalExposure> exposures=[..basis.Select(v=>new HistoricalExposure(HistoricalExposureId(v.Key),v.Key.BookId,v.Key.TradeId,v.Key.BindingId,v.Key.Measure,v.Key.Currency,v.Value.Value.ToExactString()))
+        ImmutableArray<HistoricalExposure> exposures=[..basis.Select(v=>new HistoricalExposure(HistoricalExposureId(v.Key),v.Key.BookId,v.Key.Owner,v.Key.BindingId,v.Key.Measure,v.Key.Currency,v.Value.Value.ToExactString()))
             .OrderBy(e=>e.Id,StringComparer.Ordinal)];
         ImmutableArray<HistoricalObservation> observations=[..run.Samples.Select(sample=>
         {
             ct.ThrowIfCancellationRequested();
             var cells=sample.Positions.Select(v=>
             {
-                var p=v.Position;var key=new HistoricalPositionKey(p.BookId,p.TradeId,p.BindingId,v.Measure,p.Values.Base.Currency);
+                var p=v.Position;var key=new HistoricalPositionKey(p.BookId,p.Owner,p.BindingId,v.Measure,p.Values.Base.Currency);
                 if(!bases.TryGetValue(key,out var current)||current.ToExactString()!=p.Values.Base.ToExactString()||
                     p.Values.Value.Currency!=key.Currency||p.Values.Loss.ToExactString()!=current.Subtract(p.Values.Value).ToExactString())
                     throw new MarketDataException("risk_historical_exposures","A scenario changed its frozen base, native currency or complete position identity.");
@@ -207,13 +214,13 @@ public sealed partial class PortfolioRiskPreview
         if(prepared.Portfolio.OptionWork is {} allOptionWork)
             report["optionWork"]=JsonSerializer.SerializeToNode(allOptionWork with{ScenarioTreePrices=prepared.Portfolio.Options!.TreePrices-before},RiskJobs.Json);
         var markets=prepared.Portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
-        var evidence=prepared.Portfolio.Positions.ToDictionary(p=>(p.TradeId,p.BindingId));
+        var evidence=prepared.Portfolio.Positions.ToDictionary(p=>(p.Owner,p.BindingId));
         var historical=JsonSerializer.SerializeToNode(new{studyId,result,request=spec,history,
             factors=history.Columns.Select((c,i)=>new{c.Id,factor=Factor(markets,prepared.HistoricalAxes[i])}),
             books=prepared.Books.Where(b=>prepared.BookIds.Contains(b.Id("id"))).Select(b=>new{id=b.Id("id"),name=b.Text("name")}),
-            exposures=exposures.Select(e=>new{e.Id,e.BookId,e.TradeId,e.BindingId,e.Measure,e.Currency,e.BaseValue,
-                evidence[(e.TradeId,e.BindingId)].TradeReference,evidence[(e.TradeId,e.BindingId)].InstrumentReference,
-                evidence[(e.TradeId,e.BindingId)].InstrumentType}),
+            exposures=exposures.Select(e=>new{e.Id,e.Owner,e.BookId,e.TradeId,e.BindingId,e.Measure,e.Currency,e.BaseValue,
+                evidence[(e.Owner,e.BindingId)].TradeReference,evidence[(e.Owner,e.BindingId)].InstrumentReference,
+                evidence[(e.Owner,e.BindingId)].InstrumentType}),
             partitions=result.Partitions.Select(p=>new{p.Measure,measureLabel=MeasureLabel(p.Measure),currencyReference=p.Currency,currency=Currency(markets,p.Currency)}),
             matrix=new{columns=exposures.Select(e=>e.Id),rows=observations.Select(row=>
             {
@@ -246,7 +253,7 @@ public sealed partial class PortfolioRiskPreview
         var (prepared,markets)=await PrepareSummary(connection,data,frame,body,ct);
         var run=EvaluateHistorical(prepared,ct);var manifest=run.History;var portfolio=prepared.Portfolio;var dates=SessionDates(manifest);
         var samples=manifest.Samples.ToDictionary(x=>x.Id,StringComparer.Ordinal);
-        var evidence=portfolio.Positions.ToDictionary(p=>(p.TradeId,p.BindingId));
+        var evidence=portfolio.Positions.ToDictionary(p=>(p.Owner,p.BindingId));
         var studyId=HistoricalStudyId(prepared,run);
         var comparison=RunHistoricalComparison(prepared,run,studyId,ct);
         var normal=comparison?["report"] is {} report?report["result"].Deserialize<ParametricRiskReport>(RiskJobs.Json)
@@ -255,14 +262,18 @@ public sealed partial class PortfolioRiskPreview
             policy=run.Spec.Policy,samples=run.Result.Samples,history=new{run.Spec.History.Calendar,run.Spec.History.From,run.Spec.History.To,run.Spec.History.Policy},
             coverage=SummaryCoverage(manifest,portfolio),excludedPositions=portfolio.Excluded,
             books=prepared.Books.Where(b=>prepared.BookIds.Contains(b.Id("id"))).Select(b=>new{id=b.Id("id"),name=b.Text("name")}),
-            trades=run.Exposures.GroupBy(e=>e.TradeId).Select(g=>(Exposure:g.First(),Evidence:evidence[(g.Key,g.First().BindingId)]))
+            trades=run.Exposures.Where(e=>e.Owner.Kind==AccountingOwnerKind.Trade).GroupBy(e=>e.Owner).Select(g=>(Exposure:g.First(),Evidence:evidence[(g.Key,g.First().BindingId)]))
                 .Select(t=>new{id=t.Exposure.TradeId,reference=t.Evidence.TradeReference,instrumentType=t.Evidence.InstrumentType,bookId=t.Exposure.BookId})
+                .OrderBy(t=>t.reference,StringComparer.Ordinal),
+            owners=run.Exposures.GroupBy(e=>e.Owner).Select(g=>(Owner:g.Key,Exposure:g.First(),Evidence:evidence[(g.Key,g.First().BindingId)]))
+                .Select(t=>new{t.Owner,reference=t.Evidence.TradeReference,instrumentType=t.Evidence.InstrumentType,bookId=t.Exposure.BookId})
                 .OrderBy(t=>t.reference,StringComparer.Ordinal),
             factors=SummaryFactors(manifest,prepared.HistoricalAxes,markets),
             partitions=run.Result.Partitions.Select(p=>new{p.Measure,measureLabel=MeasureLabel(p.Measure),currency=Currency(markets,p.Currency),
                 p.BaseValue,p.Mean,p.ValueAtRisk,p.ExpectedShortfall,p.TailSampleMass,p.QuantileTies,
                 books=p.Books.Select(b=>new{bookId=b.Id,b.ValueAtRisk,b.ExpectedShortfall}),
-                trades=p.Trades.Select(t=>new{tradeId=t.Id,t.ValueAtRisk,t.ExpectedShortfall}),
+                trades=p.Trades.Where(t=>t.Owner?.Kind==AccountingOwnerKind.Trade).Select(t=>new{tradeId=t.Id,t.ValueAtRisk,t.ExpectedShortfall}),
+                owners=p.Trades.Select(t=>new{t.Owner,t.ValueAtRisk,t.ExpectedShortfall}),
                 // The scenarios carrying quantile or tail weight, largest loss first.
                 tail=p.Samples.Where(x=>Exact(x.VarWeight).CompareTo(SignedRatio.Zero)!=0||Exact(x.EsWeight).CompareTo(SignedRatio.Zero)!=0)
                     .OrderByDescending(x=>Exact(x.Loss)).ThenBy(x=>x.Id,StringComparer.Ordinal)
@@ -283,7 +294,7 @@ public sealed partial class PortfolioRiskPreview
                 new[]{manifest.Available?null:"insufficient common history",prepared.Portfolio.Excluded.IsEmpty?null:"incomplete portfolio"}.OfType<string>())+".");
         var run=EvaluateHistorical(prepared,ct);var dates=SessionDates(manifest);
         var values=run.Observations.Single(o=>o.Id==change.Id).Values.ToDictionary(v=>v.ExposureId,v=>v.Value,StringComparer.Ordinal);
-        var evidence=prepared.Portfolio.Positions.ToDictionary(p=>(p.TradeId,p.BindingId));
+        var evidence=prepared.Portfolio.Positions.ToDictionary(p=>(p.Owner,p.BindingId));
         var days=manifest.DayPrices.IsDefault?null:manifest.DayPrices.ToDictionary(d=>d.At);
         return Shown(new{historyId=manifest.Id,studyId=HistoricalStudyId(prepared,run),sample=change.Id,from=dates[change.From.At],to=dates[change.To.At],
             moves=change.Changes.Select((v,i)=>new{factor=i,from=change.From.Marks[i]!.Value,to=change.To.Marks[i]!.Value,move=v,
@@ -292,8 +303,8 @@ public sealed partial class PortfolioRiskPreview
                 .Select(p=>new{p.Partition.Measure,currency=Currency(markets,p.Partition.Currency),loss=p.Loss}),
             holdings=run.Exposures.Select(e=>
             {
-                var loss=ExactMoney.Parse(e.BaseValue,e.Currency).Subtract(ExactMoney.Parse(values[e.Id],e.Currency));var held=evidence[(e.TradeId,e.BindingId)];
-                return new{held.TradeReference,held.InstrumentType,e.BookId,e.BindingId,e.Measure,currency=Currency(markets,e.Currency),
+                var loss=ExactMoney.Parse(e.BaseValue,e.Currency).Subtract(ExactMoney.Parse(values[e.Id],e.Currency));var held=evidence[(e.Owner,e.BindingId)];
+                return new{e.Owner,held.TradeReference,held.InstrumentType,e.BookId,e.BindingId,e.Measure,currency=Currency(markets,e.Currency),
                     e.BaseValue,scenarioValue=values[e.Id],loss=loss.ToExactString()};
             })});
     }

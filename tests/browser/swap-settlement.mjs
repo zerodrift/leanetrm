@@ -1,132 +1,43 @@
-import {workspaceProbeScript} from './workspace-probe.mjs';
-import {blotterAt,decemberClose} from './gas-ticket.mjs';
-import {mkdtemp,copyFile} from 'node:fs/promises';
-import {dirname,join} from 'node:path';
-import {tmpdir} from 'node:os';
-// A financial swap's settlement and P&L view (D215) opens from the Terms of its position in the Blotter's side panel, in the panel's form
-// part (D221), and works there: determination, cash, reversal and the P&L bridge, with a stale preview dropped on a context change. What is
-// entered in it is an edit the panel asks about, a settlement clears risk results run before it, and a command whose outcome is not known
-// is kept, across a reload too, and settled from the panel with the view left open.
-export async function run({command,evaluate,wait,click,set,submit,persona,check,shot,idle,url}){
- await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
- await command('Page.navigate',{url});await wait(idle);
- // An account that may both settle and run risk, so that a settlement made while risk results show is seen to clear them.
- await persona('admin');
- await evaluate(`(async()=>{const b=await(await fetch('/api/bootstrap')).json();const r=await fetch('/api/admin/create',{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':b.csrfToken},body:JSON.stringify({operationId:crypto.randomUUID(),login:'settlement_risk_browser',name:'Synthetic settlement and risk account',kind:'human',roles:['trader','risk_analyst']})});if(!r.ok)throw Error(await r.text());})()`);
- await persona('settlement_risk_browser');
- // A new account chooses its close session before it reads prices (D334).
- await set('#close-session','demo_close_1600');await wait(idle);
- // On demand, a request can be refused, dropped before it reaches the backend, or reach it and have its answer lost, and a read can fail.
- const intercept=workspaceProbeScript+`(()=>{const send=window.fetch;window.fetch=window.__workspaceProbe(send,async(input,init,send)=>{const path=typeof input==='string'?input:input.url;if(path===window.__refuse){window.__refuse=undefined;return new Response(JSON.stringify({code:'settlement_stale_preview',message:'Synthetic refusal: the preview changed.'}),{status:409,headers:{'Content-Type':'application/json'}});}if(path===window.__drop){window.__drop=undefined;return new Response('incomplete',{status:502});}if(path===window.__failRead){window.__failRead=undefined;return new Response(JSON.stringify({code:'request_failed',message:'Synthetic read failure.'}),{status:503,headers:{'Content-Type':'application/json'}});}const response=await send(input,init);if(path===window.__lose){window.__lose=undefined;return new Response('incomplete',{status:502});}return response;});})()`;
- await evaluate(intercept);
- const typeInto=async(selector,text)=>{await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.focus();n.select();})()`);await command('Input.insertText',{text});};
- const {frame,session}=await evaluate("(async()=>{const w=await(await fetch('/api/workspace')).json();const f=w.frames.find(f=>f.at.startsWith('2021-01-15T08:00:00')&&w.initialFrameIds.includes(f.id));return {frame:f.id,session:f.close?.session??null};})()");
- // Where this frame is a recorded close, the As of list offers it under its own session (D334).
- if(session&&session!=='demo_close_1600'){await set('#close-session',session);await wait(idle);}
- await set('#snapshot',frame);await wait(idle,30000);await click('#nav-futures',30000);await wait(idle);
- const selected=await evaluate(`(async()=>{const token=(await(await fetch('/api/bootstrap')).json()).csrfToken;window.__settlementPost=async(path,body)=>{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!r.ok)throw Error(await r.text());return r.json();};window.__settlementContext={snapshotId:${JSON.stringify(frame)},convention:'independent_side_financial_swap_v2',knowledgeMode:'current'};const report=await window.__settlementPost('trading/blotter',{context:{...window.__settlementContext,convention:'trading_workspace_v1'},view:{mode:'trades',bookIds:[],portfolioIds:[],groupBy:[],measures:[],pivotConvention:null}});const trade=report.holdings.find(h=>h.instrumentType==='financial_swap'&&h.settlement==='Projection'&&h.fixedPrice==='3'&&h.curve==='base_forward'&&h.deliveryFrom==='2021-01-01'&&h.deliveryTo==='2021-02-01');window.__settlementTrade=trade.tradeId;return {tradeId:trade.tradeId,reference:trade.tradeReference};})()`);
- // A risk report run at this close, whose results a settlement made afterwards no longer holds for.
- await click('#blotter-risk');await wait("[...document.querySelector('#risk-factor').options].some(o=>o.value)&&"+idle);await click('input[name=risk-choice][value=custom]');
- await set('#risk-factor',await evaluate("[...document.querySelector('#risk-factor').options].find(o=>o.value).value"));await set('#risk-bump','0.1');await submit('#risk-form');
- await wait("!document.querySelector('#desk-run').hidden&&"+idle);
- // The settlement view is in the panel's form part, open; it is opened from the Terms of the position's row.
- const open="(()=>{const view=document.querySelector('#swap-settlement'),form=document.querySelector('#position-details-form');return !!view&&!!form&&!view.hidden&&form.contains(view)&&!form.hidden;})()";
- async function openView(){
-  await set('#blotter-filters .table-search',selected.reference);await wait("[...document.querySelectorAll('#desk-positions .tabulator-row:not(.tabulator-group)')].filter(r=>r.getClientRects().length).length===1");
-  await click('#desk-positions .tabulator-row:not(.tabulator-group)');await wait(`document.querySelector('#position-details')?.getAttribute('aria-label')==='Position details'&&document.querySelector('#position-details')?.hidden===false&&document.querySelector('#position-details-head .side-panel-reference')?.textContent===${JSON.stringify(selected.reference)}&&${idle}`);
-  await click('#position-details-tabs-terms');await wait("!!document.querySelector('#side-panel-settlement')&&"+idle);
-  await click('#side-panel-settlement');await wait(open);await wait(idle);
- }
- await openView();
- await check('a swap\'s Terms offer its settlement and P&L view, which takes the panel\'s form part in place of its terms, with the head\'s Close editor',"document.querySelector('#position-details-tabs-terms').getAttribute('aria-selected')==='true'&&document.querySelector('#position-details-view').hidden&&document.querySelector('#side-panel-amend').textContent==='Close editor'&&document.querySelector('#swap-settlement-title').textContent.includes("+JSON.stringify(selected.reference)+")");
- await check('settlement inspection shows gross occurrences, separate balances and P&L measures',"document.querySelector('#swap-settlement').textContent.includes('Remaining contractual value')&&document.querySelector('#swap-settlement').textContent.includes('Actual net cash received')&&document.querySelector('#swap-settlement').textContent.includes('ties to even')");
- await click('#swap-settlement button[data-membership="0"][data-payment="0"]');await wait(idle);await check('selected final contribution produces a determination preview',"!!document.querySelector('#swap-settlement-determine')","document.querySelector('#swap-settlement').textContent");
- await check('final payment review retains exact price evidence before determination',"document.querySelector('#swap-settlement').textContent.includes('Final gross payment calculation')&&document.querySelector('#swap-settlement details pre').textContent.includes('contractHash')");
- const artifacts=await mkdtemp(join(tmpdir(),'openetrm-settlement-visual-'));console.log('SETTLEMENT_VISUAL_ARTIFACTS='+artifacts);
- await evaluate("document.querySelector('#swap-settlement').scrollIntoView({block:'start'})");await shot('settlement-desktop');await copyFile(join(dirname(process.argv[2]),'settlement-desktop.png'),join(artifacts,'desktop.png'));
- await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait("(document.querySelector('#position-details')?.hidden===false&&!document.querySelector('#blotter-pane-details').hidden)");await evaluate("document.querySelector('#swap-settlement').scrollIntoView({block:'start'})");await shot('settlement-narrow');await copyFile(join(dirname(process.argv[2]),'settlement-narrow.png'),join(artifacts,'narrow.png'));
- await check('the settlement view fits a narrow viewport in the details',"document.documentElement.scrollWidth<=document.documentElement.clientWidth+1&&document.querySelector('#swap-settlement').scrollWidth<=document.querySelector('#swap-settlement').clientWidth+1","({root:[document.documentElement.clientWidth,document.documentElement.scrollWidth],dialog:[document.querySelector('#swap-settlement').clientWidth,document.querySelector('#swap-settlement').scrollWidth],overflow:[...document.querySelectorAll('#swap-settlement *')].filter(n=>n.scrollWidth>n.clientWidth+2).map(n=>[n.tagName,n.id,n.className,n.clientWidth,n.scrollWidth]).slice(0,15)})");
- await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
- await click('#swap-settlement-determine',60000);await wait(idle);
- await check('determine action creates an immutable original contribution',"!document.querySelector('#swap-settlement').hidden&&document.querySelector('#position-details-form').contains(document.querySelector('#swap-settlement'))&&!document.querySelector('#swap-settlement [role=alert]').textContent&&document.querySelector('#swap-settlement-contribution').options.length>1&&!document.querySelector('#swap-settlement-determine')");
- const riskCleared='Risk results cleared · a settlement record changed the values they were run on';
- await check('a settlement that goes through clears the risk results run before it, and the page says so',`document.querySelector('#desk-run').hidden&&[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk'))[0].querySelector('.strip-value').textContent==='Not run'&&!document.querySelector('#notice').hidden&&document.querySelector('#notice').textContent.includes(${JSON.stringify(riskCleared)})`,"[document.querySelector('#notice').textContent,[...document.querySelectorAll('#blotter-strip .strip-item')].filter(i=>i.querySelector('.strip-label').textContent.startsWith('Risk')).map(i=>i.textContent).join(' '),document.querySelector('#desk-run').hidden]");
- const balance=await evaluate("(async()=>{const r=await window.__settlementPost('swaps/settlement/inspect',{context:window.__settlementContext,tradeId:window.__settlementTrade,revision:null,duePolicy:'swap_due_nominal_v1',recognitionPolicy:'swap_completed_period_trading_pnl_v1'});return r.balances[0];})()");
- await set('#swap-settlement-contribution',balance.determinationId);await set('#swap-settlement-amount',balance.outstanding);await set('#swap-settlement-effective','2021-01-15T08:00:00Z');await set('#swap-settlement-reference','Synthetic browser cash');await submit('#swap-settlement-payment-form',60000);await wait(idle);
- await check('manual full payment appears in cash history and reduces the selected balance',"!document.querySelector('#swap-settlement [role=alert]').textContent&&document.querySelector('#swap-settlement').textContent.includes('Synthetic browser cash')&&document.querySelector('#swap-settlement').textContent.includes('Paid')","({error:document.querySelector('#swap-settlement [role=alert]').textContent,text:document.querySelector('#swap-settlement').textContent.slice(-3000),invalid:[...document.querySelectorAll('#swap-settlement-payment-form :invalid')].map(n=>[n.id,n.validationMessage]),values:[...document.querySelectorAll('#swap-settlement-payment-form input')].map(n=>[n.id,n.value])})");
- // What a cash record consumed is cleared from the form once it has gone through.
- const consumedCash="['#swap-settlement-contribution','#swap-settlement-amount','#swap-settlement-effective','#swap-settlement-reference'].every(id=>document.querySelector(id).value==='')",cashFields="['#swap-settlement-contribution','#swap-settlement-amount','#swap-settlement-effective','#swap-settlement-reference'].map(id=>document.querySelector(id).value)";
- await check('a cash record that goes through clears the contribution, amount, instant and reference it consumed',consumedCash,cashFields);
- // A cash amount being entered for another record, which the reversal does not use.
- await set('#swap-settlement-amount','7');
- const reversal=await evaluate("[...document.querySelector('#swap-settlement-reversal').options].find(o=>o.value).value");await set('#swap-settlement-reversal',reversal);await set('#swap-settlement-effective','2021-01-15T08:00:00Z');await set('#swap-settlement-reference','Synthetic browser reversal');await click('#swap-settlement-reverse',60000);await wait(idle);
- await check('payment reversal retains original and reverse cash movements',"!document.querySelector('#swap-settlement [role=alert]').textContent&&document.querySelector('#swap-settlement').textContent.includes('Synthetic browser reversal')&&document.querySelector('#swap-settlement').textContent.includes('Synthetic browser cash')");
- await check('a cash reversal clears the instant and reference it was recorded with, and keeps a cash amount it did not use',"document.querySelector('#swap-settlement-amount').value==='7'&&document.querySelector('#swap-settlement-effective').value===''&&document.querySelector('#swap-settlement-reference').value===''","[document.querySelector('#swap-settlement-amount').value,document.querySelector('#swap-settlement-effective').value,document.querySelector('#swap-settlement-reference').value]");
- await set('#swap-settlement-amount','');
- await click('#swap-settlement-opening');await set('#swap-pnl-contract-policy','reject_contract_changes_v1');await click('#swap-settlement-reconcile',60000);await wait(idle);
- await check('P&L reconciliation uses retained opening and closing contexts',"!document.querySelector('#swap-settlement [role=alert]').textContent&&document.querySelector('#swap-settlement').textContent.includes('Economic P&L')&&document.querySelector('#swap-settlement').textContent.includes('retained knowledge context')");
+import {swapLifecycleFixture} from './lifecycle-swaps.mjs';
+const q=JSON.stringify;
 
- // A correction's due instant is an edit like any other: the panel asks before the view is closed, and keeping it keeps it.
- const prompt="document.querySelector('#position-details-prompt')",due="document.querySelector('#swap-settlement-correction-due')?.value";
- await click('#swap-settlement button[data-membership="0"][data-payment="0"]');await wait("!!document.querySelector('#swap-settlement-correction-due')&&"+idle);
- await typeInto('#swap-settlement-correction-due','2021-03-20T00:00:00Z');await click('#side-panel-amend');
- await check('a correction due instant typed in the settlement view makes the panel ask before the view is closed',`!${prompt}.hidden&&${prompt}.textContent.includes('unsaved changes')`,`[${prompt}.hidden,${prompt}.textContent,document.querySelector('#side-panel-amend').textContent]`);
- await click('#position-details-prompt button.secondary');
- await check('keeping it leaves the view open with the due instant as it was typed',`${open}&&${prompt}.hidden&&${due}==='2021-03-20T00:00:00Z'`);
- // Another payment's calculation, or a refresh, replaces the typed due instant only once the panel has asked.
- await click('#swap-settlement button[data-membership="1"][data-payment="0"]');
- await check('opening another payment\'s calculation over a typed due instant asks first',`!${prompt}.hidden&&${prompt}.textContent.includes('correction due instant')`,`[${prompt}.hidden,${prompt}.textContent,${due}]`);
- await click('#position-details-prompt button.secondary');
- await check('keeping it leaves the calculation and its due instant as they were',`${prompt}.hidden&&${due}==='2021-03-20T00:00:00Z'`);
- await click('#swap-settlement-refresh');
- await check('refreshing the view over a typed due instant asks first',`!${prompt}.hidden&&${prompt}.textContent.includes('correction due instant')`,`[${prompt}.hidden,${prompt}.textContent]`);
- await click('#position-details-prompt button:not(.secondary)');await wait(`${prompt}.hidden&&`+idle);
- await check('discarding it refreshes the view without the calculation',`${open}&&!document.querySelector('#swap-settlement-correction-due')`);
- // A determination the backend refuses keeps the calculation it was asked from, with the reason.
- await click('#swap-settlement button[data-membership="1"][data-payment="0"]');await wait("!!document.querySelector('#swap-settlement-determine')&&!document.querySelector('#swap-settlement-determine').disabled&&"+idle);
- await evaluate("window.__refuse='/api/swaps/settlement/determine'");await click('#swap-settlement-determine');await wait(idle);
- await check('a determination the backend refuses keeps its calculation and evidence in the view, and says why',`${open}&&!!document.querySelector('#swap-settlement-determine')&&document.querySelector('#swap-settlement').textContent.includes('Final gross payment calculation')&&document.querySelector('#swap-settlement [role=alert]').textContent.includes('Synthetic refusal')`,"[document.querySelector('#swap-settlement [role=alert]').textContent,!!document.querySelector('#swap-settlement-determine'),document.querySelector('#futures-pending').hidden]");
- // A determination that goes through when the Blotter cannot be read after it leaves the view read again, without the calculation.
- await evaluate("window.__failRead='/api/trading/workspace'");await click('#swap-settlement-determine');await wait(idle);
- await check('a determination that goes through while the Blotter cannot be read after it leaves the view read again, with no calculation to determine twice',`${open}&&!document.querySelector('#swap-settlement-determine')&&document.querySelector('#swap-settlement-contribution').options.length>2&&document.querySelector('#swap-settlement [role=alert]').textContent.includes('Synthetic read failure.')`,"[!!document.querySelector('#swap-settlement-determine'),document.querySelector('#swap-settlement-determine')?.disabled,document.querySelector('#swap-settlement-contribution').options.length,document.querySelector('#swap-settlement [role=alert]').textContent]");
- // A settlement command whose outcome is not known is kept in the panel's card, named for what it was; Check status settles it there
- // and leaves the view open, reading its state again.
- const card=label=>`(()=>{const card=document.querySelector('#futures-pending');return !card.hidden&&card.getClientRects().length>0&&card.textContent.includes(${JSON.stringify(label)})&&!document.querySelector('#futures-reconcile').disabled;})()`;
- const outstandingOf=membership=>evaluate(`(async()=>{const r=await window.__settlementPost('swaps/settlement/inspect',{context:window.__settlementContext,tradeId:window.__settlementTrade,revision:null,duePolicy:'swap_due_nominal_v1',recognitionPolicy:'swap_completed_period_trading_pnl_v1'});return r.balances.find(b=>b.membershipOrdinal===${membership}&&b.outstanding!=='0');})()`);
- async function cash(target,reference){await set('#swap-settlement-contribution',target.determinationId);await set('#swap-settlement-amount',target.outstanding);await set('#swap-settlement-effective','2021-01-15T08:00:00Z');await set('#swap-settlement-reference',reference);}
- // A cash record that goes through when the Blotter cannot be read after it is cleared from the form all the same: it is not offered twice.
- const part=await outstandingOf(0),recordedOnce="[...document.querySelectorAll('#swap-settlement-cash tbody tr')].filter(r=>r.textContent.includes('Synthetic cash before a failed read')).length===1";
- await set('#swap-settlement-contribution',part.determinationId);await set('#swap-settlement-amount',part.outstanding.startsWith('-')?'-0.01':'0.01');await set('#swap-settlement-effective','2021-01-15T08:00:00Z');await set('#swap-settlement-reference','Synthetic cash before a failed read');
- await evaluate("window.__failRead='/api/trading/workspace'");await submit('#swap-settlement-payment-form');await wait(idle);
- await check('a cash record that goes through while the Blotter cannot be read after it clears what it consumed, and says the read failed',`${open}&&${consumedCash}&&${recordedOnce}&&document.querySelector('#swap-settlement [role=alert]').textContent.includes('Synthetic read failure.')`,`[${cashFields},document.querySelector('#swap-settlement [role=alert]').textContent]`);
- await submit('#swap-settlement-payment-form');await wait(idle);
- await check('so recording again offers no second record',recordedOnce);
- await cash(await outstandingOf(1),'Synthetic lost browser cash');
- await evaluate("window.__lose='/api/swaps/settlement/payment'");await submit('#swap-settlement-payment-form');await wait("!document.querySelector('#futures-pending').hidden&&"+idle);
- await check('a settlement cash record whose outcome is not known is kept in the panel\'s card, named for it, with Check status and Retry',`${card('Settlement cash of '+selected.reference)}&&document.querySelector('#futures-retained').contains(document.querySelector('#futures-pending'))&&!document.querySelector('#futures-retry').disabled`,"[document.querySelector('#futures-pending').textContent,document.querySelector('#futures-retry').disabled]");
- await click('#futures-reconcile',60000);await wait("document.querySelector('#futures-pending').hidden&&"+idle);
- await check('Check status settles it and leaves the settlement view open, which shows the cash',`${open}&&document.querySelector('#swap-settlement').textContent.includes('Synthetic lost browser cash')`,"[(document.querySelector('#position-details')?.hidden!==false),document.querySelector('#position-details').dataset.mode,!!document.querySelector('#swap-settlement')&&document.querySelector('#swap-settlement').hidden]");
- // A cash record that never reached the backend, retried after the settlement moved on, is refused for good: the card is released
- // with the backend's reason, and the view takes writes again.
- await cash(await outstandingOf(0),'Synthetic stale browser cash');
- await evaluate("window.__drop='/api/swaps/settlement/payment'");await submit('#swap-settlement-payment-form');await wait("!document.querySelector('#futures-pending').hidden&&"+idle);
- await evaluate(`(async()=>{const r=await window.__settlementPost('swaps/settlement/inspect',{context:window.__settlementContext,tradeId:window.__settlementTrade,revision:null,duePolicy:'swap_due_nominal_v1',recognitionPolicy:'swap_completed_period_trading_pnl_v1'});const b=r.balances.find(b=>b.membershipOrdinal===0&&b.outstanding!=='0');await window.__settlementPost('swaps/settlement/payment',{context:window.__settlementContext,tradeId:window.__settlementTrade,operationId:crypto.randomUUID(),expectedRevision:r.state.revision,expectedVersion:r.settlement.version,determinationId:b.determinationId,amount:b.outstanding.startsWith('-')?'-0.01':'0.01',currency:r.currency,effectiveAt:'2021-01-15T08:00:00Z',reference:'Synthetic direct browser cash',reversesId:null});})()`);
- await click('#futures-retry',60000);await wait(idle);
- await check('a retry the backend refuses for good releases the card and shows the backend\'s reason',"document.querySelector('#futures-pending').hidden&&!document.querySelector('#error').hidden&&document.querySelector('#error').textContent.trim().length>0","[document.querySelector('#futures-pending').hidden,document.querySelector('#futures-pending').textContent,document.querySelector('#error').textContent]");
- await click('#swap-settlement-refresh');await wait(idle);await cash(await outstandingOf(0),'Synthetic browser cash after a refusal');await submit('#swap-settlement-payment-form');await wait(idle);
- await check('and the view takes writes again',`document.querySelector('#futures-pending').hidden&&!document.querySelector('#swap-settlement [role=alert]').textContent&&document.querySelector('#swap-settlement').textContent.includes('Synthetic browser cash after a refusal')`,"[document.querySelector('#swap-settlement [role=alert]').textContent,document.querySelector('#error').textContent]");
- // A reversal whose outcome is not known is still kept after a reload, and Retry sends it again from the reopened view, which stays.
- const movement=await evaluate("[...document.querySelector('#swap-settlement-reversal').options].find(o=>o.textContent.includes('Synthetic lost browser cash'))?.value");
- await set('#swap-settlement-reversal',movement);await set('#swap-settlement-effective','2021-01-15T08:00:00Z');await set('#swap-settlement-reference','Synthetic lost browser reversal');
- await evaluate("window.__lose='/api/swaps/settlement/payment'");await click('#swap-settlement-reverse');await wait("!document.querySelector('#futures-pending').hidden&&"+idle);
- await command('Page.reload');await wait(idle);await evaluate(intercept);
- await blotterAt({set,wait,click},{id:frame,session:session??'demo_close_1600'});
- await check('after a reload the reversal whose outcome is not known is still kept, named for it',card('Settlement cash reversal of '+selected.reference),"[document.querySelector('#futures-pending').hidden,document.querySelector('#futures-pending').textContent]");
- await openView();
- await click('#futures-retry',60000);await wait("document.querySelector('#futures-pending').hidden&&"+idle);
- await check('Retry sends it again and leaves the settlement view open, which shows the reversal',`${open}&&document.querySelector('#swap-settlement').textContent.includes('Synthetic lost browser reversal')`,"[(document.querySelector('#position-details')?.hidden!==false),!!document.querySelector('#swap-settlement')&&document.querySelector('#swap-settlement').hidden,document.querySelector('#error').textContent]");
-
- await click('#swap-settlement button[data-membership="1"][data-payment="0"]');await wait("!!document.querySelector('#swap-settlement-determine')");
- await blotterAt({set,wait,click},await decemberClose(evaluate));
- await check('a financial context change discards a stale settlement preview',"!document.querySelector('#swap-settlement-determine')&&(document.querySelector('#swap-settlement').hidden||document.querySelector('#swap-settlement [role=status]').textContent.includes('context changed'))");
+// Product-native settlement and retained P&L remain visible in Terms. New
+// observed facts require explicit saved settings and the shared Lifecycle UI.
+export async function run(driver){
+ const {evaluate,wait,click,set,submit,check,idle,command,shot}=driver;
+ const f=await swapLifecycleFixture(driver,'settlement_risk_browser');
+ await click('#blotter-risk');await wait("[...document.querySelector('#risk-factor').options].some(o=>o.value)&&"+idle,60000);
+ await click('input[name=risk-choice][value=custom]');await set('#risk-factor',await evaluate("[...document.querySelector('#risk-factor').options].find(o=>o.value).value"));await set('#risk-bump','0.1');await submit('#risk-form');await wait("!document.querySelector('#desk-run').hidden&&"+idle,60000);
+ await f.legacy();
+ await check('Terms retains native settlement measures, gross occurrences and exact evidence without retired write forms',"document.querySelector('#swap-settlement').textContent.includes('Remaining contractual value')&&!!document.querySelector('#swap-settlement details pre')&&!!document.querySelector('#swap-open-lifecycle')&&!document.querySelector('#swap-settlement-determine')&&!document.querySelector('#swap-settlement-payment-form')");
+ await click('#swap-settlement-opening');await click('#swap-open-lifecycle');await wait("!document.querySelector('#lifecycle-page').hidden&&"+idle,60000);
+ await f.action('swap.determine',0);await f.review();
+ await check('determination review uses the selected saved period and backend amount',`document.querySelector(${q(f.panel+' [data-lifecycle-review]')}).textContent.includes('-300')&&document.querySelector(${q(f.panel)}).textContent.includes(${q(f.reference)})`);
+ await f.record();
+ const first=await f.inspect();await check('recorded shared determination retains the signed original once',q(first.settlement.version===1&&first.settlement.determinations.length===1&&first.balances.length===1&&first.balances[0].amount==='-300'));
+ await click('#nav-futures');await wait(idle,60000);
+ await check('a confirmed lifecycle fact invalidates the current risk result before returning to the Blotter',"document.querySelector('#desk-run').hidden&&[...document.querySelectorAll('#blotter-strip .strip-item')].some(i=>i.querySelector('.strip-label')?.textContent.startsWith('Risk')&&i.querySelector('.strip-value')?.textContent==='Not run')","({resultHidden:document.querySelector('#desk-run').hidden,notice:document.querySelector('#notice').textContent,strip:document.querySelector('#blotter-strip').textContent})");
+ await f.action('swap.payment',0);await f.field('Determination',first.balances[0].determinationId);await f.field('Observed signed payment','-100');await f.observedTime();await f.field('Payment reference','Synthetic browser observed payment');await f.review();await f.record();
+ const paid=await f.inspect();await check('observed payment reduces the exact gross balance without recognizing profit again',q(paid.settlement.version===2&&paid.cashMovements.length===1&&paid.balances[0].outstanding==='-200'&&paid.valuation.netCash==='-100'));
+ await f.action('swap.payment',0);
+ const reversal=await evaluate(`[...document.querySelector(${q(f.panel+' [data-payment-reversal]')}).options].find(o=>o.textContent.includes('Synthetic browser observed payment')).value`);
+ await set(f.panel+' [data-payment-reversal]',reversal);await f.observedTime();await f.field('Payment reference','Synthetic browser observed reversal');
+ await check('a single-payment reversal uses backend exact original amounts and locks replacement financial fields',`(()=>{const labels=[...document.querySelectorAll(${q(f.panel+' label')})],amount=labels.find(l=>l.firstChild.textContent.startsWith('Observed signed payment')).querySelector('input');return amount.readOnly&&amount.value==='100';})()`);
+ await f.review();await f.record();
+ const reversed=await f.inspect();await check('reversal retains both cash facts and restores the original gross balance',q(reversed.settlement.version===3&&reversed.cashMovements.length===2&&reversed.balances[0].outstanding==='-300'&&reversed.valuation.netCash==='0'));
+ await f.action('swap.determine',1);await f.review();await f.lostReply();
+ const completed=await f.inspect();await check('a lost determination reply and exact retry leave two original contributions',q(completed.settlement.version===4&&completed.settlement.determinations.length===2&&completed.cashMovements.length===2&&completed.balances.map(b=>b.amount).sort().join()==='-300,350'));
+ await f.legacy();await set('#swap-pnl-opening-snapshot',f.openingFrame);await click('#swap-pnl-capture-opening',60000);await wait(idle,60000);await set('#swap-pnl-contract-policy','reject_contract_changes_v1');await click('#swap-settlement-reconcile',60000);await wait(idle,60000);
+ await check('retained opening and closing native evidence reconcile cash and remaining value',"!document.querySelector('#swap-settlement [role=alert]').textContent&&document.querySelector('#swap-settlement-bridge').textContent.includes('Economic P&L')&&document.querySelector('#swap-settlement-cash').textContent.includes('Synthetic browser observed reversal')","document.querySelector('#swap-settlement').textContent.slice(-2500)");
+ await shot('settlement-lifecycle-desktop');
+ await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait(idle);
+ await check('the retained settlement and P&L view fits a phone while its figures remain in scrollable tables',"document.documentElement.scrollWidth<=document.documentElement.clientWidth+1&&document.querySelector('#swap-settlement').scrollWidth<=document.querySelector('#swap-settlement').clientWidth+1");
+ await shot('settlement-lifecycle-narrow');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
+ const shared=await swapLifecycleFixture(driver,'shared_side_lifecycle_browser',{shared:true});
+ await shared.lifecycle();
+ await check('reused scheduled payment templates retain both native memberships and distinct action rows',`(()=>{const f=window.__swapFixture,rows=[...document.querySelectorAll('#lifecycle-page .tabulator-row[data-row-key]')].filter(r=>{const k=JSON.parse(r.dataset.rowKey);return k[1]===f.tradeId&&k[3]==='swap.determine';});return f.occurrences.length===2&&new Set(f.occurrences.map(o=>o.occurrence_id)).size===1&&rows.length===2&&new Set(rows.map(r=>r.dataset.rowKey)).size===2;})()`);
+ await shared.determine(0);await shared.determine(1);
+ const evidence=await shared.inspect(),writes=await evaluate('window.__swapWrites');
+ await check('each shared-template review records only its selected independent membership',q(writes.length===2&&writes[0].body.selection.profileId!==writes[1].body.selection.profileId&&writes[0].body.selection.determination.preview.membershipOrdinal===0&&writes[1].body.selection.determination.preview.membershipOrdinal===1));
+ await check('shared-template gross obligations stay separate while their values offset',q(evidence.settlement.version===2&&evidence.settlement.occurrences.length===2&&evidence.settlement.determinations.length===2&&evidence.balances.map(b=>b.amount).sort().join()==='-350,350'&&evidence.valuation.determinedOutstanding==='0'));
 }

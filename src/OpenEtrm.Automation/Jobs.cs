@@ -15,9 +15,10 @@ public sealed record JobCreate(Guid RequestId, string Name, string Operation, Da
     DateTimeOffset ExpiresAt, [property: JsonRequired] int? IntervalSeconds, string TimeZone, string Misfire, string Overlap,
     int TimeoutSeconds, int MaximumAttempts, [property: JsonRequired] Guid? ProfileId, [property: JsonRequired] int? ProfileVersion)
 {
+    public void ValidateSchedule()=>JobValidation.Schedule(RequestId,Name,DueAt,ExpiresAt,IntervalSeconds,TimeZone,Misfire,Overlap,TimeoutSeconds,MaximumAttempts);
     public void Validate()
     {
-        JobValidation.Schedule(RequestId, Name, DueAt, ExpiresAt, IntervalSeconds, TimeZone, Misfire, Overlap, TimeoutSeconds, MaximumAttempts);
+        ValidateSchedule();
         if (Operation is not ("worker_check" or "swarm_job") ||
             (Operation == "worker_check" ? ProfileId is not null || ProfileVersion is not null :
                 ProfileId is null || ProfileId == Guid.Empty || ProfileVersion is null or < 1))
@@ -147,8 +148,23 @@ public sealed class JobWorkerStore(NpgsqlDataSource source,bool pilotEnabled=fal
         return Equals(await command.ExecuteScalarAsync(ct),true);
     }
 
+    public async Task<bool> LifecycleCompleted(JobClaim claim,CancellationToken ct)
+    {
+        await using var command=source.CreateCommand("SELECT automation.lifecycle_completed($1,$2,$3)");
+        command.Parameters.AddWithValue(claim.Id);command.Parameters.AddWithValue(claim.Fence);command.Parameters.AddWithValue(claim.WorkerId);
+        return Equals(await command.ExecuteScalarAsync(ct),true);
+    }
+
     public async Task<JobClaim?> Claim(Guid workerId, int leaseSeconds, CancellationToken ct)
     {
+        if(pilotEnabled)
+        {
+            await using var lifecycle=source.CreateCommand("SELECT automation.claim_lifecycle_next($1,$2)::text");
+            lifecycle.Parameters.AddWithValue(workerId);lifecycle.Parameters.AddWithValue(leaseSeconds);
+            if(await lifecycle.ExecuteScalarAsync(ct) is string selected)
+                return JsonSerializer.Deserialize<JobClaim>(selected,new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                    ??throw new AutomationException("job_protocol","The lifecycle claim is incomplete.");
+        }
         await using var command = source.CreateCommand("SELECT automation.claim_next($1,$2,$3::text[])::text");
         command.Parameters.AddWithValue(workerId); command.Parameters.AddWithValue(leaseSeconds);command.Parameters.AddWithValue(pilotEnabled?new[]{"worker_check","swarm_job","generated_pilot_close_v1","close_book_risk_v1"}:new[]{"worker_check","swarm_job"});
         var value = await command.ExecuteScalarAsync(ct);

@@ -46,7 +46,7 @@ public static class RiskJobs
         if(body.RequestId==Guid.Empty||body.Request?.Context is not {KnowledgeMode:"retained",ContextId:{} contextId})
             throw new MarketDataException("risk_job_context","Queue an exact retained financial context with a stable request identity.");
         var run=body.Run is {} part?RunFrame(part):null;
-        if((body.Request.Joint is not null||body.Request.Parametric is not null||body.Request.Historical is not null||body.Request.MonteCarlo is not null)&&run is not null)throw new MarketDataException("risk_job_run","A joint or statistical request is one complete job; independent sensitivity parts do not combine complete results.");
+        if((body.Request.Joint is not null||body.Request.Parametric is not null||body.Request.Historical is not null||body.Request.MonteCarlo is not null||body.Request.Economic is not null)&&run is not null)throw new MarketDataException("risk_job_run","A joint or statistical request is one complete job; independent sensitivity parts do not combine complete results.");
         var prepared=await calculator.Prepare(connection,data,frame,body.Request,ct);
         CloseBookRiskJobs.RequirePowerWorkerEvidence(prepared.Portfolio);
         var request=prepared.Request with {BookIds=prepared.BookIds,PortfolioIds=[],
@@ -55,9 +55,21 @@ public static class RiskJobs
         var payload=JsonSerializer.SerializeToNode(request,Json)!.AsObject();
         payload["engineVersion"]=EngineVersion;
         var supplemental=new JsonObject();
-        foreach(var market in prepared.SupplementalMarkets.OrderBy(m=>m.Data.DefinitionRevision.RevisionId))
+        var supplementalInputs=prepared.SupplementalMarkets.Concat(prepared.Economic?.CashAccumulationInputs??[])
+            .Where(m=>m.Data.DefinitionRevision.RevisionId!=data.DefinitionRevision.RevisionId)
+            .GroupBy(m=>m.Data.DefinitionRevision.RevisionId).Select(group=>
+            {
+                var first=group.First();var source=first.Data.Snapshot(first.Frame).WithKnowledge(contextId,SchedulePreview.ParseAt(prepared.Portfolio.Context.KnownAt));
+                if(group.Any(m=>m.Data.ReferenceRevision!=first.Data.ReferenceRevision||
+                    !m.Data.Snapshot(m.Frame).WithKnowledge(contextId,source.Knowledge!.KnownAt).HasSameInputs(source)))
+                    throw new MarketDataException("risk_job_context","One retained native definition requires one exact complete source input selection.");
+                return first;
+            }).ToImmutableArray();
+        foreach(var market in supplementalInputs.OrderBy(m=>m.Data.DefinitionRevision.RevisionId))
             supplemental.Add(market.Data.DefinitionRevision.RevisionId.ToString(),RetainedFrames.Record(market.Frame with {ContextId=contextId,SwapMarketSelections=null}));
-        var pinnedFrame=RetainedFrames.Record(frame with {ContextId=contextId,SwapMarketSelections=prepared.SupplementalMarkets
+        var retainedRoot=prepared.Economic?.Request.Implementation==PortfolioEconomicProjectionRequest.Version2?
+            frame with{Source=frame.Source??CatalogueSource.From(data)}:frame;
+        var pinnedFrame=RetainedFrames.Record(retainedRoot with {ContextId=contextId,SwapMarketSelections=supplementalInputs
             .ToImmutableDictionary(m=>m.Data.DefinitionRevision.RevisionId,m=>m.Frame.ObservationIds)});
         pinnedFrame["supplementalMarkets"]=supplemental;
         pinnedFrame["connectedMarkets"]=JsonSerializer.SerializeToNode(prepared.Portfolio.ConnectedMarkets,Json);
@@ -68,6 +80,8 @@ public static class RiskJobs
         pinnedFrame["excludedPositions"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Excluded,Json);
         // Option calibrations are recomputed from the pinned inputs on replay, which must reproduce these receipts exactly.
         pinnedFrame["optionCalibrations"]=JsonSerializer.SerializeToNode(prepared.Portfolio.OptionCalibrations,Json);
+        if(prepared.Economic is {} economic)
+            pinnedFrame["economicLifecycle"]=EconomicFrame(economic);
         pinnedFrame["ppaReadContexts"]=JsonSerializer.SerializeToNode(prepared.Portfolio.Ppas.SelectMany(p=>p.ReadContexts).Distinct().Order().ToImmutableArray(),Json);
         // The books and portfolios the run was asked for, as chosen: its results are shown only against a read of the same (D222).
         pinnedFrame["scope"]=ScopeFrame(body.Request.BookIds,body.Request.PortfolioIds,body.Request.TradeIds);
@@ -77,6 +91,24 @@ public static class RiskJobs
             data.DefinitionRevision.RevisionId,frame.At,payload.ToJsonString(Json),pinnedFrame.ToJsonString(Json));
         var submitted=JsonNode.Parse((string)(await command.ExecuteScalarAsync(ct))!)!.AsObject();
         return await Read(connection,manifest.CatalogId,(submitted["id"]??submitted["jobId"])!.GetValue<Guid>(),ct);
+    }
+
+    internal static JsonObject EconomicFrame(PreparedLifecyclePortfolio prepared)
+    {
+        var proof=JsonSerializer.SerializeToNode(new{horizon=prepared.HorizonEvidence,products=prepared.ProductEvidence,
+            optionCalibrations=prepared.CalibrationReceipts,inputFinals=prepared.FinalEvidence},Json)!.AsObject();
+        if(prepared.Request.Implementation==PortfolioEconomicProjectionRequest.Version2)
+            proof["cashAccumulation"]=JsonSerializer.SerializeToNode(prepared.CashAccumulationEvidence??
+                throw new MarketDataException("risk_economic_evidence","Retain the explicit portfolio accumulation source proof."),Json);
+        else if(prepared.CashAccumulationEvidence is not null||!prepared.CashAccumulationInputs.IsEmpty)
+            throw new MarketDataException("risk_economic_evidence","Legacy economic profiles cannot carry explicit accumulation selections.");
+        return proof;
+    }
+
+    internal static void RequireEconomicFrame(JsonNode? retained,PreparedLifecyclePortfolio? prepared)
+    {
+        if(prepared is null?retained is not null:retained is not JsonObject||!JsonNode.DeepEquals(retained,EconomicFrame(prepared)))
+            throw new MarketDataException("risk_economic_evidence","Economic replay must reproduce the complete retained horizon, product sources and exact-instant option calibration receipts.");
     }
 
     /// <summary>A part's run as its retained frame states it, once its identity, part and part count are the run's own.</summary>

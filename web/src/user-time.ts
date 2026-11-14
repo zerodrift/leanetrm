@@ -28,3 +28,9 @@ export function zonedInput(input:HTMLInputElement,zone:()=>string,api:Api){
 }
 
 export function resolvedUtcInstant(value:string){if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|\+00:00)$/.test(value))throw Error('Resolve the local time to an exact UTC instant first.');return value.replace(/\+00:00$/,'Z');}
+// Receipt identity compares native UTC text, preserving sub-millisecond digits.
+// Display Date objects must never determine whether two retained clocks match.
+export function sameUtcInstant(a:unknown,b:unknown):boolean{
+ const key=(value:string)=>{const text=resolvedUtcInstant(value),match=/^(.+T\d{2}:\d{2}:\d{2})(?:\.(\d{1,7}))?Z$/.exec(text)!;return match[1]+'.'+(match[2]??'').padEnd(7,'0')+'Z';};
+ try{return typeof a==='string'&&typeof b==='string'&&key(a)===key(b);}catch{return false;}
+}

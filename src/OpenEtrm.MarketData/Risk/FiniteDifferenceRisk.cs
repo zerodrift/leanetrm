@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using OpenEtrm.MarketData.Trading;
 using OpenEtrm.MarketData.Calculation;
 
 namespace OpenEtrm.MarketData.Risk;
@@ -22,7 +23,8 @@ public sealed record ConnectedFiniteDifferenceRequest(string Convention,Immutabl
 }
 public sealed record ExactFiniteDifferenceEstimate(ExactMoney Half,ExactMoney Nominal,ExactMoney Double,bool Stable);
 public sealed record DerivativeBookValue(Guid BookId,ExactFiniteDifferenceEstimate Estimate);
-public sealed record DerivativePositionValue(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactFiniteDifferenceEstimate Estimate);
+public sealed record DerivativePositionValue(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactFiniteDifferenceEstimate Estimate)
+{public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);}
 public sealed record ConnectedDerivativeGroup(int Group,ImmutableArray<DerivativeBookValue> Totals,ImmutableArray<DerivativePositionValue> Positions);
 public sealed record ConnectedDerivativeResult(string Id,string Formula,ImmutableArray<string> Axes,ImmutableArray<ScenarioFactorUnit> FactorUnits,
     ImmutableArray<ConnectedDerivativeGroup> Groups);
@@ -47,6 +49,7 @@ public static partial class RiskEngine
             request.Mixed.Any(p=>p is null||!ScenarioName(p.Id)||!ValidTolerance(p.Tolerance))||
             request.Mixed.Select(p=>p.Id).Distinct(StringComparer.Ordinal).Count()!=request.Mixed.Length)
             throw Error("risk_sensitivity","Select explicit symmetric axes or additional named scenarios, up to 16 mixed pairs and nonnegative absolute/relative tolerances.");
+        if(!request.Axes.IsEmpty||!request.Mixed.IsEmpty)RequireStaticDerivatives(prepared.UnitContracts);
         var axes=request.Axes;var pairs=request.Mixed;
         var axisIndex=axes.Select((a,n)=>(a.Id,n)).ToDictionary(a=>a.Id,a=>a.n,StringComparer.Ordinal);
         var nodes=axes.Select(a=>a.Bump.Coordinates(prepared,cancellation)).ToArray();
@@ -110,7 +113,7 @@ public static partial class RiskEngine
             }
             var groups=run.Groups.Select((g,n)=>new ConnectedDerivativeGroup(n,
                 g.Values.Select((v,i)=>new DerivativeBookValue(v.BookId,Estimate(n,i,false))).ToImmutableArray(),
-                g.Positions.Select((v,i)=>new DerivativePositionValue(v.TradeId,v.BindingId,v.BookId,v.ValuationId,Estimate(n,i,true))).ToImmutableArray())).ToImmutableArray();
+                g.Positions.Select((v,i)=>new DerivativePositionValue(v.TradeId,v.BindingId,v.BookId,v.ValuationId,Estimate(n,i,true)){Owner=v.Owner}).ToImmutableArray())).ToImmutableArray();
             return new(id,formula,second<0?[axes[first].Id]:[axes[first].Id,axes[second].Id],
                 formula==CentralDelta?[axes[first].Bump.Unit]:[axes[first].Bump.Unit,axes[second<0?first:second].Bump.Unit],groups);
         }

@@ -129,7 +129,7 @@ public sealed partial class PortfolioRiskPreview
         if(analysis?.AttemptUnmetered==true)report["workAccounting"]="reference_only_failed_fitting_attempt_unmetered_v1";
         if(prepared.Portfolio.OptionWork is {} optionWork)report["optionWork"]=JsonSerializer.SerializeToNode(optionWork with{ScenarioTreePrices=prepared.Portfolio.Options!.TreePrices-before},RiskJobs.Json);
         var markets=prepared.Portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
-        var evidence=prepared.Portfolio.Positions.ToDictionary(p=>(p.TradeId,p.BindingId));
+        var evidence=prepared.Portfolio.Positions.ToDictionary(p=>(p.Owner,p.BindingId));
         var studyId=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{
             prepared.Portfolio.Context,prepared.Portfolio.SnapshotId,prepared.Portfolio.Policy,prepared.Portfolio.Positions,
             prepared.Portfolio.ConnectedMarkets,prepared.Portfolio.OptionCalibrations,history.Id,simulationPolicy=spec.Policy},RiskJobs.Json)));
@@ -138,8 +138,8 @@ public sealed partial class PortfolioRiskPreview
         report["monteCarlo"]=JsonSerializer.SerializeToNode(new{studyId,request=spec,history,generation,result,
             factors=history.Columns.Select((c,i)=>new{c.Id,factor=Factor(markets,prepared.HistoricalAxes[i])}),
             books=prepared.Books.Where(b=>prepared.BookIds.Contains(b.Id("id"))).Select(b=>new{id=b.Id("id"),name=b.Text("name")}),
-            exposures=values.Exposures.Select(e=>new{e.Id,e.BookId,e.TradeId,e.BindingId,e.Measure,e.Currency,e.BaseValue,
-                evidence[(e.TradeId,e.BindingId)].TradeReference,evidence[(e.TradeId,e.BindingId)].InstrumentReference,evidence[(e.TradeId,e.BindingId)].InstrumentType}),
+            exposures=values.Exposures.Select(e=>new{e.Id,e.Owner,e.BookId,e.TradeId,e.BindingId,e.Measure,e.Currency,e.BaseValue,
+                evidence[(e.Owner,e.BindingId)].TradeReference,evidence[(e.Owner,e.BindingId)].InstrumentReference,evidence[(e.Owner,e.BindingId)].InstrumentType}),
             partitions=result.Partitions.Select(p=>new{p.Measure,measureLabel=MeasureLabel(p.Measure),currencyReference=p.Currency,currency=Currency(markets,p.Currency)}),
             matrix=MonteCarloMatrix(values)},RiskJobs.Json);
         if(hybrid is not null)report["monteCarlo"]!.AsObject()["hybrid"]=hybrid.Report;

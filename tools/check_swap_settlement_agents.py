@@ -22,4 +22,6 @@ def prepare(query, fixture):
       CROSS JOIN unnest(ARRAY['ReadTrades','ReadMarketData']) permission;
     INSERT INTO security.delegation_permissions VALUES('{delegation}','AmendTrade'),('{revoked}','AmendTrade');
     """)
-    return {**fixture,'principal':'synthetic_settlement_agent','delegation':delegation,'readonlyDelegation':readonly,'revokedDelegation':revoked}
+    bindings={name:query(f"SELECT binding_id FROM trading.swap_trade_revisions WHERE trade_id='{fixture[key]}' AND revision=1;")
+              for name,key in [('bindingId','tradeId'),('netBindingId','netTradeId')]}
+    return {**fixture,**bindings,'principal':'synthetic_settlement_agent','delegation':delegation,'readonlyDelegation':readonly,'revokedDelegation':revoked}

@@ -22,6 +22,7 @@ internal static class SwapSettlementAgentChecks
             :requested;
         var agent=new AgentIdentity(fixture.Text("principal"),fixture.Id("delegation"));
         var operations=new SwapSettlementOperations(database);
+        var actions=new LifecycleSwapAgentFixture(database,frame,fixture.Id("bindingId"),fixture.Id("netBindingId"));
         await database.WithIdentity("admin","ManageAccess",async(connection,ct)=>
         {
             await using var read=ScheduleStore.Command(connection,"SELECT security.administration_directory()::text");
@@ -53,11 +54,23 @@ internal static class SwapSettlementAgentChecks
             catch(MarketDataException e)when(e.Code==code){return;}
             throw new Exception("Expected controlled agent refusal "+code);
         }
-        await Denied(()=>operations.Determine(new("synthetic_settlement_readonly",fixture.Id("readonlyDelegation")),frame,command,CancellationToken.None));
-        await Denied(()=>operations.Determine(agent,frame,command with{PreviewHash="stale"},CancellationToken.None),"settlement_stale_preview");
-        var accepted=Json(await operations.Determine(agent,frame,command,CancellationToken.None));
-        var retry=Json(await operations.Determine(agent,frame,command,CancellationToken.None));
+        await Denied(()=>operations.Determine(agent,frame,command,CancellationToken.None),"lifecycle_configuration_required");
+        await Denied(()=>actions.Determine(new("synthetic_settlement_readonly",fixture.Id("readonlyDelegation")),frame,command,CancellationToken.None));
+        await Denied(()=>actions.Determine(agent,frame,command with{PreviewHash=new('f',64)},CancellationToken.None),"settlement_stale_preview");
+        var accepted=Json(await actions.Determine(agent,frame,command,CancellationToken.None));
+        var retry=Json(await actions.Determine(agent,frame,command,CancellationToken.None));
         if(accepted.GetRawText()!=retry.GetRawText())throw new Exception("Agent retries duplicated or changed the determination.");
+        async Task<string> FinancialState()
+        {
+            var value=Json(await operations.Inspect(agent,frame,new(context,preview.TradeId,null,
+                "swap_due_nominal_v1","swap_completed_period_trading_pnl_v1"),CancellationToken.None)).GetProperty("value").GetProperty("settlement");
+            return Json(new{version=value.GetProperty("version"),determinations=value.GetProperty("determinations"),payments=value.GetProperty("payments")}).GetRawText();
+        }
+        var beforeDeniedReplay=await FinancialState();
+        await Denied(()=>actions.ExecuteRetained(new("synthetic_settlement_readonly",fixture.Id("readonlyDelegation")),command.OperationId,CancellationToken.None));
+        await Denied(()=>actions.ExecuteRetained(agent with{Delegation=fixture.Id("revokedDelegation")},command.OperationId,CancellationToken.None));
+        if(await FinancialState()!=beforeDeniedReplay)throw new Exception("Denied direct shared execution/replay changed the native financial ledger.");
+        Console.WriteLine("PASS direct shared assistant execute/replay retains current read-only and revoked-delegation refusal without preview/configuration or financial changes");
         var status=Json(await operations.Status(agent,command.OperationId,CancellationToken.None));
         if(!status.GetProperty("found").GetBoolean()||status.Id("determinationId")!=accepted.Id("determinationId"))throw new Exception("The agent could not reconcile its committed operation.");
         await database.WithIdentity("trader","ReadTrades",async(connection,ct)=>
@@ -82,8 +95,8 @@ internal static class SwapSettlementAgentChecks
             },ct);
         },CancellationToken.None);
         var payment=new SwapCashRequest(context,fixture.Id("tradeId"),Guid.NewGuid(),1,1,accepted.Id("determinationId"),accepted.Text("total"),preview.Currency,
-            frame.At.ToString("O"),"Synthetic delegated contractual cash",null);
-        await operations.RecordCash(agent,frame,payment,CancellationToken.None);
+            LifecycleNative.Instant(frame.At),"Synthetic delegated contractual cash",null);
+        await actions.RecordCash(agent,frame,payment,CancellationToken.None);
         var current=Json(await operations.Inspect(agent,frame,new(context,preview.TradeId,null,"swap_due_nominal_v1","swap_completed_period_trading_pnl_v1"),CancellationToken.None));
         if(current.GetProperty("value").GetProperty("settlement").GetProperty("version").GetInt32()!=2)throw new Exception("Agent cash did not share the durable settlement ledger.");
         var netTrade=fixture.Id("netTradeId");
@@ -92,22 +105,22 @@ internal static class SwapSettlementAgentChecks
         var netRequest=new SwapNetPreviewRequest(context,netTrade,1,netState.GetProperty("settlement").GetProperty("version").GetInt32(),preview.Currency,"2",
             [new(gross[0].Id("determinationId"),"-10"),new(gross[1].Id("determinationId"),"12")],SwapNetSettlement.Policy,null);
         var netPreview=Json(await operations.PreviewNet(agent,frame,netRequest,CancellationToken.None));
-        var netCommand=new SwapNetRecordRequest(netRequest,Guid.NewGuid(),netPreview.GetProperty("value").Text("previewHash"),frame.At.ToString("O"),"Synthetic delegated net settlement");
-        await Denied(()=>operations.RecordNet(new("synthetic_settlement_readonly",fixture.Id("readonlyDelegation")),frame,netCommand,CancellationToken.None));
-        await Denied(()=>operations.RecordNet(agent,frame,netCommand with{PreviewHash="stale"},CancellationToken.None),"settlement_stale_preview");
-        var netResult=Json(await operations.RecordNet(agent,frame,netCommand,CancellationToken.None));
-        if(Json(await operations.RecordNet(agent,frame,netCommand,CancellationToken.None)).GetRawText()!=netResult.GetRawText())throw new Exception("Delegated net retry changed its financial result.");
+        var netCommand=new SwapNetRecordRequest(netRequest,Guid.NewGuid(),netPreview.GetProperty("value").Text("previewHash"),LifecycleNative.Instant(frame.At),"Synthetic delegated net settlement");
+        await Denied(()=>actions.RecordNet(new("synthetic_settlement_readonly",fixture.Id("readonlyDelegation")),frame,netCommand,CancellationToken.None));
+        await Denied(()=>actions.RecordNet(agent,frame,netCommand with{PreviewHash=new('f',64)},CancellationToken.None),"lifecycle_stale_review");
+        var netResult=Json(await actions.RecordNet(agent,frame,netCommand,CancellationToken.None));
+        if(Json(await actions.RecordNet(agent,frame,netCommand,CancellationToken.None)).GetRawText()!=netResult.GetRawText())throw new Exception("Delegated net retry changed its financial result.");
         var reverseNet=netRequest with{ExpectedVersion=netRequest.ExpectedVersion+1,Amount=null,Allocations=[],ReversesId=netResult.Id("paymentId")};
         var reversePreview=Json(await operations.PreviewNet(agent,frame,reverseNet,CancellationToken.None));
-        await operations.RecordNet(agent,frame,new(reverseNet,Guid.NewGuid(),reversePreview.GetProperty("value").Text("previewHash"),frame.At.ToString("O"),"Synthetic delegated exact net reversal"),CancellationToken.None);
+        await actions.RecordNet(agent,frame,new(reverseNet,Guid.NewGuid(),reversePreview.GetProperty("value").Text("previewHash"),LifecycleNative.Instant(frame.At),"Synthetic delegated exact net reversal"),CancellationToken.None);
         var historicalNet=Json(await operations.Inspect(agent,frame,new(context with{KnowledgeMode="retained",ContextId=netPreview.GetProperty("context").Id("contextId")},netTrade,null,"swap_due_nominal_v1","swap_completed_period_trading_pnl_v1"),CancellationToken.None));
         if(historicalNet.GetProperty("value").GetProperty("settlement").GetProperty("version").GetInt32()!=netRequest.ExpectedVersion)throw new Exception("Net historical replay substituted later cash.");
-        await Denied(()=>operations.RecordNet(agent,frame,netCommand with{Preview=netRequest with{Context=context with{KnowledgeMode="retained",ContextId=netPreview.GetProperty("context").Id("contextId")}}},CancellationToken.None),"historical_read_only");
+        await Denied(()=>actions.RecordNet(agent,frame,netCommand with{Preview=netRequest with{Context=context with{KnowledgeMode="retained",ContextId=netPreview.GetProperty("context").Id("contextId")}}},CancellationToken.None),"lifecycle_context");
         Console.WriteLine("PASS delegated net preview/record/reversal, exact retry, stale refusal and historical/current authority separation");
         var oldContext=context with{KnowledgeMode="retained",ContextId=result.GetProperty("context").Id("contextId")};
         var historical=Json(await operations.Inspect(agent,frame,new(oldContext,preview.TradeId,null,"swap_due_nominal_v1","swap_completed_period_trading_pnl_v1"),CancellationToken.None));
         if(historical.GetProperty("value").GetProperty("settlement").GetProperty("version").GetInt32()!=0)throw new Exception("Agent historical replay substituted current settlement.");
-        await Denied(()=>operations.Determine(agent,frame,command with{Preview=preview with{Context=oldContext}},CancellationToken.None),"historical_read_only");
+        await Denied(()=>actions.Determine(agent,frame,command with{Preview=preview with{Context=oldContext}},CancellationToken.None),"lifecycle_context");
         await Denied(()=>operations.Inspect(agent with{Delegation=fixture.Id("revokedDelegation")},frame,
             new(context,preview.TradeId,null,"swap_due_nominal_v1","swap_completed_period_trading_pnl_v1"),CancellationToken.None));
         Console.WriteLine("PASS delegated agent settlement: shared preview/determination/payment, exact retry, stale refusal, historical replay and current delegation authority");

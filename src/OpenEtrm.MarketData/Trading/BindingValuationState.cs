@@ -5,6 +5,7 @@ namespace OpenEtrm.MarketData.Trading;
 public interface IBindingValuationState
 {
     Guid TradeId { get; }
+    AccountingOwnerKey Owner=>new(AccountingOwnerKind.Trade,TradeId);
     Guid BindingId { get; }
     Guid? BookId { get; }
     Quantity Quantity { get; }

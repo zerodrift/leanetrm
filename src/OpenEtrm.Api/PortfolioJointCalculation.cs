@@ -27,18 +27,20 @@ internal static class PortfolioJointCalculation
         ImmutableArray<PortfolioCurveShift> stress,RiskDetail detail,CancellationToken ct,string? statisticalMethod=null)
     {
         RequireWork(portfolio,joint,detail);ct.ThrowIfCancellationRequested();
+        if(!joint.Scenarios)RiskEngine.RequireStaticDerivatives(portfolio.Markets.SelectMany(m=>m.Connected.UnitContracts));
         var partitions=ImmutableArray.CreateBuilder<JointPartition>();
         foreach(var market in portfolio.Markets)
         {
             var parent=market.Connected;
-            foreach(var layer in stress.Where(s=>s.Axis.Market==market.Snapshot.Definitions))
-                parent=RiskEngine.WithShifts(parent,[new(layer.Axis.Coordinate,layer.Axis.Target,layer.Axis.Unit,layer.Size,CurveShift.ParentAdditive)],ct);
+            foreach(var layer in stress)
+                if(CurveRiskAxes.InMarket(layer.Axis,market,ct) is {} axis)
+                    parent=RiskEngine.WithShifts(parent,[new(axis.Coordinate,axis.Target,axis.Unit,layer.Size,CurveShift.ParentAdditive)],ct);
             if(joint.Scenarios)
             {
                 var localSamples=joint.Samples.Select(s=>
                 {
-                    var shifts=s.Shifts.Where(x=>x.Axis.Market==market.Snapshot.Definitions).Select(x=>
-                        new CurveShift(x.Axis.Coordinate,x.Axis.Target,x.Axis.Unit,x.Size,CurveShift.ParentAdditive)).ToImmutableArray();
+                    var shifts=s.Shifts.Select(x=>CurveRiskAxes.InMarket(x.Axis,market,ct) is {} axis?
+                        new CurveShift(axis.Coordinate,axis.Target,axis.Unit,x.Size,CurveShift.ParentAdditive):null).OfType<CurveShift>().ToImmutableArray();
                     return new ConnectedRiskScenario(s.Id,s.Label,shifts){Unchanged=shifts.IsEmpty};
                 }).ToImmutableArray();
                 var set=joint.Request.Scenarios!;
@@ -52,7 +54,8 @@ internal static class PortfolioJointCalculation
             }
             else
             {
-                var axes=joint.Axes.Where(a=>a.Bump.Axis.Market==market.Snapshot.Definitions).ToImmutableArray();
+                var axes=joint.Axes.Select(a=>CurveRiskAxes.InMarket(a.Bump.Axis,market,ct) is {} axis?a with{Bump=a.Bump with{Axis=axis}}:null)
+                    .OfType<PortfolioJointRisk.Axis>().ToImmutableArray();
                 var ids=axes.Select(a=>a.Id).ToHashSet(StringComparer.Ordinal);
                 if(axes.IsEmpty)
                 {
@@ -102,8 +105,8 @@ internal static class PortfolioJointCalculation
                         books.Add(new(part.Market.Measures[index],book.BookId,values?.Totals.Single(v=>v.BookId==book.BookId&&v.Estimate.Nominal.Currency==book.Value.Currency).Estimate??Zero(book.Value)));
                     foreach(var position in group.Positions)
                     {
-                        var value=values?.Positions.Single(v=>v.TradeId==position.TradeId&&v.BindingId==position.BindingId).Estimate??Zero(position.Value);
-                        positions.Add(new(part.Market.Measures[index],new(position.TradeId,position.BindingId,position.BookId,position.ValuationId,value)));
+                        var value=values?.Positions.Single(v=>v.Owner==position.Owner&&v.BindingId==position.BindingId).Estimate??Zero(position.Value);
+                        positions.Add(new(part.Market.Measures[index],new(position.TradeId,position.BindingId,position.BookId,position.ValuationId,value){Owner=position.Owner}));
                     }
                 }
             }

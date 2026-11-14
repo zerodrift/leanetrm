@@ -70,12 +70,12 @@ def run(c,workspace,context,legacy,currency,url):
     from preview_client import PreviewClient
     from concurrent.futures import ThreadPoolExecutor
     attempts=[]
-    for _ in range(2):
-        client=PreviewClient(url);client.bootstrap();client.call('profile',{'profile':'trader'})
+    for attempt in range(2):
+        client=c.with_client(PreviewClient(url));client.bootstrap();client.call('profile',{'profile':'trader'})
         frame=next(f for f in client.call('workspace')['frames'] if f['at']==final['at'])
         req={**request(7,'0',['-1','1']),'context':{**ctx,'snapshotId':frame['id']}}
         value=client.call('swaps/settlement/net-preview',req)
-        attempts.append((client,dict(preview=req,operationId=str(uuid4()),previewHash=value['previewHash'],effectiveAt=final['at'],reference='Synthetic concurrent zero discharge')))
+        attempts.append((client,dict(preview=req,operationId=str(uuid4()),previewHash=value['previewHash'],effectiveAt=final['at'],reference=f'Synthetic concurrent zero discharge {attempt}')))
     def write(attempt):
         client,command=attempt
         try:return client.call('swaps/settlement/net',command)

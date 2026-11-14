@@ -5192,3 +5192,61 @@ checks; downloads, removals and forced downgrades are prohibited during install.
 PostgreSQL server/client revisions remain exact. This changes CI acquisition,
 not application financial contracts, database state or release admission. See
 [implementation and qualification](ci-dependencies.md).
+
+
+## D399 · Shared lifecycle, ownership and economic horizon risk
+
+Owner-directed, 2026-11-13. Adopt the [shared lifecycle delivery contract](lifecycle-delivery.md).
+Product-owned pure rules compose existing Instrument/Side and native typed stores;
+common operations own authorization, review, concurrency and idempotent commits.
+Hypothetical transitions cannot be recorded as actual facts. Trading eligibility,
+curve finality, trade obligations, projection assumptions and display preferences
+remain separate explicit contracts.
+
+The first release requires futures margin/final settlement, listed futures options,
+financial swaps and physical gas; gas continues into independently valued holdings.
+Qualify owned titled gas, distinct operator entitlements/debts and commodity loans
+with return obligations. Include both shock-held and elapsed-linear price paths,
+explicit payment/cash carrying choices and complete one-session economic risk.
+This extends D387's event-crossing scope only as its new capabilities are qualified.
+
+Rebuild incompatible demo configuration and synthetic business records. No legacy
+financial conversion or fallback is required. Publication remains separately approved.
+The delivery document records required contracts; tests and verification records
+establish actual implemented capability.
+
+Futures margin policies explicitly retain an official settlement curve separately
+from their mark/execution curve. Actual settlement facts are resolved by the
+instrument from captured native source observations, with exact series, source,
+finality, quotation and knowledge checks. A same-price source correction still
+restates its causal evidence. These managed contracts alone do not qualify native
+margin persistence or automation.
+
+The local native adoption increment separates policy configuration from exact
+version adoption. Stable trade/binding ownership retains the origin holding's
+effective time independently of execution basis time. Sealed occurrence sets and
+retained pricing continuity prevent later configuration appends or unqualified
+financial amendments. The trusted application owns commit admission and rechecks
+each invocation's original authority deadline after waits; deferred database
+checks are supplemental because SQL callers control constraint timing. Native
+settlement/cash execution and user/agent workflows have separate qualification
+gates, recorded in the delivery contract.
+
+The local native journal now stores product-derived determination closures and
+independent shared cash contributions. Accepted heads precede source-evidence
+qualification; missing latest evidence cannot select older economic state. Cash
+definitions are reusable currency/due economics, while ownership, quantity,
+business effectiveness and recorded payment remain membership facts. Prior-fact
+acknowledgement does not reinstate an older basis. Whole-portfolio, worker,
+physical-delivery and user/agent/browser workflows remain unfinished.
+
+
+D399’s scheduled execution choice retains one source-derived occurrence at one
+recorded close, exact native trade/product and action-policy versions, and fresh
+certified knowledge at execution. It invokes the same managed Lifecycle registry
+for manual notice, review or automatic execution. Observed facts remain separate
+user input. Native task-scoped authority, shared command and terminal result
+seals complement transaction-owned original-deadline admission. The first
+executable baseline is bounded one-off tasks; recurring calendar enrollment is
+not implied. See [the qualified task contract](automation.md#source-derived-lifecycle-tasks)
+for the actual checked cases and remaining qualification gates.

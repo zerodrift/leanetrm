@@ -3,6 +3,7 @@ from copy import deepcopy
 from decimal import Decimal
 from uuid import uuid4
 from preview_client import PreviewClient
+from lifecycle_swap_client import LifecycleSwapClient,SYNTHETIC_SWAP_REVIEW
 from preview_fixture import trade_booking, CAT, R, REV, identity, installed_tzdb
 from datetime import datetime, timezone
 import json
@@ -94,6 +95,7 @@ def check_unvalued_lifecycle(c,workspace,trade,run_worker):
 
 def run_checks(url,query=None,manifest=None,*,run_worker):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
+    c=LifecycleSwapClient(c,**SYNTHETIC_SWAP_REVIEW)
     w=c.call('workspace');f=next(f for f in w['frames'] if f['at'].startswith('2020-12-18'))
     context=dict(snapshotId=f['id'],knowledgeMode='current',convention='independent_side_financial_swap_v2')
     catalog=c.call('swaps/catalog',context)
@@ -344,8 +346,9 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     current=c.call('swaps/settlement/preview',settlement)
     assert current['settlement']['version']==1 and len(current['settlement']['determinations'])==1
     assert current['previousTotal']=='58.33' and current['proposedContribution']=='0' and not current['inputsChanged']
-    c.call('swaps/settlement/determine',{**determine,'operationId':str(uuid4()),'expectedVersion':1,'previewHash':current['previewHash']},expected=422)
-    c.call('swaps/settlement/determine',{**determine,'previewHash':'changed'},expected=409)
+    acknowledged=c.call('swaps/settlement/determine',{**determine,'operationId':str(uuid4()),'expectedVersion':1,'previewHash':current['previewHash']})
+    assert acknowledged['determinationId']==accepted['determinationId'] and acknowledged['version']==1 and acknowledged['currentVersion']==1
+    c.call('swaps/settlement/determine',{**determine,'previewHash':'f'*64},expected=409)
     if query:
         assert query(f"SELECT count(*) FROM settlement_data.swap_determinations WHERE trade_id='{thirds_saved['tradeId']}';").strip()=='1'
     print('PASS swap settlement determination: durable original, exact retry, immutable history and certified replay')
@@ -356,11 +359,12 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     assert c.call('swaps/settlement/payment',payment)==paid
     balance=c.call('swaps/settlement/preview',settlement)['settlement']
     assert balance['version']==2 and len(balance['payments'])==1
-    c.call('swaps/settlement/payment',{**payment,'operationId':str(uuid4()),'expectedVersion':2,'amount':'20'},expected=422)
+    c.call('swaps/settlement/payment',{**payment,'operationId':str(uuid4()),'expectedVersion':2,'amount':'20','reference':'Synthetic refused over-allocation'},expected=422)
     reversal={**payment,'operationId':str(uuid4()),'expectedVersion':2,'amount':'-40','reversesId':paid['paymentId'],'reference':'Synthetic reversal'}
     reversed_payment=c.call('swaps/settlement/payment',reversal)
     assert reversed_payment['version']==3
-    c.call('swaps/settlement/payment',{**reversal,'operationId':str(uuid4()),'expectedVersion':3},expected=422)
+    acknowledged=c.call('swaps/settlement/payment',{**reversal,'operationId':str(uuid4()),'expectedVersion':3})
+    assert acknowledged['paymentId']==reversed_payment['paymentId'] and acknowledged['version']==3 and acknowledged['currentVersion']==3
     completed=c.call('swaps/settlement/payment',{**payment,'operationId':str(uuid4()),'expectedVersion':3,'amount':'58.33','reference':'Synthetic full receipt'})
     assert completed['version']==4
     lifecycle=c.call('swaps/settlement/inspect',inspect)
@@ -404,6 +408,9 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     run_future_boundary(c,body,context,february_context)
     gross=dict(context=settlement_context,tradeId=offset['tradeId'],expectedRevision=1,membershipOrdinal=0,paymentOrdinal=0,
         currency=value['currency'],decimalPlaces=2,roundingPolicy='currency_minor_units_to_even_v1')
+    shared_periods=[p for p in c.view(settlement_context)['swapOccurrences'] if p['trade_id']==offset['tradeId'] and p['payment_ordinal']==0]
+    assert len(shared_periods)==2 and {(p['membership_ordinal'],p['payment_ordinal']) for p in shared_periods}=={(0,0),(1,0)}
+    assert len({p['occurrence_id'] for p in shared_periods})==1
     negative=c.call('swaps/settlement/preview',gross)
     assert negative['calculation']['amount']=='-525'
     def accept_gross(request,calculation,version):
@@ -414,6 +421,9 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     assert positive['calculation']['amount']=='525' and positive['calculation']['sidePayment']==negative['calculation']['sidePayment']
     assert positive['calculation']['occurrence']!=negative['calculation']['occurrence']
     accept_gross(gross,positive,1)
+    shared_offers=[a for a in c.view(settlement_context)['actions'] if a['target']['scopeId']==offset['tradeId'] and a['action']=='swap.determine']
+    assert len(shared_offers)==2 and len({a['profileId'] for a in shared_offers})==2 and len({a['occurrenceId'] for a in shared_offers})==1
+    assert all(a['profileId']==a['selection']['profileId'] for a in shared_offers)
     gross_balances=c.call('swaps/settlement/inspect',dict(context=settlement_context,tradeId=offset['tradeId'],revision=None,
         duePolicy='swap_due_nominal_v1',recognitionPolicy='swap_completed_period_trading_pnl_v1'))
     assert len(gross_balances['balances'])==2 and gross_balances['valuation']['determinedOutstanding']=='0'
@@ -424,5 +434,8 @@ def run_checks(url,query=None,manifest=None,*,run_worker):
     from check_scheduled_observations import run as check_scheduled_observations
     check_scheduled_observations(c,context,manifest)
     from check_contract_observation_booking import run as check_contract_observations
-    check_contract_observations(c,context,body,query,run_worker=run_worker)
+    check_contract_observations(c,context,body,query,run_worker=run_worker,manifest=manifest)
+    agent_preview=dict(context={**context,'snapshotId':partial['id']},tradeId=mixed_saved['tradeId'],expectedRevision=1,membershipOrdinal=0,paymentOrdinal=0,
+        currency=value['currency'],decimalPlaces=2,roundingPolicy='currency_minor_units_to_even_v1')
+    c.configure(agent_preview,'swap.determine');c.configure(agent_preview,'swap.payment')
     return dict(frame=partial,tradeId=mixed_saved['tradeId'],currency=value['currency'],netTradeId=net_fixture['tradeId'])

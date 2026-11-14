@@ -31,10 +31,11 @@ public sealed partial class PortfolioRiskPreview
     }
     private static ImmutableArray<PcaValuationIdentity> PcaIdentities(Prepared prepared)=>
         [..prepared.Portfolio.Markets.SelectMany(m=>m.Connected.Holdings.Select(p=>new PcaValuationIdentity(
-            HistoricalExposureId(new(p.BookId,p.TradeId,p.BindingId,m.Measures[p.Group],p.Currency)),
+            HistoricalExposureId(new(p.BookId,p.Owner,p.BindingId,m.Measures[p.Group],p.Currency)),
             Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{m.Snapshot.Definitions,p.ValuationId},RiskJobs.Json))))))];
     private static Prepared PreparePcaFit(Prepared prepared,PcaFitPlan plan)
     {
+        RiskEngine.RequireStaticDerivatives(prepared.Portfolio.Markets.SelectMany(m=>m.Connected.UnitContracts));
         var generation=prepared.Simulation!;var policy=prepared.Request.MonteCarlo!.Analysis!;
         var samples=plan.Samples.Select(s=>new PortfolioJointRisk.Sample(s.Id,s.Id,
             [..prepared.HistoricalAxes.Select((axis,i)=>new PortfolioCurveShift(axis,s.Changes[i])).Where(s=>s.Size!=default)])).ToImmutableArray();
@@ -56,8 +57,8 @@ public sealed partial class PortfolioRiskPreview
             foreach(var market in prepared.Portfolio.Markets)
             {
                 ct.ThrowIfCancellationRequested();
-                var shifts=sample.Shifts.Where(s=>s.Axis.Market==market.Snapshot.Definitions)
-                    .Select(s=>new CurveShift(s.Axis.Coordinate,s.Axis.Target,s.Axis.Unit,s.Size,CurveShift.ParentAdditive)).ToImmutableArray();
+                var shifts=sample.Shifts.Select(s=>CurveRiskAxes.InMarket(s.Axis,market,ct) is {} axis?
+                    new CurveShift(axis.Coordinate,axis.Target,axis.Unit,s.Size,CurveShift.ParentAdditive):null).OfType<CurveShift>().ToImmutableArray();
                 if(!shifts.IsEmpty)market.Connected.Scenario.ValidateShifts(shifts,ct);
                 count+=shifts.Length;
             }

@@ -3,8 +3,36 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--physical-option"]){PhysicalOptionChecks.Run();return;}
+if(args is ["--physical-option-binding"]){PhysicalOptionBindingChecks.Run();return;}
+if(args is ["--derivative-capabilities"]){DerivativeCapabilityChecks.Run();return;}
+if(args is ["--gas-known-stock"]){GasKnownStockChecks.Run();return;}
+if(args is ["--gas-known-quantity"]){GasKnownQuantityChecks.Run();return;}
+if(args is ["--gas-unfixed-delivery"]){GasUnfixedDeliveryChecks.Run();return;}
+if(args is ["--gas-cashout-projection"]){GasCashoutProjectionChecks.Run();return;}
+if(args is ["--captured-discount-sources"]){CapturedDiscountSourceChecks.Run();return;}
+if(args is ["--futures-margin-value"]){FuturesMarginValueChecks.Run();return;}
+if(args is ["--physical-futures-value"]){PhysicalFuturesValueChecks.Run();return;}
+if(args is ["--gas-owned-holdings"]){GasOwnedHoldingsChecks.Run();return;}
+if(args is ["--gas-quantity-projection"]){GasQuantityProjectionChecks.Run();return;}
+if(args is ["--gas-delivery-principal"]){GasDeliveryPrincipalChecks.Run();return;}
+
 if(args is ["--contract-eligibility"]){ContractEligibilityChecks.Run();return;}
 if(args is ["--interval-anchors"]){IntervalAnchorChecks.Run();return;}
+if(args is ["--futures-margin"]){FuturesMarginChecks.Run();return;}
+if(args is ["--cash-accumulation-selection"]){CashAccumulationSelectionChecks.Run();return;}
+if(args is ["--lifecycle-projection"]){LifecycleProjectionChecks.Run();return;}
+if(args is ["--routed-lifecycle-projection"]){RoutedLifecycleProjectionChecks.Run();return;}
+if(args is ["--physical-lifecycle-projection"]){PhysicalLifecycleProjectionChecks.Run();return;}
+if(args is ["--cash-lifecycle-projection"]){CashLifecycleProjectionChecks.Run();return;}
+if(args is ["--option-lifecycle-projection"]){OptionLifecycleProjectionChecks.Run();return;}
+if(args is ["--swap-lifecycle-projection"]){SwapLifecycleProjectionChecks.Run();return;}
+if(args is ["--lifecycle-composite"]){LifecycleCompositeChecks.Run();return;}
+if(args is ["--futures-margin-trajectory"]){FuturesMarginTrajectoryChecks.Run();return;}
+if(args is ["--timed-cash"]){TimedCashChecks.Run();return;}
+if(args is ["--accounting-owners"]){AccountingOwnerChecks.Run();return;}
+if(args is ["--binding-discounting"]){BindingDiscountingChecks.Run();return;}
+if(args is ["--instant-rate-graph"]){InstantRateGraphChecks.Run();return;}
 if(args is ["--option-clock"]){FuturesOptionChecks.ClockLayers();return;}
 if(args is ["--valuation-environment"]){ValuationEnvironmentChecks.Run();return;}
 if(args is ["--pnl-attribution"]){TradingPnlAttributionChecks.Run();return;}
@@ -448,7 +476,7 @@ Check("money addition rejects cross currency and cross revision", () =>
     Reject("currency_mismatch", () => money.Add(new(ExactDecimal.Parse("2"), fixture.R("currency_b"))));
     Reject("currency_mismatch", () => money.Add(new(ExactDecimal.Parse("2"), new(new(Guid.NewGuid(), Guid.NewGuid()), "currency"))));
 });
-var rounding = new CashRoundingConvention(fixture.R("round_cash"), fixture.R("currency"), ExactDecimal.Parse("0.01"), CashTieRule.ToEven, CashRoundingStage.Cashflow);
+var rounding = new CashRoundingConvention(fixture.R("currency"), ExactDecimal.Parse("0.01"), CashTieRule.ToEven, CashRoundingStage.Cashflow);
 Check("explicit cash rounding handles positive/negative ties", () =>
 {
     Equal(new Money(ExactDecimal.Parse("1.005"), rounding.Currency).Round(rounding, CashRoundingStage.Cashflow).Amount.ToString(), "1");
@@ -594,6 +622,32 @@ HistoricalRiskChecks.Run();
 MonteCarloRiskChecks.Run();
 PcaHybridRiskChecks.Run();
 ContractEligibilityChecks.Run();passed++;
+FuturesMarginChecks.Run();passed++;
+FuturesMarginTrajectoryChecks.Run();passed++;
+CashAccumulationSelectionChecks.Run();passed++;
+LifecycleProjectionChecks.Run();passed++;
+PhysicalLifecycleProjectionChecks.Run();passed++;
+RoutedLifecycleProjectionChecks.Run();passed++;
+CashLifecycleProjectionChecks.Run();passed++;
+OptionLifecycleProjectionChecks.Run();passed++;
+SwapLifecycleProjectionChecks.Run();passed++;
+LifecycleCompositeChecks.Run();passed++;
+GasUnfixedDeliveryChecks.Run();passed++;
+GasCashoutProjectionChecks.Run();passed++;
+GasOwnedHoldingsChecks.Run();passed++;
+GasQuantityProjectionChecks.Run();passed++;
+GasKnownStockChecks.Run();passed++;
+GasKnownQuantityChecks.Run();passed++;
+PhysicalOptionChecks.Run();passed++;
+PhysicalOptionBindingChecks.Run();passed++;
+DerivativeCapabilityChecks.Run();passed++;
+CapturedDiscountSourceChecks.Run();passed++;
+FuturesMarginValueChecks.Run();passed++;
+PhysicalFuturesValueChecks.Run();passed++;
+TimedCashChecks.Run();passed++;
+AccountingOwnerChecks.Run();passed++;
+BindingDiscountingChecks.Run();passed++;
+InstantRateGraphChecks.Run();passed++;
 passed += TemporalBindingChecks.Run();
 passed += BasisRiskChecks.Run();
 Console.WriteLine($"{passed} managed core checks passed.");

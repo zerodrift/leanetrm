@@ -1,5 +1,25 @@
 # Delivery plan and acceptance criteria
 
+The current lifecycle increment follows [D399’s delivery contract](lifecycle-delivery.md).
+It requires native operations, inventory continuation, event-aware risk, independent
+review and disposable browser qualification. Incompatible synthetic demo records
+may be rebuilt; there is no legacy financial conversion layer. This increment
+remains local and unfinished until those gates are qualified.
+
+The isolated native futures increment now saves exact dated margin policies,
+seals their occurrence sets and adopts an explicit saved version against a stable
+held binding. Its native determination journal retains complete correction
+closure, source evidence and independent original/adjustment cash memberships.
+Ordinary Instrument PV consumes accepted basis plus the shared recorded-cash
+state, including final settlement without an open mark. The managed coordinator
+derives monetary operands internally and retains reviewed source choices.
+Owned command and standalone-review admission preserve original authority bounds
+across work and waits. An explicit native-margin portfolio convention now loads
+accepted basis and surviving cash through ordinary connected PV, retaining exact
+cash provenance and transaction-owned read admission. Wider worker wiring, physical final delivery,
+HTTP/agent/UI workflows and browser qualification remain work;
+see the [delivery boundaries](lifecycle-delivery.md).
+
 D393 implements live curve output selection, an optional inactive-contract
 display, and explicit exact/live close capture with durable first-outcome retry.
 The selection uses the chosen close, retains explicit frozen dependencies and

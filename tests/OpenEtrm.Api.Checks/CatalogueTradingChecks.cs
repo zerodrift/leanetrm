@@ -19,6 +19,7 @@ internal static class CatalogueTradingChecks
         await using var database=new PreviewDatabase(manifest,runtime);
         await using var connection=await runtime.OpenConnectionAsync();
         await using var transaction=await connection.BeginTransactionAsync();
+        using var admissions=database.OwnReadTransaction(connection,transaction);
         await using(var use=ScheduleStore.Command(connection,"SELECT security.use_context($1)",root.GetProperty("token").GetGuid()))
             await use.ExecuteNonQueryAsync();
         var context=await new KnowledgeStore(manifest.CatalogId).Read(connection,root.GetProperty("context").GetGuid(),default);
@@ -257,7 +258,7 @@ internal static class CatalogueTradingChecks
             job=queued.GetProperty("jobId").GetGuid(),
             factors=interactive.GetProperty("factors"),positions=interactive.GetProperty("inputs").GetProperty("positions")
         },Json));
-        await transaction.CommitAsync();
+        await admissions.Commit(default);
         Console.WriteLine("PASS catalogue trading: old and added futures coexist with unchanged exact terms, independent price selections and advanced deployment configuration");
     }
 }

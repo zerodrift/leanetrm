@@ -29,7 +29,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     if not __debug__ or os.environ.get('PYTHONOPTIMIZE') not in (None, '', '0'):
         raise ValueError('Python assertions must remain enabled for verification.')
     environment = {**os.environ, 'DOTNET_CLI_TELEMETRY_OPTOUT': '1', 'DOTNET_NOLOGO': '1',
-                   'CHROME_BIN': str(browser)}
+                   'CHROME_BIN': str(browser), 'OPENETRM_CHECK_BROWSER': str(browser), 'DOTNET': str(dotnet)}
 
     def check(label, command, *, suite=None):
         if group != 'all' and suite not in (None, group):
@@ -69,6 +69,47 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     check('native volatility-fit admission expiry',[sys.executable,'tools/check_vol_surface_admission_expiry.py','--pg-bin',str(pg_bin)])
     check('owned reference metadata database',[sys.executable,'tools/check_reference_editing.py','--pg-bin',str(pg_bin)])
     check('recorded cash upgrade over existing option bookings',[sys.executable,'tools/check_recorded_cash_upgrade.py','--pg-bin',str(pg_bin)])
+    for part in ('sources','adoption','journal'):
+        check('owned futures margin '+part,[sys.executable,f'tools/check_futures_margin_{part}.py','--pg-bin',str(pg_bin)],suite='trading')
+    check('explicit trading business dates and command source admission',[sys.executable,'tools/check_trading_business_date.py','--pg-bin',str(pg_bin)],suite='trading')
+    for helper,label in (
+        ('check_lifecycle_actions','shared lifecycle actions and native option history'),
+        ('check_lifecycle_swaps','shared swap settlement, netting and exact task sources'),
+        ('check_futures_physical_delivery','physical futures final margin and delivery obligation'),
+        ('check_selected_physical_authority','selected physical action authority'),
+        ('check_physical_delivery_authority','physical delivery original authority'),
+        ('check_physical_margin_qualification','new physical futures require qualified delivery terms'),
+        ('check_lifecycle_option_scheduling','actual option expiry scheduling and linked futures'),
+        ('check_lifecycle_option_expiries','historical option expiry and immutable instruction review'),
+        ('check_lifecycle_scheduling','lifecycle scheduler source admission and replay'),
+        ('check_lifecycle_scheduled_bookings','scheduled native bookings retain exact lifecycle policies'),
+        ('check_gas_source_ancestors','applied gas corrections, pending financial writes and captured source ancestry'),
+        ('check_gas_physical_known','captured physical gas delivery dependencies'),
+        ('check_gas_cashout_projection','cashout profiles, native valuation and retained economic workers'),
+        ('check_gas_accepted_projection','accepted physical gas movements, exact remainders and native economic workers'),
+        ('check_gas_quantity_reconciliation','native quantity corrections, exact source allocations and retained principal refunds'),
+        ('check_gas_quantity_reconciliation_batches','atomic linked gas corrections, exact review metadata and complete native principal prefixes'),
+        ('check_cash_accumulation','explicit cash funding choices, native source custody and economic worker replay'),
+        ('check_gas_principal_carrying','saved delivery principal carrying and exact residual curve demand'),
+        ('check_risk_fit_authority','volatility fitting actor and delegated worker authority'),
+        ('check_retained_swap_schedule_reads','retained swap hydration and original worker read admission')):
+        check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='trading')
+    for helper,label in (
+        ('check_lifecycle_risk_jobs','economic lifecycle custody and native worker scope'),
+        ('check_lifecycle_risk_scope','consumer-specific gas authority in risk jobs'),
+        ('check_lifecycle_final_scope','native lifecycle final-result scope'),
+        ('check_lifecycle_projection_horizon','economic horizon and retained projection profiles'),
+        ('check_lifecycle_swap_worker','economic swap replay in separate workers'),
+        ('check_lifecycle_future_worker','economic futures replay in separate workers'),
+        ('check_physical_futures_value','full native physical futures value and exact linked-source economic workers')):
+        check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='portfolio')
+    for helper,suite in (('check_lifecycle_browser','trading'),('check_lifecycle_economic_browser','portfolio')):
+        check(helper,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),
+            '--browser',str(browser),'--no-build'],suite=suite)
+    for flag in ('--lifecycle-actions','--economic-risk-contract','--lifecycle-schedule-contract','--gas-owned-setup',
+        '--shared-native-markets','--derivative-methods','--gas-accepted-order','--lifecycle-residual-currencies'):
+        check('managed lifecycle '+flag,[str(dotnet),'run','--no-restore','--project',
+            'tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--',flag])
     check('exact temporal sources, retained close upgrade and claimed worker replay',
           [sys.executable,'tools/check_context_resolution.py','--upgrade-existing-close','--pg-bin',str(pg_bin),'--dotnet',str(dotnet)])
     check('owned recorded-close observation batches',[sys.executable,'tools/check_observation_batch_reads.py','--pg-bin',str(pg_bin)])

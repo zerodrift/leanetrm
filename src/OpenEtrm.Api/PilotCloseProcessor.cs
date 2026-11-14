@@ -17,6 +17,10 @@ public sealed class PilotCloseProcessor(NpgsqlDataSource scheduler,NpgsqlDataSou
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web){Converters={new ExactDecimalJsonConverter()}};
     public async Task Process(JobClaim claim,CancellationToken ct)
     {
+        if(claim.Operation==LifecycleScheduleJobs.Operation)
+        {
+            await new LifecycleScheduleProcessor(scheduler,runtime,manifest).Process(claim,ct);return;
+        }
         if(claim.Operation==CloseBookRiskJobs.Operation)
         {
             var prepared=await WithRun(claim,(connection,cancellation)=>PrepareReport(connection,claim,cancellation),ct,RunPhase.Preparation);

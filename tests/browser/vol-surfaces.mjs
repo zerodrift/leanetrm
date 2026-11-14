@@ -50,6 +50,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
    if(!call)return send(input,init);
    const record={path:call[1],body:init?.body?JSON.parse(init.body):null,sent:performance.now()};window.surfaceCalls.push(record);
    let response=await send(input,init);
+   if(call[1]==='vol-surfaces/read'&&window.slowVolReadMs)await new Promise(resolve=>setTimeout(resolve,window.slowVolReadMs));
    record.status=response.status;record.answer=await response.clone().json().catch(()=>null);record.answered=performance.now();
    if(call[1]==='vol-surfaces/fit'&&window.loseNextFit){window.loseNextFit=false;throw new TypeError('Failed to fetch');}
    if(call[1]==='vol-surfaces/read'&&response.ok&&window.reviseNextRead&&record.answer.revision){
@@ -155,7 +156,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   await check('a lost calibration response keeps the request to retry, and offers no fresh calibration meanwhile',
    "!!document.querySelector('#vol-fit-retry').offsetParent&&!document.querySelector('#vol-fit').offsetParent&&document.querySelector('#vol-fit-here')?.disabled===true&&/not confirmed/.test(document.querySelector('#vol-fit-failure').textContent)",
    "[document.querySelector('#vol-fit-retry').hidden,document.querySelector('#vol-fit').hidden,document.querySelector('#vol-fit-here')?.disabled,document.querySelector('#vol-fit-failure').textContent]");
-  await click('#vol-fit-retry');
+  // A response may take longer than 500ms. Polling remains serialized and its
+  // 1.5s delay begins when that response finishes, rather than at request start.
+  await evaluate('window.slowVolReadMs=700');await click('#vol-fit-retry');
   await settled(`${calls('vol-surfaces/fit')}.length===2&&${calls('vol-surfaces/fit')}.at(-1).status===200`,30000);
   const submitted=await evaluate(`${calls('vol-surfaces/fit')}.at(-1)`);
   await check('the retry sends the original request under its own id and the backend answers its first job',
@@ -171,7 +174,9 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,fi
   // Each read is sent 1.5 s after the previous one was answered: never before it was answered, and never sooner or later than that.
   const spacing=polls.slice(1).map((c,i)=>[c.sent-polls[i].answered,c.sent-polls[i].sent]);
   await check('while the job runs the page reads again 1.5 s after each answer, one read at a time',
-   q(polls.slice(0,-1).every(c=>['queued','running'].includes(c.answer.job?.state))&&spacing.every(([afterAnswer,between])=>afterAnswer>=1450&&afterAnswer<=1750&&between<=2000)),q(spacing));
+   q(polls.slice(0,-1).every(c=>['queued','running'].includes(c.answer.job?.state)&&c.answered>=c.sent+650)&&
+     spacing.every(([afterAnswer])=>afterAnswer>=1450&&afterAnswer<=1750)),q(spacing));
+  await evaluate('window.slowVolReadMs=0');
   // Hidden, the page reads nothing; shown again, it reads at once and goes on checking back.
   // The page's clock just before the change, which the page may answer with a read in the same task.
   const visibility=hidden=>evaluate(`(()=>{const at=performance.now();Object.defineProperty(document,'hidden',{configurable:true,get:()=>${hidden}});

@@ -93,6 +93,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  async function execution(series,lots){
   await pick(series);
   for(const id of ['book','legal-entity','counterparty'])await evaluate(`(()=>{const s=document.querySelector(${q('#option-'+id)});s.value=s.options[1].value;s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await set('#option-book',catalog.books.at(-1).id);
   await set('#option-side','buy');await set('#option-lots',lots);await set('#option-premium',series.settlementPrice);await set('#option-premium-date','2026-10-19');await set('#option-premium-style','premium_paid_up_front');
  }
  await execution(chosen,'2');
@@ -148,16 +149,14 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
   `document.querySelector('.side-panel-figure .kpi-value').title===${q(option.presentValue+' '+option.currency)}&&${q(option.calibrationMode)}==='solved'&&
    ${term('Settlement price')}===${q(chosen.settlementPrice)}&&${term('Value per contract')}===${q(option.unitPresentValue+' '+option.currency)}`,
   `[document.querySelector('.side-panel-figure .kpi-value')?.title,${term('Settlement price')},${term('Value per contract')}]`);
- await check('working data offers the holding\'s Exercise and leaves assignment and instructions off with the backend\'s reasons',
-  `!document.querySelector('#option-exercise').disabled&&document.querySelector('#option-assign').disabled&&document.querySelector('#option-abandon').disabled&&
-   document.querySelector('[data-action=assignment]').textContent===${q(option.actions.assignment.reason)}&&document.querySelector('[data-action=instruction]').textContent===${q(option.actions.instruction.reason)}`);
+ await check('working Details sends new exercise, assignment and expiry actions to the saved-policy workspace',
+  "!!document.querySelector('#option-open-lifecycle')&&!document.querySelector('#option-exercise')&&!document.querySelector('#option-exercise-lots')&&document.querySelector('.option-lifecycle').textContent.includes('Scheduling → Lifecycle')");
  await picture({command},'option-blotter');
  // A switched account selects no market date by default (D334), so it opens the same example inputs.
  // A role without booking authority reads the same holding with every lifecycle action off, and the backend's reason why.
  await evaluate('window.blotterRows=null');await persona('risk');await click('#example');await click('#nav-futures');await wait("!!window.blotterRows&&"+idle,60000);await find(receipt.tradeId);await details(row);await terms();
- await check('a role without Book Trade sees the lifecycle actions off, with the backend\'s reason',
-  "document.querySelector('#option-exercise').disabled&&document.querySelector('#option-exercise-lots').disabled&&document.querySelector('.option-lifecycle-reason').textContent==='Your current role does not have Book Trade permission.'",
-  "document.querySelector('.option-lifecycle')?.innerText");
+ await check('a reader keeps the option facts and shared-workspace navigation without a retired financial form',
+  "!!document.querySelector('#option-open-lifecycle')&&!document.querySelector('#option-exercise')&&!document.querySelector('#option-abandon')&&document.querySelector('.option-lifecycle').textContent.includes('saved action policies')");
  await evaluate('window.blotterRows=null');await persona('trader');await click('#example');await click('#nav-futures');await wait("!!window.blotterRows&&"+idle,60000);
 
  // The series that settles at intrinsic is booked as a person books it, and its position says which mode values it.
@@ -174,50 +173,47 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await check('the fallback position is labelled with its calibration mode and states no implied volatility',
   `${term('Calibration mode')}==='option_settlement_at_intrinsic_v1'&&${term('Implied volatility')}==='None'`,`[${term('Calibration mode')},${term('Implied volatility')}]`);
 
- // The trade's own window, opened from working data: one lot exercised, its response lost, the window read again, and the original
- // request retried into the one event; then no further action until the trade is opened again from the Blotter.
+ // A separate position window keeps its retained option facts and directs
+ // new financial actions back to the shared policy workspace.
  await openBlotter();await find(receipt.tradeId);
  const driver={command,evaluate};
  const target=await newTarget(command,async()=>{await press(driver,row+' .desk-reference',1);await press(driver,row+' .desk-reference',2);},url+'/position.html#');
  if(!target)throw Error('A double click on the option opened no trade window.');
  await check('the window opened from working data says so in its selection',q(new URLSearchParams(new URL(target.url).hash.slice(1)).get('lifecycle')==='working'));
- const popup=await tab(target.targetId);
- await popup.command('Emulation.setDeviceMetricsOverride',{width:1180,height:1400,deviceScaleFactor:1,mobile:false});
- const ready="document.body.getAttribute('aria-busy')==='false'&&!!document.querySelector('.option-lifecycle')";
- await popup.wait(ready,30000);
- await check('the window shows the open lots and offers Exercise; the instruction actions are off with the backend\'s reason',q(await popup.evaluate(
-  `${term('Open lots')}==='2'&&!document.querySelector('#option-exercise').disabled&&document.querySelector('#option-abandon').disabled&&document.querySelector('#option-instruct-exercise').disabled&&
-   document.querySelector('[data-action=instruction]').textContent===${q(option.actions.instruction.reason)}`)));
- await popup.evaluate(`(()=>{const send=window.fetch;window.windowCalls=[];window.loseNextExercise=true;window.fetch=async(...args)=>{const r=await send(...args);
-  if(/[/]options[/]/.test(String(args[0]))){window.windowCalls.push({path:String(args[0]),body:JSON.parse(args[1].body),status:r.status,answer:await r.clone().json()});
-   if(String(args[0]).endsWith('/options/exercise')&&window.loseNextExercise){window.loseNextExercise=false;throw new TypeError('Failed to fetch');}}
-  return r;};})()`);
- await popup.evaluate("(()=>{const n=document.querySelector('#option-exercise-lots');n.value='1';document.querySelector('#option-exercise').click();})()");
- await popup.wait("document.querySelector('.option-lifecycle [role=status]').textContent.startsWith('Not confirmed')",30000);
- // Read again redraws the window: the request outlives the redraw, and only its retry is offered.
- await popup.evaluate("document.querySelector('#position-window-retry').click()");
- await popup.wait(ready+"&&!document.querySelector('#option-lifecycle-retry').hidden",30000);
- await check('a lost exercise response survives a redraw: only the original request is offered, to be retried',q(await popup.evaluate(
-  "document.querySelector('#option-exercise').disabled&&document.querySelector('#option-exercise-lots').disabled&&document.querySelector('#option-abandon').disabled&&document.querySelector('.option-lifecycle [role=status]').textContent.includes('awaits its outcome')")));
- await popup.evaluate("document.querySelector('#option-lifecycle-retry').click()");
- await popup.wait("document.querySelector('.option-lifecycle [role=status]').textContent.startsWith('Exercise recorded')",30000);
- const exercises=await popup.evaluate("window.windowCalls.filter(c=>c.path.endsWith('/options/exercise'))");
- const exercised=exercises[1];
- await check('the retry is the original request, answered with the one event it recorded, which says it booked a linked future',
-  q(exercises.length===2&&exercises.every(c=>c.status===200&&c.answer.eventId===exercises[0].answer.eventId)&&JSON.stringify(exercises[0].body)===JSON.stringify(exercises[1].body)&&
-   exercised.body.lots==='1'&&exercised.body.tradeId===receipt.tradeId&&exercised.body.knowledgeMode==='current'&&typeof exercised.answer.futuresTradeId==='string'&&
-   await popup.evaluate(`document.querySelector('.option-lifecycle [role=status]').textContent==='Exercise recorded for 1 lot · 1 lot open · a linked futures trade was booked.'`)));
- await popup.evaluate("document.querySelector('#position-window-retry').click()");await popup.wait(ready,30000);
- await check('after the event the window offers no lifecycle action until the trade is opened again from the Blotter, and says so once',q(await popup.evaluate(
-  "[...document.querySelectorAll('.option-lifecycle button, .option-lifecycle input')].every(n=>n.disabled)&&document.querySelector('.option-lifecycle-reason').textContent.startsWith('An event was recorded here')&&document.querySelector('#position-window-context').textContent.split('An event was recorded').length===2")));
- await picture(popup,'option-window');
- await command('Target.closeTarget',{targetId:target.targetId});await popup.close();
-
+ const popup=await tab(target.targetId);await popup.command('Emulation.setDeviceMetricsOverride',{width:1180,height:1400,deviceScaleFactor:1,mobile:false});
+ await popup.wait("document.body.getAttribute('aria-busy')==='false'&&!!document.querySelector('.option-lifecycle')",30000);
+ await check('the position window retains open lots while new actions use the shared workspace',q(await popup.evaluate(
+  `${term('Open lots')}==='2'&&!document.querySelector('#option-exercise')&&!document.querySelector('#option-exercise-lots')&&document.querySelector('.option-lifecycle').textContent.includes('Scheduling')`)));
+ await picture(popup,'option-window');await command('Target.closeTarget',{targetId:target.targetId});await popup.close();
+ // Reuse one explicitly saved native v2 policy for this exact future, book and
+ // legal owner. Configuration is separate from the observed exercise below.
+ await evaluate(`(async()=>{const token=(await(await fetch('/examples/exchange/api/bootstrap')).json()).csrfToken;
+  const post=async(path,body)=>{const response=await fetch('/examples/exchange/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Preview-CSRF':token},body:JSON.stringify(body)});if(!response.ok)throw Error(path+': '+await response.text());return response.json();};
+  const selected={snapshotId:document.querySelector('#snapshot').value,knowledgeMode:'current',convention:'trading_workspace_v1'},d=await post('lifecycle/view',selected);
+  const source=d.optionSources.find(s=>s.trade_id===${q(receipt.tradeId)}&&s.curve_code==='nymex_ng'&&s.future_mark_eligible);if(!source)throw Error('Missing exact option-generated future mark.');
+  const compatible=d.marginPolicies.filter(m=>m.implementation==='dated_futures_margin_policy_v2'&&m.definition_revision_id===source.definition_revision_id&&m.contract_id===source.underlying_contract_id&&
+   d.deliveryProfiles.some(p=>p.profile.id===m.delivery_profile_id&&p.profile.revision===m.delivery_profile_revision&&d.deliveryAccounts.some(a=>a.id===p.gas.account_id&&a.book_id===${q(sent[1].body.bookId)}&&a.legal_entity_id===${q(sent[1].body.legalEntityId)})));
+  if(compatible.length!==1)throw Error('Select one exact configured synthetic physical policy; found '+compatible.length);const margin=compatible[0];
+  const prior=d.optionProfiles.filter(p=>p.action==='option.exercise'&&p.margin_policy_id===margin.id),policies=[...new Set(prior.map(p=>p.policy_id))];if(policies.length!==1)throw Error('Select one explicit synthetic review policy.');
+  await post('lifecycle/options/configure',{operationId:crypto.randomUUID(),tradeId:${q(receipt.tradeId)},action:'option.exercise',expectedRevision:0,policyId:policies[0],policyRevision:1,marginPolicyId:margin.id,marginPolicyRevision:margin.revision,futureMarkCurve:source.curve_code,expiryCurve:null});
+  window.lifecycleOptionWrites=[];window.lifecycleOptionReads=[];const send=window.fetch;window.loseLifecycleOptionReply=true;window.fetch=async(...args)=>{const response=await send(...args);if(String(args[0]).endsWith('/lifecycle/view'))window.lifecycleOptionReads.push({status:response.status,value:await response.clone().json()});if(String(args[0]).endsWith('/lifecycle/execute')){window.lifecycleOptionWrites.push({body:JSON.parse(args[1].body),status:response.status,answer:await response.clone().json()});if(response.ok&&window.loseLifecycleOptionReply){window.loseLifecycleOptionReply=false;throw new TypeError('Synthetic lifecycle reply lost after commit');}}return response;};
+ })()`);
+ await find(receipt.tradeId);await details(row);await terms();await click('#option-open-lifecycle');await wait("!document.querySelector('#lifecycle-page').hidden&&"+idle,60000);
+ const exerciseRow=`[...document.querySelectorAll('#lifecycle-page .tabulator-row[data-row-key]')].find(r=>{const k=JSON.parse(r.dataset.rowKey);return k[1]===${q(receipt.tradeId)}&&k[3]==='option.exercise';})`;
+ await wait("!!document.querySelector('#lifecycle-page [data-lifecycle=rows] .table-search')&&"+idle,60000);
+ await set('#lifecycle-page [data-lifecycle=rows] .table-search',option.tradeReference);
+ await wait(`!!(${exerciseRow})&&${idle}`,60000).catch(async error=>{throw Error(error.message+' · lifecycle '+JSON.stringify(await evaluate(`({notice:document.querySelector('#lifecycle-page [data-lifecycle=message]')?.textContent,error:document.querySelector('#error')?.textContent,read:window.lifecycleOptionReads?.map(r=>({status:r.status,context:r.value.context,actions:r.value.actions?.filter(a=>a.target.scopeId===${q(receipt.tradeId)}),error:r.value.code})),rows:[...document.querySelectorAll('#lifecycle-page .tabulator-row[data-row-key]')].map(r=>r.dataset.rowKey)})`)));});await evaluate(`(${exerciseRow}).click()`);await wait("!!document.querySelector('#lifecycle-page [data-lifecycle=panel] form.lifecycle-form')&&"+idle);
+ await evaluate(`(()=>{const labels=[...document.querySelectorAll('#lifecycle-page [data-lifecycle=panel] label')];for(const [label,value]of [['Observed evidence ID',crypto.randomUUID()],['Lots','1']]){const field=labels.find(l=>l.firstChild.textContent.startsWith(label))?.querySelector('input');if(!field)throw Error('Missing observed option field '+label);field.value=value;field.dispatchEvent(new Event('input',{bubbles:true}));}document.querySelector('#lifecycle-page [data-lifecycle=panel] form').requestSubmit();})()`);
+ await wait("!!document.querySelector('#lifecycle-page [data-lifecycle-review]')&&"+idle,60000);
+ await check('shared exercise review displays the native strike and linked-future quantity before recording',`(()=>{const text=document.querySelector('#lifecycle-page [data-lifecycle-review]').textContent;return text.includes('Lots affected1')&&text.includes('Linked futures lots1')&&text.includes(${q(chosen.strike)});})()`);
+ await click('#lifecycle-page [data-lifecycle-execute]',60000);await wait("!document.querySelector('#lifecycle-page [data-lifecycle=pending]').hidden&&"+idle,60000);
+ await check('a lost shared option reply retains its exact reviewed financial request',"window.lifecycleOptionWrites.length===1&&window.lifecycleOptionWrites[0].status===200&&!document.querySelector('#lifecycle-page [data-lifecycle=retry]').hidden");
+ await click('#lifecycle-page [data-lifecycle=retry]',60000);await wait("document.querySelector('#lifecycle-page [data-lifecycle=pending]').hidden&&"+idle,60000);
+ const exercises=await evaluate('window.lifecycleOptionWrites'),exercised=exercises.at(-1);
+ await check('shared option retry returns one native event and linked future under the original request',q(exercises.length===2&&exercises.every(c=>c.status===200&&c.answer.eventId===exercises[0].answer.eventId)&&JSON.stringify(exercises[0].body)===JSON.stringify(exercises[1].body)&&exercised.body.selection.lots==='1'&&typeof exercised.answer.futuresTradeId==='string'));
  await openBlotter();
  const after=await evaluate(`window.blotterRows.filter(r=>r.tradeId===${q(receipt.tradeId)}||r.tradeId===${q(exercised.answer.futuresTradeId)})`);
- await check('the Blotter then holds exactly one exercise: the linked future and the option\'s remaining lot, linked to it alone',
-  q(after.filter(r=>r.instrumentType==='future').length===1&&after.some(r=>r.tradeId===exercised.answer.futuresTradeId&&r.instrumentType==='future'&&r.lots==='1')&&
-   after.some(r=>r.component==='option'&&r.openLots==='1'&&r.lifecycleState==='partially_closed'&&r.linkedFuturesTradeIds.join()===exercised.answer.futuresTradeId)));
+ await check('the Blotter holds one linked future and the option remaining lot after the shared event',q(after.filter(r=>r.instrumentType==='future').length===1&&after.some(r=>r.tradeId===exercised.answer.futuresTradeId&&r.instrumentType==='future'&&r.lots==='1')&&after.some(r=>r.component==='option'&&r.openLots==='1'&&r.lifecycleState==='partially_closed'&&r.linkedFuturesTradeIds.join()===exercised.answer.futuresTradeId)));
 
  // An option, booked or being entered, links to its product's volatility surface: Vol surfaces opens on that product, read at the
  // context the option was read at.

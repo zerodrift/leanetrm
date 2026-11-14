@@ -3,8 +3,17 @@ namespace OpenEtrm.MarketData;
 public enum CashTieRule { ToEven = 1, AwayFromZero }
 public enum CashRoundingStage { Cashflow = 1, PaymentTotal }
 public sealed record CashRoundingConvention(
-    ReferenceKey Key, ReferenceKey Currency, ExactDecimal Increment,
-    CashTieRule TieRule, CashRoundingStage Stage);
+    ReferenceKey Currency, ExactDecimal Increment,
+    CashTieRule TieRule, CashRoundingStage Stage)
+{
+    public void Require(ReferenceKey currency,CashRoundingStage stage)
+    {
+        Money.RequireKey(Currency);
+        if(Currency!=currency||Stage!=stage||!Enum.IsDefined(stage)||
+            Increment.CompareTo(default)<=0||!Enum.IsDefined(TieRule))
+            throw new MarketDataException("rounding_policy","Currency, increment, tie rule and requested rounding stage must match the selected policy.");
+    }
+}
 
 public sealed record Money
 {
@@ -30,10 +39,7 @@ public sealed record Money
     public Money Scale(ExactDecimal scalar) => new(Amount * scalar, Currency);
     public Money Round(CashRoundingConvention convention, CashRoundingStage stage)
     {
-        RequireKey(convention.Key);
-        if (convention.Key.Revision != Currency.Revision || convention.Currency != Currency ||
-            convention.Stage != stage || !Enum.IsDefined(stage))
-            throw new MarketDataException("rounding_policy", "Currency, reference revision and requested rounding stage must match.");
+        convention.Require(Currency,stage);
         return new(Amount.RoundToIncrement(convention.Increment, convention.TieRule), Currency);
     }
 }

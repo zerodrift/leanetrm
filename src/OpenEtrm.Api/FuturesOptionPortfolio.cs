@@ -104,14 +104,7 @@ internal sealed class FuturesOptionMarket
     // The valued bindings: each option for its open lots and each trade's premium cash.
     internal ValuationPortfolio? Portfolio(ImmutableArray<FuturesOptionPosition> positions)
     {
-        var trades=positions.Select(p=>
-        {
-            var held=ImmutableArray.CreateBuilder<TradeInstrument>();
-            if(p.OpenLots!=default&&Reason(p) is null)held.Add(new(p.OptionBinding,Bindings[p.OptionBinding].Instrument,new(p.OpenLots,p.LotQuantity)));
-            var premium=Premiums[p.PremiumBinding];
-            if(PremiumReason(p) is null)held.Add(new(p.PremiumBinding,premium,new(p.PremiumQuantity,premium.Currency)));
-            return new Trade(p.Trade,p.Book.Id("id"),held.ToImmutable());
-        }).Where(t=>!t.Instruments.IsEmpty).ToImmutableArray();
+        var trades=Trades(positions);
         if(trades.IsEmpty)return null;
         var instruments=trades.SelectMany(t=>t.Instruments).Select(i=>i.Instrument).DistinctBy(i=>i.Id).ToArray();
         return ValuationPortfolio.FromTrades(trades,new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
@@ -128,6 +121,14 @@ internal sealed class FuturesOptionMarket
                 .ToImmutableDictionary(i=>i.Id,i=>(ISideDiscounting)Discounting[i.Currency])
         });
     }
+    internal ImmutableArray<Trade> Trades(ImmutableArray<FuturesOptionPosition> positions)=>[..positions.Select(p=>
+        {
+            var held=ImmutableArray.CreateBuilder<TradeInstrument>();
+            if(p.OpenLots!=default&&Reason(p) is null)held.Add(new(p.OptionBinding,Bindings[p.OptionBinding].Instrument,new(p.OpenLots,p.LotQuantity)));
+            var premium=Premiums[p.PremiumBinding];
+            if(PremiumReason(p) is null)held.Add(new(p.PremiumBinding,premium,new(p.PremiumQuantity,premium.Currency)));
+            return new Trade(p.Trade,p.Book.Id("id"),held.ToImmutable());
+        }).Where(t=>!t.Instruments.IsEmpty)];
 
     internal FuturesOptionWork Work(ImmutableArray<FuturesOptionPosition> positions)
     {

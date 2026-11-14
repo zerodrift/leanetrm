@@ -360,7 +360,8 @@ public static class ConnectedCurves
         DependencyPlan plan;
         try{plan=DependencyPlan.Compile(nodes.Length,edges,cancellation);}
         catch(CalculationException error){throw new MarketDataException(error.Code,error.Message);}
-        return new(context,points.ToImmutableDictionary(p=>p.Key),indexes.ToImmutableDictionary(),primitives.ToImmutable(),nodes,plan,roots);
+        return new(context,points.ToImmutableDictionary(p=>p.Key),indexes.ToImmutableDictionary(),primitives.ToImmutable(),nodes,plan,roots,
+            operations.ToImmutableDictionary(p=>p.Key,p=>p.Value.Dependencies));
     }
 
     private sealed record Operation(ConnectedSource? Source,ImmutableArray<CurvePointKey> Dependencies,ImmutableArray<ExactDecimal> Weights,ExactDecimal Divisor,ConnectedBuiltCurve? Built=null);
@@ -436,6 +437,7 @@ public sealed partial class ConnectedCurvePlan
 {
     private readonly ImmutableDictionary<CurvePointKey,int> indexes;
     private readonly ImmutableArray<ConnectedNode> nodes;
+    private readonly ImmutableDictionary<CurvePointKey,ImmutableArray<CurvePointKey>> resolvedPointDependencies;
     public ResolvedCalculationContext Context {get;}
     public string NumericalPolicy=>ConnectedCurves.NumericalPolicy;
     public string ManifestId {get;}
@@ -444,8 +446,9 @@ public sealed partial class ConnectedCurvePlan
     public DependencyPlan DependencyPlan {get;}
     internal ConnectedCurvePlan(ResolvedCalculationContext context,ImmutableDictionary<CurvePointKey,ConnectedCurvePoint> points,
         ImmutableDictionary<CurvePointKey,int> indexes,ImmutableArray<ConnectedPrimitive> primitives,ImmutableArray<ConnectedNode> nodes,
-        DependencyPlan dependencyPlan,ImmutableArray<CurvePointKey> roots)
+        DependencyPlan dependencyPlan,ImmutableArray<CurvePointKey> roots,ImmutableDictionary<CurvePointKey,ImmutableArray<CurvePointKey>> resolvedPointDependencies)
     {
+        this.resolvedPointDependencies=resolvedPointDependencies;
         Context=context;Points=points;this.indexes=indexes;Primitives=primitives;this.nodes=nodes;DependencyPlan=dependencyPlan;
         // Canonical resolved evidence, including exact scalar text. Dictionary
         // iteration order and display rounding cannot change a plan's identity.

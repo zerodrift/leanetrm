@@ -86,6 +86,7 @@ def main():
     parser.add_argument('--risk-jobs-check',action='store_true',help='Qualify nested risk and durable worker execution in a disposable database')
     parser.add_argument('--factor-swap-check',action='store_true',help='Qualify typed contractual factors and cross-commodity scheduled swaps in an owned fixture')
     parser.add_argument('--scheduled-swap-check',action='store_true',help='Qualify explicit recurring financial swap quantity schedules')
+    parser.add_argument('--lifecycle-swap-browser-check',action='store_true',help='Qualify shared swap lifecycle forms, exact recovery and current valuation invalidation in the real browser')
     parser.add_argument('--retained-schedule-check',action='store_true',help='Qualify staged graphs and shared Side reuse across reverse effective boundaries')
     parser.add_argument('--draft-check',action='store_true',help='Qualify temporary deal pricing and exposure')
     parser.add_argument('--hosted-check',action='store_true',help='Qualify local credential persistence in an owned database')
@@ -172,7 +173,8 @@ def main():
     if args.price_authoring_check: args.custom_curves_check=True
     if args.authoring_browser_suite and not(args.browser_check and args.custom_curves_check):
         parser.error('--authoring-browser-suite requires --custom-curves-check or --price-authoring-check, and --browser-check')
-    fixing_frames=args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
+    if args.lifecycle_swap_browser_check and not args.browser_check: parser.error('--lifecycle-swap-browser-check requires --browser-check and --browser')
+    fixing_frames=args.lifecycle_swap_browser_check or args.price_authoring_check or args.gas_operations_check or args.gas_billing_check or gas_demo or args.physical_crude_check or args.lng_cargo_check or args.crude_lifecycle_check or args.with_gas_quantity_dates or args.gas_amendments_check or args.gas_indexed_check or args.gas_daily_quantity_check or args.facility_quantity_check or args.factor_swap_check or args.scheduled_swap_check or args.index_fixing_check or args.swap_risk_holdings_check or args.side_observation_check or args.close_out_drafts_check
 
     if args.blotter_stream_benchmark and (args.output is None or args.output.resolve().is_relative_to(ROOT)):
         parser.error('--blotter-stream-benchmark requires an --output file outside the repository')
@@ -188,7 +190,7 @@ def main():
     if args.context_read_check:
         args.check=True
         if args.example!='standard':parser.error('--context-read-check requires the standard fixture')
-    if args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.regional_closes_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.cash_pnl_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.contract_observation_curve_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
+    if args.lifecycle_swap_browser_check or args.factor_swap_check or args.scheduled_swap_check or args.side_observation_check or args.ppa_bookings_check or args.ppa_check or args.live_calculation_check or args.connected_portfolio_check or args.risk_jobs_check or args.factor_history_check or args.parametric_risk_check or args.historical_risk_check or args.monte_carlo_risk_check or args.power_actual_check or args.interval_series_check or args.interval_curves_check or args.index_fixing_check or args.swap_risk_holdings_check or args.close_out_drafts_check or args.pilot_close_check or args.regional_closes_check or args.contract_dates_check or args.identity_check or args.unit_check or args.party_check or args.exchange_check or args.cash_pnl_check or args.booking_check or args.draft_check or args.hosted_check or args.jobs_check or args.reference_check or args.execution_check or args.assistant_check or args.provider_adapters_check or args.custom_curves_check or args.contract_observation_curve_check or args.market_dates_check or args.market_read_check or args.reference_demo_check or args.valuation_status_check or args.desk_fields_check:
         args.check = True
         if args.example != 'standard' or args.identity_check and args.browser_check:
             parser.error('--identity-check requires the standard fixture without --browser-check')
@@ -285,6 +287,9 @@ def main():
                 reference,market,security,manifest=add_in_term_fixture(reference,market,security,manifest)
         query((ROOT/'db/bootstrap.sql').read_text())
         for migration in sorted((ROOT/'db/migrations').glob('[0-9][0-9][0-9][0-9]_*.sql')):
+            if args.scheduled_swap_check and migration.name=='0297_retained_swap_schedule_reads.sql':
+                from check_retained_swap_schedule_reads import predecessor_readers
+                predecessor_readers(query)
             if migration.name.startswith(('0228_','0229_')):
                 from check_fact_anchor_upgrade import run_checks as check_point_upgrade
                 point_signatures=('security.materialize_gas_setup(uuid,uuid)','trading.require_gas_program_shape(uuid,uuid,integer,date,date,timestamptz,numeric,numeric,market_data.gas_valuation_assignments,ref_data.gas_delivery_conventions,timestamptz,jsonb)')
@@ -1329,6 +1334,11 @@ def main():
             elif args.hosted_check:
                 from check_hosted_http import run_checks as check_hosted_http
                 check_hosted_http(temporary,manifest,query,dotnet,frozen_dll,app_env,args.browser if args.browser_check else None,url,run_id,psql=psql,psql_environment=env)
+            elif args.lifecycle_swap_browser_check:
+                target=temporary/'browser-target.json'
+                target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))
+                browser_process=subprocess.Popen(['node',str(ROOT/'tests/browser/run.mjs'),str(target),str(args.browser.resolve()),'--lifecycle-swaps'],cwd=ROOT,env={**env,'OPENETRM_BROWSER_ACTION_WAIT_MS':'30000'},start_new_session=True)
+                if browser_process.wait(timeout=420):raise RuntimeError('Owned shared lifecycle swap browser checks failed')
             elif args.scheduled_swap_check:
                 from check_scheduled_swaps import run_checks as check_scheduled
                 worker_env=prepare_risk_worker()

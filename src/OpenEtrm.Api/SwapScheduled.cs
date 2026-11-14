@@ -202,9 +202,9 @@ public sealed partial class SwapStore
         if(body.TradeId is {} trade)
         {
             var head=(await Rows(connection,trade,ct))[^1];
-            var retained=Terms(data,head,frame.Id);booked=retained;
+            var original=(await ScheduledMarket(connection,data,frame,head.Id("definition_revision_id"),ct)).Data;
+            var retained=Terms(original,head,frame.Id);booked=retained;
             if(retained.Scheduled?.Implementation!=body.Scheduled!.Implementation)throw Error("swap_amendment","An amendment must preserve the retained contract implementation. Book a separate contract to change its quantity semantics.");
-            var original=(await ScheduledMarket(connection,data,frame,retained.DefinitionRevisionId,ct)).Data;
             if(retained.Scheduled is null||!ScheduledAmendmentEligible(ResolveScheduled(original,retained,head.Id("instrument_id")).Instrument,frame.At))throw Error("swap_amendment","Fixings or payments are due on a retained side; use an explicit lifecycle operation.");
             if(head.OptionalId("scheduled_first_id") is null||body.ExpectedRevision!=int.Parse(head.Text("revision"),CultureInfo.InvariantCulture)||
                 body.ExpectedRevision>=256||frame.At<head.Instant("effective_at")||SchedulePreview.ParseAt(body.EffectiveAt)!=frame.At||

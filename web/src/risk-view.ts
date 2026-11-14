@@ -39,7 +39,7 @@ type JobRun={id:string;part:number;parts:number};
 type RunScope=RiskScope;
 /** A job as the backend reads it. A full read of one with a result says whether it was valued under the pricing policy the risk catalog states. */
 export type RiskJob={id:string;requestId?:string;state:JobState;error?:{code:string;message:string};result?:RiskReport;underStatedPricingPolicy?:boolean;context?:FinancialContext;asOf?:string;
-  finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null;shocks?:number;kind?:'scenarios'|'derivatives'|'parametric'|'historical'|'monte_carlo'|'hybrid_monte_carlo';appliedMethod?:string|null;fallbackApplied?:boolean|null;approximate?:boolean|null;scenarioCount?:number;derivativeCount?:number};
+  finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null;shocks?:number;kind?:'scenarios'|'derivatives'|'parametric'|'historical'|'monte_carlo'|'hybrid_monte_carlo'|'economic_lifecycle';appliedMethod?:string|null;fallbackApplied?:boolean|null;approximate?:boolean|null;scenarioCount?:number;derivativeCount?:number};
 type Job=RiskJob;
 /**
  * A part of a run and what became of it: the report it returned, or the job it was queued as, or why it failed. A queued part's

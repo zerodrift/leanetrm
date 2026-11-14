@@ -7,6 +7,28 @@ selects one CI partition. CI requires every partition and its aggregate check
 to succeed. The implementation records below retain the results and limits of
 each dated increment; older check counts are not the current suite size.
 
+D399's local native futures increment has focused owned PostgreSQL consumers:
+`tools/check_futures_margin_sources.py`, `tools/check_futures_margin_adoption.py`
+and `tools/check_futures_margin_journal.py`. Each takes `--pg-bin`; its managed
+child uses the explicitly selected `DOTNET` executable and already-built API check
+project. The trading CI partition runs all three. The journal consumer qualifies
+actual booking/adoption, causal corrections, distinct surviving cash, partial
+payment, terminal PV without an open mark, explicit future-cash discounting,
+review/source changes, original admission deadlines and immutable run membership.
+The same consumer now checks the explicit native-margin scoped portfolio,
+ordinary connected PV, exact cash provenance and retained accounting coverage.
+A wrapped-review regression fails without transaction-owned admission and passes
+with it; successor grants cannot extend its original read deadline.
+`tools/check_trading_business_date.py` qualifies explicit business-date reads and
+immutable command source admission, including read-scope restoration, source
+conflicts, forged deadlines and successor grants. Migration 0258 refuses drift in
+the exact native source helpers it updates. These checks preserve the existing
+recorded-close calendar restrictions rather than qualifying broader close sessions.
+It also inserts separate privileged synthetic contexts with inconsistent prefixes
+to prove refusal, without modifying immutable records or the database software.
+These are native/managed checks. The [remaining lifecycle gates](lifecycle-delivery.md)
+include whole-portfolio/worker, physical delivery and HTTP/agent/browser workflows.
+
 D354 adds the owned `--context-read-check --browser-check` consumer for the
 grouped header, context explanations, failed-Apply recovery and retained knowledge
 across pages. The `--regional-closes-check` consumer also runs managed native

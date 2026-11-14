@@ -1,5 +1,10 @@
 # Architecture and domain contracts
 
+D399 selects [shared lifecycle delivery](lifecycle-delivery.md): operation-specific
+eligibility, native lifecycle coordination, gas ownership/entitlements/borrowing
+and event-aware economic risk. Its delivery gates distinguish implementation from
+qualification; it does not make the capabilities below complete by declaration.
+
 D397 adds authorized, versioned current listings for close conventions. Retiring
 a convention removes it from discovery and new authoring; exact retained closes
 and accepted command outcomes remain readable under their existing authority.

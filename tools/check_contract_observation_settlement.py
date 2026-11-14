@@ -4,9 +4,11 @@ from fractions import Fraction
 from uuid import uuid4
 
 from preview_fixture import CAT, identity
+from lifecycle_swap_client import LifecycleSwapClient,SYNTHETIC_SWAP_REVIEW
 
 
 def run(c, context, body, query):
+    if not isinstance(c,LifecycleSwapClient):c=LifecycleSwapClient(c,**SYNTHETIC_SWAP_REVIEW)
     frames = c.call('workspace')['frames']
     def at(prefix):
         return {**context, 'snapshotId': next(f['id'] for f in frames if f['at'].startswith(prefix))}

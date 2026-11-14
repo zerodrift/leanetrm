@@ -1,3 +1,4 @@
+import {isRetiredSwapRequest} from './retired-swap-request.js';
 export const crudeOperationPaths=['crude/operations/allocation','crude/operations/receipt','crude/operations/dispatch','crude/operations/invoice/issue','crude/operations/payment','crude/operations/payment/reverse','crude/operations/invoice/void'] as const;
 export const isCrudeOperation=(path:string):boolean=>(crudeOperationPaths as readonly string[]).includes(path);
 export const isLifecycleCommand=(path:string):boolean=>path==='gas/billing/determine'||path==='gas/operations/record'||path==='gas/operations/configure'||path==='gas/quantities/record'||path.startsWith('swaps/settlement/')||isCrudeOperation(path);
@@ -28,12 +29,15 @@ export function releasesRetained(path:string,code:string|undefined,retrying:bool
 }
 
 /** What the page says of a request whose outcome it does not know: which request it is, and what can be done about it. */
-export const retainedText=(command:{label?:string})=>`${command.label??'A trade request'} · its outcome is not known. The identical request is retained: check its committed outcome or retry it before entering another booking.`;
+export const retainedText=(command:{label?:string;path?:string})=>command.path&&isRetiredSwapRequest(command.path)?
+ `${command.label??'An earlier settlement request'} · its outcome is not known. Check its committed outcome here. New actions use Lifecycle.`:
+ `${command.label??'A trade request'} · its outcome is not known. The identical request is retained: check its committed outcome or retry it before entering another booking.`;
 
 
 
 /** Whether the account may retry a retained request: an amendment or a settlement command needs AmendTrade, a booking BookTrade. */
 export function retryAllowed(path:string,catalog:{canBook?:boolean;canAmendTrades?:boolean;canConfigureGasServices?:boolean;canRecordGasOperations?:boolean}|undefined):boolean{
+  if(isRetiredSwapRequest(path))return false;
   if(path==='gas/operations/configure')return !!catalog?.canConfigureGasServices;
   if(path==='gas/operations/record')return !!catalog?.canRecordGasOperations;
   return !!(path.endsWith('/amend')||isLifecycleCommand(path)?catalog?.canAmendTrades:catalog?.canBook);

@@ -16,9 +16,8 @@ internal static class TradingBookingRead
   try
   {
    await PinnedContext.BindExact(connection,database.Manifest.CatalogId,context,ct);
-   await using(var trading=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",database.Manifest.CatalogId,frame.At))
-    await trading.ExecuteNonQueryAsync(ct);
    var pinned=frame with{ContextId=context.ContextId};
+   await TradingContext.Bind(connection,database.Manifest.CatalogId,pinned,context,ct);
    if(physicalMarket is not null)
    {
     var selectedMarket=await physicalMarket.Read(database,connection,pinned,ct,trade:physicalTrade,setup:crudeSetup);

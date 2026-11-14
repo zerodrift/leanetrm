@@ -120,4 +120,3 @@ test('a retained run opens as the scope’s current report only at the selected 
  assert.equal(opensAsCurrent(read({underStatedPricingPolicy:undefined}),'s1'),false,'a job that does not say is not assumed to');
  assert.equal(opensAsCurrent(read({result:undefined}),'s1'),false,'a job without a result');
 });
-

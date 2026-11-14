@@ -22,7 +22,8 @@ public sealed record PortfolioRiskRequest(FuturesReadRequest Context,ImmutableAr
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioJointRiskRequest? Joint=null,
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioParametricRequest? Parametric=null,
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioHistoricalRequest? Historical=null,
-    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioMonteCarloRequest? MonteCarlo=null);
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioMonteCarloRequest? MonteCarlo=null,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioEconomicRiskRequest? Economic=null);
 
 // Transport and presentation over the shared instrument valuation operation.
 // Instrument materialization and pricing remain outside this report adapter.
@@ -48,6 +49,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         ImmutableArray<(PreviewData Data,InputFrame Frame)> SupplementalMarkets)
     {internal PortfolioJointRisk.Resolved? Joint{get;init;} internal AlignedFactorHistory? History{get;init;}
         internal MonteCarloGeneration? Simulation{get;init;}
+        internal PreparedLifecyclePortfolio? Economic{get;init;}
         internal ImmutableArray<PortfolioRiskAxis> HistoricalAxes{get;init;}=[];
         internal ImmutableArray<PortfolioCurveBump> HistoricalComparisonBumps{get;init;}=[];}
 
@@ -126,6 +128,8 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default,RetainedRun? retained=null,
         RetainedFactorHistory? historyPlan=null,ImmutableArray<RiskHistoryObservation> historyEvidence=default)
     {
+        if(body.Economic is {} economic)
+            return await PrepareEconomic(connection,data,frame,body,economic,ct,supplemental,retained,historyPlan,historyEvidence);
         var detail=body.Detail switch{null or "holdings"=>RiskDetail.Holdings,"books"=>RiskDetail.Books,
             _=>throw new MarketDataException("risk_detail","Choose holdings or books for the result detail.")};
         if(body.MonteCarlo is {} simulationRequest)ValidateMonteCarlo(body,simulationRequest);
@@ -138,6 +142,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         if(!body.Stress.IsDefault&&(body.Stress.Length>MaxStress||body.Stress.Any(s=>s is null)))
             throw new MarketDataException("risk_stress","Select at most sixteen explicit parent-relative curve shifts.");
         var (portfolio,bookIds,books)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,body.PricingPolicy,ct,supplemental,retained,body.TradeIds);
+        RequireStaticMethod(body,portfolio.Markets.SelectMany(m=>m.Connected.UnitContracts));
         AlignedFactorHistory? history=null;
         if(body.Parametric is {} parametric)
         {
@@ -230,6 +235,8 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
 
     internal static object Calculate(Prepared prepared,CancellationToken ct)
     {
+        if(prepared.Request.Economic is not null)return CalculateEconomic(prepared,ct);
+        RequireStaticMethod(prepared.Request,prepared.Portfolio.Markets.SelectMany(m=>m.Connected.UnitContracts));
         if(prepared.Request.MonteCarlo is not null)return CalculateMonteCarlo(prepared,ct);
         if(prepared.Request.Historical is not null)return CalculateHistorical(prepared,ct);
         if(prepared.Request.Parametric is not null)return CalculateParametric(prepared,ct);
@@ -242,7 +249,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
     {
         var optionWork=prepared.Portfolio.OptionWork is {} work?work with{ScenarioTreePrices=prepared.Portfolio.Options!.TreePrices-trees}:null;
         var markets=prepared.Portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
-        var positions=run.Positions.ToDictionary(p=>(p.TradeId,p.BindingId));
+        var positions=run.Positions.ToDictionary(p=>(p.Owner,p.BindingId));
         string Book(Guid id)=>prepared.Books.Single(b=>b.Id("id")==id).Text("name");
         object Amounts(ExactDealRiskValues value,Func<ExactMoney,string> format)=>new{
             @base=format(value.Base),up=format(value.Up),down=format(value.Down),upPnl=format(value.UpPnl),downPnl=format(value.DownPnl),
@@ -266,7 +273,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
                 snapshotId=m.Snapshot.Id,m.Snapshot.ValuationAt,m.Snapshot.MarketCutoff,curveNumericalPolicy=CurveModel.NumericalPolicy,
                 selectionPolicy=m.Snapshot.SelectionPolicy.ToString(),observations=m.Snapshot.Selections.Select(s=>new{s.Input,s.Observation.Key,
                     s.Observation.Series,s.Observation.Source,role=s.Observation.Role.ToString(),state=s.Observation.State.ToString(),
-                    s.Observation.ObservedAt,value=s.Observation.Value.ToString()})}),positions=run.Positions,run.DiscountInputs,connectedMarkets=prepared.Portfolio.ConnectedMarkets},
+                    s.Observation.ObservedAt,value=s.Observation.Value.ToString()})}),positions=run.Positions,run.DiscountInputs,run.InstantDiscountInputs,connectedMarkets=prepared.Portfolio.ConnectedMarkets},
             modelContracts=run.ModelContracts.Select(c=>new{c.Id,c.ModelVersion,c.Dependencies,c.Quantity,c.Currency,c.ScheduleIdentity,c.SettlementProjections}),
             factors=prepared.Bumps.Select(b=>new{
                 factor=Factor(markets,run.Factors.Single(f=>f.Axis.Id==b.Axis.Id).Axis),
@@ -276,8 +283,8 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
                         r.Up,r.Down,r.UpPnl,r.DownPnl,r.Delta,r.Gamma))}),
                 positions=run.HoldingRisk.Where(r=>r.Factor==b.Axis.Id).Select(r=>
                 {
-                    var p=r.Position;var evidence=positions[(p.TradeId,p.BindingId)];
-                    var position=JsonSerializer.SerializeToNode(new{p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,
+                    var p=r.Position;var evidence=positions[(p.Owner,p.BindingId)];
+                    var position=JsonSerializer.SerializeToNode(new{p.Owner,p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,
                         evidence.InstrumentReference,evidence.InstrumentType,r.Measure,measureLabel=MeasureLabel(r.Measure),values=Values(p.Values)},RiskJobs.Json)!.AsObject();
                     // A started-delivery gas position reports its named components, which sum to its values, under the same scenarios.
                     if(!p.Components.IsEmpty)position["components"]=JsonSerializer.SerializeToNode(p.Components.ToDictionary(c=>c.Name,c=>new{
@@ -291,6 +298,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
     private static string Displayed(ExactMoney value)=>Display.FormatFraction(BigInteger.Parse(value.Numerator,CultureInfo.InvariantCulture),BigInteger.Parse(value.Denominator,CultureInfo.InvariantCulture));
     private static string MeasureLabel(string measure)=>measure switch{
         PortfolioValuation.FuturesMeasure=>"Futures execution P&L",PortfolioValuation.SwapMeasure=>"Present value",PortfolioValuation.PpaMeasure=>"Value excluding overdue cash",
+        FuturesMarginPortfolio.Measure=>"Futures remaining value",
         CrudePositions.Measure=>"Crude contractual PV",LngPositions.Measure=>"LNG contractual PV",FuturesOptionPositions.Measure=>FuturesOptionPositions.MeasureLabel,
         GasPositions.Measure=>"Gas contractual PV",GasPositions.LifecycleMeasure=>"Gas "+GasPositions.LifecycleLabel.ToLowerInvariant(),
         _=>throw new MarketDataException("valuation_measure","The report requires an explicit valuation measure label.")};

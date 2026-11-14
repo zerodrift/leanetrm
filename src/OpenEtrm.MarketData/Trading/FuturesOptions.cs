@@ -9,7 +9,7 @@ namespace OpenEtrm.MarketData.Trading;
 // As for FuturesContract, the exact series key is the economic identity; the
 // observation role, calibration and discounting belong to the pricing binding.
 [EconomicDefinition("FuturesOptionInstrument_v1")]
-public sealed record FuturesOptionInstrument : Instrument
+public sealed partial record FuturesOptionInstrument : Instrument
 {
     public const string PremiumPaidUpFront = "premium_paid_up_front";
     public override bool SupportsQuantityScaling => true;
@@ -56,15 +56,24 @@ public sealed record FuturesOptionInstrument : Instrument
     public override UnitPricingContract Declare(UnitValuationContext context)
     {
         var binding = Binding(context);
+        if(context.PhysicalOptionValue() is {} physical)return DeclarePhysical(context,binding,physical);
         return new(Id, binding.Policy.Id, [binding.Underlying], UnitQuantity.Specification, Currency) { Time = binding.Calibration is SolvedVolatility?
-            ValuationTimeDependency.Between(context.Snapshot.ValuationAt,Series.InstructionCutoffAt is {} cutoff&&cutoff>context.Snapshot.ValuationAt?cutoff:Series.Terms.ExpiryAt):ValuationTimeDependency.Pinned,
+            ValuationTimeDependency.Between(context.CalculationAt,Series.InstructionCutoffAt is {} cutoff&&cutoff>context.CalculationAt?cutoff:Series.Terms.ExpiryAt):ValuationTimeDependency.Pinned,
             DiscountInputs=[new(new(Id,0,Series.Terms.ExpiryAt,Currency),binding.Discounting)],
             Volatility=binding.Calibration is SolvedVolatility solved?[new(binding.Id,solved.Volatility.ToString(),VolatilityInput.Annualized)]:[],
             // The tree's value repeats its pattern once per price step of the underlying. A tree centred on the strike has
             // none at a unit discount, and an option valued at intrinsic has no lattice.
-            PriceSteps=binding.Calibration is SolvedVolatility held&&AmericanFuturesOptionModel.PriceStep(Series.Terms,binding.BaseFutures,held.Volatility,
-                binding.DiscountToExpiry,context.Snapshot.ValuationAt,binding.Policy) is {} step?[new(binding.Underlying,step.ToExact())]:[] };
+            PriceSteps=PriceSteps(binding,binding.DiscountToExpiry,context.CalculationAt) };
     }
+    public override ImmutableArray<DeclaredPriceStep> ResolvePriceSteps(UnitValuationContext context,UnitPricingContract declaration)
+    {
+        if(context.PhysicalOptionValue() is not null)return [];
+        var binding=Binding(context);
+        return binding.Calibration is SolvedVolatility?PriceSteps(binding,LatticeDecimal.From(Discount(context,binding).DiscountFactor),context.CalculationAt):[];
+    }
+    private static ImmutableArray<DeclaredPriceStep> PriceSteps(FuturesOptionMarketBinding binding,LatticeDecimal factor,DateTimeOffset at)=>
+        binding.Calibration is SolvedVolatility held&&AmericanFuturesOptionModel.PriceStep(binding.Instrument.Series.Terms,binding.BaseFutures,held.Volatility,
+            factor,at,binding.Policy) is {} step?[new(binding.Underlying,step.ToExact())]:[];
 
     // The unit price at the scenario futures price is rounded once, half-even, to
     // the 18-digit working scale before the multiplier is applied.
@@ -73,17 +82,23 @@ public sealed record FuturesOptionInstrument : Instrument
         if (context.Measure != ValuationMeasure.PresentValue)
             throw new MarketDataException("valuation_measure", "Futures options implement present value only.");
         var binding = Binding(context);
+        if(context.PhysicalOptionValue() is {} physical)return PhysicalValue(context,binding,physical);
         var inputs = context.Inputs;
         if (inputs.SnapshotId != binding.SnapshotId)
             throw Error("option_context", $"Option series {Series.Key.Code} was calibrated on another snapshot.");
         context.Market!.Model.RequireFuturesOptionDefinition(Series, binding.Underlying, binding.Settlement);
         var futures = LatticeDecimal.From(inputs.ExactPrice(binding.Underlying).ToUnitPriceExact().Value);
-        var discount=inputs.Discounts([new(Id,0,Series.Terms.ExpiryAt,Currency)]).Single();
+        var discount=Discount(context,binding);
         var volatility=binding.Calibration is SolvedVolatility?LatticeDecimal.Parse(inputs.Volatility(binding.Id).Format(30,MidpointRounding.ToEven)):(LatticeDecimal?)null;
-        if(LatticeDecimal.From(discount.ClockRoll?.SourceFactor??discount.DiscountFactor)!=binding.DiscountToExpiry)
-            throw Error("option_context","The discount provider must retain the calibration's exact source factor.");
         var unit = binding.UnitPrice(futures, inputs.ValuationAt, context.Cancellation,LatticeDecimal.From(discount.DiscountFactor),volatility).ToExact();
         return new(context, ExactMoney.FromMoney(new Money(unit, Currency)).Scale(Series.Multiplier), UnitQuantity.Specification);
+    }
+    private SidePaymentFactor Discount(UnitValuationContext context,FuturesOptionMarketBinding binding)
+    {
+        var discount=context.Inputs.Discounts([new(Id,0,Series.Terms.ExpiryAt,Currency)]).Single();
+        if(LatticeDecimal.From(discount.ClockRoll?.SourceFactor??discount.DiscountFactor)!=binding.DiscountToExpiry)
+            throw Error("option_context","The discount provider must retain the calibration's exact source factor.");
+        return discount;
     }
 
     private FuturesOptionMarketBinding Binding(UnitValuationContext context)
@@ -126,7 +141,7 @@ public sealed record FuturesOptionMarketBinding(Guid Id, FuturesOptionInstrument
         switch (Calibration)
         {
             case SolvedVolatility solved:
-                Interlocked.Increment(ref trees.Count);
+                RecordTreePrice();
                 return AmericanFuturesOptionModel.UnitPrice(Instrument.Series.Terms, futures, volatility??throw FuturesOptionInstrument.Error("risk_dependency","Solved option pricing requires its declared volatility input."), discount, valuationAt, Policy, ct);
             case IntrinsicFallback fallback:
                 return LatticeDecimal.Max(Intrinsic(futures) + fallback.Residual, LatticeDecimal.Parse("0"));
@@ -137,6 +152,7 @@ public sealed record FuturesOptionMarketBinding(Guid Id, FuturesOptionInstrument
 
     // Work only: how many tree prices this binding's valuations have evaluated since it was prepared.
     public int TreePrices => Volatile.Read(ref trees.Count);
+    internal void RecordTreePrice()=>Interlocked.Increment(ref trees.Count);
     private readonly TreeCount trees = new();
     private sealed class TreeCount { public int Count; }
 

@@ -14,6 +14,7 @@ public sealed record MonteCarloRiskPolicy(string Convention,string NumericalPoli
     string RandomGenerator,string ShockPolicy,string Seed,int Paths,string SamplingUncertainty)
 {
     public const string Version1="dated_factor_full_pv_monte_carlo_v1",Numerics="exact_ldl_binary64_polar_v1",
+        Economic="economic_lifecycle_monte_carlo_v1",EconomicValuation="economic_lifecycle_residual_and_horizon_cash_v1",
         Gaussian="joint_additive_gaussian_v1",Generator="sha256_counter_polar_log_series_v1",
         ShockRounding="binary64_exact_to_native_18_places_to_even_v1",Uncertainty="binomial_order_statistic_binary64_95_v1",
         Hybrid="dated_factor_hybrid_monte_carlo_v1",HybridValuation="pca_delta_gamma_frozen_nonfactor_inputs_v1",
@@ -36,7 +37,8 @@ public static class MonteCarloRisk
     public const long MaximumShockValues=2_000_000;
     public static void ValidatePolicy(MonteCarloRiskPolicy p)
     {
-        var full=p is not null&&p.Convention==MonteCarloRiskPolicy.Version1&&p.ValuationPolicy==HistoricalRiskPolicy.Valuation&&p.SamplingUncertainty==MonteCarloRiskPolicy.Uncertainty;
+        var full=p is not null&&(p.Convention==MonteCarloRiskPolicy.Version1&&p.ValuationPolicy==HistoricalRiskPolicy.Valuation||
+            p.Convention==MonteCarloRiskPolicy.Economic&&p.ValuationPolicy==MonteCarloRiskPolicy.EconomicValuation)&&p.SamplingUncertainty==MonteCarloRiskPolicy.Uncertainty;
         var hybrid=p is not null&&p.Convention==MonteCarloRiskPolicy.Hybrid&&p.ValuationPolicy==MonteCarloRiskPolicy.HybridValuation&&p.SamplingUncertainty==MonteCarloRiskPolicy.HybridUncertainty;
         if(p is null||!full&&!hybrid||p.NumericalPolicy!=MonteCarloRiskPolicy.Numerics||
             p.Estimator!=ParametricRiskPolicy.Sample||p.Centering!=ParametricRiskPolicy.Centered||
