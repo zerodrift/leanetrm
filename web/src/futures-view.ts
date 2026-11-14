@@ -102,6 +102,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
   riskReportUrl?:(id:string)=>string;
   // Opens an option product's volatility surface; null in a window with no Vol surfaces page.
   volSurface:((product:string,definitionRevisionId:string)=>void)|null;
+  lifecycle?:()=>void;
   // Says why work that does not run under act failed: a read in the background, or an action the person took that was refused; and
   // takes that away again once the person acts anew.
   failed:(error:unknown)=>void;failureCleared:()=>void;notice:(message:string)=>void;
@@ -360,7 +361,7 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       const stale=!holdings,context=readContext();
       const displayed=displayedContext();if(!displayed?.contextId)throw Error('Read the Blotter before inspecting its Side schedules.');
       const inspectionContext={...context,knowledgeMode:'retained',contextId:displayed.contextId};
-      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:options.profile,recorded:()=>void act(load),surface:options.volSurface}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:clear,actor:options.profile,readOnly:stale,amend:options.window.kind==='main'?()=>void perform({kind:'amend',key:rowKey(h)}):undefined}):h.instrumentType==='ppa'?readPpaView(api,context,h,displayed.knownAt,()=>void manage('ppa',h.tradeId)):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):h.instrumentType==='future'?readTradeView(api,context,h,formats):genericPositionView(h));
+      const read=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{actor:options.profile,recorded:()=>void act(load),surface:options.volSurface,lifecycle:options.lifecycle}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:clear,actor:options.profile,readOnly:stale,amend:options.window.kind==='main'?()=>void perform({kind:'amend',key:rowKey(h)}):undefined}):h.instrumentType==='ppa'?readPpaView(api,context,h,displayed.knownAt,()=>void manage('ppa',h.tradeId)):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy,act,settle:()=>settle(h)}):h.instrumentType==='future'?readTradeView(api,context,h,formats):genericPositionView(h));
 
       // Details kept on screen while the Blotter is read again do not transition into a working settlement editor.
       const scheduled=withSideSchedules(read,api,inspectionContext,h,clear);

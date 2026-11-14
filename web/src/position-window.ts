@@ -3,7 +3,6 @@ import {readLngView} from './lng-trade-view.js';
 import {requestDeadlines} from './request-deadline.js';
 import {readCrudeView} from './crude-trade-view.js';
 import {readOptionView} from './futures-option-view.js';
-import {lifecycleWrites} from './futures-option-model.js';
 import {readGasView} from './gas-trade-view.js';
 import {prepareAmountDisplay} from './amount-display.js';
 import {commodityColors,holdingFormats,positionRows,type Holding} from './desk-model.js';
@@ -18,15 +17,15 @@ import {readTradeView} from './trade-editor.js';
 const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const error=get('position-window-error'),detail=get('position-window-detail'),retry=get<HTMLButtonElement>('position-window-retry');
 type Api=<T>(path:string,body?:unknown,signal?:AbortSignal)=>Promise<T>;
-// The window reads its trade; of writes it records only an option holding's lifecycle events, through their own authorized operations.
-const operations=new Set(['bootstrap?includeFrames=false&includeAccess=true','options/holding','options/exercise','options/assignment','options/instruction','tickets/description','tickets/trade','tickets/choices','trading/crude','trading/lng','trading/gas','trading/position','trading/side-schedules','futures/editor','swaps/editor','swaps/quantity-schedule','trade-formats/read','ppa/editor','ppa/preview','ppa/inspect','amounts/display']);
+// The window reads its trade and can reconcile an earlier option request; new lifecycle actions belong to the main workspace.
+const operations=new Set(['bootstrap?includeFrames=false&includeAccess=true','options/holding','options/status','tickets/description','tickets/trade','tickets/choices','trading/crude','trading/lng','trading/gas','trading/position','trading/side-schedules','futures/editor','swaps/editor','swaps/quantity-schedule','trade-formats/read','ppa/editor','ppa/preview','ppa/inspect','amounts/display']);
 let controller:AbortController|undefined,generation=0,loading=false,selection:PositionWindowSelection|undefined,reader:Api,readerActor='';
 const panel=setupPositionPanel({element:name=>get('position-window-'+name),form:on=>{if(on)throw Error('This trade window is read only.');},reveal(){},focusForm(){}},
  {zone:()=>selection!.zone,busy:()=>loading,canAmend:()=>false,tabs:['terms','schedules','history'],curveListed:()=>false,context:()=>JSON.stringify(selection),
   read:async(h,formats)=>{
    const api=reader,actor=readerActor,context={...positionWindowRequest(selection!).context,
     convention:h.instrumentType==='future'?'contract_lot_execution_pnl_v2':'independent_side_financial_swap_v2'};
-   const value:DetailRead=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{writes:optionWrites,actor:()=>actor,recorded,surface:null}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:denied,actor:()=>actor,readOnly:true}):h.instrumentType==='ppa'?readPpaView(api,context,h,selection!.context.knownAt):h.instrumentType==='future'?
+   const value:DetailRead=await(h.instrumentType==='futures_option'?readOptionView(api,context,h,{actor:()=>actor,recorded,surface:null}):h.instrumentType==='physical_lng'?readLngView(api,context,h):h.instrumentType==='physical_crude'?readCrudeView(api,context,h):h.instrumentType==='physical_gas'?readGasView(api,context,h,{onDenied:denied,actor:()=>actor,readOnly:true}):h.instrumentType==='ppa'?readPpaView(api,context,h,selection!.context.knownAt):h.instrumentType==='future'?
     readTradeView(api,context,h,formats):(h.instrumentType==='financial_swap'||h.instrumentType==='heat_rate')?readSwapView(api,context,h,formats,{busy:()=>loading,act:async work=>{await work();},settle(){throw Error('This trade window is read only.');}}):genericPositionView(h));
    const read=withSideSchedules(value,api,context,h,denied);
    return {...read,view:zone=>({...read.view(zone),actions:undefined})};
@@ -38,13 +37,6 @@ let recordedHere=false;
 const recordedNote=' · An event was recorded at current knowledge: open the trade again from the Blotter to read it.';
 function recorded(){recordedHere=true;showRecorded();}
 function showRecorded(){const line=get('position-window-context');if(recordedHere&&!line.textContent!.endsWith(recordedNote))line.textContent+=recordedNote;}
-// Events are offered only to a window its opener marked as working data, for a person whose current authority, read again whenever one is
-// sent, still books.
-async function optionWrites(){
- const access=await reader<{access:{profile:string;permissions:string[]}|null}>('bootstrap?includeFrames=false&includeAccess=true');
- const canBook=!!access.access&&access.access.profile===readerActor&&access.access.permissions.includes('BookTrade');
- return lifecycleWrites({view:selection!.lifecycle,canBook,reason:canBook?null:'Your current role does not have Book Trade permission.',contextDirty:false,recorded:recordedHere});
-}
 function denied(){fail('Current authority no longer permits this trade read.');}
 function clearTrade(){
  panel.clear();detail.hidden=true;setCurveNames([]);document.title='Trade details · LeanETRM';get('position-window-title').textContent='Trade details';get('position-window-context').textContent='';
@@ -65,7 +57,7 @@ async function load(){
    return await response.json() as T;
   }
   const api:Api=async<T>(path:string,body?:unknown,signal?:AbortSignal)=>{
-   if(!operations.has(path))throw Error('This trade window supports authorized reads and option lifecycle events only.');
+   if(!operations.has(path))throw Error('This trade window supports authorized reads and earlier request status only.');
    const value=await request<T>(path,body,signal);
    if(path!=='amounts/display')await prepareAmountDisplay(value,body=>request<string[]>('amounts/display',body,signal));
    return value;

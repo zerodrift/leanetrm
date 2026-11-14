@@ -1,0 +1,18 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {browserAvailable,browserTestTimeout,withBrowserPage} from './browser-page.mjs';
+
+test('changing a lifecycle holding or swap period retains edits until discard is accepted',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
+ await evaluate(`(async()=>{const {mountLifecycleSettings}=await import('/lifecycle-settings.js');window.allow=false;window.asked=0;const offer=(id,handler,action)=>({target:{handler,scopeId:id,bindingId:id},action,label:action,occurrenceId:id,subject:{reference:id}});
+ const data={actions:[offer('option','listed_option','option.expiry'),offer('swap','financial_swap','swap.determine')],policies:[],optionProfiles:[],swapProfiles:[],marginPolicies:[],choices:{actions:[{code:'option.expiry',configurationPermission:'AmendTrade'},{code:'swap.determine',configurationPermission:'AmendTrade'}],swapRounding:['round'],swapDue:['due'],swapRecognition:['recognize'],swapCorrection:['correct']},swapOccurrences:[0,1].map(i=>({trade_id:'swap',binding_id:'swap',occurrence_id:String(i),membership_ordinal:i,payment_ordinal:0,delivery_from:'2026-11-01',delivery_to:'2026-12-01',payment_at:'2026-12-02T15:00:00Z'}))};
+ window.view=mountLifecycleSettings(document.querySelector('#host'),data,{api:async()=>({}),act:async f=>f(),zone:()=> 'America/Chicago',permission:()=>true,queue:async()=>{},current:()=>true,changed(){},confirmDiscard:async()=>{asked++;return allow;}});const target=document.querySelector('#host>label select');target.value='action:0';target.dispatchEvent(new Event('change'));})()`);
+ await new Promise(r=>setTimeout(r,20));
+ await evaluate("(()=>{const form=document.querySelector('form');form.dataset.draft='retained';form.querySelector('select').dispatchEvent(new Event('change',{bubbles:true}));const target=document.querySelector('#host>label select');target.value='action:1';target.dispatchEvent(new Event('change'));})()");await new Promise(r=>setTimeout(r,20));
+ assert.equal(await evaluate('asked'),1);assert.equal(await evaluate("document.querySelector('form').dataset.draft"),'retained');assert.equal(await evaluate("document.querySelector('#host>label select').value"),'action:0');
+ await evaluate("allow=true;document.querySelector('#host>label select').value='action:1';document.querySelector('#host>label select').dispatchEvent(new Event('change'))");await new Promise(r=>setTimeout(r,20));
+ await evaluate("(()=>{const period=Array.from(document.querySelectorAll('label')).find(l=>l.textContent.startsWith('Payment period')).querySelector('select');period.value='0';period.dispatchEvent(new Event('change'));})()");await new Promise(r=>setTimeout(r,20));
+ await evaluate("(()=>{const control=Array.from(document.querySelectorAll('label')).find(l=>l.textContent.startsWith('Cash rounding')).querySelector('select');control.value='round';control.dispatchEvent(new Event('change',{bubbles:true}));const period=Array.from(document.querySelectorAll('label')).find(l=>l.textContent.startsWith('Payment period')).querySelector('select');allow=false;period.value='1';period.dispatchEvent(new Event('change'));})()");await new Promise(r=>setTimeout(r,20));
+ assert.equal(await evaluate("Array.from(document.querySelectorAll('label')).find(l=>l.textContent.startsWith('Payment period')).querySelector('select').value"),'0');
+ assert.equal(await evaluate("Array.from(document.querySelectorAll('label')).find(l=>l.textContent.startsWith('Cash rounding')).querySelector('select').value"),'round');
+ assert.equal(await evaluate('view.edited()'),true);
+}));
