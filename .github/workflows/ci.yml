@@ -35,44 +35,32 @@ jobs:
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            global.json
+            src/**/packages.lock.json
+            tests/**/packages.lock.json
       - name: Set up the pinned Node runtime
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-          package-manager-cache: false
-      - name: Install PostgreSQL 18
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Restore PostgreSQL dependency packages
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ runner.temp }}/postgresql-dependencies
+          key: ${{ runner.os }}-${{ runner.arch }}-postgresql-v1-${{ hashFiles('tools/ci/postgresql.lock.json') }}
+      - name: Verify and install PostgreSQL 18
         shell: bash
+        env:
+          POSTGRESQL_BUNDLE_URL: ${{ vars.POSTGRESQL_BUNDLE_URL }}
         run: |
-          test -f /usr/share/keyrings/ubuntu-archive-keyring.gpg
-          sudo install -d /usr/share/postgresql-common/pgdg
-          sudo curl --fail --silent --show-error --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
-          gpg --show-keys --with-colons /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc | awk -F: '$1 == "pub" { primary=1 } $1 == "fpr" && primary { print $10; primary=0 }' > "$RUNNER_TEMP/pgdg-primary-keys"
-          test "$(cat "$RUNNER_TEMP/pgdg-primary-keys")" = B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
-          # Isolate this install from runner-specific mirror lists and stale indexes.
-          # Both archives retain their own independently verified signing keys.
-          sudo tee /etc/apt/openetrm-postgresql.sources >/dev/null <<'EOF'
-          Types: deb
-          URIs: https://archive.ubuntu.com/ubuntu
-          Suites: noble noble-updates noble-backports
-          Components: main restricted universe multiverse
-          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-
-          Types: deb
-          URIs: https://security.ubuntu.com/ubuntu
-          Suites: noble-security
-          Components: main restricted universe multiverse
-          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-
-          Types: deb
-          URIs: https://apt.postgresql.org/pub/repos/apt
-          Suites: noble-pgdg
-          Components: main
-          Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
-          EOF
-          sudo install -d -m 0755 /var/lib/openetrm-ci-apt/lists/partial
-          postgres_apt=(-o APT::Update::Error-Mode=any -o Dir::Etc::sourcelist=/etc/apt/openetrm-postgresql.sources -o Dir::Etc::sourceparts=- -o Dir::State::lists=/var/lib/openetrm-ci-apt/lists)
-          sudo apt-get "${postgres_apt[@]}" update
-          sudo apt-get "${postgres_apt[@]}" install -y postgresql-18
+          bundle_args=()
+          if [ -n "$POSTGRESQL_BUNDLE_URL" ]; then
+            bundle_args=(--bundle-url "$POSTGRESQL_BUNDLE_URL")
+          fi
+          python3 tools/ci_dependencies.py --cache "$RUNNER_TEMP/postgresql-dependencies" "${bundle_args[@]}"
       - name: Record the verification environment
         shell: bash
         run: |
@@ -128,11 +116,17 @@ jobs:
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            global.json
+            src/**/packages.lock.json
+            tests/**/packages.lock.json
       - name: Set up the pinned Node runtime
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-          package-manager-cache: false
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - name: Build release outputs
         run: |
           dotnet restore src/OpenEtrm.Api/OpenEtrm.Api.csproj --locked-mode

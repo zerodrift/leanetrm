@@ -505,6 +505,10 @@ replacing the scenario mechanism or collapsing the side architecture.
 
 The application must be self-hostable from public dependencies. Its foundation is
 an unmodified relational database, not a database fork or a private platform SDK.
+The [CI dependency contract](ci-dependencies.md) keeps locked NuGet/npm restores
+and verifies pinned PostgreSQL package bytes on every cache hit and miss. Gitea
+may serve the reviewed bundle; the same public packages remain independently
+obtainable without a private service or signing-key download in consumer jobs.
 A private pilot may be hosted at leanetrm.com under the separately approved
 deployment procedure. Automatic image updates use attested GitHub Release bundles
 and a pinned local pull operator; schema and infrastructure changes require a

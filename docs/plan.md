@@ -615,6 +615,11 @@ command passed for the D186 cutover on the Ubuntu 24.04 hosted runner on
 2026-10-22; verification records the exact source and runs. Production deployment
 remains unqualified.
 
+CI dependency acquisition has its own [cache qualification](ci-dependencies.md):
+locked NuGet/npm caches, verified stock PostgreSQL packages and corresponding
+sources, offline installation and a GitHub cache miss/save/restore/hit check.
+These checks preserve the ordinary matrix and release gates.
+
 The default public page and hosted gateway route contract are available
 separately from the authenticated workspace (D163). An owned nginx check exercises
 static routes, native application routing and a synthetic sign-in upstream.

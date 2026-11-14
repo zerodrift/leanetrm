@@ -2270,15 +2270,15 @@ checks on a push to `master` when release publication is explicitly enabled. It
 uses the hosted-release environment and scoped write/attestation permissions to
 publish the reviewed release. Pull requests do not trigger that publisher.
 
-The job installs stock PostgreSQL 18 from the PostgreSQL Apt Repository and uses
-the runner's Chrome. The server package depends on `liburing2` from the Ubuntu
-archive. When that install fails, as when the runner cannot reach the archive's
-hosts, it is retried with the same signed `noble main` read from
-`mirrors.edge.kernel.org`, which apt verifies with the image's Ubuntu archive
-key, and the run carries a warning. The checks start their own disposable
-clusters. SDK, Node and application dependency versions are pinned. The job
-records the runner image, PostgreSQL patch, browser, Python, ICU and time-zone
-data versions.
+The job installs stock PostgreSQL 18.6 from the reviewed package lock and uses
+the runner's Chrome. [Dependency caches](ci-dependencies.md) cover NuGet, npm and
+verified PostgreSQL packages, including Ubuntu runtime dependencies. The producer
+verifies signed archives once; consumer jobs verify pinned hashes and perform
+offline package installation without downloading signing keys. A configured
+public Gitea bundle URL selects bundle acquisition; otherwise the pinned public
+package URLs are used explicitly. Cache hits never skip byte verification or
+locked restores. The checks start their own disposable clusters. The job records
+the runner image, PostgreSQL patch, browser, Python, ICU and time-zone versions.
 
 Hosted qualification passed on 2026-10-17 in
 [run 39064855342](https://github.com/zerodrift/leanetrm/actions/runs/39064855342)
