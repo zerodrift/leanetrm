@@ -3,25 +3,38 @@ using OpenEtrm.MarketData.Gas;
 
 namespace OpenEtrm.MarketData.Trading;
 
+// A selected physical branch retains its own exact native mark source and
+// captured carrying provider. It is never inferred from a quote or currency.
+public sealed record FuturesDeliveryProjectionMarket(GasPhysicalDeliveryTerms Terms,CurveModel Model,MarketSnapshot Source,ISideDiscounting? Discounting);
+
 // This adapter assembles the ordinary residual supplied by the product's shared
 // final-delivery plan. It establishes neither native ownership nor performance.
 internal static class ProjectedFuturesDelivery
 {
-    internal static ImmutableArray<CurveRequest> Dependencies(FuturesMarginPolicy policy)=>
-        policy.Delivery?.Terms is GasPhysicalDeliveryTerms gas&&gas.Mark.Curve.Revision==policy.Contract.Revision?[gas.Mark]:[];
+    internal static ImmutableArray<CurveRequest> Dependencies(FuturesMarginPolicy policy,FuturesDeliveryProjectionMarket? selected=null)=>
+        policy.Delivery?.Terms is GasPhysicalDeliveryTerms gas&&(gas.Mark.Curve.Revision==policy.Contract.Revision||selected?.Terms==gas)?[gas.Mark]:[];
 
-    internal static void Require(FuturesContract future,FuturesMarginPolicy policy,CurveModel model,ValuationSetup setup,MarketSnapshot source,bool knownFinal)
+    internal static void Require(FuturesContract future,FuturesMarginPolicy policy,CurveModel model,ValuationSetup setup,MarketSnapshot source,bool knownFinal,FuturesDeliveryProjectionMarket? selected=null)
     {
         if(policy.Delivery?.Terms is not GasPhysicalDeliveryTerms gas)
             throw Error("Select the exact qualified physical delivery profile before projecting its final branch.");
-        if(gas.Mark.Curve.Revision!=policy.Contract.Revision)
-            throw new MarketDataException("projection_delivery_source","The physical-final projection requires the delivery mark and future in one certified market definition; a connected cross-definition handoff is not yet qualified.");
-        if(PriceUnit.FromQuote(model.QuoteFor(gas.Mark))!=new PriceUnit(future.Currency,future.UnitQuantity.Specification,future.Series.Multiplier))
+        if(selected is not null&&(selected.Terms!=gas||selected.Model is null||selected.Source is null))
+            throw new MarketDataException("projection_delivery_source","The prepared delivery source differs from its exact selected native terms.");
+        var foreign=gas.Mark.Curve.Revision!=policy.Contract.Revision;
+        if(foreign&&(selected is null||selected.Terms!=gas||selected.Source.Definitions!=gas.Mark.Curve.Revision||
+            selected.Source.Knowledge!=source.Knowledge||selected.Source.ValuationAt!=source.ValuationAt||selected.Source.MarketCutoff!=source.MarketCutoff))
+            throw new MarketDataException("projection_delivery_source","Prepare the selected physical branch's exact native mark source under the common original context and opening clock.");
+        var funding=setup.FuturesValueBindings.Values.SingleOrDefault();var physical=funding?.Physical;
+        if(physical is null||funding!.Implementation!=FuturesMarginValueBinding.FlatReference||funding.Terms.Policy!=policy||
+            physical.Implementation!=FuturesPhysicalBasisValueBinding.Version||physical.ProfileId!=policy.Delivery.ProfileId||physical.ProfileRevision!=policy.Delivery.ProfileRevision)
+            throw new MarketDataException("futures_physical_value","Physical economic projection requires the selected funded-margin and declared-delivery-basis valuation under the exact adopted profile.");
+        var marking=selected?.Model??model;var markingSource=selected?.Source??source;
+        if(PriceUnit.FromQuote(marking.QuoteFor(gas.Mark))!=new PriceUnit(future.Currency,future.UnitQuantity.Specification,future.Series.Multiplier))
             throw Error("The delivery residual requires its exact native mark quotation and explicit units.");
         if(gas.Carrying==GasHoldingCarrying.CurrencyCurve)
         {
-            if((setup.Discounting??setup.InstrumentDiscounting.GetValueOrDefault(future.Id)) is not IProjectionCurrencyCurve curve||
-                curve.TimingPolicy!=RateDiscountTiming.Version||curve.Currency!=gas.Currency||!curve.SourceSnapshot.HasSameInputs(source))
+            if(physical.Carrying is not IProjectionCurrencyCurve curve||selected is not null&&!ReferenceEquals(selected.Discounting,curve)||
+                curve.TimingPolicy!=RateDiscountTiming.Version||curve.Currency!=gas.Currency||!curve.SourceSnapshot.HasSameInputs(markingSource))
                 throw new MarketDataException("projection_delivery_discount","Prepare this currency's complete captured exact-instant term structure under the exact source certificate before sampling.");
         }
         if(knownFinal)
@@ -32,7 +45,7 @@ internal static class ProjectedFuturesDelivery
         Quantity quantity,ExactUnitPrice price,ValuationSetup setup)
     {
         var plan=FuturesFinalDeliveryPlan.Create(future,quantity,policy.Delivery?.Terms??throw Error("Retain the selected physical delivery terms."),price);
-        var provider=setup.Discounting??setup.InstrumentDiscounting.GetValueOrDefault(future.Id);
+        var provider=setup.FuturesValueBindings[new(owner.Owner,owner.BindingId)].Physical!.Carrying;
         var residualSetup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,provider);
         return new([plan.Obligation],[new(owner.Owner,owner.BindingId,owner.BookId,plan.Obligation.Id,plan.Quantity,
             new(new Money(default,future.Currency),quantity.Specification),new(default,future.Currency))],residualSetup);

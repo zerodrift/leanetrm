@@ -58,13 +58,10 @@ internal static class OptionLifecycleProjectionChecks
         var physical=new FuturesOptionLifecycleProjection(trade,trade.Instruments[0].Id,combinedSetup,future,physicalMargin,rule,null,
             f.UnderlyingRequest,f.UnderlyingRequest,model,source);
         var afterFinal=h with{Closes=[new(new(2040,12,28),f.Underlying.LastTradingAt.AddHours(1),0)]};
-        var physicalPrepared=LifecycleProjection.Prepare(model,source,afterFinal,policy,[physical],[]);
-        var physicalResult=physicalPrepared.Evaluate("exercised_physical_retained",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
-        Equal(physicalResult.Values.Single().PeriodCash,"60000");Equal(physicalResult.Values.Single().ResidualValue,"0");Equal(physicalResult.Values.Single().EconomicPnl,"40000");
-        if(physicalResult.States.Single().Residuals.Single().Instruments.Single() is not OpenEtrm.MarketData.Gas.GasPhysicalDeliveryObligationInstrument)
-            throw new Exception("An exercised physical option discarded its surviving delivery obligation or assumed title.");
-        Equal(physicalPrepared.Evaluate("physical_abandoned",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("-2"),QuoteShift.Convention)])
-            .Values.Single().EconomicPnl,"-20000");
+        // An A-only option calibration cannot silently select the contingent
+        // delivery-basis model for its generated physical future.
+        try{_=LifecycleProjection.Prepare(model,source,afterFinal,policy,[physical],[]);throw new Exception("A physical option projected full wealth without its selected continuation model.");}
+        catch(MarketDataException e)when(e.Code=="futures_physical_value"){}
         var abandonInstruction=new KnownFuturesOptionInstruction(Guid.NewGuid(),"abandon",source.ValuationAt.AddHours(1),source.Knowledge!.KnownAt,source.Knowledge.ContextId);
         var instructed=new FuturesOptionLifecycleProjection(trade,trade.Instruments[0].Id,setup,future,margin,rule,abandonInstruction,
             f.UnderlyingRequest,f.UnderlyingRequest,model,source);
@@ -86,9 +83,10 @@ internal static class OptionLifecycleProjectionChecks
             actualFuture,futureBinding,margin,model,retrospective),retrospective.Knowledge.ContextId,retrospective.Knowledge.KnownAt,[],[]);
         var replayed=new FuturesOptionLifecycleProjection(trade,trade.Instruments[0].Id,setup,future,margin,rule,null,
             f.UnderlyingRequest,f.UnderlyingRequest,model,retrospective,optionKnown,ImmutableDictionary<Guid,FuturesKnownHistory>.Empty.Add(eventId,futureKnown));
-        var acceptedValue=LifecycleProjection.Prepare(model,retrospective,h,policy,[replayed],[]).Evaluate("known_partial_exercise_down",
-            [new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("-2"),QuoteShift.Convention)]).Values.Single();
-        Equal(acceptedValue.PeriodCash,"-10000");Equal(acceptedValue.ResidualValue,"0");Equal(acceptedValue.EconomicPnl,"-30000");
+        // The native future is real, but this fixture supplies no delivery
+        // profile/full valuation model for its surviving physical obligation.
+        try{_=LifecycleProjection.Prepare(model,retrospective,h,policy,[replayed],[]);throw new Exception("A known physical child omitted its full continuation contract.");}
+        catch(MarketDataException e)when(e.Code=="futures_delivery_transition"){}
         var shortTrade=FuturesOptionChecks.OptionMarket.Holding(22,1,option,"-1");
         var shortComponent=new FuturesOptionLifecycleProjection(shortTrade,shortTrade.Instruments[0].Id,setup,future,margin,rule,null,
             f.UnderlyingRequest,f.UnderlyingRequest,model,source);

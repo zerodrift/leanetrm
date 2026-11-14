@@ -438,8 +438,17 @@ product records margin and delivery-basis components without adding a booked
 holding, title, cash or accepted event. Independent A/B, signed, nonunit,
 negative-price and distinct-due checks qualify the bounded ordinary value and
 its no-event horizon reuse. A foreign dependency in that unit must match its
-independently admitted source graph exactly. Final conversion, native portfolio
-policy selection and full lifecycle source wiring remain qualification gates.
+independently admitted source graph exactly.
+
+The pure future projection now retains that full opening measure through final
+margin. The future becomes a locked-principal ordinary obligation, while VM
+cash survives once at its own due. Independent same-instant checks include a
+discounted unpaid VM claim plus surviving delivery value, both signed paths,
+separate source definitions and no title at expiry. Physical projection requires
+the selected full valuation contract even when the horizon precedes final.
+Source-known native obligation/performance activation, native portfolio policy
+selection and the selected physical-option wrapper remain qualification gates;
+an A-only option calibration cannot silently choose a delivery-basis model.
 
 The pure `gas_accepted_quantity_lifecycle_projection_v3` adapter preserves exact
 source-known stock reservations, releases and consumptions together with their
