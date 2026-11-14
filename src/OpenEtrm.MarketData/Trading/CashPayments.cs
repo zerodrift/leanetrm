@@ -1,7 +1,16 @@
+using System.Collections.Immutable;
 using OpenEtrm.MarketData.Power;
 using OpenEtrm.MarketData.Risk;
 
 namespace OpenEtrm.MarketData.Trading;
+
+public interface ICashPaymentValuation:IBindingValuationState
+{
+    Guid InstrumentId{get;}
+    ExactMoney UnitOutstanding(MarketSnapshot source);
+    ExactMoney UnitOutstanding(MarketSnapshot source,DateTimeOffset calculationAt);
+    ImmutableArray<DateTimeOffset> FutureChanges(MarketSnapshot source);
+}
 
 // Shared paid-state and valuation rules for dated premiums and exact-instant
 // margin/settlement cash. Ownership and payment history remain binding state.
@@ -26,19 +35,18 @@ public abstract record CashPaymentInstrument:Instrument
 
     public override void ValidateValuationState(IBindingValuationState? state)
     {
-        if(state is not RecordedCashValuation cash||cash.InstrumentId!=Id||cash.Quantity.Specification!=Currency)
+        if(state is not ICashPaymentValuation cash||cash.InstrumentId!=Id||cash.Quantity.Specification!=Currency)
             throw new MarketDataException("payment_state","A cash instrument requires its exact recorded paid-state projection.");
     }
 
     public override UnitPricingContract Declare(UnitValuationContext context)
     {
         ValidateValuationState(context.BindingState);
-        var cash=(RecordedCashValuation)context.BindingState!;
-        var needsDiscount=cash.UnitOutstanding(context.Snapshot).Numerator!="0"&&!Due(context.Snapshot.ValuationAt);
-        var events=cash.KnownFlows(context.Snapshot).Where(f=>f.EffectiveAt>context.Snapshot.ValuationAt).Select(f=>f.EffectiveAt).ToList();
+        var needsDiscount=Outstanding(context).Numerator!="0"&&!Due(context.CalculationAt);
+        var events=((ICashPaymentValuation)context.BindingState!).FutureChanges(context.Snapshot).Where(at=>at>context.CalculationAt).ToList();
         if(needsDiscount)events.Add(Payment.PaymentAt);
         return new(Id,ModelVersion,[],PaymentCurrency,Currency){
-            Time=events.Count>0?ValuationTimeDependency.Between(context.Snapshot.ValuationAt,events.Min()):ValuationTimeDependency.Independent,
+            Time=events.Count>0?ValuationTimeDependency.Between(context.CalculationAt,events.Min()):ValuationTimeDependency.Independent,
             DiscountInputs=needsDiscount?[new(Payment,context.PaymentDiscounting(Id))]:[]};
     }
 
@@ -47,12 +55,18 @@ public abstract record CashPaymentInstrument:Instrument
         if (context.Measure != ValuationMeasure.PresentValue)
             throw new MarketDataException("valuation_measure", "A unit cash instrument implements present value only.");
         ValidateValuationState(context.BindingState);
-        var remaining=((RecordedCashValuation)context.BindingState!).UnitOutstanding(context.Snapshot);
-        if(remaining.Numerator=="0"||Due(context.Snapshot.ValuationAt))return new(context,remaining,PaymentCurrency);
+        var remaining=Outstanding(context);
+        if(remaining.Numerator=="0"||Due(context.CalculationAt))return new(context,remaining,PaymentCurrency);
         var factors = context.Inputs.Discounts([Payment]);
         if (factors.IsDefault || factors.Length != 1 || factors[0] is null || factors[0].Payment != Payment)
             throw new MarketDataException("cash_payment_discount", "The selected discounting supplies no factor for this payment.");
         return new(context, remaining.Scale(factors[0].DiscountFactor), PaymentCurrency);
+    }
+    private ExactMoney Outstanding(UnitValuationContext context)
+    {
+        if(context.BindingState is ProjectedCashValuation&&!context.IsLifecycleProjection)
+            throw new MarketDataException("projection_cash_state","A forecast cash obligation cannot be valued as an actual holding.");
+        return ((ICashPaymentValuation)context.BindingState!).UnitOutstanding(context.Snapshot,context.CalculationAt);
     }
 }
 

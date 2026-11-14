@@ -11,6 +11,8 @@ public abstract class PreparedValuationEnvironment
     public abstract MarketSnapshot Snapshot{get;}
     public abstract string ScenarioId{get;}
     public abstract DateTimeOffset CalculationAt{get;}
+    internal virtual DateTimeOffset LifecycleAt=>Snapshot.ValuationAt;
+    internal virtual bool IsLifecycleProjection=>false;
     public abstract string? ClockPolicy{get;}
     internal abstract ExactDecimal VolatilityOffset(Guid input);
     internal abstract ImmutableHashSet<Guid> ShiftedVolatilityInputs{get;}
@@ -19,7 +21,7 @@ public abstract class PreparedValuationEnvironment
         var contracts=declarations.ToArray();
         foreach(var contract in contracts)
         {
-            contract.RequireInputs();contract.Time.Require(Snapshot.ValuationAt,CalculationAt);
+            contract.RequireInputs();contract.Time.Require(LifecycleAt,CalculationAt);
             foreach(var discount in contract.DiscountInputs)Discount(discount);
         }
         var declared=contracts.SelectMany(c=>c.Volatility).GroupBy(v=>v.Id).ToDictionary(g=>g.Key,g=>

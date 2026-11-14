@@ -4,7 +4,7 @@ namespace OpenEtrm.MarketData.Trading;
 
 // Paid cash is held-occurrence state, not a property of a reusable cash instrument or its due date.
 // The complete native allocation history resolves by knowledge time before effective-time recognition.
-public sealed class RecordedCashValuation:IBindingValuationState
+public sealed class RecordedCashValuation:ICashPaymentValuation
 {
     public Guid TradeId{get;}
     public Guid BindingId{get;}
@@ -42,12 +42,15 @@ public sealed class RecordedCashValuation:IBindingValuationState
         return [..Allocations.Where(a=>a.KnownAt<=cutoff).GroupBy(a=>a.AllocationId)
             .Select(g=>g.MaxBy(a=>a.Revision)!).OrderBy(a=>a.AllocationId)];
     }
-    public ExactMoney Paid(MarketSnapshot snapshot)=>KnownFlows(snapshot).Where(a=>a.EffectiveAt<=snapshot.ValuationAt)
+    public ExactMoney Paid(MarketSnapshot snapshot)=>Paid(snapshot,snapshot.ValuationAt);
+    private ExactMoney Paid(MarketSnapshot snapshot,DateTimeOffset calculationAt)=>KnownFlows(snapshot).Where(a=>a.EffectiveAt<=calculationAt)
         .Select(a=>a.Amount).Aggregate(ExactMoney.Parse("0",Quantity.Specification),(a,b)=>a.Add(b));
     public ExactMoney Outstanding(MarketSnapshot snapshot)=>ExactMoney.FromMoney(new(Quantity.Amount,Quantity.Specification)).Subtract(Paid(snapshot));
-    internal ExactMoney UnitOutstanding(MarketSnapshot snapshot)
+    public ImmutableArray<DateTimeOffset> FutureChanges(MarketSnapshot source)=>[..KnownFlows(source).Where(f=>f.EffectiveAt>source.ValuationAt).Select(f=>f.EffectiveAt).Distinct().Order()];
+    public ExactMoney UnitOutstanding(MarketSnapshot snapshot)=>UnitOutstanding(snapshot,snapshot.ValuationAt);
+    public ExactMoney UnitOutstanding(MarketSnapshot snapshot,DateTimeOffset calculationAt)
     {
-        var outstanding=Outstanding(snapshot);var sign=Quantity.Amount.CompareTo(default);
+        var outstanding=ExactMoney.FromMoney(new(Quantity.Amount,Quantity.Specification)).Subtract(Paid(snapshot,calculationAt));var sign=Quantity.Amount.CompareTo(default);
         if(sign==0)
         {
             if(outstanding.Numerator!="0")throw Error("Nonzero recorded cash cannot be normalized by a zero holding quantity.");

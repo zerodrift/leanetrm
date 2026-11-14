@@ -56,6 +56,10 @@ public sealed class UnitValuationContext
     }
     internal ValuationSetup Setup {get;}
     internal MarketSnapshot Snapshot {get;}
+    // The source certificate and the hypothetical calculation clock are distinct.
+    public DateTimeOffset CalculationAt=>pricing?.CalculationAt??declarationAt??Snapshot.ValuationAt;
+    public bool IsLifecycleProjection=>pricing?.IsLifecycleProjection??declarationAt is not null;
+    private readonly DateTimeOffset? declarationAt;
     private readonly PreparedValuationEnvironment? pricing;
     private readonly UnitPricingContract? declaration;
     private readonly CancellationToken cancellation;
@@ -89,15 +93,15 @@ public sealed class UnitValuationContext
     public ISideDiscounting DiscountProvider=>Setup.Discounting??(declaration is {} selected?PaymentDiscounting(selected.Id):
         throw new MarketDataException("side_context","Select this instrument before reading its payment discount inputs."));
     internal UnitValuationContext(MarketSnapshot snapshot,ValuationSetup setup,PreparedValuationEnvironment? market=null,UnitPricingContract? declaration=null,CancellationToken cancellation=default,DeliveryCoverage? coverage=null,IntervalValuationSession? intervalSession=null,
-        SideValuationContexts? sideContexts=null,IBindingValuationState? bindingState=null)
+        SideValuationContexts? sideContexts=null,IBindingValuationState? bindingState=null,DateTimeOffset? calculationAt=null)
     {
         if(market is not null&&declaration is null&&(setup.Discounting??setup.InstrumentDiscounting.Values.FirstOrDefault()) is {} provider)
             SideValuationContext.Validate(snapshot,provider);
         Snapshot=snapshot;Setup=setup;Coverage=coverage;IntervalSession=intervalSession;pricing=market;this.declaration=declaration;this.cancellation=cancellation;
-        this.sideContexts=sideContexts??new();BindingState=bindingState;
+        this.sideContexts=sideContexts??new();BindingState=bindingState;declarationAt=calculationAt;
     }
-    internal UnitValuationContext For(UnitPricingContract contract,DeliveryCoverage? coverage=null,IBindingValuationState? bindingState=null)=>new(Snapshot,Setup,pricing,contract,cancellation,coverage,IntervalSession,sideContexts,bindingState);
-    internal UnitValuationContext ForCoverage(DeliveryCoverage? coverage,IBindingValuationState? state=null)=>new(Snapshot,Setup,pricing,declaration,cancellation,coverage,IntervalSession,bindingState:state);
+    internal UnitValuationContext For(UnitPricingContract contract,DeliveryCoverage? coverage=null,IBindingValuationState? bindingState=null)=>new(Snapshot,Setup,pricing,contract,cancellation,coverage,IntervalSession,sideContexts,bindingState,declarationAt);
+    internal UnitValuationContext ForCoverage(DeliveryCoverage? coverage,IBindingValuationState? state=null)=>new(Snapshot,Setup,pricing,declaration,cancellation,coverage,IntervalSession,bindingState:state,calculationAt:declarationAt);
     public ImmutableArray<QuoteFactor> ResolveFactors(ImmutableArray<CurveRequest> dependencies)
     {
         if(declaration is null||pricing is null||dependencies.IsDefault||dependencies.Any(d=>!declaration.Dependencies.Contains(d)))
@@ -338,9 +342,10 @@ public sealed class ValuationPortfolio
             return new BookRiskFactors(book.Id,supplied);
         }).ToImmutableArray();
     }
-    public ImmutableArray<UnitPricingContract> Declare(MarketSnapshot snapshot)
+    public ImmutableArray<UnitPricingContract> Declare(MarketSnapshot snapshot)=>Declare(snapshot,null);
+    internal ImmutableArray<UnitPricingContract> Declare(MarketSnapshot snapshot,DateTimeOffset? calculationAt)
     {
-        var context=new UnitValuationContext(snapshot,Setup);
+        var context=new UnitValuationContext(snapshot,Setup,calculationAt:calculationAt);
         var lifecycleInstruments=Scopes.Where(s=>s.BindingState is not null).Select(s=>s.Instrument.Id).ToHashSet();
         return Scopes.Select(scope=>
         {
@@ -376,7 +381,7 @@ public sealed class ValuationPortfolio
         {
             ct.ThrowIfCancellationRequested();var contract=declarations[n];
             if(contract.Id!=Scopes[n].Instrument.Id)throw Error("risk_contract","Declaration ordering must match exact instrument identities.");
-            contract.Time.Require(market.Snapshot.ValuationAt,market.CalculationAt);
+            contract.Time.Require(market.LifecycleAt,market.CalculationAt);
             var affected=baseMarket is null||
                 contract.Time.Use!=ValuationTimeDependency.TimeUse.Independent&&market.CalculationAt!=baseMarket.CalculationAt||
                 contract.Volatility.Any(v=>market.VolatilityOffset(v.Id)!=baseMarket!.VolatilityOffset(v.Id))||

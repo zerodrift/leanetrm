@@ -24,6 +24,12 @@ internal static class TimedCashChecks
         void Equal(ExactMoney value,string expected){if(value.ToExactString()!=expected)throw new Exception($"Expected {expected}, got {value.ToExactString()}.");}
         Equal(Value(due.AddTicks(-10)),"15.2");Equal(Value(due),"16");Equal(Value(due.AddHours(1)),"16");
         Equal(Value(due.AddHours(1),new AccountingFlow(Guid.NewGuid(),1,owner,due,at.AddDays(1),ExactMoney.Parse("6",cash.Currency),AccountingFlowKind.EconomicCash)),"10");
+        var source=f.Snapshot().WithKnowledge(Guid.NewGuid(),at.AddDays(2));
+        ICashPaymentValuation retained=new RecordedCashValuation(trade,binding,[new(Guid.NewGuid(),1,owner,due,at.AddDays(1),
+            ExactMoney.Parse("6",cash.Currency),AccountingFlowKind.EconomicCash)],RecordedCashValuation.Policy,source.Knowledge!.ContextId,source.Knowledge.KnownAt);
+        Equal(retained.UnitOutstanding(source),"1");Equal(retained.UnitOutstanding(source,due),"0.625");
+        if(!retained.FutureChanges(source).SequenceEqual(new[]{due})||source.ValuationAt!=at)
+            throw new Exception("The cash calculation clock changed its actual source certificate or erased a known future-effective payment.");
         var later=new TimedCashPayment(cash.Currency,due.AddHours(1));
         if(later.Id==cash.Id||cash.EconomicIdentity==later.EconomicIdentity)throw new Exception("Exact cash due instants must distinguish definitions.");
         Console.WriteLine("PASS timed cash: exact due boundary, unpaid continuity, recorded partial payment and definition identity");
