@@ -30,6 +30,18 @@ internal static class PhysicalFuturesValueChecks
         var plan=ConnectedCurves.Compile(ConnectedCurves.MergeDefinitions(exportA.Definitions.Concat(exportB.Definitions)),[..bindings.Values],resolved,new Visible());
         var valuation=ConnectedValuation.Prepare(ConnectedScenario.Base(plan),sourceA,[sourceB]);
         var bBuild=modelB.Build(sourceB,[b]);var captured=new CapturedPriceSource(b,bBuild.Connected,bBuild.PricingBindings[b]);
+        var inputs=RiskEngine.PrepareConnectedInputs(bBuild.Connected,bBuild.PricingBindings,[b],bBuild);
+        if(inputs.Factors.Length!=1||!inputs.Holdings.IsEmpty||!inputs.UnitContracts.IsEmpty||inputs.DeclaredPoints.Single()!=bBuild.PricingBindings[b]||
+            !RiskEngine.CalculateExact(inputs,[],RiskEngine.ExactNumericalPolicy).Groups.IsEmpty)
+            throw new Exception("An input-only delivery market must retain its exact factor/point closure without a synthetic holding or value.");
+        Reject("instrument_context",()=>RiskEngine.PrepareConnectedInputs(bBuild.Connected,bBuild.PricingBindings.Remove(b),[b],bBuild));
+        Reject("instrument_context",()=>RiskEngine.PrepareConnectedInputs(bBuild.Connected,bBuild.PricingBindings,[b,b],bBuild));
+        Reject("instrument_context",()=>RiskEngine.PrepareConnectedInputs(bBuild.Connected,bBuild.PricingBindings,[b],authority));
+        var inputChild=RiskEngine.WithShifts(inputs,[new(CurveShockCoordinate.MarketQuote,new PointCurveTarget(b.Curve,[bBuild.PricingBindings[b].PointId]),unit,
+            ExactDecimal.Parse("0.1"),CurveShift.ParentAdditive)]);
+        if(inputChild.Factors.Single().BaseValue!=ExactDecimal.Parse("5.1")||!inputChild.DeclaredPoints.SequenceEqual(inputs.DeclaredPoints)||!inputChild.Holdings.IsEmpty)
+            throw new Exception("An input-only price child lost its exact factor/point closure or acquired a holding.");
+        Reject("instrument_context",()=>RiskEngine.PrepareConnectedInputs(inputChild.Valuation,bBuild.PricingBindings,[b],bBuild));
         var gas=new GasPhysicalDeliveryTerms(Guid.NewGuid(),series.Key,unit.Quantity,unit.Currency,f.R("location"),contract.Expiry.AddDays(4),contract.Expiry.AddDays(5),
             contract.Expiry.AddDays(6),b,GasHoldingCarrying.CurrencyCurve,GasPhysicalDeliveryTerms.Version);
         var configuration=new FuturesFinalDeliveryConfiguration(Guid.NewGuid(),1,gas);var final=new FuturesMarginOccurrence(Guid.NewGuid(),contract.Expiry,contract.Expiry.AddDays(1),FuturesMarginPhase.Final);
