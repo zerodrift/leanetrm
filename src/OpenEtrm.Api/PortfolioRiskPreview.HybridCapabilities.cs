@@ -4,13 +4,17 @@ namespace OpenEtrm.Api;
 
 public sealed partial class PortfolioRiskPreview
 {
-    private static object MonteCarloProfile(bool hybrid)=>new{
-        convention=hybrid?MonteCarloRiskPolicy.Hybrid:MonteCarloRiskPolicy.Version1,numericalPolicy=MonteCarloRiskPolicy.Numerics,
+    private static object MonteCarloProfile(bool hybrid)=>MonteCarloProfile(
+        hybrid?MonteCarloRiskPolicy.Hybrid:MonteCarloRiskPolicy.Version1,
+        hybrid?MonteCarloRiskPolicy.HybridValuation:HistoricalRiskPolicy.Valuation,
+        hybrid?MonteCarloRiskPolicy.HybridUncertainty:MonteCarloRiskPolicy.Uncertainty);
+    private static object MonteCarloProfile(string convention,string valuationPolicy,string samplingUncertainty)=>new{
+        convention,numericalPolicy=MonteCarloRiskPolicy.Numerics,
         estimator=ParametricRiskPolicy.Sample,centering=ParametricRiskPolicy.Centered,horizon=ParametricRiskPolicy.Session,
         quantilePolicy=HistoricalRiskPolicy.Quantile,tailPolicy=HistoricalRiskPolicy.Tail,
-        valuationPolicy=hybrid?MonteCarloRiskPolicy.HybridValuation:HistoricalRiskPolicy.Valuation,
+        valuationPolicy,
         distribution=MonteCarloRiskPolicy.Gaussian,randomGenerator=MonteCarloRiskPolicy.Generator,shockPolicy=MonteCarloRiskPolicy.ShockRounding,
-        samplingUncertainty=hybrid?MonteCarloRiskPolicy.HybridUncertainty:MonteCarloRiskPolicy.Uncertainty};
+        samplingUncertainty};
     private static object HybridCapabilities(PortfolioValuation.Prepared portfolio,long width,long nodes)
     {
         var dimensions=portfolio.Factors.Length;

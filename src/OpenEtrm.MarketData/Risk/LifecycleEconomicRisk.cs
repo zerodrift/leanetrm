@@ -27,6 +27,12 @@ public sealed record LifecycleDeterministicRiskReport(LifecycleEconomicRiskPolic
 // no catch/drop/resample path exists here.
 public static class LifecycleEconomicRisk
 {
+    public static void ValidatePolicy(LifecycleEconomicRiskPolicy policy)
+    {
+        if(policy?.Implementation is not(LifecycleEconomicRiskPolicy.Historical or LifecycleEconomicRiskPolicy.MonteCarlo or LifecycleEconomicRiskPolicy.Deterministic))
+            throw Error("risk_economic_policy","Select historical, Monte Carlo or the explicit no-variable-factor economic method.");
+        RequirePolicy(policy,policy.Implementation);
+    }
     public static LifecycleDeterministicRiskReport Deterministic(ImmutableArray<PreparedLifecycleProjection> prepared,
         LifecycleEconomicRiskPolicy policy,CancellationToken cancellation=default)
     {

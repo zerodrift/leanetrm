@@ -17,6 +17,13 @@ internal sealed record LifecycleNativeAdmission(Guid Catalog,Guid Operation,stri
 }
 internal static class LifecycleNative
 {
+    internal static string Refusal(string code)=>code switch{
+        "lifecycle_denied"=>"Your current authority or the original admission no longer permits this lifecycle operation.",
+        "lifecycle_configuration_required" or "lifecycle_policy_required"=>"Select and save the explicit action policy and product settings before reviewing this action.",
+        "lifecycle_context" or "lifecycle_preview_stale" or "lifecycle_source"=>"The lifecycle source or accepted state changed. Reload the actions and review the current inputs.",
+        "lifecycle_conflict" or "lifecycle_command_conflict"=>"This request or revision changed. Retry the exact original request or reload the current state.",
+        "lifecycle_action_window"=>"The selected policy does not permit this action at the chosen time. Check its effective window.",
+        _=>"Check the selected lifecycle policy, product terms, source and action inputs. The operation was refused."};
     internal static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web){AllowDuplicateProperties=false};
     internal static JsonElement Body(LifecycleActionRequest request,object selection)=>JsonSerializer.SerializeToElement(new{
         request.OperationId,context=new{request.Context.ContextId,asOf=Instant(request.Context.AsOf),businessDate=request.Context.BusinessDate.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture)},request.Target,request.Action,

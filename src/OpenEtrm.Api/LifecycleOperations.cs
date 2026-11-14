@@ -33,7 +33,7 @@ public sealed class LifecycleOperations
     internal LifecycleOperations(PreviewDatabase database,Func<Guid,InputFrame> frame,IEnumerable<ILifecycleActionHandler>? additional=null)
     {
         this.database=database;frames=frame;
-        registry=new([new OptionLifecycleActions(database,RequireFrame),new SwapLifecycleActions(database,frame),new FuturesLifecycleActions(database,RequireFrame),..additional??[]]);
+        registry=new([new OptionLifecycleActions(database,RequireFrame),new SwapLifecycleActions(database,frame),new FuturesLifecycleActions(database,RequireFrame),new GasOwnedActions(database),..additional??[]]);
     }
     internal async Task<LifecycleDiscovery> View(NpgsqlConnection connection,FuturesReadRequest request,TradingReadSelection selection,CancellationToken ct)
     {

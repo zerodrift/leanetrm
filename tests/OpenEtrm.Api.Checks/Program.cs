@@ -4,6 +4,8 @@ using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 if(args is ["--lifecycle-actions"]){LifecycleActionChecks.Run();return;}
+if(args is ["--economic-risk-contract"]){EconomicRiskContractChecks.Run();return;}
+if(args is ["--lifecycle-schedule-contract"]){LifecycleScheduleChecks.Run();return;}
 if(args is ["--lifecycle-actions-native",var lifecycleFixture]){await LifecycleActionChecks.RunNative(lifecycleFixture);return;}
 if(args is ["--lifecycle-swap-native",var lifecycleSwapFixture]){await LifecycleSwapChecks.Run(lifecycleSwapFixture);return;}
 if(args is ["--gas-owned",var gasOwnedFixture]){await GasOwnedChecks.Run(gasOwnedFixture);return;}

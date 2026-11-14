@@ -21,7 +21,8 @@ public sealed record PortfolioRiskRequest(FuturesReadRequest Context,ImmutableAr
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioJointRiskRequest? Joint=null,
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioParametricRequest? Parametric=null,
     [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioHistoricalRequest? Historical=null,
-    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioMonteCarloRequest? MonteCarlo=null);
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioMonteCarloRequest? MonteCarlo=null,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)] PortfolioEconomicRiskRequest? Economic=null);
 
 // Transport and presentation over the shared instrument valuation operation.
 // Instrument materialization and pricing remain outside this report adapter.
@@ -42,6 +43,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         ImmutableArray<(PreviewData Data,InputFrame Frame)> SupplementalMarkets)
     {internal PortfolioJointRisk.Resolved? Joint{get;init;} internal AlignedFactorHistory? History{get;init;}
         internal MonteCarloGeneration? Simulation{get;init;}
+        internal PreparedLifecyclePortfolio? Economic{get;init;}
         internal ImmutableArray<PortfolioRiskAxis> HistoricalAxes{get;init;}=[];
         internal ImmutableArray<PortfolioCurveBump> HistoricalComparisonBumps{get;init;}=[];}
 
@@ -120,6 +122,8 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental=default,RetainedRun? retained=null,
         RetainedFactorHistory? historyPlan=null,ImmutableArray<RiskHistoryObservation> historyEvidence=default)
     {
+        if(body.Economic is {} economic)
+            return await PrepareEconomic(connection,data,frame,body,economic,ct,supplemental,retained,historyPlan,historyEvidence);
         var detail=body.Detail switch{null or "holdings"=>RiskDetail.Holdings,"books"=>RiskDetail.Books,
             _=>throw new MarketDataException("risk_detail","Choose holdings or books for the result detail.")};
         if(body.MonteCarlo is {} simulationRequest)ValidateMonteCarlo(body,simulationRequest);
@@ -222,6 +226,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
 
     internal static object Calculate(Prepared prepared,CancellationToken ct)
     {
+        if(prepared.Request.Economic is not null)return CalculateEconomic(prepared,ct);
         if(prepared.Request.MonteCarlo is not null)return CalculateMonteCarlo(prepared,ct);
         if(prepared.Request.Historical is not null)return CalculateHistorical(prepared,ct);
         if(prepared.Request.Parametric is not null)return CalculateParametric(prepared,ct);

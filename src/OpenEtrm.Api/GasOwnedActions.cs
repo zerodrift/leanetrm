@@ -66,6 +66,7 @@ internal sealed class GasOwnedActions(PreviewDatabase database):ILifecycleAction
     }
     public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,CancellationToken ct)
     {
+        if(target is null&&!await PreviewDatabase.HasPermission(connection,"ReadGasOwnedHoldings",ct))return [];
         var state=await GasOwnedOperations.Read(connection,database,context,target?.ScopeId,ct);
         var result=ImmutableArray.CreateBuilder<LifecycleActionOffer>();
         foreach(var account in state.GetProperty("accounts").EnumerateArray())

@@ -58,6 +58,17 @@ internal static class LifecycleEndpoints
         api.MapPost("/lifecycle/policies/save",(HttpContext c,LifecyclePolicySave body)=>Save(c,body,"policy"));
         api.MapPost("/lifecycle/options/configure",(HttpContext c,OptionLifecycleProfileSave body)=>Save(c,body,"option_profile"));
         api.MapPost("/lifecycle/swaps/configure",(HttpContext c,SwapLifecycleProfileSave body)=>Save(c,body,"swap_profile"));
+        api.MapPost("/lifecycle/gas/read",(HttpContext c,GasOwnedReadRequest body)=>locked(c,async session=>
+        {
+            var result=await database.WithIdentity(profile(session),"ReadGasOwnedHoldings",(connection,ct)=>GasOwnedOperations.ReadScoped(connection,database,body,ct),c.RequestAborted);
+            return Results.Ok(result);
+        }));
+        api.MapPost("/lifecycle/gas/configure",(HttpContext c,GasOwnedConfigurationRequest body)=>locked(c,async session=>
+        {
+            if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before recording gas ownership settings or evidence.");
+            var result=await database.WithIdentity(profile(session),null,(connection,ct)=>GasOwnedOperations.Configure(connection,database,body,ct),c.RequestAborted);
+            return Results.Ok(result.Outcome);
+        }));
         void RequireSource(PreviewSession session,LifecycleReadContext context)
         {
             if(session.MarketContext is not null||context is null||context.SnapshotId is not {} id)throw new MarketDataException("historical_read_only","Choose an explicit working source frame before changing futures settlement settings.");
