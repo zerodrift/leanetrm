@@ -4,7 +4,7 @@ import type {RequestCommand} from './pending-command.js';
 import {sameUtcInstant} from './user-time.js';
 
 export type EconomicChoice={value:string;label:string};
-export type EconomicPhysicalBinding={tradeId:string;bindingId:string;label:string;choices:(EconomicChoice&{selection:Record<string,unknown>&{tradeId:string;bindingId:string}})[]};
+export type EconomicPhysicalBinding={tradeId:string;bindingId:string;label:string;unavailableReason?:string;choices:(EconomicChoice&{selection:Record<string,unknown>&{tradeId:string;bindingId:string}})[]};
 export type EconomicMethod=EconomicChoice&{history:boolean;simulation:boolean};
 export type EconomicCurrency={revision:{catalogId:string;revisionId:string};code:string};
 export type EconomicCashFundingSelection={currency:EconomicCurrency;snapshotId:string;curve:{revision:{catalogId:string;revisionId:string};code:string};mappingId:string;definitionId:string;definitionVersion:number};

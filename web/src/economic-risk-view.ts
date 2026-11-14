@@ -65,11 +65,12 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
    if(!Array.isArray(groups)||new Set(groups.map(g=>canonicalEconomic([g?.tradeId,g?.bindingId]))).size!==groups.length)throw bad();
    for(const binding of groups){
     if(!binding?.tradeId||!binding.bindingId||!binding.label||!Array.isArray(binding.choices)||new Set(binding.choices.map(c=>c?.value)).size!==binding.choices.length||
-     binding.choices.some(c=>!c?.value||!c.label||!c.selection||c.selection.tradeId!==binding.tradeId||c.selection.bindingId!==binding.bindingId))throw bad();
+     binding.choices.some(c=>!c?.value||!c.label||!c.selection||c.selection.tradeId!==binding.tradeId||c.selection.bindingId!==binding.bindingId)||
+     binding.unavailableReason!==undefined&&(typeof binding.unavailableReason!=='string'||!binding.unavailableReason.trim()||binding.choices.length>0))throw bad();
     const row=node('div'),control=select(row,kind==='futures'?'future-binding':'option-binding',binding.label);
     row.dataset.bindingKind=kind;control.dataset.trade=binding.tradeId;control.dataset.binding=binding.bindingId;
     fill(control,binding.choices);control.onchange=invalidateSource;bindingBody.append(row);bindingInputs.push({kind,binding,input:control,host:row});
-    if(!binding.choices.length)row.append(node('p','No supported valuation choice is available for this holding. Update its configuration before preparing the source.'));
+    if(!binding.choices.length)row.append(node('p',binding.unavailableReason??'No supported valuation choice is available for this holding. Update its configuration before preparing the source.'));
    }
   }
  }
@@ -109,7 +110,7 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   bindingSettings.hidden=!bindingInputs.some(row=>required(row.kind));
   bindingSearch.disabled=bindingSettings.hidden;
   for(const row of bindingInputs){const enabled=required(row.kind);
-   row.input.disabled=!enabled;row.host.hidden=!enabled||!row.binding.label.toLocaleLowerCase().includes(bindingSearch.value.toLocaleLowerCase());}
+   row.input.disabled=!enabled||!row.binding.choices.length;row.host.hidden=!enabled||!row.binding.label.toLocaleLowerCase().includes(bindingSearch.value.toLocaleLowerCase());}
   funding.hidden=configuration?.projection.cashFunding!==true||configuration.projection.cashAccumulation.find(c=>c.value===accumulation.value)?.requiresFunding!==true;
   for(const control of fundingInputs.values())control.disabled=funding.hidden;
  }
