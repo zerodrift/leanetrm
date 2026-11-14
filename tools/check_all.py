@@ -104,7 +104,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         check(helper,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),
             '--browser',str(browser),'--no-build'],suite=suite)
     for flag in ('--lifecycle-actions','--economic-risk-contract','--lifecycle-schedule-contract','--gas-owned-setup',
-        '--shared-native-markets','--derivative-methods'):
+        '--shared-native-markets','--derivative-methods','--gas-accepted-order'):
         check('managed lifecycle '+flag,[str(dotnet),'run','--no-restore','--project',
             'tests/OpenEtrm.Api.Checks/OpenEtrm.Api.Checks.csproj','--',flag])
     check('exact temporal sources, retained close upgrade and claimed worker replay',

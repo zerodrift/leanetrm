@@ -101,20 +101,7 @@ internal static partial class GasOwnedProjection
         }
         if(consumptionOwners.Keys.Any(id=>!events.Values.SelectMany(e=>e.Stock).Any(s=>s.Operation.Id==id)))
             throw Error("gas_projection_scope","Every accepted quantity return requires its independently owned funding stock in this exact connected scope.");
-        var result=ImmutableArray.CreateBuilder<GasKnownQuantityTransition>();var lastStock=new Dictionary<AccountingPositionKey,AcceptedQuantityEvent>();
-        var receiptEvents=events.Values.SelectMany(e=>e.Receipts.Select(r=>(r.Stock.Position,Event:e))).ToDictionary(p=>p.Position,p=>p.Event);
-        foreach(var occurrence in events.Values.OrderBy(e=>e.At).ThenBy(e=>e.Publication))
-        {
-            var requires=ImmutableHashSet.CreateBuilder<Guid>();
-            foreach(var movement in occurrence.Stock)
-            {
-                if(lastStock.TryGetValue(movement.Stock,out var previous)&&previous.At==occurrence.At&&previous.Id!=occurrence.Id)requires.Add(previous.Id);
-                if(receiptEvents.TryGetValue(movement.Stock,out var receipt)&&receipt.At==occurrence.At&&receipt.Id!=occurrence.Id)requires.Add(receipt.Id);
-                lastStock[movement.Stock]=occurrence;
-            }
-            result.Add(new(occurrence.Id,occurrence.At,occurrence.KnownAt,[..requires.Order()],
-                [..occurrence.Stock],[..occurrence.Discharges],[..occurrence.Receipts]));
-        }
-        return result.ToImmutable();
+        return GasAcceptedQuantityOrder.Merge([..events.Values.Select(occurrence=>new GasAcceptedQuantityEvent(
+            new(occurrence.Id,occurrence.At,occurrence.KnownAt,[],[..occurrence.Stock],[..occurrence.Discharges],[..occurrence.Receipts]),occurrence.Publication))]);
     }
 }
