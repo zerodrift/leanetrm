@@ -149,6 +149,22 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment):
     draft=deepcopy(DEFINITION);observed(draft)['observationTerms'][1]['position']=None
     refused=preview(None,draft,422,context)
     assert refused['code']=='recipe_definition' and refused['message'].startswith('Observation term 2 position:'),refused
+    # A position typed as anything but a whole number is refused for the term, by preview and by save; an absent member is a
+    # malformed request.
+    def answer(path,body):
+        try:return {'status':422,**{key:value for key,value in client.call(path,body,expected=422).items() if key in ('code','message')}}
+        except AssertionError as error:return str(error)
+    typed={}
+    for member,value in (('lessPosition','2e'),('position',1.5)):
+        draft=deepcopy(DEFINITION);observed(draft)['observationTerms'][1][member]=value
+        typed[member,'preview']=answer('custom-curves/preview',{'definition':draft,'snapshotId':context})
+        client.call('profile',{'profile':'editor'})
+        typed[member,'save']=answer('custom-curves/save',{'requestId':str(uuid4()),'snapshotId':context,'definition':draft,'layout':{}})
+        client.call('profile',{'profile':'viewer'})
+    whole={'status':422,'code':'recipe_definition','message':'An observation term position must be a whole number.'}
+    assert all(answer==whole for answer in typed.values()),typed
+    draft=deepcopy(DEFINITION);del observed(draft)['observationTerms'][1]['position']
+    assert client.call('custom-curves/preview',{'definition':draft,'snapshotId':context},expected=400)['code']=='request_format'
     draft=deepcopy(DEFINITION);del observed(draft)['parameters']['calendar']
     refused=preview(None,draft,422,context)
     assert (refused['code'],refused['message'])==('custom_curve_definition','Business-day windows require an exact reference calendar.'),refused
@@ -163,7 +179,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment):
         query(f"INSERT INTO security.market_catalog_scopes VALUES('{catalog}','{tenant}','{workspace}');")
     assert scope==f'{tenant},{workspace}',scope
     price(preview('2027-01-25'),'68.51')
-    print('PASS contract observation refusals: every required setting, a blank term position, the business-day calendar, a reweighted saved version and a reader without market access',flush=True)
+    print('PASS contract observation refusals: every required setting, a blank term position, a position typed as text or a fraction, an absent position member, the business-day calendar, a reweighted saved version and a reader without market access',flush=True)
 
 
 def projections(client,manifest,working,formula,consumer,dotnet,owned_root,environment):

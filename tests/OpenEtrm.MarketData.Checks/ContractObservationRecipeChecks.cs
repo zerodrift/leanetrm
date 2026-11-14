@@ -342,6 +342,18 @@ internal static class ContractObservationRecipeChecks
         Message("A blank position in formula text","recipe_definition","Observation term 2 position:",()=>RecipeFormula.Compile(
             text.Replace("\"ordinal\":1,\"group\":\"roll\",\"weight\":\"2\",\"position\":1,","\"ordinal\":1,\"group\":\"roll\",\"weight\":\"2\",\"position\":null,",StringComparison.Ordinal),recipe.Code,recipe.Name));
         Code("A term with an unknown member","recipe_formula",()=>RecipeFormula.Compile(text.Replace("\"ordinal\":0,","\"ordinal\":0,\"script\":\"x\",",StringComparison.Ordinal),recipe.Code,recipe.Name));
+        // A position member present as anything but a whole number or null is a typed entry the term refuses; an absent member
+        // is a malformed request.
+        RecipeObservationTerm Bind(string member,string value)=>System.Text.Json.JsonSerializer.Deserialize<RecipeObservationTerm>(
+            "{\"ordinal\":1,\"group\":\"roll\",\"weight\":\"2\","+(member=="position"?"":"\"position\":1,")+(member=="lessPosition"?"":"\"lessPosition\":null,")+
+            (value.Length==0?"":$"\"{member}\":{value},")+"\"period\":\"trade_month_of_delivery_contract_v1\"}",
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        foreach(var (member,value) in new[]{("lessPosition","\"2e\""),("position","1.5"),("position","true"),("lessPosition","{}"),("position","\"1\"")})
+            Message($"A {member} of {value}","recipe_definition","An observation term position must be a whole number.",()=>Bind(member,value));
+        Equal("a null second position binds",Bind("lessPosition","null").LessPosition is null,true);
+        Equal("a whole second position binds",Bind("lessPosition","2").LessPosition==2,true);
+        Equal("a null position binds",Bind("position","null").Position is null,true);
+        try{Bind("position","");throw new Exception("An absent position bound.");}catch(System.Text.Json.JsonException){}
         // The declaration retains the terms and the resolved windows.
         string Manifest((ConnectedRecipeGraph Graph,ConnectedScenario Basis) priced)=>
             priced.Graph.Definitions.SelectMany(d=>d.Points).Select(p=>p.Expression).OfType<ConnectedRecipeProjection>().First().Declaration.ManifestId;

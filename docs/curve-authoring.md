@@ -167,9 +167,9 @@ text (an optional minus sign and digits) is sent as that number, an explicit
 `null` is sent only for a blank field, and any other text, such as `2e`, is sent
 as the typed text and refused. A blank second position means no spread; a blank
 position is refused with a message that names the term. Unreadable text is
-refused by request binding (`400 request_format`), so the page shows only its
-general error, "The app could not complete that request. Please refresh and try
-again.", and no message beside the operation. It resolves no date, average or
+refused with `422 recipe_definition` and the message `An observation term
+position must be a whole number.`, shown beside the operation like the other
+term refusals; it does not name the term. It resolves no date, average or
 weight, and a cleared weight leaves Preview and Save enabled so the backend
 decides.
 
@@ -198,8 +198,9 @@ term, the first target month, the number of months, each chosen setting
 connection unchanged, and checks
 the backend's refusals of a cleared weight and of a new term with no position
 beside the operation. It then types `2e` into Less position and into Position
-of a spread term and checks that each preview sends the typed text, is refused,
-shows no price and shows the general error. The same command
+of a spread term and checks that each preview sends the typed text, is refused
+with `recipe_definition`, shows exactly the backend's message beside the
+operation and shows no price. The same command
 first runs the HTTP storage and curve checks. `tools/check_all.py` includes it.
 
 ## Publication release resolution (D364)

@@ -4628,10 +4628,13 @@ Refusals are structured:
   (for example `Observation term 2 position: …` for ordinal 1); a group whose weights cannot be
   summed below 10^24, refused when saved because the recipe could never
   evaluate; a calendar on a calendar-day node or none on a business-day node;
-  terms on another kind; an unsupported consumer. A position member that is
-  absent, or that is not a whole JSON number such as `1.5` or the text `2e` the
-  editor sends as typed, does not bind and is refused by request binding as
-  `request_format`.
+  terms on another kind; an unsupported consumer; and a `position` or
+  `lessPosition` member present as anything but a whole JSON number or `null`
+  (the text `2e` the editor sends as typed, a fraction such as `1.5`, a boolean
+  or an object), refused while the body is read with `An observation term
+  position must be a whole number.` That message cannot name the term, because
+  it is raised for the member alone. An absent member is a malformed request,
+  refused by request binding as `400 request_format`.
 - `recipe_input`: no single delivery contract for a trade-month target, a
   delivery contract with no prior contract, a position beyond the contract
   universe, a calendar that does not cover a window, an empty window, supplied

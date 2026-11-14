@@ -14,7 +14,22 @@ public sealed record RecipePanelWeight([property:JsonRequired] string SourcePort
 // Every member is required; a blank position is an explicit null that validation refuses for its term.
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record RecipeObservationTerm([property:JsonRequired] int Ordinal,[property:JsonRequired] string Group,[property:JsonRequired] string Weight,
-    [property:JsonRequired] int? Position,[property:JsonRequired] int? LessPosition,[property:JsonRequired] string Period);
+    [property:JsonRequired,JsonConverter(typeof(ObservationPositionConverter))] int? Position,
+    [property:JsonRequired,JsonConverter(typeof(ObservationPositionConverter))] int? LessPosition,[property:JsonRequired] string Period);
+// A position is sent as typed: a whole number, or null for a blank. Anything else present is a typed entry the definition
+// refuses, not a malformed request. The member cannot name its term; validation names the term for the other refusals.
+public sealed class ObservationPositionConverter:JsonConverter<int?>
+{
+    public override bool HandleNull=>true;
+    public override int? Read(ref Utf8JsonReader reader,Type typeToConvert,JsonSerializerOptions options)=>
+        reader.TokenType==JsonTokenType.Null?null:
+        reader.TokenType==JsonTokenType.Number&&reader.TryGetInt32(out var position)?position:
+        throw new MarketDataException("recipe_definition","An observation term position must be a whole number.");
+    public override void Write(Utf8JsonWriter writer,int? value,JsonSerializerOptions options)
+    {
+        if(value is {} position)writer.WriteNumberValue(position);else writer.WriteNullValue();
+    }
+}
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PublishedRecipeReference(Guid CatalogId,Guid CurveId,int Version,string OutputNode);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
