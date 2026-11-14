@@ -78,3 +78,9 @@ test('a self-consistent response for another snapshot cannot replace the result 
  await evaluate("document.querySelector('[data-economic=method]').selectedIndex=1;document.querySelector('[data-economic=method]').dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('[data-economic=confidence]').value='0.99';document.querySelector('[data-economic=run]').click()");await settle();
  assert.equal(await evaluate("document.querySelector('#result').textContent"),'');assert.match((await evaluate('errors')).join(' '),/match|captured/i);await evaluate('desk.reset()');
 }));
+
+test('a lifecycle change discards prepared current sources while preserving captured reports',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="form"></div><div id="result"></div>',async evaluate=>{
+ await evaluate(`(async()=>{window.actor='reader';window.selected=${JSON.stringify(scope)};window.errors=[];const api=async(path,body)=>path.endsWith('/setup')?${JSON.stringify(setup)}:path==='amounts/display'?body.map(r=>r.value):{id:'job',state:'completed',kind:'economic_lifecycle',result:${JSON.stringify(economicReport())}};${mount}await desk.openJob('job');})()`);await settle();
+ const captured=await evaluate("document.querySelector('#result').textContent");await evaluate('desk.financialChanged()');
+ assert.equal(await evaluate("document.querySelector('#result').textContent"),captured);assert.equal(await evaluate('desk.jobId()'),'job');assert.equal(await evaluate('desk.canDownload()'),true);assert.equal(await evaluate("document.querySelector('[data-economic=run]').disabled"),true);assert.equal(await evaluate("document.querySelector('[data-economic=prepare]').disabled"),true);assert.match(await evaluate("document.querySelector('[data-economic=note]').textContent"),/Lifecycle facts changed.*Captured reports/);await evaluate('desk.reset()');
+}));

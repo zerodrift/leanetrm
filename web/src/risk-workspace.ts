@@ -224,6 +224,14 @@ export function setupRiskWorkspace(o:Options){
    get<HTMLButtonElement>('risk-workspace-export').disabled=o.busy()||!(economic?.shown()?economic.canDownload():engine!.current()?.parts.every(p=>p.report));
    for(const id of ['risk-workspace-portfolios','risk-workspace-books','risk-workspace-trade-mode','risk-workspace-trades'])get<HTMLSelectElement>(id).disabled=o.busy()||!directory;
    get<HTMLButtonElement>('risk-workspace-trades-more').disabled=o.busy()||!tradesReady;scopePicker.sync();},
+  financialChanged(){
+   epoch++;history?.reset();economic?.financialChanged();
+   if(!engine!.current()?.retained){engine!.inputsChanged(engine!.edited());results.reset();shown=undefined;}
+   directory=undefined;selection=undefined;tradesReady=false;tradeChoices.clear();drawTrades();
+   get('risk-workspace-note').textContent='Lifecycle facts changed. Refresh Risk scope before a new run. Captured reports and original submissions retain their inputs.';
+   get('risk-workspace-context-note').textContent=shown?.retained||economic?.shown()?'This captured report predates the lifecycle change and retains its original source.':'';
+   o.changed();
+  },
   contextChanged(){epoch++;pnl.reset();history?.reset();economic?.reset();engine!.inputsChanged(engine!.edited());results.reset();shown=undefined;directory=undefined;selection=undefined;scopePicker.set([],{bookIds:[],portfolioIds:[]});tradesReady=false;tradeChoices.clear();drawTrades();get('risk-workspace-note').textContent='The selected market context changed. Refresh Risk to read the new scope.';},
   edited:()=>engine!.edited()||!!economic?.edited(),unconfirmed:()=>engine!.unconfirmed()||pnl.unconfirmed()||!!economic?.unconfirmed(),
   address:()=>selectedJob?'#risk/job/'+encodeURIComponent(selectedJob):'',

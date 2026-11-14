@@ -48,3 +48,11 @@ test('single swap reversal retains the backend-selected native payment and amoun
  const result=lifecycleRequest(context,payment,{policyId:offer.policyId,policyRevision:3,determinationId:'native-contribution',amount:'-100',effectiveAt:context.asOf,reference:'Synthetic reversal',reversesId:'native-payment'},'reverse');
  assert.equal(result.selection.payment.reversesId,'native-payment');assert.equal(result.selection.payment.amount,'-100');
 });
+
+test('only committed financial-source operations invalidate current valuation inputs',async()=>{
+ const {lifecycleChangesFinancialSource}=await import('../dist/lifecycle-model.js');
+ for(const path of ['lifecycle/execute','lifecycle/futures/adopt','lifecycle/options/configure','lifecycle/swaps/configure'])assert.equal(lifecycleChangesFinancialSource({path,body:{}}),true);
+ for(const action of ['evidence','mark_binding','projection_profile'])assert.equal(lifecycleChangesFinancialSource({path:'lifecycle/gas/configure',body:{action}}),true);
+ for(const path of ['lifecycle/policies/save','lifecycle/futures/policies/save','lifecycle/swaps/net/configure','lifecycle/futures/delivery/configure'])assert.equal(lifecycleChangesFinancialSource({path,body:{}}),false);
+ for(const action of ['account','bind_policy'])assert.equal(lifecycleChangesFinancialSource({path:'lifecycle/gas/configure',body:{action}}),false);
+});

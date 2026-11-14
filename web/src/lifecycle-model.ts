@@ -62,6 +62,11 @@ export function lifecycleRequest(context:LifecycleContext,offer:LifecycleOffer,d
  if(selection.payment&&typeof selection.payment==='object'&&Object.hasOwn(draft,'reversesId'))(selection.payment as Record<string,unknown>).reversesId=draft.reversesId;
  return {operationId,context:structuredClone(context),target:structuredClone(offer.target),action:offer.action,policyId:draft.policyId,policyRevision:draft.policyRevision,automatic:false,previewHash:'0'.repeat(64),selection};
 }
+/** A confirmed source change invalidates current inputs, independently of edits. */
+export function lifecycleChangesFinancialSource(command:Pick<RequestCommand,'path'|'body'>):boolean{
+ if(['lifecycle/execute','lifecycle/futures/adopt','lifecycle/options/configure','lifecycle/swaps/configure'].includes(command.path))return true;
+ return command.path==='lifecycle/gas/configure'&&['evidence','mark_binding','projection_profile'].includes(String(command.body.action));
+}
 export const lifecycleWritePaths=['jobs/lifecycle/create','lifecycle/execute','lifecycle/policies/save','lifecycle/options/configure','lifecycle/swaps/configure','lifecycle/swaps/net/configure','lifecycle/futures/policies/save','lifecycle/futures/adopt','lifecycle/futures/delivery/configure','lifecycle/gas/configure'] as const;
 export function lifecycleOperationId(path:string,body:Record<string,unknown>):string|undefined{
  const schedule=body.schedule;const value=path==='jobs/lifecycle/create'?schedule&&typeof schedule==='object'&&!Array.isArray(schedule)?(schedule as Record<string,unknown>).requestId:undefined:body.operationId;

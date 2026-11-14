@@ -4,7 +4,7 @@ import {askInPanel} from './side-panel.js';
 import {zonedInput} from './user-time.js';
 import {mountLifecycleSchedule} from './lifecycle-scheduling.js';
 import {mountLifecycleSettings} from './lifecycle-settings.js';
-import {lifecycleKey,lifecycleRows,lifecycleReason,lifecycleRequest,restoreLifecycleRequest,lifecycleOperationId,type LifecycleDiscovery,type LifecycleOffer,type LifecycleDraft,type LifecycleRequest} from './lifecycle-model.js';
+import {lifecycleKey,lifecycleRows,lifecycleReason,lifecycleRequest,lifecycleChangesFinancialSource,restoreLifecycleRequest,lifecycleOperationId,type LifecycleDiscovery,type LifecycleOffer,type LifecycleDraft,type LifecycleRequest} from './lifecycle-model.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Review={hash:string;offer:LifecycleOffer;details:Record<string,unknown>};
@@ -13,7 +13,7 @@ const title=(value:string)=>{const text=words(value);return text.charAt(0).toUpp
 const knownRejection=(code:string|undefined)=>!!code&&/^(lifecycle_|option_|futures_|swap_|gas_|settlement_|historical_|job_|access_denied$|request_denied$)/.test(code);
 const element=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
 
-export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;context:()=>Record<string,unknown>;historical:()=>boolean;zone:()=>string;permission:(name:string)=>boolean;changed:()=>void}){
+export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;context:()=>Record<string,unknown>;historical:()=>boolean;zone:()=>string;permission:(name:string)=>boolean;changed:()=>void;committed?:()=>void|Promise<void>}){
  root.dataset.ownControls='true';root.classList.add('lifecycle-workspace');
  root.innerHTML=`<div id="${root.id}-prompt" class="side-panel-prompt" role="alertdialog" hidden></div>
  <div class="operations-directory-heading"><div><h2>Lifecycle actions</h2><p>Actions and settings at the selected market close.</p></div><button data-lifecycle="refresh" type="button" class="secondary">Refresh</button></div>
@@ -59,15 +59,17 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
    if(shown[index].eligible)return null;const text=element('span',rows[index][column]);text.className='lifecycle-inactive';text.title=lifecycleReason(shown[index].reason);return text;
   }});
  }
- async function send(command:RequestCommand){const actor=o.identity(),epoch=generation,wasUncertain=pending.sending();saving=true;store();sync();try{
+ async function send(command:RequestCommand){const actor=o.identity(),epoch=generation,wasUncertain=pending.sending();let confirmed=false;saving=true;store();sync();try{
    const outcome=await o.api<{operationId?:string;changed?:boolean;semanticAcknowledgement?:boolean;acknowledgedRevision?:number;acknowledgedVersion?:number;currentRevision?:number;currentVersion?:number}>(command.path,command.body);
    if(outcome.operationId!==command.operationId)throw Error('The reply did not identify the retained request. Retry the original request.');
-   if(!current(epoch,actor))return;pending.clear();store();clearPanel();
+   if(!current(epoch,actor))return;confirmed=true;pending.clear();store();clearPanel();
+   if(lifecycleChangesFinancialSource(command))await o.committed?.();
+   if(!current(epoch,actor))return;
    const accepted=outcome.acknowledgedRevision??outcome.acknowledgedVersion,head=outcome.currentRevision??outcome.currentVersion;
    message.textContent=outcome.semanticAcknowledgement===true||outcome.changed===false?
     `Existing fact acknowledged${accepted!==undefined?' · revision '+accepted:''}${head!==undefined?' · current revision '+head+' retained':''}.`:command.path==='jobs/lifecycle/create'?'Lifecycle task retained. Its outcome is available in Jobs.':'Lifecycle change recorded.';
    saving=false;await load(false);
-  }catch(error){if(current(epoch,actor)){pending.failed((error as {code?:string}).code,wasUncertain);store();if(!pending.command)invalidate();message.textContent=String(error);}throw error;}finally{if(o.identity()===actor){saving=false;sync();}}
+  }catch(error){if(current(epoch,actor)){if(!confirmed){pending.failed((error as {code?:string}).code,wasUncertain);store();if(!pending.command)invalidate();message.textContent=String(error);}else message.textContent='Lifecycle change recorded. Its updated views could not be read. '+String(error);}throw error;}finally{if(o.identity()===actor){saving=false;sync();}}
  }
  async function queue(path:string,body:Record<string,unknown>,label:string){restore();if(pending.command)throw Error('Reconcile the retained lifecycle request first.');pending.command={path,operationId:lifecycleOperationId(path,body)??(()=>{throw Error('Retain the exact request identity.');})(),body:structuredClone(body),label};store();await send(pending.command);}
  function showReview(review:Review,request:LifecycleRequest){panel.querySelector('[data-lifecycle-review]')?.remove();const section=element('section');section.dataset.lifecycleReview='';section.className='lifecycle-review';section.append(element('h3','Review '+(selected?.label??'action')));

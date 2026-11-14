@@ -186,3 +186,11 @@ original permission set; optional gas data and physical-futures offers stay
 excluded, and configured physical option actions identify the missing access.
 Disposable native checks cover initial deadlines, fresh successor requests,
 ordered permission revocation and delayed discovery without inventory.
+
+A confirmed financial-source receipt invalidates current Blotter inputs and Risk
+setup separately from unsaved edits. The owned request is cleared before view
+refresh callbacks: a display/read failure after acceptance cannot turn the
+financial effect into an unconfirmed request. Callback continuation rechecks the
+same actor and view generation. Explicit historical Blotter reads, captured Risk
+reports and original unconfirmed risk submissions retain their selected inputs;
+a new calculation requires refreshed source preparation.

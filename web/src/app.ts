@@ -1160,7 +1160,7 @@ function dirtyContext(){priceSetup.reset();lifecycle.reset();physicalOperations.
 const parties=setupPartyEditors({api,act,busy:()=>busy,zone:()=>prefs.timeZone,profile:()=>administrationScope+':'+currentProfile,source:()=>{if(contextDirty)throw Error('Apply the changed context first.');return frame().id;}});
 
 const lifecycle=setupLifecycle($('lifecycle-page'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
- identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,historical:()=>!!historicalContext(),changed:()=>{syncUnloadQuestion();assistant.sync();},
+ identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,historical:()=>!!historicalContext(),changed:()=>{syncUnloadQuestion();assistant.sync();},committed:()=>{futures.financialCommitted();riskJobs.financialChanged();},
  context:()=>{if(contextDirty)throw Error('Apply the changed header context first.');const retained=historicalContext();return {snapshotId:frame().id,convention:'trading_workspace_v1',knowledgeMode:retained?'retained':'current',...(retained?{contextId:retained.contextId}:{})};}});
 const physicalOperations=setupPhysicalOperations($('physical-operations-page'),{api,act,busy:()=>busy,zone:()=>prefs.timeZone,
  identity:()=>administrationScope+':'+exampleId+':'+currentProfile,permission:can,changed:()=>{syncUnloadQuestion();assistant.sync();},

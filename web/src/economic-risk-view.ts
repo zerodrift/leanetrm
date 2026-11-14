@@ -234,6 +234,12 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
  for(const control of [pricing,session,path,disposition,accumulation,expiry,physical])control.onchange=invalidateSource;
  for(const control of [method,confidence,calendar,from,to,close,priceType,minimum,drift,paths,seed])control.onchange=invalidateHistory;
  reset();
- return {configure,reset,sync,openJob,clearReport,shown:()=>!!report||!!job,canDownload:()=>!!report,jobId:()=>job?.id,edited:()=>dirty,dropEdits:()=>{dirty=false;},unconfirmed:()=>!!pending().command,
+ function financialChanged(){
+  epoch++;configuration=undefined;source=undefined;history=undefined;scopeStamp='';
+  sourceSummary.textContent='';coverage.replaceChildren();method.replaceChildren(new Option('Read setup for the updated scope…',''));dirty=false;
+  note.textContent='Lifecycle facts changed. Refresh Risk scope and prepare a new source. Captured reports and original submissions keep their inputs.';
+  describe();sync(false);schedule();
+ }
+ return {configure,reset,sync,openJob,clearReport,financialChanged,shown:()=>!!report||!!job,canDownload:()=>!!report,jobId:()=>job?.id,edited:()=>dirty,dropEdits:()=>{dirty=false;},unconfirmed:()=>!!pending().command,
   refresh(){if(report)draw();sync();},download(){if(!report)throw Error('Open a complete event-aware report before exporting.');const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}));const a=node('a');a.href=url;a.download='economic-risk-report.json';a.click();URL.revokeObjectURL(url);}};
 }

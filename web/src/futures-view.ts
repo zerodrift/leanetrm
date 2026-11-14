@@ -1773,6 +1773,15 @@ export function setupFutures(options:{tickets:ProductTickets;api:Api;stream:(bod
       const saved=savedViews.find(v=>v.name===name);if(!saved)throw Error(`The saved view ${name} is no longer saved to your account.`);
       if(draftBase?.name!==name||draftBase.version!==versions.get(name))useSaved(saved);
     },
+    // Current native lifecycle facts changed outside the Blotter. Keep explicit
+    // historical views pinned; ordinary inputs must be read again on return.
+    financialCommitted(){
+      if(options.source().context)return;
+      const plan=riskRefreshPlan({open:panel.current()?.kind==='risk',edited:risk.edited(),run:!!risk.current(),retained:risk.unconfirmed()},'settlement');
+      inputsChanged(plan);cancelRead();cachedRead=undefined;
+      get('futures-page').dataset.pricingState='stale';delete get('futures-page').dataset.pricingContext;
+      markStale('Lifecycle facts changed · refresh to read current values.');
+    },
     // A live correction reads the desk again, a position or new trade in the panel with it unless the person has edits in it, and the risk
     // report at the corrected inputs, carrying a setup's choices over; it clears a risk run with a note. No live view can book, so no form of
     // a new trade is held while corrections arrive.
