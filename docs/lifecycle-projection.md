@@ -5,6 +5,18 @@ cutoff, knowledge cutoff and immutable connected graph. The calculation clock is
 separate. Projection never appends observations, accepted settlements, payments,
 trade revisions or native lifecycle events.
 
+The pure operator cashout component selects the exact valuation mark as its
+explicit contractual-price expectation. It fixes only at the declared official
+role and instant, rounds the complete signed amount under the native cashout
+convention, and replaces the claim with ordinary projected cash. Nominal cash
+carrying or the claim's same captured currency curve is a required selection.
+Fixing and payment remain separate events, including an explicit causal order
+when their instants coincide. Paid-at-due and outstanding choices share the
+ordinary cash pricer; hypothetical paid state cannot enter actual valuation.
+Independent checks cover negative prices, nonunit quote multipliers, exact
+rounding differences and conditional curve carry. Native saved-profile and
+source-known actual transition adapters have separate qualification gates.
+
 `ILifecycleProjection` declares its native economic owner, complete transition and
 possible residual price dependencies, opening ordinary valuation portfolios and
 exact events. An opening unpaid obligation remains an ordinary holding. New cash
