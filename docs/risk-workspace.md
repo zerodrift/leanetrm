@@ -49,7 +49,8 @@ it moves (D395). The report reads each delta and gamma from one up and one down
 move, and a [tree-priced option](futures-options.md) bends once per price step,
 so a smaller move reads the tree's grid. The refusal names the target and the
 smallest shock that is taken; the size is never changed for the person. Nested
-stresses are not differenced and take any size.
+stresses are not differenced and take any size. Where one moves a price that
+declares a step, the shock must span two steps at the stressed price.
 
 ## Reports and graphics
 

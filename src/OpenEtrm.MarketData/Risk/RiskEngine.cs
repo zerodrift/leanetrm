@@ -6,8 +6,8 @@ using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.MarketData.Risk;
 
-// The smallest move of a declared price input that a valuation's model resolves, in that input's own price unit. Below
-// it the value is piecewise linear in the input, so a second difference is meaningful only across whole steps of it.
+// The smallest move of a declared price input that a valuation's model resolves, in that input's own price unit.
+// Inside one step the value follows the model's grid, so a second difference is meaningful only across whole steps.
 public sealed record DeclaredPriceStep(CurveRequest Dependency,ExactDecimal Size)
 {
     // A difference of a declaring valuation across a bump states its slope or curvature only when the bump spans at
@@ -19,6 +19,13 @@ public sealed record DeclaredPriceStep(CurveRequest Dependency,ExactDecimal Size
     // The smallest bump in whole trading ticks that spans the fewest steps of one size.
     public static ExactDecimal SmallestBump(ExactDecimal step,ExactDecimal tick)=>
         ExactDecimal.FromScaled(TicksSpanning(step,FewestSpanned,tick)*tick.ScaledValue);
+    // A step is declared at a base price. At another price of the same input, such as a stressed one, it is taken in
+    // proportion to the price and rounded up at the working scale. That is exact for a grid whose levels lie a constant
+    // factor apart.
+    public static ExactDecimal AtPrice(ExactDecimal step,ExactDecimal basePrice,ExactDecimal price)=>
+        basePrice.CompareTo(default)>0&&price.CompareTo(default)>0?
+            ExactDecimal.FromScaled((step.ScaledValue*price.ScaledValue+basePrice.ScaledValue-1)/basePrice.ScaledValue):
+            throw new MarketDataException("risk_price_step","A declared price step is taken at a positive price of an input with a positive base price.");
 }
 public sealed record UnitPricingContract(Guid Id,string ModelVersion,ImmutableArray<CurveRequest> Dependencies,
     ReferenceKey Quantity,ReferenceKey Currency)

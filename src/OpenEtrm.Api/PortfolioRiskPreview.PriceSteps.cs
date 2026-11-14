@@ -33,19 +33,30 @@ public sealed partial class PortfolioRiskPreview
             string.Join(" ",small));
     }
 
-    // Each bump with the price steps that held valuations declare for the quoted prices it moves.
+    // Each bump with the price steps that held valuations declare for the quoted prices it moves. A step is declared at
+    // the unstressed price; where nested stresses move that price the step is taken at the stressed one.
     private static IEnumerable<(string Target,ExactDecimal Size,ImmutableArray<DeclaredStep> Declared)> DeclaredSteps(PortfolioValuation.Prepared portfolio,
-        ImmutableArray<PortfolioCurveBump> bumps,CancellationToken ct)
+        ImmutableArray<PortfolioCurveBump> bumps,ImmutableArray<PortfolioCurveShift> stress,CancellationToken ct)
     {
         var steps=PortfolioValuation.LargestPriceSteps(portfolio.Markets.SelectMany(market=>market.Connected.DeclaredPriceSteps));
         if(steps.Count==0)yield break;
         var factors=portfolio.Factors.Where(factor=>steps.ContainsKey(factor.Input)).ToDictionary(factor=>factor.Input);
-        foreach(var bump in bumps)
+        IEnumerable<InputKey> Stepped(PortfolioRiskAxis axis)
         {
-            var plan=portfolio.Markets.Single(market=>market.Snapshot.Definitions==bump.Axis.Market).Connected.Scenario.Plan;
-            yield return(bump.Axis.Label,bump.Size,[..bump.Axis.Points.Select(point=>plan.Points[point].Expression).OfType<ConnectedSource>()
-                .Select(source=>source.Input).Distinct().Where(steps.ContainsKey)
-                .Select(input=>new DeclaredStep(CurveRiskAxes.Quote(portfolio,factors[input],ct).Label,factors[input].TradingTick,steps[input]))]);
+            var plan=portfolio.Markets.Single(market=>market.Snapshot.Definitions==axis.Market).Connected.Scenario.Plan;
+            return axis.Points.Select(point=>plan.Points[point].Expression).OfType<ConnectedSource>().Select(source=>source.Input).Distinct().Where(steps.ContainsKey);
         }
+        var stressed=new Dictionary<InputKey,ExactDecimal>();
+        foreach(var shift in stress)
+        foreach(var input in Stepped(shift.Axis))
+            stressed[input]=stressed.GetValueOrDefault(input,factors[input].BaseValue)+shift.Size;
+        foreach(var bump in bumps)
+            yield return(bump.Axis.Label,bump.Size,[..Stepped(bump.Axis).Select(input=>
+            {
+                var factor=factors[input];
+                // A stress that takes the price to zero or below fails in the valuation that reads it.
+                var step=stressed.TryGetValue(input,out var price)&&price.CompareTo(default)>0?DeclaredPriceStep.AtPrice(steps[input],factor.BaseValue,price):steps[input];
+                return new DeclaredStep(CurveRiskAxes.Quote(portfolio,factor,ct).Label,factor.TradingTick,step);
+            })]);
     }
 }

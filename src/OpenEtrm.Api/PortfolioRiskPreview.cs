@@ -170,8 +170,6 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         }).ToImmutableArray();
         if(bumps.Select(b=>b.Axis.Id).Distinct().Count()!=bumps.Length)
             throw new MarketDataException("risk_bump","Select each exact factor once per risk run.");
-        // A parametric request sizes its own bumps in trading ticks and tests the agreement of its deltas.
-        if(body.Parametric is null)RequireTwoPriceSteps(DeclaredSteps(portfolio,bumps,ct));
         var stress=(body.Stress.IsDefault?ImmutableArray<CurveShiftRequest>.Empty:body.Stress).Select(s=>
         {
             var axis=CurveRiskAxes.Resolve(portfolio,s.Factor,ct);var size=ExactDecimal.Parse(s.Size??"");
@@ -179,6 +177,8 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
                 throw new MarketDataException("risk_stress","Choose the explicit additive convention and a nonzero signed shift.");
             return new PortfolioCurveShift(axis,size);
         }).ToImmutableArray();
+        // A parametric request sizes its own bumps in trading ticks; the refusal is the bump report's.
+        if(body.Parametric is null&&!bumps.IsEmpty)RequireTwoPriceSteps(DeclaredSteps(portfolio,bumps,stress,ct));
         var historicalAxes=body.Historical is null&&body.MonteCarlo is null?ImmutableArray<PortfolioRiskAxis>.Empty:
             history!.Columns.Select(c=>CurveRiskAxes.Quote(portfolio,c.Mapping.Factor,ct)).ToImmutableArray();
         if(body.Historical is {} historicalSpec)

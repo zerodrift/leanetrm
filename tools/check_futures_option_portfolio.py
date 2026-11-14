@@ -2,16 +2,15 @@
 a CL future, a long ON call, a short LO put and the deep in-the-money ON series that settles at intrinsic, each option
 with its premium paid up front. Expected values come from the catalog's settlement prices, the public ON/LO multipliers
 and the fixture's synthetic USD zero rate under simple ACT/365F compounding, never from the pricer's own output. The
-reference for an option's delta and gamma is discounted Black-76 at the futures price, volatility and discount its
-calibration receipt records."""
+reference for an option's delta and gamma is an independent binary64 tree with early exercise at the futures price,
+volatility and discount its calibration receipt records."""
 import os
 import platform
 import time
 from datetime import date, datetime, timedelta
 from decimal import ROUND_CEILING, ROUND_HALF_EVEN, Decimal, localcontext
 from fractions import Fraction
-from math import log, sqrt
-from statistics import NormalDist
+from math import exp, sqrt
 from uuid import uuid4
 from preview_client import PreviewClient
 from check_futures_option_lifecycle import side_lots
@@ -19,6 +18,7 @@ from check_futures_option_lifecycle import side_lots
 OPTION = 'futures_option_premium_v1'
 TRADING = 'trading_workspace_v1'
 FALLBACK_SERIES, FALLBACK_MODE = 'nymex_on_20261201_c2.00', 'option_settlement_at_intrinsic_v1'
+REBUILT, CENTRED = 'american_futures_option_crr_v1', 'american_futures_option_leisen_reimer_v1'
 # The fixture's synthetic USD zero rate at the premium payment date, simple compounding on ACT/365F (exchange_fixture.py).
 PAYMENT_DATE, PAYMENT_RATE = '2026-10-19', Fraction('0.04')
 # A payment date between the first and last closes, before the fixture's first rate pillar: the curve's t_0 anchor discounts it (D359).
@@ -183,23 +183,44 @@ def run_checks(url, query, manifest, *, run_worker):
     def tick(factor):
         return Decimal('0.01') if factor['curves'] == ['nymex_cl'] else Decimal('0.001')
 
-    def request_with(sizes):
+    def request_with(sizes, policy=REBUILT):
+        pricing = {**risk_catalog['pricingPolicy'], 'futuresOptions': {**risk_catalog['pricingPolicy']['futuresOptions'], 'numericalPolicy': policy}}
         return dict(context=retained, bookIds=[book], portfolioIds=[],
-                    bumps=[dict(factor=f['factor'], size=format(sizes.get(f['id'], tick(f)), 'f'), convention=risk_catalog['bumpConvention'])
+                    bumps=[dict(factor=f['factor'], size=plain(sizes.get(f['id'], tick(f))), convention=risk_catalog['bumpConvention'])
                            for f in {f['id']: f for f in factors.values()}.values()],
-                    convention=risk_catalog['convention'], numericalPolicy=risk_catalog['numericalPolicy'], pricingPolicy=risk_catalog['pricingPolicy'], stress=[])
+                    convention=risk_catalog['convention'], numericalPolicy=risk_catalog['numericalPolicy'], pricingPolicy=pricing, stress=[])
+    check('the risk catalog states the tree rebuilt around the futures price as its option numerical policy',
+          risk_catalog['pricingPolicy']['futuresOptions']['numericalPolicy'] == REBUILT, risk_catalog['pricingPolicy'])
     # A solved option's value bends once per price step of its 400-step lattice, so one up and one down move state its delta and
     # gamma only across two steps (D395). The two solved holdings' factors are shocked by that; the intrinsic one's by a tick.
-    spanning = {factors[k]['id']: two_price_steps(factors[k]['value'], option_row(k)['impliedVolatility'], years(frame, held[k][1]), tick(factors[k]))
-                for k in ('on', 'lo')}
+    spanning = {factors[k]['id']: two_steps(rebuilt_price_step(Decimal(factors[k]['value']), Decimal(option_row(k)['impliedVolatility']), years(frame, held[k][1])),
+                                            tick(factors[k])) for k in ('on', 'lo')}
+    def too_small(target, size, smallest, declaring=None):
+        """The refusal's sentence for one shock: the target, its size and the smallest shock that spans two price steps."""
+        return f"{target}: a shock of {plain(size)} is smaller than that for {declaring or 'it'}; shock by at least {plain(smallest)}."
     refused = c.call('portfolio/risk', request_with({}), expected=422, timeout=TIMEOUT)
     check('a one-tick shock of a factor that prices a solved option is refused, naming each such factor and the smallest shock that spans two of its price steps',
-          refused['code'] == 'risk_bump' and all(f"{factors[k]['label']}: a shock of {format(tick(factors[k]), 'f')} is smaller than that for it; "
-                                                 f"shock by at least {format(spanning[factors[k]['id']], 'f')}." in refused['message'] for k in ('on', 'lo'))
+          refused['code'] == 'risk_bump' and all(too_small(factors[k]['label'], tick(factors[k]), spanning[factors[k]['id']]) in refused['message'] for k in ('on', 'lo'))
           and factors['deep']['label'] + ':' not in refused['message'], refused)
     under = c.call('portfolio/risk', request_with({**spanning, factors['on']['id']: spanning[factors['on']['id']] - tick(factors['on'])}), expected=422, timeout=TIMEOUT)
     check('a shock one tick under two price steps is refused for that factor alone',
           under['code'] == 'risk_bump' and factors['on']['label'] + ':' in under['message'] and factors['lo']['label'] + ':' not in under['message'], under)
+    # A whole-curve shock moves every contract on the curve, the long call's underlying among them.
+    gas_curve = next(t for t in risk_catalog['scenarioTargets'] if t['kind'] == 'parallel' and t['coordinate'] == 'market_quote'
+                     and t['factor']['target']['curve']['code'] == 'nymex_ng')
+    whole_curve = c.call('portfolio/risk', {**request_with({}), 'bumps': [dict(factor=gas_curve['factor'], size='0.001', convention=risk_catalog['bumpConvention'])]},
+                         expected=422, timeout=TIMEOUT)
+    check('a whole-curve shock under two price steps of an option priced on that curve is refused, naming the curve and the contract whose option declares the step',
+          whole_curve['code'] == 'risk_bump' and too_small(gas_curve['label'], Decimal('0.001'), spanning[factors['on']['id']], factors['on']['label']) in whole_curve['message'], whole_curve)
+    # A nested stress moves the price the step was declared at. The rebuilt tree's step is a fixed share of the futures price, so
+    # two steps are wider at a price lifted by 1.00 and the shock that was enough is refused.
+    lifted = [dict(factor=factors['on']['factor'], size='1', convention=risk_catalog['stressConvention'])]
+    lifted_spanning = two_steps(rebuilt_price_step(Decimal(factors['on']['value']) + 1, Decimal(option_row('on')['impliedVolatility']), years(frame, held['on'][1])), tick(factors['on']))
+    under_stress = c.call('portfolio/risk', {**request_with(spanning), 'stress': lifted}, expected=422, timeout=TIMEOUT)
+    check('under a nested stress the shock must span two price steps at the stressed price',
+          under_stress['code'] == 'risk_bump' and lifted_spanning > spanning[factors['on']['id']]
+          and too_small(factors['on']['label'], spanning[factors['on']['id']], lifted_spanning) in under_stress['message']
+          and factors['lo']['label'] + ':' not in under_stress['message'], under_stress)
     request = request_with(spanning)
     started = time.monotonic()
     report = c.call('portfolio/risk', request, timeout=TIMEOUT)
@@ -208,23 +229,31 @@ def run_checks(url, query, manifest, *, run_worker):
     selected_scope(c, request, held['on'][0]['tradeId'], report, run_worker=run_worker,
                    bindings=[held['on'][0]['optionInstrumentId'], held['on'][0]['premiumInstrumentId']], timeout=TIMEOUT)
 
-    def position(key, component='optionInstrumentId'):
+    def position(key, component='optionInstrumentId', run=None):
         booked = held[key][0]
         factor_id = factors[key]['id']
-        result = next(r for r in report['factors'] if r['factor']['id'] == factor_id)
+        result = next(r for r in (run or report)['factors'] if r['factor']['id'] == factor_id)
         return next(p for p in result['positions'] if p['tradeId'] == booked['tradeId'] and p['bindingId'] == booked[component])
     check('a long ON call has positive delta to its underlying NG futures factor', Fraction(position('on')['values']['delta']) > 0, position('on')['values'])
     check('a short LO put has positive delta to its underlying CL futures factor', Fraction(position('lo')['values']['delta']) > 0, position('lo')['values'])
-    receipts = {r['series']['code']: r for r in report['optionCalibrations']}
-    for key in ('on', 'lo'):
-        option, values = held[key][1], position(key)['values']
-        receipt = receipts[option['series']]
-        delta, gamma = black76_greeks(option['right'], float(receipt['baseFutures']), float(option['strike']), float(receipt['volatility']),
-                                      float(years(frame, option)), float(receipt['discountToExpiry']))
+
+    def greeks_off(run, key, lift=0):
+        """The option's delta, in contracts, and gamma, as a share, from the independent tree at the run's own calibration receipt
+        and its base futures price, lifted by any nested stress."""
+        option, values = held[key][1], position(key, run=run)['values']
+        receipt = next(r for r in run['optionCalibrations'] if r['series']['code'] == option['series'])
+        delta, gamma = american_greeks(option['right'], float(receipt['baseFutures']) + lift, float(option['strike']), float(receipt['volatility']),
+                                       float(years(frame, option)), float(receipt['discountToExpiry']))
         contracts = open_lots[key] * float(option['multiplier'])
-        measured = (float(Fraction(values['delta'])) / contracts - delta, float(Fraction(values['gamma'])) / (contracts * gamma) - 1)
-        check(f'at two price steps the {key} option\'s delta is within half a point of discounted Black-76 at its held volatility, and its gamma within 2%',
-              abs(measured[0]) <= 0.005 and abs(measured[1]) <= 0.02, measured)
+        return float(Fraction(values['delta'])) / contracts - delta, float(Fraction(values['gamma'])) / (contracts * gamma) - 1
+    for key in ('on', 'lo'):
+        measured = greeks_off(report, key)
+        check(f'at two price steps the {key} option\'s delta is within 0.3 points of an independent tree at its held volatility, and its gamma within 1.5%',
+              abs(measured[0]) <= 0.003 and abs(measured[1]) <= 0.015, measured)
+    stressed = c.call('portfolio/risk', {**request_with({**spanning, factors['on']['id']: lifted_spanning}), 'stress': lifted}, timeout=TIMEOUT)
+    measured = greeks_off(stressed, 'on', lift=1)
+    check('at two price steps of the stressed price the on option\'s delta is within 0.3 points of the independent tree there, and its gamma within 1.5%',
+          abs(measured[0]) <= 0.003 and abs(measured[1]) <= 0.015, measured)
     deep_risk = position('deep')
     check('the intrinsic-mode position is exercised in scenarios: delta is one underlying contract per lot and gamma is zero',
           deep_risk['calibrationMode'] == FALLBACK_MODE and Fraction(deep_risk['values']['delta']) == Fraction(deep['multiplier'])
@@ -261,6 +290,49 @@ def run_checks(url, query, manifest, *, run_worker):
           f"{work['scenarioTreePrices']} scenario tree prices ({report['work']['unitPricerCalls']} unit pricer calls across every held instrument); immediate report {report_seconds:.2f} s, Blotter {blotter_seconds:.2f} s, "
           f"queued worker {worker_seconds:.2f} s with a sampled peak resident memory of {worker_peak / 1024:.0f} MiB; "
           f"host {platform.platform()} {platform.machine()} {os.cpu_count()} CPUs", flush=True)
+
+    # The same book on the strike-centred tree, which the request selects by its option numerical policy (D396). Its level
+    # spacing is within 1% of the rebuilt tree's step and its volatilities within 0.5%, so a shock 2% wider than the rebuilt
+    # tree's two steps is taken; the receipts it returns give the exact spacing.
+    wider = {factor: two_steps(size * Decimal('1.02') / 2, tick(next(f for f in factors.values() if f['id'] == factor))) for factor, size in spanning.items()}
+    started = time.monotonic()
+    centred = c.call('portfolio/risk', request_with(wider, CENTRED), timeout=TIMEOUT)
+    centred_seconds = time.monotonic() - started
+    solved = {r['series']['code']: r for r in centred['optionCalibrations'] if r['mode'] == 'solved'}
+    rebuilt_volatility = {r['series']['code']: r['volatility'] for r in report['optionCalibrations'] if r['mode'] == 'solved'}
+    check('a request that names the strike-centred policy is calibrated and valued under it: every receipt and option model names it, '
+          'and each series solves to a volatility within 0.5% of the rebuilt tree\'s',
+          {r['numericalPolicy'] for r in centred['optionCalibrations']} == {CENTRED} and {r['numericalPolicy'] for r in report['optionCalibrations']} == {REBUILT}
+          and CENTRED in {m['modelVersion'] for m in centred['modelContracts']} and REBUILT not in {m['modelVersion'] for m in centred['modelContracts']}
+          and solved.keys() == rebuilt_volatility.keys() and all(abs(Decimal(solved[k]['volatility']) / Decimal(rebuilt_volatility[k]) - 1) <= Decimal('0.005') for k in solved),
+          [(k, solved[k]['volatility'], rebuilt_volatility[k]) for k in solved])
+    for key in ('on', 'lo'):
+        option = held[key][1]
+        base = Fraction(position(key, run=centred)['values']['base'])
+        check(f'on the strike-centred tree the {key} option is still worth its settlement within half an increment per lot',
+              abs(base - Fraction(option['settlementPrice']) * Fraction(option['multiplier']) * open_lots[key])
+              <= Fraction(option['multiplier']) * Fraction(option['premiumTick']) / 2 * abs(open_lots[key]), base)
+    # Under discounting the strike-centred tree declares its level spacing as its price step, so the same refusal applies to it.
+    centred_spanning = {factors[k]['id']: two_steps(centred_price_step(Decimal(solved[held[k][1]['series']]['baseFutures']), Decimal(held[k][1]['strike']),
+                                                                       Decimal(solved[held[k][1]['series']]['volatility']), years(frame, held[k][1])), tick(factors[k]))
+                        for k in ('on', 'lo')}
+    refused = c.call('portfolio/risk', request_with({}, CENTRED), expected=422, timeout=TIMEOUT)
+    check('on the strike-centred tree a one-tick shock is refused too, naming the smallest shock that spans two of its level spacings',
+          refused['code'] == 'risk_bump' and all(too_small(factors[k]['label'], tick(factors[k]), centred_spanning[factors[k]['id']]) in refused['message'] for k in ('on', 'lo')), refused)
+    centred = c.call('portfolio/risk', request_with(centred_spanning, CENTRED), timeout=TIMEOUT)
+    for key in ('on', 'lo'):
+        measured = greeks_off(centred, key)
+        check(f'at two of its price steps the {key} option\'s delta on the strike-centred tree is within 0.3 points of the independent tree, and its gamma within 1.5%',
+              abs(measured[0]) <= 0.003 and abs(measured[1]) <= 0.015, measured)
+    centred_job = c.call('portfolio/risk/jobs', dict(requestId=str(uuid4()), request=request_with(centred_spanning, CENTRED)), timeout=TIMEOUT)
+    run_worker()
+    centred_replay = c.call('portfolio/risk/jobs/' + centred_job['id'])
+    check('a queued job that names the strike-centred policy replays to the immediate report under it',
+          centred_replay['state'] == 'completed' and comparable(centred_replay['result']) == comparable(centred),
+          centred_replay.get('errorCode', centred_replay['state']))
+    print('WORKLOAD futures option risk on the strike-centred tree: '
+          f"{centred['optionWork']['calibrationTreePrices']} calibration tree prices, {centred['optionWork']['scenarioTreePrices']} scenario tree prices; "
+          f"immediate report {centred_seconds:.2f} s against {report_seconds:.2f} s on the rebuilt tree", flush=True)
 
     # The later close of the first day pins no settlement of the long ON call's series: only that option is left out.
     c.call('profile', {'profile': 'trader'})
@@ -303,8 +375,8 @@ def run_checks(url, query, manifest, *, run_worker):
     lapsing_factor = next(f for f in other_catalog['factors'] if f['curves'] == ['nymex_cl'] and f['deliveryFrom'] == '2027-02-01')
     lapsing_row = next(r for r in other['holdings'] if r['tradeId'] == paid['tradeId'] and r['bindingId'] == paid['optionInstrumentId'])
     other_report = c.call('portfolio/risk', dict(request, context=other_context, bookIds=[other_book], pricingPolicy=other_catalog['pricingPolicy'],
-                          bumps=[dict(factor=lapsing_factor['factor'], convention=other_catalog['bumpConvention'], size=format(two_price_steps(
-                              lapsing_factor['value'], lapsing_row['impliedVolatility'], years(frame, lapsing), Decimal('0.01')), 'f'))]), timeout=TIMEOUT)
+                          bumps=[dict(factor=lapsing_factor['factor'], convention=other_catalog['bumpConvention'], size=plain(two_steps(rebuilt_price_step(
+                              Decimal(lapsing_factor['value']), Decimal(lapsing_row['impliedVolatility']), years(frame, lapsing)), Decimal('0.01'))))]), timeout=TIMEOUT)
     settled_risk = next(p for p in other_report['factors'][0]['positions'] if p['tradeId'] == paid['tradeId'] and p['bindingId'] == paid['premiumInstrumentId'])
     check('portfolio risk holds the settled premium at zero under that measure and does not list it as excluded',
           Fraction(settled_risk['values']['base']) == 0 and settled_risk['measureLabel'] == 'Option value excluding settled premium cash'
@@ -381,21 +453,55 @@ def years(frame, option):
         return Decimal(elapsed) / (365 * 86400 * 10**6)
 
 
-def two_price_steps(futures, volatility, expiry_years, tick, steps=400):
-    """Two price steps of the lattice in whole ticks: a step is futures × (exp(2 × volatility × √(years ÷ steps)) − 1) (futures-options.md)."""
+def rebuilt_price_step(futures, volatility, expiry_years, steps=400):
+    """The price step of the tree rebuilt around the futures price: futures × (exp(2 × volatility × √(years ÷ steps)) − 1) (futures-options.md)."""
     with localcontext() as exact_context:
         exact_context.prec = 50
-        step = Decimal(futures) * ((2 * Decimal(volatility) * (expiry_years / steps).sqrt()).exp() - 1)
+        return futures * ((2 * volatility * (expiry_years / steps).sqrt()).exp() - 1)
+
+
+def centred_price_step(futures, strike, volatility, expiry_years, steps=401):
+    """The price step of the strike-centred tree under discounting, its level spacing: futures × (u ÷ d − 1), where u = h(d1) ÷ h(d2),
+    d = (1 − h(d1)) ÷ (1 − h(d2)) and h is the Peizer-Pratt inversion (futures-options.md)."""
+    with localcontext() as exact_context:
+        exact_context.prec = 50
+
+        def inversion(deviations):
+            scaled = deviations / (steps + Decimal(1) / 3 + Decimal('0.1') / (steps + 1))
+            half = (1 - (-scaled * scaled * (steps + Decimal(1) / 6)).exp()).sqrt() / 2
+            return Decimal('0.5') + (half if deviations >= 0 else -half)
+        width = volatility * expiry_years.sqrt()
+        d1 = (futures / strike).ln() / width + width / 2
+        tilted, probability = inversion(d1), inversion(d1 - width)
+        return futures * (tilted * (1 - probability) / (probability * (1 - tilted)) - 1)
+
+
+def plain(value):
+    """A decimal as the backend prints one: no exponent and no trailing zeros."""
+    return format(value.normalize(), 'f')
+
+
+def two_steps(step, tick):
+    """Two price steps in whole trading ticks."""
+    with localcontext() as exact_context:
+        exact_context.prec = 50
         return (2 * step / tick).to_integral_value(rounding=ROUND_CEILING) * tick
 
 
-def black76_greeks(right, futures, strike, volatility, expiry_years, discount):
-    """Delta and gamma per unit of quote under discounted Black-76. Against a 20,000-step tree with early exercise, the closed form
-    is within 0.2 points of delta and 0.8% of gamma for the two options this check holds."""
-    width = volatility * sqrt(expiry_years)
-    d1 = (log(futures / strike) + width * width / 2) / width
-    normal = NormalDist()
-    return discount * (normal.cdf(d1) - (0 if right == 'call' else 1)), discount * normal.pdf(d1) / (futures * width)
+def american_greeks(right, futures, strike, volatility, expiry_years, discount, steps=1000):
+    """Delta and gamma per unit of quote from an independent binary64 Cox-Ross-Rubinstein tree with early exercise. The tree starts
+    two steps before the valuation instant, so the futures price and both its neighbours are nodes, and the Greeks are read from
+    those three nodes rather than from repricing."""
+    spread = volatility * sqrt(expiry_years / steps)
+    up, step_discount = (1 - exp(-spread)) / (exp(spread) - exp(-spread)), discount ** (1 / steps)
+    # The exercise value at each level: level steps + 2 + j is the futures price times exp(j × spread).
+    prices = [futures * exp((level - steps - 2) * spread) for level in range(2 * steps + 5)]
+    payoffs = [max(price - strike if right == 'call' else strike - price, 0.0) for price in prices]
+    values = [payoffs[2 * (steps + 2 - node)] for node in range(steps + 3)]
+    for step in range(steps + 1, 1, -1):
+        values = [max(step_discount * (up * values[node] + (1 - up) * values[node + 1]), payoffs[step - 2 * node + steps + 2]) for node in range(step + 1)]
+    above, below = prices[steps + 4], prices[steps]
+    return (values[0] - values[2]) / (above - below), ((values[0] - values[1]) / (above - futures) - (values[1] - values[2]) / (futures - below)) / ((above - below) / 2)
 
 
 def booked_premium(query, manifest, trade):

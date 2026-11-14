@@ -4903,12 +4903,13 @@ the cause for every consumer and need their own model version. See
 
 Decided since by D395: the portfolio risk bump report refuses a shock under two
 declared price steps. Deal risk values futures and swaps only and reaches no
-option. Parametric VaR and the PCA hybrid still bump by ticks.
+option. Parametric VaR and the PCA hybrid still bump by ticks. D396 adds a tree
+centred on the strike under its own model version, selectable and not stated.
 
 ## D395 · A bump report refuses a shock under two declared price steps
 
 2026-11-13. Decided by the owner as the first step of a staged change whose
-second step is a tree with values smooth in the futures price. Extends the
+second step is a tree with values smooth in the futures price (D396). Extends the
 declared price step of D394 from the trading P&L to the portfolio risk bump
 report. Valuation, every value the report states and authority are unchanged.
 
@@ -4926,7 +4927,10 @@ report. Valuation, every value the report states and authority are unchanged.
   several such prices is held to the largest step. The message names each such
   target, up to three, with the smallest shock in whole trading ticks that spans
   two steps, and counts the rest. Nothing is resized or filled in: the shock is
-  also the scenario the person reads.
+  also the scenario the person reads. A step is declared at the unstressed
+  price. Where nested stresses move that price the step is taken at the stressed
+  one, in proportion to it, which is exact for a tree whose levels lie a
+  constant factor apart.
 - **Reach.** Every way a bump report is asked for: the immediate report, a
   queued job when it is submitted and when it runs, and each part of a saved run
   definition. The Blotter's risk tab, the delta ladder, the Positions widget and
@@ -4934,22 +4938,113 @@ report. Valuation, every value the report states and authority are unchanged.
 - **Not covered.** Nested stresses move the scenario and are not differenced, so
   they take any size. Joint derivatives state whether their half, nominal and
   double estimates agree. A parametric request sizes its own bumps in trading
-  ticks and tests the agreement of its deltas; the gamma it shows beside them is
-  still a one-bump figure. Historical and Monte Carlo VaR reprice in full.
+  ticks and is left as it was. Its agreement test does not see this cause:
+  three bumps inside one straight piece always agree. Measured on 2026-11-13 and
+  pinned by no check, at one tick the three delta estimates of all 48 sampled
+  options agreed within 0.0001 while a delta was up to 1.4 points off, and the
+  gamma it shows beside them is a one-bump figure. Historical and Monte Carlo
+  VaR reprice in full.
 - **Measured error.** No bound is claimed. On 22 options of the exchange
   example, one pair at two to six of the option's own price steps read a gamma
   within 4% of the option's and a delta within 1.5 points; the error grows with
   the shock, to 7% at ten steps. Those figures were measured on 2026-11-13 and
   are pinned by no check. The live check pins the two solved options it holds at
-  two price steps: a delta within half a point and a gamma within 2% of
-  discounted Black-76 at the held volatility.
+  two price steps, and one of them again under a nested stress of 1.00: a delta
+  within 0.3 points and a gamma within 1.5% of an independent tree at the held
+  volatility. It also pins the refusal of a whole-curve shock and of a shock that
+  spans two steps only at the unstressed price.
 
 Not chosen. Sizing the shock for the person changes the scenario they asked
 for. Withholding an option's delta and gamma at a small shock leaves the person
 with none.
 
 Open. A shock has no upper bound, and a delta read across many price steps
-drifts from the option's own. The parametric report's shown gamma. The catalog
-does not state a factor's smallest shock, so a page learns it from the refusal.
-A run definition saved with a smaller shock is refused when it next runs.
+drifts from the option's own. A parametric report's option deltas and the gamma
+it shows. The catalog does not state a factor's smallest shock, so a page
+learns it from the refusal. A run definition saved with a smaller shock is
+refused when it next runs.
+
+## D396 · A strike-centred option tree is selectable by its own numerical policy and is not the stated one
+
+2026-11-13. Decided by the owner as the second step of the staged change of
+D395: build the tree behind a new policy id and measure it before deciding
+whether to state it. What the tree declares and how it is computed follow the
+measurements. The rebuilt tree, every value it gives and every stated policy are
+unchanged.
+
+- **Policy.** `american_futures_option_leisen_reimer_v1` is a Leisen-Reimer tree
+  with the Peizer-Pratt inversion at 401 steps. It shares the day count, the
+  volatility bracket and the iteration limit of `american_futures_option_crr_v1`
+  and states a step stability tolerance of 0.01. An option numerical policy
+  names its lattice. A request selects a policy in its pricing policy's option
+  valuation, and a name that is not a policy is refused. A valuation's declared
+  model version is the numerical policy it was calibrated and is repriced under,
+  and its calibration receipt names it.
+- **Why centred on the strike.** The strike lies between the tree's two middle
+  terminal nodes at every futures price, so no level crosses it as the price
+  moves. That crossing is the bend D394 found in the rebuilt tree.
+- **Declared price step.** At a unit discount nothing is exercised early, the
+  value is smooth in the futures price and the tree declares no step. Under
+  discounting the exercise boundary crosses the tree's levels as the price
+  moves and the value keeps an oscillation of about one level spacing. The tree
+  then declares that spacing, the futures price times u ÷ d − 1. Near the money
+  it is the rebuilt tree's step within 1%; far from the money it is set by the
+  distance to the strike and is wider. The P&L bump (D394) and the bump
+  report's refusal (D395) apply to it unchanged.
+- **Measured.** The calculation checks pin, in the product's arithmetic:
+  agreement with an independent 60-digit evaluation of the same lattice to 22
+  decimal places; at a unit discount, a value within
+  0.025 · F · σ · √T ÷ Steps² of Black-76 on the oracle's cases, a constant that
+  rises to 0.026 and 0.053 two deviations out of the money where volatility
+  times root time is one and two, and a one-tick delta within 0.001 points and
+  gamma within 0.005% of Black-76; under discounting, a value within
+  0.00005 · F · σ · √T of an independent 20,000-step tree for 33 of the oracle's
+  34 options and within 0.0002 for the other; on 48 options drawn from a fixed
+  sequence and discounted at 5% a year, at one tick 47 deltas that agree within
+  0.0001, each within 0.15 points, nine gammas over 2% off, seven of them over
+  5% and in the money, and a gamma 23% off that the offered 10% agreement would
+  use; and at two declared price steps every one of those gammas within 2% and
+  every delta within 0.4 points. The live check selects the policy in a bump
+  report on the exchange example: each series solves to a volatility within 0.5%
+  of the rebuilt tree's and is worth its settlement within half an increment, a
+  one-tick shock is refused naming two level spacings, at two of them each
+  solved option's delta is within 0.3 points and gamma within 1.5% of an
+  independent tree, and a queued job replays to the immediate report.
+- **Cost.** Measured on the development machine and asserted by no check: one
+  tree price takes 1.3 to 1.4 times the rebuilt tree's, and the live check's
+  report took 2.1 to 2.2 s against 1.6 to 1.9 s on the rebuilt tree.
+- **Numerics.** A node's price is a centre, running from the futures price
+  towards the strike, times a spread; each is one exponential of a scaled
+  logarithm. The logarithm of a probability under one half is formed from the
+  inversion's exponent, so it stays finite where the probability rounds to
+  zero: hundreds of deviations from the money the tree stays at the futures
+  price and is worth exactly intrinsic. Close to d1 or d2 = 0 the inversion is
+  formed from the deviations themselves, not from a difference that would keep
+  few digits. The top of the solver's bracket, where the highest node or the
+  widest spread reaches 10²³, has no closed form and is found by halving. The
+  highest node mirrors the futures price about the strike, so the tree's range
+  depends on both prices and is narrower than the rebuilt tree's for a strike
+  far above the futures price.
+
+Not chosen. Declaring no price step for the strike-centred tree: under
+discounting a one-tick gamma of an option in the money is then shown over 5%
+off, and the offered agreement uses one that is 23% off. The rebuilt tree with
+its last step replaced by the closed form
+keeps a visible bend: in a binary64 prototype its one-tick gamma was within 5%
+at 17% to 100% of prices where the strike-centred tree's was at 92% to 100%.
+More steps cost their square. That prototype figure was measured on 2026-11-13
+and is pinned by no check.
+
+Open. Whether to state the strike-centred tree. Stating it needs a schema
+release, because the stored volatility-surface tables accept only the rebuilt
+tree's policy; a new pinned digest and new example calibrations; and one
+decision for the Blotter, the risk catalog, the trading P&L and volatility
+surfaces together. It would not remove the two-step bump for discounted
+options. Parametric VaR, the PCA hybrid and joint derivatives have not been run
+through the API on a book valued under it. Its result digest is pinned from one
+macOS run and has not been observed on Linux. An option beside its exercise
+boundary has no usable one-tick gamma on either tree. The Risk page opens a
+person's recent run for a scope without regard to its pricing policy and does
+not show a run's option numerical policy, so a run requested under this tree
+opens there unlabelled.
 

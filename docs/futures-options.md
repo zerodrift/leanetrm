@@ -85,22 +85,29 @@ retry does; otherwise it is refused as an unseen series.
 
 ## Valuation
 
-The model is `american_futures_option_crr_v1`: a Cox-Ross-Rubinstein binomial tree on
-the futures price with zero drift, valued by a project-owned backward-induction core
-that chooses hold or exercise at every node. All arithmetic is fixed-point decimal
-with 30 fractional digits and half-even rounding, with project-owned `exp`, `ln` and
-`sqrt`, so results do not depend on a platform math library. The pinned numerical
-policy is:
+An option is valued on a binomial tree of its underlying futures price, with zero
+drift, by a project-owned backward-induction core that chooses hold or exercise
+at every node. All arithmetic is fixed-point decimal with 30 fractional digits
+and half-even rounding, with project-owned `exp`, `ln` and `sqrt`, so results do
+not depend on a platform math library.
 
-| Setting | Value |
-| --- | --- |
-| Steps | 400 |
-| Day count | `act_365_fixed_instant_v1`: exact elapsed time over a 365-day year |
-| Volatility bracket | 0.01 to 3, lowered per series where the tree's range ends (recorded) |
-| Bisection iterations | at most 30 |
-| Step stability tolerance | 0.005: the tree at 400 steps agrees with 1,600 steps on the convergence cases |
-| Accuracy bound | at a unit discount, \|tree − Black-76\| ≤ 0.125 · F · σ · √T / Steps |
-| Money conversion | the 30-digit unit price is rounded once, half-even, to 18 digits before the multiplier |
+A calculation selects the tree by its option numerical policy. There are two.
+`american_futures_option_crr_v1` is the one the Blotter, the risk catalog, the
+trading P&L and volatility surfaces state. `american_futures_option_leisen_reimer_v1`
+is selected only by a request that names it (D396); see
+[the strike-centred tree](#the-strike-centred-tree).
+
+| Setting | `american_futures_option_crr_v1` | `american_futures_option_leisen_reimer_v1` |
+| --- | --- | --- |
+| Tree | Cox-Ross-Rubinstein, rebuilt around each futures price | Leisen-Reimer with the Peizer-Pratt inversion, centred on the strike |
+| Steps | 400 | 401; the count must be odd |
+| Day count | `act_365_fixed_instant_v1`: exact elapsed time over a 365-day year | the same |
+| Volatility bracket | 0.01 to 3, lowered per series where the tree's range ends (recorded) | the same; the range's end is found by halving |
+| Bisection iterations | at most 30 | at most 30 |
+| Step stability tolerance | 0.005: 400 steps agree with 1,600 on the convergence cases | 0.01: 401 steps agree with 1,605 on the same cases, within 0.001 on all but one |
+| Accuracy at a unit discount, on the oracle's cases | \|tree − Black-76\| ≤ 0.125 · F · σ · √T / Steps | \|tree − Black-76\| ≤ 0.025 · F · σ · √T / Steps² |
+| Price step | F · (exp(2 · σ · √(T ÷ Steps)) − 1) | none at a unit discount; under discounting the level spacing F · (u ÷ d − 1) |
+| Money conversion | the 30-digit unit price is rounded once, half-even, to 18 digits before the multiplier | the same |
 
 A discount factor above one (a negative rate) is rejected with `option_input`.
 
@@ -132,15 +139,15 @@ only. Its settlement curve is a calibration input read from the base market, not
 risk factor, so no scenario shocks it; this is intentional. A new settlement revision
 changes the snapshot, and every run recalibrates from its pinned inputs.
 
-**Price step.** The tree is rebuilt around each scenario futures price, so its
-value is piecewise linear in that price. It bends where a lattice level crosses
-the strike and, under discounting, far less where an exercise decision changes.
-The strike crossings lie one price step apart: the futures
+**Price step.** The rebuilt tree is laid out around each scenario futures price,
+so its value is piecewise linear in that price. It bends where a lattice level
+crosses the strike and, under discounting, far less where an exercise decision
+changes. The strike crossings lie one price step apart: the futures
 price times exp(2 · volatility · √(years ÷ steps)) − 1, which is 63 to 165 trading
-ticks for the example's at-the-money calls. A solved option declares that step on
-its underlying futures dependency, at its base futures price and held volatility.
-An option valued at intrinsic has no lattice and declares none. A second
-difference of the value is meaningful only across whole steps. The
+ticks for the example's at-the-money calls. A solved option declares its tree's
+step on its underlying futures dependency, at its base futures price and held
+volatility. An option valued at intrinsic has no lattice and declares none. A
+second difference of the value is meaningful only across whole steps. The
 [trading P&L bump](trading-pnl.md#price-bump) is sized from the step, and the
 portfolio risk bump report refuses a shock of the underlying under two steps
 (D395).
@@ -171,6 +178,63 @@ pending premium, or an option's expiry, dated outside the selected rate curve's
 pillars is listed with `discount_coverage`; the curve is not extrapolated, and the
 rest of the book is valued (D290). A currency without a discount default fails the
 read with `discount_curve_missing`.
+
+### The strike-centred tree
+
+`american_futures_option_leisen_reimer_v1` (D396) places the tree so that the
+strike lies between its two middle terminal nodes at every futures price. No
+level then crosses the strike as the price moves. Its up probability is the
+Peizer-Pratt inversion h at Black-76's d2, its up factor is h(d1) ÷ h(d2) and its
+down factor is (1 − h(d1)) ÷ (1 − h(d2)), so the futures price stays a
+martingale. The exercise decisions, the solver, the scenario policy and the
+intrinsic fallback are the rebuilt tree's.
+
+It is built and checked, and a request may select it in its pricing policy's
+`futuresOptions.numericalPolicy`. Nothing states it: the Blotter, the risk
+catalog, the trading P&L and volatility surfaces use the rebuilt tree, and the
+stored volatility-surface tables accept only that policy. Whether to make it the
+stated policy is undecided. What the checks pin:
+
+- **Values.** The tree equals an independent 60-digit evaluation of the same
+  lattice to 22 decimal places, one case within 10⁻¹³ of d2 = 0 included. At a
+  unit discount it is within 0.025 · F · σ · √T / Steps² of Black-76 on the
+  oracle's cases, at 101 steps as at 401; at the pinned step counts that bound
+  is a two-thousandth of the rebuilt tree's. It is not a bound for every option:
+  two deviations out of the money the constant is 0.026 where volatility times
+  root time is one and 0.053 where it is two. Under discounting the error is
+  first order: against an independent 20,000-step tree it is within
+  0.00005 · F · σ · √T for 33 of the oracle's 34 options and within 0.0002 for
+  the other, a put far in the money two years out at a discount of 0.9, where
+  the rebuilt tree is closer. Hundreds of deviations from the money the tree is
+  worth exactly intrinsic.
+- **Range.** The tree's highest node mirrors the futures price about the strike,
+  so its range depends on both prices. A strike far above the futures price can
+  leave no volatility to solve for, where the rebuilt tree values the option;
+  the refusal names both prices.
+- **Undiscounted Greeks.** At a unit discount nothing is exercised early and the
+  value is smooth in the futures price. A one-tick delta is within 0.001 points
+  of Black-76 and a one-tick gamma within 0.005%, on 39 listed options and on 48
+  drawn from a fixed sequence; the three delta estimates agree within 0.0001.
+- **Discounted Greeks.** Under discounting the exercise boundary crosses the
+  tree's levels as the price moves, and the value keeps an oscillation of about
+  one level spacing. One tick lies inside it. On the 48 drawn options discounted
+  at 5% a year, against an independent tree: 47 one-tick deltas agree within
+  0.0001 and all are within 0.15 points, but nine one-tick gammas are over 2% off
+  and seven over 5%, all seven in the money, and the P&L's 10% agreement would
+  use one that is 23% off. So the tree declares its level spacing as its price
+  step whenever it is discounted, and the same consumers size and refuse by it.
+  At two such steps every one of those gammas is within 2% and every delta within
+  0.4 points. Of the oracle's 31 discounted options with a delta to judge, 24
+  have gamma estimates at two steps that agree within 10%, each within 4% of an
+  independent tree; the seven that do not agree have a volatility times root
+  time of 1.4 or more, and a single pair there reads up to 9% off.
+
+Measured on 2026-11-13 and pinned by no check. One tree price takes 1.3 to 1.4
+times the rebuilt tree's on the development machine: a node's price is a product
+of two factors rather than a lookup. On the same 48 options at 5% the rebuilt
+tree at two of its own steps reads every gamma within 2.3% and every delta within
+0.34 points, and at one tick reads 46 of 48 gammas over 10% off and deltas up to
+1.4 points off while its three delta estimates agree within 0.0001.
 
 ## Lifecycle
 
@@ -242,13 +306,17 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
   annualized-volatility units; the stored analytical surface is still not a pricing
   source. See [valuation layers](valuation-context-layers.md).
 - **Tick-sized risk bumps.** Parametric VaR and the PCA hybrid bump futures by
-  trading ticks. For a tree-priced option a one-tick delta is the slope of one
-  straight piece of its value, and the gamma a parametric report shows beside
-  its deltas is not the option's. The trading P&L sizes its bump from the
+  trading ticks. On the rebuilt tree a one-tick delta is the slope of one
+  straight piece of the option's value, which a parametric report's agreement
+  test cannot see because three bumps inside one piece always agree, and the
+  gamma it shows beside its deltas is not the option's. The trading P&L sizes its bump from the
   declared price step and the bump report refuses a shock under two steps
-  (D395); neither removes the cause. Scenario values that are smooth in the
-  futures price would, for every consumer; they change every option value and
-  need their own model version.
+  (D395); neither removes the cause. The
+  [strike-centred tree](#the-strike-centred-tree) removes it where nothing is
+  discounted and leaves a smaller form of it where an option in the money can be
+  exercised early. It is selectable and is not the stated policy; stating it
+  needs a decision, a schema release for the volatility-surface tables and new
+  pinned values.
 - **Margined premium.** Futures-style margined premium needs futures variation
   margin first.
 - **Other option types.** European, cash-settled, weekly, calendar spread, crack

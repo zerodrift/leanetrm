@@ -19,19 +19,32 @@ public sealed record FuturesOptionTerms(OptionRight Right, ExactDecimal Strike, 
         : throw new MarketDataException("option_terms", $"Unsupported settlement method '{SettlementMethod}'; only exercise_into_future is supported.");
 }
 
-// Steps and DayCount drive the lattice; the volatility bracket and MaxIterations
+// How a tree is laid out against the futures price and the strike.
+public enum OptionLattice
+{
+    // Cox-Ross-Rubinstein: levels a constant factor apart around the futures price. The tree is rebuilt around each
+    // scenario price, so a level crosses the strike once per price step and the value bends there.
+    RebuiltAroundFutures = 1,
+    // Leisen-Reimer: an odd number of steps whose two middle terminal nodes lie either side of the strike at every
+    // futures price, so no level crosses it.
+    CentredOnStrike,
+}
+
+// Lattice, Steps and DayCount drive the tree; the volatility bracket and MaxIterations
 // are the implied-volatility solver's limits. PriceTolerance (price units per unit
 // of quote) is the step-count stability tolerance: on the convergence cases the
 // pinned tree agrees with a tree of four times the steps within it. It is neither
 // an accuracy bound (see AmericanFuturesOptionModel) nor the calibration round-trip
 // bound, which is half the series' clearing increment.
 public sealed record OptionNumericalPolicy(
-    string Id, int Steps, string DayCount, LatticeDecimal VolatilityMin, LatticeDecimal VolatilityMax,
+    string Id, OptionLattice Lattice, int Steps, string DayCount, LatticeDecimal VolatilityMin, LatticeDecimal VolatilityMax,
     LatticeDecimal PriceTolerance, int MaxIterations);
 
 public static class OptionNumericalPolicies
 {
     public const string ActualOver365FixedInstant = "act_365_fixed_instant_v1";
+    public const string CoxRossRubinstein = "american_futures_option_crr_v1";
+    public const string LeisenReimer = "american_futures_option_leisen_reimer_v1";
 
     // Chosen from convergence evidence over the Black-76 oracle cases:
     // - 400 steps bound |tree - Black-76| by F*sigma*sqrt(T)/3200. Observed errors
@@ -48,24 +61,37 @@ public static class OptionNumericalPolicies
     // - Instrument PVs round the 30-digit unit price once, half-even, to the 18-digit
     //   working scale before applying the contract multiplier (FuturesOptionInstrument.PV).
     private static readonly OptionNumericalPolicy CrrV1 = new(
-        AmericanFuturesOptionModel.Id, 400, ActualOver365FixedInstant,
+        CoxRossRubinstein, OptionLattice.RebuiltAroundFutures, 400, ActualOver365FixedInstant,
         LatticeDecimal.Parse("0.01"), LatticeDecimal.Parse("3"), LatticeDecimal.Parse("0.005"), 30);
 
-    public static OptionNumericalPolicy Require(string id) =>
-        id == CrrV1.Id ? CrrV1
-            : throw new MarketDataException("option_numerical_policy", $"Unknown option numerical policy '{id}'.");
+    // The strike-centred tree keeps the day count, the bracket and the iteration limit. From the same oracle cases:
+    // - 401 steps bound |tree - Black-76| at a unit discount by 0.025*F*sigma*sqrt(T)/401^2, a two-thousandth of the
+    //   rebuilt tree's bound. The step count is odd: the strike lies between the two middle terminal nodes.
+    // - PriceTolerance 0.01 is one NYMEX CL clearing increment; |V(401) - V(1605)| is 0.0060 for one put far in the
+    //   money under a discount of 0.9 and under 0.001 on the other convergence cases.
+    // - The bracket's top is limited by the tree's range, which has no closed form here (ImpliedVolatility).
+    private static readonly OptionNumericalPolicy LeisenReimerV1 = new(
+        LeisenReimer, OptionLattice.CentredOnStrike, 401, ActualOver365FixedInstant,
+        LatticeDecimal.Parse("0.01"), LatticeDecimal.Parse("3"), LatticeDecimal.Parse("0.01"), 30);
+
+    public static OptionNumericalPolicy Require(string id) => id switch
+    {
+        CoxRossRubinstein => CrrV1,
+        LeisenReimer => LeisenReimerV1,
+        _ => throw new MarketDataException("option_numerical_policy", $"Unknown option numerical policy '{id}'."),
+    };
 }
 
 internal enum FuturesOptionState { Alive, Exercised }
 
-// A Cox-Ross-Rubinstein binomial tree on the futures price with zero drift, valued
-// by backward induction with an early-exercise decision at every node.
-// Accuracy: at a unit discount, |value - Black-76| <= 0.125 * F * sigma * sqrt(T) / Steps
-// over the oracle cases (largest observed ratio 0.0996, at the money, which is CRR's
-// leading error term 1/(4*sqrt(2*pi))).
+// A binomial tree on the futures price with zero drift, valued by backward induction
+// with an early-exercise decision at every node. The numerical policy names the tree.
+// Rebuilt around the futures price (Cox-Ross-Rubinstein): at a unit discount,
+// |value - Black-76| <= 0.125 * F * sigma * sqrt(T) / Steps over the oracle cases
+// (largest observed ratio 0.0996, at the money, which is CRR's leading error term
+// 1/(4*sqrt(2*pi))). Centred on the strike (Leisen-Reimer): see StrikeCentredLattice.
 public static class AmericanFuturesOptionModel
 {
-    public const string Id = "american_futures_option_crr_v1";
     private static readonly LatticeDecimal Zero = LatticeDecimal.Parse("0");
     private static readonly LatticeDecimal One = LatticeDecimal.Parse("1");
     private static readonly LatticeDecimal TicksPerYear = Integer(365 * TimeSpan.TicksPerDay);
@@ -91,8 +117,11 @@ public static class AmericanFuturesOptionModel
     {
         var years = ValidateInputs(terms, futures, discountToExpiry, valuationAt, policy);
         RequirePositive(volatility, "volatility");
-        var lattice = new FuturesLattice(futures, volatility, years, discountToExpiry, policy.Steps);
-        return BackwardInduction.Solve(lattice, new AmericanOption(terms.Right, LatticeDecimal.From(terms.Strike)), ct, recordDecisions);
+        var strike = LatticeDecimal.From(terms.Strike);
+        ILattice lattice = policy.Lattice == OptionLattice.CentredOnStrike
+            ? new StrikeCentredLattice(futures, strike, volatility, years, discountToExpiry, policy.Steps)
+            : new FuturesLattice(futures, volatility, years, discountToExpiry, policy.Steps);
+        return BackwardInduction.Solve(lattice, new AmericanOption(terms.Right, strike), ct, recordDecisions);
     }
 
     // The checks on everything but volatility, shared with the implied-volatility
@@ -116,31 +145,44 @@ public static class AmericanFuturesOptionModel
             throw new MarketDataException("option_input", $"The {name} must be positive; got {value}.");
     }
 
-    private static LatticeDecimal Integer(long value) => LatticeDecimal.Parse(value.ToString(CultureInfo.InvariantCulture));
+    internal static LatticeDecimal Integer(long value) => LatticeDecimal.Parse(value.ToString(CultureInfo.InvariantCulture));
 
     // The lattice's log step: sigma * sqrt(T / Steps).
     private static LatticeDecimal Spread(LatticeDecimal volatility, LatticeDecimal years, int steps) =>
         volatility * (years / Integer(steps)).Sqrt();
 
-    // The gap in futures price between neighbouring strike crossings, at this futures price. The lattice is rebuilt
-    // around each futures price and its levels of one step lie a factor exp(2 * spread) apart, so the value is piecewise
-    // linear in the futures price. Its bends are where a level crosses the strike, once per such factor, and, under
-    // discounting, at far smaller ones where an exercise decision changes. A second difference of the value is meaningful
-    // only across whole steps of this size.
-    public static LatticeDecimal PriceStep(LatticeDecimal futures, LatticeDecimal volatility, DateTimeOffset valuationAt,
-        DateTimeOffset expiryAt, OptionNumericalPolicy policy)
+    // The move of the futures price across which the tree's value repeats its pattern, at this futures price, or null
+    // where it has none. A second difference of the value is meaningful only across whole steps of this size.
+    //
+    // A tree rebuilt around the futures price has levels a factor exp(2 * spread) apart, so its value is piecewise
+    // linear in the futures price. It bends where a level crosses the strike, once per such factor, and, under
+    // discounting, at far smaller bends where an exercise decision changes.
+    //
+    // A tree centred on the strike has no strike crossing. At a unit discount nothing is exercised early, its value is
+    // smooth in the futures price and it has no step. Under discounting the exercise boundary crosses its levels as the
+    // price moves, which leaves an oscillation of about one level spacing, a factor u/d: a twentieth to a fiftieth of
+    // the rebuilt tree's on the options measured, and enough to spoil a second difference inside one spacing for an
+    // option in the money.
+    public static LatticeDecimal? PriceStep(FuturesOptionTerms terms, LatticeDecimal futures, LatticeDecimal volatility,
+        LatticeDecimal discountToExpiry, DateTimeOffset valuationAt, OptionNumericalPolicy policy)
     {
-        RequirePositive(futures, "futures price");
+        var years = ValidateInputs(terms, futures, discountToExpiry, valuationAt, policy);
         RequirePositive(volatility, "volatility");
-        RequireSteps(policy);
-        var spread = Spread(volatility, YearFraction(valuationAt, expiryAt, policy), policy.Steps);
+        if (policy.Lattice == OptionLattice.CentredOnStrike)
+            return discountToExpiry == One ? null
+                : StrikeCentredLattice.LevelSpacing(futures, LatticeDecimal.From(terms.Strike), volatility, years, policy.Steps);
+        var spread = Spread(volatility, years, policy.Steps);
         return futures * ((spread + spread).Exp() - One);
     }
 
     private static void RequireSteps(OptionNumericalPolicy policy)
     {
+        if (!Enum.IsDefined(policy.Lattice))
+            throw new MarketDataException("option_numerical_policy", $"Unsupported lattice {(int)policy.Lattice}.");
         if (policy.Steps < 1)
             throw new MarketDataException("option_numerical_policy", $"The policy needs at least one step; got {policy.Steps}.");
+        if (policy.Lattice == OptionLattice.CentredOnStrike && policy.Steps % 2 == 0)
+            throw new MarketDataException("option_numerical_policy", $"A tree centred on the strike needs an odd number of steps; got {policy.Steps}.");
     }
 
     // Recombining tree: node i at step k has had i down moves, so its futures price

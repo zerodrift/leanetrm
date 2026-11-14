@@ -49,16 +49,20 @@ public static class ImpliedVolatility
             throw new MarketDataException("option_numerical_policy",
                 $"Policy '{policy.Id}' needs at least one iteration and 0 < VolatilityMin < VolatilityMax.");
 
-        var upperBound = UpperBound(futures, years, policy);
+        var strike = LatticeDecimal.From(terms.Strike);
+        var centred = policy.Lattice == OptionLattice.CentredOnStrike;
+        var upperBound = centred ? CentredUpperBound(futures, strike, years, policy) : UpperBound(futures, years, policy);
+        // A tree centred on the strike reaches as far beyond the strike as the futures price lies from it, so its range
+        // depends on both prices.
         if (upperBound.CompareTo(policy.VolatilityMin) <= 0)
-            throw new MarketDataException("option_input",
-                $"At futures {futures} the tree's range admits no volatility above VolatilityMin {policy.VolatilityMin}.");
+            throw new MarketDataException("option_input", centred
+                ? $"At futures {futures} and strike {strike} the tree's range admits no volatility above VolatilityMin {policy.VolatilityMin}."
+                : $"At futures {futures} the tree's range admits no volatility above VolatilityMin {policy.VolatilityMin}.");
 
         LatticeDecimal Price(LatticeDecimal volatility) =>
             AmericanFuturesOptionModel.UnitPrice(terms, futures, volatility, discountToExpiry, valuationAt, policy, ct);
         var series = $"{terms.Right} strike {terms.Strike} expiring {terms.ExpiryAt:O}";
 
-        var strike = LatticeDecimal.From(terms.Strike);
         var intrinsic = LatticeDecimal.Max(terms.Right == OptionRight.Call ? futures - strike : strike - futures, Zero);
         if (settlement.CompareTo(intrinsic - clearingIncrement) < 0)
             throw new MarketDataException("option_settlement_below_intrinsic",
@@ -89,7 +93,7 @@ public static class ImpliedVolatility
             $"{series}: no volatility within {policy.MaxIterations.ToString(CultureInfo.InvariantCulture)} halvings reprices settlement {settlement} within {tolerance}.");
     }
 
-    // The largest volatility whose tree keeps F*exp(sigma*sqrt(Steps*T)) and
+    // The largest volatility whose rebuilt tree keeps F*exp(sigma*sqrt(Steps*T)) and
     // exp(sigma*sqrt(Steps*T)) itself below 10^23:
     // sigma = (ln 10^23 - max(ln F, 0)) / sqrt(Steps*T), capped at VolatilityMax.
     private static LatticeDecimal UpperBound(LatticeDecimal futures, LatticeDecimal years, OptionNumericalPolicy policy)
@@ -97,5 +101,23 @@ public static class ImpliedVolatility
         var steps = LatticeDecimal.Parse(policy.Steps.ToString(CultureInfo.InvariantCulture));
         var rangeLimit = (LnNodeLimit - LatticeDecimal.Max(futures.Ln(), Zero)) / (steps * years).Sqrt();
         return rangeLimit.CompareTo(policy.VolatilityMax) < 0 ? rangeLimit : policy.VolatilityMax;
+    }
+
+    // A tree centred on the strike has no closed form for the volatility at which the largest number it forms, its
+    // highest node or its widest spread, reaches 10^23. That number rises with the volatility, so the bracket is halved
+    // MaxIterations times and the largest volatility found to keep it below 10^23 is the bound. VolatilityMin itself
+    // out of range leaves no volatility to solve for.
+    private static LatticeDecimal CentredUpperBound(LatticeDecimal futures, LatticeDecimal strike, LatticeDecimal years, OptionNumericalPolicy policy)
+    {
+        bool Fits(LatticeDecimal volatility) => StrikeCentredLattice.LogRange(futures, strike, volatility, years, policy.Steps).CompareTo(LnNodeLimit) <= 0;
+        if (Fits(policy.VolatilityMax)) return policy.VolatilityMax;
+        var (low, high) = (policy.VolatilityMin, policy.VolatilityMax);
+        if (!Fits(low)) return low;
+        for (var halving = 0; halving < policy.MaxIterations; halving++)
+        {
+            var middle = (low + high) / Two;
+            if (Fits(middle)) low = middle; else high = middle;
+        }
+        return low;
     }
 }

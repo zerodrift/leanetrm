@@ -157,6 +157,14 @@ internal static class TradingPnlAttributionChecks
         Reject("risk_price_step",()=>PreparedConnectedPortfolioRisk.DirectInput(onX,[x,y]));
         Reject("risk_price_step",()=>PreparedConnectedPortfolioRisk.DirectInput(onX,[y]));
         Reject("risk_price_step",()=>PreparedConnectedPortfolioRisk.DirectInput(onX,[]));
+        // A step is declared at the base price. At another price of the same input, such as a stressed one, it is taken in
+        // proportion to the price and rounded up: 0.0823 at 3.25 is 0.1076230769... at 4.25.
+        static ExactDecimal D(string value)=>ExactDecimal.Parse(value);
+        if(DeclaredPriceStep.AtPrice(D("0.0823"),D("3.25"),D("4.25"))!=D("0.107623076923076924")||DeclaredPriceStep.AtPrice(D("0.75"),D("3"),D("1.5"))!=D("0.375")||
+            DeclaredPriceStep.AtPrice(D("0.0823"),D("3.25"),D("3.25"))!=D("0.0823"))
+            throw new Exception("A step at another price is the declared step in proportion to the price, rounded up.");
+        foreach(var (basePrice,price) in new[]{("0","3"),("3","0"),("-3","3"),("3","-1")})
+            Reject("risk_price_step",()=>DeclaredPriceStep.AtPrice(D("0.1"),D(basePrice),D(price)));
     }
     // The bump a report's request selects: price steps where a holding declares one, and trading ticks elsewhere or
     // everywhere.

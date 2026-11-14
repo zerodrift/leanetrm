@@ -72,8 +72,8 @@ deltas and one for gammas, mixed gammas included. The former
 names it is refused.
 
 A valuation may declare the price step of one of its price inputs: the smallest
-move of that price its model resolves, below which its value is piecewise linear
-in it. A factor priced by a holding in scope that declares a step is bumped by
+move of that price its model resolves, inside which its value follows the
+model's grid. A factor priced by a holding in scope that declares a step is bumped by
 the selected number of steps of the largest such step, rounded up to whole
 ticks. Every other factor, and every factor when no price steps are selected, is
 bumped by the selected ticks. A tick bump smaller than two declared steps is
