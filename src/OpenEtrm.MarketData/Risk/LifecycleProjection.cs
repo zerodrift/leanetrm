@@ -16,7 +16,15 @@ public sealed record LifecycleProjectionPolicy(string Implementation,string Pric
 // schedule. The pure calculation selects its first close after the opening.
 public sealed record LifecycleProjectionHorizon(Guid SessionId,int SessionRevision,ReferenceKey Calendar,
     ImmutableArray<RiskHistoryResolvedClose> Closes);
-public sealed record LifecycleProjectionEvent(Guid Id,DateTimeOffset At,ImmutableArray<Guid> Requires,string Kind);
+public sealed record LifecycleProjectionEvent(Guid Id,DateTimeOffset At,ImmutableArray<Guid> Requires,string Kind)
+{
+    // Configuration occurrence IDs may be reused by independent held owners.
+    public static Guid ScopedId(AccountingPositionKey owner,Guid occurrence)
+    {
+        if(!owner.IsValid||occurrence==Guid.Empty)throw LifecycleProjection.Error("projection_events","A projected event requires its exact native owner and occurrence.");
+        return ContractIdentity.FromCanonical($"lifecycle_event_v1:{(int)owner.Owner.Kind}:{owner.Owner.Id:D}:{owner.BindingId:D}:{owner.BookId:D}:{occurrence:D}");
+    }
+}
 public sealed record ProjectedFixingKey(CurveRequest Market,ObservationRole Role,DateTimeOffset At);
 // Deliberately no observation identity, accepted knowledge or publication. This
 // value cannot enter an actual settlement command or source reader.

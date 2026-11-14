@@ -20,6 +20,16 @@ public sealed record LifecycleEconomicRiskReport(LifecycleEconomicRiskPolicy Pol
 // no catch/drop/resample path exists here.
 public static class LifecycleEconomicRisk
 {
+    // Called by the source adapter before history reads, as well as by replay.
+    public static ImmutableArray<QuoteFactor> Factors(ImmutableArray<PreparedLifecycleProjection> prepared)
+    {
+        if(prepared.IsDefaultOrEmpty||prepared.Any(p=>p is null))throw Error("risk_economic_scope","Supply the complete prepared market partitions.");
+        var groups=prepared.SelectMany(p=>p.Factors).GroupBy(f=>f.Input).ToArray();
+        if(groups.Any(g=>g.Any(f=>!SameFactor(g.First(),f))))
+            throw Error("risk_economic_history","One native factor input cannot name inconsistent source observations, units, roles or base levels across partitions.");
+        return [..groups.Select(g=>g.First() with{Curves=[..g.SelectMany(f=>f.Curves).Distinct().OrderBy(c=>c.Code,StringComparer.Ordinal)]})
+            .OrderBy(f=>f.Input.Series.Revision.CatalogId).ThenBy(f=>f.Input.Series.Revision.RevisionId).ThenBy(f=>f.Input.Series.Id)];
+    }
     public static LifecycleEconomicRiskReport Historical(ImmutableArray<PreparedLifecycleProjection> prepared,AlignedFactorHistory history,
         LifecycleEconomicRiskPolicy policy,CancellationToken cancellation=default)
     {
@@ -90,7 +100,7 @@ public static class LifecycleEconomicRisk
             prepared.Any(p=>!history.Forecast.Markets.Contains(p.Market))||
             history.Columns.IsDefault||history.Columns.Select(c=>c.Mapping.Factor.Input).Distinct().Count()!=history.Columns.Length)
             throw Error("risk_economic_history","Supply complete aligned native factor history from the exact opening forecast.");
-        var factors=prepared.SelectMany(p=>p.Factors).DistinctBy(f=>f.Input).ToArray();
+        var factors=Factors(prepared);
         if(factors.Length!=history.Columns.Length||history.Columns.Any(c=>!factors.Any(f=>SameFactor(f,c.Mapping.Factor))))
             throw Error("risk_economic_history","Prepare the full transition and every residual branch factor union before loading history or generating paths.");
     }

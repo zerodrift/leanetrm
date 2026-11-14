@@ -29,6 +29,9 @@ internal static class LifecycleProjectionChecks
         Equal(hold.Evaluate("hold",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]).Values.Single().PeriodCash,"5.3");
         var outstanding=LifecycleProjection.Prepare(f.Model(),source,horizon,policy with{CashDisposition=LifecycleProjectionPolicy.Outstanding},[component],[]);
         var due=outstanding.Evaluate("unpaid",[]).Values.Single();Equal(due.PeriodCash,"0");Equal(due.ResidualValue,"3.3");
+        var rational=LifecycleProjection.Prepare(f.Model(),source,horizon,policy with{CashDisposition=LifecycleProjectionPolicy.Outstanding},
+            [component with{ExactAmount=ExactMoney.Parse("1/3",component.Currency)}],[]);
+        Equal(rational.Evaluate("rational_cash",[]).Values.Single().ResidualValue,"1/3");
         var curves=ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty.Add(component.Currency,new Curve(source,component.Currency));
         var accumulated=LifecycleProjection.Prepare(f.Model(),source,horizon,policy with{CashAccumulation=LifecycleProjectionPolicy.Accumulated},[component],[],curves);
         Equal(accumulated.Evaluate("accumulated",[]).Values.Single().PeriodCash,"3.7125");
@@ -39,6 +42,7 @@ internal static class LifecycleProjectionChecks
         var nativeValue=native.Evaluate("native",[]).Values.Single();Equal(nativeValue.ResidualValue,"3.3");
         if(nativeValue.Owner.TradeId!=Guid.Empty||nativeValue.Owner.Owner.Kind!=AccountingOwnerKind.NativeHolding)
             throw new Exception("A native owned cash continuation manufactured a trade identity.");
+        ScopeRefusals(f,source,horizon,policy,component,prepared);
         var prerequisite=component.Events[0] with{At=source.ValuationAt};
         var dependent=component.Events[0] with{Id=Guid.NewGuid(),Requires=[prerequisite.Id]};
         try{LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[component with{EventSelection=[prerequisite,dependent]}],[]);
@@ -141,9 +145,39 @@ internal static class LifecycleProjectionChecks
         var factor=projection.Factors.Single();var run=projection.Evaluate("future",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
         Equal(run.Values.Single().OpeningValue,"0");Equal(run.Values.Single().PeriodCash,"80");
         Equal(run.Values.Single().ResidualValue,"80");Equal(run.Values.Single().EconomicPnl,"160");
+        var secondBinding=Guid.NewGuid();var secondTrade=new Trade(Guid.NewGuid(),trade.BookId,[FuturesExecution.Bind(secondBinding,market,ExactDecimal.Parse("2"),
+            new(ExactDecimal.Parse("3"),market.Quote),source.ValuationAt.AddDays(-1),FuturesSettlementState.Unprocessed)]);
+        var secondState=state with{TradeId=secondTrade.Id,BindingId=secondBinding};
+        var secondSetup=setup with{BindingStates=ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty.Add(new(secondTrade.Id,secondBinding),secondState)};
+        var secondHistory=new FuturesMarginHistory(market.Instrument.ProposeMarginTerms(secondTrade,secondBinding,margin,model,source),source.Knowledge.ContextId,source.Knowledge.KnownAt,[]);
+        var shared=LifecycleProjection.Prepare(model,source,horizon,policy,
+            [new FuturesLifecycleProjection(trade,binding,state,history,setup,market.Market,model,source),
+             new FuturesLifecycleProjection(secondTrade,secondBinding,secondState,secondHistory,secondSetup,market.Market,model,source)],[]);
+        var both=shared.Evaluate("shared_policy",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
+        Equal(both.Values.Select(v=>v.EconomicPnl).Aggregate((a,b)=>a.Add(b)),"320");
         try{RiskEngine.Prepare(model,source,run.States.Single().Residuals);throw new Exception("A hypothetical margin basis entered actual valuation.");}
         catch(MarketDataException error)when(error.Code=="projection_futures_state"){}
     }
+    private static void ScopeRefusals(Fixture f,MarketSnapshot source,LifecycleProjectionHorizon horizon,LifecycleProjectionPolicy policy,FixAndCash component,PreparedLifecycleProjection prepared)
+    {
+        var cash=new TimedCashPayment(component.Currency,source.ValuationAt.AddHours(-1));var binding=Guid.NewGuid();
+        var trade=new Trade(Guid.NewGuid(),Guid.NewGuid(),[new(binding,cash,new(ExactDecimal.Parse("1"),component.Currency))]);
+        var state=new RecordedCashValuation(trade,binding,[],RecordedCashValuation.Policy,source.Knowledge!.ContextId,source.Knowledge.KnownAt);
+        var setup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null){
+            BindingStates=ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty.Add(new(trade.Id,binding),state)};
+        var portfolio=ValuationPortfolio.FromTrades([trade],setup);
+        var first=component with{Owner=new(trade.Id,binding,trade.BookId),OpeningSelection=[portfolio]};
+        var second=component with{Owner=new(Guid.NewGuid(),Guid.NewGuid(),trade.BookId),OpeningSelection=[portfolio]};
+        Reject("projection_scope",()=>LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[first,second],[]));
+        var late=LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[first,second with{OpeningSelection=[],ResidualOnEvent=[portfolio]}],[]);
+        Reject("projection_scope",()=>late.Evaluate("duplicate_residual",[]));
+        var changed=source with{Id=Guid.NewGuid(),Selections=source.Selections.SetItem(0,source.Selections[0] with{
+            Observation=source.Selections[0].Observation with{Value=ExactDecimal.Parse("4")}})};
+        var inconsistent=LifecycleProjection.Prepare(f.Model(),changed,horizon,policy,[component with{Owner=second.Owner}],[]);
+        Reject("risk_economic_history",()=>LifecycleEconomicRisk.Factors([prepared,inconsistent]));
+    }
+    private static void Reject(string code,Action action)
+    {try{action();}catch(MarketDataException error)when(error.Code==code){return;}throw new Exception("Expected "+code);}
     private static void Equal(ExactMoney value,string expected)
     {if(value.CompareTo(ExactMoney.Parse(expected,value.Currency))!=0)throw new Exception($"Expected {expected}; got {value.ToExactString()}.");}
     private sealed record FixAndCash(AccountingPositionKey Owner,ReferenceKey Currency,CurveRequest Request,DateTimeOffset At):ILifecycleProjection
@@ -151,16 +185,20 @@ internal static class LifecycleProjectionChecks
         public bool FailOnDown{get;init;}
         public DateTimeOffset? DueAt{get;init;}
         public ImmutableArray<LifecycleProjectionEvent>? EventSelection{get;init;}
+        public ImmutableArray<ValuationPortfolio>? OpeningSelection{get;init;}
+        public ImmutableArray<ValuationPortfolio>? ResidualOnEvent{get;init;}
+        public ExactMoney? ExactAmount{get;init;}
         public string Implementation=>"synthetic_fixing_cash_v1";
         public ImmutableArray<CurveRequest> Dependencies=>[Request];
-        public LifecycleProjectionState Opening=>new([],[]);
-        public ImmutableArray<LifecycleProjectionEvent> Events=>EventSelection??[new(Guid.Parse("11000000-0000-0000-0000-000000000001"),At,[],"fix")];
+        public LifecycleProjectionState Opening=>new(OpeningSelection??[],[]);
+        public ImmutableArray<LifecycleProjectionEvent> Events=>EventSelection??[new(LifecycleProjectionEvent.ScopedId(Owner,Guid.Parse("11000000-0000-0000-0000-000000000001")),At,[],"fix")];
         public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
         {
             if(FailOnDown&&context.Price(Request).ToUnitPriceExact().Value.CompareTo(ExactDecimal.Parse("3.3"))<0)
                 throw new MarketDataException("synthetic_path_unavailable","The synthetic path deliberately refuses this region.");
             var fixing=context.Fix(new(Request,ObservationRole.IndexFixing,occurrence.At));
-            return state with{Cash=state.Cash.Add(new(occurrence.Id,occurrence.At,DueAt??occurrence.At,fixing.Price.ExactTimes(new(ExactDecimal.Parse("1"),fixing.Price.Unit.Quantity))))};
+            return state with{Residuals=ResidualOnEvent??state.Residuals,Cash=state.Cash.Add(new(occurrence.Id,occurrence.At,DueAt??occurrence.At,
+                ExactAmount??fixing.Price.ExactTimes(new(ExactDecimal.Parse("1"),fixing.Price.Unit.Quantity))))};
         }
     }
     private sealed class Curve(MarketSnapshot Source,ReferenceKey CurrencyKey):IProjectionCurrencyCurve

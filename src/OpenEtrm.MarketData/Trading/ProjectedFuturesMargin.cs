@@ -37,6 +37,7 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
     private readonly FuturesMarginPolicy policy;
     private readonly ValuationSetup setup;
     private readonly MarketSnapshot source;
+    private readonly ImmutableDictionary<Guid,FuturesMarginOccurrence> occurrences;
     public CurveRequest SettlementProjection{get;}
     public string Implementation=>"futures_margin_economic_projection_v1";
     public AccountingPositionKey Owner=>new(trade.Id,holding.Id,trade.BookId);
@@ -78,14 +79,14 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
         SettlementProjection=settlementProjection;
         Dependencies=[..market.Dependencies.Append(settlementProjection).Distinct()];
         Opening=new([ValuationPortfolio.FromTrades([new(trade.Id,trade.BookId,[holding],trade.Booking)],setup)],[]);
-        Events=state.Status==FuturesMarginStatus.FinalMarginDetermined?[]:[..policy.Occurrences.Where(o=>o.At>source.ValuationAt)
-            .OrderBy(o=>o.At).ThenBy(o=>o.Phase).Select((o,n)=>new LifecycleProjectionEvent(o.Id,o.At,
-                policy.Occurrences.Where(p=>p.At>source.ValuationAt&&(p.At<o.At||p.At==o.At&&p.Phase<o.Phase)).Select(p=>p.Id).ToImmutableArray(),
-                o.Phase==FuturesMarginPhase.Final?"final_margin":"daily_margin"))];
+        var future=state.Status==FuturesMarginStatus.FinalMarginDetermined?[]:policy.Occurrences.Where(o=>o.At>source.ValuationAt).OrderBy(o=>o.At).ThenBy(o=>o.Phase).ToArray();
+        occurrences=future.ToImmutableDictionary(o=>LifecycleProjectionEvent.ScopedId(Owner,o.Id));
+        Events=[..future.Select((o,n)=>new LifecycleProjectionEvent(LifecycleProjectionEvent.ScopedId(Owner,o.Id),o.At,
+            n==0?[]:[LifecycleProjectionEvent.ScopedId(Owner,future[n-1].Id)],o.Phase==FuturesMarginPhase.Final?"final_margin":"daily_margin"))];
     }
     public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
     {
-        var selected=policy.Occurrences.Single(o=>o.Id==occurrence.Id);
+        var selected=occurrences[occurrence.Id];
         if(selected.Phase==FuturesMarginPhase.Final&&market.SettlementMethod!="cash")
             throw new MarketDataException("futures_delivery_transition","Physical final settlement requires its qualified projected delivery adapter.");
         var basis=state.Residuals.Single().Setup.BindingStates[new(trade.Id,holding.Id)] switch{

@@ -49,6 +49,7 @@ public sealed class PreparedLifecycleProjection
         var declarations=components.SelectMany(c=>c.Dependencies).ToImmutableHashSet();
         Factors=basis.Factors([..declarations],ct);
         events=Order(components,SourceSnapshot.ValuationAt,Horizon);
+        RequireUniqueResiduals([..components.Select(c=>c.Opening)]);
         openings=[..components.Select(c=>Value(c.Opening,c,SourceSnapshot.ValuationAt,basis,ct))];
     }
     public LifecycleProjectionResult Evaluate(string id,ImmutableArray<QuoteShift> terminalChanges,CancellationToken ct=default)
@@ -97,6 +98,7 @@ public sealed class PreparedLifecycleProjection
             if(next.Cash.Any(c=>!prior.ContainsKey(c.Id)&&c.EffectiveAt!=occurrence.At))
                 throw LifecycleProjection.Error("projection_cash","New cash must retain the event that created its economic obligation.");
             states[index]=next with{CompletedEvents=states[index].CompletedEvents.Add(occurrence.Id)};
+            RequireUniqueResiduals(states);
         }
         var values=ImmutableArray.CreateBuilder<LifecycleProjectionValue>(Components.Length);
         for(var i=0;i<Components.Length;i++)
@@ -130,13 +132,14 @@ public sealed class PreparedLifecycleProjection
             cashCurves.TryGetValue(component.Currency,out var provider);
             if(cash.DueAt>at&&provider is null)throw LifecycleProjection.Error("projection_cash_discount","An unpaid future contribution requires its explicitly selected currency discount curve.");
             var instrument=new TimedCashPayment(component.Currency,cash.DueAt);
-            var quantity=new Quantity(cash.Amount.ToMoney().Amount,component.Currency);
-            var position=new AccountingPositionKey(component.Owner.Owner,cash.Id,component.Owner.BookId);
-            var projected=new ProjectedCashValuation(position,quantity,instrument.Id,
+            var quantity=new Quantity(ExactDecimal.Parse("1"),component.Currency);
+            var binding=LifecycleProjectionEvent.ScopedId(component.Owner,cash.Id);
+            var position=new AccountingPositionKey(component.Owner.Owner,binding,component.Owner.BookId);
+            var projected=new ProjectedCashValuation(position,quantity,instrument.Id,cash.Amount,
                 SourceSnapshot.Knowledge!.ContextId,SourceSnapshot.Knowledge.KnownAt);
             var setup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,provider){
-                BindingStates=ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty.Add(new(component.Owner.Owner,cash.Id),projected)};
-            var portfolio=new ValuationPortfolio([instrument],[new(component.Owner.Owner,cash.Id,component.Owner.BookId,instrument.Id,quantity,
+                BindingStates=ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty.Add(new(component.Owner.Owner,binding),projected)};
+            var portfolio=new ValuationPortfolio([instrument],[new(component.Owner.Owner,binding,component.Owner.BookId,instrument.Id,quantity,
                 new UnitMoney(new Money(default,component.Currency),component.Currency),new(default,component.Currency))],setup);
             var declared=portfolio.Declare(SourceSnapshot,at);
             environment.RequireInputs(declared);
@@ -160,6 +163,12 @@ public sealed class PreparedLifecycleProjection
             c.Amount is null||c.Amount.Currency!=component.Currency||!TradingInstant.IsSupported(c.EffectiveAt)||!TradingInstant.IsSupported(c.DueAt)||
             c.DueAt<c.EffectiveAt||c.EffectiveAt>at)||state.Cash.Select(c=>c.Id).Distinct().Count()!=state.Cash.Length)
             throw LifecycleProjection.Error("projection_state","Supply complete residual portfolios and distinct immutable owned cash contributions.");
+    }
+    private static void RequireUniqueResiduals(IEnumerable<LifecycleProjectionState> states)
+    {
+        var positions=states.SelectMany(s=>s.Residuals).SelectMany(p=>p.Positions).ToArray();
+        if(positions.Select(p=>(p.Owner,p.BindingId)).Distinct().Count()!=positions.Length)
+            throw LifecycleProjection.Error("projection_scope","One residual owner/binding cannot appear in multiple economic components.");
     }
     private static ImmutableArray<(int,LifecycleProjectionEvent)> Order(ImmutableArray<ILifecycleProjection> components,DateTimeOffset opening,DateTimeOffset horizon)
     {
