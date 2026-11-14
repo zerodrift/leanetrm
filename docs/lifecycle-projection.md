@@ -399,3 +399,9 @@ identity participates in declaration and reuse fences. Omitting this optional
 field preserves the existing primary-source-only contract. Independent A/B
 exchange checks include nonunit quantities, shared price children and refused
 source or provider-evidence substitutions.
+
+Volatility-fit jobs retain their established actor publication permission and
+the worker service's existing risk-read permissions. Other risk jobs retain
+scenario permission. Both purposes preserve original grant deadlines through
+first-wait admission; a preexisting successor grant cannot revive an expired
+operation. Guarded native checks qualify this split without adding role grants.
