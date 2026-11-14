@@ -161,10 +161,17 @@ TypeScript.
 Observation terms are vertical rows with Group, Weight, Position, Less position
 (blank for none) and Period, whose options are the catalog's two periods. Rows
 can be added and removed; a term's ordinal is its place in the list. The browser
-sends each weight as typed, each position as a number, and an explicit `null`
-for a blank position or second position; the backend refuses a blank position
-with a message that names the term. It resolves no date, average or weight, and a
-cleared weight leaves Preview and Save enabled so the backend decides.
+sends each weight as typed and each position as typed. Position fields are text
+fields with a numeric keypad, so the field always holds what was typed: whole-number
+text (an optional minus sign and digits) is sent as that number, an explicit
+`null` is sent only for a blank field, and any other text, such as `2e`, is sent
+as the typed text and refused. A blank second position means no spread; a blank
+position is refused with a message that names the term. Unreadable text is
+refused by request binding (`400 request_format`), so the page shows only its
+general error, "The app could not complete that request. Please refresh and try
+again.", and no message beside the operation. It resolves no date, average or
+weight, and a cleared weight leaves Preview and Save enabled so the backend
+decides.
 
 A refused preview or save also shows the backend's own message beside the
 selected operation, in the inspector. This appears only for a definite refusal
@@ -186,7 +193,9 @@ It adds the operation to a saved draft, chooses every setting by its catalog
 label, enters three terms, previews the backend price 68.46, saves an
 `observation_formula`, reloads every term and setting unchanged, and checks
 the backend's refusals of a cleared weight and of a new term with no position
-beside the operation. The same command
+beside the operation. It then types `2e` into Less position and into Position
+of a spread term and checks that each preview sends the typed text, is refused,
+shows no price and shows the general error. The same command
 first runs the HTTP storage and curve checks. `tools/check_all.py` includes it.
 
 ## Publication release resolution (D364)

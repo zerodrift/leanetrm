@@ -7,7 +7,9 @@ export type ContractWeight={outputPosition:number|null;sourcePort:string;contrac
 export type PanelWeight={sourcePort:string;weight:string};
 /** One contract observation term as the person entered it: weight text is sent exactly as typed, and a term without a second position
  * carries an explicit null. The backend resolves its days and contracts and validates every member. */
-export type ObservationTerm={ordinal:number;group:string;weight:string;position:number|null;lessPosition:number|null;period:string};
+/** A position is sent as typed: a number for whole-number text, null for a blank field, and any other text as entered for the backend to refuse. */
+export type EnteredPosition=number|string|null;
+export type ObservationTerm={ordinal:number;group:string;weight:string;position:EnteredPosition;lessPosition:EnteredPosition;period:string};
 export type PublishedSourceReference={catalogId:string;curveId:string;version:number;outputNode:string};
 type ExactRevision={catalogId:string;revisionId:string};
 type ExactContract={revision:ExactRevision;id:string};
@@ -45,6 +47,9 @@ export function changeContractWeights(definition:CurveDefinition,target:string,r
 /** Replaces an observation node's terms with these rows, in order: a term's ordinal is its place in the list. Every member is kept as given. */
 export function changeObservationTerms(definition:CurveDefinition,target:string,rows:ObservationTerm[]):CurveDefinition{
  return {...definition,nodes:definition.nodes.map(node=>node.id===target?{...node,observationTerms:rows.map((row,ordinal)=>({ordinal,group:row.group,weight:row.weight,position:row.position,lessPosition:row.lessPosition,period:row.period}))}:node)};
+}
+export function enteredPosition(text:string):EnteredPosition{
+ return text===''?null:/^-?[0-9]+$/.test(text)?Number(text):text;
 }
 /** A mapping's explicit contract connections as graph objects, each with the node feeding its source port (null when none does). */
 export type ContractObject=ContractWeight&{index:number;source:string|null};

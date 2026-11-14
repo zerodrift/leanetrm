@@ -198,6 +198,12 @@ test('observation terms keep their list order as ordinals when a term is removed
  const added=changeObservationTerms(observed(),'crude',[...observationTerms(),blank]).nodes[1].observationTerms;
  assert.deepEqual(added.at(-1),{...blank,ordinal:3},'a new term carries no chosen weight, position or period');
 });
+test('a typed position is sent as typed: blank is null, whole-number text is that number and other text stays text',async()=>{
+ const {enteredPosition}=await import('../dist/custom-curve-model.js');
+ assert.equal(enteredPosition(''),null);
+ assert.equal(enteredPosition('2'),2);assert.equal(enteredPosition('-3'),-3);assert.equal(enteredPosition('0'),0);assert.equal(enteredPosition('121'),121);
+ for(const text of ['2e','2-','1.5','+2',' 2','2 ','e','-','1e3'])assert.equal(enteredPosition(text),text,text);
+});
 test('only a definite refusal gives the backend message shown beside the operation',async()=>{
  const {curveRefusalMessage}=await import('../dist/custom-curve-model.js');
  const refused=(status,code,message)=>Object.assign(Error('Workbench wording'),{status,code,details:{code,message}});

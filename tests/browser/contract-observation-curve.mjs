@@ -85,4 +85,15 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  for(const [field,value] of [['Group','roll'],['Weight','1'],['Period','trade_month_of_delivery_contract_v1']])await set(term(field,4),value);
  await click('#custom-curves-preview');
  await check('the backend refuses the blank position of the new term and its message is shown beside the operation',`(()=>{const r=${last('preview')},n=r${observed};return r.status===422&&r.data.code==='recipe_definition'&&n.observationTerms.length===4&&n.observationTerms[3].position===null&&r.data.message.startsWith('Observation term 3 position:')&&!document.querySelector('#error').hidden&&document.querySelector('#custom-curves-refusal').textContent===r.data.message&&document.querySelector('#custom-curves-inspector').contains(document.querySelector('#custom-curves-refusal'));})()`,detail);
+
+ // Text the field cannot read as a whole number is sent as typed, never as a blank: a blank second position would be a legal
+ // "no spread". The backend refuses it, no price is shown and the refusal is visible.
+ await click('[aria-label="Remove term 4"]');
+ const typed=async(field,n,text)=>{await evaluate(`(()=>{const f=document.querySelector(${JSON.stringify(term(field,n))});f.focus();f.select();})()`);await command('Input.insertText',{text});await wait(idle);};
+ const seen=(member,row)=>`({sent:${last('preview')}${observed}.observationTerms[${row-1}]?.${member},status:${last('preview')}.status,code:${last('preview')}.data.code,values:document.querySelector('#custom-curves-values').textContent.trim().slice(0,80),alerts:[...document.querySelectorAll('[role=alert],#error')].filter(n=>!n.hidden&&n.textContent.trim()).map(n=>n.id+': '+n.textContent.trim())})`;
+ for(const [field,member,row,entered] of [['Less position','lessPosition',2,'2'],['Position','position',2,'1']]){
+  await typed(field,row,'2e');await click('#custom-curves-preview');
+  await check(`unreadable text in ${field} is sent as typed, refused, and no price is shown`,`(()=>{const r=${last('preview')},n=r${observed};return n.observationTerms.length===3&&n.observationTerms[${row-1}].${member}==='2e'&&r.status>=400&&r.status<500&&!document.querySelector('#custom-curves-values').textContent.trim()&&!document.querySelector('#error').hidden&&!!document.querySelector('#error').textContent.trim();})()`,seen(member,row));
+  await typed(field,row,entered);
+ }
 }

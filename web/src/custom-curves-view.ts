@@ -3,7 +3,7 @@ import {portAccepts} from './custom-curve-model.js';
 import {offersComponentHistory,setupComponentHistory,type HistoryCatalog} from './component-history-view.js';
 import {currentAuthoringVersion} from './authoring-version.js';
 import {contractPriceStatusRows,type ContractPriceStatus} from './contract-price-status.js';
-import {type CurveDefinition,type CurveNode,type CurveLayout,type ContractWeight,type ObservationTerm,changeObservationTerms,type PublishedSourceReference,type PreviewSummary,type ConnectableTarget,changeContractWeights,curveEdges,curveLayout,changeCurveConnection,previewTable,previewTiles,recipeStateLabel,knownCurveRejection,curveRefusalMessage,curveFieldVisible,editCurveParameters,nextDynamicPort,removeCurveConnection,contractObjects,connectableTargets,contractTargets,pickContract,missingContractInputs,contractPort,connectableSources} from './custom-curve-model.js';
+import {type CurveDefinition,type CurveNode,type CurveLayout,type ContractWeight,type ObservationTerm,changeObservationTerms,enteredPosition,type PublishedSourceReference,type PreviewSummary,type ConnectableTarget,changeContractWeights,curveEdges,curveLayout,changeCurveConnection,previewTable,previewTiles,recipeStateLabel,knownCurveRejection,curveRefusalMessage,curveFieldVisible,editCurveParameters,nextDynamicPort,removeCurveConnection,contractObjects,connectableTargets,contractTargets,pickContract,missingContractInputs,contractPort,connectableSources} from './custom-curve-model.js';
 import {renderRegularTable} from './regular-table.js';
 import {clearChart,renderChart,type ChartSpec} from './chart-view.js';
 import {displayInstant,publicText} from './market-view.js';
@@ -604,13 +604,13 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
   properties.append(section);
  }
  /** One row per observation term, in the weighted-rows pattern. Text and positions are sent as entered and periods are the catalog's;
-  * the backend resolves days and contracts and validates every value. A blank second position is sent as an explicit null. */
+  * the backend resolves days and contracts and validates every value. A blank position is sent as an explicit null; position fields
+  * are text so unreadable text is sent as typed and refused, never read as a blank. */
  function renderObservationTerms(node:CurveNode,spec:Field){
   const section=el('section');section.className='curve-contract-mapping';section.dataset.termsNode=node.id;
   section.append(el('h4',spec.label),el('p',spec.help??'Enter each term’s group, weight, positions and period. The server resolves the observation days and contracts and validates every value.'));
   const rows=node.observationTerms??[],currentRows=()=>definition.nodes.find(n=>n.id===node.id)?.observationTerms??rows;
   function saveRows(next:ObservationTerm[],redraw=false){definition=changeObservationTerms(definition,node.id,next);invalidate();renderGraph();if(redraw)renderInspector();}
-  const entered=(value:string)=>value===''?null:Number(value);
   rows.forEach((row,index)=>{
    const card=el('div');card.className='curve-contract-row curve-observation-term';card.dataset.termRow=String(index);const n=index+1;
    const remove=button('Remove','',()=>saveRows(currentRows().filter((_,i)=>i!==index),true));remove.className='text-button';remove.setAttribute('aria-label',`Remove term ${n}`);
@@ -618,8 +618,8 @@ export function setupCustomCurves(host:HTMLElement,o:Options){
    const changed=(key:keyof ObservationTerm,value:string|number|null)=>{if(o.busy()||!editAllowed())return;saveRows(currentRows().map((r,i)=>i===index?{...r,[key]:value}:r));};
    const group=field('');group.value=row.group;group.required=true;group.setAttribute('aria-label',`Group for term ${n}`);group.oninput=()=>changed('group',group.value);
    const weight=field('');weight.inputMode='decimal';weight.value=row.weight;weight.required=true;weight.setAttribute('aria-label',`Weight for term ${n}`);weight.oninput=()=>changed('weight',weight.value);
-   const first=field('','number');first.step='1';first.value=row.position===null?'':String(row.position);first.required=true;first.setAttribute('aria-label',`Position for term ${n}`);first.oninput=()=>changed('position',entered(first.value));
-   const less=field('','number');less.step='1';less.placeholder='None';less.value=row.lessPosition===null?'':String(row.lessPosition);less.setAttribute('aria-label',`Less position for term ${n}`);less.oninput=()=>changed('lessPosition',entered(less.value));
+   const first=field('');first.inputMode='numeric';first.value=row.position===null?'':String(row.position);first.required=true;first.setAttribute('aria-label',`Position for term ${n}`);first.oninput=()=>changed('position',enteredPosition(first.value));
+   const less=field('');less.inputMode='numeric';less.placeholder='None';less.value=row.lessPosition===null?'':String(row.lessPosition);less.setAttribute('aria-label',`Less position for term ${n}`);less.oninput=()=>changed('lessPosition',enteredPosition(less.value));
    const period=el('select');period.required=true;period.setAttribute('aria-label',`Period for term ${n}`);option(period,'','Choose a period…');for(const choice of spec.options??[])option(period,String(choice.value),choice.label);
    if(row.period&&!Array.from(period.options).some(o=>o.value===row.period))option(period,row.period,'Retained period · '+row.period);period.value=row.period;period.onchange=()=>changed('period',period.value);
    card.append(label('Group',group),label('Weight',weight),label('Position',first),label('Less position (blank for none)',less),label('Period',period));section.append(card);
