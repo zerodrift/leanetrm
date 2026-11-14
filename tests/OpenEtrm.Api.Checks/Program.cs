@@ -21,6 +21,7 @@ if(args is ["--lifecycle-swap-native",var lifecycleSwapFixture]){await Lifecycle
 if(args is ["--gas-futures-delivery",var gasDeliveryFixture]){await GasFuturesDeliveryChecks.Run(gasDeliveryFixture);return;}
 if(args is ["--gas-owned",var gasOwnedFixture]){await GasOwnedChecks.Run(gasOwnedFixture);return;}
 if(args is ["--gas-owned-known",var gasKnownFixture]){await GasOwnedKnownHistoryChecks.Run(gasKnownFixture);return;}
+if(args is ["--gas-physical-known",var physicalKnownFixture]){await GasPhysicalKnownChecks.Run(physicalKnownFixture);return;}
 if(args is ["--gas-owned-profile",var gasProfileFixture]){await GasOwnedKnownHistoryChecks.Run(gasProfileFixture,true);return;}
 if(args is ["--futures-margin-journal",var marginJournalFixture]){await FuturesMarginJournalChecks.Run(marginJournalFixture);return;}
 if(args is ["--selected-physical-authority",var selectedPhysicalFixture]){await SelectedPhysicalAuthorityChecks.Run(selectedPhysicalFixture);return;}

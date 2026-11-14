@@ -83,6 +83,15 @@ internal static class GasOwnedKnownHistoryStore
             native.Instant("knownAt")!=knowledge.KnownAt||DateWorkspace.Date(native.Text("effectiveOn"))!=frame.BusinessDate)
             throw Error("The gas journal must preserve opening business time and its original resolved knowledge cutoff.");
         var admission=new GasOwnedSourceReadAdmission(catalog,context,frame.At,native.Instant("authorityUntil"));database.RegisterCommitAdmission(connection,admission);
+        var result=Materialize(native,catalog,snapshot,books,admission.Until);
+        await admission.RequireCommit(connection,ct);return result;
+    }
+    internal static GasOwnedKnownHistory Materialize(JsonElement native,Guid catalog,MarketSnapshot snapshot,ImmutableArray<Guid> books,DateTimeOffset until)
+    {
+        if(snapshot.Knowledge is not {} knowledge)throw Error("Retain the exact source knowledge certificate for native gas facts.");
+        var context=knowledge.ContextId;
+        if(native.Id("contextId")!=context||native.Instant("asOf")!=snapshot.ValuationAt||native.Instant("knownAt")!=knowledge.KnownAt)
+            throw Error("Native gas facts cannot change their certified business or knowledge coordinates.");
         ImmutableArray<JsonElement> Rows(string key)=>[..native.GetProperty(key).EnumerateArray()];
         GasOwnedKnownTime Time(JsonElement row,string effective="effective_at")
         {
@@ -139,8 +148,7 @@ internal static class GasOwnedKnownHistoryStore
                 "daily_settlement"=>ObservationRole.DailySettlement,"final_contract_settlement"=>ObservationRole.FinalContractSettlement,_=>throw Error("Unknown native operator final role.")},
             row.Instant("observed_at"),row.Instant("cash_due_at"),row.Text("rounding"))).ToImmutableArray();
         if(evidence.Any(e=>e.KnownAt>knowledge.KnownAt)||positions.Values.Any(p=>!evidence.Any(e=>e.Id==p.EvidenceId)))throw Error("Each known gas position requires its exact retained source evidence.");
-        await admission.RequireCommit(connection,ct);
-        return new(snapshot,admission.Until,accounts,positions,lots,reservations,releases,consumptions,loans,repayments,settlements,fees,evidence,marks,cashouts);
+        return new(snapshot,until,accounts,positions,lots,reservations,releases,consumptions,loans,repayments,settlements,fees,evidence,marks,cashouts);
     }
     private static DateTimeOffset? OptionalInstant(JsonElement row,string key)=>row.OptionalText(key) is {} value?TradingInstant.Parse(value,"gas_owned_known_context"):null;
     private static MarketDataException Error(string message)=>new("gas_owned_known_context",message);
