@@ -50,6 +50,16 @@ def run_checks(c, check, direct_reads):
         observations = sources.pop('observations')
         check('price sources have the explicit selected-frame scope: ' + curve,
               sources.pop('observationScope') == 'selected_frame')
+        selection = sources.pop('inputSelection')
+        revision = full['definitions']['revisions'][0]
+        check('price input selection names the exact evaluated source and pins: ' + curve,
+              selection['snapshotId'] == frame['id']
+              and selection['source'] == {'definitionRevisionId': revision['id'],
+                  'referenceCatalogId': revision['reference_catalog_id'],
+                  'referenceRevisionId': revision['reference_revision_id']}
+              and set(selection['observationIds']) == set(frame['observationIds'])
+              and len(selection['observationIds']) == len(frame['observationIds'])
+              and selection['correctionsSupported'] is True)
         check('source loading preserves exact prices and provenance: ' + curve,
               sources == ordinary)
         ids = [o['id'] for o in observations]

@@ -63,7 +63,7 @@ import {renderRegularTable,clearTableFilters} from './regular-table.js';
 import {curveWorkbook,rateWorkbook,renderWorkbook} from './curve-workbook.js';
 import {type PricingGraph,pricingGraph,pricingEquation} from './pricing-view.js';
 import {renderPricingGraph} from './pricing-graph-view.js';
-import {type Row,type Frame,type Workspace,type CurveResult,type Point,type ReferenceDisplay,type ReferenceRevision,displayReferenceRows,referenceLabel,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel,summaryTiles,contractCountText} from './market-view.js';
+import {type Row,type Frame,type Workspace,type CurveResult,type Point,type ReferenceDisplay,type ReferenceRevision,displayReferenceRows,referenceLabel,presentedReferences,val,publicText,friendly,curveName,setCurveNames,exactRow,commodityName,displayInstant,deliveryMonth,frameOptions,quoteUnit,publicColumns,timeLabels,allCurves,displayDate,pointDate,pointIdentity,deliveryLabel,historyPriceLabel,summaryTiles,contractCountText,priceSourceInputIds} from './market-view.js';
 import {dataSections,keylessCategories} from './data-sections.js';
 import {renderReferenceItem} from './reference-detail.js';
 import {renderFuturesProduct} from './futures-product-view.js';
@@ -138,7 +138,6 @@ let workspaceCloses:MarketDates|undefined,closeBasis:{close:string;latest:string
 const data=()=>{if(!workspace)throw Error('Market data is still loading.');return workspace;};
 const directory=()=>{if(!navigation)throw Error('Market navigation is still loading.');return navigation;};
 const frame=()=>{const found=directory().frames.find(f=>f.id===select('snapshot').value);if(!found)throw Error('Choose a market date above.');return found;};
-const pricingFrame=()=>{const found=data().frames.find(f=>f.id===frame().id);if(!found)throw Error('The selected market inputs are missing. Refresh and try again.');return found;};
 const selectedCurve=()=>exactRow(allCurves(data()),'code',curve);
 const listedCurve=()=>{const found=directory().curves.find(c=>c.code===curve);if(!found)throw Error('Some market details are missing or inconsistent. Refresh and try again.');return found;};
 const isRates=()=>!!curve&&listedCurve().marketType==='rates';
@@ -726,15 +725,16 @@ async function history(){
   }catch(error){if(current()){historyFailed=true;renderHistory();}throw error;}
   renderHistory();
 }
+const canCorrectPrice=()=>canCorrect()&&result?.inputSelection?.correctionsSupported===true;
 function renderInputs(){
   if(!result||!result.points.length){text('inputs',result?'No price sources are needed for an empty delivery window.':'Choose a market date to view price sources.');text('input-count','');return;}
-  const used=new Set(sourcePoints().flatMap(p=>p.lineage));if([...used].some(id=>!pricingFrame().observationIds.includes(id)))throw Error('A required source observation is missing from this market date.');const obs=[...used].map(observation);text('input-count',`${obs.length} prices & factors`);
-  table('inputs',[isRates()?'Tenor':'Delivery period','Input','Source','Value','Units',''],obs.map(o=>{const series=row('series','id',val(o,'series_id')),c=series.contract_id?row('contracts','id',val(series,'contract_id')):undefined;return [c?deliveryLabel(val(c,'delivery_from'),val(c,'delivery_to')):rateTenor(series)?val(rateTenor(series)!,'label'):'All months',sourceName(series),referenceName('sources',val(o,'source_code')),val(o,'value'),inputUnit(series),action(canCorrect()?'Correct price':'View versions',async()=>{input=val(o,'id');renderRevisions();})];}),[3]);renderRevisions();
+  priceSourceInputIds(result,data());const used=new Set(sourcePoints().flatMap(p=>p.lineage));const obs=[...used].map(observation);text('input-count',`${obs.length} prices & factors`);
+  table('inputs',[isRates()?'Tenor':'Delivery period','Input','Source','Value','Units',''],obs.map(o=>{const series=row('series','id',val(o,'series_id')),c=series.contract_id?row('contracts','id',val(series,'contract_id')):undefined;return [c?deliveryLabel(val(c,'delivery_from'),val(c,'delivery_to')):rateTenor(series)?val(rateTenor(series)!,'label'):'All months',sourceName(series),referenceName('sources',val(o,'source_code')),val(o,'value'),inputUnit(series),action(canCorrectPrice()?'Correct price':'View versions',async()=>{input=val(o,'id');renderRevisions();})];}),[3]);renderRevisions();
 }
 function renderRevisions(){
-  if(!input||!pricingFrame().observationIds.includes(input)||!sourcePoints().some(p=>p.lineage.includes(input))){$('revision-card').hidden=true;return;}
+  if(!input||!result||!priceSourceInputIds(result,data()).has(input)||!sourcePoints().some(p=>p.lineage.includes(input))){$('revision-card').hidden=true;return;}
   const o=observation(input),series=row('series','id',val(o,'series_id'));$('revision-card').hidden=false;text('correction-description',`${sourceName(series)} · ${instant(val(o,'observed_at'))} · ${inputUnit(series)}`);
-  const editor=canCorrect();$('correction-form').hidden=!editor;text('changes-title',`${editor?'Correct':'Versions of'} this ${isRates()?'rate':'price'}`);
+  const editor=canCorrectPrice();$('correction-form').hidden=!editor;text('changes-title',`${editor?'Correct':'Versions of'} this ${isRates()?'rate':'price'}`);
   text('edit-help',isRates()?`Enter the annual zero rate in ${rateMarkUnit()}. Earlier versions stay available.`:'Earlier prices stay available. Saving adds a new version for you to view.');
   if(draftFor!==input){$<HTMLInputElement>('correction-value').value=val(o,'value');draftFor=input;}
   const revisions=data().observations.filter(r=>r.series_id===o.series_id&&r.source_code===o.source_code&&r.source_event_id===o.source_event_id&&r.observed_at===o.observed_at&&r.role===o.role);
