@@ -145,3 +145,11 @@ are unavailable to the runtime.
 Browser, whole-portfolio economic risk, automatic host dispatch, gas continuation
 and physical-futures delivery have separate integration checks. This document
 does not claim those consumers are qualified by the action checks alone.
+
+Earlier swap settlement forms now retain their settlement, cash and P&L reads,
+while new actions open the shared Lifecycle workspace. Requests retained by the
+previous forms can only query their exact actor-owned native receipt. A missing
+outcome is checked behind the publication fence before explicit dismissal; the
+status read also retains its original authority through owned commit. Disposable
+native concurrency and authority checks and actual browser checks qualify this
+recovery boundary. Booking and amendment remain separate operations.

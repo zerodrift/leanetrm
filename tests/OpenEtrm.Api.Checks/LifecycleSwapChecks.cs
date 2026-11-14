@@ -18,6 +18,24 @@ internal static class LifecycleSwapChecks
             throw new Exception("Lifecycle swap checks require an owned disposable cluster.");
         var login=new NpgsqlConnectionStringBuilder{Host=host,Port=55439,Database="postgres",Username="preview_runtime",Timezone="UTC",Pooling=false};
         await using var database=new PreviewDatabase(manifest,new NpgsqlConnectionStringBuilder(login.ConnectionString){Username="preview_authenticator"},login);
+        if(f.TryGetProperty("status",out var status))
+        {
+            var expire=status.GetProperty("expire").GetBoolean();
+            try
+            {
+                var result=await database.WithIdentity("trader",null,async(c,t)=>
+                {
+                    var receipt=await SwapSettlementStatus.Read(c,database,status.Id("operationId"),t);
+                    if(expire)await Task.Delay(6000,t);
+                    return receipt;
+                },default);
+                if(expire||!result.GetProperty("found").GetBoolean()||result.Id("operationId")!=status.Id("operationId"))
+                    throw new Exception("Retained status lost its exact first result or allowed a successor grant to extend the original read.");
+            }
+            catch(PostgresException error)when(expire&&error.SqlState=="42501"&&error.MessageText=="futures_margin_denied"){}
+            Console.WriteLine("PASS owned retained swap status: original read admission survives transport shaping and a fresh successor request remains usable");
+            return;
+        }
         var seed=manifest.Frames.Single(s=>s.At==(f.TryGetProperty("frameAt",out var chosen)?chosen.GetDateTimeOffset():DateTimeOffset.Parse("2020-12-18T16:00:00Z")));
         var frame=new InputFrame(f.Id("snapshotId"),"Synthetic selected swap frame",seed.At,new(2020,12,18),[..seed.ObservationIds],
             seed.CurveContracts.ToImmutableDictionary(p=>p.Key,p=>p.Value.ToImmutableArray()));

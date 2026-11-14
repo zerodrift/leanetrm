@@ -304,6 +304,7 @@ export async function readSwapView(api:Api,context:Record<string,unknown>,h:Pick
 }
 type Position=Pick<Holding,'tradeId'|'contractId'|'revision'>;
 export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;context:()=>Record<string,unknown>;queue:(command:RequestCommand)=>Promise<void>;pending:()=>RequestCommand|undefined;onDenied:()=>void;host:()=>HTMLElement;
+ lifecycle?:()=>void;
  /** Asks whether to give up what the panel holds unsaved, when it holds any: false means the person kept it. */
  leave:()=>Promise<boolean>;
  /** Asks the person a question of a ticket's own in the panel, before the page is busy: true means they chose to go on. */

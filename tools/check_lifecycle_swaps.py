@@ -3,12 +3,16 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import time
+from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 from copy import deepcopy
 from check_reference_editing import main
 from close_session_fixture import sql_session
 from check_index_fixings import RULE
 from preview_fixture import catalogue_fixture, trading_fixture,trade_booking,fixture as baseline,identity
+from check_lifecycle_actions import upgrade_checks
+from check_futures_margin_adoption import successor_grants
 
 
 def fixture(root):return baseline(root,fixing_frames=True)
@@ -21,9 +25,9 @@ def checks(query,manifest):
     issuer='https://preview.invalid'
     query(catalogue_fixture(manifest,issuer))
     def lit(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
-    def call(sql):
+    def call(sql,profile='trader'):
         token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
-                    f"'{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
+                    f"'{issuer}','{profile}','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
         return query(f"SET SESSION AUTHORIZATION preview_runtime;BEGIN;SELECT security.use_context('{token}');{sql}COMMIT;")
     def reject(body,code):
         try:call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit(body)});")
@@ -76,6 +80,30 @@ def checks(query,manifest):
                     context=dict(contextId=source,asOf='2021-01-15T08:00:00Z',businessDate='2021-01-15',snapshotId=snapshot),
                     target=dict(handler='financial_swap',scopeId=booked['tradeId'],bindingId=binding))
     original=managed({**packet,'expectedVersion':1,'expectedCurrentVersion':1})['LIFECYCLE_SWAP_REVIEWED']
+    status=json.loads(call(f"SELECT settlement_data.swap_operation_status('{catalog}','{original['operationId']}')::text;"))
+    assert status['found'] and status['operationId']==original['operationId'] and status['tradeId']==booked['tradeId']
+    assert json.loads(call(f"SELECT settlement_data.swap_operation_status('{catalog}','{original['operationId']}')::text;",'risk'))=={'found':False}
+    calculation=json.loads(query("SELECT jsonb_build_object('contextId',d.context_id,'contractualDue',to_char(o.contractual_due AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),"
+        "'completionAt',to_char(o.completion_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),'completionPolicy',o.completion_policy,"
+        "'contractHash',o.contract_hash,'inputHash',d.input_hash,'total',d.rounded_total::text,'numerator',d.exact_numerator::text,'denominator',d.exact_denominator::text,'evidence',d.evidence)::text "
+        "FROM settlement_data.swap_determinations d JOIN settlement_data.swap_occurrences o ON(o.catalog_id,o.id)=(d.catalog_id,d.occurrence_id) "
+        f"WHERE(d.catalog_id,d.trade_id)=('{catalog}','{booked['tradeId']}');"))
+    racing={**original,'operationId':str(uuid4())};application='synthetic_swap_status_'+uuid4().hex
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        writing=pool.submit(call,f"SET application_name='{application}';SELECT security.admit_trading_business_source('{catalog}','{source}','2021-01-15T08:00:00Z','2021-01-15');"
+            f"DO $race$DECLARE until_at timestamptz=lifecycle.capture_action_authority('{catalog}','swap.determine',{lit(racing)});BEGIN "
+            f"PERFORM pg_advisory_xact_lock(730849102);PERFORM pg_sleep(2);PERFORM lifecycle.determine_swap_action('{catalog}',{lit(racing)},until_at,{lit(calculation)});END$race$;")
+        deadline=time.monotonic()+10
+        while query(f"SELECT count(*) FROM pg_stat_activity WHERE application_name='{application}' AND wait_event='PgSleep';")!='1':
+            if time.monotonic()>deadline:raise AssertionError('The owned status writer did not reach its publication fence')
+            time.sleep(.02)
+        reconciled=json.loads(call(f"SELECT settlement_data.swap_operation_status('{catalog}','{racing['operationId']}')::text;"))
+        writing.result()
+    assert reconciled['found'] and reconciled['operationId']==racing['operationId'] and reconciled['tradeId']==booked['tradeId'], 'A negative status escaped an in-flight earlier settlement request'
+    print('PASS retained swap status: exact actor receipt and negative lookup serialized with an in-flight authorized producer',flush=True)
+    with successor_grants(query,manifest,'trader','ReadMarketData'):
+        managed(dict(status=dict(operationId=original['operationId'],expire=True)))
+        managed(dict(status=dict(operationId=original['operationId'],expire=False)))
     def counts():return query(f"SELECT(SELECT count(*) FROM settlement_data.swap_determinations WHERE trade_id='{booked['tradeId']}')::text||':'||(SELECT count(*) FROM settlement_data.swap_cash_payments WHERE trade_id='{booked['tradeId']}')::text||':'||(SELECT count(*) FROM settlement_data.swap_payment_allocations WHERE trade_id='{booked['tradeId']}')::text||':'||(SELECT count(*) FROM settlement_data.swap_commands WHERE trade_id='{booked['tradeId']}' AND acknowledged_operation_id IS NULL)::text;")
     assert counts()=='1:0:0:1'
     old=identity('7',5000000)
@@ -152,4 +180,4 @@ def checks(query,manifest):
     print('PASS native swap lifecycle settings: exact period ordinal/quote currency, idempotent financial configuration, stable publication and final source admission',flush=True)
 
 
-if __name__=='__main__':main(checks=checks,fixture_factory=fixture)
+if __name__=='__main__':main(checks=checks,fixture_factory=fixture,before_migration=upgrade_checks)

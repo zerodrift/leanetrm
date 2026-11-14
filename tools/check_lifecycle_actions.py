@@ -28,6 +28,8 @@ def upgrade_checks(query, migration):
     elif migration.name == '0272_futures_delivery_obligations.sql':
         groups=[('futures_delivery_writer_upgrade','settlement_data.determine_futures_margin(uuid,jsonb,jsonb)'),
                 ('futures_delivery_writer_upgrade','settlement_data.finish_futures_margin_run(uuid,uuid,jsonb,timestamptz)')]
+    elif migration.name == '0275_retained_swap_status.sql':
+        groups=[('retained_swap_status_upgrade','settlement_data.swap_operation_status(uuid,uuid)')]
     else: return
     for guard,signature in groups:
         sql_function=signature.startswith('settlement_data.futures_margin_policy_value')
@@ -42,6 +44,10 @@ def upgrade_checks(query, migration):
             f"GRANT EXECUTE ON FUNCTION {signature} TO openetrm_runtime WITH GRANT OPTION;",
             f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;",
             f"DO $$DECLARE d text=pg_get_functiondef('{signature}'::regprocedure);BEGIN EXECUTE replace(d,'AS $function$','AS $function$ /* synthetic drift */ ');END$$;")]
+        if migration.name=='0275_retained_swap_status.sql':
+            changes.extend((change,signature) for change in (
+                f"UPDATE pg_proc SET provariadic='uuid'::regtype WHERE oid='{signature}'::regprocedure;",
+                f"UPDATE pg_proc SET proargmodes=ARRAY['i','i']::\"char\"[] WHERE oid='{signature}'::regprocedure;"))
         check_guard(query,migration.read_text(),migration.name[:4],guard,changes)
 
 

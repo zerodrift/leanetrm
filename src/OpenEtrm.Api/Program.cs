@@ -1912,8 +1912,7 @@ api.MapPost("/swaps/settlement/payment",(HttpContext c,SwapCashRequest body)=>Lo
 api.MapPost("/swaps/settlement/status",(HttpContext c,FuturesStatusRequest body)=>Locked(c,session=>database.WithIdentity(Profile(session),"ReadTrades",async(connection,ct)=>
 {
  if(body.OperationId==Guid.Empty)throw new MarketDataException("settlement_input","Supply the retained operation identity.");
- await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.swap_operation_status($1,$2)::text",database.Manifest.CatalogId,body.OperationId);
- return Results.Ok(JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!));
+ return Results.Ok(await SwapSettlementStatus.Read(connection,database,body.OperationId,ct));
 },c.RequestAborted)));
 api.MapPost("/swaps/contract-observation-preview",(HttpContext c,SwapContractObservationPreviewRequest body)=>FuturesRead(c,
  body.Context??throw new MarketDataException("swap_context","Supply the selected observation context."),

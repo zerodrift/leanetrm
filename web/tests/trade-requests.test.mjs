@@ -13,9 +13,10 @@ test('a request whose outcome is not known is named by what it is, so it can be 
   assert.equal(retainedText({}).startsWith('A trade request · '),true,'a request kept by an earlier visit that had no name still says what it is');
 });
 
-test('a retained settlement command is retried by an account that may amend trades, as an amendment is, and a booking by one that may book',()=>{
+test('retired settlement writers cannot retry; booking and amendment permissions remain independent',()=>{
   const catalog=(canBook,canAmendTrades)=>({canBook,canAmendTrades});
-  for(const path of ['swaps/settlement/determine','swaps/settlement/payment','swaps/settlement/net','futures/amend','swaps/amend']){
+  for(const path of ['swaps/settlement/determine','swaps/settlement/payment','swaps/settlement/net'])assert.equal(retryAllowed(path,catalog(true,true)),false,path);
+  for(const path of ['futures/amend','swaps/amend']){
     assert.equal(retryAllowed(path,catalog(false,true)),true,path);assert.equal(retryAllowed(path,catalog(true,false)),false,path);
   }
   for(const path of ['futures/book','swaps/book']){assert.equal(retryAllowed(path,catalog(true,false)),true,path);assert.equal(retryAllowed(path,catalog(false,true)),false,path);}
