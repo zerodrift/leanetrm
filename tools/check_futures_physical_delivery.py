@@ -18,7 +18,7 @@ def fixture(root):
     return action_fixture(root,rate_inputs=[('2026-10-29',Decimal('0.04')),('2027-06-30',Decimal('0.045'))])
 
 
-def checks(query, manifest):
+def checks(query, manifest, *, configuration_checks=None):
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
     issuer = manifest['identityIssuer']
     query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
@@ -100,6 +100,10 @@ def checks(query, manifest):
     adoption=dict(operationId=str(uuid4()),tradeId=booked['tradeId'],bindingId=booked['bindingId'],expectedRevision=1,
         policyId=margin['id'],policyRevision=1,contextId=capture(),asOf=request['asOf'],adoption='native_execution_inception_v1')
     call(f"SELECT settlement_data.adopt_futures_margin('{catalog}',{literal(adoption)});")
+    if configuration_checks is not None:
+        configuration_checks(query,manifest,dict(marginRequest=margin_request,adoption=adoption,bookId=book,
+            contractId=source['contract'],booking=booking,marginPolicyId=margin['id'],profile=profile,at=request['asOf']))
+        return
     observation=str(uuid4())
     original_observation=query(f"SELECT o.id FROM market_data.observations o JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.id)=(o.catalog_id,o.definition_revision_id,o.series_id) "
         f"WHERE(o.catalog_id,o.definition_revision_id,s.contract_id)=('{catalog}','{manifest['revisionId']}','{source['contract']}') ORDER BY o.observed_at,o.id LIMIT 1;")

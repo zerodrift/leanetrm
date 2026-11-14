@@ -139,7 +139,7 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
             throw new MarketDataException("lifecycle_profile_revision","Retain the configured exact payment occurrence and financial conventions.");
         return p;
     }
-    public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,CancellationToken ct)
+    public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,LifecycleDiscoveryAccess access,CancellationToken ct)
     {
         var rows=await PreviewDatabase.Rows(connection,"""
           SELECT row_to_json(v)::text FROM(SELECT DISTINCT ON(r.trade_id) r.trade_id,r.binding_id,r.revision,r.effective_at,r.book_id,

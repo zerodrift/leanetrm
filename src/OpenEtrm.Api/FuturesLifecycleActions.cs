@@ -53,7 +53,7 @@ internal sealed class FuturesLifecycleActions(PreviewDatabase database,Action<Li
         return new(value,new LifecycleCombinedAdmission(accepted,Admission(request,body,until)));
     }
     private LifecycleNativeAdmission Admission(LifecycleActionRequest request,JsonElement body,DateTimeOffset until)=>new(Catalog,request.OperationId,request.Action,body,"AmendTrade",until);
-    public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,CancellationToken ct)
+    public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,LifecycleDiscoveryAccess access,CancellationToken ct)
     {
         var rows=await PreviewDatabase.Rows(connection,"""
          SELECT row_to_json(v)::text FROM(SELECT a.trade_id,a.binding_id,o.id,o.at,r.revision,r.book_id,b.name book_name,
@@ -68,8 +68,8 @@ internal sealed class FuturesLifecycleActions(PreviewDatabase database,Action<Li
          JOIN market_data.contracts c ON(c.catalog_id,c.revision_id,c.id)=(p.catalog_id,p.definition_revision_id,p.contract_id)
          JOIN ref_data.futures_series s ON(s.catalog_id,s.revision_id,s.code)=(c.reference_catalog_id,c.reference_revision_id,c.futures_series_code)
          JOIN ref_data.futures_products fp ON(fp.catalog_id,fp.revision_id,fp.code)=(s.catalog_id,s.revision_id,s.product_code)
-         WHERE a.catalog_id=$1 AND o.at<=$2 AND($3::uuid IS NULL OR a.trade_id=$3) ORDER BY a.trade_id,o.at,o.phase)v
-         """,[Catalog,context.AsOf,target is null?DBNull.Value:target.ScopeId,context.ContextId],ct);
+         WHERE a.catalog_id=$1 AND o.at<=$2 AND($3::uuid IS NULL OR a.trade_id=$3) AND($5 OR p.delivery_profile_id IS NULL) ORDER BY a.trade_id,o.at,o.phase)v
+         """,[Catalog,context.AsOf,target is null?DBNull.Value:target.ScopeId,context.ContextId,access.Allows("ReadGasOwnedHoldings")],ct);
         return [..rows.Where(r=>target is null||target.BindingId==r.Id("binding_id")).Select(r=>new LifecycleActionOffer(new(Kind,r.Id("trade_id"),r.Id("binding_id")),
             "futures.margin","Review scheduled margin",r.Id("id"),r.Instant("at"),null,false,"lifecycle_policy_required",int.Parse(r.Text("revision"),System.Globalization.CultureInfo.InvariantCulture),
             int.Parse(r.Text("margin_revision"),System.Globalization.CultureInfo.InvariantCulture))

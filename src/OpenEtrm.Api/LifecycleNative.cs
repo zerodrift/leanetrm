@@ -15,6 +15,14 @@ internal sealed record LifecycleNativeAdmission(Guid Catalog,Guid Operation,stri
         await finish.ExecuteNonQueryAsync(ct);
     }
 }
+internal sealed record LifecycleActionReadAdmission(Guid Catalog,string Kind,JsonElement Request,DateTimeOffset Until):ICommitAdmission
+{
+    public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
+    {
+        await using var command=ScheduleStore.Command(connection,"SELECT lifecycle.require_action_read($1,$2,$3::jsonb,$4)",Catalog,Kind,Request.GetRawText(),Until);
+        await command.ExecuteNonQueryAsync(ct);
+    }
+}
 internal static class LifecycleNative
 {
     internal static string Refusal(string code)=>code switch{
@@ -43,7 +51,7 @@ internal static class LifecycleNative
         var catalog=database.Manifest.CatalogId;
         await using var command=ScheduleStore.Command(connection,"SELECT lifecycle.capture_action_authority($1,$2,$3::jsonb)",catalog,kind,body.GetRawText());
         var until=new DateTimeOffset((DateTime)(await command.ExecuteScalarAsync(ct))!);
-        database.RegisterCommitAdmission(connection,new LifecycleReadAdmission(catalog,until));return until;
+        database.RegisterCommitAdmission(connection,new LifecycleActionReadAdmission(catalog,kind,body.Clone(),until));return until;
     }
     internal static async Task<JsonElement> Read(NpgsqlConnection connection,string sql,CancellationToken ct,params object[] values)
     {

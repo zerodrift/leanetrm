@@ -50,7 +50,7 @@ internal static class LifecycleFuturesSettings
     internal static async Task<FuturesMarginWrite> Save(NpgsqlConnection connection,PreviewDatabase database,LifecycleReadContext context,JsonElement body,bool policy,Action requireSource,CancellationToken ct)
     {
         var catalog=database.Manifest.CatalogId;var kind=policy?"policy_save":"adopt";
-        await using var capture=ScheduleStore.Command(connection,"SELECT least(settlement_data.futures_margin_command_authority($1,$2),settlement_data.futures_margin_preview_authority($1))",catalog,kind);
+        await using var capture=ScheduleStore.Command(connection,"SELECT least(settlement_data.futures_margin_selected_authority($1,$2,$3::jsonb),settlement_data.futures_margin_preview_authority($1))",catalog,kind,body.GetRawText());
         var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
         database.RegisterCommitAdmission(connection,new LifecycleReadAdmission(catalog,until));
         // Receipt replay precedes the mutable source. Its first native result

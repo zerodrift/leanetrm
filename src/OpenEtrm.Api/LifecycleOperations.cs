@@ -37,23 +37,41 @@ public sealed class LifecycleOperations
         this.database=database;frames=frame;
         registry=new([new OptionLifecycleActions(database,RequireFrame),new SwapLifecycleActions(database,frame),new FuturesLifecycleActions(database,RequireFrame),new GasOwnedActions(database),..additional??[]]);
     }
+    private sealed record DiscoveryAdmission(DateTimeOffset Until,DateTimeOffset? GasUntil,LifecycleDiscoveryAccess Access);
+    private async Task<DiscoveryAdmission> CaptureDiscovery(NpgsqlConnection connection,bool requiresGas,CancellationToken ct)
+    {
+        var catalog=database.Manifest.CatalogId;
+        var captured=await LifecycleNative.Read(connection,"SELECT lifecycle.discovery_authority($1,$2)::text",ct,catalog,requiresGas);
+        var until=captured.Instant("authorityUntil");
+        database.RegisterCommitAdmission(connection,new LifecycleReadAdmission(catalog,until));
+        var permissions=ImmutableHashSet.Create(StringComparer.Ordinal,"ReadMarketData","ReadTrades");
+        if(captured.GetProperty("gasUntil").ValueKind!=JsonValueKind.Null)
+        {
+            database.RegisterCommitAdmission(connection,new GasOwnedOperationReadAdmission(catalog,captured.Instant("gasUntil")));
+            permissions=permissions.Add("ReadGasOwnedHoldings");
+        }
+        return new(until,captured.GetProperty("gasUntil").ValueKind==JsonValueKind.Null?null:captured.Instant("gasUntil"),new(permissions));
+    }
     internal async Task<LifecycleDiscovery> View(NpgsqlConnection connection,FuturesReadRequest request,TradingReadSelection selection,CancellationToken ct)
     {
         if(request.Convention!=TradingBlotter.Convention)throw new MarketDataException("lifecycle_context","Select the shared trading workspace source convention.");
-        await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_preview_authority($1)",database.Manifest.CatalogId);
-        var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
-        database.RegisterCommitAdmission(connection,new LifecycleReadAdmission(database.Manifest.CatalogId,until));
+        var admission=await CaptureDiscovery(connection,false,ct);
         var view=await selection.Resolve(connection,new KnowledgeStore(database.Manifest.CatalogId),request,ct);
-        return await Discover(connection,new(new(view.Context.ContextId!.Value,view.Frame.At,view.Frame.BusinessDate,view.Frame.Id),null),ct);
+        return await DiscoverCore(connection,new(new(view.Context.ContextId!.Value,view.Frame.At,view.Frame.BusinessDate,view.Frame.Id),null),admission,ct);
     }
     internal async Task<LifecycleDiscovery> Discover(NpgsqlConnection connection,LifecycleDiscoveryRequest request,CancellationToken ct)
     {
         if(request.Context is null||request.Context.ContextId==Guid.Empty)throw new MarketDataException("lifecycle_context","Select an exact certified context.");
+        var requiresGas=request.Target is not null&&registry.Require(request.Target.Handler).Permissions.Contains("ReadGasOwnedHoldings");
+        return await DiscoverCore(connection,request,await CaptureDiscovery(connection,requiresGas,ct),ct);
+    }
+    private async Task<LifecycleDiscovery> DiscoverCore(NpgsqlConnection connection,LifecycleDiscoveryRequest request,DiscoveryAdmission admission,CancellationToken ct)
+    {
         RequireFrame(request.Context);
         _=LifecycleNative.Instant(request.Context.AsOf);
-        await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_preview_authority($1)",database.Manifest.CatalogId);
-        var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
-        database.RegisterCommitAdmission(connection,new LifecycleReadAdmission(database.Manifest.CatalogId,until));
+        var until=admission.Until;
+        await new LifecycleReadAdmission(database.Manifest.CatalogId,until).RequireCommit(connection,ct);
+        if(admission.GasUntil is {} gasUntil)await new GasOwnedOperationReadAdmission(database.Manifest.CatalogId,gasUntil).RequireCommit(connection,ct);
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT lifecycle_discovery"))await save.ExecuteNonQueryAsync(ct);
         ImmutableArray<LifecycleActionOffer> actions;ImmutableArray<JsonElement> policies,optionProfiles,swapProfiles,marginPolicies,optionSources,swapOccurrences,futuresSetup,deliveryProfiles,deliveryAccounts;LifecycleSettingsChoices choices;
         try
@@ -64,7 +82,8 @@ public sealed class LifecycleOperations
             await TradingContext.Bind(connection,database.Manifest.CatalogId,context,request.Context.AsOf,ct);
             var selected=request.Target is null?registry.Handlers:[registry.Require(request.Target.Handler)];
             var result=ImmutableArray.CreateBuilder<LifecycleActionOffer>();
-            foreach(var handler in selected)result.AddRange(await handler.Discover(connection,request.Context,request.Target,ct));
+            foreach(var handler in selected.Where(h=>!h.Permissions.Contains("ReadGasOwnedHoldings")||admission.Access.Allows("ReadGasOwnedHoldings")))
+                result.AddRange(await handler.Discover(connection,request.Context,request.Target,admission.Access,ct));
             actions=result.ToImmutable();
             policies=await PreviewDatabase.Rows(connection,"SELECT row_to_json(p)::text FROM lifecycle.action_policies p WHERE p.catalog_id=$1 ORDER BY p.id,p.revision",[database.Manifest.CatalogId],ct);
             optionProfiles=await PreviewDatabase.Rows(connection,"SELECT row_to_json(p)::text FROM lifecycle.option_profiles p WHERE p.catalog_id=$1 ORDER BY p.trade_id,p.action,p.revision",[database.Manifest.CatalogId],ct);
@@ -113,7 +132,7 @@ public sealed class LifecycleOperations
                     {Delivery=new([OpenEtrm.MarketData.Gas.GasPhysicalDeliveryTerms.Version],["nominal_mark_v1","currency_curve_v1"],
                         ["delivery_cumulative_principal_total_v1"],["contractual_principal_due_v1"])});
             futuresSetup=await LifecycleFuturesSettings.Read(connection,database.Manifest.CatalogId,ct);
-            (deliveryProfiles,deliveryAccounts)=await LifecyclePhysicalSettings.Read(connection,database,request.Context,ct);
+            (deliveryProfiles,deliveryAccounts)=admission.Access.Allows("ReadGasOwnedHoldings")?await LifecyclePhysicalSettings.Read(connection,database,request.Context,ct):([],[]);
             futuresSetup=[..futuresSetup.Select(future=>LifecyclePhysicalSettings.ForFuture(future,deliveryProfiles,deliveryAccounts))];
         }
         finally

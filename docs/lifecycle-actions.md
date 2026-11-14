@@ -153,3 +153,17 @@ outcome is checked behind the publication fence before explicit dismissal; the
 status read also retains its original authority through owned commit. Disposable
 native concurrency and authority checks and actual browser checks qualify this
 recovery boundary. Booking and amendment remain separate operations.
+
+Interactive physical admission follows the exact selected policy, including an
+option's saved linked-future policy, before any inventory exists. Native and
+owned managed boundaries retain the original gas deadline through receipt waits,
+source reads and commit, alongside current authorization and exact references.
+Protected worker read wrappers retain their scope checks; their private source
+readers capture gas authority before base admission waits.
+
+Discovery fixes its optional read permissions at entry. A gas grant acquired
+while resolving the source becomes usable on a new read. This read keeps its
+original permission set; optional gas data and physical-futures offers stay
+excluded, and configured physical option actions identify the missing access.
+Disposable native checks cover initial deadlines, fresh successor requests,
+ordered permission revocation and delayed discovery without inventory.

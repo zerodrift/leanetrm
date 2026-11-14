@@ -28,14 +28,23 @@ internal sealed record FuturesMarginReview(FuturesMarginTrajectory Plan,string H
 // prices, quantities and cash operands from native holdings and official facts.
 internal static class FuturesMarginCoordinator
 {
+    private sealed record ReadAdmission(Guid Catalog,Guid Trade,Guid Binding,DateTimeOffset Until):ICommitAdmission
+    {
+        public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
+        {
+            await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.require_futures_margin_selected_preview($1,$2,$3,$4)",Catalog,Trade,Binding,Until);
+            await command.ExecuteNonQueryAsync(ct);
+        }
+    }
     internal const string Version="native_futures_margin_journal_v1";
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     internal static async Task<FuturesMarginReview> Preview(NpgsqlConnection connection,PreviewDatabase database,JsonElement body,CancellationToken ct)
     {
         var request=ReadRequest(body);var catalog=database.Manifest.CatalogId;
-        await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_preview_authority($1)",catalog);
+        await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_selected_preview_authority($1,$2,$3)",catalog,request.TradeId,request.BindingId);
         var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
+        database.RegisterCommitAdmission(connection,new ReadAdmission(catalog,request.TradeId,request.BindingId,until));
         var at=TradingInstant.Parse(request.AsOf,"futures_margin_input");
         var correctionDue=request.CorrectionDue.ToImmutableDictionary(d=>d.OccurrenceId,d=>TradingInstant.Parse(d.DueAt,"futures_margin_correction_due"));
         FuturesMarginReview prepared;
@@ -91,7 +100,7 @@ internal static class FuturesMarginCoordinator
     internal static async Task<FuturesMarginWrite> Determine(NpgsqlConnection connection,PreviewDatabase database,JsonElement body,CancellationToken ct)
     {
         var request=ReadRequest(body);var catalog=database.Manifest.CatalogId;
-        await using var capture=ScheduleStore.Command(connection,"SELECT least(settlement_data.futures_margin_command_authority($1,'adopt'),settlement_data.futures_margin_delivery_authority($1,$2,$3))",
+        await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_delivery_authority($1,$2,$3)",
             catalog,request.TradeId,request.BindingId);
         var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
         await using var status=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_run_status($1,$2,$3::jsonb)::text",

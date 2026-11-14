@@ -64,8 +64,9 @@ internal sealed class GasOwnedActions(PreviewDatabase database):ILifecycleAction
         var result=await GasOwnedOperations.Record(connection,database,request.OperationId,request.Context,request.Target.ScopeId,command,body,request.PolicyId,request.PolicyRevision,request.Automatic,ct);
         return new(result,admission);
     }
-    public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,CancellationToken ct)
+    public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,LifecycleDiscoveryAccess access,CancellationToken ct)
     {
+        if(!access.Allows("ReadGasOwnedHoldings"))return [];
         if(target is null&&!await PreviewDatabase.HasPermission(connection,"ReadGasOwnedHoldings",ct))return [];
         var state=await GasOwnedOperations.Read(connection,database,context,target?.ScopeId,ct);
         var result=ImmutableArray.CreateBuilder<LifecycleActionOffer>();

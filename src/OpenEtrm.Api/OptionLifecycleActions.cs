@@ -53,7 +53,7 @@ internal sealed class OptionLifecycleActions(PreviewDatabase database,Action<Lif
         var result=await LifecycleNative.Read(connection,"SELECT lifecycle.execute_option_action($1,$2::jsonb)::text",ct,Catalog,body.GetRawText());
         return new(result,new LifecycleNativeAdmission(Catalog,request.OperationId,request.Action,body,"BookTrade",until));
     }
-    public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,CancellationToken ct)
+    public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,LifecycleDiscoveryAccess access,CancellationToken ct)
     {
         var rows=await PreviewDatabase.Rows(connection,"""
             SELECT row_to_json(v)::text FROM(
@@ -76,8 +76,9 @@ internal sealed class OptionLifecycleActions(PreviewDatabase database,Action<Lif
         {
             var subject=new LifecycleTarget(Kind,row.Id("trade_id"),row.Id("option_instrument_id"));
             if(target is not null&&target!=subject)continue;
-            var profiles=await PreviewDatabase.Rows(connection,"SELECT row_to_json(v)::text FROM(SELECT p.*,s.from_at,s.until_at,s.mode FROM lifecycle.option_profiles p JOIN lifecycle.action_policies s ON(s.catalog_id,s.id,s.revision)=(p.catalog_id,p.policy_id,p.policy_revision) WHERE(p.catalog_id,p.trade_id,p.action)=($1,$2,$3) ORDER BY p.revision DESC LIMIT 1)v",[Catalog,subject.ScopeId,action],ct);
-            var reason=row.Number("open_lots").CompareTo(default)<=0?"option_holding_closed":profiles.IsEmpty?"lifecycle_configuration_required":null;
+            var profiles=await PreviewDatabase.Rows(connection,"SELECT row_to_json(v)::text FROM(SELECT p.*,s.from_at,s.until_at,s.mode,m.delivery_profile_id IS NOT NULL AS requires_gas FROM lifecycle.option_profiles p JOIN settlement_data.futures_margin_policies m ON(m.catalog_id,m.id,m.revision)=(p.catalog_id,p.margin_policy_id,p.margin_policy_revision) JOIN lifecycle.action_policies s ON(s.catalog_id,s.id,s.revision)=(p.catalog_id,p.policy_id,p.policy_revision) WHERE(p.catalog_id,p.trade_id,p.action)=($1,$2,$3) ORDER BY p.revision DESC LIMIT 1)v",[Catalog,subject.ScopeId,action],ct);
+            var reason=row.Number("open_lots").CompareTo(default)<=0?"option_holding_closed":profiles.IsEmpty?"lifecycle_configuration_required":
+                profiles[0].GetProperty("requires_gas").GetBoolean()&&!access.Allows("ReadGasOwnedHoldings")?"lifecycle_gas_access_required":null;
             if(reason is null&&(context.AsOf<profiles[0].Instant("from_at")||context.AsOf>=profiles[0].Instant("until_at")))reason="lifecycle_action_window";
             var instruction=action is "option.exercise_instruction" or "option.abandon_instruction";
             var end=instruction?row.Instant("instruction_cutoff_at"):row.Instant("expiry_at");

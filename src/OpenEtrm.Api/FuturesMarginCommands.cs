@@ -35,7 +35,7 @@ internal static class FuturesMarginCommands
     private static async Task<FuturesMarginWrite> Run(NpgsqlConnection connection,Guid catalog,JsonElement request,string kind,string sql,CancellationToken ct)
     {
         // Capture before the native command's receipt, publication or row waits.
-        await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_command_authority($1,$2)",catalog,kind);
+        await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_selected_authority($1,$2,$3::jsonb)",catalog,kind,request.GetRawText());
         var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
         await using var command=ScheduleStore.Command(connection,sql,catalog,request.GetRawText());
         var outcome=JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);

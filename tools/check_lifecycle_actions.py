@@ -28,6 +28,18 @@ def upgrade_checks(query, migration):
     elif migration.name == '0272_futures_delivery_obligations.sql':
         groups=[('futures_delivery_writer_upgrade','settlement_data.determine_futures_margin(uuid,jsonb,jsonb)'),
                 ('futures_delivery_writer_upgrade','settlement_data.finish_futures_margin_run(uuid,uuid,jsonb,timestamptz)')]
+    elif migration.name == '0281_selected_physical_authority.sql':
+        groups=[('selected_physical_authority_upgrade',signature) for signature in (
+            'lifecycle.capture_action_authority(uuid,text,jsonb)','lifecycle.option_proposal(uuid,jsonb)',
+            'settlement_data.futures_margin_command_status(uuid,uuid,text,jsonb)','settlement_data.save_futures_margin_policy(uuid,jsonb)',
+            'settlement_data.adopt_futures_margin(uuid,jsonb)','settlement_data.finish_futures_margin_command(uuid,uuid,text,jsonb,timestamptz)',
+            'settlement_data.futures_delivery_profile_document(uuid,uuid,integer,uuid,timestamptz)',
+            'settlement_data.futures_margin_delivery_authority(uuid,uuid,uuid)',
+            'settlement_data.futures_margin_delivery_read_authority_pre_risk(uuid,uuid,uuid,uuid,timestamptz)',
+            'settlement_data.read_futures_delivery_obligation_pre_risk(uuid,uuid,uuid,uuid,timestamptz)',
+            'settlement_data.read_futures_delivery_position_pre_risk(uuid,uuid,uuid,timestamptz)',
+            'settlement_data.read_futures_delivery_settings(uuid,uuid,timestamptz)',
+            'settlement_data.read_futures_delivery_profile_pre_risk(uuid,uuid,integer,uuid,timestamptz)')]
     elif migration.name == '0275_retained_swap_status.sql':
         groups=[('retained_swap_status_upgrade','settlement_data.swap_operation_status(uuid,uuid)')]
     else: return
@@ -44,10 +56,10 @@ def upgrade_checks(query, migration):
             f"GRANT EXECUTE ON FUNCTION {signature} TO openetrm_runtime WITH GRANT OPTION;",
             f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;",
             f"DO $$DECLARE d text=pg_get_functiondef('{signature}'::regprocedure);BEGIN EXECUTE replace(d,'AS $function$','AS $function$ /* synthetic drift */ ');END$$;")]
-        if migration.name=='0275_retained_swap_status.sql':
+        if migration.name in('0275_retained_swap_status.sql','0281_selected_physical_authority.sql'):
             changes.extend((change,signature) for change in (
                 f"UPDATE pg_proc SET provariadic='uuid'::regtype WHERE oid='{signature}'::regprocedure;",
-                f"UPDATE pg_proc SET proargmodes=ARRAY['i','i']::\"char\"[] WHERE oid='{signature}'::regprocedure;"))
+                f"UPDATE pg_proc SET proargmodes=array_fill('i'::\"char\",ARRAY[{signature.count(',')+1}]) WHERE oid='{signature}'::regprocedure;"))
         check_guard(query,migration.read_text(),migration.name[:4],guard,changes)
 
 

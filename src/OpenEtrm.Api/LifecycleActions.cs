@@ -59,11 +59,15 @@ internal sealed record LifecycleActionWrite(JsonElement Outcome,ICommitAdmission
 {
     public Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)=>Admission.RequireCommit(connection,ct);
 }
+internal sealed record LifecycleDiscoveryAccess(ImmutableHashSet<string> Permissions)
+{
+    internal bool Allows(string permission)=>Permissions.Contains(permission);
+}
 internal interface ILifecycleActionHandler
 {
     string Kind {get;}
     ImmutableArray<string> Permissions {get;}
-    Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,CancellationToken ct);
+    Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,LifecycleDiscoveryAccess access,CancellationToken ct);
     Task<LifecycleActionReview> Preview(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct);
     Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct);
 }
