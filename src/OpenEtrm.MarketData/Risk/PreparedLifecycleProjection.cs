@@ -49,13 +49,15 @@ public sealed class PreparedLifecycleProjection
         var declarations=components.SelectMany(c=>c.Dependencies).ToImmutableHashSet();
         Factors=basis.Factors([..declarations],ct);
         events=Order(components,SourceSnapshot.ValuationAt,Horizon);
+        foreach(var component in components)RequireState(component.Opening,component,SourceSnapshot.ValuationAt);
         RequireUniqueResiduals([..components.Select(c=>c.Opening)]);
         openings=[..components.Select(c=>Value(c.Opening,c,SourceSnapshot.ValuationAt,basis,ct))];
         foreach(var component in components)
         {
             var captured=component.Opening.Residuals.SelectMany(p=>p.Setup.BindingStates.Values)
                 .SelectMany(s=>s switch{RecordedCashValuation cash=>cash.KnownFlows(SourceSnapshot),
-                    ProjectedSwapValuation swap=>swap.KnownPayments(SourceSnapshot),_=>[]}).ToHashSet();
+                    ProjectedSwapValuation swap=>swap.KnownPayments(SourceSnapshot),_=>[]})
+                .Concat(component.Opening.KnownCashSources.SelectMany(s=>s.KnownFlows(SourceSnapshot))).ToHashSet();
             if(component.Opening.KnownPayments.Any(p=>!captured.Contains(p)))
                 throw LifecycleProjection.Error("projection_cash","A known period payment must retain its exact opening native cash-state evidence.");
         }
@@ -105,6 +107,8 @@ public sealed class PreparedLifecycleProjection
             if(prior.Any(p=>!next.Cash.Contains(p.Value)))throw LifecycleProjection.Error("projection_cash","A transition removed or rewrote an earlier cash contribution.");
             if(!next.KnownPayments.ToHashSet().SetEquals(states[index].KnownPayments))
                 throw LifecycleProjection.Error("projection_cash","A projected transition cannot add, remove or correct source-known actual payments.");
+            if(!next.KnownCashSources.SequenceEqual(states[index].KnownCashSources))
+                throw LifecycleProjection.Error("projection_cash","A projected transition cannot replace its certified native known-cash source evidence.");
             if(next.Cash.Any(c=>!prior.ContainsKey(c.Id)&&c.EffectiveAt!=occurrence.At))
                 throw LifecycleProjection.Error("projection_cash","New cash must retain the event that created its economic obligation.");
             states[index]=next with{CompletedEvents=states[index].CompletedEvents.Add(occurrence.Id)};
@@ -174,16 +178,22 @@ public sealed class PreparedLifecycleProjection
         if(state is null||state.Residuals.IsDefault||state.Residuals.Any(p=>p is null)||state.Cash.IsDefault||state.Cash.Any(c=>c is null||c.Id==Guid.Empty||
             c.Amount is null||c.Amount.Currency!=component.Currency||!TradingInstant.IsSupported(c.EffectiveAt)||!TradingInstant.IsSupported(c.DueAt)||
             c.DueAt<c.EffectiveAt||c.EffectiveAt>at)||state.Cash.Select(c=>c.Id).Distinct().Count()!=state.Cash.Length||state.KnownPayments.IsDefault||
-            state.KnownPayments.Any(p=>p is null||p.Kind!=AccountingFlowKind.EconomicCash||p.Position!=component.Owner||p.Amount is null||p.Amount.Currency!=component.Currency||
+            state.KnownPayments.Any(p=>p is null||p.Kind!=AccountingFlowKind.EconomicCash||p.Position.BookId!=component.Owner.BookId||p.Amount is null||p.Amount.Currency!=component.Currency||
                 p.EffectiveAt<=SourceSnapshot.ValuationAt||!TradingInstant.IsSupported(p.EffectiveAt)||!TradingInstant.IsSupported(p.KnownAt)||p.KnownAt>SourceSnapshot.Knowledge!.KnownAt)||
-            state.KnownPayments.Select(p=>(p.AllocationId,p.Revision)).Distinct().Count()!=state.KnownPayments.Length)
+            state.KnownPayments.Select(p=>(p.Position.Owner,p.AllocationId,p.Revision)).Distinct().Count()!=state.KnownPayments.Length||
+            state.KnownCashSources.IsDefault||state.KnownCashSources.Any(s=>s is null||s.BookId!=component.Owner.BookId||
+                s.Quantity.Specification!=component.Currency||s.SourceContextId!=SourceSnapshot.Knowledge!.ContextId||s.KnownThrough!=SourceSnapshot.Knowledge.KnownAt)||
+            state.KnownCashSources.Select(s=>(s.Owner,s.BindingId)).Distinct().Count()!=state.KnownCashSources.Length)
             throw LifecycleProjection.Error("projection_state","Supply complete residual portfolios and distinct immutable owned cash contributions.");
     }
     private static void RequireUniqueResiduals(IEnumerable<LifecycleProjectionState> states)
     {
-        var positions=states.SelectMany(s=>s.Residuals).SelectMany(p=>p.Positions).ToArray();
+        var retained=states.ToArray();var positions=retained.SelectMany(s=>s.Residuals).SelectMany(p=>p.Positions).ToArray();
         if(positions.Select(p=>(p.Owner,p.BindingId)).Distinct().Count()!=positions.Length)
             throw LifecycleProjection.Error("projection_scope","One residual owner/binding cannot appear in multiple economic components.");
+        var payments=retained.SelectMany(s=>s.KnownPayments).ToArray();
+        if(payments.Select(p=>(p.Position.Owner,p.AllocationId,p.Revision)).Distinct().Count()!=payments.Length)
+            throw LifecycleProjection.Error("projection_scope","One native actual payment cannot be counted by multiple economic components.");
     }
     private static ImmutableArray<(int,LifecycleProjectionEvent)> Order(ImmutableArray<ILifecycleProjection> components,DateTimeOffset opening,DateTimeOffset horizon)
     {

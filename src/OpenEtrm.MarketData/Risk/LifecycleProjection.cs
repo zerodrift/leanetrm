@@ -35,6 +35,9 @@ public sealed record ProjectedCashContribution(Guid Id,DateTimeOffset EffectiveA
 public sealed record LifecycleProjectionState(ImmutableArray<ValuationPortfolio> Residuals,ImmutableArray<ProjectedCashContribution> Cash)
 {
     public ImmutableArray<AccountingFlow> KnownPayments{get;init;}=[];
+    // Native memberships created by a known future event are source evidence,
+    // not active opening positions. Their payments remain immutable actuals.
+    public ImmutableArray<RecordedCashValuation> KnownCashSources{get;init;}=[];
     public ImmutableDictionary<ProjectedFixingKey,ProjectedFixing> ProjectedFacts{get;init;}=ImmutableDictionary<ProjectedFixingKey,ProjectedFixing>.Empty;
     // Populated by the qualified opening-state adapter from committed facts.
     // A scheduled date alone never satisfies an event prerequisite.

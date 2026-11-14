@@ -195,6 +195,19 @@ internal static class LifecycleProjectionChecks
             Observation=source.Selections[0].Observation with{Value=ExactDecimal.Parse("4")}})};
         var inconsistent=LifecycleProjection.Prepare(f.Model(),changed,horizon,policy,[component with{Owner=second.Owner,SourceSnapshot=changed}],[]);
         Reject("risk_economic_history",()=>LifecycleEconomicRisk.Factors([prepared,inconsistent]));
+        var futureInstrument=new TimedCashPayment(component.Currency,source.ValuationAt.AddHours(4));
+        var futureTrade=new Trade(Guid.NewGuid(),component.Owner.BookId,[new(Guid.NewGuid(),futureInstrument,new(ExactDecimal.Parse("6"),component.Currency))]);
+        var futureOwner=new AccountingPositionKey(futureTrade.Id,futureTrade.Instruments[0].Id,futureTrade.BookId);
+        var actualFlow=new AccountingFlow(Guid.NewGuid(),1,futureOwner,source.ValuationAt.AddHours(6),source.Knowledge!.KnownAt,
+            ExactMoney.Parse("6",component.Currency),AccountingFlowKind.EconomicCash);
+        var futureActual=new RecordedCashValuation(futureTrade,futureOwner.BindingId,[actualFlow],RecordedCashValuation.Policy,source.Knowledge.ContextId,source.Knowledge.KnownAt);
+        var onlyEvidence=component with{EventSelection=[],KnownPayments=[actualFlow],KnownCashSources=[futureActual]};
+        var futureSource=LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[onlyEvidence],[]).Evaluate("future_actual_source",[]);
+        if(!futureSource.States.Single().Residuals.IsEmpty)throw new Exception("Future native cash evidence fabricated an opening position.");
+        Equal(futureSource.Values.Single().PeriodCash,"6");
+        Reject("projection_cash",()=>LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[onlyEvidence with{KnownCashSources=[]}],[]));
+        Reject("projection_scope",()=>LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[onlyEvidence,onlyEvidence with{
+            Owner=new(Guid.NewGuid(),Guid.NewGuid(),component.Owner.BookId)}],[]));
     }
     private static void Reject(string code,Action action)
     {try{action();}catch(MarketDataException error)when(error.Code==code){return;}throw new Exception("Expected "+code);}
@@ -208,9 +221,11 @@ internal static class LifecycleProjectionChecks
         public ImmutableArray<ValuationPortfolio>? OpeningSelection{get;init;}
         public ImmutableArray<ValuationPortfolio>? ResidualOnEvent{get;init;}
         public ExactMoney? ExactAmount{get;init;}
+        public ImmutableArray<AccountingFlow> KnownPayments{get;init;}=[];
+        public ImmutableArray<RecordedCashValuation> KnownCashSources{get;init;}=[];
         public string Implementation=>"synthetic_fixing_cash_v1";
         public ImmutableArray<CurveRequest> Dependencies=>[Request];
-        public LifecycleProjectionState Opening=>new(OpeningSelection??[],[]);
+        public LifecycleProjectionState Opening=>new(OpeningSelection??[],[]){KnownPayments=KnownPayments,KnownCashSources=KnownCashSources};
         public ImmutableArray<LifecycleProjectionEvent> Events=>EventSelection??[new(LifecycleProjectionEvent.ScopedId(Owner,Guid.Parse("11000000-0000-0000-0000-000000000001")),At,[],"fix")];
         public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)=>[..Events.Where(e=>e.At<=horizon)];
         public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
