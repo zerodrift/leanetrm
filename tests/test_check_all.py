@@ -99,7 +99,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertEqual(len(restores), 1)
 
     def test_native_margin_consumers_use_selected_sdk_in_trading_partition(self):
-        helpers={f'tools/check_futures_margin_{name}.py' for name in ('sources','adoption','journal')}
+        helpers={f'tools/check_futures_margin_{name}.py' for name in ('sources','adoption','journal')}|{'tools/check_trading_business_date.py'}
         for group in ('trading','standard'):
             selected=[]
             def run(command,**options):
@@ -109,7 +109,7 @@ class CheckAllTests(unittest.TestCase):
             with patch.dict(os.environ,{'DOTNET':'/unrelated sdk/dotnet'}):
                 run_checks(Path('/pg'),Path('/selected sdk/dotnet'),Path('/browser'),group=group,run=run)
             self.assertEqual({value for command in selected for value in command if value in helpers},helpers if group=='trading' else set())
-            self.assertEqual(len(selected),3 if group=='trading' else 0)
+            self.assertEqual(len(selected),4 if group=='trading' else 0)
 
     def test_every_executable_check_project_is_restored_and_run(self):
         expected = {
@@ -219,7 +219,7 @@ class CheckAllTests(unittest.TestCase):
             with self.subTest(group=name):
                 # Each group starts from a clean checkout, including restores,
                 # managed/frontend builds and all shared verification contracts.
-                margin={f'tools/check_futures_margin_{part}.py' for part in ('sources','adoption','journal')}
+                margin={f'tools/check_futures_margin_{part}.py' for part in ('sources','adoption','journal')}|{'tools/check_trading_business_date.py'}
                 shared=lambda c:'tools/run_preview.py' not in c and not margin.intersection(c)
                 self.assertEqual([c for c in selected if shared(c)],
                                  [c for c in complete if shared(c)])

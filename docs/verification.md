@@ -19,6 +19,11 @@ The same consumer now checks the explicit native-margin scoped portfolio,
 ordinary connected PV, exact cash provenance and retained accounting coverage.
 A wrapped-review regression fails without transaction-owned admission and passes
 with it; successor grants cannot extend its original read deadline.
+`tools/check_trading_business_date.py` qualifies explicit business-date reads and
+immutable command source admission, including read-scope restoration, source
+conflicts, forged deadlines and successor grants. Migration 0258 refuses drift in
+the exact native source helpers it updates. These checks preserve the existing
+recorded-close calendar restrictions rather than qualifying broader close sessions.
 It also inserts separate privileged synthetic contexts with inconsistent prefixes
 to prove refusal, without modifying immutable records or the database software.
 These are native/managed checks. The [remaining lifecycle gates](lifecycle-delivery.md)

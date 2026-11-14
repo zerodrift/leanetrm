@@ -44,8 +44,7 @@ internal static class FuturesMarginCoordinator
         {
             var context=(await new KnowledgeStore(catalog).Read(connection,request.ContextId,ct)).Context;
             await PinnedContext.BindExact(connection,catalog,context,ct);
-            await using(var trading=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",catalog,at))
-                await trading.ExecuteNonQueryAsync(ct);
+            await TradingContext.Bind(connection,catalog,context,at,ct);
             await using var native=ScheduleStore.Command(connection,
                 "SELECT settlement_data.read_futures_margin_state($1,$2,$3,$4,$5)::text",catalog,request.TradeId,request.BindingId,request.ContextId,at);
             var envelope=JsonSerializer.Deserialize<JsonElement>((string)(await native.ExecuteScalarAsync(ct))!);

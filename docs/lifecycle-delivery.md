@@ -26,6 +26,14 @@ outcomes. A scheduler invokes those same operations under explicitly selected
 manual, review or automatic action policy. Actual and hypothetical evidence are
 different types; projection has no persistence path.
 
+Lifecycle sources retain their explicit business date independently of the UTC
+date of their instant. The shared read admission proves it against the exact
+context and frame. A command may pin one immutable source tuple through restored
+read scopes; identical admission retains its first deadline, and another tuple
+requires another operation. The transaction rechecks that source before commit.
+The existing two-argument UTC-day profile and recorded-close calendar restrictions
+retain their separate contracts; this source lane does not broaden close sessions.
+
 ## Financial boundaries
 
 Operation eligibility uses exact configured half-open windows and cutoff-resolved

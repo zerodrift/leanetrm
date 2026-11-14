@@ -171,7 +171,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
         try
         {
             await view.Bind(connection,database.Manifest.CatalogId,ct);
-            await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",database.Manifest.CatalogId,view.Frame.At))await bind.ExecuteNonQueryAsync(ct);
+            await TradingContext.Bind(connection,database.Manifest.CatalogId,view.CalculationFrame,view.Context,ct);
             var books=await BookScope.Read(connection,database.Manifest.CatalogId,ct);
             var selectedBooks=BookScope.Select(books,request.BookIds,request.PortfolioIds);
             var chosen=selectedBooks.Select(b=>b.Id("id")).Order().ToImmutableArray();
@@ -267,7 +267,7 @@ internal sealed class TradingPnlReport(PreviewDatabase database)
             try
             {
                 await view.Bind(connection,database.Manifest.CatalogId,ct);
-                await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",database.Manifest.CatalogId,frame.At))await bind.ExecuteNonQueryAsync(ct);
+                await TradingContext.Bind(connection,database.Manifest.CatalogId,view.CalculationFrame,view.Context,ct);
                 var books=await BookScope.Read(connection,database.Manifest.CatalogId,ct);BookScope.Validate(books,receipt.Books,[]);
                 var trades=await RiskTradeScope.Read(connection,database.Manifest.CatalogId,receipt.Books,ct,receipt.CashTradeSelection);
                 if(!trades.AllAvailable||!trades.Trades.Select(t=>t.TradeId).ToHashSet().SetEquals(receipt.Trades))throw new PreviewDeniedException();

@@ -127,7 +127,7 @@ public sealed partial class TradeReads
     {
         var catalog=database.Manifest.CatalogId;
         await view.Bind(connection,catalog,ct);
-        await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",catalog,view.Frame.At))await bind.ExecuteNonQueryAsync(ct);
+        await TradingContext.Bind(connection,catalog,view.CalculationFrame,view.Context,ct);
         var value=await read();
         await using var check=ScheduleStore.Command(connection,"SELECT security.trading_access($1,'ReadTrades')",catalog);
         return Equals(await check.ExecuteScalarAsync(ct),true)?value:throw new PreviewDeniedException();

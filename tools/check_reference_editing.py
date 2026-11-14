@@ -246,6 +246,12 @@ def main(checks=run_checks, before_migration=None, fixture_factory=None):
                     from check_fact_anchor_upgrade import run_checks as check_reference_receipt_upgrade
                     check_reference_receipt_upgrade(query,migration,number='0249',guard='reference_receipt_upgrade',
                         signatures=('security.reference_version_visible(uuid,uuid)',))
+                if migration.name=='0258_explicit_trading_business_date.sql':
+                    from check_fact_anchor_upgrade import run_checks as check_trading_date_upgrade
+                    check_trading_date_upgrade(query,migration,number='0258',guard='trading_business_date_upgrade',signatures=(
+                        'settlement_data.require_futures_margin_source(uuid,uuid,timestamptz,uuid)',
+                        'settlement_data.determine_swap(uuid,uuid,uuid,integer,integer,uuid,timestamptz,integer,date,date,timestamptz,uuid,uuid,text,integer,timestamptz,text,text,text,numeric,numeric,numeric,jsonb,jsonb,timestamptz)',
+                        'settlement_data.apply_swap_cash(uuid,uuid,uuid,integer,integer,uuid,timestamptz,jsonb,numeric,uuid,uuid,text,timestamptz,text,uuid,jsonb,text)'))
                 if migration.name=='0224_reference_display_close_validation.sql':
                     from check_reference_display_scale import upgrade_checks
                     upgrade_checks(query,migration)
