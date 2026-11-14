@@ -140,12 +140,14 @@ public sealed partial record FuturesContract : Instrument
             if(context.BindingState is ProjectedFuturesMarginState projected)
             {
                 RequireProjectedContext(projected,context);
+                if(context.FuturesValue() is {} funding)return DeclareFundedMargin(context,binding,funding);
                 return new(Id,"projected_futures_margin_pv_v1",projected.Final?[]:binding.Dependencies,UnitQuantity.Specification,Currency)
                     {Time=ValuationTimeDependency.Pinned};
             }
             if(context.BindingState is not FuturesMarginState state)throw FuturesMarketBinding.Error("futures_pv_unsupported","Futures PV requires explicit retained margin state.");
             ValidateValuationState(state);
             RequireVisible(state,context.Snapshot,binding);
+            if(context.FuturesValue() is {} selected)return DeclareFundedMargin(context,binding,selected);
             return new(Id,FuturesMarginState.Version,state.Status==FuturesMarginStatus.Open?binding.Dependencies:[],UnitQuantity.Specification,Currency)
                 {Time=ValuationTimeDependency.Pinned};
         }
@@ -212,6 +214,7 @@ public sealed partial record FuturesContract : Instrument
             if(context.BindingState is ProjectedFuturesMarginState projected)
             {
                 RequireProjectedContext(projected,context);
+                if(context.FuturesValue() is {} funding)return FundedMarginValue(context,context.Futures(Id),funding);
                 if(projected.Final)return ExactMoney.Parse("0",Currency);
                 return context.Inputs.ExactPrice(context.Futures(Id).Market).Subtract(projected.Basis).ExactTimes(UnitQuantity);
             }
@@ -219,6 +222,7 @@ public sealed partial record FuturesContract : Instrument
             ValidateValuationState(state);
             var source=context.Futures(Id);
             RequireVisible(state,context.Snapshot,source);
+            if(context.FuturesValue() is {} selected)return FundedMarginValue(context,source,selected);
             if(state.Status==FuturesMarginStatus.FinalMarginDetermined)return ExactMoney.Parse("0",Currency);
             context.Market!.Model.RequireFuturesDefinition(source.Market,source.Contract,Series,source.Quote);
             return context.Inputs.ExactPrice(source.Market).Subtract(state.SettledBasis).ExactTimes(UnitQuantity);

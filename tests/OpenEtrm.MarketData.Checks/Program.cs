@@ -7,6 +7,7 @@ if(args is ["--physical-option"]){PhysicalOptionChecks.Run();return;}
 if(args is ["--gas-unfixed-delivery"]){GasUnfixedDeliveryChecks.Run();return;}
 if(args is ["--gas-cashout-projection"]){GasCashoutProjectionChecks.Run();return;}
 if(args is ["--captured-discount-sources"]){CapturedDiscountSourceChecks.Run();return;}
+if(args is ["--futures-margin-value"]){FuturesMarginValueChecks.Run();return;}
 if(args is ["--gas-owned-holdings"]){GasOwnedHoldingsChecks.Run();return;}
 if(args is ["--gas-quantity-projection"]){GasQuantityProjectionChecks.Run();return;}
 if(args is ["--gas-delivery-principal"]){GasDeliveryPrincipalChecks.Run();return;}
@@ -627,6 +628,7 @@ GasUnfixedDeliveryChecks.Run();passed++;
 GasCashoutProjectionChecks.Run();passed++;
 PhysicalOptionChecks.Run();passed++;
 CapturedDiscountSourceChecks.Run();passed++;
+FuturesMarginValueChecks.Run();passed++;
 TimedCashChecks.Run();passed++;
 AccountingOwnerChecks.Run();passed++;
 InstantRateGraphChecks.Run();passed++;

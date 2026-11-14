@@ -405,3 +405,13 @@ the worker service's existing risk-read permissions. Other risk jobs retain
 scenario permission. Both purposes preserve original grant deadlines through
 first-wait admission; a preexisting successor grant cannot revive an expired
 operation. Guarded native checks qualify this split without adding role grants.
+
+The selected `flat_reference_to_next_saved_margin_due_v1` unit valuation prices
+pending VM at the next exact scheduled due using the captured currency carrying
+provider. Native basis, quantity and complete occurrence prefix remain separate
+retained inputs. Scenario transitions advance only that immutable valuation
+prefix; no accepted determination is manufactured. The nominal legacy valuation
+remains unchanged. Independent checks qualify signed pending value, negative-rate
+discounts, same-clock reset plus cash, intermediate daily reset and explicit
+no-shock funding carry. Native full-portfolio policy/source wiring remains a
+separate delivery gate.

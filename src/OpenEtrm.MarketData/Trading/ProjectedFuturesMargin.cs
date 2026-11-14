@@ -188,7 +188,9 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
         {
             var projectedState=new ProjectedFuturesMarginState(trade.Id,holding.Id,trade.BookId,holding.Quantity,market.Series.Key,price,selected.At,
                 selected.Phase==FuturesMarginPhase.Final,source.Knowledge!.ContextId,source.Knowledge.KnownAt);
-            var projectedSetup=setup with{BindingStates=setup.BindingStates.SetItem(new(trade.Id,holding.Id),projectedState)};
+            var projectedSetup=prior.Setup with{BindingStates=prior.Setup.BindingStates.SetItem(new(trade.Id,holding.Id),projectedState)};
+            if(projectedSetup.FuturesValueBindings.TryGetValue(new(trade.Id,holding.Id),out var funding))
+                projectedSetup=projectedSetup with{FuturesValueBindings=projectedSetup.FuturesValueBindings.SetItem(new(trade.Id,holding.Id),funding.Advance(selected.Id))};
             residual=ValuationPortfolio.FromTrades([new(trade.Id,trade.BookId,[holding],trade.Booking)],projectedSetup);
         }
         var residuals=state.Residuals.Where(p=>!ReferenceEquals(p,prior)).Append(residual);
