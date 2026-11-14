@@ -162,6 +162,7 @@ internal static partial class LifecyclePortfolioProjection
                             var mark=new CurveRequest(new(source.Snapshot.Definitions,selected.Text("future_mark_curve")),contract);
                             var expiryMarket=new CurveRequest(new(source.Snapshot.Definitions,selected.Text("expiry_curve")),contract);
                             var future=FuturesStore.Binding(source.Data,mark.Curve.Code,mark.Contract.Id,owner.BindingId,FuturesMarketBinding.Implementation);
+                            RequireFullOptionValue(future,opening.Policy);
                             var r=source.Data.References["futures_option_rules"].Single(r=>r.Text("code")==option.Series.AutomaticExerciseRule);
                             var rule=new FuturesOptionAutomaticRule(new(source.Data.ReferenceRevision,r.Text("code")),Integer(r,"version"),r.Text("evaluation"),r.Number("in_the_money_threshold"),r.Text("at_the_money_call"),r.Text("at_the_money_put"));
                             var instruction=known.Events.Where(e=>e.Kind is "exercise_instruction" or "abandon_instruction").OrderBy(e=>e.PublicationOrder).LastOrDefault();

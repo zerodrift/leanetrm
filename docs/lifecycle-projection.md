@@ -635,3 +635,14 @@ still governed by their original dates. Every original owner's economic opening
 matches its selected ordinary PV. Historical and Monte Carlo worker reports
 match the interactive source exactly, under both the pre-final and active-parent
 fixtures, without recording financial events during projection.
+
+The full native valuation profile also requires a qualified option funding law
+for cash-underlying options. A separate engine check holds the price, clock and
+quantity fixed: two 10,000-unit calls at A=3 and K=2 retain a vanilla intrinsic
+diagnostic value of 20,000, while their selected next-margin-due cash-future value
+at a .95 factor is 19,000. These measures cannot be substituted at exercise.
+Until an explicit funded cash-option strategy is qualified, full-profile economic
+preparation refuses this combination with `projection_cash_option_value`.
+Existing vanilla and native nominal diagnostic contracts remain unchanged.
+Native cash-option source/worker qualification and the funded strategy remain
+delivery gates.
