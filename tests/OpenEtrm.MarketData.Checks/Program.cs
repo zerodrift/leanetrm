@@ -3,6 +3,8 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--gas-owned-holdings"]){GasOwnedHoldingsChecks.Run();return;}
+
 if(args is ["--contract-eligibility"]){ContractEligibilityChecks.Run();return;}
 if(args is ["--interval-anchors"]){IntervalAnchorChecks.Run();return;}
 if(args is ["--futures-margin"]){FuturesMarginChecks.Run();return;}
