@@ -157,9 +157,9 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment):
     typed={}
     for member,value in (('lessPosition','2e'),('position',1.5),('position',3000000000)):
         draft=deepcopy(DEFINITION);observed(draft)['observationTerms'][1][member]=value
-        typed[member,'preview']=answer('custom-curves/preview',{'definition':draft,'snapshotId':context})
+        typed[member,value,'preview']=answer('custom-curves/preview',{'definition':draft,'snapshotId':context})
         client.call('profile',{'profile':'editor'})
-        typed[member,'save']=answer('custom-curves/save',{'requestId':str(uuid4()),'snapshotId':context,'definition':draft,'layout':{}})
+        typed[member,value,'save']=answer('custom-curves/save',{'requestId':str(uuid4()),'snapshotId':context,'definition':draft,'layout':{}})
         client.call('profile',{'profile':'viewer'})
     whole={'status':422,'code':'recipe_definition','message':'An observation term position must be a whole number from 1 to 120.'}
     assert all(answer==whole for answer in typed.values()),typed
