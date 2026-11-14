@@ -22,6 +22,28 @@ public static partial class CustomCurves
     internal sealed record PreparedMarket(ConnectedValuation Valuation,CurveBuild Authority,
         ImmutableDictionary<CurveRequest,CurvePointKey> Bindings,ConnectedMarketEvidence Evidence,ConnectedPreparationWork Preparation);
 
+    internal static ResolvedCalculationContext CompleteContext(InputFrame frame,MarketSnapshot snapshot,ScheduleContext context)
+    {
+        var exact=PinnedContext.Exact(context);
+        if(frame.SourceInputs is not {} parts||parts.Count==0||parts.Any(p=>p.Value is null||p.Value.Source is null||p.Key!=p.Value.Source.DefinitionRevisionId||
+                p.Value.ObservationIds.IsDefault||p.Value.FrozenObservationIds.IsDefault||p.Value.CurveContracts is null||p.Value.RootCurves.IsDefault)||
+            frame.ContextId!=exact.ContextId||snapshot.Id!=frame.Id||snapshot.ValuationAt!=frame.At||
+            snapshot.Knowledge is not {} knowledge||knowledge.ContextId!=exact.ContextId||knowledge.KnownAt!=SchedulePreview.ParseAt(exact.KnownAt)||
+            frame.Source is null||!parts.TryGetValue(snapshot.Definitions.RevisionId,out var own)||own.Source!=frame.Source||!own.Matches(frame))
+            throw Invalid("Full valuation requires its explicit complete source matrix, common opening clock and certified knowledge context.");
+        var manifest=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{
+            Implementation="complete_selected_market_inputs_v1",context=exact,frame.Time,snapshot.MarketCutoff,
+            Sources=parts.OrderBy(p=>p.Key).Select(p=>new{p.Key,p.Value.Source,
+                Observations=p.Value.ObservationIds.Order(),Frozen=p.Value.FrozenObservationIds.Order(),
+                Contracts=p.Value.CurveContracts.OrderBy(c=>c.Key,StringComparer.Ordinal),Roots=p.Value.RootCurves.Order(StringComparer.Ordinal)})},RiskJobs.Json)));
+        return new(exact.ContextId!.Value,manifest,frame.At,knowledge.KnownAt,frame.At,snapshot.MarketCutoff);
+    }
+    private static bool SameInputSelection(MarketSourceInputs part,MarketSnapshot snapshot)=>
+        part.Source.DefinitionRevisionId==snapshot.Definitions.RevisionId&&part.ObservationIds.Length==snapshot.Selections.Length&&
+        part.ObservationIds.ToHashSet().SetEquals(snapshot.Selections.Select(s=>s.Observation.Key.Id))&&
+        snapshot.Selections.All(s=>s.Input.Use==(part.FrozenObservationIds.Contains(s.Observation.Key.Id)||s.Observation.Role==ObservationRole.IndexFixing?
+            InputUse.FrozenFact:InputUse.Variable));
+
     // Only authorized retained data enters this resolver. Synthetic runtime
     // aliases are coordinates in that materialization, never database identities.
     internal sealed class PreparedBindings(HashSet<CurveKey> definitions,ResolvedCalculationContext selected):ICurveBindingResolver
@@ -59,7 +81,7 @@ public static partial class CustomCurves
         PreviewData data,InputFrame frame,MarketSnapshot snapshot,ScheduleContext context,
         ImmutableArray<Instrument> instruments,ImmutableArray<CurveRequest> dependencies,MarketPreparation purpose,CancellationToken ct,
         ConnectedMarketEvidence? retained=null,ImmutableArray<SchedulePriceTerm>? activePrices=null,ContractObservationSamples.History? sourceHistories=null,PreparationScope? preparationScope=null,
-        SavedVersions? savedVersions=null)
+        SavedVersions? savedVersions=null,ResolvedCalculationContext? calculationContext=null,ImmutableArray<PreparedMarket> linkedMarkets=default)
     {
         if(purpose is not(MarketPreparation.ValuationDependencies or MarketPreparation.ScenarioUniverse))
             throw Invalid("Select the connected preparation purpose explicitly.");
@@ -71,11 +93,18 @@ public static partial class CustomCurves
             throw Invalid("Connected pricing requires the exact retained financial and market context.");
         if(snapshot.Knowledge is not null)
             snapshot=MarketSnapshotBinding.Bind(snapshot,exact.ContextId!.Value,SchedulePreview.ParseAt(exact.KnownAt));
+        if(calculationContext is not null&&(frame.Source!=CatalogueSource.From(data)||
+            !MarketSnapshotBinding.Bind(data.Snapshot(frame),exact.ContextId!.Value,SchedulePreview.ParseAt(exact.KnownAt)).HasSameInputs(snapshot)))
+            throw Invalid("Complete valuation must retain this source's exact selected observations, values and original uses.");
         var prices=activePrices??instruments.OfType<SidedInstrument>().SelectMany(instrument=>instrument.Sides)
             .SelectMany(member=>member.Side.GenerateSchedule().Rows).SelectMany(row=>row.Prices).ToImmutableArray();
         var custom=prices.Where(price=>price.Lookup?.CustomProjection is not null)
             .Select(price=>new{Binding=price.Lookup!.CustomProjection!,Original=price.Lookup.Market,Request=price.Lookup.ProjectionRequest,Interval=price.Lookup.ForecastDelivery}).Distinct().ToArray();
-        var ordinary=purpose==MarketPreparation.ValuationDependencies&&retained is null&&custom.Length==0&&
+        var linked=linkedMarkets.IsDefault?ImmutableArray<PreparedMarket>.Empty:linkedMarkets;
+        if(!linked.IsEmpty&&calculationContext is null||linked.Any(m=>m is null||m.Valuation is null||m.Authority is null||m.Bindings is null)||linked.Select(m=>m.Valuation.Snapshot.Definitions).Distinct().Count()!=linked.Length||
+            linked.Any(m=>m.Valuation.Snapshot.Definitions==snapshot.Definitions))
+            throw Invalid("Each explicitly linked market requires one distinct original native source.");
+        var ordinary=calculationContext is null&&linked.IsEmpty&&purpose==MarketPreparation.ValuationDependencies&&retained is null&&custom.Length==0&&
             prices.All(price=>price.ContractObservation is null);
         ct.ThrowIfCancellationRequested();
         if(ordinary&&preparationScope?.Find(connection,database,data,snapshot,exact,dependencies) is {} reused)
@@ -86,13 +115,19 @@ public static partial class CustomCurves
         }
         var aliases=custom.ToDictionary(p=>p.Request,p=>p.Original);
         var needed=dependencies.ToHashSet();
-        var originals=dependencies.Where(d=>!aliases.ContainsKey(d)).ToImmutableArray();
+        var originals=dependencies.Where(d=>!aliases.ContainsKey(d)&&d.Curve.Revision==snapshot.Definitions).ToImmutableArray();
         var authority=data.Model.Build(snapshot,[]);
         var inputManifest=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{
             snapshot.Id,snapshot.Definitions,snapshot.ValuationAt,snapshot.MarketCutoff,context=exact,
             selections=snapshot.Selections.OrderBy(s=>s.Input.Series.Id).ThenBy(s=>s.Input.Use)},RiskJobs.Json)));
-        var resolved=new ResolvedCalculationContext(exact.ContextId!.Value,inputManifest,frame.At,
+        var resolved=calculationContext??new ResolvedCalculationContext(exact.ContextId!.Value,inputManifest,frame.At,
             SchedulePreview.ParseAt(exact.KnownAt),frame.At,snapshot.MarketCutoff);
+        if(calculationContext is not null&&calculationContext!=CompleteContext(frame,snapshot,exact)||linked.Any(m=>
+            m.Valuation.Scenario.Depth!=0||m.Valuation.Snapshot.Definitions.CatalogId!=snapshot.Definitions.CatalogId||
+            !m.Authority.Snapshot.HasSameInputs(m.Valuation.Snapshot)||m.Valuation.Scenario.Plan.Context!=resolved||m.Valuation.Snapshot.Knowledge!=snapshot.Knowledge||
+            m.Valuation.Snapshot.ValuationAt!=snapshot.ValuationAt||m.Valuation.Snapshot.MarketCutoff!=snapshot.MarketCutoff||
+            frame.SourceInputs?.GetValueOrDefault(m.Valuation.Snapshot.Definitions.RevisionId) is not {} part||!SameInputSelection(part,m.Valuation.Snapshot)))
+            throw Invalid("Linked graphs must retain the complete selected input context and the original common opening clock and knowledge cutoff.");
         // Base valuation needs the declared dependency closure. Risk also
         // publishes coordinates for available quotes outside held instruments.
         var availableQuotes=purpose==MarketPreparation.ScenarioUniverse
@@ -104,7 +139,19 @@ public static partial class CustomCurves
         outputRoots.AddRange(availableQuotes.Select(request=>export.Points[(request,InputUse.Variable)]));
         var definitions=export.Definitions.ToList();
         var bindings=ImmutableDictionary.CreateBuilder<CurveRequest,CurvePointKey>();
-        foreach(var request in dependencies.Where(d=>!aliases.ContainsKey(d)))bindings.Add(request,export.Points[(request,InputUse.Variable)]);
+        foreach(var request in originals)bindings.Add(request,export.Points[(request,InputUse.Variable)]);
+        foreach(var selected in linked)
+        {
+            definitions.AddRange(selected.Valuation.Scenario.Plan.Points.Values.GroupBy(p=>p.Key.Curve).Select(g=>new ConnectedCurveDefinition(g.Key,g.ToImmutableArray())));
+            declaredSourceNodes+=selected.Valuation.Scenario.Plan.Points.Count;
+        }
+        foreach(var request in dependencies.Where(d=>!aliases.ContainsKey(d)&&d.Curve.Revision!=snapshot.Definitions))
+        {
+            var selected=linked.SingleOrDefault(m=>m.Valuation.Snapshot.Definitions==request.Curve.Revision);
+            if(selected is null||!selected.Bindings.TryGetValue(request,out var point))
+                throw Invalid("A foreign dependency requires its exact explicitly linked original market graph and bound point.");
+            bindings.Add(request,point);
+        }
         var required=custom.Where(c=>needed.Contains(c.Request)).ToArray();
         var recipeBindings=required.Select(c=>c.Binding).Distinct().OrderBy(c=>c.CurveId).ThenBy(c=>c.Version)
             .ThenBy(c=>c.OutputNode,StringComparer.Ordinal).ThenBy(c=>c.Position).ToImmutableArray();
@@ -211,7 +258,8 @@ public static partial class CustomCurves
             throw new MarketDataException("risk_graph_manifest","The rebuilt graph differs from its admitted recipe, sample or topology manifest.");
         var valuation=ConnectedValuation.Prepare(ConnectedScenario.Base(plan,database.Calculations,ct),snapshot,
             samples.Select(s=>snapshot.Knowledge is null?s.Snapshot:
-                MarketSnapshotBinding.Bind(s.Snapshot,exact.ContextId!.Value,SchedulePreview.ParseAt(exact.KnownAt))).Concat(observationSamples.Select(sample=>sample.Snapshot)).Distinct().ToImmutableArray(),ct);
+                MarketSnapshotBinding.Bind(s.Snapshot,exact.ContextId!.Value,SchedulePreview.ParseAt(exact.KnownAt))).Concat(observationSamples.Select(sample=>sample.Snapshot))
+                .Concat(linked.SelectMany(m=>m.Valuation.SourceSnapshots.Prepend(m.Valuation.Snapshot))).Distinct().ToImmutableArray(),ct);
         if(observationPricing is not null)valuation=valuation.WithContractObservations(observationPricing);
         var prepared=new PreparedMarket(valuation,authority,bindings.ToImmutable(),evidence,new(sourceCompilations,declaredSourceNodes));
         if(ordinary)preparationScope?.Add(connection,database,data,snapshot,exact,dependencies,prepared);
