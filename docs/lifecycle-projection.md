@@ -608,3 +608,11 @@ Actual source-before-final activation through the portfolio coordinator,
 foreign-market active title/principal continuation, fully performed cash-only
 parents without unused mark inputs, selected physical-option continuation and
 its real application browser flow remain qualification gates.
+
+Close workers retain one transaction-owned database adapter per phase and read
+each native close's exact definition/reference source. An unconfigured gas probe
+must prove the captured scope empty; it retains the original independent business
+source admission through the explicit preflight-to-publication context transition.
+Configured gas keeps its full gas-specific scope admission. Original source
+deadlines remain commit checks. The generated-close worker, report recovery and
+15 real-browser checks exercise this publication boundary.
