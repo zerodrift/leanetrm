@@ -391,6 +391,14 @@ after the read and at application commit. A conservative 16 MiB encoded budget
 includes observations, publication times, occurrence IDs and the envelope; an
 oversized complete response refuses before array aggregation, without truncation.
 
+Close workers retain one transaction-owned database adapter per phase and read
+each native close's exact definition/reference source. An unconfigured gas probe
+must prove the captured scope empty; it retains the original independent business
+source admission through the explicit preflight-to-publication context transition.
+Configured gas keeps its full gas-specific scope admission. Original source
+deadlines remain commit checks. The generated-close worker, report recovery and
+15 real-browser checks exercise this publication boundary.
+
 Native market inputs can be shared by separate financial source graphs. A
 coordinate has one owning native source; copied source points and native built
 outputs require identical complete source calculations and observation evidence.

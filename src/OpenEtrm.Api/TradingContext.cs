@@ -16,11 +16,16 @@ internal static class TradingContext
     }
     internal static async Task<DateTimeOffset> AdmitSource(PreviewDatabase database,NpgsqlConnection connection,ScheduleContext context,DateTimeOffset at,CancellationToken ct)
     {
+        var exact=PinnedContext.Exact(context);
+        return await AdmitSource(database,connection,exact.ContextId!.Value,at,PublishedSchedules.ContextDate(exact),ct);
+    }
+    internal static async Task<DateTimeOffset> AdmitSource(PreviewDatabase database,NpgsqlConnection connection,Guid context,DateTimeOffset at,DateOnly date,CancellationToken ct)
+    {
         RequireInstant(at);
-        var exact=PinnedContext.Exact(context);var date=PublishedSchedules.ContextDate(exact);var catalog=database.Manifest.CatalogId;
-        await using var command=ScheduleStore.Command(connection,"SELECT security.admit_trading_business_source($1,$2,$3,$4)",catalog,exact.ContextId!.Value,at,date);
+        var catalog=database.Manifest.CatalogId;
+        await using var command=ScheduleStore.Command(connection,"SELECT security.admit_trading_business_source($1,$2,$3,$4)",catalog,context,at,date);
         var until=new DateTimeOffset((DateTime)(await command.ExecuteScalarAsync(ct))!);
-        database.RegisterCommitAdmission(connection,new SourceAdmission(catalog,exact.ContextId.Value,at,date,until));
+        database.RegisterCommitAdmission(connection,new SourceAdmission(catalog,context,at,date,until));
         return until;
     }
     internal static Task Bind(NpgsqlConnection connection,Guid catalog,InputFrame frame,ScheduleContext context,CancellationToken ct)
