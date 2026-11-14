@@ -94,6 +94,9 @@ def checks(query,manifest):
     issuer=manifest['identityIssuer']
     query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
     query(catalogue_fixture(manifest,issuer))
+    query("INSERT INTO security.role_permissions SELECT role_id,p.code FROM security.role_permissions r CROSS JOIN security.permissions p "
+          "WHERE r.permission='AmendTrade' AND p.code IN('ReadGasOwnedHoldings','RecordGasOwnedHoldings','ConfigureGasOwnedHoldings') ON CONFLICT DO NOTHING;")
+    query("INSERT INTO security.role_permissions SELECT role_id,'ReadGasOwnedHoldings' FROM security.role_permissions WHERE permission='WriteMarketDefinitions' ON CONFLICT DO NOTHING;")
     # This settings reader explicitly holds both market configuration and trade
     # source access; neither permission is inferred from the other.
     query(f"INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,'a0000000-0000-0000-0000-000000000002','{tenant}','{workspace}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '1 day',false FROM security.identity_bindings WHERE issuer='{issuer}' AND subject='editor';")
@@ -119,10 +122,20 @@ def checks(query,manifest):
         row=query(f"SELECT id::text||'|'||revision::text FROM trading.{table} WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1;").split('|')
         parties[role+'Id'],parties[role+'Revision']=row[0],int(row[1])
     booked=json.loads(call(f"SELECT security.book_futures_option('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','{series}',2,0.1,'2026-10-19','premium_paid_up_front','2026-10-16T14:00:00Z',NULL,'futures_option_premium_v1',NULL,NULL,NULL,{lit(parties)})::text;"))
+    mark=query(f"SELECT c.id FROM market_data.contracts c JOIN market_data.curve_members cm ON(cm.catalog_id,cm.revision_id,cm.contract_id)=(c.catalog_id,c.revision_id,c.id) WHERE(c.catalog_id,c.revision_id,cm.curve_code)=('{catalog}','{manifest['revisionId']}','nymex_ng') ORDER BY c.expiry_at DESC LIMIT 1;")
+    delivery_from,delivery_to=query(f"SELECT delivery_from::text||'|'||delivery_to::text FROM market_data.contracts WHERE(catalog_id,revision_id,id)=('{catalog}','{manifest['revisionId']}','{future}');").split('|')
+    # This synthetic template explicitly selects UTC delivery boundaries and
+    # principal due at noon one calendar day after the selected delivery end.
+    cash_due=(datetime.strptime(delivery_to,'%Y-%m-%d').replace(tzinfo=timezone.utc)+timedelta(days=1,hours=12)).isoformat().replace('+00:00','Z')
+    from futures_delivery_fixture import configure
+    delivery=configure(query,manifest,call,capture,curve='nymex_ng',contract=future,book=book,entity=parties['legalEntityId'],entity_revision=parties['legalEntityRevision'],
+        mark_contract=mark,account_code='synthetic_option_delivery',account_effective_at='2026-10-01T00:00:00Z',as_of='2026-10-16T16:00:00Z',
+        delivery_from=delivery_from+'T00:00:00Z',delivery_to=delivery_to+'T00:00:00Z',cash_due=cash_due,carrying='currency_curve_v1',
+        policy_from='2026-10-01T00:00:00Z',policy_until='2027-01-01T00:00:00Z')
     margin=dict(id=str(uuid4()),definitionRevisionId=manifest['revisionId'],contractId=future,settlementCurve='nymex_ng',
                 referenceCatalogId=manifest['referenceCatalogId'],referenceRevisionId=manifest['referenceRevisionId'],currency='usd',
                 fromAt='2026-10-01T00:00:00Z',untilAt='2027-01-01T00:00:00Z',opening='include_opening_instant',increment='0.01',tie='to_even',stage='payment_total',
-                roundingScope='held_binding_difference_payment_total_v1',implementation='dated_futures_margin_policy_v1',
+                roundingScope='held_binding_difference_payment_total_v1',implementation='dated_futures_margin_policy_v2',delivery=dict(id=delivery['profile']['id'],revision=1),
                 occurrences=[dict(id=str(uuid4()),at=expiry,dueAt=expiry,phase='final')])
     save=dict(operationId=str(uuid4()),expectedRevision=0,contextId=capture(),asOf='2026-10-16T16:00:00Z',policy=margin)
     call(f"SELECT settlement_data.save_futures_margin_policy('{catalog}',{lit(save)});",'editor')

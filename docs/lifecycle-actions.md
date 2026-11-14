@@ -117,6 +117,14 @@ Futures setup lists exact held and unadopted futures, source choices, dated
 margin occurrences, opening treatment and rounding policy. Saving and adoption
 reuse the existing native margin commands and their original commit admission.
 
+Every new physical futures margin policy and adoption requires the v2 contract
+with an exact saved delivery continuation. Native insert guards also cover an
+option's atomic linked-future adoption. Existing first outcomes and identical
+saved facts are acknowledged without rewriting their history; an old physical
+v1 policy cannot enroll another future. Cash-settled v1 policy hashes and first
+outcomes remain unchanged. An isolated native upgrade check qualifies those
+boundaries without disabling guards or converting accepted facts.
+
 ## Historical projection inputs
 
 The knowledge-only swap reader returns all source-visible accepted
