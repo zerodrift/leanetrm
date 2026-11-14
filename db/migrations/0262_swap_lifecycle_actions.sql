@@ -218,7 +218,7 @@ DECLARE actor uuid;action_code text;permission text;operation uuid;prior jsonb;p
 END$$;
 CREATE FUNCTION lifecycle.save_swap_profile(catalog uuid,body jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE until_at timestamptz;actor uuid;operation uuid;prior jsonb;r trading.swap_trade_revisions;p lifecycle.action_policies;
- s lifecycle.swap_profiles;fact lifecycle.swap_profiles;expected integer;publication integer;terms record;shape record;result jsonb;BEGIN
+ s lifecycle.swap_profiles;fact lifecycle.swap_profiles;expected integer;publication integer;terms record;shape record;result jsonb;changed boolean=false;BEGIN
  until_at=lifecycle.capture_action_authority(catalog,'swap_profile',body);operation=(body->>'operationId')::uuid;
  prior=lifecycle.command_status(catalog,operation,'swap_profile',body,'AmendTrade',until_at);IF prior IS NOT NULL THEN RETURN prior;END IF;
  PERFORM pg_advisory_xact_lock(730849102);actor=lifecycle.require_authority(catalog,'AmendTrade',until_at);
@@ -266,10 +266,12 @@ DECLARE until_at timestamptz;actor uuid;operation uuid;prior jsonb;r trading.swa
   IF expected IS NULL OR expected<0 OR coalesce((SELECT max(t.revision) FROM lifecycle.swap_profiles t WHERE(t.catalog_id,t.id)=(catalog,s.id)),0)<>expected THEN RAISE EXCEPTION 'lifecycle_profile_revision';END IF;
   SELECT coalesce(max(t.publication_order),0)+1 INTO publication FROM trading.publications t WHERE t.catalog_id=catalog;
   INSERT INTO trading.publications VALUES(catalog,publication,pg_current_xact_id());s.publication_order=publication;s.revision=expected+1;
-  INSERT INTO lifecycle.swap_profiles SELECT(s).*;fact=s;
+  INSERT INTO lifecycle.swap_profiles SELECT(s).*;fact=s;changed=true;
  END IF;
  s=fact;
- result=jsonb_build_object('operationId',operation,'tradeId',r.trade_id,'profileId',s.id,'revision',s.revision,'action',s.action);
+ result=jsonb_build_object('operationId',operation,'tradeId',r.trade_id,'profileId',s.id,'revision',s.revision,'action',s.action,
+  'acknowledgedRevision',s.revision,'currentRevision',(SELECT max(t.revision) FROM lifecycle.swap_profiles t WHERE(t.catalog_id,t.id)=(catalog,s.id)),
+  'changed',changed,'semanticAcknowledgement',NOT changed);
  INSERT INTO lifecycle.commands VALUES(catalog,operation,actor,'swap_profile',body,result,p.id,p.revision,until_at);
  PERFORM lifecycle.require_swap_reference(catalog,r.trade_id,s.action,s.id,s.revision);
  PERFORM lifecycle.require_authority(catalog,'AmendTrade',until_at);RETURN result;

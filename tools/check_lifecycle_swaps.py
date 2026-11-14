@@ -62,6 +62,12 @@ def checks(query,manifest):
     for changed,code in [({'paymentOrdinal':1},'lifecycle_swap_occurrence'),({'currency':'absent'},'lifecycle_swap_occurrence'),
                          ({'decimalPlaces':3},'settlement_rounding'),({'expectedRevision':'0'},'lifecycle_input')]:
         reject({**profile,'operationId':str(uuid4()),**changed},code)
+    next_policy={**policy,'operationId':str(uuid4()),'policyId':str(uuid4()),'mode':'manual'}
+    call(f"SELECT lifecycle.save_policy('{catalog}',{lit(next_policy)});")
+    changed_profile={**profile,'operationId':str(uuid4()),'expectedRevision':1,'policyId':next_policy['policyId']}
+    call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit(changed_profile)});")
+    acknowledged=json.loads(call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit({**profile,'operationId':str(uuid4()),'expectedRevision':2})})::text;"))
+    assert acknowledged['acknowledgedRevision']==1 and acknowledged['currentRevision']==2 and acknowledged['semanticAcknowledgement'] and not acknowledged['changed']
     call(f"SELECT lifecycle.finish_command('{catalog}','{profile['operationId']}','swap_profile',{lit(profile)},'AmendTrade',clock_timestamp()+interval '20 seconds');")
     source=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
     binding=query(f"SELECT binding_id FROM trading.swap_trade_revisions WHERE(catalog_id,trade_id,revision)=('{catalog}','{booked['tradeId']}',1);")

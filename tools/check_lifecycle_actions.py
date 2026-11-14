@@ -81,10 +81,19 @@ def checks(query,manifest):
     call(f"SELECT lifecycle.save_option_profile('{catalog}',{lit(profile)});")
     reject(f"SELECT lifecycle.save_option_profile('{catalog}',{lit({**profile,'operationId':str(uuid4()),'futureMarkCurve':'absent'})});",'lifecycle_option_source')
     reject(f"SELECT lifecycle.save_option_profile('{catalog}',{lit({**profile,'operationId':str(uuid4()),'futureMarkCurve':'nymex_ng_wrong_mark','expectedRevision':1})});",'lifecycle_option_source')
+    changed_profile={**profile,'operationId':str(uuid4()),'expectedRevision':1,'futureMarkCurve':'nymex_ng_alternate'}
+    assert json.loads(call(f"SELECT lifecycle.save_option_profile('{catalog}',{lit(changed_profile)})::text;"))['revision']==2
+    acknowledged=json.loads(call(f"SELECT lifecycle.save_option_profile('{catalog}',{lit({**profile,'operationId':str(uuid4()),'expectedRevision':2})})::text;"))
+    assert acknowledged['acknowledgedRevision']==1 and acknowledged['currentRevision']==2 and acknowledged['semanticAcknowledgement'] and not acknowledged['changed']
+    cycle={**policy,'operationId':str(uuid4()),'policyId':str(uuid4())}
+    call(f"SELECT lifecycle.save_policy('{catalog}',{lit(cycle)});")
+    call(f"SELECT lifecycle.save_policy('{catalog}',{lit({**cycle,'operationId':str(uuid4()),'expectedRevision':1,'mode':'review'})});")
+    acknowledged=json.loads(call(f"SELECT lifecycle.save_policy('{catalog}',{lit({**cycle,'operationId':str(uuid4()),'expectedRevision':2})})::text;"))
+    assert acknowledged['acknowledgedRevision']==1 and acknowledged['currentRevision']==2 and acknowledged['semanticAcknowledgement'] and not acknowledged['changed']
     request=dict(operationId=str(uuid4()),context=dict(contextId=capture(),asOf='2026-10-16T16:00:00Z',businessDate='2026-10-16'),
                  target=dict(handler='listed_option',scopeId=booked['tradeId'],bindingId=booked['optionInstrumentId']),action='option.exercise',
                  policyId=policy['policyId'],policyRevision=1,automatic=False,previewHash='0'*64,
-                 selection=dict(evidenceId=str(uuid4()),lots='1',expectedEventVersion=0,profileRevision=1))
+                 selection=dict(evidenceId=str(uuid4()),lots='1',expectedEventVersion=0,profileRevision=2))
     proposal=json.loads(call(f"SELECT lifecycle.option_proposal('{catalog}',{lit(request)})::text;"))
     request['previewHash']=proposal['hash']
     before=query(f"SELECT count(*) FROM trading.futures_option_events WHERE catalog_id='{catalog}';")

@@ -91,7 +91,7 @@ DECLARE until_at timestamptz;run_until timestamptz;permission text;mode text;nee
  PERFORM lifecycle.require_authority(catalog,permission,until_at);RETURN until_at;
 END$$;
 CREATE FUNCTION lifecycle.save_policy(catalog uuid,body jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE operation uuid;actor uuid;until_at timestamptz;prior jsonb;p lifecycle.action_policies;fact lifecycle.action_policies;expected integer;publication integer;result jsonb;permission text;BEGIN
+DECLARE operation uuid;actor uuid;until_at timestamptz;prior jsonb;p lifecycle.action_policies;fact lifecycle.action_policies;expected integer;publication integer;result jsonb;permission text;changed boolean=false;BEGIN
  until_at=lifecycle.capture_action_authority(catalog,'policy',body);operation=(body->>'operationId')::uuid;
  permission=lifecycle.action_permission('policy',body);
  prior=lifecycle.command_status(catalog,operation,'policy',body,permission,until_at);IF prior IS NOT NULL THEN RETURN prior;END IF;
@@ -110,9 +110,11 @@ DECLARE operation uuid;actor uuid;until_at timestamptz;prior jsonb;p lifecycle.a
  IF fact.id IS NULL THEN
   IF coalesce((SELECT max(s.revision) FROM lifecycle.action_policies s WHERE(s.catalog_id,s.id)=(catalog,p.id)),0)<>expected THEN RAISE EXCEPTION 'lifecycle_policy_revision';END IF;
   SELECT coalesce(max(x.publication_order),0)+1 INTO p.publication_order FROM trading.publications x WHERE x.catalog_id=catalog;
-  INSERT INTO trading.publications VALUES(catalog,p.publication_order,pg_current_xact_id());INSERT INTO lifecycle.action_policies SELECT(p).*;fact=p;
+  INSERT INTO trading.publications VALUES(catalog,p.publication_order,pg_current_xact_id());INSERT INTO lifecycle.action_policies SELECT(p).*;fact=p;changed=true;
  END IF;
- result=jsonb_build_object('operationId',operation,'policyId',fact.id,'revision',fact.revision,'publicationOrder',fact.publication_order);
+ result=jsonb_build_object('operationId',operation,'policyId',fact.id,'revision',fact.revision,'publicationOrder',fact.publication_order,
+  'acknowledgedRevision',fact.revision,'currentRevision',(SELECT max(s.revision) FROM lifecycle.action_policies s WHERE(s.catalog_id,s.id)=(catalog,fact.id)),
+  'changed',changed,'semanticAcknowledgement',NOT changed);
  INSERT INTO lifecycle.commands VALUES(catalog,operation,actor,'policy',body,result,fact.id,fact.revision,until_at);
  PERFORM lifecycle.require_authority(catalog,permission,until_at);RETURN result;
 END$$;

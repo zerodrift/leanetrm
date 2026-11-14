@@ -104,7 +104,7 @@ END$$;
 CREATE FUNCTION lifecycle.save_option_profile(catalog uuid,body jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE actor uuid;until_at timestamptz;operation uuid;prior jsonb;p lifecycle.action_policies;r trading.futures_option_trade_revisions;
  m settlement_data.futures_margin_policies;option market_data.contracts;s ref_data.futures_option_series;f market_data.contracts;
- profile lifecycle.option_profiles;expected integer;publication integer;result jsonb;BEGIN
+ profile lifecycle.option_profiles;expected integer;publication integer;result jsonb;changed boolean=false;BEGIN
  until_at=lifecycle.capture_action_authority(catalog,'option_profile',body);operation=(body->>'operationId')::uuid;
  prior=lifecycle.command_status(catalog,operation,'option_profile',body,'AmendTrade',until_at);IF prior IS NOT NULL THEN RETURN prior;END IF;
  PERFORM pg_advisory_xact_lock(730849102);actor=lifecycle.require_authority(catalog,'AmendTrade',until_at);
@@ -137,9 +137,11 @@ DECLARE actor uuid;until_at timestamptz;operation uuid;prior jsonb;p lifecycle.a
   IF coalesce((SELECT max(t.revision) FROM lifecycle.option_profiles t WHERE(t.catalog_id,t.trade_id,t.action)=(catalog,r.trade_id,p.action)),0)<>expected THEN RAISE EXCEPTION 'lifecycle_profile_revision';END IF;
   SELECT coalesce(max(t.publication_order),0)+1 INTO publication FROM trading.publications t WHERE t.catalog_id=catalog;
   INSERT INTO trading.publications VALUES(catalog,publication,pg_current_xact_id());
-  INSERT INTO lifecycle.option_profiles VALUES(catalog,r.trade_id,r.revision,p.action,expected+1,p.id,p.revision,m.id,m.revision,r.definition_revision_id,f.id,body->>'futureMarkCurve',body->>'expiryCurve',publication) RETURNING * INTO profile;
+  INSERT INTO lifecycle.option_profiles VALUES(catalog,r.trade_id,r.revision,p.action,expected+1,p.id,p.revision,m.id,m.revision,r.definition_revision_id,f.id,body->>'futureMarkCurve',body->>'expiryCurve',publication) RETURNING * INTO profile;changed=true;
  END IF;
- result=jsonb_build_object('operationId',operation,'tradeId',r.trade_id,'action',p.action,'revision',profile.revision);
+ result=jsonb_build_object('operationId',operation,'tradeId',r.trade_id,'action',p.action,'revision',profile.revision,
+  'acknowledgedRevision',profile.revision,'currentRevision',(SELECT max(t.revision) FROM lifecycle.option_profiles t WHERE(t.catalog_id,t.trade_id,t.action)=(catalog,profile.trade_id,profile.action)),
+  'changed',changed,'semanticAcknowledgement',NOT changed);
  INSERT INTO lifecycle.commands VALUES(catalog,operation,actor,'option_profile',body,result,p.id,p.revision,until_at);
  PERFORM lifecycle.require_authority(catalog,'AmendTrade',until_at);RETURN result;
 END$$;
