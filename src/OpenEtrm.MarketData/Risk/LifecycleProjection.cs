@@ -34,6 +34,9 @@ public sealed record KnownLifecycleFixing(ProjectedFixingKey Key,SelectedObserva
 public sealed record ProjectedCashContribution(Guid Id,DateTimeOffset EffectiveAt,DateTimeOffset DueAt,ExactMoney Amount);
 public sealed record LifecycleProjectionState(ImmutableArray<ValuationPortfolio> Residuals,ImmutableArray<ProjectedCashContribution> Cash)
 {
+    // One qualified connected component may update several original economic
+    // owners atomically. Only the exact top aggregates are valued, once.
+    public ImmutableDictionary<AccountingPositionKey,LifecycleProjectionState> Members{get;init;}=ImmutableDictionary<AccountingPositionKey,LifecycleProjectionState>.Empty;
     public ImmutableArray<AccountingFlow> KnownPayments{get;init;}=[];
     // Native memberships created by a known future event are source evidence,
     // not active opening positions. Their payments remain immutable actuals.
@@ -42,11 +45,25 @@ public sealed record LifecycleProjectionState(ImmutableArray<ValuationPortfolio>
     // Populated by the qualified opening-state adapter from committed facts.
     // A scheduled date alone never satisfies an event prerequisite.
     public ImmutableHashSet<Guid> CompletedEvents{get;init;}=ImmutableHashSet<Guid>.Empty;
+    public static LifecycleProjectionState Compose(ImmutableDictionary<AccountingPositionKey,LifecycleProjectionState> members)
+    {
+        if(members is null||members.IsEmpty||members.Keys.Select(o=>o.BookId).Distinct().Count()!=1||members.Any(p=>!p.Key.IsValid||p.Value is null||
+            p.Value.Members is null||!p.Value.Members.IsEmpty||p.Value.Residuals.IsDefault||p.Value.Cash.IsDefault||p.Value.KnownPayments.IsDefault||
+            p.Value.KnownCashSources.IsDefault||p.Value.CompletedEvents is null))
+            throw LifecycleProjection.Error("projection_composition","Declare one flat immutable set of exact economic members for this connected component.");
+        var ordered=Order(members);
+        return new([..ordered.SelectMany(p=>p.Value.Residuals)],[..ordered.SelectMany(p=>p.Value.Cash)]){
+            Members=members,KnownPayments=[..ordered.SelectMany(p=>p.Value.KnownPayments)],
+            KnownCashSources=[..ordered.SelectMany(p=>p.Value.KnownCashSources)],CompletedEvents=ordered.SelectMany(p=>p.Value.CompletedEvents).ToImmutableHashSet()};
+    }
+    internal static KeyValuePair<AccountingPositionKey,LifecycleProjectionState>[] Order(ImmutableDictionary<AccountingPositionKey,LifecycleProjectionState> members)=>
+        [..members.OrderBy(p=>p.Key.Owner.Kind).ThenBy(p=>p.Key.Owner.Id).ThenBy(p=>p.Key.BindingId).ThenBy(p=>p.Key.BookId)];
 }
 public interface ILifecycleProjection
 {
     string Implementation{get;}
     AccountingPositionKey Owner{get;}
+    ImmutableArray<AccountingPositionKey> EconomicOwners=>[Owner];
     ReferenceKey Currency{get;}
     MarketSnapshot SourceSnapshot{get;}
     // Complete transition and every possible residual branch, before sampling.
@@ -127,7 +144,9 @@ public static class LifecycleProjection
         if(components.IsDefaultOrEmpty||components.Any(c=>c is null||string.IsNullOrWhiteSpace(c.Implementation)||
             !c.Owner.IsValid||c.Dependencies.IsDefault||
             c.Dependencies.Distinct().Count()!=c.Dependencies.Length||c.Events.IsDefault)||
-            components.Select(c=>c.Owner).Distinct().Count()!=components.Length)
+            components.Select(c=>c.Owner).Distinct().Count()!=components.Length||components.Any(c=>c.EconomicOwners.IsDefaultOrEmpty||
+                !c.EconomicOwners.Contains(c.Owner)||c.EconomicOwners.Any(o=>!o.IsValid||o.BookId!=c.Owner.BookId))||
+            components.SelectMany(c=>c.EconomicOwners).Distinct().Count()!=components.Sum(c=>c.EconomicOwners.Length))
             throw Error("projection_scope","Supply complete distinct native economic owners and qualified projection handlers.");
         foreach(var component in components)Money.RequireKey(component.Currency);
         if(components.Any(c=>c.SourceSnapshot is null||!c.SourceSnapshot.HasSameInputs(source)))

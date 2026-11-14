@@ -138,3 +138,15 @@ The horizon identifies the native close-session primary key: catalog, code and
 exact version. It uses no synthetic session UUID. Native certification of that
 configuration and complete next-close calendar resolution remain source-reader
 responsibilities.
+
+Qualified connected economic components can update one flat immutable member
+map atomically, as required when delivery consumes an explicitly linked owned
+stock position. `Compose` builds the sole valued residual/cash aggregates, and
+preparation and every transition verify those aggregates against all members.
+Members retain their original economic owners, opening PV, residual PV and cash;
+results and empirical tail contributions remain separate for each owner. Nested
+states are never priced again. Source-known payments and native cash evidence
+cannot move between members during a hypothetical path. Current composition
+admits one book, currency and source graph; cross-source funding requires its own
+qualification. The managed independent oracle transfers 100 units of value
+between two members and retains their -100/+100 P&L with zero portfolio loss.

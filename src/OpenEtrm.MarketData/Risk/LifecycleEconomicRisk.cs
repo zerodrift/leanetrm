@@ -79,7 +79,7 @@ public static class LifecycleEconomicRisk
         LifecycleEconomicRiskPolicy policy,ImmutableArray<(string Id,ImmutableArray<ExactDecimal> Changes)> samples,
         MonteCarloGeneration? generation,CancellationToken cancellation)
     {
-        if((long)(1+samples.Length)*prepared.Sum(p=>p.Components.Length)>HistoricalRisk.MaximumValues)
+        if((long)(1+samples.Length)*prepared.Sum(p=>p.Components.Sum(c=>c.EconomicOwners.Length))>HistoricalRisk.MaximumValues)
             throw Error("risk_economic_capacity","The complete economic base/path matrix exceeds the retained value capacity.");
         var baseline=prepared.Select(p=>p.Evaluate("no_shock",[],cancellation)).SelectMany(p=>p.Values).ToImmutableArray();
         var exposure=baseline.Select((v,i)=>new HistoricalExposure(Id(i),v.Owner.BookId,v.Owner.Owner,v.Owner.BindingId,
@@ -129,7 +129,7 @@ public static class LifecycleEconomicRisk
         if(prepared.IsDefaultOrEmpty||prepared.Any(p=>p is null)||prepared.Select(p=>p.Horizon).Distinct().Count()!=1||
             prepared.Select(p=>p.SourceSnapshot.ValuationAt).Distinct().Count()!=1||prepared.Select(p=>p.SourceSnapshot.Knowledge).Distinct().Count()!=1||
             prepared.Select(p=>p.Policy).Distinct().Count()!=1||
-            prepared.SelectMany(p=>p.Components).Select(c=>c.Owner).Distinct().Count()!=prepared.Sum(p=>p.Components.Length))
+            prepared.SelectMany(p=>p.Components).SelectMany(c=>c.EconomicOwners).Distinct().Count()!=prepared.Sum(p=>p.Components.Sum(c=>c.EconomicOwners.Length)))
             throw Error("risk_economic_scope","Every market partition must retain one common opening, certified cutoff, next close and complete distinct owners.");
         if(prepared[0].Policy.CashAccumulation==LifecycleProjectionPolicy.Accumulated&&prepared.SelectMany(p=>p.CashCurveIdentities)
             .GroupBy(p=>p.Key).Any(g=>g.Select(p=>p.Value).Distinct().Count()!=1))

@@ -23,7 +23,7 @@ public sealed class PreparedLifecycleProjection
     private readonly ImmutableArray<(int Component,LifecycleProjectionEvent Event)> events;
     private readonly ImmutableDictionary<ProjectedFixingKey,ExactUnitPrice> known;
     private readonly ImmutableDictionary<ReferenceKey,ISideDiscounting> cashCurves;
-    private readonly ImmutableArray<ExactMoney> openings;
+    private readonly ImmutableDictionary<AccountingPositionKey,ExactMoney> openings;
     internal PreparedLifecycleProjection(CurveBuild basis,DateTimeOffset horizon,LifecycleProjectionPolicy policy,
         ImmutableArray<ILifecycleProjection> components,ImmutableDictionary<ProjectedFixingKey,ExactUnitPrice> known,
         ImmutableDictionary<ReferenceKey,ISideDiscounting> cashCurves,CancellationToken ct)
@@ -51,14 +51,15 @@ public sealed class PreparedLifecycleProjection
         events=Order(components,SourceSnapshot.ValuationAt,Horizon);
         foreach(var component in components)RequireState(component.Opening,component,SourceSnapshot.ValuationAt);
         RequireUniqueResiduals([..components.Select(c=>c.Opening)]);
-        openings=[..components.Select(c=>Value(c.Opening,c,SourceSnapshot.ValuationAt,basis,ct))];
-        foreach(var component in components)
+        openings=components.SelectMany(c=>Leaves(c.Opening,c).Select(p=>new KeyValuePair<AccountingPositionKey,ExactMoney>(p.Key,
+            Value(p.Value,c,p.Key,SourceSnapshot.ValuationAt,basis,ct)))).ToImmutableDictionary();
+        foreach(var component in components)foreach(var member in Leaves(component.Opening,component))
         {
-            var captured=component.Opening.Residuals.SelectMany(p=>p.Setup.BindingStates.Values)
+            var captured=member.Value.Residuals.SelectMany(p=>p.Setup.BindingStates.Values)
                 .SelectMany(s=>s switch{RecordedCashValuation cash=>cash.KnownFlows(SourceSnapshot),
                     ProjectedSwapValuation swap=>swap.KnownPayments(SourceSnapshot),_=>[]})
-                .Concat(component.Opening.KnownCashSources.SelectMany(s=>s.KnownFlows(SourceSnapshot))).ToHashSet();
-            if(component.Opening.KnownPayments.Any(p=>!captured.Contains(p)))
+                .Concat(member.Value.KnownCashSources.SelectMany(s=>s.KnownFlows(SourceSnapshot))).ToHashSet();
+            if(member.Value.KnownPayments.Any(p=>!captured.Contains(p)))
                 throw LifecycleProjection.Error("projection_cash","A known period payment must retain its exact opening native cash-state evidence.");
         }
     }
@@ -103,35 +104,42 @@ public sealed class PreparedLifecycleProjection
             ct.ThrowIfCancellationRequested();var context=contexts[index];context.CalculationAt=occurrence.At;
             var next=Components[index].Apply(occurrence,states[index],context)??throw LifecycleProjection.Error("projection_state","A transition returned no state.");
             RequireState(next,Components[index],occurrence.At);
-            var prior=states[index].Cash.ToDictionary(c=>c.Id);
-            if(prior.Any(p=>!next.Cash.Contains(p.Value)))throw LifecycleProjection.Error("projection_cash","A transition removed or rewrote an earlier cash contribution.");
-            if(!next.KnownPayments.ToHashSet().SetEquals(states[index].KnownPayments))
-                throw LifecycleProjection.Error("projection_cash","A projected transition cannot add, remove or correct source-known actual payments.");
-            if(!next.KnownCashSources.SequenceEqual(states[index].KnownCashSources))
-                throw LifecycleProjection.Error("projection_cash","A projected transition cannot replace its certified native known-cash source evidence.");
-            if(next.Cash.Any(c=>!prior.ContainsKey(c.Id)&&c.EffectiveAt!=occurrence.At))
-                throw LifecycleProjection.Error("projection_cash","New cash must retain the event that created its economic obligation.");
+            var previous=Leaves(states[index],Components[index]).ToDictionary(p=>p.Key,p=>p.Value);
+            foreach(var member in Leaves(next,Components[index]))
+            {
+                var prior=previous[member.Key];var cash=prior.Cash.ToDictionary(c=>c.Id);
+                if(cash.Any(p=>!member.Value.Cash.Contains(p.Value)))throw LifecycleProjection.Error("projection_cash","A transition removed, reassigned or rewrote an earlier owned cash contribution.");
+                if(!member.Value.KnownPayments.ToHashSet().SetEquals(prior.KnownPayments))
+                    throw LifecycleProjection.Error("projection_cash","A projected transition cannot add, remove, reassign or correct source-known actual payments.");
+                if(!member.Value.KnownCashSources.SequenceEqual(prior.KnownCashSources))
+                    throw LifecycleProjection.Error("projection_cash","A projected transition cannot replace its certified native known-cash source evidence.");
+                if(member.Value.Cash.Any(c=>!cash.ContainsKey(c.Id)&&c.EffectiveAt!=occurrence.At))
+                    throw LifecycleProjection.Error("projection_cash","New cash must retain the event that created its economic obligation.");
+            }
             states[index]=next with{CompletedEvents=states[index].CompletedEvents.Add(occurrence.Id)};
             RequireUniqueResiduals(states);
         }
-        var values=ImmutableArray.CreateBuilder<LifecycleProjectionValue>(Components.Length);
+        var values=ImmutableArray.CreateBuilder<LifecycleProjectionValue>(openings.Count);
         for(var i=0;i<Components.Length;i++)
         {
             ct.ThrowIfCancellationRequested();var component=Components[i];var state=states[i];
-            var residual=Value(state,component,Horizon,At(Horizon),ct);
-            var period=Zero(component.Currency);
-            foreach(var cash in state.Cash.Where(c=>c.DueAt<=Horizon&&Policy.CashDisposition==LifecycleProjectionPolicy.PayAtDue))
-                period=period.Add(Accumulate(cash,component.Currency));
-            foreach(var payment in state.KnownPayments.Where(p=>p.EffectiveAt<=Horizon))
-                period=period.Add(Accumulate(new(payment.AllocationId,payment.EffectiveAt,payment.EffectiveAt,payment.Amount),component.Currency));
+            foreach(var member in Leaves(state,component))
+            {
+                var residual=Value(member.Value,component,member.Key,Horizon,At(Horizon),ct);
+                var period=Zero(component.Currency);
+                foreach(var cash in member.Value.Cash.Where(c=>c.DueAt<=Horizon&&Policy.CashDisposition==LifecycleProjectionPolicy.PayAtDue))
+                    period=period.Add(Accumulate(cash,component.Currency));
+                foreach(var payment in member.Value.KnownPayments.Where(p=>p.EffectiveAt<=Horizon))
+                    period=period.Add(Accumulate(new(payment.AllocationId,payment.EffectiveAt,payment.EffectiveAt,payment.Amount),component.Currency));
+                values.Add(new(member.Key,component.Currency,openings[member.Key],residual,period,residual.Add(period).Subtract(openings[member.Key])));
+            }
             states[i]=state with{ProjectedFacts=facts.ToImmutableDictionary()};
-            values.Add(new(component.Owner,component.Currency,openings[i],residual,period,residual.Add(period).Subtract(openings[i])));
         }
         return new(id,Horizon,values.ToImmutable(),[..facts.Values.OrderBy(f=>f.Key.At).ThenBy(f=>f.Key.Market.Contract.Id)],states.ToImmutableArray());
     }
-    private ExactMoney Value(LifecycleProjectionState state,ILifecycleProjection component,DateTimeOffset at,PreparedValuationEnvironment market,CancellationToken ct)
+    private ExactMoney Value(LifecycleProjectionState state,ILifecycleProjection component,AccountingPositionKey owner,DateTimeOffset at,PreparedValuationEnvironment market,CancellationToken ct)
     {
-        RequireState(state,component,at);var total=Zero(component.Currency);
+        RequireFlatState(state,owner,component.Currency,at);var total=Zero(component.Currency);
         var environment=new ProjectionMarket(market,at);
         foreach(var portfolio in state.Residuals)
         {
@@ -149,13 +157,13 @@ public sealed class PreparedLifecycleProjection
             if(cash.DueAt>at&&cash.Amount.Numerator!="0"&&provider is null)throw LifecycleProjection.Error("projection_cash_discount","An unpaid future contribution requires its explicitly selected currency discount curve.");
             var instrument=new TimedCashPayment(component.Currency,cash.DueAt);
             var quantity=new Quantity(ExactDecimal.Parse("1"),component.Currency);
-            var binding=LifecycleProjectionEvent.ScopedId(component.Owner,cash.Id);
-            var position=new AccountingPositionKey(component.Owner.Owner,binding,component.Owner.BookId);
+            var binding=LifecycleProjectionEvent.ScopedId(owner,cash.Id);
+            var position=new AccountingPositionKey(owner.Owner,binding,owner.BookId);
             var projected=new ProjectedCashValuation(position,quantity,instrument.Id,cash.Amount,
                 SourceSnapshot.Knowledge!.ContextId,SourceSnapshot.Knowledge.KnownAt);
             var setup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,provider){
-                BindingStates=ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty.Add(new(component.Owner.Owner,binding),projected)};
-            var portfolio=new ValuationPortfolio([instrument],[new(component.Owner.Owner,binding,component.Owner.BookId,instrument.Id,quantity,
+                BindingStates=ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty.Add(new(owner.Owner,binding),projected)};
+            var portfolio=new ValuationPortfolio([instrument],[new(owner.Owner,binding,owner.BookId,instrument.Id,quantity,
                 new UnitMoney(new Money(default,component.Currency),component.Currency),new(default,component.Currency))],setup);
             var declared=portfolio.Declare(SourceSnapshot,at);
             environment.RequireInputs(declared);
@@ -175,14 +183,35 @@ public sealed class PreparedLifecycleProjection
     }
     private void RequireState(LifecycleProjectionState state,ILifecycleProjection component,DateTimeOffset at)
     {
+        if(state is null||state.Members is null)throw LifecycleProjection.Error("projection_composition","Retain the exact immutable member-state map.");
+        RequireFlatState(state,component.Owner,component.Currency,at);
+        if(state.Members.IsEmpty)
+        {
+            if(component.EconomicOwners.Length!=1||component.EconomicOwners[0]!=component.Owner)
+                throw LifecycleProjection.Error("projection_composition","Multiple economic owners require complete explicit member states.");
+            return;
+        }
+        if(!state.Members.Keys.ToHashSet().SetEquals(component.EconomicOwners)||state.Members.Any(p=>p.Value is null||p.Value.Members is null||!p.Value.Members.IsEmpty))
+            throw LifecycleProjection.Error("projection_composition","Preserve every declared economic owner in one flat immutable member map.");
+        foreach(var member in state.Members)RequireFlatState(member.Value,member.Key,component.Currency,at);
+        var expected=LifecycleProjectionState.Compose(state.Members);
+        if(!state.Residuals.SequenceEqual(expected.Residuals)||!state.Cash.SequenceEqual(expected.Cash)||
+            !state.KnownPayments.SequenceEqual(expected.KnownPayments)||!state.KnownCashSources.SequenceEqual(expected.KnownCashSources))
+            throw LifecycleProjection.Error("projection_composition","The sole valued residual, cash and actual-source aggregates must exactly equal the declared member states.");
+    }
+    private static KeyValuePair<AccountingPositionKey,LifecycleProjectionState>[] Leaves(LifecycleProjectionState state,ILifecycleProjection component)=>
+        state.Members.IsEmpty?[new(component.Owner,state)]:LifecycleProjectionState.Order(state.Members);
+    private void RequireFlatState(LifecycleProjectionState state,AccountingPositionKey owner,ReferenceKey currency,DateTimeOffset at)
+    {
         if(state is null||state.Residuals.IsDefault||state.Residuals.Any(p=>p is null)||state.Cash.IsDefault||state.Cash.Any(c=>c is null||c.Id==Guid.Empty||
-            c.Amount is null||c.Amount.Currency!=component.Currency||!TradingInstant.IsSupported(c.EffectiveAt)||!TradingInstant.IsSupported(c.DueAt)||
+            c.Amount is null||c.Amount.Currency!=currency||!TradingInstant.IsSupported(c.EffectiveAt)||!TradingInstant.IsSupported(c.DueAt)||
             c.DueAt<c.EffectiveAt||c.EffectiveAt>at)||state.Cash.Select(c=>c.Id).Distinct().Count()!=state.Cash.Length||state.KnownPayments.IsDefault||
-            state.KnownPayments.Any(p=>p is null||p.Kind!=AccountingFlowKind.EconomicCash||p.Position.BookId!=component.Owner.BookId||p.Amount is null||p.Amount.Currency!=component.Currency||
+            state.Residuals.SelectMany(p=>p.Positions).Any(p=>p.BookId!=owner.BookId)||
+            state.KnownPayments.Any(p=>p is null||p.Kind!=AccountingFlowKind.EconomicCash||p.Position.BookId!=owner.BookId||p.Amount is null||p.Amount.Currency!=currency||
                 p.EffectiveAt<=SourceSnapshot.ValuationAt||!TradingInstant.IsSupported(p.EffectiveAt)||!TradingInstant.IsSupported(p.KnownAt)||p.KnownAt>SourceSnapshot.Knowledge!.KnownAt)||
             state.KnownPayments.Select(p=>(p.Position.Owner,p.AllocationId,p.Revision)).Distinct().Count()!=state.KnownPayments.Length||
-            state.KnownCashSources.IsDefault||state.KnownCashSources.Any(s=>s is null||s.BookId!=component.Owner.BookId||
-                s.Quantity.Specification!=component.Currency||s.SourceContextId!=SourceSnapshot.Knowledge!.ContextId||s.KnownThrough!=SourceSnapshot.Knowledge.KnownAt)||
+            state.KnownCashSources.IsDefault||state.KnownCashSources.Any(s=>s is null||s.BookId!=owner.BookId||
+                s.Quantity.Specification!=currency||s.SourceContextId!=SourceSnapshot.Knowledge!.ContextId||s.KnownThrough!=SourceSnapshot.Knowledge.KnownAt)||
             state.KnownCashSources.Select(s=>(s.Owner,s.BindingId)).Distinct().Count()!=state.KnownCashSources.Length)
             throw LifecycleProjection.Error("projection_state","Supply complete residual portfolios and distinct immutable owned cash contributions.");
     }

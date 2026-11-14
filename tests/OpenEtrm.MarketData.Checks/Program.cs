@@ -12,6 +12,7 @@ if(args is ["--lifecycle-projection"]){LifecycleProjectionChecks.Run();return;}
 if(args is ["--cash-lifecycle-projection"]){CashLifecycleProjectionChecks.Run();return;}
 if(args is ["--option-lifecycle-projection"]){OptionLifecycleProjectionChecks.Run();return;}
 if(args is ["--swap-lifecycle-projection"]){SwapLifecycleProjectionChecks.Run();return;}
+if(args is ["--lifecycle-composite"]){LifecycleCompositeChecks.Run();return;}
 if(args is ["--futures-margin-trajectory"]){FuturesMarginTrajectoryChecks.Run();return;}
 if(args is ["--timed-cash"]){TimedCashChecks.Run();return;}
 if(args is ["--accounting-owners"]){AccountingOwnerChecks.Run();return;}
@@ -611,6 +612,7 @@ LifecycleProjectionChecks.Run();passed++;
 CashLifecycleProjectionChecks.Run();passed++;
 OptionLifecycleProjectionChecks.Run();passed++;
 SwapLifecycleProjectionChecks.Run();passed++;
+LifecycleCompositeChecks.Run();passed++;
 TimedCashChecks.Run();passed++;
 AccountingOwnerChecks.Run();passed++;
 InstantRateGraphChecks.Run();passed++;
