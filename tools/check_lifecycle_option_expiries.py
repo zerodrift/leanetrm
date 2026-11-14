@@ -57,6 +57,18 @@ INSERT INTO market_data.curve_members SELECT '{catalog}','{revision}','nymex_on'
 INSERT INTO ref_data.trading_close_times SELECT(jsonb_populate_record(NULL::ref_data.trading_close_times,
  to_jsonb(t)||jsonb_build_object('code','synthetic_instruction_expiry','option_product_code','synthetic_instruction_option'))).*
  FROM ref_data.trading_close_times t WHERE(t.catalog_id,t.revision_id,t.option_product_code)=('{rcat}','{rrev}','nymex_on');"""]
+    rows.append(f"""INSERT INTO ref_data.futures_option_products SELECT(jsonb_populate_record(NULL::ref_data.futures_option_products,
+ to_jsonb(p)||jsonb_build_object('code','synthetic_historical_instruction','name','Synthetic accepted historical instruction','definition_state','synthetic','contrary_instructions_allowed',true))).*
+ FROM ref_data.futures_option_products p WHERE(p.catalog_id,p.revision_id,p.code)=('{rcat}','{rrev}','nymex_on');
+INSERT INTO ref_data.trading_close_times SELECT(jsonb_populate_record(NULL::ref_data.trading_close_times,
+ to_jsonb(t)||jsonb_build_object('code','synthetic_historical_instruction_expiry','option_product_code','synthetic_historical_instruction'))).*
+ FROM ref_data.trading_close_times t WHERE(t.catalog_id,t.revision_id,t.option_product_code)=('{rcat}','{rrev}','nymex_on');""")
+    for n,(code,strike) in enumerate((('abandon_itm','2'),('exercise_otm','4'))):
+        series='synthetic_historical_'+code;contract='90d00000-0000-0000-0000-'+str(n+1).zfill(12);price='90e00000-0000-0000-0000-'+str(n+1).zfill(12)
+        rows.append(f"INSERT INTO ref_data.futures_option_series VALUES('{rcat}','{rrev}','{series}','synthetic_historical_instruction','nymex_ng_20261101','call',{strike},'synthetic','2026-10-27',ref_data.close_instant('{rcat}','{rrev}','option_expiry','synthetic_historical_instruction','2026-10-27'),'2026-10-26T18:00:00Z','fixture');")
+        contracts.append(f"""INSERT INTO market_data.contracts SELECT(jsonb_populate_record(NULL::market_data.contracts,to_jsonb(c)||jsonb_build_object('id','{contract}','futures_option_series_code','{series}'))).* FROM market_data.contracts c WHERE(c.catalog_id,c.revision_id,c.id)=('{catalog}','{revision}','90800000-0000-0000-0000-000000000001');
+INSERT INTO market_data.series SELECT(jsonb_populate_record(NULL::market_data.series,to_jsonb(s)||jsonb_build_object('id','{price}','code','{series}_price','contract_id','{contract}'))).* FROM market_data.series s WHERE(s.catalog_id,s.revision_id,s.id)=('{catalog}','{revision}','90800000-0000-0000-0000-000000000002');
+INSERT INTO market_data.curve_members SELECT '{catalog}','{revision}','nymex_on','{contract}',max(ordinal)+1 FROM market_data.curve_members WHERE(catalog_id,revision_id,curve_code)=('{catalog}','{revision}','nymex_on');""")
     for n,(code,strike,cutoff) in enumerate((('open','3',"'2027-01-25T18:00:00Z'"),('unknown','3.5','NULL'),('closed','4',"'2026-10-15T12:00:00Z'"))):
         series='synthetic_instruction_'+code;contract='90b00000-0000-0000-0000-'+str(n+1).zfill(12);price='90c00000-0000-0000-0000-'+str(n+1).zfill(12)
         rows.append(f"INSERT INTO ref_data.futures_option_series VALUES('{rcat}','{rrev}','{series}','synthetic_instruction_option','nymex_ng_20270201','call',{strike},'synthetic','2027-01-26',ref_data.close_instant('{rcat}','{rrev}','option_expiry','synthetic_instruction_option','2027-01-26'),{cutoff},'fixture');")
@@ -174,6 +186,47 @@ def checks(query,manifest):
     assert query(f"SELECT count(*) FROM trading.futures_option_events WHERE catalog_id='{catalog}';")=='8'
     assert query(f"SELECT count(*) FROM settlement_data.futures_margin_adoptions WHERE catalog_id='{catalog}';")=='4'
     print('PASS explicit synthetic instruction capability: real open cutoff, immutable references, reviewed abandon with retry and acknowledgement, contrary conflict, unknown/closed cutoff, short side and execution-window refusals; no linked future or title',flush=True)
+
+    # Existing accepted historical instructions are explicit owned fixture
+    # facts. All native FKs, publication/knowledge and immutable-event seals
+    # remain active. This does not qualify filing after a past wall-clock cutoff.
+    for code,kind,outcome,future in [('abandon_itm','abandon_instruction','abandoned',False),('exercise_otm','exercise_instruction','exercised',True)]:
+        booked=json.loads(call(f"SELECT security.book_futures_option('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','synthetic_historical_{code}',2,0.1,'2026-10-19','premium_paid_up_front','2026-10-16T14:00:00Z',NULL,'futures_option_premium_v1',NULL,NULL,NULL,{lit(parties)})::text;"))
+        enrolled.enroll(booked['tradeId']);instruction_id=str(uuid4());operation=str(uuid4())
+        query(f"BEGIN;SELECT pg_advisory_xact_lock(730849102);INSERT INTO trading.publications SELECT '{catalog}',max(publication_order)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';"
+            +"INSERT INTO trading.futures_option_events(catalog_id,id,trade_id,trade_revision,request_id,kind,lots,remaining_lots,business_at,actor_id,request,publication_order,effective_at) "
+            +f"SELECT r.catalog_id,'{instruction_id}',r.trade_id,r.revision,'{operation}','{kind}',NULL,2,'2026-10-16T16:00:00Z',r.actor_id,"
+            +lit(dict(implementation='synthetic_accepted_historical_instruction_v1',instruction=kind))+f",(SELECT max(publication_order)FROM trading.publications WHERE catalog_id='{catalog}'),'2026-10-16T16:00:00Z' FROM trading.futures_option_trade_revisions r WHERE(r.catalog_id,r.trade_id,r.revision)=('{catalog}','{booked['tradeId']}',1);COMMIT;")
+        before_finance=json.loads(query(f"SELECT jsonb_build_array((SELECT count(*)FROM trading.trades WHERE catalog_id='{catalog}'),(SELECT count(*)FROM settlement_data.futures_margin_adoptions WHERE catalog_id='{catalog}'));"))
+        body=request(booked,capture());body['selection']['expectedEventVersion']=1
+        proposal=json.loads(call(f"SELECT lifecycle.option_proposal('{catalog}',{lit(body)})::text;"));assert proposal['details']['decision']==outcome
+        body['previewHash']=proposal['hash'];result=json.loads(call(f"SELECT lifecycle.execute_option_action('{catalog}',{lit(body)})::text;"))
+        assert result['outcome']==outcome and (result['futuresTradeId']is not None)==future
+        assert query(f"SELECT instruction_id FROM trading.futures_option_events WHERE(catalog_id,id)=('{catalog}','{result['eventId']}');")==instruction_id
+        adopted=query(f"SELECT trim_scale(r.lots)::text||'|'||trim_scale(r.execution_price)::text||'|'||m.implementation||'|'||"
+            +"((a.policy_id,a.policy_revision,a.publication_order)=(p.margin_policy_id,p.margin_policy_revision,e.publication_order))::text "
+            +"FROM trading.futures_option_events e JOIN trading.trade_revisions r ON(r.catalog_id,r.trade_id,r.revision)=(e.catalog_id,e.futures_trade_id,1) "
+            +"JOIN settlement_data.futures_margin_adoptions a ON(a.catalog_id,a.trade_id,a.binding_id)=(r.catalog_id,r.trade_id,r.binding_id) "
+            +"JOIN settlement_data.futures_margin_policies m ON(m.catalog_id,m.id,m.revision)=(a.catalog_id,a.policy_id,a.policy_revision) "
+            +"JOIN lifecycle.option_profiles p ON(p.catalog_id,p.trade_id,p.action,p.revision)=(e.catalog_id,e.trade_id,'option.expiry',1) "
+            +f"WHERE(e.catalog_id,e.id)=('{catalog}','{result['eventId']}');")
+        assert adopted==('2|4|dated_futures_margin_policy_v2|true'if future else ''),adopted
+        after_finance=json.loads(query(f"SELECT jsonb_build_array((SELECT count(*)FROM trading.trades WHERE catalog_id='{catalog}'),(SELECT count(*)FROM settlement_data.futures_margin_adoptions WHERE catalog_id='{catalog}'));"))
+        assert after_finance==[n+(1 if future else 0)for n in before_finance],(before_finance,after_finance)
+        assert json.loads(call(f"SELECT lifecycle.execute_option_action('{catalog}',{lit(body)})::text;"))==result
+    print('PASS expiry honors accepted historical instruction facts: abandon ITM creates no future; exercise OTM creates its strike-basis future; no backdated filing or reference mutation',flush=True)
+
+    window=json.loads(call(f"SELECT security.book_futures_option('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','synthetic_expiry_call_itm',2,0.1,'2026-10-19','premium_paid_up_front','2026-10-16T14:00:00Z',NULL,'futures_option_premium_v1',NULL,NULL,NULL,{lit(parties)})::text;"))
+    enrolled.enroll(window['tradeId'])
+    for clock,code in [('2026-10-16T13:00:00Z','lifecycle_option_trade'),('2026-10-17T16:00:00Z','option_calendar'),('2026-10-28T16:00:00Z','option_exercise_window')]:
+        selected=call(f"SELECT security.capture_date_context('{catalog}','{clock[:10]}',NULL);")
+        body=dict(operationId=str(uuid4()),context=dict(contextId=selected,asOf=clock,businessDate=clock[:10]),target=enrolled.targets[window['tradeId']],
+            action='option.exercise',policyId=enrolled.policies['option.exercise'],policyRevision=1,automatic=False,previewHash='0'*64,
+            selection=dict(evidenceId=str(uuid4()),lots='1',expectedEventVersion=0,profileRevision=1))
+        refused(body,code)
+    assert query(f"SELECT count(*)FROM trading.futures_option_events WHERE(catalog_id,trade_id)=('{catalog}','{window['tradeId']}');")=='0'
+    print('PASS genuine exercise windows: pre-execution, non-trading calendar day and after-expiry requests refuse without recording an event',flush=True)
+
 
 
 

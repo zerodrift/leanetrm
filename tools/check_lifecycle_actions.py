@@ -181,12 +181,14 @@ def checks(query,manifest):
     historical=json.loads(call(f"SELECT lifecycle.option_proposal('{catalog}',{lit(request)})::text;"))
     assert historical['hash']==proposal['hash'],'A retained option proposal consumed a later accepted event.'
     assert json.loads(call(f"SELECT lifecycle.execute_option_action('{catalog}',{lit(request)})::text;"))==result
-    same=json.loads(call(f"SELECT lifecycle.execute_option_action('{catalog}',{lit({**request,'operationId':str(uuid4())})})::text;"))
-    assert same==result
+    acknowledgement=str(uuid4())
+    same=json.loads(call(f"SELECT lifecycle.execute_option_action('{catalog}',{lit({**request,'operationId':acknowledgement})})::text;"))
+    assert same=={**result,'operationId':acknowledgement,'acknowledgedOperationId':result['operationId'],'semanticAcknowledgement':True}
     refreshed={**request,'operationId':str(uuid4()),'context':{**request['context'],'contextId':capture()},
                'selection':{**request['selection'],'expectedEventVersion':1,'lots':'1.0'}}
     refreshed['previewHash']=json.loads(call(f"SELECT lifecycle.option_proposal('{catalog}',{lit(refreshed)})::text;"))['hash']
-    assert json.loads(call(f"SELECT lifecycle.execute_option_action('{catalog}',{lit(refreshed)})::text;"))==result
+    assert json.loads(call(f"SELECT lifecycle.execute_option_action('{catalog}',{lit(refreshed)})::text;"))=={
+        **result,'operationId':refreshed['operationId'],'acknowledgedOperationId':result['operationId'],'semanticAcknowledgement':True}
     assert query(f"SELECT count(*) FROM trading.futures_option_events WHERE catalog_id='{catalog}';")==str(int(before)+1)
     reject(f"SELECT lifecycle.execute_option_action('{catalog}',{lit({**refreshed,'operationId':str(uuid4()),'selection':{**refreshed['selection'],'lots':'2'}})});",'lifecycle_evidence_conflict')
     reject(f"SELECT lifecycle.execute_option_action('{catalog}',{lit({**refreshed,'operationId':str(uuid4()),'selection':{**refreshed['selection'],'expectedEventVersion':-1}})});",'lifecycle_input')

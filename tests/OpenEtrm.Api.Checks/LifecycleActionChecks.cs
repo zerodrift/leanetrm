@@ -152,8 +152,12 @@ internal static class LifecycleActionChecks
         Require(!other.GetProperty("found").GetBoolean(),"An authorized reader cannot recover another actor's command receipt.");
         var retry=await database.WithIdentity("trader",null,(c,t)=>operations.Execute(c,request,t),default);
         Require(JsonElement.DeepEquals(first.Outcome,retry.Outcome),"The shared owned adapter must preserve its first native outcome on retry.");
-        var same=await database.WithIdentity("trader",null,(c,t)=>operations.Execute(c,request with{OperationId=Guid.NewGuid()},t),default);
-        Require(JsonElement.DeepEquals(first.Outcome,same.Outcome),"A new request for the same event evidence must acknowledge the original economic fact.");
+        var acknowledged=request with{OperationId=Guid.NewGuid()};
+        var same=await database.WithIdentity("trader",null,(c,t)=>operations.Execute(c,acknowledged,t),default);
+        var expected=System.Text.Json.Nodes.JsonNode.Parse(first.Outcome.GetRawText())!.AsObject();
+        expected["operationId"]=acknowledged.OperationId;expected["acknowledgedOperationId"]=request.OperationId;expected["semanticAcknowledgement"]=true;
+        Require(JsonElement.DeepEquals(JsonSerializer.SerializeToElement(expected,RiskJobs.Json),same.Outcome),
+            "A new command must retain its own identity while acknowledging the unchanged original event and linked future.");
         Console.WriteLine("PASS owned lifecycle adapter: exact native discovery, configured choices, reviewed exercise, first-outcome retry and same-fact acknowledgement");
     }
     static void Require(bool condition,string message){if(!condition)throw new Exception(message);}
