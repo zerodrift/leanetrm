@@ -76,6 +76,9 @@ public sealed partial class GasQuantityLifecycleProjection
                     throw Error("gas_projection_causality","A stock movement requires its accepted receipt before native consumption or reservation.");
             }
         }
+        if(known.SelectMany(p=>p.Discharges).GroupBy(p=>p.Obligation).Any(g=>
+            g.Aggregate(default(ExactDecimal),(a,b)=>a+b.Quantity.Amount).CompareTo(Abs(holdings[g.Key].Quantity.Amount))>0))
+            throw Error("gas_projection_performance","The complete source-known performance schedule cannot exceed its exact opening quantity obligation.");
         foreach(var stock in nativeStock.GroupBy(p=>p.Movement.Stock))
         {
             var ordered=stock.ToArray();

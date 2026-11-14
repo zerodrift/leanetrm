@@ -55,6 +55,10 @@ internal static class GasKnownQuantityChecks
         Reject("gas_projection_policy",()=>Component([stock,debt],[reserve,repay,release,loss],policies.SetItem(account.Id,new(GasQuantityProjectionPolicy.Version,GasQuantityProjectionPolicy.Retain))));
         Reject("gas_projection_source",()=>Component([stock,debt],[reserve with{KnownAt=source.Knowledge.KnownAt.AddSeconds(1)}]));
         Reject("gas_projection_performance",()=>Component([stock,debt],[reserve,repay with{Discharges=[new(debt.Position,Q("4"))]}]));
+        var excessive=new GasKnownQuantityTransition(Guid.NewGuid(),at.AddHours(24),source.Knowledge!.KnownAt,[],
+            [new(stock.Position,new(Guid.NewGuid(),at.AddHours(24),GasKnownStockUse.Consume,null,Q("1")),debt.Position)],
+            [new(debt.Position,Q("1"))],[]);
+        Reject("gas_projection_performance",()=>Component([stock,debt with{Quantity=Q("-3")}],[reserve,repay,release,loss,excessive]));
         Reject("gas_projection_title",()=>Component([claim],[receipt with{Receipts=[new(claim.Position,received with{Quantity=Q("3")})]}]));
         // Zero stock keeps its accepted resource-release schedule without
         // retaining exposure to an expired mark solely for bookkeeping.
