@@ -45,7 +45,7 @@ public static class LifecycleEconomicRisk
             BaseValue=baseline[i].ResidualValue.Add(baseline[i].PeriodCash).ToExactString()}).ToImmutableArray();
         ImmutableArray<HistoricalObservation> values=[new("no_variable_factors",[..baseline.Select((v,i)=>new HistoricalScenarioValue(Id(i),v.ResidualValue.Add(v.PeriodCash).ToExactString()))])];
         var identity=Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{policy,
-            Source=prepared.Select(p=>p.SourceSnapshot.Id),prepared[0].Horizon,Values=baseline})));
+            Source=prepared.SelectMany(p=>p.Markets),prepared[0].Horizon,Values=baseline})));
         var economic=EmpiricalRisk.Calculate(identity,["no_variable_factors"],policy.Confidence,exposures,values,cancellation,true);
         var market=EmpiricalRisk.Calculate(identity,["no_variable_factors"],policy.Confidence,diagnostic,values,cancellation,true);
         return new(policy,prepared[0].Horizon,baseline,economic.Partitions,market.Partitions);
@@ -116,7 +116,7 @@ public static class LifecycleEconomicRisk
         var source=prepared[0].SourceSnapshot;
         if(history is null||!history.Available||history.Samples.Length<2||history.Forecast.ContextId!=source.Knowledge!.ContextId||
             history.Forecast.KnownAt!=source.Knowledge.KnownAt||history.Forecast.ValuationAt!=source.ValuationAt||
-            prepared.Any(p=>!history.Forecast.Markets.Contains(p.Market))||
+            prepared.SelectMany(p=>p.Markets).Any(m=>!history.Forecast.Markets.Contains(m))||
             history.Columns.IsDefault||history.Columns.Select(c=>c.Mapping.Factor.Input).Distinct().Count()!=history.Columns.Length)
             throw Error("risk_economic_history","Supply complete aligned native factor history from the exact opening forecast.");
         var factors=Factors(prepared);
@@ -141,7 +141,7 @@ public static class LifecycleEconomicRisk
             .GroupBy(p=>p.Key).Any(g=>g.Select(p=>p.Value).Distinct().Count()!=1))
             throw Error("risk_economic_scope","Accumulated cash must use one explicitly selected retained curve version per currency across the portfolio.");
     }
-    private static bool SameFactor(QuoteFactor a,QuoteFactor b)=>a.Input==b.Input&&a.Quote==b.Quote&&a.Unit==b.Unit&&a.Contract==b.Contract&&
+    internal static bool SameFactor(QuoteFactor a,QuoteFactor b)=>a.Input==b.Input&&a.Quote==b.Quote&&a.Unit==b.Unit&&a.Contract==b.Contract&&
         a.Observation==b.Observation&&a.Source==b.Source&&a.Role==b.Role&&a.BaseValue==b.BaseValue&&a.TradingTick==b.TradingTick;
     private static string Id(int n)=>"economic_"+n.ToString("D5",System.Globalization.CultureInfo.InvariantCulture);
     private static MarketDataException Error(string code,string message)=>new(code,message);

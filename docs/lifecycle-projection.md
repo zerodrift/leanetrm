@@ -336,3 +336,14 @@ current reference/definition visibility, so an unreadable head never falls back
 to an older readable version. Future-effective versions and settings published
 after the selected cutoff are absent from choices. Choice reads retain the same
 original source admission through commit as the selected horizon calculation.
+
+The pure projection evaluator can retain several exact native market graphs in
+one connected economic component. Each dependency, residual and cash membership
+uses its explicitly declared source; native prices, currency carrying inputs and
+source certificates are not relabelled across definitions. A cash or residual
+route, once admitted, remains attached to its original identity through the path.
+Missing sources, inconsistent shared primitive facts and unassigned final-input
+declarations refuse preparation. Independent two-definition checks qualify
+ordinary residual PV and exact future-cash carrying through this router. Native
+physical source assembly and accepted performance activation remain separate
+integration gates.

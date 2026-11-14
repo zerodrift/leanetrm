@@ -20,16 +20,25 @@ public sealed record ValuationSetup(ValuationMeasure Measure,
     public ImmutableDictionary<Guid,FuturesOptionMarketBinding> OptionBindings{get;init;}=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty;
     // A lifecycle component keeps one held consumer from a source portfolio;
     // unrelated instruments and bindings cannot travel into its ordinary PV.
+    internal ValuationSetup ForPositions(ImmutableArray<RiskPosition> positions)
+    {
+        if(positions.IsDefaultOrEmpty||positions.Any(p=>p is null))throw new MarketDataException("valuation_context","Select the exact nonempty held position subset.");
+        return ForInputs(positions.Select(p=>p.ValuationId).ToHashSet(),positions.Select(p=>new MeasureBinding(p.Owner,p.BindingId)).ToHashSet());
+    }
     internal ValuationSetup ForPosition(AccountingPositionKey position,Guid instrument)
     {
-        if(!position.IsValid||instrument==Guid.Empty||FuturesBindings is null||InstrumentDiscounting is null||OptionBindings is null||BindingStates is null||AccountingFacts is null)
-            throw new MarketDataException("valuation_context","Retain the exact held position and complete explicit valuation inputs.");
-        var binding=new MeasureBinding(position.Owner,position.BindingId);
-        return this with{FuturesBindings=FuturesBindings.Where(p=>p.Key==instrument).ToImmutableDictionary(),
-            InstrumentDiscounting=InstrumentDiscounting.Where(p=>p.Key==instrument).ToImmutableDictionary(),
-            OptionBindings=OptionBindings.Where(p=>p.Key==instrument).ToImmutableDictionary(),
-            BindingStates=BindingStates.Where(p=>p.Key==binding).ToImmutableDictionary(),
-            AccountingFacts=AccountingFacts.Where(p=>p.Key==binding).ToImmutableDictionary()};
+        if(!position.IsValid||instrument==Guid.Empty)throw new MarketDataException("valuation_context","Retain the exact held position and instrument.");
+        return ForInputs([instrument],[new(position.Owner,position.BindingId)]);
+    }
+    private ValuationSetup ForInputs(HashSet<Guid> instruments,HashSet<MeasureBinding> bindings)
+    {
+        if(FuturesBindings is null||InstrumentDiscounting is null||OptionBindings is null||BindingStates is null||AccountingFacts is null)
+            throw new MarketDataException("valuation_context","Retain complete explicit valuation inputs.");
+        return this with{FuturesBindings=FuturesBindings.Where(p=>instruments.Contains(p.Key)).ToImmutableDictionary(),
+            InstrumentDiscounting=InstrumentDiscounting.Where(p=>instruments.Contains(p.Key)).ToImmutableDictionary(),
+            OptionBindings=OptionBindings.Where(p=>instruments.Contains(p.Key)).ToImmutableDictionary(),
+            BindingStates=BindingStates.Where(p=>bindings.Contains(p.Key)).ToImmutableDictionary(),
+            AccountingFacts=AccountingFacts.Where(p=>bindings.Contains(p.Key)).ToImmutableDictionary()};
     }
 }
 

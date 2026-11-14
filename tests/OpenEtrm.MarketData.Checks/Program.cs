@@ -11,6 +11,7 @@ if(args is ["--contract-eligibility"]){ContractEligibilityChecks.Run();return;}
 if(args is ["--interval-anchors"]){IntervalAnchorChecks.Run();return;}
 if(args is ["--futures-margin"]){FuturesMarginChecks.Run();return;}
 if(args is ["--lifecycle-projection"]){LifecycleProjectionChecks.Run();return;}
+if(args is ["--routed-lifecycle-projection"]){RoutedLifecycleProjectionChecks.Run();return;}
 if(args is ["--physical-lifecycle-projection"]){PhysicalLifecycleProjectionChecks.Run();return;}
 if(args is ["--cash-lifecycle-projection"]){CashLifecycleProjectionChecks.Run();return;}
 if(args is ["--option-lifecycle-projection"]){OptionLifecycleProjectionChecks.Run();return;}
@@ -613,6 +614,7 @@ FuturesMarginChecks.Run();passed++;
 FuturesMarginTrajectoryChecks.Run();passed++;
 LifecycleProjectionChecks.Run();passed++;
 PhysicalLifecycleProjectionChecks.Run();passed++;
+RoutedLifecycleProjectionChecks.Run();passed++;
 CashLifecycleProjectionChecks.Run();passed++;
 OptionLifecycleProjectionChecks.Run();passed++;
 SwapLifecycleProjectionChecks.Run();passed++;
