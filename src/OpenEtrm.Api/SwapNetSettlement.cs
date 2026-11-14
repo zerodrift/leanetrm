@@ -13,7 +13,7 @@ public sealed record SwapNetLine(Guid DeterminationId,string Amount);
 public sealed record SwapNetPreviewRequest(FuturesReadRequest Context,Guid TradeId,
     [property:System.Text.Json.Serialization.JsonRequired]int ExpectedRevision,
     [property:System.Text.Json.Serialization.JsonRequired]int ExpectedVersion,ReferenceKey Currency,[property:System.Text.Json.Serialization.JsonRequired]string? Amount,
-    ImmutableArray<SwapNetLine> Allocations,string Policy,[property:System.Text.Json.Serialization.JsonRequired]Guid? ReversesId);
+    [property:System.Text.Json.Serialization.JsonRequired]ImmutableArray<SwapNetLine> Allocations,string Policy,[property:System.Text.Json.Serialization.JsonRequired]Guid? ReversesId);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record SwapNetRecordRequest(SwapNetPreviewRequest Preview,Guid OperationId,string PreviewHash,string EffectiveAt,string Reference);
 
@@ -82,6 +82,37 @@ public sealed partial class SwapStore
             new{previewHash=hash,request.ExpectedVersion,policy=request.Policy,amount=Exact(cash),grossPaid=Exact(plan.GrossPaid),grossReceived=Exact(plan.GrossReceived),
                 recordKind=plan.IsNoncashDischarge?"zero_net_discharge_v1":"cash_movement_v1",request.ReversesId,
                 allocations=allocations.Select(a=>new{a.DeterminationId,amount=Exact(a.Amount),remaining=Exact(plan.Remaining.Single(c=>c.Id==a.DeterminationId).Outstanding)})});
+    }
+    // An observed payment is independent of its later outstanding balance.
+    // Match the complete source-visible fact before proposing another allocation.
+    internal async Task<NetPrepared?> PrepareRecordedNet(NpgsqlConnection connection,InputFrame frame,SwapNetActionTerms request,CancellationToken ct)
+    {
+        var p=request.Preview;
+        var state=await SettlementState(connection,p.TradeId,ct);
+        var at=TradingInstant.Parse(request.EffectiveAt,"settlement_cash_input");
+        var payment=state.GetProperty("payments").EnumerateArray().SingleOrDefault(value=>value.Text("reference").Trim(' ')==request.Reference.Trim(' ')&&
+            value.Instant("cash_at")==at&&value.OptionalId("reverses_id")==p.ReversesId);
+        if(payment.ValueKind==JsonValueKind.Undefined)return null;
+        if(payment.Id("reference_catalog_id")!=p.Currency.Revision.CatalogId||payment.Id("reference_revision_id")!=p.Currency.Revision.RevisionId||payment.Text("currency_code")!=p.Currency.Code||p.Policy!=SwapNetSettlement.Policy)
+            throw Error("settlement_payment_evidence_conflict","The observed reference and cash instant already identify another payment fact.");
+        var cash=ExactMoney.Parse(payment.Text("amount"),p.Currency);
+        var lines=state.GetProperty("allocations").EnumerateArray().Where(a=>a.Id("payment_id")==payment.Id("id")).ToArray();
+        if(lines.Length<2||lines.Any(a=>a.Text("allocation_policy")!=p.Policy))
+            throw Error("settlement_payment_evidence_conflict","The observed reference and cash instant do not identify this net settlement contract.");
+        var allocations=lines.Select(a=>new SwapNetAllocation(a.Id("determination_id"),ExactMoney.Parse(a.Text("amount"),p.Currency))).ToImmutableArray();
+        if(p.ReversesId is null)
+        {
+            if(p.Allocations.IsDefault||p.Allocations.Any(a=>a is null)||p.Allocations.Length!=allocations.Length||
+                p.Allocations.Select(a=>a.DeterminationId).Distinct().Count()!=p.Allocations.Length||p.Amount is null||ExactMoney.Parse(p.Amount,p.Currency)!=cash||
+                p.Allocations.Any(a=>!allocations.Any(accepted=>accepted.DeterminationId==a.DeterminationId&&accepted.Amount==ExactMoney.Parse(a.Amount,p.Currency))))
+                throw Error("settlement_payment_evidence_conflict","The observed reference and cash instant already retain different cash or gross allocations.");
+        }
+        else if(p.Amount is not null||p.Allocations.IsDefault||!p.Allocations.IsEmpty)
+            throw Error("settlement_reversal","An existing reversal retains its complete original allocations without replacement amounts.");
+        var hash=SettlementHash(new{acceptedPayment=payment,allocations,p,frame.Id,frame.At});
+        return new(frame.ContextId??throw Error("settlement_context","Retain the certified observed-payment source."),hash,cash,allocations,
+            new{previewHash=hash,p.ExpectedVersion,policy=p.Policy,amount=Exact(cash),recordKind=payment.Text("record_kind"),p.ReversesId,
+                existingFact=true,paymentId=payment.Id("id"),allocations=allocations.Select(a=>new{a.DeterminationId,amount=Exact(a.Amount)})});
     }
     public async Task<object> PreviewSwapNet(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapNetPreviewRequest request,CancellationToken ct)
         =>(await PrepareNet(connection,frame,request,ct)).Review;

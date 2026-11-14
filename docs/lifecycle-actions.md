@@ -82,7 +82,7 @@ the existing settlement arithmetic and cash producer. Legacy public write
 adapters refuse with `lifecycle_configuration_required`; their native producers
 are not executable by the application runtime directly.
 
-Observed swap cash uses a trimmed stable reference within the trade, cash
+Observed swap cash trims surrounding U+0020 spaces from a stable reference within the trade, cash
 instant and explicit reversal relationship. Re-recording the same complete fact
 at a later recording instant acknowledges the original payment. A conflicting
 amount, currency or allocation under that key requires a qualified correction
@@ -106,6 +106,12 @@ old-snapshot acknowledgement after later cash, forged derived cash/line refusal,
 settings acknowledgement without rewinding the current revision, and unchanged
 allocation counts on retries. Browser checks qualify the gross-entry, reversal
 and explicit-settings forms.
+
+The net review first recognizes an already recorded complete payment in its
+selected source, including original and reversal facts whose later balances
+have changed. It shows that acknowledgement explicitly and creates no new cash
+or allocations. Conflicting cash or gross lines under the same observed key
+are refused; repeated selected lines cannot disappear through set comparison.
 
 Futures setup lists exact held and unadopted futures, source choices, dated
 margin occurrences, opening treatment and rounding policy. Saving and adoption

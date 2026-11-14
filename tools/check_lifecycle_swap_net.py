@@ -54,7 +54,7 @@ def checks(query, manifest, call, managed, booking, occurrence, determine_policy
         return result['LIFECYCLE_SWAP_OUTCOME']
     first=record(2,'50',['-300','350'],'Synthetic net settlement')
     assert list(map(F,balances().split(',')))==[0,0]
-    record(3,None,[],'Synthetic full net reversal',first['paymentId'])
+    reverse=record(3,None,[],'Synthetic full net reversal',first['paymentId']);reverse_payment=reverse['paymentId']
     assert list(map(F,balances().split(',')))==[-300,350]
     record(4,'20',['-100','120'],'Synthetic partial net settlement')
     assert list(map(F,balances().split(',')))==[-200,230]
@@ -85,6 +85,27 @@ def checks(query, manifest, call, managed, booking, occurrence, determine_policy
         else:raise AssertionError('Expected '+code)
     assert query(f"SELECT count(*) FROM settlement_data.swap_cash_payments WHERE trade_id='{trade}';")=='5'
     assert query(f"SELECT count(*) FROM settlement_data.swap_payment_allocations WHERE trade_id='{trade}';")=='10'
+    duplicate=deepcopy(first_request);duplicate['operationId']=str(uuid4())
+    duplicate['selection']['net']['preview']['allocations'].append(deepcopy(duplicate['selection']['net']['preview']['allocations'][0]))
+    try:native(duplicate,calculation)
+    except RuntimeError as error:assert 'lifecycle_native_calculation' in str(error),str(error)
+    else:raise AssertionError('A repeated selected gross line was erased by native set comparison.')
+    fresh=record(7,'50',['-300','350'],'Synthetic net settlement')
+    assert fresh['paymentId']==first['paymentId'] and fresh['version']==3 and fresh['currentVersion']==7
+    fresh_reversal=record(7,None,[],'Synthetic full net reversal',first['paymentId'])
+    assert fresh_reversal['paymentId']==reverse_payment and fresh_reversal['version']==4 and fresh_reversal['currentVersion']==7
+    assert query(f"SELECT count(*) FROM settlement_data.swap_cash_payments WHERE trade_id='{trade}';")=='5'
+    assert query(f"SELECT count(*) FROM settlement_data.swap_payment_allocations WHERE trade_id='{trade}';")=='10'
+    record(7,'51',['-300','351'],'Synthetic net settlement',expected_error='settlement_payment_evidence_conflict')
+    record(-1,'50',['-300','350'],'Synthetic net settlement',expected_error='lifecycle_input')
+    spaced=record(7,'50',['-300','350'],'  Synthetic net settlement  ')
+    assert spaced['paymentId']==first['paymentId'] and spaced['currentVersion']==7
+    # PostgreSQL btrim removes U+0020 only. Tabs remain part of the observed key.
+    tabbed=record(7,'20',['-10','30'],'\tSynthetic net settlement\t')
+    assert tabbed['paymentId']!=first['paymentId'] and tabbed['version']==8
+    assert list(map(F,balances().split(',')))==[-190,200]
+    assert query(f"SELECT count(*) FROM settlement_data.swap_cash_payments WHERE trade_id='{trade}';")=='6'
+    assert query(f"SELECT count(*) FROM settlement_data.swap_payment_allocations WHERE trade_id='{trade}';")=='12'
     # A settings acknowledgement of A after B never makes A current again.
     alternative={**policy,'operationId':str(uuid4()),'policyId':str(uuid4()),'mode':'manual'}
     call(f"SELECT lifecycle.save_policy('{catalog}',{lit(alternative)});")

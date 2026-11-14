@@ -34,6 +34,8 @@ internal sealed class SwapNetLifecycleActions(PreviewDatabase database,Func<Guid
         if(request.Action!="swap.net"||s.SnapshotId==Guid.Empty||s.ProfileId==Guid.Empty||s.ProfileRevision<1||s.Net is not{Preview:{Context:{}} p}||
             p.Context.SnapshotId!=s.SnapshotId||p.Context.Convention!=SwapStore.Convention||p.Context.KnowledgeMode!="current"||p.Context.ContextId is not null||p.TradeId!=request.Target.ScopeId)
             throw new MarketDataException("lifecycle_context","Retain one exact current swap frame, target and saved netting profile.");
+        if(p.ExpectedRevision<1||p.ExpectedVersion<0||p.Allocations.IsDefault)
+            throw new MarketDataException("lifecycle_input","Retain explicit nonnegative settlement and positive trade versions and complete gross allocations.");
         _=TradingInstant.Parse(s.Net.EffectiveAt,"settlement_cash_input");
         if(string.IsNullOrWhiteSpace(s.Net.Reference))throw new MarketDataException("settlement_cash_input","Enter the observed settlement reference.");
         return s;
@@ -66,7 +68,8 @@ internal sealed class SwapNetLifecycleActions(PreviewDatabase database,Func<Guid
                     throw new MarketDataException("lifecycle_profile_revision","Retain the exact configured swap owner, revision, currency and netting policy.");
                 _=await LifecycleNative.Read(connection,"SELECT lifecycle.check_action_policy($1,$2,$3,$4,$5,$6)::text",ct,
                     Catalog,request.PolicyId,request.PolicyRevision,request.Action,request.Context.AsOf,request.Automatic);
-                return await new SwapStore(database).PrepareNet(connection,view.CalculationFrame,p,ct);
+                var store=new SwapStore(database);
+                return await store.PrepareRecordedNet(connection,view.CalculationFrame,s.Net,ct)??await store.PrepareNet(connection,view.CalculationFrame,p,ct);
             },ct);
         }
         finally

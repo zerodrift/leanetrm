@@ -237,6 +237,10 @@ DECLARE until_at timestamptz;prior jsonb;info jsonb;request jsonb;preview jsonb;
   OR EXISTS(SELECT 1 FROM jsonb_object_keys(x)k WHERE k NOT IN('determination','amount'))) THEN RAISE EXCEPTION 'lifecycle_input';END IF;
  IF preview->>'reversesId' IS NULL THEN
   IF jsonb_typeof(preview->'allocations') IS DISTINCT FROM 'array' OR jsonb_array_length(preview->'allocations') NOT BETWEEN 2 AND 256
+  OR jsonb_array_length(preview->'allocations')<>jsonb_array_length(lines)
+  OR(SELECT count(DISTINCT x."determinationId") FROM jsonb_to_recordset(preview->'allocations')x("determinationId" uuid))<>jsonb_array_length(preview->'allocations')
+  OR EXISTS(SELECT 1 FROM jsonb_array_elements(preview->'allocations')x WHERE jsonb_typeof(x) IS DISTINCT FROM 'object' OR NOT(x?&ARRAY['determinationId','amount'])
+   OR EXISTS(SELECT 1 FROM jsonb_object_keys(x)k WHERE k NOT IN('determinationId','amount')))
   OR cash IS DISTINCT FROM(preview->>'amount')::numeric OR EXISTS((SELECT x.determination,x.amount FROM jsonb_to_recordset(lines)x(determination uuid,amount numeric)
    EXCEPT SELECT x."determinationId",x.amount FROM jsonb_to_recordset(preview->'allocations')x("determinationId" uuid,amount numeric))
    UNION ALL(SELECT x."determinationId",x.amount FROM jsonb_to_recordset(preview->'allocations')x("determinationId" uuid,amount numeric)

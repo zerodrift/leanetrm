@@ -78,7 +78,7 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   add('Holding',selected?.subject?.reference);add('Business date',request.context.businessDate);add('As of',instant(request.context.asOf));
   const d=review.details;for(const [key,label] of [['decision','Decision'],['openLots','Open lots'],['lots','Lots affected'],['futureLots','Linked futures lots'],['strike','Strike'],['settlement','Settlement'],['amount','Amount'],['roundedTotal','Rounded payment'],['exactTotal','Exact payment'],['reference','Evidence reference']] as const)add(label,d[key]);
   const net=d.settlement as Record<string,unknown>|undefined;
-  if(net){add('Net cash',net.amount);add('Gross paid',net.grossPaid);add('Gross received',net.grossReceived);add('Reverses payment',net.reversesId);}
+  if(net){if(net.existingFact===true)add('Effect','Already recorded · no new cash or allocation');add('Net cash',net.amount);add('Gross paid',net.grossPaid);add('Gross received',net.grossReceived);add('Reverses payment',net.reversesId);}
   section.append(list);
   if(net&&Array.isArray(net.allocations)){
    const table=element('table');table.className='regular-table';const head=element('tr');for(const label of ['Contribution','Gross allocation','Outstanding after settlement'])head.append(element('th',label));table.append(head);
