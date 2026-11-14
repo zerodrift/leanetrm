@@ -74,6 +74,18 @@ internal static class PhysicalFuturesValueChecks
             var sameTerms=new OpenEtrm.MarketData.Gas.GasPhysicalDeliveryTerms(Guid.NewGuid(),original.Series,original.Quantity,original.Currency,
                 original.Location,original.From,original.To,original.CashDueAt,underlying,original.Carrying,original.Implementation);
             PhysicalMarkInterpretation.Require(FuturesPhysicalBasisValueBinding.SameDeliverable,underlying,data,nativeProfile with{Terms=sameTerms},data);
+            var setupScope=new PortfolioRiskCatalogRequest(new(frame.Id,TradingBlotter.Convention,"retained",context.ContextId),books,[],trades);
+            var setup=JsonSerializer.SerializeToElement(await new PortfolioRiskPreview(database).EconomicSetup(connection,data,frame,setupScope,ct),RiskJobs.Json);
+            PhysicalOptionPolicyChecks.RequireBindingFlags(setup);
+            if(!setup.TryGetProperty("physicalBindings",out var groups)||groups.GetProperty("options").GetArrayLength()!=0)
+                throw new Exception("Economic setup must expose the exact native physical binding groups without pricing.");
+            var futureGroup=groups.GetProperty("futures").EnumerateArray().Single();
+            var offered=futureGroup.GetProperty("choices").EnumerateArray().Single().GetProperty("selection").Deserialize<FuturesPhysicalValuationSelection>(RiskJobs.Json)!;
+            if(futureGroup.Id("tradeId")!=position.TradeId||futureGroup.Id("bindingId")!=position.BindingId||
+                offered.TradeId!=position.TradeId||offered.BindingId!=position.BindingId||offered.MarkInterpretation!=FuturesPhysicalBasisValueBinding.ValuationProxy||
+                !setup.GetProperty("pricing").EnumerateArray().Any(p=>p.TryGetProperty("requiresFuturesBindings",out var required)&&required.GetBoolean()&&
+                    p.GetProperty("policy").GetProperty("nativeFutures").GetProperty("economic").GetProperty("physical").GetArrayLength()==0))
+                throw new Exception("Setup must retain the exact adopted live binding, full explicit template and proxy-only interpretation for separately dated inventory.");
             var physical=selected.Terms.Policy.Delivery!.Terms;
             var discount=prepared.InstantDiscountInputs.Where(d=>d.Input.Snapshot.Definitions.RevisionId==secondary).Select(d=>d.Input).ToArray();
             var assetDf=discount.Single(d=>d.Payment.PaymentAt==physical.From).DiscountFactor;

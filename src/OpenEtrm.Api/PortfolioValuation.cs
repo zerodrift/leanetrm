@@ -143,6 +143,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
     public async Task<PortfolioValuationResult> Calculate(NpgsqlConnection connection,PreviewData data,InputFrame frame,
         ScheduleContext context,ImmutableArray<Guid> bookIds,PortfolioValuationPolicy policy,CancellationToken ct,bool requireNativeEvidence=false)
     {
+        ValidatePolicy(policy);
+        if(policy.FuturesOptions?.Physical is not null)await FuturesOptionPhysicalPermissionAdmission.Capture(connection,database,ct);
         var exact=PinnedContext.Exact(context);
         await RequireValuationContext(connection,exact,frame.At,ct);
         var snapshot=data.Snapshot(frame);
@@ -270,6 +272,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         ImmutableArray<ConnectedMarketEvidence>? retainedGraphs=null,CloseBookRiskDefinition? closePolicy=null,PreparationScope? operation=null,RiskTradeSelection? selection=null)
     {
         ValidatePolicy(policy);ct.ThrowIfCancellationRequested();
+        if(policy.FuturesOptions?.Physical is not null)await FuturesOptionPhysicalPermissionAdmission.Capture(connection,database,ct);
         operation?.Require(data,frame,snapshot,context,bookIds,selection);
         if(excluded.IsDefault||excluded.Any(e=>e is null||(e.InstrumentType==FuturesOptionPositions.Type?!FuturesOptionMarket.Excludable(e.Reason):
             !ValuationStatus.PositionSpecific(e.Reason))))
@@ -430,6 +433,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var optionWork=new FuturesOptionWork(0,0,0,0,0);
         var optionModes=ImmutableDictionary<(Guid,Guid),string>.Empty;
         var allOptionExclusions=ImmutableArray.CreateBuilder<ExcludedPosition>();
+        var physicalOptions=new HashSet<(Guid Trade,Guid Binding)>();
         foreach(var source in await FuturesOptionPortfolio.Inputs(connection,database,frame,optionPositions,MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,ct))
         {
             var selected=MarketSnapshotBinding.Bind(source.Data.Snapshot(source.Frame),exact.ContextId!.Value,known);
@@ -438,8 +442,17 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             var work=options.Work(source.Positions);
             optionWork=new(optionWork.Positions+work.Positions,optionWork.UniqueSeries+work.UniqueSeries,optionWork.SolvedSeries+work.SolvedSeries,
                 optionWork.FallbackSeries+work.FallbackSeries,optionWork.CalibrationTreePrices+work.CalibrationTreePrices);
+            ImmutableArray<PortfolioInputMarket> physicalInputs=[];
+            if(policy.FuturesOptions?.Physical is not null)
+                physicalOptions.UnionWith(FuturesOptionPhysicalPortfolio.LivePhysical(source.Positions,source.Data,selected.ValuationAt).Select(p=>(p.Trade,p.OptionBinding)));
             if(options.Portfolio(source.Positions) is not {} portfolio)continue;
-            materialized.Add(new(source.Data,source.Frame,selected,portfolio,FuturesOptionPositions.Measure){Trades=options.Trades(source.Positions),Options=source.Positions});
+            if(policy.FuturesOptions?.Physical is {} physical)
+            {
+                var prepared=await FuturesOptionPhysicalPortfolio.Read(connection,database,source.Data,source.Frame,selected,exact,source.Positions,options,portfolio,physical,
+                    MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,ct);
+                portfolio=prepared.Portfolio;physicalInputs=prepared.Inputs;instantDiscounts.AddRange(prepared.Discounts);
+            }
+            materialized.Add(new(source.Data,source.Frame,selected,portfolio,FuturesOptionPositions.Measure){Trades=options.Trades(source.Positions),Options=source.Positions,Inputs=physicalInputs});
             var heads=source.Positions.ToDictionary(p=>p.Trade);
             foreach(var position in portfolio.Positions)
             {
@@ -451,6 +464,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                 if(option)optionModes=optionModes.Add((position.TradeId,position.BindingId),options.Mode(position.BindingId)!);
             }
         }
+        if(policy.FuturesOptions?.Physical is {} optionPolicy&&!physicalOptions.SetEquals(optionPolicy.Options.Select(p=>(p.TradeId,p.BindingId))))
+            throw new MarketDataException("physical_option_policy","Physical option models must cover exactly the live held physical-underlying bindings in this selected scope.");
         var unvaluedOptions=allOptionExclusions.ToImmutable();
         if(optionExclusions.Length!=unvaluedOptions.Length||!optionExclusions.ToHashSet().SetEquals(unvaluedOptions))
             throw optionExclusions.IsEmpty&&retainedGraphs is null&&unvaluedOptions.Length>0?new MarketDataException(unvaluedOptions[0].Reason,"An option position has no value at the selected close.")
@@ -499,7 +514,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                 .AddRange(crude.Where(market=>market.Snapshot.Definitions==first.Snapshot.Definitions).SelectMany(market=>market.ActivePrices))
                 .Distinct().ToImmutableArray();
             var connected=await CustomCurves.PrepareMarket(connection,database,first.Data,first.Frame,first.Snapshot,exact,instruments,dependencies,CustomCurves.MarketPreparation.ScenarioUniverse,ct,retained,activePrices,operation?.Histories,
-                calculationContext:policy.NativeFutures?.Economic is null?null:CustomCurves.CompleteContext(first.Frame,first.Snapshot,exact),
+                calculationContext:policy.NativeFutures?.Economic is null&&policy.FuturesOptions?.Physical is null?null:CustomCurves.CompleteContext(first.Frame,first.Snapshot,exact),
                 linkedMarkets:[..inputMarkets.Where(m=>m.Snapshot.Definitions!=first.Snapshot.Definitions).Select(m=>m.Market)]);
             markets.Add(new(first.Data,first.Frame,first.Snapshot,
                 RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,portfolios,connected.Authority,ct),

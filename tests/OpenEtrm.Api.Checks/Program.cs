@@ -6,6 +6,9 @@ using OpenEtrm.MarketData;
 if(args is ["--cash-option-value-policy"]){CashOptionPolicyChecks.Run();return;}
 if(args is ["--gas-physical-completion-fixture",var completionPath]){await GasPhysicalCompletionFixture.Run(completionPath);return;}
 if(args is ["--gas-physical-projection",var physicalProjectionPath]){await GasPhysicalProjectionChecks.Run(physicalProjectionPath);return;}
+if(args is ["--physical-option-worker-verify",var physicalWorkerPath]){await PhysicalOptionWorkerChecks.Verify(physicalWorkerPath);return;}
+if(args is ["--physical-option-policy"]){PhysicalOptionPolicyChecks.Run();return;}
+if(args is ["--physical-option-value",var physicalOptionPath]){await PhysicalOptionValueChecks.Run(physicalOptionPath);return;}
 if(args is ["--lifecycle-residual-currencies"]){LifecycleResidualCurrencyChecks.Run();return;}
 if(args is ["--gas-principal-carrying",var principalCarryingPath]){await GasPrincipalCarryingChecks.Run(principalCarryingPath);return;}
 if(args is ["--gas-accepted-order"]){GasAcceptedOrderChecks.Run();GasPhysicalQuantitySourceChecks.Run();return;}

@@ -36,13 +36,6 @@ internal sealed record NativeFuturesPortfolio(ValuationPortfolio Portfolio,Immut
 internal static partial class FuturesMarginPortfolio
 {
     internal const string Measure="futures_remaining_value_v1";
-    private sealed record ReadAdmission(Guid Catalog,Guid Context,DateTimeOffset At,DateTimeOffset Until):ICommitAdmission
-    {
-        public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
-        {
-            await FuturesMarginStore.RequireRead(connection,Catalog,Context,At,Until,ct);
-        }
-    }
     internal static async Task<NativeFuturesPortfolio> Read(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,InputFrame frame,
         MarketSnapshot snapshot,ImmutableArray<Trade> trades,FuturesMarginValuationPolicy policy,ScheduleContext selectedContext,CancellationToken ct)
     {
@@ -51,7 +44,7 @@ internal static partial class FuturesMarginPortfolio
             throw new MarketDataException("futures_margin_source","Retain the exact certified native margin source and opening clock.");
         await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_preview_authority($1)",catalog);
         var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
-        database.RegisterCommitAdmission(connection,new ReadAdmission(catalog,context,frame.At,until));
+        database.RegisterCommitAdmission(connection,new FuturesMarginReadAdmission(catalog,context,frame.At,until));
         var accepted=ImmutableDictionary.CreateBuilder<MeasureBinding,FuturesMarginRead>();
         var states=ImmutableDictionary.CreateBuilder<MeasureBinding,IBindingValuationState>();
         var held=ImmutableArray.CreateBuilder<Trade>();var cashTrades=ImmutableArray.CreateBuilder<Trade>();
@@ -68,7 +61,7 @@ internal static partial class FuturesMarginPortfolio
             held.Add(new(trade.Id,trade.BookId,trade.Instruments.AddRange(cash),trade.Booking));
             if(cash.Count>0)cashTrades.Add(new(trade.Id,trade.BookId,cash.ToImmutable(),trade.Booking));
         }
-        database.RegisterCommitAdmission(connection,new ReadAdmission(catalog,context,frame.At,until));
+        database.RegisterCommitAdmission(connection,new FuturesMarginReadAdmission(catalog,context,frame.At,until));
         var cashStates=await CashPaymentStore.Read(connection,catalog,frame,snapshot,cashTrades.ToImmutable(),ct);
         foreach(var pair in cashStates)states.Add(pair.Key,pair.Value);
         var full=policy.Economic is null?null:await ReadFullInputs(connection,database,data,frame,snapshot,selectedContext,trades,accepted.ToImmutable(),policy,ct);

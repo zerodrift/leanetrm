@@ -403,3 +403,41 @@ trading start from the margin window or manufacture a linked future. Ordinary
 source assembly uses the existing native execution-policy resolver when public
 first-trading metadata is unknown. The same retained binding enters margin-policy
 validation and pricing identity; a missing or not-yet-eligible selection refuses.
+
+Ordinary physical option value now accepts an explicit
+`physical_futures_option_reference_value_v1` selection for each live native
+physical-underlying option binding. The closed selection retains all five model
+choices and the delivery-mark interpretation. Its calibrated reference mark must
+equal the saved future mark, and the saved expiry source must equal the linked
+future margin source. Ambiguous vanilla reference calibration remains unavailable;
+this version does not select a calibration curve from lifecycle settings.
+Legacy policies omit the physical selection and retain their original JSON and
+reference valuation.
+
+The ordinary adapter retains the exact option source, adopted delivery profile,
+independently captured asset source, physical/principal carrying and saved VM due
+schedule. It supports PV, named full-PV scenarios, historical and Monte Carlo
+revaluation; unqualified static derivatives refuse explicitly. Owned native
+checks compare complete cold interactive and worker reports, retain the selected
+model and both original sources, and verify that workers create no financial
+facts. Setup offers exact live binding choices without calibration or pricing;
+missing profiles, source selections and ambiguous calibration have explicit
+unavailability messages. User selections remain blank.
+
+The fixed physical-valuation permission boundary captures Gas authority before
+waits and rechecks that original deadline at commit. The protected option-history
+guard separately retains its original source and native-history cutoffs and
+checks their minimum after all source verification. Native checks cover an
+unbound worker, an actual foreign option in the same book, changed revision,
+expired original cutoffs, and a prepublished successor grant. The runtime-only
+origin guard keeps its existing ACL.
+
+The ordinary risk entry captures that permission before its knowledge and book
+lookups. A native blocked-book counterexample verifies that a successor grant
+cannot renew the operation while those initial queries wait.
+
+In the selected option contract, delivery-mark interpretation also applies to
+each exact accepted native child. Economic assembly must revalidate that meaning
+against the child's own adopted profile and original captured sources; the
+current expiry profile cannot replace them. The economic child assembly and
+option-to-physical continuation remain separate qualification gates.

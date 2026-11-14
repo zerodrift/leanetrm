@@ -9,6 +9,16 @@ namespace OpenEtrm.Api;
 
 internal static class FuturesOptionKnownHistoryStore
 {
+    private sealed record Admission(Guid Catalog,Guid Trade,Guid Binding,int Revision,Guid Context,DateTimeOffset At,DateOnly Day,
+        DateTimeOffset SourceUntil,DateTimeOffset HistoryUntil):ICommitAdmission
+    {
+        public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
+        {
+            await using var guard=ScheduleStore.Command(connection,"SELECT lifecycle.require_option_history_read($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                Catalog,Trade,Binding,Revision,Context,At,Day,SourceUntil,HistoryUntil);
+            await guard.ExecuteNonQueryAsync(ct);
+        }
+    }
     internal static async Task<FuturesOptionKnownHistory> Read(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,
         InputFrame frame,ScheduleContext context,FuturesOptionPosition position,CancellationToken ct)
     {
@@ -18,8 +28,10 @@ internal static class FuturesOptionKnownHistoryStore
             throw Invalid("Retain the exact option owner, definition and certified source frame.");
         await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_preview_authority($1)",catalog);
         var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
-        database.RegisterCommitAdmission(connection,new FuturesOptionOriginAdmission(catalog,position.Trade,position.Revision,until));
-        await TradingContext.AdmitSource(database,connection,exact,frame.At,ct);
+        database.RegisterCommitAdmission(connection,new FuturesMarginReadAdmission(catalog,exact.ContextId!.Value,frame.At,until));
+        var sourceUntil=await TradingContext.AdmitSource(database,connection,exact,frame.At,ct);
+        database.RegisterCommitAdmission(connection,new Admission(catalog,position.Trade,position.OptionBinding,position.Revision,
+            exact.ContextId.Value,frame.At,day,sourceUntil,until));
         var value=await LifecycleNative.Read(connection,"SELECT lifecycle.read_option_known_history($1,$2,$3,$4,$5,$6,$7)::text",ct,
             catalog,position.Trade,position.OptionBinding,position.Revision,exact.ContextId!.Value,frame.At,day);
         var origin=value.GetProperty("origin");var known=SchedulePreview.ParseAt(exact.KnownAt);

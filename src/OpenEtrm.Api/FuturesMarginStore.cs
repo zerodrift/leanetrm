@@ -16,6 +16,11 @@ internal sealed record FuturesMarginRead(FuturesMarginState State,FuturesMarginH
 }
 internal sealed record FuturesMarginCashOrigin(Guid BindingId,Guid DeterminationId,int PublicationOrder,DateTimeOffset OccurrenceAt);
 
+internal sealed record FuturesMarginReadAdmission(Guid Catalog,Guid Context,DateTimeOffset At,DateTimeOffset Until):ICommitAdmission
+{
+    public Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)=>FuturesMarginStore.RequireRead(connection,Catalog,Context,At,Until,ct);
+}
+
 internal static class FuturesMarginStore
 {
     internal static Task<FuturesMarginRead> ReadInception(NpgsqlConnection connection,Guid catalog,PreviewData data,InputFrame frame,

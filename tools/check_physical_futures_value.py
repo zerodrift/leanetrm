@@ -44,7 +44,7 @@ def inventory_fixture(source):
     return reference,market+'\nBEGIN;\n'+'\n'.join(clone)+'\nCOMMIT;',security,manifest
 
 
-def checks(query,manifest,*,configuration_checks=None):
+def checks(query,manifest,*,configuration_checks=None,option_value=None):
     catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'))
     issuer=manifest['identityIssuer'];secondary=manifest['physicalSecondaryRevision']
     query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
@@ -64,17 +64,22 @@ def checks(query,manifest,*,configuration_checks=None):
     book=query(f"SELECT id FROM trading.books WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1;")
     entity=query(f"SELECT id FROM trading.legal_entities WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1;")
     party=query(f"SELECT id FROM trading.counterparties WHERE catalog_id='{catalog}' ORDER BY id LIMIT 1;")
-    contract,expiry=query(f"SELECT id::text||'|'||to_char(expiry_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM market_data.contracts c JOIN market_data.curve_members m ON(m.catalog_id,m.revision_id,m.contract_id)=(c.catalog_id,c.revision_id,c.id) WHERE(c.catalog_id,c.revision_id,m.curve_code)=('{catalog}','{manifest['revisionId']}','nymex_ng') ORDER BY expiry_at LIMIT 1;").split('|')
+    option_contract="" if option_value is None else f" AND EXISTS(SELECT 1 FROM ref_data.futures_option_series s WHERE(s.catalog_id,s.revision_id,s.underlying_series_code)=(c.reference_catalog_id,c.reference_revision_id,c.futures_series_code))"
+    contract,expiry=query(f"SELECT id::text||'|'||to_char(expiry_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM market_data.contracts c JOIN market_data.curve_members m ON(m.catalog_id,m.revision_id,m.contract_id)=(c.catalog_id,c.revision_id,c.id) WHERE(c.catalog_id,c.revision_id,m.curve_code)=('{catalog}','{manifest['revisionId']}','nymex_ng') {option_contract} ORDER BY expiry_at LIMIT 1;").split('|')
     mark=query(f"SELECT contract_id FROM market_data.curve_members WHERE(catalog_id,revision_id,curve_code)=('{catalog}','{secondary}','synthetic_inventory');")
+    delivery_from,delivery_to,cash_due=('2026-11-01T00:00:00Z','2026-12-01T00:00:00Z','2026-12-02T12:00:00Z') if option_value is None else query(
+        f"SELECT delivery_from::text||'T00:00:00Z|'||delivery_to::text||'T00:00:00Z|'||(delivery_to+1)::text||'T12:00:00Z' FROM market_data.contracts WHERE(catalog_id,revision_id,id)=('{catalog}','{manifest['revisionId']}','{contract}');").split('|')
     delivery=configure(query,manifest,call,capture,curve='nymex_ng',contract=contract,book=book,entity=entity,entity_revision=1,mark_contract=mark,
         account_code='synthetic_two_source_delivery',account_effective_at='2026-10-01T00:00:00Z',as_of='2026-10-16T16:00:00Z',
-        delivery_from='2026-11-01T00:00:00Z',delivery_to='2026-12-01T00:00:00Z',cash_due='2026-12-02T12:00:00Z',carrying='currency_curve_v1',
+        delivery_from=delivery_from,delivery_to=delivery_to,cash_due=cash_due,carrying='currency_curve_v1',
         policy_from='2026-10-01T00:00:00Z',policy_until='2027-01-01T00:00:00Z',mark_definition_revision_id=secondary,mark_curve='synthetic_inventory')
     margin=dict(id=str(uuid4()),definitionRevisionId=manifest['revisionId'],contractId=contract,settlementCurve='nymex_ng',referenceCatalogId=manifest['referenceCatalogId'],referenceRevisionId=manifest['referenceRevisionId'],currency='usd',
         fromAt='2026-10-01T00:00:00Z',untilAt='2027-01-01T00:00:00Z',opening='include_opening_instant',increment='0.01',tie='to_even',stage='payment_total',roundingScope='held_binding_difference_payment_total_v1',
-        implementation='dated_futures_margin_policy_v2',delivery=dict(id=delivery['profile']['id'],revision=1),occurrences=[dict(id=str(uuid4()),at=expiry,dueAt='2026-11-02T12:00:00Z',phase='final')])
+        implementation='dated_futures_margin_policy_v2',delivery=dict(id=delivery['profile']['id'],revision=1),occurrences=[dict(id=str(uuid4()),at=expiry,dueAt=('2026-11-02T12:00:00Z' if option_value is None else delivery_from),phase='final')])
     call(f"SELECT settlement_data.save_futures_margin_policy('{catalog}',{literal(dict(operationId=str(uuid4()),expectedRevision=0,contextId=capture(),asOf='2026-10-16T16:00:00Z',policy=margin))});",'editor')
     booking=dict(legalEntityId=entity,legalEntityRevision=1,counterpartyId=party,counterpartyRevision=1)
+    if option_value is not None:
+        return option_value(query,manifest,call,capture,delivery,margin,book,booking,contract,mark)
     booked=json.loads(call(f"SELECT security.book_futures_with_parties('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','nymex_ng','{contract}','2026-10-16T14:00:00Z',NULL,2,3,'contract_lot_execution_pnl_v2',NULL,NULL,NULL,{literal(booking)})::text;"))
     call(f"SELECT settlement_data.adopt_futures_margin('{catalog}',{literal(dict(operationId=str(uuid4()),tradeId=booked['tradeId'],bindingId=booked['bindingId'],expectedRevision=1,policyId=margin['id'],policyRevision=1,contextId=capture(),asOf='2026-10-16T16:00:00Z',adoption='native_execution_inception_v1'))});")
     if configuration_checks is not None:

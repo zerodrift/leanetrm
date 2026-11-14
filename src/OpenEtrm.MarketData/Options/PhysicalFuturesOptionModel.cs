@@ -6,7 +6,13 @@ namespace OpenEtrm.MarketData.Options;
 
 // This is a selected holding strategy, not an optimal composite exercise model.
 // The quoted vanilla calibrates the A process; B follows the declared frozen basis.
-public sealed record PhysicalOptionPolicy(string Implementation,string BasisLaw,string Stopping,string Calibration,string IntrinsicStopping)
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record PhysicalOptionPolicy(
+    [property:System.Text.Json.Serialization.JsonRequired]string Implementation,
+    [property:System.Text.Json.Serialization.JsonRequired]string BasisLaw,
+    [property:System.Text.Json.Serialization.JsonRequired]string Stopping,
+    [property:System.Text.Json.Serialization.JsonRequired]string Calibration,
+    [property:System.Text.Json.Serialization.JsonRequired]string IntrinsicStopping)
 {
     public const string Version="physical_futures_option_reference_strategy_v1";
     public const string FrozenBasis="frozen_quoted_asset_minus_futures_basis_v1";
@@ -24,7 +30,7 @@ public sealed record PhysicalOptionValue(LatticeDecimal VanillaReference,Lattice
 public static class PhysicalFuturesOptionModel
 {
     private static readonly LatticeDecimal Zero=LatticeDecimal.Parse("0"),One=LatticeDecimal.Parse("1");
-    internal static void RequirePolicy(PhysicalOptionPolicy policy)
+    public static void RequirePolicy(PhysicalOptionPolicy policy)
     {
         if(policy is null||policy.Implementation!=PhysicalOptionPolicy.Version||policy.BasisLaw!=PhysicalOptionPolicy.FrozenBasis||
             policy.Stopping!=PhysicalOptionPolicy.ReferenceStopping||policy.Calibration!=PhysicalOptionPolicy.ReferenceCalibration||

@@ -31,27 +31,42 @@ public sealed partial class PortfolioRiskPreview
     {
         if(frame.ContextId is not {} contextId||request.BookIds.IsDefault||request.PortfolioIds.IsDefault)
             throw new MarketDataException("risk_economic_scope","Select the shared opening source and explicit books.");
+        var hasGas=await FuturesOptionPhysicalPermissionAdmission.TryCapture(connection,database,ct);
         var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,contextId,ct)).Context;
         var directory=await BookScope.Read(connection,database.Manifest.CatalogId,ct);
         var books=BookScope.Select(directory,request.BookIds,request.PortfolioIds).Select(b=>b.Id("id")).Order().ToImmutableArray();
         if(books.IsEmpty)throw new MarketDataException("risk_economic_scope","Select visible books before preparing lifecycle risk.");
         var sessions=await LifecyclePortfolioProjection.ReadSessions(connection,database,context,frame.At,ct);
-        var gasChoices=request.TradeIds is null&&await PreviewDatabase.HasPermission(connection,"ReadGasOwnedHoldings",ct)?
+        var gasChoices=request.TradeIds is null&&hasGas?
             await GasOwnedProjection.ReadChoices(connection,database,frame,books,ct):ImmutableArray<GasOwnedProjectionAccountChoice>.Empty;
         var native=PricingPolicy with{FuturesConvention=FuturesMarginValuationPolicy.Convention,
             NativeFutures=new(FuturesMarginValuationPolicy.CurrencyDefault,RateDiscountTiming.Version)};
-        var pricing=new List<object>{new{value="native_trades",label="Native futures, options and swap holdings",policy=native}};
-        if(request.TradeIds is null&&await PreviewDatabase.HasPermission(connection,"ReadGasOwnedHoldings",ct))
+        var pricing=new List<object>{new{value="native_trades",label="Native futures, options and swap holdings",policy=native,
+            requiresFuturesBindings=false,requiresOptionBindings=false}};
+        if(request.TradeIds is null&&hasGas)
         {
             pricing.Add(new{value="native_whole_books",label="All book holdings · currency-discounted cash",policy=native with{
-                GasOwned=new(GasOwnedValuationPolicy.Version,GasOwnedValuationPolicy.WholeBooks,GasOwnedValuationPolicy.CurrencyDefault,RateDiscountTiming.Version)}});
+                GasOwned=new(GasOwnedValuationPolicy.Version,GasOwnedValuationPolicy.WholeBooks,GasOwnedValuationPolicy.CurrencyDefault,RateDiscountTiming.Version)},
+                requiresFuturesBindings=false,requiresOptionBindings=false});
             pricing.Add(new{value="native_whole_books_saved_principal",label="All book holdings · delivery principal follows its saved profile",policy=native with{
                 GasOwned=new(GasOwnedValuationPolicy.ProfileVersion,GasOwnedValuationPolicy.WholeBooks,GasOwnedValuationPolicy.CurrencyDefault,RateDiscountTiming.Version)
-                    {PrincipalCarrying=GasOwnedValuationPolicy.SavedPrincipal}}});
+                    {PrincipalCarrying=GasOwnedValuationPolicy.SavedPrincipal}},requiresFuturesBindings=false,requiresOptionBindings=false});
+        }
+        var physicalBindings=hasGas?await EconomicPhysicalBindings.Read(connection,database,data,frame,context,books,request.TradeIds,ct):new EconomicPhysicalBindingGroups([],[]);
+        if(hasGas)
+        {
+            var full=native with{FuturesConvention=FuturesEconomicValuationPolicy.Version,
+                NativeFutures=new(FuturesMarginValuationPolicy.CurrencyDefault,RateDiscountTiming.Version){Economic=new(FuturesEconomicValuationPolicy.Version,FuturesMarginValueBinding.FlatReference,[])},
+                FuturesOptions=native.FuturesOptions! with{Physical=new(FuturesOptionPhysicalValuationPolicy.Version,[])}};
+            pricing.Add(new{value="native_full_economic",label="Full native futures and physical-option models · explicit binding selections",policy=full,
+                requiresFuturesBindings=true,requiresOptionBindings=true});
+            if(request.TradeIds is null)pricing.Add(new{value="native_whole_books_full_economic",label="All book holdings · full futures/options and saved delivery principal",policy=full with{
+                GasOwned=new(GasOwnedValuationPolicy.ProfileVersion,GasOwnedValuationPolicy.WholeBooks,GasOwnedValuationPolicy.CurrencyDefault,RateDiscountTiming.Version){PrincipalCarrying=GasOwnedValuationPolicy.SavedPrincipal}},
+                requiresFuturesBindings=true,requiresOptionBindings=true});
         }
         object Choice(string value,string label)=>new{value,label};
         return new{context,asOf=frame.At,convention=Convention,numericalPolicy=RiskEngine.ExactNumericalPolicy,engineVersion=RiskJobs.EngineVersion,
-            sessions=sessions.GetProperty("sessions"),pricing,gasAccounts=gasChoices.Select(a=>new{a.AccountId,a.Code,a.BookId,a.Book,a.EffectiveAt,
+            sessions=sessions.GetProperty("sessions"),pricing,physicalBindings,gasAccounts=gasChoices.Select(a=>new{a.AccountId,a.Code,a.BookId,a.Book,a.EffectiveAt,
                 profiles=a.Profiles.Select(p=>new{p.ProfileId,p.Revision,p.Implementation,p.QuantityDisposition,p.EffectiveAt,label=GasProfileLabel(p.Implementation,p.QuantityDisposition)})}),
             projection=new{implementation=PortfolioEconomicProjectionRequest.Version2,cashFunding=true,horizonPolicy=PortfolioEconomicProjectionRequest.SourceKnownSchedule,
                 rateTimingPolicy=RateDiscountTiming.Version,eventMarketPolicy=PortfolioEconomicProjectionRequest.SelectedContractMarkets,

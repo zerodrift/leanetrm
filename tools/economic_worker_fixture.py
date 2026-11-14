@@ -18,7 +18,7 @@ def provision(query,manifest,login,*,permissions):
               f"INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,'{role}','{manifest['tenantId']}','{manifest['workspaceId']}',clock_timestamp(),'9999-12-31',false FROM risk.workers WHERE login='{login}';")
 
 
-def run_saved(query, manifest, packet, frozen, login, *, permissions, expected_jobs):
+def run_saved(query, manifest, packet, frozen, login, *, permissions, expected_jobs,verify_mode='--economic-worker-verify'):
     directory=Path(query('SHOW unix_socket_directories;')).resolve()
     assert directory==packet.parent.resolve() and directory.name.startswith('oetrm-ref-')
     receipts=json.loads(packet.with_suffix('.economic-worker.json').read_text())
@@ -39,10 +39,24 @@ def run_saved(query, manifest, packet, frozen, login, *, permissions, expected_j
         result=subprocess.run([dotnet,str(frozen/'OpenEtrm.Api.dll'),'--risk-worker','once'],cwd=root,env=environment,capture_output=True,text=True,timeout=90)
         if result.returncode:raise RuntimeError(result.stdout+result.stderr)
         actual=json.loads(query(f"SELECT jsonb_build_object('state',state,'error',error_code,'result',result)::text FROM risk.jobs WHERE id='{saved['id']}';"))
-        assert actual['state']=='completed' and actual['result']==saved['report'],actual|{'workerDiagnostics':result.stdout+result.stderr}
-    result=subprocess.run([dotnet,str(frozen/'OpenEtrm.Api.Checks.dll'),'--economic-worker-verify',str(packet)],cwd=root,capture_output=True,text=True,timeout=90)
+        assert actual['state']=='completed',dict(state=actual['state'],error=actual['error'],workerDiagnostics=result.stdout+result.stderr)
+        if actual['result']!=saved['report']:
+            differences=[]
+            def compare(expected,observed,path='$'):
+                if len(differences)>=20:return
+                if isinstance(expected,dict) and isinstance(observed,dict):
+                    for key in sorted(expected.keys()|observed.keys()):
+                        if key not in expected or key not in observed:differences.append((path+'.'+key,'field presence differs'))
+                        else:compare(expected[key],observed[key],path+'.'+key)
+                elif isinstance(expected,list) and isinstance(observed,list):
+                    if len(expected)!=len(observed):differences.append((path,'array lengths',len(expected),len(observed)))
+                    for index,(left,right) in enumerate(zip(expected,observed)):compare(left,right,f'{path}[{index}]')
+                elif expected!=observed:differences.append((path,repr(expected)[:160],repr(observed)[:160]))
+            compare(saved['report'],actual['result'])
+            raise AssertionError(dict(state=actual['state'],differences=differences,workerDiagnostics=result.stdout+result.stderr))
+    result=subprocess.run([dotnet,str(frozen/'OpenEtrm.Api.Checks.dll'),verify_mode,str(packet)],cwd=root,capture_output=True,text=True,timeout=90)
     if result.returncode:raise RuntimeError(result.stdout+result.stderr)
     print(result.stdout.strip(),flush=True)
     assert query(counts)==before,'An economic worker changed accepted financial or market facts.'
     assert all((frozen/name).read_bytes()==value for name,value in stamps.items()),'The retained worker engine changed after admission.'
-    print('PASS actual native economic workers: exact captured reports, retained ownership/source/history, unchanged engine and no financial writes',flush=True)
+    print('PASS actual native risk workers: exact captured reports, retained ownership/source/history, unchanged engine and no financial writes',flush=True)
