@@ -4,6 +4,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
 if(args is ["--physical-option"]){PhysicalOptionChecks.Run();return;}
+if(args is ["--derivative-capabilities"]){DerivativeCapabilityChecks.Run();return;}
 if(args is ["--gas-unfixed-delivery"]){GasUnfixedDeliveryChecks.Run();return;}
 if(args is ["--gas-cashout-projection"]){GasCashoutProjectionChecks.Run();return;}
 if(args is ["--captured-discount-sources"]){CapturedDiscountSourceChecks.Run();return;}
@@ -627,6 +628,7 @@ LifecycleCompositeChecks.Run();passed++;
 GasUnfixedDeliveryChecks.Run();passed++;
 GasCashoutProjectionChecks.Run();passed++;
 PhysicalOptionChecks.Run();passed++;
+DerivativeCapabilityChecks.Run();passed++;
 CapturedDiscountSourceChecks.Run();passed++;
 FuturesMarginValueChecks.Run();passed++;
 TimedCashChecks.Run();passed++;

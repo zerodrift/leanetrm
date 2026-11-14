@@ -142,6 +142,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
         if(!body.Stress.IsDefault&&(body.Stress.Length>MaxStress||body.Stress.Any(s=>s is null)))
             throw new MarketDataException("risk_stress","Select at most sixteen explicit parent-relative curve shifts.");
         var (portfolio,bookIds,books)=await PreparePortfolio(connection,data,frame,body.BookIds,body.PortfolioIds,body.PricingPolicy,ct,supplemental,retained,body.TradeIds);
+        RequireStaticMethod(body,portfolio.Markets.SelectMany(m=>m.Connected.UnitContracts));
         AlignedFactorHistory? history=null;
         if(body.Parametric is {} parametric)
         {
@@ -235,6 +236,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
     internal static object Calculate(Prepared prepared,CancellationToken ct)
     {
         if(prepared.Request.Economic is not null)return CalculateEconomic(prepared,ct);
+        RequireStaticMethod(prepared.Request,prepared.Portfolio.Markets.SelectMany(m=>m.Connected.UnitContracts));
         if(prepared.Request.MonteCarlo is not null)return CalculateMonteCarlo(prepared,ct);
         if(prepared.Request.Historical is not null)return CalculateHistorical(prepared,ct);
         if(prepared.Request.Parametric is not null)return CalculateParametric(prepared,ct);

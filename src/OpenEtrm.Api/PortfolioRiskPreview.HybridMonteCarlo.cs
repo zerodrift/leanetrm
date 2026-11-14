@@ -35,6 +35,7 @@ public sealed partial class PortfolioRiskPreview
             Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{m.Snapshot.Definitions,p.ValuationId},RiskJobs.Json))))))];
     private static Prepared PreparePcaFit(Prepared prepared,PcaFitPlan plan)
     {
+        RiskEngine.RequireStaticDerivatives(prepared.Portfolio.Markets.SelectMany(m=>m.Connected.UnitContracts));
         var generation=prepared.Simulation!;var policy=prepared.Request.MonteCarlo!.Analysis!;
         var samples=plan.Samples.Select(s=>new PortfolioJointRisk.Sample(s.Id,s.Id,
             [..prepared.HistoricalAxes.Select((axis,i)=>new PortfolioCurveShift(axis,s.Changes[i])).Where(s=>s.Size!=default)])).ToImmutableArray();

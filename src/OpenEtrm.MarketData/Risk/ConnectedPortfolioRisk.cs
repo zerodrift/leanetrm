@@ -199,6 +199,7 @@ public static partial class RiskEngine
         if(prepared is null)throw Error("instrument_context","Supply the exact prepared connected portfolio.");
         if(bumps.IsDefault||bumps.Any(bump=>bump is null||bump.Target is null||bump.Unit is null||bump.Size.CompareTo(default)<=0||bump.ConventionId!=ConnectedRiskBump.Convention))
             throw Error("risk_bump","Supply explicit positive symmetric curve-coordinate bumps, or an explicit empty list for base valuation.");
+        if(!bumps.IsEmpty)RequireStaticDerivatives(prepared.UnitContracts);
         var portfolios=prepared.Portfolios;var contracts=prepared.Contracts;
         var calculation=new PortfolioRiskCalculation(prepared.Market,portfolios,contracts,detail,cancellation);
         var bases=calculation.Bases;

@@ -73,6 +73,7 @@ if(args is ["--position-qualification"]){await PositionQualificationChecks.Run()
 
 if(args is ["--book-scope"]){BookScopeChecks.Run();return;}
 if(args is ["--risk-trade-scope"]){RiskTradeScopeChecks.Run();return;}
+if(args is ["--derivative-methods"]){DerivativeMethodChecks.Run();return;}
 if(args is ["--portfolio-joint-risk"]){PortfolioJointRiskChecks.Run();return;}
 if(args is ["--database-login-boundaries",var boundaryConnectionFile,var boundaryTracking]){await DatabaseLoginBoundaryChecks.Run(boundaryConnectionFile,bool.Parse(boundaryTracking));return;}
 if(args is ["--date-lists"]){SchedulePublicationChecks.Run();return;}
@@ -194,6 +195,7 @@ if (args is ["--schedules"])
     BookScopeChecks.Run();
     RiskTradeScopeChecks.Run();
     PortfolioJointRiskChecks.Run();
+    DerivativeMethodChecks.Run();
     BookedScheduleLookupChecks.Run();
     SideObservationCompatibilityChecks.Run();
     SwapPriceSourceChecks.Run();

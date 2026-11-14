@@ -28,6 +28,7 @@ public sealed record PnlGreekRun
         if(prepared is null||risk?.Repricing is not {} run||run.BaseScenario.Id!=prepared.Scenario.Id||
             run.BaseScenario.ManifestId!=prepared.Scenario.Plan.ManifestId||run.SnapshotId!=prepared.Market.Snapshot.Id)
             throw new MarketDataException("pnl_greek_context","Capture Greeks only from their exact prepared valuation scenario.");
+        if(!risk.Derivatives.IsDefaultOrEmpty)RiskEngine.RequireStaticDerivatives(prepared.UnitContracts);
         return new(prepared,risk);
     }
 }

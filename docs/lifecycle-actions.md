@@ -286,3 +286,11 @@ rolls to a conditional discount below one: the selected strike-centred model
 then declares its positive price step while retaining its source calibration.
 Expired/pinned clocks, substituted discount sources and undeclared metadata
 discount reads remain refused.
+
+An optional selected-model restriction declares static derivatives unqualified.
+The shared exact-bump and multi-step derivative operations refuse that scope;
+portfolio parametric, historical-comparison and quadratic/hybrid consumers use
+the same guard. Ordinary PV, named/joint full PV scenarios and full-revaluation
+historical or Monte Carlo paths remain available. Existing declarations retain
+their established derivative contract and unchanged wire shape when this field
+is absent. This capability does not infer a derivative or substitute a zero.

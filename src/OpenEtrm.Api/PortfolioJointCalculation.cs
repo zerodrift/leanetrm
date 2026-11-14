@@ -27,6 +27,7 @@ internal static class PortfolioJointCalculation
         ImmutableArray<PortfolioCurveShift> stress,RiskDetail detail,CancellationToken ct,string? statisticalMethod=null)
     {
         RequireWork(portfolio,joint,detail);ct.ThrowIfCancellationRequested();
+        if(!joint.Scenarios)RiskEngine.RequireStaticDerivatives(portfolio.Markets.SelectMany(m=>m.Connected.UnitContracts));
         var partitions=ImmutableArray.CreateBuilder<JointPartition>();
         foreach(var market in portfolio.Markets)
         {

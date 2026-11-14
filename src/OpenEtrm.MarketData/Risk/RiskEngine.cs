@@ -35,6 +35,8 @@ public sealed record UnitPricingContract(Guid Id,string ModelVersion,ImmutableAr
     public ImmutableArray<VolatilityInput> Volatility {get;init;}=[];
     // A property of the model, not an input: it identifies no repricing and assigns no exposure.
     public ImmutableArray<DeclaredPriceStep> PriceSteps {get;init;}=[];
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public StaticDerivativeRestriction? StaticDerivatives {get;init;}
     internal bool SameInputFence(UnitPricingContract other)=>Time==other.Time&&
         Dependencies.Length==other.Dependencies.Length&&Dependencies.All(other.Dependencies.Contains)&&
         Volatility.Length==other.Volatility.Length&&Volatility.All(other.Volatility.Contains)&&
@@ -54,11 +56,16 @@ public sealed record UnitPricingContract(Guid Id,string ModelVersion,ImmutableAr
             DiscountInputs.Any(d=>d is null||d.Provider is null)||DiscountInputs.Select(d=>d.Payment).Distinct().Count()!=DiscountInputs.Length||
             Time.Use==ValuationTimeDependency.TimeUse.Independent&&!DiscountInputs.IsEmpty||PriceSteps.IsDefault||
             PriceSteps.Any(s=>s is null||!Dependencies.Contains(s.Dependency)||s.Size.CompareTo(default)<=0)||
-            PriceSteps.Select(s=>s.Dependency).Distinct().Count()!=PriceSteps.Length)
+            PriceSteps.Select(s=>s.Dependency).Distinct().Count()!=PriceSteps.Length||StaticDerivatives is {} restriction&&!restriction.Valid)
             throw new MarketDataException("risk_contract","Declare complete distinct price, clock, discount and volatility inputs, and a positive price step only for a declared price input.");
     }
     public string? ScheduleIdentity { get; init; }
     public ImmutableArray<SettlementProjection> SettlementProjections { get; init; }=[];
+}
+public sealed record StaticDerivativeRestriction(string Implementation,string Reason)
+{
+    public const string Version="static_derivatives_not_qualified_v1";
+    internal bool Valid=>Implementation==Version&&!string.IsNullOrWhiteSpace(Reason)&&Reason.Length<=256&&Reason==Reason.Trim();
 }
 // A pricer sees only its declared inputs. No ambient market lookup or services.
 public sealed class PricingInputs
@@ -204,6 +211,15 @@ public sealed record ExactGroupedRiskRun(Guid SnapshotId,ImmutableArray<ExactBoo
 
 public static partial class RiskEngine
 {
+    public static void RequireStaticDerivatives(IEnumerable<UnitPricingContract> contracts)
+    {
+        if(contracts is null)throw Error("risk_contract","Retain the selected model declarations before requesting static derivatives.");
+        var selected=contracts.ToArray();
+        if(selected.Any(c=>c is null))throw Error("risk_contract","Retain complete selected model declarations.");
+        foreach(var contract in selected)contract.RequireInputs();
+        if(selected.Any(c=>c.StaticDerivatives is not null))throw Error("risk_static_derivatives_unavailable",
+            "Static derivatives are not qualified for every selected valuation model. Choose full PV scenarios or a pricing model with qualified derivatives.");
+    }
     public const string NumericalPolicy="exact_18_fractional_book_repricing_v2";
     public const string ExactNumericalPolicy="exact_rational_portfolio_repricing_v1";
     private static MarketDataException Error(string code,string text)=>new(code,text);
@@ -318,6 +334,7 @@ public static partial class RiskEngine
     {
         if(prepared is null)throw Error("snapshot_pin","Select an explicit prepared portfolio scenario.");
         if(bumps.IsDefault)throw Error("risk_bump","Supply an explicit shock list, including an empty list for base-only valuation.");
+        if(!bumps.IsEmpty)RequireStaticDerivatives(prepared.Contracts.SelectMany(c=>c));
         return RunQuoteGroups(prepared,bumps.IsEmpty?Enumerable.Empty<FactorScenarios>():prepared.Market.Model.Scenarios(prepared.Market,bumps,cancellation),
             detail,workingDecimal,cancellation);
     }
@@ -332,8 +349,10 @@ public static partial class RiskEngine
         var factors=prepared.Portfolios.Select(_=>ImmutableArray.CreateBuilder<ExactBookRiskFactor>()).ToArray();
         var rebuilt=prepared.Market.EvaluatedConstituents+prepared.PriorRebuilt;
         var reused=prepared.Market.ReusedConstituents+prepared.PriorReused;var count=1;
+        var derivativesAdmitted=false;
         foreach(var factor in scenarios)
         {
+            if(!derivativesAdmitted){RequireStaticDerivatives(prepared.Contracts.SelectMany(c=>c));derivativesAdmitted=true;}
             cancellation.ThrowIfCancellationRequested();
             var measured=calculation.Measure(factor.Up.Pricing,factor.Down.Pricing,factor.Bump.Size,factor.Bump.Unit,cancellation);
             for(var group=0;group<measured.Length;group++)

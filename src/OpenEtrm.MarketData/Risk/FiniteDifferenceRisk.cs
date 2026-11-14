@@ -49,6 +49,7 @@ public static partial class RiskEngine
             request.Mixed.Any(p=>p is null||!ScenarioName(p.Id)||!ValidTolerance(p.Tolerance))||
             request.Mixed.Select(p=>p.Id).Distinct(StringComparer.Ordinal).Count()!=request.Mixed.Length)
             throw Error("risk_sensitivity","Select explicit symmetric axes or additional named scenarios, up to 16 mixed pairs and nonnegative absolute/relative tolerances.");
+        if(!request.Axes.IsEmpty||!request.Mixed.IsEmpty)RequireStaticDerivatives(prepared.UnitContracts);
         var axes=request.Axes;var pairs=request.Mixed;
         var axisIndex=axes.Select((a,n)=>(a.Id,n)).ToDictionary(a=>a.Id,a=>a.n,StringComparer.Ordinal);
         var nodes=axes.Select(a=>a.Bump.Coordinates(prepared,cancellation)).ToArray();
