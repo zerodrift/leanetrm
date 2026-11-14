@@ -28,6 +28,8 @@ if(args is ["--gas-futures-delivery",var gasDeliveryFixture]){await GasFuturesDe
 if(args is ["--gas-quantity-reconciliation",var gasQuantityReconciliation]){await GasQuantityReconciliationChecks.Run(gasQuantityReconciliation);return;}
 if(args is ["--gas-quantity-batch",var gasQuantityBatch]){await GasQuantityBatchChecks.Run(gasQuantityBatch);return;}
 if(args is ["--gas-quantity-batch-contract"]){await GasQuantityBatchChecks.Contract();return;}
+if(args is ["--gas-owned-correction",var gasOwnedCorrection]){await GasOwnedQuantityCorrectionChecks.Run(gasOwnedCorrection);return;}
+if(args is ["--gas-owned-correction-contract"]){await GasOwnedQuantityCorrectionChecks.Contract();return;}
 if(args is ["--gas-owned",var gasOwnedFixture]){await GasOwnedChecks.Run(gasOwnedFixture);return;}
 if(args is ["--gas-owned-known",var gasKnownFixture]){await GasOwnedKnownHistoryChecks.Run(gasKnownFixture);return;}
 if(args is ["--gas-physical-known",var physicalKnownFixture]){await GasPhysicalKnownChecks.Run(physicalKnownFixture);return;}

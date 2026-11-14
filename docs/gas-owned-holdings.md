@@ -225,6 +225,33 @@ a separate qualification gate. General operator and loan amendments, and changes
 to observed event times or advance-payment treatment, remain separate
 implementation gates.
 
+The ordinary title and dispatch correction source reader retains exact selected
+financial heads, applied and proposed evidence, captured source heads and linked
+known resource facts. Its mandatory dependency-scope marker does not represent a
+whole-book portfolio. The complete dependency families and combined encoded size
+are admitted before result arrays are aggregated; an excessive scope is refused
+without truncation.
+
+An explicit manual correction can revise opening owned title and ordinary
+delivery or loss quantities while retaining their native identities, event times
+and source keys. Every affected allocation of each source is supplied; preserving
+unused source quantity and withdrawing all allocations are distinct selected
+contracts. Unused source capacity never becomes owned stock. Identified stock,
+reservations and all accepted resource prefixes must remain valid. The existing
+delivery/loss source-magnitude interpretation also applies to signed evidence.
+Linked futures performances, operator settlements and loan terms require their
+own complete counterpart corrections.
+
+The shared action handler previews the same native producer under rollback,
+reviews the complete source allocation, and rejects stale reviewed inputs. One
+publication seals the exact request, quantity revisions, source receipts and
+reported outcome. A retry returns its first outcome before reloading its source;
+an older identical fact acknowledges its retained revision without rewinding the
+current financial state. Original authorization terms remain binding through
+publication waits and commit, even if a successor grant becomes active. The
+ordinary operational form, broader loan/operator/fee amendments and changed
+event-time or advance treatment retain separate implementation gates.
+
 `tools/check_gas_physical_known.py` qualifies the attachment scope and complete
 native histories. `tools/check_gas_applied_sources.py` independently corrects a
 fully consumed dispatch source and an extinguished cashout price, verifies the
@@ -237,3 +264,12 @@ batch, principal conservation, unchanged bank payments, immutable first outcomes
 and malformed-command rollback through the independent deferred seal. It also
 checks the actual default-registry managed preview, source allocation and
 principal review, stale-hash refusal, atomic execution and evicted-frame retry.
+`tools/check_gas_owned_reconciliation.py` checks the ordinary source primitive
+against native observed title/dispatch facts and a synthetic oversized read
+provider without changing financial rows or disabling their integrity seals.
+`tools/check_gas_owned_reconciliation_writes.py` checks actual native and managed
+ordinary corrections, shared-source allocation, signed evidence, immutable old
+views, stale heads/reviews, unknown sources and first-outcome recovery. Its
+rollback fault probes also exercise malformed stored receipts at both immediate
+constraints and commit, and original authorization expiry with an active
+successor grant.
