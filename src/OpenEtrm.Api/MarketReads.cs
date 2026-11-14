@@ -280,14 +280,8 @@ public sealed class MarketReads(PreviewDatabase database)
     // read, or whose contracts cannot be isolated, has no unit or points and states what its own Evaluate read raises: the failure
     // of its one build of every contract, whatever isolating them met. A catalog inconsistency in the price unit of a curve that
     // can be read is not the curve's own failure, and fails the read.
-    internal static CurveShape Shape(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve,CurveDisplaySelection? display=null)
-    {
-        if(display is null)return ShapeCore(data,snapshot,frame,curve) with{DefinitionRevisionId=data.DefinitionRevision.RevisionId};
-        CurveDisplay.Require(display);
-        try{return CurveDisplay.Shape(data,snapshot,frame,curve,display);}
-        catch(MarketDataException error)when(error.Code is "missing_curve" or "missing_curve_view" or "empty_curve_view")
-        {return new(curve,null,null,error.Code,null,null,null){DefinitionRevisionId=data.DefinitionRevision.RevisionId};}
-    }
+    internal static CurveShape Shape(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve,CurveDisplaySelection? display=null)=>
+        display is null?ShapeCore(data,snapshot,frame,curve) with{DefinitionRevisionId=data.DefinitionRevision.RevisionId}:CurveDisplay.Shape(data,snapshot,frame,curve,display);
     private static CurveShape ShapeCore(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve)
     {
         ImmutableArray<CurveRequest> requests;

@@ -7,7 +7,7 @@ selects one CI partition. CI requires every partition and its aggregate check
 to succeed. The implementation records below retain the results and limits of
 each dated increment; older check counts are not the current suite size.
 
-D392's local native futures increment has focused owned PostgreSQL consumers:
+D394's local native futures increment has focused owned PostgreSQL consumers:
 `tools/check_futures_margin_sources.py`, `tools/check_futures_margin_adoption.py`
 and `tools/check_futures_margin_journal.py`. Each takes `--pg-bin`; its managed
 child uses the explicitly selected `DOTNET` executable and already-built API check
@@ -4351,3 +4351,140 @@ The header was also looked at in a local preview at desktop and phone width,
 collapsed and expanded, and on a page read by business date, where the line
 reads As of details beneath the Business date. A working snapshot and a
 historical view were not looked at in the running app.
+
+## Contract observation curve terms (D391, local)
+
+The managed core suite holds the operator's numerical oracle on synthetic crude
+futures E–J (expiry 19:30 UTC), a nine-day business calendar and 12:00 UTC
+sampling. For the 2027-01 target, a January business-day average plus 2:1
+weighted December roll spreads of F against G and H, it asserts exact rationals:
+69.96 on 2026-12-01, where F, G and H each +1 give 70.96, 69.96 − 1/15 and
+69.96 + 1/15; the same price on 2026-12-22 with F frozen, where G and H +1 give
+70.56 and 70.36; 70.02 on 2027-01-20 with the context day frozen, so G is no
+live input and H +1 gives 70.42; 70.04 on 2027-01-19, where G +1 gives 70.24
+(one live day in five) and H +1 gives 70.44; 20983/300 on 2026-12-17 inside the
+trade month, where F, G and H +1 add 1/4, 13/30 and 19/60; 70.00 on 2027-01-25
+with no live future;
+69.90 when sampling at 20:00 moves the expiry day to the next contract; 68.46
+with a −1.50 differential; and a two-target case at 10724/155 and 4807/70. It
+also asserts the windows, declaration identity, formula text and each refusal,
+with the term number (from 1, as the editor labels rows) and member each term refusal names, including a `null`
+position and a group whose weights cannot be summed, and the `recipe_input`
+refusal of a context frame without the context day's contract, with only an
+earlier mark of it, or offering a frozen observation from a past frame, and the
+refusals, each with its own message, of a composite (`Add`) source and of a source
+carrying contract price terms on an observation-day context. Planning a consumer at
+2027-01-20 refuses with `recipe_input` given only the context instant; given
+every window day's sampling instant it plans the sixteen expected native inputs,
+the context day's G among them as a frozen input, and the curve prices 70.02
+under that demand. The API check `--contract-observation-reads` admits 366 past
+observation days and refuses more, counting a day once; all of 2024 with
+2025-01-01 as a frozen context day is admitted, because the context day reads
+the context frame.
+
+```sh
+dotnet run --project tests/OpenEtrm.MarketData.Checks -c Release -- --contract-observation-recipes
+dotnet run --project tests/OpenEtrm.Api.Checks -c Release -- --contract-observation-reads
+```
+
+Every owned preview qualifies migration 0252 in its migration loop
+(`tools/check_contract_observation_upgrade.py`): the hash pins refuse a changed
+panel guard body, owner, configuration, ACL and node-kind constraint. The
+populated qualification runs once, under `--contract-observation-curve-check`,
+on the base preview fixture loaded in one transaction on the prior schema (the
+crude fixture is applied after the migration loop): with a published
+`weighted_panels` combination seeded there, the version reads back unchanged
+after 0252 and both panel guards still refuse a source input. The contract
+dates mode's `window_frames` fixture is the one that cannot load in one
+transaction: it seals a pinned contract curve whose date admissions that mode
+inserts only by rewriting the load.
+
+The owned stock PostgreSQL preview loads the synthetic crude fixture, then runs
+the storage check (table rules, security parity, publication refusals,
+immutability and the unchanged panel guard), the HTTP curve check and, with
+`--browser-check`, the Curve builder suite:
+
+```sh
+python3 tools/run_preview.py --pg-bin /path/to/postgres/bin --dotnet /path/to/dotnet \
+  --contract-observation-curve-check --browser-check --browser /path/to/chrome
+```
+
+The published curve prices 68.46 on 2026-12-01 and on 2026-12-22, 68.52 on
+2027-01-20 and 68.50 on 2027-01-25, each with the expected live inputs; on
+2027-01-20 only H and the differential are live. A consumer reading it through
+`published_source` prices the same values, with the same live inputs on
+2027-01-20, and
+`market/dates` for either definition lists the four priced closes. Before the
+2027-01-19 settlement is recorded the finished average refuses with
+`recipe_input`, and the knowledge view captured then still refuses afterwards.
+A correction to 69.55 gives 68.51, also through the consumer, while the view
+before it reproduces 68.50. A deliberately incomplete fifth close on 2027-01-22
+omits H, the contract that observation day selects, and the preview refuses with
+`recipe_input` naming the day. A term whose position is `null` refuses with
+`recipe_definition` naming the term. The check inserts the late settlement and
+its correction by SQL: the correction endpoint stamps receipt at the current
+time, and the observations table requires `observed_at <= received_at`, so a
+correction of an observation dated after now cannot be recorded through it. The
+browser suite passed 13 checks: catalog-driven settings and terms, preview at
+68.46, save as `observation_formula`, unchanged reload, and the refusals of a
+cleared weight and of a new term with no position shown beside the operation.
+`tools/check_all.py` includes this command.
+
+Review fixes (local, 2026-11-13). The same command also publishes the
+`published_source` consumer and an ordinary differential curve, then runs the
+API check `--contract-observation-projections` against the owned preview
+database: under the trading read of the 2026-12-01 working frame, projection
+choices offer the ordinary curve and neither curve that reads contract
+observation terms, and projection admission accepts the ordinary curve and
+refuses both with `custom_projection`. Before the fix both were offered and
+accepted. Forged references to either curve are refused with the same code and
+message by `swaps/preview`, `swaps/book`, `swaps/price` and
+`swaps/scheduled-price`; before the fix those routes answered other refusals
+(`swap_input`, `trade_party`) and never qualified the projection. The browser
+suite now passes 15 checks: it also types `2e` into Less position and Position
+of a spread term and checks that each preview sends the typed text, is refused
+(`400 request_format`), shows no price and shows the general error, and its
+reload check reads back every setting and the source connection. Term refusals
+number terms from 1. Results on the final code: the preview above exited 0 with
+96 checks and 15 browser checks; `--connected-portfolio-check` (94),
+`--draft-check --browser-check` (267; 189 browser), `--gas-indexed-check
+--browser-check` (80; 9 browser), `--gas-composition-check --gas-setup-check`
+(85), `--custom-curves-check --browser-check` (308; 236 browser) and
+`--scheduled-swap-check` (113) exited 0; the managed core suite passed 675; the
+API checks passed (98); `npm test --prefix web` passed 1634 tests.
+
+Review fix round (local, 2026-11-13). A `position` or `lessPosition` present as
+text, a fraction, a whole number beyond the 32-bit range, a boolean or an object is refused while the body is read as
+`recipe_definition`, `An observation term position must be a whole number from 1 to 120.`:
+the managed core check binds each case and keeps `null`, a whole number and an
+absent member (a JSON error); the HTTP check gets `422` with that message from
+preview and save for `"2e"`, `1.5` and `3000000000` and `400 request_format` for an absent
+`position`; the browser suite shows that message beside the operation for `2e`
+in Less position and in Position, with no price. Before the change all four
+HTTP answers were `400 request_format`. The API check also publishes a second
+version of the ordinary curve that reads the formula curve: its first version
+stays offered and accepted but is no longer marked as the version in force
+(before the fix it was). `swaps/observation-options` now refuses a forged
+reference with `custom_projection` (before, it answered 200 with no options).
+Results on the final code: `--contract-observation-curve-check --browser-check`
+97 checks and 15 browser checks; `--gas-amendments-check --browser-check` (102),
+`--gas-in-term-check` (87), `--index-fixing-check` (90),
+`--close-out-drafts-check --browser-check` (123) and `--side-observation-check
+--browser-check` (305) exited 0; the managed core suite passed 675, the API
+checks 98 and `npm test --prefix web` 1634 tests.
+
+Local results on 2026-11-13, on this change merged with the current master: the
+managed core suite exited 0 with 675 managed core checks passed; the API checks
+passed (98); `npm test --prefix web` passed 1633 tests; the release-deployment,
+migration-identity, runner, public-site and public-route unit tests (65) and the
+standalone boundary check passed; and the owned previews
+`--contract-observation-curve-check --browser-check` (87 checks and 13 browser
+checks), `--custom-curves-check` and `--connected-portfolio-check` passed. On
+the final code before that merge, these owned previews also passed:
+`--custom-curves-check --browser-check`, `--price-authoring-check --browser-check`,
+`--market-dates-check --browser-check`, `--pilot-close-check --browser-check`,
+`--regional-closes-check`, `--contract-dates-check` and `--example mixed-gas`.
+A complete `tools/check_all.py` run was not performed locally on the final code;
+continuous integration runs the complete suite.
+These are synthetic local checks. They do not qualify a Side, trade or cash
+consumer, explicit roll boundaries, or a production activation.

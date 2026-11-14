@@ -102,6 +102,7 @@ if(args is ["--curve-engine-cutover"]){CurveEngineCutoverChecks.Run();return;}
 if(args is ["--connected-curves"]){ConnectedCurveChecks.Run();return;}
 if(args is ["--connected-scenarios"]){ConnectedScenarioChecks.Run();return;}
 if(args is ["--connected-recipes"]){ConnectedRecipeChecks.Run();return;}
+if(args is ["--contract-observation-recipes"]){ContractObservationRecipeChecks.Run();return;}
 if(args is ["--spliced-curves"]){SplicedCurveChecks.Run();return;}
 if(args is ["--curve-price-bindings"]){CurvePriceBindingChecks.Run();return;}
 if(args is ["--custom-projection"]){CustomProjectionChecks.Run();return;}
@@ -586,6 +587,7 @@ CurveEngineCutoverChecks.Run();
 ConnectedCurveChecks.Run();
 passed += ConnectedScenarioChecks.Run();
 ConnectedRecipeChecks.Run();
+ContractObservationRecipeChecks.Run();
 CustomProjectionChecks.Run();
 ConnectedPortfolioChecks.Run();
 ValuationEnvironmentChecks.Run();passed++;

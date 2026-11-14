@@ -5,13 +5,18 @@ import type {TileSpec} from './tiles.js';
  * selection, dates, aggregation or financial arithmetic runs in this module. */
 export type ContractWeight={outputPosition:number|null;sourcePort:string;contractId:string;weight:string};
 export type PanelWeight={sourcePort:string;weight:string};
+/** One contract observation term as the person entered it: weight text is sent exactly as typed, and a term without a second position
+ * carries an explicit null. The backend resolves its days and contracts and validates every member. */
+/** A position is sent as typed: a number for whole-number text, null for a blank field, and any other text as entered for the backend to refuse. */
+export type EnteredPosition=number|string|null;
+export type ObservationTerm={ordinal:number;group:string;weight:string;position:EnteredPosition;lessPosition:EnteredPosition;period:string};
 export type PublishedSourceReference={catalogId:string;curveId:string;version:number;outputNode:string};
 type ExactRevision={catalogId:string;revisionId:string};
 type ExactContract={revision:ExactRevision;id:string};
 export type ContractPriceTerms={settlement:string;publication:{catalogId:string;id:string;version:number}|null;index:{revision:ExactRevision;code:string}|null;observationRule:string;pendingPolicy:string;projectionPolicy:string|null};
 /** Exact server terms are carried through every graph edit. The dedicated terms editor validates and replaces them. */
 export type ContractPriceTermsSet={default:ContractPriceTerms;replacements:{contract:ExactContract;terms:ContractPriceTerms}[];mappingRule:string;mappings:{target:ExactContract;source:ExactContract}[]};
-export type CurveNode={id:string;kind:string;parameters:Record<string,unknown>;inputs:Record<string,string>;contractWeights?:ContractWeight[];publishedSource?:PublishedSourceReference;panelWeights?:PanelWeight[];contractTerms?:ContractPriceTermsSet|null};
+export type CurveNode={id:string;kind:string;parameters:Record<string,unknown>;inputs:Record<string,string>;contractWeights?:ContractWeight[];publishedSource?:PublishedSourceReference;panelWeights?:PanelWeight[];contractTerms?:ContractPriceTermsSet|null;observationTerms?:ObservationTerm[]};
 export type CurveDefinition={code:string;name:string;nodes:CurveNode[];output:string};
 export type NodePosition={x:number;y:number};
 export type CurveLayout=Record<string,NodePosition>;
@@ -38,6 +43,13 @@ export function removeCurveConnection(definition:CurveDefinition,target:string,p
 }
 export function changeContractWeights(definition:CurveDefinition,target:string,rows:ContractWeight[]):CurveDefinition{
  return {...definition,nodes:definition.nodes.map(node=>node.id===target?{...node,contractWeights:rows.map(row=>({...row}))}:node)};
+}
+/** Replaces an observation node's terms with these rows, in order: a term's ordinal is its place in the list. Every member is kept as given. */
+export function changeObservationTerms(definition:CurveDefinition,target:string,rows:ObservationTerm[]):CurveDefinition{
+ return {...definition,nodes:definition.nodes.map(node=>node.id===target?{...node,observationTerms:rows.map((row,ordinal)=>({ordinal,group:row.group,weight:row.weight,position:row.position,lessPosition:row.lessPosition,period:row.period}))}:node)};
+}
+export function enteredPosition(text:string):EnteredPosition{
+ return text===''?null:/^-?[0-9]+$/.test(text)?Number(text):text;
 }
 /** A mapping's explicit contract connections as graph objects, each with the node feeding its source port (null when none does). */
 export type ContractObject=ContractWeight&{index:number;source:string|null};
@@ -107,6 +119,12 @@ export function previewTable(preview:{columns:string[];rows:(string|null)[][]}){
 
 export function knownCurveRejection(code:string|undefined):boolean{
  return !!code&&['curve_activation_conflict','curve_activation_input','curve_activation_overlap','custom_curve_conflict','custom_curve_definition','recipe_definition','recipe_transform','custom_curve_limit','access_denied','historical_read_only','request_format','request_too_large','request_token','definition_rejected'].includes(code);
+}
+/** The backend's own message for a definite refusal of a curve request, or ''. A server failure (status 500 or above) cannot confirm a
+ * refusal, and a request the server could not read (request_format) is resolved by a refresh, so neither carries a message to show. */
+export function curveRefusalMessage(error:unknown):string{
+ const refusal=error as {status?:unknown;code?:unknown;details?:{message?:unknown}}|undefined,message=refusal?.details?.message;
+ return typeof refusal?.status==='number'&&refusal.status<500&&refusal.code!=='request_format'&&typeof message==='string'?message:'';
 }
 export type ConditionalCurveField={key:string;when?:{key:string;values:string[]}};
 export function curveFieldVisible(field:ConditionalCurveField,parameters:Record<string,unknown>):boolean{

@@ -311,6 +311,7 @@ public sealed partial class SwapStore
     public async Task<object> ScheduledDraftPrice(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapScheduledPriceRequest request,CancellationToken ct)
     {
         var body=request.Terms;
+        await RequireTradeProjections(connection,body,ct);
         if(body.Scheduled is not {First:not null,Second:not null} input)throw Error("scheduled_swap_input","Supply the scheduled contract.");
         if(request.PriceMode=="agreed")
         {

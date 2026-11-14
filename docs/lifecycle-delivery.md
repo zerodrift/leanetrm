@@ -1,6 +1,6 @@
 # Shared lifecycle delivery contract
 
-D392 selects the following implementation contract. This document records required
+D394 selects the following implementation contract. This document records required
 behavior, not a claim that every capability is implemented or production-qualified.
 
 ## Ownership and extension
@@ -110,13 +110,13 @@ After adoption commits, an accepted PV state requires a newly captured certified
 trading context and its actual publication receipt. A preview context or a wall
 clock timestamp cannot certify that new state.
 
-Migration 0255 implements saved dated policies, sealed occurrence membership,
+Migration 0256 implements saved dated policies, sealed occurrence membership,
 stable native adoption and an inception-only state reader locally. Adoption retains
 the original holding revision separately from later metadata heads. Its basis uses
 economic execution time; visibility starts at the holding revision's effective
 instant. The managed reader verifies the exact booking date, party versions,
 owner, quantity, execution, policy, pricing reference and certified context before
-providing state to ordinary Instrument PV. Migration 0256 extends this locally
+providing state to ordinary Instrument PV. Migration 0257 extends this locally
 with sealed native determination runs and complete causal history. The current
 accepted heads are selected before their exact source-prefix evidence is joined;
 missing evidence refuses rather than selecting an older determination. The old

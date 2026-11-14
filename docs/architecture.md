@@ -1,6 +1,6 @@
 # Architecture and domain contracts
 
-D392 selects [shared lifecycle delivery](lifecycle-delivery.md): operation-specific
+D394 selects [shared lifecycle delivery](lifecycle-delivery.md): operation-specific
 eligibility, native lifecycle coordination, gas ownership/entitlements/borrowing
 and event-aware economic risk. Its delivery gates distinguish implementation from
 qualification; it does not make the capabilities below complete by declaration.
@@ -31,6 +31,13 @@ override. See [the decision](decisions.md#d366--exact-location-forecasts-and-dat
 
 Selected correction-history reads use function-scoped generic planning under
 migration 0227; see [the planning qualification](context.md#selected-correction-history-planning).
+
+D391 adds a `contract_observations` custom-curve node: per target month, a sum of
+groups of weighted averages of contract positions over a calendar or trade month,
+read from retained history for past days, frozen from the context frame for the
+context day, and from live context samples for later days. The
+node itself feeds only a curve combination or the output; the only consumer is a synthetic
+formula curve. See [the decision](decisions.md#d391--contract-observation-curve-terms).
 
 D364 connects [publication release resolution](curve-authoring.md#publication-release-resolution-d364).
 D369 removes catalogue population selection. Current curves and publications use
@@ -1389,7 +1396,7 @@ their identities and dated terms. Commodity, yield and composite/algorithmic cur
 have explicitly typed specifications. Versioned source bindings and delivery
 mappings support multiple dependency layers, including forwards consuming futures.
 Live output selection is a separate operation from exact captured builds
-(D391). The selected business instant and the exact contract's marking cutoff
+(D393). The selected business instant and the exact contract's marking cutoff
 determine output eligibility. The display can include inactive metadata without
 pricing expired roots or removing dependency inputs. Fresh capture requires an
 explicit exact/live scope and retains its first outcome for authorized retries.

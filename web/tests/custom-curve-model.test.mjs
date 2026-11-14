@@ -162,3 +162,54 @@ test('an output offers hourly or panel sources only when its declared port admit
  assert.deepEqual(connectableTargets(d,catalog,'hours'),[{target:'out',port:'values',added:false}]);
  assert.deepEqual(connectableSources(d,catalog,'out','values'),['hours','panel']);
 });
+
+const observationTerms=()=>[
+ {ordinal:0,group:'average',weight:'1',position:1,lessPosition:null,period:'calendar_month_of_delivery_v1'},
+ {ordinal:1,group:'roll',weight:'2',position:1,lessPosition:2,period:'trade_month_of_delivery_contract_v1'},
+ {ordinal:2,group:'roll',weight:'1',position:1,lessPosition:3,period:'trade_month_of_delivery_contract_v1'}];
+const observed=()=>({code:'synthetic_formula',name:'Synthetic formula',output:'result',nodes:[
+ {id:'source',kind:'source',parameters:{curve:'synthetic_future'},inputs:{}},
+ {id:'crude',kind:'contract_observations',parameters:{days:'business_days_v1'},inputs:{source:'source'},observationTerms:observationTerms()},
+ {id:'result',kind:'output',parameters:{},inputs:{values:'crude'}}]});
+test('editing one observation term changes only that term and keeps its typed text',async()=>{
+ const {changeObservationTerms}=await import('../dist/custom-curve-model.js');
+ const before=observed(),rows=before.nodes[1].observationTerms;
+ const edited=changeObservationTerms(before,'crude',rows.map((row,i)=>i===1?{...row,weight:'3.000000000000000001'}:row));
+ const terms=edited.nodes[1].observationTerms;
+ assert.deepEqual(terms[0],observationTerms()[0]);assert.deepEqual(terms[2],observationTerms()[2]);
+ assert.deepEqual(terms[1],{...observationTerms()[1],weight:'3.000000000000000001'});
+ assert.deepEqual(before.nodes[1].observationTerms,observationTerms(),'the previous definition is not mutated');
+ assert.deepEqual(edited.nodes[1].parameters,{days:'business_days_v1'});assert.deepEqual(edited.nodes[1].inputs,{source:'source'});
+});
+test('a weight is sent as the text typed and a term without a second position sends an explicit null',async()=>{
+ const {changeObservationTerms}=await import('../dist/custom-curve-model.js');
+ const sent=JSON.parse(JSON.stringify(changeObservationTerms(observed(),'crude',observationTerms())));
+ const [first,second]=sent.nodes[1].observationTerms;
+ assert.equal(second.weight,'2');assert.equal(typeof second.weight,'string');
+ assert.ok(Object.hasOwn(first,'lessPosition'),'lessPosition is present when there is no second position');assert.equal(first.lessPosition,null);
+ assert.deepEqual(Object.keys(first).sort(),['group','lessPosition','ordinal','period','position','weight']);
+});
+test('observation terms keep their list order as ordinals when a term is removed or added',async()=>{
+ const {changeObservationTerms}=await import('../dist/custom-curve-model.js');
+ const [first,,third]=observationTerms();
+ const removed=changeObservationTerms(observed(),'crude',[first,third]).nodes[1].observationTerms;
+ assert.deepEqual(removed,[first,{...third,ordinal:1}]);
+ const blank={ordinal:9,group:'',weight:'',position:null,lessPosition:null,period:''};
+ const added=changeObservationTerms(observed(),'crude',[...observationTerms(),blank]).nodes[1].observationTerms;
+ assert.deepEqual(added.at(-1),{...blank,ordinal:3},'a new term carries no chosen weight, position or period');
+});
+test('a typed position is sent as typed: blank is null, whole-number text is that number and other text stays text',async()=>{
+ const {enteredPosition}=await import('../dist/custom-curve-model.js');
+ assert.equal(enteredPosition(''),null);
+ assert.equal(enteredPosition('2'),2);assert.equal(enteredPosition('-3'),-3);assert.equal(enteredPosition('0'),0);assert.equal(enteredPosition('121'),121);
+ for(const text of ['2e','2-','1.5','+2',' 2','2 ','e','-','1e3'])assert.equal(enteredPosition(text),text,text);
+});
+test('only a definite refusal gives the backend message shown beside the operation',async()=>{
+ const {curveRefusalMessage}=await import('../dist/custom-curve-model.js');
+ const refused=(status,code,message)=>Object.assign(Error('Workbench wording'),{status,code,details:{code,message}});
+ assert.equal(curveRefusalMessage(refused(422,'recipe_definition','Every weight must be explicit exact decimal text.')),'Every weight must be explicit exact decimal text.');
+ assert.equal(curveRefusalMessage(refused(400,'request_format','The JSON value could not be converted.')),'','a request the server could not read is not a business refusal');
+ assert.equal(curveRefusalMessage(Object.assign(Error('Server failure'),{status:500,code:undefined,details:{code:'internal',message:'Diagnostic text'}})),'','a server failure cannot confirm a refusal');
+ assert.equal(curveRefusalMessage(Error('Network failure')),'');assert.equal(curveRefusalMessage(undefined),'');
+ assert.equal(curveRefusalMessage(refused(422,'recipe_definition',{text:'not a string'})),'');
+});

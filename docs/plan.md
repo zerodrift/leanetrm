@@ -1,6 +1,6 @@
 # Delivery plan and acceptance criteria
 
-The current lifecycle increment follows [D392’s delivery contract](lifecycle-delivery.md).
+The current lifecycle increment follows [D394’s delivery contract](lifecycle-delivery.md).
 It requires native operations, inventory continuation, event-aware risk, independent
 review and disposable browser qualification. Incompatible synthetic demo records
 may be rebuilt; there is no legacy financial conversion layer. This increment
@@ -18,10 +18,10 @@ across work and waits. Whole-portfolio/worker wiring, physical final delivery,
 HTTP/agent/UI workflows and browser qualification remain work;
 see the [delivery boundaries](lifecycle-delivery.md).
 
-D391 implements live curve output selection, an optional inactive-contract
+D393 implements live curve output selection, an optional inactive-contract
 display, and explicit exact/live close capture with durable first-outcome retry.
 The selection uses the chosen close, retains explicit frozen dependencies and
-refuses missing final evidence or an empty root. Migrations 0252–0253 require a
+refuses missing final evidence or an empty root. Migrations 0253–0254 require a
 qualified schema upgrade before activation. Broader product lifecycle and
 economic horizon risk remain separate work.
 
@@ -51,6 +51,16 @@ Native numerical checks, owned HTTP checks and an isolated populated preview
 qualify Friday/Monday fixing, forward marks, correction replay and ordinary
 Blotter parity. Cash/invoices, physical accounting, worker graph
 replay, observed ISO releases/finality and residual recalibration remain separate.
+
+D391 adds contract observation terms to custom curves, implemented locally with
+managed, stock PostgreSQL, HTTP and browser checks on one synthetic crude fixture.
+The only consumer is that synthetic formula curve; a published curve that reads
+these terms, directly or through a published source, is not offered or accepted
+as a trade projection (`custom_projection`) until a consumer is qualified.
+Indexed crude consideration
+that consumes such a curve on a Side, with its booking, risk, delivery and cash,
+is separate, later work; explicit roll boundaries remain unsupported. See
+[custom curves](custom-curves.md#contract-observation-terms-d391).
 
 D363 adds the Objects canvas, explicit source-node contract pricing and
 publication definitions, occurrences and normalized final-price ingestion.
@@ -528,6 +538,8 @@ contract; formulas compile only in the backend. SQL panel execution is removed.
 [Custom curves](custom-curves.md) records the supported policies and limits.
 Graph cards distinguish backend output types from financial curve kinds, with
 separate dated-contract icons on exact member rows (D259).
+D391 adds `contract_observations` nodes that average contract positions over
+calendar or trade months; their curves have the kind `observation_formula`.
 Published recipes supply explicit monthly indexed swap projections through
 booking, portfolio and retained-risk operations. The editor offers compatible
 published outputs from the authorized backend catalog and preserves the selected
@@ -1710,6 +1722,11 @@ P&L is introduced. Managed, API, native and browser checks demonstrate the compl
 populated additive-upgrade check preserves prior operational and cash history.
 Automated crude closes, amendments and cancellation remain further work.
 Production activation remains a separate release gate.
+
+Indexed crude consideration is not implemented. D391 supplies only its curve
+operator: a custom curve that averages contract positions over calendar or trade
+months. Consuming that output on a crude Side, with booking, PV, risk, delivery
+and cash, is separate, later work.
 
 D293 local implementation adds the [crude delivery setup workflow](crude-delivery-setups.md):
 versioned Save/Validate/Publish, separate exact delivery and pricing namespaces,

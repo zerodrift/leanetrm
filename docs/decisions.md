@@ -310,7 +310,7 @@ remaining bounds are recorded with the executable consumers in the linked contra
 | D256 | A turn's pinned As of frame may hold up to 256 KiB | Decided by the owner (2026-10-27). Migration 0122 raises `assistant.pin_turn`'s bound on a frame's pin JSON from 64 KiB to 256 KiB (262,144 bytes); nothing else changes. It applies over 0072's definition or one already identical to its own, as the hosted pilot's has been since its hotfix. |
 | D257 | A period-contract price node returns the selected settlement index's published fixing once due, and a side may override its curve's settlement index | Decided by the owner (2026-10-28); local implementation trial in progress, qualification pending. For date-only period-contract observations (swaps and PPA period curves; interval curves are unchanged), each `FloatingSide` index price term (D253) states its settlement selection: the curve's declared single-index target, or a different named override index, never defaulted. The price node returns the bound projection before the selected index's fixing instant and that index's published final fixing, selected under the market cutoff, at or after it; between expiry and the fixing instant it is refused as today. Node dependencies follow the resolved context, so a due node depends only on its fixing. An override projects from the curve's forward marks as the recorded no-basis choice `forward_curve_no_basis_v1`, labelled in receipts and risk. The swap spread becomes the price term's adder. Refines D165 and D253; consistent with D32 and D37 |
 | D258 | Persist each booked side's complete schedule and load it for valuation | Decided by the owner (2026-10-28); local implementation trial in progress, qualification pending. Refines D253 and D195. Booking retains every logical row of a side's pricing (observations, applications, averages, quantity steps, amounts, discount and valuation steps) with explicit roles and named output roots, ordered named edges and typed exact-version bindings. The tables are immutable, published and readable only under `temporal_read`, and valuation finds a schedule through the trade revision visible at its cutoff. Rows define how values are obtained; evaluated values are valuation results. Large schedules stage unpublished and publish in one short fenced, idempotent transaction (D238). Obligation rows keep occurrence keys and digests across amendments of later periods. Normalization becomes a shared specification on the side, and cross-side inputs are typed ports. Valuation refuses rather than regenerates; drafts are transient. Amended for the local trial: stock PostgreSQL retains native calculations as compact vector operations with exact grids and cell identities, rather than separate arithmetic records per interval; scalar dated operations share the contract. Physical layout follows measurement. Within one authorized PPA preparation, exact side identities and retained manifests may share an immutable runtime adapter; every instrument still admits its own membership and sibling bindings, and current source/header authority is rechecked. Market variables and position lifecycle remain valuation inputs |
-| D259 | The backend names each curve's kind (`curve_kinds_v1`); Curve builder and Curves & prices show it as a labelled icon | Decided 2026-10-29; its icons and colours approved by the owner, and `interest_rate` added under the owner's delegation. Kinds let a person tell market, relationship and synthetic curves apart at a glance; a colour is never the only signal, since each kind also has an icon shape and a text label, and its colours on the app's dark theme are those of D383. A custom curve's kind follows its output step: `weighted_blend` from `weighted_panels`/`weighted_contracts`; `rolling_average` for `mean` over `dates` on a `prior_calendar`/`prior_business` sequence; `balance_of_month` for `mean` over `contracts` on `balance_month` dates; `prompt_contract` for a single relative `positions` selection; anything else, a pass-through included, is `custom`, never a guess. A market curve's kind follows its rule: `market_settlement` or `trader_mark` by direct role (the schema requires one of the two for a direct curve), `basis_spread` for `Add`, `scaled` for `ScaleAdd`; a stored interest-rate curve is `interest_rate`. The kind is derived at read time from the exact definition, never stored, and returned with saved curves, sources, published sources and the navigation directory with `kindsVersion`. The browser draws only what it is sent and refuses an unknown code or version. Graph cards additionally label their backend output type with a distinct icon (curve, contract selection, dates, price panel or curve output); individual exact members are labelled dated contracts. Object type and financial curve kind remain separate presentation dimensions. No migration or permission change |
+| D259 | The backend names each curve's kind (`curve_kinds_v1`); Curve builder and Curves & prices show it as a labelled icon | Decided 2026-10-29; its icons and colours approved by the owner, and `interest_rate` added under the owner's delegation. Kinds let a person tell market, relationship and synthetic curves apart at a glance; a colour is never the only signal, since each kind also has an icon shape and a text label, and its colours on the app's dark theme are those of D383. A custom curve's kind follows its output step: `observation_formula` when it reads a `contract_observations` node directly or through a `weighted_panels` node that node feeds (D391); otherwise `weighted_blend` from `weighted_panels`/`weighted_contracts`; `rolling_average` for `mean` over `dates` on a `prior_calendar`/`prior_business` sequence; `balance_of_month` for `mean` over `contracts` on `balance_month` dates; `prompt_contract` for a single relative `positions` selection; anything else, a pass-through included, is `custom`, never a guess. A market curve's kind follows its rule: `market_settlement` or `trader_mark` by direct role (the schema requires one of the two for a direct curve), `basis_spread` for `Add`, `scaled` for `ScaleAdd`; a stored interest-rate curve is `interest_rate`. The kind is derived at read time from the exact definition, never stored, and returned with saved curves, sources, published sources and the navigation directory with `kindsVersion`. The browser draws only what it is sent and refuses an unknown code or version. Graph cards additionally label their backend output type with a distinct icon (curve, contract selection, dates, price panel or curve output); individual exact members are labelled dated contracts. Object type and financial curve kind remain separate presentation dimensions. No migration or permission change |
 | D260 | The page assistant may save a custom-curve draft for the person; this supersedes D193's "never grants agent writes" for that one tool | Decided 2026-10-29; [details](#d260--the-page-assistant-saves-custom-curve-drafts). Migration 0128 lays the database groundwork: `save_custom_curve_draft` needs `ReadMarketData` and `WriteMarketDefinitions`, the agent writes under its own `DraftCustomCurves` with its delegator's current `WriteMarketDefinitions` and only the curve version it claimed for a step of its turn, each draft generation records who saved it (a person, or the assistant with its turn and step), `security.custom_curve_agent_writable` limits the assistant to a new curve or a draft whose latest generation it saved in the same conversation, and a `draft` navigation target opens a successful save step of its own turn. The tool ships in runtime set `turns_v9` and records its successful step in the draft's own transaction; Curve builder shows **Saved by assistant** from the saver. The assistant never publishes, changes activations or overwrites a person's draft |
 | D261 | Resolve contract selectors at each observation fixing instant and retain concrete dated contracts in booked schedules | An exact contract or an explicit zero-based prompt offset and roll rule is an authoring input. Each observation selects against its own explicit fixing instant and pinned contract definitions. Booking must materialize the actual dated contract reference for every observation; later valuation consumes those references without rerunning prompt selection. Observation periods, contract delivery periods, exchange expiry and roll boundaries remain distinct. A futures curve supplies the selected dated contract's daily exchange settlement for each observation, then its official final settlement after expiry once published. It never silently substitutes the last live mark or a different index; a different settlement source requires an explicit curve configuration. Missing coverage blocks booking; labels never supply dates. The local scheduled-swap source variant retains exact dated futures observations and samples their daily/final prices through the connected graph. Its first API consumer requires explicit full-month daily arithmetic observations, source history policy and compatible side/curve final-carry rules. Migrations 0131–0132 retain authoring and executable source relationships separately from market evidence. The scheduled ticket now sends explicit clock and selector terms to backend observation generation and retains the returned receipt; ambiguous/nonexistent local times and fixing after payment refuse. Migration 0133 retains source sample manifests for interactive and queued risk, including distinct current fixed and live uses of the same observation. Financial settlement requires due, final source observations and retains determined cash independently of later source availability. Automated-close source-evidence persistence and broader source combinations remain pending; see [the scenario matrix](observation-price-scenarios.md). |
 | D262 | Component history retains raw prices and contract roll jumps | The read-only `raw_component_history_v1` contract samples supported selections through the existing managed evaluator. Each-sample binding resolves canonical contracts per date; context binding and exact weighted mappings remain fixed. Explicit date-window choices, exact saved references, knowledge cutoff and strict missing-observation refusal apply. No back adjustment, inferred roll policy or browser analytics. Coverage and remaining work are recorded in [custom curves](custom-curves.md#raw-component-history) |
@@ -4528,7 +4528,247 @@ Open: the list reauthorizes each report it reads, on every read. Its cost at a
 hundred reports is unmeasured and it has no paging. See
 [trading P&L](trading-pnl.md).
 
-## D391 · Live curve outputs and explicit close capture
+## D391 · Contract observation curve terms
+
+Implemented locally, 2026-11-13. A custom curve can state a contract price as a
+sum of averaged contract-position observations over a calendar month or a trade
+month, valued before, during and after that period. This adds one recipe node
+kind, `contract_observations`, with implementation
+`contract_observation_terms_v1`, to the existing connected recipe engine. It adds
+no price facts, no aggregation and no new pricing mode.
+
+For each target delivery month (`targetFrom`, the first day of an explicit month,
+and `targetCount` from 1 to 120) the node produces one cell: the sum of its
+groups. A group is the normalized weighted mean of its terms. A term is the
+equally weighted mean, over its observation days, of one contract position,
+optionally less the mean of a second position (`lessPosition`) over the same
+days. A node states 1 to 16 terms with contiguous ordinals from 0; each names a
+group, a positive exact decimal weight, a position from 1 to 120, an optional
+different second position and a period:
+
+- `calendar_month_of_delivery_v1`: the observation days of the target month;
+- `trade_month_of_delivery_contract_v1`: the observation days on which the
+  target's delivery contract resolves as position 1 at that day's sampling
+  instant, scanned from the prior contract's expiry date through the delivery
+  contract's expiry date.
+
+Observation days are `calendar_days_v1` (every day) or `business_days_v1`, the
+business days of an exact pinned reference calendar. A business-day node names
+its `calendar`; a calendar-day node names none. The node reuses the recipe's
+explicit `sampling=context_utc_time` and
+`corrections=exact_context_frame_history_latest_visible` policies, and its
+`roll` is `contract_expiry_roll_v1`. Every parameter is required; nothing
+defaults. The arithmetic is the existing `SignedSum` and `WeightedMean` cell
+formulas in the connected plan, so results stay exact rationals.
+
+Four choices define this contract. Weights are normalized within a group, and
+a spread is a declared second position rather than a signed coefficient, because
+two thirds and one third are not exact decimals and formula weights are exact
+decimals; weights 2 and 1 give exactly 2/3 and 1/3. Only
+`contract_expiry_roll_v1` is admitted, because recipe position selection already
+rolls at recorded expiry; `explicit_contract_roll_v1` refuses in this operator.
+There is no fixing-clock or expiry-policy term: selection and sampling share one
+instant, so an observation is always read while its contract is live and no
+carried final settlement is needed.
+
+Fourth, decided by the owner on 2026-11-13, an observation day on or before the
+context date is a frozen actual with its exact observation; only a day after the
+context date is a live dependency. The context day's observation is frozen like
+a past day's, which agrees with the swap observation path: it freezes an
+observation whose fixing instant equals the valuation instant. At the fixture's
+2027-01-19 close a +1 shock to G therefore moves the January average by 1/5;
+only the 2027-01-20 observation of G is still live. A later day may select the
+same contract as the context day, so one calculation can hold a frozen and a
+live observation of one contract at the context instant. They are separate
+samples and separate leaves, and are never merged.
+
+The trade month is defined by selection. On a contract's last trading day the
+day belongs to that contract's trade month only if its sampling instant is
+before the recorded expiry; at or after expiry, position 1 is already the next
+contract and the day belongs to the next contract's windows. No day is priced on
+two contracts. A trade month whose delivery contract is the last in the universe
+drops its expiry day in the same way.
+
+A day before the context date reads its retained historical sample, at that day
+at the context's UTC time of day. The context date reads, from the context
+frame, the observation of the contract selected for it at the valuation instant
+(that day's sampling instant), compiled as a frozen fact by the same
+current-observation freezing the swap observation path uses. It must be that
+contract's own daily settlement or trader mark observed at the valuation
+instant. Later days read the live context sample of the contract selected for
+that day, so projected days carry that contract's primitive quote factor.
+Nothing is carried forward or estimated. A due observation without its exact
+sample refuses with `recipe_input`; an average is never taken over fewer days.
+The historical-sampling refusal for `sample` nodes is unchanged.
+
+The terms enter graph equality and formula text (a typed `observationTerms=[...]`
+argument), and a saved-version preview compares them. The terms and the resolved
+windows enter the canonical declaration and its manifest. Other node kinds keep
+their exact declaration bytes. A business-day node
+requires its calendar pin, which must name the node's calendar and contain every
+resolved window day. Supplied windows must cover exactly the targets and terms,
+and their days must belong to their stated period.
+
+The node itself feeds only `weighted_panels` (for example, to add a differential)
+and `output`. The engine refuses any other consumer with `recipe_definition`; in the
+database, migration 0252 extends the panel guards so a saved `weighted_panels`
+node may take this kind as an input. A curve whose output is this node, or a
+`weighted_panels` node directly fed by it, has the curve kind
+`observation_formula` (D259).
+
+Refusals are structured:
+
+- `recipe_definition`: a missing, extra or unsupported parameter, version, roll,
+  day rule, sampling or correction policy; a target month not on day 1; missing,
+  gapped or more than 16 terms; a term with an invalid group, a missing (`null`)
+  or out-of-range position, an invalid or equal second position, an unsupported
+  period, or a weight that is not positive exact decimal text below 10^24 with at
+  most 18 fractional digits, each message naming the term, numbered from 1 as
+  the editor labels its rows (the `ordinal` stays 0-based), and the member
+  (for example `Observation term 2 position: …` for ordinal 1); a group whose weights cannot be
+  summed below 10^24, refused when saved because the recipe could never
+  evaluate; a calendar on a calendar-day node or none on a business-day node;
+  terms on another kind; an unsupported consumer; and a `position` or
+  `lessPosition` member present as anything but a whole JSON number or `null`
+  (the text `2e` the editor sends as typed, a fraction such as `1.5`, a whole
+  number beyond the 32-bit range, a boolean or an object), refused while the body is read with `An observation term
+  position must be a whole number from 1 to 120.` That message cannot name the term, because
+  it is raised for the member alone. An absent member is a malformed request,
+  refused by request binding as `400 request_format`.
+- `recipe_input`: no single delivery contract for a trade-month target, a
+  delivery contract with no prior contract, a position beyond the contract
+  universe, a calendar that does not cover a window, an empty window, supplied
+  windows that do not match the targets and terms or their periods, a past
+  observation day without its retained sample, and a context day whose context
+  frame holds no observation of the selected contract at the valuation instant
+  (absent, or only an earlier mark), whose source carries contract price terms,
+  or whose source is a composite (`Add` or `ScaleAdd`) curve. Each of the last
+  two has its own message: a frozen observation reads the source contract's own
+  settlement or mark, and a composite curve derives its prices from other
+  curves and has none to freeze.
+- `recipe_reference`: a business-day node without its exact calendar pin, a pin
+  naming another calendar, or a window day that is not a business day of it.
+- `recipe_formula`: formula text whose term omits `lessPosition` or adds an
+  unknown member. An explicit `null` second position is required.
+- `custom_curve_definition` (API): a business-day node without its calendar; a
+  preparation that would read more than 366 past observation days across the
+  definition's observation nodes (one historical frame each, the bound of date
+  sequences), refused before any is read; and a preview body that differs from
+  its saved version, including by a term weight.
+- Database: `recipe_observation_terms`, `recipe_observation_policy` and
+  `recipe_observation_calendar` from the term and publication guards.
+
+Migration 0252 is additive. It admits the node kind, adds
+`market_data.custom_curve_observation_terms` (one row per term, keyed by curve
+version, node and ordinal, with column rules for group, weight, positions and
+period) with the row security, guards and grants of the other custom-curve node
+tables, refuses a term row on another node kind, and revalidates parameters,
+terms and the calendar binding at publication. It extends the panel-type list of
+the two panel guards (`guard_panel_weight`, `guard_panel_publication`) to admit
+this kind as a `weighted_panels` input, after pinning their prior definitions by
+hash. Published terms are immutable. No rows are rewritten. The preview's
+migration loop qualifies it (`tools/check_contract_observation_upgrade.py`). In
+every owned preview the pins refuse a changed guard body, owner, configuration,
+ACL and node-kind constraint. The populated qualification runs once, under
+`--contract-observation-curve-check`, on the base preview fixture loaded in one
+transaction on the prior schema (the crude fixture is applied after the
+migration loop). It seeds a published `weighted_panels` combination; the version
+reads back unchanged after 0252 and both panel guards still refuse a source
+input, as they did before it. The contract dates mode's `window_frames` fixture
+cannot load in one transaction, because it seals a pinned contract curve whose
+date admissions that mode inserts only by rewriting the load.
+
+The API prepares and previews the node through the ordinary custom-curve
+operations and offers it in the operator catalog with its admitted choices. The
+Curve builder presents those choices and term rows; it computes nothing.
+
+Checks run on synthetic data. The managed core check asserts, for the fixture's
+2027-01 target with a January business-day average and 2:1 weighted December
+roll spreads, 69.96 on 2026-12-01 with exact per-contract shocks (prompt F +1
+gives 70.96; G +1 gives 69.96 − 1/15; H +1 gives 69.96 + 1/15; all three +1
+gives 70.96); on 2026-12-22 the same price with the roll frozen (F has no live
+factor; G +1 gives 70.56, H +1 gives 70.36); 70.02 on 2027-01-20 with G frozen
+(G is no live input; H +1 gives 70.42); 70.04 on 2027-01-19, where G +1 gives
+70.24 and H +1 gives 70.44; 20983/300 on 2026-12-17 inside the trade month, with
+12-15 to 12-17 frozen, where F +1 adds 1/4, G +1 adds 13/30 and H +1 adds 19/60;
+70.00 on 2027-01-25 with no live futures; a two-target case at 10724/155 and
+4807/70; and the engine and declaration refusals above, including a missing past
+observation, a context frame without the context day's contract or with only an
+earlier mark of it, a frozen sample from a past frame, a composite (`Add`)
+source and a source carrying contract price terms on an observation-day context,
+and the term number and member each term refusal names. Planning
+a consumer at 2027-01-20 refuses with `recipe_input` when only the context
+instant is supplied; with the sampling instant of every window day it plans
+sixteen native inputs (F, G and H on each December day, G on 2027-01-18 and
+2027-01-19, G frozen at the context day and H live at the context date), and the
+curve prices 70.02 under that demand. An API check admits 366 past observation
+days and refuses more, counting a day once across operations; the context day's
+frozen observation and later days read the context frame and are not counted.
+
+Over HTTP in an owned stock PostgreSQL preview, the published curve with a −1.50
+differential prices 68.46 on 2026-12-01 and 2026-12-22, 68.52 on 2027-01-20 and
+68.50 on 2027-01-25, with the expected live inputs at each; on 2027-01-20 only H
+and the differential are live. A consumer reading it through `published_source`
+prices the same values, with the same live inputs on 2027-01-20, and calendar
+availability (`market/dates`) for either definition lists the four priced closes; without the window
+days' sampling instants the consumer's three later closes are unavailable. Before
+the 2027-01-19 settlement is recorded the finished average refuses, and the
+knowledge view captured then still refuses afterwards. A later correction to
+69.55 gives 68.51, also through the consumer, while the knowledge view before it
+reproduces 68.50. A fifth, deliberately incomplete close on 2027-01-22 omits
+H, the contract that observation day selects, and the preview refuses with
+`recipe_input` naming the day rather than take the 2027-01-22 settlement read
+as history elsewhere. A term whose position is `null` refuses with
+`recipe_definition` naming that term. The storage check covers the table rules,
+security parity with the other node tables, publication refusals and
+immutability. The browser suite builds the curve through the Curve builder's
+controls, previews 68.46, saves, reloads every term unchanged and shows the
+backend's refusals of a cleared weight and of a new term with no position beside
+the operation.
+
+A published curve that reads contract observation terms, itself or through a
+`published_source` at any depth, is not a trade projection until a consumer is
+qualified. Projection choices (the swap catalog, swap observation options and
+the gas ticket's forecast choices) never offer it. Projection admission refuses
+it with `custom_projection` before any output shape is compared: the
+published-projection qualification of gas compositions, and swap observation
+options, preview, booking, amendment, draft pricing, draft risk and scheduled
+pricing, which read the projection from their own terms and refuse it first.
+A curve whose newest version reads these terms keeps its older ordinary
+versions as choices, none of them marked as the version in force. Gas setup
+publication does not check for such a curve; every valuation through that setup
+is refused with `custom_projection`. Curve
+preview, save, publication, `published_source` consumption, `market/dates` and
+market preparation are unchanged, so a later consumer can be qualified through
+the ordinary preparation path. An API check against the owned preview publishes
+the formula curve, a `published_source` consumer of it and an ordinary
+differential curve whose second version reads the formula, and asserts that
+only the ordinary curve's first version is offered, not as the version in
+force, and accepted; the five swap routes refuse forged references to the
+other two.
+
+Not implemented or qualified: no settlement finality is exposed to a Side; no
+trade, ticket or cash consumer exists, and the only consumer is the synthetic
+formula curve (indexed crude consideration on a Side is separate, later work);
+explicit roll boundaries; one synthetic fixture. Every observation day is sampled
+at one UTC time of day, so a window that crosses a daylight-saving change of a
+local-time close is not modelled. A source node carrying contract price terms,
+or a composite (`Add` or `ScaleAdd`) source curve, that feeds this node is not
+refused when saved, but its context-day observation refuses with `recipe_input`
+on every observation-day context, because a frozen observation is read only
+from a direct source's own settlement or mark; past and later days of such a
+source are not refused by this rule. The managed check covers both refusals; no
+HTTP check builds such a source. Over the API, a context frame that lacks any
+observation the context day's source read needs is refused for the day, without
+naming the contract or saying whether a frozen or a live day needed it. "Feeds only"
+holds for the node itself: a consumer that reads the published output through
+`published_source` may still average, look up or splice its cells. The check
+inserts the late settlement and its correction by SQL: the correction endpoint
+stamps receipt at the current time, and the observations table requires
+`observed_at <= received_at`, so a correction of an observation dated after now
+cannot be recorded through it. No production activation is implied.
+
+## D393 · Live curve outputs and explicit close capture
 
 Live contract displays and fresh close capture select outputs at the selected
 business instant under `live_contract_outputs_v1`, using each exact contract's
@@ -4554,10 +4794,10 @@ continues to refuse unsupported expired roots.
 Both commands retain the original request and first outcome before resolving
 mutable source frames or session setup on a retry. Policy changes under a reused
 request ID conflict. Every attempt rechecks current authority and source
-visibility. Migration 0252 validates the display preference; migration 0253
+visibility. Migration 0253 validates the display preference; migration 0254
 retains authenticated capture receipts. These require an operator-qualified
 schema upgrade under D135 before image promotion. The release now contains
-258 regular files, so the bounded archive inventory increases from 256 to 512;
+259 regular files, within the 512-file archive inventory of D391;
 byte/path/type/hash limits remain unchanged. Qualify and install the matching
 operator archive reader before admission; this does not authorize automatic
 schema changes.
@@ -4567,7 +4807,7 @@ owned PostgreSQL/HTTP capture, concurrency and revocation checks, and browser
 visibility and lost-response recovery checks. This does not implement futures
 variation margin, exercise, delivery, cash lifecycle or economic horizon risk.
 
-## D392 · Shared lifecycle, ownership and economic horizon risk
+## D394 · Shared lifecycle, ownership and economic horizon risk
 
 Owner-directed, 2026-11-13. Adopt the [shared lifecycle delivery contract](lifecycle-delivery.md).
 Product-owned pure rules compose existing Instrument/Side and native typed stores;

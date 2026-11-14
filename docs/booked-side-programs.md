@@ -336,7 +336,7 @@ booking commands are incompatible with the new publication contract, so an
 image-only rollback is not a qualified recovery plan.
 
 The release reader admits migration inventories plus four envelope files
-within a 256-file cap, and refuses the 257th file before writing its body.
+within a 512-file cap, and refuses the 513th file before writing its body.
 The installed operator is not updated by an application release: qualify and install the matching
 `release_bundle.py` during the operator window. Stop the deployment timer before
 publishing the schema release to avoid quarantining its head; promote the exact

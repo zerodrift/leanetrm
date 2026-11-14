@@ -25,6 +25,7 @@ public static partial class RecipeEngine
         ["lookup"]=new Dictionary<string,string>{{"values","panel"},{"dates","dates"}}.ToImmutableDictionary(),
         ["splice"]=new Dictionary<string,string>{{"before","panel"},{"after","panel"}}.ToImmutableDictionary(),
         [PowerIntervals]=new Dictionary<string,string>{{"peak","source"},{"offPeak","source"}}.ToImmutableDictionary(),
+        [ContractObservations]=new Dictionary<string,string>{{"source","source"}}.ToImmutableDictionary(),
         ["mean"]=new Dictionary<string,string>{{"values","panel"}}.ToImmutableDictionary(),
         ["output"]=new Dictionary<string,string>{{"values","panel"}}.ToImmutableDictionary()
     }.ToImmutableDictionary();
@@ -56,8 +57,10 @@ public static partial class RecipeEngine
             foreach(var (port,id) in node.Inputs)
             {
                 if(!nodes.TryGetValue(id,out var upstream))throw Invalid($"Node {node.Id} refers to a missing input.");
-                var type=upstream.Kind switch{"sample" or "mean" or "published_source" or "weighted_panels" or "lookup" or "splice"=>"panel","select" or "weighted_contracts"=>"selection",_=>upstream.Kind};
+                var type=upstream.Kind switch{"sample" or "mean" or "published_source" or "weighted_panels" or "lookup" or "splice" or ContractObservations=>"panel","select" or "weighted_contracts"=>"selection",_=>upstream.Kind};
                 if(type!=ports[port])throw Invalid($"Port {port} on {node.Id} requires {ports[port]}.");
+                if(upstream.Kind==ContractObservations&&node.Kind is not ("weighted_panels" or "output"))
+                    throw Invalid("Contract observation cells feed only a curve combination or the output.");
             }
             switch(node.Kind)
             {
@@ -76,6 +79,7 @@ public static partial class RecipeEngine
                 case "lookup":_=LookupSettings(node);break;
                 case "splice":_=SpliceRange(node);break;
                 case PowerIntervals:_=PowerIntervalSettings(node);break;
+                case ContractObservations:_=ObservationSettings(node);break;
                 case "mean":if(Required(node,"axis") is not ("dates" or "contracts"))throw Invalid("Choose the averaging axis explicitly.");break;
                 case "weighted_panels":
                     if(Required(node,"alignment")!=ExactDeliveryAlignment||Required(node,"aggregation") is not(SignedSum or WeightedMean)||
@@ -103,6 +107,7 @@ public static partial class RecipeEngine
             }
             if(!weighted&&!node.ContractWeights.IsDefaultOrEmpty)throw Invalid("Contract weights belong only to the explicit weighted mapping operator.");
             if(!panels&&!node.PanelWeights.IsDefaultOrEmpty)throw Invalid("Curve weights belong only to the computed-curve combination operator.");
+            if(node.Kind!=ContractObservations&&!node.ObservationTerms.IsDefaultOrEmpty)throw Invalid("Observation terms belong only to the contract observation operator.");
             if(node.Kind!="published_source"&&node.PublishedSource is not null)throw Invalid("A published source binding belongs only to its published-source operator.");
             string[] parameters=node.Kind switch
             {
@@ -110,7 +115,7 @@ public static partial class RecipeEngine
                 "dates"=>["mode","sampling","corrections","count","includeContext","calendar","schedule","first","from","to"],
                 "lookup"=>["axis","method","maxGapDays","leftBoundary","rightBoundary","implementation","output"],
                 "splice"=>["from","cutover","to","implementation"],
-                PowerIntervals=>PowerIntervalParameters.ToArray(),
+                PowerIntervals=>PowerIntervalParameters.ToArray(),ContractObservations=>ObservationParametersOf(node).ToArray(),
                 "mean"=>["axis"],"weighted_contracts"=>["aggregation"],"weighted_panels"=>["alignment","aggregation"],"published_source"=>["selection"],_=>[]
             };
             if(node.Parameters.Keys.Any(key=>!parameters.Contains(key,StringComparer.Ordinal)))throw Invalid($"Node {node.Id} contains an unsupported or conflicting parameter.");
@@ -151,7 +156,7 @@ public static partial class RecipeEngine
     private static string Required(RecipeNode node,string key)=>node.Parameters.TryGetValue(key,out var value)&&!string.IsNullOrWhiteSpace(value)?value:throw Invalid($"Node {node.Id} requires {key}.");
     private static int Number(RecipeNode node,string key,int min,int max)=>int.TryParse(Required(node,key),NumberStyles.None,CultureInfo.InvariantCulture,out var value)&&value>=min&&value<=max?value:throw Invalid($"Node {node.Id} requires {key} between {min} and {max}.");
     private static bool Identity(string? value)=>value is {Length:>0 and <=32}&&value[0] is >= 'a' and <= 'z'&&value.All(c=>c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_');
-    internal sealed record SampleKey(CurveKey Source,DateOnly Date,ContractKey Contract);
+    internal sealed record SampleKey(CurveKey Source,DateOnly Date,ContractKey Contract,bool FreezeObservation=false);
     internal sealed record CellFormula(string Node,int Index,SampleKey? Sample,ImmutableArray<CellFormula> Inputs,ImmutableArray<ExactDecimal> Weights,string Aggregation,CurvePointKey? PublishedPoint=null);
     internal sealed record Cell(int Position,ImmutableArray<DateOnly> Dates,DateOnly ObservationDate,PriceUnit Unit,ImmutableArray<SampleKey> Inputs,CellFormula Formula,
         DateOnly DeliveryFrom,DateOnly DeliveryTo);
@@ -163,15 +168,16 @@ public static partial class RecipeEngine
         cancellation.ThrowIfCancellationRequested();Validate(definition);
         if(inputs.ValuationAt.Offset!=TimeSpan.Zero||inputs.ContextDate!=DateOnly.FromDateTime(inputs.ValuationAt.UtcDateTime)||
             !definition.Nodes.Where(n=>n.Kind=="source").Select(n=>n.Id).ToHashSet().SetEquals(inputs.Sources.Keys)||
-            !definition.Nodes.Where(n=>n.Kind=="dates").Select(n=>n.Id).ToHashSet().SetEquals(inputs.Dates.Keys))
-            throw Missing("Supply exact source/date bindings and a coherent UTC valuation context.");
+            !definition.Nodes.Where(n=>n.Kind=="dates").Select(n=>n.Id).ToHashSet().SetEquals(inputs.Dates.Keys)||
+            inputs.Windows is null||!definition.Nodes.Where(n=>n.Kind==ContractObservations).Select(n=>n.Id).ToHashSet().SetEquals(inputs.Windows.Keys))
+            throw Missing("Supply exact source/date/observation-window bindings and a coherent UTC valuation context.");
         var nodes=definition.Nodes.ToDictionary(n=>n.Id);var cache=new Dictionary<string,object>();
-        var available=samples.ToDictionary(s=>new SampleKey(s.Source,s.Date,s.Contract));var work=0;
+        var available=samples.ToDictionary(s=>new SampleKey(s.Source,s.Date,s.Contract,s.FreezeObservation));var work=0;
         foreach(var node in definition.Nodes.Where(n=>n.Kind=="source"))ValidateSource(node,inputs.Sources[node.Id]);
-        Cell Leaf(string node,int index,string sourceNode,DateOnly date,RecipeContract contract,int position,DateOnly displayDate,DateTimeOffset at)
+        Cell Leaf(string node,int index,string sourceNode,DateOnly date,RecipeContract contract,int position,DateOnly displayDate,DateTimeOffset at,bool freezeObservation=false)
         {
             cancellation.ThrowIfCancellationRequested();if(++work>50000)throw Missing("The recipe exceeds its 50,000-sample preparation limit.");
-            var source=inputs.Sources[sourceNode];var key=new SampleKey(source.Key,date,contract.Contract.Key);
+            var source=inputs.Sources[sourceNode];var key=new SampleKey(source.Key,date,contract.Contract.Key,freezeObservation);
             if(demand is null&&(!available.TryGetValue(key,out var sample)||sample.Snapshot.ValuationAt!=at||contract.EligibleFrom>at||contract.Contract.Expiry<=at&&sample.PriceTerms is null))
                 throw Missing("A required exact live contract sample is absent or ineligible at its sampling instant.");
             return new(position,[displayDate],date,source.Unit,[key],new(node,index,key,[],[],SignedSum),contract.Contract.DeliveryFrom,contract.Contract.DeliveryTo);
@@ -261,6 +267,7 @@ public static partial class RecipeEngine
                     result=CombinePanels(node,node.Inputs.ToDictionary(p=>p.Key,p=>(Panel)Node(p.Value)),inputs.ContextDate,cancellation,ref work);break;
                 case "splice":
                     result=SplicePanels(node,(Panel)Node(node.Inputs["before"]),(Panel)Node(node.Inputs["after"]),cancellation);break;
+                case ContractObservations:result=ObservationPanel(node,inputs,Leaf,At);break;
                 case "output":result=Node(node.Inputs["values"]);break;
                 default:throw Invalid("Unsupported node.");
             }

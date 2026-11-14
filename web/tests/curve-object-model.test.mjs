@@ -46,3 +46,15 @@ test('spliced product curves and power lookups are displayed as result curves',(
   const item=curveObjects(d).nodes.find(n=>n.node.id==='operation');assert.equal(item.role,'result');assert.equal(curveObjectTitle(item,d,[],[]),'Result curve');
  }
 });
+test('a contract observation node is a result curve whose incoming connection carries the operator label',()=>{
+ const d={code:'synthetic',name:'Synthetic formula',output:'result',nodes:[
+  {id:'source',kind:'source',parameters:{curve:'synthetic_future'},inputs:{}},
+  {id:'crude',kind:'contract_observations',parameters:{},inputs:{source:'source'},observationTerms:[]},
+  {id:'total',kind:'weighted_panels',parameters:{},inputs:{formula:'crude'},panelWeights:[{sourcePort:'formula',weight:'1'}]},
+  {id:'result',kind:'output',parameters:{},inputs:{values:'total'}}]};
+ const view=curveObjects(d),item=view.nodes.find(n=>n.node.id==='crude');
+ assert.equal(item.role,'result');assert.equal(curveObjectTitle(item,d,[],[]),'Result curve');
+ const into=view.connections.find(c=>c.target==='crude');
+ assert.equal(curveConnectionLabel(d,into,[{kind:'contract_observations',label:'Contract observations'}]),'Contract observations');
+ assert.equal(curveConnectionLabel(d,view.connections.find(c=>c.source==='crude'),[]),'Weight 1');
+});

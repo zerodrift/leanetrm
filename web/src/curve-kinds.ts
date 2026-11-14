@@ -2,7 +2,7 @@
 // icon on the kind's colour (app.css, --kind-<code>) named by its label. An unknown code means the contract is broken: it throws, never
 // becomes a fallback badge.
 export const kindsVersion='curve_kinds_v1';
-export type CurveKind='market_settlement'|'trader_mark'|'interest_rate'|'basis_spread'|'scaled'|'weighted_blend'|'rolling_average'|'balance_of_month'|'prompt_contract'|'custom';
+export type CurveKind='market_settlement'|'trader_mark'|'interest_rate'|'basis_spread'|'scaled'|'weighted_blend'|'rolling_average'|'balance_of_month'|'prompt_contract'|'observation_formula'|'custom';
 
 type Shape=readonly ['path'|'circle'|'rect',Readonly<Record<string,string>>];
 const line=(d:string,extra:Record<string,string>={}):Shape=>['path',{d,...extra}];
@@ -18,13 +18,14 @@ const kinds:Readonly<Record<CurveKind,{label:string;icon:readonly Shape[]}>>={
  rolling_average:{label:'Rolling history average',icon:[line('M3 13l3-4 3 3 3-5 2 2M16 3v4h-2'),line('M3 16h14',{'stroke-dasharray':'2 2'})]},
  balance_of_month:{label:'Balance-of-month average',icon:[['rect',{x:'3',y:'4',width:'14',height:'13',rx:'2'}],line('M3 8h14M10 11h5M10 14h5')]},
  prompt_contract:{label:'Prompt / rolling contract',icon:[line('M15.5 6.5A6.5 6.5 0 1 0 16.5 11M16 2.5V7h-4.5')]},
+ observation_formula:{label:'Observation formula',icon:[line('M5 15V9M9 15V5M13 15V8M3 16h14'),line('M3 7h14',{'stroke-dasharray':'2 2'})]},
  custom:{label:'Custom graph',icon:[dot(5,5,2),dot(5,15,2),dot(15,10,2),line('M6.8 5.9l6.4 3.2M6.8 14.1l6.4-3.2')]},
 };
 /** The kinds as the pages group them: curves from the market, curves related to another by a rule, and custom graphs. */
 export const kindGroups:readonly {label:string;kinds:readonly CurveKind[]}[]=[
  {label:'Source curves',kinds:['market_settlement','trader_mark','interest_rate']},
  {label:'Relationships',kinds:['basis_spread','scaled']},
- {label:'Synthetic',kinds:['weighted_blend','rolling_average','balance_of_month','prompt_contract','custom']},
+ {label:'Synthetic',kinds:['weighted_blend','rolling_average','balance_of_month','prompt_contract','observation_formula','custom']},
 ];
 export const isCurveKind=(value:unknown):value is CurveKind=>typeof value==='string'&&Object.hasOwn(kinds,value);
 function known(kind:CurveKind){if(!isCurveKind(kind))throw Error('Unknown curve kind');return kinds[kind];}
