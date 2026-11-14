@@ -2,7 +2,7 @@ import {crudeChoices,crudeSelection,crudeReferenceFields,standardTemperature,typ
 import type {ClockRow} from './market-view.js';
 import {zonedInput} from './user-time.js';
 import {displayExactInstant} from './market-view.js';
-import {decorateSideCard,sideAddButton} from './side-card.js';
+import {decorateSideCard,sideAddButton,alignSideCard,prepareSideDeck} from './side-card.js';
 import {PendingCommand,actorTransport,type RequestCommand} from './pending-command.js';
 import {crudeClockHint,crudeConvention,crudePreview,crudeRequest,restoreCrudeCommand,type CrudeProfile,type CrudeFields,type CrudeValue} from './physical-crude-model.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
@@ -48,6 +48,11 @@ export function setupPhysicalCrude(o:{api:Api;act:(work:()=>Promise<void>)=>Prom
  const addFee=sideAddButton('Handling fee',()=>{if(o.busy()||pending.command||o.historical()||!catalog)return;input('crude-fee-mode').value='per_unit';invalidate();});addFee.id='crude-add-fee';
  const removeFee=document.createElement('button');removeFee.type='button';removeFee.id='crude-remove-fee';removeFee.className='text-button';removeFee.textContent='Remove fee side';removeFee.onclick=()=>{if(o.busy()||pending.command||o.historical()||!catalog)return;input('crude-fee-mode').value='none';input('crude-fee').value='';input('crude-fee-direction').value='';invalidate();sync();};sideCards[2].append(removeFee);
  sideAdder.append(addTitle,feeTerms,addFee);sideDeck.append(sideAdder);
+ const row=(...ids:string[])=>ids.map(id=>input('crude-'+id).closest('label')!);
+ alignSideCard(sideCards[0],{direction:row('direction'),start:row('from'),end:row('to'),product:[sideFields[0]],quantity:row('quantity')});
+ alignSideCard(sideCards[1],{direction:row('cash-direction'),price:row('price'),payment:row('payment')});
+ alignSideCard(sideCards[2],{direction:row('fee-direction'),price:row('fee')});prepareSideDeck(sideDeck);
+ sideDeck.parentElement!.after(input('crude-book').closest('fieldset')!);
  let resolved:Assignment|undefined,referenceEpoch=0;
  let catalog:Catalog|undefined,reviewed:Record<string,unknown>|undefined,epoch=0,dirty=false,owner=o.actor(),shownValue:{value:Value;title:string;terms?:Record<string,unknown>}|undefined,directoryRows:DirectoryRow[]|undefined;
  const pending=new PendingCommand(code=>!!code&&['crude_setup_conflict','crude_setup_input','crude_setup_compatibility','crude_setup_coverage','crude_setup_market_scope','crude_input','crude_reference_input','crude_delivery_relationship_missing','crude_price_mapping_missing','crude_price_mapping_ambiguous','crude_price_mapping_coverage','crude_definition','crude_profile','trade_party','access_denied','request_format'].includes(code));

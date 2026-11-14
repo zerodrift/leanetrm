@@ -701,7 +701,7 @@ body .tabulator-popup-container{border:1px solid var(--border-strong);background
    the cards, and the schedule panel. The ticket lays out by its container's width: at 640px or less the cards stack and side chips jump
    between them. */
 .deal-ticket{container-type:inline-size;display:flex;flex-direction:column;gap:14px;font-size:13px}
-.deal-ticket :is(.ticket-strip,.ticket-schedule,.ticket-foot){background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px}
+.deal-ticket :is(.ticket-strip,.ticket-ownership,.ticket-schedule,.ticket-foot){background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px}
 .ticket-strip{display:flex;flex-direction:column;align-items:stretch;gap:14px}
 .ticket-strip>.ticket-title{display:flex;flex-direction:column;gap:2px;flex:none}
 .ticket-state{font-size:14px;font-weight:650;color:var(--text)}
@@ -1505,10 +1505,10 @@ body.assistant-open.assistant-overlay main{margin-right:0}
 #ppa-page .ppa-pricing-summary th,#ppa-page .ppa-pricing-summary td { white-space:normal; overflow-wrap:anywhere; width:50%; }
 
 /* Trade → instrument → side hierarchy. */
-.instrument-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0 22px}.instrument-choices button{display:flex;flex-direction:column;align-items:flex-start;gap:9px;padding:20px;text-align:left;border:1px solid var(--border-strong);border-radius:12px;background:var(--surface);color:var(--text);box-shadow:0 2px 5px var(--shade)}.instrument-choices button>span:last-child{font-size:12px;line-height:1.6;font-weight:400;color:var(--text-3)}.instrument-choices button:hover{background:var(--surface-3);border-color:var(--border-hover)}.instrument-choices button[aria-pressed=true]{border:2px solid var(--accent);padding:19px;background:var(--accent-soft);box-shadow:0 0 0 3px var(--accent-soft)}.instrument-choices button:focus-visible{outline:3px solid var(--focus);outline-offset:3px}.choice-symbol{font-size:28px;color:var(--accent-text)}.choice-diagram{display:flex;align-items:center;gap:10px;margin-bottom:7px;width:100%}.choice-diagram b{background:var(--surface-3);padding:7px 12px;border:1px solid var(--border);border-radius:5px;font-size:11px;font-weight:500}.entry-section-heading{display:flex;align-items:center;gap:12px;margin:24px 0 10px}.entry-section-heading h3{margin:3px 0;font-size:18px}.entry-step{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--surface-3);color:var(--text-2);font-size:12px;font-weight:600}.swap-sides .swap-commodity{margin:0}.swap-sides .swap-commodity select{min-width:0}.swap-sides .swap-commodity p{font-size:11px;min-height:0;margin-top:8px}#swap-template-note{padding:12px 15px;background:var(--surface-2);border-radius:7px}.fixed-side-description .eyebrow{color:var(--text-3)}
+.instrument-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0 22px}.instrument-choices button{display:flex;flex-direction:column;align-items:flex-start;gap:9px;padding:20px;text-align:left;border:1px solid var(--border-strong);border-radius:12px;background:var(--surface);color:var(--text);box-shadow:0 2px 5px var(--shade)}.instrument-choices button>span:last-child{font-size:12px;line-height:1.6;font-weight:400;color:var(--text-3)}.instrument-choices button:hover{background:var(--surface-3);border-color:var(--border-hover)}.instrument-choices button[aria-pressed=true]{border:2px solid var(--accent);padding:19px;background:var(--accent-soft);box-shadow:0 0 0 3px var(--accent-soft)}.instrument-choices button:focus-visible{outline:3px solid var(--focus);outline-offset:3px}.choice-symbol{font-size:28px;color:var(--accent-text)}.choice-diagram{display:flex;align-items:center;gap:10px;margin-bottom:7px;width:100%}.choice-diagram b{background:var(--surface-3);padding:7px 12px;border:1px solid var(--border);border-radius:5px;font-size:11px;font-weight:500}.entry-section-heading{display:flex;align-items:center;gap:12px;margin:24px 0 10px}.entry-section-heading h3{margin:3px 0;font-size:18px}.swap-sides .swap-commodity{margin:0}.swap-sides .swap-commodity select{min-width:0}.swap-sides .swap-commodity p{font-size:11px;min-height:0;margin-top:8px}#swap-template-note{padding:12px 15px;background:var(--surface-2);border-radius:7px}.fixed-side-description .eyebrow{color:var(--text-3)}
 @media(max-width:600px){.instrument-choices{grid-template-columns:1fr}.choice-diagram{width:auto}.instrument-choices button{gap:6px;padding:15px}.instrument-choices button[aria-pressed=true]{padding:14px}}
 
-#swap-trade-terms>h3{display:flex;align-items:center;gap:12px;font-size:18px}#swap-trade-terms>h3::before{content:"01";display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--surface-3);color:var(--text-2);font-size:12px;font-weight:600}
+#swap-trade-terms>h3{font-size:18px}
 
 .available-date-picker{position:relative;min-width:0}
 .available-date-calendar{position:absolute;z-index:40;top:100%;left:0;width:min(21rem,calc(100vw - 2rem));padding:.75rem;background:var(--surface);border:1px solid var(--border);border-radius:.5rem;box-shadow:0 8px 24px var(--shade)}
@@ -2193,7 +2193,8 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 }
 
 /* Side cards share the gas ticket presentation; native operations own their terms. */
-.entry-side-deck{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px;align-items:stretch;container-type:inline-size}
+.side-comparison{container:side-comparison / inline-size;min-width:0;max-width:100%}
+.side-comparison>.entry-side-deck{display:grid;grid-template-columns:none;grid-auto-columns:minmax(260px,1fr);grid-auto-flow:column;grid-template-rows:repeat(10,auto) repeat(var(--side-period-rows,1),auto) auto;gap:0 16px;align-items:stretch;overflow-x:auto;padding-bottom:4px}
 .entry-side-deck>[hidden]{display:none!important}
 .entry-side-deck>.ticket-add,.entry-side-card{grid-row:auto}
 .entry-side-card{display:flex;flex-direction:column;gap:14px;min-width:0;padding:0 0 16px;cursor:default;background:var(--surface);border-top:4px solid var(--side-colour)}
@@ -2214,6 +2215,21 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .entry-side-card .ticket-card-head h3{margin:0;font-size:15px;white-space:normal}
 .entry-side-card .ticket-pill{max-width:45%;white-space:normal}
 .entry-side-card>button{align-self:flex-start;margin:0 14px}
+.entry-side-deck .aligned-side-card{display:grid;grid-row:1 / -1;grid-template-rows:subgrid;row-gap:0;align-content:start}
+.aligned-side-card>.ticket-card-head{grid-row:1}
+.aligned-side-card>.entry-side-row{grid-row:var(--side-row);display:flex;flex-direction:column;gap:14px;padding:7px 0;align-self:stretch}
+.aligned-side-card>.entry-side-details{grid-row:calc(11 + var(--side-period-rows,1));display:flex;flex-direction:column;gap:14px;padding:7px 0}
+.aligned-side-card>.entry-side-row[data-side-row=periods]{grid-row:11 / span var(--side-period-rows,1);display:grid;grid-template-rows:subgrid;row-gap:0;padding:0}
+.scheduled-periods{display:grid;grid-row:1 / -1;grid-template-rows:subgrid;row-gap:0}
+#scheduled-swap-editor .scheduled-period{display:grid;grid-row:var(--period-row) / span 5;grid-template-rows:subgrid;row-gap:14px;margin:10px 0;padding:14px}
+.scheduled-period>h4{margin:0}
+.scheduled-period>:nth-child(2){grid-row:2}.scheduled-period>:nth-child(3){grid-row:3}.scheduled-period-price{grid-row:4}.scheduled-period>fieldset{grid-row:5}
+.aligned-side-card :is(section,fieldset,.schedule-fields):empty,.aligned-side-card fieldset:not(:has(input,select,textarea,button,p,dl)){display:none}
+.aligned-side-card .schedule-fields,#side-panel .entry-side-card .schedule-fields{grid-template-columns:minmax(0,1fr)}
+.entry-side-row>:is(label,div,fieldset,section){min-width:0}
+.entry-side-row>label:has(input,select,textarea){display:flex;flex-direction:column;gap:6px}
+.entry-side-row :is(input,select,textarea){min-width:0;max-width:100%}
+.side-comparison>.entry-side-deck>.ticket-add{grid-row:13;grid-column:1 / -1;margin-top:16px}
 .ppa-component.entry-side-card>h4{font-size:13px}
 #ppa-ticket>.schedule-actions{position:static}
 #ppa-ticket .entry-section{margin:0 0 22px;padding:0;border:0;min-width:0}
@@ -2230,7 +2246,14 @@ body.assistant-open.assistant-overlay main .floating-context{display:none}
 .futures-market-price{display:flex;flex-direction:column;gap:7px;margin:14px 0;padding:14px 16px;border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:var(--radius);background:var(--surface-2);font-variant-numeric:tabular-nums}
 .futures-market-price>span{font-size:22px;font-weight:650}
 .futures-market-price>small{color:var(--text-2);line-height:1.6}
-@media(max-width:639px){.entry-side-deck{grid-template-columns:minmax(0,1fr)}.entry-side-card{width:100%}.swap-side-adder,.scheduled-side-adder{flex-direction:column;align-items:stretch}}
+@container side-comparison (max-width:599px){
+ .side-comparison>.entry-side-deck{display:flex;flex-direction:column;gap:16px;overflow:visible}
+ .entry-side-deck .aligned-side-card{display:flex;flex-direction:column;width:100%}
+ .aligned-side-card>.entry-side-row[data-side-row=periods],.scheduled-periods,#scheduled-swap-editor .scheduled-period{display:flex;flex-direction:column}
+ .entry-side-deck>.ticket-add{margin-top:0}
+ .entry-side-row:empty,.entry-side-details:empty{display:none}
+}
+@media(max-width:639px){.swap-side-adder,.scheduled-side-adder{flex-direction:column;align-items:stretch}}
 
 /* The trade panel supplies the outer frame; native tickets keep only side cards. */
 #ppa-page.embedded-trade>.card:first-child,#ppa-page.embedded-trade>#ppa-ticket,

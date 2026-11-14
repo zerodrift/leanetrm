@@ -723,6 +723,41 @@ source/plan head identifiers. Changing another target's allocation alone does no
 change this response. This operational plan stays separate from direct daily
 quantity inputs and contractual billing/valuation.
 
+## Aligned side entry
+
+Native swap, scheduled swap, PPA, crude and LNG entry cards use shared comparison
+rows for direction, dates, quantity, pricing and payment terms. Matching dated
+periods in scheduled swaps align across sides even when their contract ranges
+differ. The existing described gas ticket retains its common field bands.
+Wide panels place sides alongside each other; panels narrower than 600 pixels
+stack native cards, preserving their controls and entries. Additional sides can
+scroll horizontally without compressing their fields.
+
+### One holiday calendar per side (D397)
+
+Swap and PPA entry has one holiday-calendar selector on each side. It supplies
+every owned observation, delivery-quantity and payment rule that consumes a
+calendar, across all periods. Sides retain independent selections. All-days
+observations, all-hours swap delivery and unadjusted calendar-day payments keep
+their existing rules and omit unused calendar inputs. Explicit physical payment
+instants and fixed unadjusted gas payment rules gain no inferred adjustment.
+
+The editor restores a common saved calendar only when all consumed calendars
+agree. Mixed or unavailable saved calendars remain visible and require an
+explicit choice before preview. Exact reference revisions distinguish calendars
+with the same code. Calendar changes invalidate observation qualification;
+copying period terms cannot replace the side selection. PPA profile inputs are
+copied per owning side, while linked quantities continue to follow their source
+side. The backend retains its existing explicit schedule inputs and validation;
+historical mixed-calendar contracts remain readable without migration.
+
+Booking is an open form. All supported instrument types are discoverable before
+ownership or counterparties are entered. Instrument terms precede ownership and
+parties, with prerequisite market and reference selectors ahead of dependent
+inputs. Described gas tickets keep their pricing setup above the sides and order
+side details by their declared field dependencies. Required choices, validation,
+authorization and protection of pending submissions still apply.
+
 ## Indexed consideration and refreshed entry fields
 
 D350 adds **Index payment**, an independent existing FloatingSide linked to one

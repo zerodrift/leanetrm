@@ -1,3 +1,4 @@
+import {sideCalendar,calendarKey,referenceCalendarChoices,savedCalendarCode,type SideCalendar} from './side-calendar.js';
 import {sideOffers,sideStructure,type SideStructure} from './swap-side-composer.js';
 import {sideAddButton,sideCardHeader} from './side-card.js';
 import {mountPriceSettlement,type PriceSettlement,type SettlementIndex} from './price-settlement.js';
@@ -32,7 +33,7 @@ import type {SamplingChoice,ObservationInspection,ObservationOptions,Observation
 import type {ContractObservationSource} from './contract-observation-ticket.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 export type Index={settlementIndices:SettlementIndex[];primitiveEntrySupported:boolean;definitionRevisionId:string;curve:string;index:string;commodity:string;currencyCode:string;currency:string;unit:string;quoteMultiplier:string;quantityCode:string;powerQuantitySupported:boolean;quantityChoices:{specification:{code:string};unit:string}[];defaultDiscountCurve:string|null;fixingConvention:'published_index_observations_v1'|null;fixingUnavailableReason:string|null;customProjections:ProjectionChoice[];averaging:string[];samplings:SamplingChoice[];contracts:{deliveryFrom:string;deliveryTo:string}[]};
-export type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];indices:Index[];contractObservationSources?:ContractObservationSource[];priceSourceUnavailable:{code:string;message:string}|null;referenceChoices?:ReferenceChoices[];commodities:{code:string;name:string}[];paymentCalendars:{code:string;definitionRevisionId:string}[];paymentOptions:PaymentOptions;sideStructures:SideStructure[];entryTemplate:{version:string;firstCoefficient:string;spread:string;description:string;payment:PaymentInput};parRateOptions:{implementation:string;initialDecimalPlaces:number;tieRule:string};asOf:string;context:Context;canBook?:boolean;bookingUnavailableReason?:string|null};
+export type Catalog=PartyCatalog&{bookingActor:Trader;books:{id:string;name:string;portfolio:string}[];indices:Index[];contractObservationSources?:ContractObservationSource[];priceSourceUnavailable:{code:string;message:string}|null;referenceChoices?:ReferenceChoices[];commodities:{code:string;name:string}[];paymentCalendars:{code:string;definitionRevisionId:string;reference:import('./swap-observations.js').ReferenceKey}[];paymentOptions:PaymentOptions;sideStructures:SideStructure[];entryTemplate:{version:string;firstCoefficient:string;spread:string;description:string;payment:PaymentInput};parRateOptions:{implementation:string;initialDecimalPlaces:number;tieRule:string};asOf:string;context:Context;canBook?:boolean;bookingUnavailableReason?:string|null};
 export type ReferenceChoices={definitionRevisionId:string;commodities:{code:string;name:string}[];paymentCalendars:{code:string;reference:import('./swap-observations.js').ReferenceKey;from:string;to:string}[];powerQuantities:{specification:import('./swap-observations.js').ReferenceKey;unit:string;commodity:string}[];clocks:{reference:import('./swap-observations.js').ReferenceKey;label:string}[]};
 type FloatingTerms={settlement:PriceSettlement;curve:string;index:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentAt:string|null;paymentSchedule:PaymentInput|null;customProjection?:CustomProjection|null;observationSchedule?:ObservationSchedule;resetFrequency:string;averagingMethod:string;spread:string};
 type Terms={scheduled?:Scheduled|null;swapType:string;firstCoefficient:string|null;firstFloating:FloatingTerms|null;commodity:string;definitionRevisionId:string;bookId:string;executedAt:string;quantity:string;fixedCoefficient:string;discounting:boolean;fixed:{price:string;currency:string;deliveryFrom:string;deliveryTo:string;paymentAt:string|null;paymentSchedule:PaymentInput|null}|null;floating:FloatingTerms};
@@ -362,8 +363,18 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  const samplingRows=(side:string)=>observationOptions[side]?.samplings??selectedIndex(side)?.samplings??sources(side).flatMap(index=>index.samplings);
  // Selected-mode metadata keeps repair controls visible; observations.read independently requires backend admission.
  const selectedSampling=(side:string)=>[...(selectedRequirements[side]?[selectedRequirements[side]!]:[]),...(observationOptions[side]?.samplings??[]),...(selectedIndex(side)?.samplings??sources(side).flatMap(i=>i.samplings))].find(choice=>choice.resetFrequency===field(observationId(side,'reset-frequency')).value&&choice.averagingMethod===field(observationId(side,'averaging')).value);
+ const calendarChoices=(side:string)=>{const index=selectedIndex(side==='first'?'first':'floating');return referenceCalendarChoices(index?(marketReferenceChoices(catalog?.referenceChoices,index.definitionRevisionId)?.paymentCalendars??catalog?.paymentCalendars.filter(c=>c.definitionRevisionId===index.definitionRevisionId)??[]):[]);};
+ const sideCalendars:Record<string,SideCalendar>={};
+ for(const side of ['fixed','first','floating']){
+  const calendar=sideCalendar({id:`swap-${side}-holiday-calendar`,choices:()=>calendarChoices(side),changed:()=>{edits.mark();invalidate();if(side!=='fixed')void options.act(()=>safe(refreshObservations));}});
+  sideCalendars[side]=calendar;
+  const card=get(`swap-${side}-editor`).querySelector<HTMLElement>('.aligned-side-card')!;
+  let row=card.querySelector<HTMLElement>('[data-side-row=product]');
+  if(!row){row=document.createElement('div');row.className='entry-side-row';row.dataset.sideRow='product';row.style.setProperty('--side-row','2');card.querySelector('.ticket-card-head')!.after(row);}
+  row.append(calendar.element);
+ }
  const observations:Record<string,ReturnType<typeof setupSwapObservationControls>>={};
- for(const side of ['floating','first'])observations[side]=setupSwapObservationControls({prefix:side==='first'?'swap-first':'swap',enabled:()=>!!field('swap-type').value&&(side==='floating'||floatingPair()),api:options.api,busy:options.busy,choice:()=>selectedSampling(side),unit:()=>selectedIndex(side)?.unit??'',
+ for(const side of ['floating','first'])observations[side]=setupSwapObservationControls({prefix:side==='first'?'swap-first':'swap',sideCalendar:sideCalendars[side].reference,enabled:()=>!!field('swap-type').value&&(side==='floating'||floatingPair()),api:options.api,busy:options.busy,choice:()=>selectedSampling(side),unit:()=>selectedIndex(side)?.unit??'',
   request:()=>{const i=selectedIndex(side),definition=side==='first'?selectedIndex()??i:i,custom=retainedProjectionChoices(side).find(choice=>JSON.stringify(choice.reference)===field(observationId(side,'price-source')).value);return {context:{...context(),knowledgeMode:'retained',contextId:catalog?.context.contextId},
    ...(definition?{definitionRevisionId:definition.definitionRevisionId}:{}),...(i?{curve:i.curve,settlement:selections[side].selected()}:{}),commodity:field(observationId(side,'commodity')).value||undefined,index:field(observationId(side,'index')).value||undefined,
    resetFrequency:field(observationId(side,'reset-frequency')).value||undefined,averagingMethod:field(observationId(side,'averaging')).value||undefined,
@@ -432,6 +443,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  }
  async function instrumentDraft(){
   const i=selectedIndex();if(!i)throw Error('Choose the exact index and projection curve.');
+  for(const side of activeSides())sideCalendars[side].check();
   if(!field('swap-type').value)throw Error('Choose a swap type.');
   for(const side of activeSides().filter(side=>side!=='fixed')){const choices=sideDateChoices(side);if(!choices.starts.includes(field(`swap-${side}-from`).value)||!choices.ends.includes(field(`swap-${side}-to`).value))throw Error('Choose an available delivery start and end for each side.');}
   if(!floatingPair()&&field('swap-price-mode').value==='par'&&(!field('swap-par-places').value||!Number.isInteger(Number(field('swap-par-places').value))||Number(field('swap-par-places').value)<0||Number(field('swap-par-places').value)>18))throw Error('Choose 0–18 decimal places for the par rate.');
@@ -455,7 +467,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  function sync(){
   const waiting=options.busy()||!!options.pending(),confirmed=get<HTMLInputElement>('swap-confirm').checked;
   settlement.sync();settlementButton.hidden=!detail;settlementButton.disabled=waiting;scheduled.sync();scheduledButton.hidden=!!detail;
-  typeControls();syncDeliveryDates();Object.values(observations).forEach(controls=>controls.sync());Object.values(selections).forEach(controls=>controls.sync());
+  typeControls();syncDeliveryDates();Object.values(sideCalendars).forEach(calendar=>calendar.sync(waiting||!!detail&&!detail.canAmend));Object.values(observations).forEach(controls=>controls.sync());Object.values(selections).forEach(controls=>controls.sync());
   field('swap-type').disabled=options.busy()||!!detail;draft.sync();display.sync();dates.sync();
   get<HTMLFieldSetElement>('swap-fields').disabled=waiting||(!detail?!catalog:!detail.canAmend);
   get<HTMLButtonElement>('swap-preview').disabled=waiting||!field('swap-type').value||(!detail?!catalog?.canBook:!detail.canAmend);
@@ -467,7 +479,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   field('swap-revision').disabled=waiting;get<HTMLButtonElement>('swap-latest').disabled=waiting;
  }
  function reset(){presentationRevision++;settlement.reset();scheduled.reset();resetTicket();}
- function resetTicket(){root.querySelectorAll('.booked-value-note').forEach(note=>note.remove());closeOut.replaceChildren();closeOut.hidden=true;priceSource.clear();quoteUnits.clear();text('swap-template-note','Add the two sides of the swap. Each side keeps its own delivery and payment terms.');pendingSideKinds=[];observationOptions={};Object.values(observations).forEach(controls=>controls.reset());Object.values(selections).forEach(controls=>controls.reset());failedLiveSelection=undefined;display.reset();visibleValuation=undefined;annotations.reset();generation++;shelf.append(root);root.hidden=true;position=undefined;detail=undefined;catalog=undefined;dates.reset();invalidate();get<HTMLFormElement>('swap-form').reset();field('swap-revision').value='';edits.clear();for(const id of ['swap-book','swap-commodity','swap-first-commodity','swap-index','swap-projection','swap-reset-frequency','swap-averaging','swap-fixed-currency','swap-floating-currency','swap-quantity-unit','swap-fixed-payment-calendar','swap-floating-payment-calendar','swap-first-index','swap-first-projection','swap-first-reset-frequency','swap-first-averaging','swap-first-currency','swap-first-payment-calendar','swap-price-source','swap-first-price-source'])field(id).replaceChildren();for(const id of ['swap-reference','swap-mode','swap-unit','swap-price-unit','swap-coverage','swap-projection-note','swap-first-projection-note','swap-pv','swap-effective','swap-error'])text(id,'');get('swap-error').hidden=true;clearSchedules();get('swap-revisions').hidden=true;get('swap-amendment').hidden=true;for(const side of ['fixed','first','floating'])paymentControls(side);typeControls();}
+ function resetTicket(){Object.values(sideCalendars).forEach(calendar=>calendar.reset());root.querySelectorAll('.booked-value-note').forEach(note=>note.remove());closeOut.replaceChildren();closeOut.hidden=true;priceSource.clear();quoteUnits.clear();text('swap-template-note','Add the two sides of the swap. Each side keeps its own delivery and payment terms.');pendingSideKinds=[];observationOptions={};Object.values(observations).forEach(controls=>controls.reset());Object.values(selections).forEach(controls=>controls.reset());failedLiveSelection=undefined;display.reset();visibleValuation=undefined;annotations.reset();generation++;shelf.append(root);root.hidden=true;position=undefined;detail=undefined;catalog=undefined;dates.reset();invalidate();get<HTMLFormElement>('swap-form').reset();field('swap-revision').value='';edits.clear();for(const id of ['swap-book','swap-commodity','swap-first-commodity','swap-index','swap-projection','swap-reset-frequency','swap-averaging','swap-fixed-currency','swap-floating-currency','swap-quantity-unit','swap-first-index','swap-first-projection','swap-first-reset-frequency','swap-first-averaging','swap-first-currency','swap-price-source','swap-first-price-source'])field(id).replaceChildren();for(const id of ['swap-reference','swap-mode','swap-unit','swap-price-unit','swap-coverage','swap-projection-note','swap-first-projection-note','swap-pv','swap-effective','swap-error'])text(id,'');get('swap-error').hidden=true;clearSchedules();get('swap-revisions').hidden=true;get('swap-amendment').hidden=true;for(const side of ['fixed','first','floating'])paymentControls(side);typeControls();}
  async function safe(work:()=>Promise<void>){const started=generation;try{get('swap-error').hidden=true;await work();}catch(error){if(started!==generation)return;text('swap-error',error instanceof Error?error.message:'The financial swap operation failed.');get('swap-error').hidden=false;get('swap-error').scrollIntoView({block:'nearest'});if((error as {code?:string}).code==='access_denied'){reset();options.onDenied();}throw error;}}
  function choose(id:string,rows:{value:string;label:string}[],value='',retained?:string,linked=false){const select=get<HTMLSelectElement>(id);select.replaceChildren(new Option('Choose…',''),...rows.map(r=>new Option(publicText(r.label),r.value)));if(value&&(retained||/-(index|projection|reset-frequency|averaging|price-source)$/.test(id))&&!rows.some(row=>row.value===value)){const option=new Option(publicText(unavailableValueLabel(retained??(id.endsWith('-projection')?projectionKeyLabel(value,curveName):value),!!retained)),value);markUnavailableValue(option,!!retained);select.append(option);}select.value=[...select.options].some(row=>row.value===value)&&value?value:linked?linkedValue(rows.map(row=>row.value)):'';explainUnavailableValue(select);}
  function restoreSelection(id:string,value:string,label:string){
@@ -507,8 +519,6 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   }
   const currencies=[...new Map((i?[i]:sources(side)).map(i=>[i.currencyCode,{value:i.currencyCode,label:i.currency}])).values()];
   for(const slot of side==='first'?['first']:['fixed','floating'])choose(`swap-${slot}-currency`,currencies,field(`swap-${slot}-currency`).value,undefined,true);
-  const calendars=marketReferenceChoices(catalog?.referenceChoices,i?.definitionRevisionId)?.paymentCalendars??catalog?.paymentCalendars??[];
-  for(const slot of side==='first'?['first']:['fixed','floating'])choose(`swap-${slot}-payment-calendar`,calendars.map(c=>({value:c.code,label:friendly(c.code)})),field(`swap-${slot}-payment-calendar`).value);
  }
  function indexControls(side='floating'){
   observationOptions[side]=undefined;choose(observationId(side,'reset-frequency'),[...new Set(sources(side).flatMap(i=>i.samplings.map(s=>s.resetFrequency)))].map(value=>({value,label:friendly(value)})),field(observationId(side,'reset-frequency')).value);projectionControls(side);
@@ -530,7 +540,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   const coefficient=floatingPair()?'swap-first-direction':'swap-direction';
   if(!field(coefficient).value)field(coefficient).value=template.firstCoefficient;
   for(const side of activeSides()){
-   if(['payment-frequency','payment-rule','payment-number','day-basis','short-month','payment-adjustment','payment-calendar'].every(key=>!field(`swap-${side}-${key}`).value))setPayment(side,template.payment);
+   if(['payment-frequency','payment-rule','payment-number','day-basis','short-month','payment-adjustment'].every(key=>!field(`swap-${side}-${key}`).value))setPayment(side,template.payment);
    if(side!=='fixed'&&!field(observationId(side,'spread')).value)field(observationId(side,'spread')).value=template.spread;
   }
   text('swap-template-note',template.description);direction();
@@ -546,8 +556,6 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   text(`swap-${side}-payment-number-label`,lag?'Days after last delivery day':next?'Day of following month':'Rule parameter');
   const number=get<HTMLInputElement>(`swap-${side}-payment-number`);number.disabled=!lag&&!next;number.min=lag?'0':'1';number.max=lag?'366':'31';
   for(const [key,on] of [['day-basis',lag],['short-month',next]] as const){get(`swap-${side}-${key}-field`).hidden=!on;field(`swap-${side}-${key}`).disabled=!on;get<HTMLSelectElement>(`swap-${side}-${key}`).required=on;}
-  const usesCalendar=usesPaymentCalendar(side);
-  get(`swap-${side}-payment-calendar-field`).hidden=!usesCalendar;field(`swap-${side}-payment-calendar`).disabled=!usesCalendar;get<HTMLSelectElement>(`swap-${side}-payment-calendar`).required=usesCalendar;
  }
  function usesPaymentCalendar(side:string){
   const adjustment=field(`swap-${side}-payment-adjustment`).value;
@@ -555,12 +563,11 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
  }
  function paymentInput(side:string):PaymentInput{
   const rule=field(`swap-${side}-payment-rule`).value,lag=rule===PaymentDateRule.DaysAfterPeriodEnd;
-  const adjustment=field(`swap-${side}-payment-adjustment`).value,calendar=usesPaymentCalendar(side)?field(`swap-${side}-payment-calendar`).value:null;
-  if(calendar==='')throw Error('Choose a payment calendar for each side whose business days or date adjustment use one.');
+  const adjustment=field(`swap-${side}-payment-adjustment`).value,calendar=usesPaymentCalendar(side)?sideCalendars[side].code():null;
   return{frequency:field(`swap-${side}-payment-frequency`).value,rule,days:lag?Number(field(`swap-${side}-payment-number`).value):null,dayOfMonth:lag?null:Number(field(`swap-${side}-payment-number`).value),dayBasis:lag?field(`swap-${side}-day-basis`).value:null,shortMonth:lag?null:field(`swap-${side}-short-month`).value,adjustment,calendar,implementation:catalog!.paymentOptions.implementation} as PaymentInput;
  }
  function setPayment(side:string,value:PaymentInput|null){
-  for(const [id,v] of [['payment-frequency',value?.frequency],['payment-rule',value?.rule],['payment-number',value?.days??value?.dayOfMonth],['day-basis',value?.dayBasis],['short-month',value?.shortMonth],['payment-adjustment',value?.adjustment],['payment-calendar',value?.calendar]])field(`swap-${side}-${id}`).value=v===null||v===undefined?'':String(v);
+  for(const [id,v] of [['payment-frequency',value?.frequency],['payment-rule',value?.rule],['payment-number',value?.days??value?.dayOfMonth],['day-basis',value?.dayBasis],['short-month',value?.shortMonth],['payment-adjustment',value?.adjustment]])field(`swap-${side}-${id}`).value=v===null||v===undefined?'':String(v);
   paymentControls(side);
  }
  function valuation(value:Valuation){
@@ -589,6 +596,7 @@ export function setupSwapEditor(options:{api:Api;act:(work:()=>Promise<void>)=>P
   }
   if(t.fixed){field('swap-price').value=t.fixed.price;field('swap-price-mode').value='agreed';}
   for(const side of activeSides()){const terms=side==='first'?t.firstFloating!:side==='fixed'?t.fixed!:t.floating;field(`swap-${side}-currency`).value=terms.currency;field(`swap-${side}-from`).value=terms.deliveryFrom;field(`swap-${side}-to`).value=terms.deliveryTo;setPayment(side,terms.paymentSchedule);}
+  for(const side of activeSides()){const terms=side==='first'?t.firstFloating!:side==='fixed'?t.fixed!:t.floating;const observation=side==='fixed'?null:(side==='first'?t.firstFloating:t.floating)?.observationSchedule?.calendar;sideCalendars[side].restore([savedCalendarCode(terms.paymentSchedule?.calendar,calendarChoices(side)),observation?calendarKey(observation):null]);}
   field('swap-discounting').value=t.discounting?Discounting.CurrencyDefault:Discounting.None;direction();
  }
  /**

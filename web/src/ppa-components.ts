@@ -1,9 +1,10 @@
+import {sideCalendar} from './side-calendar.js';
 import {ppaQuantityEditor} from './ppa-quantity-editor.js';
 import {componentQuantity} from './ppa-view.js';
 import {friendly} from './market-view.js';
 import type {Catalog,Member,Quantity,Side,Template,DataRow,PriceSettlement,Slot} from './ppa-contract.js';
 import type {PaymentInput} from './swap-contract.js';
-import {decorateSideCard} from './side-card.js';
+import {decorateSideCard,alignSideCard} from './side-card.js';
 import {ppaSideLabel,ppaSideName,quantityChoices} from './ppa-side-label.js';
 export const code=(r:DataRow,key='code')=>String(r[key]??'');
 export const choices=(rows:DataRow[])=>rows.map(r=>({value:code(r),label:code(r,'name')||friendly(code(r))}));
@@ -53,7 +54,7 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  <label data-section="lag">Day basis<select data-field="day-basis"></select></label>
  <label data-section="next">Short month<select data-field="short-month"></select></label>
  <label>Adjustment<select data-field="adjustment"></select></label>
- <label data-section="calendar">Payment calendar<select data-field="payment-calendar"></select></label></div>`;
+</div>`;
  const field=(name:string)=>host.querySelector<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>(`[data-field="${name}"]`)!;
  const value=(name:string)=>{const v=field(name).value;if(!v)throw Error(`Complete ${ppaSideLabel(template.role)}: ${friendly(name)}.`);return v;};
  host.querySelector('h3')!.textContent=ppaSideLabel(template.role);
@@ -72,19 +73,27 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  for(const [name,values] of [['basis',policies.escalationBases],['eligibility',policies.certificateEligibility],['holding',policies.certificateHolding],['disposition',policies.certificateDisposition],['capacity-rule',policies.capacityRules]] as const)enums(name,values);
  const pay=catalog.paymentOptions;
  for(const [name,rows] of [['frequency',pay.frequencies],['payment-rule',pay.rules],['day-basis',pay.dayBases],['short-month',pay.shortMonths],['adjustment',pay.adjustments]] as const)pick(name,rows);
- pick('payment-calendar',choices(catalog.references.calendars));
- const sideQuantity=composition?ppaQuantityEditor(host,catalog,template,prefix,composition.delivery,composition.links,initial?.side.quantity):undefined;
- function sync(busy=false){sideQuantity?.sync(busy);
+ const calendar=sideCalendar({id:prefix+'-holiday-calendar',choices:()=>choices(catalog.references.calendars),changed});
+ calendar.restore([initial?.side.paymentRule.calendar,initial?.side.quantity.kind==='profile'?initial.side.quantity.hours?.calendar:null]);
+ const sideQuantity=composition?ppaQuantityEditor(host,catalog,template,prefix,composition.delivery,composition.links,initial?.side.quantity,calendar.code):undefined;
+ const [terms,payment]=host.querySelectorAll<HTMLElement>(':scope>.schedule-fields');
+ const row=(name:string)=>field(name).closest('label')!;
+ alignSideCard(host,{direction:[row('coefficient')],product:[row('side-kind'),row('location'),calendar.element],
+  quantity:[...host.querySelectorAll<HTMLElement>('.ppa-side-quantity'),row('quantity-choice'),host.querySelector<HTMLElement>('.ppa-retained-quantity')!],
+  price:[terms],payment:[host.querySelector<HTMLElement>('h4')!,payment]});
+ function sync(busy=false){calendar.sync(busy);sideQuantity?.sync(busy);
   const kind=field('side-kind').value,price=field('price-kind').value,rule=field('payment-rule').value;
-  const active:Record<string,boolean>={'quantity-choice':!composition&&!!initial&&!template.linkedSlots.length,location:kind==='energy',fixed:kind==='fixed',priced:kind==='fixed'||kind==='indexed',flat:kind==='fixed'&&price==='flat',escalated:kind==='fixed'&&price==='escalated',stepped:kind==='fixed'&&price==='stepped',indexed:kind==='indexed',attribute:kind==='certificate'||kind==='capacity',certificate:kind==='certificate',capacity:kind==='capacity',lag:rule==='days_after_period_end',next:rule==='day_of_following_month',calendar:!!field('adjustment').value&&(field('adjustment').value!=='unadjusted'||rule==='days_after_period_end'&&field('day-basis').value==='business_days')};
+  const active:Record<string,boolean>={'quantity-choice':!composition&&!!initial&&!template.linkedSlots.length,location:kind==='energy',fixed:kind==='fixed',priced:kind==='fixed'||kind==='indexed',flat:kind==='fixed'&&price==='flat',escalated:kind==='fixed'&&price==='escalated',stepped:kind==='fixed'&&price==='stepped',indexed:kind==='indexed',attribute:kind==='certificate'||kind==='capacity',certificate:kind==='certificate',capacity:kind==='capacity',lag:rule==='days_after_period_end',next:rule==='day_of_following_month'};
   active['period-settlement']=kind==='indexed'&&selectedCurve()?.kind==='period';
   active['override-settlement']=active['period-settlement']&&field('settlement-mode').value==='override';
   for(const label of host.querySelectorAll<HTMLElement>('[data-section]')){label.hidden=!active[label.dataset.section!];label.querySelectorAll<HTMLInputElement>('input,select,textarea').forEach(n=>n.disabled=busy||!!label.hidden);}
  }
  function read(quantity:Quantity):Member{
+  calendar.check();
   const rule=value('payment-rule'),lag=rule==='days_after_period_end',adjustment=value('adjustment'),dayBasis=lag?value('day-basis'):null;
-  const payment={frequency:value('frequency'),rule,days:lag?Number(value('payment-number')):null,dayOfMonth:lag?null:Number(value('payment-number')),dayBasis,shortMonth:lag?null:value('short-month'),adjustment,calendar:adjustment!=='unadjusted'||dayBasis==='business_days'?value('payment-calendar'):null,implementation:pay.implementation} as PaymentInput;
+  const payment={frequency:value('frequency'),rule,days:lag?Number(value('payment-number')):null,dayOfMonth:lag?null:Number(value('payment-number')),dayBasis,shortMonth:lag?null:value('short-month'),adjustment,calendar:adjustment!=='unadjusted'||dayBasis==='business_days'?calendar.code():null,implementation:pay.implementation} as PaymentInput;
   const kind=value('side-kind'),side:Side={kind,quantity:sideQuantity?sideQuantity.read():componentQuantity<Quantity>(template.linkedSlots.length?{kind:'slots',slots:template.linkedSlots,sources:[],assets:[],stage:null,capacity:null,energy:null,hours:null}:quantity,initial?.side.quantity,initial?value('quantity-choice'):'selected'),paymentRule:payment,location:kind==='energy'?value('location'):null,fixedPrice:null,indexPrice:null,attribute:null};
+  if(side.quantity.kind==='profile'){if(!side.quantity.hours)throw Error('Choose the profile hours for this side.');side.quantity={...side.quantity,hours:{...side.quantity.hours,calendar:calendar.code()}};}
   if(kind==='fixed'){
    const mode=value('price-kind');side.fixedPrice={kind:mode,quantity:value('price-quantity'),multiplier:value('multiplier'),price:mode==='stepped'?null:value(mode==='escalated'?'initial-price':'price'),rate:mode==='escalated'?value('rate'):null,baseDate:mode==='escalated'?value('base-date'):null,basis:mode==='escalated'?value('basis'):null,steps:mode==='stepped'?value('steps').split('\n').filter(Boolean).map(line=>{const parts=line.split(',');if(parts.length!==2)throw Error('Write each price step as operating date,price.');return{from:parts[0].trim(),price:parts[1].trim()};}):[]};
   }
@@ -94,7 +103,7 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  }
  if(initial){
   const s=initial.side,p=s.paymentRule,f=s.fixedPrice,i=s.indexPrice,a=s.attribute;
-  const values:Record<string,unknown>={coefficient:initial.coefficient,location:s.location,'price-kind':f?.kind,'price-quantity':f?.quantity??i?.quantity,multiplier:f?.multiplier??i?.multiplier,price:f?.price,'initial-price':f?.price,rate:f?.rate,'base-date':f?.baseDate,basis:f?.basis,steps:f?.steps.map(p=>p.from+','+p.price).join('\n'),curve:i?.curve,'index-multiplier':i?.indexMultiplier,adder:i?.adder,'attribute-quantity':a?.quantity,conversion:a?.conversion,eligibility:a?.eligibility,holding:a?.holding,disposition:a?.disposition,'capacity-rule':a?.rule,frequency:p.frequency,'payment-rule':p.rule,'payment-number':p.days??p.dayOfMonth,'day-basis':p.dayBasis,'short-month':p.shortMonth,adjustment:p.adjustment,'payment-calendar':p.calendar};
+  const values:Record<string,unknown>={coefficient:initial.coefficient,location:s.location,'price-kind':f?.kind,'price-quantity':f?.quantity??i?.quantity,multiplier:f?.multiplier??i?.multiplier,price:f?.price,'initial-price':f?.price,rate:f?.rate,'base-date':f?.baseDate,basis:f?.basis,steps:f?.steps.map(p=>p.from+','+p.price).join('\n'),curve:i?.curve,'index-multiplier':i?.indexMultiplier,adder:i?.adder,'attribute-quantity':a?.quantity,conversion:a?.conversion,eligibility:a?.eligibility,holding:a?.holding,disposition:a?.disposition,'capacity-rule':a?.rule,frequency:p.frequency,'payment-rule':p.rule,'payment-number':p.days??p.dayOfMonth,'day-basis':p.dayBasis,'short-month':p.shortMonth,adjustment:p.adjustment};
   for(const [name,v] of Object.entries(values))field(name).value=v==null?'':String(v);
   field('settlement-mode').value=i?.settlement?.mode??'';field('settlement-index').value=i?.settlement?.index??'';
  }

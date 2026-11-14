@@ -31,6 +31,21 @@ export type TicketView={state:TicketState;mode:'new'|'booked'|'amend';presentati
 // The common band's rows, in order: TicketBand.Rows in TicketDescriptions.cs.
 const band=['direction','start','end','product','quantity','price','payment'];
 const levelLabels:Readonly<Record<string,string>>={term:'Whole term',month:'Month',day:'Day',hour:'Hour'};
+const ownershipFields=new Set(['book','legal_entity','counterparty','trade_date']);
+
+// Order only fields in this group; dependencies in the common band already appear above it.
+function dependencyOrder(fields:TicketField[]):TicketField[]{
+ const ordered:TicketField[]=[],done=new Set<string>(),visiting=new Set<string>(),byId=new Map(fields.map(f=>[f.id,f]));
+ const visit=(f:TicketField)=>{
+  if(done.has(f.id))return;
+  if(visiting.has(f.id))throw Error(`Cyclic field dependency at '${f.id}'.`);
+  visiting.add(f.id);
+  for(const id of f.dependsOn){const prerequisite=byId.get(id);if(prerequisite)visit(prerequisite);}
+  visiting.delete(f.id);done.add(f.id);ordered.push(f);
+ };
+ for(const f of fields)visit(f);
+ return ordered;
+}
 
 export function bandRows(d:TicketDescription,kinds:string[]):string[]{
  const used=new Set(kinds.flatMap(kind=>sideKind(d,kind).fields.flatMap(f=>f.state==='soon'||f.band===null?[]:[f.band])));
@@ -131,7 +146,7 @@ function card(o:TicketView,side:TicketSide,rows:string[]){
   slot.dataset.band=row;node.append(slot);
  }
  const own=el('div','ticket-own');
- for(const f of kind.fields.filter(x=>x.band===null&&x.state!=='soon'))own.append(fieldRow(o,f,side.code,side.values[f.id]));
+ for(const f of dependencyOrder(kind.fields.filter(x=>x.band===null&&x.state!=='soon')))own.append(fieldRow(o,f,side.code,side.values[f.id]));
  const reported=o.summaries.find(s=>s.side===side.code);if(reported)own.append(summary(reported));
  const allocations=o.facilityAllocations?.filter(a=>a.sideCode===side.code)??[];
  if(allocations.length)own.append(facilityAllocationTrack(allocations));
@@ -149,13 +164,18 @@ function addCard(o:TicketView){
  return node;
 }
 
-function strip(o:TicketView){
- const d=o.state.description,view=o.schedule,node=el('header','ticket-strip');
+function tradeFields(o:TicketView,fields:TicketField[]){
+ const node=el('div','ticket-trade-fields');
+ for(const f of dependencyOrder(fields))node.append(fieldRow(o,f,null,o.state.trade[f.id]));
+ return node;
+}
+
+function strip(o:TicketView,fields:TicketField[]){
+ const view=o.schedule,node=el('header','ticket-strip');
  const title=el('div','ticket-title');
  // The panel heading names the product; the strip names only the trade's state.
  title.append(el('strong','ticket-state',o.mode==='amend'?'Amendment':o.mode==='new'?'Draft':!view?'Booked':view.delivered?'Booked · in delivery':'Booked · forward'));
- const fields=el('div','ticket-trade-fields');for(const f of d.tradeFields.filter(f=>f.state!=='soon'))fields.append(fieldRow(o,f,null,o.state.trade[f.id]));
- node.append(title,fields);
+ node.append(title,tradeFields(o,fields));
  if(view?.delivered){
   const progress=el('div','ticket-progress'),bar=el('progress');bar.max=view.leaves;bar.value=view.deliveredLeaves;
   progress.append(bar,el('span','ticket-progress-text',`${view.deliveredLeaves} of ${view.leaves} delivered`),el('span','ticket-valuation',`Valued at ${o.instant(view.valuationAt)}`));
@@ -267,7 +287,11 @@ export function renderTicket(host:HTMLElement,o:TicketView){
  for(const side of sides)deck.append(card(o,side,rows));
  if(o.mode!=='booked')deck.append(addCard(o));
  const {panel,content}=schedulePanel(o,named);
- if(o.presentation!=='schedules')root.append(strip(o),...o.state.notices.length?[notices]:[],chips,deck);
+ if(o.presentation!=='schedules'){
+  const fields=d.tradeFields.filter(f=>f.state!=='soon'),ownership=o.mode==='booked'?[]:fields.filter(f=>ownershipFields.has(f.id));
+  root.append(strip(o,fields.filter(f=>!ownership.includes(f))),...o.state.notices.length?[notices]:[],chips,deck);
+  if(ownership.length){const section=el('section','ticket-ownership');section.append(el('h3',undefined,'Ownership and parties'),tradeFields(o,ownership));root.append(section);}
+ }
  if(o.presentation==='schedules'){const state=el('p','ticket-status',o.status.text);state.dataset.kind=o.status.kind;root.append(state);}
  if(o.measures){if(!o.currency)throw Error('The trade measures require their currency.');root.append(measures(o.measures,o.currency,o.instant));}
  root.append(panel);

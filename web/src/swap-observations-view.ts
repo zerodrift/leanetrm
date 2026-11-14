@@ -1,6 +1,8 @@
 import {observationScheduleInput,type ObservationInspection,type ObservationOptions,type ObservationRow,type ObservationSchedule,type SamplingChoice} from './swap-observations.js';
 import {displayInstant,publicText} from './market-view.js';
 import {renderRegularTable} from './regular-table.js';
+import {calendarKey} from './side-calendar.js';
+import type {ReferenceKey} from './swap-observations.js';
 
 export function renderSwapObservationInspection(host:HTMLElement,plan:ObservationInspection,paymentDate:string,
  key:string,zone:string,units:{price:string;cash:string;quantity:string},busy:()=>boolean){
@@ -20,7 +22,7 @@ export function renderSwapObservationInspection(host:HTMLElement,plan:Observatio
 }
 
 export function setupSwapObservationControls(options:{prefix:string;enabled:()=>boolean;api:<T>(path:string,body:unknown)=>Promise<T>;request:()=>unknown;
- choice:()=>SamplingChoice|undefined;unit:()=>string;busy:()=>boolean;apply:(value:ObservationOptions)=>void}){
+ choice:()=>SamplingChoice|undefined;unit:()=>string;busy:()=>boolean;apply:(value:ObservationOptions)=>void;sideCalendar?:()=>ReferenceKey|undefined}){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
  const id=(suffix:string)=>`${options.prefix}-observation-${suffix}`;
  const calendar=get<HTMLSelectElement>(id('calendar')),weights=get(id('quantities')),status=get(id('status'));
@@ -30,8 +32,8 @@ export function setupSwapObservationControls(options:{prefix:string;enabled:()=>
  function sync(){
   const choice=options.choice(),enabled=options.enabled(),mode=choice?JSON.stringify([choice.resetFrequency,choice.averagingMethod]):'';
   if(mode!==lastMode){if(!choice?.requiresObservationCalendar)calendar.value='';if(!choice?.requiresQuantityWeights){inputs=[];rows=null;weights.replaceChildren();}lastMode=mode;}
-  get(id('calendar-field')).hidden=!choice?.requiresObservationCalendar;
-  calendar.required=enabled&&!!choice?.requiresObservationCalendar;calendar.disabled=!enabled||options.busy()||pending||!choice?.requiresObservationCalendar;
+  get(id('calendar-field')).hidden=!!options.sideCalendar||!choice?.requiresObservationCalendar;
+  calendar.required=!options.sideCalendar&&enabled&&!!choice?.requiresObservationCalendar;calendar.disabled=!!options.sideCalendar||!enabled||options.busy()||pending||!choice?.requiresObservationCalendar;
   weights.hidden=!choice?.requiresQuantityWeights;
   for(const input of inputs){input.required=enabled&&!!choice?.requiresQuantityWeights;input.disabled=!enabled||options.busy()||pending||!choice?.requiresQuantityWeights;}
  }
@@ -72,14 +74,17 @@ export function setupSwapObservationControls(options:{prefix:string;enabled:()=>
   }catch(error){if(started===generation){current=undefined;requestKey='';rows=null;inputs=[];weights.replaceChildren();status.textContent='Observation choices could not be verified. Reload or change the selection.';}throw error;}
   finally{if(started===generation){pending=false;sync();}}
  }
+ const selectedCalendar=()=>options.sideCalendar?options.sideCalendar():retained?.calendar??(calendar.value?JSON.parse(calendar.value) as ReferenceKey:undefined);
  return{reset,restore,refresh,sync,
-  calendar:()=>options.choice()?.requiresObservationCalendar?(retained?.calendar??(calendar.value?JSON.parse(calendar.value):undefined)):undefined,
+  calendar:()=>options.choice()?.requiresObservationCalendar?selectedCalendar():undefined,
   read(){const choice=options.choice();if(!choice)throw Error('Choose an explicit observation sampling rule.');
    if(pending||!current||requestKey!==JSON.stringify(options.request()))throw Error('Refresh the compatible observation plan before pricing.');
    if(current.availability)throw Error(current.availability.message);
    if(!current.samplings.some(mode=>mode.resetFrequency===choice.resetFrequency&&mode.averagingMethod===choice.averagingMethod))throw Error('Choose an available observation convention for the selected index and period.');
    if(!current.observations)throw Error('Resolve the complete observation plan before pricing.');
-   return observationScheduleInput(choice,calendar.value?JSON.parse(calendar.value):null,rows,inputs.map(input=>input.value));
+   const selected=choice.requiresObservationCalendar?selectedCalendar():undefined;
+   if(selected&&!current.observationCalendars.some(c=>calendarKey(c.reference)===calendarKey(selected)))throw Error('The side holiday calendar is unavailable for this observation schedule.');
+   return observationScheduleInput(choice,selected??null,rows,inputs.map(input=>input.value));
   },
  };
 }

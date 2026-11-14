@@ -6,11 +6,11 @@ import type {Index} from './swap-editor.js';
 import {setupSwapObservationControls} from './swap-observations-view.js';
 import {mountObservationControls} from './swap-side-editor.js';
 import {projectionReference,type CustomProjection} from './swap-projections.js';
-import type {ObservationOptions,ObservationSchedule,SamplingChoice} from './swap-observations.js';
+import type {ObservationOptions,ObservationSchedule,SamplingChoice,ReferenceKey} from './swap-observations.js';
 
 export type ScheduledFloatingTerms={settlement:PriceSettlement|null;curve:string;index:string|null;currency:string;deliveryFrom:string;deliveryTo:string;resetFrequency:string;averagingMethod:string;spread:string;observationSchedule?:ObservationSchedule|null;customProjection?:CustomProjection|null;contractObservations?:ContractObservationTerms|null};
 type EditorOptions={host:HTMLElement;from:string;to:string;initial?:ScheduledFloatingTerms|null;retainedObservations?:unknown[];indices:()=>Index[];
- context:()=>Record<string,unknown>;enabled:()=>boolean;busy:()=>boolean;api:<T>(path:string,body:unknown)=>Promise<T>;run:(work:()=>Promise<void>)=>void;changed:()=>void;quoteChanged:()=>void;contractSources?:()=>ContractObservationSource[];payment?:()=>PaymentInput};
+ context:()=>Record<string,unknown>;enabled:()=>boolean;busy:()=>boolean;api:<T>(path:string,body:unknown)=>Promise<T>;run:(work:()=>Promise<void>)=>void;changed:()=>void;quoteChanged:()=>void;contractSources?:()=>ContractObservationSource[];payment?:()=>PaymentInput;sideCalendar?:()=>ReferenceKey|undefined};
 function mountIndexFloatingEditor(options:EditorOptions){
  const prefix='scheduled-observations-'+crypto.randomUUID();
  const select=(label:string,id?:string)=>{const wrap=document.createElement('div'),caption=document.createElement('label'),field=document.createElement('select');field.id=id??prefix+'-'+crypto.randomUUID();caption.htmlFor=field.id;caption.textContent=label;wrap.append(caption,field);options.host.append(wrap);return field;};
@@ -54,7 +54,7 @@ function mountIndexFloatingEditor(options:EditorOptions){
  function averaging(selected=average.value){fill(average,[...new Map(samplings().filter(s=>reset.value&&s.resetFrequency===reset.value).map(s=>[s.averagingMethod,{value:s.averagingMethod,label:s.label}])).values()],selected);sources();}
  function frequencies(selected=reset.value){fill(reset,[...new Set(samplings().map(s=>s.resetFrequency))].map(value=>({value,label:value})),selected);averaging();}
  function indices(selected=index.value){fill(index,options.indices().filter(i=>(i.settlementIndices?.length>0&&(!settlement.selected()||key(i)!==index.value))||(qualified?qualified.indices.some(candidate=>key(candidate)===key(i)):i.samplings.some(s=>(!reset.value||s.resetFrequency===reset.value)&&(!average.value||s.averagingMethod===average.value)))).map(i=>({value:key(i),label:`${i.index} · ${i.curve} · ${i.currency}/${i.unit} × ${i.quoteMultiplier}`})),selected);}
- const observations=setupSwapObservationControls({prefix,enabled:()=>options.enabled()&&options.host.isConnected,api:options.api,busy:options.busy,choice,unit:()=>quote()?.unit??'',
+ const observations=setupSwapObservationControls({prefix,enabled:()=>options.enabled()&&options.host.isConnected,api:options.api,busy:options.busy,choice,unit:()=>quote()?.unit??'',sideCalendar:options.sideCalendar,
   request:()=>{const i=quote(),unambiguous=(values:string[])=>{const distinct=[...new Set(values)];return distinct.length===1?distinct[0]:undefined;},custom=selectedProjection();return{context:options.context(),definitionRevisionId:i?.definitionRevisionId??unambiguous(options.indices().map(i=>i.definitionRevisionId)),curve:i?.curve,index:i?.index,settlement:settlement.selected(),commodity:i?.commodity??unambiguous(options.indices().map(i=>i.commodity)),
    resetFrequency:reset.value||undefined,averagingMethod:average.value||undefined,deliveryFrom:options.from,deliveryTo:options.to,observationCalendar:observations.calendar(),...(custom?{customProjection:custom}:{})};},
   apply:result=>{selectedRequirements=result.selectedSampling;qualified=result;indices();frequencies();note.textContent=result.availability?.message??result.customProjectionUnavailableReason??'Observation dates and weights use the selected exact backend plan.';}});

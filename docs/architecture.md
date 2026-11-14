@@ -850,6 +850,12 @@ Each side may have its own commodity, location, unit, currency, index, delivery
 shape, observation convention, payment convention and calendar. An instrument
 does not impose a shared location or schedule on all its sides.
 
+D397 consolidates manual swap/PPA entry into one holiday-calendar choice per
+side, applied to that side's existing calendar-consuming schedule inputs.
+Exact reference versions, schedule conventions and backend validation remain
+authoritative. Mixed saved calendars require explicit resolution in entry;
+historical contracts are neither rewritten nor reinterpreted.
+
 Physical activity and its financial payments remain distinguishable. Reusing a
 physical quantity as a payment basis must not count that quantity or cashflow
 twice. Operating constraints must not be disguised as linear financial sides.
