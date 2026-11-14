@@ -36,7 +36,11 @@ def run_checks(query, manifest, psql, environment):
         check('immutable storage guard exists in '+table, query(f"SELECT count(*) FROM pg_trigger WHERE tgrelid='trading.{table}'::regclass AND tgname='immutable_record';")=='1')
         if query(f'SELECT EXISTS(SELECT 1 FROM trading.{table});')=='t':
             query('BEGIN; '+reject(f'UPDATE trading.{table} SET catalog_id=catalog_id;', '55000')+' ROLLBACK;')
-    old = query(f"SELECT x.context_id FROM trading.contexts x JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(x.catalog_id,x.context_id) WHERE x.catalog_id='{catalog}' AND x.known_through=1 AND t.effective_on='2020-12-18' ORDER BY t.known_at LIMIT 1;")
+    # Setup and close-session publications can precede the first trade. Select
+    # a certified prefix before that trade rather than a fixed publication number.
+    old = query(f"SELECT x.context_id FROM trading.contexts x JOIN market_data.temporal_contexts t ON(t.catalog_id,t.id)=(x.catalog_id,x.context_id) "
+                f"WHERE x.catalog_id='{catalog}' AND x.known_through<(SELECT min(publication_order) FROM trading.trade_revisions WHERE catalog_id='{catalog}') "
+                "AND t.effective_on='2020-12-18' ORDER BY t.known_at LIMIT 1;")
     check('prior certified knowledge excludes later backdated executions at the same business instant', bool(old) and query(runtime(bind(old, '2020-12-18T16:00:00Z')+'SELECT count(*) FROM trading.trades;')) == '0')
     missing = query(f"BEGIN; SELECT security.use_context('{issue(login='preview_owner')}'); SELECT security.capture_market_and_schedule_context('{catalog}','2020-12-18',NULL); COMMIT;")
     query(runtime(f"SELECT security.use_market_context('{catalog}','{missing}');"+reject(f"PERFORM security.use_trading_context('{catalog}','2020-12-18T16:00:00Z');", 'P0001', 'knowledge_coverage')))
