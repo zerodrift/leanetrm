@@ -3,33 +3,19 @@ using OpenEtrm.MarketData.Risk;
 
 namespace OpenEtrm.MarketData.Trading;
 
-// A unit cash instrument: one unit of an exact currency paid on a date. A trade holds it at a signed quantity in that
-// currency, negative for cash it pays. Its identity is its terms, so equal cash on the same date is one instrument.
-// Its value excludes recorded paid cash. Before the payment date, outstanding cash uses its selected
-// discounting; due but unpaid cash remains at nominal value under the explicit paid-cash policy.
-// It reads no market price, so a price shock leaves it unchanged. An option premium paid up front is one.
-[EconomicDefinition("CashPayment_v1")]
-public sealed record CashPayment : Instrument
+// Shared paid-state and valuation rules for dated premiums and exact-instant
+// margin/settlement cash. Ownership and payment history remain binding state.
+public abstract record CashPaymentInstrument:Instrument
 {
-    public const string ModelVersion = "cash_payment_explicit_paid_state_v2";
-    [IdentityField]
-    public ReferenceKey PaymentCurrency { get; }
-    [IdentityField]
-    public DateOnly PaymentDate { get; }
-    public override ReferenceKey Currency => PaymentCurrency;
-    // The quantity unit is the currency itself.
-    public override Quantity UnitQuantity => new(ExactDecimal.Parse("1"), PaymentCurrency);
-    public override bool SupportsQuantityScaling => true;
-    // The cash is due from the start of its UTC payment date. Payment remains a separate recorded fact.
-    public SidePaymentKey Payment => new(Id, 0, new(PaymentDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero), Currency);
-    public bool Due(DateTimeOffset at) => at >= Payment.PaymentAt;
-
-    public CashPayment(ReferenceKey currency, DateOnly paymentDate) : base(ContractIdentity.CashPayment(currency, paymentDate))
-    {
-        if (paymentDate.Year is < 1901 or > 2199)
-            throw new MarketDataException("cash_payment_definition", "A unit cash instrument needs a supported payment date.");
-        PaymentCurrency = currency; PaymentDate = paymentDate;
-    }
+    public const string ModelVersion="cash_payment_explicit_paid_state_v2";
+    public abstract ReferenceKey PaymentCurrency{get;}
+    public abstract DateTimeOffset PaymentAt{get;}
+    public override ReferenceKey Currency=>PaymentCurrency;
+    public override Quantity UnitQuantity=>new(ExactDecimal.Parse("1"),PaymentCurrency);
+    public override bool SupportsQuantityScaling=>true;
+    public SidePaymentKey Payment=>new(Id,0,PaymentAt,Currency);
+    public bool Due(DateTimeOffset at)=>at>=PaymentAt;
+    protected CashPaymentInstrument(Guid id):base(id){}
 
     public override void ValidateBinding(Quantity quantity, DeliveryCoverage? coverage)
     {
@@ -67,5 +53,38 @@ public sealed record CashPayment : Instrument
         if (factors.IsDefault || factors.Length != 1 || factors[0] is null || factors[0].Payment != Payment)
             throw new MarketDataException("cash_payment_discount", "The selected discounting supplies no factor for this payment.");
         return new(context, remaining.Scale(factors[0].DiscountFactor), PaymentCurrency);
+    }
+}
+
+// Date-only cash retains its original identity and midnight-UTC convention.
+[EconomicDefinition("CashPayment_v1")]
+public sealed record CashPayment:CashPaymentInstrument
+{
+    [IdentityField] public override ReferenceKey PaymentCurrency{get;}
+    [IdentityField] public DateOnly PaymentDate{get;}
+    public override DateTimeOffset PaymentAt=>new(PaymentDate.ToDateTime(TimeOnly.MinValue),TimeSpan.Zero);
+    public CashPayment(ReferenceKey currency,DateOnly paymentDate):base(ContractIdentity.CashPayment(currency,paymentDate))
+    {
+        if(paymentDate.Year is <1901 or >2199)
+            throw new MarketDataException("cash_payment_definition","A unit cash instrument needs a supported payment date.");
+        PaymentCurrency=currency;PaymentDate=paymentDate;
+    }
+}
+
+[EconomicDefinition("TimedCashPayment_v1")]
+public sealed record TimedCashPayment:CashPaymentInstrument
+{
+    [IdentityField] public override ReferenceKey PaymentCurrency{get;}
+    [IdentityField] public override DateTimeOffset PaymentAt{get;}
+    public TimedCashPayment(ReferenceKey currency,DateTimeOffset paymentAt):base(Identity(currency,paymentAt))
+    {
+        PaymentCurrency=currency;PaymentAt=paymentAt;
+    }
+    static Guid Identity(ReferenceKey currency,DateTimeOffset at)
+    {
+        Money.RequireKey(currency);
+        if(!TradingInstant.IsSupported(at)||at.Year is <1901 or >2199)
+            throw new MarketDataException("cash_payment_definition","Supply an exact supported UTC cash due instant.");
+        return ContractIdentity.FromCanonical($"timed_cash_payment_v1:{currency.Revision.CatalogId:D}:{currency.Revision.RevisionId:D}:{currency.Code}:{at:O}");
     }
 }

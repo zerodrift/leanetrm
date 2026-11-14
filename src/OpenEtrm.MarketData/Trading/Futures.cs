@@ -82,7 +82,7 @@ public sealed record FuturesMarketBinding
 // The exact series reference is the economic primary key in ref_data.futures_series.
 // Quote source, quote admission policy and curve recipe belong to pricing bindings.
 [EconomicDefinition("FuturesContract_v1")]
-public sealed record FuturesContract : Instrument
+public sealed partial record FuturesContract : Instrument
 {
     public override bool SupportsQuantityScaling=>true;
     internal override void RequireSameDefinition(Instrument other)
@@ -135,16 +135,100 @@ public sealed record FuturesContract : Instrument
     {
         var binding=context.Futures(Id);
         if(binding.Series!=Series)throw FuturesMarketBinding.Error("futures_identity","The selected binding must retain the exact instrument terms.");
+        if(context.Measure==ValuationMeasure.PresentValue)
+        {
+            if(context.BindingState is not FuturesMarginState state)throw FuturesMarketBinding.Error("futures_pv_unsupported","Futures PV requires explicit retained margin state.");
+            ValidateValuationState(state);
+            RequireVisible(state,context.Snapshot,binding);
+            return new(Id,FuturesMarginState.Version,state.Status==FuturesMarginStatus.Open?binding.Dependencies:[],UnitQuantity.Specification,Currency)
+                {Time=ValuationTimeDependency.Pinned};
+        }
         return new(Id,Series.LotBasis==LotBasis.FixedTotal&&SettlementMethod=="cash"?"fixed_total_open_mark_v1":"contract_unit_open_mark_v2",
             binding.Dependencies,UnitQuantity.Specification,Currency) { Time = ValuationTimeDependency.Pinned };
     }
     private string SettlementMethod=>Series.SettlementMethod;
+    // The instrument owns settlement behavior. The application supplies the
+    // authorized captured context and records a separately accepted outcome.
+    public FuturesMarginProposal PlanSettlement(FuturesMarginState state,FuturesMarketBinding binding,CurveKey settlementCurve,CurveModel model,
+        MarketSnapshot snapshot,ObservationKey observation,DateTimeOffset evidenceKnownAt,DateTimeOffset occurrenceAt,
+        DateTimeOffset dueAt,CashRoundingConvention rounding,string roundingScope,bool final)
+    {
+        if(binding.Instrument.Id!=Id||binding.Series!=Series)
+            throw FuturesMarketBinding.Error("futures_identity","Settlement must belong to this exact reusable instrument.");
+        FuturesMargin.Require(state,this);
+        RequireVisible(state,snapshot,binding);
+        var evidence=ResolveSettlementFact(binding,settlementCurve,model,snapshot,observation,evidenceKnownAt,occurrenceAt,final);
+        return FuturesMargin.Determine(state,binding,evidence,snapshot.ValuationAt,snapshot.Knowledge!.KnownAt,dueAt,rounding,roundingScope,final);
+    }
+    // Only exact captured native observations become actual settlement facts.
+    // The caller obtains their knowledge instants from certified publication
+    // receipts, never from client prices or observation receipt audit times.
+    public FuturesSettlementFact ResolveSettlementFact(FuturesMarketBinding binding,CurveKey settlementCurve,CurveModel model,
+        MarketSnapshot snapshot,ObservationKey observation,DateTimeOffset evidenceKnownAt,DateTimeOffset occurrenceAt,bool final)
+    {
+        if(binding.Instrument.Id!=Id||binding.Series!=Series)
+            throw FuturesMarketBinding.Error("futures_identity","Settlement must belong to this exact reusable instrument.");
+        RequireMarginContext(snapshot,binding.Contract.Key.Revision,"futures_settlement_evidence");
+        if(!TradingInstant.IsSupported(occurrenceAt)||settlementCurve.Revision!=binding.Contract.Key.Revision)
+            throw FuturesMarketBinding.Error("futures_settlement_evidence","Supply the exact settlement source and coherent certified observation set.");
+        var source=SettlementSource(binding,settlementCurve,model);
+        var selected=snapshot.Selections.Where(s=>s.Observation.Key==observation).ToArray();
+        if(snapshot.Definitions!=binding.Contract.Key.Revision||selected.Length!=1||!TradingInstant.IsSupported(evidenceKnownAt)||
+            evidenceKnownAt<occurrenceAt||evidenceKnownAt>snapshot.Knowledge!.KnownAt||occurrenceAt>snapshot.ValuationAt||occurrenceAt>snapshot.MarketCutoff)
+            throw FuturesMarketBinding.Error("futures_settlement_evidence","Select the captured official settlement and its certified knowledge evidence.");
+        var fact=selected[0].Observation;
+        if(fact.Series!=source.ObservationSeries||selected[0].Input.Series!=fact.Series||
+            selected[0].Input.Use!=(final?InputUse.FrozenFact:InputUse.Variable)||
+            fact.Source!=source.Source||fact.State!=PublicationState.Final||
+            fact.Role!=(final?ObservationRole.FinalContractSettlement:ObservationRole.DailySettlement)||fact.ObservedAt!=occurrenceAt||
+            observation.CatalogId!=binding.Contract.Key.Revision.CatalogId||observation.Id==Guid.Empty||
+            !fact.Value.IsMultipleOf(binding.Quote.ClearingIncrement)||fact.Value.CompareTo(binding.Quote.Minimum)<0||fact.Value.CompareTo(binding.Quote.Maximum)>0||
+            (final?occurrenceAt<Series.LastTradingAt:occurrenceAt>Series.LastTradingAt))
+            throw FuturesMarketBinding.Error("futures_settlement_evidence","The observation must match the declared series, source, role, finality and occurrence.");
+        return new(binding,settlementCurve,fact,evidenceKnownAt);
+    }
+    public FuturesSettlementSource SettlementSource(FuturesMarketBinding binding,CurveKey settlementCurve,CurveModel model)
+    {
+        if(binding.Instrument.Id!=Id||binding.Series!=Series)
+            throw FuturesMarketBinding.Error("futures_identity","Settlement must belong to this exact reusable instrument.");
+        var request=new CurveRequest(settlementCurve,binding.Contract.Key);
+        model.RequireFuturesDefinition(request,binding.Contract,Series,binding.Quote);
+        var curve=model.AssetDefinition(settlementCurve);
+        var required=model.RequiredSeries([request]);
+        if(curve.Rule!=CurveRule.Direct||curve.DirectRole!=ObservationRole.DailySettlement||curve.DirectSource is not {} source||required.Count!=1)
+            throw FuturesMarketBinding.Error("futures_settlement_evidence","Select an explicit directly observed official settlement source.");
+        return new(settlementCurve,required.Single(),source);
+    }
     public override ExactMoney Value(UnitValuationContext context)
     {
+        if(context.Measure==ValuationMeasure.PresentValue)
+        {
+            if(context.BindingState is not FuturesMarginState state)throw FuturesMarketBinding.Error("futures_pv_unsupported","Futures PV requires explicit retained margin state.");
+            ValidateValuationState(state);
+            var source=context.Futures(Id);
+            RequireVisible(state,context.Snapshot,source);
+            if(state.Status==FuturesMarginStatus.FinalMarginDetermined)return ExactMoney.Parse("0",Currency);
+            context.Market!.Model.RequireFuturesDefinition(source.Market,source.Contract,Series,source.Quote);
+            return context.Inputs.ExactPrice(source.Market).Subtract(state.SettledBasis).ExactTimes(UnitQuantity);
+        }
         if(context.Measure!=ValuationMeasure.ExecutionPnl)return base.Value(context);
         var binding=context.Futures(Id);
         context.Market!.Model.RequireFuturesDefinition(binding.Market,binding.Contract,Series,binding.Quote);
         return context.Inputs.Price(binding.Market).ExactTimes(UnitQuantity);
+    }
+    public override void ValidateValuationState(IBindingValuationState? state)
+    {
+        if(state is null)return;
+        if(state is not FuturesMarginState margin)throw FuturesMarketBinding.Error("futures_margin_state","Select the exact supported futures margin state.");
+        FuturesMargin.Require(margin,this);
+    }
+    static void RequireVisible(FuturesMarginState state,MarketSnapshot snapshot,FuturesMarketBinding binding)
+    {
+        if(snapshot.Knowledge is not {} knowledge||state.SourceContextId!=knowledge.ContextId||state.KnownThrough!=knowledge.KnownAt||state.KnownAt>knowledge.KnownAt||state.SettledAt>snapshot.ValuationAt)
+            throw FuturesMarketBinding.Error("futures_margin_state","Margin state must be visible at the business instant and resolved knowledge cutoff.");
+        if(state.LatestSettlement is {} fact&&(fact.Contract!=binding.Contract.Key||fact.Observation.CatalogId!=binding.Contract.Key.Revision.CatalogId||
+            fact.Observation.Id==Guid.Empty||!TradingInstant.IsSupported(fact.KnownAt)))
+            throw FuturesMarketBinding.Error("futures_margin_state","The accepted settlement must belong to this exact contract and native source.");
     }
     public override InstrumentValuation PV(SideValuationContext context) =>
         throw FuturesMarketBinding.Error("futures_pv_unsupported", "Futures PV requires retained variation-margin and settlement state; execution P&L is a separate operation.");

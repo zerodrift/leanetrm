@@ -4566,3 +4566,31 @@ The bounded implementation has pure eligibility/output/frozen-anchor checks,
 owned PostgreSQL/HTTP capture, concurrency and revocation checks, and browser
 visibility and lost-response recovery checks. This does not implement futures
 variation margin, exercise, delivery, cash lifecycle or economic horizon risk.
+
+## D392 · Shared lifecycle, ownership and economic horizon risk
+
+Owner-directed, 2026-11-13. Adopt the [shared lifecycle delivery contract](lifecycle-delivery.md).
+Product-owned pure rules compose existing Instrument/Side and native typed stores;
+common operations own authorization, review, concurrency and idempotent commits.
+Hypothetical transitions cannot be recorded as actual facts. Trading eligibility,
+curve finality, trade obligations, projection assumptions and display preferences
+remain separate explicit contracts.
+
+The first release requires futures margin/final settlement, listed futures options,
+financial swaps and physical gas; gas continues into independently valued holdings.
+Qualify owned titled gas, distinct operator entitlements/debts and commodity loans
+with return obligations. Include both shock-held and elapsed-linear price paths,
+explicit payment/cash carrying choices and complete one-session economic risk.
+This extends D387's event-crossing scope only as its new capabilities are qualified.
+
+Rebuild incompatible demo configuration and synthetic business records. No legacy
+financial conversion or fallback is required. Publication remains separately approved.
+The delivery document records required contracts; tests and verification records
+establish actual implemented capability.
+
+Futures margin policies explicitly retain an official settlement curve separately
+from their mark/execution curve. Actual settlement facts are resolved by the
+instrument from captured native source observations, with exact series, source,
+finality, quotation and knowledge checks. A same-price source correction still
+restates its causal evidence. These managed contracts alone do not qualify native
+margin persistence or automation.

@@ -15,6 +15,19 @@ public sealed record RecordCashPaymentRequest(Guid SnapshotId,string KnowledgeMo
 // Native currency cash memberships share one recorded-payment reader, independently of their parent deal's family.
 internal static class CashPaymentStore
 {
+    internal static CashPaymentInstrument Materialize(JsonElement row)
+    {
+        var currency=new ReferenceKey(new(row.Id("reference_catalog_id"),row.Id("reference_revision_id")),row.Text("currency_code"));
+        var date=row.OptionalText("payment_date");var instant=row.OptionalText("payment_at");
+        CashPaymentInstrument instrument;
+        if(date is not null&&instant is null&&DateOnly.TryParseExact(date,"yyyy-MM-dd",CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out var paymentDate))
+            instrument=new CashPayment(currency,paymentDate);
+        else if(date is null&&instant is not null)
+            instrument=new TimedCashPayment(currency,TradingInstant.Parse(instant,"payment_state"));
+        else throw Error("A native cash header requires exactly one supported due-date or exact-instant form.");
+        if(instrument.Id!=row.Id("instrument_id"))throw Error("The native cash identifier must equal its exact currency and due terms.");
+        return instrument;
+    }
     internal static async Task<ImmutableDictionary<MeasureBinding,RecordedCashValuation>> Read(NpgsqlConnection connection,Guid catalog,
         InputFrame frame,MarketSnapshot snapshot,ImmutableArray<Trade> trades,CancellationToken ct)
     {
@@ -34,6 +47,7 @@ internal static class CashPaymentStore
         var rows=await PreviewDatabase.Rows(connection,"""
             SELECT json_build_object('trade_id',m.trade_id,'binding_id',m.binding_id,'book_id',m.book_id,'instrument_id',m.instrument_id,
               'reference_catalog_id',i.reference_catalog_id,'reference_revision_id',i.reference_revision_id,'currency_code',i.currency_code,
+              'payment_date',i.payment_date,'payment_at',i.payment_at,
               'allocation_id',p.allocation_id,'revision',p.revision,'paid_at',p.paid_at,'known_at',k.known_from,'amount',trim_scale(p.amount)::text)::text
             FROM trading.cash_payment_memberships m
             JOIN trading.cash_payment_instruments i ON(i.catalog_id,i.instrument_id)=(m.catalog_id,m.instrument_id)
@@ -50,6 +64,8 @@ internal static class CashPaymentStore
             if(selected.Length==0||selected.Any(r=>r.Id("book_id")!=held.Trade.BookId||r.Id("instrument_id")!=held.Binding.Instrument.Id||
                 new ReferenceKey(new(r.Id("reference_catalog_id"),r.Id("reference_revision_id")),r.Text("currency_code"))!=held.Binding.Instrument.Currency))
                 throw Error("Every cash projection requires its exact visible native trade, binding, book, instrument and currency.");
+            if(held.Binding.Instrument is not CashPaymentInstrument cash||Materialize(selected[0]).EconomicIdentity!=cash.EconomicIdentity)
+                throw Error("The held cash definition must retain its exact native due terms.");
             var owner=new AccountingPositionKey(held.Trade.Id,held.Binding.Id,held.Trade.BookId);
             var flows=selected.Where(r=>r.OptionalId("allocation_id") is not null).Select(r=>Flow(r,owner,held.Binding.Instrument.Currency)).ToImmutableArray();
             result.Add(key,new(held.Trade,held.Binding.Id,flows,RecordedCashValuation.Policy,contextId,cutoff));

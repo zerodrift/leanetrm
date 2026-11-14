@@ -1,5 +1,10 @@
 # Architecture and domain contracts
 
+D392 selects [shared lifecycle delivery](lifecycle-delivery.md): operation-specific
+eligibility, native lifecycle coordination, gas ownership/entitlements/borrowing
+and event-aware economic risk. Its delivery gates distinguish implementation from
+qualification; it does not make the capabilities below complete by declaration.
+
 The [valuation context and scenario layers](valuation-context-layers.md) separate
 certified source selection from calculation time. The initial local implementation
 extends Instrument/Side PV, immutable scenarios and dependency-based reuse to

@@ -5,6 +5,10 @@ using OpenEtrm.Security;
 
 if(args is ["--contract-eligibility"]){ContractEligibilityChecks.Run();return;}
 if(args is ["--interval-anchors"]){IntervalAnchorChecks.Run();return;}
+if(args is ["--futures-margin"]){FuturesMarginChecks.Run();return;}
+if(args is ["--futures-margin-trajectory"]){FuturesMarginTrajectoryChecks.Run();return;}
+if(args is ["--timed-cash"]){TimedCashChecks.Run();return;}
+if(args is ["--instant-rate-graph"]){InstantRateGraphChecks.Run();return;}
 if(args is ["--option-clock"]){FuturesOptionChecks.ClockLayers();return;}
 if(args is ["--valuation-environment"]){ValuationEnvironmentChecks.Run();return;}
 if(args is ["--pnl-attribution"]){TradingPnlAttributionChecks.Run();return;}
@@ -447,7 +451,7 @@ Check("money addition rejects cross currency and cross revision", () =>
     Reject("currency_mismatch", () => money.Add(new(ExactDecimal.Parse("2"), fixture.R("currency_b"))));
     Reject("currency_mismatch", () => money.Add(new(ExactDecimal.Parse("2"), new(new(Guid.NewGuid(), Guid.NewGuid()), "currency"))));
 });
-var rounding = new CashRoundingConvention(fixture.R("round_cash"), fixture.R("currency"), ExactDecimal.Parse("0.01"), CashTieRule.ToEven, CashRoundingStage.Cashflow);
+var rounding = new CashRoundingConvention(fixture.R("currency"), ExactDecimal.Parse("0.01"), CashTieRule.ToEven, CashRoundingStage.Cashflow);
 Check("explicit cash rounding handles positive/negative ties", () =>
 {
     Equal(new Money(ExactDecimal.Parse("1.005"), rounding.Currency).Round(rounding, CashRoundingStage.Cashflow).Amount.ToString(), "1");
@@ -592,6 +596,10 @@ HistoricalRiskChecks.Run();
 MonteCarloRiskChecks.Run();
 PcaHybridRiskChecks.Run();
 ContractEligibilityChecks.Run();passed++;
+FuturesMarginChecks.Run();passed++;
+FuturesMarginTrajectoryChecks.Run();passed++;
+TimedCashChecks.Run();passed++;
+InstantRateGraphChecks.Run();passed++;
 passed += TemporalBindingChecks.Run();
 passed += BasisRiskChecks.Run();
 Console.WriteLine($"{passed} managed core checks passed.");

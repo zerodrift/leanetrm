@@ -3,6 +3,9 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--futures-margin-sources"]){FuturesMarginSourceChecks.Run();return;}
+if(args is ["--native-futures-margin-sources",var marginSourceFixture]){await FuturesMarginSourceChecks.RunNative(marginSourceFixture);return;}
+if(args is ["--cash-instrument"]){CashInstrumentChecks.Run();return;}
 if(args is ["--curve-display"]){CurveDisplayChecks.Run();return;}
 if(args is ["--pnl-persistence",var pnlFixture]){await PnlPersistenceChecks.Run(pnlFixture);return;}
 if(args is ["--pnl-artifacts"]){PnlArtifactChecks.Run();return;}
@@ -108,6 +111,8 @@ if(args is ["--blotter-stream"]){await BlotterStreamChecks.Run();return;}
 
 if (args is ["--schedules"])
 {
+    FuturesMarginSourceChecks.Run();
+    CashInstrumentChecks.Run();
     CurveDisplayChecks.Run();
     DeliverySetupDefaultsChecks.Run();
     RiskValuationAdmissionChecks.Run();

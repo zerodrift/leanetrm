@@ -1,5 +1,11 @@
 # Delivery plan and acceptance criteria
 
+The current lifecycle increment follows [D392’s delivery contract](lifecycle-delivery.md).
+It requires native operations, inventory continuation, event-aware risk, independent
+review and disposable browser qualification. Incompatible synthetic demo records
+may be rebuilt; there is no legacy financial conversion layer. This increment
+remains local and unfinished until those gates are qualified.
+
 D391 implements live curve output selection, an optional inactive-contract
 display, and explicit exact/live close capture with durable first-outcome retry.
 The selection uses the chosen close, retains explicit frozen dependencies and

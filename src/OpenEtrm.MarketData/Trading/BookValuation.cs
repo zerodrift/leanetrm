@@ -232,7 +232,8 @@ public sealed class ValuationPortfolio
             instruments.TryAdd(instrument.Id,instrument);
             if(setup.Measure==ValuationMeasure.ExecutionPnl&&binding.Execution is null)
                 throw Error("valuation_measure","Execution P&L requires explicit execution facts for every trade binding.");
-            var basis=binding.Execution?.Basis(instrument)??new UnitMoney(new Money(default,instrument.Currency),binding.Quantity.Specification);
+            var basis=setup.Measure==ValuationMeasure.ExecutionPnl?binding.Execution!.Basis(instrument):
+                new UnitMoney(new Money(default,instrument.Currency),binding.Quantity.Specification);
             positions.Add(new(trade.Id,binding.Id,trade.BookId,instrument.Id,binding.Quantity,basis,new Money(default,instrument.Currency)){Coverage=binding.Coverage});
         }
         return new([..instruments.Values],positions.ToImmutable(),setup);
