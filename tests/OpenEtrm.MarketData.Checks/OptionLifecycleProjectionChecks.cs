@@ -23,7 +23,7 @@ internal static class OptionLifecycleProjectionChecks
         var requests=FuturesOptionPricing.Requests(model,option.Series,FuturesOptionPricing.DailySettlement);
         var basis=model.Build(source,[requests.Underlying,requests.Settlement]);
         var calibration=FuturesOptionPricing.Prepare(option,basis,source,discount,FuturesOptionPricing.DailySettlement,
-            OptionNumericalPolicies.Require(AmericanFuturesOptionModel.Id),true,default);
+            OptionNumericalPolicies.Require(OptionNumericalPolicies.CoxRossRubinstein),true,default);
         var setup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null){
             OptionBindings=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty.Add(option.Id,calibration)};
         var future=new FuturesMarketBinding(Guid.NewGuid(),f.UnderlyingRequest,model.ContractDefinition(f.K(1)),f.Underlying,
@@ -106,7 +106,7 @@ internal static class OptionLifecycleProjectionChecks
         var solved=f.Option(11);var solvedTrade=FuturesOptionChecks.OptionMarket.Holding(21,1,solved,"1");
         var solvedBasis=model.Build(source,[f.UnderlyingRequest,f.SettlementRequest(11)]);
         var solvedCalibration=FuturesOptionPricing.Prepare(solved,solvedBasis,source,discount,FuturesOptionPricing.DailySettlement,
-            OptionNumericalPolicies.Require(AmericanFuturesOptionModel.Id),true,default);
+            OptionNumericalPolicies.Require(OptionNumericalPolicies.CoxRossRubinstein),true,default);
         var solvedSetup=setup with{OptionBindings=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty.Add(solved.Id,solvedCalibration)};
         var solvedComponent=new FuturesOptionLifecycleProjection(solvedTrade,solvedTrade.Instruments[0].Id,solvedSetup,future,margin,rule,null,
             f.UnderlyingRequest,f.UnderlyingRequest,model,source);
@@ -115,7 +115,7 @@ internal static class OptionLifecycleProjectionChecks
         var rolled=LifecycleProjection.Prepare(model,source,beforeH,policy,[solvedComponent],[]).Evaluate("after_cutoff",[]);
         var iv=((SolvedVolatility)solvedCalibration.Calibration).Volatility;
         var oracle=AmericanFuturesOptionModel.UnitPrice(solved.Series.Terms,LatticeDecimal.Parse("3"),iv,LatticeDecimal.Parse("1"),beforeExpiry,
-            OptionNumericalPolicies.Require(AmericanFuturesOptionModel.Id),default).ToExact();
+            OptionNumericalPolicies.Require(OptionNumericalPolicies.CoxRossRubinstein),default).ToExact();
         if(rolled.Values.Single().ResidualValue.CompareTo(ExactMoney.FromMoney(new(oracle,solved.Currency)).Scale(solved.Series.Multiplier))!=0)
             throw new Exception("The post-cutoff option did not retain its exact source volatility and new calculation time.");
         Console.WriteLine("PASS option lifecycle: explicit automatic rule, exercise into margin-reset futures, abandoned branch and physical handoff gate");
