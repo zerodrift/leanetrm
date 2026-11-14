@@ -7,6 +7,48 @@ using OpenEtrm.MarketData.Risk;
 
 internal static class EconomicRiskNativeChecks
 {
+    internal static async Task VerifyGasSamples(PreviewDatabase database,NpgsqlConnection connection,PreviewData data,InputFrame frame,
+        ImmutableArray<Guid> books,PortfolioValuationPolicy pricing,PortfolioEconomicProjectionRequest projection,string expectedTail,CancellationToken ct)
+    {
+        var scope=new PortfolioRiskCatalogRequest(new(frame.Id,TradingBlotter.Convention,"retained",frame.ContextId),books,[],null);
+        var source=new PortfolioEconomicSourceRequest(scope,pricing,projection);
+        var history=new PortfolioHistoryRequest(scope,pricing,new(RiskHistoryPolicy.Version1,CurveModel.NumericalPolicy,RiskHistoryPolicy.Raw,
+            RiskHistoryPolicy.Heads,RiskHistoryPolicy.ExactCloses,RiskHistoryPolicy.Absolute,RiskHistoryPolicy.Complete,RiskHistoryPolicy.Fixed,2),
+            new(data.ReferenceRevision,"test_business"),"2020-12-15","2020-12-18","16:00:00","reject","reject");
+        var calculator=new PortfolioRiskPreview(database);
+        var capture=JsonSerializer.SerializeToElement(await calculator.EconomicHistory(connection,data,frame,new(source,history),ct),RiskJobs.Json);
+        var captured=capture.GetProperty("request").Deserialize<PortfolioHistoryRequest>(RiskJobs.Json)!;
+        var factors=capture.GetProperty("factors").Deserialize<ImmutableArray<CurveRiskAxisRequest>>(RiskJobs.Json);
+        var policy=new LifecycleEconomicRiskPolicy(LifecycleEconomicRiskPolicy.Historical,"0.99",HistoricalRiskPolicy.Quantile,HistoricalRiskPolicy.Tail);
+        var request=new PortfolioRiskRequest(captured.Scope.Context,books,[],[],PortfolioRiskPreview.Convention,RiskEngine.ExactNumericalPolicy,
+            pricing,"holdings",[],Economic:new(projection,policy,captured,null,factors));
+        var prepared=await calculator.Prepare(connection,data,frame,request,ct);
+        var report=JsonSerializer.SerializeToElement(PortfolioRiskPreview.Calculate(prepared,ct),RiskJobs.Json);
+        var result=report.GetProperty("result");var partition=result.GetProperty("economic").EnumerateArray().Single();
+        expectedTail=ExactDecimal.Parse(expectedTail).ToString();
+        // The first native move is +0.2 and the next is a decline. The
+        // complete portfolio is short fifteen units, so both 99% signed
+        // tails lose three quotation multipliers; fixed cash adds no loss.
+        if(result.GetProperty("samples").GetInt32()!=2||prepared.History!.Samples[0].Changes.Single()!=ExactDecimal.Parse("0.2")||
+            prepared.History.Samples[1].Changes.Single().CompareTo(default)>=0||partition.Text("valueAtRisk")!=expectedTail||partition.Text("expectedShortfall")!=expectedTail||
+            report.GetProperty("holdings").GetArrayLength()!=prepared.Portfolio.Positions.Length)
+            throw new Exception($"Native gas historical economic oracle expected 2 samples and VaR/ES {expectedTail}; received {result.GetProperty("samples").GetInt32()} samples, VaR {partition.Text("valueAtRisk")}, ES {partition.Text("expectedShortfall")}; moves {string.Join(';',prepared.History!.Samples.Select(s=>string.Join(',',s.Changes)))}.");
+        var retained=RetainedFactorHistory.Capture(prepared.History!,await calculator.CaptureHistoryClock(prepared.History!,ct));
+        var replay=await calculator.Prepare(connection,data,frame,prepared.Request,ct,retained:new(prepared.Portfolio.ConnectedMarkets,[]),
+            historyPlan:retained,historyEvidence:prepared.History!.Evidence);
+        if(!JsonElement.DeepEquals(report,JsonSerializer.SerializeToElement(PortfolioRiskPreview.Calculate(replay,ct),RiskJobs.Json)))
+            throw new Exception("Retained economic historical inputs did not reproduce the complete native report.");
+        var simulation=new MonteCarloRiskPolicy(MonteCarloRiskPolicy.Economic,MonteCarloRiskPolicy.Numerics,ParametricRiskPolicy.Sample,ParametricRiskPolicy.Centered,
+            ParametricRiskPolicy.Zero,ParametricRiskPolicy.Session,HistoricalRiskPolicy.Quantile,HistoricalRiskPolicy.Tail,MonteCarloRiskPolicy.EconomicValuation,
+            "0.99",MonteCarloRiskPolicy.Gaussian,MonteCarloRiskPolicy.Generator,MonteCarloRiskPolicy.ShockRounding,"42",32,MonteCarloRiskPolicy.Uncertainty);
+        var simulated=request with{Economic=request.Economic! with{Policy=policy with{Implementation=LifecycleEconomicRiskPolicy.MonteCarlo},Simulation=simulation}};
+        var monteCarlo=JsonSerializer.SerializeToElement(await calculator.Calculate(connection,data,frame,simulated,ct),RiskJobs.Json);
+        if(monteCarlo.GetProperty("result").GetProperty("samples").GetInt32()!=32||
+            monteCarlo.GetProperty("result").GetProperty("monteCarloDiagnostics").GetArrayLength()!=1||
+            monteCarlo.GetProperty("holdings").GetArrayLength()!=report.GetProperty("holdings").GetArrayLength())
+            throw new Exception("Economic Monte Carlo did not revalue every path for the exact native owner scope.");
+        Console.WriteLine("PASS native economic historical and Monte Carlo API: independently calculated signed tails, complete commodity/cash owners, captured calibration and exact retained replay");
+    }
     internal static async Task Verify(PreviewDatabase database,NpgsqlConnection connection,PreviewData data,InputFrame frame,
         PortfolioRiskCatalogRequest scope,PortfolioValuationPolicy pricing,PortfolioEconomicProjectionRequest projection,
         PreparedLifecyclePortfolio expected,CancellationToken ct)

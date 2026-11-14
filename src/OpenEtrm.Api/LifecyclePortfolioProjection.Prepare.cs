@@ -4,6 +4,7 @@ using System.Text.Json;
 using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Calculation;
+using OpenEtrm.MarketData.Gas;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Rates;
@@ -16,7 +17,12 @@ internal static partial class LifecyclePortfolioProjection
         PortfolioValuation.Prepared opening,PortfolioEconomicProjectionRequest request,ImmutableArray<ConnectedMarketEvidence>? retainedGraphs,CancellationToken ct)
     {
         var horizon=await ReadHorizon(connection,database,opening,request,ct);
-        if(!request.GasOwned.IsEmpty)throw Error("projection_gas_source","Prepare the selected native gas account projection adapter before sampling.");
+        var scope=opening.OpeningScope??throw Error("projection_scope","Retain the original opening market and exact book/holding scope.");
+        if(!scope.WholeBooks&&(!request.GasOwned.IsEmpty||opening.Policy.GasOwned is not null))
+            throw Error("projection_gas_scope","Independent ownership projection requires the explicit complete book scope.");
+        var gasPresent=scope.WholeBooks&&await GasOwnedKnownHistoryStore.RequireScope(connection,database,scope.Frame,scope.Books,opening.Policy.GasOwned is not null,ct);
+        var knownGas=gasPresent?await GasOwnedKnownHistoryStore.Read(connection,database,scope.Frame,scope.Snapshot,scope.Books,ct):null;
+        if(!gasPresent&&!request.GasOwned.IsEmpty)throw Error("projection_gas_policy","The selected source has no independent gas quantity owners for these account profiles.");
         if(opening.Policy.FuturesConvention!=FuturesMarginValuationPolicy.Convention)
             throw Error("projection_futures_state","Economic risk requires the explicit native margin remaining-value profile.");
         var sources=ImmutableArray.CreateBuilder<(PortfolioProductSource Source,ImmutableArray<ILifecycleProjection> Components,ImmutableDictionary<ReferenceKey,ISideDiscounting> Curves,ImmutableArray<ValuationPortfolio> Histories,ImmutableDictionary<CurveRequest,CurveKey> Officials,ImmutableArray<SchedulePriceTerm> ActivePrices)>();
@@ -27,7 +33,9 @@ internal static partial class LifecyclePortfolioProjection
             if(group.Any(s=>!s.Snapshot.HasSameInputs(first.Snapshot)))throw Error("projection_source","A market partition requires one exact source certificate and input selection.");
             var currencies=group.SelectMany(s=>s.Portfolio.Instruments).Where(i=>request.Policy.CashAccumulation==LifecycleProjectionPolicy.Accumulated||i switch{
                 FinancialSwapInstrument swap=>swap.Discounting,MonthlyFinancialSwap swap=>swap.Discounting,ScheduledFinancialSwap swap=>swap.Discounting,
-                CrossCommodityScheduledSwap swap=>swap.Discounting,_=>true}).Select(i=>i.Currency).Distinct().ToArray();
+                CrossCommodityScheduledSwap swap=>swap.Discounting,CashPaymentInstrument cash=>cash.PaymentAt>first.Snapshot.ValuationAt,
+                GasCommodityHoldingInstrument gas=>gas.Carrying==GasHoldingCarrying.CurrencyCurve&&gas.ReturnAt>first.Snapshot.ValuationAt,
+                _=>true}).Select(i=>i.Currency).Distinct().ToArray();
             var curves=ImmutableDictionary.CreateBuilder<ReferenceKey,ISideDiscounting>();
             foreach(var currency in currencies)
             {
@@ -61,10 +69,17 @@ internal static partial class LifecyclePortfolioProjection
                     var key=new MeasureBinding(position.Owner,position.BindingId);
                     switch(instrument)
                     {
+                        case GasCommodityHoldingInstrument:
+                            // Connected physical resources are prepared once
+                            // after every exact source graph is available.
+                            if(knownGas is null)throw Error("projection_gas_source","Retain complete source-known independent gas ownership.");
+                            break;
                         case CashPaymentInstrument cash:
                             if(setup.BindingStates.GetValueOrDefault(key) is not RecordedCashValuation paid)
                                 throw Error("projection_cash_state","Every native cash membership requires its complete recorded payment history.");
-                            components.Add(new CashLifecycleProjection(owner,cash,paid,curves[cash.Currency],source.Snapshot));
+                            // The cash instrument's declared due treatment is
+                            // nominal after due; no unused rate curve is read.
+                            components.Add(new CashLifecycleProjection(owner,cash,paid,curves.GetValueOrDefault(cash.Currency),source.Snapshot));
                             break;
                         case FuturesContract:
                         {
@@ -144,6 +159,17 @@ internal static partial class LifecyclePortfolioProjection
                 }
             }
             sources.Add((first,components.ToImmutable(),curves.ToImmutable(),histories.ToImmutable(),officials.ToImmutable(),[..activePrices.Distinct()]));
+        }
+        if(knownGas is not null)
+        {
+            var preparedGas=await GasOwnedProjection.PreparePartitions(connection,database,knownGas,opening.OwnedGas,scope.Snapshot,
+                horizon.Horizon.Closes.First(c=>c.Instant>scope.Frame.At).Instant,request.GasOwned,
+                sources.ToImmutableDictionary(s=>s.Source.Snapshot.Definitions,s=>new GasOwnedProjectionMarket(s.Source.Snapshot,s.Curves)),ct);
+            for(var index=0;index<sources.Count;index++)
+            {
+                var part=sources[index];sources[index]=part with{Components=part.Components.AddRange(preparedGas.Components.Where(c=>c.SourceSnapshot.Definitions==part.Source.Snapshot.Definitions))};
+            }
+            productEvidence.Add(JsonSerializer.SerializeToElement(new{known=knownGas,profiles=preparedGas.ProfileEvidence},RiskJobs.Json));
         }
         var projections=ImmutableArray.CreateBuilder<PreparedLifecycleProjection>();var markets=ImmutableArray.CreateBuilder<PortfolioValuation.MarketPartition>();
         foreach(var (source,components,curves,histories,officials,activePrices) in sources)

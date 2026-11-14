@@ -18,7 +18,7 @@ def checks(query, manifest):
     query(catalogue_fixture(manifest, 'https://preview.invalid'))
     query("INSERT INTO security.role_permissions SELECT role_id,p.code FROM security.role_permissions r "
           "CROSS JOIN security.permissions p WHERE r.permission='AmendTrade' AND p.code IN"
-          "('ReadGasOwnedHoldings','RecordGasOwnedHoldings','ConfigureGasOwnedHoldings') ON CONFLICT DO NOTHING;")
+          "('ReadGasOwnedHoldings','RecordGasOwnedHoldings','ConfigureGasOwnedHoldings','RunScenario') ON CONFLICT DO NOTHING;")
 
     def literal(value):
         return "'"+json.dumps(value).replace("'", "''")+"'::jsonb"
@@ -351,9 +351,28 @@ def checks(query, manifest):
     future_loss=later_command('evidence',dict(sourceKey='synthetic_future_loss',kind='physical_loss',quantity='2',occurredAt='2020-12-22T12:00:00Z',
         evidence='Synthetic accepted future-effective loss',expectedRevision=0))
     later_command('loss',dict(lotId=future_loss_lot,evidenceId=future_loss['id'],quantity='2',reservationId=None,effectiveAt='2020-12-22T12:00:00Z'),policies[(owned,'loss')])
+    from close_session_fixture import sql_session
+    sql_session(query,manifest,'synthetic_gas_economic','test_business','16:00',['future'],[])
+    # Independently authored synthetic native history; every date has one
+    # complete correction head in the same declared series/source/role.
+    for date, value in [('2020-12-15',mark-Decimal('0.1')),('2020-12-16',mark+Decimal('0.1'))]:
+        observed=date+'T16:00:00Z'
+        heads=json.loads(query(f"SELECT coalesce(jsonb_agg(o.id),'[]')::text FROM market_data.observations o JOIN market_data.observations anchor "
+            "ON(anchor.catalog_id,anchor.id)=(o.catalog_id,'70000000-0000-0000-0000-000000000001'::uuid) "
+            f"WHERE o.catalog_id='{catalog}' AND(o.definition_revision_id,o.series_id,o.source_code,o.role)=(anchor.definition_revision_id,anchor.series_id,anchor.source_code,anchor.role) "
+            f"AND o.observed_at='{observed}' AND NOT EXISTS(SELECT 1 FROM market_data.observations n WHERE(n.catalog_id,n.corrects_id)=(o.catalog_id,o.id));"))
+        assert len(heads)<=1
+        sample_id=str(uuid4());source_row=heads[0] if heads else '70000000-0000-0000-0000-000000000001'
+        source_event='source_event_id' if heads else "'synthetic_gas_history_"+date+"'"
+        correction="'"+heads[0]+"'::uuid" if heads else 'NULL::uuid'
+        query(f"INSERT INTO market_data.observations SELECT catalog_id,'{sample_id}',definition_revision_id,series_id,reference_catalog_id,reference_revision_id,"
+            f"source_code,{source_event},'gas_economic_history_v1',role,publication_state,'{observed}',clock_timestamp(),{value},{correction} "
+            f"FROM market_data.observations WHERE(catalog_id,id)=('{catalog}','{source_row}');")
+    historical_tail=Decimal('3')*multiplier
     profile_context=capture()
     path.write_text(json.dumps(dict(manifest=manifest,host=host,contextId=profile_context,at=at,accountId=owned,
-        profileId=profile_body['profileId'],bookId=book,markId='70000000-0000-0000-0000-000000000001',contractId=contract,rateIds=rates)))
+        profileId=profile_body['profileId'],bookId=book,markId='70000000-0000-0000-0000-000000000001',contractId=contract,rateIds=rates,
+        economicSession='synthetic_gas_economic',expectedHistoricalVar=str(historical_tail))))
     profile_result=subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks','--','--gas-owned-profile',str(path)],
         cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=60)
     if profile_result.returncode:raise RuntimeError(profile_result.stdout+profile_result.stderr)

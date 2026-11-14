@@ -65,6 +65,7 @@ internal sealed record PortfolioProductSource(PreviewData Data,InputFrame Frame,
     internal ImmutableArray<SwapStore.ResolvedSwapHolding> Swaps{get;init;}=[];
     internal ImmutableArray<FuturesOptionPosition> Options{get;init;}=[];
 }
+internal sealed record PortfolioOpeningScope(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,ImmutableArray<Guid> Books,bool WholeBooks);
 public sealed record PortfolioValuationResult(Guid SnapshotId,ScheduleContext Context,PortfolioValuationPolicy Policy,
     ImmutableArray<UnitPricingContract> ModelContracts,ImmutableArray<PortfolioPositionEvidence> Positions,
     ImmutableArray<PortfolioFactor> Factors,ImmutableArray<PortfolioTotal> Totals,
@@ -102,6 +103,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         internal ImmutableDictionary<MeasureBinding,FuturesMarginRead> FuturesMargin{get;init;}=ImmutableDictionary<MeasureBinding,FuturesMarginRead>.Empty;
         internal ImmutableArray<PortfolioProductSource> Sources{get;init;}=[];
         internal GasOwnedPortfolioRead? OwnedGas{get;init;}
+        internal PortfolioOpeningScope? OpeningScope{get;init;}
         internal ImmutableArray<PpaPortfolioInput> Ppas{get;init;}=[];
         internal long PpaRows=>Ppas.Sum(p=>p.Rows);
         // The option inputs this preparation calibrated, the work it took, and the calibration mode of each valued option binding.
@@ -474,7 +476,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         return new(snapshot.Id,exact,policy,markets.ToImmutable(),evidence.ToImmutable(),discountInputs,excluded)
             {MaterializationWork=materializationWork,MaterializationScenarioCount=materializationScenarios,Ppas=[..ppas.Select(p=>p.Prepared)],
              Options=optionMarkets.Count==0?null:new(optionMarkets.ToImmutable()),OptionWork=optionMarkets.Count==0?null:optionWork,OptionModes=optionModes,
-             InstantDiscountInputs=instantDiscounts.ToImmutable(),FuturesMargin=margins.ToImmutable(),Sources=materialized.ToImmutableArray(),OwnedGas=ownedGas};
+             InstantDiscountInputs=instantDiscounts.ToImmutable(),FuturesMargin=margins.ToImmutable(),Sources=materialized.ToImmutableArray(),OwnedGas=ownedGas,
+             OpeningScope=new(data,frame,snapshot,bookIds,selection is null)};
     }
     // The option market of the held options, calibrated once per operation: a retried preparation reuses its calibration.
     private async Task<FuturesOptionMarket> OptionMarket(NpgsqlConnection connection,PreviewData data,InputFrame frame,MarketSnapshot snapshot,

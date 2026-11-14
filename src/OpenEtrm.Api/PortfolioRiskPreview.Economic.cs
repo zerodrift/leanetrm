@@ -32,6 +32,8 @@ public sealed partial class PortfolioRiskPreview
         var books=BookScope.Select(directory,request.BookIds,request.PortfolioIds).Select(b=>b.Id("id")).Order().ToImmutableArray();
         if(books.IsEmpty)throw new MarketDataException("risk_economic_scope","Select visible books before preparing lifecycle risk.");
         var sessions=await LifecyclePortfolioProjection.ReadSessions(connection,database,context,frame.At,ct);
+        var gasChoices=request.TradeIds is null&&await PreviewDatabase.HasPermission(connection,"ReadGasOwnedHoldings",ct)?
+            await GasOwnedProjection.ReadChoices(connection,database,frame,books,ct):ImmutableArray<GasOwnedProjectionAccountChoice>.Empty;
         var native=PricingPolicy with{FuturesConvention=FuturesMarginValuationPolicy.Convention,
             NativeFutures=new(FuturesMarginValuationPolicy.CurrencyDefault,RateDiscountTiming.Version)};
         var pricing=new List<object>{new{value="native_trades",label="Native futures, options and swap holdings",policy=native}};
@@ -39,7 +41,7 @@ public sealed partial class PortfolioRiskPreview
             pricing.Add(new{value="native_whole_books",label="All book holdings, including independently owned gas",policy=native with{
                 GasOwned=new(GasOwnedValuationPolicy.Version,GasOwnedValuationPolicy.WholeBooks,GasOwnedValuationPolicy.CurrencyDefault,RateDiscountTiming.Version)}});
         object Choice(string value,string label)=>new{value,label};
-        return new{context,asOf=frame.At,sessions=sessions.GetProperty("sessions"),pricing,
+        return new{context,asOf=frame.At,sessions=sessions.GetProperty("sessions"),pricing,gasAccounts=gasChoices,
             projection=new{implementation=PortfolioEconomicProjectionRequest.Version,horizonPolicy=PortfolioEconomicProjectionRequest.SourceKnownSchedule,
                 rateTimingPolicy=RateDiscountTiming.Version,eventMarketPolicy=PortfolioEconomicProjectionRequest.SelectedContractMarkets,
                 policy=new{implementation=LifecycleProjectionPolicy.Version,numericalPolicy=LifecycleProjectionPolicy.Numerics,nonPriceInputs=LifecycleProjectionPolicy.HeldNonPrice},
@@ -173,10 +175,25 @@ public sealed partial class PortfolioRiskPreview
                 prepared.History??throw MissingHistory(),request.Policy,request.Simulation!,ct),
             _=>throw new MarketDataException("risk_economic_policy","Select a qualified economic full-revaluation method.")
         };
+        var carry=result switch{LifecycleEconomicRiskReport sampled=>sampled.NoShockTimeCarry,
+            LifecycleDeterministicRiskReport deterministic=>deterministic.NoShockTimeCarry,
+            _=>throw new MarketDataException("risk_economic_policy","The selected method did not produce a qualified economic report.")};
+        var markets=prepared.Portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
+        var holdings=carry.Select(value=>
+        {
+            var original=prepared.Portfolio.Positions.FirstOrDefault(p=>p.Owner==value.Owner.Owner&&p.BindingId==value.Owner.BindingId);
+            var book=prepared.Books.Single(b=>b.Id("id")==value.Owner.BookId);
+            return new{value.Owner,reference=original?.TradeReference??"Owned holding",instrument=original?.InstrumentReference??"",
+                book=book.Text("name"),currency=Currency(markets,value.Currency),currencyReference=value.Currency,
+                openingValue=value.OpeningValue.ToExactString(),residualValue=value.ResidualValue.ToExactString(),
+                periodCash=value.PeriodCash.ToExactString(),economicPnl=value.EconomicPnl.ToExactString()};
+        }).ToArray();
         return new{convention=Convention,engineVersion=RiskJobs.EngineVersion,measure=LifecycleEconomicRiskPolicy.Measure,
-            prepared.Request.Context,prepared.Request.BookIds,prepared.Request.TradeIds,pricingPolicy=prepared.Portfolio.Policy,
-            request,sourceSnapshotId=prepared.Portfolio.SnapshotId,horizon=economic.HorizonEvidence,
-            products=economic.ProductEvidence,optionCalibrations=economic.CalibrationReceipts,history=prepared.History,result};
+            context=prepared.Portfolio.Context,source=prepared.Request.Context,prepared.Request.BookIds,prepared.Request.TradeIds,pricingPolicy=prepared.Portfolio.Policy,
+            request,snapshotId=prepared.Portfolio.SnapshotId,asOf=prepared.Portfolio.OpeningScope!.Frame.At,horizon=economic.HorizonEvidence,holdings,
+            books=prepared.Books.Where(b=>prepared.BookIds.Contains(b.Id("id"))).Select(b=>new{id=b.Id("id"),name=b.Text("name")}),
+            products=economic.ProductEvidence,optionCalibrations=economic.CalibrationReceipts,history=prepared.History,
+            factors=prepared.HistoricalAxes.Select(axis=>Factor(markets,axis)),result};
         static MarketDataException MissingHistory()=>new("risk_economic_history","Supply the complete captured economic calibration history.");
     }
 

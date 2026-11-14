@@ -10,6 +10,7 @@ namespace OpenEtrm.Api;
 
 internal sealed record GasOwnedProjectionPrepared(ImmutableArray<ILifecycleProjection> Components,
     ImmutableHashSet<AccountingPositionKey> Owners,ImmutableArray<JsonElement> ProfileEvidence);
+internal sealed record GasOwnedProjectionMarket(MarketSnapshot Snapshot,ImmutableDictionary<ReferenceKey,ISideDiscounting> CurrencyCurves);
 
 internal static class GasOwnedProjection
 {
@@ -19,28 +20,35 @@ internal static class GasOwnedProjection
     // The caller replaces these exact original commodity members with the
     // connected components. Cash memberships remain their independent native
     // CashLifecycleProjection consumers; none is silently absorbed into stock.
-    internal static async Task<GasOwnedProjectionPrepared> Prepare(NpgsqlConnection connection,PreviewDatabase database,
+    internal static Task<GasOwnedProjectionPrepared> Prepare(NpgsqlConnection connection,PreviewDatabase database,
         GasOwnedKnownHistory known,GasOwnedPortfolioRead? opening,MarketSnapshot snapshot,DateTimeOffset horizon,
-        ImmutableArray<GasOwnedProjectionSelection> selected,ImmutableDictionary<ReferenceKey,ISideDiscounting> currencyCurves,CancellationToken ct)
+        ImmutableArray<GasOwnedProjectionSelection> selected,ImmutableDictionary<ReferenceKey,ISideDiscounting> currencyCurves,CancellationToken ct)=>
+        PreparePartitions(connection,database,known,opening,snapshot,horizon,selected,
+            ImmutableDictionary<DefinitionRevision,GasOwnedProjectionMarket>.Empty.Add(snapshot.Definitions,new(snapshot,currencyCurves)),ct);
+
+    internal static async Task<GasOwnedProjectionPrepared> PreparePartitions(NpgsqlConnection connection,PreviewDatabase database,
+        GasOwnedKnownHistory known,GasOwnedPortfolioRead? opening,MarketSnapshot source,DateTimeOffset horizon,
+        ImmutableArray<GasOwnedProjectionSelection> selected,ImmutableDictionary<DefinitionRevision,GasOwnedProjectionMarket> markets,CancellationToken ct)
     {
-        var knowledge=snapshot.Knowledge??throw Error("gas_projection_source","Retain the certified gas opening knowledge context.");
+        var knowledge=source.Knowledge??throw Error("gas_projection_source","Retain the certified gas opening knowledge context.");
         if(selected.IsDefault||selected.Any(s=>s is null||s.AccountId==Guid.Empty||s.ProfileId==Guid.Empty||s.Revision<1)||
-            selected.Select(s=>s.AccountId).Distinct().Count()!=selected.Length||!known.Source.HasSameInputs(snapshot)||
-            !TradingInstant.IsSupported(horizon)||horizon<=snapshot.ValuationAt||opening is not null&&(opening.ContextId!=snapshot.Knowledge!.ContextId||opening.At!=snapshot.ValuationAt||opening.KnownAt!=snapshot.Knowledge.KnownAt))
+            selected.Select(s=>s.AccountId).Distinct().Count()!=selected.Length||!known.Source.HasSameInputs(source)||markets is null||
+            markets.Any(p=>p.Key!=p.Value.Snapshot.Definitions||p.Value.Snapshot.Id!=source.Id||p.Value.Snapshot.ValuationAt!=source.ValuationAt||p.Value.Snapshot.Knowledge!=knowledge)||
+            !TradingInstant.IsSupported(horizon)||horizon<=source.ValuationAt||opening is not null&&(opening.ContextId!=knowledge.ContextId||opening.At!=source.ValuationAt||opening.KnownAt!=knowledge.KnownAt))
             throw Error("gas_projection_source","Select exact saved gas profiles and retain the certified source and complete independent opening holdings.");
         var active=opening?.Positions??[];
-        var requiredAccounts=active.Select(p=>p.AccountId).Concat(known.Positions.Values.Where(p=>p.Time.EffectiveAt>snapshot.ValuationAt&&p.Time.EffectiveAt<=horizon).Select(p=>p.AccountId)).ToHashSet();
+        var requiredAccounts=active.Select(p=>p.AccountId).Concat(known.Positions.Values.Where(p=>p.Time.EffectiveAt>source.ValuationAt&&p.Time.EffectiveAt<=horizon).Select(p=>p.AccountId)).ToHashSet();
         var selectedAccounts=selected.Select(s=>s.AccountId).ToHashSet();
         if(!requiredAccounts.IsSubsetOf(selectedAccounts))
             throw Error("gas_projection_policy","Select exactly one saved projection profile for each account containing opening or source-known horizon ownership.");
-        RequireKnownCoverage(known,snapshot.ValuationAt,horizon);
+        RequireKnownCoverage(known,source.ValuationAt,horizon);
         var components=ImmutableArray.CreateBuilder<ILifecycleProjection>();var owners=ImmutableHashSet.CreateBuilder<AccountingPositionKey>();var evidence=ImmutableArray.CreateBuilder<JsonElement>();
         var profiles=ImmutableDictionary.CreateBuilder<Guid,Profile>();
         foreach(var selection in selected)
         {
             if(!known.Accounts.ContainsKey(selection.AccountId))throw Error("gas_projection_policy","A saved projection account is outside the retained source.");
             var native=await LifecycleNative.Read(connection,"SELECT security.read_gas_owned_projection_profile($1,$2,$3,$4,$5)::text",ct,
-                database.Manifest.CatalogId,selection.ProfileId,selection.Revision,snapshot.Knowledge!.ContextId,snapshot.ValuationAt);
+                database.Manifest.CatalogId,selection.ProfileId,selection.Revision,knowledge.ContextId,source.ValuationAt);
             var header=native.GetProperty("profile");
             if(header.Id("id")!=selection.ProfileId||header.Id("account_id")!=selection.AccountId||header.GetProperty("revision").GetInt32()!=selection.Revision)
                 throw Error("gas_projection_policy","The selected gas projection profile belongs to another exact account or revision.");
@@ -53,10 +61,11 @@ internal static class GasOwnedProjection
             await admission.RequireCommit(connection,ct);
         }
         var links=selectedAccounts.ToDictionary(id=>id,_=>new HashSet<Guid>());
+        bool CrossesHorizon(Guid position)=>known.Positions[position].DueAt>source.ValuationAt&&known.Positions[position].DueAt<=horizon;
         foreach(var profile in profiles.Values)
         {
-            foreach(var row in profile.Performances)if(row.OptionalId("destination_account_id") is {} destination)Link(profile.Selection.AccountId,destination);
-            foreach(var row in profile.Supply)Link(profile.Selection.AccountId,known.Positions[row.OptionalId("lot_id")??row.Id("incoming_position_id")].AccountId);
+            foreach(var row in profile.Performances.Where(r=>CrossesHorizon(r.Id("position_id"))))if(row.OptionalId("destination_account_id") is {} destination)Link(profile.Selection.AccountId,destination);
+            foreach(var row in profile.Supply.Where(r=>CrossesHorizon(r.Id("position_id"))))Link(profile.Selection.AccountId,known.Positions[row.OptionalId("lot_id")??row.Id("incoming_position_id")].AccountId);
         }
         var reached=new HashSet<Guid>();var frontier=new Queue<Guid>(requiredAccounts);
         while(frontier.TryDequeue(out var account))if(reached.Add(account))foreach(var next in links[account])frontier.Enqueue(next);
@@ -69,6 +78,12 @@ internal static class GasOwnedProjection
             remaining.ExceptWith(connected);
             var positions=active.Where(p=>connected.Contains(p.AccountId)).ToImmutableArray();
             if(positions.IsEmpty)throw Error("gas_projection_known_transition","This horizon requires a qualified native future-origin gas transition before sampling.");
+            var definitions=positions.Select(p=>new DefinitionRevision(database.Manifest.CatalogId,p.DefinitionRevisionId)).Distinct().ToArray();
+            if(definitions.Length!=1||!markets.TryGetValue(definitions[0],out var market))
+                throw Error("gas_projection_source","Explicitly connected physical resources require one retained market graph; independent groups keep their own exact graphs.");
+            var snapshot=market.Snapshot;var currencyCurves=market.CurrencyCurves;
+            if(opening is null||!opening.Markets.TryGetValue(snapshot.Definitions.RevisionId,out var originalMarket)||!originalMarket.Snapshot.HasSameInputs(snapshot))
+                throw Error("gas_projection_source","Each gas component must retain the exact authorized opening market inputs for its native holdings.");
             var holdings=positions.Select(position=>
             {
                 if(position.Instrument is not GasCommodityHoldingInstrument instrument||instrument.Mark.Curve.Revision!=snapshot.Definitions)
@@ -101,7 +116,7 @@ internal static class GasOwnedProjection
                     currencyCurves.GetValueOrDefault(instrument.Currency)??throw Error("projection_cash_policy","Retain this gas return's exact captured currency discount curve."):null;
                 return new GasProjectionHolding(position.Position,account,kind,instrument,position.Quantity,available,reservations,discount);
             }).ToImmutableArray();
-            var instructions=connected.SelectMany(account=>profiles[account].Performances.Where(row=>known.Positions[row.Id("position_id")].DueAt>snapshot.ValuationAt)
+            var instructions=connected.SelectMany(account=>profiles[account].Performances.Where(row=>CrossesHorizon(row.Id("position_id")))
                 .Select(row=>(Profile:profiles[account],Row:row))).Select(selectedRow=>
             {
                 var row=selectedRow.Row;var selection=selectedRow.Profile.Selection;var supplies=selectedRow.Profile.Supply;

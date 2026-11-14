@@ -5,6 +5,7 @@ using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.Rates;
 
 internal static class GasOwnedKnownHistoryChecks
 {
@@ -45,6 +46,25 @@ internal static class GasOwnedKnownHistoryChecks
                     projected.ProfileEvidence.Any(p=>p.GetRawText().Contains("authorityUntil",StringComparison.Ordinal)))
                     throw new Exception("A saved connected gas profile omitted or reassigned an independently owned commodity position.");
                 if(!known.Consumptions.Any(c=>c.At>at.AddHours(8)))throw new Exception("The horizon-boundary check lacks its source-known later physical fact.");
+                if(fixture.TryGetProperty("economicSession",out var session))
+                {
+                    var pricing=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesMarginValuationPolicy.Convention,
+                        SwapStore.Convention,RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,
+                        NativeFutures:new(FuturesMarginValuationPolicy.CurrencyDefault,RateDiscountTiming.Version),
+                        GasOwned:new(GasOwnedValuationPolicy.Version,GasOwnedValuationPolicy.WholeBooks,GasOwnedValuationPolicy.CurrencyDefault,RateDiscountTiming.Version));
+                    var portfolio=await new PortfolioValuation(database).Prepare(connection,data,frame,snapshot,source,books,pricing,[],[],ct);
+                    var request=new PortfolioEconomicProjectionRequest(PortfolioEconomicProjectionRequest.Version,session.GetString()!,1,
+                        PortfolioEconomicProjectionRequest.SourceKnownSchedule,RateDiscountTiming.Version,PortfolioEconomicProjectionRequest.SelectedContractMarkets,
+                        new(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.Outstanding,LifecycleProjectionPolicy.Nominal,
+                            LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry),selection);
+                    var economic=await LifecyclePortfolioProjection.Prepare(connection,database,portfolio,request,null,ct);
+                    var result=economic.Projections.SelectMany(p=>p.Evaluate("native_gas_no_shock",[],ct).Values).ToArray();
+                    if(result.Length!=portfolio.Positions.Length||result.Any(p=>p.EconomicPnl.Numerator!="0")||
+                        result.Select(p=>p.Owner).Distinct().Count()!=result.Length||result.Any(p=>p.Owner.Owner.Kind!=AccountingOwnerKind.NativeHolding))
+                        throw new Exception("Complete gas economic projection must retain every independent commodity/cash owner and conserve no-shock wealth under zero captured rates.");
+                    Console.WriteLine("PASS native gas economic API preparation: explicit account profiles, commodity and cash owners, selected next close and exact no-shock conservation");
+                    await EconomicRiskNativeChecks.VerifyGasSamples(database,connection,data,frame,books,pricing,request,fixture.Text("expectedHistoricalVar"),ct);
+                }
                 try{await GasOwnedProjection.Prepare(connection,database,known,opening,snapshot,at.AddDays(3),selection,curves,ct);throw new Exception("A horizon-crossing native effect omitted its transition.");}
                 catch(MarketDataException error)when(error.Code=="gas_projection_known_transition"){}
                 return true;
