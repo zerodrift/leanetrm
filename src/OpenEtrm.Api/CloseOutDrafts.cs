@@ -103,6 +103,7 @@ public sealed partial class SwapStore
         selected.Require(heads);
         var row=heads.Single();
         if(row.Text("implementation")==CrossCommodityScheduledSwap.Implementation)throw TradePositionSelection.Unavailable();
+        (data,frame)=await ScheduledMarket(connection,data,frame,row.Id("definition_revision_id"),ct);
         var terms=Terms(data,row,frame.Id);var scheduled=terms.Scheduled;
         // The first side states the fixed price the draft sets, the second the floating curve price it is set to; each is
         // checked on its own, so no side's terms are read before its kind is known.

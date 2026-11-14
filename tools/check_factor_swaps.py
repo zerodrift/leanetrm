@@ -3,12 +3,14 @@ from copy import deepcopy
 from fractions import Fraction as F
 from uuid import uuid4
 from preview_client import PreviewClient
+from lifecycle_swap_client import LifecycleSwapClient,SYNTHETIC_SWAP_REVIEW
 from preview_fixture import trade_booking,RCAT
 import factor_swap_fixture as fixture
 
 
 def run_checks(url,query,manifest,run_worker=None):
     c=PreviewClient(url);c.bootstrap();c.call('profile',{'profile':'trader'})
+    c=LifecycleSwapClient(c,**SYNTHETIC_SWAP_REVIEW)
     workspace=c.call('workspace');frame=next(f for f in workspace['frames'] if f['at'].startswith('2020-12-18'))
     context=dict(snapshotId=frame['id'],convention='independent_side_financial_swap_v2',knowledgeMode='current')
     old=c.call('swaps/catalog',context)
@@ -110,7 +112,7 @@ def run_checks(url,query,manifest,run_worker=None):
             assert F(preview['calculation']['amount'])==F(amount)
             command=dict(preview=p,operationId=str(uuid4()),expectedVersion=version,previewHash=preview['previewHash'],duePolicy='swap_due_nominal_v1',recognitionPolicy='swap_completed_period_trading_pnl_v1',correctionPolicy='swap_explicit_correction_due_v1',correctionDueAt=None)
             determination=c.call('swaps/settlement/determine',command);assert c.call('swaps/settlement/determine',command)==determination;version+=1
-            payment=dict(context=after,tradeId=saved['tradeId'],operationId=str(uuid4()),expectedRevision=1,expectedVersion=version,determinationId=determination['determinationId'],amount=amount,currency=value['currency'],effectiveAt=after_frame['at'],reference='Synthetic factor settlement',reversesId=None)
+            payment=dict(context=after,tradeId=saved['tradeId'],operationId=str(uuid4()),expectedRevision=1,expectedVersion=version,determinationId=determination['determinationId'],amount=amount,currency=value['currency'],effectiveAt=after_frame['at'],reference=f'Synthetic factor side {slot} period {ordinal}',reversesId=None)
             receipt=c.call('swaps/settlement/payment',payment);assert c.call('swaps/settlement/payment',payment)==receipt;version+=1
     inspection=c.call('swaps/settlement/inspect',dict(context=after,tradeId=saved['tradeId'],revision=None,duePolicy='swap_due_nominal_v1',recognitionPolicy='swap_completed_period_trading_pnl_v1'))
     assert F(inspection['valuation']['netCash'])==6300 and F(inspection['valuation']['remainingValue'])==0
