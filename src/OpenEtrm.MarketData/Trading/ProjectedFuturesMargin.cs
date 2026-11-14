@@ -77,7 +77,7 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
             PriceUnit.FromQuote(model.QuoteFor(settlementProjection))!=PriceUnit.FromQuote(market.Quote))
             throw Error("Select the exact future contract and native quotation for its explicit scenario-event market mapping.");
         SettlementProjection=settlementProjection;
-        Dependencies=[..market.Dependencies.Append(settlementProjection).Distinct()];
+        Dependencies=state.Status==FuturesMarginStatus.FinalMarginDetermined?[]:[..market.Dependencies.Append(settlementProjection).Distinct()];
         Opening=new([ValuationPortfolio.FromTrades([new(trade.Id,trade.BookId,[holding],trade.Booking)],setup)],[]);
         var future=state.Status==FuturesMarginStatus.FinalMarginDetermined?[]:policy.Occurrences.Where(o=>o.At>source.ValuationAt).OrderBy(o=>o.At).ThenBy(o=>o.Phase).ToArray();
         occurrences=future.ToImmutableDictionary(o=>LifecycleProjectionEvent.ScopedId(Owner,o.Id));

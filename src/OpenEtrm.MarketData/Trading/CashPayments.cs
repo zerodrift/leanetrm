@@ -11,6 +11,7 @@ public interface ICashPaymentValuation:IBindingValuationState
     ExactMoney UnitOutstanding(MarketSnapshot source,DateTimeOffset calculationAt);
     ImmutableArray<DateTimeOffset> FutureChanges(MarketSnapshot source);
 }
+public interface IProjectedCashPaymentValuation:ICashPaymentValuation;
 
 // Shared paid-state and valuation rules for dated premiums and exact-instant
 // margin/settlement cash. Ownership and payment history remain binding state.
@@ -64,7 +65,7 @@ public abstract record CashPaymentInstrument:Instrument
     }
     private ExactMoney Outstanding(UnitValuationContext context)
     {
-        if(context.BindingState is ProjectedCashValuation&&!context.IsLifecycleProjection)
+        if(context.BindingState is IProjectedCashPaymentValuation&&!context.IsLifecycleProjection)
             throw new MarketDataException("projection_cash_state","A forecast cash obligation cannot be valued as an actual holding.");
         return ((ICashPaymentValuation)context.BindingState!).UnitOutstanding(context.Snapshot,context.CalculationAt);
     }

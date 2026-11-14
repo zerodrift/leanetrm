@@ -77,6 +77,24 @@ internal static class LifecycleProjectionChecks
         var result=prepared.Evaluate("final_freeze",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
         Equal(result.Values[0].ResidualValue,"0");Equal(result.Values[0].PeriodCash,"80");
         Equal(result.Values[1].PeriodCash,"4.3");
+        var official=new MarketObservation(new(f.Revision.CatalogId,Guid.NewGuid()),f.S(1),f.R("source"),ObservationRole.FinalContractSettlement,
+            PublicationState.Final,market.Contract.Expiry,ExactDecimal.Parse("4"));
+        var actualSource=(source with{Id=Guid.NewGuid(),ValuationAt=end,MarketCutoff=end,
+            Selections=source.Selections.Where(s=>s.Input.Series!=f.S(1)).Append(new SelectedObservation(new(f.S(1),InputUse.FrozenFact),official)).ToImmutableArray()})
+            .WithKnowledge(Guid.NewGuid(),end);
+        var known=market.Contract.Expiry.AddHours(1);
+        var fact=market.Instrument.ResolveSettlementFact(market,margin.SettlementCurve,model,actualSource,official.Key,known,market.Contract.Expiry,true);
+        var finalState=state with{SettledBasis=fact.Price,SettledAt=fact.EffectiveAt,KnownAt=known,LatestSettlement=fact,
+            Status=FuturesMarginStatus.FinalMarginDetermined,SourceContextId=actualSource.Knowledge!.ContextId,KnownThrough=end};
+        var finalSetup=setup with{BindingStates=setup.BindingStates.SetItem(new(trade.Id,binding),finalState)};
+        var finalHistory=new FuturesMarginHistory(market.Instrument.ProposeMarginTerms(trade,binding,margin,model,actualSource),actualSource.Knowledge.ContextId,end,
+            [new(margin.Occurrences.Single().Id,Guid.NewGuid(),null,state.SettledBasis,fact,ExactMoney.Parse("80",market.Quote.Currency),
+                new(ExactDecimal.Parse("80"),market.Quote.Currency),known,1)]);
+        var finalHorizon=horizon with{Closes=[new(new(2040,12,29),end.AddDays(1),0)]};
+        var finalized=LifecycleProjection.Prepare(model,actualSource,finalHorizon,policy,
+            [new FuturesLifecycleProjection(trade,binding,finalState,finalHistory,finalSetup,market.Market,model,actualSource)],[]);
+        Equal(finalized.Evaluate("actual_final",[]).Values.Single().ResidualValue,"0");
+        if(!finalized.Factors.IsEmpty)throw new Exception("An already finally settled future demanded an expired live mark.");
     }
     private static void Economic(Fixture f,PreparedLifecycleProjection prepared,FixAndCash component,LifecycleProjectionHorizon horizon,LifecycleProjectionPolicy policy)
     {

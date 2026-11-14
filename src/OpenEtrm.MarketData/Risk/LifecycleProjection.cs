@@ -33,6 +33,7 @@ public sealed record KnownLifecycleFixing(ProjectedFixingKey Key,SelectedObserva
 public sealed record ProjectedCashContribution(Guid Id,DateTimeOffset EffectiveAt,DateTimeOffset DueAt,ExactMoney Amount);
 public sealed record LifecycleProjectionState(ImmutableArray<ValuationPortfolio> Residuals,ImmutableArray<ProjectedCashContribution> Cash)
 {
+    public ImmutableArray<AccountingFlow> KnownPayments{get;init;}=[];
     public ImmutableDictionary<ProjectedFixingKey,ProjectedFixing> ProjectedFacts{get;init;}=ImmutableDictionary<ProjectedFixingKey,ProjectedFixing>.Empty;
     // Populated by the qualified opening-state adapter from committed facts.
     // A scheduled date alone never satisfies an event prerequisite.

@@ -12,6 +12,15 @@ contributions belong to the event that creates them; earlier contributions canno
 be rewritten or removed. Independent native holdings use typed accounting owners,
 without creating artificial trades.
 
+`CashLifecycleProjection` retains actual source-known payments as a separate
+immutable collection. Those payments enter period cash at their effective
+instants under both hypothetical disposition choices. A projected scheduled
+payment reserves every already-known later actual allocation, so it cannot pay
+the same balance twice. Opening overdue cash is never paid merely because its
+due date passed. Projected discharge state has a separate type and cannot enter
+an actual valuation operation. Opposite-direction refunds require their own
+qualified contractual policy; the scheduled-payment profile does not invent one.
+
 The source adapter supplies a retained selected-session version, calendar and
 complete resolved close schedule. The engine chooses the first configured close
 strictly after opening, shared by every market partition. An absent next close is

@@ -5,7 +5,7 @@ namespace OpenEtrm.MarketData.Trading;
 // A forecast obligation has no native payment allocations or acceptance receipt.
 // It is usable only by the pure lifecycle projection valuation environment.
 public sealed record ProjectedCashValuation(Guid TradeId,Guid BindingId,Guid? BookId,Quantity Quantity,Guid InstrumentId,ExactMoney UnitAmount,
-    Guid SourceContextId,DateTimeOffset KnownThrough):ICashPaymentValuation
+    Guid SourceContextId,DateTimeOffset KnownThrough):IProjectedCashPaymentValuation
 {
     public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
     public ProjectedCashValuation(AccountingPositionKey position,Quantity quantity,Guid instrumentId,ExactMoney unitAmount,Guid sourceContextId,DateTimeOffset knownThrough)
