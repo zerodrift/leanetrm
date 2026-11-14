@@ -4629,8 +4629,9 @@ Refusals are structured:
   summed below 10^24, refused when saved because the recipe could never
   evaluate; a calendar on a calendar-day node or none on a business-day node;
   terms on another kind; an unsupported consumer. A position member that is
-  absent, or that is not a whole JSON number such as `1.5`, does not bind and is
-  refused by request binding as `request_format`.
+  absent, or that is not a whole JSON number such as `1.5` or the text `2e` the
+  editor sends as typed, does not bind and is refused by request binding as
+  `request_format`.
 - `recipe_input`: no single delivery contract for a trade-month target, a
   delivery contract with no prior contract, a position beyond the contract
   universe, a calendar that does not cover a window, an empty window, supplied

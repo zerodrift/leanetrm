@@ -4355,7 +4355,7 @@ with no live future;
 69.90 when sampling at 20:00 moves the expiry day to the next contract; 68.46
 with a −1.50 differential; and a two-target case at 10724/155 and 4807/70. It
 also asserts the windows, declaration identity, formula text and each refusal,
-with the ordinal and member each term refusal names, including a `null`
+with the term number (from 1, as the editor labels rows) and member each term refusal names, including a `null`
 position and a group whose weights cannot be summed, and the `recipe_input`
 refusal of a context frame without the context day's contract, with only an
 earlier mark of it, or offering a frozen observation from a past frame, and the
@@ -4416,6 +4416,29 @@ browser suite passed 13 checks: catalog-driven settings and terms, preview at
 68.46, save as `observation_formula`, unchanged reload, and the refusals of a
 cleared weight and of a new term with no position shown beside the operation.
 `tools/check_all.py` includes this command.
+
+Review fixes (local, 2026-11-13). The same command also publishes the
+`published_source` consumer and an ordinary differential curve, then runs the
+API check `--contract-observation-projections` against the owned preview
+database: under the trading read of the 2026-12-01 working frame, projection
+choices offer the ordinary curve and neither curve that reads contract
+observation terms, and projection admission accepts the ordinary curve and
+refuses both with `custom_projection`. Before the fix both were offered and
+accepted. Forged references to either curve are refused with the same code and
+message by `swaps/preview`, `swaps/book`, `swaps/price` and
+`swaps/scheduled-price`; before the fix those routes answered other refusals
+(`swap_input`, `trade_party`) and never qualified the projection. The browser
+suite now passes 15 checks: it also types `2e` into Less position and Position
+of a spread term and checks that each preview sends the typed text, is refused
+(`400 request_format`), shows no price and shows the general error, and its
+reload check reads back every setting and the source connection. Term refusals
+number terms from 1. Results on the final code: the preview above exited 0 with
+96 checks and 15 browser checks; `--connected-portfolio-check` (94),
+`--draft-check --browser-check` (267; 189 browser), `--gas-indexed-check
+--browser-check` (80; 9 browser), `--gas-composition-check --gas-setup-check`
+(85), `--custom-curves-check --browser-check` (308; 236 browser) and
+`--scheduled-swap-check` (113) exited 0; the managed core suite passed 675; the
+API checks passed (98); `npm test --prefix web` passed 1634 tests.
 
 Local results on 2026-11-13, on this change merged with the current master: the
 managed core suite exited 0 with 675 managed core checks passed; the API checks
