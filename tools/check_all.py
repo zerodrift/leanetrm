@@ -72,6 +72,16 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     for part in ('sources','adoption','journal'):
         check('owned futures margin '+part,[sys.executable,f'tools/check_futures_margin_{part}.py','--pg-bin',str(pg_bin)],suite='trading')
     check('explicit trading business dates and command source admission',[sys.executable,'tools/check_trading_business_date.py','--pg-bin',str(pg_bin)],suite='trading')
+    for helper,label in (
+        ('check_lifecycle_actions','shared lifecycle actions and native option history'),
+        ('check_lifecycle_swaps','shared swap settlement, netting and exact task sources'),
+        ('check_futures_physical_delivery','physical futures final margin and delivery obligation'),
+        ('check_selected_physical_authority','selected physical action authority'),
+        ('check_physical_delivery_authority','physical delivery original authority'),
+        ('check_physical_margin_qualification','new physical futures require qualified delivery terms'),
+        ('check_lifecycle_option_scheduling','actual option expiry scheduling and linked futures'),
+        ('check_lifecycle_option_expiries','historical option expiry and immutable instruction review')):
+        check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='trading')
     check('exact temporal sources, retained close upgrade and claimed worker replay',
           [sys.executable,'tools/check_context_resolution.py','--upgrade-existing-close','--pg-bin',str(pg_bin),'--dotnet',str(dotnet)])
     check('owned recorded-close observation batches',[sys.executable,'tools/check_observation_batch_reads.py','--pg-bin',str(pg_bin)])

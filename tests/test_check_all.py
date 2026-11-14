@@ -17,6 +17,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from check_all import GROUPS, run_checks
 
+LIFECYCLE_NATIVE={f'tools/{name}.py' for name in (
+    'check_lifecycle_actions','check_lifecycle_swaps','check_futures_physical_delivery',
+    'check_selected_physical_authority','check_physical_delivery_authority','check_physical_margin_qualification',
+    'check_lifecycle_option_scheduling','check_lifecycle_option_expiries')}
+
 
 class CheckAllTests(unittest.TestCase):
     def setUp(self):
@@ -110,6 +115,20 @@ class CheckAllTests(unittest.TestCase):
                 run_checks(Path('/pg'),Path('/selected sdk/dotnet'),Path('/browser'),group=group,run=run)
             self.assertEqual({value for command in selected for value in command if value in helpers},helpers if group=='trading' else set())
             self.assertEqual(len(selected),4 if group=='trading' else 0)
+
+    def test_native_lifecycle_consumers_run_once_in_trading_with_the_selected_sdk(self):
+        for group in ('trading','standard'):
+            selected=[]
+            def run(command,**options):
+                if LIFECYCLE_NATIVE.intersection(command):
+                    self.assertEqual(options['env']['DOTNET'],'/selected sdk/dotnet')
+                    self.assertEqual(command[command.index('--pg-bin')+1],'/stock pg')
+                    selected.append(command)
+            with patch.dict(os.environ,{'DOTNET':'/unrelated sdk/dotnet'}):
+                run_checks(Path('/stock pg'),Path('/selected sdk/dotnet'),Path('/browser'),group=group,run=run)
+            actual=[value for command in selected for value in command if value in LIFECYCLE_NATIVE]
+            self.assertEqual(set(actual),LIFECYCLE_NATIVE if group=='trading' else set())
+            self.assertEqual(len(actual),len(LIFECYCLE_NATIVE) if group=='trading' else 0)
 
     def test_every_executable_check_project_is_restored_and_run(self):
         expected = {
@@ -220,7 +239,7 @@ class CheckAllTests(unittest.TestCase):
                 # Each group starts from a clean checkout, including restores,
                 # managed/frontend builds and all shared verification contracts.
                 margin={f'tools/check_futures_margin_{part}.py' for part in ('sources','adoption','journal')}|{'tools/check_trading_business_date.py'}
-                shared=lambda c:'tools/run_preview.py' not in c and not margin.intersection(c)
+                shared=lambda c:'tools/run_preview.py' not in c and not (margin|LIFECYCLE_NATIVE).intersection(c)
                 self.assertEqual([c for c in selected if shared(c)],
                                  [c for c in complete if shared(c)])
                 self.assertEqual(selected, [c for c in complete if c in selected])
