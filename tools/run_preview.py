@@ -1255,7 +1255,7 @@ def main():
                 from check_contract_observation_storage import run_checks as check_contract_observation_storage
                 check_contract_observation_storage(url,query,manifest)
                 from check_contract_observation_curve import run_checks as check_contract_observation_curve
-                check_contract_observation_curve(url,query,manifest)
+                check_contract_observation_curve(url,query,manifest,dotnet,temporary,app_env)
                 if args.browser_check:
                     target=temporary/'browser-target.json'
                     target.write_text(json.dumps({'suite':'business_browser_v1','url':url,'runId':run_id}))

@@ -4721,6 +4721,21 @@ controls, previews 68.46, saves, reloads every term unchanged and shows the
 backend's refusals of a cleared weight and of a new term with no position beside
 the operation.
 
+A published curve that reads contract observation terms, itself or through a
+`published_source` at any depth, is not a trade projection until a consumer is
+qualified. Projection choices (the swap catalog, swap observation options and
+the gas ticket's forecast choices) never offer it. Projection admission refuses
+it with `custom_projection` before any output shape is compared: the
+published-projection qualification of swap observation options and gas
+compositions, and swap preview, booking, amendment, draft pricing, draft risk
+and scheduled pricing, which read the projection from their own terms. Curve
+preview, save, publication, `published_source` consumption, `market/dates` and
+market preparation are unchanged, so a later consumer can be qualified through
+the ordinary preparation path. An API check against the owned preview publishes
+the formula curve, a `published_source` consumer of it and an ordinary
+differential curve, and asserts that only the ordinary curve is offered and
+accepted; the four swap routes refuse forged references to the other two.
+
 Not implemented or qualified: no settlement finality is exposed to a Side; no
 trade, ticket or cash consumer exists, and the only consumer is the synthetic
 formula curve (indexed crude consideration on a Side is separate, later work);

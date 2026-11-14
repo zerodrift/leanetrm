@@ -274,6 +274,17 @@ run with `--contract-observation-curve-check`; adding `--browser-check` runs
 the Curve builder suite. The only consumer is that synthetic formula curve; no
 trade or Side consumes these outputs yet.
 
+A published curve that reads contract observation terms, itself or through a
+`published_source` at any depth, is not a trade projection until a consumer is
+qualified. Projection choices never offer it, and projection admission refuses
+it with `custom_projection` (`A curve that reads contract observation terms has
+no qualified trade projection.`) before any output shape is compared: the
+published-projection qualification used by swap observation options and gas
+compositions, and swap preview, booking, amendment, draft pricing, draft risk
+and scheduled pricing, which read the projection from their own terms. Curve
+preview, save, publication, `published_source` consumption, `market/dates` and
+market preparation are unchanged.
+
 
 ## Published outputs in booked projections
 

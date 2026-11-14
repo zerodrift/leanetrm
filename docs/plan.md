@@ -29,7 +29,10 @@ replay, observed ISO releases/finality and residual recalibration remain separat
 
 D391 adds contract observation terms to custom curves, implemented locally with
 managed, stock PostgreSQL, HTTP and browser checks on one synthetic crude fixture.
-The only consumer is that synthetic formula curve. Indexed crude consideration
+The only consumer is that synthetic formula curve; a published curve that reads
+these terms, directly or through a published source, is not offered or accepted
+as a trade projection (`custom_projection`) until a consumer is qualified.
+Indexed crude consideration
 that consumes such a curve on a Side, with its booking, risk, delivery and cash,
 is separate, later work; explicit roll boundaries remain unsupported. See
 [custom curves](custom-curves.md#contract-observation-terms-d391).

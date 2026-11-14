@@ -2,8 +2,11 @@
 
 The output for 2027-01 is the business-day average of the prompt future over January, plus the 2:1 weighted December
 roll spreads of F against G and H, plus the 2027-01 differential. Each context's price is stated literally."""
+import json
+import subprocess
 from copy import deepcopy
 from fractions import Fraction
+from pathlib import Path
 from uuid import uuid4
 from preview_client import PreviewClient, initial_frame
 from crude_formula_fixture import CALENDAR, CONTRACT, CURVE, DIFFERENTIAL, LATE_SETTLEMENT, observation
@@ -30,7 +33,7 @@ def observed(definition):
     return next(node for node in definition['nodes'] if node['id']=='crude')
 
 
-def run_checks(url,query,manifest):
+def run_checks(url,query,manifest,dotnet,owned_root,environment):
     catalog,tenant,workspace=(manifest[key] for key in ('catalogId','tenantId','workspaceId'))
     client=PreviewClient(url)
     client.bootstrap()
@@ -109,7 +112,7 @@ def run_checks(url,query,manifest):
         {'id':'output','kind':'output','parameters':{},'inputs':{'values':'formula'}}]}
     for day,expected in (('2026-12-01','68.46'),('2026-12-22','68.46'),('2027-01-20','68.52'),('2027-01-25','68.50')):
         price(preview(day,consumer),expected)
-    # The consumer prepares the published curve under its demand with the same frozen context day.
+    # The consumer's preview prepares the published curve with the same frozen context day and the same live inputs.
     consumed=preview('2027-01-20',consumer)
     assert live(consumed)=={CONTRACT[c] for c in 'HD'},consumed['dependencies']
     # Calendar availability plans the consumer's published input at the sampling instant of every observation day, past
@@ -122,6 +125,7 @@ def run_checks(url,query,manifest):
     unknown=preview('2027-01-25',snapshot=historical(unsettled),expected=422)
     assert (unknown['code'],unknown['message'])==(missing['code'],missing['message']),unknown
     client.call('market/current',{})
+    projections(client,manifest,frame('2026-12-01'),curve,consumer,dotnet,owned_root,environment)
     print('PASS contract observation curve: projected, settling and settled formula prices, live inputs by context, a published-source consumer, calendar availability, a refused incomplete history and a refused incomplete context frame',flush=True)
 
     # Review focus 5: a correction of a settlement already read is a new revision with a later knowledge time.
@@ -160,3 +164,56 @@ def run_checks(url,query,manifest):
     assert scope==f'{tenant},{workspace}',scope
     price(preview('2027-01-25'),'68.51')
     print('PASS contract observation refusals: every required setting, a blank term position, the business-day calendar, a reweighted saved version and a reader without market access',flush=True)
+
+
+def projections(client,manifest,working,formula,consumer,dotnet,owned_root,environment):
+    """D391: a published curve that reads contract observation terms, directly or through a published source, is no trade
+    projection. The consumer and an ordinary differential curve are published beside the formula curve; the managed check
+    asks projection choices and projection admission for all three under the trading read of the working frame."""
+    ordinary={'code':'synthetic_crude_mark','name':'Synthetic crude differential mark','output':'output','nodes':[
+        {'id':'differential','kind':'source','parameters':{'curve':DIFFERENTIAL},'inputs':{}},
+        {'id':'select','kind':'select','parameters':{'mode':'positions','first':'1','count':'1','binding':'context'},'inputs':{'source':'differential'}},
+        {'id':'dates','kind':'dates','parameters':{'mode':'context',**POLICY},'inputs':{}},
+        {'id':'sample','kind':'sample','parameters':{},'inputs':{'selection':'select','dates':'dates'}},
+        {'id':'output','kind':'output','parameters':{},'inputs':{'values':'sample'}}]}
+    def publish(definition):
+        client.call('profile',{'profile':'editor'})
+        saved=client.call('custom-curves/save',{'requestId':str(uuid4()),'snapshotId':working['id'],'definition':deepcopy(definition),'layout':{}})
+        client.call('profile',{'profile':'approver'})
+        assert client.call('custom-curves/publish',{'requestId':str(uuid4()),'id':saved['id'],'version':1,'generation':1})['state']=='published'
+        return saved['id']
+    curves={'observation':formula,'consumer':publish(consumer),'ordinary':publish(ordinary)}
+    client.call('profile',{'profile':'viewer'})
+    path=Path(owned_root)/'contract-observation-projections.json'
+    path.write_text(json.dumps({'frame':working,**curves}))
+    subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--contract-observation-projections',str(path)],
+                   cwd=Path(__file__).resolve().parents[1],env=environment,check=True,timeout=180)
+    # A swap names its projection in the request, never through the choices: a forged reference is refused by swap preview,
+    # booking, draft pricing and scheduled pricing before any other term is read.
+    client.call('profile',{'profile':'trader'})
+    context={'snapshotId':working['id'],'convention':'independent_side_financial_swap_v2','knowledgeMode':'current'}
+    delivery={'deliveryFrom':'2027-01-01','deliveryTo':'2027-02-01'}
+    refused={'code':'custom_projection','message':'A curve that reads contract observation terms has no qualified trade projection.'}
+    def attempt(route,body):
+        try:return client.call(route,body,expected=422)
+        except AssertionError as error:return str(error)
+    answers={}
+    for name in ('observation','consumer'):
+        projection={'catalogId':manifest['catalogId'],'curveId':curves[name],'version':1,'outputNode':'output','position':None,
+                    'selection':'containing_delivery_interval_v1','implementation':'published_custom_curve_projection_v1'}
+        floating={'curve':DIFFERENTIAL,'index':'synthetic_crude_differential_index','currency':'usd',**delivery,'resetFrequency':'monthly',
+                  'averagingMethod':'none','spread':'0','settlement':{'mode':'curve_target','index':None,'projectionPolicy':None},'customProjection':projection}
+        fixed={'price':'70','currency':'usd',**delivery}
+        terms={**context,'operationId':str(uuid4()),'bookId':str(uuid4()),'quantity':'1000','fixedCoefficient':'-1','discounting':False,
+               'fixed':fixed,'floating':floating,'definitionRevisionId':manifest['revisionId'],'commodity':'synthetic_crude'}
+        quantity={'revision':{'catalogId':manifest['referenceCatalogId'],'revisionId':manifest['referenceRevisionId']},'code':'synthetic_crude_quantity'}
+        side={'basis':'per_period','quantity':quantity,'amount':None,'allocation':None,'priceApplication':'contract_quantity','power':None}
+        scheduled={**terms,'floating':None,'fixed':None,'scheduled':{'implementation':'scheduled_financial_swap_v1',
+            'first':{**side,'periods':[{'amount':'1000','fixed':fixed,'floating':None}]},'second':{**side,'periods':[{'amount':'1000','fixed':None,'floating':floating}]}}}
+        draft={'context':context,'definitionRevisionId':manifest['revisionId'],'commodity':'synthetic_crude','quantity':{'value':'1000','specification':quantity},
+               'fixedCoefficient':'-1','discounting':False,'fixed':fixed,'floating':floating}
+        for route,body in (('swaps/preview',terms),('swaps/book',terms),('swaps/price',draft),('swaps/scheduled-price',{'terms':scheduled,'priceMode':'agreed','parRatePolicy':None})):
+            answers[name,route]=attempt(route,body)
+    assert all(answer==refused for answer in answers.values()),answers
+    print('PASS contract observation swap admission: swap preview, booking, draft pricing and scheduled pricing refuse a forged projection of the observation curve and of its published-source consumer',flush=True)
+    client.call('profile',{'profile':'viewer'})

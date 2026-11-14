@@ -54,6 +54,7 @@ if(args is ["--trading-read-selection"]){TradingReadSelectionChecks.Run();return
 if(args is ["--booked-schedule-lookups"]){BookedScheduleLookupChecks.Run();return;}
 if(args is ["--contract-observation-authoring"]){ContractObservationAuthoringChecks.Run();return;}
 if(args is ["--contract-observation-reads"]){ContractObservationReadBoundChecks.Run();return;}
+if(args is ["--contract-observation-projections",var observationProjections]){await ContractObservationProjectionChecks.Run(observationProjections);return;}
 if(args is ["--side-observation-compatibility"]){SideObservationCompatibilityChecks.Run();return;}
 if(args is ["--curve-activation-inputs"]){CurveActivationInputChecks.Run();return;}
 if(args is ["--curve-projection-shape"]){CurveProjectionShapeChecks.Run();return;}

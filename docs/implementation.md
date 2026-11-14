@@ -11,7 +11,9 @@ Migration 0252 stores
 the terms; the API
 prepares and previews the node; the Curve builder edits it. The only consumer is
 a synthetic crude formula curve. No Side, trade, ticket or cash consumer, explicit
-roll boundaries or production activation exist yet.
+roll boundaries or production activation exist yet: a published curve that reads
+these terms, directly or through a published source, is not offered or accepted
+as a trade projection (`custom_projection`).
 
 D376–D381 add [physical power forward-to-actual valuation](power-curve-composition.md)
 through existing product curves, physical mapping and native Instrument/Side PV.
