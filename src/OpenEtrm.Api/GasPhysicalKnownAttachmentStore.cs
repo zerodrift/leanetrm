@@ -91,9 +91,10 @@ internal static class GasPhysicalKnownAttachmentStore
                 }).OrderBy(s=>s.Ordinal).ToImmutableArray();
                 var receiptStock=row.OptionalId("receipt_lot_id") is {} id?journal.Positions[id].Owner:(AccountingPositionKey?)null;
                 return new GasPhysicalKnownPerformance(row.Id("id"),row.Text("business_reference"),new(row.Number("quantity")*(original.Amount.CompareTo(default)>0?ExactDecimal.Parse("1"):ExactDecimal.Parse("-1")),original.Specification),
-                    row.Instant("performed_at"),row.OptionalId("title_evidence_id"),receiptStock,supplies,Integer(row,"financial_revision"),row.GetProperty("retracted").GetBoolean(),row.Text("source_allocation"),Receipt(row));
+                    row.Instant("performed_at"),row.OptionalId("title_evidence_id"),receiptStock,supplies,Integer(row,"financial_revision"),row.GetProperty("retracted").GetBoolean(),row.Text("source_allocation"),Receipt(row))
+                    {OriginalPublicationOrder=row.TryGetProperty("original_publication_order",out _)?Integer(row,"original_publication_order"):null};
             }).ToImmutableArray();
-            if(performances.Select(p=>p.Id).Distinct().Count()!=performances.Length||performances.Any(p=>p.PerformedAt<finalOccurrence.At||p.FinancialRevision<1||p.Retracted!=(p.SignedQuantity.Amount==default)||
+            if(performances.Select(p=>p.Id).Distinct().Count()!=performances.Length||performances.Any(p=>p.PerformedAt<finalOccurrence.At||p.FinancialRevision<1||p.OriginalPublicationOrder is <1||p.Retracted!=(p.SignedQuantity.Amount==default)||
                 (p.FinancialRevision==1?p.SourceAllocation!=GasSourceAllocation.Initial:p.SourceAllocation is not(GasSourceAllocation.Preserve or GasSourceAllocation.Withdraw)))||
                 splits.Any(s=>!performances.Any(p=>p.Id==s.Id("performance_id"))))throw Error("Every performance and identified supply must belong to this accepted final handoff.");
             var stepRows=source.GetProperty("steps").EnumerateArray().ToImmutableArray();

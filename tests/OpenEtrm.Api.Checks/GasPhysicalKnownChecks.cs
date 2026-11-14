@@ -27,6 +27,9 @@ internal static class GasPhysicalKnownChecks
             var data=await MarketInputSelection.Root(database,connection,frame,ct);var snapshot=data.Snapshot(frame).WithKnowledge(context,SchedulePreview.ParseAt(source.KnownAt));
             var books=ImmutableArray.Create(fixture.Id("bookId"));
             var read=await GasPhysicalKnownAttachmentStore.Read(connection,database,frame,snapshot,books,ct);
+            await using(var publicationContract=ScheduleStore.Command(connection,"SELECT to_regprocedure('security.reconcile_gas_futures_delivery_batch(uuid,uuid,uuid,jsonb,timestamptz,uuid,uuid,integer,boolean,jsonb)') IS NOT NULL"))
+                if((bool)(await publicationContract.ExecuteScalarAsync(ct))!&&read.Attachments.SelectMany(a=>a.Performances).Any(p=>p.OriginalPublicationOrder is null or <1))
+                    throw new Exception("The current native source lost original physical publication identity when materializing a financial revision.");
             if(read.Attachments.Length!=2||read.Attachments.Any(a=>!a.SourceSnapshot.HasSameInputs(snapshot)||a.FinalOccurrence.At>=at||
                 !a.Performances.Any(p=>p.PerformedAt>at)||a.CurrentFinal.Price.ToExactString()!="6.03")||
                 read.Attachments.Select(a=>a.DeliveryOwner).Distinct().Count()!=2)

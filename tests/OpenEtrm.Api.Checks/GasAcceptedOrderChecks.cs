@@ -46,6 +46,9 @@ internal static class GasAcceptedOrderChecks
         Reject([new(consume,0)]);
         Reject([new(consume,1),new(consume,2)]);
         Reject([new(consume with{Requires=[Guid.NewGuid()]},1)]);
+        Reject([new(consume with{Requires=[reserve.Id,reserve.Id]},1),new(reserve,2)]);
+        Reject([new(consume with{Id=Guid.Empty},1)]);
+        Reject([new(consume,1),new(release,1)]);
         Reject([new(consume with{Requires=[release.Id]},1),new(release with{Requires=[consume.Id]},2)]);
         Reject([new(unreserved,1),new(receipt with{At=at.AddTicks(10)},3)]);
         Console.WriteLine("PASS accepted quantity merge: native resource order and explicit same-instant prerequisites preserve the complete committed stock schedule");

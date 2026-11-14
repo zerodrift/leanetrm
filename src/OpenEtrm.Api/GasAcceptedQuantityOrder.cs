@@ -11,8 +11,9 @@ internal static class GasAcceptedQuantityOrder
 {
     internal static ImmutableArray<GasKnownQuantityTransition> Merge(ImmutableArray<GasAcceptedQuantityEvent> events)
     {
-        if(events.IsDefault||events.Any(e=>e?.Transition is null||e.OriginalPublication<1||
-            !TradingInstant.IsSupported(e.Transition.At)||e.Transition.Requires.IsDefault||e.Transition.Stock.IsDefault||e.Transition.Receipts.IsDefault)||
+        if(events.IsDefault||events.Any(e=>e?.Transition is null||e.Transition.Id==Guid.Empty||e.OriginalPublication<1||
+            !TradingInstant.IsSupported(e.Transition.At)||e.Transition.Requires.IsDefault||
+            e.Transition.Requires.Distinct().Count()!=e.Transition.Requires.Length||e.Transition.Stock.IsDefault||e.Transition.Receipts.IsDefault)||
             events.Select(e=>e.Transition.Id).Distinct().Count()!=events.Length||
             events.Select(e=>(e.Transition.At,e.OriginalPublication)).Distinct().Count()!=events.Length)
             throw Error();

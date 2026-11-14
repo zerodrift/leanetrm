@@ -12,7 +12,13 @@ public sealed record GasPhysicalKnownFinal(Guid DeterminationId,int MarginRevisi
 public sealed record GasPhysicalKnownSupply(int Ordinal,Guid ConsumptionId,AccountingPositionKey StockOwner,
     Guid EvidenceId,Guid? ReservationId,Quantity Quantity,int FinancialRevision,bool Retracted,GasPhysicalKnownReceipt Receipt);
 public sealed record GasPhysicalKnownPerformance(Guid Id,string BusinessReference,Quantity SignedQuantity,DateTimeOffset PerformedAt,
-    Guid? TitleEvidenceId,AccountingPositionKey? ReceiptStockOwner,ImmutableArray<GasPhysicalKnownSupply> Supply,int FinancialRevision,bool Retracted,string SourceAllocation,GasPhysicalKnownReceipt Receipt);
+    Guid? TitleEvidenceId,AccountingPositionKey? ReceiptStockOwner,ImmutableArray<GasPhysicalKnownSupply> Supply,int FinancialRevision,bool Retracted,string SourceAllocation,GasPhysicalKnownReceipt Receipt)
+{
+    // Older read contracts retain financial receipts only. Event assembly must
+    // require the original publication separately from correction knowledge.
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public int? OriginalPublicationOrder{get;init;}
+}
 public sealed record GasPhysicalKnownPrincipalStep(Guid Id,Guid PerformanceId,Guid? PreviousDeterminationId,Guid? BasisDeterminationId,
     Quantity CumulativeQuantity,ExactMoney ExactCumulative,Money RoundedCumulative,Money Contribution,Money Adjustment,int PerformanceRevision);
 public sealed record GasPhysicalKnownPrincipalRun(int Revision,Guid FinalDeterminationId,Guid SourceContextId,DateTimeOffset AsOf,
