@@ -16,10 +16,7 @@ public sealed class SwapSettlementOperations(PreviewDatabase database)
     [
         new("swap_settlement.inspect_v1",["ReadTrades","ReadMarketData"],false),
         new("swap_settlement.preview_v1",["ReadTrades","ReadMarketData"],false),
-        new("swap_settlement.determine_v1",["ReadTrades","ReadMarketData","AmendTrade"],true),
         new("swap_settlement.net_preview_v1",["ReadTrades","ReadMarketData"],false),
-        new("swap_settlement.net_v1",["ReadTrades","ReadMarketData","AmendTrade"],true),
-        new("swap_settlement.cash_v1",["ReadTrades","ReadMarketData","AmendTrade"],true),
         new("swap_settlement.status_v1",["ReadTrades","ReadMarketData"],false),
         new("swap_settlement.pnl_v1",["ReadTrades","ReadMarketData"],false)
     ];
@@ -59,27 +56,9 @@ public sealed class SwapSettlementOperations(PreviewDatabase database)
             return JsonSerializer.SerializeToElement(new{context=view.Context,value},RiskJobs.Json);
         },ct);
 
-    private static void Current(InputFrame frame,FuturesReadRequest? request)
-    {
-        if(frame is null||frame.ContextId is not null||request is not {KnowledgeMode:"current",ContextId:null,Convention:SwapStore.Convention}||request.SnapshotId!=frame.Id)
-            throw new MarketDataException("historical_read_only","Settlement writes require the exact host working frame and explicit current knowledge.");
-    }
+    public Task<object> Determine(AgentIdentity agent,InputFrame frame,SwapSettlementDetermineRequest request,CancellationToken ct) =>throw SwapStore.LifecycleRequired();
 
-    public Task<object> Determine(AgentIdentity agent,InputFrame frame,SwapSettlementDetermineRequest request,CancellationToken ct) =>
-        Agent(agent,"swap_settlement.determine_v1",async(connection,cancellation)=>
-        {
-            Current(frame,request.Preview?.Context);
-            await using(var gate=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102)"))await gate.ExecuteNonQueryAsync(cancellation);
-            return await store.DetermineSettlement(connection,frame,request,cancellation);
-        },ct);
-
-    public Task<object> RecordCash(AgentIdentity agent,InputFrame frame,SwapCashRequest request,CancellationToken ct) =>
-        Agent(agent,"swap_settlement.cash_v1",async(connection,cancellation)=>
-        {
-            Current(frame,request.Context);
-            await using(var gate=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102)"))await gate.ExecuteNonQueryAsync(cancellation);
-            return await store.RecordSwapCash(connection,frame,request,cancellation);
-        },ct);
+    public Task<object> RecordCash(AgentIdentity agent,InputFrame frame,SwapCashRequest request,CancellationToken ct) =>throw SwapStore.LifecycleRequired();
 
     public Task<object> PreviewNet(AgentIdentity agent,InputFrame frame,SwapNetPreviewRequest request,CancellationToken ct) =>
         Agent(agent,"swap_settlement.net_preview_v1",async(connection,cancellation)=>
@@ -88,13 +67,7 @@ public sealed class SwapSettlementOperations(PreviewDatabase database)
             var value=await reads.Read(connection,view,data=>store.PreviewSwapNet(connection,data,view.CalculationFrame,request,cancellation),cancellation);
             return JsonSerializer.SerializeToElement(new{context=view.Context,value},RiskJobs.Json);
         },ct);
-    public Task<object> RecordNet(AgentIdentity agent,InputFrame frame,SwapNetRecordRequest request,CancellationToken ct) =>
-        Agent(agent,"swap_settlement.net_v1",async(connection,cancellation)=>
-        {
-            Current(frame,request.Preview?.Context);
-            await using(var gate=ScheduleStore.Command(connection,"SELECT pg_advisory_xact_lock(730849102)"))await gate.ExecuteNonQueryAsync(cancellation);
-            return await store.RecordSwapNet(connection,frame,request,cancellation);
-        },ct);
+    public Task<object> RecordNet(AgentIdentity agent,InputFrame frame,SwapNetRecordRequest request,CancellationToken ct) =>throw SwapStore.LifecycleRequired();
 
     public Task<object> Status(AgentIdentity agent,Guid operation,CancellationToken ct) =>
         Agent(agent,"swap_settlement.status_v1",async(connection,cancellation)=>

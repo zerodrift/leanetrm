@@ -56,6 +56,12 @@ internal static class AssistantOperations
         // The native record handler also checks command-specific limit/adoption capabilities.
         Add("facility_quantities","ReadMarketData|ReadTrades|ReadFacilityQuantities",true,"facilities/quantities/status","facilities/quantities/record");
         Add("physical_operations","ReadMarketData|ReadTrades",false,"physical/operations/directory");
+        Add("lifecycle","ReadMarketData|ReadTrades",false,"lifecycle/view lifecycle/discover lifecycle/policies/read lifecycle/preview");
+        // Product-native handlers select their own write/configuration permissions and
+        // first-outcome receipts. Assistant approval never substitutes for either.
+        Add("lifecycle","ReadMarketData|ReadTrades",true,"","lifecycle/execute lifecycle/policies/save lifecycle/options/configure lifecycle/swaps/configure");
+        Add("lifecycle","ReadMarketData|ReadTrades|WriteMarketDefinitions",true,"","lifecycle/futures/policies/save");
+        Add("lifecycle","ReadMarketData|ReadTrades|AmendTrade",true,"","lifecycle/futures/adopt");
         Add("blotter","ReadGasOperations|ReadMarketData|ReadTrades",false,"gas/operations/read gas/operations/preview");
         Add("blotter","ReadGasOperations|ReadMarketData|ReadTrades",true,"gas/operations/status");
         Add("blotter","ConfigureGasServices|ReadGasOperations|ReadMarketData|ReadTrades",true,"","gas/operations/configure");
@@ -84,7 +90,6 @@ internal static class AssistantOperations
         Add("blotter","BookTrade|ReadTrades|ReadMarketData",true,"","futures/book swaps/book");
         Add("blotter","AmendTrade|ReadTrades|ReadMarketData",true,"","futures/amend swaps/amend trade-formats/save");
         Add("blotter","ReadTrades|ReadMarketData",false,"futures/status swaps/status swaps/settlement/preview swaps/settlement/inspect swaps/settlement/pnl swaps/settlement/net-preview swaps/settlement/status");
-        Add("blotter","AmendTrade|ReadTrades|ReadMarketData",true,"","swaps/settlement/determine swaps/settlement/net swaps/settlement/payment");
         Add("blotter_risk","RunScenario|ReadTrades|ReadMarketData",false,"portfolio/risk/catalog portfolio/risk");
         Add("risk_jobs","RunScenario|ReadTrades|ReadMarketData",true,"!portfolio/risk/jobs !portfolio/risk/jobs/{id:guid}","portfolio/risk/jobs portfolio/risk/jobs/{id:guid}/cancel");
         // The page's full VaR catalog, history and report exceed a tool result; these bounded reads run the same calculation.
@@ -166,6 +171,14 @@ internal static class AssistantOperations
             if(type==typeof(GasOperationPreviewRequest)&&property.Name==nameof(GasOperationPreviewRequest.Details)){
                 var variants=new JsonObject();foreach(var entry in GasDeliveryOperationsStore.DetailTypes)variants[entry.Key]=Describe(entry.Value,path.Add(type));
                 properties["details"]=new JsonObject{["type"]="object",["discriminator"]="kind",["contracts"]=variants};
+            }else if(type==typeof(LifecycleActionRequest)&&property.Name==nameof(LifecycleActionRequest.Selection)){
+                var variants=new JsonObject
+                {
+                    ["listed_option"]=Describe(typeof(OptionActionSelection),path.Add(type)),
+                    ["financial_swap"]=Describe(typeof(SwapActionSelection),path.Add(type)),
+                    ["futures"]=Describe(typeof(FuturesMarginActionSelection),path.Add(type))
+                };
+                properties["selection"]=new JsonObject{["type"]="object",["discriminator"]="target.handler",["contracts"]=variants};
             }else properties[JsonNamingPolicy.CamelCase.ConvertName(property.Name)]=Describe(property.PropertyType,path.Add(type));
         }
         return new JsonObject{["type"]="object",["properties"]=properties,["contract"]=type.Name};

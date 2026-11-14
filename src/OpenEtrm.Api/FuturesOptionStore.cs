@@ -147,29 +147,13 @@ public sealed partial class FuturesOptionStore(PreviewDatabase database)
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }
 
-    // Lifecycle events through the two authorized operations, which own every lifecycle rule. Events are recorded at the
-    // frame's time, as bookings are executed at it; expiry names the frame and passes its selected observations.
-    public Task<JsonElement> Close(NpgsqlConnection connection,InputFrame frame,FuturesOptionEventRequest body,string kind,CancellationToken ct)
-    {
-        RequireCurrent(body.Convention,body.KnowledgeMode,body.OperationId);
-        if(body.Lots is null)throw Event("Supply the lots explicitly.");
-        return Record(connection,body.OperationId,body.TradeId,kind,ExactDecimal.Parse(body.Lots).ToString(),frame.At,ct);
-    }
-
-    public Task<JsonElement> Instruct(NpgsqlConnection connection,InputFrame frame,FuturesOptionInstructionRequest body,CancellationToken ct)
-    {
-        RequireCurrent(body.Convention,body.KnowledgeMode,body.OperationId);
-        var kind=body.Instruction switch{"exercise"=>"exercise_instruction","abandon"=>"abandon_instruction",_=>throw Event("Choose an explicit exercise or abandon instruction.")};
-        return Record(connection,body.OperationId,body.TradeId,kind,null,frame.At,ct);
-    }
-
-    public async Task<JsonElement> Expire(NpgsqlConnection connection,InputFrame frame,FuturesOptionExpiryRequest body,CancellationToken ct)
-    {
-        RequireCurrent(body.Convention,body.KnowledgeMode,body.OperationId);
-        await using var command=ScheduleStore.Command(connection,"SELECT security.process_futures_option_expiry($1,$2,$3,$4,$5)::text",
-            manifest.CatalogId,body.OperationId,body.TradeId,frame.Id,frame.ObservationIds.ToArray());
-        return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
-    }
+    // Event writes require the explicit saved lifecycle policy, source and
+    // generated-future enrollment contract. Older UI callers receive a useful
+    // refusal instead of entering a primitive that no longer has runtime grants.
+    public Task<JsonElement> Close(NpgsqlConnection connection,InputFrame frame,FuturesOptionEventRequest body,string kind,CancellationToken ct)=>throw LifecycleRequired();
+    public Task<JsonElement> Instruct(NpgsqlConnection connection,InputFrame frame,FuturesOptionInstructionRequest body,CancellationToken ct)=>throw LifecycleRequired();
+    public Task<JsonElement> Expire(NpgsqlConnection connection,InputFrame frame,FuturesOptionExpiryRequest body,CancellationToken ct)=>throw LifecycleRequired();
+    private static MarketDataException LifecycleRequired()=>new("lifecycle_configuration_required","Configure and review the option action in Lifecycle before recording its event.");
 
     // One option holding at the read's knowledge: its booked and open lots and the events known by then.
     public async Task<object> Holding(NpgsqlConnection connection,Guid trade,CancellationToken ct)
@@ -210,20 +194,6 @@ public sealed partial class FuturesOptionStore(PreviewDatabase database)
         "option_underlying_market"=>"The underlying future needs exactly one direct daily-settlement curve in the option's market definition.",
         _=>null,
     };
-
-    private static MarketDataException Event(string message)=>new("option_event_input",message);
-    private static void RequireCurrent(string? convention,string? knowledgeMode,Guid operation)
-    {
-        RequireConvention(convention);
-        if(knowledgeMode!="current"||operation==Guid.Empty)throw Event("Lifecycle events need explicit current knowledge and a stable operation identity.");
-    }
-
-    private async Task<JsonElement> Record(NpgsqlConnection connection,Guid operation,Guid trade,string kind,string? lots,DateTimeOffset at,CancellationToken ct)
-    {
-        await using var command=ScheduleStore.Command(connection,"SELECT security.record_futures_option_event($1,$2,$3,$4,$5::numeric,$6)::text",
-            manifest.CatalogId,operation,trade,kind,lots is null?DBNull.Value:lots,at);
-        return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
-    }
 
     // A read event that booked a future names it by its trade reference beside its key; one the reader cannot see is said to be so. The
     // recording write does not read references, so its receipt carries the key alone and the holding read names it.

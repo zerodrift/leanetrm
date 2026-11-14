@@ -133,7 +133,9 @@ public sealed partial class SwapStore
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }
 
-    public async Task<object> DetermineSettlement(NpgsqlConnection connection, InputFrame frame, SwapSettlementDetermineRequest request, CancellationToken ct)
+    public Task<object> DetermineSettlement(NpgsqlConnection connection, InputFrame frame, SwapSettlementDetermineRequest request, CancellationToken ct)
+        =>throw LifecycleRequired();
+    internal async Task<object> DetermineSettlement(NpgsqlConnection connection,InputFrame frame,SwapSettlementDetermineRequest request,ScheduleContext source,SwapLifecycleInvocation invocation,CancellationToken ct)
     {
         if (request.Preview is not { Context.KnowledgeMode: "current", Context.ContextId: null } preview || request.OperationId == Guid.Empty ||
             request.DuePolicy != "swap_due_nominal_v1" || request.RecognitionPolicy != "swap_completed_period_trading_pnl_v1" ||
@@ -141,46 +143,58 @@ public sealed partial class SwapStore
             throw Error("settlement_policy", "Explicitly enroll this swap under the supported due, per-period recognition, correction and currency-rounding policies.");
         var payload = JsonSerializer.Serialize(request, RiskJobs.Json);
         if (await SettlementCommandReplay.Read(connection, manifest.CatalogId, request.OperationId, payload, ct) is {} prior) return prior;
-        var prepared = await WithBookingRead(connection, frame, (data, pinned) => PrepareSettlement(connection, data, pinned, preview, ct), ct);
+        var prepared = await WithSettlementSource(connection,frame,source,(data,pinned)=>PrepareSettlement(connection,data,pinned,preview,ct),ct);
         if (request.PreviewHash != prepared.PreviewHash) throw Error("settlement_stale_preview", "Final inputs or contractual terms changed; recalculate and review settlement.");
         var value = prepared.Calculation;
         var correctionDue=request.CorrectionDueAt is {} submittedDue?SettlementInstant(submittedDue,"settlement_correction_due"):(DateTimeOffset?)null;
         var due=correctionDue??value.Evidence.Plan.PaymentAt;
         if(due>frame.At&&(due.Year is <1901 or >2199||prepared.Discounting&&DateOnly.FromDateTime(due.UtcDateTime)==DateOnly.FromDateTime(frame.At.UtcDateTime)))
             throw Error("settlement_discount_instant","The selected future-cash discount policy supports UTC dates in 1901–2199; discounted intraday future cash requires a separately supported convention.");
-        await using var command = ScheduleStore.Command(connection,
-            "SELECT settlement_data.determine_swap($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::numeric,$21::numeric,$22::numeric,$23::jsonb,$24::jsonb,$25)::text",
-            manifest.CatalogId, request.OperationId, preview.TradeId, preview.ExpectedRevision, request.ExpectedVersion, prepared.ContextId,
-            frame.At, preview.MembershipOrdinal, value.Occurrence.DeliveryFrom, value.Occurrence.DeliveryTo, value.Evidence.Plan.PaymentAt,
-            value.Amount.Currency.Revision.CatalogId, value.Amount.Currency.Revision.RevisionId, value.Amount.Currency.Code, value.Rounding.DecimalPlaces,
-            prepared.Completion.At,SwapPeriodCompletion.Policy,
-            prepared.ContractHash, prepared.InputHash, value.Amount.Amount.ToString(), value.ExactAmount.Numerator, value.ExactAmount.Denominator,
-            JsonSerializer.Serialize(SettlementValue(value,prepared.Completion), RiskJobs.Json), payload,
-            correctionDue is {} selectedDue ? (object)selectedDue : DBNull.Value);
+        var calculation=JsonSerializer.Serialize(new{contextId=prepared.ContextId,contractualDue=LifecycleNative.Instant(value.Evidence.Plan.PaymentAt),
+            completionAt=LifecycleNative.Instant(prepared.Completion.At),completionPolicy=SwapPeriodCompletion.Policy,contractHash=prepared.ContractHash,inputHash=prepared.InputHash,
+            total=value.Amount.Amount.ToString(),numerator=value.ExactAmount.Numerator,denominator=value.ExactAmount.Denominator,evidence=SettlementValue(value,prepared.Completion)},RiskJobs.Json);
+        await using var command=ScheduleStore.Command(connection,"SELECT lifecycle.determine_swap_action($1,$2::jsonb,$3,$4::jsonb)::text",manifest.CatalogId,
+            invocation.Body.GetRawText(),invocation.AuthorityUntil,calculation);
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
     }
 
-    public async Task<object> RecordSwapCash(NpgsqlConnection connection, InputFrame frame, SwapCashRequest request, CancellationToken ct)
+    public Task<object> RecordSwapCash(NpgsqlConnection connection, InputFrame frame, SwapCashRequest request, CancellationToken ct)
+        =>throw LifecycleRequired();
+    internal async Task<object> RecordSwapCash(NpgsqlConnection connection,InputFrame frame,SwapCashRequest request,ScheduleContext source,SwapLifecycleInvocation invocation,CancellationToken ct)
     {
         if (request.Context is not { KnowledgeMode: "current", ContextId: null, Convention: Convention } || request.OperationId == Guid.Empty ||
             request.TradeId == Guid.Empty || request.DeterminationId == Guid.Empty || string.IsNullOrWhiteSpace(request.Reference))
             throw Error("settlement_cash_input", "Supply an explicit current context, trade, contribution, cash amount, currency, effective instant and reference.");
-        var amount = ExactDecimal.Parse(Required(request.Amount));
-        var at = SettlementInstant(request.EffectiveAt,"settlement_cash_input");
+        _ = ExactDecimal.Parse(Required(request.Amount));
+        _ = SettlementInstant(request.EffectiveAt,"settlement_cash_input");
         var payload = JsonSerializer.Serialize(request, RiskJobs.Json);
         if (await SettlementCommandReplay.Read(connection, manifest.CatalogId, request.OperationId, payload, ct) is {} prior) return prior;
-        var context = await WithBookingRead(connection, frame, async (data, pinned) =>
+        var context = await WithSettlementSource(connection, frame, source,async (data, pinned) =>
         {
             _ = await SettlementState(connection, request.TradeId, ct);
             return pinned.ContextId ?? throw Error("settlement_context", "Retain the recording context.");
         }, ct);
-        await using var command = ScheduleStore.Command(connection,
-            "SELECT settlement_data.record_swap_cash($1,$2,$3,$4,$5,$6,$7,$8,$9::numeric,$10,$11,$12,$13,$14,$15,$16::jsonb)::text",
-            manifest.CatalogId, request.OperationId, request.TradeId, request.ExpectedRevision, request.ExpectedVersion,
-            context, frame.At, request.DeterminationId, amount.ToString(), request.Currency.Revision.CatalogId,
-            request.Currency.Revision.RevisionId, request.Currency.Code, at, request.Reference,
-            request.ReversesId is {} reversed ? (object)reversed : DBNull.Value, payload);
+        if(context!=source.ContextId)throw Error("lifecycle_context","Retain the exact reviewed cash source context.");
+        await using var command=ScheduleStore.Command(connection,"SELECT lifecycle.record_swap_payment_action($1,$2::jsonb,$3)::text",manifest.CatalogId,
+            invocation.Body.GetRawText(),invocation.AuthorityUntil);
         return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
+    }
+    internal static MarketDataException LifecycleRequired()=>new("lifecycle_configuration_required","Configure and review the exact swap lifecycle action before recording settlement or cash.");
+
+    // Lifecycle review pins its source context explicitly. The owned write stays
+    // current-authorized after restoring the read scope; native expected-head
+    // guards still decide whether those selected facts can be accepted.
+    private async Task<T> WithSettlementSource<T>(NpgsqlConnection connection,InputFrame frame,ScheduleContext source,
+        Func<PreviewData,InputFrame,Task<T>> read,CancellationToken ct)
+    {
+        var view=TradingView.Reread(frame,source);
+        await using(var save=ScheduleStore.Command(connection,"SAVEPOINT swap_lifecycle_source"))await save.ExecuteNonQueryAsync(ct);
+        try{return (T)await new TradeReads(database).Read(connection,view,async data=>(object)(await read(data,view.CalculationFrame))!,ct);}
+        finally
+        {
+            await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT swap_lifecycle_source; RELEASE SAVEPOINT swap_lifecycle_source");
+            await restore.ExecuteNonQueryAsync(CancellationToken.None);
+        }
     }
 
     private static bool TradingInstantSupported(DateTimeOffset value) => value.Offset == TimeSpan.Zero && value.Ticks % 10 == 0 && value != default && value.Year < 9999;

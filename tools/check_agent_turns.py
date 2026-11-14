@@ -714,7 +714,7 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
 
     def ask_sql(turn, profile='trader', operation=None, scope='api', conversation=None, agent_id=None, version=1, question='What does this page show?',
                 report=None, mode='current', context=None, frame=None, generation=None, limit=4000, workspace=4, deadline=30, session='c' * 64,
-                ends="clock_timestamp()+interval '30 minutes'", runtime="turns_v20"):
+                ends="clock_timestamp()+interval '30 minutes'", runtime="turns_v21"):
         # The asking process names the catalog, the session binding, the token's digest under its worker generation and
         # the runtime set it applies: its version, the question bound, the workspace's turns and the admission deadline.
         return (f"assistant.ask_turn({literal(operation or uuid4())},'{scope}',{literal(conversation)},{literal(agent_id or guide['id'])},{version},"
@@ -884,7 +884,7 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     check('an admitted ask creates the conversation and the queued turn under the covering grant, with its accepted event, and is answered '
           'as admitted', asked.get('admitted') is True and asked['turn']['state'] == 'queued' and asked['turn']['ordinal'] == 1 and asked['turn']['version'] == 1 and not asked['turn']['draft']
           and query(f"SELECT delegation_id||' '||cardinality(included_turns)||' '||generation||' '||token_digest||' '||runtime_set FROM assistant.turns "
-                    f"WHERE id='{first.id}';") == f"{covering['id']} 0 {worker.generation} {first.digest} turns_v20"
+                    f"WHERE id='{first.id}';") == f"{covering['id']} 0 {worker.generation} {first.digest} turns_v21"
           and kinds(first) == 'accepted', asked)
     records = query(RECORDS)
     operation = query(f"SELECT operation_id FROM assistant.turns WHERE id='{first.id}';")
@@ -927,12 +927,12 @@ def run_checks(url, query, psql, manifest, environment, dotnet):
     # definition, then current admission is restored. Immutable turn history is never rewritten.
     signature = 'assistant.ask_turn(uuid,text,uuid,uuid,integer,text,jsonb,uuid,text,uuid,uuid,text,text,timestamptz,text,bigint,text,integer,integer,integer)'
     admission = query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
-    assert admission.count("runtime_set<>'turns_v20'") == 1
+    assert admission.count("runtime_set<>'turns_v21'") == 1
     legacy_person = persona('legacy_plan', ['trader'])
     grant(legacy_person, guide)
     legacy_plan_turn = Turn()
     try:
-        query(admission.replace("runtime_set<>'turns_v20'", "runtime_set<>'turns_v19'"))
+        query(admission.replace("runtime_set<>'turns_v21'", "runtime_set<>'turns_v19'"))
         legacy_admitted = ask(legacy_plan_turn, profile=login('legacy_plan'), runtime='turns_v19')
         assert legacy_admitted.get('admitted') is True, legacy_admitted
     finally:

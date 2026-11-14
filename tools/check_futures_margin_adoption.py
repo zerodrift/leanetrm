@@ -31,9 +31,9 @@ INSERT INTO market_data.curve_members SELECT catalog_id,revision_id,'future_alte
 
 
 @contextmanager
-def successor_grants(query, manifest, profile, permission):
+def successor_grants(query, manifest, profile, permission, issuer='https://preview.invalid'):
     tenant, workspace = manifest['tenantId'], manifest['workspaceId']
-    principal = query(f"SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='{profile}';")
+    principal = query(f"SELECT principal_id FROM security.identity_bindings WHERE issuer='{issuer}' AND subject='{profile}';")
     saved_permissions = query(f"SELECT jsonb_agg(to_jsonb(p)) FROM security.role_permissions p WHERE p.permission='{permission}' "
                               f"AND p.role_id IN(SELECT role_id FROM security.role_grants WHERE principal_id='{principal}');")
     role_a, role_b, grant_a, grant_b = (str(uuid4()) for _ in range(4))

@@ -85,19 +85,5 @@ public sealed partial class SwapStore
     }
     public async Task<object> PreviewSwapNet(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapNetPreviewRequest request,CancellationToken ct)
         =>(await PrepareNet(connection,frame,request,ct)).Review;
-    public async Task<object> RecordSwapNet(NpgsqlConnection connection,InputFrame frame,SwapNetRecordRequest request,CancellationToken ct)
-    {
-        if(request.Preview is not{Context:{KnowledgeMode:"current",ContextId:null,Convention:Convention}} preview||request.OperationId==Guid.Empty||string.IsNullOrWhiteSpace(request.PreviewHash))
-            throw Error("historical_read_only","Net settlement requires explicit current knowledge and a reviewed preview.");
-        var payload=JsonSerializer.Serialize(request,RiskJobs.Json);
-        if(await SettlementCommandReplay.Read(connection,manifest.CatalogId,request.OperationId,payload,ct) is {} prior)return prior;
-        var prepared=await WithBookingRead(connection,frame,(_,pinned)=>PrepareNet(connection,pinned,preview,ct),ct);
-        if(prepared.Hash!=request.PreviewHash)throw Error("settlement_stale_preview","Settlement terms or balances changed; preview and review again.");
-        var lines=JsonSerializer.Serialize(prepared.Allocations.Select(a=>new{determination=a.DeterminationId,amount=Exact(a.Amount)}),RiskJobs.Json);
-        await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.record_swap_net($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::numeric,$10,$11,$12,$13,$14,$15,$16::jsonb)::text",
-            manifest.CatalogId,request.OperationId,preview.TradeId,preview.ExpectedRevision,preview.ExpectedVersion,prepared.ContextId,frame.At,lines,prepared.Cash.ToMoney().Amount.ToString(),
-            preview.Currency.Revision.CatalogId,preview.Currency.Revision.RevisionId,preview.Currency.Code,SettlementInstant(request.EffectiveAt,"settlement_cash_input"),request.Reference,
-            preview.ReversesId is {} reversed?(object)reversed:DBNull.Value,payload);
-        return JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
-    }
+    public Task<object> RecordSwapNet(NpgsqlConnection connection,InputFrame frame,SwapNetRecordRequest request,CancellationToken ct) =>throw LifecycleRequired();
 }
