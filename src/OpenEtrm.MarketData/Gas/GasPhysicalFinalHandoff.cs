@@ -75,13 +75,8 @@ public sealed record GasPhysicalDeliveryObligationInstrument:Instrument
             throw new MarketDataException("gas_delivery_terms","A physical obligation requires its exact accepted or path-local final quotation.");
         Terms=terms;FinalPrice=finalPrice;
     }
-    private SidePaymentKey Cash=>new(Id,0,Terms.CashDueAt,Currency);
-    private SidePaymentKey Physical=>new(Id,1,Terms.From,Currency);
-    public System.Collections.Immutable.ImmutableArray<SidePaymentKey> RequiredDiscounts(DateTimeOffset calculationAt)
-    {
-        if(!TradingInstant.IsSupported(calculationAt))throw new MarketDataException("gas_delivery_discount","Select an exact supported calculation instant.");
-        return Terms.Carrying==GasHoldingCarrying.CurrencyCurve?[..new[]{Physical,Cash}.Where(p=>p.PaymentAt>calculationAt)]:[];
-    }
+    public System.Collections.Immutable.ImmutableArray<SidePaymentKey> RequiredDiscounts(DateTimeOffset calculationAt)=>
+        GasDeliveryExchange.RequiredDiscounts(Id,Terms,calculationAt);
     public override UnitPricingContract Declare(UnitValuationContext context)
     {
         var discounted=RequiredDiscounts(context.CalculationAt);
@@ -93,18 +88,6 @@ public sealed record GasPhysicalDeliveryObligationInstrument:Instrument
     {
         if(context.Measure!=ValuationMeasure.PresentValue)throw new MarketDataException("valuation_measure","A physical delivery obligation implements remaining PV.");
         ValidateValuationState(context.BindingState);
-        var mark=context.Inputs.ExactPrice(Terms.Mark);
-        if(mark.Unit!=FinalPrice.Unit)throw new MarketDataException("gas_delivery_unit","The delivery mark and final price require one exact native quotation; conversion must be configured explicitly.");
-        var physical=mark.ExactTimes(UnitQuantity);var cash=FinalPrice.ExactTimes(UnitQuantity);
-        var keys=RequiredDiscounts(context.CalculationAt);
-        if(!keys.IsEmpty)
-        {
-            var factors=context.Inputs.Discounts(keys);
-            if(factors.Length!=keys.Length||keys.Any(key=>factors.Count(f=>f.Payment==key)!=1))
-                throw new MarketDataException("gas_delivery_discount","Select each exact physical-value and cash-due currency carrying input.");
-            foreach(var factor in factors)
-                if(factor.Payment==Physical)physical=physical.Scale(factor.DiscountFactor);else cash=cash.Scale(factor.DiscountFactor);
-        }
-        return new(context,physical.Subtract(cash),Terms.Quantity);
+        return new(context,GasDeliveryExchange.Value(Id,Terms,UnitQuantity,context.Inputs.ExactPrice(Terms.Mark),FinalPrice,context),Terms.Quantity);
     }
 }

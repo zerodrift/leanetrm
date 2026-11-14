@@ -3,6 +3,7 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--gas-unfixed-delivery"]){GasUnfixedDeliveryChecks.Run();return;}
 if(args is ["--gas-owned-holdings"]){GasOwnedHoldingsChecks.Run();return;}
 if(args is ["--gas-quantity-projection"]){GasQuantityProjectionChecks.Run();return;}
 if(args is ["--gas-delivery-principal"]){GasDeliveryPrincipalChecks.Run();return;}
@@ -619,6 +620,7 @@ CashLifecycleProjectionChecks.Run();passed++;
 OptionLifecycleProjectionChecks.Run();passed++;
 SwapLifecycleProjectionChecks.Run();passed++;
 LifecycleCompositeChecks.Run();passed++;
+GasUnfixedDeliveryChecks.Run();passed++;
 TimedCashChecks.Run();passed++;
 AccountingOwnerChecks.Run();passed++;
 InstantRateGraphChecks.Run();passed++;
