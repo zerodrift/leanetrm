@@ -13,7 +13,7 @@ const {kindBadge,kindLabel,kindGroups}=await import('../dist/curve-kinds.js');
 
 // The backend's curve_kinds_v1 codes and the labels the design names for them.
 const labels={market_settlement:'Market settlement',trader_mark:'Trader mark',interest_rate:'Interest rate',basis_spread:'Basis / spread',scaled:'Scaled',
- weighted_blend:'Weighted blend',rolling_average:'Rolling history average',balance_of_month:'Balance-of-month average',prompt_contract:'Prompt / rolling contract',custom:'Custom graph'};
+ weighted_blend:'Weighted blend',rolling_average:'Rolling history average',balance_of_month:'Balance-of-month average',prompt_contract:'Prompt / rolling contract',observation_formula:'Observation formula',custom:'Custom graph'};
 
 test('every kind has its label, and its badge is an image named by that label with a decorative drawing',()=>{
  for(const [kind,label] of Object.entries(labels)){

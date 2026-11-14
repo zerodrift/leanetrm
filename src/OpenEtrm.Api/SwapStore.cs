@@ -446,8 +446,14 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var rows=await Rows(connection,trade,ct);if(rows.IsEmpty)throw Error("swap_trade","The retained trade is unavailable.");
   var head=rows[^1];return body with{ExecutedAt=head.Text("execution_at"),TradeDate=head.OptionalText("trade_date")??head.Text("booking_date"),TraderId=head.OptionalId("trader_id"),TraderRevision=head.OptionalText("trader_revision") is {} version?int.Parse(version,CultureInfo.InvariantCulture):null};
  }
+ // Every floating side's own projection, before any other term is read (CustomCurves.RequireTradeProjections).
+ private Task RequireTradeProjections(NpgsqlConnection connection,SwapWriteRequest body,CancellationToken ct)=>
+  CustomCurves.RequireTradeProjections(connection,database,new[]{body.Floating,body.FirstFloating}
+   .Concat(body.Scheduled is {} scheduled?new[]{scheduled.First,scheduled.Second}.SelectMany(side=>side is {Periods.IsDefault:false}?side.Periods:[]).Select(period=>period?.Floating):[])
+   .Select(floating=>floating?.CustomProjection),ct);
  public async Task<object> Preview(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
  {
+  await RequireTradeProjections(connection,body,ct);
   if(body.Scheduled is not null)return await PreviewScheduled(connection,data,frame,body,ct);
   body=await BookingTerms(connection,frame,body,ct);
   RequireWriteRules(data,body);
@@ -489,6 +495,7 @@ public sealed partial class SwapStore(PreviewDatabase database)
  }
  internal async Task<RetainedScheduleTerms> PrepareScheduleTerms(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapWriteRequest body,CancellationToken ct)
  {
+  await RequireTradeProjections(connection,body,ct);
   await RetainedScheduleStore.RequireOperationProduct(connection,manifest.CatalogId,body.OperationId,false,ct);
   if(body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
   {

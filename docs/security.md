@@ -150,7 +150,8 @@ mode:
 - `request_format` (400): a query value that does not parse, or a body that is
   malformed, including one holding an escaped lone surrogate, repeats a member, holds
   a value its member's type cannot hold, such as a whole number beyond a 32-bit
-  member's range, or holds an unknown member where its request type refuses one, as
+  member's range (except a custom-curve observation term's `position` or
+  `lessPosition`, which `422 recipe_definition` refuses as a term entry), or holds an unknown member where its request type refuses one, as
   every Administration › AI, grant and account request does.
 - `request_too_large` (413): a body over the route's limit, 32 KiB, or 8 MiB for
   `/api/interval-series/revise`.

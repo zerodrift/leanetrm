@@ -14,6 +14,9 @@ public static class CurveKinds
         var feed=Input(Node(definition.Output),"values");
         switch(feed?.Kind)
         {
+            // Observation cells reach the output directly or through one curve combination (for example a differential).
+            case RecipeEngine.ContractObservations:return "observation_formula";
+            case "weighted_panels" when feed.Inputs.Values.Any(id=>Node(id)?.Kind==RecipeEngine.ContractObservations):return "observation_formula";
             case "weighted_panels" or "weighted_contracts":return "weighted_blend";
             case "mean":
                 var axis=feed.Parameters.GetValueOrDefault("axis");

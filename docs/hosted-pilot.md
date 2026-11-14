@@ -254,8 +254,10 @@ checked again immediately before promotion. The installed operator and Compose
 are never replaced by a downloaded release.
 
 The release envelope permits at most 512 regular files, including its manifest,
-image, Compose file, license and migration inventory. Byte, path, type and hash
-checks apply independently; the inventory limit does not authorize schema changes.
+image, Compose file, license and migration inventory. An installed release reader
+older than this limit refuses a release above 256 regular files until the matching
+reader is installed in the operator window. Byte, path, type and hash checks apply
+independently; the inventory limit does not authorize schema changes.
 
 The current deployment contract permits application-image updates only. Exact
 migration inventory, actual database schema fingerprint, database identity, host

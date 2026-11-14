@@ -33,6 +33,7 @@ public sealed partial class SwapStore
     private async Task<PreparedDraft> PrepareDraft(NpgsqlConnection connection,PreviewData data,InputFrame frame,SwapDraftRequest body,CancellationToken ct,bool resolvePar=false)
     {
         if(body.Quantity is null||body.Floating is null)throw Error("swap_input","Supply explicit instrument quantity and both sides.");
+        await CustomCurves.RequireTradeProjections(connection,database,[body.Floating.CustomProjection,body.FirstFloating?.CustomProjection],ct);
         if(body.DefinitionRevisionId!=data.DefinitionRevision.RevisionId)
         {
             var selected=One((await database.ReadInputMarkets(connection,frame,ct,data)).Where(m=>m.Data.DefinitionRevision.RevisionId==body.DefinitionRevisionId));data=selected.Data;frame=selected.Frame;
