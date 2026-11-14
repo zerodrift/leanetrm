@@ -178,6 +178,8 @@ DECLARE until_at timestamptz;cut timestamptz;prefix integer;market_prefix intege
   END IF;
  END LOOP;
  journal=jsonb_set(journal,ARRAY['stateProfile'],to_jsonb('known_gas_physical_dependency_journal_v1'::text));
+ journal=journal||jsonb_build_object('sourceConflicts',trading.gas_owned_applied_source_conflicts(catalog,context,at_time,books,position_ids)||
+  trading.gas_owned_applied_observation_conflicts(catalog,context,at_time,books,position_ids));
  result=jsonb_build_object('stateProfile','known_gas_physical_attachments_v1','contextId',context,'asOf',at_time,'knownAt',cut,'effectiveOn',day,
   'authorityUntil',until_at,'attachments',attachments,'journal',journal-'authorityUntil');
  IF pg_column_size(result)>16777216 OR jsonb_array_length(attachments)>16384 THEN RAISE EXCEPTION 'gas_owned_scope';END IF;
@@ -186,4 +188,82 @@ END$$;
 ALTER FUNCTION security.read_gas_physical_known_attachments(uuid,uuid,timestamptz,uuid[],jsonb) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.read_gas_physical_known_attachments(uuid,uuid,timestamptz,uuid[],jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION security.read_gas_physical_known_attachments(uuid,uuid,timestamptz,uuid[],jsonb) TO openetrm_runtime,openetrm_risk_worker;
+
+-- A corrected operational source is not a replacement title, dispatch, return
+-- or cash flow. Retain the accepted effect and report the exact unresolved
+-- relationship, including effects whose original stock no longer survives.
+CREATE FUNCTION trading.gas_owned_applied_source_conflicts(catalog uuid,context uuid,at_time timestamptz,books uuid[],positions uuid[] DEFAULT NULL) RETURNS jsonb
+ LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+ WITH accounts AS(SELECT a.* FROM trading.gas_owned_accounts a WHERE a.catalog_id=catalog AND a.book_id=ANY(books)
+  AND security.trading_visible(a.catalog_id,a.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00')),
+ effects AS(
+  SELECT 'position'::text kind,p.id effect_id,p.id position_id,p.account_id,p.evidence_id,p.effective_at,p.publication_order
+   FROM trading.gas_owned_positions p JOIN accounts a ON(a.catalog_id,a.id)=(p.catalog_id,p.account_id)
+   WHERE(positions IS NULL OR p.id=ANY(positions)) AND security.trading_visible(p.catalog_id,p.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00')
+  UNION ALL SELECT 'consumption',c.id,c.lot_id,p.account_id,c.evidence_id,c.effective_at,c.publication_order
+   FROM trading.gas_owned_consumptions c JOIN trading.gas_owned_positions p ON(p.catalog_id,p.id)=(c.catalog_id,c.lot_id)
+   JOIN accounts a ON(a.catalog_id,a.id)=(p.catalog_id,p.account_id)
+   WHERE(positions IS NULL OR p.id=ANY(positions)) AND security.trading_visible(c.catalog_id,c.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00')
+  UNION ALL SELECT 'settlement',s.id,s.position_id,p.account_id,s.evidence_id,s.effective_at,s.publication_order
+   FROM trading.gas_owned_claim_settlements s JOIN trading.gas_owned_positions p ON(p.catalog_id,p.id)=(s.catalog_id,s.position_id)
+   JOIN accounts a ON(a.catalog_id,a.id)=(p.catalog_id,p.account_id)
+   WHERE(positions IS NULL OR p.id=ANY(positions)) AND security.trading_visible(s.catalog_id,s.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00')),
+ heads AS(SELECT DISTINCT ON(e.account_id,e.source_key)e.* FROM trading.gas_owned_evidence e JOIN accounts a ON(a.catalog_id,a.id)=(e.catalog_id,e.account_id)
+  WHERE security.trading_visible(e.catalog_id,e.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00') ORDER BY e.account_id,e.source_key,e.revision DESC)
+ SELECT coalesce(jsonb_agg(jsonb_build_object('kind',f.kind,'effectId',f.effect_id,'positionId',f.position_id,'accountId',f.account_id,
+  'sourceKind','gas_evidence','acceptedSourceId',original.id,'currentSourceIds',jsonb_build_array(h.id),
+  'effectiveAt',f.effective_at,'publicationOrder',f.publication_order,'knownAt',fk.known_from)
+  ORDER BY f.kind,f.effect_id),'[]')
+ FROM effects f JOIN trading.gas_owned_evidence original ON(original.catalog_id,original.id)=(catalog,f.evidence_id)
+ JOIN heads h ON(h.account_id,h.source_key)=(original.account_id,original.source_key)
+ JOIN trading.knowledge_receipts fk ON(fk.catalog_id,fk.publication_order)=(catalog,f.publication_order)
+ JOIN trading.knowledge_receipts hk ON(hk.catalog_id,hk.publication_order)=(catalog,h.publication_order)
+ WHERE h.revision>original.revision;
+$$;
+ALTER FUNCTION trading.gas_owned_applied_source_conflicts(uuid,uuid,timestamptz,uuid[],uuid[]) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION trading.gas_owned_applied_source_conflicts(uuid,uuid,timestamptz,uuid[],uuid[]) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
+
+CREATE FUNCTION trading.gas_owned_applied_observation_conflicts(catalog uuid,context uuid,at_time timestamptz,books uuid[],positions uuid[] DEFAULT NULL) RETURNS jsonb
+ LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+ WITH cut AS(SELECT t.known_at,m.known_through FROM market_data.temporal_contexts t JOIN market_data.market_contexts m
+  ON(m.catalog_id,m.context_id)=(t.catalog_id,t.id) WHERE(t.catalog_id,t.id)=(catalog,context)),
+ applied AS(SELECT s.*,p.account_id FROM trading.gas_owned_claim_settlements s JOIN trading.gas_owned_positions p ON(p.catalog_id,p.id)=(s.catalog_id,s.position_id)
+  JOIN trading.gas_owned_accounts a ON(a.catalog_id,a.id)=(p.catalog_id,p.account_id)
+  WHERE s.catalog_id=catalog AND a.book_id=ANY(books) AND s.source_observation_id IS NOT NULL AND(positions IS NULL OR p.id=ANY(positions))
+   AND security.trading_visible(s.catalog_id,s.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00')),
+ comparisons AS(SELECT s.*,heads.ids FROM applied s JOIN market_data.observations original ON(original.catalog_id,original.id)=(s.catalog_id,s.source_observation_id)
+  CROSS JOIN LATERAL(SELECT coalesce(jsonb_agg(o.id ORDER BY o.id),'[]') ids FROM market_data.observations o
+   JOIN market_data.knowledge_events e ON(e.catalog_id,e.observation_id)=(o.catalog_id,o.id)
+   JOIN market_data.market_knowledge_receipts k ON(k.catalog_id,k.event_order,k.publication_xid)=(e.catalog_id,e.event_order,e.publication_xid) CROSS JOIN cut
+   WHERE(o.catalog_id,o.definition_revision_id,o.series_id,o.source_code,o.role,o.observed_at)=
+    (catalog,original.definition_revision_id,original.series_id,original.source_code,original.role,original.observed_at)
+    AND e.event_order<=cut.known_through AND k.known_from<=cut.known_at AND NOT EXISTS(
+     SELECT 1 FROM market_data.observations n JOIN market_data.knowledge_events ne ON(ne.catalog_id,ne.observation_id)=(n.catalog_id,n.id)
+     JOIN market_data.market_knowledge_receipts nk ON(nk.catalog_id,nk.event_order,nk.publication_xid)=(ne.catalog_id,ne.event_order,ne.publication_xid)
+     WHERE(n.catalog_id,n.corrects_id)=(o.catalog_id,o.id) AND ne.event_order<=cut.known_through AND nk.known_from<=cut.known_at))heads)
+ SELECT coalesce(jsonb_agg(jsonb_build_object('kind','settlement','effectId',s.id,'positionId',s.position_id,'accountId',s.account_id,
+  'sourceKind','market_observation','acceptedSourceId',s.source_observation_id,'currentSourceIds',s.ids,
+  'effectiveAt',s.effective_at,'publicationOrder',s.publication_order,'knownAt',k.known_from) ORDER BY s.id),'[]')
+ FROM comparisons s JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(s.catalog_id,s.publication_order)
+ WHERE s.ids IS DISTINCT FROM jsonb_build_array(s.source_observation_id);
+$$;
+ALTER FUNCTION trading.gas_owned_applied_observation_conflicts(uuid,uuid,timestamptz,uuid[],uuid[]) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION trading.gas_owned_applied_observation_conflicts(uuid,uuid,timestamptz,uuid[],uuid[]) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
+
+CREATE FUNCTION security.read_gas_owned_applied_sources(catalog uuid,context uuid,at_time timestamptz,books uuid[]) RETURNS jsonb
+ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE source jsonb;result jsonb;until_at timestamptz;BEGIN
+ -- The existing public source entry point supplies current authority, exact
+ -- whole-book job scope and the original deadline before any follow-up read.
+ source=security.read_gas_owned_known_history(catalog,context,at_time,books);
+ until_at=(source->>'authorityUntil')::timestamptz;
+ result=(source-ARRAY['accounts','positions','lots','evidence','reservations','releases','consumptions','loans','repayments','settlements','cashoutTerms','fees','payments','markBindings'])||
+  jsonb_build_object('stateProfile','known_gas_applied_source_conflicts_v1','conflicts',trading.gas_owned_applied_source_conflicts(catalog,context,at_time,books)||trading.gas_owned_applied_observation_conflicts(catalog,context,at_time,books));
+ IF pg_column_size(result)>8388608 THEN RAISE EXCEPTION 'gas_owned_scope';END IF;
+ PERFORM security.require_gas_owned_read(catalog,context,at_time,until_at);RETURN result;
+END$$;
+ALTER FUNCTION security.read_gas_owned_applied_sources(uuid,uuid,timestamptz,uuid[]) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.read_gas_owned_applied_sources(uuid,uuid,timestamptz,uuid[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION security.read_gas_owned_applied_sources(uuid,uuid,timestamptz,uuid[]) TO openetrm_runtime,openetrm_risk_worker;
+
 COMMIT;

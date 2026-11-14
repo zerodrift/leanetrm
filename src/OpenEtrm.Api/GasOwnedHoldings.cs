@@ -41,6 +41,7 @@ internal static class GasOwnedHoldings
             throw Error("The gas-owned read must retain the exact business and knowledge coordinates.");
         var admission=new GasOwnedSourceReadAdmission(catalog,context,frame.At,envelope.Instant("authorityUntil"));
         database.RegisterCommitAdmission(connection,admission);
+        GasOwnedAppliedSources.RequireClear(await GasOwnedAppliedSources.Read(connection,database,frame,snapshot,bookIds,ct),frame.At);
         var root=await MarketInputSelection.Root(database,connection,frame,ct);
         var available=supplied.IsDefault?ImmutableArray.Create((Data:root,Frame:frame)):supplied;
         var markets=ImmutableDictionary.CreateBuilder<Guid,GasOwnedMarket>();

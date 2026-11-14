@@ -38,12 +38,12 @@ internal static class GasOwnedProjection
             markets.Any(p=>p.Key!=p.Value.Snapshot.Definitions||p.Value.Snapshot.Id!=source.Id||p.Value.Snapshot.ValuationAt!=source.ValuationAt||p.Value.Snapshot.Knowledge!=knowledge)||
             !TradingInstant.IsSupported(horizon)||horizon<=source.ValuationAt||opening is not null&&(opening.ContextId!=knowledge.ContextId||opening.At!=source.ValuationAt||opening.KnownAt!=knowledge.KnownAt))
             throw Error("gas_projection_source","Select exact saved gas profiles and retain the certified source and complete independent opening holdings.");
+        RequireKnownCoverage(known,source.ValuationAt,horizon);
         var active=opening?.Positions??[];
         var requiredAccounts=active.Select(p=>p.AccountId).Concat(known.Positions.Values.Where(p=>p.Time.EffectiveAt>source.ValuationAt&&p.Time.EffectiveAt<=horizon).Select(p=>p.AccountId)).ToHashSet();
         var selectedAccounts=selected.Select(s=>s.AccountId).ToHashSet();
         if(!requiredAccounts.IsSubsetOf(selectedAccounts))
             throw Error("gas_projection_policy","Select exactly one saved projection profile for each account containing opening or source-known horizon ownership.");
-        RequireKnownCoverage(known,source.ValuationAt,horizon);
         var components=ImmutableArray.CreateBuilder<ILifecycleProjection>();var owners=ImmutableHashSet.CreateBuilder<AccountingPositionKey>();var evidence=ImmutableArray.CreateBuilder<JsonElement>();
         var profiles=ImmutableDictionary.CreateBuilder<Guid,Profile>();
         foreach(var selection in selected)
@@ -164,6 +164,7 @@ internal static class GasOwnedProjection
     }
     private static void RequireKnownCoverage(GasOwnedKnownHistory known,DateTimeOffset opening,DateTimeOffset horizon)
     {
+        GasOwnedAppliedSources.RequireClear(known.SourceConflicts,horizon);
         var origins=known.Positions.Values.Where(p=>p.Time.EffectiveAt>opening&&p.Time.EffectiveAt<=horizon).ToArray();
         if(origins.Any(p=>p.OriginPolicy=="opening_owned_stock_v1"||p.OriginPolicy=="operator_balance_claim_v1"))
             throw Error("gas_projection_capital","A source-known future independent gas origin requires its native purchase, capital or transfer counterfact; zero opening capital cannot be inferred.");

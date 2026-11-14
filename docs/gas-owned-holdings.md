@@ -166,3 +166,26 @@ first outcomes, payment origin and source-knowledge boundaries. Observed quantit
 or title corrections require an explicit reconciliation operation; changing source
 evidence alone does not revise accepted stock. Event-aware physical projection,
 source reconciliation and the operational UI retain their separate release gates.
+
+The knowledge-only physical attachment reader retains the exact native future,
+delivery owner, adopted profile, accepted final revisions, future-effective
+performances, principal prefixes, supplied/received stock and payment revisions.
+An explicit parent-binding selection returns its causal dependency facts rather
+than every position in the same account. This source has a distinct mandatory
+dependency-scope contract; it cannot replace a complete whole-book gas journal
+or select sibling assets for valuation. It establishes no projected title.
+
+Applied-source checks resolve operational evidence heads and operator cashout
+observation heads at the captured knowledge cutoff before considering effect
+times. Corrected sources do not rewrite accepted effects. Complete ordinary
+valuation refuses unresolved effects effective by its selected instant;
+economic projection refuses them when effective by its horizon, including a
+fully consumed source lot or an extinguished claim with surviving cash.
+Operational and configuration readers remain available for repair. An older
+certified view retains its original accepted source. Explicit financial
+reconciliation of these effects remains a separate implementation gate.
+
+`tools/check_gas_physical_known.py` qualifies the attachment scope and complete
+native histories. `tools/check_gas_applied_sources.py` independently corrects a
+fully consumed dispatch source and an extinguished cashout price, verifies the
+old views and operational reads, and checks both valuation and horizon gates.
