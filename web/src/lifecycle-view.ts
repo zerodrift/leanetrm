@@ -79,6 +79,15 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   if(steps.length){const table=element('table');table.className='regular-table';const head=element('tr');for(const label of ['Occurrence','Variation','Adjustment','Due'])head.append(element('th',label));table.append(head);
    for(const step of steps as Record<string,unknown>[]){const row=element('tr'),occurrence=step.occurrence as Record<string,unknown>|undefined,variation=step.variation as Record<string,unknown>|undefined;for(const value of [typeof occurrence?.at==='string'?instant(occurrence.at):'',variation?.amount??'',step.adjustment??'',typeof step.adjustmentDue==='string'?instant(step.adjustmentDue):''])row.append(element('td',typeof value==='object'?exactText(value):String(value)));table.append(row);}section.append(table);
   }
+  const principal=d.physicalPrincipal as {originalQuantity?:unknown;finalPrice?:unknown;currency?:{code?:string};principalDueAt?:string;performances?:Record<string,unknown>[]} | undefined;
+  if(principal){
+   section.append(element('h4','Physical delivery principal'));
+   const currency=principal.currency?.code?.toUpperCase();
+   const terms=element('p',`Original quantity ${String(principal.originalQuantity??'')} · final price ${String(principal.finalPrice??'')}${currency?' '+currency:''} · principal due ${principal.principalDueAt?instant(principal.principalDueAt):''}`);section.append(terms);
+   if(principal.performances?.length){const table=element('table');table.className='regular-table';const head=element('tr');for(const label of ['Performance','Effective','Signed quantity','Principal','Adjustment'])head.append(element('th',label));table.append(head);
+    for(const performance of principal.performances){const row=element('tr');for(const value of [performance.businessReference,typeof performance.at==='string'?instant(performance.at):'',performance.quantity,performance.contribution,performance.adjustment])row.append(element('td',String(value??'')));table.append(row);}section.append(table);
+   }else section.append(element('p','No accepted performance: this final creates or updates the delivery obligation without recording title.'));
+  }
   const execute=element('button','Record reviewed action');execute.type='button';execute.dataset.lifecycleExecute='';execute.onclick=()=>void o.act(async()=>{if(!reviewed)return;await queue('lifecycle/execute',reviewed.request,`${selected?.label??'Lifecycle action'} · ${selected?.subject?.reference??'holding'}`);});section.append(execute);panel.append(section);sync();
  }
  function showAction(offer:LifecycleOffer){clearPanel();selected=offer;panel.append(element('h2',`${offer.label} · ${offer.subject?.reference??'Holding'}`));panel.append(element('p',lifecycleReason(offer.reason)));

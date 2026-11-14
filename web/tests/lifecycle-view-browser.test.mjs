@@ -66,3 +66,9 @@ test('editing a policy while its times resolve cannot submit a mixed draft',{ski
  await evaluate('releases.shift()()');await settle();assert.deepEqual(await evaluate('sent'),[]);
  assert.equal(await evaluate('desk.edited()'),true);
 }));
+
+test('a physical final review shows every signed principal correction before recording',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
+ await evaluate(`(async()=>{const {setupLifecycle}=await import('/lifecycle-view.js');const api=async(path)=>path==='lifecycle/view'?${JSON.stringify(discovery)}:{hash:'a'.repeat(64),offer:${JSON.stringify(offer)},details:{physicalPrincipal:{originalQuantity:'200',finalPrice:'6',currency:{code:'usd'},principalDueAt:'2026-12-02T12:00:00Z',performances:[{id:'synthetic-performance',businessReference:'Synthetic title receipt',at:'2026-11-02T15:00:00Z',quantity:'75',contribution:'-450',adjustment:'-75'}]}}};window.desk=setupLifecycle(document.querySelector('#host'),{api,act:async f=>f(),busy:()=>false,identity:()=> 'operator',context:()=>({snapshotId:'header'}),historical:()=>false,zone:()=> 'America/Chicago',permission:()=>true,changed(){}});await desk.load();})()`);await settle();
+ await evaluate("document.querySelector('[data-lifecycle=rows] .tabulator-row').click()");await settle();await evaluate("document.querySelector('[data-lifecycle=panel] form').requestSubmit()");await settle();
+ const text=await evaluate("document.querySelector('[data-lifecycle-review]').textContent");assert.match(text,/Physical delivery principal/);assert.match(text,/Synthetic title receipt/);assert.match(text,/6 USD/);assert.match(text,/-450/);assert.match(text,/-75/);
+}));
