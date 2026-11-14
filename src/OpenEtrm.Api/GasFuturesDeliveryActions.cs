@@ -136,34 +136,25 @@ internal sealed class GasFuturesDeliveryActions(PreviewDatabase database):ILifec
             var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
             database.RegisterCommitAdmission(connection,new GasOwnedOperationReadAdmission(database.Manifest.CatalogId,until));
         }
-        var source=await LifecycleNative.Source(connection,database,context,ct);
-        await using(var save=ScheduleStore.Command(connection,"SAVEPOINT gas_delivery_discover"))await save.ExecuteNonQueryAsync(ct);
-        try
+        // Discovery consumes the shared registry's admitted, exact bound source.
+        var state=await LifecycleNative.Read(connection,"SELECT security.read_gas_futures_delivery_actions($1,$2,$3)::text",ct,database.Manifest.CatalogId,context.ContextId,context.AsOf);
+        database.RegisterCommitAdmission(connection,new GasOwnedOperationReadAdmission(database.Manifest.CatalogId,state.Instant("authorityUntil")));
+        var offers=ImmutableArray.CreateBuilder<LifecycleActionOffer>();
+        foreach(var row in state.GetProperty("deliveryRemainders").EnumerateArray())Add(row,"performance",row.Id("id"),row.Id("id"),row.Text("remaining_quantity"));
+        foreach(var row in state.GetProperty("deliveryCash").EnumerateArray())Add(row,"payment",row.Id("position_id"),row.Id("id"),row.Text("amount"));
+        return offers.ToImmutable();
+        void Add(JsonElement row,string action,Guid owner,Guid binding,string amount)
         {
-            await PinnedContext.BindExact(connection,database.Manifest.CatalogId,source,ct);await TradingContext.Bind(connection,database.Manifest.CatalogId,source,context.AsOf,ct);
-            var state=await LifecycleNative.Read(connection,"SELECT security.read_gas_futures_delivery_actions($1,$2,$3)::text",ct,database.Manifest.CatalogId,context.ContextId,context.AsOf);
-            database.RegisterCommitAdmission(connection,new GasOwnedOperationReadAdmission(database.Manifest.CatalogId,state.Instant("authorityUntil")));
-            var offers=ImmutableArray.CreateBuilder<LifecycleActionOffer>();
-            foreach(var row in state.GetProperty("deliveryRemainders").EnumerateArray())Add(row,"performance",row.Id("id"),row.Id("id"),row.Text("remaining_quantity"));
-            foreach(var row in state.GetProperty("deliveryCash").EnumerateArray())Add(row,"payment",row.Id("position_id"),row.Id("id"),row.Text("amount"));
-            return offers.ToImmutable();
-            void Add(JsonElement row,string action,Guid owner,Guid binding,string amount)
-            {
-                if(target is not null&&(target.ScopeId!=owner||target.BindingId!=binding))return;
-                var account=state.GetProperty("accounts").EnumerateArray().Single(a=>a.Id("id")==row.Id("account_id"));
-                var code=action=="performance"?"gas.futures.delivery":"gas.cash.record_payment";
-                var policies=state.GetProperty("policies").EnumerateArray().Where(p=>p.Id("account_id")==account.Id("id")&&p.Text("action")==code).OrderByDescending(p=>p.GetProperty("revision").GetInt32()).ToArray();
-                var policy=policies.FirstOrDefault();var reason=policies.Length==0?"lifecycle_configuration_required":context.AsOf<policy.Instant("from_at")||context.AsOf>=policy.Instant("until_at")?"lifecycle_action_window":null;
-                var revision=action=="performance"?state.GetProperty("principalVersions").EnumerateArray().Where(p=>p.Id("position_id")==owner).Select(p=>p.GetProperty("revision").GetInt32()).DefaultIfEmpty().Single():0;
-                offers.Add(new(new(Kind,owner,binding),code,Label(action),binding,context.AsOf,null,reason is null,reason,1,revision){
-                    Subject=new(account.Text("code"),"Physical futures delivery",account.Id("book_id"),account.Text("book_name")),
-                    PolicyId=policies.Length==0?null:policy.Id("policy_id"),PolicyRevision=policies.Length==0?null:policy.GetProperty("policy_revision").GetInt32(),AvailableQuantity=amount,
-                    RequiredInputs=action=="performance"?["positionId","businessReference","expectedVersion","quantity","performedAt","titleEvidenceId","availableAt","supply"]:["positionId","cashId","businessReference","expectedVersion","paidAt","amount","evidence"]});
-            }
-        }
-        finally
-        {
-            await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT gas_delivery_discover;RELEASE SAVEPOINT gas_delivery_discover");await restore.ExecuteNonQueryAsync(CancellationToken.None);
+            if(target is not null&&(target.ScopeId!=owner||target.BindingId!=binding))return;
+            var account=state.GetProperty("accounts").EnumerateArray().Single(a=>a.Id("id")==row.Id("account_id"));
+            var code=action=="performance"?"gas.futures.delivery":"gas.cash.record_payment";
+            var policies=state.GetProperty("policies").EnumerateArray().Where(p=>p.Id("account_id")==account.Id("id")&&p.Text("action")==code).OrderByDescending(p=>p.GetProperty("revision").GetInt32()).ToArray();
+            var policy=policies.FirstOrDefault();var reason=policies.Length==0?"lifecycle_configuration_required":context.AsOf<policy.Instant("from_at")||context.AsOf>=policy.Instant("until_at")?"lifecycle_action_window":null;
+            var revision=action=="performance"?state.GetProperty("principalVersions").EnumerateArray().Where(p=>p.Id("position_id")==owner).Select(p=>p.GetProperty("revision").GetInt32()).DefaultIfEmpty().Single():0;
+            offers.Add(new(new(Kind,owner,binding),code,Label(action),binding,context.AsOf,null,reason is null,reason,1,revision){
+                Subject=new(account.Text("code"),"Physical futures delivery",account.Id("book_id"),account.Text("book_name")),
+                PolicyId=policies.Length==0?null:policy.Id("policy_id"),PolicyRevision=policies.Length==0?null:policy.GetProperty("policy_revision").GetInt32(),AvailableQuantity=amount,
+                RequiredInputs=action=="performance"?["positionId","businessReference","expectedVersion","quantity","performedAt","titleEvidenceId","availableAt","supply"]:["positionId","cashId","businessReference","expectedVersion","paidAt","amount","evidence"]});
         }
     }
     private static string Label(string action)=>action=="performance"?"Record observed futures delivery":"Record delivery principal payment";

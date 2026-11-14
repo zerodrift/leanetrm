@@ -75,12 +75,13 @@ public sealed class LifecycleOperations
         var until=admission.Until;
         await new LifecycleReadAdmission(database.Manifest.CatalogId,until).RequireCommit(connection,ct);
         if(admission.GasUntil is {} gasUntil)await new GasOwnedOperationReadAdmission(database.Manifest.CatalogId,gasUntil).RequireCommit(connection,ct);
+        // The source admission must survive the temporary read bindings below.
+        // Its native tuple and managed commit callback have the same lifetime.
+        var context=await LifecycleNative.Source(connection,database,request.Context,ct);
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT lifecycle_discovery"))await save.ExecuteNonQueryAsync(ct);
         ImmutableArray<LifecycleActionOffer> actions;ImmutableArray<JsonElement> policies,optionProfiles,swapProfiles,swapNetProfiles,marginPolicies,optionSources,swapOccurrences,futuresSetup,deliveryProfiles,deliveryAccounts;LifecycleSettingsChoices choices;
         try
         {
-            var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,request.Context.ContextId,ct)).Context;
-            if(DateWorkspace.Date(context.EffectiveOn)!=request.Context.BusinessDate)throw new MarketDataException("lifecycle_context","Retain the selected context's business date.");
             await PinnedContext.BindExact(connection,database.Manifest.CatalogId,context,ct);
             await TradingContext.Bind(connection,database.Manifest.CatalogId,context,request.Context.AsOf,ct);
             var selected=request.Target is null?registry.Handlers:[registry.Require(request.Target.Handler)];
