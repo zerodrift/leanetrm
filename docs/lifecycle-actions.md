@@ -215,11 +215,15 @@ amount, new contribution, currency and due instant before execution. Observed
 payments and net settlements show their corresponding accepted evidence.
 
 The owned shared-swap browser qualifier runs against the actual API and native
-database. Its 22 checks cover determination, observed payment, original-payment
+database. Its 25 checks cover determination, observed payment, original-payment
 reversal, partial netting, zero-net discharge, both net reversals, lost responses
 and exact receipt-first recovery after reload, current Risk invalidation, retained
 P&L reads and narrow layouts. Reload reselects the same actor and read context;
-it never regenerates the retained financial request.
+it never regenerates the retained financial request. Reusing a scheduled side
+retains both independent memberships even when they share one payment-template
+identifier. Discovery, review and the grid keep each exact saved profile
+distinct, and recorded gross obligations remain separate when their values
+offset.
 
 Scheduled swap actions retain the explicitly selected recorded close as primary.
 The exact retained side programs and published custom-source closure must be

@@ -33,4 +33,11 @@ export async function run(driver){
  await command('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await wait(idle);
  await check('the retained settlement and P&L view fits a phone while its figures remain in scrollable tables',"document.documentElement.scrollWidth<=document.documentElement.clientWidth+1&&document.querySelector('#swap-settlement').scrollWidth<=document.querySelector('#swap-settlement').clientWidth+1");
  await shot('settlement-lifecycle-narrow');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
+ const shared=await swapLifecycleFixture(driver,'shared_side_lifecycle_browser',{shared:true});
+ await shared.lifecycle();
+ await check('reused scheduled payment templates retain both native memberships and distinct action rows',`(()=>{const f=window.__swapFixture,rows=[...document.querySelectorAll('#lifecycle-page .tabulator-row[data-row-key]')].filter(r=>{const k=JSON.parse(r.dataset.rowKey);return k[1]===f.tradeId&&k[3]==='swap.determine';});return f.occurrences.length===2&&new Set(f.occurrences.map(o=>o.occurrence_id)).size===1&&rows.length===2&&new Set(rows.map(r=>r.dataset.rowKey)).size===2;})()`);
+ await shared.determine(0);await shared.determine(1);
+ const evidence=await shared.inspect(),writes=await evaluate('window.__swapWrites');
+ await check('each shared-template review records only its selected independent membership',q(writes.length===2&&writes[0].body.selection.profileId!==writes[1].body.selection.profileId&&writes[0].body.selection.determination.preview.membershipOrdinal===0&&writes[1].body.selection.determination.preview.membershipOrdinal===1));
+ await check('shared-template gross obligations stay separate while their values offset',q(evidence.settlement.version===2&&evidence.settlement.occurrences.length===2&&evidence.settlement.determinations.length===2&&evidence.balances.map(b=>b.amount).sort().join()==='-350,350'&&evidence.valuation.determinedOutstanding==='0'));
 }

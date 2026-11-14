@@ -30,6 +30,8 @@ public sealed record LifecycleActionOffer(LifecycleTarget Target,string Action,s
 {
     public LifecycleActionSubject? Subject{get;init;}
     public LifecycleScheduleSettings? ScheduleSettings{get;init;}
+    [JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? ProfileId{get;init;}
     public Guid? PolicyId{get;init;}
     public int? PolicyRevision{get;init;}
     public JsonElement? Selection{get;init;}

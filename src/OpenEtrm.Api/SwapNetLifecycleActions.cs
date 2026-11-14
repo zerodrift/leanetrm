@@ -88,7 +88,7 @@ internal sealed class SwapNetLifecycleActions(PreviewDatabase database,Func<Guid
         var value=await Prepare(connection,request,s,false,ct);
         var details=JsonSerializer.SerializeToElement(new{settlement=value.Review,s.Net.EffectiveAt,s.Net.Reference},LifecycleNative.Json);
         return new(new(request.Target,request.Action,s.Net.Preview.ReversesId is null?"Record observed net settlement":"Reverse observed net settlement",
-            s.ProfileId,request.Context.AsOf,null,true,null,s.Net.Preview.ExpectedRevision,s.Net.Preview.ExpectedVersion),Hash(value,s,request),details,Catalog,until);
+            s.ProfileId,request.Context.AsOf,null,true,null,s.Net.Preview.ExpectedRevision,s.Net.Preview.ExpectedVersion){ProfileId=s.ProfileId},Hash(value,s,request),details,Catalog,until);
     }
     public async Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)
     {
@@ -152,7 +152,7 @@ internal sealed class SwapNetLifecycleActions(PreviewDatabase database,Func<Guid
                         .Select(payment=>new LifecycleInputChoice(payment.Id("id").ToString(),$"{payment.Text("reference")} · {payment.Text("amount")} {currency.Code.ToUpperInvariant()} · {payment.Text("cash_at")}"))]);
                 }
                 offers.Add(new LifecycleActionOffer(new(Kind,row.Id("trade_id"),row.Id("binding_id")),"swap.net","Record observed net settlement",profile?.Id("id")??row.Id("binding_id"),context.AsOf,null,reason is null,reason,revision,Int(state,"version"))
-                {Subject=new(TradingReference.Trade(row),"Financial swap",row.Id("book_id"),row.Text("book_name")),PolicyId=profile?.Id("policy_id"),PolicyRevision=profile is {} configured?Int(configured,"policy_revision"):null,
+                {ProfileId=profile?.Id("id"),Subject=new(TradingReference.Trade(row),"Financial swap",row.Id("book_id"),row.Text("book_name")),PolicyId=profile?.Id("policy_id"),PolicyRevision=profile is {} configured?Int(configured,"policy_revision"):null,
                     Selection=selection,RequiredInputs=["netSettlement","effectiveAt","reference"],InputChoices=choices});
             }
         }

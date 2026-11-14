@@ -76,7 +76,8 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
                 throw new MarketDataException("lifecycle_profile_revision","Select an observed payment of this profile's exact retained occurrence and source version.");
             var detail=JsonSerializer.SerializeToElement(payment,LifecycleNative.Json);
             var hash=Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(payment,LifecycleNative.Json)));
-            return new(new(request.Target,request.Action,Label(request.Action,profile),profile.Id("occurrence_id"),request.Context.AsOf,null,true,null,payment.ExpectedRevision,payment.ExpectedVersion),hash,detail,Catalog,until);
+            return new(new(request.Target,request.Action,Label(request.Action,profile),profile.Id("occurrence_id"),request.Context.AsOf,null,true,null,payment.ExpectedRevision,payment.ExpectedVersion)
+                {ProfileId=selection.ProfileId},hash,detail,Catalog,until);
         }
         var frame=frames(selection.SnapshotId) with{ContextId=null};var view=TradingView.Reread(frame,source);
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT lifecycle_swap_preview"))await save.ExecuteNonQueryAsync(ct);
@@ -92,7 +93,7 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
             await restore.ExecuteNonQueryAsync(CancellationToken.None);
         }
         return new(new(request.Target,request.Action,Label(request.Action,profile),profile.Id("occurrence_id"),request.Context.AsOf,null,true,null,
-            selection.Determination!.Preview.ExpectedRevision,value.GetProperty("expectedVersion").GetInt32()),value.Text("previewHash"),value,Catalog,until);
+            selection.Determination!.Preview.ExpectedRevision,value.GetProperty("expectedVersion").GetInt32()){ProfileId=selection.ProfileId},value.Text("previewHash"),value,Catalog,until);
     }
     public async Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)
     {
@@ -199,6 +200,7 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
             offers.Add(new LifecycleActionOffer(new(Kind,r.Id("trade_id"),r.Id("binding_id")),action,Label(action,profile),profile?.Id("occurrence_id")??r.Id("binding_id"),
                 context.AsOf,null,reason is null,reason,revision,version)
             {
+                ProfileId=profile?.Id("id"),
                 ScheduleSettings=action=="swap.determine"&&profile is {} schedule?new(revision,null,schedule.Id("id"),int.Parse(schedule.Text("revision"),System.Globalization.CultureInfo.InvariantCulture),null,null):null,
                 Subject=new(TradingReference.Trade(r),"Financial swap",r.Id("book_id"),r.Text("book_name")),
                 PolicyId=profile?.Id("policy_id"),PolicyRevision=profile is {} policy?int.Parse(policy.Text("policy_revision"),System.Globalization.CultureInfo.InvariantCulture):null,

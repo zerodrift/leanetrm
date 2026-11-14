@@ -122,8 +122,9 @@ public sealed class LifecycleOperations
                   FROM trading.swap_fixed_sides s WHERE(s.catalog_id,s.id)=(i.catalog_id,i.fixed_side_id)
                  UNION ALL SELECT 0,0,s.delivery_from,s.delivery_to,s.payment_at,s.reference_catalog_id,s.reference_revision_id,s.quote_code,s.id FROM trading.swap_floating_sides s WHERE(s.catalog_id,s.id)=(i.catalog_id,i.first_floating_side_id)
                  UNION ALL SELECT 1,0,s.delivery_from,s.delivery_to,s.payment_at,s.reference_catalog_id,s.reference_revision_id,s.quote_code,s.id FROM trading.swap_floating_sides s WHERE(s.catalog_id,s.id)=(i.catalog_id,i.floating_side_id)
-                 UNION ALL SELECT CASE s.side_id WHEN i.scheduled_first_id THEN 0 ELSE 1 END,s.ordinal,s.delivery_from,s.delivery_to,s.payment_at,s.reference_catalog_id,s.reference_revision_id,s.quote_code,s.id
-                  FROM trading.swap_side_periods s WHERE s.catalog_id=i.catalog_id AND s.side_id IN(i.scheduled_first_id,i.scheduled_second_id))p
+                 UNION ALL SELECT membership.ordinal,s.ordinal,s.delivery_from,s.delivery_to,s.payment_at,s.reference_catalog_id,s.reference_revision_id,s.quote_code,s.id
+                  FROM(VALUES(0,i.scheduled_first_id),(1,i.scheduled_second_id))membership(ordinal,side_id)
+                  JOIN trading.swap_side_periods s ON(s.catalog_id,s.side_id)=(i.catalog_id,membership.side_id))p
                 JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)=(p.reference_catalog_id,p.reference_revision_id,p.quote_code)
                 JOIN ref_data.currencies c ON(c.catalog_id,c.revision_id,c.code)=(q.catalog_id,q.revision_id,q.currency_code)
                 ORDER BY r.trade_id,p.membership_ordinal,p.payment_ordinal)v

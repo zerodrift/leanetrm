@@ -27,6 +27,13 @@ test('inactive contracts retain a readable reason and distinct occurrence identi
  assert.match(lifecycleReason(inactive.reason),/closed/i);
  assert.notEqual(lifecycleKey(offer),lifecycleKey({...offer,occurrenceId:'different'}));
 });
+test('independent swap memberships sharing one payment template retain distinct saved-profile identities',()=>{
+ const shared={...offer,target:{...offer.target,handler:'financial_swap'},action:'swap.determine',occurrenceId:'shared-side-period'};
+ const first={...shared,profileId:'first-membership-profile'},second={...shared,profileId:'second-membership-profile'};
+ assert.notEqual(lifecycleKey(first),lifecycleKey(second));
+ assert.equal(lifecycleKey(first),lifecycleKey(structuredClone(first)));
+ assert.notEqual(lifecycleKey(first),lifecycleKey({...first,profileId:second.profileId}));
+});
 test('uncertain lifecycle commands restore the exact source, hash, selection and identity while rejecting reads and arbitrary writes',()=>{
  const request=lifecycleRequest(context,offer,{policyId:offer.policyId,policyRevision:3,evidenceId:'80000000-0000-0000-0000-000000000001',lots:'1'},'90000000-0000-0000-0000-000000000001');request.previewHash='a'.repeat(64);
  const saved={path:'lifecycle/execute',operationId:request.operationId,body:request,uncertain:true,label:'Exercise TR-000001'};

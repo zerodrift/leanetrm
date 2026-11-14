@@ -5,7 +5,7 @@ const q=JSON.stringify,root='#lifecycle-page',panel=root+' [data-lifecycle="pane
 
 // The setup books original synthetic terms and saves explicit product policies.
 // Every financial action below goes through the actual shared browser form.
-export async function swapLifecycleFixture(driver,name,{net=false}={}){
+export async function swapLifecycleFixture(driver,name,{net=false,shared=false}={}){
  const {command,evaluate,wait,click,set,submit,persona,check,idle,url}=driver;
  await command('Page.enable');await command('Runtime.enable');await command('Emulation.setDeviceMetricsOverride',{width:1440,height:1100,deviceScaleFactor:1,mobile:false});
  await command('Page.navigate',{url});await wait(idle);await persona('admin');
@@ -20,18 +20,20 @@ export async function swapLifecycleFixture(driver,name,{net=false}={}){
   const entity=c.legalEntities[0],party=c.counterparties[0],payment={frequency:'monthly',rule:'days_after_period_end',days:18,dayOfMonth:null,dayBasis:'calendar_days',shortMonth:null,adjustment:'unadjusted',calendar:null,implementation:'monthly_payment_date_rules_v1'};
   if(!index||!entity||!party)throw Error('Missing explicit synthetic booking choices');
   const terms={currency:index.currencyCode,deliveryFrom:'2021-01-01',deliveryTo:'2021-02-01',paymentSchedule:payment};
-  const booked=await window.__swapPost('swaps/book',{...context,operationId:crypto.randomUUID(),bookId:c.books[0].id,executedAt:null,quantity:'100',fixedCoefficient:'-1',discounting:false,definitionRevisionId:index.definitionRevisionId,commodity:index.commodity,
-   fixed:{...terms,price:'3'},floating:{...terms,curve:index.curve,index:index.index,resetFrequency:'monthly',averagingMethod:'none',spread:'0',settlement:{mode:'curve_target',index:null,projectionPolicy:null}},legalEntityId:entity.id,legalEntityRevision:entity.revision,counterpartyId:party.id,counterpartyRevision:party.revision});
+  const floating={...terms,curve:index.curve,index:index.index,resetFrequency:'monthly',averagingMethod:'none',spread:'0',settlement:{mode:'curve_target',index:null,projectionPolicy:null}},
+   side={basis:'period_total',quantity:index.quantityChoices[0].specification,amount:null,allocation:null,priceApplication:'period_average_times_quantity_v1',power:null,periods:[{amount:'100',fixed:null,floating}]};
+  const booked=await window.__swapPost('swaps/book',{...context,operationId:crypto.randomUUID(),bookId:c.books[0].id,executedAt:null,quantity:${shared?'null':q('100')},fixedCoefficient:${shared?'null':q('-1')},discounting:false,definitionRevisionId:index.definitionRevisionId,commodity:index.commodity,
+   fixed:${shared?'null':"{...terms,price:'3'}"},floating:${shared?'null':'floating'},${shared?"swapType:'scheduled_financial_swap',firstCoefficient:'-1',scheduled:{implementation:'whole_term_scheduled_financial_swap_v1',first:side,second:structuredClone(side)},":''}legalEntityId:entity.id,legalEntityRevision:entity.revision,counterpartyId:party.id,counterpartyRevision:party.revision});
   window.__swapFixture={tradeId:booked.tradeId,frame:${q(dates[1].id)},context:{...context,snapshotId:${q(dates[1].id)}}};return window.__swapFixture;
  })()`);
  await blotterAt({set,wait,click},dates[1]);
  await evaluate(`(async()=>{const f=window.__swapFixture,post=window.__swapPost;let d=await post('lifecycle/view',{...f.context,convention:'trading_workspace_v1'});
   const rows=d.swapOccurrences.filter(r=>r.trade_id===f.tradeId);if(rows.length!==2)throw Error('Expected two exact synthetic payment occurrences');
-  f.occurrences=rows;f.currency={revision:{catalogId:rows[0].reference_catalog_id,revisionId:rows[0].reference_revision_id},code:rows[0].currency_code};
+  f.occurrences=rows;f.profiles=[];f.currency={revision:{catalogId:rows[0].reference_catalog_id,revisionId:rows[0].reference_revision_id},code:rows[0].currency_code};
   f.policies={};for(const action of ['swap.determine','swap.payment',...${net?'["swap.net"]':'[]'}]){const policyId=crypto.randomUUID();f.policies[action]=policyId;
    await post('lifecycle/policies/save',{operationId:crypto.randomUUID(),policyId,expectedRevision:0,action,mode:'review',fromAt:'2020-01-01T00:00:00Z',untilAt:'2035-01-01T00:00:00Z',implementation:'explicit_lifecycle_action_policy_v1'});
    if(action==='swap.net')await post('lifecycle/swaps/net/configure',{operationId:crypto.randomUUID(),profileId:crypto.randomUUID(),tradeId:f.tradeId,expectedRevision:0,originRevision:1,action,policyId,policyRevision:1,referenceCatalogId:rows[0].reference_catalog_id,referenceRevisionId:rows[0].reference_revision_id,currency:rows[0].currency_code,decimalPlaces:2,roundingPolicy:'currency_minor_units_to_even_v1',duePolicy:'swap_due_nominal_v1',recognitionPolicy:'swap_completed_period_trading_pnl_v1',correctionPolicy:'swap_explicit_correction_due_v1',netPolicy:'explicit_same_due_swap_net_v1'});
-   else for(const row of rows)await post('lifecycle/swaps/configure',{operationId:crypto.randomUUID(),profileId:crypto.randomUUID(),tradeId:f.tradeId,expectedRevision:0,originRevision:1,action,policyId,policyRevision:1,membershipOrdinal:row.membership_ordinal,paymentOrdinal:row.payment_ordinal,deliveryFrom:row.delivery_from,deliveryTo:row.delivery_to,referenceCatalogId:row.reference_catalog_id,referenceRevisionId:row.reference_revision_id,currency:row.currency_code,decimalPlaces:2,roundingPolicy:'currency_minor_units_to_even_v1',duePolicy:'swap_due_nominal_v1',recognitionPolicy:'swap_completed_period_trading_pnl_v1',correctionPolicy:'swap_explicit_correction_due_v1'});
+   else for(const row of rows){const profileId=crypto.randomUUID();await post('lifecycle/swaps/configure',{operationId:crypto.randomUUID(),profileId,tradeId:f.tradeId,expectedRevision:0,originRevision:1,action,policyId,policyRevision:1,membershipOrdinal:row.membership_ordinal,paymentOrdinal:row.payment_ordinal,deliveryFrom:row.delivery_from,deliveryTo:row.delivery_to,referenceCatalogId:row.reference_catalog_id,referenceRevisionId:row.reference_revision_id,currency:row.currency_code,decimalPlaces:2,roundingPolicy:'currency_minor_units_to_even_v1',duePolicy:'swap_due_nominal_v1',recognitionPolicy:'swap_completed_period_trading_pnl_v1',correctionPolicy:'swap_explicit_correction_due_v1'});f.profiles.push({id:profileId,action,membership:row.membership_ordinal});}
   }
   const report=await post('trading/blotter',{context:{...f.context,convention:'trading_workspace_v1'},view:{mode:'trades',bookIds:[],portfolioIds:[],groupBy:[],measures:[],pivotConvention:null}});f.reference=report.holdings.find(h=>h.tradeId===f.tradeId).tradeReference;
   window.__swapInspect=()=>post('swaps/settlement/inspect',{context:f.context,tradeId:f.tradeId,revision:null,duePolicy:'swap_due_nominal_v1',recognitionPolicy:'swap_completed_period_trading_pnl_v1'});
@@ -46,8 +48,8 @@ export async function swapLifecycleFixture(driver,name,{net=false}={}){
  async function lifecycle(){await click('#nav-lifecycle');await wait(`document.querySelector(${q(root)})?.hidden===false&&document.querySelector(${q(root+' [data-lifecycle="rows"] .table-search')})&&${idle}`,60000);
   await set(root+' [data-lifecycle="rows"] .table-search',selected.reference);await wait(idle);
  }
- async function action(code,membership=0){await lifecycle();const occurrence=code==='swap.net'?null:await evaluate(`window.__swapFixture.occurrences.find(o=>o.membership_ordinal===${membership}).occurrence_id`);
-  const expression=`[...document.querySelectorAll(${q(root+' .tabulator-row[data-row-key]')})].find(r=>{const k=JSON.parse(r.dataset.rowKey);return k[1]===${q(selected.tradeId)}&&k[3]===${q(code)}&&(${q(occurrence)}===null||k[4]===${q(occurrence)});})`;
+ async function action(code,membership=0){await lifecycle();const occurrence=code==='swap.net'?null:await evaluate(`window.__swapFixture.occurrences.find(o=>o.membership_ordinal===${membership}).occurrence_id`),profile=code==='swap.net'?null:await evaluate(`window.__swapFixture.profiles.find(p=>p.action===${q(code)}&&p.membership===${membership}).id`);
+  const expression=`[...document.querySelectorAll(${q(root+' .tabulator-row[data-row-key]')})].find(r=>{const k=JSON.parse(r.dataset.rowKey);return k[1]===${q(selected.tradeId)}&&k[3]===${q(code)}&&(${q(occurrence)}===null||k[4]===${q(occurrence)}&&k[5]===${q(profile)});})`;
   await wait(`!!(${expression})&&${idle}`,60000);await evaluate(`(${expression}).click()`);await wait(`!!document.querySelector(${q(panel+' form.lifecycle-form')})&&${idle}`);
  }
  async function field(label,value){await evaluate(`(()=>{const labels=[...document.querySelectorAll(${q(panel+' label')})],wrapper=labels.find(l=>l.firstChild?.textContent===${q(label)}||l.firstChild?.textContent?.startsWith(${q(label)})),input=wrapper?.querySelector('input,select');if(!input)throw Error('Missing lifecycle field '+${q(label)});input.value=${q(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
