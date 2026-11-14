@@ -54,6 +54,7 @@ internal static class PhysicalOptionBindingChecks
         Equal(values[second.Id].Value,ExactMoney.Parse("0",option.Currency));
         var vanillaUnit=AmericanFuturesOptionModel.UnitPrice(option.Series.Terms,L("3"),sigma,L("0.999"),at,numerical,default);
         Equal(values[vanilla.Id].Value,ExactMoney.FromMoney(new(vanillaUnit.ToExact(),option.Currency)).Scale(option.Series.Multiplier));
+        if(reference.TreePrices!=3)throw new Exception("Physical reference tree prices were omitted from the shared option work counter.");
         if(portfolio.Scopes.Any(s=>s.BindingState is not null)||portfolio.Scopes.Count(s=>s.PricingBinding is not null)!=2)
             throw new Exception("Selected pricing introduced an actual state or lost its distinct pricing scopes.");
         var legacy=ValuationPortfolio.FromTrades([vanilla],setup.ForPosition(new(vanilla.Id,vanilla.Instruments.Single().Id,vanilla.BookId),option.Id));

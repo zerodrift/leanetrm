@@ -141,7 +141,7 @@ public sealed record FuturesOptionMarketBinding(Guid Id, FuturesOptionInstrument
         switch (Calibration)
         {
             case SolvedVolatility solved:
-                Interlocked.Increment(ref trees.Count);
+                RecordTreePrice();
                 return AmericanFuturesOptionModel.UnitPrice(Instrument.Series.Terms, futures, volatility??throw FuturesOptionInstrument.Error("risk_dependency","Solved option pricing requires its declared volatility input."), discount, valuationAt, Policy, ct);
             case IntrinsicFallback fallback:
                 return LatticeDecimal.Max(Intrinsic(futures) + fallback.Residual, LatticeDecimal.Parse("0"));
@@ -152,6 +152,7 @@ public sealed record FuturesOptionMarketBinding(Guid Id, FuturesOptionInstrument
 
     // Work only: how many tree prices this binding's valuations have evaluated since it was prepared.
     public int TreePrices => Volatile.Read(ref trees.Count);
+    internal void RecordTreePrice()=>Interlocked.Increment(ref trees.Count);
     private readonly TreeCount trees = new();
     private sealed class TreeCount { public int Count; }
 

@@ -81,6 +81,7 @@ public sealed partial record FuturesOptionInstrument
         var carrying=new PhysicalOptionCarrying(gas.From,gas.CashDueAt,assetFactor,principalFactor,
             [..margins.Select(o=>new PhysicalOptionMarginDiscount(o.Id,o.DueAt,LatticeDecimal.From(marginFactors[MarginPayment(o)].DiscountFactor)))]);
         var calibration=reference.Calibration is SolvedVolatility solved?solved with{Volatility=LatticeDecimal.Parse(inputs.Volatility(reference.Id).Format(30,MidpointRounding.ToEven))}:reference.Calibration;
+        if(calibration is SolvedVolatility)reference.RecordTreePrice();
         var value=PhysicalFuturesOptionModel.Price(Series.Terms,LatticeDecimal.From(a.ToUnitPriceExact().Value),LatticeDecimal.From(b.ToUnitPriceExact().Value),
             calibration,LatticeDecimal.From(expiry.DiscountFactor),context.CalculationAt,reference.Policy,selected.Policy,selected.Rule,selected.Terminal,
             selected.Margin,carrying,context.Cancellation);
