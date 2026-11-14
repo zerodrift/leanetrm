@@ -53,8 +53,9 @@ public sealed class PreparedLifecycleProjection
         openings=[..components.Select(c=>Value(c.Opening,c,SourceSnapshot.ValuationAt,basis,ct))];
         foreach(var component in components)
         {
-            var captured=component.Opening.Residuals.SelectMany(p=>p.Setup.BindingStates.Values).OfType<RecordedCashValuation>()
-                .SelectMany(s=>s.KnownFlows(SourceSnapshot)).ToHashSet();
+            var captured=component.Opening.Residuals.SelectMany(p=>p.Setup.BindingStates.Values)
+                .SelectMany(s=>s switch{RecordedCashValuation cash=>cash.KnownFlows(SourceSnapshot),
+                    ProjectedSwapValuation swap=>swap.KnownPayments(SourceSnapshot),_=>[]}).ToHashSet();
             if(component.Opening.KnownPayments.Any(p=>!captured.Contains(p)))
                 throw LifecycleProjection.Error("projection_cash","A known period payment must retain its exact opening native cash-state evidence.");
         }

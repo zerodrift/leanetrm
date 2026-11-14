@@ -14,7 +14,8 @@ public sealed record LifecycleProjectionPolicy(string Implementation,string Pric
 }
 // The source adapter supplies the complete selected session's versioned close
 // schedule. The pure calculation selects its first close after the opening.
-public sealed record LifecycleProjectionHorizon(Guid SessionId,int SessionRevision,ReferenceKey Calendar,
+public sealed record LifecycleProjectionSession(Guid CatalogId,string Code,int Version);
+public sealed record LifecycleProjectionHorizon(LifecycleProjectionSession Session,ReferenceKey Calendar,
     ImmutableArray<RiskHistoryResolvedClose> Closes);
 public sealed record LifecycleProjectionEvent(Guid Id,DateTimeOffset At,ImmutableArray<Guid> Requires,string Kind)
 {
@@ -111,7 +112,8 @@ public static class LifecycleProjection
     {
         Validate(policy);
         if(source is null||source.Knowledge is null||!TradingInstant.IsSupported(source.ValuationAt)||!source.HasCoherentSelections()||
-            horizon is null||horizon.SessionId==Guid.Empty||horizon.SessionRevision<1||horizon.Closes.IsDefaultOrEmpty||
+            horizon is null||horizon.Session is null||horizon.Session.CatalogId==Guid.Empty||string.IsNullOrWhiteSpace(horizon.Session.Code)||
+            horizon.Session.Version<1||horizon.Closes.IsDefaultOrEmpty||
             horizon.Closes.Any(c=>c is null||!TradingInstant.IsSupported(c.Instant))||
             horizon.Closes.Select(c=>c.Instant).Distinct().Count()!=horizon.Closes.Length||
             !horizon.Closes.SequenceEqual(horizon.Closes.OrderBy(c=>c.Instant)))

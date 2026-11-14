@@ -12,7 +12,7 @@ internal static class LifecycleProjectionChecks
         var owner=new AccountingPositionKey(Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid());
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Linear,
             LifecycleProjectionPolicy.PayAtDue,LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice);
-        var horizon=new LifecycleProjectionHorizon(Guid.NewGuid(),1,f.R("calendar"),
+        var horizon=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),
             [new(new(2040,12,18),source.ValuationAt.AddHours(8),0),new(new(2040,12,19),source.ValuationAt.AddDays(1),0)]);
         var request=new CurveRequest(f.C("local_gas"),f.K(3));
         var component=new FixAndCash(owner,f.R("currency"),request,source.ValuationAt.AddHours(4),source);
@@ -72,7 +72,7 @@ internal static class LifecycleProjectionChecks
         var setup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty.Add(market.Instrument.Id,market),null){
             BindingStates=ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty.Add(new(trade.Id,binding),state)};
         var history=new FuturesMarginHistory(market.Instrument.ProposeMarginTerms(trade,binding,margin,model,source),source.Knowledge.ContextId,source.Knowledge.KnownAt,[]);
-        var end=source.ValuationAt.AddDays(1);var horizon=new LifecycleProjectionHorizon(Guid.NewGuid(),1,f.R("calendar"),[new(new(2040,12,28),end,0)]);
+        var end=source.ValuationAt.AddDays(1);var horizon=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,28),end,0)]);
         var derived=new FixAndCash(new(Guid.NewGuid(),Guid.NewGuid(),trade.BookId),market.Quote.Currency,new(f.C("local_gas"),f.K(3)),end,source);
         var prepared=LifecycleProjection.Prepare(model,source,horizon,policy,[new FuturesLifecycleProjection(trade,binding,state,history,setup,market.Market,model,source),derived],[]);
         var factor=prepared.Factors.Single(factor=>factor.Input.Series==f.S(1));

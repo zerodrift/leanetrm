@@ -34,7 +34,7 @@ internal static class LifecycleCurrencyChecks
             series.Select(s=>new MarketSeries(s,null,null,R("rate"))));
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Linear,LifecycleProjectionPolicy.PayAtDue,
             LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice);
-        var end=new LifecycleProjectionHorizon(Guid.NewGuid(),1,R("calendar"),[new(new(2031,1,2),horizon,0)]);
+        var end=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),R("calendar"),[new(new(2031,1,2),horizon,0)]);
         string Value(ISideDiscounting selected)
         {
             var prepared=LifecycleProjection.Prepare(model,source,end,policy,[component],[],ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty.Add(R("usd"),selected));

@@ -11,11 +11,12 @@ internal sealed record EmpiricalRiskResult(string HistoryId,int Samples,Immutabl
 internal static class EmpiricalRisk
 {
     internal static EmpiricalRiskResult Calculate(string historyId,ImmutableArray<string> expectedSamples,string confidence,
-        ImmutableArray<HistoricalExposure> exposures,ImmutableArray<HistoricalObservation> observations,CancellationToken cancellation=default)
+        ImmutableArray<HistoricalExposure> exposures,ImmutableArray<HistoricalObservation> observations,CancellationToken cancellation=default,
+        bool deterministicPointMass=false)
     {
         cancellation.ThrowIfCancellationRequested();
         if(historyId is null||historyId.Length!=64||!historyId.All(char.IsAsciiHexDigitLower)||expectedSamples.IsDefault||
-            expectedSamples.Length is <2 or >MonteCarloRisk.MaximumPaths||expectedSamples.Any(id=>!ValidId(id))||
+            expectedSamples.Length<(deterministicPointMass?1:2)||expectedSamples.Length>MonteCarloRisk.MaximumPaths||expectedSamples.Any(id=>!ValidId(id))||
             expectedSamples.Distinct(StringComparer.Ordinal).Count()!=expectedSamples.Length)
             throw Error("risk_historical_samples","Supply the exact captured history and all distinct common sample identities.");
         if(exposures.IsDefaultOrEmpty||exposures.Length>HistoricalRisk.MaximumExposures||exposures.Any(e=>e is null||!ValidId(e.Id)||

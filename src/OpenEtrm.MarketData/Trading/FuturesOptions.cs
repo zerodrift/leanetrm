@@ -57,7 +57,7 @@ public sealed record FuturesOptionInstrument : Instrument
     {
         var binding = Binding(context);
         return new(Id, AmericanFuturesOptionModel.Id, [binding.Underlying], UnitQuantity.Specification, Currency) { Time = binding.Calibration is SolvedVolatility?
-            ValuationTimeDependency.Between(context.Snapshot.ValuationAt,Series.InstructionCutoffAt is {} cutoff&&cutoff>context.Snapshot.ValuationAt?cutoff:Series.Terms.ExpiryAt):ValuationTimeDependency.Pinned,
+            ValuationTimeDependency.Between(context.CalculationAt,Series.InstructionCutoffAt is {} cutoff&&cutoff>context.CalculationAt?cutoff:Series.Terms.ExpiryAt):ValuationTimeDependency.Pinned,
             DiscountInputs=[new(new(Id,0,Series.Terms.ExpiryAt,Currency),binding.Discounting)],
             Volatility=binding.Calibration is SolvedVolatility solved?[new(binding.Id,solved.Volatility.ToString(),VolatilityInput.Annualized)]:[] };
     }

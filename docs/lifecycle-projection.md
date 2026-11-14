@@ -102,6 +102,39 @@ The managed checks independently cover derived-curve interpolation and fixing
 freeze, futures margin cash plus residual conservation, final future freezing for
 a dependent forward, nominal/accumulated and future unpaid cash, native owners,
 signed empirical tails, deterministic carry, full Monte Carlo paths and refusal
-of failed paths. Native source resolution, option/swap and physical delivery
-adapters, retained worker/HTTP/UI integration and browser qualification remain
+of failed paths. Native source resolution and physical delivery adapters,
+retained worker/HTTP/UI integration and browser qualification remain
 separate delivery gates until their own executable checks pass.
+
+The pure listed-option adapter retains the source calibration and open signed
+remaining lots. At expiry it applies the exact versioned automatic exercise rule
+or the captured contrary instruction, then replaces the option with the ordinary
+linked future at strike. Later margin events use the same futures difference and
+rounding calculation. Premium cash is a separate original holding. A physical
+linked future requires qualified delivery admission before any path is sampled.
+Instruction cutoffs and expiry are separate boundaries: the held option remains
+priceable after its instruction cutoff and before expiry, at its held volatility.
+
+The pure dated financial-swap adapter uses the existing Side payment cash,
+averaging, reset applications and exact membership/quantity scaling. Path-local
+fixings lock once; projected contractual cash is rounded under the selected
+gross-payment convention. Separate hypothetical binding state is rejected by
+actual valuation and native settlement. Source-known native determinations and
+their complete correction chains remain actuals, including future-effective
+determinations visible at the selected knowledge cutoff. Their exact amounts
+apply at the recorded effective instant and take precedence over a same-instant
+projected fixing. Knowledge-only payment history retains native composite
+allocation identities, reconciles opening allocations and bounds every effective
+allocation prefix by its exact accepted contribution. Future actual payments are
+reserved against hypothetical discharge and recognized once at their own instant.
+
+A fully prepared scope with no variable factors may use the separately labelled
+deterministic economic result. Its single exact point mass includes signed time
+and carry risk; the market-only diagnostic is zero. It creates no historical
+dates, covariance calibration or random paths. This admission is never a fallback
+for failed dependency preparation or missing prices/history.
+
+The horizon identifies the native close-session primary key: catalog, code and
+exact version. It uses no synthetic session UUID. Native certification of that
+configuration and complete next-close calendar resolution remain source-reader
+responsibilities.

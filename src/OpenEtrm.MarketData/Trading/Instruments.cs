@@ -113,12 +113,15 @@ public abstract record SidedInstrument : Instrument
     internal override bool SupportsSettlement=>true;
     internal override UnitPricingContract DeclareScope(UnitValuationContext context,bool lifecycle)
     {
+        if(context.BindingState is ProjectedSwapValuation projected)return projected.Declare(this,context);
         var contract=Declare(context);
         return lifecycle&&contract is not null?contract with{ModelVersion="swap_binding_dispatch_v1/"+contract.ModelVersion}:contract!;
     }
     public override UnitValuation PV(UnitValuationContext context)
     {
         ValidateValuationState(context.BindingState);
+        if(context.BindingState is ProjectedSwapValuation projected)
+            return new(context,projected.UnitValue(this,context),UnitQuantity.Specification);
         if(context.BindingState is not SwapBindingValuation lifecycle)return base.PV(context);
         if(context.Measure!=ValuationMeasure.PresentValue)
             throw new MarketDataException("valuation_measure","Settlement valuation requires the explicit present-value measure.");
@@ -127,6 +130,7 @@ public abstract record SidedInstrument : Instrument
     public override void ValidateValuationState(IBindingValuationState? state)
     {
         if(state is null)return;
+        if(state is ProjectedSwapValuation)return;
         if(state is not SwapBindingValuation { Settlement: not null, Discounting: not null } || !SupportsSettlement)
             throw new MarketDataException("settlement_scope","This instrument does not support the supplied binding valuation state.");
     }

@@ -20,7 +20,7 @@ internal static class CashLifecycleProjectionChecks
             var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Linear,
                 pay?LifecycleProjectionPolicy.PayAtDue:LifecycleProjectionPolicy.Outstanding,LifecycleProjectionPolicy.Nominal,
                 LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice);
-            var horizon=new LifecycleProjectionHorizon(Guid.NewGuid(),1,f.R("calendar"),[new(new(2040,12,18),at.AddHours(horizonHours),0)]);
+            var horizon=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,18),at.AddHours(horizonHours),0)]);
             return LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[projection],[]).Evaluate("cash",[]).Values.Single();
         }
         void Equal(ExactMoney value,string expected){if(value.CompareTo(ExactMoney.Parse(expected,currency))!=0)throw new Exception($"Expected {expected}; got {value.ToExactString()}.");}
@@ -32,6 +32,20 @@ internal static class CashLifecycleProjectionChecks
         var overpaid=Value("16","20",false);Equal(overpaid.PeriodCash,"20");Equal(overpaid.ResidualValue,"-4");Equal(overpaid.EconomicPnl,"0");
         try{Value("16","20",true);throw new Exception("A scheduled-payment assumption invented an opposite-direction refund.");}
         catch(MarketDataException error)when(error.Code=="settlement_conservation"){}
+        var face=new TimedCashPayment(currency,at.AddHours(8));var faceBinding=Guid.NewGuid();
+        var faceTrade=new Trade(Guid.NewGuid(),Guid.NewGuid(),[new(faceBinding,face,new(ExactDecimal.Parse("100"),currency))]);
+        var faceOwner=new AccountingPositionKey(faceTrade.Id,faceBinding,faceTrade.BookId);
+        var faceActual=new RecordedCashValuation(faceTrade,faceBinding,[],RecordedCashValuation.Policy,source.Knowledge!.ContextId,source.Knowledge.KnownAt);
+        var faceProjection=new CashLifecycleProjection(faceOwner,face,faceActual,new ExplicitDiscounting(ExactDecimal.Parse("0.95"),DiscountFactorSource.Explicit),source);
+        var facePolicy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.PayAtDue,
+            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice);
+        var faceHorizon=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,18),at.AddHours(8),0)]);
+        var facePrepared=LifecycleProjection.Prepare(f.Model(),source,faceHorizon,facePolicy,[faceProjection],[]);
+        var deterministic=LifecycleEconomicRisk.Deterministic([facePrepared],new(LifecycleEconomicRiskPolicy.Deterministic,"0.975",HistoricalRiskPolicy.Quantile,HistoricalRiskPolicy.Tail));
+        Equal(deterministic.NoShockTimeCarry.Single().OpeningValue,"95");Equal(deterministic.NoShockTimeCarry.Single().EconomicPnl,"5");
+        if(deterministic.Economic.Single().ValueAtRisk!="-5"||deterministic.Economic.Single().ExpectedShortfall!="-5"||
+            deterministic.MarketOnlyDiagnostic.Single().ValueAtRisk!="0"||deterministic.Economic.Single().Samples.Single().Id!="no_variable_factors")
+            throw new Exception("A deterministic five-unit carry gain lost its signed point-mass risk or invented historical samples.");
         Console.WriteLine("PASS cash lifecycle: actual known payments stay fixed, projected paid/outstanding choices conserve value and overdue cash is never paid by its date");
     }
 }
