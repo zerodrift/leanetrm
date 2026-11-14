@@ -21,6 +21,12 @@ public sealed record PreviewUnitCatalog(Guid ReferenceRevisionId,Guid Definition
 public sealed record UnitCatalogData(ReferenceRevision Revision,ImmutableDictionary<string,ImmutableArray<JsonElement>> References);
 public enum ReferenceReadScope { DefinitionClosure, AllVisible, TradeValuation }
 public enum ObservationReadScope { FactHistory, ExactPins }
+// An owned request may return a pending native command. Its original authority
+// is rechecked after all request work, immediately before commit admission.
+internal interface ICommitAdmission
+{
+    Task RequireCommit(NpgsqlConnection connection,CancellationToken ct);
+}
 public sealed record ReferencePage(string Table,ImmutableArray<JsonElement> Rows,
     ImmutableDictionary<string,ImmutableArray<JsonElement>> References,int Offset,int PageSize,int MaximumOffset,bool HasMore,string Search,
     ReferenceRevision ReferenceRevision,Guid DefinitionRevisionId);
@@ -315,6 +321,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
         if(signedIn)await SignedIn(connection,ct);
         var result = await operation(connection, ct);
         if(signedIn)await SignedIn(connection,ct);
+        if(result is ICommitAdmission pending)await pending.RequireCommit(connection,ct);
         // A bounded transaction's commit is not cancelled: one cancelled in flight may still have been applied, and an agent's
         // save could not say whether its draft and step landed. Its statement bound still limits the commit.
         await transaction.CommitAsync(held is null?ct:CancellationToken.None);

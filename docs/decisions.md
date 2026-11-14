@@ -4594,3 +4594,13 @@ instrument from captured native source observations, with exact series, source,
 finality, quotation and knowledge checks. A same-price source correction still
 restates its causal evidence. These managed contracts alone do not qualify native
 margin persistence or automation.
+
+The local native adoption increment separates policy configuration from exact
+version adoption. Stable trade/binding ownership retains the origin holding's
+effective time independently of execution basis time. Sealed occurrence sets and
+retained pricing continuity prevent later configuration appends or unqualified
+financial amendments. The trusted application owns commit admission and rechecks
+each invocation's original authority deadline after waits; deferred database
+checks are supplemental because SQL callers control constraint timing. Native
+settlement/cash execution and user/agent workflows remain separate qualification
+gates, recorded in the delivery contract.

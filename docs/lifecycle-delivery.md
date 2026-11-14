@@ -70,8 +70,8 @@ It resolves correction ancestry at the bound effective date and certified
 knowledge prefix before checking finality; a preliminary correction blocks its
 older final. Multiple independent events and incomplete chains refuse. Publication
 receipts supply source knowledge instants; row order and receipt audit times have
-no selection meaning. This reader does not establish durable margin adoption,
-determinations or cash membership, which remain unfinished.
+no selection meaning. This source reader is separate from durable margin adoption;
+native determinations and cash membership remain unfinished.
 The planner also requires retained history to name its exact trade/binding, book,
 quantity, execution price/instant, complete adopted policy and certified reader
 context. Each accepted determination retains its own knowledge/publication
@@ -93,7 +93,7 @@ Native adoption must be unique by stable trade/binding and retain an exact origi
 revision and its owner, quantity, execution and pricing references. Adoption checks
 the current head under the publication fence; later visible metadata revisions
 must prove their supported continuity with that retained origin. The first native
-profile will refuse changed pricing coordinates until a qualified repricing
+profile refuses changed pricing coordinates until a qualified repricing
 transition exists, including changes introduced by the separate retained-market
 row. A complete policy's occurrence membership must be sealed against later
 appends; immutable individual rows alone do not seal a version.
@@ -108,8 +108,37 @@ financial publication. Initial settlement basis comes from native economic
 execution price/time, independently of booking audit and amendment timestamps.
 After adoption commits, an accepted PV state requires a newly captured certified
 trading context and its actual publication receipt. A preview context or a wall
-clock timestamp cannot certify that new state. These are native delivery gates,
-not claims that adoption storage or its write operations are complete.
+clock timestamp cannot certify that new state.
+
+Migration 0255 implements saved dated policies, sealed occurrence membership,
+stable native adoption and an inception-only state reader locally. Adoption retains
+the original holding revision separately from later metadata heads. Its basis uses
+economic execution time; visibility starts at the holding revision's effective
+instant. The managed reader verifies the exact booking date, party versions,
+owner, quantity, execution, policy, pricing reference and certified context before
+providing state to ordinary Instrument PV. No accepted settlement journal exists
+yet. Once one exists, its complete visible prefix must be read; inception cannot
+substitute for accepted determinations.
+
+Each save/adopt invocation captures its original authority deadline before receipt
+or publication waits. The application owns the transaction and rechecks that
+deadline, actor, current authority and retained references after managed work,
+immediately before commit admission. Hosted invocations also pin the sign-in
+session's expiry and revalidate that session in the native final admission.
+A replay uses fresh invocation authority,
+independently of its old receipt's historical deadline. The deferred database
+trigger is supplemental: a SQL caller can force constraint checks early. These
+checks establish owned commit admission, not a caller-proof guarantee about the
+exact commit timestamp. An uncertain commit outcome is reconciled using the same
+request ID in a fresh authorized invocation.
+
+The native adoption check uses ordinary synthetic bookings in owned disposable
+PostgreSQL. It covers version selection, retries and same-fact receipts, sealed
+membership, both publication-fence orders against amendments, effective/knowledge
+visibility and native inception through common PV. Source capture, economic basis
+and accepted publication clocks remain separate. Settlement/cash execution,
+HTTP/agent adapters, user-facing policy editing and browser qualification remain
+delivery gates; the local native increment does not qualify those capabilities.
 
 Exact-instant cash has a separately selected UTC-day discount convention. It
 interpolates qualified dated discount factors with rational elapsed-microsecond
@@ -117,7 +146,7 @@ weights, then rounds the conditional payment/calculation ratio once. Evidence
 retains both instants, the exact rate definition version, complete tenor geometry
 and precisely the observations consumed by its brackets. Equal marks cannot erase
 a required pillar. This captured-instant PV profile does not qualify frozen clock
-rolls, native futures margin storage or additional rate-risk axes.
+rolls, native settled-margin journals or additional rate-risk axes.
 
 Gas continuation qualifies owned titled lots, distinct signed operator claims/debts
 and title-transferring commodity loans with surviving return obligations and fee

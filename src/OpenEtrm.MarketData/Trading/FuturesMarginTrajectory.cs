@@ -30,6 +30,13 @@ public sealed record FuturesMarginTrajectory(MeasureBinding Owner,Guid BookId,Fu
 
 public sealed partial record FuturesContract
 {
+    public FuturesSettlementSource ValidateMarginPolicy(FuturesMarketBinding market,FuturesMarginPolicy policy,CurveModel model,MarketSnapshot context)
+    {
+        RequireSameDefinition(market.Instrument);
+        RequireMarginContext(context,market.Contract.Key.Revision,"futures_margin_policy");
+        RequireMarginPolicy(policy,market,context);
+        return SettlementSource(market,policy.SettlementCurve,model);
+    }
     public FuturesMarginTerms ProposeMarginTerms(Trade trade,Guid bindingId,FuturesMarginPolicy policy,CurveModel model,MarketSnapshot context)
     {
         var(holding,execution)=MarginExecution(trade,bindingId,context,"futures_margin_policy");
@@ -126,11 +133,19 @@ public sealed partial record FuturesContract
     private ImmutableArray<FuturesMarginOccurrence> MarginEvents(FuturesMarginPolicy policy,FuturesMarketBinding market,
         DateTimeOffset executedAt,MarketSnapshot context)
     {
+        RequireMarginPolicy(policy,market,context);
+        if(executedAt<policy.From||executedAt>=policy.Until||context.ValuationAt<executedAt)
+            throw TimelineError("futures_margin_policy","The selected policy must apply to this exact execution and business instant.");
+        return [..policy.Occurrences.Where(e=>e.At>executedAt||e.At==executedAt&&policy.Opening==FuturesMarginOpening.IncludeOpeningInstant)
+            .OrderBy(e=>e.At).ThenBy(e=>e.Phase)];
+    }
+
+    private void RequireMarginPolicy(FuturesMarginPolicy policy,FuturesMarketBinding market,MarketSnapshot context)
+    {
         if(policy is null||policy.Implementation!=FuturesMarginPolicy.Version||policy.Id==Guid.Empty||policy.Revision<1||
             policy.Contract!=market.Contract.Key||context.Definitions!=policy.Contract.Revision||
             policy.SettlementCurve.Revision!=policy.Contract.Revision||string.IsNullOrWhiteSpace(policy.SettlementCurve.Code)||
             !TradingInstant.IsSupported(policy.From)||!TradingInstant.IsSupported(policy.Until)||policy.From>=policy.Until||
-            executedAt<policy.From||executedAt>=policy.Until||context.ValuationAt<executedAt||
             !Enum.IsDefined(policy.Opening)||policy.Occurrences.IsDefaultOrEmpty||policy.Rounding is null||
             policy.RoundingScope!=FuturesMargin.HeldBindingRounding||policy.Occurrences.Any(e=>e is null||e.Id==Guid.Empty||!Enum.IsDefined(e.Phase)||
                 !TradingInstant.IsSupported(e.At)||!TradingInstant.IsSupported(e.DueAt)||e.At<policy.From||e.At>=policy.Until||e.DueAt<e.At||
@@ -140,8 +155,6 @@ public sealed partial record FuturesContract
             policy.Occurrences.Count(e=>e.Phase==FuturesMarginPhase.Final)!=1)
             throw TimelineError("futures_margin_policy","Select an exact complete dated margin policy and explicit opening/rounding conventions.");
         policy.Rounding.Require(Currency,CashRoundingStage.PaymentTotal);
-        return [..policy.Occurrences.Where(e=>e.At>executedAt||e.At==executedAt&&policy.Opening==FuturesMarginOpening.IncludeOpeningInstant)
-            .OrderBy(e=>e.At).ThenBy(e=>e.Phase)];
     }
 
     private void RequireMarginFact(FuturesMarketBinding market,FuturesMarginPolicy policy,FuturesMarginOccurrence occurrence,FuturesSettlementFact fact,MarketSnapshot context)

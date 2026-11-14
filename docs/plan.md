@@ -6,6 +6,14 @@ review and disposable browser qualification. Incompatible synthetic demo records
 may be rebuilt; there is no legacy financial conversion layer. This increment
 remains local and unfinished until those gates are qualified.
 
+The isolated native futures increment now saves exact dated margin policies,
+seals their occurrence sets and adopts an explicit saved version against a stable
+held binding. Its certified inception reader supplies ordinary Instrument PV from
+native execution and holding scope. Owned commit admission retains the original
+invocation authority deadline across waits. Native settlement determinations,
+cash operations, HTTP/agent/UI workflows and browser qualification remain work;
+see the [delivery boundaries](lifecycle-delivery.md).
+
 D391 implements live curve output selection, an optional inactive-contract
 display, and explicit exact/live close capture with durable first-outcome retry.
 The selection uses the chosen close, retains explicit frozen dependencies and

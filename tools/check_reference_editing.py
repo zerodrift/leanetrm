@@ -190,7 +190,7 @@ def run_checks(query, manifest):
     check_display_scale(query,manifest)
 
 
-def main(checks=run_checks, before_migration=None):
+def main(checks=run_checks, before_migration=None, fixture_factory=None):
     import argparse
     import os
     from pathlib import Path
@@ -251,7 +251,7 @@ def main(checks=run_checks, before_migration=None):
                     upgrade_checks(query,migration)
                 if before_migration is not None:before_migration(query,migration)
                 query(migration.read_text())
-            reference,market,security,manifest=fixture(root)
+            reference,market,security,manifest=(fixture if fixture_factory is None else fixture_factory)(root)
             for sql in (reference,market,security):
                 query(sql)
             checks(query,manifest)

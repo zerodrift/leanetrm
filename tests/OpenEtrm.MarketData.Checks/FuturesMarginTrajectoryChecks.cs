@@ -37,6 +37,10 @@ internal static class FuturesMarginTrajectoryChecks
             at.AddDays(-1),policy);
         if(market.Instrument.ProposeMarginTerms(trade,binding,policy,f.Model(),context)!=terms)
             throw new Exception("Adoption proposals must derive opening terms from the exact booked execution.");
+        var configuration=(context with{ValuationAt=policy.From.AddDays(-1),MarketCutoff=policy.From.AddDays(-1),Selections=[]});
+        var declared=market.Instrument.ValidateMarginPolicy(market,policy,f.Model(),configuration);
+        if(declared!=new FuturesSettlementSource(policy.SettlementCurve,f.S(1),f.R("source")))
+            throw new Exception("Policy configuration declares its exact official source independently of execution and current price availability.");
         Reject("futures_margin_policy",()=>market.Instrument.ProposeMarginTerms(trade,binding,policy,f.Model(),context with{MarketCutoff=context.ValuationAt.AddDays(1)}));
         FuturesMarginHistory History(ImmutableArray<RecordedFuturesMargin> entries,MarketSnapshot? source=null,FuturesMarginPolicy? adopted=null)=>
             new(terms with{Policy=adopted??policy},(source??context).Knowledge!.ContextId,(source??context).Knowledge!.KnownAt,entries);
