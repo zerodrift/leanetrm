@@ -627,6 +627,8 @@ SwapLifecycleProjectionChecks.Run();passed++;
 LifecycleCompositeChecks.Run();passed++;
 GasUnfixedDeliveryChecks.Run();passed++;
 GasCashoutProjectionChecks.Run();passed++;
+GasOwnedHoldingsChecks.Run();passed++;
+GasQuantityProjectionChecks.Run();passed++;
 PhysicalOptionChecks.Run();passed++;
 DerivativeCapabilityChecks.Run();passed++;
 CapturedDiscountSourceChecks.Run();passed++;

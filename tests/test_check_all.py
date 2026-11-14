@@ -20,7 +20,14 @@ from check_all import GROUPS, run_checks
 LIFECYCLE_NATIVE={f'tools/{name}.py' for name in (
     'check_lifecycle_actions','check_lifecycle_swaps','check_futures_physical_delivery',
     'check_selected_physical_authority','check_physical_delivery_authority','check_physical_margin_qualification',
-    'check_lifecycle_option_scheduling','check_lifecycle_option_expiries')}
+    'check_lifecycle_option_scheduling','check_lifecycle_option_expiries',
+    'check_lifecycle_scheduling','check_lifecycle_scheduled_bookings',
+    'check_gas_source_ancestors','check_gas_physical_known','check_gas_cashout_projection',
+    'check_risk_fit_authority','check_lifecycle_browser')}
+LIFECYCLE_PORTFOLIO={f'tools/{name}.py' for name in (
+    'check_lifecycle_risk_jobs','check_lifecycle_risk_scope','check_lifecycle_final_scope',
+    'check_lifecycle_projection_horizon','check_lifecycle_swap_worker','check_lifecycle_future_worker',
+    'check_lifecycle_economic_browser')}
 
 
 class CheckAllTests(unittest.TestCase):
@@ -130,6 +137,25 @@ class CheckAllTests(unittest.TestCase):
             self.assertEqual(set(actual),LIFECYCLE_NATIVE if group=='trading' else set())
             self.assertEqual(len(actual),len(LIFECYCLE_NATIVE) if group=='trading' else 0)
 
+    def test_economic_workers_and_real_browsers_keep_selected_tools_and_partitions(self):
+        browsers={'tools/check_lifecycle_browser.py':'trading','tools/check_lifecycle_economic_browser.py':'portfolio'}
+        for group in ('portfolio','trading','standard'):
+            selected=[]
+            def run(command,**options):
+                if LIFECYCLE_PORTFOLIO.intersection(command):selected.append(command)
+                for helper,partition in browsers.items():
+                    if helper not in command:continue
+                    self.assertEqual(group,partition)
+                    self.assertEqual(command[command.index('--dotnet')+1],'/selected sdk')
+                    self.assertEqual(command[command.index('--browser')+1],'/selected browser')
+                    self.assertIn('--no-build',command)
+                    self.assertEqual(options['env']['OPENETRM_CHECK_BROWSER'],'/selected browser')
+            with patch.dict(os.environ,{'OPENETRM_CHECK_BROWSER':'/unrelated browser'}):
+                run_checks(Path('/pg'),Path('/selected sdk'),Path('/selected browser'),group=group,run=run)
+            actual=[value for command in selected for value in command if value in LIFECYCLE_PORTFOLIO]
+            self.assertEqual(set(actual),LIFECYCLE_PORTFOLIO if group=='portfolio' else set())
+            self.assertEqual(len(actual),len(LIFECYCLE_PORTFOLIO) if group=='portfolio' else 0)
+
     def test_every_executable_check_project_is_restored_and_run(self):
         expected = {
             str(project.relative_to(ROOT))
@@ -153,7 +179,9 @@ class CheckAllTests(unittest.TestCase):
         schedule_commands = [c for c in commands if '--project' in c and 'Api.Checks' in c[c.index('--project') + 1]]
         self.assertEqual([c[-2:] for c in schedule_commands],
                          [['--', flag] for flag in ('--context-resolution', '--schedules', '--historical-risk', '--monte-carlo-risk', '--close-risk', '--automation',
-                           '--live-calculation', '--reference-intake', '--preview-data', '--side-observation-compatibility')])
+                           '--live-calculation', '--reference-intake', '--preview-data', '--side-observation-compatibility',
+                           '--lifecycle-actions','--economic-risk-contract','--lifecycle-schedule-contract','--gas-owned-setup',
+                           '--shared-native-markets','--derivative-methods')])
         self.assertTrue(any('--historical-risk-check' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--monte-carlo-risk-check' in c and '--with-exchange' in c and '--browser-check' in c for c in commands))
         self.assertTrue(any('--reference-import-check' in c for c in commands))
@@ -239,7 +267,7 @@ class CheckAllTests(unittest.TestCase):
                 # Each group starts from a clean checkout, including restores,
                 # managed/frontend builds and all shared verification contracts.
                 margin={f'tools/check_futures_margin_{part}.py' for part in ('sources','adoption','journal')}|{'tools/check_trading_business_date.py'}
-                shared=lambda c:'tools/run_preview.py' not in c and not (margin|LIFECYCLE_NATIVE).intersection(c)
+                shared=lambda c:'tools/run_preview.py' not in c and not (margin|LIFECYCLE_NATIVE|LIFECYCLE_PORTFOLIO).intersection(c)
                 self.assertEqual([c for c in selected if shared(c)],
                                  [c for c in complete if shared(c)])
                 self.assertEqual(selected, [c for c in complete if c in selected])
