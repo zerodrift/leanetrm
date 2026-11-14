@@ -106,6 +106,30 @@ of failed paths. Native source resolution and physical delivery adapters,
 retained worker/HTTP/UI integration and browser qualification remain
 separate delivery gates until their own executable checks pass.
 
+The native retained-job boundary has a dedicated economic envelope for the
+three qualified methods. It verifies the source-known horizon against the native
+session reader, retains explicit policy and calibration evidence, and forbids
+split or mixed-method requests. Deterministic custody admits zero selected
+observations and no history; sampled custody requires the complete native factor
+set. Canonical retained-axis order is independent of calibrated history-column
+order, which managed preparation revalidates.
+
+Worker binding retains the selected business date separately from the UTC
+valuation instant. Native read grants require the exact owned job attempt;
+selected gas scope additionally requires current represented-user, delegation
+and service gas-read authority. Read-only workers receive no lifecycle writer
+operation. Native source readers pin owner/binding, context, calculation source
+instant, book scope and selected profile to the retained job's source-resolved
+holding and accepted option-child closure. Delivery-bearing adopted or option
+expiry policies require gas-read authority before inventory exists. Generic gas
+history reads for an explicit trade subset remain refused until its independent
+native descendants have an account-bounded source adapter.
+
+Binding pins the original service, user, delegation and lease deadline;
+a future successor grant cannot revive an expired source read. These database
+custody checks are separate from whole-product numerical worker replay and its
+remaining delivery gates.
+
 The pure listed-option adapter retains the source calibration and open signed
 remaining lots. At expiry it applies the exact versioned automatic exercise rule
 or the captured contrary instruction, then replaces the option with the ordinary
