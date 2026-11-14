@@ -333,7 +333,7 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
             if(signedIn)await SignedIn(connection,ct);
             // A bounded transaction's commit is not cancelled: one cancelled in flight may still have been applied, and an agent's
             // save could not say whether its draft and step landed. Its statement bound still limits the commit.
-            await admissions.Commit(held is null?ct:CancellationToken.None,result as ICommitAdmission);
+            await admissions.Commit(ct,result as ICommitAdmission,commitUncancelled:held is not null);
             return result;
         }
     }

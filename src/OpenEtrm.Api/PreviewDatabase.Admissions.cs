@@ -20,7 +20,7 @@ public sealed partial class PreviewDatabase
         List<ICommitAdmission> admissions):IDisposable
     {
         private bool finished;
-        internal async Task Commit(CancellationToken ct,ICommitAdmission? result=null)
+        internal async Task Commit(CancellationToken ct,ICommitAdmission? result=null,bool commitUncancelled=false)
         {
             if(finished||transaction.Connection!=connection)
                 throw new InvalidOperationException("This read admission no longer owns a live transaction.");
@@ -28,7 +28,7 @@ public sealed partial class PreviewDatabase
             {
                 if(result is not null)await result.RequireCommit(connection,ct);
                 foreach(var admission in admissions)await admission.RequireCommit(connection,ct);
-                await transaction.CommitAsync(ct);
+                await transaction.CommitAsync(commitUncancelled?CancellationToken.None:ct);
             }
             finally{Dispose();}
         }
