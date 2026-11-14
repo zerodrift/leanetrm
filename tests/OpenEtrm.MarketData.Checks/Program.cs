@@ -4,6 +4,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
 if(args is ["--gas-owned-holdings"]){GasOwnedHoldingsChecks.Run();return;}
+if(args is ["--gas-quantity-projection"]){GasQuantityProjectionChecks.Run();return;}
 
 if(args is ["--contract-eligibility"]){ContractEligibilityChecks.Run();return;}
 if(args is ["--interval-anchors"]){IntervalAnchorChecks.Run();return;}

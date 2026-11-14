@@ -50,6 +50,19 @@ public sealed record GasOwnedSettlementSelection(Guid PositionId,string Quantity
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record GasOwnedPaymentSelection(Guid FeeId,string BusinessKey,[property:JsonRequired]int ExpectedRevision,
     [property:JsonRequired]DateTimeOffset PaidAt,string Amount,string Evidence);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record GasOwnedMarkSelection(Guid PositionId,Guid DefinitionRevisionId,string MarkCurve,Guid MarkContractId,
+    [property:JsonRequired]int ExpectedRevision,[property:JsonRequired]DateTimeOffset EffectiveAt);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record GasOwnedProjectionSupplySelection([property:JsonRequired]Guid? LotId,[property:JsonRequired]Guid? IncomingPositionId,
+    [property:JsonRequired]Guid? ReservationId,string Quantity);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record GasOwnedProjectionPerformanceSelection(Guid PositionId,string Quantity,[property:JsonRequired]Guid? DestinationAccountId,
+    [property:JsonRequired]Guid? InventoryDefinitionRevisionId,[property:JsonRequired]string? InventoryCurve,[property:JsonRequired]Guid? InventoryContractId,
+    [property:JsonRequired]string? Availability,ImmutableArray<GasOwnedProjectionSupplySelection> Supply);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record GasOwnedProjectionProfileSelection(Guid ProfileId,[property:JsonRequired]int ExpectedRevision,string Implementation,
+    string QuantityDisposition,[property:JsonRequired]DateTimeOffset EffectiveAt,ImmutableArray<GasOwnedProjectionPerformanceSelection> Performances);
 
 internal sealed record GasOwnedWriteAdmission(Guid Catalog,DateTimeOffset Until,bool Configuring,bool RequiresJobs):ICommitAdmission
 {
@@ -98,6 +111,7 @@ internal static class GasOwnedOperations
                 "receive_title"=>Read<GasOwnedTitleSelection>(),"operator_claim"=>Read<GasOwnedClaimSelection>(),"borrow"=>Read<GasOwnedBorrowSelection>(),
                 "reserve"=>Read<GasOwnedReservationSelection>(),"release"=>Read<GasOwnedReleaseSelection>(),"dispatch" or "loss"=>Read<GasOwnedDispatchSelection>(),
                 "repay"=>Read<GasOwnedRepaymentSelection>(),"operator_settle"=>Read<GasOwnedSettlementSelection>(),"fee_payment"=>Read<GasOwnedPaymentSelection>(),
+                "mark_binding"=>Read<GasOwnedMarkSelection>(),"projection_profile"=>Read<GasOwnedProjectionProfileSelection>(),
                 _=>throw Error("Select a registered native gas operation.")};
             return JsonSerializer.SerializeToElement(value,value.GetType(),Json);
         }
@@ -153,13 +167,25 @@ internal static class GasOwnedOperations
     internal static async Task<LifecycleActionWrite> Configure(NpgsqlConnection connection,PreviewDatabase database,GasOwnedConfigurationRequest request,CancellationToken ct)
     {
         if(request.OperationId==Guid.Empty||request.AccountId==Guid.Empty||request.Context is null||request.Context.ContextId==Guid.Empty||request.Context.BusinessDate==default||
-            request.Action is not("account" or "evidence" or "bind_policy"))throw Error("Supply the exact gas account, source and configuration operation.");
+            request.Action is not("account" or "evidence" or "bind_policy" or "mark_binding" or "projection_profile"))throw Error("Supply the exact gas account, source and configuration operation.");
         _=LifecycleNative.Instant(request.Context.AsOf);
         var body=Selection(request.Action,request.Selection);
         var admission=await Admission(connection,database,request.Action,body,false,ct);
+        if(request.Action is "mark_binding" or "projection_profile")
+        {
+            if(await Projection(true) is {} receipt)return new(receipt,admission);
+            await LifecycleNative.Source(connection,database,request.Context,ct);
+            return new((await Projection(false))!.Value,admission);
+        }
         if(await Receipt(connection,database,request.OperationId,request.Context,request.AccountId,request.Action,body,null,null,false,ct) is {} prior)return new(prior,admission);
         await LifecycleNative.Source(connection,database,request.Context,ct);
         return new(await Record(connection,database,request.OperationId,request.Context,request.AccountId,request.Action,body,null,null,false,ct),admission);
+        async Task<JsonElement?> Projection(bool receiptOnly)
+        {
+            await using var call=ScheduleStore.Command(connection,"SELECT security.configure_gas_owned_projection($1,$2,$3,$4,$5::jsonb,$6,$7,$8)::text",
+                database.Manifest.CatalogId,request.OperationId,request.Action,request.AccountId,body.GetRawText(),request.Context.AsOf,request.Context.ContextId,receiptOnly);
+            return await call.ExecuteScalarAsync(ct) is string result?JsonSerializer.Deserialize<JsonElement>(result):null;
+        }
     }
     internal static MarketDataException Error(string message)=>new("gas_owned_input",message);
     internal static string Refusal(string code)=>code switch{
@@ -174,5 +200,6 @@ internal static class GasOwnedOperations
         "gas_owned_payment_origin"=>"This payment precedes the owned cash obligation. Record an advance under a separately supported contract instead of allocating it to this obligation.",
         "gas_owned_scope"=>"Choose a readable gas account or a smaller operational scope.",
         "gas_owned_policy_required"=>"These books contain independently owned gas. Select the whole-book gas valuation policy before running a complete portfolio calculation.",
+        "gas_owned_projection_policy_required"=>"These books include source-known gas ownership or obligations. Select an explicit saved gas projection profile for their economic horizon.",
         _=>"Supply compatible exact gas terms, accepted evidence, quantities and explicit timing choices for this operation."};
 }

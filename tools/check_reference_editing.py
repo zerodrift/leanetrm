@@ -256,6 +256,12 @@ def main(checks=run_checks, before_migration=None, fixture_factory=None):
                     from check_fact_anchor_upgrade import run_checks as check_known_futures_upgrade
                     check_known_futures_upgrade(query,migration,number='0259',guard='known_futures_upgrade',
                         signatures=('security.record_cash_payment(uuid,jsonb,timestamptz)',))
+                if migration.name=='0269_gas_owned_projection.sql':
+                    from check_fact_anchor_upgrade import run_checks as check_gas_projection_upgrade
+                    check_gas_projection_upgrade(query,migration,number='0269',guard='gas_projection_upgrade',signatures=(
+                        'security.read_gas_owned_holdings(uuid,uuid,timestamptz,uuid[])',
+                        'security.gas_owned_admission(uuid,text,jsonb,boolean)',
+                        'trading.require_gas_owned_head(uuid,uuid,uuid,timestamptz)'))
                 if migration.name=='0224_reference_display_close_validation.sql':
                     from check_reference_display_scale import upgrade_checks
                     upgrade_checks(query,migration)

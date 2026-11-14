@@ -55,13 +55,13 @@ def checks(query, manifest):
                              "(c.reference_catalog_id,c.reference_revision_id,c.quote_code) "
                              f"WHERE(c.catalog_id,c.revision_id,c.code)=('{catalog}','{manifest['revisionId']}','future');"))
     contract = '50000000-0000-0000-0000-000000000001'
-    def account(kind):
+    def account(kind, selected_book=None, effective_at='2020-12-18T00:00:00Z'):
         identity = str(uuid4())
-        command(identity,'account',dict(code='synthetic_'+identity.replace('-',''),kind=kind,bookId=book,legalEntityId=entity,
+        command(identity,'account',dict(code='synthetic_'+identity.replace('-',''),kind=kind,bookId=selected_book or book,legalEntityId=entity,
             legalEntityRevision=1,counterpartyId=party if kind=='operator_balance' else None,counterpartyRevision=1 if kind=='operator_balance' else None,
             referenceCatalogId=manifest['referenceCatalogId'],referenceRevisionId=manifest['referenceRevisionId'],
             definitionRevisionId=manifest['revisionId'],markCurve='future',markContractId=contract,
-            titlePolicy='explicit_accepted_title_v1',lossPolicy='separate_evidenced_loss_v1',effectiveAt='2020-12-18T00:00:00Z',**terms))
+            titlePolicy='explicit_accepted_title_v1',lossPolicy='separate_evidenced_loss_v1',effectiveAt=effective_at,**terms))
         return identity
 
     policies = {}
@@ -304,6 +304,86 @@ def checks(query, manifest):
         raise RuntimeError(result.stdout+result.stderr)
     assert int(query(f"SELECT count(*) FROM trading.gas_owned_reservations WHERE catalog_id='{catalog}';"))==int(before_managed)+1
     print(result.stdout.strip(),flush=True)
+
+    def configure(identity, action, body, operation=None, context=None, receipt=False, rollback=False):
+        return json.loads(call(f"SELECT security.configure_gas_owned_projection('{catalog}','{operation or uuid4()}','{action}','{identity}',"
+            f"{literal(body)},'{at}','{context or capture()}',{'true' if receipt else 'false'})::text;",rollback=rollback))
+
+    old_mark_context=capture()
+    next_mark=query(f"SELECT contract_id FROM market_data.curve_members WHERE(catalog_id,revision_id,curve_code)=('{catalog}','{manifest['revisionId']}','future') AND contract_id<>'{contract}' ORDER BY ordinal LIMIT 1;")
+    assert next_mark
+    mark_binding=dict(positionId=stock['id'],definitionRevisionId=manifest['revisionId'],markCurve='future',
+        markContractId=next_mark,expectedRevision=0,effectiveAt='2020-12-20T16:00:00Z')
+    mark_operation=str(uuid4());mark_context=capture()
+    rebound=configure(owned,'mark_binding',mark_binding,mark_operation,mark_context)
+    assert configure(owned,'mark_binding',mark_binding,mark_operation,mark_context)==rebound
+    assert next(p for p in read()['positions'] if p['id']==stock['id'])['mark_contract_id']==mark_binding['markContractId']
+    assert next(p for p in read(old_mark_context)['positions'] if p['id']==stock['id'])['mark_contract_id']==contract
+    rejected(lambda:configure(owned,'mark_binding',{**mark_binding,'expectedRevision':1,'markContractId':contract},context=old_mark_context,rollback=True),'gas_owned_context')
+    rejected(lambda:apply(owned,'reserve',dict(lotId=stock['id'],businessKey='stale_after_mark',quantity='1',effectiveAt=at),context=old_mark_context,rollback=True),'gas_owned_context')
+    second=configure(owned,'mark_binding',{**mark_binding,'expectedRevision':1,'markContractId':contract})
+    assert second['currentRevision']==2
+    publication=query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}';")
+    older=configure(owned,'mark_binding',mark_binding)
+    assert older['acknowledgedRevision']==1 and older['currentRevision']==2 and not older['changed']
+    assert query(f"SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}';")==publication
+    assert next(p for p in read()['positions'] if p['id']==stock['id'])['mark_contract_id']==contract
+    profile_body=dict(profileId=str(uuid4()),expectedRevision=0,implementation='gas_quantity_lifecycle_projection_v1',
+        quantityDisposition='retain_quantity_obligations_v1',effectiveAt='2020-12-20T16:00:00Z',performances=[])
+    before_profile=capture()
+    saved_profile=configure(owned,'projection_profile',profile_body)
+    rejected(lambda:configure(owned,'projection_profile',{**profile_body,'expectedRevision':1,'effectiveAt':'2020-12-20T15:59:00Z'},context=before_profile,rollback=True),'gas_owned_context')
+    rejected(lambda:apply(owned,'reserve',dict(lotId=stock['id'],businessKey='stale_after_profile',quantity='1',effectiveAt=at),context=before_profile,rollback=True),'gas_owned_context')
+    assert configure(owned,'projection_profile',profile_body)['acknowledgedRevision']==1
+    profile_context=capture()
+    retained_profile=json.loads(call(f"SELECT security.use_market_context('{catalog}','{profile_context}');SELECT security.use_trading_context('{catalog}','{at}');"
+        f"SELECT security.read_gas_owned_projection_profile('{catalog}','{profile_body['profileId']}',1,'{profile_context}','{at}')::text;"))
+    assert retained_profile['profile']['account_id']==owned and retained_profile['performances']==[] and saved_profile['changed']
+    # A known future loss after this eight-hour horizon is retained evidence,
+    # not a reason to reject the earlier projection or consume stock early.
+    later_at='2020-12-23T16:00:00Z'
+    def later_command(action, body, policy=None):
+        selected=call(f"SELECT security.capture_date_context('{catalog}','2020-12-23',NULL);")
+        policy_id,policy_revision=policy or (None,None)
+        policy_sql="NULL" if policy_id is None else "'"+policy_id+"'"
+        return json.loads(call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','{action}','{owned}',{literal(body)},'{later_at}','{selected}',{policy_sql},{policy_revision or 'NULL'},false)::text;"))
+    future_loss_lot=next(p['id'] for p in read()['positions'] if p['kind']=='owned_stock' and p['origin_policy']=='operator_balance_transfer_v1')
+    future_loss=later_command('evidence',dict(sourceKey='synthetic_future_loss',kind='physical_loss',quantity='2',occurredAt='2020-12-22T12:00:00Z',
+        evidence='Synthetic accepted future-effective loss',expectedRevision=0))
+    later_command('loss',dict(lotId=future_loss_lot,evidenceId=future_loss['id'],quantity='2',reservationId=None,effectiveAt='2020-12-22T12:00:00Z'),policies[(owned,'loss')])
+    profile_context=capture()
+    path.write_text(json.dumps(dict(manifest=manifest,host=host,contextId=profile_context,at=at,accountId=owned,
+        profileId=profile_body['profileId'],bookId=book,markId='70000000-0000-0000-0000-000000000001',contractId=contract,rateIds=rates)))
+    profile_result=subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks','--','--gas-owned-profile',str(path)],
+        cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=60)
+    if profile_result.returncode:raise RuntimeError(profile_result.stdout+profile_result.stderr)
+    print(profile_result.stdout.strip(),flush=True)
+
+    # At the historical opening this separate book has no owned balances. The
+    # source cutoff nevertheless knows a future title; risk must detect it and
+    # retain the journal without activating that inventory at opening.
+    future_book='d1000000-0000-0000-0000-000000000002'
+    future_owned=account('owned_inventory',future_book,'2020-12-20T00:00:00Z');bind(future_owned,'receive_title','gas.owned.receive_title')
+    future_evidence=evidence(future_owned,'title_receipt',7,'2020-12-20T12:00:00Z')
+    future_stock=apply(future_owned,'receive_title',dict(evidenceId=future_evidence,quantity='7',titleAt='2020-12-20T12:00:00Z',
+        availableAt='2020-12-20T13:00:00Z',originPolicy='opening_owned_stock_v1',carrying='nominal_mark_v1'))
+    future_profile={**profile_body,'profileId':str(uuid4()),'effectiveAt':'2020-12-18T00:00:00Z'}
+    configure(future_owned,'projection_profile',future_profile)
+    opening='2020-12-19T16:00:00Z'
+    known_context=call(f"SELECT security.capture_date_context('{catalog}','2020-12-19',NULL);")
+    prefix=f"SELECT security.use_market_context('{catalog}','{known_context}');SELECT security.use_trading_context('{catalog}','{opening}');"
+    opening_holdings=json.loads(call(prefix+f"SELECT security.read_gas_owned_holdings('{catalog}','{known_context}','{opening}',ARRAY['{future_book}']::uuid[])::text;"))
+    assert opening_holdings['positions']==[]
+    rejected(lambda:call(prefix+f"SELECT security.require_gas_owned_projection_scope('{catalog}','{known_context}','{opening}',ARRAY['{future_book}']::uuid[],false,clock_timestamp()+interval '30 seconds');"),'gas_owned_projection_policy_required')
+    known=json.loads(call(prefix+f"SELECT security.read_gas_owned_known_history('{catalog}','{known_context}','{opening}',ARRAY['{future_book}']::uuid[])::text;"))
+    assert known['asOf'].startswith('2020-12-19T16:00:00') and any(p['id']==future_stock['id'] and p['effective_at'].startswith('2020-12-20T12:00:00') for p in known['positions'])
+    path.write_text(json.dumps(dict(manifest=manifest,host=host,contextId=known_context,at=opening,accountId=future_owned,
+        profileId=future_profile['profileId'],positionId=future_stock['id'],bookId=future_book,markId='70000000-0000-0000-0000-000000000001',contractId=contract)))
+    known_result=subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks','--','--gas-owned-known',str(path)],
+        cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=60)
+    if known_result.returncode:raise RuntimeError(known_result.stdout+known_result.stderr)
+    print(known_result.stdout.strip(),flush=True)
+    print('PASS gas retained mark revisions, first outcomes, older fact acknowledgement, saved profiles and knowledge-only future ownership scope',flush=True)
 
 
 if __name__=='__main__':

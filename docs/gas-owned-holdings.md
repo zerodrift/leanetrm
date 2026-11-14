@@ -86,3 +86,38 @@ fixture also invokes `--gas-owned` API checks for the ordinary portfolio and
 review/execute boundary. Projected title/performance and connected supply
 allocation are a separate lifecycle-risk adapter; these actual operations alone
 do not qualify a complete event-aware VaR result.
+
+Surviving owned stock may select a new exact mark through an immutable
+`mark_binding` revision. The binding preserves native ownership and quantity;
+its selected market definition, contract and curve form a new unit instrument
+identity. Exact historical knowledge retains the earlier mark. This operation
+does not roll stored closes, delivery terms or source observations, and requires
+the same exact quantity specification, currency and location.
+
+Quantity projection profiles are selected by exact account, profile identity and
+revision. Each account explicitly retains quantity obligations or performs their
+full remaining quantity at the contractual due instant. Receipt assumptions name
+the destination account, inventory mark and availability convention. Supplied
+returns name owned lots and reservations or an explicitly linked incoming
+receipt. Connected accounts retain their separate policies and original economic
+owners; the combined component values each residual once. A projected return
+consumes selected stock and reduces its liability without adding an internal
+transfer gain. Received gas continues as inventory. Due dates alone never create
+accepted title or actual performance.
+
+The knowledge-only gas journal captures accepted future-effective facts without
+advancing the opening clock. Scope checks detect these facts even when the
+opening book has no inventory. An independent future opening stock or claim
+requires its purchase, capital or transfer counterfact; missing coverage cannot
+be treated as zero capital. The current quantity adapter refuses a horizon that
+crosses an unqualified native physical transition or cashout. Facts strictly
+after the horizon remain retained evidence. Physical futures principal,
+cashout and the remaining future-event adapters have separate qualification
+gates before a complete economic portfolio result can be reported.
+
+Saved profile choices retain the selected source and current read authority,
+including accounts whose accepted effective time is still ahead of opening.
+Authorization deadlines are operation-local admission data and are excluded
+from immutable source and profile evidence. New financial commands reject
+source contexts that omit later mark or profile heads; original command receipts
+and older business-fact acknowledgements retain their first outcomes.

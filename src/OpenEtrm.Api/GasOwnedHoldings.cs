@@ -12,7 +12,7 @@ namespace OpenEtrm.Api;
 internal sealed record GasOwnedMarket(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot);
 internal sealed record GasOwnedPosition(AccountingPositionKey Position,Guid AccountId,PartyKey LegalOwner,string Kind,string SettlementMode,
     int Revision,int PublicationOrder,DateTimeOffset EffectiveAt,Guid EvidenceId,Instrument Instrument,Quantity Quantity)
-{internal Guid DefinitionRevisionId{get;init;}}
+{internal Guid DefinitionRevisionId{get;init;} internal int MarkRevision{get;init;} internal int MarkPublicationOrder{get;init;}}
 internal sealed record GasOwnedFeePosition(AccountingPositionKey Position,Guid AccountId,Guid? LoanId,TimedCashPayment Instrument,
     Quantity Quantity,RecordedCashValuation State)
 {internal Guid DefinitionRevisionId{get;init;} internal int PublicationOrder{get;init;}}
@@ -71,13 +71,17 @@ internal static class GasOwnedHoldings
             var revision=new DefinitionRevision(catalog,row.Id("definition_revision_id"));
             var position=new AccountingPositionKey(new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,row.Id("id")),row.Id("id"),row.Id("book_id"));
             var due=row.OptionalText("due_at") is {} dueText?TradingInstant.Parse(dueText,"gas_holding_terms"):(DateTimeOffset?)null;
-            var instrument=new GasCommodityHoldingInstrument(row.Id("id"),new(new(revision,row.Text("mark_curve_code")),new(revision,row.Id("mark_contract_id"))),
+            var markRevision=row.GetProperty("mark_revision").GetInt32();
+            var mark=new CurveRequest(new(revision,row.Text("mark_curve_code")),new(revision,row.Id("mark_contract_id")));
+            var instrumentId=GasCommodityHoldingInstrument.SelectedNativeMarkIdentity(row.Id("id"),mark,markRevision);
+            var instrument=new GasCommodityHoldingInstrument(instrumentId,mark,
                 new(reference,row.Text("quantity_code")),new(reference,row.Text("currency_code")),due,row.Text("carrying") switch{
                     "nominal_mark_v1"=>GasHoldingCarrying.Nominal,"currency_curve_v1"=>GasHoldingCarrying.CurrencyCurve,_=>throw Error("Unknown gas carrying convention.")});
             if(markets[revision.RevisionId].Data.ReferenceRevision!=reference)throw Error("Gas holdings require their exact mark-reference revision.");
             positions.Add(new(position,row.Id("account_id"),new(catalog,row.Id("legal_entity_id"),Integer(row,"legal_entity_revision")),row.Text("kind"),row.Text("settlement_mode"),
                 1,Integer(row,"publication_order"),row.Instant("effective_at"),row.Id("evidence_id"),instrument,new(row.Number("remaining_quantity"),instrument.QuantitySpecification))
-                {DefinitionRevisionId=revision.RevisionId});
+                {DefinitionRevisionId=revision.RevisionId,MarkRevision=markRevision,
+                    MarkPublicationOrder=markRevision==0?Integer(row,"publication_order"):Integer(row,"mark_publication_order")});
             // This quantity ledger alone cannot attest purchase cash or capital
             // transfers. The actual P&L adapter must require the native source
             // handoff ledger rather than treating missing coverage as no cash.
