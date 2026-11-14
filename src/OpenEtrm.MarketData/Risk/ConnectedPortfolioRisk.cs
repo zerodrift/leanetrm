@@ -99,7 +99,7 @@ public sealed class PreparedConnectedPortfolioRisk
         baseFactors=parent?.baseFactors??factors;
         this.factors=new(parent is null?()=>baseFactors:ResolveFactors);
         declaredPriceInputs=parent?.declaredPriceInputs??new(ResolveDeclaredPriceInputs);
-        declaredPriceSteps=parent?.declaredPriceSteps??new(ResolveDeclaredPriceSteps);
+        declaredPriceSteps=parent is null||market.CalculationAt!=parent.Market.CalculationAt?new(ResolveDeclaredPriceSteps):parent.declaredPriceSteps;
     }
     private ImmutableDictionary<InputKey,ExactDecimal> ResolveDeclaredPriceSteps()
     {
@@ -168,9 +168,9 @@ public static partial class RiskEngine
         var market=valuation.Market(bindings,authority,cancellation,intervalBasis?.BindConnected(valuation,bindings,cancellation));
         var factors=QuoteFactors.Union(portfolios.SelectMany((portfolio,n)=>portfolio.RiskFactors(market,contracts[n],cancellation))
             .SelectMany(book=>book.Factors));
-        var prepared=new PreparedConnectedPortfolioRisk(valuation,market,portfolios,contracts,factors,bindings,intervalBasis:intervalBasis);
         market.RequireInputs(contracts.SelectMany(g=>g));
-        return prepared;
+        var resolved=portfolios.Select((p,n)=>p.ResolvePriceSteps(market,contracts[n],cancellation)).ToImmutableArray();
+        return new(valuation,market,portfolios,resolved,factors,bindings,intervalBasis:intervalBasis);
     }
     public static PreparedConnectedPortfolioRisk WithShifts(PreparedConnectedPortfolioRisk prepared,ImmutableArray<CurveShift> shifts,CancellationToken cancellation=default)
         =>WithLayer(prepared,shifts,null,[],cancellation);
@@ -185,8 +185,10 @@ public static partial class RiskEngine
         var valuation=prepared.Valuation.WithScenario(scenario);
         var environment=ConnectedValuation.WithScenario(prepared.Market,valuation,prepared.IntervalBasis?.BindConnected(valuation,prepared.Bindings,cancellation));
         environment.RequireInputs(prepared.Contracts.SelectMany(g=>g));
+        var contracts=environment.CalculationAt==prepared.Market.CalculationAt?prepared.Contracts:
+            prepared.Portfolios.Select((p,n)=>p.ResolvePriceSteps(environment,prepared.Contracts[n],cancellation)).ToImmutableArray();
         return new(valuation,environment,
-            prepared.Portfolios,prepared.Contracts,[],prepared.Bindings,prepared,prepared.IntervalBasis);
+            prepared.Portfolios,contracts,[],prepared.Bindings,prepared,prepared.IntervalBasis);
     }
     public static ConnectedGroupedRiskRun CalculateExact(PreparedConnectedPortfolioRisk prepared,ImmutableArray<ConnectedRiskBump> bumps,
         string numericalPolicy,CancellationToken cancellation=default,RiskDetail detail=RiskDetail.Holdings)

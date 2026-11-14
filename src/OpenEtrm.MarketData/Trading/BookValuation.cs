@@ -408,6 +408,18 @@ public sealed class ValuationPortfolio
             return c with{ScheduleIdentity=instrument.RetainedScheduleIdentity,SettlementProjections=instrument.SettlementProjections};
         }).ToImmutableArray();
     }
+    internal ImmutableArray<UnitPricingContract> ResolvePriceSteps(PreparedValuationEnvironment market,ImmutableArray<UnitPricingContract> declarations,CancellationToken ct)
+    {
+        if(declarations.Length!=Scopes.Length)throw Error("risk_contract","Retain every original unit declaration before resolving model metadata.");
+        var context=new UnitValuationContext(market.Snapshot,Setup,market,cancellation:ct);
+        return [..Scopes.Select((scope,n)=>
+        {
+            ct.ThrowIfCancellationRequested();var original=declarations[n];
+            var selected=context.For(original,scope.Coverage,scope.BindingState is {} binding?Setup.BindingStates[binding]:null);
+            var resolved=original with{PriceSteps=scope.Instrument.ResolvePriceSteps(selected,original)};
+            resolved.RequireInputs();return resolved;
+        })];
+    }
     internal PortfolioValue PV(CurveBuild market,ImmutableArray<UnitPricingContract> declarations,CurveBuild? baseMarket=null,
         PortfolioValue? baseValue=null,CancellationToken ct=default,RiskDetail detail=RiskDetail.Holdings)
         =>PV(market.Pricing,declarations,baseMarket is null?null:baseMarket.Pricing,baseValue,ct,detail);

@@ -276,3 +276,13 @@ zero-basis/carry-compatible collapse under both selected numerical policies.
 Native source admission, ordinary portfolio integration, full economic worker
 replay and UI selection are separate qualification gates. This pure model does
 not establish an accepted exercise, margin determination, title or payment.
+
+Model price-step metadata resolves after the original financial declaration's
+clock and input admission. A clock child retains those financial terms and
+updates only its model resolution, using the same selected discount provider as
+PV. Price-only child scenarios retain the existing inherited resolution policy.
+An independent nonflat rate-curve check starts with unit expiry discount and
+rolls to a conditional discount below one: the selected strike-centred model
+then declares its positive price step while retaining its source calibration.
+Expired/pinned clocks, substituted discount sources and undeclared metadata
+discount reads remain refused.

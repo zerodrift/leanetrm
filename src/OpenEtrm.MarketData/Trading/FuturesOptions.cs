@@ -62,9 +62,16 @@ public sealed record FuturesOptionInstrument : Instrument
             Volatility=binding.Calibration is SolvedVolatility solved?[new(binding.Id,solved.Volatility.ToString(),VolatilityInput.Annualized)]:[],
             // The tree's value repeats its pattern once per price step of the underlying. A tree centred on the strike has
             // none at a unit discount, and an option valued at intrinsic has no lattice.
-            PriceSteps=binding.Calibration is SolvedVolatility held&&AmericanFuturesOptionModel.PriceStep(Series.Terms,binding.BaseFutures,held.Volatility,
-                binding.DiscountToExpiry,context.CalculationAt,binding.Policy) is {} step?[new(binding.Underlying,step.ToExact())]:[] };
+            PriceSteps=PriceSteps(binding,binding.DiscountToExpiry,context.CalculationAt) };
     }
+    public override ImmutableArray<DeclaredPriceStep> ResolvePriceSteps(UnitValuationContext context,UnitPricingContract declaration)
+    {
+        var binding=Binding(context);
+        return binding.Calibration is SolvedVolatility?PriceSteps(binding,LatticeDecimal.From(Discount(context,binding).DiscountFactor),context.CalculationAt):[];
+    }
+    private static ImmutableArray<DeclaredPriceStep> PriceSteps(FuturesOptionMarketBinding binding,LatticeDecimal factor,DateTimeOffset at)=>
+        binding.Calibration is SolvedVolatility held&&AmericanFuturesOptionModel.PriceStep(binding.Instrument.Series.Terms,binding.BaseFutures,held.Volatility,
+            factor,at,binding.Policy) is {} step?[new(binding.Underlying,step.ToExact())]:[];
 
     // The unit price at the scenario futures price is rounded once, half-even, to
     // the 18-digit working scale before the multiplier is applied.
@@ -78,12 +85,17 @@ public sealed record FuturesOptionInstrument : Instrument
             throw Error("option_context", $"Option series {Series.Key.Code} was calibrated on another snapshot.");
         context.Market!.Model.RequireFuturesOptionDefinition(Series, binding.Underlying, binding.Settlement);
         var futures = LatticeDecimal.From(inputs.ExactPrice(binding.Underlying).ToUnitPriceExact().Value);
-        var discount=inputs.Discounts([new(Id,0,Series.Terms.ExpiryAt,Currency)]).Single();
+        var discount=Discount(context,binding);
         var volatility=binding.Calibration is SolvedVolatility?LatticeDecimal.Parse(inputs.Volatility(binding.Id).Format(30,MidpointRounding.ToEven)):(LatticeDecimal?)null;
-        if(LatticeDecimal.From(discount.ClockRoll?.SourceFactor??discount.DiscountFactor)!=binding.DiscountToExpiry)
-            throw Error("option_context","The discount provider must retain the calibration's exact source factor.");
         var unit = binding.UnitPrice(futures, inputs.ValuationAt, context.Cancellation,LatticeDecimal.From(discount.DiscountFactor),volatility).ToExact();
         return new(context, ExactMoney.FromMoney(new Money(unit, Currency)).Scale(Series.Multiplier), UnitQuantity.Specification);
+    }
+    private SidePaymentFactor Discount(UnitValuationContext context,FuturesOptionMarketBinding binding)
+    {
+        var discount=context.Inputs.Discounts([new(Id,0,Series.Terms.ExpiryAt,Currency)]).Single();
+        if(LatticeDecimal.From(discount.ClockRoll?.SourceFactor??discount.DiscountFactor)!=binding.DiscountToExpiry)
+            throw Error("option_context","The discount provider must retain the calibration's exact source factor.");
+        return discount;
     }
 
     private FuturesOptionMarketBinding Binding(UnitValuationContext context)

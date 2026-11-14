@@ -60,6 +60,9 @@ public abstract record Instrument
     public virtual InstrumentValuation PV(SideValuationContext context)=>
         throw new MarketDataException("valuation_measure","This instrument requires its declared unit valuation context.");
     public abstract UnitPricingContract Declare(UnitValuationContext context);
+    // Model resolution can depend on an admitted calculation clock. It may
+    // refine numerical metadata only; the original financial input fence stays.
+    public virtual ImmutableArray<DeclaredPriceStep> ResolvePriceSteps(UnitValuationContext context,UnitPricingContract declaration)=>declaration.PriceSteps;
     // Common black-box entry point. The denominator remains explicit until the
     // trade's typed quantity is applied. Value preserves existing pricer adapters.
     public virtual UnitValuation PV(UnitValuationContext context)

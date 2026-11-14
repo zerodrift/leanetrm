@@ -193,6 +193,7 @@ public sealed class PreparedLifecycleProjection
                 if(declared.Any(d=>d.Currency!=component.Currency||d.Dependencies.Any(r=>!component.Dependencies.Contains(r)||!dependencyMarkets[component.Owner][r].SourceSnapshot.HasSameInputs(selected.SourceSnapshot))))
                     throw LifecycleProjection.Error("projection_source","An ordinary residual requires its exact declared native market route and complete prepared dependency closure.");
                 var environment=new ProjectionMarket(market(selected),at);environment.RequireInputs(declared);
+                declared=held.ResolvePriceSteps(environment,declared,ct);
                 foreach(var value in held.PV(environment,declared,ct:ct).Totals)total=total.Add(value.Value);
             }
         }
