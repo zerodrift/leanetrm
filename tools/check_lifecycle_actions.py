@@ -13,6 +13,38 @@ from preview_fixture import catalogue_fixture, trade_booking, fixture as baselin
 from check_futures_margin_adoption import successor_grants
 
 
+def upgrade_checks(query, migration):
+    from assistant_context import check_guard
+    if migration.name == '0261_option_lifecycle_actions.sql':
+        groups=[('lifecycle_option_status_upgrade','security.futures_option_operation_status(uuid,uuid)')]
+    elif migration.name == '0271_futures_delivery_profiles.sql':
+        groups=[('futures_delivery_admission_upgrade','security.gas_owned_admission(uuid,text,jsonb,boolean)'),
+                ('futures_delivery_hash_upgrade','settlement_data.futures_margin_policy_value(settlement_data.futures_margin_policies,jsonb)'),
+                ('futures_delivery_policy_upgrade','settlement_data.save_futures_margin_policy(uuid,jsonb)'),
+                ('futures_delivery_policy_upgrade','settlement_data.require_futures_margin_reference(settlement_data.futures_margin_policies)'),
+                ('futures_delivery_policy_upgrade','settlement_data.read_futures_margin_origin(uuid,uuid,uuid,uuid,timestamptz)'),
+                ('futures_delivery_policy_upgrade','settlement_data.read_futures_known_linked_history(uuid,uuid,uuid,uuid,timestamptz,uuid)'),
+                ('futures_delivery_policy_upgrade','lifecycle.read_option_known_history(uuid,uuid,uuid,integer,uuid,timestamptz,date)')]
+    elif migration.name == '0272_futures_delivery_obligations.sql':
+        groups=[('futures_delivery_writer_upgrade','settlement_data.determine_futures_margin(uuid,jsonb,jsonb)'),
+                ('futures_delivery_writer_upgrade','settlement_data.finish_futures_margin_run(uuid,uuid,jsonb,timestamptz)')]
+    else: return
+    for guard,signature in groups:
+        sql_function=signature.startswith('settlement_data.futures_margin_policy_value')
+        changes=[(change,signature) for change in (
+            f"ALTER FUNCTION {signature} SET work_mem='64kB';",
+            f"ALTER FUNCTION {signature} STRICT;",
+            f"ALTER FUNCTION {signature} LEAKPROOF;",
+            f"ALTER FUNCTION {signature} PARALLEL SAFE;",
+            f"ALTER FUNCTION {signature} {'VOLATILE' if sql_function else 'STABLE'};",
+            f"ALTER FUNCTION {signature} SECURITY {'DEFINER' if sql_function else 'INVOKER'};",
+            f"GRANT EXECUTE ON FUNCTION {signature} TO PUBLIC;",
+            f"GRANT EXECUTE ON FUNCTION {signature} TO openetrm_runtime WITH GRANT OPTION;",
+            f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;",
+            f"DO $$DECLARE d text=pg_get_functiondef('{signature}'::regprocedure);BEGIN EXECUTE replace(d,'AS $function$','AS $function$ /* synthetic drift */ ');END$$;")]
+        check_guard(query,migration.read_text(),migration.name[:4],guard,changes)
+
+
 def fixture(root):
     reference,market,security,trading,manifest=exchange(root)
     # Two valid direct curves make singleton inference observably wrong. The
@@ -189,4 +221,4 @@ def checks(query,manifest):
     print('PASS explicit lifecycle policies: reviewed scope, native option economics, stable evidence retry and atomic generated-future margin adoption',flush=True)
 
 
-if __name__=='__main__':main(checks=checks,fixture_factory=fixture)
+if __name__=='__main__':main(checks=checks,fixture_factory=fixture,before_migration=upgrade_checks)

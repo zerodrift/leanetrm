@@ -8,6 +8,17 @@ publication; configuration windows cannot precede the final occurrence. Focused
 trajectory checks qualify these contracts. Native delivery configuration,
 acceptance, performance and principal/payment integration remain in progress.
 
+Native delivery profiles now seal the exact future contract, an explicitly
+selected owned-gas account/mark, delivery and cash windows, carrying, principal
+rounding, and correction due convention. Version-two margin policies pin this
+exact profile, with explicit null for cash settlement. Version-one cash policy
+canonical bytes remain unchanged. Profile retries and older-fact acknowledgements
+preserve the current head; a new revision requires the source to contain that
+head. The saved enrollment policy is retained evidence; actual performance also
+requires a separately configured current account action binding. No account
+binding or title is created by saving a profile. Disposable native checks qualify
+these configuration and hash boundaries; physical performance remains separate.
+
 Lifecycle discovery, review and execution use one managed handler registry. The
 registry dispatches a typed native target; product operations retain ownership of
 financial terms, calculations, records and corrections. A target may be a trade

@@ -336,8 +336,12 @@ END$$;
 DO $status_upgrade$DECLARE f pg_proc;BEGIN
  SELECT * INTO STRICT f FROM pg_proc WHERE oid='security.futures_option_operation_status(uuid,uuid)'::regprocedure;
  IF md5(f.prosrc)<>'878131d481fe8a9a062b9f58a75a9e9a' OR NOT f.prosecdef OR f.proowner<>'openetrm_security_owner'::regrole
- OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR has_function_privilege('public',f.oid,'EXECUTE')
- OR NOT has_function_privilege('openetrm_runtime',f.oid,'EXECUTE') THEN RAISE EXCEPTION 'lifecycle_option_status_upgrade';END IF;
+ OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR f.prorettype<>'jsonb'::regtype OR f.prokind<>'f' OR f.proretset
+ OR f.proisstrict OR f.proleakproof OR f.proparallel<>'u' OR f.provolatile<>'v' OR(SELECT lanname FROM pg_language WHERE oid=f.prolang)<>'plpgsql'
+ OR NOT has_function_privilege('openetrm_runtime',f.oid,'EXECUTE')
+ OR EXISTS(SELECT 1 FROM aclexplode(coalesce(f.proacl,acldefault('f',f.proowner)))a WHERE a.grantor<>f.proowner OR a.is_grantable
+  OR a.privilege_type<>'EXECUTE' OR a.grantee NOT IN(f.proowner,'openetrm_runtime'::regrole))
+ THEN RAISE EXCEPTION 'lifecycle_option_status_upgrade: unexpected helper security.futures_option_operation_status(uuid,uuid)';END IF;
 END$status_upgrade$;
 CREATE OR REPLACE FUNCTION security.futures_option_operation_status(catalog uuid,operation uuid) RETURNS jsonb
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
