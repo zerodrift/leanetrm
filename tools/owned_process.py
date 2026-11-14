@@ -36,3 +36,11 @@ def stop_owned_group(process, grace_seconds=3):
                 return
             time.sleep(.05)
     raise RuntimeError('Owned browser process group did not stop; retain its files')
+
+
+def stop_owned_groups(processes,grace_seconds=3):
+    failures=[]
+    for process in reversed(processes[:]):
+        try:stop_owned_group(process,grace_seconds);processes.remove(process)
+        except Exception as error:failures.append(error)
+    if failures:raise ExceptionGroup('Owned process cleanup is incomplete; retain its private files.',failures)

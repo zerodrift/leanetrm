@@ -14,7 +14,7 @@ from uuid import uuid4
 from check_reference_editing import main as native_main
 from check_lifecycle_scheduling import fixture, configured
 from check_futures_physical_delivery import checks as physical_checks
-from owned_process import stop_owned_group
+from owned_process import stop_owned_groups
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -87,11 +87,7 @@ def run(query,manifest,dotnet,browser,children):
                     shutil.copyfile(root/name,Path('/private/tmp')/name)
                 print('PASS full app Lifecycle browser: real API, shared financial action, local time, scheduled native worker, retained outcome and independent obligation',flush=True)
         finally:
-            failures=[]
-            for child in reversed(children[:]):
-                try:stop_owned_group(child);children.remove(child)
-                except Exception as error:failures.append(error)
-            if failures:raise ExceptionGroup('Owned lifecycle preview cleanup is incomplete.',failures)
+            stop_owned_groups(children)
     physical_checks(query,manifest,configuration_checks=prepared)
 
 

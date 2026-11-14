@@ -11,8 +11,10 @@ from uuid import uuid4
 from check_reference_editing import main
 from check_gas_owned_holdings import checks as gas_checks
 from check_risk_jobs_db import provision_worker
+from owned_process import stop_owned_groups
 
 ROOT=Path(__file__).resolve().parents[1]
+children=[]
 
 
 def label_checks(query,manifest,fixture):
@@ -45,14 +47,6 @@ def label_checks(query,manifest,fixture):
         assert stripped==original[part],'Labels changed native '+part+' count, order, quantities or source identities'
     assert enriched['fees'],'The label fixture must retain cash after native stock consumption'
     print('PASS native gas labels: no missing/null membership fallback; exact original arrays, counts, order and surviving cash preserved',flush=True)
-
-
-def stop_owned(process):
-    if process is None or process.poll() is not None:return
-    process.terminate()
-    try:process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        process.kill();process.wait(timeout=5)
 
 
 def worker_checks(query, manifest, fixture):
@@ -114,13 +108,12 @@ def worker_checks(query, manifest, fixture):
     psql=Path(os.sys.argv[os.sys.argv.index('--pg-bin')+1])/'psql'
     owner_env={k:v for k,v in os.environ.items() if not k.startswith('PG')}
     owner_env.update(PGHOST=str(directory),PGPORT='55439',PGDATABASE='postgres',PGUSER='preview_owner',PGTZ='UTC')
-    holder=subprocess.Popen([str(psql),'-X','-qAt','-v','ON_ERROR_STOP=1'],cwd=ROOT,env=owner_env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
-    process=None
+    holder=subprocess.Popen([str(psql),'-X','-qAt','-v','ON_ERROR_STOP=1'],cwd=ROOT,env=owner_env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True);children.append(holder)
     try:
         holder.stdin.write("BEGIN;LOCK market_data.observations IN ACCESS EXCLUSIVE MODE;SELECT 'economic-source-held';\n");holder.stdin.flush()
         readable,_,_=select.select([holder.stdout],[],[],5)
         assert readable and holder.stdout.readline().strip()=='economic-source-held','The owned source relation lock was not acquired'
-        process=subprocess.Popen([dotnet,str(frozen/'OpenEtrm.Api.dll'),'--risk-worker','once'],cwd=ROOT,env=environment(login),stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        process=subprocess.Popen([dotnet,str(frozen/'OpenEtrm.Api.dll'),'--risk-worker','once'],cwd=ROOT,env=environment(login),stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,start_new_session=True);children.append(process)
         deadline=time.monotonic()+8
         while time.monotonic()<deadline:
             if process.poll() is not None:raise AssertionError('Worker ended before the controlled source-read cancellation: '+''.join(process.communicate()))
@@ -141,9 +134,7 @@ def worker_checks(query, manifest, fixture):
         if holder.poll() is None:
             try:holder.stdin.write('ROLLBACK;\n');holder.stdin.close()
             except (BrokenPipeError,ValueError):pass
-            try:holder.wait(timeout=5)
-            except subprocess.TimeoutExpired:stop_owned(holder)
-        stop_owned(process)
+        stop_owned_groups(children)
     assert sources==query("SELECT jsonb_build_object('observations',(SELECT count(*) FROM market_data.observations),'tradingPublications',(SELECT count(*) FROM trading.publications),'ownedPositions',(SELECT count(*) FROM trading.gas_owned_positions))::text;"), 'Hypothetical calculation persisted a market or lifecycle fact'
     assert all((frozen/name).read_bytes()==value for name,value in binary_stamps.items()),'The admitted engine binaries changed during worker qualification'
     managed('--economic-worker-verify')
@@ -164,4 +155,4 @@ if __name__=='__main__':
     dotnet=os.environ.get('DOTNET','dotnet')
     result=subprocess.run([dotnet,'build','tests/OpenEtrm.Api.Checks'],cwd=ROOT,capture_output=True,text=True,timeout=120)
     if result.returncode:raise RuntimeError(result.stdout+result.stderr)
-    main(checks=checks,before_migration=upgrade_checks)
+    main(checks=checks,before_migration=upgrade_checks,cleanup_ready=lambda:not children)
