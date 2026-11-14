@@ -30,13 +30,15 @@ With the variable absent, CI explicitly downloads the individually pinned public
 archive URLs. With it present, a bundle failure fails the job: it does not silently
 switch to another source. HTTP is supported for an operator's public package
 endpoint, with SHA-256 admission unchanged; HTTPS is preferred. No CI consumer
-downloads a signing key or refreshes apt indexes.
+downloads a signing key or refreshes network repository indexes.
 
-Installation uses an empty source/index set and a temporary archive directory
-containing only verified packages, with apt downloads and removals prohibited.
+Installation builds a temporary `file:` repository and archive directory from
+only verified packages, with network sources, package downloads and removals
+prohibited. The generated local index trusts exactly the admitted package bytes.
 APT's canonical archive filenames are populated for offline `Pre-Depends` handling.
-Already installed equal/newer compatible libraries are retained, including the
-runner's `libpq5`/`libpq-dev` pair. Older/missing dependencies use the locked bytes.
+Only server/client installation is requested. Apt retains compatible installed
+libraries, including older libc/development pairs and newer `libpq5`/`libpq-dev`
+pairs, and selects missing or required dependency upgrades from the local bundle.
 The server and client themselves must match the selected package revision; newer
 installed versions refuse instead of forcing a downgrade. Unresolvable installed
 companions also refuse. The runner's installed state and apt's dependency checks

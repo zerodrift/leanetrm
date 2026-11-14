@@ -172,12 +172,13 @@ class WorkflowCacheTests(unittest.TestCase):
 
 
 class InstalledPackageTests(unittest.TestCase):
-    def test_missing_and_older_packages_are_installed_but_newer_libraries_are_retained(self):
-        packages = [{'package': name, 'version': '2'} for name in ('absent', 'older', 'same', 'libpq5')]
+    def test_only_server_and_client_are_requested_without_forcing_library_upgrades(self):
+        packages = [{'package': name, 'version': '2'} for name in ('postgresql-18', 'postgresql-client-18', 'libc6', 'libpq5')]
         paths = [Path('/cache') / (p['package'] + '.deb') for p in packages]
-        installed = {'older': '1', 'same': '2', 'libpq5': '3'}
+        installed = {'postgresql-client-18': '1', 'libc6': '1', 'libpq5': '3'}
         def run(command, **kwargs):
             if command[0] == 'dpkg-query':
+                self.assertIn(command[-1], ('postgresql-18', 'postgresql-client-18'))
                 version = installed.get(command[-1])
                 return subprocess.CompletedProcess(command, 0 if version else 1,
                                                    'installed\t' + version if version else '')

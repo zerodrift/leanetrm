@@ -118,9 +118,11 @@ def prepare_packages(lock, cache, bundle_url, *, download=download):
 
 
 def select_installation(lock, packages, *, run=subprocess.run):
-    """Keep newer compatible runner libraries; never force a system downgrade."""
+    """Request only the pinned server/client; let apt select necessary dependencies."""
     selected = []
     for record, path in zip(lock['packages'], packages, strict=True):
+        if record['package'] not in ('postgresql-18', 'postgresql-client-18'):
+            continue
         current = run(['dpkg-query', '-W', '-f=${db:Status-Status}\t${Version}', record['package']],
                       capture_output=True, text=True, check=False)
         status, _, version = current.stdout.partition('\t')
@@ -132,7 +134,7 @@ def select_installation(lock, packages, *, run=subprocess.run):
             raise ValueError('Cannot compare installed package versions')
         if comparison.returncode == 1:
             selected.append(path)
-        elif record['package'] in ('postgresql-18', 'postgresql-client-18') and version != record['version']:
+        elif version != record['version']:
             raise ValueError('A newer PostgreSQL server/client is installed; refresh the reviewed dependency lock')
     return selected
 
@@ -142,29 +144,39 @@ def install_packages(lock, packages):
     architecture = subprocess.check_output(['dpkg', '--print-architecture'], text=True).strip()
     if release.get('ID', '').strip('"') != 'ubuntu' or release.get('VERSION_ID', '').strip('"') != '24.04' or architecture != 'amd64':
         raise ValueError('The CI PostgreSQL bundle requires Ubuntu 24.04 amd64')
-    # Apt resolves only local .debs and the installed system. It may not refresh or
-    # fetch indexes/packages. Original package maintainer scripts run only after
+    # Apt resolves only local .debs and the installed system. It may not fetch
+    # remote indexes/packages. Original package maintainer scripts run only after
     # all selected dependency bytes have passed verification.
     selected = select_installation(lock, packages)
     if selected:
         with tempfile.TemporaryDirectory(prefix='openetrm-offline-apt-') as directory:
             state = Path(directory)
-            (state / 'sources.list').touch()
             (state / 'sourceparts').mkdir()
             (state / 'lists').mkdir()
             (state / 'archives').mkdir()
+            (state / 'repository').mkdir()
+            (state / 'sources.list').write_text(f'deb [trusted=yes] {(state / "repository").as_uri()} ./\n')
+            index = []
             # --no-download also disables apt's local-file acquisition. Populate
             # its canonical archive names so Pre-Depends can be installed offline.
             for record, path in zip(lock['packages'], packages, strict=True):
                 name = f'{record["package"]}_{record["version"].replace(":", "%3a")}_{record["architecture"]}.deb'
                 (state / 'archives' / name).symlink_to(path.resolve())
-            subprocess.run(['sudo', 'env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
-                            '-o', f'Dir::Etc::sourcelist={state / "sources.list"}',
-                            '-o', f'Dir::Etc::sourceparts={state / "sourceparts"}',
-                            '-o', f'Dir::State::lists={state / "lists"}',
-                            '-o', f'Dir::Cache::archives={state / "archives"}',
-                            '-o', f'APT::Sandbox::User={pwd.getpwuid(os.getuid()).pw_name}',
-                            '--no-download', '--no-remove', '--no-install-recommends', 'install', '-y',
+                (state / 'repository' / record['file']).symlink_to(path.resolve())
+                control = subprocess.check_output(['dpkg-deb', '--field', str(path.resolve())], text=True)
+                index.append(control.rstrip() + f'\nFilename: {record["file"]}\nSize: {record["size"]}\nSHA256: {record["sha256"]}\n')
+            (state / 'repository' / 'Packages').write_text('\n'.join(index))
+            apt = ['sudo', 'env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get',
+                   '-o', f'Dir::Etc::sourcelist={state / "sources.list"}',
+                   '-o', f'Dir::Etc::sourceparts={state / "sourceparts"}',
+                   '-o', f'Dir::State::lists={state / "lists"}',
+                   '-o', f'Dir::Cache::archives={state / "archives"}',
+                   '-o', f'APT::Sandbox::User={pwd.getpwuid(os.getuid()).pw_name}']
+            # This index is built from already verified .debs, using file: only.
+            # Offering dependencies without requesting their upgrades preserves
+            # compatible older libraries and their installed development packages.
+            subprocess.run([*apt, '-o', 'APT::Update::Error-Mode=any', 'update'], check=True)
+            subprocess.run([*apt, '--no-download', '--no-remove', '--no-install-recommends', 'install', '-y',
                             *(str(path.resolve()) for path in selected)], check=True)
     version = subprocess.check_output(['/usr/lib/postgresql/18/bin/postgres', '--version'], text=True)
     if not version.startswith(f'postgres (PostgreSQL) {lock["postgres_version"]} '):

@@ -5187,7 +5187,7 @@ under a selected source never silently changes source policy.
 
 The producer uses signed Ubuntu/PGDG metadata and the checked-in, fingerprint-
 verified PGDG key. Preserve unmodified packages, license notices and corresponding
-sources. Installed newer compatible libraries remain subject to apt dependency
+sources. Compatible installed libraries remain subject to apt dependency
 checks; downloads, removals and forced downgrades are prohibited during install.
 PostgreSQL server/client revisions remain exact. This changes CI acquisition,
 not application financial contracts, database state or release admission. See
