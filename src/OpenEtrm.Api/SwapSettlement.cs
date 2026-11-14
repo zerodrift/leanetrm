@@ -69,8 +69,8 @@ public sealed partial class SwapStore
         var row = rows[^1];
         if (row.Number("revision") != ExactDecimal.Parse(request.ExpectedRevision.ToString(CultureInfo.InvariantCulture)))
             throw Error("swap_revision_conflict", "Reload the selected trade head before calculating settlement.");
+        (data, frame) = await ScheduledMarket(connection, data, frame, row.Id("definition_revision_id"), ct);
         var terms = Terms(data, row, frame.Id);
-        (data, frame) = await ScheduledMarket(connection, data, frame, terms.DefinitionRevisionId, ct);
         var resolved = await ResolveRetained(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
         if (request.MembershipOrdinal < 0 || request.MembershipOrdinal >= resolved.Instrument.Sides.Length ||
             resolved.Instrument.Sides[request.MembershipOrdinal].Side.GenerateSchedule() is not SidePaymentSchedule schedule ||
@@ -300,6 +300,7 @@ public sealed partial class SwapStore
         var rows = await Rows(connection,request.TradeId,ct);
         var row = request.Revision is {} revision ? One(rows.Where(r => int.Parse(r.Text("revision"),CultureInfo.InvariantCulture)==revision)) : rows.LastOrDefault();
         if(row.ValueKind==JsonValueKind.Undefined)throw Error("swap_trade","The selected trade is unavailable.");
+        (data,frame)=await ScheduledMarket(connection,data,frame,row.Id("definition_revision_id"),ct);
         var state = await SettlementState(connection,request.TradeId,ct);
         if(request.Revision is {} selected && selected!=int.Parse(rows[^1].Text("revision"),CultureInfo.InvariantCulture) && state.GetProperty("version").GetInt32()!=0)
             throw Error("settlement_revision","Select the trade revision effective in this certified context; retained settlement does not attach to superseded economics.");
@@ -340,8 +341,9 @@ public sealed partial class SwapStore
         var results=ImmutableArray.CreateBuilder<SwapPnlHolding>();
         foreach(var row in rows)
         {
+            var market=await ScheduledMarket(connection,data,frame,row.Id("definition_revision_id"),ct);
             var state=await SettlementState(connection,row.Id("trade_id"),ct);
-            var value=await EvaluateLifecycle(connection,data,frame,row,Terms(data,row,frame.Id),state,ct);
+            var value=await EvaluateLifecycle(connection,market.Data,market.Frame,row,Terms(market.Data,row,market.Frame.Id),state,ct);
             var token=SettlementHash(new{instrument=row.Id("instrument_id"),quantity=row.Text("quantity"),book=row.Id("book_id"),
                 parties=TradeParties.State(manifest.CatalogId,row)});
             SwapLifecycleValue? prior=null;

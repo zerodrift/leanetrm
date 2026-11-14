@@ -11,14 +11,32 @@ from check_reference_editing import main
 from close_session_fixture import sql_session
 from check_index_fixings import RULE
 from preview_fixture import catalogue_fixture, trading_fixture,trade_booking,fixture as baseline,identity
-from check_lifecycle_actions import upgrade_checks
+from check_lifecycle_actions import upgrade_checks as action_upgrade_checks
 from check_futures_margin_adoption import successor_grants
+
+
+
+def upgrade_checks(query,migration):
+    action_upgrade_checks(query,migration)
+    if migration.name!='0288_lifecycle_swap_task_sources.sql':return
+    from assistant_context import check_guard
+    for signature in ('automation.create_lifecycle_job(uuid,jsonb)','automation.require_lifecycle_settings(automation.lifecycle_profiles)'):
+        changes=[(change,signature) for change in (
+            f"ALTER FUNCTION {signature} SET work_mem='64kB';",f"ALTER FUNCTION {signature} STRICT;",
+            f"ALTER FUNCTION {signature} LEAKPROOF;",f"ALTER FUNCTION {signature} PARALLEL SAFE;",f"ALTER FUNCTION {signature} STABLE;",
+            f"ALTER FUNCTION {signature} SECURITY INVOKER;",f"GRANT EXECUTE ON FUNCTION {signature} TO PUBLIC;",
+            f"GRANT EXECUTE ON FUNCTION {signature} TO openetrm_runtime WITH GRANT OPTION;",f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;",
+            f"DO $$DECLARE d text=pg_get_functiondef('{signature}'::regprocedure);BEGIN EXECUTE replace(d,'AS $function$','AS $function$ /* synthetic drift */ ');END$$;",
+            f"UPDATE pg_proc SET provariadic='uuid'::regtype WHERE oid='{signature}'::regprocedure;",
+            f"UPDATE pg_proc SET proargmodes=array_fill('i'::\"char\",ARRAY[{signature.count(',')+1}]) WHERE oid='{signature}'::regprocedure;",
+            f"UPDATE pg_proc SET proargnames=ARRAY['synthetic_changed']::text[] WHERE oid='{signature}'::regprocedure;")]
+        check_guard(query,migration.read_text(),'0288','lifecycle_swap_task_source_upgrade',changes)
 
 
 def fixture(root):return baseline(root,fixing_frames=True)
 
 
-def checks(query,manifest,economic_worker=None):
+def checks(query,manifest,economic_worker=None,*,schedule_only=False):
     catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'))
     query(trading_fixture(catalog))
     query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
@@ -79,6 +97,9 @@ def checks(query,manifest,economic_worker=None):
     packet=dict(snapshotId=snapshot,frameAt='2021-01-15T08:00:00Z',
                     context=dict(contextId=source,asOf='2021-01-15T08:00:00Z',businessDate='2021-01-15',snapshotId=snapshot),
                     target=dict(handler='financial_swap',scopeId=booked['tradeId'],bindingId=binding))
+    if schedule_only:
+        scheduled_checks(query,manifest,call,managed,booking,profile,policy,snapshot)
+        return
     original=managed({**packet,'expectedVersion':1,'expectedCurrentVersion':1})['LIFECYCLE_SWAP_REVIEWED']
     status=json.loads(call(f"SELECT settlement_data.swap_operation_status('{catalog}','{original['operationId']}')::text;"))
     assert status['found'] and status['operationId']==original['operationId'] and status['tradeId']==booked['tradeId']
@@ -189,6 +210,98 @@ def checks(query,manifest,economic_worker=None):
     print('PASS shared single-payment reversal: exact original choice, signed opposite amount and one restored gross balance',flush=True)
     from check_lifecycle_swap_net import checks as net_checks
     net_checks(query,manifest,call,managed,booking,profile,policy,snapshot)
+    scheduled_checks(query,manifest,call,managed,booking,profile,policy,snapshot)
+
+
+def scheduled_checks(query,manifest,call,managed,booking,profile,policy,snapshot):
+    catalog=manifest['catalogId']
+    def lit(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
+    query("INSERT INTO security.role_permissions SELECT role_id,p FROM security.role_permissions CROSS JOIN unnest(ARRAY['RunJobs','PublishMarketData'])p WHERE permission='AmendTrade' ON CONFLICT DO NOTHING;")
+    sql_session(query,manifest,'synthetic_swap_lifecycle_close','test_business','08:00',['base_forward'],['trader'])
+    frame=next(f for f in manifest['frames'] if f['at']=='2021-01-15T08:00:00Z')
+    pinned=','.join(repr(v)+'::uuid' for v in frame['observationIds'])
+    pins=json.loads(query(f"SELECT jsonb_agg(jsonb_build_object('definitionRevisionId',o.definition_revision_id,'seriesId',o.series_id,'observationId',o.id,'inputUse',CASE WHEN o.role IN('final_contract_settlement','index_fixing') THEN 'frozen' ELSE 'variable' END)) FROM market_data.observations o WHERE o.catalog_id='{catalog}' AND o.id=ANY(ARRAY[{pinned}]);"))
+    members=[dict(definitionRevisionId=manifest['revisionId'],curve='base_forward',contractId=contract,ordinal=n,scope='root')
+        for n,contract in enumerate(frame['curveContracts']['base_forward'])]
+    close=call(f"SELECT security.register_market_close('{catalog}','{manifest['revisionId']}','{uuid4()}','Synthetic swap action close','synthetic_swap_lifecycle_close','2021-01-15','2021-01-15T08:00:00Z',{lit(pins)},{lit(members)});")
+    booked=managed(dict(snapshotId=snapshot,booking={**booking,'operationId':str(uuid4())}))['LIFECYCLE_SWAP_BOOKED']
+    binding=query(f"SELECT binding_id FROM trading.swap_trade_revisions WHERE(catalog_id,trade_id,revision)=('{catalog}','{booked['tradeId']}',1);")
+    automatic={**policy,'operationId':str(uuid4()),'policyId':str(uuid4()),'mode':'automatic'}
+    call(f"SELECT lifecycle.save_policy('{catalog}',{lit(automatic)});")
+    saved={**profile,'operationId':str(uuid4()),'profileId':str(uuid4()),'tradeId':booked['tradeId'],'expectedRevision':0,'policyId':automatic['policyId']}
+    call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit(saved)});")
+    source=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
+    occurrence=call(f"SELECT security.use_market_context('{catalog}','{source}');SELECT security.use_trading_context('{catalog}','2021-01-15T08:00:00Z','2021-01-15'::date);SELECT lifecycle.swap_profile_occurrence('{catalog}','{saved['profileId']}',1);")
+    from lifecycle_schedule_fixture import execute
+    claim=execute(query,manifest,call,close_id=close,target=dict(handler='financial_swap',scopeId=booked['tradeId'],bindingId=binding),
+        action='swap.determine',occurrence_id=occurrence,policy_id=automatic['policyId'],policy_revision=1,execution_permission='AmendTrade',extra_permissions=[],
+        settings=dict(tradeRevision=1,optionProfileRevision=None,swapProfileId=saved['profileId'],swapProfileRevision=1,marginPolicyId=None,marginPolicyRevision=None))
+    count,total=query(f"SELECT count(*)||'|'||min(rounded_total)::text FROM settlement_data.swap_determinations WHERE trade_id='{booked['tradeId']}';").split('|')
+    from fractions import Fraction
+    assert count=='1' and Fraction(total)==350
+    assert query(f"SELECT count(*) FROM settlement_data.swap_cash_payments WHERE trade_id='{booked['tradeId']}';")=='0'
+    assert query(f"SELECT count(*) FROM settlement_data.swap_commands WHERE operation_id='{claim['id']}' AND acknowledged_operation_id IS NULL;")=='1'
+    print('PASS actual scheduled swap determination: exact saved period, retained close, independent 3.5 x100 oracle, one native contribution and atomic terminal receipt',flush=True)
+
+    # The source's explicit primary is independent of the swap's declared price
+    # definition. Only a complete recorded matrix may carry its second source.
+    other,series,observation=str(uuid4()),str(uuid4()),str(uuid4())
+    query(f"""INSERT INTO market_data.revisions(catalog_id,id,reference_catalog_id,reference_revision_id,state,generation)
+      SELECT catalog_id,'{other}',reference_catalog_id,reference_revision_id,'draft',0 FROM market_data.revisions WHERE(catalog_id,id)=('{catalog}','{manifest['revisionId']}');
+      INSERT INTO market_data.revision_periods SELECT catalog_id,'{other}',effective_from,effective_to FROM market_data.revision_periods WHERE(catalog_id,revision_id)=('{catalog}','{manifest['revisionId']}');
+      INSERT INTO market_data.contracts(catalog_id,revision_id,id,reference_catalog_id,reference_revision_id,kind,delivery_from,delivery_to,expiry_at,futures_series_code,futures_option_series_code) SELECT c.catalog_id,'{other}',c.id,c.reference_catalog_id,c.reference_revision_id,c.kind,c.delivery_from,c.delivery_to,c.expiry_at,c.futures_series_code,
+       c.futures_option_series_code FROM market_data.contracts c JOIN market_data.curve_members m ON(m.catalog_id,m.revision_id,m.contract_id)=(c.catalog_id,c.revision_id,c.id)
+       WHERE(m.catalog_id,m.revision_id,m.curve_code,c.delivery_from)=('{catalog}','{manifest['revisionId']}','base_forward','2021-01-01');
+      INSERT INTO market_data.series(catalog_id,revision_id,id,code,reference_catalog_id,reference_revision_id,contract_id,quote_code,value_specification_code)
+       SELECT c.catalog_id,'{other}','{series}','synthetic_anchor_quote',c.reference_catalog_id,c.reference_revision_id,c.id,q.quote_code,NULL
+       FROM market_data.contracts c JOIN market_data.curves q ON(q.catalog_id,q.revision_id,q.code)=('{catalog}','{manifest['revisionId']}','base_forward') WHERE(c.catalog_id,c.revision_id)=('{catalog}','{other}');
+      INSERT INTO market_data.curves(catalog_id,revision_id,code,reference_catalog_id,reference_revision_id,commodity_code,location_code,quote_code,profile_code,settlement_target_code,rule,direct_source_code,direct_role,name)
+       SELECT catalog_id,'{other}','synthetic_anchor',reference_catalog_id,reference_revision_id,commodity_code,location_code,quote_code,profile_code,settlement_target_code,'direct','fixture','trader_mark','Synthetic independent anchor'
+       FROM market_data.curves WHERE(catalog_id,revision_id,code)=('{catalog}','{manifest['revisionId']}','base_forward');
+      INSERT INTO market_data.curve_members SELECT catalog_id,'{other}','synthetic_anchor',id,0 FROM market_data.contracts WHERE(catalog_id,revision_id)=('{catalog}','{other}');
+      UPDATE market_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{catalog}','{other}');
+      INSERT INTO market_data.observations(catalog_id,id,definition_revision_id,series_id,reference_catalog_id,reference_revision_id,source_code,source_event_id,source_revision_id,role,publication_state,observed_at,received_at,value,corrects_id)
+       VALUES('{catalog}','{observation}','{other}','{series}','{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}','fixture','synthetic_anchor','1','trader_mark','final','2021-01-15T08:00:00Z',clock_timestamp(),9,NULL);""")
+    query(catalogue_fixture(manifest,'https://preview.invalid',curve_sources=[other],request_id=str(uuid4()),
+        expected_head=query(f"SELECT id FROM market_data.catalogue_publications WHERE catalog_id='{catalog}' ORDER BY publication_order DESC LIMIT 1;")))
+    sql_session(query,manifest,'synthetic_swap_second_source','test_business','08:00',['synthetic_anchor'],['trader'],revision=other)
+    anchor_pin=dict(definitionRevisionId=other,seriesId=series,observationId=observation,inputUse='variable')
+    anchor_contract=query(f"SELECT id FROM market_data.contracts WHERE(catalog_id,revision_id)=('{catalog}','{other}');")
+    anchor_member=dict(definitionRevisionId=other,curve='synthetic_anchor',contractId=anchor_contract,ordinal=0,scope='root')
+    def register_complete(complete):
+        return call(f"SELECT security.register_market_close('{catalog}','{other}','{uuid4()}','Synthetic selected source matrix','synthetic_swap_second_source','2021-01-15','2021-01-15T08:00:00Z',"
+            f"{lit([anchor_pin]+(pins if complete else []))},{lit([anchor_member]+([{**m,'scope':'retained'} for m in members] if complete else []))});")
+    missing=register_complete(False)
+    second=managed(dict(snapshotId=snapshot,booking={**booking,'operationId':str(uuid4())}))['LIFECYCLE_SWAP_BOOKED']
+    def configure(trade,membership=1):
+        saved_period={**saved,'operationId':str(uuid4()),'profileId':str(uuid4()),'tradeId':trade['tradeId'],'membershipOrdinal':membership}
+        call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit(saved_period)});")
+        selected=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
+        occurrence=call(f"SELECT security.use_market_context('{catalog}','{selected}');SELECT security.use_trading_context('{catalog}','2021-01-15T08:00:00Z','2021-01-15'::date);SELECT lifecycle.swap_profile_occurrence('{catalog}','{saved_period['profileId']}',1);")
+        return dict(query=query,manifest=manifest,call=call,target=dict(handler='financial_swap',scopeId=trade['tradeId'],bindingId=query(f"SELECT binding_id FROM trading.swap_trade_revisions WHERE(catalog_id,trade_id,revision)=('{catalog}','{trade['tradeId']}',1);")),
+            action='swap.determine',occurrence_id=occurrence,policy_id=automatic['policyId'],policy_revision=1,execution_permission='AmendTrade',extra_permissions=[],
+            settings=dict(tradeRevision=1,optionProfileRevision=None,swapProfileId=saved_period['profileId'],swapProfileRevision=1,marginPolicyId=None,marginPolicyRevision=None))
+    arguments=configure(second)
+    execute(close_id=missing,expected_admission_error='lifecycle_schedule_source',**arguments)
+    complete=register_complete(True)
+    execute(close_id=complete,**arguments)
+    assert Fraction(query(f"SELECT rounded_total FROM settlement_data.swap_determinations WHERE trade_id='{second['tradeId']}';"))==350
+    print('PASS swap task source closure: omitted independent price definition refused without enrolment; exact two-definition close executes the retained native period',flush=True)
+
+    reader_context=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
+    managed(dict(snapshotId=snapshot,sourceViews=complete,bookId=booking['bookId'],context=dict(contextId=reader_context,asOf='2021-01-15T08:00:00Z',businessDate='2021-01-15',snapshotId=snapshot),target=arguments['target']))
+
+    quantity=dict(revision=dict(catalogId=manifest['referenceCatalogId'],revisionId=manifest['referenceRevisionId']),code='test_gas_quantity')
+    def fixed(price):return dict(basis='period_total',quantity=quantity,amount=None,allocation=None,priceApplication='period_average_times_quantity_v1',power=None,
+        periods=[dict(amount='100',fixed={**booking['fixed'],'price':price},floating=None)])
+    deterministic={**booking,'operationId':str(uuid4()),'quantity':None,'fixedCoefficient':None,'fixed':None,'floating':None,'swapType':'scheduled_financial_swap','firstCoefficient':'-1',
+        'scheduled':dict(implementation='whole_term_scheduled_financial_swap_v1',first=fixed('3'),second=fixed('4'))}
+    before_fixed=query("SELECT count(*)::text||':'||(SELECT count(*) FROM trading.publications)::text FROM trading.swap_trade_revisions;")
+    managed(dict(snapshotId=snapshot,booking=deterministic,expectedBookingError='scheduled_swap_input'))
+    assert query("SELECT count(*)::text||':'||(SELECT count(*) FROM trading.publications)::text FROM trading.swap_trade_revisions;")==before_fixed
+    print('PASS fixed-only composition is explicitly unsupported by the current native swap product, with no guessed floating source or financial enrollment',flush=True)
+
+
 
 
 if __name__=='__main__':main(checks=checks,fixture_factory=fixture,before_migration=upgrade_checks)

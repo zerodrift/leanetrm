@@ -44,6 +44,30 @@ internal static class LifecycleSwapChecks
             frame=frame with{At=context.GetProperty("asOf").GetDateTimeOffset(),BusinessDate=DateOnly.Parse(context.Text("businessDate"))};
             if(f.TryGetProperty("selectedObservations",out var pins))frame=frame with{ObservationIds=[..pins.EnumerateArray().Select(p=>p.GetGuid())]};
             var selected=context.Deserialize<LifecycleReadContext>(LifecycleNative.Json)!;
+            if(f.TryGetProperty("sourceViews",out var sourceClose))
+            {
+                await database.WithIdentity("trader",null,async(c,t)=>
+                {
+                    var source=(await new KnowledgeStore(manifest.CatalogId).Read(c,selected.ContextId,t)).Context;
+                    await TradingContext.AdmitSource(database,c,source,selected.AsOf,t);
+                    await PinnedContext.BindExact(c,manifest.CatalogId,source,t);
+                    await TradingContext.Bind(c,manifest.CatalogId,source,selected.AsOf,t);
+                    var recorded=await MarketCloses.Frame(c,manifest.CatalogId,sourceClose.GetGuid(),selected.ContextId,t);
+                    var data=await MarketInputSelection.Root(database,c,recorded,t);
+                    var target=f.GetProperty("target").Deserialize<LifecycleTarget>(LifecycleNative.Json)!;
+                    var read=new FuturesReadRequest(recorded.Id,SwapStore.Convention,"retained",selected.ContextId);
+                    var store=new SwapStore(database);
+                    var editor=JsonSerializer.SerializeToElement(await store.Editor(c,data,recorded,target.ScopeId,null,t),LifecycleNative.Json);
+                    var inspect=JsonSerializer.SerializeToElement(await store.InspectSettlement(c,data,recorded,new(read,target.ScopeId,null,"swap_due_nominal_v1","swap_completed_period_trading_pnl_v1"),t),LifecycleNative.Json);
+                    var holdings=await store.Holdings(c,data,recorded,[f.Id("bookId")],[],t,trades:ImmutableHashSet.Create(target.ScopeId));
+                    var pnl=(SwapPnlSide)await store.PnlRead(c,data,recorded,new(read,read,[target.ScopeId],[],"reject_contract_changes_v1","swap_due_nominal_v1","swap_completed_period_trading_pnl_v1"),t);
+                    if(editor.GetProperty("state").Id("tradeId")!=target.ScopeId||inspect.GetProperty("valuation").Text("remainingValue")!="50"||
+                        holdings.Rows.Length!=1||holdings.Rows[0]["presentValue"]?.ToString()!="50"||pnl.Holdings.Single().Value.RemainingValue.ToExactString()!="50")
+                        throw new Exception("Retained editor, settlement, Blotter and P&L did not select the exact independent price source.");
+                    return 0;
+                },default);
+                Console.WriteLine("PASS retained swap readers: editor, settlement, Blotter and P&L use the recorded secondary definition independently of deployment primary");return;
+            }
             if(f.TryGetProperty("profileIds",out var savedProfiles))
             {
                 var operations=new LifecycleOperations(database,id=>id==frame.Id?frame:throw new Exception("Unknown test frame."));
@@ -129,6 +153,17 @@ internal static class LifecycleSwapChecks
         var store=new SwapStore(database);
         var body=f.GetProperty("booking").Deserialize<SwapWriteRequest>(LifecycleNative.Json)!;
         var retained=new RetainedScheduleStore(database);
+        if(f.TryGetProperty("expectedBookingError",out var bookingError))
+        {
+            try
+            {
+                await database.WithIdentity("trader","BookTrade",async(c,t)=>await store.PrepareScheduleTerms(c,
+                    await database.Read(c,t,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins),frame,body,t),default);
+            }
+            catch(MarketDataException error)when(error.Code==bookingError.GetString())
+            {Console.WriteLine("PASS unsupported native swap composition refuses before financial enrollment: "+error.Code);return;}
+            throw new Exception("Unsupported swap composition was accepted.");
+        }
         var prepared=await database.WithIdentity("trader","BookTrade",async(c,t)=>
         {
             var terms=await store.PrepareScheduleTerms(c,await database.Read(c,t,observationIds:frame.ObservationIds,observationScope:ObservationReadScope.ExactPins),frame,body,t);

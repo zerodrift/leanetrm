@@ -220,3 +220,14 @@ reversal, partial netting, zero-net discharge, both net reversals, lost response
 and exact receipt-first recovery after reload, current Risk invalidation, retained
 P&L reads and narrow layouts. Reload reselects the same actor and read context;
 it never regenerates the retained financial request.
+
+Scheduled swap actions retain the explicitly selected recorded close as primary.
+The exact retained side programs and published custom-source closure must be
+covered by its source matrix; an omitted definition refuses enrolment. Managed
+settlement and retained Editor, Blotter and P&L readers resolve each native row's
+exact definition and reference version before materializing its terms. Deployment
+catalogue choices do not replace this financial source. Disposable checks execute
+an actual task with primary B and independent price source A, refuse omitted A
+without a job or command, and reconcile all four retained views to the independent
+50-value oracle. Existing fixed-only swap composition remains explicitly
+unsupported rather than acquiring a guessed floating source.

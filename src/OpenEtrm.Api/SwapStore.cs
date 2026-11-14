@@ -350,7 +350,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
    throw Error("swap_averaging","The exact retained observation schedule is unavailable under the selected context and current authority.");
   if(row.GetProperty("custom_projection_id").ValueKind!=JsonValueKind.Null&&custom.ValueKind==JsonValueKind.Null)
    throw Error("custom_projection","The retained custom pricing definition is unavailable under the current context and authority.");
-  if(row.Id("definition_revision_id")!=manifest.RevisionId&&!(manifest.InputMarkets??[]).Any(m=>m.RevisionId==row.Id("definition_revision_id"))||row.Id("reference_catalog_id")!=manifest.ReferenceCatalogId||row.Text("implementation")!=Convention)
+  if(row.Id("definition_revision_id")!=data.DefinitionRevision.RevisionId||row.Id("reference_catalog_id")!=data.ReferenceRevision.CatalogId||
+   row.Id("reference_revision_id")!=data.ReferenceRevision.RevisionId||row.Text("implementation")!=Convention)
    throw Error("swap_definition","The retained swap requires its exact supported reference and model versions.");
   var sampling=SwapObservationCompatibility.Mode(StoredAveraging(row.Text("averaging")));
   var first=row.GetProperty("first_floating");
@@ -399,22 +400,30 @@ public sealed partial class SwapStore(PreviewDatabase database)
   var rows=await Rows(connection,tradeId,ct);if(rows.IsEmpty)throw Error("swap_trade","This trade is unavailable in the selected context.");
   var selected=revision??rows.Max(r=>int.Parse(r.Text("revision"),CultureInfo.InvariantCulture));
   var row=One(rows.Where(r=>r.Number("revision")==ExactDecimal.Parse(selected.ToString(CultureInfo.InvariantCulture))));
+  (data,frame)=await ScheduledMarket(connection,data,frame,row.Id("definition_revision_id"),ct);
+  var history=ImmutableArray.CreateBuilder<object>(rows.Length);
+  foreach(var revisionRow in rows)
+  {
+   var exact=await ScheduledMarket(connection,data,frame,revisionRow.Id("definition_revision_id"),ct);
+   history.Add(State(exact.Data,revisionRow,exact.Frame.Id));
+  }
   var settlement=await SettlementState(connection,tradeId,ct);
   if(settlement.GetProperty("occurrences").GetArrayLength()!=0)
   {
    if(selected!=int.Parse(rows[^1].Text("revision"),CultureInfo.InvariantCulture))throw Error("settlement_revision","Select the effective trade head or its original certified historical context.");
    var lifecycle=await EvaluateLifecycle(connection,data,frame,row,Terms(data,row,frame.Id),settlement,ct);
-   return new{state=State(data,row,frame.Id),history=rows.Select(r=>State(data,r,frame.Id)),valuation=(object?)null,memberships=Memberships(lifecycle.Instrument),
+   return new{state=State(data,row,frame.Id),history=history.ToImmutable(),valuation=(object?)null,memberships=Memberships(lifecycle.Instrument),
     settlementValuation=LifecycleValue(lifecycle.Value),settlement,catalog=await Catalog(connection,data,frame,ct,Terms(data,row,frame.Id)),lifecycleEligible=false};
   }
   var terms=Terms(data,row,frame.Id);var value=await Price(connection,data,frame,terms,row.Id("instrument_id"),row.Id("fixed_side_id"),row.Id("floating_side_id"),ct);
   if(terms.Scheduled is null)ValidateProjections(value,row);
-  return new{state=State(data,row,frame.Id),history=rows.Select(r=>State(data,r,frame.Id)),valuation=Value(value),quantityInputs=terms.Scheduled is null?null:await RetainedQuantityInputs(connection,row,ct),catalog=await Catalog(connection,data,frame,ct,terms),
+  return new{state=State(data,row,frame.Id),history=history.ToImmutable(),valuation=Value(value),quantityInputs=terms.Scheduled is null?null:await RetainedQuantityInputs(connection,row,ct),catalog=await Catalog(connection,data,frame,ct,terms),
    lifecycleEligible=terms.Scheduled is not null?ScheduledAmendmentEligible(ResolveScheduled((await ScheduledMarket(connection,data,frame,terms.DefinitionRevisionId,ct)).Data,terms,row.Id("instrument_id")).Instrument,frame.At):frame.At<row.Instant("first_fixing_at")&&(row.OptionalText("first_floating_fixing") is not {} firstFixing||frame.At<SchedulePreview.ParseAt(firstFixing))&&frame.At>=row.Instant("effective_at")};
  }
  internal async Task<SideScheduleSnapshot> InspectSchedule(NpgsqlConnection connection,PreviewData data,InputFrame frame,JsonElement row,
   ImmutableArray<BookedScheduleSide> headers,int slot,CancellationToken ct)
  {
+  (data,frame)=await ScheduledMarket(connection,data,frame,row.Id("definition_revision_id"),ct);
   var side=headers.Single(s=>s.Slot==slot);var terms=Terms(data,row,frame.Id);
   var settlement=await SettlementState(connection,row.Id("trade_id"),ct);
   async Task<SideScheduleSnapshot> Plan(string refusal)
@@ -465,7 +474,8 @@ public sealed partial class SwapStore(PreviewDatabase database)
   if(body.TradeId is {} trade)
   {
    var rows=await Rows(connection,trade,ct);if(rows.IsEmpty)throw Error("swap_trade","The retained trade is unavailable.");
-   var head=rows[^1];var retained=Terms(data,head,frame.Id);booked=retained;
+   var head=rows[^1];var original=await ScheduledMarket(connection,data,frame,head.Id("definition_revision_id"),ct);
+   var retained=Terms(original.Data,head,original.Frame.Id);booked=retained;
    if(body.ExpectedRevision!=int.Parse(head.Text("revision"),CultureInfo.InvariantCulture)||body.ExpectedRevision>=256||
     SchedulePreview.ParseAt(body.EffectiveAt)!=frame.At||frame.At<head.Instant("effective_at")||
     string.IsNullOrWhiteSpace(body.Reason)||body.Reason.Length>500||
@@ -587,8 +597,9 @@ public sealed partial class SwapStore(PreviewDatabase database)
   work.SupplementalMarketLoads=markets.IsEmpty?0:1;
   foreach(var row in rows)
   {
-   var terms=Terms(data,row,frame.Id);var id=row.Id("instrument_id");
-   var market=data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId?(Data:data,Frame:frame):One(markets.Where(m=>m.Data.DefinitionRevision.RevisionId==terms.DefinitionRevisionId));
+   var revision=row.Id("definition_revision_id");
+   var market=data.DefinitionRevision.RevisionId==revision?(Data:data,Frame:frame):One(markets.Where(m=>m.Data.DefinitionRevision.RevisionId==revision));
+   var terms=Terms(market.Data,row,market.Frame.Id);var id=row.Id("instrument_id");
    var source=market.Data;
    var book=One(books.Where(b=>b.Id("id")==row.Id("book_id")));
    SidedInstrument instrument;HeldValue held;
