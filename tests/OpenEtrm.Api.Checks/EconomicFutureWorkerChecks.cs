@@ -68,6 +68,42 @@ internal static class EconomicFutureWorkerChecks
                 if(prepared.CashAccumulationInputs.Length!=1||prepared.HistoryPortfolio.Markets.Length!=1||prepared.CashAccumulationEvidence is null)
                     throw new Exception("Rate-only funding created a price portfolio/graph or omitted its native input proof.");
                 Console.WriteLine("PASS native explicit funding: independent signed rational cash oracle and rate-only source custody without another holding or price factor");
+                var choices=JsonSerializer.SerializeToElement(await new PortfolioRiskPreview(database).EconomicCashFunding(connection,data,frame,
+                    new(new(new(frame.Id,TradingBlotter.Convention,"retained",context.ContextId),books,[],trades),fullPricing,
+                        projection with{CashAccumulationSelections=null}),ct),RiskJobs.Json);
+                if(choices.GetProperty("snapshotId").GetGuid()!=frame.Id||choices.GetProperty("currencies").GetArrayLength()!=1||
+                    choices.GetProperty("currencies")[0].Deserialize<ReferenceKey>(RiskJobs.Json)!=projection.CashAccumulationSelections!.Value[0].Currency||
+                    !choices.GetProperty("choices").EnumerateArray().Any(c=>c.GetProperty("selection").Deserialize<PortfolioCashAccumulationSelection>(RiskJobs.Json)==projection.CashAccumulationSelections!.Value[0]))
+                    throw new Exception("Authorized funding choices must retain the complete component currency union and exact independent native rate selection.");
+                if(choices.GetProperty("choices").EnumerateArray().Any(c=>c.GetProperty("selection").Deserialize<PortfolioCashAccumulationSelection>(RiskJobs.Json)!.Curve.Code.EndsWith("_unpinned",StringComparison.Ordinal))||
+                    choices.GetProperty("choices").EnumerateArray().Any(c=>!c.TryGetProperty("effectiveAt",out _)||c.GetProperty("sourceLabel").GetString()!.Contains("effective",StringComparison.Ordinal)))
+                    throw new Exception("Only fully captured rate curves are choices; effective instants require a separate presentation field.");
+                // Exercise the candidate reader's empty-input branch directly;
+                // no valuation or horizon result is prepared from these pins.
+                var rateSeries=data.Definitions["rate_curve_tenors"].Select(t=>t.Id("series_id")).ToHashSet();
+                var pricePins=data.Snapshot(frame).Selections.Where(p=>!rateSeries.Contains(p.Input.Series.Id)).Select(p=>p.Observation.Key.Id).ToImmutableArray();
+                var noRates=frame with{ObservationIds=pricePins,SourceInputs=frame.SourceInputs!.ToImmutableDictionary(p=>p.Key,p=>p.Value with{
+                    ObservationIds=p.Key==data.DefinitionRevision.RevisionId?pricePins:[],FrozenObservationIds=[]})};
+                var sourceOnly=opening with{OpeningScope=opening.OpeningScope! with{Frame=noRates,
+                    Snapshot=data.Snapshot(noRates).WithKnowledge(context.ContextId.Value,SchedulePreview.ParseAt(context.KnownAt))}};
+                var empty=await LifecycleCashAccumulationInputs.Choices(connection,database,sourceOnly,projection with{CashAccumulationSelections=null},
+                    [projection.CashAccumulationSelections!.Value[0].Currency],ct);
+                if(empty.GetProperty("choices").GetArrayLength()!=0)throw new Exception("Missing rate observations produced a funding choice.");
+                var metadataRequest=new PortfolioEconomicCashFundingRequest(new(new(frame.Id,TradingBlotter.Convention,"retained",context.ContextId),books,[],trades),
+                    fullPricing,projection with{CashAccumulationSelections=null});
+                var currencySource=projection.CashAccumulationSelections!.Value[0].Curve.Revision.RevisionId;
+                var omitted=frame with{SourceInputs=frame.SourceInputs!.Remove(currencySource)};
+                var limited=JsonSerializer.SerializeToElement(await new PortfolioRiskPreview(database).EconomicCashFunding(connection,data,omitted,metadataRequest,ct),RiskJobs.Json);
+                if(limited.GetProperty("currencies")[0].Deserialize<ReferenceKey>(RiskJobs.Json)!=projection.CashAccumulationSelections.Value[0].Currency||
+                    limited.GetProperty("choices").EnumerateArray().Any(c=>c.GetProperty("selection").Deserialize<PortfolioCashAccumulationSelection>(RiskJobs.Json)!.Curve.Revision.RevisionId==currencySource))
+                    throw new Exception("Funding metadata introduced an omitted source or changed the required component currency.");
+                try
+                {
+                    _=await new PortfolioRiskPreview(database).EconomicCashFunding(connection,data,frame,metadataRequest with{Projection=projection},ct);
+                    throw new Exception("A funding metadata read admitted a supplied financial selection.");
+                }
+                catch(MarketDataException error)when(error.Code=="projection_cash_choices"){}
+                Console.WriteLine("PASS native explicit funding choices: exact component currencies and original independent source, omitted-source exclusion and no financial defaults");
             }
             await EconomicWorkerChecks.Submit(database,connection,data,frame,new(new(frame.Id,TradingBlotter.Convention,"retained",context.ContextId),books,[],trades),
                 fullPricing,projection,prepared,path,ct);

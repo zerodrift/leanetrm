@@ -24,10 +24,7 @@ public sealed record PortfolioEconomicProjectionRequest([property:JsonRequired]s
     public ImmutableArray<PortfolioCashAccumulationSelection>? CashAccumulationSelections{get;init;}
     public void Validate()
     {
-        if(Implementation is not(Version or Version2)||string.IsNullOrWhiteSpace(Session)||SessionVersion<1||HorizonPolicy!=SourceKnownSchedule||
-            RateTimingPolicy!=RateDiscountTiming.Version||EventMarketPolicy!=SelectedContractMarkets)
-            throw new MarketDataException("projection_policy","Select the exact source-known session schedule, opening version, rate timing and economic projection profile.");
-        LifecycleProjection.Validate(Policy);
+        ValidateConfiguration();
         if(Implementation==Version?CashAccumulationSelections is not null:
             CashAccumulationSelections is not {} selections||selections.IsDefault||
             (Policy.CashAccumulation==LifecycleProjectionPolicy.Nominal?!selections.IsEmpty:selections.IsEmpty)||
@@ -36,6 +33,19 @@ public sealed record PortfolioEconomicProjectionRequest([property:JsonRequired]s
                 s.Curve.Revision.RevisionId==Guid.Empty||string.IsNullOrWhiteSpace(s.Curve.Code)||s.MappingId==Guid.Empty||s.DefinitionId==Guid.Empty||s.DefinitionVersion<1)||
             selections.Select(s=>s.Currency).Distinct().Count()!=selections.Length)
             throw new MarketDataException("projection_cash_policy","Select explicit empty nominal funding or one exact native accumulation source per portfolio currency.");
+    }
+    internal void ValidateCashFundingRead()
+    {
+        ValidateConfiguration();
+        if(Implementation!=Version2||CashAccumulationSelections is not null)
+            throw new MarketDataException("projection_cash_choices","Read funding choices using the explicit v2 product policies without selecting a financial funding result.");
+    }
+    internal void ValidateConfiguration()
+    {
+        if(Implementation is not(Version or Version2)||string.IsNullOrWhiteSpace(Session)||SessionVersion<1||HorizonPolicy!=SourceKnownSchedule||
+            RateTimingPolicy!=RateDiscountTiming.Version||EventMarketPolicy!=SelectedContractMarkets)
+            throw new MarketDataException("projection_policy","Select the exact source-known session schedule, opening version, rate timing and economic projection profile.");
+        LifecycleProjection.Validate(Policy);
         if(GasOwned.IsDefault||GasOwned.Any(s=>s is null||s.AccountId==Guid.Empty||s.ProfileId==Guid.Empty||s.Revision<1)||
             GasOwned.Select(s=>s.AccountId).Distinct().Count()!=GasOwned.Length)
             throw new MarketDataException("projection_gas_policy","Select exact saved gas projection profiles, or explicitly select an empty gas profile list.");
@@ -78,7 +88,7 @@ internal static partial class LifecyclePortfolioProjection
     internal static async Task<LifecycleHorizonSource> ReadHorizon(NpgsqlConnection connection,PreviewDatabase database,
         PortfolioValuation.Prepared opening,PortfolioEconomicProjectionRequest request,CancellationToken ct)
     {
-        request.Validate();var context=PinnedContext.Exact(opening.Context);var day=PublishedSchedules.ContextDate(context);
+        request.ValidateConfiguration();var context=PinnedContext.Exact(opening.Context);var day=PublishedSchedules.ContextDate(context);
         if(opening.Sources.IsDefaultOrEmpty||!opening.Excluded.IsEmpty||opening.Sources.Select(s=>s.Snapshot.ValuationAt).Distinct().Count()!=1)
             throw new MarketDataException("projection_scope","Prepare complete exact-source product holdings at one opening clock without exclusions.");
         var at=opening.Sources[0].Snapshot.ValuationAt;var known=SchedulePreview.ParseAt(context.KnownAt);

@@ -19,6 +19,9 @@ public sealed record PortfolioEconomicRiskRequest(PortfolioEconomicProjectionReq
 public sealed record PortfolioEconomicSourceRequest(PortfolioRiskCatalogRequest Scope,PortfolioValuationPolicy PricingPolicy,
     PortfolioEconomicProjectionRequest Projection);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record PortfolioEconomicCashFundingRequest(PortfolioRiskCatalogRequest Scope,PortfolioValuationPolicy PricingPolicy,
+    PortfolioEconomicProjectionRequest Projection);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PortfolioEconomicHistoryRequest(PortfolioEconomicSourceRequest Source,PortfolioHistoryRequest History);
 
 public sealed partial class PortfolioRiskPreview
@@ -48,12 +51,13 @@ public sealed partial class PortfolioRiskPreview
                     GasQuantityProjectionPolicy.Retain=>"Retain quantity obligations",
                     GasQuantityProjectionPolicy.AtDue=>"Perform configured contractual quantities when due",
                     _=>throw new MarketDataException("gas_projection_policy","This saved quantity profile has no qualified economic presentation contract.")}})}),
-            projection=new{implementation=PortfolioEconomicProjectionRequest.Version,horizonPolicy=PortfolioEconomicProjectionRequest.SourceKnownSchedule,
+            projection=new{implementation=PortfolioEconomicProjectionRequest.Version2,cashFunding=true,horizonPolicy=PortfolioEconomicProjectionRequest.SourceKnownSchedule,
                 rateTimingPolicy=RateDiscountTiming.Version,eventMarketPolicy=PortfolioEconomicProjectionRequest.SelectedContractMarkets,
                 policy=new{implementation=LifecycleProjectionPolicy.Version,numericalPolicy=LifecycleProjectionPolicy.Numerics,nonPriceInputs=LifecycleProjectionPolicy.HeldNonPrice},
                 pricePaths=new[]{Choice(LifecycleProjectionPolicy.Hold,"Apply each market move, then hold prices"),Choice(LifecycleProjectionPolicy.Linear,"Move prices gradually until the next close")},
                 cashDisposition=new[]{Choice(LifecycleProjectionPolicy.Outstanding,"Keep scheduled cash outstanding"),Choice(LifecycleProjectionPolicy.PayAtDue,"Assume scheduled cash is paid when due")},
-                cashAccumulation=new[]{Choice(LifecycleProjectionPolicy.Nominal,"Nominal cash amounts"),Choice(LifecycleProjectionPolicy.Accumulated,"Accumulate cash using captured currency curves")},
+                cashAccumulation=new[]{new{value=LifecycleProjectionPolicy.Nominal,label="Nominal cash amounts",requiresFunding=false},
+                    new{value=LifecycleProjectionPolicy.Accumulated,label="Accumulate cash using selected captured currency curves",requiresFunding=true}},
                 inputExpiry=new[]{Choice(LifecycleProjectionPolicy.DeclaredCurveExpiry,"Use each curve’s saved expiry treatment"),
                     Choice(LifecycleProjectionPolicy.FreezeNativeExpiry,"Hold selected native marks at expiry until final settlement")},
                 physicalDelivery=new[]{Choice(LifecycleProjectionPolicy.RetainPhysical,"Keep new delivery obligations until observed performance")}},
@@ -76,6 +80,17 @@ public sealed partial class PortfolioRiskPreview
         var (opening,books,directory)=await PreparePortfolio(connection,data,frame,request.Scope.BookIds,request.Scope.PortfolioIds,request.PricingPolicy,
             ct,tradeIds:request.Scope.TradeIds);
         return (await LifecyclePortfolioProjection.Prepare(connection,database,opening,request.Projection,null,ct),books,directory);
+    }
+
+    public async Task<object> EconomicCashFunding(NpgsqlConnection connection,PreviewData data,InputFrame frame,
+        PortfolioEconomicCashFundingRequest request,CancellationToken ct)
+    {
+        if(request?.Scope?.Context is null||request.Projection is null)
+            throw new MarketDataException("risk_economic_scope","Select the exact opening context, books, pricing and product projection policies.");
+        request.Projection.ValidateCashFundingRead();
+        var (opening,_,_)=await PreparePortfolio(connection,data,frame,request.Scope.BookIds,request.Scope.PortfolioIds,request.PricingPolicy,
+            ct,tradeIds:request.Scope.TradeIds);
+        return await LifecyclePortfolioProjection.CashFundingChoices(connection,database,opening,request.Projection,ct);
     }
 
     public async Task<object> EconomicSources(NpgsqlConnection connection,PreviewData data,InputFrame frame,

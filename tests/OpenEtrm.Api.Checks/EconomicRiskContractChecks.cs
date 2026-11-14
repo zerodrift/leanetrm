@@ -33,6 +33,10 @@ internal static class EconomicRiskContractChecks
         var cashSelection=new PortfolioCashAccumulationSelection(cashCurrency,context.SnapshotId,new(new(Guid.NewGuid(),Guid.NewGuid()),"synthetic_rates"),Guid.NewGuid(),Guid.NewGuid(),1);
         var accumulated=explicitNominal with{Policy=projection.Policy with{CashAccumulation=LifecycleProjectionPolicy.Accumulated},CashAccumulationSelections=[cashSelection]};
         accumulated.Validate();
+        (accumulated with{CashAccumulationSelections=null}).ValidateCashFundingRead();
+        Reject("projection_cash_choices",()=>accumulated.ValidateCashFundingRead());
+        Reject("projection_cash_choices",()=>projection.ValidateCashFundingRead());
+        Reject("projection_cash_policy",()=>(accumulated with{CashAccumulationSelections=null}).Validate());
         Reject("projection_cash_policy",()=>(explicitNominal with{CashAccumulationSelections=[cashSelection]}).Validate());
         Reject("projection_cash_policy",()=>(accumulated with{CashAccumulationSelections=[]}).Validate());
         Reject("projection_cash_policy",()=>(accumulated with{CashAccumulationSelections=[cashSelection,cashSelection]}).Validate());

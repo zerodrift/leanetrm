@@ -136,15 +136,19 @@ def funding_source(query,manifest,frame):
     definition,series=admitted_curve(catalog,funding,refs,code,'Synthetic cash funding',[('2021-01-18','2021-01-18')],currency='usd',
         unit='decimal_per_year',specification='test_zero_rate',source='fixture',day_count='actual_365_fixed',compounding='simple',
         interpolation='log_linear_discount',extrapolation='none')
+    unselected,_=admitted_curve(catalog,funding,refs,code+'_unpinned','Synthetic unpinned funding',[('2021-01-18','2021-01-18')],currency='usd',
+        unit='decimal_per_year',specification='test_zero_rate',source='fixture',day_count='actual_365_fixed',compounding='simple',
+        interpolation='log_linear_discount',extrapolation='none')
     query(f"BEGIN;INSERT INTO market_data.revisions VALUES('{catalog}','{funding}',{refs},'draft',0);"
           f"INSERT INTO market_data.revision_periods VALUES('{catalog}','{funding}','2020-01-01','2022-01-01');"
-          'DO $funding$ BEGIN '+definition+' END $funding$;'
+          'DO $funding$ BEGIN '+definition+unselected+' END $funding$;'
           f"UPDATE market_data.revisions SET state='sealed'WHERE(catalog_id,id)=('{catalog}','{funding}');"
           'INSERT INTO market_data.observations(catalog_id,id,definition_revision_id,series_id,reference_catalog_id,reference_revision_id,source_code,'
           'source_event_id,source_revision_id,role,publication_state,observed_at,received_at,value)'
           f"VALUES('{catalog}','{observation}','{funding}','{series[0]}',{refs},'fixture','synthetic_funding_{observation}','1','parameter','final','{frame['at']}',clock_timestamp(),0.05);"
           f"INSERT INTO trading.publications SELECT '{catalog}',max(publication_order)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';"
-          +discount_default(catalog,mapping,funding,refs,'usd',code,f"(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}')",'2020-01-01T00:00:00Z')+'COMMIT;')
+          +discount_default(catalog,mapping,funding,refs,'usd',code,f"(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}')",'2020-01-01T00:00:00Z')
+          +discount_default(catalog,str(uuid4()),funding,refs,'usd',code+'_unpinned',f"(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}')",'2020-01-02T00:00:00Z')+'COMMIT;')
     selected=json.loads(query(f"SELECT jsonb_build_object('currency',jsonb_build_object('revision',jsonb_build_object('catalogId','{reference}','revisionId','{revision}'),'code','usd'),"
         f"'snapshotId','{snapshot}','curve',jsonb_build_object('revision',jsonb_build_object('catalogId',catalog_id,'revisionId',revision_id),'code',code),"
         f"'mappingId','{mapping}','definitionId',definition_id,'definitionVersion',definition_version)FROM market_data.rate_curves WHERE(catalog_id,revision_id,code)=('{catalog}','{funding}','{code}');"))

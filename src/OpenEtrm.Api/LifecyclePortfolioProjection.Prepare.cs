@@ -14,8 +14,21 @@ namespace OpenEtrm.Api;
 internal static partial class LifecyclePortfolioProjection
 {
     private sealed record LifecycleMarketSource(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot);
+    private sealed record LifecycleSourceComponents(LifecycleMarketSource Source,ImmutableArray<ILifecycleProjection> Components,
+        ImmutableDictionary<ReferenceKey,ISideDiscounting> Curves,ImmutableArray<ValuationPortfolio> Histories,
+        ImmutableDictionary<CurveRequest,CurveKey> Officials,ImmutableArray<SchedulePriceTerm> ActivePrices);
+    private sealed record Assembly(LifecycleHorizonSource Horizon,ImmutableArray<LifecycleSourceComponents> Sources,
+        ImmutableArray<JsonElement> ProductEvidence,ImmutableArray<FuturesOptionCalibrationReceipt> Receipts,
+        ImmutableArray<LifecycleEconomicOwnerDescription> AdditionalOwners);
     internal static async Task<PreparedLifecyclePortfolio> Prepare(NpgsqlConnection connection,PreviewDatabase database,
         PortfolioValuation.Prepared opening,PortfolioEconomicProjectionRequest request,ImmutableArray<ConnectedMarketEvidence>? retainedGraphs,CancellationToken ct)
+    {
+        request.Validate();
+        var assembled=await Assemble(connection,database,opening,request,ct);
+        return await Finish(connection,database,opening,request,assembled,retainedGraphs,ct);
+    }
+    private static async Task<Assembly> Assemble(NpgsqlConnection connection,PreviewDatabase database,
+        PortfolioValuation.Prepared opening,PortfolioEconomicProjectionRequest request,CancellationToken ct)
     {
         var horizon=await ReadHorizon(connection,database,opening,request,ct);
         var scope=opening.OpeningScope??throw Error("projection_scope","Retain the original opening market and exact book/holding scope.");
@@ -26,8 +39,8 @@ internal static partial class LifecyclePortfolioProjection
         if(!gasPresent&&!request.GasOwned.IsEmpty)throw Error("projection_gas_policy","The selected source has no independent gas quantity owners for these account profiles.");
         if(!FuturesMarginValuationPolicy.IsNative(opening.Policy.FuturesConvention))
             throw Error("projection_futures_state","Economic risk requires the explicit native margin remaining-value profile.");
-        var sources=ImmutableArray.CreateBuilder<(LifecycleMarketSource Source,ImmutableArray<ILifecycleProjection> Components,ImmutableDictionary<ReferenceKey,ISideDiscounting> Curves,ImmutableArray<ValuationPortfolio> Histories,ImmutableDictionary<CurveRequest,CurveKey> Officials,ImmutableArray<SchedulePriceTerm> ActivePrices)>();
-        var productEvidence=ImmutableArray.CreateBuilder<JsonElement>();var finalEvidence=ImmutableArray.CreateBuilder<JsonElement>();var receipts=ImmutableArray.CreateBuilder<FuturesOptionCalibrationReceipt>();
+        var sources=ImmutableArray.CreateBuilder<LifecycleSourceComponents>();
+        var productEvidence=ImmutableArray.CreateBuilder<JsonElement>();var receipts=ImmutableArray.CreateBuilder<FuturesOptionCalibrationReceipt>();
         var additionalOwners=ImmutableArray.CreateBuilder<LifecycleEconomicOwnerDescription>();
         foreach(var group in opening.Sources.GroupBy(s=>s.Snapshot.Definitions).OrderBy(g=>g.Key.RevisionId))
         {
@@ -172,7 +185,7 @@ internal static partial class LifecyclePortfolioProjection
                     }
                 }
             }
-            sources.Add((new(first.Data,first.Frame,first.Snapshot),components.ToImmutable(),curves.ToImmutable(),histories.ToImmutable(),officials.ToImmutable(),[..activePrices.Distinct()]));
+            sources.Add(new(new(first.Data,first.Frame,first.Snapshot),components.ToImmutable(),curves.ToImmutable(),histories.ToImmutable(),officials.ToImmutable(),[..activePrices.Distinct()]));
         }
         if(knownGas is not null)
         {
@@ -187,8 +200,25 @@ internal static partial class LifecyclePortfolioProjection
             additionalOwners.AddRange(preparedGas.AdditionalOwners);
         }
         foreach(var input in opening.InputMarkets.Where(m=>!sources.Any(s=>s.Source.Snapshot.Definitions==m.Snapshot.Definitions)))
-            sources.Add((new(input.Data,input.Frame,input.Snapshot),[],ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty,[],
+            sources.Add(new(new(input.Data,input.Frame,input.Snapshot),[],ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty,[],
                 ImmutableDictionary<CurveRequest,CurveKey>.Empty,[]));
+        return new(horizon,sources.ToImmutable(),productEvidence.ToImmutable(),receipts.ToImmutable(),additionalOwners.ToImmutable());
+    }
+    internal static async Task<JsonElement> CashFundingChoices(NpgsqlConnection connection,PreviewDatabase database,
+        PortfolioValuation.Prepared opening,PortfolioEconomicProjectionRequest request,CancellationToken ct)
+    {
+        request.ValidateCashFundingRead();
+        var assembled=await Assemble(connection,database,opening,request,ct);
+        return await LifecycleCashAccumulationInputs.Choices(connection,database,opening,request,
+            [..assembled.Sources.SelectMany(s=>s.Components).Select(c=>c.Currency).Distinct()],ct);
+    }
+    private static async Task<PreparedLifecyclePortfolio> Finish(NpgsqlConnection connection,PreviewDatabase database,
+        PortfolioValuation.Prepared opening,PortfolioEconomicProjectionRequest request,Assembly assembled,
+        ImmutableArray<ConnectedMarketEvidence>? retainedGraphs,CancellationToken ct)
+    {
+        var horizon=assembled.Horizon;var sources=assembled.Sources;
+        var scope=opening.OpeningScope??throw Error("projection_scope","Retain the original opening market and exact book/holding scope.");
+        var productEvidence=assembled.ProductEvidence.ToBuilder();var finalEvidence=ImmutableArray.CreateBuilder<JsonElement>();
         var allComponents=sources.SelectMany(s=>s.Components).ToImmutableArray();
         var allOfficials=sources.SelectMany(s=>s.Officials).GroupBy(p=>p.Key).ToImmutableDictionary(g=>g.Key,g=>g.Select(p=>p.Value).Distinct().Single());
         var common=opening.Policy.NativeFutures?.Economic is null?null:CustomCurves.CompleteContext(scope.Frame,scope.Snapshot,opening.Context);
@@ -237,8 +267,8 @@ internal static partial class LifecyclePortfolioProjection
         if(!LifecycleEconomicRisk.Factors(projections.ToImmutable()).Select(f=>f.Input).ToHashSet().SetEquals(markets.SelectMany(m=>m.Factors).Select(f=>f.Input)))
             throw Error("projection_source","Every projected native factor requires its exact retained market and complete history-source partition.");
         return LifecycleEconomicOwners.Attach(new(request,horizon.Evidence,projections.ToImmutable(),opening with{Markets=markets.ToImmutable()},
-            productEvidence.ToImmutable(),receipts.ToImmutable(),finalEvidence.ToImmutable()){
-            CashAccumulationEvidence=accumulation.Evidence,CashAccumulationInputs=accumulation.Inputs},additionalOwners.ToImmutable());
+            productEvidence.ToImmutable(),assembled.Receipts,finalEvidence.ToImmutable()){
+            CashAccumulationEvidence=accumulation.Evidence,CashAccumulationInputs=accumulation.Inputs},assembled.AdditionalOwners);
     }
     private static async Task<DateTimeOffset> ConfigurationAuthority(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
     {

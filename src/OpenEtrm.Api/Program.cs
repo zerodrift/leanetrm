@@ -2022,6 +2022,9 @@ api.MapPost("/portfolio/risk/history",(HttpContext c,PortfolioHistoryRequest bod
 api.MapPost("/portfolio/risk/economic/sources",(HttpContext c,PortfolioEconomicSourceRequest body)=>PortfolioRead(c,
     body.Scope?.Context??throw new MarketDataException("risk_economic_scope","Select the exact economic opening scope."),
     (connection,data,frame,ct)=>portfolioRisk.EconomicSources(connection,data,frame,body,ct)));
+api.MapPost("/portfolio/risk/economic/cash-funding",(HttpContext c,PortfolioEconomicCashFundingRequest body)=>PortfolioRead(c,
+    body.Scope?.Context??throw new MarketDataException("risk_economic_scope","Select the exact economic opening scope."),
+    (connection,data,frame,ct)=>portfolioRisk.EconomicCashFunding(connection,data,frame,body,ct)));
 api.MapPost("/portfolio/risk/economic/setup",(HttpContext c,PortfolioRiskCatalogRequest body)=>PortfolioRead(c,
     body.Context??throw new MarketDataException("risk_economic_scope","Select the exact economic opening scope."),
     (connection,data,frame,ct)=>portfolioRisk.EconomicSetup(connection,data,frame,body,ct)));

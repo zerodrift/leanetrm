@@ -331,7 +331,14 @@ mappings, omitted sources and a fabricated rate-only price axis. Historical and
 Monte Carlo workers reproduce the complete interactive result, including an
 independent signed rational cash oracle, with no financial writes. Original
 authority expiry still refuses a source read under a live successor grant.
-Authorized choice discovery and UI controls remain separate qualification gates.
+The authorized funding metadata operation shares product assembly with the
+financial consumer and derives the complete component currency set before
+funding is selected. It offers only native mappings whose tenors have complete,
+visible, unfrozen final inputs in the original source matrix. An unpinned curve
+does not block an eligible curve; no eligible curves produce an empty choice
+set under the same original read deadline. Effective instants are separate
+presentation fields. The metadata request cannot contain a financial funding
+selection. UI controls remain a separate qualification gate.
 
 Retained scheduled-swap reads share exact invoker relational projections for
 their native period inputs. They preserve the predecessor's complete JSON and
