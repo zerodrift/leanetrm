@@ -66,6 +66,7 @@ public abstract class PreparedValuationEnvironment
     internal virtual CurveBuild? NativeIntervalScenario=>null;
     internal virtual CurveBuild? NativeProgramBasis=>null;
     internal abstract ExactUnitPrice Price(CurveRequest request,CancellationToken cancellation);
+    internal abstract void RequirePriceSource(Calculation.CapturedPriceSource source,CancellationToken cancellation);
     internal virtual UnitPrice WorkingPrice(CurveRequest request,CancellationToken cancellation)=>Price(request,cancellation).ToUnitPriceExact();
     internal abstract ImmutableHashSet<ObservationKey> Lineage(CurveRequest request,CancellationToken cancellation);
     internal abstract ImmutableArray<QuoteFactor> Factors(ImmutableArray<CurveRequest> requests,CancellationToken cancellation);

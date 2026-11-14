@@ -22,6 +22,13 @@ public sealed class ConnectedValuation
     }
     private ConnectedValuation(ConnectedScenario scenario,MarketSnapshot snapshot,ImmutableArray<MarketSnapshot> sourceSnapshots)
     {Scenario=scenario;Snapshot=snapshot;SourceSnapshots=sourceSnapshots;}
+    private bool AdmitsInputs(MarketSnapshot selected)
+    {
+        if(Snapshot.HasSameInputs(selected)||SourceSnapshots.Any(s=>s.HasSameInputs(selected)))return true;
+        var views=SourceSnapshots.Prepend(Snapshot).Where(s=>s.Id==selected.Id&&s.Definitions==selected.Definitions&&
+            s.ValuationAt==selected.ValuationAt&&s.MarketCutoff==selected.MarketCutoff&&s.SelectionPolicy==selected.SelectionPolicy&&s.Knowledge==selected.Knowledge).ToArray();
+        return views.Length>0&&selected.Selections.All(input=>views.Any(s=>s.Selections.Contains(input)));
+    }
 
     // Validate the shared source closure once, outside the per-instrument loop.
     public static ConnectedValuation Prepare(ConnectedScenario scenario,MarketSnapshot snapshot,CancellationToken cancellation=default)
@@ -171,6 +178,13 @@ public sealed class ConnectedValuation
         private CurvePointKey Point(CurveRequest request)=>bindings.TryGetValue(request,out var point)?point:
             throw new MarketDataException("risk_dependency","The exact connected pricing binding is unavailable.");
         internal override ExactUnitPrice Price(CurveRequest request,CancellationToken cancellation)=>valuation.Scenario.Price(Point(request),cancellation);
+        internal override void RequirePriceSource(CapturedPriceSource source,CancellationToken cancellation)
+        {
+            RequireDiscountSource(source.Snapshot);
+            if(source.Valuation.SourceSnapshots.Any(s=>!valuation.AdmitsInputs(s))||
+                !valuation.Scenario.Plan.HasSameCalculation(Point(source.Market),source.Valuation.Scenario.Plan,source.Point,cancellation))
+                throw new MarketDataException("risk_dependency","The declared price must retain its exact admitted source calculation and complete dependency evidence.");
+        }
         private ConnectedInputClosure Sources(ImmutableArray<CurveRequest> requests,CancellationToken cancellation)
             =>evidence.Resolve(requests.Select(Point).ToImmutableArray(),cancellation);
         internal override ImmutableHashSet<ObservationKey> Lineage(CurveRequest request,CancellationToken cancellation)

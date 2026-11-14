@@ -421,3 +421,11 @@ remains unchanged. Independent checks qualify signed pending value, negative-rat
 discounts, same-clock reset plus cash, intermediate daily reset and explicit
 no-shock funding carry. Native full-portfolio policy/source wiring remains a
 separate delivery gate.
+
+An explicit captured price source binds a declared request to its original
+admitted graph point. Exact expression and resolved dependency evidence must
+match through the complete subgraph, including foreign and historical source
+samples and their original certified inputs. Independently admitted partial
+views may cover the same exact source frame; another certificate cannot.
+Structural comparison is reusable across immutable price scenarios and checks
+no shocked level against its base. Source authorization remains operation-owned.

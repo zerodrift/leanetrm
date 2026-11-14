@@ -352,6 +352,7 @@ public sealed class PreparedLifecycleProjection
         internal override ExactDecimal VolatilityOffset(Guid input)=>source.VolatilityOffset(input);
         internal override ImmutableHashSet<Guid> ShiftedVolatilityInputs=>source.ShiftedVolatilityInputs;
         internal override ExactUnitPrice Price(CurveRequest request,CancellationToken cancellation)=>source.Price(request,cancellation);
+        internal override void RequirePriceSource(CapturedPriceSource selected,CancellationToken cancellation)=>source.RequirePriceSource(selected,cancellation);
         internal override ImmutableHashSet<ObservationKey> Lineage(CurveRequest request,CancellationToken cancellation)=>source.Lineage(request,cancellation);
         internal override ImmutableArray<QuoteFactor> Factors(ImmutableArray<CurveRequest> requests,CancellationToken cancellation)=>source.Factors(requests,cancellation);
         internal override bool Compatible(PreparedValuationEnvironment prior)=>ReferenceEquals(this,prior);

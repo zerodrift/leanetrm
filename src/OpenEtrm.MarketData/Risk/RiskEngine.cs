@@ -106,6 +106,11 @@ public sealed class PricingInputs
     }
     public ExactUnitPrice ExactPrice(CurveRequest request)=>permitted.Contains(request)?market.Price(request,cancellation):
         throw new MarketDataException("risk_dependency","A pricer requested an undeclared or unavailable market input.");
+    public void RequireSource(Calculation.CapturedPriceSource source)
+    {
+        if(source is null||!permitted.Contains(source.Market))throw new MarketDataException("risk_dependency","A captured source requires its exact declared price dependency.");
+        market.RequirePriceSource(source,cancellation);
+    }
     public UnitPrice Price(CurveRequest request)=>permitted.Contains(request)?market.WorkingPrice(request,cancellation):
         throw new MarketDataException("risk_dependency","A pricer requested an undeclared or unavailable market input.");
 }
