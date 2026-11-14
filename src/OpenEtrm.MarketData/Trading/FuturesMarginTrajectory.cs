@@ -10,6 +10,8 @@ public sealed record FuturesMarginPolicy(Guid Id,int Revision,ContractKey Contra
     FuturesMarginOpening Opening,string Implementation)
 {
     public const string Version="dated_futures_margin_policy_v1";
+    public const string DeliveryVersion="dated_futures_margin_policy_v2";
+    public FuturesFinalDeliveryConfiguration? Delivery{get;init;}
 }
 // The latest visible native determination of an occurrence, selected at the
 // operation's certified cutoff. Payments are not part of this input or proposal.
@@ -26,7 +28,8 @@ public sealed record FuturesMarginStep(FuturesMarginOccurrence Occurrence,Guid? 
     ExactUnitPrice PreviousBasis,FuturesSettlementFact Evidence,ExactMoney ExactVariation,Money Variation,
     ExactMoney Adjustment,DateTimeOffset? AdjustmentDue,ExactMoney RoundingEffect,bool NoChange);
 public sealed record FuturesMarginTrajectory(MeasureBinding Owner,Guid BookId,FuturesMarginPolicy Policy,
-    ProposedFuturesMarginBasis Basis,ImmutableArray<FuturesMarginStep> Steps);
+    ProposedFuturesMarginBasis Basis,ImmutableArray<FuturesMarginStep> Steps)
+{public FuturesFinalDeliveryPlan? FinalDelivery{get;init;}}
 
 public sealed partial record FuturesContract
 {
@@ -142,7 +145,9 @@ public sealed partial record FuturesContract
             throw TimelineError("futures_margin_correction_due","Supply due terms only for the nonzero correction adjustments in this exact closure.");
         var final=prefix[^1];
         return new(new(trade!.Id,bindingId),trade.BookId,policy,new(previous,final.At,
-            final.Phase==FuturesMarginPhase.Final?FuturesMarginStatus.FinalMarginDetermined:FuturesMarginStatus.Open),steps.ToImmutable());
+            final.Phase==FuturesMarginPhase.Final?FuturesMarginStatus.FinalMarginDetermined:FuturesMarginStatus.Open),steps.ToImmutable())
+            {FinalDelivery=final.Phase==FuturesMarginPhase.Final&&policy.Delivery is {} delivery?
+                FuturesFinalDeliveryPlan.Create(this,holding.Quantity,delivery.Terms,previous):null};
     }
 
     private static int MarginLast(ImmutableArray<FuturesMarginOccurrence> events,Dictionary<Guid,int> index,Guid through,
@@ -175,7 +180,7 @@ public sealed partial record FuturesContract
 
     private void RequireMarginPolicy(FuturesMarginPolicy policy,FuturesMarketBinding market,MarketSnapshot context)
     {
-        if(policy is null||policy.Implementation!=FuturesMarginPolicy.Version||policy.Id==Guid.Empty||policy.Revision<1||
+        if(policy is null||policy.Implementation is not(FuturesMarginPolicy.Version or FuturesMarginPolicy.DeliveryVersion)||policy.Id==Guid.Empty||policy.Revision<1||
             policy.Contract!=market.Contract.Key||context.Definitions!=policy.Contract.Revision||
             policy.SettlementCurve.Revision!=policy.Contract.Revision||string.IsNullOrWhiteSpace(policy.SettlementCurve.Code)||
             !TradingInstant.IsSupported(policy.From)||!TradingInstant.IsSupported(policy.Until)||policy.From>=policy.Until||
@@ -188,6 +193,14 @@ public sealed partial record FuturesContract
             policy.Occurrences.Count(e=>e.Phase==FuturesMarginPhase.Final)!=1)
             throw TimelineError("futures_margin_policy","Select an exact complete dated margin policy and explicit opening/rounding conventions.");
         policy.Rounding.Require(Currency,CashRoundingStage.PaymentTotal);
+        if(policy.Implementation==FuturesMarginPolicy.Version&&policy.Delivery is not null||
+            policy.Implementation==FuturesMarginPolicy.DeliveryVersion&&(Series.SettlementMethod=="physical")!=(policy.Delivery is not null))
+            throw TimelineError("futures_margin_policy","Select the explicit physical delivery profile for this policy version and settlement method.");
+        if(policy.Delivery is {} delivery&&(delivery.ProfileId==Guid.Empty||delivery.ProfileRevision<1||delivery.Terms is null||
+            delivery.Terms.Id==Guid.Empty||delivery.Terms.Series!=SeriesKey||delivery.Terms.Quantity!=UnitQuantity.Specification||
+            delivery.Terms.Currency!=Currency||!TradingInstant.IsSupported(delivery.Terms.From)||!TradingInstant.IsSupported(delivery.Terms.To)||
+            delivery.Terms.From<policy.Occurrences.Single(e=>e.Phase==FuturesMarginPhase.Final).At||delivery.Terms.From>=delivery.Terms.To))
+            throw TimelineError("futures_margin_policy","Delivery must retain exact profile terms and begin at or after the selected final occurrence.");
     }
 
     private void RequireMarginFact(FuturesMarketBinding market,FuturesMarginPolicy policy,FuturesMarginOccurrence occurrence,FuturesSettlementFact fact,MarketSnapshot context)
@@ -204,7 +217,10 @@ public sealed partial record FuturesContract
         if(!price.Value.IsMultipleOf(market.Quote.ClearingIncrement)||price.Value.CompareTo(market.Quote.Minimum)<0||price.Value.CompareTo(market.Quote.Maximum)>0)
             throw TimelineError("futures_settlement_evidence","The settlement must satisfy its native quotation domain and clearing grid.");
         if(occurrence.Phase==FuturesMarginPhase.Final&&Series.SettlementMethod!="cash")
-            throw TimelineError("futures_delivery_transition","A physical final occurrence requires its qualified delivery adapter.");
+        {
+            if(policy.Delivery is not {} delivery)throw TimelineError("futures_delivery_transition","A physical final occurrence requires its qualified delivery adapter.");
+            _=FuturesFinalDeliveryPlan.Create(this,LotSize,delivery.Terms,fact.Price);
+        }
     }
     private static MarketDataException TimelineError(string code,string message)=>new(code,message);
 

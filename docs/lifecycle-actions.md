@@ -1,5 +1,13 @@
 # Lifecycle actions
 
+The pure physical-final boundary accepts an exact version-two delivery
+configuration, computes final variation margin, and creates a separate ordinary
+delivery obligation. It creates no stock or title. Accepted physical margin
+state must retain the exact obligation, quantity, basis and atomic final
+publication; configuration windows cannot precede the final occurrence. Focused
+trajectory checks qualify these contracts. Native delivery configuration,
+acceptance, performance and principal/payment integration remain in progress.
+
 Lifecycle discovery, review and execution use one managed handler registry. The
 registry dispatches a typed native target; product operations retain ownership of
 financial terms, calculations, records and corrections. A target may be a trade

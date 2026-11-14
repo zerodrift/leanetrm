@@ -132,6 +132,52 @@ internal static class FuturesMarginTrajectoryChecks
             dues.ToImmutableDictionary(p=>p.Key,p=>learnedLate.AddDays(1)));
         Equal(late.Steps[0].Adjustment,"40");Equal(late.Steps[1].Adjustment,"-40");
         Console.WriteLine("PASS futures margin trajectory: successor corrections, zero-cash basis changes, explicit due terms and complete coverage");
+        PhysicalFinal();
+    }
+    private static void PhysicalFinal()
+    {
+        var f=new Fixture();var quote=f.Quotes[0];var contract=f.Contracts[0];var at=contract.Expiry;
+        var series=new FuturesSeriesSpecification(f.R("future_jan"),quote.Quantity,quote.Currency,quote.Multiplier,quote.TradingTick,
+            f.R("location"),f.R("uniform"),contract.DeliveryFrom,contract.DeliveryTo,at,quote.Quantity,ExactDecimal.Parse("40"),LotBasis.FixedTotal,
+            Fixture.Utc("2040-01-01T00:00:00Z"),"physical");
+        var market=new FuturesMarketBinding(Guid.NewGuid(),new(f.C("future"),contract.Key),contract,series,quote,"physical",FuturesMarketBinding.Implementation);
+        var model=new CurveModel(f.Revision,f.Reference,f.Quantities,[quote],[contract],[f.Curves[0]],[series],[],[new(f.S(1),contract.Key,quote.Key,null)]);
+        var binding=Guid.NewGuid();var trade=new Trade(Guid.NewGuid(),Guid.NewGuid(),[FuturesExecution.Bind(binding,market,ExactDecimal.Parse("2"),
+            new(ExactDecimal.Parse("3"),quote),at.AddDays(-1),FuturesSettlementState.Unprocessed)]);
+        var terms=new OpenEtrm.MarketData.Gas.GasPhysicalDeliveryTerms(Guid.NewGuid(),series.Key,quote.Quantity,quote.Currency,series.Location,
+            at,at.AddDays(30),at.AddDays(35),new(f.C("future"),contract.Key),OpenEtrm.MarketData.Gas.GasHoldingCarrying.Nominal,
+            OpenEtrm.MarketData.Gas.GasPhysicalDeliveryTerms.Version);
+        var occurrence=new FuturesMarginOccurrence(Guid.NewGuid(),at,at.AddDays(1),FuturesMarginPhase.Final);
+        var rounding=new CashRoundingConvention(quote.Currency,ExactDecimal.Parse("0.01"),CashTieRule.ToEven,CashRoundingStage.PaymentTotal);
+        var policy=new FuturesMarginPolicy(Guid.NewGuid(),1,contract.Key,f.C("future"),at.AddDays(-2),at.AddDays(2),[occurrence],rounding,
+            FuturesMargin.HeldBindingRounding,FuturesMarginOpening.AfterOpeningInstant,FuturesMarginPolicy.DeliveryVersion)
+            {Delivery=new(Guid.NewGuid(),1,terms)};
+        var selected=f.Select(1,QuoteKind.Outright,"gas_out","5");
+        selected=selected with{Input=selected.Input with{Use=InputUse.FrozenFact},Observation=selected.Observation with{ObservedAt=at,Role=ObservationRole.FinalContractSettlement}};
+        var context=(f.Snapshot() with{ValuationAt=at,MarketCutoff=at,Selections=[selected]}).WithKnowledge(Guid.NewGuid(),at);
+        var fact=market.Instrument.ResolveSettlementFact(market,policy.SettlementCurve,model,context,selected.Observation.Key,at,at,true);
+        FuturesMarginTrajectory Plan(FuturesMarginPolicy p)=>market.Instrument.PlanMarginTrajectory(trade,binding,p,context,occurrence.Id,
+            ImmutableDictionary<Guid,FuturesSettlementFact>.Empty.Add(occurrence.Id,fact),
+            new(new(new(trade.Id,binding),trade.BookId,trade.Instruments[0].Quantity,new(ExactDecimal.Parse("3"),quote),at.AddDays(-1),p),
+                context.Knowledge!.ContextId,at,[]),ImmutableDictionary<Guid,DateTimeOffset>.Empty);
+        var plan=Plan(policy);
+        if(plan.Basis.Status!=FuturesMarginStatus.FinalMarginDetermined||plan.Steps.Single().Variation.Amount!=ExactDecimal.Parse("160")||
+            plan.FinalDelivery?.Obligation is not OpenEtrm.MarketData.Gas.GasPhysicalDeliveryObligationInstrument||
+            plan.FinalDelivery.Quantity.Amount!=ExactDecimal.Parse("80"))
+            throw new Exception("Physical final must preserve final VM and a separately valued full signed delivery obligation.");
+        Reject("futures_margin_policy",()=>Plan(policy with{Delivery=null}));
+        Reject("futures_margin_policy",()=>Plan(policy with{Delivery=policy.Delivery! with{ProfileRevision=0}}));
+        Reject("futures_margin_policy",()=>Plan(policy with{Delivery=policy.Delivery! with{Terms=new OpenEtrm.MarketData.Gas.GasPhysicalDeliveryTerms(Guid.NewGuid(),series.Key,
+            quote.Quantity,quote.Currency,series.Location,at.AddHours(-1),at.AddDays(30),at.AddDays(35),terms.Mark,terms.Carrying,terms.Implementation)}}));
+        Reject("futures_delivery_transition",()=>Plan(policy with{Implementation=FuturesMarginPolicy.Version,Delivery=null}));
+        var native=new FuturesMarginState(trade.Id,binding,trade.BookId,trade.Instruments[0].Quantity,series.Key,fact.Price,at,at,
+            FuturesMarginState.Version,FuturesMarginStatus.FinalMarginDetermined,fact,context.Knowledge!.ContextId,at.AddDays(1),2,3)
+            {AcceptedDelivery=new(Guid.NewGuid(),policy.Delivery!.ProfileId,1,plan.FinalDelivery!,at,3)};
+        FuturesMargin.Require(native,market.Instrument);
+        Reject("futures_margin_state",()=>FuturesMargin.Require(native with{AcceptedDelivery=null},market.Instrument));
+        Reject("futures_margin_state",()=>FuturesMargin.Require(native with{AcceptedDelivery=native.AcceptedDelivery! with{PublicationOrder=2}},market.Instrument));
+        Reject("futures_margin_state",()=>FuturesMargin.Require(native with{AcceptedDelivery=native.AcceptedDelivery! with{KnownAt=at.AddHours(1)}},market.Instrument));
+        Console.WriteLine("PASS qualified physical final trajectory: pinned continuation, exact final VM and no title before performance");
     }
     static void Reject(string code,Action action)
     {try{action();}catch(MarketDataException e)when(e.Code==code){return;}throw new Exception($"Expected {code}.");}

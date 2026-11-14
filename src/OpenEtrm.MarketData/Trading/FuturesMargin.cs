@@ -10,6 +10,7 @@ public sealed record FuturesMarginState(Guid TradeId,Guid BindingId,Guid? BookId
     FuturesSettlementFact? LatestSettlement,Guid SourceContextId,DateTimeOffset KnownThrough,int StateRevision,int PublicationOrder):IBindingValuationState
 {
     public const string Version="futures_variation_margin_v1";
+    public AcceptedFuturesFinalDelivery? AcceptedDelivery{get;init;}
 }
 // Native operations resolve this evidence from the captured observation set;
 // it is not a client command/request type.
@@ -54,8 +55,17 @@ public static class FuturesMargin
             fact.KnownAt>state.KnownAt||fact.Role!=(state.Status==FuturesMarginStatus.FinalMarginDetermined?ObservationRole.FinalContractSettlement:ObservationRole.DailySettlement)))
             throw Error("futures_margin_state","The settlement basis must retain its accepted source fact.");
         if(state.Status==FuturesMarginStatus.FinalMarginDetermined&&
-            (instrument.Series.SettlementMethod!="cash"||state.SettledAt<instrument.Series.LastTradingAt||state.LatestSettlement is null))
+            (state.SettledAt<instrument.Series.LastTradingAt||state.LatestSettlement is null))
             throw Error("futures_margin_state","Final margin requires the terminal milestone and accepted final-settlement evidence.");
+        if(state.Status==FuturesMarginStatus.FinalMarginDetermined&&instrument.Series.SettlementMethod=="physical")
+        {
+            if(state.AcceptedDelivery is not {} delivery||delivery.PositionId==Guid.Empty||delivery.ProfileId==Guid.Empty||delivery.ProfileRevision<1||
+                delivery.Plan is null||!TradingInstant.IsSupported(delivery.KnownAt)||delivery.KnownAt!=state.KnownAt||
+                delivery.PublicationOrder!=state.PublicationOrder||delivery.Plan.Terms.From<state.SettledAt)
+                throw Error("futures_margin_state","Accepted physical final margin requires its exact surviving native delivery obligation.");
+            delivery.Plan.Require(instrument,state.Quantity,state.SettledBasis);
+        }
+        else if(state.AcceptedDelivery is not null)throw Error("futures_margin_state","A delivery obligation belongs only to accepted physical final margin.");
     }
 
     public static FuturesMarginProposal Determine(FuturesMarginState state,FuturesMarketBinding binding,FuturesSettlementFact fact,

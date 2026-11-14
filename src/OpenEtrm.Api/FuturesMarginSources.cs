@@ -15,7 +15,7 @@ internal static class FuturesMarginSources
     {
         var exact=PinnedContext.Exact(context);
         frame.Time.RequireDate(DateWorkspace.Date(exact.EffectiveOn));
-        if(frame.ContextId!=exact.ContextId||policy.Implementation!=FuturesMarginPolicy.Version||policy.Contract!=binding.Contract.Key||
+        if(frame.ContextId!=exact.ContextId||policy.Implementation is not(FuturesMarginPolicy.Version or FuturesMarginPolicy.DeliveryVersion)||policy.Contract!=binding.Contract.Key||
             occurrences.IsDefaultOrEmpty||occurrences.Any(o=>o is null)||occurrences.Select(o=>o.Id).Distinct().Count()!=occurrences.Length)
             throw Invalid("Supply the adopted policy, exact occurrences and bound certified context.");
         var source=binding.Instrument.SettlementSource(binding,policy.SettlementCurve,data.Model);

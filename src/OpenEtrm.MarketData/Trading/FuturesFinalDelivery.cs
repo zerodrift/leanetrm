@@ -14,6 +14,10 @@ public interface IFuturesFinalDeliveryTerms
     Instrument CreateObligation(ExactUnitPrice finalPrice);
 }
 
+public sealed record FuturesFinalDeliveryConfiguration(Guid ProfileId,int ProfileRevision,IFuturesFinalDeliveryTerms Terms);
+public sealed record AcceptedFuturesFinalDelivery(Guid PositionId,Guid ProfileId,int ProfileRevision,FuturesFinalDeliveryPlan Plan,
+    DateTimeOffset KnownAt,int PublicationOrder);
+
 public sealed record FuturesFinalDeliveryPlan
 {
     public IFuturesFinalDeliveryTerms Terms{get;}
