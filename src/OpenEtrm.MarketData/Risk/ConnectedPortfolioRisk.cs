@@ -166,8 +166,8 @@ public static partial class RiskEngine
         if(portfolios.Any(p=>p.Instruments.Any(i=>i.RequiresNativeProgramMarket)))
             intervalBasis??=authority??throw Error("native_program_context","Retained programs require the complete qualified native market authority.");
         var market=valuation.Market(bindings,authority,cancellation,intervalBasis?.BindConnected(valuation,bindings,cancellation));
-        var factors=portfolios.SelectMany((portfolio,n)=>portfolio.RiskFactors(market,contracts[n],cancellation))
-            .SelectMany(book=>book.Factors).DistinctBy(factor=>factor.Input).OrderBy(factor=>factor.Input.Series.Id).ToImmutableArray();
+        var factors=QuoteFactors.Union(portfolios.SelectMany((portfolio,n)=>portfolio.RiskFactors(market,contracts[n],cancellation))
+            .SelectMany(book=>book.Factors));
         var prepared=new PreparedConnectedPortfolioRisk(valuation,market,portfolios,contracts,factors,bindings,intervalBasis:intervalBasis);
         market.RequireInputs(contracts.SelectMany(g=>g));
         return prepared;

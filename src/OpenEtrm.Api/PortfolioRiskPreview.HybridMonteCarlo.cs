@@ -56,8 +56,8 @@ public sealed partial class PortfolioRiskPreview
             foreach(var market in prepared.Portfolio.Markets)
             {
                 ct.ThrowIfCancellationRequested();
-                var shifts=sample.Shifts.Where(s=>s.Axis.Market==market.Snapshot.Definitions)
-                    .Select(s=>new CurveShift(s.Axis.Coordinate,s.Axis.Target,s.Axis.Unit,s.Size,CurveShift.ParentAdditive)).ToImmutableArray();
+                var shifts=sample.Shifts.Select(s=>CurveRiskAxes.InMarket(s.Axis,market,ct) is {} axis?
+                    new CurveShift(axis.Coordinate,axis.Target,axis.Unit,s.Size,CurveShift.ParentAdditive):null).OfType<CurveShift>().ToImmutableArray();
                 if(!shifts.IsEmpty)market.Connected.Scenario.ValidateShifts(shifts,ct);
                 count+=shifts.Length;
             }

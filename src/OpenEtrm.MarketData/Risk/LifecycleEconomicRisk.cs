@@ -54,11 +54,9 @@ public static class LifecycleEconomicRisk
     public static ImmutableArray<QuoteFactor> Factors(ImmutableArray<PreparedLifecycleProjection> prepared)
     {
         if(prepared.IsDefaultOrEmpty||prepared.Any(p=>p is null))throw Error("risk_economic_scope","Supply the complete prepared market partitions.");
-        var groups=prepared.SelectMany(p=>p.Factors).GroupBy(f=>f.Input).ToArray();
-        if(groups.Any(g=>g.Any(f=>!SameFactor(g.First(),f))))
-            throw Error("risk_economic_history","One native factor input cannot name inconsistent source observations, units, roles or base levels across partitions.");
-        return [..groups.Select(g=>g.First() with{Curves=[..g.SelectMany(f=>f.Curves).Distinct().OrderBy(c=>c.Code,StringComparer.Ordinal)]})
-            .OrderBy(f=>f.Input.Series.Revision.CatalogId).ThenBy(f=>f.Input.Series.Revision.RevisionId).ThenBy(f=>f.Input.Series.Id)];
+        try{return QuoteFactors.Union(prepared.SelectMany(p=>p.Factors));}
+        catch(MarketDataException e)when(e.Code=="risk_factor_conflict")
+        {throw new MarketDataException("risk_economic_history","One native factor input cannot name inconsistent source observations, units, roles or base levels across partitions.",e);}
     }
     public static LifecycleEconomicRiskReport Historical(ImmutableArray<PreparedLifecycleProjection> prepared,AlignedFactorHistory history,
         LifecycleEconomicRiskPolicy policy,CancellationToken cancellation=default)
@@ -141,8 +139,7 @@ public static class LifecycleEconomicRisk
             .GroupBy(p=>p.Key).Any(g=>g.Select(p=>p.Value).Distinct().Count()!=1))
             throw Error("risk_economic_scope","Accumulated cash must use one explicitly selected retained curve version per currency across the portfolio.");
     }
-    internal static bool SameFactor(QuoteFactor a,QuoteFactor b)=>a.Input==b.Input&&a.Quote==b.Quote&&a.Unit==b.Unit&&a.Contract==b.Contract&&
-        a.Observation==b.Observation&&a.Source==b.Source&&a.Role==b.Role&&a.BaseValue==b.BaseValue&&a.TradingTick==b.TradingTick;
+    internal static bool SameFactor(QuoteFactor a,QuoteFactor b)=>QuoteFactors.SameDeclaration(a,b);
     private static string Id(int n)=>"economic_"+n.ToString("D5",System.Globalization.CultureInfo.InvariantCulture);
     private static MarketDataException Error(string code,string message)=>new(code,message);
 }

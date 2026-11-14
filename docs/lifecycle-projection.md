@@ -362,3 +362,12 @@ physical option model and native physical-future state retain the exact causal
 Gas requirement for both actor and service. Ordinary nonconsumers return before
 reading continuation policies; source scope, original deadlines and result
 revocation checks remain in place.
+
+Native market inputs can be shared by separate financial source graphs. A
+coordinate has one owning native source; copied source points and native built
+outputs require identical complete source calculations and observation evidence.
+The common shock reaches each exact current point in every consuming graph.
+Historical frozen samples retain their own identities. Factor union rejects
+conflicting native declarations and merges only declared curve reachability.
+Independent checks qualify A/B shocks, hedge cancellation, joint scenarios and
+derivatives, historical freezing and substituted upstream evidence.

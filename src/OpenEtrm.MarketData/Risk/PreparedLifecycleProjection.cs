@@ -66,10 +66,9 @@ public sealed class PreparedLifecycleProjection
         if(caps.Any(g=>g.Select(p=>p.Value).Distinct().Count()!=1)||actuals.Any(g=>g.Select(p=>p.Value).Distinct().Count()!=1))
             throw LifecycleProjection.Error("projection_input_expiry","One native input cannot have inconsistent final transitions across prepared market graphs.");
         inputFinals=caps.ToImmutableDictionary(g=>g.Key,g=>g.First().Value);actualFinals=actuals.ToImmutableDictionary(g=>g.Key,g=>g.First().Value);
-        var groups=markets.SelectMany(m=>m.Factors).GroupBy(f=>f.Input).ToArray();
-        if(groups.Any(g=>g.Any(f=>!LifecycleEconomicRisk.SameFactor(g.First(),f))))
-            throw LifecycleProjection.Error("projection_source","One native scenario input cannot have inconsistent observations or units across prepared routes.");
-        Factors=[..groups.Select(g=>g.First() with{Curves=[..g.SelectMany(f=>f.Curves).Distinct()]})];
+        try{Factors=QuoteFactors.Union(markets.SelectMany(m=>m.Factors));}
+        catch(MarketDataException e)when(e.Code=="risk_factor_conflict")
+        {throw new MarketDataException("projection_source","One native scenario input cannot have inconsistent observations or units across prepared routes.",e);}
         CashCurveIdentities=[..markets.SelectMany(m=>m.CashCurves.Select(p=>new KeyValuePair<ReferenceKey,ProjectionCurrencyCurveKey>(p.Key,((IProjectionCurrencyCurve)p.Value).CurveIdentity)))];
         if(policy.CashAccumulation==LifecycleProjectionPolicy.Accumulated&&(components.Any(c=>!Select(c,c.SourceSnapshot).CashCurves.ContainsKey(c.Currency))||
             CashCurveIdentities.GroupBy(p=>p.Key).Any(g=>g.Select(p=>p.Value).Distinct().Count()!=1)))

@@ -146,8 +146,45 @@ internal static class CurveRiskAxes
         if(request is null)throw Invalid("scenario_target","Select an explicit curve factor.");
         var coordinate=Coordinate(request.Coordinate);var target=Target(request.Target);
         var markets=Index(prepared,ct).Curves.GetValueOrDefault(target.Curve,[]);
+        if(markets.Length>1)
+        {
+            var native=markets.Where(m=>m.Snapshot.Definitions==target.Curve.Revision).ToArray();
+            if(native.Length!=1)throw Invalid("scenario_target","A shared native coordinate requires its exact owning source market.");
+            foreach(var copy in markets.Where(m=>!ReferenceEquals(m,native[0])))
+                foreach(var point in Index(copy,ct).Curves[target.Curve].Where(p=>Public(p,coordinate)&&!Historical(p)))
+                    RequireSharedNative(native[0].Connected.Scenario.Plan,copy.Connected.Scenario.Plan,point.Key,ct);
+            return Resolve(native[0],coordinate,target,ct);
+        }
         if(markets.Length!=1)throw Invalid("scenario_target","The exact curve must belong to one prepared financial market.");
         return Resolve(markets[0],coordinate,target,ct);
+    }
+    internal static PortfolioRiskAxis? InMarket(PortfolioRiskAxis axis,PortfolioValuation.MarketPartition market,CancellationToken ct)
+    {
+        if(axis.Market==market.Snapshot.Definitions)return axis;
+        var plan=market.Connected.Scenario.Plan;
+        var points=axis.Points.Where(key=>plan.Points.TryGetValue(key,out var point)&&Public(point,axis.Coordinate)).ToImmutableArray();
+        if(points.IsEmpty)return null;
+        if(points.Any(key=>plan.Points[key].Unit!=axis.Unit))throw Invalid("unit_mismatch","A shared native quote requires its exact canonical price unit in every market graph.");
+        ct.ThrowIfCancellationRequested();
+        return axis with{Target=new PointCurveTarget(axis.Target.Curve,[..points.Select(p=>p.PointId)]),Points=points};
+    }
+    private static bool Historical(ConnectedCurvePoint point)=>point.Expression switch
+    {ConnectedSource{Sample:{FreezeHistorical:true}}=>true,ConnectedBuiltCurve{Sample.FreezeHistorical:true}=>true,_=>false};
+    // Reusing a native output requires its complete identical source calculation,
+    // not merely the same output key or a coincidentally equal price.
+    private static void RequireSharedNative(ConnectedCurvePlan native,ConnectedCurvePlan copy,CurvePointKey root,CancellationToken ct)
+    {
+        var pending=new Stack<CurvePointKey>();pending.Push(root);var seen=new HashSet<CurvePointKey>();
+        while(pending.TryPop(out var key))
+        {
+            ct.ThrowIfCancellationRequested();if(!seen.Add(key))continue;
+            if(!native.Points.TryGetValue(key,out var original)||!copy.Points.TryGetValue(key,out var point)||point!=original)
+                throw Invalid("scenario_target","A shared native coordinate requires identical source calculations, quotation and observation evidence in every graph.");
+            if(point.Expression is ConnectedSource{Sample:not null})continue;
+            if(point.Expression is not ConnectedBuiltCurve built||built.Base.Curve is not ExactCurveReference baseCurve||built.Spread.Curve is not ExactCurveReference spreadCurve)
+                throw Invalid("scenario_target","Only an exact retained native source calculation can share a coordinate across financial markets.");
+            pending.Push(new(baseCurve.Curve,built.Base.PointId));pending.Push(new(spreadCurve.Curve,built.Spread.PointId));
+        }
     }
     public static PortfolioRiskAxis Resolve(PortfolioValuation.MarketPartition market,CurveShockCoordinate coordinate,CurveShockTarget target,CancellationToken ct)
     {
@@ -188,6 +225,7 @@ internal static class CurveRiskAxes
             foreach(var (curve,all) in index.Curves.OrderBy(g=>g.Key.Code,StringComparer.Ordinal))
             {
                 ct.ThrowIfCancellationRequested();
+                if(Index(prepared,ct).Curves[curve].Any(m=>m.Snapshot.Definitions==curve.Revision)&&market.Snapshot.Definitions!=curve.Revision)continue;
                 // Broad targets retain their complete membership. Mixed frozen
                 // and live contracts instead expose their exact live points.
                 if(all.All(p=>Public(p,coordinate)))result.Add(Resolve(market,coordinate,new ParallelCurveTarget(curve),ct));
@@ -200,7 +238,7 @@ internal static class CurveRiskAxes
                 }
             }
         }
-        return result.DistinctBy(a=>a.Id).ToImmutableArray();
+        return [..result.DistinctBy(a=>a.Id).Select(a=>Resolve(prepared,a.Request,ct))];
     }
     // The name a point's targets are labeled with: its saved recipe and version for a custom curve's output, and otherwise its curve.
     private static string Name(MarketIndex index,ConnectedCurvePoint point)
@@ -262,7 +300,8 @@ internal static class CurveRiskAxes
     public static PortfolioRiskAxis Quote(PortfolioValuation.Prepared prepared,QuoteFactor factor,CancellationToken ct)
     {
         var (market,point)=LiveSource(prepared,factor,ct);
-        return Resolve(market,CurveShockCoordinate.MarketQuote,Index(market,ct).PointTarget(point,CurveShockCoordinate.MarketQuote),ct);
+        var axis=Resolve(market,CurveShockCoordinate.MarketQuote,Index(market,ct).PointTarget(point,CurveShockCoordinate.MarketQuote),ct);
+        return Resolve(prepared,axis.Request,ct);
     }
     // Quote factors in reading order: one curve after the other by its code, each by delivery period.
     public static ImmutableArray<QuoteFactor> ByCurveAndDelivery(PortfolioValuation.Prepared prepared,IEnumerable<QuoteFactor> factors,CancellationToken ct)=>

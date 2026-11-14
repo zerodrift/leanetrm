@@ -113,8 +113,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         public ImmutableArray<FuturesOptionCalibrationReceipt> OptionCalibrations=>Options?.Receipts??[];
         public ScenarioWork MaterializationWork{get;init;}=new(0,0,0,0);
         public int MaterializationScenarioCount{get;init;}
-        public ImmutableArray<QuoteFactor> Factors=>Markets.SelectMany(m=>m.Factors).OrderBy(f=>f.Input.Series.Revision.RevisionId)
-            .ThenBy(f=>f.Input.Series.Id).ToImmutableArray();
+        public ImmutableArray<QuoteFactor> Factors=>QuoteFactors.Union(Markets.SelectMany(m=>m.Factors));
         public ImmutableArray<ConnectedMarketEvidence> ConnectedMarkets=>Markets.Select(m=>m.Evidence).ToImmutableArray();
     }
     // The largest price step the held valuations declare for each quoted price, in whichever market partition they are
@@ -622,7 +621,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         if(CanCountNativeWork(bumps))
         {
             var work=prepared.Markets.Select(market=>NativeWork(market.Connected,
-                [..bumps.Where(bump=>bump.Axis.Market==market.Snapshot.Definitions).Select(bump=>bump.Axis.Quote!.Input)]));
+                [..bumps.Where(bump=>CurveRiskAxes.InMarket(bump.Axis,market,default) is not null).Select(bump=>bump.Axis.Quote!.Input)]));
             CloseRiskAdmission.RequireRowScenarios(work.Sum(item=>item.RowScenarios),bumps.Length);
         }
         else RequireWork(prepared,bumps.Length);
@@ -660,9 +659,10 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         string policy,RiskDetail detail,CancellationToken ct)
     {
         var connected=market.Connected;
-        foreach(var shift in stress.Where(s=>s.Axis.Market==market.Snapshot.Definitions))
-            connected=RiskEngine.WithShifts(connected,[new(shift.Axis.Coordinate,shift.Axis.Target,shift.Axis.Unit,shift.Size,CurveShift.ParentAdditive)],ct);
-        var selected=bumps.Where(b=>b.Axis.Market==market.Snapshot.Definitions).ToImmutableArray();
+        foreach(var shift in stress)
+            if(CurveRiskAxes.InMarket(shift.Axis,market,ct) is {} axis)
+                connected=RiskEngine.WithShifts(connected,[new(axis.Coordinate,axis.Target,axis.Unit,shift.Size,CurveShift.ParentAdditive)],ct);
+        var selected=bumps.Select(b=>CurveRiskAxes.InMarket(b.Axis,market,ct) is {} axis?b with{Axis=axis}:null).OfType<PortfolioCurveBump>().ToImmutableArray();
         var scenario=connected.Scenario;
         var axes=selected.ToImmutableDictionary(b=>b.Axis.Id,b=>b.Axis.Quote is {} quote?
             b.Axis with{Quote=quote with{BaseValue=scenario.Price(b.Axis.Points.First(p=>scenario.Plan.Points[p].Expression is ConnectedSource source&&source.Input==quote.Input),ct).ToUnitPriceExact().Value}}:b.Axis);

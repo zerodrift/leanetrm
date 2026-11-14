@@ -31,6 +31,7 @@ if(args is ["--futures-margin-adoption",var marginAdoptionFixture]){await Future
 if(args is ["--futures-margin-sources"]){FuturesMarginSourceChecks.Run();return;}
 if(args is ["--native-futures-margin-sources",var marginSourceFixture]){await FuturesMarginSourceChecks.RunNative(marginSourceFixture);return;}
 if(args is ["--cash-instrument"]){CashInstrumentChecks.Run();return;}
+if(args is ["--shared-native-markets"]){SharedNativeMarketChecks.Run();return;}
 if(args is ["--curve-risk-axes"])
 {
     var f=PreviewDataChecks.Fixture(3);
