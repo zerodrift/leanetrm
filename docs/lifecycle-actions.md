@@ -208,3 +208,15 @@ financial effect into an unconfirmed request. Callback continuation rechecks the
 same actor and view generation. Explicit historical Blotter reads, captured Risk
 reports and original unconfirmed risk submissions retain their selected inputs;
 a new calculation requires refreshed source preparation.
+
+Swap action discovery and review name the exact retained side and delivery
+interval. Determination review displays the backend contractual total, prior
+amount, new contribution, currency and due instant before execution. Observed
+payments and net settlements show their corresponding accepted evidence.
+
+The owned shared-swap browser qualifier runs against the actual API and native
+database. Its 22 checks cover determination, observed payment, original-payment
+reversal, partial netting, zero-net discharge, both net reversals, lost responses
+and exact receipt-first recovery after reload, current Risk invalidation, retained
+P&L reads and narrow layouts. Reload reselects the same actor and read context;
+it never regenerates the retained financial request.

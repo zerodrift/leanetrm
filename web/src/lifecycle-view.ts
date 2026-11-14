@@ -77,7 +77,14 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   const add=(label:string,value:unknown)=>{if(value===null||value===undefined||value===''||typeof value==='object')return;list.append(element('dt',label),element('dd',String(value)));};
   add('Holding',selected?.subject?.reference);add('Business date',request.context.businessDate);add('As of',instant(request.context.asOf));
   const d=review.details;for(const [key,label] of [['decision','Decision'],['openLots','Open lots'],['lots','Lots affected'],['futureLots','Linked futures lots'],['strike','Strike'],['settlement','Settlement'],['amount','Amount'],['roundedTotal','Rounded payment'],['exactTotal','Exact payment'],['reference','Evidence reference']] as const)add(label,d[key]);
-  const net=d.settlement as Record<string,unknown>|undefined;
+  const paymentCurrency=d.currency as {code?:string}|undefined;add('Currency',paymentCurrency?.code?.toUpperCase());
+  if(typeof d.effectiveAt==='string')add('Observed payment time',instant(d.effectiveAt));
+  if(request.action==='swap.determine'&&d.calculation&&typeof d.calculation==='object'){
+   const calculation=d.calculation as Record<string,unknown>,currency=calculation.currency as {code?:string}|undefined;
+   add('New contractual total',calculation.amount);add('Previous contractual total',d.previousTotal);add('New contribution',d.proposedContribution);add('Currency',currency?.code?.toUpperCase());
+   if(typeof calculation.paymentAt==='string')add('Contractual payment time',instant(calculation.paymentAt));
+  }
+  const net=request.action==='swap.net'?d.settlement as Record<string,unknown>|undefined:undefined;
   if(net){if(net.existingFact===true)add('Effect','Already recorded · no new cash or allocation');add('Net cash',net.amount);add('Gross paid',net.grossPaid);add('Gross received',net.grossReceived);add('Reverses payment',net.reversesId);}
   section.append(list);
   if(net&&Array.isArray(net.allocations)){

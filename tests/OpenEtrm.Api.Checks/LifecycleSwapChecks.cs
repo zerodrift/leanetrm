@@ -55,8 +55,14 @@ internal static class LifecycleSwapChecks
                     !offers.Select(a=>a.Selection!.Value.Deserialize<SwapActionSelection>(LifecycleNative.Json)!.ProfileId).ToHashSet().SetEquals(expected))
                     throw new Exception("Concurrent native swap periods lost their distinct occurrence or saved profile identity.");
                 foreach(var profile in discovery.SwapProfiles.Where(p=>p.Id("trade_id")==target.ScopeId))
+                {
                     if(offers.Single(a=>a.Selection!.Value.Deserialize<SwapActionSelection>(LifecycleNative.Json)!.ProfileId==profile.Id("id")).OccurrenceId!=profile.Id("occurrence_id"))
                         throw new Exception("Saved profile metadata must carry the same exact native occurrence as its offer.");
+                    var offer=offers.Single(a=>a.Selection!.Value.Deserialize<SwapActionSelection>(LifecycleNative.Json)!.ProfileId==profile.Id("id"));
+                    if(!offer.Label.Contains("Side "+(profile.GetProperty("membership_ordinal").GetInt32()+1),StringComparison.Ordinal)||
+                        !offer.Label.Contains(profile.Text("delivery_from"),StringComparison.Ordinal)||!offer.Label.Contains(profile.Text("delivery_to"),StringComparison.Ordinal))
+                        throw new Exception("A saved swap occurrence must name its native side and delivery interval so another period is distinguishable.");
+                }
                 Console.WriteLine("PASS native multi-period swap discovery: every saved occurrence and profile remains independently selectable");return;
             }
             if(f.TryGetProperty("economicProjection",out var economic)&&economic.GetBoolean())

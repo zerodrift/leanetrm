@@ -76,7 +76,7 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
                 throw new MarketDataException("lifecycle_profile_revision","Select an observed payment of this profile's exact retained occurrence and source version.");
             var detail=JsonSerializer.SerializeToElement(payment,LifecycleNative.Json);
             var hash=Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(payment,LifecycleNative.Json)));
-            return new(new(request.Target,request.Action,"Record observed payment",profile.Id("occurrence_id"),request.Context.AsOf,null,true,null,payment.ExpectedRevision,payment.ExpectedVersion),hash,detail,Catalog,until);
+            return new(new(request.Target,request.Action,Label(request.Action,profile),profile.Id("occurrence_id"),request.Context.AsOf,null,true,null,payment.ExpectedRevision,payment.ExpectedVersion),hash,detail,Catalog,until);
         }
         var frame=frames(selection.SnapshotId) with{ContextId=null};var view=TradingView.Reread(frame,source);
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT lifecycle_swap_preview"))await save.ExecuteNonQueryAsync(ct);
@@ -91,7 +91,7 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
             await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT lifecycle_swap_preview; RELEASE SAVEPOINT lifecycle_swap_preview");
             await restore.ExecuteNonQueryAsync(CancellationToken.None);
         }
-        return new(new(request.Target,request.Action,"Determine final payment",profile.Id("occurrence_id"),request.Context.AsOf,null,true,null,
+        return new(new(request.Target,request.Action,Label(request.Action,profile),profile.Id("occurrence_id"),request.Context.AsOf,null,true,null,
             selection.Determination!.Preview.ExpectedRevision,value.GetProperty("expectedVersion").GetInt32()),value.Text("previewHash"),value,Catalog,until);
     }
     public async Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)
@@ -196,7 +196,7 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
                     choices=choices.Add("paymentReversal",reversalChoices);
                 }
             }
-            offers.Add(new LifecycleActionOffer(new(Kind,r.Id("trade_id"),r.Id("binding_id")),action,action=="swap.determine"?"Determine final payment":"Record observed payment",profile?.Id("occurrence_id")??r.Id("binding_id"),
+            offers.Add(new LifecycleActionOffer(new(Kind,r.Id("trade_id"),r.Id("binding_id")),action,Label(action,profile),profile?.Id("occurrence_id")??r.Id("binding_id"),
                 context.AsOf,null,reason is null,reason,revision,version)
             {
                 ScheduleSettings=action=="swap.determine"&&profile is {} schedule?new(revision,null,schedule.Id("id"),int.Parse(schedule.Text("revision"),System.Globalization.CultureInfo.InvariantCulture),null,null):null,
@@ -207,5 +207,10 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
             }
         }
         return offers.ToImmutable();
+    }
+    private static string Label(string action,JsonElement? profile)
+    {
+        var name=action=="swap.determine"?"Determine final payment":"Record observed payment";
+        return profile is {} p?$"{name} · Side {int.Parse(p.Text("membership_ordinal"),System.Globalization.CultureInfo.InvariantCulture)+1} · {p.Text("delivery_from")} to {p.Text("delivery_to")}":name;
     }
 }
