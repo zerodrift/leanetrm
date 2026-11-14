@@ -20,6 +20,7 @@ if(args is ["--gas-delivery-principal"]){GasDeliveryPrincipalChecks.Run();return
 if(args is ["--contract-eligibility"]){ContractEligibilityChecks.Run();return;}
 if(args is ["--interval-anchors"]){IntervalAnchorChecks.Run();return;}
 if(args is ["--futures-margin"]){FuturesMarginChecks.Run();return;}
+if(args is ["--cash-accumulation-selection"]){CashAccumulationSelectionChecks.Run();return;}
 if(args is ["--lifecycle-projection"]){LifecycleProjectionChecks.Run();return;}
 if(args is ["--routed-lifecycle-projection"]){RoutedLifecycleProjectionChecks.Run();return;}
 if(args is ["--physical-lifecycle-projection"]){PhysicalLifecycleProjectionChecks.Run();return;}
@@ -622,6 +623,7 @@ PcaHybridRiskChecks.Run();
 ContractEligibilityChecks.Run();passed++;
 FuturesMarginChecks.Run();passed++;
 FuturesMarginTrajectoryChecks.Run();passed++;
+CashAccumulationSelectionChecks.Run();passed++;
 LifecycleProjectionChecks.Run();passed++;
 PhysicalLifecycleProjectionChecks.Run();passed++;
 RoutedLifecycleProjectionChecks.Run();passed++;

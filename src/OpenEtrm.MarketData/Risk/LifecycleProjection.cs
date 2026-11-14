@@ -146,17 +146,17 @@ public static class LifecycleProjection
         LifecycleProjectionPolicy policy,ImmutableArray<ILifecycleProjection> components,
         ImmutableArray<KnownLifecycleFixing> knownFixings,
         ImmutableDictionary<ReferenceKey,ISideDiscounting>? cashCurves=null,CancellationToken cancellation=default,ImmutableArray<LifecycleInputFinal> inputFinals=default,
-        ImmutableArray<LifecycleProjectionMarket> additionalMarkets=default)
-        =>Create(model,source,horizon,policy,components,knownFixings,cashCurves,cancellation,null,null,null,inputFinals,additionalMarkets);
+        ImmutableArray<LifecycleProjectionMarket> additionalMarkets=default,LifecycleCashAccumulation? cashAccumulation=null)
+        =>Create(model,source,horizon,policy,components,knownFixings,cashCurves,cancellation,null,null,null,inputFinals,additionalMarkets,cashAccumulation);
     public static PreparedLifecycleProjection Prepare(ConnectedValuation valuation,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,
         CurveBuild authority,LifecycleProjectionHorizon horizon,LifecycleProjectionPolicy policy,ImmutableArray<ILifecycleProjection> components,
         ImmutableArray<KnownLifecycleFixing> knownFixings,ImmutableDictionary<ReferenceKey,ISideDiscounting>? cashCurves=null,CancellationToken cancellation=default,ImmutableArray<LifecycleInputFinal> inputFinals=default,
-        ImmutableArray<LifecycleProjectionMarket> additionalMarkets=default)
-        =>Create(authority.Model,valuation.Snapshot,horizon,policy,components,knownFixings,cashCurves,cancellation,valuation,bindings,authority,inputFinals,additionalMarkets);
+        ImmutableArray<LifecycleProjectionMarket> additionalMarkets=default,LifecycleCashAccumulation? cashAccumulation=null)
+        =>Create(authority.Model,valuation.Snapshot,horizon,policy,components,knownFixings,cashCurves,cancellation,valuation,bindings,authority,inputFinals,additionalMarkets,cashAccumulation);
     private static PreparedLifecycleProjection Create(CurveModel model,MarketSnapshot source,LifecycleProjectionHorizon horizon,
         LifecycleProjectionPolicy policy,ImmutableArray<ILifecycleProjection> components,ImmutableArray<KnownLifecycleFixing> knownFixings,
         ImmutableDictionary<ReferenceKey,ISideDiscounting>? cashCurves,CancellationToken cancellation,ConnectedValuation? connected,
-        ImmutableDictionary<CurveRequest,CurvePointKey>? bindings,CurveBuild? authority,ImmutableArray<LifecycleInputFinal> inputFinals,ImmutableArray<LifecycleProjectionMarket> additionalMarkets)
+        ImmutableDictionary<CurveRequest,CurvePointKey>? bindings,CurveBuild? authority,ImmutableArray<LifecycleInputFinal> inputFinals,ImmutableArray<LifecycleProjectionMarket> additionalMarkets,LifecycleCashAccumulation? cashAccumulation)
     {
         Validate(policy);
         if(source is null||source.Knowledge is null||!TradingInstant.IsSupported(source.ValuationAt)||!source.HasCoherentSelections()||
@@ -198,9 +198,10 @@ public static class LifecycleProjection
             if(!known.TryAdd(key,ExactUnitPrice.FromPrice(new(selected.Observation.Value,model.QuoteFor(key.Market)))))
                 throw Error("projection_fixing","An actual fixing has conflicting captured evidence.");
         }
+        cashAccumulation?.Require(source,policy,components);
         var curves=cashCurves??ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty;
-        return connected is null?new(basis,next,policy,components,known.ToImmutable(),curves,cancellation,inputFinals,additionalMarkets):
-            new(connected,bindings!,authority!,next,policy,components,known.ToImmutable(),curves,cancellation,inputFinals,additionalMarkets);
+        return connected is null?new(basis,next,policy,components,known.ToImmutable(),curves,cancellation,inputFinals,additionalMarkets,cashAccumulation):
+            new(connected,bindings!,authority!,next,policy,components,known.ToImmutable(),curves,cancellation,inputFinals,additionalMarkets,cashAccumulation);
     }
     public static LifecycleInputExpiryTreatment ExpiryTreatment(LifecycleProjectionPolicy policy)=>policy.InputExpiry switch{
         LifecycleProjectionPolicy.DeclaredCurveExpiry=>LifecycleInputExpiryTreatment.DeclaredCurvePolicy,

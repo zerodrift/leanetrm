@@ -313,3 +313,14 @@ parts retain any resulting numerical difference as `working_scale_rounding`,
 never as cash. Generic frozen-clock children are explicitly pinned; economic
 projections redeclare their supported inputs at their own event clock. API
 source assembly, economic workers and UI model selection remain separate gates.
+
+The pure horizon engine also accepts an explicit currency accumulation map,
+separate from product residual discounting. Each partition covers exactly the
+currencies of its prepared components, including paths with no cash; portfolio
+partitions must agree on both the exact native curve and its original captured
+source. Nominal accumulation requires an empty map. The legacy absent-map
+profile retains its existing source-local behavior and rejects ambiguous curve
+identities. Signed rational checks use independently selected funding and
+residual factors and retain the original provider snapshots. API selection,
+native input custody, worker replay and UI controls are separate qualification
+gates for this new explicit-map consumer.

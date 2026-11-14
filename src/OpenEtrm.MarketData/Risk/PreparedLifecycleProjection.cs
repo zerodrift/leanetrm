@@ -14,6 +14,7 @@ public sealed class PreparedLifecycleProjection
     public RiskHistoryMarket Market=>markets[0].Market;
     public ImmutableArray<RiskHistoryMarket> Markets=>[..markets.Select(m=>m.Market)];
     public ImmutableArray<KeyValuePair<ReferenceKey,ProjectionCurrencyCurveKey>> CashCurveIdentities{get;}
+    public LifecycleCashAccumulation? CashAccumulation{get;}
     private readonly ImmutableArray<PreparedLifecycleMarket> markets;
     private readonly ImmutableArray<ImmutableDictionary<CurveRequest,DateTimeOffset>> marketUses;
     private readonly ImmutableDictionary<AccountingPositionKey,ImmutableDictionary<CurveRequest,PreparedLifecycleMarket>> dependencyMarkets;
@@ -25,13 +26,13 @@ public sealed class PreparedLifecycleProjection
     private readonly ImmutableDictionary<(AccountingOwnerKey Owner,Guid Binding),AccountingPositionKey> economicRoots;
     internal PreparedLifecycleProjection(CurveBuild basis,DateTimeOffset horizon,LifecycleProjectionPolicy policy,
         ImmutableArray<ILifecycleProjection> components,ImmutableDictionary<ProjectedFixingKey,ExactUnitPrice> known,
-        ImmutableDictionary<ReferenceKey,ISideDiscounting> cashCurves,CancellationToken ct,ImmutableArray<LifecycleInputFinal> additionalFinals=default,ImmutableArray<LifecycleProjectionMarket> additionalMarkets=default)
-        :this(basis.Connected,basis.PricingBindings,basis,horizon,policy,components,known,cashCurves,ct,additionalFinals,additionalMarkets){}
+        ImmutableDictionary<ReferenceKey,ISideDiscounting> cashCurves,CancellationToken ct,ImmutableArray<LifecycleInputFinal> additionalFinals=default,ImmutableArray<LifecycleProjectionMarket> additionalMarkets=default,LifecycleCashAccumulation? cashAccumulation=null)
+        :this(basis.Connected,basis.PricingBindings,basis,horizon,policy,components,known,cashCurves,ct,additionalFinals,additionalMarkets,cashAccumulation){}
     internal PreparedLifecycleProjection(ConnectedValuation valuation,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild authority,
         DateTimeOffset horizon,LifecycleProjectionPolicy policy,ImmutableArray<ILifecycleProjection> components,
-        ImmutableDictionary<ProjectedFixingKey,ExactUnitPrice> known,ImmutableDictionary<ReferenceKey,ISideDiscounting> cashCurves,CancellationToken ct,ImmutableArray<LifecycleInputFinal> additionalFinals=default,ImmutableArray<LifecycleProjectionMarket> additionalMarkets=default)
+        ImmutableDictionary<ProjectedFixingKey,ExactUnitPrice> known,ImmutableDictionary<ReferenceKey,ISideDiscounting> cashCurves,CancellationToken ct,ImmutableArray<LifecycleInputFinal> additionalFinals=default,ImmutableArray<LifecycleProjectionMarket> additionalMarkets=default,LifecycleCashAccumulation? cashAccumulation=null)
     {
-        SourceSnapshot=valuation.Snapshot;Horizon=horizon;Policy=policy;Components=components;
+        SourceSnapshot=valuation.Snapshot;Horizon=horizon;Policy=policy;Components=components;CashAccumulation=cashAccumulation;
         var selectedMarkets=ImmutableArray.Create(new LifecycleProjectionMarket(valuation,bindings,authority,cashCurves,
             additionalFinals.IsDefault?[]:additionalFinals)).AddRange(additionalMarkets.IsDefault?[]:additionalMarkets);
         if(selectedMarkets.Any(m=>m is null||m.Valuation is null||m.Bindings is null||m.Authority is null||m.CashCurves is null||m.InputFinals.IsDefault||
@@ -69,8 +70,9 @@ public sealed class PreparedLifecycleProjection
         try{Factors=QuoteFactors.Union(markets.SelectMany(m=>m.Factors));}
         catch(MarketDataException e)when(e.Code=="risk_factor_conflict")
         {throw new MarketDataException("projection_source","One native scenario input cannot have inconsistent observations or units across prepared routes.",e);}
-        CashCurveIdentities=[..markets.SelectMany(m=>m.CashCurves.Select(p=>new KeyValuePair<ReferenceKey,ProjectionCurrencyCurveKey>(p.Key,((IProjectionCurrencyCurve)p.Value).CurveIdentity)))];
-        if(policy.CashAccumulation==LifecycleProjectionPolicy.Accumulated&&(components.Any(c=>!Select(c,c.SourceSnapshot).CashCurves.ContainsKey(c.Currency))||
+        CashCurveIdentities=cashAccumulation is not null?[..cashAccumulation.Curves.Select(p=>new KeyValuePair<ReferenceKey,ProjectionCurrencyCurveKey>(p.Key,p.Value.CurveIdentity))]:
+            [..markets.SelectMany(m=>m.CashCurves.Select(p=>new KeyValuePair<ReferenceKey,ProjectionCurrencyCurveKey>(p.Key,((IProjectionCurrencyCurve)p.Value).CurveIdentity)))];
+        if(cashAccumulation is null&&policy.CashAccumulation==LifecycleProjectionPolicy.Accumulated&&(components.Any(c=>!Select(c,c.SourceSnapshot).CashCurves.ContainsKey(c.Currency))||
             CashCurveIdentities.GroupBy(p=>p.Key).Any(g=>g.Select(p=>p.Value).Distinct().Count()!=1)))
             throw LifecycleProjection.Error("projection_cash_policy","Accumulated cash requires one explicitly selected retained curve identity per currency across every market route.");
         var finalFixings=markets.SelectMany(m=>m.KnownFixings).GroupBy(p=>p.Key).ToArray();
@@ -222,11 +224,28 @@ public sealed class PreparedLifecycleProjection
     private ExactMoney Accumulate(ProjectedCashContribution cash,ReferenceKey currency,PreparedLifecycleMarket selected)
     {
         if(Policy.CashAccumulation==LifecycleProjectionPolicy.Nominal||cash.DueAt==Horizon)return cash.Amount;
-        if(!selected.CashCurves.TryGetValue(currency,out var provider))throw LifecycleProjection.Error("projection_cash_policy","Select this currency's cash accumulation curve.");
+        ISideDiscounting provider;MarketSnapshot source;
+        if(CashAccumulation is {} explicitSelection)
+        {provider=explicitSelection.Curves[currency];source=explicitSelection.Curves[currency].SourceSnapshot;}
+        else
+        {
+            if(!selected.CashCurves.TryGetValue(currency,out provider!))throw LifecycleProjection.Error("projection_cash_policy","Select this currency's cash accumulation curve.");
+            source=selected.SourceSnapshot;
+        }
         var start=new SidePaymentKey(cash.Id,0,cash.DueAt,currency);var end=new SidePaymentKey(cash.Id,1,Horizon,currency);
-        var factors=provider.Resolve([start,end],selected.SourceSnapshot);
-        if(factors.Length!=2||factors[0].Payment!=start||factors[1].Payment!=end||factors.Any(f=>f.DiscountFactor.CompareTo(default)<=0||!f.Snapshot.HasSameInputs(selected.SourceSnapshot)))
+        var factors=provider.Resolve([start,end],source);
+        if(factors.Length!=2||factors[0].Payment!=start||factors[1].Payment!=end||factors.Any(f=>f.DiscountFactor.CompareTo(default)<=0||!f.Snapshot.HasSameInputs(source)))
             throw LifecycleProjection.Error("projection_cash_policy","Cash accumulation requires both exact retained currency curve factors.");
+        if(CashAccumulation is not null)foreach(var factor in factors)
+        {
+            var curve=CashAccumulation.Curves[currency];var key=curve.CurveIdentity;
+            if(factor.Source==DiscountFactorSource.CurrencyDefault&&(factor.RateDefinition is not {} definition||
+                definition.MappingId!=key.MappingId||definition.Curve!=key.Curve||definition.CurveTerms is not {} terms||
+                terms.DefinitionId!=key.DefinitionId||terms.DefinitionVersion!=key.DefinitionVersion||
+                definition.Timing is not {} timing||timing.Implementation!=curve.TimingPolicy))
+                throw LifecycleProjection.Error("projection_cash_policy","Native accumulated cash requires the exact selected mapping, definition version and instant rate evidence.");
+            factor.RateDefinition?.Require(factor,source.ValuationAt);
+        }
         return cash.Amount.Scale(factors[0].DiscountFactor).DivideBy(factors[1].DiscountFactor);
     }
     private void RequireState(LifecycleProjectionState state,ILifecycleProjection component,DateTimeOffset at)

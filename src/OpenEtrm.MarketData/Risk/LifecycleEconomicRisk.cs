@@ -132,12 +132,16 @@ public static class LifecycleEconomicRisk
     {
         if(prepared.IsDefaultOrEmpty||prepared.Any(p=>p is null)||prepared.Select(p=>p.Horizon).Distinct().Count()!=1||
             prepared.Select(p=>p.SourceSnapshot.ValuationAt).Distinct().Count()!=1||prepared.Select(p=>p.SourceSnapshot.Knowledge).Distinct().Count()!=1||
+            prepared.Select(p=>p.CashAccumulation is null).Distinct().Count()!=1||
             prepared.Select(p=>p.Policy).Distinct().Count()!=1||
             prepared.SelectMany(p=>p.Components).SelectMany(c=>c.EconomicOwners).Distinct().Count()!=prepared.Sum(p=>p.Components.Sum(c=>c.EconomicOwners.Length)))
             throw Error("risk_economic_scope","Every market partition must retain one common opening, certified cutoff, next close and complete distinct owners.");
         if(prepared[0].Policy.CashAccumulation==LifecycleProjectionPolicy.Accumulated&&prepared.SelectMany(p=>p.CashCurveIdentities)
             .GroupBy(p=>p.Key).Any(g=>g.Select(p=>p.Value).Distinct().Count()!=1))
             throw Error("risk_economic_scope","Accumulated cash must use one explicitly selected retained curve version per currency across the portfolio.");
+        if(prepared[0].CashAccumulation is not null&&prepared.SelectMany(p=>p.CashAccumulation!.Curves).GroupBy(p=>p.Key)
+            .Any(g=>g.Any(p=>p.Value.CurveIdentity!=g.First().Value.CurveIdentity||!p.Value.SourceSnapshot.HasSameInputs(g.First().Value.SourceSnapshot))))
+            throw Error("risk_economic_scope","Each currency's explicit accumulation source and exact native curve must agree across the portfolio.");
     }
     internal static bool SameFactor(QuoteFactor a,QuoteFactor b)=>QuoteFactors.SameDeclaration(a,b);
     private static string Id(int n)=>"economic_"+n.ToString("D5",System.Globalization.CultureInfo.InvariantCulture);
