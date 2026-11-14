@@ -1,5 +1,11 @@
 # Architecture and domain contracts
 
+D397 adds authorized, versioned current listings for close conventions. Retiring
+a convention removes it from discovery and new authoring; exact retained closes
+and accepted command outcomes remain readable under their existing authority.
+Price inspection carries the evaluated source's exact selection, independently
+of the close's primary source. See [the decision](decisions.md#d397--current-close-listings-and-exact-price-inspection).
+
 The [valuation context and scenario layers](valuation-context-layers.md) separate
 certified source selection from calculation time. The initial local implementation
 extends Instrument/Side PV, immutable scenarios and dependency-based reuse to

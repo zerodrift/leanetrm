@@ -7,6 +7,13 @@ refuses missing final evidence or an empty root. Migrations 0253–0254 require 
 qualified schema upgrade before activation. Broader product lifecycle and
 economic horizon risk remain separate work.
 
+D397 implements current close-convention listings and source-specific price
+inspection. Isolated native checks cover retirement, retained reads, authority,
+new-write refusal and accepted retries, including schema upgrade. The web checks
+cover secondary-source inspection and inconsistent selection refusal. Activation
+requires a separately approved application/schema release; deployment data and
+private maintenance programs are outside this repository.
+
 The initial [valuation context and scenario layers](valuation-context-layers.md)
 are implemented locally: complete time/discount/IV declarations, immutable
 combined children, source-anchored discount and held-IV inputs, shared finite

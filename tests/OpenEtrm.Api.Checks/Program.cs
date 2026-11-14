@@ -12,6 +12,7 @@ if(args is ["--risk-bump-price-steps"]){RiskBumpPriceStepChecks.Run();return;}
 if(args is ["--option-policy"]){OptionPolicySelectionChecks.Run();return;}
 if(args is ["--power-close-context",var powerContext]){await PowerCloseContextChecks.Run(powerContext);return;}
 if(args is ["--catalogue-trading",var catalogueFixture]){await CatalogueTradingChecks.Run(catalogueFixture);return;}
+if(args is ["--close-listings",var listingFixture]){await CloseListingChecks.Run(listingFixture);return;}
 if(args is ["--selected-rate-sources"]){SelectedRateSourceChecks.Run();return;}
 if(args is ["--context-resolution"]){ContextResolutionChecks.Run();return;}
 if(args is ["--unified-catalogue"]){UnifiedCatalogueChecks.Run();return;}

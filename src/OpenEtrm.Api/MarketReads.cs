@@ -15,7 +15,8 @@ public sealed record WorkspaceRead(PreviewData Data,UnitCatalogData? Units,Immut
     public ImmutableDictionary<string,ImmutableArray<JsonElement>> References(bool catalogOnly)=>
         catalogOnly?Data.References.SetItem("calendar_days",[]):Data.References;
 }
-public sealed record PriceRead(object Result,ImmutableArray<JsonElement> Observations,WorkspaceRead? Workspace=null);
+public sealed record PriceInputSelection(Guid SnapshotId,CatalogueSource Source,ImmutableArray<Guid> ObservationIds,bool CorrectionsSupported);
+public sealed record PriceRead(object Result,ImmutableArray<JsonElement> Observations,PriceInputSelection InputSelection,WorkspaceRead? Workspace=null);
 // KnownAt is the latest certified publication instant among the sample's observations; null while any is not yet certified.
 public sealed record HistorySample(DateTimeOffset At,string? Value,Guid SnapshotId,Guid[] ObservationIds,string? UnavailableReason,DateTimeOffset? KnownAt=null);
 // How a history read chooses the revision each sample shows (D237); the caller must name one.
@@ -196,7 +197,17 @@ public sealed class MarketReads(PreviewDatabase database)
             CurveDisplay.Result(data,frame,curve,display??new(CurveDisplay.Version,CurveDisplay.Live));
         var observations=await PreviewDatabase.ReadObservationFacts(connection,data.DefinitionRevision.CatalogId,
             data.DefinitionRevision.RevisionId,frame.ObservationIds,ct);
-        return new(result,observations,includeWorkspace?await WorkspaceMetadata(connection,data,true,ct):null);
+        var source=new CatalogueSource(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId);
+        var root=pin.RequireFrame();
+        var primary=root.ObservationIds.ToHashSet();
+        var legacy=(database.Manifest.InputMarkets??[]).Select(m=>(m.RevisionId,Pins:(database.InputMarketPins(root,m)??[]).ToHashSet())).ToArray();
+        var correctionsSupported=frame.ObservationIds.All(id=>
+        {
+            if(primary.Contains(id))return source.DefinitionRevisionId==database.Manifest.RevisionId;
+            var owners=legacy.Where(m=>m.Pins.Contains(id)).ToArray();
+            return owners.Length==1&&owners[0].RevisionId==source.DefinitionRevisionId;
+        });
+        return new(result,observations,new(frame.Id,source,frame.ObservationIds,correctionsSupported),includeWorkspace?await WorkspaceMetadata(connection,data,true,ct):null);
     }
 
     public const int MaximumShapedCurves=64;

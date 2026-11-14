@@ -5051,6 +5051,39 @@ boundary has no usable one-tick gamma on either tree. A run retained before a
 change of the stated pricing policy is no longer opened as a scope's current
 report after it.
 
+## D397 · Current close listings and exact price inspection
+
+Close conventions have append-only current presentation listings. A listing pins
+an exact published session version, its display name and whether the convention
+is available. Unlisted conventions disappear from current discovery before the
+frame limit is applied, remembered choices return unavailable, and new session
+versions, choices and close facts refuse. Accepted command retries retain their
+first outcomes; an unchanged fact remains a no-op. Exact retained close reads and
+historical calculation authority remain independent of current listing status.
+No close is retimestamped or rewritten by a listing change.
+
+`SealMarketDefinitions` and current write context authorize listing publication,
+with an explicit expected listing version and request identity. Listing knowledge
+uses certified commit times retained in immutable receipts; conflicting or
+non-increasing knowledge refuses. The current presentation policy selects the
+latest certified listing, or its writer's single in-flight change. A label applies
+only to its exact pinned session version. Existing conventions without a listing
+remain available under the explicit compatibility policy.
+
+Price inspection returns the evaluated snapshot, exact definition/reference
+source and its selected observation ids. The UI validates lineage against that
+selection, rather than the primary frame's observations. Historical revisions
+returned for inspection cannot satisfy a missing selected pin. The existing
+primary and declared input-market correction paths retain their editors; other
+sources offer read-only version inspection. General source-aware correction
+authoring remains a separate consumer.
+
+Isolated stock PostgreSQL checks cover authorization, retirement, immutable
+retained inputs, first outcomes and upgrade preservation. The web checks exercise
+a separately sourced curve and inconsistent snapshot/source/lineage refusal.
+Application/schema publication and installation-specific data consolidation are
+separate, explicitly approved operations.
+
 ## D398 · P&L explain compares a prior date with a current date of one close convention, and counts one calendar day on the prior close's clock
 
 2026-11-14. Decided by the owner. Refines the page's pickers of D390 and the
@@ -5113,6 +5146,10 @@ there is no schema change.
   both dates share it and beside each date when they differ, and says under the
   time effect which clock one calendar day was counted on, by its code and what
   it is, and whose it is.
+- **The name a report states.** It is the convention's own name, which never
+  changes. A current listing may show the convention under another label
+  (D397); that label is presentation, so the page's convention line follows the
+  header while a result keeps the name it was run under.
 - **Saved reports.** These members are additions to `trading_pnl_report_v2`. A
   report saved earlier still opens and keeps the clock it was run with in its
   time partitions. It states no closes, so its period reads as two instants.
@@ -5137,4 +5174,3 @@ prior date under the bound context, the convention's clock cannot be read
 though closes were recorded under it; no check constructs that case, nor a
 session saved through the session operation. See
 [trading P&L](trading-pnl.md).
-

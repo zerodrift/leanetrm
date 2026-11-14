@@ -123,7 +123,7 @@ public static partial class MarketCloses
         if(limit is <0 or >128)throw new MarketDataException("preview_limit","The retained frame catalog is limited to 128 choices.");
         var rows=await PreviewDatabase.Rows(connection,"SELECT row_to_json(t)::text FROM(SELECT id,name,at,session_code,session_version,business_date,"+
             "security.close_in_force(catalog_id,session_code,business_date) in_force "+
-            "FROM market_data.market_closes WHERE catalog_id=$1 ORDER BY at DESC,id DESC LIMIT $2)t",[catalog,limit+1],ct);
+            "FROM market_data.market_closes WHERE catalog_id=$1 AND security.close_session_is_listed(catalog_id,session_code) ORDER BY at DESC,id DESC LIMIT $2)t",[catalog,limit+1],ct);
         var headers=rows.Take(limit).OrderBy(row=>row.Instant("at")).ThenBy(row=>row.Id("id")).ToArray();
         if(headers.Length==0)return new([],limit,rows.Length>limit);
         var ids=headers.Select(row=>row.Id("id")).ToArray();

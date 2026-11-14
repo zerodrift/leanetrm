@@ -128,6 +128,12 @@ internal static class CatalogueTradingChecks
             var result=JsonSerializer.SerializeToElement(read.Result,Json);
             if(result.GetProperty("points")[0].GetProperty("mark").GetString()!="0.035")
                 throw new Exception("A published rate ownership change fell back to primary-source marks.");
+            var packet=JsonSerializer.SerializeToElement(read,Json);
+            if(!packet.TryGetProperty("inputSelection",out var selectedInputs)||selectedInputs.GetProperty("snapshotId").GetGuid()!=frame.Id||
+                selectedInputs.GetProperty("source").Deserialize<CatalogueSource>(Json)!=added||selectedInputs.GetProperty("correctionsSupported").GetBoolean()||
+                !selectedInputs.GetProperty("observationIds").EnumerateArray().Select(id=>id.GetGuid()).ToHashSet()
+                    .SetEquals(frame.SourceInputs![added.DefinitionRevisionId].ObservationIds))
+                throw new Exception("Price-source presentation must carry the evaluated source's exact pins, not the primary close pins.");
             var catalogue=await new CatalogueStore(manifest.CatalogId).ReadBound(rateConnection,default,frame.Time.Date);
             var ownerRates=await MarketInputSelection.SelectedRates(database,rateConnection,ownerFrame,catalogue,default);
             if(ownerRates.Single(c=>c.Code=="interest_rates").DefinitionRevisionId!=root.GetProperty("rateOwnerRevision").GetGuid())
