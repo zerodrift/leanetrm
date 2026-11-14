@@ -59,6 +59,14 @@ identity; a scalar payment factor cannot define accumulation. One currency uses
 one selected accumulation curve version across all market partitions. There is no
 implicit currency conversion.
 
+`LifecycleCurrencyDiscounting` prepares the complete native rate term structure
+once and resolves event-created due keys without further source reads. It uses
+the existing exact-instant interpolation and conditional ratio conventions at
+the explicit horizon clock. Factor evidence retains the original source snapshot,
+the new calculation instant, exact curve version, full tenor geometry and the
+required native pillars. Equal rates do not erase required pillars. The source-only
+discount contract remains separate; it does not silently acquire a clock roll.
+
 Absolute economic P&L is horizon residual PV plus horizon-valued period cash minus
 opening PV. The no-shock result retains time and carry. Historical and Monte Carlo
 risk reduce complete economic wealth observations with the existing exact signed

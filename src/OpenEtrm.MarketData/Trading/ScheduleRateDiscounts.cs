@@ -20,7 +20,7 @@ public sealed record RateDiscountDefinition(Guid MappingId, CurveKey Curve, Refe
         Pillars = Pillars.Select(p => new { p.Maturity, p.Observation.Key, p.Observation.Series, p.Observation.Source,
             p.Observation.Role, p.Observation.State, p.Observation.ObservedAt, Mark = p.Observation.Value.ToString() }).ToArray() };
     internal string Identity => ScheduleGraph.Hash(Evidence);
-    internal void Require(SidePaymentFactor factor)
+    internal void Require(SidePaymentFactor factor,DateTimeOffset? calculationAt=null)
     {
         if((Timing is null)!=(CurveTerms is null))
             throw new MarketDataException("discount_curve","Exact-instant timing and retained curve geometry must be supplied together.");
@@ -32,7 +32,7 @@ public sealed record RateDiscountDefinition(Guid MappingId, CurveKey Curve, Refe
             Pillars.IsDefault || Pillars.Length<1||Pillars.Length>(Timing is null?2:8) || Pillars.Any(p => p is null || p.Observation is null) ||
             Pillars.Select(p => p.Observation.Series).Distinct().Count() != Pillars.Length)
             throw new MarketDataException("discount_curve", "Retain the exact selected currency mapping, rate conventions and payment's used pillars.");
-        if(Timing is not null&&(Timing.CalculationAt!=snapshot.ValuationAt||Timing.PaymentAt!=factor.Payment.PaymentAt))
+        if(Timing is not null&&(Timing.CalculationAt!=(calculationAt??snapshot.ValuationAt)||Timing.PaymentAt!=factor.Payment.PaymentAt))
             throw new MarketDataException("discount_timing","Exact-instant rate evidence must retain this valuation and payment instant.");
         if(Timing is not null)RequireInstantGeometry();
         foreach (var pillar in Pillars)

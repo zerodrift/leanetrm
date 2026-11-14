@@ -49,7 +49,7 @@ public abstract class PreparedValuationEnvironment
         {
             if(definition.Timing is {} timing&&timing.CalculationAt!=CalculationAt)
                 throw new MarketDataException("discount_timing","Exact-instant evidence must retain this calculation instant.");
-            definition.Require(factor);
+            definition.Require(factor,CalculationAt);
         }
         return factors[0];
     }
