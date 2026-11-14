@@ -99,14 +99,16 @@ public sealed partial class GasPhysicalLifecycleProjection
                 if(final is null||run.SourceContextId==Guid.Empty||!TradingInstant.IsSupported(run.AsOf)||run.Steps.IsDefaultOrEmpty||
                     run.Receipt.PublicationOrder<final.Receipt.PublicationOrder||run.Receipt.KnownAt<final.Receipt.KnownAt||run.Receipt.KnownAt>SourceSnapshot.Knowledge!.KnownAt||
                     run.Steps.Any(s=>s is null||s.Id==Guid.Empty||!performances.TryGetValue(s.PerformanceId,out var p)||s.PerformanceRevision<1||
-                        s.PerformanceRevision>p.FinancialRevision||p.PerformedAt>run.AsOf)||run.Steps.Select(s=>s.PerformanceId).Distinct().Count()!=run.Steps.Length)throw Error();
+                        s.PerformanceRevision>p.FinancialRevision)||run.Steps.Select(s=>s.PerformanceId).Distinct().Count()!=run.Steps.Length)throw Error();
             }
             for(var index=1;index<runs.Length;index++)
                 if(runs[index].Receipt.PublicationOrder<runs[index-1].Receipt.PublicationOrder||runs[index].Receipt.KnownAt<runs[index-1].Receipt.KnownAt||
                     runs[index].Receipt.PublicationOrder==runs[index-1].Receipt.PublicationOrder&&runs[index].Receipt.KnownAt!=runs[index-1].Receipt.KnownAt)throw Error();
             var latest=runs[^1];
             if(latest.FinalDeterminationId!=native.CurrentFinal.DeterminationId||!latest.Steps.Select(s=>s.PerformanceId).ToHashSet().SetEquals(performances.Keys)||
-                latest.Steps.Any(s=>s.PerformanceRevision!=performances[s.PerformanceId].FinancialRevision||latest.Receipt.KnownAt<performances[s.PerformanceId].Receipt.KnownAt))throw Error();
+                latest.Steps.Any(s=>s.PerformanceRevision!=performances[s.PerformanceId].FinancialRevision||
+                    latest.Receipt.PublicationOrder<performances[s.PerformanceId].Receipt.PublicationOrder||
+                    latest.Receipt.KnownAt<performances[s.PerformanceId].Receipt.KnownAt))throw Error();
             var previous=runs.Take(runs.Length-1).SelectMany(r=>r.Steps.Select(s=>(r.Revision,Step:s))).GroupBy(s=>s.Step.PerformanceId)
                 .ToDictionary(g=>g.Key,g=>g.OrderByDescending(s=>s.Revision).First().Step);
             var expected=GasDeliveryPrincipal.PlanRetained(native.OriginalQuantity,native.CurrentFinal.Price,native.PrincipalRounding,native.PrincipalScope,

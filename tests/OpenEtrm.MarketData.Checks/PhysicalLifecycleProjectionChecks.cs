@@ -336,6 +336,34 @@ internal static class PhysicalLifecycleProjectionChecks
             var shifted=prepared.Evaluate("active_inventory_move",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("1"),QuoteShift.Convention)]);
             Equal(shifted.Values.Aggregate(ExactMoney.Parse("0",native.Terms.Currency),(a,b)=>a.Add(b.EconomicPnl)),"40");
             Reject("gas_physical_projection",()=>new GasPhysicalLifecycleProjection([parent with{Native=native with{Cash=[]}}],quantities));
+            // A final-price correction retains the final's original effective
+            // instant while reconciling every already-known title performance.
+            var correctionReceipt=new GasPhysicalKnownReceipt(5,source.Knowledge.KnownAt);
+            var correctedFinal=native.CurrentFinal with{DeterminationId=Guid.NewGuid(),MarginRevision=native.CurrentFinal.MarginRevision+1,
+                PreviousDeterminationId=native.CurrentFinal.DeterminationId,SourceObservationId=Guid.NewGuid(),Receipt=correctionReceipt};
+            var correctionFirst=retainedStep with{Id=Guid.NewGuid(),PreviousDeterminationId=retainedStep.Id,Adjustment=new(default,native.Terms.Currency)};
+            var correctionNext=nextStep with{Id=Guid.NewGuid(),PreviousDeterminationId=nextStep.Id,BasisDeterminationId=correctionFirst.Id,
+                Adjustment=new(default,native.Terms.Currency)};
+            var correction=native with{CurrentFinal=correctedFinal,Finals=native.Finals.Add(correctedFinal),PrincipalRuns=native.PrincipalRuns.Add(
+                new(3,correctedFinal.DeterminationId,source.Knowledge.ContextId,native.EffectiveAt,[correctionFirst,correctionNext],correctionReceipt))};
+            var correctedFact=fixture.NativeFact! with{DeterminationId=correctedFinal.DeterminationId,RunRevision=correctedFinal.MarginRevision,
+                PreviousDeterminationId=correctedFinal.PreviousDeterminationId,PublicationOrder=correctionReceipt.PublicationOrder,KnownAt=correctionReceipt.KnownAt,
+                Observation=fixture.NativeFact.Observation with{Key=new(fixture.NativeFact.Observation.Key.CatalogId,correctedFinal.SourceObservationId)}};
+            var correctedParent=parent with{Native=correction,Accepted=KnownFuturesPhysicalFinal.Create(correction,correctedFact)};
+            var correctedProjection=new GasPhysicalLifecycleProjection([correctedParent],quantities);
+            var correctedValue=LifecycleProjection.Prepare(fixture.Model,source,fixture.Horizon,fixture.Policy,[correctedProjection],[])
+                .Evaluate("known_titles_following_correction_effective_time",[]);
+            if(!correctedValue.Values.SequenceEqual(result.Values))
+                throw new Exception("A same-price final correction cannot redate title, duplicate principal or change the retained wealth.");
+            var laterPerformance=correction with{Performances=correction.Performances.SetItem(1,performance with{
+                Receipt=receipt with{PublicationOrder=correctionReceipt.PublicationOrder+1}})};
+            Reject("gas_physical_projection",()=>new GasPhysicalLifecycleProjection([correctedParent with{Native=laterPerformance}],quantities));
+            var earlyReceipt=correctionReceipt with{KnownAt=correctionReceipt.KnownAt.AddMinutes(-1)};
+            var earlyFinal=correctedFinal with{Receipt=earlyReceipt};
+            var early=correction with{CurrentFinal=earlyFinal,Finals=correction.Finals.SetItem(correction.Finals.Length-1,earlyFinal),
+                PrincipalRuns=correction.PrincipalRuns.SetItem(2,correction.PrincipalRuns[2] with{Receipt=earlyReceipt})};
+            Reject("gas_physical_projection",()=>new GasPhysicalLifecycleProjection([correctedParent with{Native=early,
+                Accepted=KnownFuturesPhysicalFinal.Create(early,correctedFact with{KnownAt=earlyReceipt.KnownAt})}],quantities));
             if(!overdue)
             {
                 GasPhysicalKnownCash Paid(GasPhysicalKnownCash claim,DateTimeOffset paidAt)=>claim with{State=new(claim.Owner,claim.Instrument,claim.Quantity,

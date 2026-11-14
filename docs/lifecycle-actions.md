@@ -381,3 +381,8 @@ still matches the exact saved carrying and source. Connected projected operator
 receipts retain their original economic owner and exact declared stock binding,
 including an independently captured inventory source. Unknown bindings and books
 do not acquire a route through that association.
+
+A final-price correction keeps its original business instant while reconciling
+every source-known performance, including later-effective titles. The complete
+principal prefix is bounded by publication and knowledge receipts; its recording
+context does not redate those performances or their cash memberships.
