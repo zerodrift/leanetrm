@@ -44,6 +44,17 @@ public sealed partial record FuturesContract
         _=SettlementSource(execution.MarketBinding,policy.SettlementCurve,model);
         return new(new(trade!.Id,bindingId),trade.BookId,holding.Quantity,execution.ExecutionPrice,execution.ExecutedAt,policy);
     }
+    // A committed future-effective execution is source evidence, not an opening
+    // holding. Its native causal event is proved by the source adapter.
+    public FuturesMarginTerms RetainKnownMarginTerms(Trade trade,Guid bindingId,FuturesMarginPolicy policy,CurveModel model,MarketSnapshot context)
+    {
+        var(holding,execution)=MarginExecution(trade,bindingId,context,"futures_margin_policy");
+        RequireMarginExecutionPolicy(policy,execution.MarketBinding,execution.ExecutedAt,context);
+        if(execution.ExecutedAt<=context.ValuationAt)
+            throw TimelineError("futures_margin_policy","Knowledge-only future terms require execution after the opening instant.");
+        _=SettlementSource(execution.MarketBinding,policy.SettlementCurve,model);
+        return new(new(trade.Id,bindingId),trade.BookId,holding.Quantity,execution.ExecutionPrice,execution.ExecutedAt,policy);
+    }
     public ImmutableArray<FuturesMarginOccurrence> RequiredMarginOccurrences(Trade trade,Guid bindingId,FuturesMarginPolicy policy,
         MarketSnapshot context,Guid throughOccurrence,FuturesMarginHistory history)
     {
@@ -148,11 +159,18 @@ public sealed partial record FuturesContract
     private ImmutableArray<FuturesMarginOccurrence> MarginEvents(FuturesMarginPolicy policy,FuturesMarketBinding market,
         DateTimeOffset executedAt,MarketSnapshot context)
     {
-        RequireMarginPolicy(policy,market,context);
-        if(executedAt<policy.From||executedAt>=policy.Until||context.ValuationAt<executedAt)
+        RequireMarginExecutionPolicy(policy,market,executedAt,context);
+        if(context.ValuationAt<executedAt)
             throw TimelineError("futures_margin_policy","The selected policy must apply to this exact execution and business instant.");
         return [..policy.Occurrences.Where(e=>e.At>executedAt||e.At==executedAt&&policy.Opening==FuturesMarginOpening.IncludeOpeningInstant)
             .OrderBy(e=>e.At).ThenBy(e=>e.Phase)];
+    }
+
+    private void RequireMarginExecutionPolicy(FuturesMarginPolicy policy,FuturesMarketBinding market,DateTimeOffset executedAt,MarketSnapshot context)
+    {
+        RequireMarginPolicy(policy,market,context);
+        if(executedAt<policy.From||executedAt>=policy.Until)
+            throw TimelineError("futures_margin_policy","The selected policy must cover this exact execution instant.");
     }
 
     private void RequireMarginPolicy(FuturesMarginPolicy policy,FuturesMarketBinding market,MarketSnapshot context)

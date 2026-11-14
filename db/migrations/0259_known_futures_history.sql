@@ -30,10 +30,9 @@ BEGIN
  definition=pg_get_functiondef(f.oid);EXECUTE replace(definition,needle,replacement);
 END$patch$;
 
-CREATE FUNCTION settlement_data.read_futures_known_history(catalog uuid,trade uuid,binding uuid,context uuid,as_of timestamptz)
+CREATE FUNCTION settlement_data.futures_known_history_contents(catalog uuid,trade uuid,binding uuid,context uuid,as_of timestamptz,origin jsonb)
  RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE origin jsonb;result jsonb;prefix integer;market_prefix integer;cut timestamptz;until_at timestamptz;expected integer;BEGIN
- origin=settlement_data.read_futures_margin_origin(catalog,trade,binding,context,as_of);
+DECLARE result jsonb;prefix integer;market_prefix integer;cut timestamptz;until_at timestamptz;expected integer;BEGIN
  IF(origin->>'available')::boolean IS NOT TRUE THEN RAISE EXCEPTION 'futures_margin_unavailable';END IF;
  until_at=(origin->>'authorityUntil')::timestamptz;
  SELECT x.known_through,m.known_through,t.known_at INTO STRICT prefix,market_prefix,cut
@@ -92,9 +91,83 @@ DECLARE origin jsonb;result jsonb;prefix integer;market_prefix integer;cut times
  PERFORM settlement_data.require_futures_margin_read(catalog,context,as_of,until_at);
  RETURN result;
 END$$;
+ALTER FUNCTION settlement_data.futures_known_history_contents(uuid,uuid,uuid,uuid,timestamptz,jsonb) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION settlement_data.futures_known_history_contents(uuid,uuid,uuid,uuid,timestamptz,jsonb) FROM PUBLIC;
+CREATE FUNCTION settlement_data.read_futures_known_history(catalog uuid,trade uuid,binding uuid,context uuid,as_of timestamptz)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ RETURN settlement_data.futures_known_history_contents(catalog,trade,binding,context,as_of,
+  settlement_data.read_futures_margin_origin(catalog,trade,binding,context,as_of));
+END$$;
 ALTER FUNCTION settlement_data.read_futures_known_history(uuid,uuid,uuid,uuid,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION settlement_data.read_futures_known_history(uuid,uuid,uuid,uuid,timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION settlement_data.read_futures_known_history(uuid,uuid,uuid,uuid,timestamptz) TO openetrm_runtime;
+
+-- A source-known option event may create a future after the opening instant.
+-- Its terms and journal are evidence only; no effective read clock is moved.
+CREATE FUNCTION settlement_data.read_futures_known_linked_history(catalog uuid,trade uuid,binding uuid,context uuid,as_of timestamptz,event uuid)
+ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE until_at timestamptz;cut market_data.temporal_contexts;prefix integer;known timestamptz;
+ a settlement_data.futures_margin_adoptions;p settlement_data.futures_margin_policies;e trading.futures_option_events;
+ origin trading.trade_revisions;head trading.trade_revisions;market trading.futures_revision_markets;current_market trading.futures_revision_markets;
+ result jsonb;BEGIN
+ PERFORM 1 FROM security.epoch FOR SHARE;
+ until_at=least(security.authority_until('ReadMarketData'),security.authority_until('ReadTrades'));
+ PERFORM settlement_data.require_futures_margin_read(catalog,context,as_of,until_at);
+ SELECT * INTO STRICT cut FROM market_data.temporal_contexts t WHERE(t.catalog_id,t.id)=(catalog,context);
+ SELECT x.known_through INTO STRICT prefix FROM trading.contexts x WHERE(x.catalog_id,x.context_id)=(catalog,context);
+ SELECT v.* INTO e FROM trading.futures_option_events v JOIN trading.knowledge_receipts k
+  ON(k.catalog_id,k.publication_order)=(v.catalog_id,v.publication_order)
+ WHERE(v.catalog_id,v.id,v.futures_trade_id)=(catalog,event,trade) AND v.effective_at>as_of
+  AND v.publication_order<=prefix AND k.known_from<=cut.known_at;
+ IF e.id IS NULL THEN RAISE EXCEPTION 'futures_known_history_context';END IF;
+ SELECT v.* INTO a FROM settlement_data.futures_margin_adoptions v JOIN trading.knowledge_receipts k
+  ON(k.catalog_id,k.publication_order)=(v.catalog_id,v.publication_order)
+ WHERE(v.catalog_id,v.trade_id,v.binding_id,v.publication_order,v.effective_at)=(catalog,trade,binding,e.publication_order,e.effective_at)
+  AND v.publication_order<=prefix AND k.known_from<=cut.known_at;
+ IF a.trade_id IS NULL THEN RAISE EXCEPTION 'futures_known_history_context';END IF;
+ SELECT r.* INTO origin FROM trading.trade_revisions r JOIN trading.knowledge_receipts k
+  ON(k.catalog_id,k.publication_order)=(r.catalog_id,r.publication_order)
+ WHERE(r.catalog_id,r.trade_id,r.revision,r.publication_order,r.effective_at,r.execution_at)=
+  (catalog,trade,a.origin_revision,e.publication_order,e.effective_at,e.business_at)
+  AND r.publication_order<=prefix AND k.known_from<=cut.known_at;
+ IF origin.trade_id IS NULL THEN RAISE EXCEPTION 'futures_known_history_context';END IF;
+ SELECT r.* INTO STRICT head FROM trading.trade_revisions r JOIN trading.knowledge_receipts k
+  ON(k.catalog_id,k.publication_order)=(r.catalog_id,r.publication_order)
+ WHERE(r.catalog_id,r.trade_id)=(catalog,trade) AND r.publication_order<=prefix AND k.known_from<=cut.known_at ORDER BY r.revision DESC LIMIT 1;
+ SELECT * INTO STRICT market FROM trading.futures_revision_markets m WHERE(m.catalog_id,m.trade_id,m.revision)=(catalog,trade,a.origin_revision);
+ SELECT * INTO STRICT current_market FROM trading.futures_revision_markets m WHERE(m.catalog_id,m.trade_id,m.revision)=(catalog,trade,head.revision);
+ IF(head.book_id,head.binding_id,head.instrument_id,head.lots,head.execution_price,head.execution_at,head.trade_date,
+     head.legal_entity_id,head.legal_entity_revision,head.counterparty_id,head.counterparty_revision,head.trader_id,head.trader_revision)
+  IS DISTINCT FROM(origin.book_id,origin.binding_id,origin.instrument_id,origin.lots,origin.execution_price,origin.execution_at,origin.trade_date,
+     origin.legal_entity_id,origin.legal_entity_revision,origin.counterparty_id,origin.counterparty_revision,origin.trader_id,origin.trader_revision)
+  OR(current_market.definition_revision_id,current_market.curve_code,current_market.contract_id,current_market.reference_catalog_id,
+     current_market.reference_revision_id,current_market.series_code,current_market.implementation)
+  IS DISTINCT FROM(market.definition_revision_id,market.curve_code,market.contract_id,market.reference_catalog_id,
+     market.reference_revision_id,market.series_code,market.implementation)
+ THEN RAISE EXCEPTION 'futures_margin_continuity';END IF;
+ SELECT v.* INTO p FROM settlement_data.futures_margin_policies v JOIN trading.knowledge_receipts k
+  ON(k.catalog_id,k.publication_order)=(v.catalog_id,v.publication_order)
+ WHERE(v.catalog_id,v.id,v.revision)=(catalog,a.policy_id,a.policy_revision) AND v.publication_order<=prefix AND k.known_from<=cut.known_at;
+ IF p.id IS NULL THEN RAISE EXCEPTION 'futures_known_history_context';END IF;
+ IF NOT EXISTS(SELECT 1 FROM trading.futures_option_trade_revisions r JOIN market_data.contracts c
+  ON(c.catalog_id,c.revision_id,c.id)=(r.catalog_id,r.definition_revision_id,r.contract_id)
+  WHERE(r.catalog_id,r.trade_id,r.revision)=(catalog,e.trade_id,e.trade_revision)
+   AND security.reference_access(c.reference_catalog_id,'ReadMarketData') AND security.reference_version_visible(c.reference_catalog_id,c.reference_revision_id)
+   AND security.market_fact_visible(catalog,r.definition_revision_id,NULL))
+ THEN RAISE EXCEPTION 'futures_margin_denied' USING ERRCODE='42501';END IF;
+ PERFORM settlement_data.require_futures_margin_reference(p);
+ SELECT k.known_from INTO STRICT known FROM trading.knowledge_receipts k WHERE(k.catalog_id,k.publication_order)=(catalog,a.publication_order);
+ result=jsonb_build_object('available',true,'contextId',context,'knownAt',cut.known_at,'effectiveOn',cut.effective_on,'authorityUntil',until_at,
+  'stateProfile',a.implementation,'causalEventId',e.id,'adoption',to_jsonb(a),'knownFrom',known,
+  'origin',to_jsonb(origin),'head',to_jsonb(head),'market',to_jsonb(market),'policy',to_jsonb(p),
+  'occurrences',(SELECT jsonb_agg(to_jsonb(o) ORDER BY o.at,o.phase,o.id) FROM settlement_data.futures_margin_policy_occurrences o
+   WHERE(o.catalog_id,o.policy_id,o.policy_revision)=(catalog,p.id,p.revision)));
+ RETURN settlement_data.futures_known_history_contents(catalog,trade,binding,context,as_of,result);
+END$$;
+ALTER FUNCTION settlement_data.read_futures_known_linked_history(uuid,uuid,uuid,uuid,timestamptz,uuid) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION settlement_data.read_futures_known_linked_history(uuid,uuid,uuid,uuid,timestamptz,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION settlement_data.read_futures_known_linked_history(uuid,uuid,uuid,uuid,timestamptz,uuid) TO openetrm_runtime;
 CREATE FUNCTION settlement_data.require_futures_known_reference(catalog uuid,trade uuid,binding uuid,policy uuid,revision integer,until_at timestamptz)
  RETURNS void LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE p settlement_data.futures_margin_policies;BEGIN

@@ -88,7 +88,7 @@ internal static class FuturesMarginStore
     }
 
     internal static FuturesMarginPolicy RequireHeldOrigin(Guid catalog,Trade trade,TradeInstrument binding,InputFrame frame,
-        FuturesMarketBinding market,JsonElement result)
+        FuturesMarketBinding market,JsonElement result,DateTimeOffset? futureEffectiveAt=null)
     {
         var bindingId=binding.Id;var execution=FuturesExecution.Require(binding);
         var origin=result.GetProperty("origin");var head=result.GetProperty("head");var nativeMarket=result.GetProperty("market");
@@ -108,7 +108,8 @@ internal static class FuturesMarginStore
             nativeMarket.Text("curve_code")!=market.Market.Curve.Code||nativeMarket.Text("implementation")!=market.Convention||
             new ReferenceKey(new(nativeMarket.Id("reference_catalog_id"),nativeMarket.Id("reference_revision_id")),nativeMarket.Text("series_code"))!=market.Series.Key||
             adoption.Id("trade_id")!=trade.Id||adoption.Id("binding_id")!=bindingId||adoption.Id("book_id")!=trade.BookId||
-            adoption.Instant("effective_at")!=origin.Instant("effective_at")||origin.Instant("effective_at")>frame.At)
+            adoption.Instant("effective_at")!=origin.Instant("effective_at")||
+            (futureEffectiveAt is {} future?origin.Instant("effective_at")!=future||future<=frame.At:origin.Instant("effective_at")>frame.At))
             throw Invalid("The native adoption must retain this exact visible owner, execution, quantity and pricing reference.");
         var policyHeader=result.GetProperty("policy");
         if(policyHeader.Text("quote_code")!=market.Quote.Key.Code)

@@ -18,33 +18,52 @@ internal static class FuturesKnownHistoryStore
             await command.ExecuteNonQueryAsync(ct);
         }
     }
-    internal static async Task<FuturesKnownHistory> Read(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,InputFrame frame,
-        MarketSnapshot snapshot,Trade trade,Guid bindingId,FuturesMarginRead opening,CancellationToken ct)
+    internal static Task<FuturesKnownHistory> Read(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,InputFrame frame,
+        MarketSnapshot snapshot,Trade trade,Guid bindingId,FuturesMarginRead opening,CancellationToken ct)=>
+        ReadSource(connection,database,data,frame,snapshot,trade,bindingId,opening,null,ct);
+    internal static Task<FuturesKnownHistory> ReadLinkedFuture(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,InputFrame frame,
+        MarketSnapshot snapshot,KnownFuturesOptionEvent causal,CancellationToken ct)
+    {
+        if(causal?.Future is not {} future||causal.EventId==Guid.Empty||causal.EffectiveAt<=frame.At||causal.KnownAt>snapshot.Knowledge?.KnownAt||
+            future.AdoptionEffectiveAt!=causal.EffectiveAt||future.AdoptionPublicationOrder!=causal.PublicationOrder||future.AdoptionKnownAt!=causal.KnownAt)
+            throw Error("Retain the accepted future-effective option event and its exact generated-future adoption.");
+        return ReadSource(connection,database,data,frame,snapshot,future.Trade,future.BindingId,null,causal,ct);
+    }
+    private static async Task<FuturesKnownHistory> ReadSource(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,InputFrame frame,
+        MarketSnapshot snapshot,Trade trade,Guid bindingId,FuturesMarginRead? opening,KnownFuturesOptionEvent? causal,CancellationToken ct)
     {
         if(frame.ContextId is not {} contextId||snapshot.Knowledge is not {} knowledge||knowledge.ContextId!=contextId||
-            snapshot.ValuationAt!=frame.At||data.DefinitionRevision!=snapshot.Definitions||opening.History.SourceContextId!=contextId||
-            opening.History.KnownThrough!=knowledge.KnownAt||opening.History.Terms.Owner!=new MeasureBinding(trade.Id,bindingId)||
-            opening.History.Terms.BookId!=trade.BookId||!snapshot.HasSameInputs(data.Snapshot(frame).WithKnowledge(contextId,knowledge.KnownAt)))
-            throw Error("Retain the exact opening futures owner, native margin history and certified source frame.");
+            snapshot.ValuationAt!=frame.At||data.DefinitionRevision!=snapshot.Definitions||
+            !snapshot.HasSameInputs(data.Snapshot(frame).WithKnowledge(contextId,knowledge.KnownAt))||
+            opening is not null&&(opening.History.SourceContextId!=contextId||opening.History.KnownThrough!=knowledge.KnownAt||
+                opening.History.Terms.Owner!=new MeasureBinding(trade.Id,bindingId)||opening.History.Terms.BookId!=trade.BookId))
+            throw Error("Retain the exact futures owner, native history and certified source frame.");
         var holding=trade.Instruments.Single(b=>b.Id==bindingId);var market=FuturesExecution.Require(holding).MarketBinding;
-        var policy=opening.History.Terms.Policy;var catalog=database.Manifest.CatalogId;
-        if(market.Instrument.ProposeMarginTerms(trade,bindingId,policy,data.Model,snapshot)!=opening.History.Terms)
+        var policy=opening?.History.Terms.Policy??causal!.Future!.MarginPolicy;var catalog=database.Manifest.CatalogId;
+        var terms=causal is null?market.Instrument.ProposeMarginTerms(trade,bindingId,policy,data.Model,snapshot):
+            market.Instrument.RetainKnownMarginTerms(trade,bindingId,policy,data.Model,snapshot);
+        if(opening is not null&&terms!=opening.History.Terms)
             throw Error("The source reader cannot reinterpret the retained execution or held quantity.");
         await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_preview_authority($1)",catalog);
         var captured=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
-        var until=captured<opening.AuthorityUntil?captured:opening.AuthorityUntil;
+        var until=opening is not null&&opening.AuthorityUntil<captured?opening.AuthorityUntil:captured;
         database.RegisterCommitAdmission(connection,new Admission(catalog,trade.Id,bindingId,policy.Id,policy.Revision,until));
         await FuturesMarginStore.RequireRead(connection,catalog,contextId,frame.At,until,ct);
         var context=(await new KnowledgeStore(catalog).Read(connection,contextId,ct)).Context;
         frame.Time.RequireDate(PublishedSchedules.ContextDate(context));
         await TradingContext.AdmitSource(database,connection,context,frame.At,ct);
-        await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.read_futures_known_history($1,$2,$3,$4,$5)::text",
-            catalog,trade.Id,bindingId,contextId,frame.At);
+        await using var command=causal is null?
+            ScheduleStore.Command(connection,"SELECT settlement_data.read_futures_known_history($1,$2,$3,$4,$5)::text",catalog,trade.Id,bindingId,contextId,frame.At):
+            ScheduleStore.Command(connection,"SELECT settlement_data.read_futures_known_linked_history($1,$2,$3,$4,$5,$6)::text",catalog,trade.Id,bindingId,contextId,frame.At,causal.EventId);
         var native=JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
         if(native.Text("stateProfile")!="known_futures_journal_projection_source_v1"||native.Id("contextId")!=contextId||
             native.Instant("asOf")!=frame.At||native.Instant("knownAt")!=knowledge.KnownAt||native.GetProperty("origin").Id("book_id")!=trade.BookId)
             throw Error("Knowledge-only margin history must retain this exact source certificate and owner.");
-        var readPolicy=FuturesMarginStore.RequireHeldOrigin(catalog,trade,holding,frame,market,native);
+        if(causal is not null&&(native.Id("causalEventId")!=causal.EventId||native.Instant("knownFrom")!=causal.KnownAt||
+            native.GetProperty("adoption").GetProperty("publication_order").GetInt32()!=causal.PublicationOrder||
+            native.GetProperty("adoption").Id("source_context_id")!=causal.Future!.AdoptionContextId))
+            throw Error("The generated future must retain this exact source-known causal event and publication.");
+        var readPolicy=FuturesMarginStore.RequireHeldOrigin(catalog,trade,holding,frame,market,native,causal?.EffectiveAt);
         if(readPolicy with{Occurrences=policy.Occurrences}!=policy||!readPolicy.Occurrences.SequenceEqual(policy.Occurrences))
             throw Error("Future accepted events require the exact sealed adopted policy.");
         var source=market.Instrument.ValidateMarginPolicy(market,policy,data.Model,snapshot);
@@ -83,7 +102,7 @@ internal static class FuturesKnownHistoryStore
                 .Aggregate(ExactMoney.Parse("0",market.Quote.Currency),(a,b)=>a.Add(b))!=ExactMoney.FromMoney(h.RoundedTotal)))
             throw Error("Future cash memberships must reconcile every accepted rounded margin total without duplication.");
         await FuturesMarginStore.RequireRead(connection,catalog,contextId,frame.At,until,ct);
-        return new(new(trade.Id,bindingId,trade.BookId),opening.History.Terms,contextId,knowledge.KnownAt,heads,cash);
+        return new(new(trade.Id,bindingId,trade.BookId),terms,contextId,knowledge.KnownAt,heads,cash);
     }
     private static int Integer(JsonElement row,string key)=>int.Parse(row.Text(key),CultureInfo.InvariantCulture);
     private static MarketDataException Error(string message)=>new("futures_known_history_context",message);

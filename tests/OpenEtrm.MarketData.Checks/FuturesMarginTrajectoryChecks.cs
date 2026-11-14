@@ -37,6 +37,11 @@ internal static class FuturesMarginTrajectoryChecks
             at.AddDays(-1),policy);
         if(market.Instrument.ProposeMarginTerms(trade,binding,policy,f.Model(),context)!=terms)
             throw new Exception("Adoption proposals must derive opening terms from the exact booked execution.");
+        var beforeExecution=context with{ValuationAt=at.AddDays(-2),MarketCutoff=at.AddDays(-2),Selections=[]};
+        Reject("futures_margin_policy",()=>market.Instrument.ProposeMarginTerms(trade,binding,policy,f.Model(),beforeExecution));
+        if(market.Instrument.RetainKnownMarginTerms(trade,binding,policy,f.Model(),beforeExecution)!=terms||beforeExecution.ValuationAt!=at.AddDays(-2))
+            throw new Exception("Known future execution terms must remain separate from effective opening state and preserve the original source instant.");
+        Reject("futures_margin_policy",()=>market.Instrument.RetainKnownMarginTerms(trade,binding,policy,f.Model(),context));
         var configuration=(context with{ValuationAt=policy.From.AddDays(-1),MarketCutoff=policy.From.AddDays(-1),Selections=[]});
         var declared=market.Instrument.ValidateMarginPolicy(market,policy,f.Model(),configuration);
         if(declared!=new FuturesSettlementSource(policy.SettlementCurve,f.S(1),f.R("source")))
