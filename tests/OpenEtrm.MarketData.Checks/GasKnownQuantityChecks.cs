@@ -52,6 +52,31 @@ internal static class GasKnownQuantityChecks
         Equal(delivered.Values.Single(v=>v.Owner==received.Position).OpeningValue,"0");
         Equal(delivered.Values.Select(v=>v.ResidualValue).Aggregate((a,b)=>a.Add(b)),"24");
         if(delivered.Values.Any(v=>v.PeriodCash.Numerator!="0"))throw new Exception("Accepted quantity performance invented cash.");
+        var remainingReturn=new GasQuantityPerformance(Guid.NewGuid(),debt.Position,at.AddHours(6),Q("7"),
+            [new(stock.Position,stock.Position.BindingId,null,Q("7"))],null,[]);
+        var returnedRemainder=Prepare(new GasQuantityLifecycleProjection(atDue,source,[stock,debt],[remainingReturn],[reserve,repay,release,loss]))
+            .Evaluate("accepted_partial_then_stated_remaining_return",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("1"),QuoteShift.Convention)]);
+        Equal(returnedRemainder.Values.Select(v=>v.ResidualValue).Aggregate((a,b)=>a.Add(b)),"32");
+        if(!returnedRemainder.States.Single().Members[debt.Position].Residuals.IsEmpty||
+            returnedRemainder.States.Single().Members[stock.Position].Residuals.Single().Positions.Single().Quantity.Amount!=ExactDecimal.Parse("8"))
+            throw new Exception("A stated seven-unit remainder must follow the accepted three-unit return exactly once.");
+        var remainingReceipt=new GasQuantityPerformance(Guid.NewGuid(),claim.Position,at.AddHours(6),Q("4"),[],
+            new(account,received.Instrument,at.AddHours(6)),[]);
+        var receivedRemainder=Prepare(new GasQuantityLifecycleProjection(atDue,source,[claim],[remainingReceipt],[receipt]))
+            .Evaluate("accepted_partial_then_stated_remaining_receipt",[]);
+        Equal(receivedRemainder.Values.Select(v=>v.ResidualValue).Aggregate((a,b)=>a.Add(b)),"18");
+        Reject("gas_projection_performance",()=>new GasQuantityLifecycleProjection(atDue,source,[stock,debt],
+            [remainingReturn with{Quantity=Q("10"),Supply=[new(stock.Position,stock.Position.BindingId,null,Q("10"))]}],[reserve,repay,release,loss]));
+        Reject("gas_projection_performance",()=>new GasQuantityLifecycleProjection(atDue,source,[stock,debt],
+            [remainingReturn with{Quantity=Q("6"),Supply=[new(stock.Position,stock.Position.BindingId,null,Q("6"))]}],[reserve,repay,release,loss]));
+        var afterDue=repay with{At=at.AddHours(7),Stock=[repay.Stock[0] with{Operation=repay.Stock[0].Operation with{At=at.AddHours(7)}}]};
+        Reject("gas_projection_known_conflict",()=>new GasQuantityLifecycleProjection(atDue,source,[stock,debt],
+            [remainingReturn],[reserve,release with{Requires=[reserve.Id]},loss,afterDue]));
+        var sameDue=repay with{At=at.AddHours(6),Stock=[repay.Stock[0] with{Operation=repay.Stock[0].Operation with{At=at.AddHours(6)}}]};
+        var direct=sameDue with{Stock=[sameDue.Stock[0] with{Operation=sameDue.Stock[0].Operation with{ReservationId=null}}],Requires=[]};
+        var together=Prepare(new GasQuantityLifecycleProjection(atDue,source,[stock,debt],[remainingReturn],[direct]))
+            .Evaluate("accepted_return_before_same_due_stated_remainder",[]);
+        Equal(together.Values.Select(v=>v.ResidualValue).Aggregate((a,b)=>a.Add(b)),"30");
         Reject("gas_projection_policy",()=>Component([stock,debt],[reserve,repay,release,loss],policies.SetItem(account.Id,new(GasQuantityProjectionPolicy.Version,GasQuantityProjectionPolicy.Retain))));
         Reject("gas_projection_source",()=>Component([stock,debt],[reserve with{KnownAt=source.Knowledge.KnownAt.AddSeconds(1)}]));
         Reject("gas_projection_performance",()=>Component([stock,debt],[reserve,repay with{Discharges=[new(debt.Position,Q("4"))]}]));

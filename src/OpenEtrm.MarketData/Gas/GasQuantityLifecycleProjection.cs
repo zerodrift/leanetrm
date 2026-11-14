@@ -84,7 +84,8 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
     {
         if(known.IsDefault||known.Any(p=>p is null))throw Error("gas_projection_source","Retain the explicit complete accepted gas transition schedule.");
         var opening=holdings;
-        if(known.Any(p=>p.Receipts.IsDefault||p.Receipts.Any(r=>r is null)))throw Error("gas_projection_source","Retain every exact native receipt in its accepted quantity event.");
+        if(known.Any(p=>p.Receipts.IsDefault||p.Receipts.Any(r=>r is null)||p.Discharges.IsDefault||p.Discharges.Any(d=>d is null||d.Quantity is null)))
+            throw Error("gas_projection_source","Retain every exact native receipt and quantity discharge in its accepted event.");
         holdings=holdings.IsDefault?holdings:holdings.AddRange(known.SelectMany(p=>p.Receipts.Select(r=>r.Stock)));
         if(policies is null||policies.Any(p=>p.Key==Guid.Empty||p.Value is null||p.Value.Implementation is not(GasQuantityProjectionPolicy.Version or GasQuantityProjectionPolicy.KnownVersion)||
             p.Value.Disposition is not(GasQuantityProjectionPolicy.Retain or GasQuantityProjectionPolicy.AtDue))||source is null||source.Knowledge is null||
@@ -104,9 +105,20 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
         {
             if(instruction.Id==Guid.Empty||!this.holdings.TryGetValue(instruction.Obligation,out var held)||held.Kind==GasProjectionHoldingKind.OwnedStock||
                 !TradingInstant.IsSupported(instruction.At)||instruction.At<=source.ValuationAt||instruction.At!=held.Instrument.ReturnAt||instruction.Quantity is null||
-                instruction.Quantity.Specification!=held.Quantity.Specification||instruction.Quantity.Amount!=Abs(held.Quantity.Amount)||instruction.Supply.IsDefault||
+                instruction.Quantity.Specification!=held.Quantity.Specification||instruction.Supply.IsDefault||
                 instruction.Requires.IsDefault||instruction.Requires.Distinct().Count()!=instruction.Requires.Length||policies[held.Account.Id].Disposition!=GasQuantityProjectionPolicy.AtDue)
                 throw Error("gas_projection_performance","A projected quantity performance requires its exact outstanding owner, full quantity and contractual due instant.");
+            var quantity=Abs(held.Quantity.Amount);
+            if(policies[held.Account.Id].Implementation==GasQuantityProjectionPolicy.KnownVersion)
+            {
+                var accepted=known.Where(k=>k.Discharges.Any(d=>d.Obligation==held.Position)).ToArray();
+                if(accepted.Any(k=>k.At>instruction.At))
+                    throw Error("gas_projection_known_conflict","A full performance at due cannot precede a later accepted discharge of the same obligation.");
+                quantity-=accepted.SelectMany(k=>k.Discharges).Where(d=>d.Obligation==held.Position)
+                    .Aggregate(default(ExactDecimal),(a,b)=>a+b.Quantity.Amount);
+            }
+            if(quantity.CompareTo(default)<=0||instruction.Quantity.Amount!=quantity)
+                throw Error("gas_projection_performance","State the exact full remaining quantity after accepted discharges; saved projected allocations are never resized.");
             var positive=held.Quantity.Amount.CompareTo(default)>0;
             if(positive)
             {
@@ -188,8 +200,8 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
             throw Error("gas_projection_performance","Apply only an admitted gas performance to its complete connected owner state.");
         var held=holdings[instruction.Obligation];var members=state.Members;var obligation=members[instruction.Obligation];
         var original=obligation.Residuals.SelectMany(p=>p.Positions).SingleOrDefault(p=>p.Owner==held.Position.Owner&&p.BindingId==held.Position.BindingId);
-        if(original is null||original.Quantity.Amount!=held.Quantity.Amount)
-            throw Error("gas_projection_performance","The projected obligation changed before its full-quantity performance.");
+        if(original is null||Abs(original.Quantity.Amount)!=instruction.Quantity.Amount||original.Quantity.Amount.CompareTo(default)!=held.Quantity.Amount.CompareTo(default))
+            throw Error("gas_projection_performance","The exact remaining obligation must equal its stated projected performance after accepted discharges.");
         obligation=obligation with{Residuals=[..obligation.Residuals.Where(p=>!p.Positions.Any(r=>r.Owner==held.Position.Owner&&r.BindingId==held.Position.BindingId))]};
         members=members.SetItem(held.Position,obligation);
         if(held.Quantity.Amount.CompareTo(default)>0)

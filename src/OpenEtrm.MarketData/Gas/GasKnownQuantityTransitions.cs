@@ -12,6 +12,17 @@ public sealed record GasKnownQuantityTransition(Guid Id,DateTimeOffset At,DateTi
 
 public sealed partial class GasQuantityLifecycleProjection
 {
+    public static Guid AcceptedEventIdentity(Guid catalog,int publication,DateTimeOffset at)
+    {
+        if(catalog==Guid.Empty||publication<1||!TradingInstant.IsSupported(at))
+            throw Error("gas_projection_source","An accepted gas event requires its exact native catalog, publication and supported UTC effective instant.");
+        return ContractIdentity.FromCanonical(FormattableString.Invariant($"gas_accepted_quantity_event_v1:{catalog:D}:{publication}:{at:yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'}"));
+    }
+    public static Guid AcceptedReleaseIdentity(Guid reservation,int publication)
+    {
+        if(reservation==Guid.Empty||publication<1)throw Error("gas_projection_source","An accepted reservation release requires its exact native reservation and publication.");
+        return ContractIdentity.FromCanonical(FormattableString.Invariant($"gas_accepted_reservation_release_v1:{reservation:D}:{publication}"));
+    }
     private ImmutableDictionary<Guid,GasKnownQuantityTransition> knownTransitions=ImmutableDictionary<Guid,GasKnownQuantityTransition>.Empty;
     private ImmutableDictionary<AccountingPositionKey,GasKnownStockSchedule> knownStockSchedules=ImmutableDictionary<AccountingPositionKey,GasKnownStockSchedule>.Empty;
     private void PrepareKnownTransitions(ImmutableArray<GasKnownQuantityTransition> known,ImmutableArray<GasProjectionHolding> opening)
@@ -45,8 +56,6 @@ public sealed partial class GasQuantityLifecycleProjection
                 if(held.Kind==GasProjectionHoldingKind.OwnedStock||discharge.Quantity is null||discharge.Quantity.Specification!=held.Quantity.Specification||
                     discharge.Quantity.Amount.CompareTo(default)<=0||discharge.Quantity.Amount.CompareTo(Abs(held.Quantity.Amount))>0)
                     throw Error("gas_projection_performance","An accepted performance must reduce an exact outstanding quantity without reversing its sign.");
-                if(performances.Values.Any(p=>p.Obligation==discharge.Obligation))
-                    throw Error("gas_projection_known_conflict","Accepted performances and stated hypothetical allocations overlap. Select retained quantity obligations or a separately qualified explicit remainder allocation.");
                 if(held.Quantity.Amount.CompareTo(default)>0)
                 {
                     var receipts=transition.Receipts.Where(r=>r.Obligation==held.Position).ToArray();
