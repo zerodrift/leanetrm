@@ -512,3 +512,23 @@ corrected lineage, substituted units/owners/receipts and a dependent late price
 read under a market shock. Native authorization and complete performance,
 funding-stock and principal composition remain source-coordinator obligations;
 this pure fact establishes no title or bank payment.
+
+The pure physical continuation composes the original future, its native delivery
+owner, received inventory, identified funding stock and principal cash as flat
+economic members. Its final event applies VM before activating the real ordinary
+locked-principal delivery instrument. The shared gas quantity engine alone
+applies accepted discharges, title receipts, reservations and consumptions;
+received stock can subsequently fund a native loan return. No internal delivery
+cash or second stock mutation is added. Each mark retains an explicitly selected
+original source under the same financial clock and knowledge cutoff.
+
+Independent checks cover signed partial performance, foreign inventory marking,
+native receipt followed by loan return, and exact principal origin/due ordering.
+Retired title has no quantity effect; original cash, offsetting claims and
+recorded payments survive under the verified sealed principal history.
+An already-due claim activates unpaid at its actual later origin; a payment is
+never moved backward. Principal carrying is an explicit supplied input. Native
+source assembly, selected ordinary principal-carrying policy, initially active
+delivery obligations, connected multiple-parent composition and complete worker
+replay remain qualification gates. This bounded pure wrapper admits one exact
+future parent and refuses another physical parent in its quantity component.

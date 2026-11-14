@@ -105,7 +105,7 @@ internal static class GasKnownQuantityChecks
         if(!Prepare(exhausted,late.AddHours(2)).Evaluate("accepted_release_after_expiry",[]).States.Single().Residuals.IsEmpty)
             throw new Exception("An exhausted native resource survived its final accepted release.");
         var reservedStock=small with{Reservations=ImmutableDictionary<Guid,ExactDecimal>.Empty.Add(reservation,ExactDecimal.Parse("5"))};
-        var dueDebt=debt with{Quantity=Q("-5"),Instrument=new(Guid.NewGuid(),mark,unit.Quantity,unit.Currency,at.AddHours(2),GasHoldingCarrying.Nominal)};
+        var dueDebt=debt with{Quantity=Q("-5"),Instrument=new GasCommodityHoldingInstrument(Guid.NewGuid(),mark,unit.Quantity,unit.Currency,at.AddHours(2),GasHoldingCarrying.Nominal)};
         var sameInstant=release with{Id=Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"),At=at.AddHours(2),Requires=[],
             Stock=[new(stock.Position,release.Stock[0].Operation with{At=at.AddHours(2)},null)]};
         var hypothetical=new GasQuantityPerformance(Guid.NewGuid(),dueDebt.Position,at.AddHours(2),Q("5"),[new(stock.Position,stock.Position.BindingId,null,Q("5"))],null,[]);

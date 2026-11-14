@@ -7,8 +7,13 @@ namespace OpenEtrm.MarketData.Gas;
 public sealed record GasKnownStockMovement(AccountingPositionKey Stock,GasKnownStockOperation Operation,AccountingPositionKey? Obligation);
 public sealed record GasKnownQuantityDischarge(AccountingPositionKey Obligation,Quantity Quantity);
 public sealed record GasKnownQuantityReceipt(AccountingPositionKey Obligation,GasProjectionHolding Stock);
+public sealed record GasKnownPhysicalOrigin(KnownFuturesPhysicalFinal Accepted,GasProjectionHolding Holding);
 public sealed record GasKnownQuantityTransition(Guid Id,DateTimeOffset At,DateTimeOffset KnownAt,ImmutableArray<Guid> Requires,
-    ImmutableArray<GasKnownStockMovement> Stock,ImmutableArray<GasKnownQuantityDischarge> Discharges,ImmutableArray<GasKnownQuantityReceipt> Receipts);
+    ImmutableArray<GasKnownStockMovement> Stock,ImmutableArray<GasKnownQuantityDischarge> Discharges,ImmutableArray<GasKnownQuantityReceipt> Receipts)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ImmutableArray<GasKnownPhysicalOrigin>? PhysicalOrigins{get;init;}
+}
 
 public sealed partial class GasQuantityLifecycleProjection
 {
@@ -24,6 +29,38 @@ public sealed partial class GasQuantityLifecycleProjection
         return ContractIdentity.FromCanonical(FormattableString.Invariant($"gas_accepted_reservation_release_v1:{reservation:D}:{publication}"));
     }
     private ImmutableDictionary<Guid,GasKnownQuantityTransition> knownTransitions=ImmutableDictionary<Guid,GasKnownQuantityTransition>.Empty;
+    internal void RequirePhysicalContinuation(GasPhysicalKnownAttachment native,KnownFuturesPhysicalFinal accepted)
+    {
+        if(holdings.Values.Any(h=>h.Kind==GasProjectionHoldingKind.PhysicalDelivery&&h.Position!=native.DeliveryOwner)||
+            knownTransitions.Values.SelectMany(t=>t.PhysicalOrigins??[]).Any(o=>o.Accepted.FutureOwner!=native.FutureOwner))
+            throw Error("gas_projection_scope","Compose every exact physical parent before sharing its connected native quantity resources.");
+        var origins=knownTransitions.Values.SelectMany(t=>(t.PhysicalOrigins??[]).Select(o=>(Transition:t,Origin:o)))
+            .Where(o=>o.Origin.Holding.Position==native.DeliveryOwner).ToArray();
+        if(origins.Length!=1||origins[0].Origin.Accepted!=accepted)
+            throw Error("gas_projection_source","Retain this exact physical origin before composing its accepted quantity continuation.");
+        var active=native.Performances.Where(p=>!p.Retracted).ToArray();
+        var discharges=knownTransitions.Values.SelectMany(t=>t.Discharges.Where(d=>d.Obligation==native.DeliveryOwner).Select(d=>(Transition:t,Discharge:d))).ToArray();
+        if(discharges.Length!=active.Length)throw Error("gas_projection_source","Retain every selected accepted physical performance exactly once.");
+        foreach(var performance in active)
+        {
+            var id=LifecycleProjectionEvent.ScopedId(native.DeliveryOwner,performance.Id);
+            var selected=discharges.SingleOrDefault(d=>d.Transition.Id==id&&d.Transition.At==performance.PerformedAt&&
+                d.Discharge.Quantity.Amount==Abs(performance.SignedQuantity.Amount)&&d.Discharge.Quantity.Specification==performance.SignedQuantity.Specification&&
+                (performance.SignedQuantity.Amount.CompareTo(default)>0?
+                    d.Transition.Receipts.Any(r=>r.Obligation==native.DeliveryOwner&&r.Stock.Position==performance.ReceiptStockOwner):
+                    d.Transition.Stock.Where(s=>s.Obligation==native.DeliveryOwner).Select(s=>s.Operation.Id).ToHashSet().SetEquals(performance.Supply.Where(s=>!s.Retracted).Select(s=>s.ConsumptionId))));
+            if(selected.Transition is null)throw Error("gas_projection_source","Physical title requires its exact native receipt or independently owned supply counterfacts.");
+            var owners=performance.Supply.Where(s=>!s.Retracted).Select(s=>s.StockOwner).Concat(performance.ReceiptStockOwner is {} owner?[owner]:[]).ToHashSet();
+            var requiredKnown=performance.Supply.Where(s=>!s.Retracted).Select(s=>s.Receipt.KnownAt)
+                .Concat(native.Stocks.Where(s=>owners.Contains(s.Owner)).Select(s=>s.Receipt.KnownAt)).Append(performance.Receipt.KnownAt).Max();
+            if(selected.Transition.KnownAt<requiredKnown||selected.Transition.At==native.EffectiveAt&&
+                !selected.Transition.Requires.Contains(LifecycleProjectionEvent.ScopedId(native.FutureOwner,native.FinalOccurrence.Id)))
+                throw Error("gas_projection_source","A physical performance requires every selected financial receipt and its same-instant native final prerequisite.");
+        }
+    }
+    internal ISideDiscounting? PhysicalCarrying(AccountingPositionKey owner)=>holdings.TryGetValue(owner,out var holding)&&
+        holding.Kind==GasProjectionHoldingKind.PhysicalDelivery?holding.Discounting:
+        throw Error("gas_projection_source","Select the exact native physical obligation before reading its carrying policy.");
     private ImmutableDictionary<AccountingPositionKey,GasKnownStockSchedule> knownStockSchedules=ImmutableDictionary<AccountingPositionKey,GasKnownStockSchedule>.Empty;
     private void PrepareKnownTransitions(ImmutableArray<GasKnownQuantityTransition> known,ImmutableArray<GasProjectionHolding> opening)
     {
@@ -31,7 +68,7 @@ public sealed partial class GasQuantityLifecycleProjection
         if(known.Any(p=>p.Id==Guid.Empty||!TradingInstant.IsSupported(p.At)||p.At<=SourceSnapshot.ValuationAt||
             !TradingInstant.IsSupported(p.KnownAt)||p.KnownAt>SourceSnapshot.Knowledge!.KnownAt||p.Requires.IsDefault||
             p.Requires.Distinct().Count()!=p.Requires.Length||p.Requires.Contains(p.Id)||p.Stock.IsDefault||p.Discharges.IsDefault||
-            p.Stock.IsEmpty&&p.Discharges.IsEmpty&&p.Receipts.IsEmpty||p.Stock.Any(s=>s is null||s.Operation is null)||
+            p.Stock.IsEmpty&&p.Discharges.IsEmpty&&p.Receipts.IsEmpty&&(p.PhysicalOrigins is null||p.PhysicalOrigins.Value.IsEmpty)||p.Stock.Any(s=>s is null||s.Operation is null)||
             p.Discharges.Any(d=>d is null))||known.Select(p=>p.Id).Distinct().Count()!=known.Length||
             known.Zip(known.Skip(1)).Any(p=>p.First.At>p.Second.At))
             throw Error("gas_projection_source","Retain the complete distinct accepted quantity events in native effective order under the original knowledge cutoff.");
@@ -44,9 +81,26 @@ public sealed partial class GasQuantityLifecycleProjection
             throw Error("gas_projection_source","Each accepted stock movement belongs to one exact native event and stock owner.");
         foreach(var transition in known)
         {
-            var owners=transition.Stock.Select(s=>s.Stock).Concat(transition.Discharges.Select(d=>d.Obligation)).Concat(transition.Receipts.Select(r=>r.Stock.Position));
+            var owners=transition.Stock.Select(s=>s.Stock).Concat(transition.Discharges.Select(d=>d.Obligation)).Concat(transition.Receipts.Select(r=>r.Stock.Position))
+                .Concat((transition.PhysicalOrigins??[]).Select(o=>o.Holding.Position));
             if(owners.Any(o=>!holdings.TryGetValue(o,out var h)||policies[h.Account.Id].Implementation!=GasQuantityProjectionPolicy.KnownVersion))
                 throw Error("gas_projection_policy","Select the explicit accepted-quantity projection version for every affected native gas account.");
+            if(transition.PhysicalOrigins is {} origins)
+            {
+                if(origins.IsDefault||origins.Any(o=>o?.Accepted is null||o.Holding is null))
+                    throw Error("gas_projection_source","Retain exact accepted native physical origins.");
+                foreach(var origin in origins)
+                {
+                    var accepted=origin.Accepted;var held=origin.Holding;
+                    if(held.Kind!=GasProjectionHoldingKind.PhysicalDelivery||held.Position!=accepted.DeliveryOwner||held.Quantity!=accepted.OriginalQuantity||
+                        held.Instrument.ValuationInstrument is not GasPhysicalDeliveryObligationInstrument instrument||!instrument.Terms.Equals(accepted.Configuration.Terms)||
+                        instrument.FinalPrice!=accepted.FinalPrice||transition.At!=accepted.Determination.Occurrence.At||transition.KnownAt<accepted.Determination.KnownAt||
+                        accepted.CatalogId!=SourceSnapshot.Definitions.CatalogId||accepted.SourceContextId!=SourceSnapshot.Knowledge!.ContextId||
+                        accepted.SourceAt!=SourceSnapshot.ValuationAt||accepted.KnownThrough!=SourceSnapshot.Knowledge.KnownAt||
+                        transition.Id!=LifecycleProjectionEvent.ScopedId(accepted.FutureOwner,accepted.Determination.Occurrence.Id)||opening.Any(p=>p.Position==held.Position))
+                        throw Error("gas_projection_source","A physical quantity origin must preserve its exact accepted future final, profile, native owner, quantity and ordinary locked-principal valuation.");
+                }
+            }
             foreach(var movement in transition.Stock)movement.Operation.Require(holdings[movement.Stock].Quantity.Specification);
             if(transition.Discharges.Select(d=>d.Obligation).Distinct().Count()!=transition.Discharges.Length)
                 throw Error("gas_projection_performance","An accepted event reduces each exact quantity obligation once.");
@@ -103,6 +157,12 @@ public sealed partial class GasQuantityLifecycleProjection
         if(!Events.Contains(occurrence)||state.CompletedEvents.Contains(occurrence.Id)||state.Members.Count!=holdings.Count)
             throw Error("gas_projection_performance","Apply an admitted accepted quantity event once to its complete native owner state.");
         var transition=knownTransitions[occurrence.Id];var members=state.Members;
+        foreach(var origin in transition.PhysicalOrigins??[])
+        {
+            var member=members[origin.Holding.Position];
+            if(!member.Residuals.IsEmpty)throw Error("gas_projection_source","An accepted physical origin cannot activate native ownership twice.");
+            members=members.SetItem(origin.Holding.Position,member with{Residuals=[Portfolio(origin.Holding)]});
+        }
         foreach(var movement in transition.Stock)
             members=ChangeStock(members,movement.Stock,movement.Stock.BindingId,stock=>stock.AcceptKnown(movement.Operation));
         foreach(var discharge in transition.Discharges)

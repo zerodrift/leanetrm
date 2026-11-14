@@ -62,13 +62,18 @@ public static class GasPhysicalFinalHandoff
 // Final VM closes the futures mark exposure, but physical performance remains
 // an ordinary acquisition/dispatch obligation until title is actually exchanged.
 [EconomicDefinition("gas_physical_delivery_obligation_v1")]
-public sealed record GasPhysicalDeliveryObligationInstrument:Instrument
+public sealed record GasPhysicalDeliveryObligationInstrument:Instrument,IGasQuantityInstrument
 {
     [IdentityField]public GasPhysicalDeliveryTerms Terms{get;}
     [IdentityField]public ExactUnitPrice FinalPrice{get;}
     public override ReferenceKey Currency=>Terms.Currency;
     public override Quantity UnitQuantity=>new(ExactDecimal.Parse("1"),Terms.Quantity);
     public override bool SupportsQuantityScaling=>true;
+    CurveRequest IGasQuantityInstrument.Mark=>Terms.Mark;
+    ReferenceKey IGasQuantityInstrument.QuantitySpecification=>Terms.Quantity;
+    DateTimeOffset? IGasQuantityInstrument.ReturnAt=>null;
+    GasHoldingCarrying IGasQuantityInstrument.Carrying=>Terms.Carrying;
+    Instrument IGasQuantityInstrument.ValuationInstrument=>this;
     public GasPhysicalDeliveryObligationInstrument(Guid id,GasPhysicalDeliveryTerms terms,ExactUnitPrice finalPrice):base(id)
     {
         if(terms is null||finalPrice is null||finalPrice.Unit.Currency!=terms.Currency||finalPrice.Unit.Quantity!=terms.Quantity)

@@ -9,7 +9,7 @@ public enum GasHoldingCarrying { Nominal=1,CurrencyCurve }
 // A reusable unit claim on gas, not its owner's title or performance history.
 // Native owned holdings apply signed quantities outside this ordinary pricer.
 [EconomicDefinition("gas_commodity_holding_v1")]
-public sealed record GasCommodityHoldingInstrument:Instrument
+public sealed record GasCommodityHoldingInstrument:Instrument,IGasQuantityInstrument
 {
     [IdentityField]public CurveRequest Mark{get;}
     [IdentityField]public ReferenceKey QuantitySpecification{get;}
@@ -19,6 +19,7 @@ public sealed record GasCommodityHoldingInstrument:Instrument
     public override Quantity UnitQuantity=>new(ExactDecimal.Parse("1"),QuantitySpecification);
     public override ReferenceKey Currency=>PaymentCurrency;
     public override bool SupportsQuantityScaling=>true;
+    Instrument IGasQuantityInstrument.ValuationInstrument=>this;
     public static Guid SelectedNativeMarkIdentity(Guid position,CurveRequest mark,int revision)
     {
         if(position==Guid.Empty||mark.Curve.Revision.CatalogId==Guid.Empty||mark.Curve.Revision.RevisionId==Guid.Empty||

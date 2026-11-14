@@ -4,13 +4,28 @@ using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.MarketData.Gas;
 
-public enum GasProjectionHoldingKind { OwnedStock=1,OperatorClaim,LoanReturn }
+public enum GasProjectionHoldingKind { OwnedStock=1,OperatorClaim,LoanReturn,PhysicalDelivery }
 public sealed record GasProjectionAccount(Guid Id,Guid BookId,PartyKey LegalOwner,ReferenceKey Location);
 public sealed record GasProjectionHolding(AccountingPositionKey Position,GasProjectionAccount Account,GasProjectionHoldingKind Kind,
-    GasCommodityHoldingInstrument Instrument,Quantity Quantity,DateTimeOffset? AvailableAt,
-    ImmutableDictionary<Guid,ExactDecimal> Reservations,ISideDiscounting? Discounting);
+    IGasQuantityInstrument Instrument,Quantity Quantity,DateTimeOffset? AvailableAt,
+    ImmutableDictionary<Guid,ExactDecimal> Reservations,ISideDiscounting? Discounting)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public MarketSnapshot? Source{get;init;}
+    public GasProjectionHolding(AccountingPositionKey position,GasProjectionAccount account,GasProjectionHoldingKind kind,
+        GasCommodityHoldingInstrument instrument,Quantity quantity,DateTimeOffset? availableAt,
+        ImmutableDictionary<Guid,ExactDecimal> reservations,ISideDiscounting? discounting)
+        :this(position,account,kind,(IGasQuantityInstrument)instrument,quantity,availableAt,reservations,discounting){}
+}
 public sealed record GasProjectionSupply(AccountingPositionKey EconomicOwner,Guid BindingId,Guid? ReservationId,Quantity Quantity);
-public sealed record GasProjectedInventoryTerms(GasProjectionAccount Account,GasCommodityHoldingInstrument Instrument,DateTimeOffset AvailableAt);
+public sealed record GasProjectedInventoryTerms(GasProjectionAccount Account,GasCommodityHoldingInstrument Instrument,DateTimeOffset AvailableAt)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public MarketSnapshot? Source{get;init;}
+    public GasProjectedInventoryTerms(GasProjectionAccount account,IGasQuantityInstrument instrument,DateTimeOffset availableAt)
+        :this(account,instrument.ValuationInstrument as GasCommodityHoldingInstrument??
+            throw new MarketDataException("gas_projection_title","Inventory must retain an ordinary owned-gas mark, rather than a delivery exchange."),availableAt){}
+}
 public sealed record GasQuantityPerformance(Guid Id,AccountingPositionKey Obligation,DateTimeOffset At,Quantity Quantity,
     ImmutableArray<GasProjectionSupply> Supply,GasProjectedInventoryTerms? Receipt,ImmutableArray<Guid> Requires);
 public sealed record GasQuantityProjectionPolicy(string Implementation,string Disposition)
@@ -66,12 +81,21 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
     public ImmutableArray<AccountingPositionKey> EconomicOwners{get;}
     public ReferenceKey Currency{get;}
     public MarketSnapshot SourceSnapshot{get;}
+    public ImmutableArray<MarketSnapshot> MarketSources{get;}
     public ImmutableArray<CurveRequest> Dependencies{get;}
     public LifecycleProjectionState Opening{get;}
     public ImmutableArray<LifecycleProjectionEvent> Events{get;}
     private readonly ImmutableDictionary<Guid,GasQuantityProjectionPolicy> policies;
     private readonly ImmutableDictionary<AccountingPositionKey,GasProjectionHolding> holdings;
     private readonly ImmutableDictionary<Guid,GasQuantityPerformance> performances;
+    private readonly ImmutableDictionary<CurveRequest,MarketSnapshot> dependencySources;
+    public MarketSnapshot DependencySource(CurveRequest request)=>dependencySources.GetValueOrDefault(request)??
+        throw Error("gas_projection_source","The selected gas mark requires its exact declared source.");
+    public MarketSnapshot ValuationSource(AccountingPositionKey position,Instrument instrument)
+    {
+        if(instrument is not IGasQuantityInstrument gas)return SourceSnapshot;
+        return DependencySource(gas.Mark);
+    }
     public GasQuantityLifecycleProjection(GasQuantityProjectionPolicy policy,MarketSnapshot source,
         ImmutableArray<GasProjectionHolding> holdings,ImmutableArray<GasQuantityPerformance> performances)
         :this(holdings.IsDefault?ImmutableDictionary<Guid,GasQuantityProjectionPolicy>.Empty:
@@ -83,10 +107,13 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
         ImmutableArray<GasProjectionHolding> holdings,ImmutableArray<GasQuantityPerformance> performances,ImmutableArray<GasKnownQuantityTransition> known)
     {
         if(known.IsDefault||known.Any(p=>p is null))throw Error("gas_projection_source","Retain the explicit complete accepted gas transition schedule.");
+        if(known.Any(p=>p.PhysicalOrigins is {} origins&&(origins.IsDefault||origins.Any(o=>o?.Accepted is null||o.Holding is null))))
+            throw Error("gas_projection_source","Retain complete typed accepted physical origins.");
         var opening=holdings;
         if(known.Any(p=>p.Receipts.IsDefault||p.Receipts.Any(r=>r is null)||p.Discharges.IsDefault||p.Discharges.Any(d=>d is null||d.Quantity is null)))
             throw Error("gas_projection_source","Retain every exact native receipt and quantity discharge in its accepted event.");
-        holdings=holdings.IsDefault?holdings:holdings.AddRange(known.SelectMany(p=>p.Receipts.Select(r=>r.Stock)));
+        holdings=holdings.IsDefault?holdings:holdings.AddRange(known.SelectMany(p=>p.Receipts.Select(r=>r.Stock)))
+            .AddRange(known.SelectMany(p=>(p.PhysicalOrigins??[]).Select(r=>r.Holding)));
         if(policies is null||policies.Any(p=>p.Key==Guid.Empty||p.Value is null||p.Value.Implementation is not(GasQuantityProjectionPolicy.Version or GasQuantityProjectionPolicy.KnownVersion)||
             p.Value.Disposition is not(GasQuantityProjectionPolicy.Retain or GasQuantityProjectionPolicy.AtDue))||source is null||source.Knowledge is null||
             holdings.IsDefaultOrEmpty||performances.IsDefault||holdings.Any(p=>p is null)||performances.Any(p=>p is null)||
@@ -138,6 +165,17 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
         if(performances.Select(p=>p.Obligation).Distinct().Count()!=performances.Length)
             throw Error("gas_projection_performance","The full-quantity projection admits one performance instruction per outstanding obligation.");
         this.performances=instructions.ToImmutable();
+        var declared=holdings.Select(h=>(h.Instrument.Mark,Source:h.Source??source))
+            .Concat(performances.Where(p=>p.Receipt is not null).Select(p=>(p.Receipt!.Instrument.Mark,Source:p.Receipt.Source??source))).ToArray();
+        foreach(var (_,selected) in declared)
+            if(selected.Knowledge!=source.Knowledge||selected.ValuationAt!=source.ValuationAt||selected.MarketCutoff!=source.MarketCutoff||!selected.HasCoherentSelections())
+                throw Error("gas_projection_source","Retain independently admitted original gas-mark sources under one exact financial clock and knowledge cutoff.");
+        if(declared.Any(p=>p.Mark.Curve.Revision!=p.Source.Definitions||p.Source.Definitions.CatalogId!=source.Definitions.CatalogId||p.Source.SelectionPolicy!=source.SelectionPolicy)||
+            declared.GroupBy(p=>p.Mark).Any(g=>g.Any(p=>!p.Source.HasSameInputs(g.First().Source)))||
+            declared.Select(p=>p.Source).Append(source).GroupBy(s=>s.Definitions).Any(g=>g.Any(s=>!s.HasSameInputs(g.First()))))
+            throw Error("gas_projection_source","Each quantity mark must retain its exact source selection; no foreign graph or conflicting source is inferred.");
+        dependencySources=declared.GroupBy(p=>p.Mark).ToImmutableDictionary(g=>g.Key,g=>g.First().Source);
+        MarketSources=[..declared.Select(p=>p.Source).Prepend(source).DistinctBy(s=>s.Definitions)];
         PrepareKnownTransitions(known,opening);
         if(!policies.Keys.ToHashSet().SetEquals(holdings.Select(p=>p.Account.Id).Concat(performances.Where(p=>p.Receipt is not null).Select(p=>p.Receipt!.Account.Id))))
             throw Error("gas_projection_policy","Select exactly the original accounts and explicitly linked projected inventory destinations.");
@@ -161,7 +199,7 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
     }
     public ImmutableArray<LifecycleMarketUse> MarketUsesFor(DateTimeOffset horizon)
     {
-        var remaining=StateAt(horizon).Residuals.SelectMany(p=>p.Instruments).OfType<GasCommodityHoldingInstrument>().Select(i=>i.Mark).ToHashSet();
+        var remaining=StateAt(horizon).Residuals.SelectMany(p=>p.Instruments).OfType<IGasQuantityInstrument>().Select(i=>i.Mark).ToHashSet();
         // Quantity/title events read no prices. A discharged claim or fully
         // consumed lot uses its mark at opening only; surviving inventory must
         // retain its selected mark through H and its declared expiry policy.
@@ -188,8 +226,13 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
         return state;
     }
     public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
+        =>ApplyConnected(occurrence,state,context.SourceSnapshot,context.CalculationAt);
+    // This resource transition reads no prices. A qualified outer component
+    // retains its independently admitted original resource source, while the
+    // common path supplies only the shared calculation instant.
+    internal LifecycleProjectionState ApplyConnected(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,MarketSnapshot source,DateTimeOffset calculationAt)
     {
-        if(!SourceSnapshot.HasSameInputs(context.SourceSnapshot)||context.CalculationAt!=occurrence.At)
+        if(!SourceSnapshot.HasSameInputs(source)||calculationAt!=occurrence.At)
             throw Error("gas_projection_source","Gas transitions require the same exact source and event clock as their prepared component.");
         return Perform(occurrence,state);
     }
@@ -209,7 +252,7 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
             var receipt=instruction.Receipt!;var binding=ProjectedStockBinding(held.Position,instruction.Id);
             var position=new AccountingPositionKey(held.Position.Owner,binding,held.Position.BookId);
             var stock=new GasProjectionHolding(position,receipt.Account,GasProjectionHoldingKind.OwnedStock,receipt.Instrument,instruction.Quantity,
-                receipt.AvailableAt,ImmutableDictionary<Guid,ExactDecimal>.Empty,null);
+                receipt.AvailableAt,ImmutableDictionary<Guid,ExactDecimal>.Empty,null){Source=receipt.Source};
             members=members.SetItem(held.Position,obligation with{Residuals=obligation.Residuals.Add(Portfolio(stock))});
         }
         else foreach(var supply in instruction.Supply)
@@ -241,7 +284,7 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
                 KnownSchedule=knownStockSchedules.GetValueOrDefault(position)};
             stock.Validate();states=states.Add(new(position.Owner,position.BindingId),stock);
         }
-        return new([holding.Instrument],[new(position.Owner,position.BindingId,position.BookId,holding.Instrument.Id,holding.Quantity,
+        return new([holding.Instrument.ValuationInstrument],[new(position.Owner,position.BindingId,position.BookId,holding.Instrument.Id,holding.Quantity,
             new(new Money(default,Currency),holding.Quantity.Specification),new(default,Currency))],
             new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,holding.Discounting){BindingStates=states});
     }
@@ -250,9 +293,13 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
         if(!p.Position.IsValid||p.Account is null||p.Account.Id==Guid.Empty||p.Account.BookId!=p.Position.BookId||p.Account.LegalOwner.Id==Guid.Empty||
             p.Account.LegalOwner.CatalogId==Guid.Empty||p.Account.LegalOwner.Revision<1||p.Instrument is null||p.Quantity is null||p.Quantity.Amount==default||
             p.Quantity.Specification!=p.Instrument.QuantitySpecification||!Enum.IsDefined(p.Kind)||p.Reservations is null||
+            p.Instrument.ValuationInstrument is not {} ordinary||ordinary.Id!=p.Instrument.Id||ordinary.Currency!=p.Instrument.Currency||
+            ordinary.UnitQuantity.Specification!=p.Instrument.QuantitySpecification||
             (p.Kind==GasProjectionHoldingKind.OwnedStock?(p.Quantity.Amount.CompareTo(default)<0||p.AvailableAt is null||!TradingInstant.IsSupported(p.AvailableAt.Value)||
-                p.Instrument.Carrying!=GasHoldingCarrying.Nominal||p.Instrument.ReturnAt is not null):
-                (p.AvailableAt is not null||!p.Reservations.IsEmpty||p.Instrument.ReturnAt is null||p.Kind==GasProjectionHoldingKind.LoanReturn&&p.Quantity.Amount.CompareTo(default)>0)))
+                p.Instrument.ValuationInstrument is not GasCommodityHoldingInstrument||p.Instrument.Carrying!=GasHoldingCarrying.Nominal||p.Instrument.ReturnAt is not null):
+                (p.AvailableAt is not null||!p.Reservations.IsEmpty||
+                    (p.Kind==GasProjectionHoldingKind.PhysicalDelivery?p.Instrument.ValuationInstrument is not GasPhysicalDeliveryObligationInstrument:p.Instrument.ReturnAt is null)||
+                    p.Kind==GasProjectionHoldingKind.LoanReturn&&p.Quantity.Amount.CompareTo(default)>0)))
             throw Error("gas_projection_holding","Supply exact nonzero stock or signed quantity obligations with explicit native title, units, owner and timing.");
         Money.RequireKey(p.Account.Location);
     }

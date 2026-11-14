@@ -53,6 +53,7 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
         instrument is OpenEtrm.MarketData.Gas.GasPhysicalDeliveryObligationInstrument gas&&gas.Terms==selected.Terms?selected.Source:source;
     private readonly FuturesDeliveryProjectionMarket? deliveryMarket;
     private readonly KnownFuturesPhysicalFinal? nativeDelivery;
+    internal KnownFuturesPhysicalFinal? NativeDelivery=>nativeDelivery;
     public ImmutableArray<CurveRequest> Dependencies{get;}
     public LifecycleProjectionState Opening{get;}
     public ImmutableArray<LifecycleInputFinal> InputFinals{get;}

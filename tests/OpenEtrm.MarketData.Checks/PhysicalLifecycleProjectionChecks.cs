@@ -77,6 +77,100 @@ internal static class PhysicalLifecycleProjectionChecks
         var native=new PhysicalFixture("1",nativeFinal:true,nativeLink:true);
         var nativeValue=native.Prepare().Evaluate("accepted_native_delivery",[]);
         Equal(nativeValue.Values.Single().OpeningValue,"80");Equal(nativeValue.Values.Single().ResidualValue,"80");Equal(nativeValue.Values.Single().EconomicPnl,"0");
+        var connected=new GasPhysicalLifecycleProjection(native.Component,native.NativeAttachment!);
+        var continued=native.Prepare(projection:connected).Evaluate("separate_native_economic_roots",[]);
+        var oldRoot=continued.Values.Single(v=>v.Owner==native.Component.Owner);var nativeRoot=continued.Values.Single(v=>v.Owner==native.NativeOwner);
+        Equal(oldRoot.OpeningValue,"80");Equal(oldRoot.ResidualValue,"0");Equal(oldRoot.EconomicPnl,"-80");
+        Equal(nativeRoot.OpeningValue,"0");Equal(nativeRoot.ResidualValue,"80");Equal(nativeRoot.EconomicPnl,"80");
+        Equal(continued.Values.Aggregate(ExactMoney.Parse("0",native.Component.Currency),(sum,value)=>sum.Add(value.EconomicPnl)),"0");
+        var title=Title(native.NativeAttachment!);
+        var titled=native.Prepare(projection:new GasPhysicalLifecycleProjection(native.Component,title,TitleQuantities(title,native.NativeFact!),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)))
+            .Evaluate("accepted_title_and_unpaid_principal",[]);
+        Equal(titled.Values.Single(v=>v.Owner==native.NativeOwner).ResidualValue,"60");
+        Equal(titled.Values.Single(v=>v.Owner==title.Stocks.Single().Owner).OpeningValue,"0");
+        Equal(titled.Values.Single(v=>v.Owner==title.Stocks.Single().Owner).ResidualValue,"50");
+        Equal(titled.Values.Single(v=>v.Owner==title.Cash.Single().Owner).ResidualValue,"-30");
+        Equal(titled.Values.Aggregate(ExactMoney.Parse("0",native.Component.Currency),(sum,value)=>sum.Add(value.EconomicPnl)),"0");
+        var retired=RetireTitle(title);
+        var retiredValue=native.Prepare(projection:new GasPhysicalLifecycleProjection(native.Component,retired,TitleQuantities(retired,native.NativeFact!),
+            new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted))).Evaluate("retracted_title_preserves_principal_and_refund",[]);
+        Equal(retiredValue.Values.Single(v=>v.Owner==native.NativeOwner).ResidualValue,"80");
+        Equal(retiredValue.Values.Aggregate(ExactMoney.Parse("0",native.Component.Currency),(sum,value)=>sum.Add(value.ResidualValue)),"95");
+        Equal(retiredValue.Values.Aggregate(ExactMoney.Parse("0",native.Component.Currency),(sum,value)=>sum.Add(value.PeriodCash)),"-15");
+        Equal(retiredValue.Values.Aggregate(ExactMoney.Parse("0",native.Component.Currency),(sum,value)=>sum.Add(value.EconomicPnl)),"0");
+        if(retiredValue.Values.Any(v=>v.Owner==title.Stocks.Single().Owner))throw new Exception("A retracted title cannot leave active owned gas.");
+        var returned=native.Prepare(projection:new GasPhysicalLifecycleProjection(native.Component,title,TitleQuantities(title,native.NativeFact!,receiveThenReturn:true),
+            new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted))).Evaluate("accepted_physical_receipt_funds_native_loan_return",[]);
+        Equal(returned.Values.Single(v=>v.Owner==title.Stocks.Single().Owner).ResidualValue,"30");
+        Equal(returned.Values.Aggregate(ExactMoney.Parse("0",native.Component.Currency),(sum,value)=>sum.Add(value.EconomicPnl)),"0");
+        var shortNative=new PhysicalFixture("-1",nativeFinal:true,nativeLink:true);var shortTitle=Title(shortNative.NativeAttachment!);
+        var dispatched=shortNative.Prepare(projection:new GasPhysicalLifecycleProjection(shortNative.Component,shortTitle,
+            TitleQuantities(shortTitle,shortNative.NativeFact!),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)))
+            .Evaluate("accepted_identified_stock_dispatch",[]);
+        Equal(dispatched.Values.Single(v=>v.Owner==shortNative.NativeOwner).ResidualValue,"-60");
+        Equal(dispatched.Values.Single(v=>v.Owner==shortTitle.Stocks.Single().Owner).OpeningValue,"50");
+        Equal(dispatched.Values.Single(v=>v.Owner==shortTitle.Stocks.Single().Owner).ResidualValue,"0");
+        Equal(dispatched.Values.Single(v=>v.Owner==shortTitle.Cash.Single().Owner).ResidualValue,"30");
+        Equal(dispatched.Values.Aggregate(ExactMoney.Parse("0",shortNative.Component.Currency),(sum,value)=>sum.Add(value.EconomicPnl)),"0");
+        var foreignNative=new PhysicalFixture("1",nativeFinal:true,nativeLink:true,crossDefinition:true,prepareForeign:true);
+        var foreignTitle=Title(foreignNative.NativeAttachment!);
+        Reject("gas_projection_source",()=>TitleQuantities(foreignTitle,foreignNative.NativeFact!));
+        var foreignValue=foreignNative.Prepare(projection:new GasPhysicalLifecycleProjection(foreignNative.Component,foreignTitle,
+            TitleQuantities(foreignTitle,foreignNative.NativeFact!,foreignNative.DeliveryMarket!.Source),
+            new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted))).Evaluate("accepted_foreign_inventory_title",[]);
+        Equal(foreignValue.Values.Aggregate(ExactMoney.Parse("0",foreignNative.Component.Currency),(sum,value)=>sum.Add(value.EconomicPnl)),"0");
+        var carried=new PhysicalFixture("1",GasHoldingCarrying.CurrencyCurve,nativeFinal:true,nativeLink:true,crossDefinition:true,prepareForeign:true);
+        var carriedTitle=Title(carried.NativeAttachment!);
+        var carriedQuantity=TitleQuantities(carriedTitle,carried.NativeFact!,carried.DeliveryMarket!.Source,physicalCarrying:carried.PrincipalCurve);
+        var carriedValue=carried.Prepare(projection:new GasPhysicalLifecycleProjection(carried.Component,carriedTitle,carriedQuantity,carried.PrincipalCurve))
+            .Evaluate("profile_carrying_preserved_at_native_title",[]);
+        Equal(carriedValue.Values.Single(v=>v.Owner==carried.NativeOwner).ResidualValue,"82.5");
+        Equal(carriedValue.Values.Single(v=>v.Owner==carriedTitle.Cash.Single().Owner).ResidualValue,"-22.5");
+        Equal(carriedValue.Values.Aggregate(ExactMoney.Parse("0",carried.Component.Currency),(sum,v)=>sum.Add(v.ResidualValue)),"110");
+        Equal(carriedValue.Values.Aggregate(ExactMoney.Parse("0",carried.Component.Currency),(sum,v)=>sum.Add(v.EconomicPnl)),"-18");
+        Reject("gas_physical_projection",()=>new GasPhysicalLifecycleProjection(carried.Component,carriedTitle,carriedQuantity,
+            new HeldCurve(carried.DeliveryMarket.Source,carried.Component.Currency,carried.Horizon.Closes[0].Instant,carriedTitle.Terms.CashDueAt)));
+        foreach(var(hours,expectedCash,expectedPeriod)in new[]{(0,"-30","0"),(1,"0","-30")})
+        {
+            var dated=new PhysicalFixture("1",nativeFinal:true,nativeLink:true,cashDueHours:hours);var performance=Title(dated.NativeAttachment!);
+            var value=dated.Prepare(projection:new GasPhysicalLifecycleProjection(dated.Component,performance,TitleQuantities(performance,dated.NativeFact!),
+                new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted))).Evaluate("principal_origin_and_due",[]);
+            Equal(value.Values.Single(v=>v.Owner==performance.Cash.Single().Owner).ResidualValue,expectedCash);
+            Equal(value.Values.Single(v=>v.Owner==performance.Cash.Single().Owner).PeriodCash,expectedPeriod);
+            Equal(value.Values.Aggregate(ExactMoney.Parse("0",dated.Component.Currency),(sum,v)=>sum.Add(v.EconomicPnl)),"0");
+        }
+        var missingCash=title with{Cash=[]};
+        Reject("gas_physical_projection",()=>new GasPhysicalLifecycleProjection(native.Component,missingCash,TitleQuantities(missingCash,native.NativeFact!),
+            new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+        var missingPrincipal=title with{PrincipalRuns=[],Cash=[]};
+        Reject("gas_physical_projection",()=>new GasPhysicalLifecycleProjection(native.Component,missingPrincipal,TitleQuantities(missingPrincipal,native.NativeFact!),
+            new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+        var wrongAmount=new Quantity(ExactDecimal.Parse("-31"),native.Component.Currency);var originalCash=title.Cash.Single();
+        var wrongPrincipal=title with{PrincipalRuns=[title.PrincipalRuns.Single() with{Steps=[title.PrincipalRuns.Single().Steps.Single() with{
+            ExactCumulative=ExactMoney.Parse("-31",native.Component.Currency),RoundedCumulative=new(wrongAmount.Amount,native.Component.Currency),
+            Contribution=new(wrongAmount.Amount,native.Component.Currency),Adjustment=new(wrongAmount.Amount,native.Component.Currency)}]}],
+            Cash=[originalCash with{Quantity=wrongAmount,State=new(originalCash.Owner,originalCash.Instrument,wrongAmount,[],RecordedCashValuation.Policy,
+                native.Source.Knowledge!.ContextId,native.Source.Knowledge.KnownAt)}]};
+        Reject("gas_physical_projection",()=>new GasPhysicalLifecycleProjection(native.Component,wrongPrincipal,TitleQuantities(wrongPrincipal,native.NativeFact!),
+            new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+        var sameInstantTitle=Title(native.NativeAttachment!,0);
+        var sameInstantValue=native.Prepare(projection:new GasPhysicalLifecycleProjection(native.Component,sameInstantTitle,
+            TitleQuantities(sameInstantTitle,native.NativeFact!),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted))).Evaluate("final_before_same_instant_title",[]);
+        Equal(sameInstantValue.Values.Aggregate(ExactMoney.Parse("0",native.Component.Currency),(sum,v)=>sum.Add(v.EconomicPnl)),"0");
+        Reject("gas_projection_source",()=>new GasPhysicalLifecycleProjection(native.Component,sameInstantTitle,
+            TitleQuantities(sameInstantTitle,native.NativeFact!,transitionChange:t=>t with{Requires=[]}),
+            new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+        Reject("gas_physical_projection",()=>new GasPhysicalLifecycleProjection(native.Component,title));
+        Reject("gas_projection_scope",()=>new GasPhysicalLifecycleProjection(native.Component,title,TitleQuantities(title,native.NativeFact!,anotherPhysicalParent:true),
+            new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+        foreach(var change in new Func<GasKnownQuantityTransition,GasKnownQuantityTransition>[] {
+            t=>t with{Id=Guid.NewGuid()},t=>t with{KnownAt=native.NativeFact!.KnownAt}})
+            Reject("gas_projection_source",()=>new GasPhysicalLifecycleProjection(native.Component,title,
+                TitleQuantities(title,native.NativeFact!,transitionChange:change),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
+        Reject("gas_physical_projection",()=>new GasPhysicalLifecycleProjection(native.Component,title,TitleQuantities(title,native.NativeFact!),
+            new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Explicit)));
+        Reject("gas_projection_source",()=>new GasPhysicalLifecycleProjection(native.Component,title,
+            TitleQuantities(title,native.NativeFact!,native.Source with{Id=Guid.NewGuid()}),new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted)));
         if(nativeValue.States.Single().Residuals.Single().Positions.Single().Owner!=native.NativeOwner!.Value.Owner||
             !nativeValue.States.Single().KnownResidualOwners.Contains(native.NativeOwner.Value))
             throw new Exception("An accepted final must activate its exact predeclared native delivery owner, without another hypothetical obligation.");
@@ -115,6 +209,91 @@ internal static class PhysicalLifecycleProjectionChecks
     private static void Reject(string code,Action action)
     {try{action();}catch(MarketDataException e)when(e.Code==code){return;}throw new Exception("Expected physical projection refusal "+code);}
 
+    private static GasPhysicalKnownAttachment Title(GasPhysicalKnownAttachment native,double hours=1)
+    {
+        var at=native.EffectiveAt.AddHours(hours);var receipt=new GasPhysicalKnownReceipt(3,native.SourceSnapshot.Knowledge!.KnownAt);
+        var positive=native.OriginalQuantity.Amount.CompareTo(default)>0;
+        var quantity=new Quantity(ExactDecimal.Parse("10"),native.Terms.Quantity);var performance=Guid.NewGuid();var stock=Guid.NewGuid();
+        var owner=new AccountingPositionKey(new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,stock),stock,native.DeliveryOwner.BookId);
+        var evidence=Guid.NewGuid();var account=Guid.NewGuid();var cashId=Guid.NewGuid();var determination=Guid.NewGuid();
+        var cashOwner=new AccountingPositionKey(native.DeliveryOwner.Owner,cashId,native.DeliveryOwner.BookId);
+        var instrument=new TimedCashPayment(native.Terms.Currency,native.Terms.CashDueAt);var amount=new Quantity(ExactDecimal.Parse(positive?"-30":"30"),native.Terms.Currency);
+        var state=new RecordedCashValuation(cashOwner,instrument,amount,[],RecordedCashValuation.Policy,native.SourceSnapshot.Knowledge.ContextId,native.SourceSnapshot.Knowledge.KnownAt);
+        var consumption=new GasStockConsumption(Guid.NewGuid(),stock,quantity,GasStockUse.Delivery,at,receipt.KnownAt,evidence,null);
+        var stockAt=positive?at:native.SourceSnapshot.ValuationAt.AddDays(-1);
+        return native with{
+            Performances=[new(performance,"synthetic title",positive?quantity:new(-quantity.Amount,quantity.Specification),at,positive?evidence:null,positive?owner:null,
+                positive?[]:[new(1,consumption.Id,owner,evidence,null,quantity,1,false,receipt)],1,false,GasSourceAllocation.Initial,receipt)],
+            Stocks=[new(owner,account,new(Guid.NewGuid(),Guid.NewGuid(),1),new(Guid.NewGuid(),native.Terms.Mark,native.Terms.Quantity,native.Terms.Currency,null,GasHoldingCarrying.Nominal),
+                new(stock,account,quantity,stockAt,stockAt,receipt.KnownAt,evidence),[],[],[],positive?[]:[consumption],1,false,receipt)],
+            PrincipalRuns=[new(1,native.CurrentFinal.DeterminationId,native.SourceSnapshot.Knowledge.ContextId,at,
+                [new(determination,performance,null,null,positive?quantity:new(-quantity.Amount,quantity.Specification),ExactMoney.Parse(amount.Amount.ToString(),native.Terms.Currency),new(amount.Amount,native.Terms.Currency),
+                    new(amount.Amount,native.Terms.Currency),new(amount.Amount,native.Terms.Currency),1)],receipt)],
+            Cash=[new(cashId,determination,cashOwner,instrument,amount,state,at,receipt)]};
+    }
+    private static GasQuantityLifecycleProjection TitleQuantities(GasPhysicalKnownAttachment native,KnownFuturesMargin final,MarketSnapshot? markSource=null,bool receiveThenReturn=false,ISideDiscounting? physicalCarrying=null,
+        Func<GasKnownQuantityTransition,GasKnownQuantityTransition>? transitionChange=null,bool anotherPhysicalParent=false)
+    {
+        var stock=native.Stocks.Single();var performance=native.Performances.Single();
+        var account=new GasProjectionAccount(stock.AccountId,native.FutureOwner.BookId,stock.LegalOwner,native.Terms.Location);
+        var obligation=new GasProjectionHolding(native.DeliveryOwner,account,GasProjectionHoldingKind.PhysicalDelivery,
+            (GasPhysicalDeliveryObligationInstrument)native.Terms.CreateObligation(native.CurrentFinal.Price),native.OriginalQuantity,null,
+            ImmutableDictionary<Guid,ExactDecimal>.Empty,physicalCarrying){Source=markSource};
+        var incoming=new GasProjectionHolding(stock.Owner,account,GasProjectionHoldingKind.OwnedStock,stock.OriginalInstrument,stock.Lot.Quantity,
+            stock.Lot.AvailableAt,ImmutableDictionary<Guid,ExactDecimal>.Empty,null){Source=markSource};
+        var originId=LifecycleProjectionEvent.ScopedId(native.FutureOwner,native.FinalOccurrence.Id);
+        var origin=new GasKnownQuantityTransition(originId,native.EffectiveAt,native.CurrentFinal.Receipt.KnownAt,[],[],[],[]){
+            PhysicalOrigins=[new(KnownFuturesPhysicalFinal.Create(native,final),obligation)]};
+        var title=performance.Retracted?null:new GasKnownQuantityTransition(LifecycleProjectionEvent.ScopedId(native.DeliveryOwner,performance.Id),performance.PerformedAt,performance.Receipt.KnownAt,[originId],
+            performance.SignedQuantity.Amount.CompareTo(default)>0?[]:[new(stock.Owner,new(stock.Consumptions.Single().Id,performance.PerformedAt,
+                GasKnownStockUse.Consume,null,stock.Lot.Quantity),native.DeliveryOwner)],
+            [new(native.DeliveryOwner,new(ExactDecimal.Parse("10"),native.Terms.Quantity))],performance.SignedQuantity.Amount.CompareTo(default)>0?[new(native.DeliveryOwner,incoming)]:[]);
+        if(transitionChange is not null&&title is not null)title=transitionChange(title);
+        ImmutableArray<GasProjectionHolding> opening=native.OriginalQuantity.Amount.CompareTo(default)>0?[]:[incoming];
+        ImmutableArray<GasKnownQuantityTransition> known=title is null?[origin]:[origin,title];
+        if(anotherPhysicalParent)
+        {
+            var parent=new AccountingPositionKey(Guid.NewGuid(),native.FutureOwner.BindingId,native.FutureOwner.BookId);
+            var owner=new AccountingPositionKey(new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,Guid.NewGuid()),Guid.NewGuid(),native.DeliveryOwner.BookId);
+            var id=Guid.NewGuid();var current=native.CurrentFinal with{DeterminationId=id};
+            var extra=native with{FutureOwner=parent,DeliveryOwner=owner,InitialDeterminationId=id,CurrentFinal=current,Finals=[current]};
+            known=known.Insert(1,new(LifecycleProjectionEvent.ScopedId(parent,native.FinalOccurrence.Id),native.EffectiveAt,native.CurrentFinal.Receipt.KnownAt,[],[],[],[]){
+                PhysicalOrigins=[new(KnownFuturesPhysicalFinal.Create(extra,final with{DeterminationId=id}),obligation with{Position=owner})]});
+        }
+        if(receiveThenReturn)
+        {
+            var at=performance.PerformedAt.AddHours(1);var id=Guid.NewGuid();var quantity=new Quantity(ExactDecimal.Parse("4"),native.Terms.Quantity);
+            var returnOwner=new AccountingPositionKey(new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,id),id,native.DeliveryOwner.BookId);
+            var liability=new GasProjectionHolding(returnOwner,account,GasProjectionHoldingKind.LoanReturn,
+                new GasCommodityHoldingInstrument(Guid.NewGuid(),native.Terms.Mark,native.Terms.Quantity,native.Terms.Currency,at,GasHoldingCarrying.Nominal),
+                new(-quantity.Amount,quantity.Specification),null,ImmutableDictionary<Guid,ExactDecimal>.Empty,null){Source=markSource};
+            opening=opening.Add(liability);
+            known=known.Add(new(GasQuantityLifecycleProjection.AcceptedEventIdentity(native.SourceSnapshot.Definitions.CatalogId,4,at),at,
+                performance.Receipt.KnownAt,[title!.Id],[new(stock.Owner,new(Guid.NewGuid(),at,GasKnownStockUse.Consume,null,quantity),returnOwner)],
+                [new(returnOwner,quantity)],[]));
+        }
+        return new(ImmutableDictionary<Guid,GasQuantityProjectionPolicy>.Empty.Add(account.Id,new(GasQuantityProjectionPolicy.KnownVersion,GasQuantityProjectionPolicy.Retain)),
+            native.SourceSnapshot,opening,[],known);
+    }
+    private static GasPhysicalKnownAttachment RetireTitle(GasPhysicalKnownAttachment native)
+    {
+        var performance=native.Performances.Single();var stock=native.Stocks.Single();var original=native.Cash.Single();var first=native.PrincipalRuns.Single();
+        var zero=new Quantity(default,native.Terms.Quantity);var receipt=first.Receipt with{PublicationOrder=4};
+        var id=Guid.NewGuid();var cashId=Guid.NewGuid();var refundOwner=new AccountingPositionKey(native.DeliveryOwner.Owner,cashId,native.DeliveryOwner.BookId);
+        var refundQuantity=new Quantity(ExactDecimal.Parse("30"),native.Terms.Currency);
+        var paid=new AccountingFlow(Guid.NewGuid(),1,original.Owner,performance.PerformedAt.AddHours(1),receipt.KnownAt,
+            ExactMoney.Parse("-15",native.Terms.Currency),AccountingFlowKind.EconomicCash);
+        var oldState=new RecordedCashValuation(original.Owner,original.Instrument,original.Quantity,[paid],RecordedCashValuation.Policy,
+            native.SourceSnapshot.Knowledge!.ContextId,native.SourceSnapshot.Knowledge.KnownAt);
+        return native with{Performances=[performance with{SignedQuantity=zero,FinancialRevision=2,Retracted=true,SourceAllocation=GasSourceAllocation.Withdraw,Receipt=receipt}],
+            Stocks=[stock with{Lot=stock.Lot with{Quantity=zero},FinancialRevision=2,Retracted=true,Receipt=receipt}],
+            PrincipalRuns=[first,new(2,native.CurrentFinal.DeterminationId,first.SourceContextId,first.AsOf,
+                [new(id,performance.Id,first.Steps.Single().Id,null,zero,ExactMoney.Parse("0",native.Terms.Currency),new(default,native.Terms.Currency),
+                    new(default,native.Terms.Currency),new(refundQuantity.Amount,native.Terms.Currency),2)],receipt)],
+            Cash=[original with{State=oldState},new(cashId,id,refundOwner,original.Instrument,refundQuantity,
+                new(refundOwner,original.Instrument,refundQuantity,[],RecordedCashValuation.Policy,native.SourceSnapshot.Knowledge.ContextId,native.SourceSnapshot.Knowledge.KnownAt),
+                original.EffectiveAt,receipt)]};
+    }
     private sealed class PhysicalFixture
     {
         public CurveModel Model{get;}
@@ -127,9 +306,10 @@ internal static class PhysicalLifecycleProjectionChecks
         public GasPhysicalKnownAttachment? NativeAttachment{get;}
         public KnownFuturesMargin? NativeFact{get;}
         private IProjectionCurrencyCurve CashCurve{get;}
-        public PreparedLifecycleProjection Prepare(LifecycleProjectionPolicy? policy=null,LifecycleProjectionHorizon? horizon=null,ImmutableArray<ILifecycleProjection> extra=default)
+        public ISideDiscounting PrincipalCurve=>DeliveryMarket?.Discounting??CashCurve;
+        public PreparedLifecycleProjection Prepare(LifecycleProjectionPolicy? policy=null,LifecycleProjectionHorizon? horizon=null,ImmutableArray<ILifecycleProjection> extra=default,ILifecycleProjection? projection=null)
         {
-            var components=ImmutableArray.Create<ILifecycleProjection>(Component).AddRange(extra.IsDefault?[]:extra);
+            var components=ImmutableArray.Create<ILifecycleProjection>(projection??Component).AddRange(extra.IsDefault?[]:extra);
             if(DeliveryMarket is not {} selected)return LifecycleProjection.Prepare(Model,Source,horizon??Horizon,policy??Policy,components,[],cashCurves:ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty.Add(CashCurve.Currency,CashCurve));
             var a=Model.Build(Source,[..Component.Dependencies.Where(d=>d.Curve.Revision==Source.Definitions)]);
             var b=selected.Model.Build(selected.Source,[selected.Terms.Mark]);var context=a.Graph.Plan.Context;
@@ -141,7 +321,7 @@ internal static class PhysicalLifecycleProjectionChecks
             return LifecycleProjection.Prepare(valuation,bindings,a,horizon??Horizon,policy??Policy,components,[],cashCurves:ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty.Add(CashCurve.Currency,CashCurve),additionalMarkets:[new(b,
                 selected.Discounting is null?ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty:ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty.Add(selected.Terms.Currency,selected.Discounting),[])]);
         }
-        public PhysicalFixture(string signed,GasHoldingCarrying carrying=GasHoldingCarrying.Nominal,bool crossDefinition=false,bool provideCurve=true,bool nativeFinal=false,bool prepareForeign=false,string execution="3",bool delayedVm=false,bool nativeLink=false,
+        public PhysicalFixture(string signed,GasHoldingCarrying carrying=GasHoldingCarrying.Nominal,bool crossDefinition=false,bool provideCurve=true,bool nativeFinal=false,bool prepareForeign=false,string execution="3",bool delayedVm=false,bool nativeLink=false,double? cashDueHours=null,
             Func<GasPhysicalKnownAttachment,GasPhysicalKnownAttachment>? nativeTransform=null)
         {
             var f=new Fixture();var quote=f.Quotes[0];var contract=f.Contracts[0];var at=contract.Expiry;
@@ -161,7 +341,7 @@ internal static class PhysicalLifecycleProjectionChecks
             var holding=trade.Instruments.Single();
             var deliveryRevision=crossDefinition?new DefinitionRevision(f.Revision.CatalogId,Guid.NewGuid()):f.Revision;
             var terms=new GasPhysicalDeliveryTerms(Guid.NewGuid(),series.Key,quote.Quantity,quote.Currency,series.Location,at,at.AddDays(30),
-                at.AddDays(35),new(new(deliveryRevision,inventory.Key.Code),new(deliveryRevision,f.K(2).Id)),carrying,GasPhysicalDeliveryTerms.Version);
+                cashDueHours is {} hours?at.AddHours(hours):at.AddDays(35),new(new(deliveryRevision,inventory.Key.Code),new(deliveryRevision,f.K(2).Id)),carrying,GasPhysicalDeliveryTerms.Version);
             var margin=new FuturesMarginPolicy(Guid.NewGuid(),1,contract.Key,f.C("future"),at.AddDays(-3),at.AddDays(2),
                 [new(Guid.NewGuid(),at,delayedVm?at.AddDays(1):at,FuturesMarginPhase.Final)],new(quote.Currency,ExactDecimal.Parse("0.01"),CashTieRule.ToEven,CashRoundingStage.PaymentTotal),
                 FuturesMargin.HeldBindingRounding,FuturesMarginOpening.AfterOpeningInstant,FuturesMarginPolicy.DeliveryVersion){Delivery=new(Guid.NewGuid(),1,terms)};
