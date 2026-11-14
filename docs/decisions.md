@@ -5035,11 +5035,10 @@ unchanged.
 Not chosen. Declaring no price step for the strike-centred tree: under
 discounting a one-tick gamma of an option in the money is then shown over 5%
 off, and the offered agreement uses one that is 23% off. The rebuilt tree with
-its last step replaced by the closed form
-keeps a visible bend: in a binary64 prototype its one-tick gamma was within 5%
-at 17% to 100% of prices where the strike-centred tree's was at 92% to 100%.
-More steps cost their square. That prototype figure was measured on 2026-11-13
-and is pinned by no check.
+its last step replaced by the closed form keeps a visible bend: in a binary64
+prototype its one-tick gamma was within 5% at 17% to 100% of prices where the
+strike-centred tree's was at 92% to 100%. More steps cost their square. That
+prototype figure was measured on 2026-11-13 and is pinned by no check.
 
 Open. Whether to state the strike-centred tree. Stating it needs a schema
 release, because the stored volatility-surface tables accept only the rebuilt
@@ -5047,8 +5046,7 @@ tree's policy; a new pinned digest and new example calibrations; and one
 decision for the Blotter, the risk catalog, the trading P&L and volatility
 surfaces together. It would not remove the two-step bump for discounted
 options. Parametric VaR, the PCA hybrid and joint derivatives have not been run
-through the API on a book valued under it. Its result digest is pinned from one
-macOS run and has not been observed on Linux. An option beside its exercise
+through the API on a book valued under it. An option beside its exercise
 boundary has no usable one-tick gamma on either tree. A run retained before a
 change of the stated pricing policy is no longer opened as a scope's current
 report after it.
