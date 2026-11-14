@@ -6,6 +6,7 @@ namespace OpenEtrm.MarketData.Gas;
 
 public sealed record GasDeliveryPrincipalPerformance(Guid Id,string BusinessReference,DateTimeOffset At,Quantity SignedQuantity);
 public sealed record GasDeliveryPrincipalPrevious(Guid PerformanceId,Money Contribution);
+public sealed record GasDeliveryPrincipalQuantityPrior(Guid PerformanceId,DateTimeOffset At,Money Contribution);
 public sealed record GasDeliveryPrincipalStep(GasDeliveryPrincipalPerformance Performance,Quantity CumulativeQuantity,
     ExactMoney ExactCumulative,Money RoundedCumulative,Money Contribution,Money Adjustment);
 
@@ -14,12 +15,30 @@ public sealed record GasDeliveryPrincipalStep(GasDeliveryPrincipalPerformance Pe
 public static class GasDeliveryPrincipal
 {
     public const string Scope="delivery_cumulative_principal_total_v1";
+    public static ImmutableArray<GasDeliveryPrincipalStep> CorrectQuantities(Quantity original,ExactUnitPrice finalPrice,CashRoundingConvention rounding,
+        string scope,ImmutableArray<GasDeliveryPrincipalPerformance> performances,ImmutableArray<Guid> retracted,ImmutableArray<GasDeliveryPrincipalQuantityPrior> previous)
+    {
+        if(performances.IsDefault||previous.IsDefault||retracted.IsDefault||performances.Length>16384||previous.Length>16384||retracted.Length>16384||
+            performances.Any(p=>p is null)||previous.Any(p=>p is null||p.Contribution is null)||
+            performances.Select(p=>p.Id).Distinct().Count()!=performances.Length||previous.Select(p=>p.PerformanceId).Distinct().Count()!=previous.Length||
+            retracted.Any(id=>id==Guid.Empty)||retracted.Distinct().Count()!=retracted.Length)
+            throw Error("gas_delivery_principal_reconciliation","Select the complete retained performance prefix and explicit retraction identities.");
+        var originals=previous.ToImmutableDictionary(p=>p.PerformanceId);
+        if(!originals.Keys.ToHashSet().SetEquals(performances.Select(p=>p.Id))||retracted.Any(id=>!originals.ContainsKey(id))||
+            performances.Any(p=>p.At!=originals[p.Id].At))
+            throw Error("gas_delivery_principal_reconciliation","Quantity reconciliation retains every native performance identity and instant. Timing changes require explicit payment/advance handling.");
+        return PlanCore(original,finalPrice,rounding,scope,performances,[..previous.Select(p=>new GasDeliveryPrincipalPrevious(p.PerformanceId,p.Contribution))],retracted.ToImmutableHashSet());
+    }
     public static ImmutableArray<GasDeliveryPrincipalStep> Plan(Quantity original,ExactUnitPrice finalPrice,CashRoundingConvention rounding,
         string scope,ImmutableArray<GasDeliveryPrincipalPerformance> performances,ImmutableArray<GasDeliveryPrincipalPrevious> previous)
+        =>PlanCore(original,finalPrice,rounding,scope,performances,previous,ImmutableHashSet<Guid>.Empty);
+    private static ImmutableArray<GasDeliveryPrincipalStep> PlanCore(Quantity original,ExactUnitPrice finalPrice,CashRoundingConvention rounding,
+        string scope,ImmutableArray<GasDeliveryPrincipalPerformance> performances,ImmutableArray<GasDeliveryPrincipalPrevious> previous,ImmutableHashSet<Guid> retracted)
     {
         if(original is null||original.Amount==default||finalPrice is null||rounding is null||scope!=Scope||original.Specification!=finalPrice.Unit.Quantity||
             performances.IsDefault||previous.IsDefault||performances.Length>16384||previous.Length>16384||performances.Any(p=>p is null||p.Id==Guid.Empty||!TradingInstant.IsSupported(p.At)||p.SignedQuantity is null||
-                p.SignedQuantity.Specification!=original.Specification||p.SignedQuantity.Amount==default||p.SignedQuantity.Amount.CompareTo(default)!=original.Amount.CompareTo(default)||
+                p.SignedQuantity.Specification!=original.Specification||(p.SignedQuantity.Amount==default?!retracted.Contains(p.Id):
+                    retracted.Contains(p.Id)||p.SignedQuantity.Amount.CompareTo(default)!=original.Amount.CompareTo(default))||
                 !Reference(p.BusinessReference))||performances.Select(p=>p.Id).Distinct().Count()!=performances.Length||
             performances.Select(p=>p.BusinessReference).Distinct(StringComparer.Ordinal).Count()!=performances.Length||
             previous.Any(p=>p is null||p.PerformanceId==Guid.Empty||p.Contribution is null||p.Contribution.Currency!=finalPrice.Unit.Currency)||

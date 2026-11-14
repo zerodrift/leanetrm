@@ -38,6 +38,34 @@ internal static class GasDeliveryPrincipalChecks
         Reject("gas_delivery_principal_capacity",()=>Plan("1",[first with{SignedQuantity=Q("4")}],[]));
         Reject("gas_delivery_principal_scope",()=>Plan("1",[first,first with{Id=Guid.NewGuid()}],[]));
         Reject("gas_delivery_principal_scope",()=>Plan("1",[first],[new(Guid.NewGuid(),new(ExactDecimal.Parse("1"),unit.Currency))]));
+        var accepted=original.Select(s=>new GasDeliveryPrincipalQuantityPrior(s.Performance.Id,s.Performance.At,s.Contribution)).ToImmutableArray();
+        var retracted=GasDeliveryPrincipal.CorrectQuantities(Q("3"),ExactUnitPrice.Parse("1.01",unit),rounding,GasDeliveryPrincipal.Scope,
+            [first with{SignedQuantity=Q("0")},second],[first.Id],accepted);
+        if(retracted[0].CumulativeQuantity.Amount!=default)throw new Exception("Retracted performance retained quantity.");
+        Equal(retracted[0].Contribution,"0");
+        Equal(retracted[0].Adjustment,"0.50");Equal(retracted[1].Contribution,"-0.50");Equal(retracted[1].Adjustment,"0.01");
+        var cancelled=GasDeliveryPrincipal.CorrectQuantities(Q("3"),ExactUnitPrice.Parse("1.01",unit),rounding,GasDeliveryPrincipal.Scope,
+            [first with{SignedQuantity=Q("0")},second with{SignedQuantity=Q("0")}],[first.Id,second.Id],accepted);
+        Equal(cancelled[0].Adjustment,"0.50");Equal(cancelled[1].Adjustment,"0.51");Equal(cancelled[^1].RoundedCumulative,"0");
+        Reject("gas_delivery_principal_reconciliation",()=>GasDeliveryPrincipal.CorrectQuantities(Q("3"),ExactUnitPrice.Parse("1.01",unit),rounding,GasDeliveryPrincipal.Scope,
+            [first with{At=first.At.AddHours(1)},second],[],accepted));
+        Reject("gas_delivery_principal_reconciliation",()=>GasDeliveryPrincipal.CorrectQuantities(Q("3"),ExactUnitPrice.Parse("1.01",unit),rounding,GasDeliveryPrincipal.Scope,
+            [second],[],accepted));
+        Reject("gas_delivery_principal_scope",()=>GasDeliveryPrincipal.CorrectQuantities(Q("3"),ExactUnitPrice.Parse("1.01",unit),rounding,GasDeliveryPrincipal.Scope,
+            [first with{SignedQuantity=Q("0")},second],[],accepted));
+        Reject("gas_delivery_principal_scope",()=>GasDeliveryPrincipal.CorrectQuantities(Q("3"),ExactUnitPrice.Parse("1.01",unit),rounding,GasDeliveryPrincipal.Scope,
+            [first,second],[first.Id],accepted));
+        var replaced=GasDeliveryPrincipal.CorrectQuantities(Q("3"),ExactUnitPrice.Parse("1.01",unit),rounding,GasDeliveryPrincipal.Scope,
+            [first with{SignedQuantity=Q("0.25")},second],[],accepted);
+        Equal(replaced[0].Adjustment,"0.25");Equal(replaced[1].Adjustment,"0");Equal(replaced[^1].RoundedCumulative,"-0.76");
+        var restored=GasDeliveryPrincipal.CorrectQuantities(Q("3"),ExactUnitPrice.Parse("1.01",unit),rounding,GasDeliveryPrincipal.Scope,
+            [first,second],[],[..cancelled.Select(s=>new GasDeliveryPrincipalQuantityPrior(s.Performance.Id,s.Performance.At,s.Contribution))]);
+        Equal(restored[0].Adjustment,"-0.50");Equal(restored[1].Adjustment,"-0.51");
+        var cancelledNegative=GasDeliveryPrincipal.CorrectQuantities(Q("1"),ExactUnitPrice.Parse("-1.01",new(unit.Currency,unit.Quantity,ExactDecimal.Parse("2.5"))),rounding,GasDeliveryPrincipal.Scope,
+            [first with{SignedQuantity=Q("0")},second with{SignedQuantity=Q("0")}],[first.Id,second.Id],
+            [..multiplied.Select(s=>new GasDeliveryPrincipalQuantityPrior(s.Performance.Id,s.Performance.At,s.Contribution))]);
+        Equal(cancelledNegative[0].Adjustment,"-1.26");Equal(cancelledNegative[1].Adjustment,"-1.26");
+        Console.WriteLine("PASS quantity reconciliation principal: full retraction refunds, zero prefixes, separate contribution adjustments and explicit timing refusal");
         Console.WriteLine("PASS physical delivery principal: cumulative held rounding, source-known future prefixes, backdated contribution corrections, signed consideration and stable UTF-8 ordering");
         void Equal(Money amount,string expected){if(amount.Amount!=ExactDecimal.Parse(expected))throw new Exception($"Expected {expected}; got {amount.Amount}.");}
     }
