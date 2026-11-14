@@ -1,0 +1,102 @@
+name: Dependency cache qualification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/dependency-cache.yml'
+      - 'tools/ci/**'
+      - 'tools/ci_dependencies.py'
+      - 'tests/test_ci_dependencies.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cache-round-trip:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      POSTGRESQL_BUNDLE_URL: ${{ vars.POSTGRESQL_BUNDLE_URL }}
+    steps:
+      - name: Select isolated package caches
+        run: |
+          echo "NUGET_PACKAGES=$RUNNER_TEMP/dependency-cache-probe/nuget" >> "$GITHUB_ENV"
+          echo "npm_config_cache=$RUNNER_TEMP/dependency-cache-probe/npm" >> "$GITHUB_ENV"
+          echo "DEPENDENCY_CACHE=$RUNNER_TEMP/dependency-cache-probe" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Require an empty remote cache
+        id: cold
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.DEPENDENCY_CACHE }}
+          key: dependency-probe-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Exercise cold dependency acquisition
+        env:
+          CACHE_HIT: ${{ steps.cold.outputs.cache-hit }}
+        shell: bash
+        run: |
+          test "$CACHE_HIT" != true
+          test ! -d "$DEPENDENCY_CACHE"
+          python3 -m unittest discover -s tests -p test_ci_dependencies.py
+          for project in tests/*/*.csproj src/OpenEtrm.Worker/OpenEtrm.Worker.csproj; do
+            dotnet restore "$project" --locked-mode --force --no-http-cache
+          done
+          npm ci --prefix web --ignore-scripts --no-audit --no-fund
+          bundle_args=()
+          if [ -n "$POSTGRESQL_BUNDLE_URL" ]; then
+            bundle_args=(--bundle-url "$POSTGRESQL_BUNDLE_URL")
+          fi
+          python3 tools/ci_dependencies.py --verify-only --cache "$DEPENDENCY_CACHE/postgresql" "${bundle_args[@]}"
+      - name: Save verified package caches
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.DEPENDENCY_CACHE }}
+          key: ${{ steps.cold.outputs.cache-primary-key }}
+      - name: Discard local cache copies
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, shutil
+          target = pathlib.Path(os.environ['DEPENDENCY_CACHE'])
+          assert target == pathlib.Path(os.environ['RUNNER_TEMP']) / 'dependency-cache-probe'
+          shutil.rmtree(target)
+          PY
+      - name: Restore the saved remote cache
+        id: warm
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.DEPENDENCY_CACHE }}
+          key: ${{ steps.cold.outputs.cache-primary-key }}
+          fail-on-cache-miss: true
+      - name: Exercise offline cache hits and stock database
+        env:
+          CACHE_HIT: ${{ steps.warm.outputs.cache-hit }}
+        shell: bash
+        run: |
+          test "$CACHE_HIT" = true
+          printf '%s\n' '<configuration><packageSources><clear /></packageSources></configuration>' > "$RUNNER_TEMP/offline-nuget.config"
+          for project in tests/*/*.csproj src/OpenEtrm.Worker/OpenEtrm.Worker.csproj; do
+            dotnet restore "$project" --locked-mode --force --no-http-cache --configfile "$RUNNER_TEMP/offline-nuget.config"
+          done
+          npm ci --prefix web --offline --ignore-scripts --no-audit --no-fund
+          mkdir "$RUNNER_TEMP/no-download"
+          printf '#!/bin/sh\necho "Unexpected PostgreSQL download" >&2\nexit 1\n' > "$RUNNER_TEMP/no-download/curl"
+          chmod +x "$RUNNER_TEMP/no-download/curl"
+          PATH="$RUNNER_TEMP/no-download:$PATH" python3 tools/ci_dependencies.py --cache "$DEPENDENCY_CACHE/postgresql"
+          /usr/lib/postgresql/18/bin/initdb -D "$RUNNER_TEMP/cache-check-db" --no-locale --encoding=UTF8
+          /usr/lib/postgresql/18/bin/pg_ctl -D "$RUNNER_TEMP/cache-check-db" -l "$RUNNER_TEMP/cache-check-db.log" -o "-c listen_addresses='' -c unix_socket_directories='$RUNNER_TEMP' -c track_commit_timestamp=on" -w start
+          trap '/usr/lib/postgresql/18/bin/pg_ctl -D "$RUNNER_TEMP/cache-check-db" -m immediate -w stop' EXIT
+          /usr/lib/postgresql/18/bin/psql -X -h "$RUNNER_TEMP" -d postgres -v ON_ERROR_STOP=1 -c "SELECT version(); SHOW track_commit_timestamp;"

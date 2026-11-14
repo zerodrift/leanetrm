@@ -17,9 +17,15 @@ export type Contribution={formula:string;label:string;axes:string[];amount:Money
 export type Position={position:{tradeId:string;bindingId:string;bookId:string};tradeReference:string|null;instrumentReference:string|null;state:string;values:Values;
  contributions:Contribution[]};
 export type Total={currency:Currency;values:Values;bridge:Step[];factorEffects:{axis:string;delta:GreekEffect;gamma:GreekEffect}[];greekCoverage:string};
+// A date a report compares. A recorded close states its convention and the business day it closes; a working snapshot, and a
+// report saved before closes were stated, states neither.
+export type Endpoint={at:string;context:{knownAt:string};close?:{session:string;name:string;businessDate:string}|null};
+// The calendar clock one calendar day was counted on: the rule's code, what it is (its IANA zone, or its offset from UTC), and
+// whose it is: the prior close's convention, by name, or the request's.
+export type CalendarClock={source:string;name:string|null;rule:{code:string};zone:string};
 export type Report={id:string;version:string;scope:{books:{id:string;name:string}[];tradeSelection:string};
- opening:{at:string;context:{knownAt:string}};closing:{at:string;context:{knownAt:string}};
- time:{mode:string;status:string;totals:{currency:Currency;value:Money}[]|null;partitions:{status:string;detail?:string;clock:{at:string;calendar?:{zone:string}}}[]};
+ opening:Endpoint;closing:Endpoint;
+ time:{mode:string;status:string;clock?:CalendarClock|null;totals:{currency:Currency;value:Money}[]|null;partitions:{status:string;detail?:string;clock:{at:string;calendar?:{zone:string}}}[]};
  policies:{coverage:string;timeModes:{id:string;label:string}[]};factors:Factor[];totals:Total[];positions:Position[]};
 export const reportVersion='trading_pnl_report_v2';
 

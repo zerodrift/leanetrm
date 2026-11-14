@@ -12,8 +12,28 @@ export type Point = {priceTick?:string;contractId?:string; seriesId?:string; mat
 export type CurveFront={contractId:string;deliveryFrom:string;deliveryTo:string;price:string};
 /** A curve's counts and front, stated by the backend (D233): contracts for futures and forwards, maturities for rates. */
 export type CurveSummary={kind:'contracts';contractCount:number;front:CurveFront|null;availability:'no_remaining_contracts'|'no_priced_contract'|null}|{kind:'rates';maturityCount:number;firstMaturity:string|null;firstMark:string|null;markUnitLabel:string;dayCount:string};
+export type PriceInputSelection={snapshotId:string;source:{definitionRevisionId:string;referenceCatalogId:string;referenceRevisionId:string};observationIds:string[];correctionsSupported:boolean};
 export type CurveResult = {contractDisplay?:ContractDisplay;summary?:CurveSummary;kind?:'rates';convention?:{dayCount:string;compounding:string;interpolation:string;extrapolation:string};
-  markUnitLabel?:string;currency?:string;definition?:{id:string;version:number}|null;availability?:'no_remaining_contracts';trace?:PricingNode[];observationScope?:'selected_frame';observations?:Row[];snapshotId:string; curve:string; at:string; points:Point[]; evaluated:number; numericalPolicy:string};
+  markUnitLabel?:string;currency?:string;definition?:{id:string;version:number}|null;availability?:'no_remaining_contracts';trace?:PricingNode[];observationScope?:'selected_frame';observations?:Row[];inputSelection?:PriceInputSelection;snapshotId:string; curve:string; at:string; points:Point[]; evaluated:number; numericalPolicy:string};
+// The evaluated source owns these pins; a directory frame names only the
+// primary source and cannot validate another source's prices.
+export function priceSourceInputIds(result:CurveResult,workspace:Workspace):ReadonlySet<string>{
+  const selection=result.inputSelection,source=selection?.source,revision=workspace.definitions.revisions?.[0];
+  const validId=(id:unknown):id is string=>typeof id==='string'&&id.length>0;
+  if(result.observationScope!=='selected_frame'||!selection||selection.snapshotId!==result.snapshotId||!source||
+      workspace.definitions.revisions?.length!==1||!revision||
+      !validId(source.definitionRevisionId)||source.definitionRevisionId!==revision.id||
+      !validId(source.referenceCatalogId)||source.referenceCatalogId!==revision.reference_catalog_id||
+      !validId(source.referenceRevisionId)||source.referenceRevisionId!==revision.reference_revision_id||
+      !Array.isArray(selection.observationIds)||!selection.observationIds.every(validId)||!Array.isArray(result.observations))
+    throw Error('The selected price inputs are missing or inconsistent. Refresh and try again.');
+  const selected=new Set(selection.observationIds),rows=new Set(result.observations.map(row=>row.id));
+  if(selected.size!==selection.observationIds.length||rows.size!==result.observations.length||
+      !result.observations.every(row=>validId(row.id))||selection.observationIds.some(id=>!rows.has(id))||
+      result.points.some(point=>!Array.isArray(point.lineage)||point.lineage.some(id=>!selected.has(id))))
+    throw Error('A required source observation is missing from this market date.');
+  return selected;
+}
 /** A close's sample of a contract's history, with the observations behind it and when they were known (null until certified). */
 export type HistoryPoint = {at:string; value:string|null; snapshotId:string;observationIds:string[];unavailableReason?:string|null;knownAt:string|null};
 export const val = (row:Row,key:string) => String(row[key] ?? '—');

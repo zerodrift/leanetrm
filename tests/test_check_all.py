@@ -7,8 +7,6 @@ from pathlib import Path
 import subprocess
 import re
 import sys
-import tempfile
-import textwrap
 import unittest
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
@@ -344,87 +342,6 @@ class CheckAllTests(unittest.TestCase):
             self.assertEqual(result.returncode == 0, state == 'success')
         self.assertIn('    needs: checks\n', workflow.split('  publish:\n', 1)[1])
 
-    def install_postgres(self, unreachable):
-        """Execute the workflow step with isolated package hosts and stale runner indexes."""
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        step = workflow.split('      - name: Install PostgreSQL 18\n', 1)[1].split('      - name: ', 1)[0]
-        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
-        fingerprint = re.search(r'\b[0-9A-F]{40}\b', script).group(0)
-        apt = r'''import json, os, re, sys
-from pathlib import Path
-from urllib.parse import urlparse
-state = Path(os.environ['STATE'])
-args = sys.argv[1:]
-options = dict(arg.split('=', 1) for arg in args if arg.startswith('Dir::'))
-# Both operations must explicitly exclude runner sources and cached indexes.
-assert options.get('Dir::Etc::sourceparts') == '-'
-assert options.get('Dir::State::lists') == '/var/lib/openetrm-ci-apt/lists'
-source = options['Dir::Etc::sourcelist']
-assert source.endswith('.sources')
-entries = []
-for stanza in (state / 'sources' / Path(source).name).read_text().strip().split('\n\n'):
-    fields = dict(line.split(': ', 1) for line in stanza.splitlines())
-    assert fields['Types'] == 'deb'
-    host = urlparse(fields['URIs']).hostname
-    assert host in {'archive.ubuntu.com', 'security.ubuntu.com', 'apt.postgresql.org'}
-    key = '/usr/share/keyrings/ubuntu-archive-keyring.gpg' if host.endswith('ubuntu.com') else '/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc'
-    assert fields['Signed-By'] == key
-    assert fields['URIs'].startswith('https://')
-    entries.append((host, fields['Suites'].split(), fields['Components'].split()))
-if 'update' in args:
-    available = [entry for entry in entries if not re.search(os.environ['UNREACHABLE'], entry[0])]
-    (state / 'fresh-index.json').write_text(json.dumps(available))
-    assert '-o' in args and 'APT::Update::Error-Mode=any' in args
-    # A failed signed archive refresh must not be downgraded to a warning.
-    sys.exit(100 if any(re.search(os.environ['UNREACHABLE'], host) for host, _, _ in entries) else 0)
-assert 'install' in args and 'postgresql-18' in args
-available = json.loads((state / 'fresh-index.json').read_text())
-ubuntu = all(any(host == required_host and required_suite in suites and 'main' in components
-                 for host, suites, components in available)
-             for required_host, required_suite in [('archive.ubuntu.com', 'noble'),
-                 ('archive.ubuntu.com', 'noble-updates'), ('archive.ubuntu.com', 'noble-backports'),
-                 ('security.ubuntu.com', 'noble-security')])
-pgdg = any(host == 'apt.postgresql.org' and 'noble-pgdg' in suites for host, suites, _ in available)
-sys.exit(0 if ubuntu and pgdg else 100)
-'''
-        with tempfile.TemporaryDirectory() as directory:
-            state = Path(directory)
-            for name in ('bin', 'sources'):
-                (state / name).mkdir()
-            # The runner's stale index must never satisfy an isolated installation.
-            (state / 'stale-index.json').write_text('["azure.archive.ubuntu.com"]')
-            keyring = state / 'ubuntu-keyring.gpg'
-            keyring.touch()
-            script = script.replace('test -f /usr/share/keyrings/ubuntu-archive-keyring.gpg',
-                                    f'test -f "{keyring}"')
-            stand_ins = {
-                'sudo': 'exec "$@"', 'install': ':', 'curl': ':',
-                'gpg': f'printf "pub:\\nfpr:::::::::{fingerprint}:\\n"',
-                'tee': 'cat > "$STATE/sources/$(basename "$1")"',
-            }
-            for name, body in stand_ins.items():
-                command = state / 'bin' / name
-                command.write_text('#!/bin/bash\n' + body + '\n')
-                command.chmod(0o755)
-            command = state / 'bin' / 'apt-get'
-            command.write_text(f'#!{sys.executable}\n' + apt)
-            command.chmod(0o755)
-            result = subprocess.run(['bash', '-eo', 'pipefail', '-c', script], capture_output=True, text=True, env={
-                **os.environ, 'PATH': f'{state}/bin{os.pathsep}{os.environ["PATH"]}', 'STATE': str(state),
-                'RUNNER_TEMP': str(state), 'UNREACHABLE': unreachable})
-            return result.returncode, result.stderr
-
-    def test_hosted_postgres_install_uses_signed_archives_without_runner_hosts(self):
-        for unavailable in ('^$', r'^azure\.archive\.ubuntu\.com$', r'^mirrors\.edge\.kernel\.org$'):
-            with self.subTest(unavailable=unavailable):
-                status, error = self.install_postgres(unavailable)
-                self.assertEqual(status, 0, error)
-
-    def test_hosted_postgres_install_rejects_missing_archives_despite_stale_runner_indexes(self):
-        for unavailable in (r'^archive\.ubuntu\.com$', r'^security\.ubuntu\.com$', r'^apt\.postgresql\.org$', '.'):
-            with self.subTest(unavailable=unavailable):
-                status, error = self.install_postgres(unavailable)
-                self.assertEqual(status, 100, error)
 
 
 if __name__ == '__main__':

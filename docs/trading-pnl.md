@@ -148,7 +148,27 @@ contract supplies the shared mechanism for time, discount and volatility inputs.
 Both one-calendar-day model decay and opening-to-closing time roll are required,
 with the former initially selected in the UI. A one-day diagnostic does not
 silently stand for a multi-day P&L component; projected lifecycle/cash effects
-remain distinct from actual cash and the full reconciliation target. The initial
+remain distinct from actual cash and the full reconciliation target.
+
+One calendar day runs from the opening frame to the same local time on the next
+calendar date of a calendar clock (D398). Where the opening frame is a recorded
+close, the clock is that of the calendar its exact close session version pins:
+the request names no clock, its `clock` member null or absent, and one that
+names a clock is refused with `pnl_time_policy`. Where it is a working snapshot,
+which belongs to no close convention, the request names the clock as a full
+clock rule; the policies offer two, and a request that names none is refused
+with the same code. The roll to the closing instant takes no clock. The roll and
+a clock the request names are decided before any endpoint is read. A
+convention's calendar and clock rule are reference data, read under the opening
+endpoint's own bound context, its knowledge cutoff and effective date, before
+the closing endpoint is prepared; where they cannot be read, one calendar day is
+refused with `pnl_time_clock`. Nothing else supplies a clock. Two clocks give
+different instants only across a change of offset. New York changes its offset
+early on a Sunday, so from a weekday close there the day is always 24 hours;
+from 17:00 on Saturday 2026-10-31, a close only a calendar with Saturdays has,
+it is 25 hours on that clock and 24 on UTC.
+
+The initial
 report attributes opening primitive-price delta, gamma and mixed gamma only.
 Generic calibrated-IV/weighted-node sensitivities exist in the shared engine;
 cross-close volatility, rate, fixing, model, state and other effects remain in the
@@ -200,27 +220,46 @@ Greek, the residual, period cash or an adjustment. What opening Greeks explain
 is an amount, or nothing when none of the estimates is available, for a
 currency and for each holding. Holdings read by trade reference, then
 instrument reference; ledger cash of a trade held at neither close has no
-reference and comes last.
+reference and comes last. `opening.close` and `closing.close` give a recorded
+close's convention code, version and name with the business day it closes, and
+are null for a working snapshot. For one calendar day `time.clock` gives the
+clock rule, what it is (its IANA zone, or its fixed offset from UTC), its
+source, `prior_close_convention` or `request`, and for a convention its code,
+version, name and calendar; it is null for the roll. A report saved before D398
+states neither and still opens.
 
-The page compares two closes of the selected Risk scope. Its pickers list the
-closes the header lists, named as the header names them. Until the person
-chooses, they show the header's close and what came before it: the close before
-it of its own close convention, where it has one and such a close exists, and
-otherwise the frame before it of any kind. Both are visible and can be changed
-before Run, and the request names both closes explicitly. A closed Advanced
+The page compares a **Prior date** with a **Current date** for the selected
+Risk scope (D398). Its pickers list the recorded closes of the header's close
+convention, each named by its business day, and the working snapshots, each
+named by its instant. The convention is stated once beside them; the header
+chooses it, and with none chosen the page lists working snapshots alone and
+says where to choose one. Until the person chooses, the pickers show the
+header's date and what came before it: the recorded close before it, where it
+is a recorded close and one exists, and otherwise the date before it of either
+kind. Both are visible and can be changed before Run, and the request names
+both explicitly as `opening` and `closing`. A date the person chose that the
+convention no longer lists is left unchosen, and the page says so. The calendar
+clock is asked only for one calendar day from a working snapshot, with nothing
+chosen for the person, and a clock one person chose is not handed to another;
+for a recorded close the page sends no clock. A closed Advanced
 settings section holds the price bump: price steps or ticks alone, their counts
 and the three agreement tolerances, shown as the backend offers them, bounded as
 it states and sent as selected. Its title line states the selection while it is
 closed. Changing a setting clears the result, a selection is dropped when
 another person takes over, and a run pressed before the offer could be shown
 shows it and stops. When the header names
-no close, what the page offered is withdrawn; closes the person chose stay. The
+no date, what the page offered is withdrawn; dates the person chose stay. The
 knowledge cutoff reads as local time: untouched, it is the exact instant of the
 Risk scope; edited, the backend resolves it. Whenever the Risk scope is read
 again or changed, the result and the cutoff are cleared and the cutoff is
 refilled from the scope.
 
-A result opens with the economic P&L, the period and the scope. What moved lists
+A result opens with the economic P&L, the period and the scope. The period
+reads a recorded close as its business day and any other date as its instant;
+it names the convention once when both dates share it, and beside each date when
+they differ. Under the time effect the page says which clock one calendar day
+was counted on, by its rule's code and what it is, and whose it is. What moved
+lists
 each factor of the shown currency with its two prices, its change and its delta
 and gamma effects. The bridge draws one column a step from zero to the result.
 The residual is drawn hollow, a Greek effect with no amount has no bar and reads
@@ -258,8 +297,10 @@ checks cover those views with unavailable, partial and adjustment cases, two
 currencies, an unavailable time effect, paging, keyboard focus, run-before-save,
 exact retry after remount, a refused, an already-saved and a discarded save,
 definitive-unsaved recovery, late run, save and saved-report responses, and
-phone and desk widths. The full-application suite checks that the pickers list
-the header's closes and follow a header close changed while the page is open.
+phone and desk widths. The full-application suite checks that the page names the
+header's close convention, that its pickers list exactly the header's dates and
+follow a header date changed while the page is open, and that the calendar
+clock is asked only for a working snapshot as the prior date.
 Captured reports retain the engine fingerprint, selected valuation policy, exact
 endpoint holdings and discount inputs, unit declarations and Greek estimates,
 units, convergence tolerances and sample identities.
@@ -268,6 +309,14 @@ proves that their original terms and membership coordinates survive, with separa
 owners of a shared premium unit and no inferred payment facts.
 Both time modes consume the shared clock layer; unsupported portfolio members
 produce an unavailable whole-scope time diagnostic, never an invented zero.
+The disposable check counts one calendar day from a working snapshot on the
+New York clock its request names, and from a recorded close of the same instant
+and inputs on the clock of that close's convention, which keeps Chicago time,
+with no clock named: the instant and the amounts are the same, and the report
+states Chicago. It also passes the refusal of a missing clock for the working
+snapshot and of a named clock for the recorded close (D398). Its session is
+inserted directly; no check saves one through the session operation, or reads a
+convention whose calendar clock cannot be read.
 Report format `trading_pnl_report_v2` carries the bridge and Greek coverage with
 each currency total. The disposable check passes one saved report over three
 option trades on futures of two curves, with no cross-factor repricing, and the

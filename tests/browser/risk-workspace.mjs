@@ -28,20 +28,28 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  if(otherClose){const here=await evaluate("document.querySelector('#snapshot').value");await set('#snapshot',otherClose);await wait(idle);
   await check('changing the close on Scenarios & Greeks with no matching report leaves its form open',`document.querySelector('#page-title').textContent==='Scenarios & Greeks'&&document.querySelector('#risk-workspace-editor').open&&!${off('#risk-workspace-editor')}`);
   await set('#snapshot',here);await wait(idle);}
- // P&L explain reads its closes with the header, not with the market catalog, which Risk does not load.
+ // P&L explain reads its dates with the header, not with the market catalog, which Risk does not load: the header convention's
+ // closes and the working snapshots, and no other convention's close.
  await click('#nav-risk-pnl');await wait(idle);
- const closes="[...document.querySelectorAll('#risk-pnl-view .pnl-close select')]";
- const pnlCloses=`({header:document.querySelector('#snapshot').value,picked:${closes}.map(s=>s.value),offered:${closes}.map(s=>s.options.length),note:document.querySelector('#risk-pnl-view [role=status]').textContent})`;
- const offersHeader=`(()=>{const [opening,closing]=${closes},listed=[...document.querySelector('#snapshot').options].map(o=>o.value).filter(Boolean);`+
-  `return closing.value===document.querySelector('#snapshot').value&&listed.every(id=>[...closing.options].some(o=>o.value===id))&&(opening.value!==''||[...closing.options].filter(o=>o.value)[0].value===closing.value);})()`;
- await check('P&L explain lists the closes the header lists and offers the header close with the frame before it',offersHeader,pnlCloses);
+ const closes="[...document.querySelectorAll('#risk-pnl-view .pnl-close select')]",convention="document.querySelector('#risk-pnl-view .pnl-convention output').textContent";
+ const pnlCloses=`({header:document.querySelector('#snapshot').value,convention:${convention},picked:${closes}.map(s=>s.value),offered:${closes}.map(s=>s.options.length),`+
+  `fields:[...document.querySelectorAll('#risk-pnl-view > .pnl-controls > label:not([hidden])')].map(l=>l.firstChild.textContent),note:document.querySelector('#risk-pnl-view [role=status]').textContent})`;
+ const offersHeader=`(()=>{const [opening,closing]=${closes},listed=[...document.querySelector('#snapshot').options].map(o=>o.value).filter(Boolean),offered=[...closing.options].map(o=>o.value).filter(Boolean);`+
+  `const session=document.querySelector('#close-session');`+
+  `return closing.value===document.querySelector('#snapshot').value&&offered.length===listed.length&&listed.every(id=>offered.includes(id))&&session.value!==''&&${convention}===session.selectedOptions[0].textContent`+
+  `&&(opening.value!==''||offered[0]===closing.value);})()`;
+ await check('P&L explain names the header close convention once, lists exactly the dates the header lists and offers the header date with the date before it',offersHeader,pnlCloses);
+ // A recorded close as the prior date brings its convention's calendar clock, so none is asked; a working snapshot has none.
+ await check('P&L explain labels its dates Prior date and Current date and asks the calendar clock only for a working snapshot as the prior date',
+  `(()=>{const fields=${pnlCloses}.fields,prior=${closes}[0].selectedOptions[0].textContent;`+
+  `return fields.slice(0,3).join('|')==='Close convention|Prior date|Current date'&&fields.includes('Calendar clock')===prior.startsWith('Working snapshot')&&fields.includes('Time effect');})()`,pnlCloses);
  // The price bump is an advanced setting: closed, and filled with what the backend's policies offer.
  const bump="document.querySelector('#risk-pnl-view .pnl-advanced')";
  await check('P&L explain keeps its price bump in closed Advanced settings, filled with what the backend offers',
   `!!${bump}&&!${bump}.open&&${bump}.querySelector('summary').textContent==='Advanced settings · price bump of 2 price steps where a model declares one, otherwise 1 tick · agreement within 0.000001 + 0.15 of a delta, 0.1 of a gamma'`,
   `${bump}?.querySelector('summary').textContent`);
  if(otherClose){const here=await evaluate("document.querySelector('#snapshot').value");await set('#snapshot',otherClose);await wait(idle);
-  await check('P&L explain follows a header close changed while it is open',offersHeader,pnlCloses);
+  await check('P&L explain follows a header date changed while it is open',offersHeader,pnlCloses);
   await set('#snapshot',here);await wait(idle);}
  await click('#nav-risk');await wait(idle);
  await check('Risk opens on report availability and owns Run risk, with run history in its own view',
@@ -124,7 +132,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,shot,id
  if(otherClose){
   await evaluate("history.replaceState(null,'',location.pathname+location.search);true");await set('#snapshot',otherClose);await wait(idle);
   await click('#nav-risk-pnl');await wait(idle);await set('#snapshot',frame);await wait(idle);
-  await check('P&L explain follows the header close when the reload opens a retained report',`location.hash.startsWith('#risk/job/')&&${offersHeader}`,pnlCloses);
+  await check('P&L explain follows the header date when the reload opens a retained report',`location.hash.startsWith('#risk/job/')&&${offersHeader}`,pnlCloses);
   await click('#nav-risk');await wait(idle);
  }
  const book=await evaluate("document.querySelector('#risk-workspace-books option').value");await set('#risk-workspace-books',book);await wait(idle);

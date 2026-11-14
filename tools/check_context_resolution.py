@@ -253,6 +253,15 @@ def main():
             assert completed['result']['factors']==oracle['factors'], 'Worker replay changed the exact scenario results'
             assert completed['result']['inputs']['positions']==oracle['positions'], 'Worker replay changed held version evidence'
             print('PASS claimed worker reproduces interactive scenario results and held version evidence from the retained multi-source inputs')
+        from close_listing_checks import check_listings
+        active_close=check_listings(query,runtime,reject,literal,manifest,close,first_close_request,pins,members)
+        if args.dotnet:
+            token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
+                        f"'https://preview.invalid','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',120);")
+            listing_check=directory/'listings.json'
+            listing_check.write_text(json.dumps(dict(connection=f'Host={directory};Port=55479;Database=postgres;Username=preview_runtime;Pooling=false',
+                                                    token=token,catalog=catalog,retired=close,active=active_close)))
+            print(run([args.dotnet,'run','--project','tests/OpenEtrm.Api.Checks','--','--close-listings',listing_check]))
         reject('permission denied',lambda:runtime(f"SELECT security.capture_pre_catalogue_context('{catalog}','2020-12-18',NULL);"))
         query(f"DELETE FROM security.reference_catalog_scopes WHERE catalog_id='{rcat}';")
         reject('catalogue_denied',lambda:publish(after,first['id'],request))

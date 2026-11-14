@@ -1,4 +1,5 @@
 import {init,type Chart} from './chart-view.js';
+import {workingSnapshot} from './close-sessions.js';
 import {publicText} from './market-view.js';
 import {plotNumber} from './plot-number.js';
 import {PendingCommand} from './pending-command.js';
@@ -296,7 +297,7 @@ export function setupVolSurfaces(o:{api:Api;context:()=>FuturesReadRequest;histo
  const shortInstant=(at:string)=>new Intl.DateTimeFormat('en',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZone:o.zone()}).format(new Date(at));
  // A close is named by its session and business day; a working snapshot by its instant, since it has no session.
  const closeName=(close:{session:string;businessDate:string}|null,at:string,short=false)=>close
-  ?`${o.frames.sessionName(close.session)} · ${short?shortDay(close.businessDate):day(close.businessDate)}`:`Working snapshot · ${short?shortInstant(at):instant(at)}`;
+  ?`${o.frames.sessionName(close.session)} · ${short?shortDay(close.businessDate):day(close.businessDate)}`:workingSnapshot(short?shortInstant(at):instant(at));
  const surfaceName=(s:LibrarySurface,short=false)=>closeName(s.close,s.valuationAt,short);
  const hereName=(short=false)=>here?closeName(here.close,here.at,short):'';
 

@@ -19,7 +19,7 @@ type Trade={tradeId:string;bookId:string;tradeReference:string;product:string;av
 type TradePage={trades:Trade[];selectedTrades:Trade[];total:number;allAvailable:boolean;nextOffset:number|null;contextId:string;snapshotId:string;maxSelectedTrades:number};
 type Directory={kind:string;asOf:string;context:{contextId:string;knownAt:string};books:{id:string;name:string;portfolio_id:string;portfolio:string}[]};
 type Options={api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;zone:()=>string;
- identity:()=>string;canRun:()=>boolean;instant:(value:string)=>string;source:()=>Source;frames:()=>{id:string;at:string;label:string;session:string|null}[];changed:()=>void;view:(view:RiskView)=>void};
+ identity:()=>string;canRun:()=>boolean;instant:(value:string)=>string;source:()=>Source;convention:()=>string|null;frames:()=>{id:string;at:string;label:string;session:string|null}[];changed:()=>void;view:(view:RiskView)=>void};
 /** Risk owns its setup and report, while using the same editor, request contracts and result widget as the Blotter. */
 export function setupRiskWorkspace(o:Options){
  const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;

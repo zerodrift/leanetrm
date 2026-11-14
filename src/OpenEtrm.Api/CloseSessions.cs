@@ -19,6 +19,10 @@ public sealed record CloseSessionGrant([property:JsonRequired] Guid RequestId,[p
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CloseSessionChoice([property:JsonRequired] string Session);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record CloseSessionListing([property:JsonRequired] Guid RequestId,[property:JsonRequired] string Code,
+    [property:JsonRequired] int SessionVersion,[property:JsonRequired] int ExpectedVersion,
+    [property:JsonRequired] string Name,[property:JsonRequired] bool Listed);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record CloseSessionRevoke([property:JsonRequired] Guid RequestId,[property:JsonRequired] Guid GrantId);
 
 // D334 close sessions: versioned configuration of a regional close (calendar, its clock, local cutoff and exact curves) and
@@ -40,6 +44,10 @@ public static class CloseSessions
     public static Task<JsonElement> Publish(NpgsqlConnection connection,Guid catalog,CloseSessionPublish request,CancellationToken ct)=>
         ModelProviders.Read(connection,"SELECT security.publish_close_session($1,$2,$3,$4,$5)::text",
             [catalog,request.RequestId,request.Code,request.Version,request.Generation],ct);
+
+    public static Task<JsonElement> PublishListing(NpgsqlConnection connection,Guid catalog,CloseSessionListing request,CancellationToken ct)=>
+        ModelProviders.Read(connection,"SELECT security.publish_close_session_listing($1,$2,$3,$4,$5,$6,$7)::text",
+            [catalog,request.RequestId,request.Code,request.SessionVersion,request.ExpectedVersion,request.Name,request.Listed],ct);
 
     public static Task<JsonElement> Grant(NpgsqlConnection connection,Guid catalog,CloseSessionGrant request,CancellationToken ct)=>
         ModelProviders.Read(connection,"SELECT security.grant_close_session($1,$2,$3,$4,$5,$6)::text",

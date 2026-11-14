@@ -27,11 +27,20 @@ refuses missing final evidence or an empty root. Migrations 0253–0254 require 
 qualified schema upgrade before activation. Broader product lifecycle and
 economic horizon risk remain separate work.
 
+D397 implements current close-convention listings and source-specific price
+inspection. Isolated native checks cover retirement, retained reads, authority,
+new-write refusal and accepted retries, including schema upgrade. The web checks
+cover secondary-source inspection and inconsistent selection refusal. Activation
+requires a separately approved application/schema release; deployment data and
+private maintenance programs are outside this repository.
+
 The initial [valuation context and scenario layers](valuation-context-layers.md)
 are implemented locally: complete time/discount/IV declarations, immutable
 combined children, source-anchored discount and held-IV inputs, shared finite
 differences and dependency-aware unit/Side reuse. The P&L UI offers both time
-modes, initially selecting one-calendar-day model decay, with an explicit calendar.
+modes, initially selecting one-calendar-day model decay. That day is counted on
+the calendar clock of the prior close's convention, or on a clock the person
+names where the prior date is a working snapshot (D398).
 Source admission and hypothetical calculation time remain separate. The bounded
 report passed native run/save/read/restart and both time-mode checks on disposable
 PostgreSQL 18, and the web suite passed. Development deployment remains a separate
@@ -625,6 +634,11 @@ covering the existing managed, frontend, database and browser suites. The comple
 command passed for the D186 cutover on the Ubuntu 24.04 hosted runner on
 2026-10-22; verification records the exact source and runs. Production deployment
 remains unqualified.
+
+CI dependency acquisition has its own [cache qualification](ci-dependencies.md):
+locked NuGet/npm caches, verified stock PostgreSQL packages and corresponding
+sources, offline installation and a GitHub cache miss/save/restore/hit check.
+These checks preserve the ordinary matrix and release gates.
 
 The default public page and hosted gateway route contract are available
 separately from the authenticated workspace (D163). An owned nginx check exercises
