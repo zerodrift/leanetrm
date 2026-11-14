@@ -111,6 +111,15 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
               and identity_results[0]['result']['text'].startswith('Page: ' + page + ' |')
               and identity_results[0]['result']['text'].endswith('Selection: {}')
               and identity_results[0]['result']['targets'] == [] and identity_results[1]['code'] == 'page_not_supported')
+    # Risk names the view it shows (D392): a report naming none is refused before admission, and the page read and digest name it.
+    unnamed = owner.call('assistant/turns/ask', {'operationId': str(uuid4()), 'conversationId': None, 'agentId': agent['id'], 'version': 1,
+                                                 'question': 'Which Risk view is this?', 'pageReport': {'page': 'risk_jobs', 'selection': {}},
+                                                 'knowledge': {'mode': 'current', 'contextId': None, 'frameId': None}}, expected=422)
+    check('a Risk report naming no view is refused before admission', unnamed['code'] == 'page_report_invalid')
+    _, risk_results, _ = ask([('read_workspace_page', {'page': 'risk_jobs'}), ('read_page_digest', {'mode': 'overview'})],
+                             report={'page': 'risk_jobs', 'selection': {'view': 'var_es'}}, operational=True)
+    check('the Risk page read and digest name the view the question was asked from',
+          risk_results[0].get('selection') == {'view': 'var_es'} and '\nView: VaR / ES\n' in risk_results[1]['result']['text'])
     admin.call(prompt_path + '/save', {'operationId': str(uuid4()), 'page': 'crude_setup', 'expectedVersion': 0,
                                       'instructions': 'Synthetic delivery guidance: use native contextual field definitions.'})
     _, setup_results, _ = ask([('read_current_page', {})], page='crude_setup')

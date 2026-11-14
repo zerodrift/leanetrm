@@ -5,12 +5,14 @@ market-factor and instrument-PV calculation path. It adds no statistical engine,
 financial policy, permission, storage table or migration.
 
 D365 makes Risk a sidebar section with one entry per function: **Reports**,
-**Scenarios & Greeks**, **VaR / ES** and **Run history**. They are views of one page,
-so moving between them neither reloads nor discards anything and asks no leave
-question. A compact bar states the portfolio, book and trade scope for all four and
-opens the controls below on demand. A finished run or an opened report shows Reports;
-a submission awaiting confirmation shows Scenarios & Greeks. Worker nodes are managed
-from Administration › Jobs.
+**P&L explain**, **Scenarios & Greeks**, **VaR / ES** and **Run history**. They are
+views of one page, so moving between them neither reloads nor discards anything and
+asks no leave question. The assistant's page report names the view shown and, on
+Reports only, the retained report open there; Looking at reads "Risk ·" and the view,
+and Back reopens it (D392). A compact bar states the portfolio, book and trade scope
+for all five and opens the controls below on demand. A finished run or an opened
+report shows Reports; a submission awaiting confirmation shows Scenarios & Greeks.
+Worker nodes are managed from Administration › Jobs.
 
 Risk owns its book/portfolio selection and run editor. The header selects the
 market close and financial context. Empty book and portfolio selections explicitly
