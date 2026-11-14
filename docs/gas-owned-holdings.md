@@ -255,9 +255,10 @@ and source evidence separately. Quantities, retraction and allocation contracts
 require explicit choices. Source heads are selected before event-time filtering;
 an unavailable newer head cannot revive an older document. The same closed
 ordinary, physical and linked-batch contracts are described to assistants.
-The complete application browser join remains a release qualification gate;
-broader loan/operator/fee amendments and changed event-time or advance treatment
-retain separate implementation gates.
+The owned full application browser qualifies observed-source configuration,
+lazy member selection, reviewed correction and exact retry after an uncertain
+acknowledgement. Broader loan/operator/fee amendments and changed event-time or
+advance treatment retain separate implementation gates.
 
 `tools/check_gas_physical_known.py` qualifies the attachment scope and complete
 native histories. `tools/check_gas_applied_sources.py` independently corrects a
@@ -285,3 +286,7 @@ main and lazy ordinary form sources and refuses an excessive UTF-8 response
 envelope, including documents whose JSON escaping is larger than their binary
 database representation. The browser checks retain exact row/source identity
 and show acknowledged and current revisions separately without deriving money.
+`tools/check_lifecycle_browser.py` runs this form through the real API and an
+isolated native database, retaining the scheduler, physical final and title
+checks while also verifying the ordinary correction's stable native owner,
+financial revision and first outcome.
