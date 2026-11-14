@@ -43,9 +43,10 @@ def sql_session(query, manifest, code, calendar, cutoff, curves, logins, revisio
 _published, _granted, _clients = set(), set(), {}
 
 
-def record(who, frame, name, login='approver', request_id=None):
+def record(who, frame, name, login='approver', request_id=None, expected=200):
     """Record a close of a frame for its business day in a synthetic UTC session at the frame's time of day and curves,
-    publishing that session and granting the recorder once per preview. Built-in closes keep their own sessions."""
+    publishing that session and granting the recorder once per preview. Built-in closes keep their own sessions. A check
+    expecting a refusal passes its status, so the recording reaches the refusal past the session grant."""
     curves = sorted(frame['curveContracts'])
     cutoff = frame['at'][11:16]
     code = f"test_close_{cutoff.replace(':', '')}_{hashlib.sha256(','.join(curves).encode()).hexdigest()[:8]}"
@@ -62,7 +63,7 @@ def record(who, frame, name, login='approver', request_id=None):
         grant_member(client('admin'), login, code)
         _granted.add((who.url, code, login))
     return who.call('market/closes/register', {'requestId': request_id or str(uuid4()), 'snapshotId': frame['id'], 'name': name,
-                                               'session': code, 'businessDate': frame['at'][:10]})
+                                               'session': code, 'businessDate': frame['at'][:10]}, expected=expected)
 
 
 def grant_member(admin, login, session):

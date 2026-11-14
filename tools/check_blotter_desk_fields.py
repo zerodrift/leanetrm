@@ -260,11 +260,16 @@ def check_curve_shapes(c, check, frame, context, held):
         first = min(priced, key=lambda p: (p['deliveryFrom'], p['deliveryTo']))
         return {'contractId': first['contractId'], 'deliveryFrom': first['deliveryFrom'], 'deliveryTo': first['deliveryTo'], 'price': first['price']}
 
-    check('one read returns each curve asked, in request order, as its code, unit, points, contract count, front and availability, and no unavailable reason; working data names no context',
+    # A read that names no contract display shows the contracts eligible at the frame, and states them beside the points. The
+    # working frame captures no contract past its marking cutoff, so it shows every contract it captured.
+    live = {'version': 'curve_display_v1', 'contracts': 'eligible_contracts_v1'}
+    check('one read returns each curve asked, in request order, as its code, unit, points, contract count, front, availability and the eligible contracts it shows, and no unavailable reason; working data names no context',
           set(read) == {'curves'} and [s['curve'] for s in read['curves']] == held
-          and all(set(s) == {'curve', 'definitionRevisionId', 'unit', 'points', 'unavailableReason', 'contractCount', 'front', 'availability'} and s['unavailableReason'] is None
+          and all(set(s) == {'curve', 'definitionRevisionId', 'unit', 'points', 'unavailableReason', 'contractCount', 'front', 'availability', 'contractDisplay'} and s['unavailableReason'] is None
                   and s['contractCount'] == len(s['points']) and s['front'] == front_of(s)
-                  and s['availability'] == (None if s['front'] else 'no_priced_contract') for s in read['curves']))
+                  and s['availability'] == (None if s['front'] else 'no_priced_contract')
+                  and s['contractDisplay']['selection'] == live and s['contractDisplay']['eligibleCount'] == s['contractCount'] == s['contractDisplay']['capturedCount']
+                  and [d['contractId'] for d in s['contractDisplay']['contracts']] == [p['contractId'] for p in s['points']] for s in read['curves']))
     units = {g['market']: g['priceUnit'] for g in c.call('trading/blotter', {'context': context, 'view': PRICE_UNITS})['groups']}
     for shape in read['curves']:
         expected = evaluated_points(frame['id'], shape['curve'])
