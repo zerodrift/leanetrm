@@ -192,20 +192,29 @@ def projections(client,manifest,working,formula,consumer,dotnet,owned_root,envir
         {'id':'dates','kind':'dates','parameters':{'mode':'context',**POLICY},'inputs':{}},
         {'id':'sample','kind':'sample','parameters':{},'inputs':{'selection':'select','dates':'dates'}},
         {'id':'output','kind':'output','parameters':{},'inputs':{'values':'sample'}}]}
-    def publish(definition):
+    def publish(definition,prior=None):
         client.call('profile',{'profile':'editor'})
-        saved=client.call('custom-curves/save',{'requestId':str(uuid4()),'snapshotId':working['id'],'definition':deepcopy(definition),'layout':{}})
+        saved=client.call('custom-curves/save',{'requestId':str(uuid4()),'snapshotId':working['id'],'definition':deepcopy(definition),'layout':{},
+            **({'id':prior['id'],'version':prior['version'],'generation':prior['generation'],'expectedState':prior['state']} if prior else {})})
         client.call('profile',{'profile':'approver'})
-        assert client.call('custom-curves/publish',{'requestId':str(uuid4()),'id':saved['id'],'version':1,'generation':1})['state']=='published'
-        return saved['id']
-    curves={'observation':formula,'consumer':publish(consumer),'ordinary':publish(ordinary)}
+        published=client.call('custom-curves/publish',{'requestId':str(uuid4()),'id':saved['id'],'version':saved['version'],'generation':saved['generation']})
+        assert published['state']=='published',published
+        return published
+    first=publish(ordinary)
+    # The ordinary curve's next version reads the formula curve: its first version stays a projection, but is not the version
+    # in force under the context.
+    reading={**ordinary,'nodes':[{'id':'formula','kind':'published_source','parameters':{'selection':'all_output_points_v1'},'inputs':{},
+        'publishedSource':{'catalogId':manifest['catalogId'],'curveId':formula,'version':1,'outputNode':'output'}},
+        {'id':'output','kind':'output','parameters':{},'inputs':{'values':'formula'}}]}
+    assert publish(reading,first)['version']==2
+    curves={'observation':formula,'consumer':publish(consumer)['id'],'ordinary':first['id']}
     client.call('profile',{'profile':'viewer'})
     path=Path(owned_root)/'contract-observation-projections.json'
     path.write_text(json.dumps({'frame':working,**curves}))
     subprocess.run([str(dotnet),'run','--project','tests/OpenEtrm.Api.Checks','--','--contract-observation-projections',str(path)],
                    cwd=Path(__file__).resolve().parents[1],env=environment,check=True,timeout=180)
-    # A swap names its projection in the request, never through the choices: a forged reference is refused by swap preview,
-    # booking, draft pricing and scheduled pricing before any other term is read.
+    # A swap names its projection in the request, never through the choices: a forged reference is refused by swap observation
+    # options, preview, booking, draft pricing and scheduled pricing before any other term is read.
     client.call('profile',{'profile':'trader'})
     context={'snapshotId':working['id'],'convention':'independent_side_financial_swap_v2','knowledgeMode':'current'}
     delivery={'deliveryFrom':'2027-01-01','deliveryTo':'2027-02-01'}
@@ -228,8 +237,11 @@ def projections(client,manifest,working,formula,consumer,dotnet,owned_root,envir
             'first':{**side,'periods':[{'amount':'1000','fixed':fixed,'floating':None}]},'second':{**side,'periods':[{'amount':'1000','fixed':None,'floating':floating}]}}}
         draft={'context':context,'definitionRevisionId':manifest['revisionId'],'commodity':'synthetic_crude','quantity':{'value':'1000','specification':quantity},
                'fixedCoefficient':'-1','discounting':False,'fixed':fixed,'floating':floating}
-        for route,body in (('swaps/preview',terms),('swaps/book',terms),('swaps/price',draft),('swaps/scheduled-price',{'terms':scheduled,'priceMode':'agreed','parRatePolicy':None})):
+        options={'context':context,'definitionRevisionId':manifest['revisionId'],'commodity':'synthetic_crude','curve':DIFFERENTIAL,
+                 'index':'synthetic_crude_differential_index','resetFrequency':'monthly','averagingMethod':'none',**delivery,
+                 'settlement':{'mode':'curve_target','index':None,'projectionPolicy':None},'customProjection':projection}
+        for route,body in (('swaps/observation-options',options),('swaps/preview',terms),('swaps/book',terms),('swaps/price',draft),('swaps/scheduled-price',{'terms':scheduled,'priceMode':'agreed','parRatePolicy':None})):
             answers[name,route]=attempt(route,body)
     assert all(answer==refused for answer in answers.values()),answers
-    print('PASS contract observation swap admission: swap preview, booking, draft pricing and scheduled pricing refuse a forged projection of the observation curve and of its published-source consumer',flush=True)
+    print('PASS contract observation swap admission: swap observation options, preview, booking, draft pricing and scheduled pricing refuse a forged projection of the observation curve and of its published-source consumer',flush=True)
     client.call('profile',{'profile':'viewer'})

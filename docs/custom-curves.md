@@ -289,11 +289,18 @@ A published curve that reads contract observation terms, itself or through a
 qualified. Projection choices never offer it, and projection admission refuses
 it with `custom_projection` (`A curve that reads contract observation terms has
 no qualified trade projection.`) before any output shape is compared: the
-published-projection qualification used by swap observation options and gas
-compositions, and swap preview, booking, amendment, draft pricing, draft risk
-and scheduled pricing, which read the projection from their own terms. Curve
-preview, save, publication, `published_source` consumption, `market/dates` and
-market preparation are unchanged.
+published-projection qualification used by gas compositions, and swap
+observation options, preview, booking, amendment, draft pricing, draft risk and
+scheduled pricing, which read the projection from their own terms and refuse it
+first. When a curve's newest published version reads these terms, its older
+ordinary versions stay choices, but none is marked as the version in force under
+the context. Curve preview, save, publication, `published_source` consumption,
+`market/dates` and market preparation are unchanged.
+
+Gas setup publication does not check for such a curve: a setup can name one as
+a point's pricing curve. Every valuation through that setup, from ticket preview
+and booking to the Blotter, is then refused with `custom_projection`, and the
+ticket's forecast choice does not offer it.
 
 
 ## Published outputs in booked projections

@@ -6,7 +6,8 @@ using OpenEtrm.MarketData.Trading;
 // A published curve that reads contract observation terms, directly or through a published source, is no trade projection
 // (D391): projection choices never offer it and projection admission refuses it. tools/check_contract_observation_curve.py
 // publishes the synthetic crude formula curve, a published-source consumer of it and an ordinary differential curve in the
-// same catalog, then names them and the working frame here. All three deliver USD per barrel over 2027-01.
+// same catalog, whose version 2 reads the formula curve, then names them and the working frame here. All deliver USD per
+// barrel over 2027-01.
 internal static class ContractObservationProjectionChecks
 {
     static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
@@ -39,6 +40,7 @@ internal static class ContractObservationProjectionChecks
                     catch(MarketDataException error){return $"{error.Code}: {error.Message}";}
                 }
                 return(object)new Outcome(choices.Select(c=>c.Reference.CurveId).ToHashSet(),
+                    [..choices.Where(c=>c.Reference.CurveId==ordinary).Select(c=>(c.Reference.Version,c.SelectedInContext)).Distinct()],
                     await Admission(observation),await Admission(consumer),await Admission(ordinary));
             },ct);
         },CancellationToken.None);
@@ -48,11 +50,14 @@ internal static class ContractObservationProjectionChecks
         Check("the ordinary published curve is offered",outcome.Offered.Contains(ordinary),"not offered");
         Check("the published observation curve is not offered",!outcome.Offered.Contains(observation),"offered");
         Check("a published curve reading it through a published source is not offered",!outcome.Offered.Contains(consumer),"offered");
+        // Its version 2 reads the formula curve: version 1 is offered, but not as the version in force under the context.
+        Check("an ordinary version followed by one that reads observation terms is offered but not selected in context",
+            outcome.OrdinaryVersions is [(1,false)],string.Join(",",outcome.OrdinaryVersions));
         Check("the ordinary published curve is accepted",outcome.Ordinary=="accepted",outcome.Ordinary);
         Check("the published observation curve is refused",outcome.Observation==refused,outcome.Observation);
         Check("a published curve reading it through a published source is refused",outcome.Consumer==refused,outcome.Consumer);
         if(failed.Count>0)throw new Exception($"{failed.Count} contract observation projection checks failed.");
     }
 
-    sealed record Outcome(HashSet<Guid> Offered,string Observation,string Consumer,string Ordinary);
+    sealed record Outcome(HashSet<Guid> Offered,List<(int Version,bool Selected)> OrdinaryVersions,string Observation,string Consumer,string Ordinary);
 }

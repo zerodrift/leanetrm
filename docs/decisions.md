@@ -4731,15 +4731,21 @@ A published curve that reads contract observation terms, itself or through a
 qualified. Projection choices (the swap catalog, swap observation options and
 the gas ticket's forecast choices) never offer it. Projection admission refuses
 it with `custom_projection` before any output shape is compared: the
-published-projection qualification of swap observation options and gas
-compositions, and swap preview, booking, amendment, draft pricing, draft risk
-and scheduled pricing, which read the projection from their own terms. Curve
+published-projection qualification of gas compositions, and swap observation
+options, preview, booking, amendment, draft pricing, draft risk and scheduled
+pricing, which read the projection from their own terms and refuse it first.
+A curve whose newest version reads these terms keeps its older ordinary
+versions as choices, none of them marked as the version in force. Gas setup
+publication does not check for such a curve; every valuation through that setup
+is refused with `custom_projection`. Curve
 preview, save, publication, `published_source` consumption, `market/dates` and
 market preparation are unchanged, so a later consumer can be qualified through
 the ordinary preparation path. An API check against the owned preview publishes
 the formula curve, a `published_source` consumer of it and an ordinary
-differential curve, and asserts that only the ordinary curve is offered and
-accepted; the four swap routes refuse forged references to the other two.
+differential curve whose second version reads the formula, and asserts that
+only the ordinary curve's first version is offered, not as the version in
+force, and accepted; the five swap routes refuse forged references to the
+other two.
 
 Not implemented or qualified: no settlement finality is exposed to a Side; no
 trade, ticket or cash consumer exists, and the only consumer is the synthetic

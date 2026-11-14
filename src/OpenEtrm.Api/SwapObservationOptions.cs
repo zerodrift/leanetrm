@@ -38,6 +38,7 @@ public sealed partial class SwapStore
     public async Task<object> ObservationOptions(NpgsqlConnection connection, PreviewData data, InputFrame frame,
         SwapObservationOptionsRequest input, CancellationToken ct)
     {
+        await CustomCurves.RequireTradeProjections(connection,database,[input.CustomProjection],ct);
         FloatingAveraging? selectedMode = null;
         if (input.ResetFrequency is not null && input.ResetFrequency is not ("monthly" or "daily"))
             throw Error("swap_averaging", "Select an admitted observation frequency.");
