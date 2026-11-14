@@ -145,6 +145,13 @@ public sealed class LifecycleOperations
             await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT lifecycle_discovery; RELEASE SAVEPOINT lifecycle_discovery");
             await restore.ExecuteNonQueryAsync(CancellationToken.None);
         }
+        policies=LifecycleSettingsTransport.Integers(policies,"revision");
+        optionProfiles=LifecycleSettingsTransport.Integers(optionProfiles,"revision","option_revision","policy_revision","margin_policy_revision");
+        swapProfiles=LifecycleSettingsTransport.Integers(swapProfiles,"revision","origin_revision","policy_revision","membership_ordinal","payment_ordinal","decimal_places");
+        swapNetProfiles=LifecycleSettingsTransport.Integers(swapNetProfiles,"revision","origin_revision","policy_revision");
+        marginPolicies=LifecycleSettingsTransport.Integers(marginPolicies,"revision","delivery_profile_revision");
+        swapOccurrences=LifecycleSettingsTransport.Integers(swapOccurrences,"origin_revision","membership_ordinal","payment_ordinal","decimal_places");
+        futuresSetup=LifecycleSettingsTransport.Integers(futuresSetup,"revision","trade_reference","legal_entity_revision","adopted_policy_revision");
         var value=new LifecycleDiscovery(request.Context,actions,policies,optionProfiles,swapProfiles,marginPolicies,choices,optionSources,swapOccurrences,futuresSetup,database.Manifest.CatalogId,until)
             {DeliveryProfiles=deliveryProfiles,DeliveryAccounts=deliveryAccounts,SwapNetProfiles=swapNetProfiles,RecordedCloseId=request.Context.SnapshotId is {} snapshot?frames(snapshot).OriginCloseId:null};
         database.RegisterCommitAdmission(connection,value);

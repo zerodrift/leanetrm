@@ -43,6 +43,10 @@ internal static class LifecycleActionChecks
             selection["contracts"]!["financial_swap"] is not null&&selection["contracts"]!["futures"] is not null&&
             selection["contracts"]![GasFuturesDeliveryActions.Handler]!["contracts"]!["gas.futures.delivery"]!["properties"]!["supply"] is not null,
             "Assistant lifecycle payloads describe their closed product-owned selection contracts.");
+        var shaped=LifecycleSettingsTransport.Integers([JsonSerializer.SerializeToElement(new{revision="3",policy_revision="2",amount="0.12345678901234567890123456789"})],"revision","policy_revision").Single();
+        Require(shaped.GetProperty("revision").GetInt32()==3&&shaped.GetProperty("policy_revision").GetInt32()==2&&
+            shaped.GetProperty("amount").ValueKind==JsonValueKind.String&&shaped.Text("amount")=="0.12345678901234567890123456789",
+            "Lifecycle settings expose structural versions as integer metadata and preserve financial decimal text exactly.");
         Console.WriteLine("PASS lifecycle action contracts: explicit half-open windows, reviewed execution, automatic capability and closed discovery");
     }
     static void Handler(LifecycleActionRequest body){}
