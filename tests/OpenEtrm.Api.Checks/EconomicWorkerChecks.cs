@@ -9,6 +9,44 @@ using OpenEtrm.Rates;
 
 internal static class EconomicWorkerChecks
 {
+    internal static async Task Submit(PreviewDatabase database,NpgsqlConnection connection,PreviewData data,InputFrame frame,
+        PortfolioRiskCatalogRequest scope,PortfolioValuationPolicy pricing,PortfolioEconomicProjectionRequest projection,
+        PreparedLifecyclePortfolio source,string path,CancellationToken ct)
+    {
+        var calculator=new PortfolioRiskPreview(database);var factors=ImmutableArray<CurveRiskAxisRequest>.Empty;PortfolioHistoryRequest? history=null;
+        if(!source.Factors.IsEmpty)
+        {
+            var requested=new PortfolioHistoryRequest(scope,pricing,new(RiskHistoryPolicy.Version1,CurveModel.NumericalPolicy,RiskHistoryPolicy.Raw,
+                RiskHistoryPolicy.Heads,RiskHistoryPolicy.ExactCloses,RiskHistoryPolicy.Absolute,RiskHistoryPolicy.Complete,RiskHistoryPolicy.Fixed,2),
+                new(data.ReferenceRevision,"test_business"),"2020-12-15","2020-12-18","16:00:00","reject","reject");
+            var capture=JsonSerializer.SerializeToElement(await calculator.EconomicHistory(connection,data,frame,new(new(scope,pricing,projection),requested),ct),RiskJobs.Json);
+            history=capture.GetProperty("request").Deserialize<PortfolioHistoryRequest>(RiskJobs.Json)!;
+            factors=capture.GetProperty("factors").Deserialize<ImmutableArray<CurveRiskAxisRequest>>(RiskJobs.Json);
+            if(capture.GetProperty("manifest").GetProperty("samples").GetArrayLength()!=2||factors.Length!=source.Factors.Length)
+                throw new Exception("The native worker fixture requires every branch factor and two complete independent native history changes.");
+        }
+        var risk=new LifecycleEconomicRiskPolicy(history is null?LifecycleEconomicRiskPolicy.Deterministic:LifecycleEconomicRiskPolicy.Historical,
+            "0.99",HistoricalRiskPolicy.Quantile,HistoricalRiskPolicy.Tail);
+        var first=new PortfolioRiskRequest(scope.Context,scope.BookIds,scope.PortfolioIds,[],PortfolioRiskPreview.Convention,RiskEngine.ExactNumericalPolicy,
+            pricing,"holdings",[],scope.TradeIds,Economic:new(projection,risk,history,null,factors));
+        var requests=new List<PortfolioRiskRequest>{first};
+        if(history is not null)
+        {
+            var simulation=new MonteCarloRiskPolicy(MonteCarloRiskPolicy.Economic,MonteCarloRiskPolicy.Numerics,ParametricRiskPolicy.Sample,ParametricRiskPolicy.Centered,
+                ParametricRiskPolicy.Zero,ParametricRiskPolicy.Session,HistoricalRiskPolicy.Quantile,HistoricalRiskPolicy.Tail,MonteCarloRiskPolicy.EconomicValuation,
+                "0.99",MonteCarloRiskPolicy.Gaussian,MonteCarloRiskPolicy.Generator,MonteCarloRiskPolicy.ShockRounding,"42",32,MonteCarloRiskPolicy.Uncertainty);
+            requests.Add(first with{Economic=first.Economic! with{Policy=risk with{Implementation=LifecycleEconomicRiskPolicy.MonteCarlo},Simulation=simulation}});
+        }
+        var receipts=ImmutableArray.CreateBuilder<JsonElement>();
+        foreach(var request in requests)
+        {
+            var report=JsonSerializer.SerializeToElement(await calculator.Calculate(connection,data,frame,request,ct),RiskJobs.Json);
+            var requestId=Guid.NewGuid();var job=JsonSerializer.SerializeToElement(await RiskJobs.Submit(connection,database.Manifest,calculator,data,frame,new(requestId,request),ct),RiskJobs.Json);
+            if(job.Text("state")!="queued"||job.Text("kind")!="economic_lifecycle")throw new Exception("The native product worker fixture was not admitted as an economic job.");
+            receipts.Add(JsonSerializer.SerializeToElement(new{id=job.Id("id"),requestId,expectedState="completed",report},RiskJobs.Json));
+        }
+        await File.WriteAllTextAsync(Path.ChangeExtension(path,"economic-worker.json"),JsonSerializer.Serialize(new{engineVersion=RiskJobs.EngineVersion,jobs=receipts},RiskJobs.Json),ct);
+    }
     internal static async Task Run(string path,bool verify)
     {
         using var document=JsonDocument.Parse(File.ReadAllText(path));var fixture=document.RootElement;

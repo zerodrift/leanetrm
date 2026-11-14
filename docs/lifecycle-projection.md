@@ -196,6 +196,16 @@ without another financial calculation. The economic form owns its busy and
 method-specific control state; static-risk synchronization preserves the
 selected economic report address and captured context.
 
+The actual managed-worker qualification also covers a pending financial swap
+under historical and Monte Carlo economic risk, plus activation of an accepted
+future-effective swap payment under deterministic economic risk. Complete
+interactive reports and retained worker results match exactly, with no source
+writes. The native configuration reader resolves option and swap profile heads
+at the captured source before matching held terms. Worker requests retain the
+exact trade, origin revision, context, opening instant and business date; forged
+arguments refuse. Knowledge-only swap cash retains its original source-read
+admission rather than acquiring an interactive action-read capability.
+
 The pure listed-option adapter retains the source calibration and open signed
 remaining lots. At expiry it applies the exact versioned automatic exercise rule
 or the captured contrary instruction, then replaces the option with the ordinary

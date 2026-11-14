@@ -89,6 +89,9 @@ internal static class LifecycleSwapChecks
                         throw new Exception("Retained economic source replay changed its exact native product evidence.");
                     await EconomicRiskNativeChecks.Verify(database,c,data,retainedFrame,
                         new(new(frame.Id,TradingBlotter.Convention,"retained",selected.ContextId),[book],[],[target.Id("scopeId")]),policy,request,prepared,t);
+                    if(f.TryGetProperty("economicWorker",out var economicWorker)&&economicWorker.GetBoolean())
+                        await EconomicWorkerChecks.Submit(database,c,data,retainedFrame,
+                            new(new(frame.Id,TradingBlotter.Convention,"retained",selected.ContextId),[book],[],[target.Id("scopeId")]),policy,request,prepared,path,t);
                     return 0;
                 },default);
                 Console.WriteLine("PASS native economic swap source: exact profiles, future actual cash, retained graph replay and no-shock wealth");return;

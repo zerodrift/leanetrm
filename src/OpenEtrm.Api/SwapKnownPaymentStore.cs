@@ -16,9 +16,11 @@ internal static class SwapKnownPaymentStore
         var source=PinnedContext.Exact(context);var date=PublishedSchedules.ContextDate(source);
         if(owner.Owner.Kind!=AccountingOwnerKind.Trade||!owner.IsValid||revision<1||frame.ContextId!=source.ContextId||frame.Time.Date!=date)
             throw new MarketDataException("lifecycle_swap_source","Supply the exact held native owner, revision and certified source frame.");
+        var admittedUntil=await TradingContext.AdmitSource(database,connection,source,frame.At,ct);
         var value=await LifecycleNative.Read(connection,"SELECT lifecycle.read_swap_payment_history($1,$2,$3,$4,$5,$6,$7)::text",ct,
             database.Manifest.CatalogId,owner.TradeId,owner.BindingId,revision,source.ContextId!.Value,frame.At,date);
-        var until=value.Instant("authorityUntil");database.RegisterCommitAdmission(connection,new LifecycleReadAdmission(database.Manifest.CatalogId,until));
+        if(value.Instant("authorityUntil")!=admittedUntil)
+            throw new MarketDataException("lifecycle_swap_source","The native history must retain the original exact source-read deadline.");
         var known=SchedulePreview.ParseAt(source.KnownAt);
         if(value.Id("contextId")!=source.ContextId||value.Instant("knownAt")!=known||value.Instant("asOf")!=frame.At||DateWorkspace.Date(value.Text("businessDate"))!=date||
             value.Id("tradeId")!=owner.TradeId||value.Id("bindingId")!=owner.BindingId||value.Id("bookId")!=owner.BookId||value.GetProperty("revision").GetInt32()!=revision)

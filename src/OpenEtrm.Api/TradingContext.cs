@@ -14,13 +14,14 @@ internal static class TradingContext
             await command.ExecuteNonQueryAsync(ct);
         }
     }
-    internal static async Task AdmitSource(PreviewDatabase database,NpgsqlConnection connection,ScheduleContext context,DateTimeOffset at,CancellationToken ct)
+    internal static async Task<DateTimeOffset> AdmitSource(PreviewDatabase database,NpgsqlConnection connection,ScheduleContext context,DateTimeOffset at,CancellationToken ct)
     {
         RequireInstant(at);
         var exact=PinnedContext.Exact(context);var date=PublishedSchedules.ContextDate(exact);var catalog=database.Manifest.CatalogId;
         await using var command=ScheduleStore.Command(connection,"SELECT security.admit_trading_business_source($1,$2,$3,$4)",catalog,exact.ContextId!.Value,at,date);
         var until=new DateTimeOffset((DateTime)(await command.ExecuteScalarAsync(ct))!);
         database.RegisterCommitAdmission(connection,new SourceAdmission(catalog,exact.ContextId.Value,at,date,until));
+        return until;
     }
     internal static Task Bind(NpgsqlConnection connection,Guid catalog,InputFrame frame,ScheduleContext context,CancellationToken ct)
     {

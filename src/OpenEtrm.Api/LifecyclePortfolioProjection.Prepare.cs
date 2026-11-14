@@ -209,17 +209,7 @@ internal static partial class LifecyclePortfolioProjection
     private static async Task<JsonElement> OptionProfile(NpgsqlConnection connection,PreviewDatabase database,PortfolioProductSource source,ScheduleContext context,FuturesOptionPosition option,CancellationToken ct)
     {
         var until=await ConfigurationAuthority(connection,database.Manifest.CatalogId,ct);
-        var rows=await PreviewDatabase.Rows(connection,"""
-            SELECT jsonb_build_object('profile',to_jsonb(s),'policy',to_jsonb(p),'occurrences',
-              (SELECT jsonb_agg(to_jsonb(o) ORDER BY o.at,o.phase) FROM settlement_data.futures_margin_policy_occurrences o
-               WHERE(o.catalog_id,o.policy_id,o.policy_revision)=(p.catalog_id,p.id,p.revision)))::text
-            FROM(SELECT s.*,k.known_from AS profile_known_at FROM lifecycle.option_profiles s JOIN trading.knowledge_receipts k
-              ON(k.catalog_id,k.publication_order)=(s.catalog_id,s.publication_order)
-              JOIN trading.contexts x ON(x.catalog_id,x.context_id)=(s.catalog_id,$4)
-              WHERE(s.catalog_id,s.trade_id,s.option_revision,s.action)=($1,$2,$3,'option.expiry')
-                AND s.publication_order<=x.known_through AND k.known_from<=$5 ORDER BY s.revision DESC LIMIT 1)s
-            JOIN settlement_data.futures_margin_policies p ON(p.catalog_id,p.id,p.revision)=(s.catalog_id,s.margin_policy_id,s.margin_policy_revision)
-            """,[database.Manifest.CatalogId,option.Trade,option.Revision,context.ContextId!.Value,source.Snapshot.Knowledge!.KnownAt],ct);
+        var rows=await Profiles(connection,database,source,context,"listed_option",option.Trade,option.Revision,until,ct);
         if(rows.Length!=1)throw Error("projection_option_policy","Save an exact expiry source and linked-future margin profile for every held option.");
         var admission=new ConfigurationAdmission(database.Manifest.CatalogId,option.Trade,"listed_option",null,Integer(rows[0].GetProperty("profile"),"revision"),context.ContextId!.Value,source.Frame.At,source.Frame.Time.Date,until);
         database.RegisterCommitAdmission(connection,admission);await admission.RequireCommit(connection,ct);
@@ -229,14 +219,7 @@ internal static partial class LifecyclePortfolioProjection
         ScheduleContext context,SwapStore.ResolvedSwapHolding holding,CancellationToken ct)
     {
         var until=await ConfigurationAuthority(connection,database.Manifest.CatalogId,ct);
-        var profiles=await PreviewDatabase.Rows(connection,"""
-            SELECT to_jsonb(s)::text FROM(SELECT DISTINCT ON(s.id)s.*,k.known_from FROM lifecycle.swap_profiles s
-              JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(s.catalog_id,s.publication_order)
-              JOIN trading.contexts x ON(x.catalog_id,x.context_id)=(s.catalog_id,$4)
-              WHERE(s.catalog_id,s.trade_id,s.origin_revision,s.action)=($1,$2,$3,'swap.determine')
-                AND s.publication_order<=x.known_through AND k.known_from<=$5 ORDER BY s.id,s.revision DESC)s
-            ORDER BY s.membership_ordinal,s.payment_ordinal
-            """,[database.Manifest.CatalogId,holding.Row.Id("trade_id"),Integer(holding.Row,"revision"),context.ContextId!.Value,source.Snapshot.Knowledge!.KnownAt],ct);
+        var profiles=await Profiles(connection,database,source,context,"financial_swap",holding.Row.Id("trade_id"),Integer(holding.Row,"revision"),until,ct);
         var periods=holding.Instrument.Sides.SelectMany((m,n)=>((SidePaymentSchedule)m.Side.GenerateSchedule()).Payments.Select(p=>
             (Membership:n,From:p.DeliveryFrom,To:p.DeliveryTo,Ordinal:p.Key.Ordinal))).ToHashSet();
         if(profiles.IsEmpty||!periods.SetEquals(profiles.Select(p=>(Integer(p,"membership_ordinal"),DateWorkspace.Date(p.Text("delivery_from")),DateWorkspace.Date(p.Text("delivery_to")),Integer(p,"payment_ordinal"))))||
@@ -250,6 +233,13 @@ internal static partial class LifecyclePortfolioProjection
             database.RegisterCommitAdmission(connection,admission);await admission.RequireCommit(connection,ct);
         }
         return profiles;
+    }
+    private static async Task<ImmutableArray<JsonElement>> Profiles(NpgsqlConnection connection,PreviewDatabase database,PortfolioProductSource source,
+        ScheduleContext context,string kind,Guid trade,int revision,DateTimeOffset until,CancellationToken ct)
+    {
+        var rows=await LifecycleNative.Read(connection,"SELECT security.read_lifecycle_projection_profiles($1,$2,$3,$4,$5,$6,$7,$8)::text",ct,
+            database.Manifest.CatalogId,kind,trade,revision,context.ContextId!.Value,source.Frame.At,source.Frame.Time.Date,until);
+        return [..rows.EnumerateArray()];
     }
     private static void SelectOfficial(ImmutableDictionary<CurveRequest,CurveKey>.Builder selections,CurveRequest market,CurveKey official)
     {

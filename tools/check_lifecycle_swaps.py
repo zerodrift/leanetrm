@@ -18,7 +18,7 @@ from check_futures_margin_adoption import successor_grants
 def fixture(root):return baseline(root,fixing_frames=True)
 
 
-def checks(query,manifest):
+def checks(query,manifest,economic_worker=None):
     catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'))
     query(trading_fixture(catalog))
     query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
@@ -152,8 +152,10 @@ def checks(query,manifest):
     call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit(fixed_profile)});")
     sql_session(query,manifest,'synthetic_economic_close','test_business','16:00',['base_forward'],[])
     economic_source=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
-    managed({**current,'economicProjection':True,'session':'synthetic_economic_close','bookId':booking['bookId'],
-             'context':{**current['context'],'contextId':economic_source}})
+    economic_packet={**current,'economicProjection':True,'session':'synthetic_economic_close','bookId':booking['bookId'],
+             'context':{**current['context'],'contextId':economic_source}}
+    if economic_worker is None:managed(economic_packet)
+    else:economic_worker(query,manifest,path,managed,economic_packet)
     quantity=dict(revision=dict(catalogId=manifest['referenceCatalogId'],revisionId=manifest['referenceRevisionId']),code='test_gas_quantity')
     periods=[('2021-01-01','2021-02-01'),('2021-02-01','2021-03-01')]
     def side(fixed):
