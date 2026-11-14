@@ -100,6 +100,10 @@ def checks(query, manifest, *, configuration_checks=None):
     adoption=dict(operationId=str(uuid4()),tradeId=booked['tradeId'],bindingId=booked['bindingId'],expectedRevision=1,
         policyId=margin['id'],policyRevision=1,contextId=capture(),asOf=request['asOf'],adoption='native_execution_inception_v1')
     call(f"SELECT settlement_data.adopt_futures_margin('{catalog}',{literal(adoption)});")
+    refuse(f"SELECT security.use_market_context('{catalog}','{adoption['contextId']}');"
+        f"SELECT security.use_trading_context('{catalog}','{adoption['asOf']}');"
+        f"SELECT settlement_data.read_futures_delivery_principal('{catalog}','{booked['tradeId']}','{booked['bindingId']}',"
+        f"'{profile['id']}',1,'{adoption['contextId']}','{adoption['asOf']}');",'futures_delivery_source')
     if configuration_checks is not None:
         configuration_checks(query,manifest,dict(marginRequest=margin_request,adoption=adoption,bookId=book,
             contractId=source['contract'],booking=booking,marginPolicyId=margin['id'],profile=profile,at=request['asOf']))
@@ -123,7 +127,12 @@ def checks(query, manifest, *, configuration_checks=None):
         exactVariation=str(total),roundedTotal=str(total),adjustment=str(total),adjustmentDue=expiry,noChange=False)
     run=dict(operationId=str(uuid4()),tradeId=booked['tradeId'],bindingId=booked['bindingId'],expectedRevision=1,expectedMarginRevision=1,
         contextId=final_context,asOf=expiry,throughOccurrence=step['occurrenceId'],implementation='native_futures_margin_journal_v1',correctionDue=[],previewHash='0'*64)
-    determine=lambda body,terms:f"SELECT settlement_data.determine_futures_margin('{catalog}',{literal(body)},{literal(terms)})::text;"
+    def determine(body,terms,position_id=None):
+        # No title has occurred in this fixture. Review the exact empty
+        # principal prefix as well as variation margin, including zero cash.
+        continuation=dict(implementation='gas_futures_delivery_continuation_v1',positionId=position_id,expectedVersion=0,
+            finalOccurrenceId=terms[-1]['occurrenceId'],sourceObservationId=terms[-1]['sourceObservationId'],steps=[])
+        return f"SELECT settlement_data.determine_futures_margin('{catalog}',{literal(body)},{literal(terms)},{literal(continuation)})::text;"
     accepted=json.loads(call(determine(run,[step])))
     assert accepted['version']==2 and accepted['changed']==1
     assert json.loads(call(determine(run,[step])))==accepted
@@ -145,7 +154,7 @@ def checks(query, manifest, *, configuration_checks=None):
         'exactVariation':str(size*3),'roundedTotal':str(size*3),'adjustment':str(size),'adjustmentDue':'2026-11-02T12:00:00Z'}
     corrected_run={**run,'operationId':str(uuid4()),'expectedMarginRevision':2,'contextId':corrected_context,
         'correctionDue':[dict(occurrenceId=step['occurrenceId'],dueAt=corrected['adjustmentDue'])]}
-    assert json.loads(call(determine(corrected_run,[corrected])))['version']==3
+    assert json.loads(call(determine(corrected_run,[corrected],link['position_id'])))['version']==3
     assert query(f"SELECT count(*) FROM settlement_data.futures_delivery_obligations WHERE catalog_id='{catalog}';")=='1'
     assert query(f"SELECT count(*) FROM trading.gas_owned_positions WHERE catalog_id='{catalog}';")=='1'
     current=call(f"SELECT security.capture_date_context('{catalog}','{final_day}',NULL);")
@@ -166,9 +175,16 @@ def checks(query, manifest, *, configuration_checks=None):
     pins=json.loads(query(f"SELECT jsonb_agg(id) FROM market_data.observations WHERE catalog_id='{catalog}' AND (id='{mark}' OR role='parameter' AND observed_at='{price_at}');"))
     token=query("SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context("
         f"'{issuer}','trader','human_interactive','{tenant}','{workspace}',NULL,'preview_runtime',60);")
+    margin_action={**action_policy,'operationId':str(uuid4()),'policyId':str(uuid4()),'action':'futures.margin','mode':'review'}
+    call(f"SELECT lifecycle.save_policy('{catalog}',{literal(margin_action)});")
+    action_context=call(f"SELECT security.capture_date_context('{catalog}','{final_day}',NULL);")
+    margin_request=dict(operationId=str(uuid4()),context=dict(contextId=action_context,asOf=expiry,businessDate=final_day,snapshotId=str(uuid4())),
+        target=dict(handler='futures',scopeId=booked['tradeId'],bindingId=booked['bindingId']),action='futures.margin',
+        policyId=margin_action['policyId'],policyRevision=1,automatic=False,previewHash='0'*64,
+        selection=dict(expectedRevision=1,expectedMarginRevision=3,throughOccurrence=step['occurrenceId'],correctionDue=[]))
     path=Path(host)/'physical-final-check.json'
     path.write_text(json.dumps(dict(manifest=manifest,host=host,token=token,contextId=current,at=expiry,pins=pins,mark=mark,
-        markContract=mark_contract,tradeId=booked['tradeId'],positionId=link['position_id'],profileRequest=dict(operationId=request['operationId'],
+        markContract=mark_contract,tradeId=booked['tradeId'],positionId=link['position_id'],marginRequest=margin_request,profileRequest=dict(operationId=request['operationId'],
             expectedRevision=0,context=dict(contextId=request['contextId'],asOf=request['asOf'],businessDate='2026-10-16',snapshotId=str(uuid4())),profile=profile))))
     path.chmod(0o600)
     result=subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks',

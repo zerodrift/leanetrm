@@ -9,6 +9,7 @@ if(args is ["--economic-risk-contract"]){EconomicRiskContractChecks.Run();return
 if(args is ["--lifecycle-schedule-contract"]){LifecycleScheduleChecks.Run();return;}
 if(args is ["--lifecycle-actions-native",var lifecycleFixture]){await LifecycleActionChecks.RunNative(lifecycleFixture);return;}
 if(args is ["--lifecycle-swap-native",var lifecycleSwapFixture]){await LifecycleSwapChecks.Run(lifecycleSwapFixture);return;}
+if(args is ["--gas-futures-delivery",var gasDeliveryFixture]){await GasFuturesDeliveryChecks.Run(gasDeliveryFixture);return;}
 if(args is ["--gas-owned",var gasOwnedFixture]){await GasOwnedChecks.Run(gasOwnedFixture);return;}
 if(args is ["--gas-owned-known",var gasKnownFixture]){await GasOwnedKnownHistoryChecks.Run(gasKnownFixture);return;}
 if(args is ["--gas-owned-profile",var gasProfileFixture]){await GasOwnedKnownHistoryChecks.Run(gasProfileFixture,true);return;}

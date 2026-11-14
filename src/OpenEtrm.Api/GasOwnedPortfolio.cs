@@ -58,7 +58,7 @@ internal static class GasOwnedPortfolio
         foreach(var pair in held.Markets.OrderBy(p=>p.Key))
         {
             var market=pair.Value;var positions=held.Positions.Where(p=>p.DefinitionRevisionId==pair.Key).ToImmutableArray();
-            var fees=held.Fees.Where(p=>p.DefinitionRevisionId==pair.Key).ToImmutableArray();
+            var fees=held.Fees.Concat(held.Principal).Where(p=>p.DefinitionRevisionId==pair.Key).ToImmutableArray();
             if(positions.IsEmpty&&fees.IsEmpty)continue;
             var snapshots=market.Snapshot;var payments=positions.Select(p=>p.Instrument).OfType<GasCommodityHoldingInstrument>()
                 .Where(i=>i.Carrying==GasHoldingCarrying.CurrencyCurve&&i.ReturnAt>snapshots.ValuationAt)

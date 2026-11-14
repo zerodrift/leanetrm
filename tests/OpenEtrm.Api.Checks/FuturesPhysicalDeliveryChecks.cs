@@ -72,6 +72,39 @@ internal static class FuturesPhysicalDeliveryChecks
             throw new Exception("A fresh physical settings command bypassed its host source selection.");
         }
         catch(InvalidOperationException error)when(error.Message=="Evicted host frame consulted"){}
+        var action=fixture.GetProperty("marginRequest").Deserialize<LifecycleActionRequest>(LifecycleNative.Json)!;
+        var handler=new FuturesLifecycleActions(operations,_=>{});
+        var reviewed=await operations.WithIdentity("trader",null,(c,ct)=>handler.Preview(c,action,ct),default);
+        var principal=reviewed.Details.GetProperty("physicalPrincipal");
+        if(principal.Text("finalPrice")!="6"||principal.GetProperty("performances").GetArrayLength()!=0)
+            throw new Exception("The shared final review omitted its exact physical principal continuation.");
+        action=action with{PreviewHash=reviewed.Hash};
+        var selection=action.Selection.Deserialize<FuturesMarginActionSelection>(LifecycleNative.Json)!;
+        var nativeRequest=JsonSerializer.SerializeToElement(new{action.OperationId,tradeId=action.Target.ScopeId,bindingId=action.Target.BindingId,
+            selection.ExpectedRevision,selection.ExpectedMarginRevision,action.Context.ContextId,asOf=LifecycleNative.Instant(action.Context.AsOf),
+            selection.ThroughOccurrence,implementation=FuturesMarginCoordinator.Version,selection.CorrectionDue,action.PreviewHash},LifecycleNative.Json);
+        foreach(var wrong in new[]{action with{PreviewHash=new string('b',64)},action with{Selection=JsonSerializer.SerializeToElement(selection with{ExpectedMarginRevision=4},LifecycleNative.Json)}})
+        {
+            try
+            {
+                await operations.WithIdentity("trader",null,async(c,ct)=>
+                {
+                    var native=await FuturesMarginCoordinator.Determine(c,operations,nativeRequest,ct);
+                    var submitted=wrong.Selection.Deserialize<FuturesMarginActionSelection>(LifecycleNative.Json)!;
+                    var body=LifecycleNative.Body(wrong,submitted);
+                    return await LifecycleNative.Read(c,"SELECT lifecycle.record_native_action($1,$2::jsonb,$3::jsonb,$4)::text",ct,
+                        manifest.CatalogId,body.GetRawText(),native.Outcome.GetRawText(),native.AuthorityUntil);
+                },default);
+                throw new Exception("A shared action receipt misrepresented the exact accepted native selection or review.");
+            }
+            catch(Npgsql.PostgresException error)when(error.MessageText=="lifecycle_native_receipt"){}
+        }
+        var result=await operations.WithIdentity("trader",null,(c,ct)=>handler.Execute(c,action,ct),default);
+        var evicted=new FuturesLifecycleActions(operations,_=>throw new InvalidOperationException("Evicted financial source consulted"));
+        var retried=await operations.WithIdentity("trader",null,(c,ct)=>evicted.Execute(c,action,ct),default);
+        if(result.Outcome.GetRawText()!=retried.Outcome.GetRawText()||result.Outcome.Id("operationId")!=action.OperationId)
+            throw new Exception("The combined native continuation lost its actor-owned first outcome after frame eviction.");
+        Console.WriteLine("PASS shared physical margin action: complete principal review, atomic native receipt and evicted-source retry");
         Console.WriteLine("PASS native physical final ordinary PV: corrected principal, independent owner, exact unit scaling and both instant carrying inputs");
     }
 }

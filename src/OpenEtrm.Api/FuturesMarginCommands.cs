@@ -9,8 +9,16 @@ namespace OpenEtrm.Api;
 internal sealed record FuturesMarginWrite(Guid Catalog,Guid OperationId,string Kind,JsonElement Request,
     DateTimeOffset AuthorityUntil,JsonElement Outcome):ICommitAdmission
 {
+    internal bool DeliveryCommand{get;init;}
+    internal JsonElement? Continuation{get;init;}
     public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
     {
+        if(DeliveryCommand)
+        {
+            await using var finish=ScheduleStore.Command(connection,"SELECT settlement_data.finish_futures_delivery_command($1,$2,$3::jsonb,$4::jsonb,$5)",
+                Catalog,OperationId,Request.GetRawText(),Continuation is {} continuation?continuation.GetRawText():DBNull.Value,AuthorityUntil);
+            await finish.ExecuteNonQueryAsync(ct);return;
+        }
         if(Kind=="determine")
         {
             await using var finish=ScheduleStore.Command(connection,"SELECT settlement_data.finish_futures_margin_run($1,$2,$3::jsonb,$4)",

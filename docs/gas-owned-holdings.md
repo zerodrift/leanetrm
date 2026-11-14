@@ -111,7 +111,7 @@ opening book has no inventory. An independent future opening stock or claim
 requires its purchase, capital or transfer counterfact; missing coverage cannot
 be treated as zero capital. The current quantity adapter refuses a horizon that
 crosses an unqualified native physical transition or cashout. Facts strictly
-after the horizon remain retained evidence. Physical futures principal,
+after the horizon remain retained evidence. Event-aware physical principal,
 cashout and the remaining future-event adapters have separate qualification
 gates before a complete economic portfolio result can be reported.
 
@@ -121,3 +121,48 @@ Authorization deadlines are operation-local admission data and are excluded
 from immutable source and profile evidence. New financial commands reject
 source contexts that omit later mark or profile heads; original command receipts
 and older business-fact acknowledgements retain their first outcomes.
+
+Physical-futures performance is a separate observed operation. Final margin
+creates the signed ordinary delivery obligation under its exact enrolled
+delivery profile. A long performance requires accepted positive title evidence
+and creates a separately owned lot. A short performance consumes explicitly
+selected compatible lots and reservations. Neither path infers procurement.
+The ownership account's current execution-policy binding authorizes performance;
+the profile's original enrollment policy remains retained financial evidence.
+
+The managed principal planner sorts the complete source-known performance
+prefix by performance instant and UTF-8 business reference. This includes
+accepted performances that remain future-effective at a correction's selected
+instant. It rounds cumulative signed consideration under the profile's saved
+increment and tie convention, takes each performance's difference from the
+previous cumulative total, and subtracts its earlier accepted contribution.
+A backdated performance can therefore revise a later performance's contribution.
+A changed final basis retains a complete new determination prefix even when
+every cash adjustment is zero. Native constraints independently validate the
+submitted operands, chronology, prior lineage and complete cash membership.
+
+Principal adjustments have their own native cash identities under the delivery
+obligation owner. They retain the contractual principal due instant and the
+original performance effective instant. They remain independent of fee cash
+and trade-owned payment memberships. Payment allocations and their corrections
+are immutable; an allocation before the principal membership exists is refused.
+The ordinary gas portfolio loads remaining delivery, surviving stock and
+principal cash separately, including principal after quantity is fully performed.
+
+Final margin and its reviewed principal continuation commit in the same native
+publication. The existing margin command owns an immutable combined first-outcome
+receipt, binding the complete submitted continuation. Retrying it needs no
+recomputed source frame. Shared lifecycle receipts validate the exact underlying
+margin request and combined outcome. Older accepted snapshots can be acknowledged
+without rewinding current margin or principal. Existing cash-only margin receipts
+retain their exact outcomes without a delivery receipt or history rewrite.
+
+The physical checks are `--gas-delivery-principal`,
+`tools/check_gas_futures_delivery.py` and
+`tools/check_futures_delivery_cash_receipts.py`. Their disposable native fixtures
+cover future-known and backdated principal prefixes, zero-cash rebasing,
+independently valued delivery obligations, typed actual review/execution,
+first outcomes, payment origin and source-knowledge boundaries. Observed quantity
+or title corrections require an explicit reconciliation operation; changing source
+evidence alone does not revise accepted stock. Event-aware physical projection,
+source reconciliation and the operational UI retain their separate release gates.

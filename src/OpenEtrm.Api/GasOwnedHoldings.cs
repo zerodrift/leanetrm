@@ -13,12 +13,13 @@ internal sealed record GasOwnedMarket(PreviewData Data,InputFrame Frame,MarketSn
 internal sealed record GasOwnedPosition(AccountingPositionKey Position,Guid AccountId,PartyKey LegalOwner,string Kind,string SettlementMode,
     int Revision,int PublicationOrder,DateTimeOffset EffectiveAt,Guid EvidenceId,Instrument Instrument,Quantity Quantity)
 {internal Guid DefinitionRevisionId{get;init;} internal int MarkRevision{get;init;} internal int MarkPublicationOrder{get;init;}}
-internal sealed record GasOwnedFeePosition(AccountingPositionKey Position,Guid AccountId,Guid? LoanId,TimedCashPayment Instrument,
+internal sealed record GasOwnedCashPosition(AccountingPositionKey Position,Guid AccountId,Guid? LoanId,TimedCashPayment Instrument,
     Quantity Quantity,RecordedCashValuation State)
 {internal Guid DefinitionRevisionId{get;init;} internal int PublicationOrder{get;init;}}
 internal sealed record GasOwnedPortfolioRead(Guid ContextId,DateTimeOffset At,DateTimeOffset KnownAt,
-    ImmutableArray<GasOwnedPosition> Positions,ImmutableArray<GasOwnedFeePosition> Fees,
-    ImmutableDictionary<Guid,GasOwnedMarket> Markets,ImmutableDictionary<MeasureBinding,BindingAccountingFacts> AccountingFacts);
+    ImmutableArray<GasOwnedPosition> Positions,ImmutableArray<GasOwnedCashPosition> Fees,
+    ImmutableDictionary<Guid,GasOwnedMarket> Markets,ImmutableDictionary<MeasureBinding,BindingAccountingFacts> AccountingFacts)
+{internal ImmutableArray<GasOwnedCashPosition> Principal{get;init;}=[];}
 
 // Inventory is captured by its independent owner/book, never by whether a
 // source purchase or loan trade remains in the requested trade population.
@@ -49,7 +50,7 @@ internal static class GasOwnedHoldings
         var root=await MarketInputSelection.Root(database,connection,frame,ct);
         var available=supplied.IsDefault?ImmutableArray.Create((Data:root,Frame:frame)):supplied;
         var markets=ImmutableDictionary.CreateBuilder<Guid,GasOwnedMarket>();
-        foreach(var group in envelope.GetProperty("positions").EnumerateArray().Concat(envelope.GetProperty("fees").EnumerateArray()).GroupBy(r=>r.Id("definition_revision_id")))
+        foreach(var group in envelope.GetProperty("positions").EnumerateArray().Concat(envelope.GetProperty("fees").EnumerateArray()).Concat(envelope.GetProperty("deliveryCash").EnumerateArray()).GroupBy(r=>r.Id("definition_revision_id")))
         {
             var sources=group.Select(r=>new CatalogueSource(group.Key,r.Id("reference_catalog_id"),r.Id("reference_revision_id"))).Distinct().ToArray();
             if(sources.Length!=1)throw Error("Each owned gas source requires one exact definition and reference bundle.");
@@ -57,7 +58,8 @@ internal static class GasOwnedHoldings
             markets.Add(group.Key,new(source.Data,source.Frame,source.Data.Snapshot(source.Frame).WithKnowledge(context,snapshot.Knowledge.KnownAt)));
         }
         var positions=ImmutableArray.CreateBuilder<GasOwnedPosition>();
-        var fees=ImmutableArray.CreateBuilder<GasOwnedFeePosition>();
+        var fees=ImmutableArray.CreateBuilder<GasOwnedCashPosition>();
+        var principal=ImmutableArray.CreateBuilder<GasOwnedCashPosition>();
         var accounting=ImmutableDictionary.CreateBuilder<MeasureBinding,BindingAccountingFacts>();
         foreach(var row in envelope.GetProperty("positions").EnumerateArray())
         {
@@ -84,24 +86,26 @@ internal static class GasOwnedHoldings
             // transfers. The actual P&L adapter must require the native source
             // handoff ledger rather than treating missing coverage as no cash.
         }
-        foreach(var row in envelope.GetProperty("fees").EnumerateArray())
+        foreach(var entry in envelope.GetProperty("fees").EnumerateArray().Select(row=>(Row:row,Principal:false))
+            .Concat(envelope.GetProperty("deliveryCash").EnumerateArray().Select(row=>(Row:row,Principal:true))))
         {
+            var row=entry.Row;
             var reference=new ReferenceRevision(row.Id("reference_catalog_id"),row.Id("reference_revision_id"));
             var instrument=new TimedCashPayment(new(reference,row.Text("currency_code")),row.Instant("due_at"));
             var position=new AccountingPositionKey(new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,row.Id("position_id")),row.Id("id"),row.Id("book_id"));
             var quantity=new Quantity(row.Number("amount"),instrument.Currency);
-            var flows=envelope.GetProperty("payments").EnumerateArray().Where(p=>p.Id("fee_id")==row.Id("id")).Select(p=>
+            var flows=envelope.GetProperty(entry.Principal?"deliveryPayments":"payments").EnumerateArray().Where(p=>p.Id(entry.Principal?"cash_id":"fee_id")==row.Id("id")).Select(p=>
                 new AccountingFlow(p.Id("allocation_id"),Integer(p,"revision"),position,p.Instant("paid_at"),p.Instant("known_at"),
                     ExactMoney.Parse(p.Text("amount"),instrument.Currency),AccountingFlowKind.EconomicCash)).ToImmutableArray();
             if(flows.Any(f=>f.EffectiveAt<row.Instant("effective_at")))
                 throw new MarketDataException("gas_owned_payment_origin","A payment before this owned cash obligation existed requires a separately qualified advance asset.");
             var state=new RecordedCashValuation(position,instrument,quantity,flows,RecordedCashValuation.Policy,context,snapshot.Knowledge.KnownAt);
-            fees.Add(new(position,row.Id("account_id"),row.OptionalId("loan_id"),instrument,quantity,state)
+            (entry.Principal?principal:fees).Add(new(position,row.Id("account_id"),entry.Principal?null:row.OptionalId("loan_id"),instrument,quantity,state)
                 {DefinitionRevisionId=row.Id("definition_revision_id"),PublicationOrder=Integer(row,"publication_order")});
             accounting.Add(new(position.Owner,position.BindingId),new(position,context,snapshot.Knowledge.KnownAt,flows));
         }
         await admission.RequireCommit(connection,ct);
-        return new(context,frame.At,snapshot.Knowledge.KnownAt,positions.ToImmutable(),fees.ToImmutable(),markets.ToImmutable(),accounting.ToImmutable());
+        return new(context,frame.At,snapshot.Knowledge.KnownAt,positions.ToImmutable(),fees.ToImmutable(),markets.ToImmutable(),accounting.ToImmutable()){Principal=principal.ToImmutable()};
     }
     private static int Integer(JsonElement row,string field)=>int.Parse(row.Text(field),CultureInfo.InvariantCulture);
     private static MarketDataException Error(string message)=>new("gas_owned_context",message);

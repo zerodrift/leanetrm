@@ -17,6 +17,14 @@ internal sealed record FuturesMarginRunRequest(Guid OperationId,Guid TradeId,Gui
 internal sealed record FuturesMarginReview(FuturesMarginTrajectory Plan,string Hash,int TradeRevision,int MarginRevision,
     [property:JsonIgnore]Guid Catalog,[property:JsonIgnore]DateTimeOffset AuthorityUntil):ICommitAdmission
 {
+    [JsonIgnore]internal JsonElement? Continuation{get;init;}
+    [JsonIgnore]internal JsonElement? PhysicalPrincipal{get;init;}
+    internal JsonElement Details()
+    {
+        var fields=JsonSerializer.SerializeToElement(Plan,LifecycleNative.Json).EnumerateObject().ToDictionary(p=>p.Name,p=>p.Value.Clone());
+        if(PhysicalPrincipal is {} principal)fields.Add("physicalPrincipal",principal);
+        return JsonSerializer.SerializeToElement(fields,LifecycleNative.Json);
+    }
     public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
     {
         await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.require_futures_margin_preview($1,$2)",Catalog,AuthorityUntil);
@@ -76,6 +84,7 @@ internal static class FuturesMarginCoordinator
                 throw Error("futures_margin_continuity","A required settlement precedes this held revision; qualify its prior-quantity continuity before applying margin.");
             var facts=await FuturesMarginSources.Read(connection,database,data,frame,context,market,policy,required,ct);
             var plan=market.Instrument.PlanMarginTrajectory(trade,binding.Id,policy,snapshot,request.ThroughOccurrence,facts,accepted.History,correctionDue);
+            var principal=await GasFuturesDeliveryStore.PrincipalReview(connection,database,frame,snapshot,plan,ct);
             // Hash the selected financial target. An acknowledgement of an
             // already-recorded fact neither reapplies cash nor resets today's
             // state. Exact source identities and due choices remain reviewed.
@@ -85,8 +94,10 @@ internal static class FuturesMarginCoordinator
                 steps=plan.Steps.Select(s=>new{s.Occurrence.Id,s.Occurrence.At,s.Occurrence.Phase,
                     basis=s.PreviousBasis.ToExactString(),s.Evidence.Observation,s.Evidence.KnownAt,
                     exact=s.ExactVariation.ToExactString(),total=s.Variation.Amount.ToString()})};
-            var hash=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(review,Json))));
-            prepared=new(plan,hash,accepted.TradeRevision,accepted.MarginRevision,catalog,until);
+            var reviewed=principal.Continuation is {} continuation?JsonSerializer.Serialize(new{margin=review,continuation},Json):JsonSerializer.Serialize(review,Json);
+            var hash=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(reviewed)));
+            prepared=new(plan,hash,accepted.TradeRevision,accepted.MarginRevision,catalog,until)
+                {Continuation=principal.Continuation,PhysicalPrincipal=principal.Details};
         }
         finally
         {
@@ -103,20 +114,24 @@ internal static class FuturesMarginCoordinator
         await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_delivery_authority($1,$2,$3)",
             catalog,request.TradeId,request.BindingId);
         var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
-        await using var status=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_run_status($1,$2,$3::jsonb)::text",
+        await using var status=ScheduleStore.Command(connection,"SELECT settlement_data.futures_delivery_run_status($1,$2,$3::jsonb)::text",
             catalog,request.OperationId,body.GetRawText());
         if(await status.ExecuteScalarAsync(ct) is string previous)
-            return new(catalog,request.OperationId,"determine",body.Clone(),until,JsonSerializer.Deserialize<JsonElement>(previous));
+        {
+            var retained=JsonSerializer.Deserialize<JsonElement>(previous);var retainedContinuation=retained.GetProperty("continuation");
+            return new(catalog,request.OperationId,"determine",body.Clone(),until,retained.GetProperty("outcome").Clone())
+                {DeliveryCommand=true,Continuation=retainedContinuation.ValueKind==JsonValueKind.Null?null:retainedContinuation.Clone()};
+        }
         var prepared=await Preview(connection,database,body,ct);
         if(request.PreviewHash!=prepared.Hash)throw Error("futures_margin_stale_review","Settlement sources or reviewed terms changed; review the exact proposal again.");
         var steps=prepared.Plan.Steps.Select(s=>new{occurrenceId=s.Occurrence.Id,previousDeterminationId=s.PreviousDetermination,
             sourceObservationId=s.Evidence.Observation.Id,previousBasis=s.PreviousBasis.ToExactString(),exactVariation=s.ExactVariation.ToExactString(),
             roundedTotal=s.Variation.Amount.ToString(),adjustment=s.Adjustment.ToExactString(),
             adjustmentDue=s.AdjustmentDue is {} due?NativeInstant(due):null,noChange=s.NoChange});
-        await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.determine_futures_margin($1,$2::jsonb,$3::jsonb)::text",
-            catalog,body.GetRawText(),JsonSerializer.Serialize(steps,Json));
+        await using var command=ScheduleStore.Command(connection,"SELECT settlement_data.determine_futures_margin($1,$2::jsonb,$3::jsonb,$4::jsonb)::text",
+            catalog,body.GetRawText(),JsonSerializer.Serialize(steps,Json),prepared.Continuation is {} continuation?continuation.GetRawText():DBNull.Value);
         var outcome=JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
-        return new(catalog,request.OperationId,"determine",body.Clone(),until,outcome);
+        return new(catalog,request.OperationId,"determine",body.Clone(),until,outcome){DeliveryCommand=true,Continuation=prepared.Continuation};
     }
 
     private static FuturesMarginRunRequest ReadRequest(JsonElement body)

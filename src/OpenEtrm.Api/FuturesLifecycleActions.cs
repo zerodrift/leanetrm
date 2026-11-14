@@ -37,7 +37,7 @@ internal sealed class FuturesLifecycleActions(PreviewDatabase database,Action<Li
         await CheckPolicy(connection,request,ct);
         var prepared=await FuturesMarginCoordinator.Preview(connection,database,NativeBody(request,s),ct);
         var result=new LifecycleActionReview(new(request.Target,request.Action,"Determine futures margin",s.ThroughOccurrence,request.Context.AsOf,null,true,null,
-            prepared.TradeRevision,prepared.MarginRevision),prepared.Hash,JsonSerializer.SerializeToElement(prepared.Plan,LifecycleNative.Json),Catalog,until);
+            prepared.TradeRevision,prepared.MarginRevision),prepared.Hash,prepared.Details(),Catalog,until);
         await result.RequireCommit(connection,ct);return result;
     }
     public async Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)
