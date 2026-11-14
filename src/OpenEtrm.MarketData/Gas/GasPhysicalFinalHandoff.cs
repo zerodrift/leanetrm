@@ -6,7 +6,7 @@ namespace OpenEtrm.MarketData.Gas;
 // Saved adapter economics. Actual acceptance separately proves the exact native
 // future, official final, title evidence and supplied stock under current authority.
 [EconomicDefinition("gas_physical_delivery_terms_v1")]
-public sealed record GasPhysicalDeliveryTerms
+public sealed record GasPhysicalDeliveryTerms:IFuturesFinalDeliveryTerms
 {
     public const string Version="gas_future_physical_delivery_v1";
     [IdentityField]public Guid Id{get;}
@@ -33,6 +33,7 @@ public sealed record GasPhysicalDeliveryTerms
         Id=id;Series=series;Quantity=quantity;Currency=currency;Location=location;From=from;To=to;CashDueAt=cashDueAt;
         Mark=mark;Carrying=carrying;Implementation=implementation;
     }
+    public Instrument CreateObligation(ExactUnitPrice finalPrice)=>new GasPhysicalDeliveryObligationInstrument(Id,this,finalPrice);
 }
 public sealed record GasPhysicalTitlePlan(Quantity Remaining,Quantity StockChange,ExactMoney Consideration,DateTimeOffset CashDueAt);
 

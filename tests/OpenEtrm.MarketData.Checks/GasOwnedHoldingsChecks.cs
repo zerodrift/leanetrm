@@ -59,8 +59,34 @@ internal static class GasOwnedHoldingsChecks
         Equal(ExactMoney.Parse("150",quote.Currency).Add(title.Consideration),"30");
         Reject("gas_delivery_supply",()=>GasPhysicalFinalHandoff.Title(delivery,new(ExactDecimal.Parse("-10"),quote.Quantity),
             new(ExactDecimal.Parse("10"),quote.Quantity),ExactUnitPrice.Parse("12",PriceUnit.FromQuote(quote)),at,default));
-        RationalMark();DiscountTiming();
+        PhysicalFinalPlan();RationalMark();DiscountTiming();
         Console.WriteLine("PASS gas owned holdings: exact title/availability, reservations, no negative stock, bitemporal facts, surviving loan return and ordinary PV conservation");
+    }
+    private static void PhysicalFinalPlan()
+    {
+        var f=new Fixture();var quote=f.Quotes[0];var contract=f.Contracts[0];
+        var series=new FuturesSeriesSpecification(f.R("gas_future"),quote.Quantity,quote.Currency,quote.Multiplier,quote.TradingTick,
+            f.R("location"),f.R("uniform"),contract.DeliveryFrom,contract.DeliveryTo,contract.Expiry,quote.Quantity,ExactDecimal.Parse("40"),
+            LotBasis.FixedTotal,Fixture.Utc("2040-01-01T00:00:00Z"),"physical");
+        var future=new FuturesContract(series);
+        var terms=new GasPhysicalDeliveryTerms(Guid.NewGuid(),series.Key,quote.Quantity,quote.Currency,series.Location,contract.Expiry,
+            contract.Expiry.AddDays(35),contract.Expiry.AddDays(40),new(f.C("future"),contract.Key),GasHoldingCarrying.Nominal,GasPhysicalDeliveryTerms.Version);
+        var price=ExactUnitPrice.FromPrice(new(ExactDecimal.Parse("12"),quote));
+        foreach(var signed in new[]{"40","-40"})
+        {
+            var plan=FuturesFinalDeliveryPlan.Create(future,new(ExactDecimal.Parse(signed),quote.Quantity),terms,price);
+            if(plan.Obligation is not GasPhysicalDeliveryObligationInstrument)throw new Exception("A final delivery plan created commodity stock before title evidence.");
+            var owner=new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,Guid.NewGuid());
+            var position=new RiskPosition(owner,Guid.NewGuid(),Guid.NewGuid(),plan.Obligation.Id,plan.Quantity,
+                new(new Money(default,quote.Currency),quote.Quantity),new(default,quote.Currency));
+            var portfolio=new ValuationPortfolio([plan.Obligation],[position],new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+            var snapshot=f.Snapshot() with{Selections=[f.Select(1,QuoteKind.Outright,"gas_out","15")]};
+            var result=RiskEngine.CalculateExact(RiskEngine.Prepare(f.Model(),snapshot,[portfolio]),[],RiskEngine.ExactNumericalPolicy);
+            Equal(result.Groups.Single().BaseValues.Single().Value,signed=="40"?"120":"-120");
+        }
+        Reject("futures_delivery_transition",()=>FuturesFinalDeliveryPlan.Create(new(series with{SettlementMethod="cash"}),new(ExactDecimal.Parse("40"),quote.Quantity),terms,price));
+        Reject("futures_delivery_transition",()=>FuturesFinalDeliveryPlan.Create(future,new(ExactDecimal.Parse("1"),quote.Quantity),terms,price));
+        Console.WriteLine("PASS physical final plan: signed ordinary obligation PV, fixed principal, exact held units and no stock before title");
     }
     private static void RationalMark()
     {
