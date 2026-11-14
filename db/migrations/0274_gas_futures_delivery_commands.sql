@@ -12,7 +12,7 @@ DO $guard$DECLARE item record;f pg_proc;BEGIN
  ('settlement_data.determine_futures_margin_native(uuid,jsonb,jsonb,timestamptz)','35888a5d2f07997df8c99485d0dfbf1e',false,'jsonb'),
  ('settlement_data.finish_futures_margin_run(uuid,uuid,jsonb,timestamptz)','4103f62909fec08dfd1fa0faaf3697bc',true,'void'))v(signature,hash,runtime,result) LOOP
   SELECT * INTO STRICT f FROM pg_proc WHERE oid=item.signature::regprocedure;
-  IF md5(f.prosrc)<>item.hash OR f.proowner<>'openetrm_security_owner'::regrole OR NOT f.prosecdef OR f.prokind<>'f' OR f.prorettype<>item.result::regtype OR f.proretset
+  IF md5(f.prosrc)<>item.hash OR f.proowner<>'openetrm_security_owner'::regrole OR NOT f.prosecdef OR f.prokind<>'f' OR f.provariadic<>0 OR f.proargmodes IS NOT NULL OR f.prorettype<>item.result::regtype OR f.proretset
    OR(SELECT lanname FROM pg_language WHERE oid=f.prolang)<>'plpgsql' OR f.proisstrict OR f.proleakproof OR f.proparallel<>'u' OR f.provolatile<>'v' OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
    OR has_function_privilege('openetrm_runtime',f.oid,'EXECUTE') IS DISTINCT FROM item.runtime
    OR EXISTS(SELECT 1 FROM aclexplode(coalesce(f.proacl,acldefault('f',f.proowner)))x WHERE x.grantor<>f.proowner OR x.is_grantable
@@ -399,7 +399,7 @@ DO $shared$DECLARE item record;f pg_proc;definition text;before text;after text;
  ('lifecycle.record_native_action(uuid,jsonb,jsonb,timestamptz)','48cbc8038cab6c5d5203bb97cd18c57d','jsonb'),
  ('lifecycle.finish_command(uuid,uuid,text,jsonb,text,timestamptz)','4fe744c3a9419c2a4b890e25e28d3395','void'))v(signature,hash,result) LOOP
   SELECT * INTO STRICT f FROM pg_proc WHERE oid=item.signature::regprocedure;
-  IF md5(f.prosrc)<>item.hash OR f.proowner<>'openetrm_security_owner'::regrole OR NOT f.prosecdef OR f.prokind<>'f' OR f.prorettype<>item.result::regtype OR f.proretset
+  IF md5(f.prosrc)<>item.hash OR f.proowner<>'openetrm_security_owner'::regrole OR NOT f.prosecdef OR f.prokind<>'f' OR f.provariadic<>0 OR f.proargmodes IS NOT NULL OR f.prorettype<>item.result::regtype OR f.proretset
    OR(SELECT lanname FROM pg_language WHERE oid=f.prolang)<>'plpgsql' OR f.proisstrict OR f.proleakproof OR f.proparallel<>'u' OR f.provolatile<>'v'
    OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[] OR NOT has_function_privilege('openetrm_runtime',f.oid,'EXECUTE')
    OR EXISTS(SELECT 1 FROM aclexplode(coalesce(f.proacl,acldefault('f',f.proowner)))x WHERE x.grantor<>f.proowner OR x.is_grantable

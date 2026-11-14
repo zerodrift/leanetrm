@@ -22,6 +22,8 @@ def upgrade_checks(query,migration):
     from assistant_context import check_guard
     for guard,signature in groups:
         changes=[(change,signature) for change in (
+            f"UPDATE pg_proc SET proargmodes=array_fill('i'::\"char\",ARRAY[{signature.count(',')+1}]) WHERE oid='{signature}'::regprocedure;",
+            f"UPDATE pg_proc SET provariadic='uuid'::regtype WHERE oid='{signature}'::regprocedure;",
             f"ALTER FUNCTION {signature} SET work_mem='64kB';",f"ALTER FUNCTION {signature} STRICT;",
             f"ALTER FUNCTION {signature} LEAKPROOF;",f"ALTER FUNCTION {signature} PARALLEL SAFE;",
             f"ALTER FUNCTION {signature} STABLE;",f"ALTER FUNCTION {signature} SECURITY INVOKER;",

@@ -359,7 +359,7 @@ GRANT EXECUTE ON FUNCTION settlement_data.read_futures_delivery_principal(uuid,u
 -- original source/authority contract. Principal is a distinct cash membership.
 DO $upgrade$DECLARE f pg_proc;definition text;needle text='security.read_gas_owned_holdings(';BEGIN
  SELECT * INTO STRICT f FROM pg_proc WHERE oid='security.read_gas_owned_holdings(uuid,uuid,timestamptz,uuid[])'::regprocedure;
- IF md5(f.prosrc)<>'4e229bd3f85252f62a34917135f49053' OR f.proowner<>'openetrm_security_owner'::regrole OR NOT f.prosecdef OR f.prokind<>'f' OR f.prorettype<>'jsonb'::regtype OR f.proretset
+ IF md5(f.prosrc)<>'4e229bd3f85252f62a34917135f49053' OR f.proowner<>'openetrm_security_owner'::regrole OR NOT f.prosecdef OR f.prokind<>'f' OR f.provariadic<>0 OR f.proargmodes IS NOT NULL OR f.prorettype<>'jsonb'::regtype OR f.proretset
   OR(SELECT lanname FROM pg_language WHERE oid=f.prolang)<>'plpgsql' OR f.proisstrict OR f.proleakproof OR f.proparallel<>'u' OR f.provolatile<>'v' OR f.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
   OR NOT has_function_privilege('openetrm_runtime',f.oid,'EXECUTE') OR EXISTS(SELECT 1 FROM aclexplode(coalesce(f.proacl,acldefault('f',f.proowner)))x
    WHERE x.grantor<>f.proowner OR x.is_grantable OR x.privilege_type<>'EXECUTE' OR x.grantee NOT IN(f.proowner,'openetrm_runtime'::regrole))
