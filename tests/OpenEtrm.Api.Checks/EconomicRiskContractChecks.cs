@@ -10,6 +10,7 @@ internal static class EconomicRiskContractChecks
 {
     internal static void Run()
     {
+        EconomicOwnerDescriptionChecks.Run();
         var context=new FuturesReadRequest(Guid.NewGuid(),TradingBlotter.Convention,"retained",Guid.NewGuid());
         var pricing=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,SwapStore.Convention,
             RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
@@ -52,6 +53,8 @@ internal static class EconomicRiskContractChecks
         var proof=new PreparedLifecyclePortfolio(projection,JsonSerializer.SerializeToElement(new{openingAt="2026-01-01T00:00:00Z",closeAt="2026-01-02T00:00:00Z"}),[],empty,
             [JsonSerializer.SerializeToElement(new{owner="synthetic",revision=2})],[],[]);
         var retained=RiskJobs.EconomicFrame(proof);
+        if(!ReferenceEquals(LifecycleEconomicOwners.Attach(proof,[]),proof))
+            throw new Exception("An empty future-owner description set changed an existing retained economic receipt.");
         if(retained["inputFinals"] is not System.Text.Json.Nodes.JsonArray {Count:0})
             throw new Exception("Economic worker evidence must explicitly retain an empty final-input scope for an all-cash portfolio.");
         RiskJobs.RequireEconomicFrame(retained,proof);RiskJobs.RequireEconomicFrame(null,null);

@@ -187,11 +187,12 @@ public sealed partial class PortfolioRiskPreview
             LifecycleDeterministicRiskReport deterministic=>deterministic.NoShockTimeCarry,
             _=>throw new MarketDataException("risk_economic_policy","The selected method did not produce a qualified economic report.")};
         var markets=prepared.Portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
+        var descriptions=LifecycleEconomicOwners.Describe(prepared.Portfolio.Positions,[..carry.Select(v=>v.Owner)],economic.AdditionalOwners);
         var holdings=carry.Select(value=>
         {
-            var original=prepared.Portfolio.Positions.FirstOrDefault(p=>p.Owner==value.Owner.Owner&&p.BindingId==value.Owner.BindingId);
+            var description=descriptions[value.Owner];
             var book=prepared.Books.Single(b=>b.Id("id")==value.Owner.BookId);
-            return new{value.Owner,reference=original?.TradeReference??"Owned holding",instrument=original?.InstrumentReference??"",
+            return new{value.Owner,reference=description.Reference,instrument=description.Instrument,
                 book=book.Text("name"),currency=Currency(markets,value.Currency),currencyReference=value.Currency,
                 openingValue=value.OpeningValue.ToExactString(),residualValue=value.ResidualValue.ToExactString(),
                 periodCash=value.PeriodCash.ToExactString(),economicPnl=value.EconomicPnl.ToExactString()};

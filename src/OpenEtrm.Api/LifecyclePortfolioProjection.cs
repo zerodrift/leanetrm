@@ -33,6 +33,7 @@ internal sealed record PreparedLifecyclePortfolio(PortfolioEconomicProjectionReq
     ImmutableArray<PreparedLifecycleProjection> Projections,PortfolioValuation.Prepared HistoryPortfolio,
     ImmutableArray<JsonElement> ProductEvidence,ImmutableArray<FuturesOptionCalibrationReceipt> CalibrationReceipts,ImmutableArray<JsonElement> FinalEvidence)
 {
+    internal ImmutableArray<LifecycleEconomicOwnerDescription> AdditionalOwners{get;init;}=[];
     internal ImmutableArray<QuoteFactor> Factors=>LifecycleEconomicRisk.Factors(Projections);
 }
 
