@@ -14,8 +14,11 @@ internal static class GasFuturesDeliveryChecks
             throw new Exception("Physical gas action checks require an owned disposable PostgreSQL cluster.");
         var login=new NpgsqlConnectionStringBuilder{Host=host,Port=55439,Database="postgres",Username="preview_runtime",Timezone="UTC",Pooling=false};
         await using var database=new PreviewDatabase(manifest,new NpgsqlConnectionStringBuilder(login.ConnectionString){Username="preview_authenticator"},login);
-        var handler=new GasFuturesDeliveryActions(database);var position=fixture.Id("positionId");
+        var position=fixture.Id("positionId");
         var context=new LifecycleReadContext(fixture.Id("contextId"),fixture.Instant("at"),new(2026,11,6),Guid.NewGuid());
+        var frame=new InputFrame(context.SnapshotId!.Value,"Synthetic physical source",context.AsOf,context.BusinessDate,[],
+            System.Collections.Immutable.ImmutableDictionary<string,System.Collections.Immutable.ImmutableArray<Guid>>.Empty);
+        var handler=new LifecycleOperations(database,id=>id==frame.Id?frame:throw new Exception("A physical action requested another host source."));
         var selection=new GasFuturesPerformanceSelection(position,"synthetic_managed_delivery",5,"0.25",fixture.Instant("performedAt"),
             fixture.Id("evidenceId"),fixture.Instant("performedAt"),[]);
         var request=new LifecycleActionRequest(Guid.NewGuid(),context,new(GasFuturesDeliveryActions.Handler,position,position),"gas.futures.delivery",

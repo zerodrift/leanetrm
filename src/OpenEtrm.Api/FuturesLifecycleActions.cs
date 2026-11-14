@@ -56,7 +56,7 @@ internal sealed class FuturesLifecycleActions(PreviewDatabase database,Action<Li
     public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,LifecycleDiscoveryAccess access,CancellationToken ct)
     {
         var rows=await PreviewDatabase.Rows(connection,"""
-         SELECT row_to_json(v)::text FROM(SELECT a.trade_id,a.binding_id,o.id,o.at,r.revision,r.book_id,b.name book_name,
+         SELECT row_to_json(v)::text FROM(SELECT a.trade_id,a.binding_id,a.policy_id,a.policy_revision,o.id,o.at,r.revision,r.book_id,b.name book_name,
          tr.reference_number trade_reference,fp.name product_name,
          (settlement_data.read_futures_margin_state(a.catalog_id,a.trade_id,a.binding_id,$4,$2)->>'version')::integer AS margin_revision
          FROM settlement_data.futures_margin_adoptions a JOIN settlement_data.futures_margin_policy_occurrences o
@@ -74,6 +74,7 @@ internal sealed class FuturesLifecycleActions(PreviewDatabase database,Action<Li
             "futures.margin","Review scheduled margin",r.Id("id"),r.Instant("at"),null,false,"lifecycle_policy_required",int.Parse(r.Text("revision"),System.Globalization.CultureInfo.InvariantCulture),
             int.Parse(r.Text("margin_revision"),System.Globalization.CultureInfo.InvariantCulture))
         {
+            ScheduleSettings=new(int.Parse(r.Text("revision"),System.Globalization.CultureInfo.InvariantCulture),null,null,null,r.Id("policy_id"),int.Parse(r.Text("policy_revision"),System.Globalization.CultureInfo.InvariantCulture)),
             Subject=new(TradingReference.Trade(r),r.Text("product_name"),r.Id("book_id"),r.Text("book_name")),
             Selection=JsonSerializer.SerializeToElement(new FuturesMarginActionSelection(int.Parse(r.Text("revision"),System.Globalization.CultureInfo.InvariantCulture),
                 int.Parse(r.Text("margin_revision"),System.Globalization.CultureInfo.InvariantCulture),r.Id("id"),[]),LifecycleNative.Json),RequiredInputs=["policyId","correctionDue"]

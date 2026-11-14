@@ -57,7 +57,7 @@ internal sealed class OptionLifecycleActions(PreviewDatabase database,Action<Lif
     {
         var rows=await PreviewDatabase.Rows(connection,"""
             SELECT row_to_json(v)::text FROM(
-             SELECT r.trade_id,r.option_instrument_id,r.lots,r.execution_at,s.expiry_at,s.instruction_cutoff_at,p.contrary_instructions_allowed,
+             SELECT r.trade_id,r.revision,r.option_instrument_id,r.lots,r.execution_at,s.expiry_at,s.instruction_cutoff_at,p.contrary_instructions_allowed,
               tr.reference_number trade_reference,r.book_id,b.name book_name,p.name product_name,
               clock_timestamp()>s.instruction_cutoff_at AS instructions_closed,
               abs(r.lots)-coalesce((SELECT sum(e.lots) FROM trading.futures_option_events e WHERE(e.catalog_id,e.trade_id)=(r.catalog_id,r.trade_id)
@@ -91,6 +91,7 @@ internal sealed class OptionLifecycleActions(PreviewDatabase database,Action<Lif
                 action=="option.expiry"?row.Instant("expiry_at"):row.Instant("execution_at"),action=="option.expiry"?null:end,
                 reason is null,reason,1,version)
             {
+                ScheduleSettings=action=="option.expiry"&&configured is {} schedule?new(int.Parse(row.Text("revision"),System.Globalization.CultureInfo.InvariantCulture),int.Parse(schedule.Text("revision"),System.Globalization.CultureInfo.InvariantCulture),null,null,schedule.Id("margin_policy_id"),int.Parse(schedule.Text("margin_policy_revision"),System.Globalization.CultureInfo.InvariantCulture)):null,
                 Subject=new(TradingReference.Trade(row),row.Text("product_name"),row.Id("book_id"),row.Text("book_name")),
                 PolicyId=configured?.Id("policy_id"),PolicyRevision=configured is {} policy?int.Parse(policy.Text("policy_revision"),System.Globalization.CultureInfo.InvariantCulture):null,
                 Selection=configured is {} profile?JsonSerializer.SerializeToElement(new OptionActionSelection(action=="option.expiry"?subject.ScopeId:Guid.Empty,null,version,

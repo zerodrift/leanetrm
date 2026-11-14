@@ -100,8 +100,8 @@ internal static class AssistantOperations
         Add("ppa","ReadTrades|ReadMarketData",true,"!ppa/frames ppa/catalog ppa/directory ppa/editor ppa/legs ppa/validate ppa/preview ppa/inspect ppa/break-even ppa/status settlement/payment-lineages/plan settlement/ppa/preview");
         Add("ppa","BookTrade|ReadTrades|ReadMarketData",true,"","ppa/book");
         Add("ppa","AmendTrade|ReadTrades|ReadMarketData",true,"","ppa/amend ppa/terminate");
-        Add("jobs","ReadJobs",true,"!jobs !jobs/pilot-close/catalog !jobs/pilot-close/definition !jobs/pilot-close/results");
-        Add("jobs","RunJobs",true,"","jobs/create jobs/close-book-risk/create jobs/pilot-close/create");
+        Add("jobs","ReadJobs",true,"!jobs !jobs/pilot-close/catalog !jobs/pilot-close/definition !jobs/pilot-close/results !jobs/lifecycle/{id:guid}");
+        Add("jobs","RunJobs",true,"","jobs/create jobs/close-book-risk/create jobs/pilot-close/create jobs/lifecycle/create");
         // Own-job control and infrastructure operations also enforce ownership, exact versions and their distinct
         // capabilities inside the ordinary handlers; proposing one never confers any of those rights.
         Add("jobs","ReadJobs",true,"","jobs/control jobs/update jobs/collection/update infrastructure/availability infrastructure/resolve");
@@ -120,6 +120,7 @@ internal static class AssistantOperations
         ImmutableHashSet<string> shared=page switch
         {
             "physical_operations"=>["physical/operations/directory",..Catalog.Where(o=>o.Path.StartsWith("gas/operations/",StringComparison.Ordinal)||o.Path.StartsWith("gas/billing/",StringComparison.Ordinal)||o.Path.StartsWith("gas/quantities/",StringComparison.Ordinal)||o.Path.StartsWith("crude/operations/",StringComparison.Ordinal)).Select(o=>o.Path)],
+            "lifecycle"=>["jobs/lifecycle/create","jobs/lifecycle/{id:guid}"],
             "blotter_new_trade"=>["futures/catalog","swaps/catalog"],
             "blotter_new_future"=>["futures/catalog","futures/book"],
             "blotter_new_swap"=>["swaps/catalog","swaps/quantity-schedule","swaps/scheduled-periods","swaps/contract-observation-preview","swaps/observation-options","swaps/book"],
@@ -188,6 +189,9 @@ internal static class AssistantOperations
                 };
                 var gas=new JsonObject();foreach(var action in GasOwnedOperations.Commands)
                     gas[action.Key]=Describe(GasOwnedOperations.SelectionTypes[action.Value],path.Add(type));
+                variants[GasFuturesDeliveryActions.Handler]=new JsonObject{["type"]="object",["discriminator"]="action",["contracts"]=new JsonObject{
+                    ["gas.futures.delivery"]=Describe(typeof(GasFuturesPerformanceSelection),path.Add(type)),
+                    ["gas.cash.record_payment"]=Describe(typeof(GasFuturesPaymentSelection),path.Add(type))}};
                 variants[GasOwnedOperations.Handler]=new JsonObject{["type"]="object",["discriminator"]="action",["contracts"]=gas};
                 properties["selection"]=new JsonObject{["type"]="object",["discriminator"]="target.handler",["contracts"]=variants};
             }else properties[JsonNamingPolicy.CamelCase.ConvertName(property.Name)]=Describe(property.PropertyType,path.Add(type));

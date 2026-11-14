@@ -199,6 +199,7 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
             offers.Add(new LifecycleActionOffer(new(Kind,r.Id("trade_id"),r.Id("binding_id")),action,action=="swap.determine"?"Determine final payment":"Record observed payment",profile?.Id("occurrence_id")??r.Id("binding_id"),
                 context.AsOf,null,reason is null,reason,revision,version)
             {
+                ScheduleSettings=action=="swap.determine"&&profile is {} schedule?new(revision,null,schedule.Id("id"),int.Parse(schedule.Text("revision"),System.Globalization.CultureInfo.InvariantCulture),null,null):null,
                 Subject=new(TradingReference.Trade(r),"Financial swap",r.Id("book_id"),r.Text("book_name")),
                 PolicyId=profile?.Id("policy_id"),PolicyRevision=profile is {} policy?int.Parse(policy.Text("policy_revision"),System.Globalization.CultureInfo.InvariantCulture):null,
                 Selection=selected,RequiredInputs=action=="swap.determine"?["correctionDueAt"]:["determinationId","amount","effectiveAt","reference"],InputChoices=choices

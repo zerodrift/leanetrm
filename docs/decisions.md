@@ -4871,3 +4871,14 @@ definitions are reusable currency/due economics, while ownership, quantity,
 business effectiveness and recorded payment remain membership facts. Prior-fact
 acknowledgement does not reinstate an older basis. Whole-portfolio, worker,
 physical-delivery and user/agent/browser workflows remain unfinished.
+
+
+D394’s scheduled execution choice retains one source-derived occurrence at one
+recorded close, exact native trade/product and action-policy versions, and fresh
+certified knowledge at execution. It invokes the same managed Lifecycle registry
+for manual notice, review or automatic execution. Observed facts remain separate
+user input. Native task-scoped authority, shared command and terminal result
+seals complement transaction-owned original-deadline admission. The first
+executable baseline is bounded one-off tasks; recurring calendar enrollment is
+not implied. See [the qualified task contract](automation.md#source-derived-lifecycle-tasks)
+for the actual checked cases and remaining qualification gates.

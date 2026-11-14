@@ -78,9 +78,13 @@ sealed class Scheduler(JobWorkerStore store, int pollSeconds, int leaseSeconds, 
         if (controller is not null) { await controller.Tick(ct); return; }
         var claim = await store.Claim(id, leaseSeconds, ct);
         if (claim is null) return;
-        if(claim.Operation is PilotCloseJobs.Operation or CloseBookRiskJobs.Operation)
+        if(claim.Operation is PilotCloseJobs.Operation or CloseBookRiskJobs.Operation or LifecycleScheduleJobs.Operation)
         {
             if(pilot is null)throw new AutomationException("pilot_configuration","This worker has no qualified pilot runtime and market manifest.");
+            if(claim.Operation==LifecycleScheduleJobs.Operation)
+            {
+                await Lifecycle(claim,ct);return;
+            }
             if(claim.Operation==CloseBookRiskJobs.Operation)
             {
                 await ExistingClose(claim,ct);
@@ -110,6 +114,22 @@ sealed class Scheduler(JobWorkerStore store, int pollSeconds, int leaseSeconds, 
         // restricted database identity and durable admission/publication path.
         await store.Finish(claim, true, null, ct);
         logger?.LogInformation("Readiness job completed: {RunId}", claim.Id);
+    }
+
+    private async Task Lifecycle(JobClaim claim,CancellationToken ct)
+    {
+        Exception? failure=null;
+        try{await pilot!.Process(claim,ct);}
+        catch(Exception error)when(error is NpgsqlException or AutomationException or MarketDataException or OpenEtrm.Shared.Temporal.TemporalException or PreviewDeniedException or OperationCanceledException){failure=error;}
+        // A lost acknowledgement never turns a committed financial occurrence
+        // into a guessed failure. Reconcile its exact native terminal receipt.
+        if(await store.LifecycleCompleted(claim,ct))
+        {
+            logger?.LogInformation("Lifecycle occurrence completed: {RunId}",claim.Id);return;
+        }
+        if(failure is not null&&LifecycleScheduleJobs.FailureCode(failure) is {} code)await store.Finish(claim,false,code,ct);
+        else if(failure is not null)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        else throw new AutomationException("job_protocol","The lifecycle occurrence has no committed complete outcome.");
     }
 
     private async Task ExistingClose(JobClaim claim,CancellationToken ct)

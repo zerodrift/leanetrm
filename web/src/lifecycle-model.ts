@@ -3,8 +3,10 @@ import type {RequestCommand} from './pending-command.js';
 export type LifecycleContext={contextId:string;asOf:string;businessDate:string;snapshotId?:string|null};
 export type LifecycleTarget={handler:string;scopeId:string;bindingId:string};
 export type LifecycleChoice={value:string;label:string};
+export type LifecycleScheduleSettings={tradeRevision:number;optionProfileRevision:number|null;swapProfileId:string|null;swapProfileRevision:number|null;marginPolicyId:string|null;marginPolicyRevision:number|null};
+export type LifecycleSchedulingChoices={operation:string;knowledge:LifecycleChoice[];settings:LifecycleChoice[];inputs:LifecycleChoice[];timeZone:string;misfire:string;overlap:string;maximumTimeoutSeconds:number;maximumAttempts:number;maximumNameLength:number};
 export type LifecycleOffer={target:LifecycleTarget;action:string;label:string;occurrenceId:string;at:string;before:string|null;eligible:boolean;reason:string|null;revision:number;stateVersion:number;
- subject?:{reference:string;product:string;bookId:string;book:string}|null;policyId?:string|null;policyRevision?:number|null;selection:Record<string,unknown>|null;requiredInputs:string[];availableQuantity?:string|null;inputChoices?:Record<string,LifecycleChoice[]>};
+ scheduleSettings?:LifecycleScheduleSettings|null;subject?:{reference:string;product:string;bookId:string;book:string}|null;policyId?:string|null;policyRevision?:number|null;selection:Record<string,unknown>|null;requiredInputs:string[];availableQuantity?:string|null;inputChoices?:Record<string,LifecycleChoice[]>};
 export type LifecycleRequest={operationId:string;context:LifecycleContext;target:LifecycleTarget;action:string;policyId:string;policyRevision:number;automatic:boolean;previewHash:string;selection:Record<string,unknown>};
 export type LifecycleDraft={policyId:string;policyRevision:number;evidenceId?:string;lots?:string;correctionDue?:{occurrenceId:string;dueAt:string}[];correctionDueAt?:string|null;determinationId?:string;amount?:string|null;effectiveAt?:string;reference?:string;reversesId?:string|null;allocations?:{determinationId:string;amount:string}[]};
 export type LifecyclePolicy={id:string;revision:number;action:string;mode:string;from_at:string;until_at:string};
@@ -16,7 +18,7 @@ export type LifecycleDeliveryAccount=Record<string,unknown>&{id:string;code:stri
 export type LifecycleFutureSetup={trade_id:string;binding_id:string;revision:number;book_id:string;book_name:string;trade_reference:number;lots:string;execution_price:string;execution_at:string;definition_revision_id:string;contract_id:string;mark_curve:string;reference_catalog_id:string;reference_revision_id:string;expiry_at:string;series_code:string;product_name:string;currency_code:string;adopted_policy_id:string|null;adopted_policy_revision:number|null;
  settlement_method:string;deliveryAccounts:LifecycleDeliveryAccount[];deliveryProfiles:LifecycleDeliveryProfile[];
  sources:{curve_code:string;curve_name:string;reference_catalog_id:string;reference_revision_id:string;quote_code:string;source_code:string;currency_code:string}[]};
-export type LifecycleDiscovery={context:LifecycleContext;actions:LifecycleOffer[];policies:LifecyclePolicy[];optionProfiles:Record<string,unknown>[];swapProfiles:Record<string,unknown>[];swapNetProfiles?:Record<string,unknown>[];marginPolicies:Record<string,unknown>[];
+export type LifecycleDiscovery={recordedCloseId?:string|null;scheduling?:LifecycleSchedulingChoices;context:LifecycleContext;actions:LifecycleOffer[];policies:LifecyclePolicy[];optionProfiles:Record<string,unknown>[];swapProfiles:Record<string,unknown>[];swapNetProfiles?:Record<string,unknown>[];marginPolicies:Record<string,unknown>[];
  choices:{actions:{code:string;automatic:boolean;configurationPermission:string;executionPermission:string}[];modes:string[];policyImplementation:string;swapRounding:string[];swapDue:string[];swapRecognition:string[];swapCorrection:string[];swapNet?:string[];
  futures?:{policyImplementation:string;opening:string[];ties:string[];roundingStages:string[];roundingScopes:string[];phases:string[];adoption:string[];delivery?:{implementations:string[];carrying:string[];principalScopes:string[];correctionDuePolicies:string[]}}};
  optionSources?:LifecycleOptionSource[];swapOccurrences?:LifecycleSwapOccurrence[];futuresSetup?:LifecycleFutureSetup[];deliveryProfiles?:LifecycleDeliveryProfile[];deliveryAccounts?:LifecycleDeliveryAccount[]};
@@ -60,10 +62,14 @@ export function lifecycleRequest(context:LifecycleContext,offer:LifecycleOffer,d
  if(selection.payment&&typeof selection.payment==='object'&&Object.hasOwn(draft,'reversesId'))(selection.payment as Record<string,unknown>).reversesId=draft.reversesId;
  return {operationId,context:structuredClone(context),target:structuredClone(offer.target),action:offer.action,policyId:draft.policyId,policyRevision:draft.policyRevision,automatic:false,previewHash:'0'.repeat(64),selection};
 }
-export const lifecycleWritePaths=['lifecycle/execute','lifecycle/policies/save','lifecycle/options/configure','lifecycle/swaps/configure','lifecycle/swaps/net/configure','lifecycle/futures/policies/save','lifecycle/futures/adopt','lifecycle/futures/delivery/configure','lifecycle/gas/configure'] as const;
+export const lifecycleWritePaths=['jobs/lifecycle/create','lifecycle/execute','lifecycle/policies/save','lifecycle/options/configure','lifecycle/swaps/configure','lifecycle/swaps/net/configure','lifecycle/futures/policies/save','lifecycle/futures/adopt','lifecycle/futures/delivery/configure','lifecycle/gas/configure'] as const;
+export function lifecycleOperationId(path:string,body:Record<string,unknown>):string|undefined{
+ const schedule=body.schedule;const value=path==='jobs/lifecycle/create'?schedule&&typeof schedule==='object'&&!Array.isArray(schedule)?(schedule as Record<string,unknown>).requestId:undefined:body.operationId;
+ return typeof value==='string'&&value?value:undefined;
+}
 export function restoreLifecycleRequest(value:unknown):RequestCommand|undefined{
  if(!value||typeof value!=='object'||Array.isArray(value))return;
  const saved=value as RequestCommand;
- if(!lifecycleWritePaths.includes(saved.path as typeof lifecycleWritePaths[number])||typeof saved.operationId!=='string'||!saved.operationId||!saved.body||typeof saved.body!=='object'||Array.isArray(saved.body)||saved.body.operationId!==saved.operationId)return;
+ if(!lifecycleWritePaths.includes(saved.path as typeof lifecycleWritePaths[number])||typeof saved.operationId!=='string'||!saved.operationId||!saved.body||typeof saved.body!=='object'||Array.isArray(saved.body)||lifecycleOperationId(saved.path,saved.body)!==saved.operationId)return;
  return {path:saved.path,operationId:saved.operationId,body:structuredClone(saved.body),...(saved.uncertain===true?{uncertain:true}:{}),...(typeof saved.label==='string'?{label:saved.label}:{})};
 }

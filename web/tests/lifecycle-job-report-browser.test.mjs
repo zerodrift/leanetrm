@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {browserAvailable,browserTestTimeout,withBrowserPage} from './browser-page.mjs';
+const report={job:{id:'job',name:'Synthetic margin task',state:'completed'},close:{id:'close',name:'Synthetic close',at:'2026-11-02T15:00:00Z',businessDate:'2026-11-02'},definition:{action:'futures.margin',target:{handler:'futures',scopeId:'trade',bindingId:'binding'},policyId:'policy',policyRevision:3,settings:{tradeRevision:2,marginPolicyId:'margin',marginPolicyRevision:4}},results:[{runId:'run',sourceContextId:'context',knownAt:'2026-11-03T12:00:00Z',mode:'review',recordedAt:'2026-11-03T12:00:01Z',proposal:{request:{target:{handler:'futures',scopeId:'trade',bindingId:'binding'}},review:{details:{amount:'10'}}},outcome:null}]};
+const settle=()=>new Promise(r=>setTimeout(r,40));
+test('lifecycle task details show the retained review and source while execution stays in the shared Lifecycle workspace',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<section id="host"></section>',async evaluate=>{
+ await evaluate(`(async()=>{const {setupLifecycleJobReport}=await import('/lifecycle-job-report.js');window.writes=[];window.opened=0;window.identity='actor';window.view=setupLifecycleJobReport(document.querySelector('#host'),{api:async(path,body)=>{writes.push({path,body});return ${JSON.stringify(report)};},identity:()=>identity,instant:value=>'local '+value,busy:()=>false,act:async work=>work(),openLifecycle:async()=>{opened++;}});await view.load('job');})()`);await settle();
+ const text=await evaluate("document.querySelector('#host').textContent");assert.match(text,/Synthetic margin task/);assert.match(text,/Review required/);assert.match(text,/known as of.*local 2026-11-03T12:00:00Z/i);
+ await evaluate("Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Open Lifecycle').click()");await settle();assert.equal(await evaluate('opened'),1);assert.deepEqual((await evaluate('writes')).map(w=>w.path),['jobs/lifecycle/job']);
+}));
+test('late task results cannot cross an actor switch',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<section id="host"></section>',async evaluate=>{
+ await evaluate(`(async()=>{const {setupLifecycleJobReport}=await import('/lifecycle-job-report.js');window.identity='first';window.view=setupLifecycleJobReport(document.querySelector('#host'),{api:()=>new Promise(resolve=>window.release=()=>resolve(${JSON.stringify(report)})),identity:()=>identity,instant:v=>v,busy:()=>false,act:async work=>work()});window.reading=view.load('job');})()`);await settle();
+ await evaluate("identity='second';view.reset();release()");await evaluate('reading');assert.equal(await evaluate("document.querySelector('#host').textContent"),'');
+}));

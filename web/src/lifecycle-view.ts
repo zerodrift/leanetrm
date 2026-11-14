@@ -2,14 +2,15 @@ import {renderDataGrid,emptyGridLayout,type GridHandle,type GridLayout} from './
 import {actorTransport,PendingCommand,type RequestCommand} from './pending-command.js';
 import {askInPanel} from './side-panel.js';
 import {zonedInput} from './user-time.js';
+import {mountLifecycleSchedule} from './lifecycle-scheduling.js';
 import {mountLifecycleSettings} from './lifecycle-settings.js';
-import {lifecycleKey,lifecycleRows,lifecycleReason,lifecycleRequest,restoreLifecycleRequest,type LifecycleDiscovery,type LifecycleOffer,type LifecycleDraft,type LifecycleRequest} from './lifecycle-model.js';
+import {lifecycleKey,lifecycleRows,lifecycleReason,lifecycleRequest,restoreLifecycleRequest,lifecycleOperationId,type LifecycleDiscovery,type LifecycleOffer,type LifecycleDraft,type LifecycleRequest} from './lifecycle-model.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Review={hash:string;offer:LifecycleOffer;details:Record<string,unknown>};
 const words=(value:string)=>value.replaceAll('_',' ').replaceAll('.',' · ').replace(/([a-z])([A-Z])/g,'$1 $2');
 const title=(value:string)=>{const text=words(value);return text.charAt(0).toUpperCase()+text.slice(1);};
-const knownRejection=(code:string|undefined)=>!!code&&/^(lifecycle_|option_|futures_|swap_|gas_|settlement_|historical_|access_denied$|request_denied$)/.test(code);
+const knownRejection=(code:string|undefined)=>!!code&&/^(lifecycle_|option_|futures_|swap_|gas_|settlement_|historical_|job_|access_denied$|request_denied$)/.test(code);
 const element=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
 
 export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;context:()=>Record<string,unknown>;historical:()=>boolean;zone:()=>string;permission:(name:string)=>boolean;changed:()=>void}){
@@ -25,7 +26,7 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
  let identity='',generation=0,draftVersion=0,panelVersion=0,reading=false,saving=false,edited=false,discovery:LifecycleDiscovery|undefined,selected:LifecycleOffer|undefined,shown:LifecycleOffer[]=[],reviewed:{request:LifecycleRequest;review:Review}|undefined;
  let grid:GridHandle|undefined,layout:GridLayout=emptyGridLayout(),filters:{query:string;columns:(string|null)[]}|undefined,asking:AbortController|undefined;
  let timeControls:ReturnType<typeof zonedInput>[]=[];
- let productSettings:ReturnType<typeof mountLifecycleSettings>|undefined;
+ let productSettings:{edited:()=>boolean;refresh:()=>void}|undefined;
  const busy=()=>o.busy()||reading||saving;
  const instant=(at:string)=>new Intl.DateTimeFormat(undefined,{timeZone:o.zone(),dateStyle:'medium',timeStyle:'short'}).format(new Date(at));
  function transport(){const actor=o.identity();let value=transports.get(actor);if(!value)transports.set(actor,value=actorTransport<RequestCommand>(()=>'lifecycle-request:'+actor,()=>sessionStorage));return value;}
@@ -64,11 +65,11 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
    if(!current(epoch,actor))return;pending.clear();store();clearPanel();
    const accepted=outcome.acknowledgedRevision??outcome.acknowledgedVersion,head=outcome.currentRevision??outcome.currentVersion;
    message.textContent=outcome.semanticAcknowledgement===true||outcome.changed===false?
-    `Existing fact acknowledged${accepted!==undefined?' · revision '+accepted:''}${head!==undefined?' · current revision '+head+' retained':''}.`:'Lifecycle change recorded.';
+    `Existing fact acknowledged${accepted!==undefined?' · revision '+accepted:''}${head!==undefined?' · current revision '+head+' retained':''}.`:command.path==='jobs/lifecycle/create'?'Lifecycle task retained. Its outcome is available in Jobs.':'Lifecycle change recorded.';
    saving=false;await load(false);
   }catch(error){if(current(epoch,actor)){pending.failed((error as {code?:string}).code,wasUncertain);store();if(!pending.command)invalidate();message.textContent=String(error);}throw error;}finally{if(o.identity()===actor){saving=false;sync();}}
  }
- async function queue(path:string,body:Record<string,unknown>,label:string){restore();if(pending.command)throw Error('Reconcile the retained lifecycle request first.');pending.command={path,operationId:String(body.operationId),body:structuredClone(body),label};store();await send(pending.command);}
+ async function queue(path:string,body:Record<string,unknown>,label:string){restore();if(pending.command)throw Error('Reconcile the retained lifecycle request first.');pending.command={path,operationId:lifecycleOperationId(path,body)??(()=>{throw Error('Retain the exact request identity.');})(),body:structuredClone(body),label};store();await send(pending.command);}
  function showReview(review:Review,request:LifecycleRequest){panel.querySelector('[data-lifecycle-review]')?.remove();const section=element('section');section.dataset.lifecycleReview='';section.className='lifecycle-review';section.append(element('h3','Review '+(selected?.label??'action')));
   const list=element('dl');list.className='lifecycle-review-facts';
   const add=(label:string,value:unknown)=>{if(value===null||value===undefined||value===''||typeof value==='object')return;list.append(element('dt',label),element('dd',String(value)));};
@@ -98,6 +99,12 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
  }
  function showAction(offer:LifecycleOffer){clearPanel();selected=offer;panel.append(element('h2',`${offer.label} · ${offer.subject?.reference??'Holding'}`));panel.append(element('p',lifecycleReason(offer.reason)));
   if(!offer.selection){const setup=element('button','Configure lifecycle settings');setup.type='button';setup.onclick=()=>showProductSettings(offer);panel.append(setup);sync();return;}
+  if(offer.scheduleSettings&&discovery?.scheduling&&o.permission('RunJobs')&&canExecute()){
+   const schedule=element('button','Schedule this occurrence');schedule.type='button';schedule.className='secondary';schedule.dataset.lifecyclePermission='RunJobs';
+   schedule.onclick=()=>void o.act(async()=>{if(!await leave()||!discovery)return;clearPanel();selected=offer;const actor=o.identity(),epoch=generation,view=panelVersion;
+    productSettings=mountLifecycleSchedule(panel,discovery,offer,{api:o.api,act:o.act,zone:o.zone,current:()=>current(epoch,actor)&&view===panelVersion,changed:o.changed,
+     queue:async(path,body,label)=>{if(current(epoch,actor)&&view===panelVersion)await queue(path,body,label);}});sync();});panel.append(schedule);
+  }
   if(!canExecute()){panel.append(element('p','Your current permissions allow inspection of this action. Recording it requires the action’s execution permission.'));sync();return;}
   const form=element('form');form.className='lifecycle-form';form.dataset.lifecyclePermission=discovery!.choices.actions.find(a=>a.code===offer.action)!.executionPermission;const fields=element('div');fields.className='schedule-fields';form.append(fields);panel.append(form);
   const policies=(discovery?.policies??[]).filter(p=>p.action===offer.action);

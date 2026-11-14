@@ -92,6 +92,17 @@ internal static class LifecycleEndpoints
             var result=await database.WithIdentity(profile(session),"AmendTrade",(connection,ct)=>LifecycleFuturesSettings.Save(connection,database,body.Context,payload,false,()=>RequireSource(session,body.Context),ct),c.RequestAborted);
             return Results.Ok(result.Outcome);
         }));
+        api.MapGet("/jobs/lifecycle/{id:guid}",(HttpContext c,Guid id)=>locked(c,async session=>
+        {
+            var result=await database.WithIdentity(profile(session),"ReadTrades",(connection,ct)=>LifecycleScheduleJobs.Read(connection,database,id,ct),c.RequestAborted);
+            return Results.Ok(result.Outcome);
+        }));
+        api.MapPost("/jobs/lifecycle/create",(HttpContext c,LifecycleScheduleCreate body)=>locked(c,async session=>
+        {
+            if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Schedule lifecycle work in the current workspace.");
+            var result=await database.WithIdentity(profile(session),"RunJobs",(connection,ct)=>LifecycleScheduleJobs.Create(connection,database,body,ct),c.RequestAborted);
+            return Results.Ok(result.Outcome);
+        }));
         LifecyclePhysicalSettings.Map(api,database,locked,profile,RequireSource);
     }
 }

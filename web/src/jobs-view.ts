@@ -2,6 +2,7 @@ import {renderRegularTable} from './regular-table.js';
 import {zonedInput} from './user-time.js';
 import {JobRequest} from './job-requests.js';
 import {setupPilotClose} from './pilot-close-view.js';
+import {setupLifecycleJobReport} from './lifecycle-job-report.js';
 import {setupPilotCloseReport} from './pilot-close-report.js';
 import {findJob,directoryPage} from './job-target.js';
 const closeCapturePaths=['market/closes/register','market/closes/capture-live'];
@@ -14,7 +15,7 @@ type Node={clusterId:string;id:string;version:number;name:string;role:string;sta
 type CollectionJob={id:string;generation:string;name:string;provider:string;operation:string;serviceName:string;state:string;enabled:boolean;scheduleEnabled:boolean;cron:string;scheduleZone:string;cadence:string;fromDay:number;throughDay:number;sourceCount:number;canEdit:boolean;editReason:string|null;lastAttempt:{state:string;startedAt:string;finishedAt:string|null;errorCode:string|null}|null};
 type CollectionDirectory={page:number;total:number;jobs:CollectionJob[];settings:{minimumDayOffset:number;maximumDayOffset:number;maximumNameLength:number}};
 type Directory={page:number;total:number;jobs:Job[];collectionJobs:CollectionDirectory;profiles:{id:string;version:number;name:string}[];canCreate:boolean;manageAll:boolean;observedAt:string;infrastructure:{state:string;observedAt:string|null;nodes:Node[];commands:{id:string;nodeId:string;availability:string;state:string;errorCode:string|null;createdAt:string;canResolve:boolean}[]}};
-export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;instant:(at:string)=>string;zone:()=>string;contextReady:()=>boolean}){
+export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;identity:()=>string;instant:(at:string)=>string;zone:()=>string;contextReady:()=>boolean;openLifecycle?:()=>void}){
   const get=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
   const field=(id:string)=>get<HTMLInputElement|HTMLSelectElement>(id);
   const dueInput=zonedInput(get<HTMLInputElement>('job-due'),options.zone,options.api),expiryInput=zonedInput(get<HTMLInputElement>('job-expires'),options.zone,options.api);
@@ -23,12 +24,14 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
   let selected:Job|undefined,selectedCollection:CollectionJob|undefined,generation=0;
   const pilotClose=setupPilotClose({...options,pending:()=>!!pending.command,mutate});
   const pilotReport=setupPilotCloseReport(options);
+  const lifecycleHost=document.createElement('section');lifecycleHost.className='card';lifecycleHost.hidden=true;get('job-runs').after(lifecycleHost);
+  const lifecycleReport=setupLifecycleJobReport(lifecycleHost,options);
   const editorStatus=document.createElement('p');editorStatus.id='job-edit-status';editorStatus.className='field-help';editorStatus.setAttribute('role','status');get('job-editor-title').after(editorStatus);
   const key=()=>`openetrm.jobs.request.${options.identity()}`;
   function save(){try{if(pending.command)sessionStorage.setItem(key(),JSON.stringify(pending.command));else sessionStorage.removeItem(key());}catch{/* The in-memory request is retained. */}get('job-pending').hidden=!pending.command;}
   function closeEditor(){selected=undefined;get<HTMLFormElement>('job-create').reset();for(const option of get('job-operation').querySelectorAll('[data-retained]'))option.remove();dueInput.clear();expiryInput.clear();editorStatus.textContent='';get('job-editor-title').textContent='New job';get('job-submit').textContent='Create job';get('job-submit').hidden=false;get('job-cancel-edit').hidden=true;get('job-create').hidden=!directory?.canCreate;get<HTMLDetailsElement>('job-editor').open=false;get('job-editor').hidden=!directory?.canCreate;fields();sync();}
   function closeCollectionEditor(){selectedCollection=undefined;get<HTMLFormElement>('collection-job-form').reset();get<HTMLDetailsElement>('collection-job-editor').open=false;get('collection-job-editor').hidden=true;get('collection-job-status').textContent='';get('collection-job-cadence').textContent='';sync();}
-  function clear(){directory=undefined;closeEditor();closeCollectionEditor();pilotReport.reset();for(const id of ['jobs-table','job-runs','jobs-nodes','jobs-node-commands','collection-jobs-table'])get(id).replaceChildren();for(const id of ['jobs-page-count','collection-jobs-page-count'])get(id).textContent='';get<HTMLButtonElement>('jobs-previous').disabled=true;get<HTMLButtonElement>('jobs-next').disabled=true;get('jobs-infrastructure').textContent='Status unavailable.';}
+  function clear(){directory=undefined;closeEditor();closeCollectionEditor();pilotReport.reset();lifecycleReport.reset();for(const id of ['jobs-table','job-runs','jobs-nodes','jobs-node-commands','collection-jobs-table'])get(id).replaceChildren();for(const id of ['jobs-page-count','collection-jobs-page-count'])get(id).textContent='';get<HTMLButtonElement>('jobs-previous').disabled=true;get<HTMLButtonElement>('jobs-next').disabled=true;get('jobs-infrastructure').textContent='Status unavailable.';}
   // A click opens a listed job's details while nothing else runs.
   function openEditor(job:Job){if(!options.busy())showJob(job);}
   function showJob(job:Job){
@@ -89,10 +92,11 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
       return[n.name,n.role,n.stale?'Stale observation':n.state,n.availability,String(n.cpuNano/1e9),String(n.memoryBytes/1048576),options.instant(n.observedAt),actions];
     }),[4,5],options.busy);
     renderRegularTable(get('jobs-node-commands'),'jobs-node-commands',options.identity(),['Node','Requested availability','Outcome','Details','Requested','Reconciliation'],(directory.infrastructure.commands??[]).map(c=>{const node=directory!.infrastructure.nodes.find(n=>n.id===c.nodeId);const action=document.createElement('div');if(c.canResolve&&node&&!node.stale){const b=document.createElement('button');b.type='button';b.textContent='Keep observed state and reconcile';b.onclick=()=>void options.act(()=>mutate('infrastructure/resolve',{id:c.id,expectedVersion:node.version}));action.append(b);}return[node?.name??'Unavailable node',c.availability,c.state,c.errorCode??'',options.instant(c.createdAt),action];}),[],options.busy);
-    const labels:Record<string,string>={worker_check:'Worker readiness check',swarm_job:'Approved container job'};
+    const labels:Record<string,string>={worker_check:'Worker readiness check',swarm_job:'Approved container job',lifecycle_action_v1:'Lifecycle action'};
     renderRegularTable(get('jobs-table'),'jobs',options.identity(),['Job','Owner','Operation','State','Next due','Expires','Actions'],directory.jobs.map(j=>{
       const actions=document.createElement('div');
       const edit=document.createElement('button');edit.type='button';edit.className='secondary';edit.textContent=j.canEdit?'Edit schedule':'View details';edit.setAttribute('aria-label',`${edit.textContent} for ${j.name}`);edit.onclick=()=>openEditor(j);actions.append(edit);
+      if(j.operation==='lifecycle_action_v1'){const detail=document.createElement('button');detail.type='button';detail.className='secondary';detail.textContent='View lifecycle outcome';detail.onclick=()=>void options.act(()=>lifecycleReport.load(j.id));actions.append(detail);}
       if(j.pilotReport?.state==='report_published'){const report=document.createElement('button');report.type='button';report.className='secondary';report.textContent='View close report';report.setAttribute('aria-label',`View close report for ${j.name}`);report.onclick=()=>void options.act(()=>pilotReport.load(j.pilotReport!.runId));actions.append(report);}
       for(const a of j.actions){const labels:Record<string,string>={pause:'Pause',resume:'Resume',cancel:'Cancel',run_again:'Run again'};if(labels[a])actions.append(button(labels[a],j,a));}
       if(!j.canEdit&&j.editReason){const reason=document.createElement('p');reason.className='field-help';reason.textContent=j.editReason;actions.append(reason);}
@@ -156,5 +160,5 @@ export function setupJobs(options:{api:<T>(path:string,body?:unknown)=>Promise<T
   async function locateJob(id:string){
     return (await findJob(id,async page=>{await load(page);if(!directory)throw Error('The job selection changed. Refresh before continuing.');return directory;})).job;
   }
-  return{load,locateJob,showJob,shown:()=>selected?.id??null,sync,unconfirmed:()=>!!pending.command,contextChanged(){pilotClose.reset();pilotReport.reset();},refresh(){dueInput.refresh();expiryInput.refresh();pilotClose.refresh();pilotReport.refresh();render();sync();},reset(){generation++;clear();pending.clear();pilotClose.reset();pilotReport.reset();try{const stored=sessionStorage.getItem(key());if(stored){const value=JSON.parse(stored);if(['jobs/create','jobs/update','jobs/control','jobs/collection/update','jobs/pilot-close/create',...closeCapturePaths,'infrastructure/availability','infrastructure/resolve'].includes(value.path)&&typeof value.operationId==='string'&&value.body&&typeof value.body==='object')pending.command={...value,uncertain:true};}}catch{/* Invalid browser state cannot grant authority. */}fields();get('job-pending').hidden=!pending.command;sync();}};
+  return{load,locateJob,showJob,shown:()=>selected?.id??null,sync,unconfirmed:()=>!!pending.command,contextChanged(){pilotClose.reset();pilotReport.reset();},refresh(){dueInput.refresh();expiryInput.refresh();pilotClose.refresh();pilotReport.refresh();lifecycleReport.refresh();render();sync();},reset(){generation++;clear();pending.clear();pilotClose.reset();pilotReport.reset();try{const stored=sessionStorage.getItem(key());if(stored){const value=JSON.parse(stored);if(['jobs/create','jobs/update','jobs/control','jobs/collection/update','jobs/pilot-close/create',...closeCapturePaths,'infrastructure/availability','infrastructure/resolve'].includes(value.path)&&typeof value.operationId==='string'&&value.body&&typeof value.body==='object')pending.command={...value,uncertain:true};}}catch{/* Invalid browser state cannot grant authority. */}fields();get('job-pending').hidden=!pending.command;sync();}};
 }

@@ -1279,7 +1279,7 @@ const dashboard=setupDashboard({api,act,busy:()=>busy,historical:()=>contextDirt
 const riskJobs=setupRiskWorkspace({api,act,instant,busy:()=>busy,zone:()=>prefs.timeZone,identity:()=>exampleId+':'+administrationScope+':'+currentProfile,canRun:()=>can('RunScenario'),
   // The closes the header lists, each named as the header names it. They are read with the header, not with the market catalog, which Risk does not load.
   frames:()=>(navigation?.frames??[]).map(f=>({id:f.id,at:f.at,label:frameName(f),session:f.close?.session??null})),view:next=>riskViewsNav.select(next),changed:()=>{if(initialWorkspaceReady)syncUnloadQuestion();},source:()=>{if(contextDirty)throw Error('Apply the changed market context first.');return {snapshotId:frame().id,context:historicalContext()};}});
-const jobs=setupJobs({api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,contextReady:()=>!contextDirty});
+const jobs=setupJobs({api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,zone:()=>prefs.timeZone,contextReady:()=>!contextDirty,openLifecycle:()=>leaving(async()=>{if(contextDirty)await applyContext();await setPage('lifecycle');await lifecycle.load();},contextDirty?'discards':'page')});
 // A committed label changes current curves' names and units as well as the item's page: the market is read again, as after a correction,
 // and so is the page.
 const referenceEditor=setupReferenceEditor({host:$('reference-item'),api,act,busy:()=>busy,identity:()=>administrationScope+':'+currentProfile,instant,onCommitted:async()=>{

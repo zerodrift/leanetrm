@@ -33,12 +33,15 @@ internal static class LifecycleActionChecks
             "Lifecycle discovery uses the exact pinned read context.");
         Require(actions.TryGetValue("lifecycle/execute",out var execute)&&execute.RequiresApproval&&execute.CurrentOnly&&
             !AssistantOperations.NeedsApprovalReceipt(execute),"Lifecycle execution retains native idempotence behind ordinary exact-request approval.");
+        Require(actions.TryGetValue("jobs/lifecycle/create",out var task)&&task.RequiresApproval&&task.CurrentOnly&&!AssistantOperations.NeedsApprovalReceipt(task),
+            "The lifecycle assistant schedules through the same exact typed native task operation behind approval.");
         Require(AssistantWorkspace.CanOpen("lifecycle",["ReadMarketData","ReadTrades"])&&
             !AssistantWorkspace.CanOpen("lifecycle",["ReadMarketData"]),"Lifecycle opening requires market and trade access.");
         var schema=AssistantOperations.Schema(typeof(LifecycleActionChecks).GetMethod(nameof(Handler),BindingFlags.Static|BindingFlags.NonPublic)!);
         var selection=schema["body"]!["properties"]!["selection"]!;
         Require(selection["discriminator"]!.GetValue<string>()=="target.handler"&&selection["contracts"]!["listed_option"] is not null&&
-            selection["contracts"]!["financial_swap"] is not null&&selection["contracts"]!["futures"] is not null,
+            selection["contracts"]!["financial_swap"] is not null&&selection["contracts"]!["futures"] is not null&&
+            selection["contracts"]![GasFuturesDeliveryActions.Handler]!["contracts"]!["gas.futures.delivery"]!["properties"]!["supply"] is not null,
             "Assistant lifecycle payloads describe their closed product-owned selection contracts.");
         Console.WriteLine("PASS lifecycle action contracts: explicit half-open windows, reviewed execution, automatic capability and closed discovery");
     }

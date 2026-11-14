@@ -16,6 +16,8 @@ internal sealed record LifecycleDiscovery(LifecycleReadContext Context,Immutable
     [property:JsonIgnore]Guid Catalog,[property:JsonIgnore]DateTimeOffset AuthorityUntil):ICommitAdmission
 {
     public ImmutableArray<JsonElement> SwapNetProfiles{get;init;}=[];
+    public LifecycleSchedulingChoices Scheduling{get;}=LifecycleScheduleJobs.Choices;
+    public Guid? RecordedCloseId{get;init;}
     public ImmutableArray<JsonElement> DeliveryProfiles{get;init;}=[];
     public ImmutableArray<JsonElement> DeliveryAccounts{get;init;}=[];
     public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
@@ -36,7 +38,7 @@ public sealed class LifecycleOperations
     internal LifecycleOperations(PreviewDatabase database,Func<Guid,InputFrame> frame,IEnumerable<ILifecycleActionHandler>? additional=null)
     {
         this.database=database;frames=frame;
-        registry=new([new OptionLifecycleActions(database,RequireFrame),new SwapLifecycleActions(database,frame),new SwapNetLifecycleActions(database,frame),new FuturesLifecycleActions(database,RequireFrame),new GasOwnedActions(database),..additional??[]]);
+        registry=new([new OptionLifecycleActions(database,RequireFrame),new SwapLifecycleActions(database,frame),new SwapNetLifecycleActions(database,frame),new FuturesLifecycleActions(database,RequireFrame),new GasOwnedActions(database),new GasFuturesDeliveryActions(database),..additional??[]]);
     }
     private sealed record DiscoveryAdmission(DateTimeOffset Until,DateTimeOffset? GasUntil,LifecycleDiscoveryAccess Access);
     private async Task<DiscoveryAdmission> CaptureDiscovery(NpgsqlConnection connection,bool requiresGas,CancellationToken ct)
@@ -143,7 +145,7 @@ public sealed class LifecycleOperations
             await restore.ExecuteNonQueryAsync(CancellationToken.None);
         }
         var value=new LifecycleDiscovery(request.Context,actions,policies,optionProfiles,swapProfiles,marginPolicies,choices,optionSources,swapOccurrences,futuresSetup,database.Manifest.CatalogId,until)
-            {DeliveryProfiles=deliveryProfiles,DeliveryAccounts=deliveryAccounts,SwapNetProfiles=swapNetProfiles};
+            {DeliveryProfiles=deliveryProfiles,DeliveryAccounts=deliveryAccounts,SwapNetProfiles=swapNetProfiles,RecordedCloseId=request.Context.SnapshotId is {} snapshot?frames(snapshot).OriginCloseId:null};
         database.RegisterCommitAdmission(connection,value);
         await value.RequireCommit(connection,ct);return value;
     }
@@ -174,7 +176,7 @@ public sealed class LifecycleOperations
     {
         var result=await database.WithAgent(agent,TimeSpan.FromSeconds(RuntimeSet.MaxReadSeconds),["ReadTrades","ReadMarketData"],_=>{},
             (connection,t)=>Discover(connection,request,t),ct);
-        return new{result.Context,result.Actions,result.Policies,result.OptionProfiles,result.SwapProfiles,result.SwapNetProfiles,result.MarginPolicies,result.Choices,result.OptionSources,result.SwapOccurrences,result.FuturesSetup,result.DeliveryProfiles,result.DeliveryAccounts};
+        return new{result.Context,result.Actions,result.Policies,result.OptionProfiles,result.SwapProfiles,result.SwapNetProfiles,result.MarginPolicies,result.Choices,result.OptionSources,result.SwapOccurrences,result.FuturesSetup,result.DeliveryProfiles,result.DeliveryAccounts,result.RecordedCloseId,result.Scheduling};
     }
     public async Task<object> Preview(AgentIdentity agent,LifecycleActionRequest request,CancellationToken ct)
     {

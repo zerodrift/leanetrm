@@ -218,6 +218,19 @@ retain owned value; dispatch consumes identified compatible sources. Missing sup
 cannot create negative owned stock or implicit procurement. Unmatched observations
 remain truthful reconciliation evidence. One economic interest is valued once.
 
+## Scheduled execution
+
+The source-derived task contract is specified in
+[jobs and workers](automation.md#source-derived-lifecycle-tasks). A saved task
+selects one recorded close, native occurrence, exact trade/product and action
+policy versions, execution knowledge policy and one-off wall-clock schedule.
+Manual, review and automatic modes use the same shared product handlers. A task
+has no permission to invent observed title, assignment or payment evidence.
+Financial effects and its exact complete occurrence result publish atomically;
+unknown acknowledgement recovery uses the native first outcome. Separate
+scheduler/runtime identities preserve current owner/delegator/service capability
+intersection and each attempt’s original authority bounds.
+
 ## Economic horizon
 
 The risk profile selects one common next configured close and all financial
