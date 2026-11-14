@@ -7,6 +7,19 @@ selects one CI partition. CI requires every partition and its aggregate check
 to succeed. The implementation records below retain the results and limits of
 each dated increment; older check counts are not the current suite size.
 
+D392's local native futures increment has focused owned PostgreSQL consumers:
+`tools/check_futures_margin_sources.py`, `tools/check_futures_margin_adoption.py`
+and `tools/check_futures_margin_journal.py`. Each takes `--pg-bin`; its managed
+child uses the explicitly selected `DOTNET` executable and already-built API check
+project. The trading CI partition runs all three. The journal consumer qualifies
+actual booking/adoption, causal corrections, distinct surviving cash, partial
+payment, terminal PV without an open mark, explicit future-cash discounting,
+review/source changes, original admission deadlines and immutable run membership.
+It also inserts separate privileged synthetic contexts with inconsistent prefixes
+to prove refusal, without modifying immutable records or the database software.
+These are native/managed checks. The [remaining lifecycle gates](lifecycle-delivery.md)
+include whole-portfolio/worker, physical delivery and HTTP/agent/browser workflows.
+
 D354 adds the owned `--context-read-check --browser-check` consumer for the
 grouped header, context explanations, failed-Apply recovery and retained knowledge
 across pages. The `--regional-closes-check` consumer also runs managed native

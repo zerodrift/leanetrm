@@ -21,7 +21,7 @@ public sealed record PreviewUnitCatalog(Guid ReferenceRevisionId,Guid Definition
 public sealed record UnitCatalogData(ReferenceRevision Revision,ImmutableDictionary<string,ImmutableArray<JsonElement>> References);
 public enum ReferenceReadScope { DefinitionClosure, AllVisible, TradeValuation }
 public enum ObservationReadScope { FactHistory, ExactPins }
-// An owned request may return a pending native command. Its original authority
+// An owned request may return a native command or reviewed read. Its original authority
 // is rechecked after all request work, immediately before commit admission.
 internal interface ICommitAdmission
 {

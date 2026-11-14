@@ -11,6 +11,13 @@ internal sealed record FuturesMarginWrite(Guid Catalog,Guid OperationId,string K
 {
     public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
     {
+        if(Kind=="determine")
+        {
+            await using var finish=ScheduleStore.Command(connection,"SELECT settlement_data.finish_futures_margin_run($1,$2,$3::jsonb,$4)",
+                Catalog,OperationId,Request.GetRawText(),AuthorityUntil);
+            await finish.ExecuteNonQueryAsync(ct);
+            return;
+        }
         await using var command=ScheduleStore.Command(connection,
             "SELECT settlement_data.finish_futures_margin_command($1,$2,$3,$4::jsonb,$5)",
             Catalog,OperationId,Kind,Request.GetRawText(),AuthorityUntil);

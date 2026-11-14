@@ -4602,5 +4602,13 @@ retained pricing continuity prevent later configuration appends or unqualified
 financial amendments. The trusted application owns commit admission and rechecks
 each invocation's original authority deadline after waits; deferred database
 checks are supplemental because SQL callers control constraint timing. Native
-settlement/cash execution and user/agent workflows remain separate qualification
+settlement/cash execution and user/agent workflows have separate qualification
 gates, recorded in the delivery contract.
+
+The local native journal now stores product-derived determination closures and
+independent shared cash contributions. Accepted heads precede source-evidence
+qualification; missing latest evidence cannot select older economic state. Cash
+definitions are reusable currency/due economics, while ownership, quantity,
+business effectiveness and recorded payment remain membership facts. Prior-fact
+acknowledgement does not reinstate an older basis. Whole-portfolio, worker,
+physical-delivery and user/agent/browser workflows remain unfinished.

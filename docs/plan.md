@@ -8,10 +8,14 @@ remains local and unfinished until those gates are qualified.
 
 The isolated native futures increment now saves exact dated margin policies,
 seals their occurrence sets and adopts an explicit saved version against a stable
-held binding. Its certified inception reader supplies ordinary Instrument PV from
-native execution and holding scope. Owned commit admission retains the original
-invocation authority deadline across waits. Native settlement determinations,
-cash operations, HTTP/agent/UI workflows and browser qualification remain work;
+held binding. Its native determination journal retains complete correction
+closure, source evidence and independent original/adjustment cash memberships.
+Ordinary Instrument PV consumes accepted basis plus the shared recorded-cash
+state, including final settlement without an open mark. The managed coordinator
+derives monetary operands internally and retains reviewed source choices.
+Owned command and standalone-review admission preserve original authority bounds
+across work and waits. Whole-portfolio/worker wiring, physical final delivery,
+HTTP/agent/UI workflows and browser qualification remain work;
 see the [delivery boundaries](lifecycle-delivery.md).
 
 D391 implements live curve output selection, an optional inactive-contract

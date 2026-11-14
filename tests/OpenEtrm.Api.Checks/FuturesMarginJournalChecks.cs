@@ -1,0 +1,167 @@
+using System.Collections.Immutable;
+using System.Text.Json;
+using Npgsql;
+using OpenEtrm.Api;
+using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Trading;
+
+internal static class FuturesMarginJournalChecks
+{
+    internal static async Task Run(string path)
+    {
+        using var document=JsonDocument.Parse(File.ReadAllText(path));var fixture=document.RootElement;
+        var manifest=fixture.GetProperty("manifest").Deserialize<PreviewManifest>(new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var host=Path.GetFullPath(fixture.Text("host"));
+        if(!host.StartsWith("/private/tmp/oetrm-ref-",StringComparison.Ordinal)&&!host.StartsWith("/tmp/oetrm-ref-",StringComparison.Ordinal))
+            throw new Exception("Margin journal checks require an owned disposable cluster.");
+        if(fixture.TryGetProperty("command",out var command))
+        {
+            await CheckCommand(manifest,host,command);
+            return;
+        }
+        await using var runtime=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder{
+            Host=host,Port=55439,Database="postgres",Username="preview_runtime",Timezone="UTC",Pooling=false}.ConnectionString);
+        await using var database=new PreviewDatabase(manifest,runtime);
+        foreach(var sample in fixture.GetProperty("samples").EnumerateArray())
+        {
+            await using var connection=await runtime.OpenConnectionAsync();
+            await using var transaction=await connection.BeginTransactionAsync();
+            await using(var identity=ScheduleStore.Command(connection,"SELECT security.use_context($1)",sample.Id("token")))
+                await identity.ExecuteNonQueryAsync();
+            var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,sample.Id("contextId"),default)).Context;
+            await PinnedContext.BindExact(connection,manifest.CatalogId,context,default);
+            var at=sample.Instant("at");
+            await using(var trading=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",manifest.CatalogId,at))
+                await trading.ExecuteNonQueryAsync();
+            var pins=sample.TryGetProperty("noOpenMark",out var noMark)&&noMark.GetBoolean()?ImmutableArray<Guid>.Empty:[fixture.Id("mark")];
+            var data=await database.Read(connection,default,selectedRevision:manifest.RevisionId,observationIds:pins,
+                includeCalendarDays:false,observationScope:ObservationReadScope.ExactPins);
+            var frame=new InputFrame(Guid.NewGuid(),"Synthetic margin and cash",at,DateOnly.FromDateTime(at.UtcDateTime),pins,
+                ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("future",[fixture.Id("contract")]),context.ContextId);
+            var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),context.ContextId!.Value,SchedulePreview.ParseAt(context.KnownAt));
+            var store=new FuturesStore(database);var books=await store.Books(connection,default);
+            var selected=await store.ReadTrades(connection,data,books,[],[],default,trades:ImmutableHashSet.Create(fixture.Id("tradeId")));
+            var trade=selected.Trades.Single();var binding=trade.Instruments.Single();var market=FuturesExecution.Require(binding).MarketBinding;
+            var margin=await FuturesMarginStore.Read(connection,manifest.CatalogId,data,frame,snapshot,trade,binding.Id,default);
+            if(margin.State.SettledBasis.ToExactString()!=sample.Text("basis")||margin.CashBindings.Length!=sample.GetProperty("cashCount").GetInt32())
+                throw new Exception("Native margin lost its accepted terminal basis or original/adjustment cash memberships.");
+            var states=ImmutableDictionary.CreateBuilder<MeasureBinding,IBindingValuationState>();states.Add(new(trade.Id,binding.Id),margin.State);
+            if(!margin.CashBindings.IsEmpty)
+            {
+                var cashTrade=new Trade(trade.Id,trade.BookId,margin.CashBindings,trade.Booking);
+                var cash=await CashPaymentStore.Read(connection,manifest.CatalogId,frame,snapshot,[cashTrade],default);
+                foreach(var pair in cash)states.Add(pair.Key,pair.Value);
+            }
+            var held=new Trade(trade.Id,trade.BookId,trade.Instruments.AddRange(margin.CashBindings),trade.Booking);
+            var setup=new ValuationSetup(ValuationMeasure.PresentValue,
+                ImmutableDictionary<Guid,FuturesMarketBinding>.Empty.Add(market.Instrument.Id,market),
+                sample.TryGetProperty("discount",out var discount)?new ExplicitDiscounting(ExactDecimal.Parse(discount.GetString()!),DiscountFactorSource.Explicit):null)
+                {BindingStates=states.ToImmutable()};
+            var value=RiskEngine.CalculateExact(RiskEngine.Prepare(data.Model,snapshot,[ValuationPortfolio.FromTrades([held],setup)]),[],RiskEngine.ExactNumericalPolicy)
+                .Groups.SelectMany(g=>g.BaseValues).Select(v=>v.Value).Aggregate((a,b)=>a.Add(b));
+            if(value.CompareTo(ExactMoney.Parse(sample.Text("expectedPv"),market.Quote.Currency))!=0)
+                throw new Exception("Ordinary futures plus recorded-cash PV did not preserve value across determination, correction and actual payment.");
+            if(margin.History.Determinations.Length>0)
+            {
+                try
+                {
+                    await FuturesMarginStore.ReadInception(connection,manifest.CatalogId,data,frame,snapshot,trade,binding.Id,default);
+                    throw new Exception("The inception-only reader erased accepted margin history.");
+                }
+                catch(PostgresException error)when(error.MessageText=="futures_margin_history_required"){}
+            }
+            await transaction.RollbackAsync();
+        }
+        Console.WriteLine("PASS native margin through ordinary PV: exact history, surviving cash, actual partial payment and historical replay; inception fallback refuses");
+    }
+
+    private static async Task CheckCommand(PreviewManifest manifest,string host,JsonElement check)
+    {
+        var login=new NpgsqlConnectionStringBuilder{Host=host,Port=55439,Database="postgres",Username="preview_runtime",Timezone="UTC",Pooling=false};
+        await using var database=new PreviewDatabase(manifest,new NpgsqlConnectionStringBuilder(login.ConnectionString){Username="preview_authenticator"},login);
+        var request=check.GetProperty("request");
+        if(check.TryGetProperty("expectContinuity",out var continuity)&&continuity.GetBoolean())
+        {
+            try
+            {
+                await database.WithIdentity("trader",null,(connection,ct)=>FuturesMarginCoordinator.Preview(connection,database,request,ct),default);
+                throw new Exception("The review offered cash for an amended quantity before its holding became effective.");
+            }
+            catch(MarketDataException error)when(error.Code=="futures_margin_continuity"){}
+            Console.WriteLine("PASS action review refuses unsupported pre-origin quantity continuity");
+            return;
+        }
+        if(check.TryGetProperty("expectStale",out var stale)&&stale.GetBoolean())
+        {
+            try
+            {
+                await database.WithIdentity("trader",null,(connection,ct)=>FuturesMarginCoordinator.Determine(connection,database,request,ct),default);
+                throw new Exception("A later official correction was accepted using an older financial review hash.");
+            }
+            catch(MarketDataException error)when(error.Code=="futures_margin_stale_review"){}
+            Console.WriteLine("PASS official source correction invalidates the old review even when aggregate variation is unchanged");
+            return;
+        }
+        if(check.TryGetProperty("previewExpires",out var expire))
+        {
+            var refused=false;
+            try
+            {
+                await database.WithIdentity("trader",null,async(connection,ct)=>
+                {
+                    var prepared=await FuturesMarginCoordinator.Preview(connection,database,request,ct);
+                    if(expire.GetBoolean())
+                    {
+                        await using var work=ScheduleStore.Command(connection,"SELECT pg_sleep(6)");
+                        await work.ExecuteNonQueryAsync(ct);
+                    }
+                    return prepared;
+                },default);
+            }
+            catch(PostgresException error)when(expire.GetBoolean()&&error.SqlState=="42501"&&error.MessageText=="futures_margin_denied"){refused=true;}
+            if(refused!=expire.GetBoolean())throw new Exception("The standalone review chained a successor grant beyond its original read admission.");
+            Console.WriteLine(expire.GetBoolean()?"PASS standalone margin review refuses expired original read admission":
+                "PASS fresh standalone margin review succeeds under successor read authority");
+            return;
+        }
+        var review=await database.WithIdentity("trader",null,(connection,ct)=>FuturesMarginCoordinator.Preview(connection,database,request,ct),default);
+        if(check.TryGetProperty("hashOnly",out var hashOnly)&&hashOnly.GetBoolean())
+        {
+            Console.WriteLine("REVIEW_HASH:"+review.Hash);
+            return;
+        }
+        var currency=review.Plan.Steps[0].Adjustment.Currency;
+        var total=review.Plan.Steps.Select(s=>s.Adjustment).Aggregate((a,b)=>a.Add(b));
+        if(total.CompareTo(ExactMoney.Parse(check.Text("expectedAdjustment"),currency))!=0)
+            throw new Exception("The action coordinator did not derive the independently calculated margin from its native holding and official sources.");
+        JsonElement Body(params(string Key,object Value)[] changes)
+        {
+            var values=request.Deserialize<Dictionary<string,JsonElement>>()!;
+            values["previewHash"]=JsonSerializer.SerializeToElement(review.Hash);
+            foreach(var(key,value)in changes)values[key]=JsonSerializer.SerializeToElement(value);
+            return JsonSerializer.SerializeToElement(values);
+        }
+        async Task Reject(JsonElement body,string code)
+        {
+            try
+            {
+                await database.WithIdentity("trader",null,(connection,ct)=>FuturesMarginCoordinator.Determine(connection,database,body,ct),default);
+                throw new Exception("The action accepted changed review or client-supplied financial operands.");
+            }
+            catch(MarketDataException error)when(error.Code==code){}
+        }
+        var wrongHash=(review.Hash[0]=='0'?"1":"0")+review.Hash[1..];
+        await Reject(Body(("previewHash",wrongHash)),"futures_margin_stale_review");
+        await Reject(Body(("roundedTotal","999999")),"futures_margin_input");
+        var accepted=Body();
+        var first=await database.WithIdentity("trader",null,(connection,ct)=>FuturesMarginCoordinator.Determine(connection,database,accepted,ct),default);
+        var replay=await database.WithIdentity("trader",null,(connection,ct)=>FuturesMarginCoordinator.Determine(connection,database,accepted,ct),default);
+        if(first.Outcome.GetRawText()!=replay.Outcome.GetRawText())throw new Exception("The owned margin action lost its first outcome on retry.");
+        var sameFact=Body(("operationId",Guid.NewGuid()));
+        var acknowledged=await database.WithIdentity("trader",null,(connection,ct)=>FuturesMarginCoordinator.Determine(connection,database,sameFact,ct),default);
+        if(acknowledged.Outcome.GetProperty("changed").GetInt32()!=0||acknowledged.Outcome.GetProperty("version").GetInt32()!=2)
+            throw new Exception("An already-recorded financial target was applied a second time.");
+        Console.WriteLine("PASS owned margin action: native source-derived review and cash, changed-review/operand refusal, durable retry and same-fact acknowledgement");
+    }
+}

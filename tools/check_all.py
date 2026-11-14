@@ -29,7 +29,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     if not __debug__ or os.environ.get('PYTHONOPTIMIZE') not in (None, '', '0'):
         raise ValueError('Python assertions must remain enabled for verification.')
     environment = {**os.environ, 'DOTNET_CLI_TELEMETRY_OPTOUT': '1', 'DOTNET_NOLOGO': '1',
-                   'CHROME_BIN': str(browser)}
+                   'CHROME_BIN': str(browser), 'DOTNET': str(dotnet)}
 
     def check(label, command, *, suite=None):
         if group != 'all' and suite not in (None, group):
@@ -69,6 +69,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     check('native volatility-fit admission expiry',[sys.executable,'tools/check_vol_surface_admission_expiry.py','--pg-bin',str(pg_bin)])
     check('owned reference metadata database',[sys.executable,'tools/check_reference_editing.py','--pg-bin',str(pg_bin)])
     check('recorded cash upgrade over existing option bookings',[sys.executable,'tools/check_recorded_cash_upgrade.py','--pg-bin',str(pg_bin)])
+    for part in ('sources','adoption','journal'):
+        check('owned futures margin '+part,[sys.executable,f'tools/check_futures_margin_{part}.py','--pg-bin',str(pg_bin)],suite='trading')
     check('exact temporal sources, retained close upgrade and claimed worker replay',
           [sys.executable,'tools/check_context_resolution.py','--upgrade-existing-close','--pg-bin',str(pg_bin),'--dotnet',str(dotnet)])
     check('owned recorded-close observation batches',[sys.executable,'tools/check_observation_batch_reads.py','--pg-bin',str(pg_bin)])

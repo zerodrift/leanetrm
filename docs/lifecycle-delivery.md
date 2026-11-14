@@ -116,11 +116,33 @@ the original holding revision separately from later metadata heads. Its basis us
 economic execution time; visibility starts at the holding revision's effective
 instant. The managed reader verifies the exact booking date, party versions,
 owner, quantity, execution, policy, pricing reference and certified context before
-providing state to ordinary Instrument PV. No accepted settlement journal exists
-yet. Once one exists, its complete visible prefix must be read; inception cannot
-substitute for accepted determinations.
+providing state to ordinary Instrument PV. Migration 0256 extends this locally
+with sealed native determination runs and complete causal history. The current
+accepted heads are selected before their exact source-prefix evidence is joined;
+missing evidence refuses rather than selecting an older determination. The old
+inception reader refuses once accepted margin is visible at the selected business
+instant. Events before an adopted financial revision takes effect require a
+qualified prior-quantity transition; they are refused, never silently skipped.
 
-Each save/adopt invocation captures its original authority deadline before receipt
+Each original or adjustment contribution has an independent shared
+`TimedCashPayment` membership. Reusable currency/due definitions have no holding
+business start; their native metadata uses the beginning-of-time marker while
+each owned membership retains its actual occurrence instant and certified
+publication. Reuse must not hide an earlier holding behind a later definition
+start. Original cash survives corrections. Same-price source replacements retain
+new causal determinations without inventing cash. Due time does not prove payment;
+recorded partial cash reduces only its owned membership through the common cash
+state reader. Terminal cash settlement removes open futures exposure while
+unpaid final cash remains an ordinary holding with explicit discount inputs.
+
+The managed action coordinator derives quantities, official prices and all
+monetary operands internally. Its review hash pins the selected financial target
+and explicit correction due terms. A changed official source invalidates review
+even when aggregate variation is unchanged. An existing immutable financial
+snapshot is acknowledged without a new financial publication or a reset of
+current basis; the response distinguishes acknowledged and current revisions.
+
+Each save, adopt or determine invocation captures its original authority deadline before receipt
 or publication waits. The application owns the transaction and rechecks that
 deadline, actor, current authority and retained references after managed work,
 immediately before commit admission. Hosted invocations also pin the sign-in
@@ -131,12 +153,21 @@ trigger is supplemental: a SQL caller can force constraint checks early. These
 checks establish owned commit admission, not a caller-proof guarantee about the
 exact commit timestamp. An uncertain commit outcome is reconciled using the same
 request ID in a fresh authorized invocation.
+Standalone reviews retain their own original read-authority deadline through
+source resolution, planning and result admission. A later grant cannot extend an
+already-admitted review. Derived native timestamps preserve UTC microseconds
+exactly; display formatting supplies no financial rounding.
 
 The native adoption check uses ordinary synthetic bookings in owned disposable
 PostgreSQL. It covers version selection, retries and same-fact receipts, sealed
 membership, both publication-fence orders against amendments, effective/knowledge
 visibility and native inception through common PV. Source capture, economic basis
-and accepted publication clocks remain separate. Settlement/cash execution,
+and accepted publication clocks remain separate. The journal check also covers
+same-price and value-changing correction closure, surviving cash, partial payment,
+terminal PV without an open mark and an explicit future-cash discount factor.
+Privileged synthetic context construction verifies refusal when the source
+prefix cannot cover a latest accepted determination; it establishes no ordinary
+capture-path failure. Whole-portfolio/worker integration, physical final delivery,
 HTTP/agent adapters, user-facing policy editing and browser qualification remain
 delivery gates; the local native increment does not qualify those capabilities.
 
@@ -146,7 +177,8 @@ weights, then rounds the conditional payment/calculation ratio once. Evidence
 retains both instants, the exact rate definition version, complete tenor geometry
 and precisely the observations consumed by its brackets. Equal marks cannot erase
 a required pillar. This captured-instant PV profile does not qualify frozen clock
-rolls, native settled-margin journals or additional rate-risk axes.
+rolls or additional rate-risk axes. Native journal wiring is qualified separately
+from that rate interpolation profile.
 
 Gas continuation qualifies owned titled lots, distinct signed operator claims/debts
 and title-transferring commodity loans with surviving return obligations and fee

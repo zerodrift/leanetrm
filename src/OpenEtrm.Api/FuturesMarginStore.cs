@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Text.Json;
 using Npgsql;
@@ -6,12 +7,20 @@ using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.Api;
 
-internal sealed record FuturesMarginInception(FuturesMarginState State,FuturesMarginHistory History,int TradeRevision,DateTimeOffset AuthorityUntil);
+internal sealed record FuturesMarginRead(FuturesMarginState State,FuturesMarginHistory History,int TradeRevision,DateTimeOffset AuthorityUntil)
+{
+    internal int MarginRevision{get;init;}=1;
+    internal ImmutableArray<TradeInstrument> CashBindings{get;init;}=[];
+}
 
 internal static class FuturesMarginStore
 {
-    internal static async Task<FuturesMarginInception> ReadInception(NpgsqlConnection connection,Guid catalog,PreviewData data,InputFrame frame,
-        MarketSnapshot snapshot,Trade trade,Guid bindingId,CancellationToken ct)
+    internal static Task<FuturesMarginRead> ReadInception(NpgsqlConnection connection,Guid catalog,PreviewData data,InputFrame frame,
+        MarketSnapshot snapshot,Trade trade,Guid bindingId,CancellationToken ct)=>ReadNative(connection,catalog,data,frame,snapshot,trade,bindingId,true,ct);
+    internal static Task<FuturesMarginRead> Read(NpgsqlConnection connection,Guid catalog,PreviewData data,InputFrame frame,
+        MarketSnapshot snapshot,Trade trade,Guid bindingId,CancellationToken ct)=>ReadNative(connection,catalog,data,frame,snapshot,trade,bindingId,false,ct);
+    private static async Task<FuturesMarginRead> ReadNative(NpgsqlConnection connection,Guid catalog,PreviewData data,InputFrame frame,
+        MarketSnapshot snapshot,Trade trade,Guid bindingId,bool inceptionOnly,CancellationToken ct)
     {
         if(frame.ContextId is not {} context||snapshot.Knowledge?.ContextId!=context||snapshot.ValuationAt!=frame.At||
             data.DefinitionRevision!=snapshot.Definitions||!snapshot.HasSameInputs(data.Snapshot(frame).WithKnowledge(context,snapshot.Knowledge.KnownAt)))
@@ -19,7 +28,8 @@ internal static class FuturesMarginStore
         var binding=trade.Instruments.SingleOrDefault(b=>b.Id==bindingId)??throw Invalid("Select this trade's exact held futures binding.");
         var execution=FuturesExecution.Require(binding);var market=execution.MarketBinding;
         await using var command=ScheduleStore.Command(connection,
-            "SELECT settlement_data.read_futures_margin_inception($1,$2,$3,$4,$5)::text",catalog,trade.Id,bindingId,context,frame.At);
+            inceptionOnly?"SELECT settlement_data.read_futures_margin_inception($1,$2,$3,$4,$5)::text":
+                "SELECT settlement_data.read_futures_margin_state($1,$2,$3,$4,$5)::text",catalog,trade.Id,bindingId,context,frame.At);
         var result=JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
         var until=result.Instant("authorityUntil");
         frame.Time.RequireDate(DateWorkspace.Date(result.Text("effectiveOn")));
@@ -30,7 +40,7 @@ internal static class FuturesMarginStore
             await RequireRead(connection,catalog,context,frame.At,until,ct);
             throw new MarketDataException("futures_margin_unavailable","This held binding has no visible certified native margin inception.");
         }
-        if(result.Text("stateProfile")!="native_execution_inception_v1")
+        if(result.Text("stateProfile")!=(inceptionOnly?"native_execution_inception_v1":FuturesMarginCoordinator.Version))
             throw Invalid("Select the supported actual margin-state producer; inception cannot substitute for accepted settlement history.");
         var origin=result.GetProperty("origin");var head=result.GetProperty("head");var nativeMarket=result.GetProperty("market");
         var adoption=result.GetProperty("adoption");
@@ -61,9 +71,39 @@ internal static class FuturesMarginStore
         var state=new FuturesMarginState(trade.Id,bindingId,trade.BookId,binding.Quantity,market.Series.Key,
             ExactUnitPrice.FromPrice(new(origin.Number("execution_price"),market.Quote)),origin.Instant("execution_at"),result.Instant("knownFrom"),
             FuturesMarginState.Version,FuturesMarginStatus.Open,null,context,snapshot.Knowledge.KnownAt,1,Integer(adoption,"publication_order"));
+        ImmutableArray<RecordedFuturesMargin> recorded=[];
+        if(result.TryGetProperty("determinations",out var determinations))
+            recorded=[..determinations.EnumerateArray().Select(row=>
+            {
+                var occurrence=policy.Occurrences.Single(o=>o.Id==row.Id("occurrence_id"));
+                var observation=data.ReadObservation(row.GetProperty("source"));
+                var sample=snapshot with{Selections=[new(new(observation.Series,occurrence.Phase==FuturesMarginPhase.Final?InputUse.FrozenFact:InputUse.Variable),observation)]};
+                sample=sample with{Id=CustomCurves.StableSampleId(sample)};
+                var fact=market.Instrument.ResolveSettlementFact(market,policy.SettlementCurve,data.Model,sample,observation.Key,
+                    row.Instant("source_known_at"),occurrence.At,occurrence.Phase==FuturesMarginPhase.Final);
+                return new RecordedFuturesMargin(occurrence.Id,row.Id("id"),row.OptionalId("basis_id"),
+                    ExactUnitPrice.FromPrice(new(row.Number("previous_basis"),market.Quote)),fact,
+                    ExactMoney.Parse(row.Text("exact_variation"),market.Quote.Currency),new(row.Number("rounded_total"),market.Quote.Currency),
+                    row.Instant("known_from"),Integer(row,"publication_order"));
+            })];
+        var history=new FuturesMarginHistory(terms,context,snapshot.Knowledge.KnownAt,recorded);
+        if(!recorded.IsEmpty)
+        {
+            var accepted=market.Instrument.PlanMarginTrajectory(trade,bindingId,policy,snapshot,recorded[^1].OccurrenceId,
+                recorded.ToImmutableDictionary(r=>r.OccurrenceId,r=>r.Evidence),history,ImmutableDictionary<Guid,DateTimeOffset>.Empty);
+            if(accepted.Steps.Any(s=>!s.NoChange))throw Invalid("The native accepted prefix must reconcile without a financial restatement.");
+            var last=recorded[^1];
+            state=state with{SettledBasis=accepted.Basis.Price,SettledAt=accepted.Basis.At,Status=accepted.Basis.Status,
+                KnownAt=last.KnownAt,LatestSettlement=last.Evidence,StateRevision=Integer(result,"version"),PublicationOrder=last.PublicationOrder};
+        }
+        var cash=result.TryGetProperty("obligations",out var obligations)?obligations.EnumerateArray().Select(row=>
+        {
+            var instrument=CashPaymentStore.Materialize(row);
+            return new TradeInstrument(row.Id("cash_binding_id"),instrument,new(row.Number("adjustment"),instrument.Currency));
+        }).ToImmutableArray():[];
         FuturesMargin.Require(state,market.Instrument);
         await RequireRead(connection,catalog,context,frame.At,until,ct);
-        return new(state,new(terms,context,snapshot.Knowledge.KnownAt,[]),Integer(head,"revision"),until);
+        return new(state,history,Integer(head,"revision"),until){MarginRevision=result.TryGetProperty("version",out _)?Integer(result,"version"):1,CashBindings=cash};
     }
 
     internal static FuturesMarginPolicy ReadPolicy(JsonElement header,JsonElement occurrences)

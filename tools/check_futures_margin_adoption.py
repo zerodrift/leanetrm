@@ -30,6 +30,30 @@ INSERT INTO market_data.curve_members SELECT catalog_id,revision_id,'future_alte
     return reference, market.replace(marker, additional+marker), security, manifest
 
 
+@contextmanager
+def successor_grants(query, manifest, profile, permission):
+    tenant, workspace = manifest['tenantId'], manifest['workspaceId']
+    principal = query(f"SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='{profile}';")
+    saved_permissions = query(f"SELECT jsonb_agg(to_jsonb(p)) FROM security.role_permissions p WHERE p.permission='{permission}' "
+                              f"AND p.role_id IN(SELECT role_id FROM security.role_grants WHERE principal_id='{principal}');")
+    role_a, role_b, grant_a, grant_b = (str(uuid4()) for _ in range(4))
+    app = 'margin_authority_'+uuid4().hex
+    query(f"BEGIN;INSERT INTO security.roles VALUES('{role_a}','{app}_a','Synthetic initial margin authority'),"
+          f"('{role_b}','{app}_b','Synthetic successor margin authority');"
+          f"DELETE FROM security.role_permissions WHERE permission='{permission}' AND role_id IN(SELECT role_id FROM security.role_grants WHERE principal_id='{principal}');"
+          f"INSERT INTO security.role_permissions VALUES('{role_a}','{permission}'),('{role_b}','{permission}');"
+          f"INSERT INTO security.role_grants VALUES('{grant_a}','{principal}','{role_a}','{tenant}','{workspace}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '3 seconds',false),"
+          f"('{grant_b}','{principal}','{role_b}','{tenant}','{workspace}',clock_timestamp()+interval '3 seconds',clock_timestamp()+interval '100 seconds',false);COMMIT;")
+    try:
+        yield app
+    finally:
+        restored_permissions = saved_permissions.replace("'", "''")
+        query(f"BEGIN;DELETE FROM security.role_grants WHERE id IN('{grant_a}','{grant_b}');"
+              f"DELETE FROM security.role_permissions WHERE role_id IN('{role_a}','{role_b}');"
+              f"DELETE FROM security.roles WHERE id IN('{role_a}','{role_b}');"
+              f"INSERT INTO security.role_permissions SELECT * FROM jsonb_populate_recordset(NULL::security.role_permissions,'{restored_permissions}'::jsonb) ON CONFLICT DO NOTHING;COMMIT;")
+
+
 def checks(query, manifest):
     catalog = manifest['catalogId']
     tenant, workspace = manifest['tenantId'], manifest['workspaceId']
@@ -317,29 +341,8 @@ def checks(query, manifest):
 
     # A later pre-existing grant cannot extend an already admitted operation.
     # The real relation wait proves expiry occurs after admission, not before it.
-    @contextmanager
-    def successor_grants(profile, permission):
-        principal = query(f"SELECT principal_id FROM security.identity_bindings WHERE issuer='https://preview.invalid' AND subject='{profile}';")
-        saved_permissions = query(f"SELECT jsonb_agg(to_jsonb(p)) FROM security.role_permissions p WHERE p.permission='{permission}' "
-                                  f"AND p.role_id IN(SELECT role_id FROM security.role_grants WHERE principal_id='{principal}');")
-        role_a, role_b, grant_a, grant_b = (str(uuid4()) for _ in range(4))
-        app = 'margin_authority_'+uuid4().hex
-        query(f"BEGIN;INSERT INTO security.roles VALUES('{role_a}','{app}_a','Synthetic initial margin authority'),"
-              f"('{role_b}','{app}_b','Synthetic successor margin authority');"
-              f"DELETE FROM security.role_permissions WHERE permission='{permission}' AND role_id IN(SELECT role_id FROM security.role_grants WHERE principal_id='{principal}');"
-              f"INSERT INTO security.role_permissions VALUES('{role_a}','{permission}'),('{role_b}','{permission}');"
-              f"INSERT INTO security.role_grants VALUES('{grant_a}','{principal}','{role_a}','{tenant}','{workspace}',clock_timestamp()-interval '1 day',clock_timestamp()+interval '3 seconds',false),"
-              f"('{grant_b}','{principal}','{role_b}','{tenant}','{workspace}',clock_timestamp()+interval '3 seconds',clock_timestamp()+interval '100 seconds',false);COMMIT;")
-        try:
-            yield app
-        finally:
-            restored_permissions = saved_permissions.replace("'", "''")
-            query(f"BEGIN;DELETE FROM security.role_grants WHERE id IN('{grant_a}','{grant_b}');"
-                  f"DELETE FROM security.role_permissions WHERE role_id IN('{role_a}','{role_b}');"
-                  f"DELETE FROM security.roles WHERE id IN('{role_a}','{role_b}');"
-                  f"INSERT INTO security.role_permissions SELECT * FROM jsonb_populate_recordset(NULL::security.role_permissions,'{restored_permissions}'::jsonb) ON CONFLICT DO NOTHING;COMMIT;")
 
-    with successor_grants('trader', 'AmendTrade') as app:
+    with successor_grants(query, manifest, 'trader', 'AmendTrade') as app:
         with ThreadPoolExecutor(max_workers=2) as pool:
             holder = pool.submit(query, f"SET application_name='{app}_holder';BEGIN;LOCK TABLE settlement_data.futures_margin_commands IN ACCESS EXCLUSIVE MODE;SELECT pg_sleep(6);COMMIT;")
             deadline = time.monotonic()+2
@@ -387,7 +390,7 @@ def checks(query, manifest):
     for profile, permission, operation, body in cases:
         before = financial_counts()
         expression = f"SELECT settlement_data.{operation}('{catalog}',{literal(body)})::text;"
-        with successor_grants(profile, permission):
+        with successor_grants(query, manifest, profile, permission):
             # The function has already returned successfully; its original
             # authority must still cover the enclosing transaction's commit.
             rejected(expression+"SELECT pg_sleep(6);", 'futures_margin_denied', profile)
@@ -401,7 +404,7 @@ def checks(query, manifest):
         body = {**body, 'operationId': str(uuid4())}
         before = financial_counts()
         command_check = dict(profile=profile, kind='policy_save' if operation=='save_futures_margin_policy' else 'adopt', request=body)
-        with successor_grants(profile, permission):
+        with successor_grants(query, manifest, profile, permission):
             try:
                 managed_check(dict(manifest=manifest,host=host,command={**command_check,'expire':True}))
             except RuntimeError as error:

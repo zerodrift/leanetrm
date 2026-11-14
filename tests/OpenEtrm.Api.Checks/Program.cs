@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--futures-margin-journal",var marginJournalFixture]){await FuturesMarginJournalChecks.Run(marginJournalFixture);return;}
 if(args is ["--futures-margin-adoption",var marginAdoptionFixture]){await FuturesMarginAdoptionChecks.Run(marginAdoptionFixture);return;}
 if(args is ["--futures-margin-sources"]){FuturesMarginSourceChecks.Run();return;}
 if(args is ["--native-futures-margin-sources",var marginSourceFixture]){await FuturesMarginSourceChecks.RunNative(marginSourceFixture);return;}

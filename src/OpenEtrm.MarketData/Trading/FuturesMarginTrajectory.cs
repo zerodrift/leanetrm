@@ -44,6 +44,15 @@ public sealed partial record FuturesContract
         _=SettlementSource(execution.MarketBinding,policy.SettlementCurve,model);
         return new(new(trade!.Id,bindingId),trade.BookId,holding.Quantity,execution.ExecutionPrice,execution.ExecutedAt,policy);
     }
+    public ImmutableArray<FuturesMarginOccurrence> RequiredMarginOccurrences(Trade trade,Guid bindingId,FuturesMarginPolicy policy,
+        MarketSnapshot context,Guid throughOccurrence,FuturesMarginHistory history)
+    {
+        var(_,execution)=MarginExecution(trade,bindingId,context,"futures_margin_coverage");
+        var events=MarginEvents(policy,execution.MarketBinding,execution.ExecutedAt,context);
+        if(history is null||history.Determinations.IsDefault)throw TimelineError("futures_margin_coverage","Supply the exact native accepted prefix.");
+        var index=events.Select((e,i)=>(e.Id,i)).ToDictionary(e=>e.Id,e=>e.i);
+        return [..events.Take(MarginLast(events,index,throughOccurrence,history.Determinations,context)+1)];
+    }
     // Recompute the required prefix, retaining both original and successor
     // effects. Correcting yesterday's price must not reset today's basis.
     public FuturesMarginTrajectory PlanMarginTrajectory(Trade trade,Guid bindingId,FuturesMarginPolicy policy,
@@ -68,12 +77,7 @@ public sealed partial record FuturesContract
             throw TimelineError("futures_margin_history","Native history must retain this exact owner, execution terms, adopted policy and certified read context.");
         _=MarginEvents(adopted,market,execution.ExecutedAt,context);
         var index=events.Select((e,i)=>(e.Id,i)).ToDictionary(e=>e.Id,e=>e.i);
-        if(!index.TryGetValue(throughOccurrence,out var last)||events[last].At>context.ValuationAt||
-            recorded.Any(r=>r is null||r.Evidence is null||r.DeterminationId==Guid.Empty||!index.ContainsKey(r.OccurrenceId)||
-                events[index[r.OccurrenceId]].At>context.ValuationAt)||
-            recorded.Select(r=>r.OccurrenceId).Distinct().Count()!=recorded.Length)
-            throw TimelineError("futures_margin_coverage","Select a due occurrence and every accepted predecessor without backdating state.");
-        if(recorded.Length>0)last=Math.Max(last,recorded.Max(r=>index[r.OccurrenceId]));
+        var last=MarginLast(events,index,throughOccurrence,recorded,context);
         var accepted=recorded.OrderBy(r=>index[r.OccurrenceId]).ToImmutableArray();
         if(!accepted.Select(r=>r.OccurrenceId).SequenceEqual(events.Take(accepted.Length).Select(e=>e.Id))||
             accepted.Select(r=>r.DeterminationId).Distinct().Count()!=accepted.Length)
@@ -128,6 +132,17 @@ public sealed partial record FuturesContract
         var final=prefix[^1];
         return new(new(trade!.Id,bindingId),trade.BookId,policy,new(previous,final.At,
             final.Phase==FuturesMarginPhase.Final?FuturesMarginStatus.FinalMarginDetermined:FuturesMarginStatus.Open),steps.ToImmutable());
+    }
+
+    private static int MarginLast(ImmutableArray<FuturesMarginOccurrence> events,Dictionary<Guid,int> index,Guid through,
+        ImmutableArray<RecordedFuturesMargin> recorded,MarketSnapshot context)
+    {
+        if(!index.TryGetValue(through,out var last)||events[last].At>context.ValuationAt||
+            recorded.Any(r=>r is null||r.Evidence is null||r.DeterminationId==Guid.Empty||!index.ContainsKey(r.OccurrenceId)||
+                events[index[r.OccurrenceId]].At>context.ValuationAt)||
+            recorded.Select(r=>r.OccurrenceId).Distinct().Count()!=recorded.Length)
+            throw TimelineError("futures_margin_coverage","Select a due occurrence and every accepted predecessor without backdating state.");
+        return recorded.Length>0?Math.Max(last,recorded.Max(r=>index[r.OccurrenceId])):last;
     }
 
     private ImmutableArray<FuturesMarginOccurrence> MarginEvents(FuturesMarginPolicy policy,FuturesMarketBinding market,
