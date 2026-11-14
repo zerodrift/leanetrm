@@ -5051,3 +5051,90 @@ boundary has no usable one-tick gamma on either tree. A run retained before a
 change of the stated pricing policy is no longer opened as a scope's current
 report after it.
 
+## D398 · P&L explain compares a prior date with a current date of one close convention, and counts one calendar day on the prior close's clock
+
+2026-11-14. Decided by the owner. Refines the page's pickers of D390 and the
+request contract of the one-day time effect of D387. Valuation, the
+reconciliation, every amount a report states and authority are unchanged, and
+there is no schema change.
+
+- **Names.** The page's two dates are **Prior date** and **Current date**. The
+  current date starts as the header's date, which need not be today. The
+  request's members stay `opening` and `closing`, and a report keeps Opening
+  and Closing for its values and prices.
+- **One convention on the page.** The pickers list the recorded closes of the
+  header's close convention, each named by its business day since the
+  convention names its time of day, and the working snapshots, each named by
+  its instant. The convention is stated once beside them; the header chooses
+  it. With no convention chosen the page lists working snapshots alone and says
+  where to choose one. A date the person chose that the convention no longer
+  lists is left unchosen, never replaced. The rule of D390 for what the pickers
+  show until the person chooses is unchanged.
+- **The backend stays general.** A run still takes any two frames in increasing
+  order: closes of two conventions, or a working snapshot at either end. No
+  pair of frames is refused for its conventions. Comparing the last close with
+  a working snapshot must stay possible, and a comparison across conventions is
+  valued correctly.
+- **The clock comes from the prior close.** One calendar day of model decay
+  runs from the prior date to the same local time on the next calendar date of
+  a calendar clock. Where the prior date is a recorded close, that clock is the
+  clock of the calendar its exact close session version pins. The request names
+  no clock, and one that names a clock is refused with `pnl_time_policy`: it is
+  neither obeyed nor ignored. Where the prior date is a working snapshot, which
+  belongs to no convention, the request names the clock as a full clock rule,
+  as before; the policies offer two. One that names none is refused with the
+  same code. The roll to the closing instant takes no clock, as before.
+- **Read, never assumed.** A close names its exact session version, which is
+  immutable configuration and is read by its key. That version's calendar and
+  the calendar's clock rule are reference data, read under the prior endpoint's
+  own bound context: its knowledge cutoff and its effective date. Where they
+  cannot be read there, one calendar day is refused with `pnl_time_clock`; the
+  roll needs no clock and still runs. No clock is taken from the current date,
+  the header, the person's time zone or the host.
+- **Decided early.** The roll, and one calendar day on a clock the request
+  names, are decided before any endpoint is read, so a clock rule the host
+  cannot load is refused there. A convention's clock is decided once the prior
+  endpoint is read and before the current one is prepared.
+- **Why the prior date's.** The decay starts there. The clock decides only
+  which instant is the same local time on the next calendar date, so two clocks
+  give different instants only across a change of offset. New York changes its
+  offset early on a Sunday: from a weekday close there the day is always 24
+  hours, and only a calendar that has Saturdays has a close before a change.
+  From 17:00 in New York on Saturday 2026-10-31 the day is 25 hours on that
+  clock and 24 on UTC.
+- **What a report states.** `opening.close` and `closing.close` give a recorded
+  close's convention code, version and name with its business day, and are null
+  for a working snapshot. `time.clock` gives the clock rule, what it is (its
+  IANA zone, or its fixed offset from UTC, since a rule's code is only a name),
+  its source, `prior_close_convention` or `request`, and for a convention its
+  code, version, name and calendar; it is null for the roll. The request a
+  report retains shows a null clock where the convention supplied it. The page
+  reads a recorded close as its business day, names the convention once when
+  both dates share it and beside each date when they differ, and says under the
+  time effect which clock one calendar day was counted on, by its code and what
+  it is, and whose it is.
+- **Saved reports.** These members are additions to `trading_pnl_report_v2`. A
+  report saved earlier still opens and keeps the clock it was run with in its
+  time partitions. It states no closes, so its period reads as two instants.
+
+Not chosen. Refusing two conventions in the backend removes a comparison that
+is valued correctly, and a comparison with a working snapshot would need an
+exception to it. Taking the clock from the current date or from the pair: the
+decay starts at the prior date, and two closes may keep different clocks.
+Keeping the clock a required input: it was asked on every run and changed a
+figure only across a change of offset. Giving a working snapshot the header
+convention's clock: a working snapshot belongs to no convention.
+
+Open. The clocks offered for a working snapshot are a list of two in code, not
+reference data. The pickers are not limited to a historical view's own date. A
+report keeps Opening and Closing in its tables and legends beside the page's
+Prior date and Current date, and the saved-report list reads a report's dates
+as instants. An IANA clock rule states its tz database release, and a host with
+another release refuses the run with `clock_tzdb`, as for every reference
+clock. A session version pins the calendar of the catalogue's calendar source
+at the time it was saved. Where that reference version is not in force for the
+prior date under the bound context, the convention's clock cannot be read
+though closes were recorded under it; no check constructs that case, nor a
+session saved through the session operation. See
+[trading P&L](trading-pnl.md).
+

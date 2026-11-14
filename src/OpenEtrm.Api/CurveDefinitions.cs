@@ -44,7 +44,7 @@ public sealed record CurveReferenceTerms(ImmutableArray<CurveCommodityLocation> 
         var units=ByCode("quantity_specifications",r=>r.Text("unit_code"));
         var lastTrading=Rows("futures_milestones").Where(r=>r.Text("milestone")=="last_trading"&&r.Text("value_state")=="known")
             .ToImmutableDictionary(r=>r.Text("series_code"),r=>DateTimeOffset.Parse(r.Text("event_at"),CultureInfo.InvariantCulture),StringComparer.Ordinal);
-        var clocks=ByCode("clock_rules",r=>r.Text("kind")=="iana"?r.Text("iana_zone"):Offset(int.Parse(r.Text("fixed_offset_seconds"),CultureInfo.InvariantCulture)));
+        var clocks=ByCode("clock_rules",r=>ReferenceClockJson.Zone(ReferenceClockJson.Read(r)));
         return new([..Rows("commodity_locations").Select(r=>new CurveCommodityLocation(r.Text("commodity_code"),r.Text("location_code")))],
             ByCode("quote_specifications",r=>new CurveQuoteTerms(r.Text("commodity_code"),r.Text("currency_code"),units[r.Text("quantity_code")],ExactDecimal.Parse(r.Text("multiplier")))),
             ByCode("delivery_profiles",r=>new CurveProfileTerms(r.Text("clock_code"),clocks[r.Text("clock_code")],int.Parse(r.Text("interval_minutes"),CultureInfo.InvariantCulture))),
@@ -56,7 +56,6 @@ public sealed record CurveReferenceTerms(ImmutableArray<CurveCommodityLocation> 
             [..Rows("sources").Select(r=>r.Text("code"))],
             [..Rows("currencies").Select(r=>r.Text("code"))]);
     }
-    static string Offset(int seconds)=>seconds==0?"UTC":$"UTC{(seconds<0?'-':'+')}{TimeSpan.FromSeconds(Math.Abs(seconds)):hh\\:mm}";
 }
 
 // A choice the editor offers; an unsupported one is shown as Coming soon and refused by Preview. A settlement choice names the reference

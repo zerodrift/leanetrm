@@ -409,7 +409,7 @@ L(t) the selected frozen-input clock layer. Both modes use ordinary scenario PV:
 
 | Mode | Target | Output |
 | --- | --- | --- |
-| One-calendar-day model decay — initial UI selection | Same local wall time on the next calendar date in the selected retained clock | `V(L(t₁)) − V(E₀)`, money for that specific day |
+| One-calendar-day model decay — initial UI selection | Same local wall time on the next calendar date in a retained clock: the calendar clock of the opening close's convention, or the clock the request names for a working snapshot (D398) | `V(L(t₁)) − V(E₀)`, money for that specific day |
 | Opening-to-closing time roll | Exact closing valuation instant | Repriced opening exposure at that instant, with separately identified projected lifecycle/cash effects |
 
 The first output is a finite monetary change, with later-minus-earlier sign. It

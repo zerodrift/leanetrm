@@ -23,13 +23,16 @@ const setup=`(async()=>{window.calls=[];window.actor='risk';window.failSave=fals
   unavailableReason:closing===null?'closing_exact_price_unavailable':null});
  const effect=(axis,delta)=>({axis,delta:{amount:money(delta),unavailableEstimates:0},gamma:{amount:null,unavailableEstimates:1}});
  window.report={id:'report',version:'trading_pnl_report_v2',scope:{books:[{id:'book',name:'Gas options'}],tradeSelection:'Selected trades'},
-  opening:{at:'2026-01-01T21:00:00Z',context:{knownAt:'2026-11-01T00:00:00Z'}},closing:{at:'2026-01-02T21:00:00Z',context:{knownAt:'2026-11-01T00:00:00Z'}},policies:{coverage:'Selected opening factors',
+  opening:{at:'2026-01-01T21:00:00Z',context:{knownAt:'2026-11-01T00:00:00Z'},close:{session:'evening',sessionVersion:1,name:'Evening close',businessDate:'2026-01-01'}},
+  closing:{at:'2026-01-02T21:00:00Z',context:{knownAt:'2026-11-01T00:00:00Z'},close:{session:'evening',sessionVersion:1,name:'Evening close',businessDate:'2026-01-02'}},policies:{coverage:'Selected opening factors',
    timeModes:[{id:'one_calendar_day_model_decay_v1',label:'One-day model decay'},{id:'opening_to_closing_clock_v1',label:'Opening-to-closing time roll'}]},
   factors:[factor('price_0','Gas futures · Dec 2026','3.30','3.33','0.03'),factor('price_1','Crude futures · Dec 2026','60.50','61.25','0.75')],
   totals:[{currency,values:amounts(95,103,2,6,2),bridge,factorEffects:[effect('price_0',4),effect('price_1',2)],greekCoverage:'partial'}],positions,
-  time:{mode:'one_calendar_day_model_decay_v1',status:'complete',totals:[{currency,value:money(-1)}],partitions:[]}};
+  time:{mode:'one_calendar_day_model_decay_v1',status:'complete',clock:{source:'prior_close_convention',session:'evening',sessionVersion:1,name:'Evening close',calendar:'business_days',
+   rule:{code:'UTC',kind:'fixed_offset',fixedOffsetSeconds:0,ianaZone:null,tzdbVersion:null},zone:'UTC'},totals:[{currency,value:money(-1)}],partitions:[]}};
  window.capture={artifact:'protected-result',saveRefusal:null};window.saved={reports:[],more:false};window.stored=undefined;window.selectedFrame='closing';window.display=undefined;
- window.frames=[{id:'opening',at:'2026-01-01T21:00:00Z',label:'Evening close · Jan 1, 2026',session:'evening'},{id:'closing',at:'2026-01-02T21:00:00Z',label:'Evening close · Jan 2, 2026',session:'evening'}];
+ window.convention='Evening close';
+ window.frames=[{id:'opening',at:'2026-01-01T21:00:00Z',label:'Jan 1, 2026',session:'evening'},{id:'closing',at:'2026-01-02T21:00:00Z',label:'Jan 2, 2026',session:'evening'}];
  window.api=async(path,body)=>{calls.push({path,body});
   if(path==='portfolio/pnl/policies')return {accounting:'accounting',attribution:'greeks',factors:'factors',
    factorBump:{offered:{ticks:1,priceSteps:2,absoluteTolerance:'0.000001',deltaRelativeTolerance:'0.15',gammaRelativeTolerance:'0.1'},ticks:{min:1,max:1000},priceSteps:[2,4]},clockPolicy:'clock',timeModes:[{id:'one_calendar_day_model_decay_v1',label:'One-day model decay'},{id:'opening_to_closing_clock_v1',label:'Opening-to-closing time roll'}],
@@ -38,16 +41,17 @@ const setup=`(async()=>{window.calls=[];window.actor='risk';window.failSave=fals
   if(path==='amounts/display'&&display)return body.map(display);
   if(path==='time/inspect')return {candidates:[{instant:body.localTime+'Z',offset:'+00:00'}]};
   if(path==='portfolio/pnl/save'){if(failSave)throw typeof failSave==='string'?Object.assign(Error('refused'),{code:failSave}):Error('connection lost');return {report,name:body.name,resultHash:'hash'};}throw Error(path);};
- window.options={api,act:f=>{window.lastWork=f().catch(e=>errors.push(e.message));return lastWork;},busy:()=>false,canRun:()=>true,identity:()=>actor,zone:()=>'UTC',frames:()=>frames,selected:()=>selectedFrame,
+ window.options={api,act:f=>{window.lastWork=f().catch(e=>errors.push(e.message));return lastWork;},busy:()=>false,canRun:()=>true,identity:()=>actor,zone:()=>'UTC',convention:()=>convention,frames:()=>frames,selected:()=>selectedFrame,
   scope:()=>({bookIds:['book'],portfolioIds:[],tradeIds:null}),knownAt:()=>'2026-11-01T00:00:07.1234567Z',instant:x=>x,changed(){}};
  window.desk=setupPnlView(document.querySelector('#host'),options);await desk.load();desk.sync(true);
- window.field=label=>[...document.querySelectorAll('.pnl-controls label')].find(e=>e.firstChild.textContent===label)?.querySelector('select,input');
+ window.field=label=>[...document.querySelectorAll('.pnl-controls label')].find(e=>e.firstChild.textContent===label)?.querySelector('select,input,output');
  window.button=text=>[...document.querySelectorAll('button')].find(b=>b.textContent===text);
  window.advanced=label=>[...document.querySelectorAll('.pnl-advanced label')].find(e=>e.firstChild.textContent===label)?.querySelector('select,input');
  window.choose=(label,value)=>{const control=advanced(label);control.value=value;control.dispatchEvent(new Event('change'));};
  window.texts=selector=>[...document.querySelectorAll(selector)].map(e=>e.textContent);
  window.rows=selector=>[...document.querySelectorAll(selector)].map(row=>[...row.cells].map(cell=>cell.textContent));
- window.run=async()=>{field('Opening close').value='opening';field('Closing close').value='closing';field('Calendar clock').value='UTC';button('Run P&L').click();await lastWork;};})()`;
+ window.pick=(label,value)=>{const control=field(label);control.value=value;control.dispatchEvent(new Event('change'));};
+ window.run=async()=>{field('Prior date').value='opening';field('Current date').value='closing';button('Run P&L').click();await lastWork;};})()`;
 const page=body=>withBrowserPage('<div id="host"></div>',body);
 
 test('P&L offers theta modes, sends explicit inputs and presents results before optional Save',browser,()=>page(async evaluate=>{
@@ -56,7 +60,8 @@ test('P&L offers theta modes, sends explicit inputs and presents results before 
  assert.equal(await evaluate("!!button('Save report')"),false);
  await evaluate('run()');
  const sent=await evaluate("calls.find(c=>c.path==='portfolio/pnl/run').body");
- assert.deepEqual(sent.time,{mode:'one_calendar_day_model_decay_v1',policy:'clock',clock:{code:'UTC',kind:'fixed_offset',fixedOffsetSeconds:0,ianaZone:null,tzdbVersion:null}});
+ // The prior date is a recorded close: one calendar day is counted on its convention's clock, and the request names none.
+ assert.deepEqual(sent.time,{mode:'one_calendar_day_model_decay_v1',policy:'clock',clock:null});
  assert.deepEqual([sent.opening.snapshotId,sent.closing.snapshotId,sent.knownAt],['opening','closing','2026-11-01T00:00:07.1234567Z']);
  assert.equal(await evaluate("!!button('Save report')"),true);
  assert.match(await evaluate("document.querySelector('#host').textContent"),/One-day model decay/);
@@ -129,7 +134,7 @@ test('a run pressed before the offered settings could be shown shows them and wa
 }));
 test('the page says plainly what it does and what to do before a result exists, under the application\'s own page title',browser,()=>page(async evaluate=>{
  await evaluate(setup);
- assert.deepEqual(await evaluate("texts('.pnl-intro > *, .pnl-empty h3')"),['Compare two closes of the selected Risk scope. The result reconciles value and cash, and shows what opening price Greeks explain.','No result yet']);
+ assert.deepEqual(await evaluate("texts('.pnl-intro > *, .pnl-empty h3')"),['Compare a prior date with a current date for the selected Risk scope. The result reconciles value and cash, and shows what price Greeks at the prior date explain.','No result yet']);
 }));
 test('a run that is refused says so instead of still preparing, and a change of scope clears the status and refills the cutoff',browser,()=>page(async evaluate=>{
  await evaluate(setup);
@@ -140,41 +145,86 @@ test('a run that is refused says so instead of still preparing, and a change of 
  await evaluate("desk.sync(true)");
  assert.equal(await evaluate("field('Known as of · UTC').value"),'2026-11-01T00:00:07');
 }));
-test('closes read as their own labels, and start as the header close and the close before it in its session',browser,()=>page(async evaluate=>{
+test('the dates are the header convention\'s business days, named once by their convention, and start as the header date and the one before it',browser,()=>page(async evaluate=>{
  await evaluate(setup);
- await evaluate("frames=[{id:'a',at:'2026-01-01T17:00:00Z',label:'Midday close · Jan 1, 2026',session:'midday'},{id:'b',at:'2026-01-01T21:00:00Z',label:'Evening close · Jan 1, 2026',session:'evening'},"+
-  "{id:'c',at:'2026-01-02T17:00:00Z',label:'Midday close · Jan 2, 2026',session:'midday'},{id:'d',at:'2026-01-02T21:00:00Z',label:'Evening close · Jan 2, 2026',session:'evening'}];selectedFrame='d';desk.reset();desk.load()");
- assert.deepEqual(await evaluate("[...field('Closing close').options].map(o=>o.text)"),['Choose a close…','Midday close · Jan 1, 2026','Evening close · Jan 1, 2026','Midday close · Jan 2, 2026','Evening close · Jan 2, 2026']);
- assert.deepEqual(await evaluate("[field('Opening close').value,field('Closing close').value]"),['b','d']);
- // A choice the person makes is kept when the closes are read again.
- await evaluate("field('Opening close').value='a';field('Opening close').dispatchEvent(new Event('change'));desk.load()");
- assert.deepEqual(await evaluate("[field('Opening close').value,field('Closing close').value]"),['a','d']);
+ // The convention is stated once, beside the dates, and is not a choice: the header chooses it.
+ assert.deepEqual(await evaluate("[field('Close convention').tagName,field('Close convention').textContent]"),['OUTPUT','Evening close']);
+ // It is written when it changes, not on every read, so that it is announced once.
+ assert.equal(await evaluate("(async()=>{const written=field('Close convention').firstChild;await desk.load();return field('Close convention').firstChild===written;})()"),true);
+ assert.deepEqual(await evaluate("[...document.querySelectorAll('#host > .pnl-controls > label:not([hidden])')].map(e=>e.firstChild.textContent)"),
+  ['Close convention','Prior date','Current date','Known as of · UTC','Time effect']);
+ await evaluate("frames=[{id:'a',at:'2026-01-01T21:00:00Z',label:'Jan 1, 2026',session:'evening'},{id:'w',at:'2026-01-02T12:00:00Z',label:'Working snapshot · Jan 2, 12:00',session:null},"+
+  "{id:'b',at:'2026-01-02T21:00:00Z',label:'Jan 2, 2026',session:'evening'},{id:'c',at:'2026-01-05T21:00:00Z',label:'Jan 5, 2026',session:'evening'}];selectedFrame='c';desk.reset();desk.load()");
+ assert.deepEqual(await evaluate("[...field('Current date').options].map(o=>o.text)"),['Choose a date…','Jan 1, 2026','Working snapshot · Jan 2, 12:00','Jan 2, 2026','Jan 5, 2026']);
+ assert.deepEqual(await evaluate("[field('Prior date').value,field('Current date').value]"),['b','c']);
+ // The date before a recorded close is the close before it, not a working snapshot taken in between.
+ await evaluate("selectedFrame='b';desk.load()");
+ assert.deepEqual(await evaluate("[field('Prior date').value,field('Current date').value]"),['a','b']);
+ // A choice the person makes is kept when the dates are read again.
+ await evaluate("selectedFrame='c';desk.load();pick('Prior date','a');desk.load()");
+ assert.deepEqual(await evaluate("[field('Prior date').value,field('Current date').value]"),['a','c']);
  // The choice outlives a change of scope, which resets the page.
  await evaluate("desk.reset();desk.load()");
- assert.deepEqual(await evaluate("[field('Opening close').value,field('Closing close').value]"),['a','d']);
- // On a page where nothing was chosen and the header names no close among them, nothing is assumed.
+ assert.deepEqual(await evaluate("[field('Prior date').value,field('Current date').value]"),['a','c']);
+ // A chosen date the header's convention no longer lists is not replaced by another: the person chooses again.
+ await evaluate("convention='Midday close';frames=[{id:'m',at:'2026-01-05T17:00:00Z',label:'Jan 5, 2026',session:'midday'}];selectedFrame='m';desk.load()");
+ assert.deepEqual(await evaluate("[field('Close convention').textContent,field('Prior date').value,field('Current date').value,document.querySelector('[role=status]').textContent]"),
+  ['Midday close','','','A date you chose is no longer listed. Choose it again.']);
+ // On a page where nothing was chosen and the header names no date among them, nothing is assumed.
  await evaluate("selectedFrame=undefined;desk=setupPnlView(document.querySelector('#host'),options);desk.load()");
- assert.deepEqual(await evaluate("[field('Opening close').value,field('Closing close').value]"),['','']);
- // Closes the page offered are withdrawn when the header stops naming a close.
- await evaluate("selectedFrame='d';desk.load()");
- assert.deepEqual(await evaluate("[field('Opening close').value,field('Closing close').value]"),['b','d']);
+ assert.deepEqual(await evaluate("[field('Prior date').value,field('Current date').value]"),['','']);
+ // Dates the page offered are withdrawn when the header stops naming one.
+ await evaluate("selectedFrame='m';desk.load()");
+ assert.deepEqual(await evaluate("[field('Prior date').value,field('Current date').value]"),['','m']);
  await evaluate("selectedFrame=undefined;desk.load()");
- assert.deepEqual(await evaluate("[field('Opening close').value,field('Closing close').value]"),['','']);
+ assert.deepEqual(await evaluate("[field('Prior date').value,field('Current date').value]"),['','']);
 }));
-test('a header close with no earlier close of its convention, and a working snapshot, start from the frame before them',browser,()=>page(async evaluate=>{
+test('a header date with no earlier close of its convention, and a working snapshot, start from the date before them',browser,()=>page(async evaluate=>{
  await evaluate(setup);
- await evaluate("frames=[{id:'m1',at:'2026-01-01T17:00:00Z',label:'Midday close · Jan 1, 2026',session:'midday'},{id:'e1',at:'2026-01-01T21:00:00Z',label:'Evening close · Jan 1, 2026',session:'evening'},"+
-  "{id:'w1',at:'2026-01-02T12:00:00Z',label:'Working snapshot · Jan 2',session:null},{id:'e2',at:'2026-01-02T21:00:00Z',label:'Evening close · Jan 2, 2026',session:'evening'},"+
-  "{id:'w2',at:'2026-01-03T12:00:00Z',label:'Working snapshot · Jan 3',session:null}];selectedFrame='e1';desk.reset();desk.load()");
- assert.deepEqual(await evaluate("[field('Opening close').value,field('Closing close').value]"),['m1','e1']);
- // A working snapshot has no convention to match: the frame before it is a close, not the working snapshot before that.
+ await evaluate("frames=[{id:'w0',at:'2026-01-01T12:00:00Z',label:'Working snapshot · Jan 1, 12:00',session:null},{id:'e1',at:'2026-01-01T21:00:00Z',label:'Jan 1, 2026',session:'evening'},"+
+  "{id:'e2',at:'2026-01-02T21:00:00Z',label:'Jan 2, 2026',session:'evening'},{id:'w2',at:'2026-01-03T12:00:00Z',label:'Working snapshot · Jan 3, 12:00',session:null}];selectedFrame='e1';desk.reset();desk.load()");
+ assert.deepEqual(await evaluate("[field('Prior date').value,field('Current date').value]"),['w0','e1']);
+ // A working snapshot has no convention to match: the date before it is whatever came before it.
  await evaluate("selectedFrame='w2';desk.load()");
- assert.deepEqual(await evaluate("[field('Opening close').value,field('Closing close').value]"),['e2','w2']);
+ assert.deepEqual(await evaluate("[field('Prior date').value,field('Current date').value]"),['e2','w2']);
 }));
-test('with no closes to compare the page says where to choose one',browser,()=>page(async evaluate=>{
+test('the calendar clock is asked only for one calendar day from a working snapshot, which has no convention to take it from',browser,()=>page(async evaluate=>{
+ await evaluate(setup);
+ const asked="!field('Calendar clock').closest('label').hidden",sent="calls.filter(c=>c.path==='portfolio/pnl/run').at(-1).body.time";
+ await evaluate("frames=[{id:'w',at:'2026-01-01T12:00:00Z',label:'Working snapshot · Jan 1, 12:00',session:null},...frames];desk.load()");
+ // A recorded close as the prior date: nothing to ask.
+ assert.deepEqual(await evaluate(`[field('Prior date').value,${asked}]`),['opening',false]);
+ // A working snapshot as the prior date: the clock is asked, nothing is chosen for the person, and a run without it is not sent.
+ await evaluate("pick('Prior date','w')");
+ assert.deepEqual(await evaluate(`[${asked},field('Calendar clock').value,[...field('Calendar clock').options].map(o=>o.text)]`),[true,'',['Choose a clock…','UTC']]);
+ await evaluate("button('Run P&L').click();lastWork");
+ assert.deepEqual(await evaluate("[errors,calls.filter(c=>c.path==='portfolio/pnl/run').length,document.querySelector('[role=status]').textContent]"),
+  [['Choose the calendar clock. A working snapshot has no close convention to take it from.'],0,'P&L did not run.']);
+ await evaluate("errors.length=0;pick('Calendar clock','UTC');button('Run P&L').click();lastWork");
+ assert.deepEqual(await evaluate(`[errors,${sent}]`),[[],{mode:'one_calendar_day_model_decay_v1',policy:'clock',clock:{code:'UTC',kind:'fixed_offset',fixedOffsetSeconds:0,ianaZone:null,tzdbVersion:null}}]);
+ // The roll to the current date's instant takes no clock, whatever the prior date is.
+ await evaluate("pick('Time effect','opening_to_closing_clock_v1');button('Run P&L').click();lastWork");
+ assert.deepEqual(await evaluate(`[${asked},${sent}]`),[false,{mode:'opening_to_closing_clock_v1',policy:'clock',clock:null}]);
+ // Back on one calendar day, a recorded close as the prior date takes its convention's clock: the clock chosen for the working snapshot is not sent.
+ await evaluate("pick('Time effect','one_calendar_day_model_decay_v1');pick('Prior date','opening');button('Run P&L').click();lastWork");
+ assert.deepEqual(await evaluate(`[${asked},${sent}]`),[false,{mode:'one_calendar_day_model_decay_v1',policy:'clock',clock:null}]);
+ // A working snapshot as the current date asks nothing: one calendar day starts at the prior date.
+ await evaluate("pick('Current date','w');pick('Prior date','')");
+ assert.equal(await evaluate(asked),false);
+ // The clock a person chose is theirs: it is not handed to another person, whichever way the page learns of them.
+ await evaluate("pick('Prior date','w');pick('Calendar clock','UTC');actor='other';desk.sync(true)");
+ assert.deepEqual(await evaluate(`[${asked},field('Calendar clock').value]`),[true,'']);
+ await evaluate("pick('Calendar clock','UTC');actor='risk';desk.reset();desk.load()");
+ assert.equal(await evaluate("field('Calendar clock').value"),'');
+}));
+test('with no dates to compare the page says where to choose one, and with no close convention where to choose that',browser,()=>page(async evaluate=>{
  await evaluate(setup);await evaluate("frames=[];desk.reset();desk.load()");
- assert.deepEqual(await evaluate("[...field('Opening close').options].map(o=>o.text)"),['No closes to compare']);
- assert.equal(await evaluate("document.querySelector('[role=status]').textContent"),'Choose a market close in the header to list the closes you can compare.');
+ assert.deepEqual(await evaluate("[...field('Prior date').options].map(o=>o.text)"),['No dates to compare']);
+ assert.equal(await evaluate("document.querySelector('[role=status]').textContent"),'Choose a market close in the header to list the dates you can compare.');
+ // With no convention chosen in the header, no close is listed: working snapshots alone, and where to choose a convention.
+ await evaluate("convention=null;frames=[{id:'w',at:'2026-01-01T12:00:00Z',label:'Working snapshot · Jan 1, 12:00',session:null}];desk.reset();desk.load()");
+ assert.deepEqual(await evaluate("[field('Close convention').textContent,[...field('Prior date').options].map(o=>o.text),document.querySelector('[role=status]').textContent]"),
+  ['None chosen',['Choose a date…','Working snapshot · Jan 1, 12:00'],'Choose a close convention in the header’s As of details to list its dates.']);
 }));
 test('the knowledge cutoff reads as local time, sends the exact header cutoff, and resolves an edited time through the backend',browser,()=>page(async evaluate=>{
  await evaluate(setup);
@@ -244,12 +294,38 @@ test('a report in two currencies shows the chosen currency alone: its result, fa
 }));
 test('a time effect the scope cannot provide says so in words with its reason, and shows no figure or internal code',browser,()=>page(async evaluate=>{
  await evaluate(setup);
- await evaluate("report.policies.timeModes[0].label='One calendar day of decay';report.time={mode:'one_calendar_day_model_decay_v1',status:'unavailable',totals:null,"+
+ await evaluate("report.policies.timeModes[0].label='One calendar day of decay';report.time={...report.time,status:'unavailable',totals:null,"+
   "partitions:[{status:'unavailable',code:'valuation_time_unsupported',detail:'A held instrument does not support a change of valuation time.',clock:{at:'2026-01-02T21:00:00Z'}}]}");
  await evaluate('run()');
  assert.deepEqual(await evaluate("[texts('.pnl-time > *'),document.querySelectorAll('.pnl-time .pnl-money').length]"),
   [['One calendar day of decay','Time effect unavailable for the complete opening scope.','Frozen opening markets and knowledge. This diagnostic is separate from the period reconciliation.',
-   'A held instrument does not support a change of valuation time.'],0]);
+   'One calendar day is counted on UTC, the calendar clock of the prior date’s close convention, Evening close.','A held instrument does not support a change of valuation time.'],0]);
+}));
+test('a result names its dates by business day under their close convention, and says whose calendar clock one calendar day was counted on',browser,()=>page(async evaluate=>{
+ await evaluate(setup);
+ const shown=async change=>{await evaluate(`${change};run()`);
+  return evaluate("[document.querySelector('.pnl-period strong').textContent,texts('.pnl-time > p').filter(t=>t.startsWith('One calendar day'))]");};
+ // Two closes of one convention name it once, and read as its business days.
+ assert.deepEqual(await shown('0'),['Evening close · Jan 1, 2026 → Jan 2, 2026',['One calendar day is counted on UTC, the calendar clock of the prior date’s close convention, Evening close.']]);
+ // Closes of two conventions each name their own.
+ assert.deepEqual(await shown("report.opening.close={session:'midday',sessionVersion:3,name:'Midday close',businessDate:'2026-01-01'}"),
+  ['Midday close · Jan 1, 2026 → Evening close · Jan 2, 2026',['One calendar day is counted on UTC, the calendar clock of the prior date’s close convention, Evening close.']]);
+ // A clock reads as its name and what it is, where the two differ: a rule's code need not say what the clock is.
+ assert.deepEqual(await shown("report.time.clock={...report.time.clock,rule:{...report.time.clock.rule,code:'synthetic_utc'}}"),
+  ['Midday close · Jan 1, 2026 → Evening close · Jan 2, 2026',['One calendar day is counted on synthetic_utc (UTC), the calendar clock of the prior date’s close convention, Evening close.']]);
+ // A working snapshot has no convention or business day: it reads as its instant, and its clock is the one the request named.
+ assert.deepEqual(await shown("report.opening.close=null;report.time.clock={source:'request',session:null,sessionVersion:null,name:null,calendar:null,"+
+  "rule:{code:'New York',kind:'iana',fixedOffsetSeconds:null,ianaZone:'America/New_York',tzdbVersion:'2026a'},zone:'America/New_York'}"),
+  ['2026-01-01T21:00:00Z → Evening close · Jan 2, 2026',['One calendar day is counted on New York (America/New_York), the calendar clock chosen for the prior date, a working snapshot.']]);
+ // The roll to the current date's instant counts on no clock, and says nothing of one.
+ assert.deepEqual(await shown("report.closing.close=null;report.time.clock=null"),['2026-01-01T21:00:00Z → 2026-01-02T21:00:00Z',[]]);
+ // A clock from a source the page does not know is not described as something else.
+ await evaluate("errors.length=0;report.time.clock={source:'header',name:null,rule:{code:'UTC'},zone:'UTC'};run()");
+ assert.deepEqual(await evaluate('errors'),['The backend P&L result is incomplete.']);
+ // A report saved before closes and the clock were stated carries neither member: it reads as its instants, with no clock line.
+ await evaluate("errors.length=0;delete report.opening.close;delete report.closing.close;delete report.time.clock");
+ assert.deepEqual(await shown('0'),['2026-01-01T21:00:00Z → 2026-01-02T21:00:00Z',[]]);
+ assert.deepEqual(await evaluate('errors'),[]);
 }));
 test('a partly estimated Greek effect keeps its amount and says how many estimates are missing',browser,()=>page(async evaluate=>{
  await evaluate(setup);await evaluate("report.totals[0].bridge[0].unavailableEstimates=1");await evaluate('run()');
@@ -474,6 +550,16 @@ test('at a desk width every holdings column shows without scrolling, a long fact
   "const lines=name=>{const text=document.createRange();text.selectNodeContents(name);return new Set([...text.getClientRects()].map(box=>Math.round(box.top))).size;};"+
   "return {fits:wrap.scrollWidth<=wrap.clientWidth,names:names.length,lines:Math.max(...names.map(lines))};})()");
  assert.deepEqual(layout,{fits:true,names:2,lines:2});
+}));
+
+test('a long close convention name stays inside its own field at a desk width and can be read in full',browser,()=>withBrowserPage(styled,async(evaluate,command)=>{
+ await command('Emulation.setDeviceMetricsOverride',{width:1150,height:900,deviceScaleFactor:1,mobile:false});
+ await evaluate(setup);
+ const name='Synthetic north-western regional end of day close convention for every calendar day';
+ await evaluate(`convention=${JSON.stringify(name)};desk.load()`);
+ const layout=await evaluate("(()=>{const stated=field('Close convention'),own=stated.closest('label').getBoundingClientRect(),next=field('Prior date').closest('label').getBoundingClientRect(),box=stated.getBoundingClientRect();"+
+  "return {text:stated.textContent,title:stated.title,inside:box.right<=own.right+1,clear:own.bottom<=next.top||own.right<=next.left,cut:stated.scrollWidth>stated.clientWidth,page:document.documentElement.scrollWidth<=document.documentElement.clientWidth};})()");
+ assert.deepEqual(layout,{text:name,title:name,inside:true,clear:true,cut:true,page:true});
 }));
 
 test('P&L empty and completed views use the shared dark theme with readable text',browser,()=>withBrowserPage('<link rel="stylesheet" href="/app.css"><div id="host"></div>',async evaluate=>{
