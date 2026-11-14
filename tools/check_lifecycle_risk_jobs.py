@@ -1,5 +1,7 @@
 """Economic risk custody and worker reads in owned disposable PostgreSQL."""
 import json
+import time
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from uuid import uuid4
 from check_reference_editing import main
@@ -7,7 +9,7 @@ from check_risk_jobs_db import provision_worker
 from close_session_fixture import sql_session
 from preview_fixture import catalogue_fixture, trading_fixture
 
-HELPERS = ('risk.claim(integer,text)','risk.owned_attempt(uuid,uuid,boolean,boolean)','risk.authorized(risk.jobs)', 'risk.worker_read()', 'risk.bind(uuid,uuid)',
+HELPERS = ('risk.worker()','risk.claim(integer,text)','risk.owned_attempt(uuid,uuid,boolean,boolean)','risk.authorized(risk.jobs)', 'risk.worker_read()', 'risk.bind(uuid,uuid)',
            'risk.bind_pre_ppa_context(uuid,uuid)', 'risk.axis_commands(jsonb)', 'risk.retain_axes(risk.jobs,jsonb)',
            'risk.retain_parametric(risk.jobs)', 'risk.submit(uuid,uuid,uuid,uuid,timestamptz,jsonb,jsonb)',
            'risk.guard_run()', 'risk.summary(risk.jobs)', 'security.authority_until(text)',
@@ -62,6 +64,7 @@ def checks(query, manifest):
     query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
     query(catalogue_fixture(manifest, 'https://preview.invalid'))
     sql_session(query, manifest, 'synthetic_lifecycle_risk', 'test_business', '16:00', ['future'], [])
+    sql_session(query, manifest, 'synthetic_alternative_risk', 'test_business', '17:00', ['future'], [])
     provision_worker(query, manifest, 'synthetic_lifecycle_worker')
     def literal(value):
         return "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
@@ -219,6 +222,12 @@ def checks(query, manifest):
     reject(lambda:worker(bound(f"SELECT security.require_gas_owned_projection_scope('{catalog}','{context}','{seed['at']}',ARRAY['{books[0]}']::uuid[],false,settlement_data.futures_margin_preview_authority('{catalog}'));")),'risk_job_scope')
     reject(lambda:worker(bound(f"SELECT settlement_data.read_futures_delivery_profile('{catalog}','{uuid4()}',1,'{context}','{seed['at']}');")),'risk_job_scope')
     print('PASS worker source scope refuses foreign owner/profile, altered context/clock and partial book reads before native source lookup',flush=True)
+    selected_horizon=json.loads(worker(bound(f"SELECT(security.read_lifecycle_projection_horizon('{catalog}','synthetic_lifecycle_risk',1,'{context}','{seed['at']}','2020-12-18')-'authorityUntil')::text;")).splitlines()[-1])
+    assert selected_horizon==horizon
+    reject(lambda:worker(bound(f"SELECT security.read_lifecycle_projection_horizon('{catalog}','synthetic_alternative_risk',1,'{context}','{seed['at']}','2020-12-18');")),'risk_job_scope')
+    assert query("SELECT has_function_privilege('synthetic_lifecycle_worker','security.lifecycle_projection_sessions(uuid,uuid,timestamptz,date)','EXECUTE');")=='f'
+    print('PASS worker horizon reopens exactly the retained selected session; interactive session discovery remains ungranted',flush=True)
+
 
 
     # A conditional gas job stays queued for a service that has no current gas
@@ -259,6 +268,40 @@ def checks(query, manifest):
         "RAISE EXCEPTION 'synthetic_expired_source_read_accepted';END$$;COMMIT;")
     assert deadline_read.splitlines()[-1]=='t',deadline_read
     print('PASS original service read deadline survives a permission gap and successor grant; no newly valid grant revives the bound read',flush=True)
+    for conditional_gas in (False,True):
+        login='synthetic_bind_gas_wait'if conditional_gas else'synthetic_bind_base_wait'
+        provision_worker(query,manifest,login)
+        if conditional_gas:
+            query(f"INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,'{gas_role}','{tenant}','{workspace}',clock_timestamp(),clock_timestamp()+interval '3 seconds',false FROM risk.workers WHERE login='{login}';"
+                f"INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,'{gas_role}','{tenant}','{workspace}',clock_timestamp()+interval '3.2 seconds','9999-12-31',false FROM risk.workers WHERE login='{login}';")
+        else:
+            query(f"UPDATE security.role_grants SET granted_to=clock_timestamp()+interval '3 seconds' WHERE principal_id=(SELECT principal_id FROM risk.workers WHERE login='{login}');"
+                f"INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,role_id,tenant_id,workspace_id,granted_to+interval '0.2 seconds','9999-12-31',false FROM security.role_grants WHERE principal_id=(SELECT principal_id FROM risk.workers WHERE login='{login}');")
+        first_request=deepcopy(gas_request if conditional_gas else request);first_request['engineVersion']=login+'_v1'
+        first=submit(first_request)
+        first_claim=json.loads(query(f"SET SESSION AUTHORIZATION {login};SELECT risk.claim(30,'{first_request['engineVersion']}')::text;"))
+        holder_name='synthetic_bind_holder_'+uuid4().hex
+        with ThreadPoolExecutor(max_workers=2)as pool:
+            holder=pool.submit(query,f"SET application_name='{holder_name}';BEGIN;SELECT generation FROM security.epoch FOR UPDATE;SELECT pg_sleep(4.4);ROLLBACK;")
+            deadline=time.monotonic()+3
+            while query(f"SELECT count(*)FROM pg_stat_activity WHERE application_name='{holder_name}' AND wait_event='PgSleep';")!='1':
+                assert time.monotonic()<deadline,'Epoch holder never acquired its row lock'
+                time.sleep(.01)
+            work=pool.submit(query,f"SET application_name='{login}_call';SET SESSION AUTHORIZATION {login};BEGIN;SELECT risk.bind('{first['jobId']}','{first_claim['leaseToken']}');COMMIT;")
+            deadline=time.monotonic()+3
+            while query(f"SELECT count(*)FROM pg_stat_activity WHERE application_name='{login}_call' AND wait_event_type='Lock' AND query LIKE '%risk.bind%';")!='1':
+                assert time.monotonic()<deadline,'Bind did not enter the intended first epoch wait'
+                time.sleep(.01)
+            try:
+                accepted_after_gap=work.result(timeout=8)
+            except RuntimeError as error:
+                assert 'risk_job_denied'in str(error),str(error)
+            else:
+                raise AssertionError('First bind admission was revived by a preexisting successor grant: '+accepted_after_gap)
+            holder.result(timeout=3)
+        assert query(f"SELECT security.principal_has_permission(w.principal_id,'{tenant}','{workspace}','{'ReadGasOwnedHoldings'if conditional_gas else'RunScenario'}',clock_timestamp())FROM risk.workers w WHERE w.login='{login}';")=='t'
+    print('PASS bind first-wait admission preserves original base and conditional gas deadlines across epoch waits and preexisting successor grants',flush=True)
+
     print('QUALIFIED authority_until source hash '+query("SELECT md5(prosrc) FROM pg_proc WHERE oid='security.authority_until(text)'::regprocedure;"),flush=True)
 
 

@@ -14,7 +14,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper risk.authorized(risk.jobs)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION risk.authorized(','FUNCTION risk.authorized_pre_economic_lifecycle(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION risk.authorized(','FUNCTION risk.authorized_pre_economic_lifecycle('),'authorized.','authorized_pre_economic_lifecycle.');
 END$guard$;
 ALTER FUNCTION risk.authorized_pre_economic_lifecycle(risk.jobs) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION risk.authorized_pre_economic_lifecycle(risk.jobs) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -29,7 +29,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_risk_worker=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper risk.worker_read()';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION risk.worker_read(','FUNCTION risk.worker_read_pre_economic_lifecycle(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION risk.worker_read(','FUNCTION risk.worker_read_pre_economic_lifecycle('),'worker_read.','worker_read_pre_economic_lifecycle.');
 END$guard$;
 ALTER FUNCTION risk.worker_read_pre_economic_lifecycle() OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION risk.worker_read_pre_economic_lifecycle() FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -44,7 +44,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_risk_worker=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper risk.bind(uuid,uuid)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION risk.bind(','FUNCTION risk.bind_pre_economic_lifecycle(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION risk.bind(','FUNCTION risk.bind_pre_economic_lifecycle('),'bind.','bind_pre_economic_lifecycle.');
 END$guard$;
 ALTER FUNCTION risk.bind_pre_economic_lifecycle(uuid,uuid) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION risk.bind_pre_economic_lifecycle(uuid,uuid) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -59,7 +59,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper risk.axis_commands(jsonb)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION risk.axis_commands(','FUNCTION risk.axis_commands_pre_economic_lifecycle(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION risk.axis_commands(','FUNCTION risk.axis_commands_pre_economic_lifecycle('),'axis_commands.','axis_commands_pre_economic_lifecycle.');
 END$guard$;
 ALTER FUNCTION risk.axis_commands_pre_economic_lifecycle(jsonb) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION risk.axis_commands_pre_economic_lifecycle(jsonb) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -74,7 +74,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper risk.retain_axes(risk.jobs,jsonb)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION risk.retain_axes(','FUNCTION risk.retain_axes_pre_economic_lifecycle(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION risk.retain_axes(','FUNCTION risk.retain_axes_pre_economic_lifecycle('),'retain_axes.','retain_axes_pre_economic_lifecycle.');
 END$guard$;
 ALTER FUNCTION risk.retain_axes_pre_economic_lifecycle(risk.jobs,jsonb) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION risk.retain_axes_pre_economic_lifecycle(risk.jobs,jsonb) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -89,7 +89,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper risk.retain_parametric(risk.jobs)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION risk.retain_parametric(','FUNCTION risk.retain_parametric_pre_economic_lifecycle(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION risk.retain_parametric(','FUNCTION risk.retain_parametric_pre_economic_lifecycle('),'retain_parametric.','retain_parametric_pre_economic_lifecycle.');
 END$guard$;
 ALTER FUNCTION risk.retain_parametric_pre_economic_lifecycle(risk.jobs) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION risk.retain_parametric_pre_economic_lifecycle(risk.jobs) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -104,7 +104,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper risk.guard_run()';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION risk.guard_run(','FUNCTION risk.guard_run_pre_economic_lifecycle(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION risk.guard_run(','FUNCTION risk.guard_run_pre_economic_lifecycle('),'guard_run.','guard_run_pre_economic_lifecycle.');
 END$guard$;
 ALTER FUNCTION risk.guard_run_pre_economic_lifecycle() OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION risk.guard_run_pre_economic_lifecycle() FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -119,7 +119,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper risk.summary(risk.jobs)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION risk.summary(','FUNCTION risk.summary_pre_economic_lifecycle(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION risk.summary(','FUNCTION risk.summary_pre_economic_lifecycle('),'summary.','summary_pre_economic_lifecycle.');
 END$guard$;
 ALTER FUNCTION risk.summary_pre_economic_lifecycle(risk.jobs) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION risk.summary_pre_economic_lifecycle(risk.jobs) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -134,7 +134,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner,openetrm_risk_worker=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper security.authority_until(text)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION security.authority_until(','FUNCTION security.authority_until_pre_economic_lifecycle(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION security.authority_until(','FUNCTION security.authority_until_pre_economic_lifecycle('),'authority_until.','authority_until_pre_economic_lifecycle.');
 END$guard$;
 ALTER FUNCTION security.authority_until_pre_economic_lifecycle(text) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.authority_until_pre_economic_lifecycle(text) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -149,7 +149,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper security.require_gas_owned(uuid,boolean,boolean)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION security.require_gas_owned(','FUNCTION security.require_gas_owned_pre_economic_lifecycle(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION security.require_gas_owned(','FUNCTION security.require_gas_owned_pre_economic_lifecycle('),'require_gas_owned.','require_gas_owned_pre_economic_lifecycle.');
 END$guard$;
 ALTER FUNCTION security.require_gas_owned_pre_economic_lifecycle(uuid,boolean,boolean) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.require_gas_owned_pre_economic_lifecycle(uuid,boolean,boolean) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -491,27 +491,80 @@ DO $guard$DECLARE p pg_proc;definition text;needle constant text='OR NOT risk.au
  EXECUTE replace(definition,needle,'OR NOT risk.authorized(job) OR risk.needs_gas(job) AND NOT security.principal_has_permission(actor.principal_id,actor.tenant_id,actor.workspace_id,''ReadGasOwnedHoldings'',clock_timestamp()) THEN');
 END$guard$;
 
+-- Reuse the established role/worker identity checks without taking their epoch
+-- lock. The ordinary owned-attempt check runs again after that lock is acquired.
+DO $guard$DECLARE p pg_proc;definition text;needle constant text=' PERFORM 1 FROM security.epoch FOR SHARE;';BEGIN
+ SELECT * INTO p FROM pg_proc WHERE oid='risk.worker()'::regprocedure;
+ IF md5(p.prosrc)<>'2b7395159c702f039a5f270e9d28acca' OR p.proowner<>'openetrm_security_owner'::regrole OR p.prorettype<>'risk.workers'::regtype OR p.proretset
+  OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR NOT p.prosecdef OR p.provolatile<>'v' OR p.proparallel<>'u'
+  OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql' OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
+  OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner}'
+ THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper risk.worker()';END IF;
+ definition=pg_get_functiondef(p.oid);
+ IF length(definition)-length(replace(definition,needle,''))<>length(needle)
+  OR length(definition)-length(replace(definition,'clock_timestamp()',''))<>length('clock_timestamp()')
+ THEN RAISE EXCEPTION 'risk_economic_upgrade: worker identity boundary';END IF;
+ definition=replace(definition,'FUNCTION risk.worker()','FUNCTION risk.bind_worker_identity(checked_at timestamptz)');
+ definition=replace(replace(definition,needle,''),'clock_timestamp()','checked_at');EXECUTE definition;
+END$guard$;
+ALTER FUNCTION risk.bind_worker_identity(timestamptz) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION risk.bind_worker_identity(timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
+
 CREATE OR REPLACE FUNCTION risk.bind(job_id uuid,token uuid) RETURNS uuid
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $function$
-DECLARE job risk.jobs;context_token uuid=gen_random_uuid();day date;until_at timestamptz;
+DECLARE checked_at timestamptz=clock_timestamp();captured_generation bigint;candidate_until timestamptz;gas_until timestamptz;permission_until timestamptz;
+ job risk.jobs;worker risk.workers;delegation security.agent_delegations;required text;context_token uuid=gen_random_uuid();day date;
 BEGIN
+ -- Plain MVCC reads take no epoch row lock and expose no business-source data.
+ SELECT generation INTO captured_generation FROM security.epoch;
+ worker=risk.bind_worker_identity(checked_at);
+ SELECT * INTO job FROM risk.jobs j WHERE j.id=job_id AND(j.catalog_id,j.tenant_id,j.workspace_id)=(worker.catalog_id,worker.tenant_id,worker.workspace_id);
+ IF job.id IS NULL OR job.worker_login IS DISTINCT FROM session_user OR job.lease_token IS DISTINCT FROM token OR token IS NULL
+  OR job.lease_expires_at<=checked_at OR job.state NOT IN('running','cancellation_requested') THEN RAISE EXCEPTION 'risk_job_fence' USING ERRCODE='42501';END IF;
+ IF captured_generation IS NULL OR job.security_generation IS DISTINCT FROM captured_generation OR job.attempt_security_generation IS DISTINCT FROM captured_generation
+ THEN RAISE EXCEPTION 'risk_job_authority_changed' USING ERRCODE='42501';END IF;
+ IF job.delegation_id IS NOT NULL THEN
+  SELECT * INTO delegation FROM security.agent_delegations d WHERE d.id=job.delegation_id;
+  IF delegation.id IS NULL OR(delegation.agent_id,delegation.tenant_id,delegation.workspace_id) IS DISTINCT FROM(job.actor_id,job.tenant_id,job.workspace_id)
+   OR delegation.revoked OR checked_at<delegation.granted_from OR checked_at>=delegation.granted_to
+  THEN RAISE EXCEPTION 'risk_job_denied' USING ERRCODE='42501';END IF;
+ END IF;
+ candidate_until=least(job.lease_expires_at,checked_at+interval '60 seconds');
+ -- Capture the optional gas candidate at the same original instant, before
+ -- deriving whether the immutable native contract closure actually needs it.
+ FOREACH required IN ARRAY ARRAY['ReadMarketData','ReadTrades','RunScenario','ReadGasOwnedHoldings'] LOOP
+  permission_until=least(security.grant_until(job.actor_id,job.tenant_id,job.workspace_id,required,checked_at),
+   security.grant_until(worker.principal_id,job.tenant_id,job.workspace_id,required,checked_at));
+  IF job.delegation_id IS NOT NULL THEN
+   permission_until=least(permission_until,delegation.granted_to,
+    security.grant_until(delegation.delegator_id,job.tenant_id,job.workspace_id,required,checked_at),
+    security.grant_until(delegation.delegator_id,job.tenant_id,job.workspace_id,'CreateDelegations',checked_at));
+   IF NOT EXISTS(SELECT 1 FROM security.delegation_permissions p WHERE p.delegation_id=delegation.id AND p.permission=required)
+   THEN permission_until='-infinity';END IF;
+  END IF;
+  IF required='ReadGasOwnedHoldings' THEN gas_until=permission_until;ELSE candidate_until=least(candidate_until,permission_until);END IF;
+ END LOOP;
+ IF candidate_until<=clock_timestamp() THEN RAISE EXCEPTION 'risk_job_denied' USING ERRCODE='42501';END IF;
+ IF risk.needs_gas(job) THEN candidate_until=least(candidate_until,gas_until);END IF;
+ IF candidate_until<=clock_timestamp() THEN RAISE EXCEPTION 'risk_job_denied' USING ERRCODE='42501';END IF;
+ -- This is the first epoch SHARE wait. Recheck the exact current ownership and
+ -- authority afterwards, while preserving the original grant/lease deadline.
  job=risk.owned_attempt(job_id,token,false,false);
+ IF captured_generation IS DISTINCT FROM(SELECT generation FROM security.epoch) THEN RAISE EXCEPTION 'risk_job_authority_changed' USING ERRCODE='42501';END IF;
+ IF candidate_until<=clock_timestamp() THEN RAISE EXCEPTION 'risk_job_denied' USING ERRCODE='42501';END IF;
  day=(job.frame->>'businessDate')::date;
  IF day IS NULL OR NOT EXISTS(SELECT 1 FROM market_data.temporal_contexts t WHERE(t.catalog_id,t.id,t.effective_on)=(job.catalog_id,job.context_id,day))
  THEN RAISE EXCEPTION 'risk_job_business_date';END IF;
  INSERT INTO security.request_contexts(id,actor_id,tenant_id,workspace_id,delegation_id,runtime_login,expires_at)
- VALUES(context_token,job.actor_id,job.tenant_id,job.workspace_id,job.delegation_id,session_user,least(job.lease_expires_at,clock_timestamp()+interval '60 seconds'));
+ VALUES(context_token,job.actor_id,job.tenant_id,job.workspace_id,job.delegation_id,session_user,least(job.lease_expires_at,candidate_until));
  INSERT INTO risk.worker_attempt_contexts VALUES(context_token,job_id,token);
  PERFORM security.use_context(context_token);
- until_at=least(security.authority_until('ReadMarketData'),security.authority_until('ReadTrades'),security.authority_until('RunScenario'));
- IF until_at<=clock_timestamp() THEN RAISE EXCEPTION 'risk_job_denied' USING ERRCODE='42501';END IF;
- -- Never extend this original attempt/read deadline through a successor grant.
- UPDATE security.request_contexts SET expires_at=least(expires_at,until_at) WHERE id=context_token;
  PERFORM security.use_market_context(job.catalog_id,job.context_id);
  PERFORM security.use_trading_context(job.catalog_id,job.valuation_at,day);
  PERFORM security.require_frame_inputs(job.catalog_id,job.revision_id,job.frame);
  PERFORM risk.owned_attempt(job_id,token,false,false);RETURN context_token;
 END$function$;
+
 
 CREATE OR REPLACE FUNCTION security.require_gas_owned(catalog uuid,writing boolean,configuring boolean DEFAULT false) RETURNS void
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $function$
@@ -546,7 +599,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper settlement_data.read_futures_margin_state(uuid,uuid,uuid,uuid,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.read_futures_margin_state(','FUNCTION settlement_data.read_futures_margin_state_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.read_futures_margin_state(','FUNCTION settlement_data.read_futures_margin_state_pre_risk('),'read_futures_margin_state.','read_futures_margin_state_pre_risk.');
 END$guard$;
 ALTER FUNCTION settlement_data.read_futures_margin_state_pre_risk(uuid,uuid,uuid,uuid,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION settlement_data.read_futures_margin_state_pre_risk(uuid,uuid,uuid,uuid,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -570,7 +623,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper settlement_data.require_futures_margin_read(uuid,uuid,timestamptz,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.require_futures_margin_read(','FUNCTION settlement_data.require_futures_margin_read_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.require_futures_margin_read(','FUNCTION settlement_data.require_futures_margin_read_pre_risk('),'require_futures_margin_read.','require_futures_margin_read_pre_risk.');
 END$guard$;
 ALTER FUNCTION settlement_data.require_futures_margin_read_pre_risk(uuid,uuid,timestamptz,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION settlement_data.require_futures_margin_read_pre_risk(uuid,uuid,timestamptz,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -595,7 +648,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper settlement_data.read_futures_known_history(uuid,uuid,uuid,uuid,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.read_futures_known_history(','FUNCTION settlement_data.read_futures_known_history_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.read_futures_known_history(','FUNCTION settlement_data.read_futures_known_history_pre_risk('),'read_futures_known_history.','read_futures_known_history_pre_risk.');
 END$guard$;
 ALTER FUNCTION settlement_data.read_futures_known_history_pre_risk(uuid,uuid,uuid,uuid,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION settlement_data.read_futures_known_history_pre_risk(uuid,uuid,uuid,uuid,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -621,7 +674,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper settlement_data.read_futures_known_linked_history(uuid,uuid,uuid,uuid,timestamptz,uuid)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.read_futures_known_linked_history(','FUNCTION settlement_data.read_futures_known_linked_history_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.read_futures_known_linked_history(','FUNCTION settlement_data.read_futures_known_linked_history_pre_risk('),'read_futures_known_linked_history.','read_futures_known_linked_history_pre_risk.');
 END$guard$;
 ALTER FUNCTION settlement_data.read_futures_known_linked_history_pre_risk(uuid,uuid,uuid,uuid,timestamptz,uuid) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION settlement_data.read_futures_known_linked_history_pre_risk(uuid,uuid,uuid,uuid,timestamptz,uuid) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -647,7 +700,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper settlement_data.require_futures_known_reference(uuid,uuid,uuid,uuid,integer,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.require_futures_known_reference(','FUNCTION settlement_data.require_futures_known_reference_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.require_futures_known_reference(','FUNCTION settlement_data.require_futures_known_reference_pre_risk('),'require_futures_known_reference.','require_futures_known_reference_pre_risk.');
 END$guard$;
 ALTER FUNCTION settlement_data.require_futures_known_reference_pre_risk(uuid,uuid,uuid,uuid,integer,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION settlement_data.require_futures_known_reference_pre_risk(uuid,uuid,uuid,uuid,integer,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -672,7 +725,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper settlement_data.futures_margin_preview_authority(uuid)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.futures_margin_preview_authority(','FUNCTION settlement_data.futures_margin_preview_authority_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.futures_margin_preview_authority(','FUNCTION settlement_data.futures_margin_preview_authority_pre_risk('),'futures_margin_preview_authority.','futures_margin_preview_authority_pre_risk.');
 END$guard$;
 ALTER FUNCTION settlement_data.futures_margin_preview_authority_pre_risk(uuid) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION settlement_data.futures_margin_preview_authority_pre_risk(uuid) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -695,7 +748,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper lifecycle.read_option_known_history(uuid,uuid,uuid,integer,uuid,timestamptz,date)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION lifecycle.read_option_known_history(','FUNCTION lifecycle.read_option_known_history_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION lifecycle.read_option_known_history(','FUNCTION lifecycle.read_option_known_history_pre_risk('),'read_option_known_history.','read_option_known_history_pre_risk.');
 END$guard$;
 ALTER FUNCTION lifecycle.read_option_known_history_pre_risk(uuid,uuid,uuid,integer,uuid,timestamptz,date) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION lifecycle.read_option_known_history_pre_risk(uuid,uuid,uuid,integer,uuid,timestamptz,date) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -721,7 +774,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper lifecycle.read_swap_payment_history(uuid,uuid,uuid,integer,uuid,timestamptz,date)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION lifecycle.read_swap_payment_history(','FUNCTION lifecycle.read_swap_payment_history_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION lifecycle.read_swap_payment_history(','FUNCTION lifecycle.read_swap_payment_history_pre_risk('),'read_swap_payment_history.','read_swap_payment_history_pre_risk.');
 END$guard$;
 ALTER FUNCTION lifecycle.read_swap_payment_history_pre_risk(uuid,uuid,uuid,integer,uuid,timestamptz,date) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION lifecycle.read_swap_payment_history_pre_risk(uuid,uuid,uuid,integer,uuid,timestamptz,date) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -747,7 +800,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper security.require_gas_owned_valuation_scope(uuid,uuid,timestamptz,uuid[],boolean,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION security.require_gas_owned_valuation_scope(','FUNCTION security.require_gas_owned_valuation_scope_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION security.require_gas_owned_valuation_scope(','FUNCTION security.require_gas_owned_valuation_scope_pre_risk('),'require_gas_owned_valuation_scope.','require_gas_owned_valuation_scope_pre_risk.');
 END$guard$;
 ALTER FUNCTION security.require_gas_owned_valuation_scope_pre_risk(uuid,uuid,timestamptz,uuid[],boolean,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.require_gas_owned_valuation_scope_pre_risk(uuid,uuid,timestamptz,uuid[],boolean,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -773,7 +826,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper security.require_gas_owned_read(uuid,uuid,timestamptz,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION security.require_gas_owned_read(','FUNCTION security.require_gas_owned_read_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION security.require_gas_owned_read(','FUNCTION security.require_gas_owned_read_pre_risk('),'require_gas_owned_read.','require_gas_owned_read_pre_risk.');
 END$guard$;
 ALTER FUNCTION security.require_gas_owned_read_pre_risk(uuid,uuid,timestamptz,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.require_gas_owned_read_pre_risk(uuid,uuid,timestamptz,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -798,7 +851,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper security.read_gas_owned_holdings(uuid,uuid,timestamptz,uuid[])';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION security.read_gas_owned_holdings(','FUNCTION security.read_gas_owned_holdings_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION security.read_gas_owned_holdings(','FUNCTION security.read_gas_owned_holdings_pre_risk('),'read_gas_owned_holdings.','read_gas_owned_holdings_pre_risk.');
 END$guard$;
 ALTER FUNCTION security.read_gas_owned_holdings_pre_risk(uuid,uuid,timestamptz,uuid[]) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.read_gas_owned_holdings_pre_risk(uuid,uuid,timestamptz,uuid[]) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -825,7 +878,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner,openetrm_risk_worker=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper security.require_cash_payment_read(uuid,uuid,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION security.require_cash_payment_read(','FUNCTION security.require_cash_payment_read_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION security.require_cash_payment_read(','FUNCTION security.require_cash_payment_read_pre_risk('),'require_cash_payment_read.','require_cash_payment_read_pre_risk.');
 END$guard$;
 ALTER FUNCTION security.require_cash_payment_read_pre_risk(uuid,uuid,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.require_cash_payment_read_pre_risk(uuid,uuid,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -850,7 +903,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper security.require_gas_owned_projection_scope(uuid,uuid,timestamptz,uuid[],boolean,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION security.require_gas_owned_projection_scope(','FUNCTION security.require_gas_owned_projection_scope_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION security.require_gas_owned_projection_scope(','FUNCTION security.require_gas_owned_projection_scope_pre_risk('),'require_gas_owned_projection_scope.','require_gas_owned_projection_scope_pre_risk.');
 END$guard$;
 ALTER FUNCTION security.require_gas_owned_projection_scope_pre_risk(uuid,uuid,timestamptz,uuid[],boolean,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.require_gas_owned_projection_scope_pre_risk(uuid,uuid,timestamptz,uuid[],boolean,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -876,7 +929,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper security.read_gas_owned_known_history(uuid,uuid,timestamptz,uuid[])';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION security.read_gas_owned_known_history(','FUNCTION security.read_gas_owned_known_history_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION security.read_gas_owned_known_history(','FUNCTION security.read_gas_owned_known_history_pre_risk('),'read_gas_owned_known_history.','read_gas_owned_known_history_pre_risk.');
 END$guard$;
 ALTER FUNCTION security.read_gas_owned_known_history_pre_risk(uuid,uuid,timestamptz,uuid[]) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.read_gas_owned_known_history_pre_risk(uuid,uuid,timestamptz,uuid[]) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -903,7 +956,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prosecdef IS DISTINCT FROM true OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql'
   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog'] OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}'
  THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper security.read_gas_owned_projection_profile(uuid,uuid,integer,uuid,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION security.read_gas_owned_projection_profile(','FUNCTION security.read_gas_owned_projection_profile_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION security.read_gas_owned_projection_profile(','FUNCTION security.read_gas_owned_projection_profile_pre_risk('),'read_gas_owned_projection_profile.','read_gas_owned_projection_profile_pre_risk.');
 END$guard$;
 ALTER FUNCTION security.read_gas_owned_projection_profile_pre_risk(uuid,uuid,integer,uuid,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.read_gas_owned_projection_profile_pre_risk(uuid,uuid,integer,uuid,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -971,7 +1024,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR NOT p.prosecdef OR p.provolatile<>'v' OR p.proparallel<>'u'
   OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql' OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner,openetrm_risk_worker=X/openetrm_security_owner}' THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper security.require_lifecycle_projection_profile(uuid,text,uuid,uuid,integer,uuid,timestamptz,date,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION security.require_lifecycle_projection_profile(','FUNCTION security.require_lifecycle_projection_profile_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION security.require_lifecycle_projection_profile(','FUNCTION security.require_lifecycle_projection_profile_pre_risk('),'require_lifecycle_projection_profile.','require_lifecycle_projection_profile_pre_risk.');
 END$guard$;
 ALTER FUNCTION security.require_lifecycle_projection_profile_pre_risk(uuid,text,uuid,uuid,integer,uuid,timestamptz,date,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.require_lifecycle_projection_profile_pre_risk(uuid,text,uuid,uuid,integer,uuid,timestamptz,date,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -997,7 +1050,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR NOT p.prosecdef OR p.provolatile<>'v' OR p.proparallel<>'u'
   OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql' OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}' THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper settlement_data.futures_margin_delivery_read_authority(uuid,uuid,uuid,uuid,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.futures_margin_delivery_read_authority(','FUNCTION settlement_data.futures_margin_delivery_read_authority_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.futures_margin_delivery_read_authority(','FUNCTION settlement_data.futures_margin_delivery_read_authority_pre_risk('),'futures_margin_delivery_read_authority.','futures_margin_delivery_read_authority_pre_risk.');
 END$guard$;
 ALTER FUNCTION settlement_data.futures_margin_delivery_read_authority_pre_risk(uuid,uuid,uuid,uuid,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION settlement_data.futures_margin_delivery_read_authority_pre_risk(uuid,uuid,uuid,uuid,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -1022,7 +1075,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR NOT p.prosecdef OR p.provolatile<>'v' OR p.proparallel<>'u'
   OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql' OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}' THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper settlement_data.read_futures_delivery_profile(uuid,uuid,integer,uuid,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.read_futures_delivery_profile(','FUNCTION settlement_data.read_futures_delivery_profile_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.read_futures_delivery_profile(','FUNCTION settlement_data.read_futures_delivery_profile_pre_risk('),'read_futures_delivery_profile.','read_futures_delivery_profile_pre_risk.');
 END$guard$;
 ALTER FUNCTION settlement_data.read_futures_delivery_profile_pre_risk(uuid,uuid,integer,uuid,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION settlement_data.read_futures_delivery_profile_pre_risk(uuid,uuid,integer,uuid,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -1050,7 +1103,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR NOT p.prosecdef OR p.provolatile<>'v' OR p.proparallel<>'u'
   OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql' OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}' THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper settlement_data.require_futures_delivery_profile_read(uuid,uuid,integer,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.require_futures_delivery_profile_read(','FUNCTION settlement_data.require_futures_delivery_profile_read_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.require_futures_delivery_profile_read(','FUNCTION settlement_data.require_futures_delivery_profile_read_pre_risk('),'require_futures_delivery_profile_read.','require_futures_delivery_profile_read_pre_risk.');
 END$guard$;
 ALTER FUNCTION settlement_data.require_futures_delivery_profile_read_pre_risk(uuid,uuid,integer,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION settlement_data.require_futures_delivery_profile_read_pre_risk(uuid,uuid,integer,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -1076,7 +1129,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR NOT p.prosecdef OR p.provolatile<>'v' OR p.proparallel<>'u'
   OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql' OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}' THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper settlement_data.read_futures_delivery_obligation(uuid,uuid,uuid,uuid,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.read_futures_delivery_obligation(','FUNCTION settlement_data.read_futures_delivery_obligation_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.read_futures_delivery_obligation(','FUNCTION settlement_data.read_futures_delivery_obligation_pre_risk('),'read_futures_delivery_obligation.','read_futures_delivery_obligation_pre_risk.');
 END$guard$;
 ALTER FUNCTION settlement_data.read_futures_delivery_obligation_pre_risk(uuid,uuid,uuid,uuid,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION settlement_data.read_futures_delivery_obligation_pre_risk(uuid,uuid,uuid,uuid,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -1101,7 +1154,7 @@ DO $guard$DECLARE p pg_proc;BEGIN
   OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR NOT p.prosecdef OR p.provolatile<>'v' OR p.proparallel<>'u'
   OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql' OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
   OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}' THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper settlement_data.read_futures_delivery_position(uuid,uuid,uuid,timestamptz)';END IF;
- EXECUTE replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.read_futures_delivery_position(','FUNCTION settlement_data.read_futures_delivery_position_pre_risk(');
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION settlement_data.read_futures_delivery_position(','FUNCTION settlement_data.read_futures_delivery_position_pre_risk('),'read_futures_delivery_position.','read_futures_delivery_position_pre_risk.');
 END$guard$;
 ALTER FUNCTION settlement_data.read_futures_delivery_position_pre_risk(uuid,uuid,uuid,timestamptz) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION settlement_data.read_futures_delivery_position_pre_risk(uuid,uuid,uuid,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
@@ -1119,4 +1172,32 @@ DECLARE job risk.jobs;BEGIN
 END$function$;
 GRANT EXECUTE ON FUNCTION settlement_data.read_futures_delivery_position(uuid,uuid,uuid,timestamptz) TO openetrm_risk_worker;
 
+
+-- Session discovery belongs to interactive setup. A worker only reopens its
+-- exact saved economic horizon contract, never another readable session.
+REVOKE EXECUTE ON FUNCTION security.lifecycle_projection_sessions(uuid,uuid,timestamptz,date) FROM openetrm_risk_worker;
+DO $guard$DECLARE p pg_proc;BEGIN
+ SELECT * INTO p FROM pg_proc WHERE oid='security.read_lifecycle_projection_horizon(uuid,text,integer,uuid,timestamptz,date)'::regprocedure;
+ IF md5(p.prosrc)<>'281dd75cfed6c5a3157bfd46f50f39d6' OR p.proowner<>'openetrm_security_owner'::regrole OR p.prorettype<>'jsonb'::regtype OR p.proretset
+  OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR NOT p.prosecdef OR p.provolatile<>'v' OR p.proparallel<>'u'
+  OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql' OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
+  OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner,openetrm_risk_worker=X/openetrm_security_owner}'
+ THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper security.read_lifecycle_projection_horizon(uuid,text,integer,uuid,timestamptz,date)';END IF;
+ EXECUTE replace(replace(pg_get_functiondef(p.oid),'FUNCTION security.read_lifecycle_projection_horizon(','FUNCTION security.read_lifecycle_projection_horizon_pre_risk('),'read_lifecycle_projection_horizon.','read_lifecycle_projection_horizon_pre_risk.');
+END$guard$;
+ALTER FUNCTION security.read_lifecycle_projection_horizon_pre_risk(uuid,text,integer,uuid,timestamptz,date) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.read_lifecycle_projection_horizon_pre_risk(uuid,text,integer,uuid,timestamptz,date) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
+CREATE OR REPLACE FUNCTION security.read_lifecycle_projection_horizon(catalog uuid,session text,opening_version integer,context uuid,as_of timestamptz,business_date date) RETURNS jsonb
+ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $function$
+DECLARE job risk.jobs;BEGIN
+ IF pg_has_role(session_user,'openetrm_risk_worker','MEMBER') THEN
+  job=risk.bound_lifecycle_reader();
+  IF(catalog,context,as_of,business_date) IS DISTINCT FROM(job.catalog_id,job.context_id,job.valuation_at,(job.frame->>'businessDate')::date)
+   OR session IS DISTINCT FROM job.request#>>'{economic,projection,session}'
+   OR opening_version IS DISTINCT FROM(job.request#>>'{economic,projection,sessionVersion}')::integer
+   OR job.request#>>'{economic,projection,horizonPolicy}' IS DISTINCT FROM 'source_known_effective_session_schedule_v1'
+  THEN RAISE EXCEPTION 'risk_job_scope' USING ERRCODE='42501';END IF;
+ END IF;
+ RETURN security.read_lifecycle_projection_horizon_pre_risk(catalog,session,opening_version,context,as_of,business_date);
+END$function$;
 COMMIT;

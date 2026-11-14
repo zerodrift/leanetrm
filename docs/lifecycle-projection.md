@@ -125,7 +125,8 @@ expiry policies require gas-read authority before inventory exists. Generic gas
 history reads for an explicit trade subset remain refused until its independent
 native descendants have an account-bounded source adapter.
 
-Binding pins the original service, user, delegation and lease deadline;
+Binding captures the admission clock and security generation before its first
+epoch wait, then pins the original service, user, delegation and lease deadline;
 a future successor grant cannot revive an expired source read. These database
 custody checks are separate from whole-product numerical worker replay and its
 remaining delivery gates.
