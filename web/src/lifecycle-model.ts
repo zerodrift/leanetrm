@@ -11,12 +11,15 @@ export type LifecyclePolicy={id:string;revision:number;action:string;mode:string
 export type LifecycleMarginPolicy=Record<string,unknown>&{id:string;revision:number;definition_revision_id:string;contract_id:string;series_code:string;settlement_curve_name:string;from_at:string;until_at:string};
 export type LifecycleOptionSource={trade_id:string;definition_revision_id:string;underlying_contract_id:string;curve_code:string;curve_name:string;future_mark_eligible:boolean;expiry_eligible:boolean};
 export type LifecycleSwapOccurrence={trade_id:string;origin_revision:number;binding_id:string;occurrence_id:string;membership_ordinal:number;payment_ordinal:number;delivery_from:string;delivery_to:string;payment_at:string;reference_catalog_id:string;reference_revision_id:string;currency_code:string;decimal_places:number};
+export type LifecycleDeliveryProfile={profile:Record<string,unknown>&{id:string;revision:number;name:string;definition_revision_id:string;contract_id:string};gas:Record<string,unknown>&{account_id:string}};
+export type LifecycleDeliveryAccount=Record<string,unknown>&{id:string;code:string;book_name:string;legal_entity_name:string;mark_expiry_at:string};
 export type LifecycleFutureSetup={trade_id:string;binding_id:string;revision:number;book_id:string;book_name:string;trade_reference:number;lots:string;execution_price:string;execution_at:string;definition_revision_id:string;contract_id:string;mark_curve:string;reference_catalog_id:string;reference_revision_id:string;expiry_at:string;series_code:string;product_name:string;currency_code:string;adopted_policy_id:string|null;adopted_policy_revision:number|null;
+ settlement_method:string;deliveryAccounts:LifecycleDeliveryAccount[];deliveryProfiles:LifecycleDeliveryProfile[];
  sources:{curve_code:string;curve_name:string;reference_catalog_id:string;reference_revision_id:string;quote_code:string;source_code:string;currency_code:string}[]};
 export type LifecycleDiscovery={context:LifecycleContext;actions:LifecycleOffer[];policies:LifecyclePolicy[];optionProfiles:Record<string,unknown>[];swapProfiles:Record<string,unknown>[];marginPolicies:Record<string,unknown>[];
  choices:{actions:{code:string;automatic:boolean;configurationPermission:string;executionPermission:string}[];modes:string[];policyImplementation:string;swapRounding:string[];swapDue:string[];swapRecognition:string[];swapCorrection:string[];
- futures?:{policyImplementation:string;opening:string[];ties:string[];roundingStages:string[];roundingScopes:string[];phases:string[];adoption:string[]}};
- optionSources?:LifecycleOptionSource[];swapOccurrences?:LifecycleSwapOccurrence[];futuresSetup?:LifecycleFutureSetup[]};
+ futures?:{policyImplementation:string;opening:string[];ties:string[];roundingStages:string[];roundingScopes:string[];phases:string[];adoption:string[];delivery?:{implementations:string[];carrying:string[];principalScopes:string[];correctionDuePolicies:string[]}}};
+ optionSources?:LifecycleOptionSource[];swapOccurrences?:LifecycleSwapOccurrence[];futuresSetup?:LifecycleFutureSetup[];deliveryProfiles?:LifecycleDeliveryProfile[];deliveryAccounts?:LifecycleDeliveryAccount[]};
 export const lifecycleKey=(offer:LifecycleOffer)=>JSON.stringify([offer.target.handler,offer.target.scopeId,offer.target.bindingId,offer.action,offer.occurrenceId]);
 const reasons:Record<string,string>={option_holding_closed:'The option holding is closed.',lifecycle_configuration_required:'Configure an action policy and the product settings.',lifecycle_policy_required:'Choose the action policy to review margin.',lifecycle_selection_required:'Choose a market close.',lifecycle_action_window:'Outside the configured action window.',option_instruction_cutoff:'The instruction window has ended.',option_instruction_closed:'The instruction cutoff has passed.',option_exercise_window:'Outside the exercise window.'};
 export const lifecycleReason=(reason:string|null)=>reason?reasons[reason]??reason.replaceAll('_',' '):'Available';
@@ -48,7 +51,7 @@ export function lifecycleRequest(context:LifecycleContext,offer:LifecycleOffer,d
  }
  return {operationId,context:structuredClone(context),target:structuredClone(offer.target),action:offer.action,policyId:draft.policyId,policyRevision:draft.policyRevision,automatic:false,previewHash:'0'.repeat(64),selection};
 }
-export const lifecycleWritePaths=['lifecycle/execute','lifecycle/policies/save','lifecycle/options/configure','lifecycle/swaps/configure','lifecycle/futures/policies/save','lifecycle/futures/adopt'] as const;
+export const lifecycleWritePaths=['lifecycle/execute','lifecycle/policies/save','lifecycle/options/configure','lifecycle/swaps/configure','lifecycle/futures/policies/save','lifecycle/futures/adopt','lifecycle/futures/delivery/configure','lifecycle/gas/configure'] as const;
 export function restoreLifecycleRequest(value:unknown):RequestCommand|undefined{
  if(!value||typeof value!=='object'||Array.isArray(value))return;
  const saved=value as RequestCommand;

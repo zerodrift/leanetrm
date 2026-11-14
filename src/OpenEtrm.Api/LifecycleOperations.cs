@@ -114,6 +114,7 @@ public sealed class LifecycleOperations
                         ["delivery_cumulative_principal_total_v1"],["contractual_principal_due_v1"])});
             futuresSetup=await LifecycleFuturesSettings.Read(connection,database.Manifest.CatalogId,ct);
             (deliveryProfiles,deliveryAccounts)=await LifecyclePhysicalSettings.Read(connection,database,request.Context,ct);
+            futuresSetup=[..futuresSetup.Select(future=>LifecyclePhysicalSettings.ForFuture(future,deliveryProfiles,deliveryAccounts))];
         }
         finally
         {
@@ -152,7 +153,7 @@ public sealed class LifecycleOperations
     {
         var result=await database.WithAgent(agent,TimeSpan.FromSeconds(RuntimeSet.MaxReadSeconds),["ReadTrades","ReadMarketData"],_=>{},
             (connection,t)=>Discover(connection,request,t),ct);
-        return new{result.Context,result.Actions,result.Policies,result.OptionProfiles,result.SwapProfiles,result.MarginPolicies,result.Choices,result.OptionSources,result.SwapOccurrences,result.FuturesSetup};
+        return new{result.Context,result.Actions,result.Policies,result.OptionProfiles,result.SwapProfiles,result.MarginPolicies,result.Choices,result.OptionSources,result.SwapOccurrences,result.FuturesSetup,result.DeliveryProfiles,result.DeliveryAccounts};
     }
     public async Task<object> Preview(AgentIdentity agent,LifecycleActionRequest request,CancellationToken ct)
     {

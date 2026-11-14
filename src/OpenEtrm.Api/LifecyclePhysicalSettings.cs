@@ -18,6 +18,18 @@ public sealed record LifecycleDeliveryProfileSave(Guid OperationId,[property:Jso
 
 internal static class LifecyclePhysicalSettings
 {
+    internal static JsonElement ForFuture(JsonElement future,ImmutableArray<JsonElement> profiles,ImmutableArray<JsonElement> accounts)
+    {
+        var eligible=future.Text("settlement_method")=="physical"?accounts.Where(account=>account.Text("kind")=="owned_inventory"&&
+            new[]{"book_id","legal_entity_id","legal_entity_revision","reference_catalog_id","reference_revision_id","quantity_code","location_code","currency_code"}
+                .All(key=>account.Text(key)==future.Text(key))&&account.Number("quote_multiplier")==future.Number("quote_multiplier")).ToImmutableArray():[];
+        var ids=eligible.Select(account=>account.Text("id")).ToHashSet(StringComparer.Ordinal);
+        var selected=profiles.Where(profile=>profile.GetProperty("profile").Text("definition_revision_id")==future.Text("definition_revision_id")&&
+            profile.GetProperty("profile").Text("contract_id")==future.Text("contract_id")&&ids.Contains(profile.GetProperty("gas").Text("account_id"))).ToImmutableArray();
+        var fields=future.Deserialize<Dictionary<string,JsonElement>>()!;
+        fields.Add("deliveryAccounts",JsonSerializer.SerializeToElement(eligible));fields.Add("deliveryProfiles",JsonSerializer.SerializeToElement(selected));
+        return JsonSerializer.SerializeToElement(fields);
+    }
     internal static async Task<(ImmutableArray<JsonElement> Profiles,ImmutableArray<JsonElement> Accounts)> Read(NpgsqlConnection connection,PreviewDatabase database,
         LifecycleReadContext context,CancellationToken ct)
     {

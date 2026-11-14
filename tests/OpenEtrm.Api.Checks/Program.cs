@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--lifecycle-delivery-choices"]){LifecycleDeliveryChoiceChecks.Run();return;}
 if(args is ["--lifecycle-actions"]){LifecycleActionChecks.Run();return;}
 if(args is ["--economic-risk-contract"]){EconomicRiskContractChecks.Run();return;}
 if(args is ["--lifecycle-schedule-contract"]){LifecycleScheduleChecks.Run();return;}

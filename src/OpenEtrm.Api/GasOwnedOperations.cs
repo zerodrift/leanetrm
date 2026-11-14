@@ -101,22 +101,23 @@ internal static class GasOwnedOperations
         ["gas.owned.receive_title"]="receive_title",["gas.owned.reserve"]="reserve",["gas.owned.release"]="release",["gas.owned.dispatch"]="dispatch",
         ["gas.owned.loss"]="loss",["gas.operator.record"]="operator_claim",["gas.operator.settle"]="operator_settle",["gas.loan.borrow"]="borrow",
         ["gas.loan.repay"]="repay",["gas.cash.record_payment"]="fee_payment"}.ToImmutableDictionary(StringComparer.Ordinal);
+    internal static readonly ImmutableDictionary<string,Type> SelectionTypes=new Dictionary<string,Type>{
+        ["account"]=typeof(GasOwnedAccountSelection),["evidence"]=typeof(GasOwnedEvidenceSelection),["bind_policy"]=typeof(GasOwnedPolicySelection),
+        ["receive_title"]=typeof(GasOwnedTitleSelection),["operator_claim"]=typeof(GasOwnedClaimSelection),["borrow"]=typeof(GasOwnedBorrowSelection),
+        ["reserve"]=typeof(GasOwnedReservationSelection),["release"]=typeof(GasOwnedReleaseSelection),["dispatch"]=typeof(GasOwnedDispatchSelection),["loss"]=typeof(GasOwnedDispatchSelection),
+        ["repay"]=typeof(GasOwnedRepaymentSelection),["operator_settle"]=typeof(GasOwnedSettlementSelection),["fee_payment"]=typeof(GasOwnedPaymentSelection),
+        ["mark_binding"]=typeof(GasOwnedMarkSelection),["projection_profile"]=typeof(GasOwnedProjectionProfileSelection)}.ToImmutableDictionary(StringComparer.Ordinal);
+    internal static readonly ImmutableArray<string> ConfigurationCommands=["account","evidence","bind_policy","mark_binding","projection_profile"];
     internal static JsonElement Selection(string command,JsonElement selection)
     {
         if(selection.ValueKind!=JsonValueKind.Object)throw Error("Select the explicit typed gas operation inputs.");
+        if(!SelectionTypes.TryGetValue(command,out var type))throw Error("Select a registered native gas operation.");
         try
         {
-            object value=command switch{
-                "account"=>Read<GasOwnedAccountSelection>(),"evidence"=>Read<GasOwnedEvidenceSelection>(),"bind_policy"=>Read<GasOwnedPolicySelection>(),
-                "receive_title"=>Read<GasOwnedTitleSelection>(),"operator_claim"=>Read<GasOwnedClaimSelection>(),"borrow"=>Read<GasOwnedBorrowSelection>(),
-                "reserve"=>Read<GasOwnedReservationSelection>(),"release"=>Read<GasOwnedReleaseSelection>(),"dispatch" or "loss"=>Read<GasOwnedDispatchSelection>(),
-                "repay"=>Read<GasOwnedRepaymentSelection>(),"operator_settle"=>Read<GasOwnedSettlementSelection>(),"fee_payment"=>Read<GasOwnedPaymentSelection>(),
-                "mark_binding"=>Read<GasOwnedMarkSelection>(),"projection_profile"=>Read<GasOwnedProjectionProfileSelection>(),
-                _=>throw Error("Select a registered native gas operation.")};
-            return JsonSerializer.SerializeToElement(value,value.GetType(),Json);
+            var value=selection.Deserialize(type,Json)??throw new JsonException();
+            return JsonSerializer.SerializeToElement(value,type,Json);
         }
         catch(JsonException error){throw new MarketDataException("gas_owned_input","Supply only the selected gas operation's typed fields, explicit null choices and UTC instants.",error);}
-        T Read<T>() where T:class=>selection.Deserialize<T>(Json)??throw new JsonException();
     }
     internal static async Task<GasOwnedWriteAdmission> Admission(NpgsqlConnection connection,PreviewDatabase database,string command,JsonElement body,bool automatic,CancellationToken ct)
     {
@@ -167,7 +168,7 @@ internal static class GasOwnedOperations
     internal static async Task<LifecycleActionWrite> Configure(NpgsqlConnection connection,PreviewDatabase database,GasOwnedConfigurationRequest request,CancellationToken ct)
     {
         if(request.OperationId==Guid.Empty||request.AccountId==Guid.Empty||request.Context is null||request.Context.ContextId==Guid.Empty||request.Context.BusinessDate==default||
-            request.Action is not("account" or "evidence" or "bind_policy" or "mark_binding" or "projection_profile"))throw Error("Supply the exact gas account, source and configuration operation.");
+            !ConfigurationCommands.Contains(request.Action))throw Error("Supply the exact gas account, source and configuration operation.");
         _=LifecycleNative.Instant(request.Context.AsOf);
         var body=Selection(request.Action,request.Selection);
         var admission=await Admission(connection,database,request.Action,body,false,ct);

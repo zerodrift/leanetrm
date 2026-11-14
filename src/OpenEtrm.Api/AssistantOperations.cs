@@ -62,6 +62,9 @@ internal static class AssistantOperations
         Add("lifecycle","ReadMarketData|ReadTrades",true,"","lifecycle/execute lifecycle/policies/save lifecycle/options/configure lifecycle/swaps/configure");
         Add("lifecycle","ReadMarketData|ReadTrades|WriteMarketDefinitions",true,"","lifecycle/futures/policies/save");
         Add("lifecycle","ReadMarketData|ReadTrades|AmendTrade",true,"","lifecycle/futures/adopt");
+        Add("lifecycle","ReadMarketData|ReadTrades|ReadGasOwnedHoldings",false,"lifecycle/gas/read");
+        Add("lifecycle","ReadMarketData|ReadTrades|ReadGasOwnedHoldings",true,"","lifecycle/gas/configure");
+        Add("lifecycle","ReadMarketData|ReadTrades|ReadGasOwnedHoldings|ConfigureGasOwnedHoldings",true,"","lifecycle/futures/delivery/configure");
         Add("blotter","ReadGasOperations|ReadMarketData|ReadTrades",false,"gas/operations/read gas/operations/preview");
         Add("blotter","ReadGasOperations|ReadMarketData|ReadTrades",true,"gas/operations/status");
         Add("blotter","ConfigureGasServices|ReadGasOperations|ReadMarketData|ReadTrades",true,"","gas/operations/configure");
@@ -171,6 +174,10 @@ internal static class AssistantOperations
             if(type==typeof(GasOperationPreviewRequest)&&property.Name==nameof(GasOperationPreviewRequest.Details)){
                 var variants=new JsonObject();foreach(var entry in GasDeliveryOperationsStore.DetailTypes)variants[entry.Key]=Describe(entry.Value,path.Add(type));
                 properties["details"]=new JsonObject{["type"]="object",["discriminator"]="kind",["contracts"]=variants};
+            }else if(type==typeof(GasOwnedConfigurationRequest)&&property.Name==nameof(GasOwnedConfigurationRequest.Selection)){
+                var variants=new JsonObject();foreach(var command in GasOwnedOperations.ConfigurationCommands)
+                    variants[command]=Describe(GasOwnedOperations.SelectionTypes[command],path.Add(type));
+                properties["selection"]=new JsonObject{["type"]="object",["discriminator"]="action",["contracts"]=variants};
             }else if(type==typeof(LifecycleActionRequest)&&property.Name==nameof(LifecycleActionRequest.Selection)){
                 var variants=new JsonObject
                 {
@@ -178,6 +185,9 @@ internal static class AssistantOperations
                     ["financial_swap"]=Describe(typeof(SwapActionSelection),path.Add(type)),
                     ["futures"]=Describe(typeof(FuturesMarginActionSelection),path.Add(type))
                 };
+                var gas=new JsonObject();foreach(var action in GasOwnedOperations.Commands)
+                    gas[action.Key]=Describe(GasOwnedOperations.SelectionTypes[action.Value],path.Add(type));
+                variants[GasOwnedOperations.Handler]=new JsonObject{["type"]="object",["discriminator"]="action",["contracts"]=gas};
                 properties["selection"]=new JsonObject{["type"]="object",["discriminator"]="target.handler",["contracts"]=variants};
             }else properties[JsonNamingPolicy.CamelCase.ConvertName(property.Name)]=Describe(property.PropertyType,path.Add(type));
         }
