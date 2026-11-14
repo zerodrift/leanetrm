@@ -3,6 +3,7 @@ using System.Text.Json;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.MarketData.Gas;
 
 internal static class AccountingOwnerChecks
 {
@@ -33,6 +34,37 @@ internal static class AccountingOwnerChecks
         if(values.BaseValues.Single().Value.ToExactString()!="127"||values.BasePositions.Single(p=>p.Owner==stockOwner).Value.ToExactString()!="67"||
             values.BasePositions.Single(p=>p.Owner==tradeOwner).Value.ToExactString()!="60")
             throw new Exception("Independent recorded cash did not retain exact owner-specific ordinary PV.");
+        // A reusable currency/due instrument may be held by independent owners
+        // in separately labelled measures. Its definition is shared; its accepted
+        // payments and valuation scope remain local to each holding.
+        var separate=new[]{positions[0],positions[1]}.Select(position=>new ValuationPortfolio([cash],[position],setup with
+        {
+            BindingStates=setup.BindingStates.Where(p=>p.Key==new MeasureBinding(position.Owner,position.BindingId)).ToImmutableDictionary()
+        })).ToImmutableArray();
+        var grouped=RiskEngine.CalculateExact(RiskEngine.Prepare(f.Model(),source,separate),[],RiskEngine.ExactNumericalPolicy,detail:RiskDetail.Holdings);
+        if(grouped.Groups.Length!=2||grouped.Groups.Select(g=>g.BaseValues.Single().Value).Aggregate(ExactMoney.Parse("0",cash.Currency),(a,b)=>a.Add(b)).ToExactString()!="127"||
+            grouped.Groups.SelectMany(g=>g.BasePositions).Select(p=>p.Owner).Distinct().Count()!=2)
+            throw new Exception("Reusing a unit definition across measures combined independent cash ownership.");
+        var futureCash=new TimedCashPayment(cash.Currency,at.AddDays(1));
+        var discounted=new[]{"0.8","0.9"}.Select(df=>
+        {
+            var held=new Trade(Guid.NewGuid(),book,[new(Guid.NewGuid(),futureCash,new(ExactDecimal.Parse("100"),cash.Currency))]);
+            var state=new RecordedCashValuation(held,held.Instruments[0].Id,[],RecordedCashValuation.Policy,source.Knowledge.ContextId,source.Knowledge.KnownAt);
+            return ValuationPortfolio.FromTrades([held],new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,
+                new ExplicitDiscounting(ExactDecimal.Parse(df),DiscountFactorSource.Explicit))
+                {BindingStates=ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty.Add(new(held.Id,held.Instruments[0].Id),state)});
+        }).ToImmutableArray();
+        var separateDiscounts=RiskEngine.CalculateExact(RiskEngine.Prepare(f.Model(),source,discounted),[],RiskEngine.ExactNumericalPolicy);
+        if(separateDiscounts.Groups[0].BaseValues.Single().Value.ToExactString()!="80"||
+            separateDiscounts.Groups[1].BaseValues.Single().Value.ToExactString()!="90")
+            throw new Exception("Shared unit identity reused another group's discount policy.");
+        var unitId=Guid.NewGuid();
+        var incompatible=new[]{1,2}.Select(n=>ValuationPortfolio.FromTrades(
+            [new(Guid.NewGuid(),book,[new(Guid.NewGuid(),new GasCommodityHoldingInstrument(unitId,new(f.C("future"),f.K(n)),
+                f.Quotes[0].Quantity,f.Quotes[0].Currency,null,GasHoldingCarrying.Nominal),new(ExactDecimal.Parse("1"),f.Quotes[0].Quantity))])],
+            new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null))).ToImmutableArray();
+        Reject("instrument_identity",()=>RiskEngine.Prepare(f.Model(),source,incompatible));
+        Reject("risk_contract",()=>RiskEngine.Prepare(f.Model(),source,[separate[0],separate[0]]));
         var wrong=setup with{BindingStates=setup.BindingStates.SetItem(new(stockOwner,binding),tradeState)};
         Reject("settlement_scope",()=>new ValuationPortfolio([cash],positions,wrong));
         Reject("risk_position",()=>new ValuationPortfolio([cash],[positions[1] with{TradeId=id}],setup));

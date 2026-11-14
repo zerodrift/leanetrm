@@ -414,15 +414,14 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             throw new MarketDataException("risk_trade_scope","Every selected trade must have its held bindings or explicit valuation exclusions in this retained context.");
         if(materialized.Count==0)throw new MarketDataException("risk_position",excluded.IsEmpty?"The selected books have no visible holdings.":
             "No held position in the selected scope is qualified for this risk calculation.");
-        if(evidence.Select(p=>(p.Owner,p.BindingId)).Distinct().Count()!=evidence.Count||
-            materialized.SelectMany(p=>p.Portfolio.Instruments.Select(i=>(p.Snapshot.Definitions,i.Id))).Distinct().Count()!=materialized.Sum(p=>p.Portfolio.Instruments.Length))
-            throw new MarketDataException("risk_contract","Every held binding and unit instrument must belong to exactly one market and valuation measure.");
+        if(evidence.Select(p=>(p.Owner,p.BindingId)).Distinct().Count()!=evidence.Count)
+            throw new MarketDataException("risk_contract","Every held binding must belong to exactly one market and valuation measure.");
         var markets=ImmutableArray.CreateBuilder<MarketPartition>();
         foreach(var group in materialized.GroupBy(m=>m.Snapshot.Definitions).OrderBy(g=>g.Key.RevisionId))
         {
             var first=group.First();
             var portfolios=group.Select(m=>m.Portfolio).ToImmutableArray();
-            var instruments=portfolios.SelectMany(p=>p.Instruments).ToImmutableArray();
+            var instruments=ValuationPortfolio.DistinctInstruments(portfolios);
             var dependencies=portfolios.SelectMany(p=>p.Declare(first.Snapshot)).SelectMany(c=>c.Dependencies).Distinct().ToImmutableArray();
             var retained=retainedGraphs?.SingleOrDefault(g=>g.RevisionId==first.Snapshot.Definitions.RevisionId);
             if(retainedGraphs is not null&&retained is null)throw new MarketDataException("risk_graph_manifest","The job omitted a required connected market manifest.");

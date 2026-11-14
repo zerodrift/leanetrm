@@ -227,6 +227,20 @@ public sealed record UnitValuationScope(Instrument Instrument,DeliveryCoverage? 
 
 public sealed class ValuationPortfolio
 {
+    // Definitions may be reused across independently labelled valuation groups.
+    // Reuse never merges holding state, quantities, discounting or measures.
+    public static ImmutableArray<Instrument> DistinctInstruments(ImmutableArray<ValuationPortfolio> portfolios)
+    {
+        if(portfolios.IsDefaultOrEmpty||portfolios.Any(p=>p is null))
+            throw Error("risk_contract","Select explicit nonempty valuation groups.");
+        var instruments=new Dictionary<Guid,Instrument>();
+        foreach(var instrument in portfolios.SelectMany(p=>p.Instruments))
+        {
+            if(instruments.TryGetValue(instrument.Id,out var prior))prior.RequireSameDefinition(instrument);
+            else instruments.Add(instrument.Id,instrument);
+        }
+        return [..instruments.Values.OrderBy(i=>i.Id)];
+    }
     public static ValuationPortfolio FromTrades(ImmutableArray<Trade> trades,ValuationSetup setup)
     {
         if(setup is null)throw Error("valuation_measure","Select an explicit valuation measure and its inputs.");

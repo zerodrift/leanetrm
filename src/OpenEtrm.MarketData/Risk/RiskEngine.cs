@@ -204,11 +204,11 @@ public static partial class RiskEngine
     {
         if(portfolios.IsDefaultOrEmpty||portfolios.Length>16||portfolios.Any(p=>p is null))
             throw Error("risk_contract","Select one to sixteen explicit valuation groups.");
-        var instruments=portfolios.SelectMany(p=>p.Instruments).ToArray();
+        _=ValuationPortfolio.DistinctInstruments(portfolios);
         var positions=portfolios.SelectMany(p=>p.Positions).ToArray();
-        if(instruments.Select(i=>i.Id).Distinct().Count()!=instruments.Length||
-            positions.Select(p=>(p.Owner,p.BindingId)).Distinct().Count()!=positions.Length)
-            throw Error("risk_contract","A shared operation must assign each unit instrument and trade binding to exactly one valuation group.");
+        if(positions.Select(p=>(p.Owner,p.BindingId)).Distinct().Count()!=positions.Length||
+            positions.GroupBy(p=>p.Owner).Any(g=>g.Select(p=>p.BookId).Distinct().Count()!=1))
+            throw Error("risk_contract","A shared operation must assign each held binding to one valuation group and each owner to one book.");
         return portfolios.Select(p=>p.Declare(snapshot)).ToImmutableArray();
     }
     private static PreparedPortfolioRisk Prepare(CurveBuild market,ImmutableArray<ValuationPortfolio> portfolios,
