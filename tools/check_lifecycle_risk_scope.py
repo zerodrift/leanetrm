@@ -19,6 +19,9 @@ def upgrade_checks(query,migration):
         from assistant_context import check_guard
         check_guard(query,migration.read_text(),'0290','risk_gas_consumers_upgrade',[(
             "UPDATE pg_proc SET proargnames=ARRAY['synthetic_changed']::text[] WHERE oid='risk.needs_gas(risk.jobs)'::regprocedure;",'risk.needs_gas(risk.jobs)')])
+    if migration.name=='0297_risk_full_futures_gas.sql':
+        from check_fact_anchor_upgrade import run_checks
+        run_checks(query,migration,number='0297',guard='risk_full_futures_gas_upgrade',signatures=('risk.needs_gas(risk.jobs)',))
 
 
 def checks(query, manifest):
@@ -115,7 +118,9 @@ def checks(query, manifest):
     # stock exists. This actual consumer still requires Gas for user and service.
     request['tradeIds']=[option['tradeId'],held['trade']]
     assert query(f"SELECT count(*) FROM trading.gas_owned_positions WHERE catalog_id='{catalog}' AND effective_at<='{at}';")=='0'
-    reject(submit,'risk_job_denied')
+    for convention in ('native_margin_remaining_value_v1','native_futures_economic_remaining_value_v2'):
+        request['pricingPolicy']['futuresConvention']=convention
+        reject(submit,'risk_job_denied')
     gas_role=str(uuid4())
     query(f"INSERT INTO security.roles VALUES('{gas_role}','synthetic_scope_gas_reader','Synthetic scope gas reader');INSERT INTO security.role_permissions VALUES('{gas_role}','ReadGasOwnedHoldings');"
         f"INSERT INTO security.role_grants SELECT gen_random_uuid(),principal_id,'{gas_role}','{tenant}','{workspace}',clock_timestamp(),'9999-12-31',false FROM security.identity_bindings WHERE issuer='{issuer}' AND subject='risk';"
