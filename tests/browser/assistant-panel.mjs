@@ -580,4 +580,25 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
    `${shown('#jobs-page')}&&${q('#job-editor')}.open&&${q('#job-name')}.value===${JSON.stringify('Synthetic panel readiness '+stamp)}`,
    `[${shown('#jobs-page')},${q('#job-editor')}.open,${q('#job-name')}.value,${q('#error')}.textContent]`);
 
+  // Risk names the view it shows (D392): Looking at follows each view the sidebar opens, and an ask sends the one shown.
+  const riskAgent=await publish(await create('Browser risk guide '+stamp),['read_workspace_page','navigate'],['risk_analyst']);
+  await persona('risk');await click('#nav-market');
+  if(!await evaluate(`${q('#snapshot')}.value`)){await set('#snapshot',await evaluate(`[...${q('#snapshot')}.options].map(o=>o.value).find(Boolean)`));await wait(idle);}
+  await click('#nav-risk');await wait(idle);
+  if(await evaluate(`${q('#assistant-launcher')}.hidden===false&&${q('#assistant-panel')}.hidden`))await click('#assistant-launcher');
+  for(const [view,name] of [['risk-var','VaR / ES'],['risk-runs','Run history'],['risk-pnl','P&L explain'],['risk','Reports']]){
+    await click('#nav-'+view);await wait(idle);
+    await check('Looking at names the Risk view '+name,`${q('#assistant-looking-page')}.textContent===${JSON.stringify('Risk · '+name)}`,looking);
+  }
+  await click('#nav-risk-var');await wait(idle);
+  await set('#assistant-agent',riskAgent.id+':1');
+  await ask('Take me to the curves, then I will come back.');await wait(shown('#assistant-consent'));
+  await script({tools:[['toolu_risk_panel_01','navigate',{page:'curves',target:null}]]},{text:'Here are the curves.'});
+  await click('#assistant-allow');await wait(`${finished}&&${idle}&&${buttons}==='Back'`);
+  await check('an ask from VaR / ES sends Risk with that view',`JSON.stringify(${asks}.at(-1).body.pageReport)===JSON.stringify({page:'risk_jobs',selection:{view:'var_es'}})`,
+   `JSON.stringify(${asks}.at(-1).body.pageReport)`);
+  await press('Back');await wait(`${shown('#risk-page')}&&${idle}`);
+  await check('Back reopens the Risk view the move left',
+   `${q('#nav-risk-var')}.classList.contains('active')&&${q('#page-title')}.textContent==='VaR / ES'&&${q('#assistant-looking-page')}.textContent==='Risk · VaR / ES'`,
+   `[${q('#page-title')}.textContent,${q('#assistant-looking-page')}.textContent,[...document.querySelectorAll('[id^=nav-risk].active')].map(b=>b.id).join()]`);
 }

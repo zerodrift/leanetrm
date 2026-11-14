@@ -257,12 +257,12 @@ public sealed partial class AgentTools
             else if(page=="risk_jobs")
             {
                 var selection=turn.PageReport.GetProperty("selection");
-                var selected=selection.TryGetProperty("operation",out _)?(WorkspaceArguments)Parse("read_page_operation",selection).Arguments:null;
+                var selected=PageReports.SelectedRead(page,selection);
                 var operation=selected?.Operation??"portfolio.risk.jobs_v1";
                 access=[..access.Concat(AssistantWorkspace.Access(AssistantOperations.RequireRead(operation))).Distinct()];
                 var read=await workspace.Read(turn,operation,selected?.Input??JsonSerializer.SerializeToElement(new{body=(object?)null,parameters=new{}}),ct);
                 access=[..access.Concat(read.Access).Distinct()];
-                var data=read.Value["data"];var lines=new List<string>{PageDigest.Header(page,turn.Pin),"Risk operation: "+operation};
+                var data=read.Value["data"];var lines=new List<string>{PageDigest.Header(page,turn.Pin),"View: "+PageReports.RiskViewName(selection),"Risk operation: "+operation};
                 if(data is JsonArray jobs)lines.Add("Runs on selected page: "+PageDigest.Count(jobs.Count));
                 else if(data is JsonObject job)
                     foreach(var field in new[]{"id","name","state","createdAt","completedAt","inputs","holdings","samples"})
