@@ -178,6 +178,8 @@ public sealed class PreparedLifecycleProjection
                     throw LifecycleProjection.Error("projection_cash","A projected transition cannot add, remove, reassign or correct source-known actual payments.");
                 if(!member.Value.KnownCashSources.SequenceEqual(prior.KnownCashSources))
                     throw LifecycleProjection.Error("projection_cash","A projected transition cannot replace its certified native known-cash source evidence.");
+                if(!member.Value.KnownResidualOwners.SequenceEqual(prior.KnownResidualOwners))
+                    throw LifecycleProjection.Error("projection_source","A transition cannot replace its source-known native residual ownership declarations.");
                 if(member.Value.Cash.Any(c=>!cash.ContainsKey(c.Id)&&c.EffectiveAt!=occurrence.At))
                     throw LifecycleProjection.Error("projection_cash","New cash must retain the event that created its economic obligation.");
             }
@@ -262,7 +264,8 @@ public sealed class PreparedLifecycleProjection
         foreach(var member in state.Members)RequireFlatState(member.Value,member.Key,component.Currency,at);
         var expected=LifecycleProjectionState.Compose(state.Members);
         if(!state.Residuals.SequenceEqual(expected.Residuals)||!state.Cash.SequenceEqual(expected.Cash)||
-            !state.KnownPayments.SequenceEqual(expected.KnownPayments)||!state.KnownCashSources.SequenceEqual(expected.KnownCashSources))
+            !state.KnownPayments.SequenceEqual(expected.KnownPayments)||!state.KnownCashSources.SequenceEqual(expected.KnownCashSources)||
+            !state.KnownResidualOwners.SequenceEqual(expected.KnownResidualOwners))
             throw LifecycleProjection.Error("projection_composition","The sole valued residual, cash and actual-source aggregates must exactly equal the declared member states.");
     }
     private static KeyValuePair<AccountingPositionKey,LifecycleProjectionState>[] Leaves(LifecycleProjectionState state,ILifecycleProjection component)=>
@@ -278,7 +281,9 @@ public sealed class PreparedLifecycleProjection
             state.KnownPayments.Select(p=>(p.Position.Owner,p.AllocationId,p.Revision)).Distinct().Count()!=state.KnownPayments.Length||
             state.KnownCashSources.IsDefault||state.KnownCashSources.Any(s=>s is null||s.BookId!=owner.BookId||
                 s.Quantity.Specification!=currency||s.SourceContextId!=SourceSnapshot.Knowledge!.ContextId||s.KnownThrough!=SourceSnapshot.Knowledge.KnownAt)||
-            state.KnownCashSources.Select(s=>(s.Owner,s.BindingId)).Distinct().Count()!=state.KnownCashSources.Length)
+            state.KnownCashSources.Select(s=>(s.Owner,s.BindingId)).Distinct().Count()!=state.KnownCashSources.Length||
+            state.KnownResidualOwners.IsDefault||state.KnownResidualOwners.Any(p=>!p.IsValid||p.BookId!=owner.BookId)||
+            state.KnownResidualOwners.Select(p=>(p.Owner,p.BindingId)).Distinct().Count()!=state.KnownResidualOwners.Length)
             throw LifecycleProjection.Error("projection_state","Supply complete residual portfolios and distinct immutable owned cash contributions.");
     }
     private static void RequireUniqueResiduals(IEnumerable<LifecycleProjectionState> states)
@@ -302,6 +307,7 @@ public sealed class PreparedLifecycleProjection
         {
             foreach(var position in member.Value.Residuals.SelectMany(p=>p.Positions))Retain(position.Owner,position.BindingId,member.Key);
             foreach(var source in member.Value.KnownCashSources)Retain(source.Owner,source.BindingId,member.Key);
+            foreach(var source in member.Value.KnownResidualOwners)Retain(source.Owner,source.BindingId,member.Key);
         }
     }
     private static ImmutableArray<(int,LifecycleProjectionEvent)> Order(ImmutableArray<ILifecycleProjection> components,DateTimeOffset opening,DateTimeOffset horizon)

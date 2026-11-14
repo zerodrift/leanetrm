@@ -3,6 +3,7 @@ using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.MarketData.Power;
+using OpenEtrm.MarketData.Gas;
 
 internal static class LifecycleProjectionChecks
 {
@@ -292,6 +293,21 @@ internal static class LifecycleProjectionChecks
         var inactive=onlyEvidence with{KnownPayments=[],KnownCashSources=[noPayments]};
         Reject("projection_scope",()=>LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[inactive,inactive with{
             Owner=new(Guid.NewGuid(),Guid.NewGuid(),component.Owner.BookId)}],[]));
+        var native=new AccountingPositionKey(new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,Guid.NewGuid()),Guid.NewGuid(),component.Owner.BookId);
+        var stock=new GasCommodityHoldingInstrument(Guid.NewGuid(),component.Request,PriceUnit.FromQuote(f.Model().QuoteFor(component.Request)).Quantity,component.Currency,null,GasHoldingCarrying.Nominal);
+        var stockPortfolio=new ValuationPortfolio([stock],[new(native.Owner,native.BindingId,native.BookId,stock.Id,new(ExactDecimal.Parse("1"),stock.UnitQuantity.Specification),
+            new(new Money(default,component.Currency),stock.UnitQuantity.Specification),new(default,component.Currency))],
+            new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+        var promised=component with{EventSelection=[],KnownResidualOwners=[native]};
+        var wrongMember=component with{Owner=new(Guid.NewGuid(),Guid.NewGuid(),component.Owner.BookId),ResidualOnEvent=[stockPortfolio]};
+        var reserved=LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[promised,wrongMember],[]);
+        Reject("projection_scope",()=>reserved.Evaluate("known_residual_reassignment",[]));
+        Reject("projection_scope",()=>LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[promised,promised with{Owner=wrongMember.Owner}],[]));
+        var rightMember=promised with{EventSelection=null,ResidualOnEvent=[stockPortfolio]};
+        var admitted=LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[rightMember],[]);
+        if(!rightMember.Opening.Residuals.IsEmpty||admitted.Evaluate("native_residual_activation",[]).Values.Single().Owner!=rightMember.Owner)
+            throw new Exception("A source-known residual declaration fabricated opening value or lost its original economic member.");
+        Reject("projection_source",()=>LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[rightMember with{DropKnownResidualOwners=true}],[]).Evaluate("known_residual_rewrite",[]));
     }
     private static void Reject(string code,Action action)
     {try{action();}catch(MarketDataException error)when(error.Code==code){return;}throw new Exception("Expected "+code);}
@@ -311,10 +327,12 @@ internal static class LifecycleProjectionChecks
         public ImmutableArray<LifecycleMarketUse> MarketUsesFor(DateTimeOffset horizon)=>[new(Request,MarketThrough??horizon)];
         public ImmutableArray<AccountingFlow> KnownPayments{get;init;}=[];
         public ImmutableArray<RecordedCashValuation> KnownCashSources{get;init;}=[];
+        public ImmutableArray<AccountingPositionKey> KnownResidualOwners{get;init;}=[];
+        public bool DropKnownResidualOwners{get;init;}
         public ImmutableArray<LifecycleInputFinal> InputFinals{get;init;}=[];
         public string Implementation=>"synthetic_fixing_cash_v1";
         public ImmutableArray<CurveRequest> Dependencies=>[Request];
-        public LifecycleProjectionState Opening=>new(OpeningSelection??[],[]){KnownPayments=KnownPayments,KnownCashSources=KnownCashSources};
+        public LifecycleProjectionState Opening=>new(OpeningSelection??[],[]){KnownPayments=KnownPayments,KnownCashSources=KnownCashSources,KnownResidualOwners=KnownResidualOwners};
         public ImmutableArray<LifecycleProjectionEvent> Events=>EventSelection??[new(LifecycleProjectionEvent.ScopedId(Owner,Guid.Parse("11000000-0000-0000-0000-000000000001")),At,[],"fix")];
         public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)=>[..Events.Where(e=>e.At<=horizon)];
         public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
@@ -322,7 +340,7 @@ internal static class LifecycleProjectionChecks
             if(FailOnDown&&context.Price(Request).ToUnitPriceExact().Value.CompareTo(ExactDecimal.Parse("3.3"))<0)
                 throw new MarketDataException("synthetic_path_unavailable","The synthetic path deliberately refuses this region.");
             var fixing=context.Fix(new(Request,Role,FixAt??occurrence.At));
-            return state with{Residuals=ResidualOnEvent??state.Residuals,Cash=state.Cash.Add(new(occurrence.Id,occurrence.At,DueAt??occurrence.At,
+            return state with{Residuals=ResidualOnEvent??state.Residuals,KnownResidualOwners=DropKnownResidualOwners?[]:state.KnownResidualOwners,Cash=state.Cash.Add(new(occurrence.Id,occurrence.At,DueAt??occurrence.At,
                 ExactAmount??fixing.Price.ExactTimes(new(ExactDecimal.Parse("1"),fixing.Price.Unit.Quantity))))};
         }
     }

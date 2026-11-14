@@ -49,6 +49,9 @@ public sealed record LifecycleProjectionState(ImmutableArray<ValuationPortfolio>
     // Native memberships created by a known future event are source evidence,
     // not active opening positions. Their payments remain immutable actuals.
     public ImmutableArray<RecordedCashValuation> KnownCashSources{get;init;}=[];
+    // Exact source-known future native residual keys reserve their economic
+    // attribution without creating an active opening holding or a market value.
+    public ImmutableArray<AccountingPositionKey> KnownResidualOwners{get;init;}=[];
     public ImmutableDictionary<ProjectedFixingKey,ProjectedFixing> ProjectedFacts{get;init;}=ImmutableDictionary<ProjectedFixingKey,ProjectedFixing>.Empty;
     // Populated by the qualified opening-state adapter from committed facts.
     // A scheduled date alone never satisfies an event prerequisite.
@@ -57,12 +60,13 @@ public sealed record LifecycleProjectionState(ImmutableArray<ValuationPortfolio>
     {
         if(members is null||members.IsEmpty||members.Keys.Select(o=>o.BookId).Distinct().Count()!=1||members.Any(p=>!p.Key.IsValid||p.Value is null||
             p.Value.Members is null||!p.Value.Members.IsEmpty||p.Value.Residuals.IsDefault||p.Value.Cash.IsDefault||p.Value.KnownPayments.IsDefault||
-            p.Value.KnownCashSources.IsDefault||p.Value.CompletedEvents is null))
+            p.Value.KnownCashSources.IsDefault||p.Value.KnownResidualOwners.IsDefault||p.Value.CompletedEvents is null))
             throw LifecycleProjection.Error("projection_composition","Declare one flat immutable set of exact economic members for this connected component.");
         var ordered=Order(members);
         return new([..ordered.SelectMany(p=>p.Value.Residuals)],[..ordered.SelectMany(p=>p.Value.Cash)]){
             Members=members,KnownPayments=[..ordered.SelectMany(p=>p.Value.KnownPayments)],
-            KnownCashSources=[..ordered.SelectMany(p=>p.Value.KnownCashSources)],CompletedEvents=ordered.SelectMany(p=>p.Value.CompletedEvents).ToImmutableHashSet()};
+            KnownCashSources=[..ordered.SelectMany(p=>p.Value.KnownCashSources)],KnownResidualOwners=[..ordered.SelectMany(p=>p.Value.KnownResidualOwners)],
+            CompletedEvents=ordered.SelectMany(p=>p.Value.CompletedEvents).ToImmutableHashSet()};
     }
     internal static KeyValuePair<AccountingPositionKey,LifecycleProjectionState>[] Order(ImmutableDictionary<AccountingPositionKey,LifecycleProjectionState> members)=>
         [..members.OrderBy(p=>p.Key.Owner.Kind).ThenBy(p=>p.Key.Owner.Id).ThenBy(p=>p.Key.BindingId).ThenBy(p=>p.Key.BookId)];
