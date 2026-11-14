@@ -68,6 +68,12 @@ internal static class GasOwnedSetupChecks
         var missing=JsonSerializer.SerializeToElement(JsonSerializer.SerializeToElement(profile,GasOwnedOperations.Json).EnumerateObject().Where(p=>p.Name!="cashouts").ToDictionary(p=>p.Name,p=>p.Value));
         try{GasOwnedOperations.Selection("projection_profile",missing);throw new Exception("A v2 cashout policy accepted missing financial selections.");}
         catch(MarketDataException error)when(error.Code=="gas_owned_input"){}
+        var accepted=profile with{implementation="gas_accepted_quantity_lifecycle_projection_v3",cashouts=profile.cashouts.Take(0).ToArray()};
+        if(GasOwnedOperations.Selection("projection_profile",JsonSerializer.SerializeToElement(accepted,GasOwnedOperations.Json)).GetProperty("cashouts").GetArrayLength()!=0)
+            throw new Exception("The accepted-quantity model lost its explicit empty cashout selection.");
+        var omitted=JsonSerializer.SerializeToElement(accepted,GasOwnedOperations.Json).EnumerateObject().Where(p=>p.Name!="cashouts").ToDictionary(p=>p.Name,p=>p.Value);
+        try{GasOwnedOperations.Selection("projection_profile",JsonSerializer.SerializeToElement(omitted));throw new Exception("A v3 accepted-quantity policy silently accepted an omitted cashout selection.");}
+        catch(MarketDataException error)when(error.Code=="gas_owned_input"){}
         if(!setup.Configuration["projection_profile"].Fields.Single(f=>f.Name=="implementation").Choices.Any(c=>c.Id==profile.implementation)||
             setup.Configuration["projection_profile"].Fields.Single(f=>f.Name=="cashouts").Fields.Single(f=>f.Name=="scenarioMark").Members is not ["scenarioDefinitionRevisionId","scenarioCurve","scenarioContractId"])
             throw new Exception("Gas settings must offer a complete typed cashout model and exact scenario market tuple.");

@@ -124,7 +124,7 @@ internal static class GasOwnedOperations
             {
                 if(selection.TryGetProperty("cashouts",out var cashouts)&&cashouts.ValueKind!=JsonValueKind.Array)throw new JsonException("Select an explicit cashout policy array.");
                 if(profile.Implementation==GasQuantityProjectionPolicy.Version&&profile.Cashouts.IsDefaultOrEmpty)value=profile with{Cashouts=default};
-                else if(profile.Implementation==GasCashoutProjectionTerms.Version&&profile.Cashouts.IsDefault)
+                else if(profile.Implementation is (GasCashoutProjectionTerms.Version or GasQuantityProjectionPolicy.KnownVersion)&&profile.Cashouts.IsDefault)
                     throw new JsonException("Select the complete explicit cashout policies.");
             }
             return JsonSerializer.SerializeToElement(value,type,Json);

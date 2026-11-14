@@ -467,5 +467,8 @@ an explicit zero-valued, projection-only resource binding. It has no commodity
 mark dependency, admits only zero quantity and disappears after its final
 release. Independent tests cover partial repayment, loss, distinct receipt
 ownership, actual-first ordering, expired marks after depletion and refusal to
-suppress nonzero value. Native profile selection, source assembly and full API
-and worker qualification for this version remain delivery gates.
+suppress nonzero value. Native saved profiles require an explicit cashout array,
+including an empty array for a quantity-only selection. First-outcome retries,
+same-fact acknowledgement and older-version acknowledgement preserve the
+current selected revision. Source assembly and full API and worker qualification
+for this version remain delivery gates.
