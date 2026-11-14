@@ -59,7 +59,7 @@ public sealed partial class GasPhysicalLifecycleProjection:ILifecycleProjection
     public ImmutableArray<LifecycleMarketUse> MarketUsesFor(DateTimeOffset horizon)=>[..child.MarketUsesFor(horizon).Concat(quantities?.MarketUsesFor(horizon)??[])
         .GroupBy(u=>u.Market).Select(g=>new LifecycleMarketUse(g.Key,g.Max(u=>u.Through)))];
     public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)
-    {_=child.EventsFor(horizon);_=quantities?.EventsFor(horizon);return [..Events.Where(e=>e.At<=horizon)];}
+    {_=child.EventsFor(horizon);_=quantities?.EventsForConnected(horizon);return [..Events.Where(e=>e.At<=horizon)];}
     public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
     {
         if(nativeEvents.ContainsKey(occurrence.Id))return ApplyNative(occurrence,state,context);

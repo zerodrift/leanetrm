@@ -195,6 +195,12 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
     }
     public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)
     {
+        if(RequiresPhysicalComposition)throw Error("gas_projection_scope","Compose physical quantities with their exact future, delivery and principal legs before economic projection.");
+        return EventsForConnected(horizon);
+    }
+    public bool RequiresPhysicalComposition=>holdings.Values.Any(h=>h.Kind==GasProjectionHoldingKind.PhysicalDelivery);
+    internal ImmutableArray<LifecycleProjectionEvent> EventsForConnected(DateTimeOffset horizon)
+    {
         _=StateAt(horizon);return Events;
     }
     public ImmutableArray<LifecycleMarketUse> MarketUsesFor(DateTimeOffset horizon)
@@ -226,7 +232,10 @@ public sealed partial class GasQuantityLifecycleProjection:ILifecycleProjection
         return state;
     }
     public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
-        =>ApplyConnected(occurrence,state,context.SourceSnapshot,context.CalculationAt);
+    {
+        if(RequiresPhysicalComposition)throw Error("gas_projection_scope","A physical quantity plan requires its qualified financial composition.");
+        return ApplyConnected(occurrence,state,context.SourceSnapshot,context.CalculationAt);
+    }
     // This resource transition reads no prices. A qualified outer component
     // retains its independently admitted original resource source, while the
     // common path supplies only the shared calculation instant.
