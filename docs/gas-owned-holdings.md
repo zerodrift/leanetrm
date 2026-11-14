@@ -203,10 +203,18 @@ requires an explicit zero-capacity source revision and closes every allocation
 from that source. Stock replacement names all existing consumption revisions and
 each replacement lot; it supplies no implicit procurement or negative stock.
 
-The current amendment consumer handles one performance and requires all affected
-source allocations to belong to that performance. A shared-source batch is
-required for corrections spanning other performances or already consumed receipt
-stock. General operator and loan amendments, and changes to observed event times
+The single-performance amendment requires all affected source allocations to
+belong to that performance. The native batch consumer accepts an explicit
+complete set of performances in one account, including withdrawal of a receipt
+already consumed by a dispatch and replacement with identified, actually owned
+stock. It advances all selected financial heads in one publication and submits
+one complete principal continuation per changed obligation. Unchanged selected
+members retain their exact financial revisions. Its deferred seal independently
+checks the closed command, member closure, reported quantities and principal
+versions. An older acknowledged snapshot never rewinds a mixed batch.
+
+The managed batch review and operational form retain a separate qualification
+gate. General operator and loan amendments, and changes to observed event times
 or advance-payment treatment, remain separate implementation gates.
 
 `tools/check_gas_physical_known.py` qualifies the attachment scope and complete
@@ -216,3 +224,6 @@ old views and operational reads, and checks both valuation and horizon gates.
 `tools/check_gas_quantity_reconciliation.py` qualifies native and managed
 same-instant amendments, complete principal refunds, partial source allocation,
 explicit stock replacement, immutable old views and first-outcome recovery.
+`tools/check_gas_quantity_reconciliation_batches.py` qualifies the native linked
+batch, principal conservation, unchanged bank payments, immutable first outcomes
+and malformed-command rollback through the independent deferred seal.
