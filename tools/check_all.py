@@ -129,6 +129,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
     preview_check('contract observation curves', [*preview, '--contract-observation-curve-check', '--browser-check', '--browser', str(browser)])
     preview_check('publication ingestion and contract pricing authoring', [*preview, '--price-authoring-check', '--browser-check', '--browser', str(browser)])
     preview_check('market close calendar', [*preview, '--market-dates-check', '--browser-check', '--browser', str(browser)])
+    preview_check('live outputs and frozen dependencies', [*preview, '--curve-eligibility-check'])
     preview_check('close sessions and bounded observation reads', [*preview, '--regional-closes-check'])
     preview_check('positions a close cannot value', [*preview, '--valuation-status-check', '--browser-check', '--browser', str(browser)], suite='portfolio')
     preview_check('Blotter commodity, swap direction, mark minus price, summaries and curve shapes', [*preview, '--desk-fields-check'], suite='portfolio')

@@ -1,5 +1,12 @@
 # Delivery plan and acceptance criteria
 
+D393 implements live curve output selection, an optional inactive-contract
+display, and explicit exact/live close capture with durable first-outcome retry.
+The selection uses the chosen close, retains explicit frozen dependencies and
+refuses missing final evidence or an empty root. Migrations 0253–0254 require a
+qualified schema upgrade before activation. Broader product lifecycle and
+economic horizon risk remain separate work.
+
 The initial [valuation context and scenario layers](valuation-context-layers.md)
 are implemented locally: complete time/discount/IV declarations, immutable
 combined children, source-anchored discount and held-IV inputs, shared finite

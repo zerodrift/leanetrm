@@ -1,3 +1,4 @@
+import type {ContractDisplay} from './contract-display.js';
 export type Row = Record<string, string | number | null>;
 export type ReferenceRevision={catalogId:string;revisionId:string};
 export type ReferenceSource={referenceRevision:ReferenceRevision;definitionRevisionId:string};
@@ -11,7 +12,7 @@ export type Point = {priceTick?:string;contractId?:string; seriesId?:string; mat
 export type CurveFront={contractId:string;deliveryFrom:string;deliveryTo:string;price:string};
 /** A curve's counts and front, stated by the backend (D233): contracts for futures and forwards, maturities for rates. */
 export type CurveSummary={kind:'contracts';contractCount:number;front:CurveFront|null;availability:'no_remaining_contracts'|'no_priced_contract'|null}|{kind:'rates';maturityCount:number;firstMaturity:string|null;firstMark:string|null;markUnitLabel:string;dayCount:string};
-export type CurveResult = {summary?:CurveSummary;kind?:'rates';convention?:{dayCount:string;compounding:string;interpolation:string;extrapolation:string};
+export type CurveResult = {contractDisplay?:ContractDisplay;summary?:CurveSummary;kind?:'rates';convention?:{dayCount:string;compounding:string;interpolation:string;extrapolation:string};
   markUnitLabel?:string;currency?:string;definition?:{id:string;version:number}|null;availability?:'no_remaining_contracts';trace?:PricingNode[];observationScope?:'selected_frame';observations?:Row[];snapshotId:string; curve:string; at:string; points:Point[]; evaluated:number; numericalPolicy:string};
 /** A close's sample of a contract's history, with the observations behind it and when they were known (null until certified). */
 export type HistoryPoint = {at:string; value:string|null; snapshotId:string;observationIds:string[];unavailableReason?:string|null;knownAt:string|null};

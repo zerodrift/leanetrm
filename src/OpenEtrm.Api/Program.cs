@@ -521,7 +521,10 @@ api.MapPost("/market/closes/history",(HttpContext c,MarketCloseHistoryRequest bo
 },c.RequestAborted)));
 api.MapPost("/market/closes/register",(HttpContext c,MarketCloseRegister body)=>Locked(c,session=>
     database.WithIdentity(Profile(session),"PublishMarketData",async(connection,ct)=>
-        Results.Ok(await MarketCloses.Register(database,connection,Pin(session),Frame(session,body.SnapshotId),body,ct)),c.RequestAborted)));
+        Results.Ok(await MarketCloses.Register(database,connection,Pin(session),id=>Frame(session,id),body,ct)),c.RequestAborted)));
+api.MapPost("/market/closes/capture-live",(HttpContext c,MarketCloseRegister body)=>Locked(c,session=>
+    database.WithIdentity(Profile(session),"PublishMarketData",async(connection,ct)=>
+        Results.Ok(await MarketCloses.CaptureLive(database,connection,Pin(session),id=>Frame(session,id),body,ct)),c.RequestAborted)));
 api.MapPost("/jobs/close-book-risk/create",(HttpContext c,CloseBookRiskCreate body)=>Locked(c,session=>database.WithIdentity(Profile(session),"RunJobs",async(connection,ct)=>
 {
     if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Admit existing-close jobs in the current workspace.");
@@ -1197,10 +1200,13 @@ api.MapPost("/gas-setup/validate",(HttpContext c,GasSetupValidateRequest body)=>
 api.MapPost("/gas-setup/publish",(HttpContext c,GasSetupPublishRequest body)=>ReferenceMutation(c,"SealMarketDefinitions",(connection,ct)=>gasSetupEditor.Publish(connection,body,ct)));
 // The route holds Write; the apply function enforces Seal in the same transaction.
 api.MapPost("/reference/commit",(HttpContext c,ReferenceCommitRequest body)=>ReferenceMutation(c,"WriteReferenceData",(connection,ct)=>ReferenceEditors.Commit(connection,database,body,ct)));
+api.MapGet("/market/contract-display",()=>Results.Ok(new{version=CurveDisplay.Version,choices=new[]{
+    new{value=CurveDisplay.All,label="All recorded contracts · show status"},
+    new{value=CurveDisplay.Live,label="Live contracts at selected close"}}}));
 api.MapPost("/evaluate",(HttpContext c,BuildRequest body)=>Locked(c,async session=>
 {
     var pin=Pin(session,body.SnapshotId);
-    var read=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.Evaluate(connection,pin,body.Curve,ct,body.IncludeWorkspace),c.RequestAborted);
+    var read=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.Evaluate(connection,pin,body.Curve,ct,body.IncludeWorkspace,body.ContractDisplay),c.RequestAborted);
     var result=read.Result;
     if(pin.Context is not null || body.IncludeSources || body.IncludeWorkspace)
     {
@@ -1220,13 +1226,13 @@ api.MapPost("/evaluate",(HttpContext c,BuildRequest body)=>Locked(c,async sessio
 api.MapPost("/market/curve-shapes",(HttpContext c,CurveShapesRequest body)=>Locked(c,async session=>
 {
     var pin=Pin(session,body.SnapshotId);
-    var curves=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.CurveShapes(connection,pin,body.Curves,ct),c.RequestAborted);
+    var curves=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.CurveShapes(connection,pin,body.Curves,ct,body.ContractDisplay),c.RequestAborted);
     return pin.Context is {} context?Results.Ok(new {curves,context}):Results.Ok(new {curves});
 }));
 api.MapPost("/market/input-curve-shapes",(HttpContext c,CurveInspectionsRequest body)=>Locked(c,async session=>
 {
     var pin=Pin(session,body.SnapshotId);
-    var curves=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.InspectCurveShapes(connection,pin,body.Curves,ct),c.RequestAborted);
+    var curves=await database.WithIdentity(Profile(session),"ReadMarketData",(connection,ct)=>marketReads.InspectCurveShapes(connection,pin,body.Curves,ct,body.ContractDisplay),c.RequestAborted);
     return pin.Context is {} context?Results.Ok(new{curves,context}):Results.Ok(new{curves});
 }));
 api.MapPost("/history",(HttpContext c,HistoryRequest body)=>Locked(c,async session=>
@@ -2350,13 +2356,13 @@ public sealed record ProfileRequest(string Profile);
 // A request whose session is missing, unknown or past its end.
 public sealed class PreviewSessionEnded : Exception;
 public sealed record LocalTimeRequest(string? LocalTime,string? TimeZone);
-public sealed record BuildRequest(Guid SnapshotId,string Curve,bool IncludeSources=false,bool IncludeWorkspace=false);
+public sealed record BuildRequest(Guid SnapshotId,string Curve,bool IncludeSources=false,bool IncludeWorkspace=false,CurveDisplaySelection? ContractDisplay=null);
 public sealed record HistoryRequest(Guid SnapshotId,string Curve,Guid? ContractId=null,Guid? SeriesId=null,string? RevisionPolicy=null,ImmutableArray<OpenEtrm.Shared.Analytics.OverlayRequest>? Overlays=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
-public sealed record CurveShapesRequest(Guid SnapshotId,ImmutableArray<string> Curves);
+public sealed record CurveShapesRequest(Guid SnapshotId,ImmutableArray<string> Curves,CurveDisplaySelection? ContractDisplay=null);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record CurveInspectionsRequest([property:System.Text.Json.Serialization.JsonRequired]Guid SnapshotId,
-    [property:System.Text.Json.Serialization.JsonRequired]ImmutableArray<CurveInspection> Curves);
+    [property:System.Text.Json.Serialization.JsonRequired]ImmutableArray<CurveInspection> Curves,CurveDisplaySelection? ContractDisplay=null);
 public sealed record CorrectionRequest(Guid SnapshotId,Guid ObservationId,string Value);
 public sealed record SelectionRequest(Guid SnapshotId,Guid ObservationId);
 public sealed partial class PreviewSession

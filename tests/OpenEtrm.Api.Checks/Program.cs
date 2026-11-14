@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--curve-display"]){CurveDisplayChecks.Run();return;}
 if(args is ["--pnl-persistence",var pnlFixture]){await PnlPersistenceChecks.Run(pnlFixture);return;}
 if(args is ["--pnl-artifacts"]){PnlArtifactChecks.Run();return;}
 if(args is ["--power-close-context",var powerContext]){await PowerCloseContextChecks.Run(powerContext);return;}
@@ -109,6 +110,7 @@ if(args is ["--blotter-stream"]){await BlotterStreamChecks.Run();return;}
 
 if (args is ["--schedules"])
 {
+    CurveDisplayChecks.Run();
     DeliverySetupDefaultsChecks.Run();
     RiskValuationAdmissionChecks.Run();
     PnlArtifactChecks.Run();

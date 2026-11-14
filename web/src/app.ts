@@ -1,3 +1,4 @@
+import {readContractDisplay} from './contract-display.js';
 import {isCurvePage,setupCurveWorkspace} from './curve-workspace.js';
 import {setupPhysicalOperations} from './physical-operations.js';
 
@@ -288,7 +289,7 @@ function table(target:string,headers:string[],rows:(string|HTMLElement)[][],nume
   renderRegularTable($(target),target,JSON.stringify(target==='reference'?referenceScope:marketScope),headers,rows,numeric,()=>busy,{displayRows,onRowActivate});
 }
 
-function clearPrices(){result=undefined;pricingContract='';closeContract();input='';draftFor='';$('revision-card').hidden=true;text('build-info','');text('price-date','Choose a market date to view prices.');if(curve)renderSummary();clearChart($('curve-chart'),'Choose a market date above.');$('curve-chart').classList.add('empty');$('contracts').replaceChildren();$('inputs').replaceChildren();if(curve)renderDependencies();}
+function clearPrices(){result=undefined;pricingContract='';closeContract();input='';draftFor='';$('revision-card').hidden=true;text('build-info','');text('price-date','Choose a market date to view prices.');if(curve)renderSummary();clearChart($('curve-chart'),'Choose a market date above.');$('curve-chart').classList.add('empty');$('contracts').replaceChildren();$('inactive-contracts').hidden=true;$('inactive-contracts').replaceChildren();$('inputs').replaceChildren();if(curve)renderDependencies();}
 const showsDate=(next:string)=>next==='jobs'?can('ReadMarketData'):!['gas-setup','admin','ai','interval-series','ppa','delivery'].includes(next);
 const usesBusinessDate=(next:string)=>['facilities','reference','schedules','jobs'].includes(next);
 const showsContext=(next:string)=>showsDate(next)&&next!=='interval-curves';
@@ -627,8 +628,15 @@ function renderSummary(){
   text('curve-mode',context?`Historical view: ${displayDate(context.effectiveOn)}${context.knownAt?`, as known at ${instant(context.knownAt)}`:''}. Prices are read-only; return to working data to make changes.`:'You can correct source prices on the Price sources tab. Every earlier version stays available.');
 }
 function renderPrices(){
-  if(!result)return;renderSummary();const rates=result.kind==='rates';if(result.availability==='no_remaining_contracts'){pricingContract='';closeContract();text('price-date',`As of: ${instant(result.at)}`);text('build-info','No remaining delivery days');clearChart($('curve-chart'),'No remaining delivery days for this market date.');$('contracts').replaceChildren();renderDependencies();renderInputs();return;}
-  const exportCurve={snapshotId:result.snapshotId,curve:result.curve};
+  if(!result)return;renderSummary();
+  $<HTMLInputElement>('show-inactive-contracts').checked=prefs.contractDisplay.contracts==='captured_contracts_with_status_v1';
+  const statuses=result.contractDisplay?.contracts.filter(c=>c.unavailableReason)??[];
+  $('inactive-contracts').hidden=statuses.length===0;
+  if(!statuses.length)$('inactive-contracts').replaceChildren();
+  if(statuses.length)table('inactive-contracts',['Delivery period','Marking status','Boundary'],statuses.map(c=>[
+    deliveryLabel(c.deliveryFrom,c.deliveryTo),c.expired?c.status:`${c.status} · ${friendly(c.unavailableReason)}`,instant(c.expiry)]));
+  const rates=result.kind==='rates';if(result.availability==='no_remaining_contracts'){pricingContract='';closeContract();text('price-date',`As of: ${instant(result.at)}`);text('build-info','No eligible live contracts');clearChart($('curve-chart'),'No eligible live contracts for this market date.');$('contracts').replaceChildren();renderDependencies();renderInputs();return;}
+  const exportCurve={snapshotId:result.snapshotId,curve:result.curve,contractDisplay:prefs.contractDisplay};
   renderChart($('curve-chart'),{exportImage:download=>void act(async()=>{try{await api('evaluate',exportCurve);}catch(error){clearPrices();throw error;}download();}),title:curveName(result.curve),axis:rates?'maturity':'delivery',unit:$('unit').textContent??'',series:[{name:curveName(result.curve),points:result.points.map(p=>({x:pointIdentity(p),label:rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!),y:p.value}))}]});
   text('price-date',`As of: ${instant(result.at)}`);text('build-info',contractCountText(result));
   // A row, chosen or pressed with Enter, opens its contract in the panel, for the result it was drawn from.
@@ -642,7 +650,7 @@ async function build(){
   if(contextDirty)throw Error('Apply the changed context before viewing prices.');
   const owner=directory(),previousWorkspace=workspace,includeWorkspace=!workspace,started=marketGeneration,scope=marketSelection();
   const f=frame();if(!curve)throw Error('Choose a curve first.');
-  const {workspace:includedWorkspace,...next}=await api<CurveResult & {workspace?:Workspace}>('evaluate',{snapshotId:f.id,curve,includeSources:true,...(includeWorkspace?{includeWorkspace:true}:{})});
+  const {workspace:includedWorkspace,...next}=await api<CurveResult & {workspace?:Workspace}>('evaluate',{snapshotId:f.id,curve,contractDisplay:prefs.contractDisplay,includeSources:true,...(includeWorkspace?{includeWorkspace:true}:{})});
   if(navigation!==owner||workspace!==previousWorkspace||started!==marketGeneration||scope!==marketSelection())throw Error('The account or market selection changed. Reload before continuing.');
   if(next.snapshotId!==f.id||next.curve!==curve||next.observationScope!=='selected_frame'||!Array.isArray(next.observations))throw Error('The selected price sources are missing or inconsistent. Refresh and try again.');
   if(includeWorkspace!==!!includedWorkspace)throw Error('The requested market catalog is missing or inconsistent. Refresh and try again.');
@@ -756,7 +764,7 @@ function renderDependencies(){
   document.body.classList.toggle('showing-all-contracts',showAllContracts&&!!result);
   for(const id of ['source-flow','dependencies','mappings','inputs'])$(id).replaceChildren();$('revision-card').hidden=true;
   for(const id of ['source-all','pricing-all']){text(id,showAllContracts?'Show selected contract':'Show all contracts');$(id).setAttribute('aria-pressed',String(showAllContracts));}
-  if(!result||!result.points.length){for(const id of ['source-flow','dependencies'])$(id).replaceChildren(el('p',result?'No remaining delivery days for this market date.':'Choose a market date to see the contract pricing breakdown.'));for(const id of ['source-contract','pricing-contract'])choose(id,[],'');return;}
+  if(!result||!result.points.length){for(const id of ['source-flow','dependencies'])$(id).replaceChildren(el('p',result?'No eligible live contracts for this market date.':'Choose a market date to see the contract pricing breakdown.'));for(const id of ['source-contract','pricing-contract'])choose(id,[],'');return;}
   if(!result.points.some(p=>pointIdentity(p)===pricingContract))pricingContract=pointIdentity(result.points[0]);
   const points=pricingPoints(),rates=result.kind==='rates',options=result.points.map(p=>({value:pointIdentity(p),name:rates?displayDate(pointDate(p)):deliveryLabel(p.deliveryFrom!,p.deliveryTo!)}));
   for(const id of ['source-contract','pricing-contract'])choose(id,options,pricingContract);
@@ -1032,6 +1040,11 @@ async function profileAction(control:HTMLElement,work:()=>Promise<void>){
 }
 $('profile-dialog').addEventListener('close',()=>profileError());
 $('profile-open').onclick=()=>void act(openProfile);for(const id of ['profile-close','profile-cancel'])$(id).onclick=()=>$<HTMLDialogElement>('profile-dialog').close();
+$('show-inactive-contracts').onchange=()=>void act(async()=>{
+ prefs.contractDisplay=readContractDisplay({version:'curve_display_v1',contracts:$<HTMLInputElement>('show-inactive-contracts').checked?'captured_contracts_with_status_v1':'eligible_contracts_v1'});
+ if(!await persist(true))throw Error('The contract view preference was not confirmed. Retry or reload your profile.');
+ await build();
+});
 $('preferences-form').onsubmit=event=>{event.preventDefault();void (async()=>{if(busy)return;if(page==='physical-operations'&&!await mayLeaveForDialog('The preferences were not changed'))return;await profileAction($('profile-save'),async()=>{const zone=select('zone').value;if(!validTimeZone(zone))throw Error('Choose a valid time zone.');const selected=select('snapshot').value,zoneChanged=zone!==prefs.timeZone;prefs.timeZone=zone;if(zoneChanged){scheduleWorkspace?.calendar.reset();dateEditor.invalidatePreview();workspaceCloses=undefined;closeCheckDue=true;}await prepareAmountDisplay({points:result?.points,historyData},request=>transport<string[]>('amounts/display',request),decimalTick());prefs.browseBy=select('preferred-browse').value as Preferences['browseBy'];prefs.assistantHidden=!$<HTMLInputElement>('show-assistant').checked;if(!await persist(true))throw Error('Your preferences were not confirmed. Retry Save or reload your profile.');if(can('ReadMarketData'))try{await closeConventionDefaults.save(select('default-close-session').value||null);}catch(error){throw Error('Display preferences were saved, but the default close convention was not confirmed. Retry Save preferences. '+errorMessage(error));}assistant.sync();if(navigation){renderFrames(selected);renderContext();renderPrices();renderReference();schedules.refresh();dateEditor.refresh();curveDefinitions.refresh();power.refresh();}renderTimeZones();customCurves.refresh();riskJobs.refresh();jobs.refresh();if(page==='physical-operations')await physicalOperations.refresh();facilities.refresh();administration.refresh();aiSettings.refresh();parties.refresh();intervalSeries.refresh();intervalCurves.refresh();ppa.refresh();crude.sync();futures.refreshDisplay();$<HTMLDialogElement>('profile-dialog').close();});})();};
 function setHostMode(mode:string){
   if(mode!=='hosted-pilot'&&mode!=='local-synthetic-preview')throw Error('The workspace mode could not be verified. Please refresh.');
@@ -1159,7 +1172,7 @@ const aiSettings=setupAiSettings({api,act,busy:()=>busy,zone:()=>prefs.timeZone,
 // Curve definitions preview at the header's selected close.
 const curveDefinitions=setupCurveDefinitionEditor(api,act,()=>{if(contextDirty)throw Error('Apply the changed market context first.');return select('snapshot').value;},
   ()=>prefs.timeZone,()=>busy,()=>contextDirty?'Apply the changed market context first.':historicalContext()?'Historical view is read-only. Return to current knowledge to edit.':null);
-const nativeCurveInspector=setupNativeCurveInspector(()=>navigate('market')(),code=>leaving(async()=>{await setPage('custom-curves');await customCurves.load();await customCurves.openSource(code,directory().definitionRevision.revisionId);}),()=>busy);
+const nativeCurveInspector=setupNativeCurveInspector(()=>navigate('market')(),code=>leaving(async()=>{await setPage('custom-curves');await customCurves.load();await customCurves.openSource(code,directory().definitionRevision.revisionId);}),()=>busy,value=>instant(value));
 $('curve-definition').append(curveDefinitions.element,nativeCurveInspector.element);nativeCurveInspector.element.hidden=true;
 function openCurveConfiguration(configuration:CurveConfiguration){return act(async()=>{
   if(contextDirty)throw Error('Apply the changed market context first.');

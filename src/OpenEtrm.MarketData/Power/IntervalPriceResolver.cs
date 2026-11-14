@@ -36,7 +36,7 @@ internal sealed record PreparedPriceMonth(ImmutableArray<DeliveryInterval> Inter
 
 // Invariant inputs are copied and compiled once per authorized request. Object identity is deliberately
 // the reuse boundary: equal curve codes in another request do not establish equal shape/actual inputs.
-public sealed class PreparedCurve
+public sealed partial class PreparedCurve
 {
     internal PriceCurve Curve { get; }
     internal ImmutableDictionary<DateOnly,PreparedPriceMonth> Periods { get; }
@@ -420,13 +420,7 @@ public sealed class IntervalPriceResolver
                 var has=forward.TryGetValue(interval.Start,out var cell);
                 var frozen=has && cell.Anchor.Use==InputUse.FrozenFact;
                 if(frozen)
-                {
-                    var knowledge=((ShapedIntervalCurve)prepared.Curve).FrozenKnowledge;
-                    var cutoff=interval.End>prepared.ValuationAt && prepared.ValuationAt<prepared.KnownAt?prepared.ValuationAt:prepared.KnownAt;
-                    if(cell.Anchor.Lineage.Count==0 || cell.Anchor.Lineage.Any(id=>!knowledge.TryGetValue(id,out var learned) ||
-                        learned.Offset!=TimeSpan.Zero || learned>cutoff))
-                        throw new MarketDataException("frozen_fact","The exact frozen anchor needs certified knowledge eligible at the request cutoff and, for live intervals, at valuation.");
-                }
+                    prepared.RequireFrozenKnowledge(cell.Anchor.Lineage,interval);
                 if(interval.End<=prepared.ValuationAt)
                     return new IntervalPriceResolution(interval,IntervalPriceState.Unresolved,null,has?cell.Anchor.Lineage:[],null,due)
                         {Estimate=has?cell.Price:null,Anchor=has?cell.Anchor:null,Reason=new(has?"awaiting_actual":"no_estimate",due),

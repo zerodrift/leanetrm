@@ -3,6 +3,8 @@ using System.Numerics;
 using OpenEtrm.MarketData;
 using OpenEtrm.Security;
 
+if(args is ["--contract-eligibility"]){ContractEligibilityChecks.Run();return;}
+if(args is ["--interval-anchors"]){IntervalAnchorChecks.Run();return;}
 if(args is ["--option-clock"]){FuturesOptionChecks.ClockLayers();return;}
 if(args is ["--valuation-environment"]){ValuationEnvironmentChecks.Run();return;}
 if(args is ["--pnl-attribution"]){TradingPnlAttributionChecks.Run();return;}
@@ -591,6 +593,7 @@ ParametricRiskChecks.Run();
 HistoricalRiskChecks.Run();
 MonteCarloRiskChecks.Run();
 PcaHybridRiskChecks.Run();
+ContractEligibilityChecks.Run();passed++;
 passed += TemporalBindingChecks.Run();
 passed += BasisRiskChecks.Run();
 Console.WriteLine($"{passed} managed core checks passed.");

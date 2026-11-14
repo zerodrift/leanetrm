@@ -10,7 +10,7 @@ export function nativeCurveConfiguration(workspace:Workspace,code:string){
  const inputs=(workspace.definitions.curve_inputs??[]).filter(row=>row.curve_code===code);
  return {definition,contracts,inputs};
 }
-export function setupNativeCurveInspector(back:()=>void,derive:(code:string)=>void,busy:()=>boolean){
+export function setupNativeCurveInspector(back:()=>void,derive:(code:string)=>void,busy:()=>boolean,formatInstant:(value:string)=>string){
  const el=<K extends keyof HTMLElementTagNameMap>(tag:K,text='')=>{const n=document.createElement(tag);n.textContent=publicText(text);return n;};
  const element=el('div'),leave=el('button','‹ All markets'),title=el('h2'),note=el('p'),terms=el('dl'),sources=el('div'),contracts=el('div'),create=el('button','Create derived curve');
  element.className='card native-curve-inspector';element.id='native-curve-inspector';leave.type='button';leave.className='text-button';leave.onclick=back;
@@ -22,7 +22,7 @@ export function setupNativeCurveInspector(back:()=>void,derive:(code:string)=>vo
   terms.replaceChildren(...[['Curve code','code'],['Commodity','commodity_code'],['Location','location_code'],['Quote','quote_code'],['Delivery profile','profile_code'],['Settlement target','settlement_target_code'],['Price rule','rule'],['Mark source','direct_source_code'],['Mark role','direct_role']].flatMap(([label,key])=>[el('dt',label),el('dd',val(read.definition,key))]));
   sources.hidden=!read.inputs.length;
   if(read.inputs.length)renderRegularTable(sources,'native-curve-inputs',JSON.stringify(read.inputs),['Input','Source curve','Expiry policy'],read.inputs.map(row=>[val(row,'slot'),val(row,'source_curve_code'),val(row,'expiry_rule')]),[],busy);
-  renderRegularTable(contracts,'native-curve-contracts',JSON.stringify(read.contracts),['Position','Kind','Delivery start','Delivery end · excluded','Expiry · UTC','Futures series'],read.contracts.map(row=>['ordinal','kind','delivery_from','delivery_to','expiry_at','futures_series_code'].map(key=>val(row,key))),[0],busy);
+  renderRegularTable(contracts,'native-curve-contracts',JSON.stringify(read.contracts),['Position','Kind','Delivery start','Delivery end · excluded','Marking boundary','Futures series'],read.contracts.map(row=>['ordinal','kind','delivery_from','delivery_to','expiry_at','futures_series_code'].map(key=>key==='expiry_at'?formatInstant(val(row,key)):val(row,key))),[0],busy);
   create.hidden=help.hidden=!canDerive;create.disabled=busy();create.onclick=()=>{if(!busy())derive(configuration.curve);};
  }};
 }

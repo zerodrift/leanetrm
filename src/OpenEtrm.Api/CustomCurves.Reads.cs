@@ -71,7 +71,7 @@ public static partial class CustomCurves
                 code=row.Text("code"),name=row.Text("name"),kind=PreviewData.CurveKind(row.Text("rule"),row.OptionalText("direct_role")),
                 catalogId=sourceData.DefinitionRevision.CatalogId,revisionId=sourceData.DefinitionRevision.RevisionId,
                 contracts=sourceData.DefinitionRows("curve_members","curve_code",row.Text("code")).OrderBy(m=>m.GetProperty("ordinal").GetInt32())
-                    .Select(m=>sourceData.ContractRows(m.Id("contract_id")).Single()).Select(k=>new{id=k.Key.Id,label=k.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),k.DeliveryFrom,k.DeliveryTo})
+                    .Select(m=>sourceData.ContractRows(m.Id("contract_id")).Single()).Select(k=>new{id=k.Key.Id,label=k.DeliveryFrom.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),k.DeliveryFrom,k.DeliveryTo,expiry=k.Expiry,markingStatus=CurveDisplay.ExpiryStatus(k,pin.CalculationFrame?.At)})
             }));
         }
         var value=new{kindsVersion=CurveKinds.Version,context=pin.Context,canEdit=await Can("WriteMarketDefinitions"),canPublish=await Can("SealMarketDefinitions"),

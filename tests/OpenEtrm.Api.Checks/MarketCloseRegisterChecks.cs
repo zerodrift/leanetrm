@@ -47,7 +47,10 @@ internal static class MarketCloseRegisterChecks
                 SourceInputs=new[]{anchor,daily}.ToImmutableDictionary(part=>part.Source.DefinitionRevisionId)
             };
             var request=new MarketCloseRegister(Guid.NewGuid(),frame.Id,"Synthetic indexed close","test_indexed_close",day);
-            var close=await MarketCloses.Register(database,connection,PinnedContext.Current(frame),frame,request,ct);
+            var close=await MarketCloses.Register(database,connection,PinnedContext.Current(frame),_=>frame,request,ct);
+            var replay=await MarketCloses.Register(database,connection,PinnedContext.Current(frame),
+                _=>throw new Exception("A command replay must not resolve an ephemeral source frame."),request,ct);
+            if(replay!=close)throw new Exception("Exact capture must replay its first command outcome.");
             var retained=await MarketCloses.Frame(connection,database.Manifest.CatalogId,close.Id,null,ct);
             var retainedDaily=retained.SourceInputs![revisionId];
             if(!actuals.All(pin=>retainedDaily.FrozenObservationIds.Contains(pin.Observation.Key.Id)))

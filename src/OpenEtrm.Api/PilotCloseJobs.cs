@@ -69,6 +69,7 @@ public static class PilotCloseJobs
             metadataContext="current_working_exact_bundle",model=data.DefinitionRevision,reference=data.ReferenceRevision,bookContext=current,
             priorCloses=closeRows.Select(r=>new{id=r.Id("id"),name=r.Text("name"),at=r.Instant("at"),kind=r.Text("kind")}).ToImmutableArray(),
             anchorFrames=frames.Select(f=>new{f.Id,f.Name,f.At,f.BusinessDate}).ToImmutableArray(),
+            anchorScopes=MarketCloses.CaptureChoices,
             books,curves=definitions.Select(r=>new{code=r.Text("code"),name=r.Text("code"),leafCurves=Leaves(r.Text("code"),new(StringComparer.Ordinal))}).ToImmutableArray(),
             sources=data.References["sources"].Where(r=>r.Text("kind")=="synthetic").Select(r=>new{code=r.Text("code"),name=r.Text("code")}).ToImmutableArray(),
             policies=new{

@@ -22,14 +22,32 @@ public sealed record MarketCloseFrames(ImmutableArray<InputFrame> Frames,int Lim
 
 // Durable frames pin native observations and explicit membership. Registering a
 // prior frame records when it was retained; it never backdates its publication.
-public static class MarketCloses
+public static partial class MarketCloses
 {
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
-    public static async Task<MarketCloseInfo> Register(PreviewDatabase database,NpgsqlConnection connection,
-        PinnedContext pin,InputFrame frame,MarketCloseRegister request,CancellationToken ct)
+    public static Task<MarketCloseInfo> Register(PreviewDatabase database,NpgsqlConnection connection,
+        PinnedContext pin,Func<Guid,InputFrame> frame,MarketCloseRegister request,CancellationToken ct)
+        =>Capture(database,connection,pin,frame,request,false,ct);
+    public static Task<MarketCloseInfo> CaptureLive(PreviewDatabase database,NpgsqlConnection connection,
+        PinnedContext pin,Func<Guid,InputFrame> frame,MarketCloseRegister request,CancellationToken ct)
+        =>Capture(database,connection,pin,frame,request,true,ct);
+    private static async Task<MarketCloseInfo> Capture(PreviewDatabase database,NpgsqlConnection connection,
+        PinnedContext pin,Func<Guid,InputFrame> frame,MarketCloseRegister request,bool live,CancellationToken ct)
+    {
+        if(pin.Context is not null)throw new MarketDataException("historical_read_only","Capture closes in the current workspace.");
+        RequireCommand(request);
+        await using var command=ScheduleStore.Command(connection,"SELECT security.market_close_capture_receipt($1,$2,$3,$4,$5,$6,$7)::text",
+            database.Manifest.CatalogId,request.RequestId,request.SnapshotId,request.Name,request.Session,request.BusinessDate,live?CurveModel.LiveOutputsPolicy:ExactCapturePolicy);
+        var previous=await command.ExecuteScalarAsync(ct);
+        if(previous is string json)return JsonSerializer.Deserialize<MarketCloseInfo>(json,Json)!;
+        return await RegisterSelection(database,connection,pin,frame(request.SnapshotId),request,live,ct);
+    }
+    private static async Task<MarketCloseInfo> RegisterSelection(PreviewDatabase database,NpgsqlConnection connection,
+        PinnedContext pin,InputFrame frame,MarketCloseRegister request,bool captureLive,CancellationToken ct)
     {
         if(pin.Context is not null)throw new MarketDataException("historical_read_only","Register closes in the current workspace.");
-        if(request.RequestId==Guid.Empty||request.SnapshotId!=frame.Id||string.IsNullOrWhiteSpace(request.Name)||request.Name.Length>80)
+        RequireCommand(request);
+        if(request.SnapshotId!=frame.Id)
             throw new MarketDataException("pilot_close_input","Select an exact existing frame and name this retained close.");
         var data=await MarketInputSelection.Root(database,connection,frame,ct,referenceScope:ReferenceReadScope.TradeValuation);
         var primary=new CatalogueSource(data.DefinitionRevision.RevisionId,data.ReferenceRevision.CatalogId,data.ReferenceRevision.RevisionId);
@@ -46,22 +64,43 @@ public static class MarketCloses
             foreach(var source in await database.ReadInputMarkets(connection,frame,ct))
                 if(source.Data.DefinitionRevision.RevisionId!=primary.DefinitionRevisionId)inputs.Add(source.Data.DefinitionRevision.RevisionId,source);
         }
+        if(captureLive)
+        {
+            var roots=await PreviewDatabase.Rows(connection,"SELECT row_to_json(k)::text FROM market_data.close_session_curves k "+
+                "WHERE(k.catalog_id,k.code,k.version)=($1,$2,security.close_session_version_on($1,$2,$3))",
+                [database.Manifest.CatalogId,request.Session,request.BusinessDate],ct);
+            if(roots.IsEmpty||roots.Any(r=>!inputs.TryGetValue(r.Id("definition_revision_id"),out var source)||
+                !source.Frame.CurveContracts.ContainsKey(r.Text("curve_code"))))
+                throw new MarketDataException("close_incomplete","The selected inputs must include every exact curve of the chosen close session.");
+            var parts=inputs.Values.Select(source=>LivePart(source.Data,source.Frame,
+                [..roots.Where(r=>r.Id("definition_revision_id")==source.Data.DefinitionRevision.RevisionId).Select(r=>r.Text("curve_code"))]))
+                .ToImmutableDictionary(p=>p.Source.DefinitionRevisionId);
+            frame=FreshFrame(frame,request.RequestId,parts,primary);
+            inputs=inputs.ToDictionary(p=>p.Key,p=>(p.Value.Data,parts[p.Key].Project(frame)));
+        }
         var pins=new List<object>();var members=new List<object>();
         // Qualify each explicit part without filling marks or inventing members.
         foreach(var source in inputs.Values.OrderBy(s=>s.Data.DefinitionRevision.RevisionId))
         {
             var definitionRevisionId=source.Data.DefinitionRevision.RevisionId;
-            foreach(var curve in source.Frame.CurveContracts.Keys)_=source.Data.Build(source.Frame,curve);
+            var roots=frame.SourceInputs is {} declaredParts?declaredParts[definitionRevisionId].RootCurves:[..source.Frame.CurveContracts.Keys];
+            QualifyPart(source.Data,source.Frame,roots);
             pins.AddRange(source.Data.Snapshot(source.Frame).Selections.Select(pin=>(object)new{definitionRevisionId,
                 seriesId=pin.Input.Series.Id,observationId=pin.Observation.Key.Id,inputUse=pin.Input.Use==InputUse.FrozenFact?"frozen":"variable"}));
             members.AddRange(source.Frame.CurveContracts.OrderBy(p=>p.Key,StringComparer.Ordinal).SelectMany(p=>p.Value.Select((id,index)=>(object)new{
                 definitionRevisionId,curve=p.Key,contractId=id,ordinal=index,scope=frame.SourceInputs is {} declared&&!declared[definitionRevisionId].RootCurves.Contains(p.Key,StringComparer.Ordinal)?"retained":"root"})));
         }
-        await using var command=ScheduleStore.Command(connection,"SELECT security.register_market_close($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)",
-            database.Manifest.CatalogId,primary.DefinitionRevisionId,request.RequestId,request.Name,request.Session,request.BusinessDate,frame.At,
+        await using var command=ScheduleStore.Command(connection,"SELECT security.capture_market_close($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb)::text",
+            database.Manifest.CatalogId,primary.DefinitionRevisionId,request.RequestId,request.SnapshotId,request.Name,request.Session,request.BusinessDate,
+            captureLive?CurveModel.LiveOutputsPolicy:ExactCapturePolicy,frame.At,
             JsonSerializer.Serialize(pins,Json),JsonSerializer.Serialize(members,Json));
-        var close=(Guid)(await command.ExecuteScalarAsync(ct)??throw new MarketDataException("pilot_close_outcome","The close receipt was not returned."));
-        return await Read(connection,database.Manifest.CatalogId,close,ct);
+        return JsonSerializer.Deserialize<MarketCloseInfo>((string)(await command.ExecuteScalarAsync(ct))!,Json)!;
+    }
+    private static void RequireCommand(MarketCloseRegister request)
+    {
+        if(request.RequestId==Guid.Empty||request.SnapshotId==Guid.Empty||string.IsNullOrWhiteSpace(request.Name)||request.Name.Length>80||
+            string.IsNullOrWhiteSpace(request.Session)||request.Session.Length>64)
+            throw new MarketDataException("pilot_close_input","Select the exact source snapshot and close session, and name this retained close.");
     }
     public static async Task<MarketCloseInfo> Read(NpgsqlConnection connection,Guid catalog,Guid id,CancellationToken ct)
     {

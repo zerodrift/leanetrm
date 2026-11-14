@@ -162,3 +162,40 @@ def run_checks(url, query, manifest):
     assert created['login'] == 'session_chooser'
     print('PASS a new account has no close session until it chooses one, and its choice is remembered', flush=True)
 
+    admin.call('profile', {'profile': 'admin'})
+    publish(editor, approver, draft('test_capture_replay', 'test_business', '16:00', ['future']))
+    capture_grant=grant(admin, query, manifest, 'approver', 'test_capture_replay')
+    capture={'requestId':str(uuid4()),'snapshotId':frame['id'],'name':'Synthetic explicit live capture',
+             'session':'test_capture_replay','businessDate':'2020-12-18'}
+    captured=approver.call('market/closes/capture-live',capture)
+    assert captured==approver.call('market/closes/capture-live',capture)
+    publish(editor, approver, draft('test_capture_replay', 'test_business', '16:00', ['bridge_basis'], effective=('2020-12-10','2021-12-01')))
+    assert captured==approver.call('market/closes/capture-live',capture), 'A capture retry must return its first resolution after session configuration changes'
+    replay=client(url,'approver')
+    assert captured==replay.call('market/closes/capture-live',capture), 'A fresh session must replay without possessing the original ephemeral frame'
+    assert approver.call('market/closes/capture-live',{**capture,'name':'Changed retry'},expected=409)['code']=='pilot_close_conflict'
+    assert replay.call('market/closes/capture-live',{**capture,'snapshotId':str(uuid4())},expected=409)['code']=='pilot_close_conflict'
+    for field in ('name','session'):
+        assert replay.call('market/closes/capture-live',{**capture,'requestId':str(uuid4()),field:None},expected=422)['code']=='pilot_close_input'
+    print('PASS live capture retains its first authorized resolution across a later session version and rejects a changed retry',flush=True)
+    for who in (approver,replay):
+        assert captured['id'] in {f['id'] for f in who.call('workspace')['frames']}
+    concurrent={**capture,'requestId':str(uuid4()),'snapshotId':captured['id'],'name':'Synthetic concurrent live capture'}
+    outcomes=[]
+    def capture_once(who):
+        try:outcomes.append(who.call('market/closes/capture-live',concurrent))
+        except BaseException as error:outcomes.append(repr(error))
+    workers=[threading.Thread(target=capture_once,args=(who,)) for who in (approver,replay)]
+    for worker in workers:worker.start()
+    for worker in workers:worker.join(timeout=30)
+    assert len(outcomes)==2 and isinstance(outcomes[0],dict) and outcomes[0]==outcomes[1],outcomes
+    assert query(f"SELECT count(*) FROM market_data.market_close_capture_commands WHERE catalog_id='{catalog}' AND request_id='{concurrent['requestId']}';")=='1'
+    assert approver.call('market/closes/register',concurrent,expected=409)['code']=='pilot_close_conflict'
+    current=outcomes[0]
+    approver.call('workspace')
+    exact={**concurrent,'requestId':str(uuid4()),'snapshotId':current['id'],'name':'Synthetic exact capture collision check'}
+    approver.call('market/closes/register',exact)
+    assert approver.call('market/closes/capture-live',exact,expected=409)['code']=='pilot_close_conflict'
+    admin.call('close-sessions/grants/revoke',{'requestId':str(uuid4()),'grantId':capture_grant['id']})
+    approver.call('market/closes/capture-live',capture,expected=403)
+    print('PASS live capture: concurrent commands share one receipt; exact/live command collisions and revoked replay authority refuse',flush=True)

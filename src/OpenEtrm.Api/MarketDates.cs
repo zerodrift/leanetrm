@@ -354,13 +354,19 @@ public static class MarketDates
         }
         return qualified.ToImmutable();
     }
-    static void QualifyCurve(PreviewData data,InputFrame frame,string code,IReadOnlyDictionary<string,RateTenorSource> rateSources)
+    internal static void QualifyCurve(PreviewData data,InputFrame frame,string code,IReadOnlyDictionary<string,RateTenorSource> rateSources)
     {
         if(data.IsRateCurve(code))
         {
             if(data.BuildRates(frame,RateCurveResolver.At(data,frame,code,rateSources.GetValueOrDefault(code)??
                 throw new MarketDataException("rate_definition","This rate curve's date list is unavailable in this view."))).Values.IsEmpty)throw new MarketDataException("market_data_unavailable","This exact snapshot has no rate points.");
         }
-        else if(data.Build(frame,code).Values.IsEmpty)throw new MarketDataException("market_data_unavailable","This exact snapshot has no live curve points.");
+        else
+        {
+            var requests=CurveDisplay.LiveRequests(data,frame,code);
+            if(requests.IsEmpty)throw new MarketDataException("market_data_unavailable","This exact snapshot has no eligible live output points.");
+            var(build,_)=ValuationStatus.BuildValued(set=>data.Model.Build(data.Snapshot(frame),set),requests);
+            if(build is null||build.Values.IsEmpty)throw new MarketDataException("market_data_unavailable","This exact snapshot has no priced live output points.");
+        }
     }
 }

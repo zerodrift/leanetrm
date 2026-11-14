@@ -91,3 +91,12 @@ test('a whole-minute instant reads as a date and time with its zone; one with se
  assert.equal(displayExactInstant('2026-12-01T00:00:00Z','UTC'),'Dec 1, 2026, 12:00 AM UTC');
  assert.equal(displayExactInstant('2026-12-01T00:00:07Z','America/Chicago'),'2026-11-30 18:00:07 UTC-06:00 · America/Chicago');
 });
+
+test('curve display choices persist explicitly and reject unknown policies',()=>{
+ const preference=newPreferences('UTC');
+ assert.deepEqual(preference.contractDisplay,{version:'curve_display_v1',contracts:'eligible_contracts_v1'});
+ const live={...preference,contractDisplay:{version:'curve_display_v1',contracts:'eligible_contracts_v1'}};
+ assert.deepEqual(parsePreferences(JSON.stringify(live)).contractDisplay,live.contractDisplay);
+ for(const contractDisplay of [null,{}, {version:'unknown',contracts:'eligible_contracts_v1'},{version:'curve_display_v1',contracts:'guess'}])
+  assert.throws(()=>parsePreferences(JSON.stringify({...preference,contractDisplay})));
+});

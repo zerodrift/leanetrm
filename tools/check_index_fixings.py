@@ -7,6 +7,7 @@ from preview_client import PreviewClient
 from preview_fixture import CAT, R, RCAT, REV, RREV, identity, trade_booking
 from swap_fixture import REVISION
 from check_trading_pin_reads import legacy_trading_reads, trading_context, trading_workspace
+from close_session_fixture import record
 
 CONVENTION='independent_side_financial_swap_v2'
 RULE={'frequency':'monthly','rule':'days_after_period_end','days':46,'dayOfMonth':None,
@@ -357,8 +358,8 @@ def run_correction_checks(query, manifest, c, frames):
     print('PASS certified contexts: each cutoff reads the recorded close exactly into the context\'s own snapshot, repeatably and read-only',flush=True)
     c.call('profile',{'profile':'approver'})
     close_count=query(f"SELECT count(*) FROM market_data.market_closes WHERE catalog_id='{manifest['catalogId']}';")
-    refused=c.call('market/closes/register',{'requestId':str(uuid4()),'snapshotId':daily['frame']['id'],'name':'Selected daily correction',
-        'session':daily['frame'].get('close',{}).get('session','not_a_session'),'businessDate':daily['frame']['at'][:10]},expected=422)
+    # A session the approver may record, so the refusal is the expired source and not the session grant, which capture checks first.
+    refused=record(c,daily['frame'],'Selected daily correction',expected=422)
     assert refused['code']=='source_expired',refused
     assert query(f"SELECT count(*) FROM market_data.market_closes WHERE catalog_id='{manifest['catalogId']}';")==close_count
     c.call('profile',{'profile':'trader'})

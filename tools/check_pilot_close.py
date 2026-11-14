@@ -49,6 +49,16 @@ def run_checks(url, query, manifest,psql,environment):
     assert result==approver.call('market/closes/register',body)
     assert result['kind']=='retained_input' and result['at']==frame['at']
     assert result['id']!=frame['id'], 'Session snapshot identity is not durable close identity'
+    live_body={**body,'requestId':str(uuid4())}
+    viewer.call('market/closes/capture-live',live_body,expected=403)
+    editor.call('market/closes/capture-live',live_body,expected=403)
+    live=approver.call('market/closes/capture-live',live_body)
+    assert live==approver.call('market/closes/capture-live',live_body)
+    assert live['id']==result['id'], 'Identical resolved live inputs must reuse the existing close fact'
+    assert live['requestId']==live_body['requestId'], 'A fact no-op must acknowledge the current command, not the first close-creation command'
+    exact_noop={**body,'requestId':str(uuid4())}
+    exact=approver.call('market/closes/register',exact_noop)
+    assert exact['id']==result['id'] and exact['requestId']==exact_noop['requestId']
     bad={**body,'name':'Different replay'}
     approver.call('market/closes/register',bad,expected=409)
     rows=query(f"SELECT count(*) FROM market_data.market_close_pins WHERE catalog_id='{catalog}' AND close_id='{result['id']}';")

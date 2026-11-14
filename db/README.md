@@ -9,7 +9,7 @@ grant. Bootstrap refuses an existing application schema; upgrading an installed
 database preserves its migration ledger and existing ACL provenance.
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0252_contract_observation_nodes.sql`. It includes reference/market data, certified
+`0254_market_close_capture_receipts.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts, regional closes, bounded physical gas/crude operations and
 pre-loading LNG cargo booking/valuation with saved Incoterms.
@@ -20,6 +20,10 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- 0253–0254: the saved Curves & prices contract-display preference
+  (`curve_display_v1`), which changes display selection only, and the
+  authenticated receipts of exact and live close capture, which keep each
+  command's request and first outcome across retries (D393).
 - 0252: typed terms of the [custom-curve](../docs/custom-curves.md) contract
   observation node: a positive weight within a named group, a contract position,
   an optional second position and the observed period. Terms are admitted only on

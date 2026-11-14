@@ -20,10 +20,12 @@ public static partial class CustomCurves
         var to=definition.Curve.Grid.Clock.StartOfDay(definition.Terms.To).ToUniversalTime();
         var read=await PowerIntervalCurves.PrepareRead(connection,data,definition,[(from,to)],frame.At,DateTimeOffset.Parse(context.KnownAt!,System.Globalization.CultureInfo.InvariantCulture),ct);
         var prepared=read.Prepared;
+        var snapshot=data.Snapshot(frame).WithKnowledge(context.ContextId!.Value,DateTimeOffset.Parse(context.KnownAt!,System.Globalization.CultureInfo.InvariantCulture));
         ImmutableArray<CurveRequest> dependencies=[..prepared.Months.SelectMany(m=>prepared.Dependencies(m)).Distinct()];
-        if(dependencies.Any(d=>!frame.CurveContracts.GetValueOrDefault(d.Curve.Code,[]).Contains(d.Contract.Id)))
+        if(!PreparedCurve.MissingInputs(data.Model,snapshot,[prepared],dependencies,
+            frame.CurveContracts.Keys.SelectMany(code=>data.Requests(frame,code)).ToHashSet(),ct).IsEmpty)
             throw new MarketDataException("missing_curve_view","The selected frame must explicitly include every native source contract.");
-        var built=data.Model.Build(data.Snapshot(frame).WithKnowledge(context.ContextId!.Value,DateTimeOffset.Parse(context.KnownAt!,System.Globalization.CultureInfo.InvariantCulture)),dependencies);
+        var built=data.Model.Build(snapshot,dependencies);
         var resolver=new IntervalPriceResolver(built,ImmutableDictionary<CurveKey,PreparedCurve>.Empty.Add(definition.Curve.Key,prepared));
         var prices=prepared.Months.SelectMany(m=>resolver.Prices(definition.Curve.Key,m)).ToArray();
         var format=new AmountFormat(6,CashTieRule.ToEven,true,true);

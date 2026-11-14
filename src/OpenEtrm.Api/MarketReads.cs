@@ -51,6 +51,8 @@ public sealed record CurveShapePoint(Guid ContractId,string DeliveryFrom,string 
 public sealed record CurveShape(string Curve,string? Unit,ImmutableArray<CurveShapePoint>? Points,string? UnavailableReason,int? ContractCount,CurveFront? Front,string? Availability)
 {
     public Guid DefinitionRevisionId{get;init;}
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CurveDisplayInfo? ContractDisplay{get;init;}
 }
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record CurveInspection([property:System.Text.Json.Serialization.JsonRequired]string Curve,
@@ -186,10 +188,12 @@ public sealed class MarketReads(PreviewDatabase database)
         return (inputs.Frame,inputs.Data);
     }
 
-    public async Task<PriceRead> Evaluate(NpgsqlConnection connection,PinnedContext pin,string curve,CancellationToken ct,bool includeWorkspace=false)
+    public async Task<PriceRead> Evaluate(NpgsqlConnection connection,PinnedContext pin,string curve,CancellationToken ct,bool includeWorkspace=false,CurveDisplaySelection? display=null)
     {
         var (frame,data)=await Pinned(connection,pin,curve,ct);
-        var result=data.IsRateCurve(curve)?data.Result(frame,curve,await RateCurveResolver.Resolve(connection,data,frame,curve,ct)):data.Result(frame,curve);
+        if(display is not null)CurveDisplay.Require(display);
+        var result=data.IsRateCurve(curve)?data.Result(frame,curve,await RateCurveResolver.Resolve(connection,data,frame,curve,ct)):
+            CurveDisplay.Result(data,frame,curve,display??new(CurveDisplay.Version,CurveDisplay.Live));
         var observations=await PreviewDatabase.ReadObservationFacts(connection,data.DefinitionRevision.CatalogId,
             data.DefinitionRevision.RevisionId,frame.ObservationIds,ct);
         return new(result,observations,includeWorkspace?await WorkspaceMetadata(connection,data,true,ct):null);
@@ -202,8 +206,10 @@ public sealed class MarketReads(PreviewDatabase database)
     // fails for what is not one curve's: its own form, authorization, the pin and its context, a pinned observation that cannot
     // be found when the snapshot is assembled, and a catalog inconsistency in a readable curve's price unit. A snapshot the model
     // then refuses fails each curve the same way, with the code its own Evaluate read raises.
-    public async Task<ImmutableArray<CurveShape>> CurveShapes(NpgsqlConnection connection,PinnedContext pin,ImmutableArray<string> curves,CancellationToken ct)
+    public async Task<ImmutableArray<CurveShape>> CurveShapes(NpgsqlConnection connection,PinnedContext pin,ImmutableArray<string> curves,CancellationToken ct,CurveDisplaySelection? display=null)
     {
+        display??=new(CurveDisplay.Version,CurveDisplay.Live);
+        if(display is not null)CurveDisplay.Require(display);
         if(curves.IsDefault||curves.IsEmpty||curves.Length>MaximumShapedCurves||curves.Any(string.IsNullOrWhiteSpace)||curves.Distinct().Count()!=curves.Length)
             throw new MarketDataException("curve_shapes",$"Name from 1 to {MaximumShapedCurves} distinct curves.");
         var frame=pin.RequireFrame();
@@ -220,7 +226,7 @@ public sealed class MarketReads(PreviewDatabase database)
             catch(MarketDataException error)when(error.Code is "curve_not_selected" or "catalogue_curve" or "market_inputs_missing")
             {result.Add(curve,new(curve,null,null,error.Code,null,null,null));}
         }
-        foreach(var item in await ShapeSources(connection,frame,root,resolved,ct))
+        foreach(var item in await ShapeSources(connection,frame,root,resolved,ct,display))
             result.Add(item.Key.Curve,item.Value);
         return [..curves.Select(curve=>result[curve])];
     }
@@ -228,8 +234,9 @@ public sealed class MarketReads(PreviewDatabase database)
     // Exact input inspection is distinct from a session's signed commodity roots.
     // Held positions and draft charts name their own native definition FK.
     public async Task<ImmutableArray<CurveShape>> InspectCurveShapes(NpgsqlConnection connection,PinnedContext pin,
-        ImmutableArray<CurveInspection> curves,CancellationToken ct)
+        ImmutableArray<CurveInspection> curves,CancellationToken ct,CurveDisplaySelection? display=null)
     {
+        if(display is not null)CurveDisplay.Require(display);
         if(curves.IsDefaultOrEmpty||curves.Length>MaximumShapedCurves||curves.Any(c=>c is null||string.IsNullOrWhiteSpace(c.Curve)||c.DefinitionRevisionId==Guid.Empty)||
             curves.Distinct().Count()!=curves.Length)
             throw new MarketDataException("curve_shapes","Name distinct exact curve definitions within the inspection limit.");
@@ -241,14 +248,14 @@ public sealed class MarketReads(PreviewDatabase database)
             var source=await MarketInputSelection.ExactSource(database,connection,group.Key,ct);
             resolved.AddRange(group.Select(c=>(c.Curve,source)));
         }
-        var result=await ShapeSources(connection,frame,root,resolved,ct);
+        var result=await ShapeSources(connection,frame,root,resolved,ct,display);
         return [..curves.Select(curve=>result[curve])];
     }
 
     // One metadata read and snapshot per exact source serves both signed roots
     // and explicitly versioned input inspection. Eligibility is resolved by callers.
     private async Task<Dictionary<CurveInspection,CurveShape>> ShapeSources(NpgsqlConnection connection,
-        InputFrame frame,PreviewData root,IEnumerable<(string Curve,CatalogueSource Source)> curves,CancellationToken ct)
+        InputFrame frame,PreviewData root,IEnumerable<(string Curve,CatalogueSource Source)> curves,CancellationToken ct,CurveDisplaySelection? display=null)
     {
         var result=new Dictionary<CurveInspection,CurveShape>();
         foreach(var group in curves.GroupBy(c=>c.Source))
@@ -262,7 +269,7 @@ public sealed class MarketReads(PreviewDatabase database)
                 continue;
             }
             var snapshot=inputs.Data.Snapshot(inputs.Frame);
-            foreach(var curve in group)result.Add(new(curve.Curve,group.Key.DefinitionRevisionId),Shape(inputs.Data,snapshot,inputs.Frame,curve.Curve));
+            foreach(var curve in group)result.Add(new(curve.Curve,group.Key.DefinitionRevisionId),Shape(inputs.Data,snapshot,inputs.Frame,curve.Curve,display));
         }
         return result;
     }
@@ -273,8 +280,8 @@ public sealed class MarketReads(PreviewDatabase database)
     // read, or whose contracts cannot be isolated, has no unit or points and states what its own Evaluate read raises: the failure
     // of its one build of every contract, whatever isolating them met. A catalog inconsistency in the price unit of a curve that
     // can be read is not the curve's own failure, and fails the read.
-    internal static CurveShape Shape(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve)=>
-        ShapeCore(data,snapshot,frame,curve) with{DefinitionRevisionId=data.DefinitionRevision.RevisionId};
+    internal static CurveShape Shape(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve,CurveDisplaySelection? display=null)=>
+        display is null?ShapeCore(data,snapshot,frame,curve) with{DefinitionRevisionId=data.DefinitionRevision.RevisionId}:CurveDisplay.Shape(data,snapshot,frame,curve,display);
     private static CurveShape ShapeCore(PreviewData data,MarketSnapshot snapshot,InputFrame frame,string curve)
     {
         ImmutableArray<CurveRequest> requests;
