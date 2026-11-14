@@ -390,3 +390,12 @@ causal prefix; a completed final has no next due. An exact new include-opening
 inception may retain its first pending occurrence, while older missing events
 refuse. A rational lattice execution offset selects the same saved due without
 creating an event or rounding a node to a fabricated business instant.
+
+An ordinary discount declaration may select an exact independently admitted
+source snapshot. Foreign sources retain the opening instant, market cutoff and
+certified knowledge context; a definition identifier alone is insufficient.
+Providers receive that original source and return its unchanged evidence. Source
+identity participates in declaration and reuse fences. Omitting this optional
+field preserves the existing primary-source-only contract. Independent A/B
+exchange checks include nonunit quantities, shared price children and refused
+source or provider-evidence substitutions.

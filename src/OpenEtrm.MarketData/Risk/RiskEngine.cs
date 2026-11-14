@@ -38,13 +38,13 @@ public sealed record UnitPricingContract(Guid Id,string ModelVersion,ImmutableAr
     internal bool SameInputFence(UnitPricingContract other)=>Time==other.Time&&
         Dependencies.Length==other.Dependencies.Length&&Dependencies.All(other.Dependencies.Contains)&&
         Volatility.Length==other.Volatility.Length&&Volatility.All(other.Volatility.Contains)&&
-        DiscountInputs.Length==other.DiscountInputs.Length&&DiscountInputs.All(d=>other.DiscountInputs.Any(o=>o.Payment==d.Payment&&ReferenceEquals(o.Provider,d.Provider)));
+        DiscountInputs.Length==other.DiscountInputs.Length&&DiscountInputs.All(d=>other.DiscountInputs.Any(o=>o.Payment==d.Payment&&ReferenceEquals(o.Provider,d.Provider)&&d.SameSource(o)));
     internal int InputFenceHash()
     {
         var hash=Time.GetHashCode();
         foreach(var price in Dependencies)hash^=price.GetHashCode();
         foreach(var vol in Volatility)hash^=vol.GetHashCode();
-        foreach(var discount in DiscountInputs)hash^=HashCode.Combine(discount.Payment,System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(discount.Provider));
+        foreach(var discount in DiscountInputs)hash^=HashCode.Combine(discount.Payment,System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(discount.Provider),discount.SourceHash());
         return HashCode.Combine(hash,Dependencies.Length,Volatility.Length,DiscountInputs.Length);
     }
     internal void RequireInputs()

@@ -53,7 +53,13 @@ public sealed record SidePaymentFactor(SidePaymentKey Payment, ExactDecimal Disc
     public DiscountClockRoll? ClockRoll {get;init;}
 }
 
-public sealed record DiscountInput(SidePaymentKey Payment,[property:System.Text.Json.Serialization.JsonIgnore] ISideDiscounting Provider);
+public sealed record DiscountInput(SidePaymentKey Payment,[property:System.Text.Json.Serialization.JsonIgnore] ISideDiscounting Provider)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public MarketSnapshot? Source{get;init;}
+    internal bool SameSource(DiscountInput other)=>Source is null?other.Source is null:Source.HasSameInputs(other.Source);
+    internal int SourceHash()=>Source is null?0:HashCode.Combine(Source.Id,Source.Definitions,Source.ValuationAt,Source.MarketCutoff,Source.SelectionPolicy,Source.Knowledge);
+}
 
 public interface ISideDiscounting
 {

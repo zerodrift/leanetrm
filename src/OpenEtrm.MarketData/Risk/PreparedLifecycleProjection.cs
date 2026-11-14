@@ -337,6 +337,7 @@ public sealed class PreparedLifecycleProjection
     private sealed class ProjectionMarket(PreparedValuationEnvironment source,DateTimeOffset at):PreparedValuationEnvironment
     {
         public override MarketSnapshot Snapshot=>source.Snapshot;
+        internal override void RequireDiscountSource(MarketSnapshot selected)=>source.RequireDiscountSource(selected);
         public override string ScenarioId=>$"{source.ScenarioId}/lifecycle/{at.Ticks}";
         public override DateTimeOffset CalculationAt=>at;
         internal override DateTimeOffset LifecycleAt=>at;

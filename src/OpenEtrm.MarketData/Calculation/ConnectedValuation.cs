@@ -13,14 +13,15 @@ public sealed class ConnectedValuation
 {
     public ConnectedScenario Scenario{get;}
     public MarketSnapshot Snapshot{get;}
+    public ImmutableArray<MarketSnapshot> SourceSnapshots{get;}
     public ContractObservationPricing? ContractObservations { get; private init; }
     public ConnectedValuation WithContractObservations(ContractObservationPricing pricing)
     {
         foreach(var lookup in pricing.Points.Keys)pricing.Resolve(lookup,Scenario);
-        return new(Scenario,Snapshot){ContractObservations=pricing};
+        return new(Scenario,Snapshot,SourceSnapshots){ContractObservations=pricing};
     }
-    private ConnectedValuation(ConnectedScenario scenario,MarketSnapshot snapshot)
-    {Scenario=scenario;Snapshot=snapshot;}
+    private ConnectedValuation(ConnectedScenario scenario,MarketSnapshot snapshot,ImmutableArray<MarketSnapshot> sourceSnapshots)
+    {Scenario=scenario;Snapshot=snapshot;SourceSnapshots=sourceSnapshots;}
 
     // Validate the shared source closure once, outside the per-instrument loop.
     public static ConnectedValuation Prepare(ConnectedScenario scenario,MarketSnapshot snapshot,CancellationToken cancellation=default)
@@ -87,14 +88,14 @@ public sealed class ConnectedValuation
             else if(point.Expression is ConnectedBuiltCurve {MultiplierInput:{} numeric} built)
                 Require(numeric.Input,numeric.Observation,built.Sample);
         }
-        return new(scenario,snapshot);
+        return new(scenario,snapshot,sourceSnapshots);
     }
 
     public ConnectedValuation WithScenario(ConnectedScenario scenario)
     {
         if(scenario is null||!ReferenceEquals(scenario.Plan,Scenario.Plan))
             throw new MarketDataException("instrument_context","Scenario reuse requires the exact prepared plan and retained context.");
-        return new(scenario,Snapshot){ContractObservations=ContractObservations};
+        return new(scenario,Snapshot,SourceSnapshots){ContractObservations=ContractObservations};
     }
 
     internal PreparedValuationEnvironment Market(ImmutableDictionary<CurveRequest,CurvePointKey> bindings,CurveBuild? authority,CancellationToken cancellation,CurveBuild? nativeScenario=null)
@@ -141,6 +142,13 @@ public sealed class ConnectedValuation
             return new(this,child,nativeScenario);
         }
         public override MarketSnapshot Snapshot=>valuation.Snapshot;
+        internal override void RequireDiscountSource(MarketSnapshot selected)
+        {
+            if(selected.HasSameInputs(Snapshot))return;
+            if(selected.Knowledge is null||selected.Knowledge!=Snapshot.Knowledge||selected.ValuationAt!=Snapshot.ValuationAt||
+                selected.MarketCutoff!=Snapshot.MarketCutoff||!valuation.SourceSnapshots.Any(s=>s.HasSameInputs(selected)))
+                throw new MarketDataException("risk_dependency","A foreign discount source requires its exact independently admitted snapshot, opening instant and certified knowledge context.");
+        }
         public override string ScenarioId=>valuation.Scenario.Id;
         public override DateTimeOffset CalculationAt=>valuation.Scenario.CalculationAt;
         public override string? ClockPolicy=>valuation.Scenario.ClockPolicy;
