@@ -64,6 +64,11 @@ internal static class LifecycleEndpoints
             var result=await database.WithIdentity(profile(session),"ReadGasOwnedHoldings",(connection,ct)=>GasOwnedOperations.ReadScoped(connection,database,body,ct),c.RequestAborted);
             return Results.Ok(result);
         }));
+        api.MapPost("/lifecycle/gas/setup",(HttpContext c,LifecycleDiscoveryRequest body)=>locked(c,async session=>
+        {
+            var result=await database.WithIdentity(profile(session),"ReadGasOwnedHoldings",(connection,ct)=>GasOwnedSetup.Read(connection,database,body,ct),c.RequestAborted);
+            return Results.Ok(result);
+        }));
         api.MapPost("/lifecycle/gas/configure",(HttpContext c,GasOwnedConfigurationRequest body)=>locked(c,async session=>
         {
             if(session.MarketContext is not null)throw new MarketDataException("historical_read_only","Return to working data before recording gas ownership settings or evidence.");

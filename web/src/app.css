@@ -2771,7 +2771,8 @@ header>div:first-child{flex:1 1 160px}
 @media(max-width:750px){.pnl-view{padding:18px}.pnl-controls label{max-width:none}.pnl-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.pnl-hero{align-items:start;flex-direction:column}.pnl-period{text-align:left}.pnl-save{flex-wrap:wrap}.pnl-save>span,.pnl-save>p{width:100%}}
 
 .contract-display-control{display:flex;align-items:center;gap:.5rem;margin:.5rem 0}.contract-display-control input{width:auto}.contract-status-rows{color:var(--text-3);margin-top:.75rem}
-:root .lifecycle-workspace{display:grid;gap:1rem}
+:root .lifecycle-workspace{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem;min-width:0}
+.lifecycle-workspace>*{min-width:0}
 .lifecycle-tools{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
 .lifecycle-tools label{display:flex;align-items:center;gap:.5rem}
 .lifecycle-inactive{color:var(--text-3)}
@@ -2781,5 +2782,7 @@ header>div:first-child{flex:1 1 160px}
 .lifecycle-form fieldset{border:1px solid var(--border);border-radius:.4rem;padding:1rem}
 .lifecycle-form button{justify-self:start}
 .lifecycle-review{margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)}
+.lifecycle-review-table{max-width:100%;overflow:auto}
+.gas-lifecycle-policy,.gas-lifecycle-fields{grid-column:1/-1;min-width:0}
 .lifecycle-review-facts{display:grid;grid-template-columns:max-content 1fr;gap:.5rem 1rem}
 .lifecycle-review-facts dd{margin:0;overflow-wrap:anywhere}

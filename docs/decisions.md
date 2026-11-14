@@ -4826,7 +4826,7 @@ owned PostgreSQL/HTTP capture, concurrency and revocation checks, and browser
 visibility and lost-response recovery checks. This does not implement futures
 variation margin, exercise, delivery, cash lifecycle or economic horizon risk.
 
-## D394 · Shared lifecycle, ownership and economic horizon risk
+## D397 · Shared lifecycle, ownership and economic horizon risk
 
 Owner-directed, 2026-11-13. Adopt the [shared lifecycle delivery contract](lifecycle-delivery.md).
 Product-owned pure rules compose existing Instrument/Side and native typed stores;
@@ -4873,7 +4873,7 @@ acknowledgement does not reinstate an older basis. Whole-portfolio, worker,
 physical-delivery and user/agent/browser workflows remain unfinished.
 
 
-D394’s scheduled execution choice retains one source-derived occurrence at one
+D397’s scheduled execution choice retains one source-derived occurrence at one
 recorded close, exact native trade/product and action-policy versions, and fresh
 certified knowledge at execution. It invokes the same managed Lifecycle registry
 for manual notice, review or automatic execution. Observed facts remain separate

@@ -317,7 +317,7 @@ internal sealed class AssistantWorkspace(PreviewDatabase database,string scope,s
 
     internal static void RequireLifecycleContext(AssistantOperation operation,AssistantOperationInput request,TurnPin pin)
     {
-        if(operation.Path is not("lifecycle/discover" or "lifecycle/policies/read" or "lifecycle/preview" or "lifecycle/execute" or "lifecycle/gas/read" or "lifecycle/gas/configure" or "lifecycle/futures/delivery/configure" or "lifecycle/futures/adopt" or "lifecycle/futures/policies/save"))return;
+        if(operation.Path is not("lifecycle/discover" or "lifecycle/policies/read" or "lifecycle/preview" or "lifecycle/execute" or "lifecycle/gas/read" or "lifecycle/gas/setup" or "lifecycle/gas/configure" or "lifecycle/futures/delivery/configure" or "lifecycle/futures/adopt" or "lifecycle/futures/policies/save"))return;
         var frame=pin.Frame??throw new ToolRefusal("context_required");
         if(request.Body?["context"] is not JsonObject context||context["contextId"]?.GetValue<string>()!=pin.ContextId.ToString()||
             context["asOf"]?.GetValue<string>() is not {} at||!DateTimeOffset.TryParse(at,CultureInfo.InvariantCulture,DateTimeStyles.None,out var instant)||instant!=frame.At||

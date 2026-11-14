@@ -1,6 +1,6 @@
 # Architecture and domain contracts
 
-D394 selects [shared lifecycle delivery](lifecycle-delivery.md): operation-specific
+D397 selects [shared lifecycle delivery](lifecycle-delivery.md): operation-specific
 eligibility, native lifecycle coordination, gas ownership/entitlements/borrowing
 and event-aware economic risk. Its delivery gates distinguish implementation from
 qualification; it does not make the capabilities below complete by declaration.

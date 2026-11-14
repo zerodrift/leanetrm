@@ -20,7 +20,7 @@ static class RuntimeSet
     // turns_v17 adds explicit digest modes and typed unsaved swap fields (D335).
     // turns_v18 adds reviewed daily gas commercial cash determinations (D338).
     // turns_v19 adds explicit manual gas services, acknowledgments and paired transfers (D339).
-    // turns_v21 adds the lifecycle workspace over product-native actions and exact-request approval (D394).
+    // turns_v21 adds the lifecycle workspace over product-native actions and exact-request approval (D397).
     public const string Turns="turns_v21";
     // A question, in characters, so an ask's body stays under 32 KB at four bytes each beside its page report of 8 KiB.
     public const int QuestionLength=4000;

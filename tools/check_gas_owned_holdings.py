@@ -410,6 +410,18 @@ def checks(query, manifest, economic_worker=None):
     if known_result.returncode:raise RuntimeError(known_result.stdout+known_result.stderr)
     print(known_result.stdout.strip(),flush=True)
     print('PASS gas retained mark revisions, first outcomes, older fact acknowledgement, saved profiles and knowledge-only future ownership scope',flush=True)
+    # Metadata choices must exclude unrelated contracts and select the source
+    # head before finality. These counterexamples follow the financial checks.
+    unrelated=str(uuid4())
+    alternate=query(f"SELECT id FROM market_data.series WHERE catalog_id='{catalog}' AND revision_id='{manifest['revisionId']}' AND id<>(SELECT series_id FROM market_data.observations WHERE(catalog_id,id)=('{catalog}','{observation}')) ORDER BY id LIMIT 1;")
+    assert alternate
+    query(f"INSERT INTO market_data.observations SELECT catalog_id,'{unrelated}',definition_revision_id,'{alternate}',reference_catalog_id,reference_revision_id,source_code,'synthetic_unrelated_cashout_form','1',role,publication_state,observed_at,clock_timestamp(),value,NULL FROM market_data.observations WHERE(catalog_id,id)=('{catalog}','{observation}');")
+    before=capture();preliminary=str(uuid4())
+    query(f"INSERT INTO market_data.observations SELECT catalog_id,'{preliminary}',definition_revision_id,series_id,reference_catalog_id,reference_revision_id,source_code,source_event_id,'synthetic_form_preliminary','daily_settlement','preliminary',observed_at,clock_timestamp(),value,id FROM market_data.observations WHERE(catalog_id,id)=('{catalog}','{observation}');")
+    path=Path(host)/'gas-owned-form-sources.json';path.write_text(json.dumps(dict(manifest=manifest,host=host,at=at,accountId=operator,observation=observation,before=before,after=capture())));path.chmod(0o600)
+    source_check=subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks','--','--gas-owned-setup-native',str(path)],cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=60)
+    if source_check.returncode:raise RuntimeError(source_check.stdout+source_check.stderr)
+    print(source_check.stdout.strip(),flush=True)
 
 
 if __name__=='__main__':

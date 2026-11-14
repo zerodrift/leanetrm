@@ -190,7 +190,7 @@ def run_checks(query, manifest):
     check_display_scale(query,manifest)
 
 
-def main(checks=run_checks, before_migration=None, fixture_factory=None):
+def main(checks=run_checks, before_migration=None, fixture_factory=None, arguments=None, cleanup_ready=None):
     import argparse
     import os
     from pathlib import Path
@@ -204,7 +204,7 @@ def main(checks=run_checks, before_migration=None, fixture_factory=None):
         raise ValueError('Python assertions must remain enabled for verification.')
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--pg-bin',type=Path,required=True)
-    args=parser.parse_args()
+    args=parser.parse_args(arguments)
     root=Path(__file__).resolve().parents[1]
     binaries=args.pg_bin.resolve()
     for name in ('initdb','pg_ctl','psql'):
@@ -275,8 +275,10 @@ def main(checks=run_checks, before_migration=None, fixture_factory=None):
             run([binaries/'pg_ctl','-D',directory/'data','-w','-m','fast','stop'])
             safe_to_remove=True
     finally:
-        if safe_to_remove:
+        if safe_to_remove and (cleanup_ready is None or cleanup_ready()):
             shutil.rmtree(directory)
+        else:
+            print("Owned resource cleanup unconfirmed; retaining its private directory: "+str(directory),flush=True)
 
 
 if __name__=='__main__':

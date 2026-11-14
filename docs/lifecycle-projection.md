@@ -1,6 +1,6 @@
 # Economic lifecycle projection
 
-D394's pure projection path retains the certified opening snapshot, its market
+D397's pure projection path retains the certified opening snapshot, its market
 cutoff, knowledge cutoff and immutable connected graph. The calculation clock is
 separate. Projection never appends observations, accepted settlements, payments,
 trade revisions or native lifecycle events.

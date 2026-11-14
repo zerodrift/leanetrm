@@ -4,6 +4,7 @@ import {askInPanel} from './side-panel.js';
 import {zonedInput} from './user-time.js';
 import {mountLifecycleSchedule} from './lifecycle-scheduling.js';
 import {mountLifecycleSettings} from './lifecycle-settings.js';
+import {mountGasOwnedAction,mountGasOwnedSettings,type GasOwnedSetup,type GasOwnedUiOptions} from './gas-owned-lifecycle.js';
 import {lifecycleKey,lifecycleRows,lifecycleReason,lifecycleRequest,lifecycleChangesFinancialSource,restoreLifecycleRequest,lifecycleOperationId,type LifecycleDiscovery,type LifecycleOffer,type LifecycleDraft,type LifecycleRequest} from './lifecycle-model.js';
 
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
@@ -17,7 +18,7 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
  root.dataset.ownControls='true';root.classList.add('lifecycle-workspace');
  root.innerHTML=`<div id="${root.id}-prompt" class="side-panel-prompt" role="alertdialog" hidden></div>
  <div class="operations-directory-heading"><div><h2>Lifecycle actions</h2><p>Actions and settings at the selected market close.</p></div><button data-lifecycle="refresh" type="button" class="secondary">Refresh</button></div>
- <div class="lifecycle-tools"><label><input data-lifecycle="inactive" type="checkbox"> Show closed and inactive actions</label><div><button data-lifecycle="products" type="button" class="secondary">Product settings</button> <button data-lifecycle="settings" type="button" class="secondary">Action policies</button></div></div>
+ <div class="lifecycle-tools"><label><input data-lifecycle="inactive" type="checkbox"> Show closed and inactive actions</label><div><button data-lifecycle="products" type="button" class="secondary">Product settings</button> <button data-lifecycle="gas-settings" type="button" class="secondary">Gas ownership settings</button> <button data-lifecycle="settings" type="button" class="secondary">Action policies</button></div></div>
  <div data-lifecycle="pending" class="operations-recovery" hidden><p data-lifecycle="pending-text" role="status"></p><button data-lifecycle="retry" type="button">Retry original request</button></div>
  <p data-lifecycle="message" role="status"></p><div data-lifecycle="rows"></div><section data-lifecycle="panel" class="lifecycle-panel" aria-live="polite"></section>`;
  const get=<T extends HTMLElement>(name:string)=>root.querySelector<T>(`[data-lifecycle="${name}"]`)!;
@@ -43,6 +44,7 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
  function sync(){restore();get('pending').hidden=!pending.command;if(pending.command)get('pending-text').textContent=`${pending.command.label??'Lifecycle change'} has an unconfirmed outcome. Retry sends the original request.`;
   get<HTMLButtonElement>('retry').disabled=busy()||!pending.command||o.historical();get<HTMLButtonElement>('refresh').disabled=busy()||!!pending.command;get<HTMLButtonElement>('settings').disabled=busy()||!!pending.command||!discovery;
   get<HTMLButtonElement>('products').disabled=busy()||!!pending.command||!discovery;
+  get<HTMLButtonElement>('gas-settings').hidden=!o.permission('ReadGasOwnedHoldings');get<HTMLButtonElement>('gas-settings').disabled=busy()||!!pending.command||!discovery;
   get<HTMLInputElement>('inactive').disabled=busy()||!!pending.command;host.inert=busy()||!!pending.command;
   const denied=(node:HTMLElement)=>{const permission=node.closest<HTMLElement>('[data-lifecycle-permission]')?.dataset.lifecyclePermission;return permission!==undefined&&(!permission||!o.permission(permission));};
   for(const button of panel.querySelectorAll<HTMLButtonElement>('button'))button.disabled=busy()||!!pending.command||o.historical()||denied(button);
@@ -72,11 +74,19 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   }catch(error){if(current(epoch,actor)){if(!confirmed){pending.failed((error as {code?:string}).code,wasUncertain);store();if(!pending.command)invalidate();message.textContent=String(error);}else message.textContent='Lifecycle change recorded. Its updated views could not be read. '+String(error);}throw error;}finally{if(o.identity()===actor){saving=false;sync();}}
  }
  async function queue(path:string,body:Record<string,unknown>,label:string){restore();if(pending.command)throw Error('Reconcile the retained lifecycle request first.');pending.command={path,operationId:lifecycleOperationId(path,body)??(()=>{throw Error('Retain the exact request identity.');})(),body:structuredClone(body),label};store();await send(pending.command);}
- function showReview(review:Review,request:LifecycleRequest){panel.querySelector('[data-lifecycle-review]')?.remove();const section=element('section');section.dataset.lifecycleReview='';section.className='lifecycle-review';section.append(element('h3','Review '+(selected?.label??'action')));
+ function showReview(review:Review,request:LifecycleRequest,references:{label:string;value:string}[]=[]){panel.querySelector('[data-lifecycle-review]')?.remove();const section=element('section');section.dataset.lifecycleReview='';section.className='lifecycle-review';section.append(element('h3','Review '+(selected?.label??'action')));
   const list=element('dl');list.className='lifecycle-review-facts';
   const add=(label:string,value:unknown)=>{if(value===null||value===undefined||value===''||typeof value==='object')return;list.append(element('dt',label),element('dd',String(value)));};
   add('Holding',selected?.subject?.reference);add('Business date',request.context.businessDate);add('As of',instant(request.context.asOf));
+  for(const reference of references)add(reference.label,reference.value);
   const d=review.details;for(const [key,label] of [['decision','Decision'],['openLots','Open lots'],['lots','Lots affected'],['futureLots','Linked futures lots'],['strike','Strike'],['settlement','Settlement'],['amount','Amount'],['roundedTotal','Rounded payment'],['exactTotal','Exact payment'],['reference','Evidence reference']] as const)add(label,d[key]);
+  if(request.target.handler==='gas_owned'||request.target.handler==='gas_futures_delivery'){
+   const effect=d.effects as Record<string,unknown>|undefined;add('Effect',d.willChange===false?'Existing fact acknowledged · no new effect':'Record observed facts');
+   if(effect){for(const key of ['performedQuantity','quantitySpecification','stockQuantity','returnQuantity','feeAmount','cashAmount','currency'])add(title(key),effect[key]);
+    for(const key of ['effectiveAt','returnAt','feeDueAt','cashDueAt'])if(typeof effect[key]==='string')add(title(key),instant(effect[key]));}
+   for(const key of ['quantity','amount','businessReference','businessKey','evidence'])add(title(key),request.selection[key]);
+   for(const key of ['titleAt','availableAt','performedAt','paidAt','effectiveAt'])if(typeof request.selection[key]==='string')add(title(key),instant(request.selection[key] as string));
+  }
   const paymentCurrency=d.currency as {code?:string}|undefined;add('Currency',paymentCurrency?.code?.toUpperCase());
   if(typeof d.effectiveAt==='string')add('Observed payment time',instant(d.effectiveAt));
   if(request.action==='swap.determine'&&d.calculation&&typeof d.calculation==='object'){
@@ -91,11 +101,11 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
    const table=element('table');table.className='regular-table';const head=element('tr');for(const label of ['Contribution','Gross allocation','Outstanding after settlement'])head.append(element('th',label));table.append(head);
    for(const allocation of net.allocations as Record<string,unknown>[]){const row=element('tr');for(const value of [selected?.inputChoices?.netDeterminationId?.find(choice=>choice.value===allocation.determinationId)?.label??allocation.determinationId,allocation.amount,allocation.remaining])row.append(element('td',String(value??'')));table.append(row);}section.append(table);
   }
-  const steps=Array.isArray(d.steps)?d.steps:[];
-  if(steps.length){const table=element('table');table.className='regular-table';const head=element('tr');for(const label of ['Occurrence','Variation','Adjustment','Due'])head.append(element('th',label));table.append(head);
-   for(const step of steps as Record<string,unknown>[]){const row=element('tr'),occurrence=step.occurrence as Record<string,unknown>|undefined,variation=step.variation as Record<string,unknown>|undefined;for(const value of [typeof occurrence?.at==='string'?instant(occurrence.at):'',variation?.amount??'',step.adjustment??'',typeof step.adjustmentDue==='string'?instant(step.adjustmentDue):''])row.append(element('td',typeof value==='object'?exactText(value):String(value)));table.append(row);}section.append(table);
+  const marginRows=Array.isArray(d.marginRows)?d.marginRows:[];
+  if(marginRows.length){const table=element('table');table.className='regular-table';const head=element('tr');for(const label of ['Occurrence','Exact variation','Rounded payment','Cash adjustment','Due','Currency'])head.append(element('th',label));table.append(head);
+   for(const step of marginRows as Record<string,unknown>[]){const row=element('tr');for(const value of [typeof step.at==='string'?instant(step.at):'',step.exactVariation,step.variation,step.adjustment,typeof step.dueAt==='string'?instant(step.dueAt):'',String(step.currency??'').toUpperCase()])row.append(element('td',String(value??'')));table.append(row);}const scroll=element('div');scroll.className='lifecycle-review-table';scroll.append(table);section.append(scroll);
   }
-  const principal=d.physicalPrincipal as {originalQuantity?:unknown;finalPrice?:unknown;currency?:{code?:string};principalDueAt?:string;performances?:Record<string,unknown>[]} | undefined;
+  const principal=(d.physicalPrincipal??d.principal) as {originalQuantity?:unknown;finalPrice?:unknown;currency?:{code?:string};principalDueAt?:string;performances?:Record<string,unknown>[]} | undefined;
   if(principal){
    section.append(element('h4','Physical delivery principal'));
    const currency=principal.currency?.code?.toUpperCase();
@@ -107,6 +117,7 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   const execute=element('button','Record reviewed action');execute.type='button';execute.dataset.lifecycleExecute='';execute.onclick=()=>void o.act(async()=>{if(!reviewed)return;await queue('lifecycle/execute',reviewed.request,`${selected?.label??'Lifecycle action'} · ${selected?.subject?.reference??'holding'}`);});section.append(execute);panel.append(section);sync();
  }
  function showAction(offer:LifecycleOffer){clearPanel();selected=offer;panel.append(element('h2',`${offer.label} · ${offer.subject?.reference??'Holding'}`));panel.append(element('p',lifecycleReason(offer.reason)));
+  if(offer.target.handler==='gas_owned'||offer.target.handler==='gas_futures_delivery'){void o.act(()=>showGasAction(offer));sync();return;}
   if(!offer.selection){const setup=element('button','Configure lifecycle settings');setup.type='button';setup.onclick=()=>showProductSettings(offer);panel.append(setup);sync();return;}
   if(offer.scheduleSettings&&discovery?.scheduling&&o.permission('RunJobs')&&canExecute()){
    const schedule=element('button','Schedule this occurrence');schedule.type='button';schedule.className='secondary';schedule.dataset.lifecyclePermission='RunJobs';
@@ -175,14 +186,41 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   productSettings=mountLifecycleSettings(panel,discovery,{api:o.api,act:o.act,zone:o.zone,permission:o.permission,current:()=>current(epoch,actor)&&view===panelVersion,confirmDiscard,changed:o.changed,
    queue:async(path,body,label)=>{if(current(epoch,actor)&&view===panelVersion)await queue(path,body,label);}},offer);sync();
  }
+ function gasOptions(actor:string,epoch:number,view:number):GasOwnedUiOptions{return{api:o.api,act:o.act,zone:o.zone,permission:o.permission,current:()=>current(epoch,actor)&&view===panelVersion,changed:invalidate,confirmDiscard,
+  queue:async(path,body,label)=>{if(current(epoch,actor)&&view===panelVersion)await queue(path,body,label);}};}
+ async function gasSetup(target:LifecycleOffer['target']|null,actor:string,epoch:number,view:number){
+  if(!discovery)throw Error('Refresh the gas source.');const source=structuredClone(discovery.context);
+  const value=await o.api<GasOwnedSetup>('lifecycle/gas/setup',{context:source,target});
+  if(!current(epoch,actor)||view!==panelVersion)return;
+  if(!value.context||value.context.contextId!==source.contextId||value.context.asOf!==source.asOf||value.context.businessDate!==source.businessDate||value.context.snapshotId!==source.snapshotId)
+   throw Error('The gas fields did not retain this exact source. Refresh and review again.');return value;
+ }
+ async function showGasAction(offer:LifecycleOffer){
+  const actor=o.identity(),epoch=generation,view=panelVersion,setup=await gasSetup(offer.target,actor,epoch,view);if(!setup||selected!==offer)return;
+  const form=element('form');form.className='lifecycle-form';form.dataset.lifecyclePermission='RecordGasOwnedHoldings';panel.append(form);
+  const fields=element('div');fields.className='schedule-fields';form.append(fields);const editor=mountGasOwnedAction(fields,offer,setup,gasOptions(actor,epoch,view));
+  productSettings={edited:editor.dirty,refresh:editor.refresh};const preview=element('button','Review action');preview.type='submit';form.append(preview);
+  form.onsubmit=event=>{event.preventDefault();void o.act(async()=>{
+   const version=draftVersion,draft=await editor.read();if(!current(epoch,actor)||view!==panelVersion||selected!==offer||version!==draftVersion)return;
+   const request:LifecycleRequest={operationId:crypto.randomUUID(),context:structuredClone(setup.context),target:structuredClone(offer.target),action:offer.action,
+    policyId:draft.policyId,policyRevision:draft.policyRevision,automatic:false,previewHash:'0'.repeat(64),selection:draft.selection};
+   const references=editor.references(),result=await o.api<Review>('lifecycle/preview',request);if(!current(epoch,actor)||view!==panelVersion||selected!==offer||version!==draftVersion)return;
+   if(!result.offer||lifecycleKey(result.offer)!==lifecycleKey(offer)||result.offer.eligible!==true||!/^[a-f0-9]{64}$/.test(result.hash))throw Error('Review the exact gas target, occurrence and source again.');
+   request.previewHash=result.hash;reviewed={request,review:result};showReview(result,request,references);
+  });};sync();
+ }
+ async function showGasSettings(){
+  clearPanel();const actor=o.identity(),epoch=generation,view=panelVersion,setup=await gasSetup(null,actor,epoch,view);if(!setup)return;
+  productSettings=mountGasOwnedSettings(panel,setup,gasOptions(actor,epoch,view));edited=false;sync();
+ }
  async function load(announce=true){restore();const actor=o.identity(),epoch=++generation;reading=true;clearPanel();clearGrid();discovery=undefined;if(announce)message.textContent='Loading lifecycle actions…';sync();try{
    const value=await o.api<LifecycleDiscovery>('lifecycle/view',o.context());if(!current(epoch,actor))return;discovery=value;draw();if(announce)message.textContent='';
   }catch(error){if(current(epoch,actor)){message.textContent=String(error);host.textContent='';}throw error;}finally{if(current(epoch,actor)){reading=false;sync();}}
  }
  get('refresh').onclick=()=>void o.act(async()=>{if(await leave())await load();});get('settings').onclick=()=>void o.act(async()=>{if(await leave())showPolicies();});get('products').onclick=()=>void o.act(async()=>{if(await leave())showProductSettings();});get<HTMLInputElement>('inactive').onchange=draw;
+ get('gas-settings').onclick=()=>void o.act(async()=>{if(await leave())await showGasSettings();});
  get('retry').onclick=()=>void o.act(async()=>{if(pending.command)await send(pending.command);});
  return {load,sync,leave,edited:()=>edited||!!productSettings?.edited()||!!pending.command,shown:()=>selected?{target:selected.target,action:selected.action}:undefined,
   reset(){generation++;reading=false;saving=false;asking?.abort();asking=undefined;clearGrid();clearPanel();discovery=undefined;pending.clear();identity='';message.textContent='';},
   async refresh(){for(const time of timeControls)time.refresh();productSettings?.refresh();if(await leave())await load();}};
 }
-function exactText(value:unknown):string{if(value===null||value===undefined)return '';if(typeof value!=='object')return String(value);const v=value as Record<string,unknown>;if(typeof v.amount==='string')return v.amount;if(v.numerator!==undefined&&v.denominator!==undefined)return `${v.numerator}/${v.denominator}`;return '';}

@@ -62,7 +62,7 @@ internal static class AssistantOperations
         Add("lifecycle","ReadMarketData|ReadTrades",true,"","lifecycle/execute lifecycle/policies/save lifecycle/options/configure lifecycle/swaps/configure lifecycle/swaps/net/configure");
         Add("lifecycle","ReadMarketData|ReadTrades|WriteMarketDefinitions",true,"","lifecycle/futures/policies/save");
         Add("lifecycle","ReadMarketData|ReadTrades|AmendTrade",true,"","lifecycle/futures/adopt");
-        Add("lifecycle","ReadMarketData|ReadTrades|ReadGasOwnedHoldings",false,"lifecycle/gas/read");
+        Add("lifecycle","ReadMarketData|ReadTrades|ReadGasOwnedHoldings",false,"lifecycle/gas/read lifecycle/gas/setup");
         Add("lifecycle","ReadMarketData|ReadTrades|ReadGasOwnedHoldings",true,"","lifecycle/gas/configure");
         Add("lifecycle","ReadMarketData|ReadTrades|ReadGasOwnedHoldings|ConfigureGasOwnedHoldings",true,"","lifecycle/futures/delivery/configure");
         Add("blotter","ReadGasOperations|ReadMarketData|ReadTrades",false,"gas/operations/read gas/operations/preview");

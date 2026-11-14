@@ -31,6 +31,8 @@ internal static class LifecycleActionChecks
         var actions=AssistantOperations.ForPage("lifecycle").ToDictionary(o=>o.Path);
         Require(actions.TryGetValue("lifecycle/discover",out var discover)&&!discover.RequiresApproval&&!discover.CurrentOnly,
             "Lifecycle discovery uses the exact pinned read context.");
+        Require(actions.TryGetValue("lifecycle/gas/setup",out var gasSetup)&&!gasSetup.RequiresApproval&&!gasSetup.CurrentOnly,
+            "Gas form choices use the same source-pinned authorized lifecycle read for assistants and UI.");
         Require(actions.TryGetValue("lifecycle/execute",out var execute)&&execute.RequiresApproval&&execute.CurrentOnly&&
             !AssistantOperations.NeedsApprovalReceipt(execute),"Lifecycle execution retains native idempotence behind ordinary exact-request approval.");
         Require(actions.TryGetValue("jobs/lifecycle/create",out var task)&&task.RequiresApproval&&task.CurrentOnly&&!AssistantOperations.NeedsApprovalReceipt(task),

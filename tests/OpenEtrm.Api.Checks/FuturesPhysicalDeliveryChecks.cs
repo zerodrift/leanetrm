@@ -78,6 +78,9 @@ internal static class FuturesPhysicalDeliveryChecks
         var handler=new FuturesLifecycleActions(operations,_=>{});
         var reviewed=await operations.WithIdentity("trader",null,(c,ct)=>handler.Preview(c,action,ct),default);
         var principal=reviewed.Details.GetProperty("physicalPrincipal");
+        var marginRows=reviewed.Details.GetProperty("marginRows");
+        if(marginRows.GetArrayLength()!=1||marginRows[0].Text("variation")!="60000"||marginRows[0].Text("currency")!="usd")
+            throw new Exception("The futures review must expose the independently known rounded native payment and currency as exact display text.");
         if(principal.Text("finalPrice")!="6"||principal.GetProperty("performances").GetArrayLength()!=0)
             throw new Exception("The shared final review omitted its exact physical principal continuation.");
         action=action with{PreviewHash=reviewed.Hash};

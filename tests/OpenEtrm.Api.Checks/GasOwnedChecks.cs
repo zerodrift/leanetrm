@@ -23,6 +23,10 @@ internal static class GasOwnedChecks
             "gas.owned.reserve",fixture.Id("policyId"),1,false,new('0',64),JsonSerializer.SerializeToElement(new GasOwnedReservationSelection(
                 fixture.Id("lotId"),"managed_reservation","1",context.AsOf),GasOwnedOperations.Json));
         var handler=new GasOwnedActions(database);
+        var setup=await database.WithIdentity("trader","ReadGasOwnedHoldings",(connection,ct)=>GasOwnedSetup.Read(connection,database,new(context,request.Target),ct),default);
+        if(setup.Context!=context||!setup.Forms["gas.owned.reserve"].Fields.Single(f=>f.Name=="lotId").Choices.Any(c=>c.Id==fixture.Id("lotId").ToString())||
+            setup.Configuration["account"].Fields.Single(f=>f.Name=="market").Choices.IsEmpty)
+            throw new Exception("The gas form did not expose its source's exact native stock and available mark references.");
         foreach(var malformed in new[]{"{\"lotId\":\""+fixture.Id("lotId")+"\",\"businessKey\":\"missing_quantity\",\"effectiveAt\":\"2020-12-20T16:00:00Z\"}",
             "{\"lotId\":\""+fixture.Id("lotId")+"\",\"businessKey\":\"null_quantity\",\"quantity\":null,\"effectiveAt\":\"2020-12-20T16:00:00Z\"}"})
         {

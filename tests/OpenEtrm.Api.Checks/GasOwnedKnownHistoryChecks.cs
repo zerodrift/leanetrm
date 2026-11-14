@@ -18,6 +18,14 @@ internal static class GasOwnedKnownHistoryChecks
             throw new Exception("Known gas checks require an owned disposable PostgreSQL cluster.");
         var login=new NpgsqlConnectionStringBuilder{Host=host,Port=55439,Database="postgres",Username="preview_runtime",Timezone="UTC",Pooling=false};
         await using var database=new PreviewDatabase(manifest,new NpgsqlConnectionStringBuilder(login.ConnectionString){Username="preview_authenticator"},login);
+        if(profile)
+        {
+            var setup=await database.WithIdentity("trader","ReadGasOwnedHoldings",(connection,ct)=>GasOwnedSetup.Read(connection,database,
+                new(new(fixture.Id("contextId"),fixture.Instant("at"),new(2020,12,20)),null),ct),default);
+            var choices=setup.Configuration["projection_profile"].Fields.Single(f=>f.Name=="profile").Choices;
+            if(!choices.Any(c=>JsonSerializer.SerializeToElement(c.Value,GasOwnedOperations.Json).GetProperty("profileId").GetGuid()==fixture.Id("profileId")))
+                throw new Exception("Gas configuration must expose its exact saved projection profile with an explicit expected revision.");
+        }
         await database.WithIdentity("trader",null,async(connection,ct)=>
         {
             var context=fixture.Id("contextId");var at=fixture.Instant("at");var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,context,ct)).Context;

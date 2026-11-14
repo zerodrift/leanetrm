@@ -22,6 +22,9 @@ internal sealed record FuturesMarginReview(FuturesMarginTrajectory Plan,string H
     internal JsonElement Details()
     {
         var fields=JsonSerializer.SerializeToElement(Plan,LifecycleNative.Json).EnumerateObject().ToDictionary(p=>p.Name,p=>p.Value.Clone());
+        fields.Add("marginRows",JsonSerializer.SerializeToElement(Plan.Steps.Select(step=>new{
+            at=LifecycleNative.Instant(step.Occurrence.At),exactVariation=step.ExactVariation.ToExactString(),variation=step.Variation.Amount.ToString(),
+            adjustment=step.Adjustment.ToExactString(),dueAt=step.AdjustmentDue is {} due?LifecycleNative.Instant(due):null,currency=step.Variation.Currency.Code}),LifecycleNative.Json));
         if(PhysicalPrincipal is {} principal)fields.Add("physicalPrincipal",principal);
         return JsonSerializer.SerializeToElement(fields,LifecycleNative.Json);
     }

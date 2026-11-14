@@ -1,6 +1,6 @@
 # Shared lifecycle delivery contract
 
-D394 selects the following implementation contract. This document records required
+D397 selects the following implementation contract. This document records required
 behavior, not a claim that every capability is implemented or production-qualified.
 
 ## Ownership and extension
@@ -278,3 +278,24 @@ the complete distribution; they cannot be dropped or resampled.
 The demo may be rebuilt completely. Replace incompatible contracts and synthetic
 records without a legacy financial compatibility layer. Release requires a concrete
 backup/reset manifest, actual qualification evidence and publication approval.
+
+## Typed native gas forms and full-application qualification
+
+The Lifecycle workspace offers source-bound native gas action forms and ownership
+settings. Managed metadata supplies exact policy, account, party-version, mark and
+evidence choices. Evidence heads resolve before effective-time eligibility, and
+cashout observations resolve exact source/contract correction heads before finality.
+The editor retains decimal text and sends local clocks through the managed timezone
+resolver. It performs no financial arithmetic. Configuration and observed evidence
+keep their separate native permissions. Draft edits, navigation, actor and source
+changes invalidate asynchronous form reads and reviews.
+
+The owned full-application browser qualifier uses this tree's API, a separate real
+worker and synthetic PostgreSQL data. It covers native physical-final review, a
+local-time scheduled occurrence, retained worker outcomes and a typed gas title
+action. A lost response after the native commit retains the exact pending request;
+retry returns the first outcome and independently leaves one title lot. Native
+margin reviews show backend-formatted exact amounts, rounded cash and currency.
+Desktop and phone checks retain wide action tables within their own scroll area.
+This qualification does not establish financial correction or additional physical
+valuation models described in the remaining delivery gates.
