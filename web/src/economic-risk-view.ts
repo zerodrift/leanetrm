@@ -6,7 +6,7 @@ import {clearChart,renderChart} from './chart-view.js';
 import type {HistoryRequest} from './factor-history.js';
 import {sameUtcInstant} from './user-time.js';
 import {canonicalEconomic,restoreEconomicCommand,validateEconomicReport,requireEconomicCalculationReceipt,type EconomicChoice,type EconomicSetup,type EconomicSourceRequest,
- type EconomicSources,type EconomicHistory,type EconomicRequest,type EconomicReport,type EconomicJob,type EconomicSpec,type EconomicCashFunding} from './economic-risk.js';
+ type EconomicSources,type EconomicHistory,type EconomicRequest,type EconomicReport,type EconomicJob,type EconomicSpec,type EconomicCashFunding,type EconomicPhysicalBinding} from './economic-risk.js';
 
 type Options={api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRun:()=>boolean;
  identity:()=>string;scope:()=>EconomicSourceRequest['scope'];instant:(at:string)=>string;zone:()=>string;unconfirmed:()=>boolean;
@@ -26,6 +26,8 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
  const path=select(sourceFields,'price-path','Market path to the next close'),disposition=select(sourceFields,'cash-disposition','Scheduled cash'),accumulation=select(sourceFields,'cash-accumulation','Cash value at the horizon');
  const expiry=select(sourceFields,'input-expiry','Expiring market inputs'),physical=select(sourceFields,'physical-delivery','New physical delivery obligations');
  const gas=node('details'),gasBody=node('div');gas.append(node('summary','Saved gas account projection profiles'),node('p','Select profiles for required owned-gas accounts and any explicitly linked supply or inventory destinations. The backend checks the complete scope.'),gasBody);gasBody.className='factor-history-fields';
+ const bindingSettings=node('details'),bindingBody=node('div'),bindingSearch=input(bindingSettings,'binding-search','Find a holding','search');bindingSearch.required=false;
+ bindingSettings.dataset.economic='physical-bindings';bindingSettings.open=true;bindingBody.className='factor-history-fields';bindingSettings.prepend(node('summary','Physical futures and option valuation'));bindingSettings.append(bindingBody);
  const funding=node('div'),fundingBody=node('div'),fundingRead=button('funding-read','Read cash funding choices');funding.dataset.economic='funding';fundingBody.className='factor-history-fields';fundingRead.className='secondary';
  funding.append(node('p','Choose a captured funding curve for each currency. These choices carry period cash to the horizon.'),fundingRead,fundingBody);
  const method=select(riskFields,'method','Event-aware method'),confidence=input(riskFields,'confidence','Confidence · decimal, for example 0.99');confidence.inputMode='decimal';
@@ -36,11 +38,12 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
  const drift=select(simulationFields,'drift','Market-move mean'),paths=input(simulationFields,'paths','Simulation paths','number'),seed=input(simulationFields,'seed','Reproducible random seed');paths.min='2';paths.step='1';seed.inputMode='numeric';
  const preview=button('history','Prepare complete price history'),run=button('run','Run event-aware VaR / ES',true),queue=button('queue','Queue event-aware job',true);queue.className=preview.className=sourceButton.className='secondary';
  const actions=node('div');actions.className='actions';actions.append(preview,run,queue);
- fields.append(sourceFields,gas,funding,sourceButton,sourceSummary,riskFields,historyFields,simulationFields,actions);form.append(fields,note,pendingHost);
+ fields.append(sourceFields,gas,bindingSettings,funding,sourceButton,sourceSummary,riskFields,historyFields,simulationFields,actions);form.append(fields,note,pendingHost);
  host.replaceChildren(node('h3','Event-aware economic VaR / ES'),node('p','Revalue the full portfolio through the next configured close, including contractual events, surviving holdings and cash. Every path uses the same horizon. Market paths use the selected contract curves; captured rates and option volatility stay fixed.'),configureButton,form,coverage);
  let epoch=0,owner='',scopeStamp='',configuration:EconomicSetup|undefined,source:EconomicSources|undefined,history:EconomicHistory|undefined;
  let report:EconomicReport|undefined,job:EconomicJob|undefined,timer:ReturnType<typeof setTimeout>|undefined,chart:HTMLElement|undefined,dirty=false,allowed=false;
  let fundingChoices:EconomicCashFunding|undefined,fundingStamp='';const fundingInputs=new Map<string,HTMLSelectElement>();
+ const bindingInputs:{kind:'futures'|'options';binding:EconomicPhysicalBinding;input:HTMLSelectElement;host:HTMLElement}[]=[];
  const gasInputs=new Map<string,HTMLSelectElement>(),commands=new Map<string,PendingCommand>(),transports=new Map<string,ReturnType<typeof actorTransport<RequestCommand>>>();
  function transport(actor:string){let saved=transports.get(actor);if(!saved){saved=actorTransport(()=>`openetrm.economic-risk.submission:${actor}`,()=>sessionStorage);transports.set(actor,saved);}return saved;}
  function pending(actor=o.identity()){let command=commands.get(actor);if(!command){command=new PendingCommand(knownRiskRejection);command.command=restoreEconomicCommand(transport(actor).read());commands.set(actor,command);}return command;}
@@ -52,6 +55,45 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
  function stop(){if(timer!==undefined)clearTimeout(timer);timer=undefined;}
  function clearReport(){stop();if(chart)clearChart(chart);chart=undefined;report=undefined;job=undefined;resultHost.replaceChildren();resultHost.hidden=true;}
  function clearFunding(){fundingChoices=undefined;fundingStamp='';fundingInputs.clear();fundingBody.replaceChildren();}
+ function clearBindings(){bindingInputs.length=0;bindingBody.replaceChildren();bindingSearch.value='';}
+ function bindingChoices(c:EconomicSetup){
+  const bad=()=>Error('Reread the exact physical holding and valuation choices.');
+  if(!c.physicalBindings){if(c.pricing.some(p=>p.requiresFuturesBindings===true||p.requiresOptionBindings===true))throw bad();return;}
+  if(c.pricing.some(p=>typeof p.requiresFuturesBindings!=='boolean'||typeof p.requiresOptionBindings!=='boolean'))throw bad();
+  for(const kind of ['futures','options'] as const){
+   const groups=c.physicalBindings[kind];
+   if(!Array.isArray(groups)||new Set(groups.map(g=>canonicalEconomic([g?.tradeId,g?.bindingId]))).size!==groups.length)throw bad();
+   for(const binding of groups){
+    if(!binding?.tradeId||!binding.bindingId||!binding.label||!Array.isArray(binding.choices)||new Set(binding.choices.map(c=>c?.value)).size!==binding.choices.length||
+     binding.choices.some(c=>!c?.value||!c.label||!c.selection||c.selection.tradeId!==binding.tradeId||c.selection.bindingId!==binding.bindingId))throw bad();
+    const row=node('div'),control=select(row,kind==='futures'?'future-binding':'option-binding',binding.label);
+    row.dataset.bindingKind=kind;control.dataset.trade=binding.tradeId;control.dataset.binding=binding.bindingId;
+    fill(control,binding.choices);control.onchange=invalidateSource;bindingBody.append(row);bindingInputs.push({kind,binding,input:control,host:row});
+    if(!binding.choices.length)row.append(node('p','No supported valuation choice is available for this holding. Update its configuration before preparing the source.'));
+   }
+  }
+ }
+ function bindingPolicy(price:EconomicSetup['pricing'][number]){
+  const policy=structuredClone(price.policy),bad=()=>Error('Reread the complete physical valuation settings.');
+  const object=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==='object'&&!Array.isArray(value);
+  function selected(kind:'futures'|'options'){
+   if(!configuration?.physicalBindings)throw bad();
+   return bindingInputs.filter(r=>r.kind===kind).map(row=>{
+    const choice=row.binding.choices.find(c=>c.value===row.input.value);if(!choice)throw Error('Choose the valuation for '+row.binding.label+'.');
+    return structuredClone(choice.selection);
+   });
+  }
+  if(price.requiresFuturesBindings===true){
+   const native=policy.nativeFutures;if(!object(native)||!object(native.economic)||!Array.isArray(native.economic.physical)||native.economic.physical.length)throw bad();
+   native.economic.physical=selected('futures');
+  }
+  if(price.requiresOptionBindings===true){
+   const options=policy.futuresOptions;if(!object(options)||!object(options.physical)||typeof options.physical.implementation!=='string'||!options.physical.implementation||
+    !Array.isArray(options.physical.options)||options.physical.options.length)throw bad();
+   options.physical.options=selected('options');
+  }
+  return policy;
+ }
  function invalidatePrepared(){epoch++;source=undefined;history=undefined;sourceSummary.textContent='';coverage.replaceChildren();method.replaceChildren(new Option('Prepare the complete source first…',''));dirty=true;describe();sync();o.changed();}
  function invalidateSource(){clearFunding();invalidatePrepared();}
  function invalidateHistory(){epoch++;history=undefined;coverage.replaceChildren();dirty=true;describe();sync();o.changed();}
@@ -62,6 +104,12 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   for(const control of historyFields.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select'))control.disabled=historyFields.hidden;
   for(const control of simulationFields.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select'))control.disabled=simulationFields.hidden;
   gas.hidden=!configuration?.gasAccounts.length||!configuration.pricing.find(p=>p.value===pricing.value)?.policy.gasOwned;
+  const profile=configuration?.pricing.find(p=>p.value===pricing.value);
+  const required=(kind:'futures'|'options')=>(kind==='futures'?profile?.requiresFuturesBindings:profile?.requiresOptionBindings)===true;
+  bindingSettings.hidden=!bindingInputs.some(row=>required(row.kind));
+  bindingSearch.disabled=bindingSettings.hidden;
+  for(const row of bindingInputs){const enabled=required(row.kind);
+   row.input.disabled=!enabled;row.host.hidden=!enabled||!row.binding.label.toLocaleLowerCase().includes(bindingSearch.value.toLocaleLowerCase());}
   funding.hidden=configuration?.projection.cashFunding!==true||configuration.projection.cashAccumulation.find(c=>c.value===accumulation.value)?.requiresFunding!==true;
   for(const control of fundingInputs.values())control.disabled=funding.hidden;
  }
@@ -80,7 +128,7 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   preview.disabled=locked||!source||!method.value;drawPending();
  }
  function reset(){
-  epoch++;clearReport();clearFunding();configuration=undefined;source=undefined;history=undefined;owner=o.identity();scopeStamp='';dirty=false;gasInputs.clear();gasBody.replaceChildren();coverage.replaceChildren();form.reset();
+  epoch++;clearReport();clearFunding();clearBindings();configuration=undefined;source=undefined;history=undefined;owner=o.identity();scopeStamp='';dirty=false;gasInputs.clear();gasBody.replaceChildren();coverage.replaceChildren();form.reset();
   for(const control of sourceFields.querySelectorAll<HTMLSelectElement>('select'))control.replaceChildren(new Option('Choose…',''));
   method.replaceChildren(new Option('Prepare the complete source first…',''));calendar.replaceChildren(new Option('Choose…',''));sourceSummary.textContent='';note.textContent='Read setup for the selected Risk scope.';describe();sync();
  }
@@ -92,6 +140,7 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
    const c=await o.api<EconomicSetup>('portfolio/risk/economic/setup',selected);if(!current(version)||canonicalEconomic(o.scope())!==scopeStamp)return;
    if(c.context?.contextId!==selected.context.contextId||!Array.isArray(c.sessions)||!Array.isArray(c.pricing)||!c.projection?.physicalDelivery?.length||!c.convention||!c.numericalPolicy)throw Error('The event-aware setup does not match the selected source. Refresh Risk.');
    configuration=c;fill(pricing,c.pricing);fill(session,c.sessions.map(s=>({value:JSON.stringify([s.code,s.version]),label:`${s.name} · version ${s.version}`})));
+   bindingChoices(c);
    fill(path,c.projection.pricePaths);fill(disposition,c.projection.cashDisposition);fill(accumulation,c.projection.cashAccumulation);fill(expiry,c.projection.inputExpiry);fill(physical,c.projection.physicalDelivery);
    fill(drift,c.risk.drifts);paths.max=String(c.risk.limits.maxPaths);
    for(const account of c.gasAccounts){const control=select(gasBody,'gas-profile',account.book+' · '+account.code,false);control.dataset.account=account.accountId;
@@ -107,7 +156,7 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   const selected=c.sessions.find(s=>JSON.stringify([s.code,s.version])===session.value);if(!selected)throw Error('Choose the next-close schedule.');
   const gasOwned=price.policy.gasOwned?c.gasAccounts.flatMap(a=>{const control=gasInputs.get(a.accountId)!;if(!control.value)return[];const profile=a.profiles.find(p=>JSON.stringify([p.profileId,p.revision])===control.value);if(!profile)throw Error('Reread the selected gas account profile.');return[{accountId:a.accountId,profileId:profile.profileId,revision:profile.revision}];}):[];
   const scope=structuredClone(c.scope);scope.bookIds.sort();scope.portfolioIds.sort();scope.tradeIds?.sort();
-  const request:EconomicSourceRequest={scope,pricingPolicy:structuredClone(price.policy),projection:{implementation:c.projection.implementation,session:selected.code,sessionVersion:selected.version,
+  const request:EconomicSourceRequest={scope,pricingPolicy:bindingPolicy(price),projection:{implementation:c.projection.implementation,session:selected.code,sessionVersion:selected.version,
    horizonPolicy:c.projection.horizonPolicy,rateTimingPolicy:c.projection.rateTimingPolicy,eventMarketPolicy:c.projection.eventMarketPolicy,gasOwned,
    policy:{...c.projection.policy,pricePath:chosen(path,c.projection.pricePaths,'a market path'),cashDisposition:chosen(disposition,c.projection.cashDisposition,'a scheduled cash treatment'),
     cashAccumulation:chosen(accumulation,c.projection.cashAccumulation,'a cash accumulation treatment'),inputExpiry:chosen(expiry,c.projection.inputExpiry,'an input-expiry treatment'),
@@ -279,10 +328,11 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
  configureButton.onclick=()=>void o.act(configure);sourceButton.onclick=()=>void o.act(prepare);fundingRead.onclick=()=>void o.act(readFunding);preview.onclick=()=>void o.act(async()=>{await captureHistory();});
  form.onsubmit=event=>{event.preventDefault();const queued=(event as SubmitEvent).submitter===queue;void o.act(()=>calculate(queued));};
  for(const control of [pricing,session,path,disposition,accumulation,expiry,physical])control.onchange=invalidateSource;
+ bindingSearch.oninput=describe;
  for(const control of [method,confidence,calendar,from,to,close,priceType,minimum,drift,paths,seed])control.onchange=invalidateHistory;
  reset();
  function financialChanged(){
-  epoch++;clearFunding();configuration=undefined;source=undefined;history=undefined;scopeStamp='';
+  epoch++;clearFunding();clearBindings();configuration=undefined;source=undefined;history=undefined;scopeStamp='';
   sourceSummary.textContent='';coverage.replaceChildren();method.replaceChildren(new Option('Read setup for the updated scope…',''));dirty=false;
   note.textContent='Lifecycle facts changed. Refresh Risk scope and prepare a new source. Captured reports and original submissions keep their inputs.';
   describe();sync(false);schedule();
