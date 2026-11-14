@@ -17,13 +17,19 @@ const passed=await withOwnedBrowser(process.argv[2],process.argv[3],async({comma
  await click('#nav-risk-var');await click('[data-economic=configure]',60000);
  const setup=await evaluate("window.__economicReads.findLast(r=>r.path.endsWith('/economic/setup'))?.value");
  if(!setup)throw Error('The real event-aware setup was not returned: '+await evaluate("document.querySelector('#error').textContent"));
+ const fundingTreatment=setup.projection.cashAccumulation.find(choice=>choice.requiresFunding===true);
+ if(!fundingTreatment)throw Error('The real setup did not offer explicit captured-curve cash accumulation.');
  await check('actual setup exposes only source-known schedules and requires every financial choice',
   `document.querySelector('[data-economic=session]').options.length>1&&['pricing','session','price-path','cash-disposition','cash-accumulation','input-expiry','physical-delivery'].every(k=>document.querySelector('[data-economic='+k+']').value==='')`);
  const choices={pricing:'native_whole_books',session:JSON.stringify([f.economicSession,1]),'price-path':'shock_then_hold_native_quotes_v1',
-  'cash-disposition':'retain_scheduled_cash_outstanding_v1','cash-accumulation':'nominal_currency_cash_v1',
+  'cash-disposition':'retain_scheduled_cash_outstanding_v1','cash-accumulation':fundingTreatment.value,
   'input-expiry':'declared_curve_expiry_policy_v1','physical-delivery':'retain_generated_delivery_until_observed_performance_v1'};
  for(const [key,value] of Object.entries(choices))await set(`[data-economic=${key}]`,value);
  await set(`[data-economic=gas-profile][data-account="${f.accountId}"]`,JSON.stringify([f.profileId,1]));
+ await click('[data-economic=funding-read]',60000);await wait("!!window.__economicReads.find(r=>r.path.endsWith('/economic/cash-funding'))&&"+idle,60000);
+ await check('actual captured funding choices require an explicit selection for every exact currency',
+  "document.querySelectorAll('[data-economic=funding-curve]').length>0&&[...document.querySelectorAll('[data-economic=funding-curve]')].every(s=>s.value===''&&s.options.length===2)");
+ await evaluate("(()=>{for(const selected of document.querySelectorAll('[data-economic=funding-curve]')){selected.value=selected.options[1].value;selected.dispatchEvent(new Event('change',{bubbles:true}));}})()");
  await click('[data-economic=prepare]',60000);
  await wait("!!window.__economicReads.find(r=>r.path.endsWith('/economic/sources'))&&"+idle,60000);
  const sources=await evaluate("window.__economicReads.findLast(r=>r.path.endsWith('/economic/sources')).value");
@@ -38,8 +44,10 @@ const passed=await withOwnedBrowser(process.argv[2],process.argv[3],async({comma
   "window.__economicReads.findLast(r=>r.path.endsWith('/economic/history'))?.value.manifest.samples.length===2&&document.querySelector('[data-economic=note]').textContent.includes('complete')",
   "({history:window.__economicReads.findLast(r=>r.path.endsWith('/economic/history'))?.value,note:document.querySelector('[data-economic=note]').textContent,error:document.querySelector('#error').textContent})");
  await click('[data-economic=run]',60000);await ready("!document.querySelector('#risk-economic-results').hidden&&document.querySelector('#risk-economic-results canvas')&&"+idle);
- await check('real browser submission renders independent signed economic tails, native owners and separate time carry',
-  `(()=>{const r=window.__economicReads.findLast(r=>r.path==='/api/portfolio/risk').value;return r.measure==='economic_pnl_v1'&&r.result.samples===2&&r.result.economic[0].valueAtRisk===${JSON.stringify(f.expectedHistoricalVar)}&&r.holdings.length>1&&r.holdings.every(h=>h.owner.owner.kind===2&&h.reference.startsWith('synthetic_')&&h.instrument.startsWith('synthetic_'))&&document.querySelector('#risk-economic-results').textContent.includes('No-shock time and carry')&&document.querySelector('#risk-economic-results').textContent.includes('Market-only diagnostic')&&!document.querySelector('#risk-economic-results').textContent.includes('internal record');})()`);
+ await check('real browser submission preserves independently calculated signed economic tails and native owners',
+  `(()=>{const r=window.__economicReads.findLast(r=>r.path==='/api/portfolio/risk').value;return r.measure==='economic_pnl_v1'&&r.result.samples===2&&r.result.economic[0].valueAtRisk===${JSON.stringify(f.expectedHistoricalVar)}&&r.holdings.length>1&&r.holdings.every(h=>h.owner.owner.kind===2&&h.reference.startsWith('synthetic_')&&h.instrument.startsWith('synthetic_'));})()`);
+ await check('the actual economic report labels no-shock P&L and the separate market diagnostic',
+  "document.querySelector('#risk-economic-results').textContent.includes('No-shock P&L')&&document.querySelector('#risk-economic-results').textContent.includes('Market-only diagnostic')&&!document.querySelector('#risk-economic-results').textContent.includes('internal record')");
  await shot('economic-real-application');
  await click('#nav-risk-var');await click('[data-economic=queue]',60000);
  await wait("window.__economicReads.some(r=>r.path==='/api/portfolio/risk/jobs'&&r.body?.requestId)&&"+idle,60000);
