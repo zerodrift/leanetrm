@@ -30,6 +30,8 @@ internal static class FuturesMarginJournalChecks
         {
             await using var connection=await runtime.OpenConnectionAsync();
             await using var transaction=await connection.BeginTransactionAsync();
+            using var admissions=database.OwnReadTransaction(connection,transaction);
+            var finalAdmission=new ReadCompletion();database.RegisterCommitAdmission(connection,finalAdmission);
             await using(var identity=ScheduleStore.Command(connection,"SELECT security.use_context($1)",sample.Id("token")))
                 await identity.ExecuteNonQueryAsync();
             var context=(await new KnowledgeStore(manifest.CatalogId).Read(connection,sample.Id("contextId"),default)).Context;
@@ -73,14 +75,19 @@ internal static class FuturesMarginJournalChecks
                 throw new Exception("The native futures portfolio adapter omitted accepted basis, independent cash or explicit accounting coverage.");
             if(margin.History.Determinations.Length>0)
             {
+                await using(var save=ScheduleStore.Command(connection,"SAVEPOINT margin_inception_refusal"))await save.ExecuteNonQueryAsync();
                 try
                 {
                     await FuturesMarginStore.ReadInception(connection,manifest.CatalogId,data,frame,snapshot,trade,binding.Id,default);
                     throw new Exception("The inception-only reader erased accepted margin history.");
                 }
                 catch(PostgresException error)when(error.MessageText=="futures_margin_history_required"){}
+                await using(var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT margin_inception_refusal; RELEASE SAVEPOINT margin_inception_refusal"))await restore.ExecuteNonQueryAsync();
             }
-            await transaction.RollbackAsync();
+            await admissions.Commit(default);
+            if(finalAdmission.Calls!=1)throw new Exception("The worker read did not check its collected admission exactly once before commit.");
+            try{database.RegisterCommitAdmission(connection,finalAdmission);throw new Exception("A completed read retained its callbacks.");}
+            catch(InvalidOperationException){}
             if(!sample.TryGetProperty("discount",out _))
             {
                 var integratedBook=await owned.WithIdentity("risk",null,async(current,ct)=>
@@ -192,5 +199,16 @@ internal static class FuturesMarginJournalChecks
         if(acknowledged.Outcome.GetProperty("changed").GetInt32()!=0||acknowledged.Outcome.GetProperty("version").GetInt32()!=2)
             throw new Exception("An already-recorded financial target was applied a second time.");
         Console.WriteLine("PASS owned margin action: native source-derived review and cash, changed-review/operand refusal, durable retry and same-fact acknowledgement");
+    }
+
+    private sealed class ReadCompletion:ICommitAdmission
+    {
+        internal int Calls;
+        public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
+        {
+            await using var command=ScheduleStore.Command(connection,"SELECT 1");
+            if(!Equals(await command.ExecuteScalarAsync(ct),1))throw new Exception("The read transaction ended before its final admission.");
+            Calls++;
+        }
     }
 }

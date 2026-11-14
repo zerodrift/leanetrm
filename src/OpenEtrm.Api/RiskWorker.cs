@@ -242,6 +242,7 @@ public static class RiskWorker
             FuturesConvention:sourceConventions[0]);
         var context=(await new KnowledgeStore(catalog).Read(connection,requestContext.ContextId!.Value,ct)).Context;
         await using var database=new PreviewDatabase(manifest,source);
+        using var admissions=database.OwnReadTransaction(connection,transaction);
         var data=await RetainedFrames.ReadBoundJobInputs(database,connection,frame,revision,ReferenceReadScope.TradeValuation,ct);
         var markets=ImmutableArray.CreateBuilder<(PreviewData Data,InputFrame Frame)>();
         foreach(var market in supplemental.OrderBy(p=>p.Key))
@@ -272,7 +273,7 @@ public static class RiskWorker
             await authority.ExecuteScalarAsync(ct);
         }
         var loaded=new Loaded(token=>PortfolioRiskPreview.Calculate(prepared,token),context,frame.At);
-        await transaction.CommitAsync(ct);
+        await admissions.Commit(ct);
         return loaded;
     }
 }
