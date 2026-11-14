@@ -234,7 +234,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
     {
         var optionWork=prepared.Portfolio.OptionWork is {} work?work with{ScenarioTreePrices=prepared.Portfolio.Options!.TreePrices-trees}:null;
         var markets=prepared.Portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
-        var positions=run.Positions.ToDictionary(p=>(p.TradeId,p.BindingId));
+        var positions=run.Positions.ToDictionary(p=>(p.Owner,p.BindingId));
         string Book(Guid id)=>prepared.Books.Single(b=>b.Id("id")==id).Text("name");
         object Amounts(ExactDealRiskValues value,Func<ExactMoney,string> format)=>new{
             @base=format(value.Base),up=format(value.Up),down=format(value.Down),upPnl=format(value.UpPnl),downPnl=format(value.DownPnl),
@@ -268,8 +268,8 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
                         r.Up,r.Down,r.UpPnl,r.DownPnl,r.Delta,r.Gamma))}),
                 positions=run.HoldingRisk.Where(r=>r.Factor==b.Axis.Id).Select(r=>
                 {
-                    var p=r.Position;var evidence=positions[(p.TradeId,p.BindingId)];
-                    var position=JsonSerializer.SerializeToNode(new{p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,
+                    var p=r.Position;var evidence=positions[(p.Owner,p.BindingId)];
+                    var position=JsonSerializer.SerializeToNode(new{p.Owner,p.TradeId,p.BindingId,p.BookId,book=Book(p.BookId),p.ValuationId,evidence.TradeReference,
                         evidence.InstrumentReference,evidence.InstrumentType,r.Measure,measureLabel=MeasureLabel(r.Measure),values=Values(p.Values)},RiskJobs.Json)!.AsObject();
                     // A started-delivery gas position reports its named components, which sum to its values, under the same scenarios.
                     if(!p.Components.IsEmpty)position["components"]=JsonSerializer.SerializeToNode(p.Components.ToDictionary(c=>c.Name,c=>new{

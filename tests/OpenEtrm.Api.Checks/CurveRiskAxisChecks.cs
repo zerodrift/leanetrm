@@ -158,7 +158,29 @@ internal static class CurveRiskAxisChecks
             !outputs.CurvesWithoutTarget.IsEmpty)
             throw new Exception("A held custom-curve output must be named for the contract preset, and its whole output curve shifted by the curve preset.");
         Console.WriteLine("PASS curve risk axes: a held custom-curve output is named for the contract preset and shifted with its whole output curve");
-
+        var originalHolding=portfolio.Positions.Single();
+        var nativeOwners=new[]{new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,originalHolding.TradeId),new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,Guid.NewGuid())};
+        var ownedPositions=ImmutableArray.Create(originalHolding).AddRange(nativeOwners.Select(owner=>new RiskPosition(owner,originalHolding.BindingId,
+            originalHolding.BookId,originalHolding.ValuationId,originalHolding.Quantity,originalHolding.UnitBasis,originalHolding.FixedBasis)));
+        var ownedPortfolio=new ValuationPortfolio(portfolio.Instruments,ownedPositions,portfolio.Setup);
+        var ownedMarket=market with{Connected=RiskEngine.PrepareConnected(prepared.Valuation,
+            ImmutableDictionary<CurveRequest,CurvePointKey>.Empty.Add(dependency,output),[ownedPortfolio])};
+        var owned=operation with{Markets=[ownedMarket],Positions=[..ownedPositions.Select(p=>new PortfolioPositionEvidence(p.TradeId,1,p.BindingId,p.ValuationId,p.ValuationId,
+            p.BookId,PortfolioValuation.SwapMeasure,snapshot.Definitions.RevisionId,1,p.Quantity){Owner=p.Owner,TradeReference="Synthetic holding",InstrumentType="financial_swap"})]};
+        var ownedJoint=PortfolioJointRisk.Resolve(owned,new(PortfolioJointRiskRequest.Version1,null,new(ConnectedFiniteDifferenceRequest.HalfNominalDouble,
+            [new("quote",new(quote.Request,"1",ConnectedRiskBump.Convention),tolerance,tolerance)],[])),default);
+        var ownedRisk=PortfolioJointCalculation.Calculate(owned,ownedJoint,[],RiskDetail.Holdings,default);
+        if(ownedRisk.Derivatives.Any(d=>d.Positions.Length!=3||d.Positions.Select(p=>p.Position.Owner).Distinct().Count()!=3))
+            throw new Exception("Portfolio derivative aggregation lost distinct independent owners.");
+        var riskRequest=new PortfolioRiskRequest(new(frame.Id,null,"current"),[originalHolding.BookId],[],[],PortfolioRiskPreview.Convention,
+            RiskEngine.ExactNumericalPolicy,policy,Detail:"holdings",Stress:[]);
+        var books=ImmutableArray.Create(System.Text.Json.JsonSerializer.SerializeToElement(new{id=originalHolding.BookId,name="Synthetic book"}));
+        var shown=PortfolioRiskPreview.Calculate(new(riskRequest,RiskDetail.Holdings,[originalHolding.BookId],books,owned,[],[],[]){Joint=ownedJoint},default);
+        var json=System.Text.Json.JsonSerializer.SerializeToElement(shown,RiskJobs.Json);
+        if(json.GetProperty("joint").GetProperty("derivatives").EnumerateArray().Any(d=>d.GetProperty("positions").EnumerateArray()
+            .Select(p=>(p.GetProperty("owner").GetProperty("kind").GetInt32(),p.GetProperty("owner").GetProperty("id").GetGuid())).Distinct().Count()!=3))
+            throw new Exception("The portfolio presentation erased the typed ownership boundary.");
+        Console.WriteLine("PASS portfolio independent owners retain separate derivative rows and presentation across equal native/trade identifiers");
     }
     private sealed class Visible:ICurveBindingResolver
     {

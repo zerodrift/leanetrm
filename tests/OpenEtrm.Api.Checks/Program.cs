@@ -8,6 +8,14 @@ if(args is ["--futures-margin-adoption",var marginAdoptionFixture]){await Future
 if(args is ["--futures-margin-sources"]){FuturesMarginSourceChecks.Run();return;}
 if(args is ["--native-futures-margin-sources",var marginSourceFixture]){await FuturesMarginSourceChecks.RunNative(marginSourceFixture);return;}
 if(args is ["--cash-instrument"]){CashInstrumentChecks.Run();return;}
+if(args is ["--curve-risk-axes"])
+{
+    var f=PreviewDataChecks.Fixture(3);
+    f.Definitions["curves"]=[..f.Definitions["curves"].Select(row=>{var fields=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(row)!;fields["name"]=JsonSerializer.SerializeToElement(row.Text("code"));return JsonSerializer.SerializeToElement(fields);})];
+    f.References["currencies"]=[JsonSerializer.SerializeToElement(new{code="usd",display_code="USD"})];
+    f.References["units"]=[JsonSerializer.SerializeToElement(new{code="mwh",symbol="MWh"})];
+    CurveRiskAxisChecks.Run(new(f.Manifest,f.Definitions,f.References,f.Observations),f.Frame);return;
+}
 if(args is ["--curve-display"]){CurveDisplayChecks.Run();return;}
 if(args is ["--pnl-persistence",var pnlFixture]){await PnlPersistenceChecks.Run(pnlFixture);return;}
 if(args is ["--pnl-artifacts"]){PnlArtifactChecks.Run();return;}

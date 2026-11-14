@@ -414,7 +414,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             throw new MarketDataException("risk_trade_scope","Every selected trade must have its held bindings or explicit valuation exclusions in this retained context.");
         if(materialized.Count==0)throw new MarketDataException("risk_position",excluded.IsEmpty?"The selected books have no visible holdings.":
             "No held position in the selected scope is qualified for this risk calculation.");
-        if(evidence.Select(p=>(p.TradeId,p.BindingId)).Distinct().Count()!=evidence.Count||
+        if(evidence.Select(p=>(p.Owner,p.BindingId)).Distinct().Count()!=evidence.Count||
             materialized.SelectMany(p=>p.Portfolio.Instruments.Select(i=>(p.Snapshot.Definitions,i.Id))).Distinct().Count()!=materialized.Sum(p=>p.Portfolio.Instruments.Length))
             throw new MarketDataException("risk_contract","Every held binding and unit instrument must belong to exactly one market and valuation measure.");
         var markets=ImmutableArray.CreateBuilder<MarketPartition>();
@@ -536,7 +536,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                     contributions.AddRange(group.BaseValues.Select(v=>(measure,v.BookId,Unchanged(v.Value,bump))));
                     holdingRisk.AddRange(group.BasePositions.Select(p=>new PortfolioHoldingRisk(measure,bump.Axis.Id,
                         new(p.TradeId,p.BindingId,p.BookId,p.ValuationId,Unchanged(p.Value,bump))
-                        {Components=[..p.Components.Select(c=>new ComponentRiskValues(c.Name,c.Value,c.Value,c.Value))]})));
+                        {Owner=p.Owner,Components=[..p.Components.Select(c=>new ComponentRiskValues(c.Name,c.Value,c.Value,c.Value))]})));
                 }
                 else
                 {

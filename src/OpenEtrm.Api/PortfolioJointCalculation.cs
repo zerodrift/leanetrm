@@ -102,8 +102,8 @@ internal static class PortfolioJointCalculation
                         books.Add(new(part.Market.Measures[index],book.BookId,values?.Totals.Single(v=>v.BookId==book.BookId&&v.Estimate.Nominal.Currency==book.Value.Currency).Estimate??Zero(book.Value)));
                     foreach(var position in group.Positions)
                     {
-                        var value=values?.Positions.Single(v=>v.TradeId==position.TradeId&&v.BindingId==position.BindingId).Estimate??Zero(position.Value);
-                        positions.Add(new(part.Market.Measures[index],new(position.TradeId,position.BindingId,position.BookId,position.ValuationId,value)));
+                        var value=values?.Positions.Single(v=>v.Owner==position.Owner&&v.BindingId==position.BindingId).Estimate??Zero(position.Value);
+                        positions.Add(new(part.Market.Measures[index],new(position.TradeId,position.BindingId,position.BookId,position.ValuationId,value){Owner=position.Owner}));
                     }
                 }
             }
