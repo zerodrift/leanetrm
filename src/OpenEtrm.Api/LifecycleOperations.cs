@@ -15,6 +15,7 @@ internal sealed record LifecycleDiscovery(LifecycleReadContext Context,Immutable
     ImmutableArray<JsonElement> FuturesSetup,
     [property:JsonIgnore]Guid Catalog,[property:JsonIgnore]DateTimeOffset AuthorityUntil):ICommitAdmission
 {
+    public ImmutableArray<JsonElement> SwapNetProfiles{get;init;}=[];
     public ImmutableArray<JsonElement> DeliveryProfiles{get;init;}=[];
     public ImmutableArray<JsonElement> DeliveryAccounts{get;init;}=[];
     public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
@@ -35,7 +36,7 @@ public sealed class LifecycleOperations
     internal LifecycleOperations(PreviewDatabase database,Func<Guid,InputFrame> frame,IEnumerable<ILifecycleActionHandler>? additional=null)
     {
         this.database=database;frames=frame;
-        registry=new([new OptionLifecycleActions(database,RequireFrame),new SwapLifecycleActions(database,frame),new FuturesLifecycleActions(database,RequireFrame),new GasOwnedActions(database),..additional??[]]);
+        registry=new([new OptionLifecycleActions(database,RequireFrame),new SwapLifecycleActions(database,frame),new SwapNetLifecycleActions(database,frame),new FuturesLifecycleActions(database,RequireFrame),new GasOwnedActions(database),..additional??[]]);
     }
     private sealed record DiscoveryAdmission(DateTimeOffset Until,DateTimeOffset? GasUntil,LifecycleDiscoveryAccess Access);
     private async Task<DiscoveryAdmission> CaptureDiscovery(NpgsqlConnection connection,bool requiresGas,CancellationToken ct)
@@ -73,7 +74,7 @@ public sealed class LifecycleOperations
         await new LifecycleReadAdmission(database.Manifest.CatalogId,until).RequireCommit(connection,ct);
         if(admission.GasUntil is {} gasUntil)await new GasOwnedOperationReadAdmission(database.Manifest.CatalogId,gasUntil).RequireCommit(connection,ct);
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT lifecycle_discovery"))await save.ExecuteNonQueryAsync(ct);
-        ImmutableArray<LifecycleActionOffer> actions;ImmutableArray<JsonElement> policies,optionProfiles,swapProfiles,marginPolicies,optionSources,swapOccurrences,futuresSetup,deliveryProfiles,deliveryAccounts;LifecycleSettingsChoices choices;
+        ImmutableArray<LifecycleActionOffer> actions;ImmutableArray<JsonElement> policies,optionProfiles,swapProfiles,swapNetProfiles,marginPolicies,optionSources,swapOccurrences,futuresSetup,deliveryProfiles,deliveryAccounts;LifecycleSettingsChoices choices;
         try
         {
             var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,request.Context.ContextId,ct)).Context;
@@ -88,6 +89,7 @@ public sealed class LifecycleOperations
             policies=await PreviewDatabase.Rows(connection,"SELECT row_to_json(p)::text FROM lifecycle.action_policies p WHERE p.catalog_id=$1 ORDER BY p.id,p.revision",[database.Manifest.CatalogId],ct);
             optionProfiles=await PreviewDatabase.Rows(connection,"SELECT row_to_json(p)::text FROM lifecycle.option_profiles p WHERE p.catalog_id=$1 ORDER BY p.trade_id,p.action,p.revision",[database.Manifest.CatalogId],ct);
             swapProfiles=await PreviewDatabase.Rows(connection,"SELECT(to_jsonb(p)||jsonb_build_object('occurrence_id',lifecycle.swap_profile_occurrence(p.catalog_id,p.id,p.revision)))::text FROM lifecycle.swap_profiles p WHERE p.catalog_id=$1 ORDER BY p.trade_id,p.action,p.revision",[database.Manifest.CatalogId],ct);
+            swapNetProfiles=await PreviewDatabase.Rows(connection,"SELECT row_to_json(p)::text FROM lifecycle.swap_net_profiles p WHERE p.catalog_id=$1 ORDER BY p.trade_id,p.revision",[database.Manifest.CatalogId],ct);
             marginPolicies=await PreviewDatabase.Rows(connection,"""
                 SELECT(to_jsonb(p)||jsonb_build_object('series_code',c.futures_series_code,'settlement_curve_name',v.name))::text
                 FROM settlement_data.futures_margin_policies p JOIN market_data.contracts c ON(c.catalog_id,c.revision_id,c.id)=(p.catalog_id,p.definition_revision_id,p.contract_id)
@@ -130,7 +132,7 @@ public sealed class LifecycleOperations
                 new(OpenEtrm.MarketData.Trading.FuturesMarginPolicy.DeliveryVersion,["include_opening_instant","after_opening_instant"],["to_even","away_from_zero"],
                     ["payment_total"],[OpenEtrm.MarketData.Trading.FuturesMargin.HeldBindingRounding],["daily","final"],["native_execution_inception_v1"])
                     {Delivery=new([OpenEtrm.MarketData.Gas.GasPhysicalDeliveryTerms.Version],["nominal_mark_v1","currency_curve_v1"],
-                        ["delivery_cumulative_principal_total_v1"],["contractual_principal_due_v1"])});
+                        ["delivery_cumulative_principal_total_v1"],["contractual_principal_due_v1"])}){SwapNet=[OpenEtrm.MarketData.Trading.SwapNetSettlement.Policy]};
             futuresSetup=await LifecycleFuturesSettings.Read(connection,database.Manifest.CatalogId,ct);
             (deliveryProfiles,deliveryAccounts)=admission.Access.Allows("ReadGasOwnedHoldings")?await LifecyclePhysicalSettings.Read(connection,database,request.Context,ct):([],[]);
             futuresSetup=[..futuresSetup.Select(future=>LifecyclePhysicalSettings.ForFuture(future,deliveryProfiles,deliveryAccounts))];
@@ -141,7 +143,7 @@ public sealed class LifecycleOperations
             await restore.ExecuteNonQueryAsync(CancellationToken.None);
         }
         var value=new LifecycleDiscovery(request.Context,actions,policies,optionProfiles,swapProfiles,marginPolicies,choices,optionSources,swapOccurrences,futuresSetup,database.Manifest.CatalogId,until)
-            {DeliveryProfiles=deliveryProfiles,DeliveryAccounts=deliveryAccounts};
+            {DeliveryProfiles=deliveryProfiles,DeliveryAccounts=deliveryAccounts,SwapNetProfiles=swapNetProfiles};
         database.RegisterCommitAdmission(connection,value);
         await value.RequireCommit(connection,ct);return value;
     }
@@ -172,7 +174,7 @@ public sealed class LifecycleOperations
     {
         var result=await database.WithAgent(agent,TimeSpan.FromSeconds(RuntimeSet.MaxReadSeconds),["ReadTrades","ReadMarketData"],_=>{},
             (connection,t)=>Discover(connection,request,t),ct);
-        return new{result.Context,result.Actions,result.Policies,result.OptionProfiles,result.SwapProfiles,result.MarginPolicies,result.Choices,result.OptionSources,result.SwapOccurrences,result.FuturesSetup,result.DeliveryProfiles,result.DeliveryAccounts};
+        return new{result.Context,result.Actions,result.Policies,result.OptionProfiles,result.SwapProfiles,result.SwapNetProfiles,result.MarginPolicies,result.Choices,result.OptionSources,result.SwapOccurrences,result.FuturesSetup,result.DeliveryProfiles,result.DeliveryAccounts};
     }
     public async Task<object> Preview(AgentIdentity agent,LifecycleActionRequest request,CancellationToken ct)
     {
@@ -197,7 +199,7 @@ internal static class LifecycleSettings
     {
         var catalog=database.Manifest.CatalogId;
         var sql=kind switch{"policy"=>"SELECT lifecycle.save_policy($1,$2::jsonb)::text","option_profile"=>"SELECT lifecycle.save_option_profile($1,$2::jsonb)::text",
-            "swap_profile"=>"SELECT lifecycle.save_swap_profile($1,$2::jsonb)::text",_=>throw new MarketDataException("lifecycle_input","Select a typed lifecycle settings operation.")};
+            "swap_profile"=>"SELECT lifecycle.save_swap_profile($1,$2::jsonb)::text","swap_net_profile"=>"SELECT lifecycle.save_swap_net_profile($1,$2::jsonb)::text",_=>throw new MarketDataException("lifecycle_input","Select a typed lifecycle settings operation.")};
         var until=await LifecycleNative.ActionAuthority(connection,database,kind,body,ct);
         await using var required=ScheduleStore.Command(connection,"SELECT lifecycle.action_permission($1,$2::jsonb)",kind,body.GetRawText());
         var permission=(string)(await required.ExecuteScalarAsync(ct))!;

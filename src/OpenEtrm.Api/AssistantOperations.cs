@@ -59,7 +59,7 @@ internal static class AssistantOperations
         Add("lifecycle","ReadMarketData|ReadTrades",false,"lifecycle/view lifecycle/discover lifecycle/policies/read lifecycle/preview");
         // Product-native handlers select their own write/configuration permissions and
         // first-outcome receipts. Assistant approval never substitutes for either.
-        Add("lifecycle","ReadMarketData|ReadTrades",true,"","lifecycle/execute lifecycle/policies/save lifecycle/options/configure lifecycle/swaps/configure");
+        Add("lifecycle","ReadMarketData|ReadTrades",true,"","lifecycle/execute lifecycle/policies/save lifecycle/options/configure lifecycle/swaps/configure lifecycle/swaps/net/configure");
         Add("lifecycle","ReadMarketData|ReadTrades|WriteMarketDefinitions",true,"","lifecycle/futures/policies/save");
         Add("lifecycle","ReadMarketData|ReadTrades|AmendTrade",true,"","lifecycle/futures/adopt");
         Add("lifecycle","ReadMarketData|ReadTrades|ReadGasOwnedHoldings",false,"lifecycle/gas/read");
@@ -183,6 +183,7 @@ internal static class AssistantOperations
                 {
                     ["listed_option"]=Describe(typeof(OptionActionSelection),path.Add(type)),
                     ["financial_swap"]=Describe(typeof(SwapActionSelection),path.Add(type)),
+                    ["financial_swap_net"]=Describe(typeof(SwapNetActionSelection),path.Add(type)),
                     ["futures"]=Describe(typeof(FuturesMarginActionSelection),path.Add(type))
                 };
                 var gas=new JsonObject();foreach(var action in GasOwnedOperations.Commands)

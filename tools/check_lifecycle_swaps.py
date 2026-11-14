@@ -48,7 +48,7 @@ def checks(query,manifest):
         if checked.returncode:raise RuntimeError(checked.stdout+checked.stderr)
         for line in checked.stdout.splitlines():
             if line.startswith('PASS '):print(line,flush=True)
-        return {key:json.loads(line[len(key)+1:]) for line in checked.stdout.splitlines() for key in ['LIFECYCLE_SWAP_BOOKED','LIFECYCLE_SWAP_REVIEWED'] if line.startswith(key+' ')}
+        return {key:json.loads(line[len(key)+1:]) for line in checked.stdout.splitlines() for key in ['LIFECYCLE_SWAP_BOOKED','LIFECYCLE_SWAP_REVIEWED','LIFECYCLE_SWAP_OUTCOME'] if line.startswith(key+' ')}
     booked=managed(dict(snapshotId=snapshot,booking=booking))['LIFECYCLE_SWAP_BOOKED']
     policy=dict(operationId=str(uuid4()),policyId=str(uuid4()),expectedRevision=0,action='swap.determine',mode='review',
                 fromAt='2020-01-01T00:00:00Z',untilAt='2022-01-01T00:00:00Z',implementation='explicit_lifecycle_action_policy_v1')
@@ -178,6 +178,15 @@ def checks(query,manifest):
     assert query("SELECT bool_and(NOT has_function_privilege('preview_runtime',p.oid,'EXECUTE')) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE(n.nspname,p.proname) IN(('settlement_data','determine_swap'),('security','record_swap_cash'),('security','record_swap_net'));")=='t'
     print('PASS accepted swap snapshots: old source after later corrections, same-price changed lineage, no publication or financial sequence on acknowledgement',flush=True)
     print('PASS native swap lifecycle settings: exact period ordinal/quote currency, idempotent financial configuration, stable publication and final source admission',flush=True)
+    original_payment=query(f"SELECT id FROM settlement_data.swap_cash_payments WHERE trade_id='{booked['tradeId']}' ORDER BY cash_at LIMIT 1;")
+    reversal_source=call(f"SELECT security.capture_date_context('{catalog}','2021-01-21',NULL);")
+    reversal={**later_payment,'context':{**later_payment['context'],'contextId':reversal_source},
+        'payment':{**payment,'expectedVersion':4,'amount':'-100','effectiveAt':'2021-01-21T08:00:00Z','reference':'Synthetic original cash reversal','reversesId':original_payment},
+        'expectedVersion':5,'expectedCurrentVersion':5,'checkReversalChoice':original_payment}
+    managed(reversal);assert counts()=='3:2:2:5'
+    print('PASS shared single-payment reversal: exact original choice, signed opposite amount and one restored gross balance',flush=True)
+    from check_lifecycle_swap_net import checks as net_checks
+    net_checks(query,manifest,call,managed,booking,profile,policy,snapshot)
 
 
 if __name__=='__main__':main(checks=checks,fixture_factory=fixture,before_migration=upgrade_checks)

@@ -40,6 +40,9 @@ def upgrade_checks(query, migration):
             'settlement_data.read_futures_delivery_position_pre_risk(uuid,uuid,uuid,timestamptz)',
             'settlement_data.read_futures_delivery_settings(uuid,uuid,timestamptz)',
             'settlement_data.read_futures_delivery_profile_pre_risk(uuid,uuid,integer,uuid,timestamptz)')]
+    elif migration.name == '0282_swap_net_lifecycle_actions.sql':
+        groups=[('swap_net_lifecycle_upgrade','lifecycle.finish_command(uuid,uuid,text,jsonb,text,timestamptz)'),
+                ('swap_net_lifecycle_upgrade','lifecycle.record_native_action(uuid,jsonb,jsonb,timestamptz)')]
     elif migration.name == '0275_retained_swap_status.sql':
         groups=[('retained_swap_status_upgrade','settlement_data.swap_operation_status(uuid,uuid)')]
     else: return
@@ -56,7 +59,7 @@ def upgrade_checks(query, migration):
             f"GRANT EXECUTE ON FUNCTION {signature} TO openetrm_runtime WITH GRANT OPTION;",
             f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;",
             f"DO $$DECLARE d text=pg_get_functiondef('{signature}'::regprocedure);BEGIN EXECUTE replace(d,'AS $function$','AS $function$ /* synthetic drift */ ');END$$;")]
-        if migration.name in('0275_retained_swap_status.sql','0281_selected_physical_authority.sql'):
+        if migration.name in('0275_retained_swap_status.sql','0281_selected_physical_authority.sql','0282_swap_net_lifecycle_actions.sql'):
             changes.extend((change,signature) for change in (
                 f"UPDATE pg_proc SET provariadic='uuid'::regtype WHERE oid='{signature}'::regprocedure;",
                 f"UPDATE pg_proc SET proargmodes=array_fill('i'::\"char\",ARRAY[{signature.count(',')+1}]) WHERE oid='{signature}'::regprocedure;"))

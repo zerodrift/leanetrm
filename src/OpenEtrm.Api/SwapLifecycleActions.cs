@@ -184,6 +184,16 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
                         return new LifecycleInputChoice(d.Id("id").ToString(),$"{p.Text("delivery_from")} to {p.Text("delivery_to")} · contribution {d.Text("ordinal")} · {amount.Subtract(paid).ToExactString()} {currency.Code.ToUpperInvariant()} outstanding");
                     }).ToImmutableArray();
                     choices=choices.Add("determinationId",contributions);
+                    var reversalChoices=state.GetProperty("payments").EnumerateArray().Where(payment=>payment.OptionalId("reverses_id") is null&&
+                        !state.GetProperty("payments").EnumerateArray().Any(other=>other.OptionalId("reverses_id")==payment.Id("id")))
+                        .Select(payment=>(Payment:payment,Allocations:state.GetProperty("allocations").EnumerateArray().Where(a=>a.Id("payment_id")==payment.Id("id")).ToArray()))
+                        .Where(value=>value.Allocations.Length==1&&state.GetProperty("determinations").EnumerateArray().Any(d=>
+                            d.Id("id")==value.Allocations[0].Id("determination_id")&&occurrenceIds.Contains(d.Id("occurrence_id"))))
+                        .Select(value=>new LifecycleInputChoice(JsonSerializer.Serialize(new{determinationId=value.Allocations[0].Id("determination_id"),
+                            amount=ExactMoney.Parse(value.Allocations[0].Text("amount"),currency).Scale(ExactDecimal.Parse("-1")).ToExactString(),reversesId=value.Payment.Id("id")},LifecycleNative.Json),
+                            $"{value.Payment.Text("reference")} · {value.Payment.Text("amount")} {currency.Code.ToUpperInvariant()} · {value.Payment.Text("cash_at")}"))
+                        .ToImmutableArray();
+                    choices=choices.Add("paymentReversal",reversalChoices);
                 }
             }
             offers.Add(new LifecycleActionOffer(new(Kind,r.Id("trade_id"),r.Id("binding_id")),action,action=="swap.determine"?"Determine final payment":"Record observed payment",profile?.Id("occurrence_id")??r.Id("binding_id"),

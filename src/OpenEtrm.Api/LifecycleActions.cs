@@ -16,7 +16,8 @@ public sealed record LifecycleReadContext(Guid ContextId,[property:JsonRequired]
 public sealed record LifecycleActionKindChoice(string Code,bool Automatic,string ConfigurationPermission,string ExecutionPermission);
 public sealed record LifecycleSettingsChoices(ImmutableArray<LifecycleActionKindChoice> Actions,ImmutableArray<string> Modes,string PolicyImplementation,
     ImmutableArray<string> SwapRounding,ImmutableArray<string> SwapDue,ImmutableArray<string> SwapRecognition,ImmutableArray<string> SwapCorrection,
-    LifecycleFuturesChoices Futures);
+    LifecycleFuturesChoices Futures)
+{public ImmutableArray<string> SwapNet{get;init;}=[];}
 public sealed record LifecycleFuturesChoices(string PolicyImplementation,ImmutableArray<string> Opening,ImmutableArray<string> Ties,
     ImmutableArray<string> RoundingStages,ImmutableArray<string> RoundingScopes,ImmutableArray<string> Phases,ImmutableArray<string> Adoption)
 {public LifecycleDeliveryChoices? Delivery{get;init;}}

@@ -71,10 +71,16 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
  async function queue(path:string,body:Record<string,unknown>,label:string){restore();if(pending.command)throw Error('Reconcile the retained lifecycle request first.');pending.command={path,operationId:String(body.operationId),body:structuredClone(body),label};store();await send(pending.command);}
  function showReview(review:Review,request:LifecycleRequest){panel.querySelector('[data-lifecycle-review]')?.remove();const section=element('section');section.dataset.lifecycleReview='';section.className='lifecycle-review';section.append(element('h3','Review '+(selected?.label??'action')));
   const list=element('dl');list.className='lifecycle-review-facts';
-  const add=(label:string,value:unknown)=>{if(value===null||value===undefined||value==='')return;list.append(element('dt',label),element('dd',String(value)));};
+  const add=(label:string,value:unknown)=>{if(value===null||value===undefined||value===''||typeof value==='object')return;list.append(element('dt',label),element('dd',String(value)));};
   add('Holding',selected?.subject?.reference);add('Business date',request.context.businessDate);add('As of',instant(request.context.asOf));
   const d=review.details;for(const [key,label] of [['decision','Decision'],['openLots','Open lots'],['lots','Lots affected'],['futureLots','Linked futures lots'],['strike','Strike'],['settlement','Settlement'],['amount','Amount'],['roundedTotal','Rounded payment'],['exactTotal','Exact payment'],['reference','Evidence reference']] as const)add(label,d[key]);
+  const net=d.settlement as Record<string,unknown>|undefined;
+  if(net){add('Net cash',net.amount);add('Gross paid',net.grossPaid);add('Gross received',net.grossReceived);add('Reverses payment',net.reversesId);}
   section.append(list);
+  if(net&&Array.isArray(net.allocations)){
+   const table=element('table');table.className='regular-table';const head=element('tr');for(const label of ['Contribution','Gross allocation','Outstanding after settlement'])head.append(element('th',label));table.append(head);
+   for(const allocation of net.allocations as Record<string,unknown>[]){const row=element('tr');for(const value of [selected?.inputChoices?.netDeterminationId?.find(choice=>choice.value===allocation.determinationId)?.label??allocation.determinationId,allocation.amount,allocation.remaining])row.append(element('td',String(value??'')));table.append(row);}section.append(table);
+  }
   const steps=Array.isArray(d.steps)?d.steps:[];
   if(steps.length){const table=element('table');table.className='regular-table';const head=element('tr');for(const label of ['Occurrence','Variation','Adjustment','Due'])head.append(element('th',label));table.append(head);
    for(const step of steps as Record<string,unknown>[]){const row=element('tr'),occurrence=step.occurrence as Record<string,unknown>|undefined,variation=step.variation as Record<string,unknown>|undefined;for(const value of [typeof occurrence?.at==='string'?instant(occurrence.at):'',variation?.amount??'',step.adjustment??'',typeof step.adjustmentDue==='string'?instant(step.adjustmentDue):''])row.append(element('td',typeof value==='object'?exactText(value):String(value)));table.append(row);}section.append(table);
@@ -97,12 +103,32 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   const policies=(discovery?.policies??[]).filter(p=>p.action===offer.action);
   const policy=choices('Action policy',policies.map(p=>({value:JSON.stringify([p.id,p.revision]),label:`${title(p.mode)} · ${instant(p.from_at)} to ${instant(p.until_at)} · revision ${p.revision}`})),fields,offer.policyId&&offer.policyRevision?JSON.stringify([offer.policyId,offer.policyRevision]):'');
   const inputs=new Map<string,HTMLInputElement|HTMLSelectElement>(),times=new Map<string,ReturnType<typeof zonedInput>>();
-  for(const name of offer.requiredInputs){if(['policyId','correctionDue'].includes(name))continue;
+  const netLines:{determination:HTMLSelectElement;amount:HTMLInputElement}[]=[];
+  let netMode:HTMLSelectElement|undefined,netAmount:HTMLInputElement|undefined,netReversal:HTMLSelectElement|undefined,paymentReversal:HTMLSelectElement|undefined;
+  if(offer.requiredInputs.includes('netSettlement')){
+   netMode=choices('Settlement type',[{value:'net',label:'Observed net settlement'},{value:'reversal',label:'Reverse an original net settlement'}],fields);netMode.dataset.netMode='';
+   const body=element('div');fields.append(body);
+   netMode.onchange=()=>{body.replaceChildren();netLines.length=0;netAmount=undefined;netReversal=undefined;
+    if(netMode!.value==='net'){
+     netAmount=textField('Observed signed net cash',body);netAmount.required=true;netAmount.dataset.netAmount='';
+     body.append(element('p','Enter each observed gross allocation. The backend validates eligibility and the net cash total.'));
+     const add=element('button','Add gross allocation');add.type='button';add.dataset.netAdd='';add.onclick=()=>{const row=element('div');row.className='schedule-fields';row.dataset.netLine='';const determination=choices('Contribution',offer.inputChoices?.netDeterminationId??[],row),amount=textField('Observed signed gross allocation',row);amount.required=true;const line={determination,amount};netLines.push(line);const remove=element('button','Remove');remove.type='button';remove.onclick=()=>{netLines.splice(netLines.indexOf(line),1);row.remove();invalidate();};row.append(remove);body.insertBefore(row,add);invalidate();};body.append(add);
+    }else if(netMode!.value==='reversal')netReversal=choices('Original net settlement',offer.inputChoices?.reversesId??[],body);
+    invalidate();
+   };
+  }
+  for(const name of offer.requiredInputs){if(['policyId','correctionDue','netSettlement'].includes(name))continue;
    if(name==='correctionDueAt'){const timing=timeField('Correction due time (leave blank for an original determination)',fields);inputs.set(name,timing.input);times.set(name,timing.control);continue;}
    if(name==='effectiveAt'){const timing=timeField('Observed payment time',fields);inputs.set(name,timing.input);times.set(name,timing.control);continue;}
    const labels:Record<string,string>={evidenceId:'Observed evidence ID',lots:`Lots${offer.availableQuantity?' · open '+offer.availableQuantity:''}`,determinationId:'Determination',amount:'Observed signed payment',reference:'Payment reference'};
    const available=offer.inputChoices?.[name],input=available?choices(labels[name]??title(name),available,fields):textField(labels[name]??title(name),fields);
    input.required=true;inputs.set(name,input);
+  }
+  const reversals=offer.inputChoices?.paymentReversal;
+  if(offer.action==='swap.payment'&&reversals?.length){
+   paymentReversal=choices('Original payment to reverse',reversals,fields);paymentReversal.required=false;paymentReversal.dataset.paymentReversal='';paymentReversal.options[0].text='Enter a new observed payment';
+   paymentReversal.onchange=()=>{const preset=paymentReversal!.value?JSON.parse(paymentReversal!.value) as {determinationId:string;amount:string;reversesId:string}:null;
+    const determination=inputs.get('determinationId')!,amount=inputs.get('amount')!;determination.value=preset?.determinationId??'';amount.value=preset?.amount??'';determination.disabled=!!preset;(amount as HTMLInputElement).readOnly=!!preset;invalidate();};
   }
   const correctionRows:{select:HTMLSelectElement;time:ReturnType<typeof zonedInput>}[]=[];
   if(offer.requiredInputs.includes('correctionDue')){const box=element('fieldset'),legend=element('legend','Correction due times');box.append(legend,element('p','For a correction, include each affected occurrence whose cash changes. An original run needs no correction rows.'));
@@ -110,6 +136,9 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   }
   const preview=element('button','Review action');preview.type='submit';form.append(preview);form.addEventListener('input',invalidate);form.addEventListener('change',invalidate);
   form.onsubmit=event=>{event.preventDefault();void o.act(async()=>{if(!discovery)throw Error('Refresh lifecycle actions.');const source=discovery.context,actor=o.identity(),epoch=generation,version=draftVersion;const [policyId,policyRevision]=policy.value?JSON.parse(policy.value):['',0];const draft:LifecycleDraft={policyId,policyRevision,correctionDue:[]};
+   if(netMode){if(netMode.value==='net'){draft.amount=netAmount!.value;draft.allocations=netLines.map(row=>({determinationId:row.determination.value,amount:row.amount.value}));draft.reversesId=null;}
+    else if(netMode.value==='reversal'){draft.amount=null;draft.allocations=[];draft.reversesId=netReversal!.value;}else throw Error('Choose the observed settlement type.');}
+   if(paymentReversal)draft.reversesId=paymentReversal.value?(JSON.parse(paymentReversal.value) as {reversesId:string}).reversesId:null;
    for(const [name,input] of inputs){(draft as unknown as Record<string,unknown>)[name]=times.has(name)?input.value?await times.get(name)!.instant():null:input.value;}
    for(const row of correctionRows)draft.correctionDue!.push({occurrenceId:row.select.value,dueAt:await row.time.instant()});
    if(!current(epoch,actor)||selected!==offer||version!==draftVersion)return;const request=lifecycleRequest(source,offer,draft,crypto.randomUUID());const result=await o.api<Review>('lifecycle/preview',request);if(!current(epoch,actor)||selected!==offer||version!==draftVersion)return;

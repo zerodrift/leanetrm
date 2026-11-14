@@ -35,3 +35,16 @@ test('uncertain lifecycle commands restore the exact source, hash, selection and
  for(const path of ['lifecycle/preview','lifecycle/discover','admin/change'])assert.equal(restoreLifecycleRequest({...saved,path}),undefined);
  assert.equal(restoreLifecycleRequest({...saved,body:{...request,operationId:'different'}}),undefined);
 });
+
+test('swap net review presents explicit gross lines and reverses an exact original without inventing amounts',()=>{
+ const net={...offer,target:{...offer.target,handler:'financial_swap_net'},action:'swap.net',selection:{snapshotId:context.snapshotId,profileId:'profile',profileRevision:1,net:{preview:{amount:'',allocations:[],reversesId:null,expectedVersion:2},effectiveAt:'',reference:''}},requiredInputs:['netSettlement','effectiveAt','reference']};
+ const draft={policyId:offer.policyId,policyRevision:3,amount:'50',allocations:[{determinationId:'fixed',amount:'-300'},{determinationId:'floating',amount:'350'}],reversesId:null,effectiveAt:context.asOf,reference:'Synthetic observed net'};
+ const ordinary=lifecycleRequest(context,net,draft,'new');assert.deepEqual(ordinary.selection.net.preview.allocations,draft.allocations);assert.equal(ordinary.selection.net.preview.amount,'50');assert.equal(ordinary.selection.net.reference,draft.reference);
+ const reversal=lifecycleRequest(context,net,{...draft,amount:null,allocations:[],reversesId:'original-payment'},'reverse');assert.equal(reversal.selection.net.preview.reversesId,'original-payment');assert.equal(reversal.selection.net.preview.amount,null);assert.deepEqual(reversal.selection.net.preview.allocations,[]);
+ assert.equal(net.selection.net.preview.amount,'');assert.deepEqual(net.selection.net.preview.allocations,[]);
+});
+test('single swap reversal retains the backend-selected native payment and amount',()=>{
+ const payment={...offer,target:{...offer.target,handler:'financial_swap'},action:'swap.payment',selection:{payment:{determinationId:'',amount:'',effectiveAt:'',reference:'',reversesId:null}},requiredInputs:['determinationId','amount','effectiveAt','reference']};
+ const result=lifecycleRequest(context,payment,{policyId:offer.policyId,policyRevision:3,determinationId:'native-contribution',amount:'-100',effectiveAt:context.asOf,reference:'Synthetic reversal',reversesId:'native-payment'},'reverse');
+ assert.equal(result.selection.payment.reversesId,'native-payment');assert.equal(result.selection.payment.amount,'-100');
+});

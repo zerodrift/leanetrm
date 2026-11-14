@@ -88,6 +88,25 @@ at a later recording instant acknowledges the original payment. A conflicting
 amount, currency or allocation under that key requires a qualified correction
 or reversal, and does not create another payment silently.
 
+Same-trade net settlement has its own exact trade-revision profile rather than
+replacing the profiles of individual payment periods. It selects currency,
+rounding, due treatment, recognition, correction, a saved manual/review action
+policy and `explicit_same_due_swap_net_v1`. The shared net action reuses the
+existing gross-allocation calculator and native swap cash producer. It supports
+full and partial net cash, zero-net discharge and exact original reversals;
+reversal amounts and all original gross lines are derived by the backend.
+Native admission compares the complete proposed cash and lines with the closed
+selection, checks the retained source and conventions, then records one shared
+receipt. No second cash ledger or financial sequence is introduced.
+
+Discovery supplies exact original-payment choices for single reversals. The
+browser presents net allocations and their resulting balances for review, and
+retains the exact command for receipt-first retry. The native checks qualify
+old-snapshot acknowledgement after later cash, forged derived cash/line refusal,
+settings acknowledgement without rewinding the current revision, and unchanged
+allocation counts on retries. Browser checks qualify the gross-entry, reversal
+and explicit-settings forms.
+
 Futures setup lists exact held and unadopted futures, source choices, dated
 margin occurrences, opening treatment and rounding policy. Saving and adoption
 reuse the existing native margin commands and their original commit admission.

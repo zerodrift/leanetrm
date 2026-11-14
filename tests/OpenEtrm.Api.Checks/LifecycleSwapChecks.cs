@@ -147,7 +147,11 @@ internal static class LifecycleSwapChecks
             var target=fixture.GetProperty("target").Deserialize<LifecycleTarget>(LifecycleNative.Json)!;
             var discovery=await database.WithIdentity("trader",null,(c,t)=>operations.Discover(c,new(context,target),t),default);
             var action=fixture.TryGetProperty("action",out var code)?code.GetString():"swap.determine";
-            var offer=discovery.Actions.Single(a=>a.Action==action);
+            var offer=discovery.Actions.Single(a=>a.Action==action&&(!fixture.TryGetProperty("membershipOrdinal",out var membership)||
+                a.Selection!.Value.GetProperty("determination").GetProperty("preview").GetProperty("membershipOrdinal").GetInt32()==membership.GetInt32()));
+            if(fixture.TryGetProperty("checkReversalChoice",out var reversalChoice)&&
+                !offer.InputChoices.GetValueOrDefault("paymentReversal",[]).Any(c=>JsonSerializer.Deserialize<JsonElement>(c.Value).Id("reversesId")==reversalChoice.GetGuid()))
+                throw new Exception("Payment discovery omitted the exact original native reversal choice.");
             expectedOccurrence=offer.OccurrenceId;
             if(offer.Selection is not {} selection||offer.PolicyId is not {} policy||offer.PolicyRevision is not {} revision)
                 throw new Exception("The selected native swap profile has no executable closed selection.");
@@ -156,6 +160,11 @@ internal static class LifecycleSwapChecks
             {
                 var chosen=selection.Deserialize<SwapActionSelection>(LifecycleNative.Json)!;
                 request=request with{Selection=JsonSerializer.SerializeToElement(chosen with{Payment=payment.Deserialize<SwapPaymentActionSelection>(LifecycleNative.Json)},LifecycleNative.Json)};
+            }
+            if(fixture.TryGetProperty("net",out var net))
+            {
+                var chosen=selection.Deserialize<SwapNetActionSelection>(LifecycleNative.Json)!;
+                request=request with{Selection=JsonSerializer.SerializeToElement(chosen with{Net=net.Deserialize<SwapNetActionTerms>(LifecycleNative.Json)!},LifecycleNative.Json)};
             }
             if(request.Action=="swap.determine"&&fixture.TryGetProperty("correctionDueAt",out var due))
             {
@@ -174,12 +183,13 @@ internal static class LifecycleSwapChecks
         var retry=await database.WithIdentity("trader",null,(c,t)=>operations.Execute(c,request,t),default);
         if(!JsonElement.DeepEquals(first.Outcome,retry.Outcome))throw new Exception("A swap lifecycle retry lost its first outcome.");
         var acknowledged=await database.WithIdentity("trader",null,(c,t)=>operations.Execute(c,request with{OperationId=Guid.NewGuid()},t),default);
-        var effect=request.Action=="swap.payment"?"paymentId":"determinationId";
+        var effect=request.Action is "swap.payment" or "swap.net"?"paymentId":"determinationId";
         if(acknowledged.Outcome.Id(effect)!=first.Outcome.Id(effect))throw new Exception("A financial snapshot acknowledgement created another economic effect.");
         if(fixture.TryGetProperty("expectedVersion",out var version)&&acknowledged.Outcome.GetProperty("version").GetInt32()!=version.GetInt32()||
             fixture.TryGetProperty("expectedCurrentVersion",out var head)&&acknowledged.Outcome.GetProperty("currentVersion").GetInt32()!=head.GetInt32())
             throw new Exception("A swap snapshot acknowledgement changed its accepted version or concealed the current financial head.");
         Console.WriteLine("LIFECYCLE_SWAP_REVIEWED "+JsonSerializer.Serialize(request,LifecycleNative.Json));
+        Console.WriteLine("LIFECYCLE_SWAP_OUTCOME "+first.Outcome.GetRawText());
         Console.WriteLine("PASS owned swap lifecycle adapter: exact selected source, product-native determination and same-snapshot acknowledgement");
     }
 }

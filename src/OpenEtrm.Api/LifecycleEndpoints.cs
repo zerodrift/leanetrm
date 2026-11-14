@@ -58,6 +58,7 @@ internal static class LifecycleEndpoints
         api.MapPost("/lifecycle/policies/save",(HttpContext c,LifecyclePolicySave body)=>Save(c,body,"policy"));
         api.MapPost("/lifecycle/options/configure",(HttpContext c,OptionLifecycleProfileSave body)=>Save(c,body,"option_profile"));
         api.MapPost("/lifecycle/swaps/configure",(HttpContext c,SwapLifecycleProfileSave body)=>Save(c,body,"swap_profile"));
+        api.MapPost("/lifecycle/swaps/net/configure",(HttpContext c,SwapNetLifecycleProfileSave body)=>Save(c,body,"swap_net_profile"));
         api.MapPost("/lifecycle/gas/read",(HttpContext c,GasOwnedReadRequest body)=>locked(c,async session=>
         {
             var result=await database.WithIdentity(profile(session),"ReadGasOwnedHoldings",(connection,ct)=>GasOwnedOperations.ReadScoped(connection,database,body,ct),c.RequestAborted);

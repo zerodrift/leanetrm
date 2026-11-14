@@ -12,15 +12,15 @@ public sealed record SwapNetLine(Guid DeterminationId,string Amount);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record SwapNetPreviewRequest(FuturesReadRequest Context,Guid TradeId,
     [property:System.Text.Json.Serialization.JsonRequired]int ExpectedRevision,
-    [property:System.Text.Json.Serialization.JsonRequired]int ExpectedVersion,ReferenceKey Currency,string? Amount,
-    ImmutableArray<SwapNetLine> Allocations,string Policy,Guid? ReversesId);
+    [property:System.Text.Json.Serialization.JsonRequired]int ExpectedVersion,ReferenceKey Currency,[property:System.Text.Json.Serialization.JsonRequired]string? Amount,
+    ImmutableArray<SwapNetLine> Allocations,string Policy,[property:System.Text.Json.Serialization.JsonRequired]Guid? ReversesId);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record SwapNetRecordRequest(SwapNetPreviewRequest Preview,Guid OperationId,string PreviewHash,string EffectiveAt,string Reference);
 
 public sealed partial class SwapStore
 {
-    private sealed record NetPrepared(Guid ContextId,string Hash,ExactMoney Cash,ImmutableArray<SwapNetAllocation> Allocations,object Review);
-    private async Task<NetPrepared> PrepareNet(NpgsqlConnection connection,InputFrame frame,SwapNetPreviewRequest request,CancellationToken ct)
+    internal sealed record NetPrepared(Guid ContextId,string Hash,ExactMoney Cash,ImmutableArray<SwapNetAllocation> Allocations,object Review);
+    internal async Task<NetPrepared> PrepareNet(NpgsqlConnection connection,InputFrame frame,SwapNetPreviewRequest request,CancellationToken ct)
     {
         if(request.Policy!=SwapNetSettlement.Policy||request.TradeId==Guid.Empty||request.Allocations.IsDefault||request.Allocations.Any(a=>a is null)||request.Currency==default)
             throw Error("settlement_net_allocation","Select explicit same-trade netting terms, currency and gross allocations.");
