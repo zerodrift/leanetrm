@@ -386,3 +386,13 @@ A final-price correction keeps its original business instant while reconciling
 every source-known performance, including later-effective titles. The complete
 principal prefix is bounded by publication and knowledge receipts; its recording
 context does not redate those performances or their cash memberships.
+
+Physical mark metadata uses one shared managed validator. Both native contracts
+must belong to their exact selected curves and retain compatible full price
+units, source definitions and delivery profile references. Same-deliverable
+meaning additionally requires equal contractual delivery periods, commodity and
+location; an explicitly selected proxy may retain a separately dated mark.
+Checks cover the native two-source proxy PV and historical/Monte Carlo workers,
+a compatible quote on a nonmember curve, a contradictory same-deliverable
+selection and a positive same-deliverable metadata candidate. Profile admission
+and each ordinary or projected consumer remain separate qualification gates.

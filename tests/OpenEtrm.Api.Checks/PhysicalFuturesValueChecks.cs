@@ -56,6 +56,24 @@ internal static class PhysicalFuturesValueChecks
             var physicalBinding=selected.Physical??throw new Exception("The held physical model is missing.");
             var future=held.Instruments.OfType<FuturesContract>().Single();
             var source=prepared.InputMarkets.Single();var assetSnapshot=source.Snapshot;
+            var nativeTrade=prepared.Sources.Single().Trades.Single();var underlying=FuturesExecution.Require(nativeTrade.Instruments.Single()).MarketBinding.Market;
+            var nativeProfile=await FuturesPhysicalDeliveryStore.ReadForPolicy(connection,database,frame,context,selected.Terms.Policy,
+                nativeTrade.BookId,nativeTrade.Booking!.LegalEntity.Key,ct);
+            PhysicalMarkInterpretation.Require(FuturesPhysicalBasisValueBinding.ValuationProxy,underlying,data,nativeProfile,source.Data);
+            void RefuseMeaning(string meaning,CurveRequest request)
+            {
+                try{PhysicalMarkInterpretation.Require(meaning,request,data,nativeProfile,source.Data);}
+                catch(MarketDataException e)when(e.Code=="physical_mark_interpretation"){return;}
+                throw new Exception("Physical mark meaning requires exact curve membership and the declared contractual delivery relationship.");
+            }
+            RefuseMeaning(FuturesPhysicalBasisValueBinding.SameDeliverable,underlying);
+            RefuseMeaning(FuturesPhysicalBasisValueBinding.ValuationProxy,underlying with{Curve=new(data.DefinitionRevision,"ice_cfb")});
+            // This pure metadata candidate shares contractual delivery and
+            // source coordinates. Native profile saving remains a separate gate.
+            var original=nativeProfile.Terms;
+            var sameTerms=new OpenEtrm.MarketData.Gas.GasPhysicalDeliveryTerms(Guid.NewGuid(),original.Series,original.Quantity,original.Currency,
+                original.Location,original.From,original.To,original.CashDueAt,underlying,original.Carrying,original.Implementation);
+            PhysicalMarkInterpretation.Require(FuturesPhysicalBasisValueBinding.SameDeliverable,underlying,data,nativeProfile with{Terms=sameTerms},data);
             var physical=selected.Terms.Policy.Delivery!.Terms;
             var discount=prepared.InstantDiscountInputs.Where(d=>d.Input.Snapshot.Definitions.RevisionId==secondary).Select(d=>d.Input).ToArray();
             var assetDf=discount.Single(d=>d.Payment.PaymentAt==physical.From).DiscountFactor;
