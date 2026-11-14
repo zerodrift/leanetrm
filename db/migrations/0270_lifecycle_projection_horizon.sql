@@ -148,4 +148,112 @@ END$function$;
 ALTER FUNCTION security.read_lifecycle_projection_horizon(uuid,text,integer,uuid,timestamptz,date) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.read_lifecycle_projection_horizon(uuid,text,integer,uuid,timestamptz,date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION security.read_lifecycle_projection_horizon(uuid,text,integer,uuid,timestamptz,date) TO openetrm_runtime,openetrm_risk_worker;
+-- Current consumer: source-known immutable final inputs for economic paths.
+-- This knowledge-only read does not advance the opening valuation clock.
+CREATE FUNCTION security.require_lifecycle_projection_input(catalog uuid,definition uuid,projection text,official text,contract uuid,
+ context uuid,as_of timestamptz,business_date date,until_at timestamptz) RETURNS void
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE p market_data.curves;s market_data.curves;c market_data.contracts;q security.request_contexts;BEGIN
+ PERFORM security.require_admitted_business_source(catalog,context,as_of,business_date,until_at);
+ SELECT * INTO STRICT q FROM security.request_contexts r WHERE r.backend_pid=pg_backend_pid()
+  AND r.transaction_id=pg_current_xact_id_if_assigned() AND r.runtime_login=session_user AND r.expires_at>clock_timestamp();
+ IF q.market_context_id IS NULL THEN PERFORM security.use_market_context(catalog,context);
+ ELSIF(q.market_catalog_id,q.market_context_id) IS DISTINCT FROM(catalog,context)
+ THEN RAISE EXCEPTION 'projection_source' USING ERRCODE='42501';END IF;
+ SELECT * INTO p FROM market_data.curves v WHERE(v.catalog_id,v.revision_id,v.code)=(catalog,definition,projection);
+ SELECT * INTO s FROM market_data.curves v WHERE(v.catalog_id,v.revision_id,v.code)=(catalog,definition,official);
+ SELECT * INTO c FROM market_data.contracts v WHERE(v.catalog_id,v.revision_id,v.id)=(catalog,definition,contract);
+ IF p.code IS NULL OR s.code IS NULL OR c.kind IS DISTINCT FROM 'future' OR p.rule<>'direct' OR s.rule<>'direct'
+ OR(s.reference_catalog_id,s.reference_revision_id,s.quote_code) IS DISTINCT FROM(p.reference_catalog_id,p.reference_revision_id,p.quote_code)
+ OR security.market_fact_visible(catalog,definition,NULL) IS NOT TRUE
+ OR security.reference_access(s.reference_catalog_id,'ReadMarketData') IS NOT TRUE
+ OR security.reference_version_visible(s.reference_catalog_id,s.reference_revision_id) IS NOT TRUE
+ OR NOT EXISTS(SELECT 1 FROM market_data.curve_members m WHERE(m.catalog_id,m.revision_id,m.curve_code,m.contract_id)=(catalog,definition,projection,contract))
+ OR NOT EXISTS(SELECT 1 FROM market_data.curve_members m WHERE(m.catalog_id,m.revision_id,m.curve_code,m.contract_id)=(catalog,definition,official,contract))
+ THEN RAISE EXCEPTION 'projection_input_denied' USING ERRCODE='42501';END IF;
+END$$;
+ALTER FUNCTION security.require_lifecycle_projection_input(uuid,uuid,text,text,uuid,uuid,timestamptz,date,timestamptz) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.require_lifecycle_projection_input(uuid,uuid,text,text,uuid,uuid,timestamptz,date,timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION security.require_lifecycle_projection_input(uuid,uuid,text,text,uuid,uuid,timestamptz,date,timestamptz) TO openetrm_runtime,openetrm_risk_worker;
+
+CREATE FUNCTION security.read_lifecycle_projection_final(catalog uuid,definition uuid,projection text,official text,contract uuid,
+ final_at timestamptz,context uuid,as_of timestamptz,business_date date) RETURNS jsonb
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE until_at timestamptz;cut timestamptz;prefix integer;series uuid;source text;expiry timestamptz;
+ candidates jsonb;heads integer;chosen jsonb;result jsonb;BEGIN
+ PERFORM 1 FROM security.epoch FOR SHARE;
+ until_at=security.admit_trading_business_source(catalog,context,as_of,business_date);
+ PERFORM security.require_lifecycle_projection_input(catalog,definition,projection,official,contract,context,as_of,business_date,until_at);
+ SELECT c.expiry_at INTO expiry FROM market_data.contracts c WHERE(c.catalog_id,c.revision_id,c.id)=(catalog,definition,contract);
+ IF final_at<=as_of OR final_at<expiry OR NOT isfinite(final_at) OR final_at<>date_trunc('microseconds',final_at)
+ THEN RAISE EXCEPTION 'projection_input_expiry';END IF;
+ SELECT t.known_at,m.known_through INTO STRICT cut,prefix FROM market_data.temporal_contexts t JOIN market_data.market_contexts m
+ ON(m.catalog_id,m.context_id)=(t.catalog_id,t.id) WHERE(t.catalog_id,t.id)=(catalog,context);
+ SELECT s.id,c.direct_source_code INTO STRICT series,source FROM market_data.curves c JOIN market_data.series s
+ ON(s.catalog_id,s.revision_id,s.contract_id,s.quote_code)=(c.catalog_id,c.revision_id,contract,c.quote_code)
+ WHERE(c.catalog_id,c.revision_id,c.code)=(catalog,definition,official);
+ SELECT coalesce(jsonb_agg(to_jsonb(o)||jsonb_build_object('known_from',k.known_from)),'[]'::jsonb) INTO candidates
+ FROM market_data.observations o JOIN market_data.knowledge_events e ON(e.catalog_id,e.observation_id)=(o.catalog_id,o.id)
+ JOIN market_data.market_knowledge_receipts k ON(k.catalog_id,k.event_order,k.publication_xid)=(e.catalog_id,e.event_order,e.publication_xid)
+ WHERE(o.catalog_id,o.definition_revision_id,o.series_id,o.source_code,o.role,o.observed_at)=(catalog,definition,series,source,'final_contract_settlement',final_at)
+ AND e.event_order<=prefix AND k.known_from<=cut;
+ IF EXISTS(SELECT 1 FROM jsonb_array_elements(candidates)c(value) WHERE c.value->>'corrects_id' IS NOT NULL AND NOT EXISTS(
+   SELECT 1 FROM jsonb_array_elements(candidates)p(value) WHERE p.value->>'id'=c.value->>'corrects_id'
+    AND(p.value->>'known_from')::timestamptz<=(c.value->>'known_from')::timestamptz))
+ THEN RAISE EXCEPTION 'projection_input_evidence';END IF;
+ SELECT count(*) INTO heads FROM jsonb_array_elements(candidates)c(value) WHERE NOT EXISTS(
+  SELECT 1 FROM jsonb_array_elements(candidates)n(value) WHERE n.value->>'corrects_id'=c.value->>'id');
+ IF heads>1 OR heads=0 AND jsonb_array_length(candidates)>0 THEN RAISE EXCEPTION 'projection_input_evidence';END IF;
+ SELECT c.value INTO chosen FROM jsonb_array_elements(candidates)c(value) WHERE NOT EXISTS(
+  SELECT 1 FROM jsonb_array_elements(candidates)n(value) WHERE n.value->>'corrects_id'=c.value->>'id');
+ IF heads=1 AND chosen->>'publication_state'<>'final' THEN RAISE EXCEPTION 'projection_input_evidence';END IF;
+ result=jsonb_build_object('contextId',context,'knownAt',cut,'projectionCurve',projection,'officialCurve',official,'contractId',contract,
+  'definitionRevisionId',definition,'finalAt',final_at,'observation',chosen,'authorityUntil',until_at);
+ PERFORM security.require_lifecycle_projection_input(catalog,definition,projection,official,contract,context,as_of,business_date,until_at);
+ RETURN result;
+END$$;
+ALTER FUNCTION security.read_lifecycle_projection_final(uuid,uuid,text,text,uuid,timestamptz,uuid,timestamptz,date) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.read_lifecycle_projection_final(uuid,uuid,text,text,uuid,timestamptz,uuid,timestamptz,date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION security.read_lifecycle_projection_final(uuid,uuid,text,text,uuid,timestamptz,uuid,timestamptz,date) TO openetrm_runtime,openetrm_risk_worker;
+-- Read authorization for exact saved projection settings. Private action-write
+-- reference helpers remain private; this boundary binds the certified source.
+CREATE FUNCTION security.require_lifecycle_projection_profile(catalog uuid,kind text,trade uuid,profile uuid,revision integer,
+ context uuid,as_of timestamptz,business_date date,until_at timestamptz) RETURNS void
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE q security.request_contexts;prefix integer;cut timestamptz;selected integer;origin integer;held integer;BEGIN
+ PERFORM 1 FROM security.epoch FOR SHARE;
+ PERFORM security.require_admitted_business_source(catalog,context,as_of,business_date,until_at);
+ SELECT * INTO STRICT q FROM security.request_contexts r WHERE r.backend_pid=pg_backend_pid()
+  AND r.transaction_id=pg_current_xact_id_if_assigned() AND r.runtime_login=session_user AND r.expires_at>clock_timestamp();
+ IF q.market_context_id IS NULL THEN PERFORM security.use_market_context(catalog,context);
+ ELSIF(q.market_catalog_id,q.market_context_id) IS DISTINCT FROM(catalog,context)
+ THEN RAISE EXCEPTION 'projection_profile_source' USING ERRCODE='42501';END IF;
+ SELECT x.known_through,t.known_at INTO STRICT prefix,cut FROM trading.contexts x JOIN market_data.temporal_contexts t
+ ON(t.catalog_id,t.id)=(x.catalog_id,x.context_id) WHERE(x.catalog_id,x.context_id)=(catalog,context);
+ IF kind='listed_option' AND profile IS NULL THEN
+  SELECT p.revision,p.option_revision INTO selected,origin FROM lifecycle.option_profiles p JOIN trading.knowledge_receipts k
+   ON(k.catalog_id,k.publication_order)=(p.catalog_id,p.publication_order)
+   WHERE(p.catalog_id,p.trade_id,p.action)=(catalog,trade,'option.expiry') AND p.publication_order<=prefix AND k.known_from<=cut
+   ORDER BY p.revision DESC LIMIT 1;
+  SELECT r.revision INTO held FROM trading.futures_option_trade_revisions r JOIN trading.knowledge_receipts k
+   ON(k.catalog_id,k.publication_order)=(r.catalog_id,r.publication_order)
+   WHERE(r.catalog_id,r.trade_id)=(catalog,trade) AND r.publication_order<=prefix AND k.known_from<=cut AND r.effective_at<=as_of ORDER BY r.revision DESC LIMIT 1;
+  IF selected IS DISTINCT FROM revision OR origin IS DISTINCT FROM held OR selected IS NULL THEN RAISE EXCEPTION 'projection_profile_source';END IF;
+  PERFORM lifecycle.require_option_reference(catalog,trade,'option.expiry',revision);
+ ELSIF kind='financial_swap' AND profile IS NOT NULL THEN
+  SELECT p.revision,p.origin_revision INTO selected,origin FROM lifecycle.swap_profiles p JOIN trading.knowledge_receipts k
+   ON(k.catalog_id,k.publication_order)=(p.catalog_id,p.publication_order)
+   WHERE(p.catalog_id,p.id,p.trade_id,p.action)=(catalog,profile,trade,'swap.determine') AND p.publication_order<=prefix AND k.known_from<=cut
+   ORDER BY p.revision DESC LIMIT 1;
+  SELECT r.revision INTO held FROM trading.swap_trade_revisions r JOIN trading.knowledge_receipts k
+   ON(k.catalog_id,k.publication_order)=(r.catalog_id,r.publication_order)
+   WHERE(r.catalog_id,r.trade_id)=(catalog,trade) AND r.publication_order<=prefix AND k.known_from<=cut AND r.effective_at<=as_of ORDER BY r.revision DESC LIMIT 1;
+  IF selected IS DISTINCT FROM revision OR origin IS DISTINCT FROM held OR selected IS NULL THEN RAISE EXCEPTION 'projection_profile_source';END IF;
+  PERFORM lifecycle.require_swap_reference(catalog,trade,'swap.determine',profile,revision);
+ ELSE RAISE EXCEPTION 'projection_profile_source';END IF;
+ PERFORM security.require_admitted_business_source(catalog,context,as_of,business_date,until_at);
+END$$;
+ALTER FUNCTION security.require_lifecycle_projection_profile(uuid,text,uuid,uuid,integer,uuid,timestamptz,date,timestamptz) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.require_lifecycle_projection_profile(uuid,text,uuid,uuid,integer,uuid,timestamptz,date,timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION security.require_lifecycle_projection_profile(uuid,text,uuid,uuid,integer,uuid,timestamptz,date,timestamptz) TO openetrm_runtime,openetrm_risk_worker;
 COMMIT;

@@ -36,7 +36,7 @@ public sealed class LifecycleCurrencyDiscounting:IProjectionCurrencyCurve
         DateTimeOffset calculationAt,string? clockPolicy)
     {
         if(!SourceSnapshot.HasSameInputs(source)||payments.IsDefault||payments.Distinct().Count()!=payments.Length||
-            !TradingInstant.IsSupported(calculationAt)||calculationAt<source.ValuationAt||clockPolicy!=ClockChange.FrozenInputs)
+            !TradingInstant.IsSupported(calculationAt)||calculationAt<source.ValuationAt||clockPolicy!=ClockChange.FrozenInputs&&(calculationAt!=source.ValuationAt||clockPolicy is not null))
             throw new MarketDataException("discount_context","Retain this exact captured curve and explicit forward calculation clock.");
         if(payments.Any(p=>p.Currency!=Currency||p.SideId==Guid.Empty||p.Ordinal<0||!TradingInstant.IsSupported(p.PaymentAt)))
             throw new MarketDataException("side_payment_factors","Supply exact distinct due keys in the selected currency.");

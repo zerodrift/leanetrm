@@ -25,7 +25,7 @@ internal static class LifecycleCompositeChecks
             .Add(a,Member(a,"100")).Add(b,Member(b,"50"))));
         var horizon=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,18),at.AddHours(8),0)]);
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.PayAtDue,
-            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice);
+            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry);
         var prepared=LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[component],[]);
         var result=prepared.Evaluate("atomic_members",[]);
         void Equal(ExactMoney actual,string expected){if(actual.CompareTo(ExactMoney.Parse(expected,currency))!=0)throw new Exception($"Expected {expected}; got {actual.ToExactString()}.");}

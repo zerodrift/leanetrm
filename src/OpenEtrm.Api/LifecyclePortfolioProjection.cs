@@ -12,7 +12,7 @@ namespace OpenEtrm.Api;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record PortfolioEconomicProjectionRequest([property:JsonRequired]string Implementation,[property:JsonRequired]string Session,
     [property:JsonRequired]int SessionVersion,[property:JsonRequired]string HorizonPolicy,[property:JsonRequired]string RateTimingPolicy,
-    [property:JsonRequired]string EventMarketPolicy,[property:JsonRequired]LifecycleProjectionPolicy Policy)
+    [property:JsonRequired]string EventMarketPolicy,[property:JsonRequired]LifecycleProjectionPolicy Policy,[property:JsonRequired]ImmutableArray<GasOwnedProjectionSelection> GasOwned)
 {
     public const string Version="native_portfolio_economic_lifecycle_v1",SourceKnownSchedule="source_known_effective_session_schedule_v1",
         SelectedContractMarkets="selected_contract_projection_curves_v1";
@@ -22,6 +22,9 @@ public sealed record PortfolioEconomicProjectionRequest([property:JsonRequired]s
             RateTimingPolicy!=RateDiscountTiming.Version||EventMarketPolicy!=SelectedContractMarkets)
             throw new MarketDataException("projection_policy","Select the exact source-known session schedule, opening version, rate timing and economic projection profile.");
         LifecycleProjection.Validate(Policy);
+        if(GasOwned.IsDefault||GasOwned.Any(s=>s is null||s.AccountId==Guid.Empty||s.ProfileId==Guid.Empty||s.Revision<1)||
+            GasOwned.Select(s=>s.AccountId).Distinct().Count()!=GasOwned.Length)
+            throw new MarketDataException("projection_gas_policy","Select exact saved gas projection profiles, or explicitly select an empty gas profile list.");
     }
 }
 

@@ -11,7 +11,7 @@ internal static class LifecycleProjectionChecks
         var f=new Fixture();var source=f.Snapshot();source=source.WithKnowledge(Guid.NewGuid(),source.ValuationAt);
         var owner=new AccountingPositionKey(Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid());
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Linear,
-            LifecycleProjectionPolicy.PayAtDue,LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice);
+            LifecycleProjectionPolicy.PayAtDue,LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry);
         var horizon=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),
             [new(new(2040,12,18),source.ValuationAt.AddHours(8),0),new(new(2040,12,19),source.ValuationAt.AddDays(1),0)]);
         var request=new CurveRequest(f.C("local_gas"),f.K(3));
@@ -45,6 +45,11 @@ internal static class LifecycleProjectionChecks
         if(nativeValue.Owner.TradeId!=Guid.Empty||nativeValue.Owner.Owner.Kind!=AccountingOwnerKind.NativeHolding)
             throw new Exception("A native owned cash continuation manufactured a trade identity.");
         ScopeRefusals(f,source,horizon,policy,component,prepared);
+        var lateFix=LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[component with{FixAt=source.ValuationAt.AddHours(2)}],[]);
+        Reject("projection_fixing",()=>lateFix.Evaluate("late_fixing",[]));
+        var lateMarket=LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[component with{MarketThrough=source.ValuationAt.AddHours(2),FailOnDown=true}],[]);
+        Reject("projection_dependency",()=>lateMarket.Evaluate("undeclared_late_read",[]));
+
         var prerequisite=component.Events[0] with{At=source.ValuationAt};
         var dependent=component.Events[0] with{Id=Guid.NewGuid(),Requires=[prerequisite.Id]};
         try{LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[component with{EventSelection=[prerequisite,dependent]}],[]);
@@ -74,19 +79,34 @@ internal static class LifecycleProjectionChecks
         var history=new FuturesMarginHistory(market.Instrument.ProposeMarginTerms(trade,binding,margin,model,source),source.Knowledge.ContextId,source.Knowledge.KnownAt,[]);
         var end=source.ValuationAt.AddDays(1);var horizon=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,28),end,0)]);
         var derived=new FixAndCash(new(Guid.NewGuid(),Guid.NewGuid(),trade.BookId),market.Quote.Currency,new(f.C("local_gas"),f.K(3)),end,source);
-        var prepared=LifecycleProjection.Prepare(model,source,horizon,policy,[new FuturesLifecycleProjection(trade,binding,state,history,setup,market.Market,model,source),derived],[]);
+        var frozenModel=f.Model(curves:f.Curves.Select(c=>c.Key==f.C("base_forward")?c with{
+            Inputs=c.Inputs.SetItem(0,c.Inputs[0] with{ExpiryRule=SourceExpiryRule.FreezeFinalFuture})}:c).ToImmutableArray());
+        var prepared=LifecycleProjection.Prepare(frozenModel,source,horizon,policy,[new FuturesLifecycleProjection(trade,binding,state,history,setup,market.Market,model,source),derived],[]);
         var factor=prepared.Factors.Single(factor=>factor.Input.Series==f.S(1));
         var result=prepared.Evaluate("final_freeze",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
         Equal(result.Values[0].ResidualValue,"0");Equal(result.Values[0].PeriodCash,"80");
         Equal(result.Values[1].PeriodCash,"4.3");
         // The declared source-expiry edge applies even without a held future.
         Reject("projection_input_expiry",()=>LifecycleProjection.Prepare(model,source,horizon,policy,[derived],[]));
-        var frozenModel=f.Model(curves:f.Curves.Select(c=>c.Key==f.C("base_forward")?c with{
-            Inputs=c.Inputs.SetItem(0,c.Inputs[0] with{ExpiryRule=SourceExpiryRule.FreezeFinalFuture})}:c).ToImmutableArray());
         var unheld=LifecycleProjection.Prepare(frozenModel,source,horizon,policy,[derived],[]);
         var unheldFactor=unheld.Factors.Single(p=>p.Input.Series==f.S(1));
         Equal(unheld.Evaluate("unheld_final_freeze",[new(unheldFactor.Input,unheldFactor.Quote,unheldFactor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)])
             .Values.Single().PeriodCash,"4.3");
+        var lateMargin=margin with{Occurrences=margin.Occurrences.SetItem(0,margin.Occurrences[0] with{At=market.Contract.Expiry.AddHours(8),DueAt=market.Contract.Expiry.AddHours(8)})};
+        var lateHistory=history with{Terms=history.Terms with{Policy=lateMargin}};
+        var lateComponent=new FuturesLifecycleProjection(trade,binding,state,lateHistory,setup,market.Market,model,source);
+        Reject("projection_input_expiry",()=>LifecycleProjection.Prepare(model,source,horizon,policy,[lateComponent],[]));
+        var carryPolicy=policy with{InputExpiry=LifecycleProjectionPolicy.FreezeNativeExpiry};
+        var latePrepared=LifecycleProjection.Prepare(model,source,horizon,carryPolicy,[lateComponent],[]);
+        var lateValue=latePrepared.Evaluate("late_final_frozen_mark",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]).Values.Single();
+        Equal(lateValue.PeriodCash,"80");Equal(lateValue.ResidualValue,"0");
+        var inGap=horizon with{Closes=[new(new(2040,12,28),market.Contract.Expiry.AddHours(4),0)]};
+        var gap=LifecycleProjection.Prepare(model,source,inGap,carryPolicy,[lateComponent],[]).Evaluate("inside_final_gap",
+            [new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
+        Equal(gap.Values.Single().PeriodCash,"0");Equal(gap.Values.Single().ResidualValue,"120");
+        if(gap.States.Single().Residuals.Single().Setup.BindingStates[new(trade.Id,binding)] is not ProjectedFuturesMarginState)
+            throw new Exception("A projected expiry carry must retain ordinary future exposure without a fabricated accepted final.");
+        Reject("projection_input_expiry",()=>LifecycleProjection.Prepare(model,source,horizon,carryPolicy,[lateComponent,derived],[]));
         var official=new MarketObservation(new(f.Revision.CatalogId,Guid.NewGuid()),f.S(1),f.R("source"),ObservationRole.FinalContractSettlement,
             PublicationState.Final,market.Contract.Expiry,ExactDecimal.Parse("4"));
         var retrospective=source.WithKnowledge(source.Knowledge!.ContextId,end);
@@ -99,6 +119,24 @@ internal static class LifecycleProjectionChecks
             .Values.Single().PeriodCash,"4.8");
         Reject("projection_input_expiry",()=>LifecycleProjection.Prepare(frozenModel,retrospective,horizon,policy,
             [knownDerived with{InputFinals=[knownFinal with{Actual=knownFinal.Actual! with{SourceContextId=Guid.NewGuid()}}]}],[]));
+        var retainedState=state with{KnownThrough=end};var retainedSetup=setup with{BindingStates=setup.BindingStates.SetItem(new(trade.Id,binding),retainedState)};
+        var retainedHistory=history with{KnownThrough=end};
+        var knownFuture=LifecycleProjection.Prepare(model,retrospective,horizon,policy,
+            [new FuturesLifecycleProjection(trade,binding,retainedState,retainedHistory,retainedSetup,market.Market,model,retrospective)],[],inputFinals:[knownFinal]);
+        var earlyKnown=knownDerived with{Request=market.Market,At=market.Contract.Expiry.AddHours(-1),FixAt=market.Contract.Expiry,Role=ObservationRole.FinalContractSettlement};
+        var earlyPrepared=LifecycleProjection.Prepare(model,retrospective,horizon,policy,[earlyKnown],[]);
+        Reject("projection_fixing",()=>earlyPrepared.Evaluate("known_final_before_effective",[]));
+        var lateKnown=knownFinal with{At=lateMargin.Occurrences.Single().At,Actual=knownFinal.Actual! with{
+            Observation=knownFinal.Actual.Observation with{ObservedAt=lateMargin.Occurrences.Single().At,Value=ExactDecimal.Parse("4.75")}}};
+        var lateRetained=new FuturesLifecycleProjection(trade,binding,retainedState,lateHistory with{KnownThrough=end},retainedSetup,market.Market,model,retrospective);
+        var gapKnown=LifecycleProjection.Prepare(model,retrospective,inGap,carryPolicy,[lateRetained],[],inputFinals:[lateKnown]);
+        Equal(gapKnown.Evaluate("known_late_final_still_future",[]).Values.Single().ResidualValue,"0");
+        var lateKnownPrepared=LifecycleProjection.Prepare(model,retrospective,horizon,carryPolicy,[lateRetained],[],inputFinals:[lateKnown]);
+        Equal(lateKnownPrepared.Evaluate("known_late_final_effective",[]).Values.Single().PeriodCash,"140");
+        var knownFutureValue=knownFuture.Evaluate("known_official_final",[]);
+        Equal(knownFutureValue.Values.Single().PeriodCash,"120");
+        if(!knownFutureValue.Fixings.IsEmpty)throw new Exception("A certified official final was relabelled as a path-local forecast fixing.");
+
         var actualSource=(source with{Id=Guid.NewGuid(),ValuationAt=end,MarketCutoff=end,
             Selections=source.Selections.Where(s=>s.Input.Series!=f.S(1)).Append(new SelectedObservation(new(f.S(1),InputUse.FrozenFact),official)).ToImmutableArray()})
             .WithKnowledge(Guid.NewGuid(),end);
@@ -204,6 +242,8 @@ internal static class LifecycleProjectionChecks
             [new FuturesLifecycleProjection(trade,binding,retrospectiveState,retrospectiveHistory,retrospectiveSetup,market.Market,model,retrospective,knownHistory)],[]);
         var knownResult=knownPrepared.Evaluate("actual_future_margin",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]).Values.Single();
         Equal(knownResult.PeriodCash,"100");Equal(knownResult.ResidualValue,"60");Equal(knownResult.EconomicPnl,"160");
+        Reject("projection_futures_state",()=>new FuturesLifecycleProjection(trade,binding,retrospectiveState,retrospectiveHistory,retrospectiveSetup,
+            market.Market,model,retrospective,knownHistory with{Cash=knownHistory.Cash.SetItem(0,knownHistory.Cash[0] with{KnownAt=accepted.KnownAt.AddMinutes(-1)})}));
         var secondBinding=Guid.NewGuid();var secondTrade=new Trade(Guid.NewGuid(),trade.BookId,[FuturesExecution.Bind(secondBinding,market,ExactDecimal.Parse("2"),
             new(ExactDecimal.Parse("3"),market.Quote),source.ValuationAt.AddDays(-1),FuturesSettlementState.Unprocessed)]);
         var secondState=state with{TradeId=secondTrade.Id,BindingId=secondBinding};
@@ -265,6 +305,10 @@ internal static class LifecycleProjectionChecks
         public ImmutableArray<ValuationPortfolio>? OpeningSelection{get;init;}
         public ImmutableArray<ValuationPortfolio>? ResidualOnEvent{get;init;}
         public ExactMoney? ExactAmount{get;init;}
+        public DateTimeOffset? FixAt{get;init;}
+        public ObservationRole Role{get;init;}=ObservationRole.IndexFixing;
+        public DateTimeOffset? MarketThrough{get;init;}
+        public ImmutableArray<LifecycleMarketUse> MarketUsesFor(DateTimeOffset horizon)=>[new(Request,MarketThrough??horizon)];
         public ImmutableArray<AccountingFlow> KnownPayments{get;init;}=[];
         public ImmutableArray<RecordedCashValuation> KnownCashSources{get;init;}=[];
         public ImmutableArray<LifecycleInputFinal> InputFinals{get;init;}=[];
@@ -277,7 +321,7 @@ internal static class LifecycleProjectionChecks
         {
             if(FailOnDown&&context.Price(Request).ToUnitPriceExact().Value.CompareTo(ExactDecimal.Parse("3.3"))<0)
                 throw new MarketDataException("synthetic_path_unavailable","The synthetic path deliberately refuses this region.");
-            var fixing=context.Fix(new(Request,ObservationRole.IndexFixing,occurrence.At));
+            var fixing=context.Fix(new(Request,Role,FixAt??occurrence.At));
             return state with{Residuals=ResidualOnEvent??state.Residuals,Cash=state.Cash.Add(new(occurrence.Id,occurrence.At,DueAt??occurrence.At,
                 ExactAmount??fixing.Price.ExactTimes(new(ExactDecimal.Parse("1"),fixing.Price.Unit.Quantity))))};
         }

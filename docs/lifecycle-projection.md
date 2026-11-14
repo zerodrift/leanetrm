@@ -187,6 +187,38 @@ The API economic source preparation entry point and retained-union result are
 implemented as an integration checkpoint. It reads the certified next close,
 revalidates accepted past margin sources, prepares all declared transition inputs,
 and recalibrates source options once under the explicit exact-instant rate
-profile. Swap source materialization, known option-event orchestration and gas
-portfolio integration remain explicit source-reader gates at this checkpoint;
-the pure adapters are not evidence that those API paths are complete.
+profile. Native financial-swap source preparation now retains exact per-period settings,
+completion boundaries, source-known determination/payment chains and contractual
+price contexts. An owned PostgreSQL check qualifies no-shock wealth and replay of
+the complete retained market manifest. Native option histories and their linked
+future histories are orchestrated by the same entry point; their full API path
+still requires its own end-to-end qualification. Gas and physical-final source
+integration remain explicit gates at this checkpoint.
+
+The projection contract requires an explicit input-expiry treatment. The
+`declared_curve_expiry_policy_v1` choice honors saved curve edges and refuses an
+unqualified gap between native expiry and a later final event. The
+`freeze_selected_native_mark_at_expiry_v1` choice caps selected event-market
+primitives at their native expiry and carries that mark to a later hypothetical
+final. Derived `RequireLive` edges remain strict under either choice. An actual
+known final changes the market only at its own effective instant. A mark-expiry
+valuation transition preserves the original basis and quantity, creates no cash
+and records no accepted margin. Independent checks cover residual PV within the
+gap, later cash, unchanged basis and a known final that cannot be read early.
+
+Input-use declarations are retained during preparation and enforced at runtime.
+Every component covers its own full dependency union; a later consumer cannot
+read past a declared last-use time or create a missing earlier projected fixing.
+The public projection request also requires an explicit gas profile selection
+array, including `[]` when none is selected. Gas profile integration remains gated
+until its native source and connected projection adapter are qualified.
+
+Knowledge-only final-input reads retain the exact projection market, official
+source, native series, final occurrence, source context and certified correction
+ancestry. They do not move the opening business clock or alter captured snapshot
+selections. A narrow read boundary rechecks saved projection profiles under their
+original source and current reference authority; private action-write helpers
+remain private. The exact-instant currency provider also supports ordinary source
+PV without a fictitious clock roll, while every forward roll requires its
+explicit policy. An explicitly undiscounted swap with nominal cash needs no unused
+currency curve mapping.

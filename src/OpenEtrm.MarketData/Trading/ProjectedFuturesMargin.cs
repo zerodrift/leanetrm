@@ -51,6 +51,7 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
     public ImmutableArray<LifecycleInputFinal> InputFinals{get;}
     public ImmutableArray<LifecycleProjectionEvent> Events{get;}
     public LifecycleProjectionEvent? Activation{get;}
+    private readonly Guid? pricingExpiryId;
     public FuturesLifecycleProjection(Trade trade,Guid bindingId,FuturesMarginState state,FuturesMarginHistory history,
         ValuationSetup setup,CurveRequest settlementProjection,CurveModel model,MarketSnapshot source,FuturesKnownHistory? known=null)
         :this(trade,bindingId,state,history,setup,settlementProjection,model,source,known,null){}
@@ -99,7 +100,8 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
             throw Error("Select the exact future contract and native quotation for its explicit scenario-event market mapping.");
         SettlementProjection=settlementProjection;
         InputFinals=state?.Status==FuturesMarginStatus.FinalMarginDetermined?[]:
-            [new(settlementProjection,policy.Occurrences.Single(o=>o.Phase==FuturesMarginPhase.Final).At,null)];
+            [..new[]{market.Market,settlementProjection}.Distinct().Select(m=>new LifecycleInputFinal(m,
+                policy.Occurrences.Single(o=>o.Phase==FuturesMarginPhase.Final).At,null))];
         Dependencies=state?.Status==FuturesMarginStatus.FinalMarginDetermined?[]:[..market.Dependencies.Append(settlementProjection).Distinct()];
         if(known is not null)RequireKnown(known,history,terms,model);
         Opening=new(state is null?[]:[ValuationPortfolio.FromTrades([new(trade.Id,trade.BookId,[holding],trade.Booking)],setup)],[]){
@@ -126,6 +128,15 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
         }
         cashOccurrences=known is null?ImmutableDictionary<Guid,Guid>.Empty:known.Cash.ToImmutableDictionary(c=>c.Holding.Id,c=>c.Occurrence.Id);
         if(Activation is {} start)events.Add(start);
+        pricingExpiryId=state?.Status!=FuturesMarginStatus.FinalMarginDetermined&&market.Contract.Expiry>source.ValuationAt&&
+            policy.Occurrences.Single(o=>o.Phase==FuturesMarginPhase.Final).At>market.Contract.Expiry?
+            LifecycleProjectionEvent.ScopedId(Owner,ContractIdentity.FromCanonical($"futures_native_mark_expiry_v1:{market.Contract.Key.Id:D}:{market.Contract.Expiry:O}")):null;
+        if(pricingExpiryId is {} expiryId)
+        {
+            events.Add(new(expiryId,market.Contract.Expiry,[..future.Where(o=>o.At<=market.Contract.Expiry).Select(o=>LifecycleProjectionEvent.ScopedId(Owner,o.Id)),
+                ..Activation is {} activated?new[]{activated.Id}:[]],"future_mark_expiry"));
+            for(var n=0;n<events.Count;n++)if(events[n].Kind=="final_margin")events[n]=events[n] with{Requires=events[n].Requires.Add(expiryId)};
+        }
         this.cashEvents=cashEvents.ToImmutable();Events=[..events.OrderBy(e=>e.At).ThenBy(e=>e.Id)];
     }
     public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
@@ -137,6 +148,18 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
                 execution.ExecutedAt,false,source.Knowledge!.ContextId,source.Knowledge.KnownAt);
             return state with{Residuals=state.Residuals.Add(ValuationPortfolio.FromTrades([trade],setup with{
                 BindingStates=setup.BindingStates.SetItem(new(trade.Id,holding.Id),projected)}))};
+        }
+        if(occurrence.Id==pricingExpiryId)
+        {
+            var active=state.Residuals.Single(p=>p.Positions.Any(p=>p.Owner==Owner.Owner&&p.BindingId==holding.Id));
+            var current=active.Setup.BindingStates[new(trade.Id,holding.Id)];
+            var(carriedBasis,carriedBasisAt)=current switch{FuturesMarginState native=>(native.SettledBasis,native.SettledAt),
+                ProjectedFuturesMarginState projected=>(projected.Basis,projected.BasisAt),_=>throw Error("Retain the exact future basis at its projected mark-expiry boundary.")};
+            var carried=new ProjectedFuturesMarginState(trade.Id,holding.Id,trade.BookId,holding.Quantity,market.Series.Key,carriedBasis,carriedBasisAt,false,
+                source.Knowledge!.ContextId,source.Knowledge.KnownAt);
+            var retained=ValuationPortfolio.FromTrades([new(trade.Id,trade.BookId,[holding],trade.Booking)],active.Setup with{
+                BindingStates=active.Setup.BindingStates.SetItem(new(trade.Id,holding.Id),carried)});
+            return state with{Residuals=[..state.Residuals.Where(p=>!ReferenceEquals(p,active)),retained]};
         }
         if(cashEvents.TryGetValue(occurrence.Id,out var cashEvent))
         {
@@ -167,6 +190,11 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
                 cashOccurrences[c.BindingId]==selected.Id)).SelectMany(p=>p.Opening.Residuals));
         return state with{Residuals=[..residuals],Cash=actual is not null||cash.Amount==default?state.Cash:
             state.Cash.Add(new(occurrence.Id,occurrence.At,selected.DueAt,ExactMoney.FromMoney(cash)))};
+    }
+    public ImmutableArray<LifecycleMarketUse> MarketUsesFor(DateTimeOffset horizon)
+    {
+        var final=policy.Occurrences.Single(o=>o.Phase==FuturesMarginPhase.Final).At;var through=final<horizon?final:horizon;
+        return [..Dependencies.Select(m=>new LifecycleMarketUse(m,through))];
     }
     public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)
     {
@@ -214,6 +242,8 @@ public sealed class FuturesLifecycleProjection:ILifecycleProjection
                 cash.PublicationOrder<1||!TradingInstant.IsSupported(cash.KnownAt)||
                 accepted.Single(d=>d.Occurrence==cash.Occurrence).PublicationOrder<cash.PublicationOrder||
                 accepted.Single(d=>d.Occurrence==cash.Occurrence).KnownAt<cash.KnownAt||
+                accepted.Single(d=>d.Occurrence==cash.Occurrence).PublicationOrder==cash.PublicationOrder&&
+                    accepted.Single(d=>d.Occurrence==cash.Occurrence).KnownAt!=cash.KnownAt||
                 payment.Currency!=Currency||payment.PaymentAt<cash.Occurrence.At||cash.KnownAt>known.KnownThrough||
                 cash.State.SourceContextId!=known.SourceContextId||cash.State.KnownThrough!=known.KnownThrough||
                 cash.State.KnownFlows(source).Any(p=>p.EffectiveAt<cash.Occurrence.At||p.KnownAt<cash.KnownAt))

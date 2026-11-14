@@ -23,6 +23,10 @@ internal static class LifecycleCurrencyChecks
         var mapping=new CurrencyDiscountCurve(Guid.NewGuid(),R("usd"),definition);
         var payment=new SidePaymentKey(Guid.NewGuid(),0,due,R("usd"));
         ISideDiscounting provider=new LifecycleCurrencyDiscounting(mapping,source,RateDiscountTiming.Version,ClockChange.FrozenInputs);
+        if(provider.ResolveForValuation([payment],source,source.ValuationAt,null).Single().DiscountFactor.ToString()!="0.997755672276703731")
+            throw new Exception("Ordinary opening PV must use the selected exact-instant curve without requiring a nonexistent clock roll.");
+        Reject("discount_context",()=>provider.ResolveForValuation([payment],source,horizon,null));
+        Reject("discount_context",()=>provider.ResolveForValuation([payment],source,source.ValuationAt,"unsupported_clock"));
         var conditional=provider.ResolveForValuation([payment],source,horizon,ClockChange.FrozenInputs).Single();
         // Independent source-day simple discount factors are rounded to18 places,
         // linearly interpolated at each instant, then divided once, half-even.
@@ -33,7 +37,7 @@ internal static class LifecycleCurrencyChecks
         var model=new CurveModel(revision,reference,[],[],[],[],[],[new(R("rate"),NumericKind.Dimensionless,null,null,ExactDecimal.Parse("-0.1"),ExactDecimal.Parse("1"))],
             series.Select(s=>new MarketSeries(s,null,null,R("rate"))));
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Linear,LifecycleProjectionPolicy.PayAtDue,
-            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice);
+            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry);
         var end=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),R("calendar"),[new(new(2031,1,2),horizon,0)]);
         string Value(ISideDiscounting selected)
         {

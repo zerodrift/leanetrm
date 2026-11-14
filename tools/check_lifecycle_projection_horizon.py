@@ -145,6 +145,35 @@ def checks(query, manifest):
         else:
             raise AssertionError('A successor grant extended the original economic horizon source admission')
     assert json.loads(call(read(current)))['closes'] == value['closes']
+    contract = json.loads(query(f"SELECT jsonb_build_object('id',c.id,'expiry',c.expiry_at,'series',s.id,'reference',s.reference_catalog_id,'revision',s.reference_revision_id)::text "
+                                "FROM market_data.contracts c JOIN market_data.series s ON(s.catalog_id,s.revision_id,s.contract_id)=(c.catalog_id,c.revision_id,c.id) "
+                                f"WHERE(c.catalog_id,c.revision_id,c.kind)=('{catalog}','{definition}','future') ORDER BY c.expiry_at LIMIT 1;"))
+    def final_read(context, official='future'):
+        return (f"SELECT security.read_lifecycle_projection_final('{catalog}','{definition}','future','{official}','{contract['id']}',"
+                f"'{contract['expiry']}','{context}','2020-12-18T16:00:00Z','2020-12-18')::text;")
+    before_final = capture()
+    assert json.loads(call(final_read(before_final)))['observation'] is None
+    native_final = uuid4()
+    event = 'synthetic_final_' + str(native_final)
+    query("INSERT INTO market_data.observations(catalog_id,id,definition_revision_id,series_id,reference_catalog_id,reference_revision_id,"
+          "source_code,source_event_id,source_revision_id,role,publication_state,observed_at,received_at,value,corrects_id) VALUES("
+          f"'{catalog}','{native_final}','{definition}','{contract['series']}','{contract['reference']}','{contract['revision']}',"
+          f"'fixture','{event}','1','final_contract_settlement','final','{contract['expiry']}',clock_timestamp(),3.7,NULL);")
+    after_final = capture()
+    assert call(f"SELECT security.use_market_context('{catalog}','{after_final}');SELECT count(*) FROM market_data.observations WHERE id='{native_final}';") == '0'
+    actual_final = json.loads(call(final_read(after_final)))
+    assert actual_final['observation']['id'] == str(native_final) and str(actual_final['observation']['value']) == '3.7'
+    assert actual_final['observation']['known_from'] <= actual_final['knownAt']
+    assert json.loads(call(final_read(before_final)))['observation'] is None
+    reject(final_read(after_final, 'base_forward'), 'projection_input_denied')
+    corrected = uuid4()
+    query("INSERT INTO market_data.observations SELECT catalog_id," + f"'{corrected}'::uuid" + ",definition_revision_id,series_id,reference_catalog_id,reference_revision_id,"
+          "source_code,source_event_id,'2',role,publication_state,observed_at,clock_timestamp(),4.2,id FROM market_data.observations "
+          f"WHERE id='{native_final}';")
+    corrected_context = capture()
+    assert json.loads(call(final_read(corrected_context)))['observation']['id'] == str(corrected)
+    assert json.loads(call(final_read(after_final)))['observation']['id'] == str(native_final)
+    print('PASS known future primitive final: separate source clock, original cutoff absence, exact native final and explicit correction ancestry', flush=True)
     print('PASS certified economic horizon: exact native session identity, next configured close, immutable publication receipts, old cutoff refusal, version replay and idempotent publication', flush=True)
 
 

@@ -6,6 +6,7 @@ import subprocess
 from uuid import uuid4
 from copy import deepcopy
 from check_reference_editing import main
+from close_session_fixture import sql_session
 from check_index_fixings import RULE
 from preview_fixture import catalogue_fixture, trading_fixture,trade_booking,fixture as baseline,identity
 
@@ -119,6 +120,12 @@ def checks(query,manifest):
     managed(history)
     actual=json.loads(call(f"SELECT security.use_market_context('{catalog}','{future_known}');SELECT security.use_trading_context('{catalog}','2021-01-14T08:00:00Z','2021-01-14'::date);SELECT settlement_data.swap_state('{catalog}','{booked['tradeId']}')::text;"))
     assert actual['determinations']==[] and actual['payments']==[], 'Actual opening paid recognition consumed future-effective known facts.'
+    fixed_profile={**profile,'operationId':str(uuid4()),'profileId':str(uuid4()),'membershipOrdinal':0}
+    call(f"SELECT lifecycle.save_swap_profile('{catalog}',{lit(fixed_profile)});")
+    sql_session(query,manifest,'synthetic_economic_close','test_business','16:00',['base_forward'],[])
+    economic_source=call(f"SELECT security.capture_date_context('{catalog}','2021-01-15',NULL);")
+    managed({**current,'economicProjection':True,'session':'synthetic_economic_close','bookId':booking['bookId'],
+             'context':{**current['context'],'contextId':economic_source}})
     quantity=dict(revision=dict(catalogId=manifest['referenceCatalogId'],revisionId=manifest['referenceRevisionId']),code='test_gas_quantity')
     periods=[('2021-01-01','2021-02-01'),('2021-02-01','2021-03-01')]
     def side(fixed):

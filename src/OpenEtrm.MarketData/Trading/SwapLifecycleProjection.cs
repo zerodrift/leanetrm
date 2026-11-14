@@ -9,6 +9,7 @@ internal static class SwapPaymentAmount
     internal static ExactMoney Scale(SidePaymentCash cash,SideMembership membership,Quantity quantity)=>
         cash.CashAmount.Scale(membership.QuantityRatio??ExactRatio.One).Scale(membership.Coefficient).Scale(quantity.Amount);
 }
+public readonly record struct SwapProjectionPeriod(int MembershipOrdinal,DateOnly From,DateOnly To);
 internal sealed record SwapProjectedPeriod(Guid Id,int Membership,ScheduleRow Plan);
 
 // This binding is deliberately separate from native SwapSettlementInputs. It
@@ -26,7 +27,8 @@ public sealed record ProjectedSwapValuation:IBindingValuationState
     internal ImmutableDictionary<SchedulePriceTerm,ResolvedSchedulePrice> SourcePrices{get;}
     internal ImmutableDictionary<SchedulePriceTerm,ProjectedFixingKey> Mappings{get;}
     internal SwapKnownPaymentHistory Payments{get;}
-    internal SwapSettlementRounding Rounding{get;}
+    internal ImmutableDictionary<SwapProjectionPeriod,SwapSettlementRounding> Roundings{get;}
+    internal SwapSettlementRounding Rounding(SwapProjectedPeriod period)=>Roundings[new(period.Membership,period.Plan.DeliveryFrom,period.Plan.DeliveryTo)];
     private readonly SidedInstrument instrument;
     internal ImmutableDictionary<SchedulePriceTerm,ProjectedFixing> Fixings{get;init;}=ImmutableDictionary<SchedulePriceTerm,ProjectedFixing>.Empty;
     internal ImmutableDictionary<Guid,ExactMoney> Amounts{get;init;}=ImmutableDictionary<Guid,ExactMoney>.Empty;
@@ -34,8 +36,8 @@ public sealed record ProjectedSwapValuation:IBindingValuationState
     internal ImmutableDictionary<Guid,SettlementContribution> Activated{get;init;}=ImmutableDictionary<Guid,SettlementContribution>.Empty;
     internal ProjectedSwapValuation(SidedInstrument instrument,SwapBindingValuation actual,MarketSnapshot source,ImmutableArray<SwapProjectedPeriod> periods,
         ImmutableDictionary<SchedulePriceTerm,ResolvedSchedulePrice> prices,ImmutableDictionary<SchedulePriceTerm,ProjectedFixingKey> mappings,
-        SwapKnownPaymentHistory payments,SwapSettlementRounding rounding)
-    {this.instrument=instrument;Actual=actual.Settlement;BookId=actual.BookId;Source=source;Discounting=actual.Discounting;Periods=periods;SourcePrices=prices;Mappings=mappings;Payments=payments;Rounding=rounding;}
+        SwapKnownPaymentHistory payments,ImmutableDictionary<SwapProjectionPeriod,SwapSettlementRounding> roundings)
+    {this.instrument=instrument;Actual=actual.Settlement;BookId=actual.BookId;Source=source;Discounting=actual.Discounting;Periods=periods;SourcePrices=prices;Mappings=mappings;Payments=payments;Roundings=roundings;}
     internal ImmutableArray<SettlementContribution> Contributions(SwapProjectedPeriod period)=>[..Actual.Contributions.Concat(Activated.Values).Where(c=>
         c.MembershipOrdinal==period.Membership&&c.DeliveryFrom==period.Plan.DeliveryFrom&&c.DeliveryTo==period.Plan.DeliveryTo)];
     internal ImmutableArray<CurveRequest> Dependencies=>[..Mappings.Where(m=>!Fixings.ContainsKey(m.Key)&&
@@ -80,15 +82,15 @@ public sealed record ProjectedSwapValuation:IBindingValuationState
     {
         this.instrument.RequireSameDefinition(instrument);
         if(context.Measure!=ValuationMeasure.PresentValue||!context.IsLifecycleProjection||!Source.HasSameInputs(context.Snapshot)||context.CalculationAt<Source.ValuationAt||
-            instrument.Currency!=Rounding.Currency||instrument.UnitQuantity.Specification!=Quantity.Specification)
+            Roundings.Values.Any(r=>instrument.Currency!=r.Currency)||instrument.UnitQuantity.Specification!=Quantity.Specification)
             throw new MarketDataException("projection_swap_state","A path-local swap state requires its exact source, owner, quantity and hypothetical calculation clock.");
     }
     internal ExactMoney FutureApplied(Guid contribution,DateTimeOffset at)=>Payments.Payments.Where(p=>p.EffectiveAt>Source.ValuationAt&&p.EffectiveAt<=at)
         .SelectMany(p=>p.Allocations).Where(a=>a.ContributionId==contribution).Select(a=>a.Amount)
-        .Aggregate(ExactMoney.Parse("0",Rounding.Currency),(a,b)=>a.Add(b));
+        .Aggregate(ExactMoney.Parse("0",instrument.Currency),(a,b)=>a.Add(b));
     internal ExactMoney Reserved(Guid contribution)=>Payments.Payments.Where(p=>p.EffectiveAt>Source.ValuationAt)
         .SelectMany(p=>p.Allocations).Where(a=>a.ContributionId==contribution).Select(a=>a.Amount)
-        .Aggregate(ExactMoney.Parse("0",Rounding.Currency),(a,b)=>a.Add(b));
+        .Aggregate(ExactMoney.Parse("0",instrument.Currency),(a,b)=>a.Add(b));
     private IEnumerable<(Guid Id,DateTimeOffset Due,ExactMoney Amount)> Obligations(SidedInstrument instrument,UnitValuationContext context)
     {
         foreach(var period in Periods)
@@ -131,6 +133,10 @@ public sealed class SwapLifecycleProjection:ILifecycleProjection
     public SwapLifecycleProjection(Trade trade,Guid bindingId,SwapBindingValuation actual,ValuationSetup setup,
         SideValuationContext sourcePrices,ImmutableDictionary<SchedulePriceTerm,ProjectedFixingKey> mappings,
         SwapKnownPaymentHistory payments,SwapSettlementRounding rounding,MarketSnapshot source)
+        :this(trade,bindingId,actual,setup,sourcePrices,mappings,payments,RoundingMap(trade,bindingId,rounding),source){}
+    public SwapLifecycleProjection(Trade trade,Guid bindingId,SwapBindingValuation actual,ValuationSetup setup,
+        SideValuationContext sourcePrices,ImmutableDictionary<SchedulePriceTerm,ProjectedFixingKey> mappings,
+        SwapKnownPaymentHistory payments,ImmutableDictionary<SwapProjectionPeriod,SwapSettlementRounding> roundings,MarketSnapshot source)
     {
         this.trade=trade;this.setup=setup;SourceSnapshot=source;
         holding=trade.Instruments.SingleOrDefault(p=>p.Id==bindingId)??throw Error("Retain the exact swap holding.");
@@ -138,11 +144,13 @@ public sealed class SwapLifecycleProjection:ILifecycleProjection
         if(!Owner.IsValid||instrument is not(FinancialSwapInstrument or MonthlyFinancialSwap or ScheduledFinancialSwap or CrossCommodityScheduledSwap)||
             actual.TradeId!=trade.Id||actual.BindingId!=bindingId||actual.BookId!=trade.BookId||actual.Quantity!=holding.Quantity||
             setup.Measure!=ValuationMeasure.PresentValue||!sourcePrices.Snapshot.HasSameInputs(source)||!sourcePrices.IsBaseScenario||
-            source.Knowledge is null||rounding.Currency!=Currency||mappings is null)
+            source.Knowledge is null||roundings is null||roundings.Values.Any(r=>r.Currency!=Currency)||mappings is null)
             throw Error("Retain the exact enrolled financial swap, source prices, settlement state and selected rounding.");
         var periods=instrument.Sides.SelectMany((side,n)=>(side.Side.GenerateSchedule() as SidePaymentSchedule??
             throw Error("This projection requires the qualified dated payment schedule.")).Payments.Select(p=>new SwapProjectedPeriod(
                 ContractIdentity.FromCanonical($"swap_projected_period_v1:{instrument.Id:D}:{n}:{p.DeliveryFrom:O}:{p.DeliveryTo:O}"),n,p))).ToImmutableArray();
+        if(!periods.Select(p=>new SwapProjectionPeriod(p.Membership,p.Plan.DeliveryFrom,p.Plan.DeliveryTo)).ToHashSet().SetEquals(roundings.Keys))
+            throw Error("Select the exact explicit rounding policy of every contractual payment period.");
         _=actual.Settlement.RequiredPrices(instrument); // exact period/contribution continuity
         RequirePayments(payments,actual.Settlement,periods,source);
         var required=actual.Settlement.RequiredPrices(instrument).Distinct().ToArray();
@@ -158,7 +166,7 @@ public sealed class SwapLifecycleProjection:ILifecycleProjection
             if(at is null||key.At!=at||key.At<=source.ValuationAt||key.Market!=request||key.Role!=role)
                 throw Error("Every projected price needs its exact contractual fixing instant, source market and role.");
         }
-        var state=new ProjectedSwapValuation(instrument,actual,source,periods,actualPrices,mappings,payments,rounding);
+        var state=new ProjectedSwapValuation(instrument,actual,source,periods,actualPrices,mappings,payments,roundings);
         Dependencies=[..mappings.Values.Select(m=>m.Market).Distinct()];
         Opening=new([Portfolio(state)],[]){KnownPayments=[..state.KnownPayments(source).Where(p=>p.EffectiveAt>source.ValuationAt)]};
         Guid FixingId(ProjectedFixingKey key)=>LifecycleProjectionEvent.ScopedId(Owner,ContractIdentity.FromCanonical(
@@ -220,13 +228,13 @@ public sealed class SwapLifecycleProjection:ILifecycleProjection
             current=current with{Fixings=current.Fixings.SetItems(current.Mappings.Where(p=>p.Value==key).Select(p=>new KeyValuePair<SchedulePriceTerm,ProjectedFixing>(p.Key,fixing)))};
             foreach(var period in current.Periods.Where(p=>current.Contributions(p).IsEmpty&&!current.Amounts.ContainsKey(p.Id)&&
                 p.Plan.Prices.All(t=>current.SourcePrices.ContainsKey(t)||current.Fixings.ContainsKey(t))))
-                current=current with{Amounts=current.Amounts.SetItem(period.Id,ExactMoney.FromMoney(current.Amount(instrument,period,_=>throw Error("A fixing is missing.")).ToMoney(current.Rounding.Format)))};
+                current=current with{Amounts=current.Amounts.SetItem(period.Id,ExactMoney.FromMoney(current.Amount(instrument,period,_=>throw Error("A fixing is missing.")).ToMoney(current.Rounding(period).Format)))};
             return state with{Residuals=[Portfolio(current)]};
         }
         var selected=dueEvents[occurrence.Id];var periodFor=current.Periods.Single(p=>p.Id==selected.Id||current.Contributions(p).Any(c=>c.Id==selected.Id));
         if(selected.Id==periodFor.Id&&!current.Contributions(periodFor).IsEmpty)return state;
         var native=current.Contributions(periodFor).SingleOrDefault(c=>c.Id==selected.Id);
-        var nominal=native?.Amount??current.Amounts.GetValueOrDefault(selected.Id)??ExactMoney.FromMoney(current.Amount(instrument,periodFor,_=>throw Error("A due payment has an unfixed contractual price.")).ToMoney(current.Rounding.Format));
+        var nominal=native?.Amount??current.Amounts.GetValueOrDefault(selected.Id)??ExactMoney.FromMoney(current.Amount(instrument,periodFor,_=>throw Error("A due payment has an unfixed contractual price.")).ToMoney(current.Rounding(periodFor).Format));
         var remaining=nominal.Subtract(native?.Applied??ExactMoney.Parse("0",Currency)).Subtract(current.Reserved(selected.Id));
         if(context.Policy.CashDisposition==LifecycleProjectionPolicy.Outstanding)
         {
@@ -305,6 +313,20 @@ public sealed class SwapLifecycleProjection:ILifecycleProjection
                 .Select(a=>a.Amount).Aggregate(ExactMoney.Parse("0",Currency),(a,b)=>a.Add(b));
             if(applied!=contribution.Applied)throw Error("Complete native payment history must reconcile every opening contribution allocation.");
         }
+    }
+    public static ImmutableDictionary<SchedulePriceTerm,ProjectedFixingKey> ProjectedPriceMappings(SidedInstrument instrument,
+        SwapSettlementInputs actual,SideValuationContext sourcePrices)=>actual.RequiredPrices(instrument)
+        .Where(p=>sourcePrices.Resolve(p).State==SchedulePriceState.Projected).ToImmutableDictionary(p=>p,p=>
+        {
+            var at=p.Lookup?.Fixing?.FixingAt??p.ContractObservation?.FixingAt??throw Error("Every projected price requires its contractual fixing instant.");
+            var market=p.Lookup?.ProjectionRequest??p.ContractObservation?.Market??throw Error("Every projected price requires its selected contract market.");
+            return new ProjectedFixingKey(market,p.ContractObservation?.Role??ObservationRole.IndexFixing,at);
+        });
+    private static ImmutableDictionary<SwapProjectionPeriod,SwapSettlementRounding> RoundingMap(Trade trade,Guid binding,SwapSettlementRounding rounding)
+    {
+        var instrument=trade.Instruments.Single(p=>p.Id==binding).Instrument as SidedInstrument??throw Error("Select an exact financial swap.");
+        return instrument.Sides.SelectMany((m,n)=>((SidePaymentSchedule)m.Side.GenerateSchedule()).Payments.Select(p=>
+            new SwapProjectionPeriod(n,p.DeliveryFrom,p.DeliveryTo))).ToImmutableDictionary(p=>p,_=>rounding);
     }
     private static MarketDataException Error(string message)=>new("projection_swap_state",message);
 }

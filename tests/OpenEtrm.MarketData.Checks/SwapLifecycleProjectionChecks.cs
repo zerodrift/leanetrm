@@ -25,13 +25,23 @@ internal static class SwapLifecycleProjectionChecks
         var rounding=new SwapSettlementRounding(swap.Currency,2,CashTieRule.ToEven,SwapSettlementRounding.Implementation);
         var component=new SwapLifecycleProjection(trade,owner.BindingId,actual,setup,new(market,discount),mapping,history,rounding,source);
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.PayAtDue,
-            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice);
+            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry);
         var horizon=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.Base.R("calendar"),[new(new(2041,2,18),f.Payment.AddHours(2),0)]);
         var prepared=LifecycleProjection.Prepare(f.Model,source,horizon,policy,[component],[]);var factor=prepared.Factors.Single();
         var changed=prepared.Evaluate("swap",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
         void Equal(ExactMoney value,string expected){if(value.CompareTo(ExactMoney.Parse(expected,swap.Currency))!=0)throw new Exception($"Expected {expected}; got {value.ToExactString()}.");}
         // Independently: source 2*(11−15)=−8, event 2*(13−15)=−4.
         var value=changed.Values.Single();Equal(value.OpeningValue,"-8");Equal(value.PeriodCash,"-4");Equal(value.ResidualValue,"0");Equal(value.EconomicPnl,"4");
+        var fixedSide=new FixedSide(Guid.NewGuid(),new(ExactDecimal.Parse("15.1233"),f.Quote),new(ExactDecimal.Parse("1"),f.Quote.Quantity),
+            f.From,f.To,f.Payment,FixedSide.Implementation,f.Quote);
+        var uneven=new FinancialSwapInstrument(Guid.NewGuid(),[new(fixedSide,ExactDecimal.Parse("-1")),swap.Sides[1]],FinancialSwapInstrument.Implementation,false);
+        var unevenTrade=new Trade(trade.Id,trade.BookId,[new(owner.BindingId,uneven,qty)]);
+        var perPeriod=ImmutableDictionary<SwapProjectionPeriod,SwapSettlementRounding>.Empty
+            .Add(new(0,f.From,f.To),new SwapSettlementRounding(swap.Currency,0,CashTieRule.ToEven,SwapSettlementRounding.Implementation)).Add(new(1,f.From,f.To),rounding);
+        var unevenComponent=new SwapLifecycleProjection(unevenTrade,owner.BindingId,actual,setup,new(f.Model.Build(source,uneven.DependenciesAt(source)),discount),mapping,history,perPeriod,source);
+        var unevenValue=LifecycleProjection.Prepare(f.Model,source,horizon,policy,[unevenComponent],[]).Evaluate("separate_period_rounding",
+            [new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2.003"),QuoteShift.Convention)]).Values.Single();
+        Equal(unevenValue.PeriodCash,"-3.99");
         var outstanding=LifecycleProjection.Prepare(f.Model,source,horizon,policy with{CashDisposition=LifecycleProjectionPolicy.Outstanding},[component],[])
             .Evaluate("swap_unpaid",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]).Values.Single();
         Equal(outstanding.PeriodCash,"0");Equal(outstanding.ResidualValue,"-4");Equal(outstanding.EconomicPnl,"4");

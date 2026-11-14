@@ -36,7 +36,7 @@ internal static class OptionLifecycleProjectionChecks
         var component=new FuturesOptionLifecycleProjection(trade,trade.Instruments[0].Id,setup,future,margin,rule,null,
             f.UnderlyingRequest,f.UnderlyingRequest,model,source);
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.PayAtDue,
-            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice);
+            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry);
         var h=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,24),marginAt.AddHours(1),0)]);
         var prepared=LifecycleProjection.Prepare(model,source,h,policy,[component],[]);
         var value=prepared.Evaluate("exercise",[]).Values.Single();

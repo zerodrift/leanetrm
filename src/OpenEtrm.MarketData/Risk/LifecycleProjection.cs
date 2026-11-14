@@ -4,13 +4,15 @@ using OpenEtrm.MarketData.Calculation;
 
 namespace OpenEtrm.MarketData.Risk;
 
-public sealed record LifecycleProjectionPolicy(string Implementation,string PricePath,string CashDisposition,string CashAccumulation,string NumericalPolicy,string NonPriceInputs)
+public sealed record LifecycleProjectionPolicy(string Implementation,string PricePath,string CashDisposition,string CashAccumulation,string NumericalPolicy,string NonPriceInputs,
+    [property:System.Text.Json.Serialization.JsonRequired]string InputExpiry)
 {
     public const string Version="economic_lifecycle_projection_v1",Hold="shock_then_hold_native_quotes_v1",
         Linear="elapsed_linear_native_quotes_18_to_even_v1",PayAtDue="project_scheduled_cash_paid_at_due_v1",
         Outstanding="retain_scheduled_cash_outstanding_v1",Nominal="nominal_currency_cash_v1",
         Accumulated="captured_currency_curve_exact_cash_accumulation_v1",Numerics="exact_residual_plus_horizon_cash_less_opening_v1",
-        HeldNonPrice="captured_rates_and_volatility_held_v1";
+        HeldNonPrice="captured_rates_and_volatility_held_v1",DeclaredCurveExpiry="declared_curve_expiry_policy_v1",
+        FreezeNativeExpiry="freeze_selected_native_mark_at_expiry_v1";
 }
 // The source adapter supplies the complete selected session's versioned close
 // schedule. The pure calculation selects its first close after the opening.
@@ -87,7 +89,7 @@ public sealed record LifecycleProjectionResult(string Id,DateTimeOffset Horizon,
 public sealed class LifecycleProjectionContext
 {
     private readonly Func<DateTimeOffset,PreparedValuationEnvironment> market;
-    private readonly ImmutableHashSet<CurveRequest> permitted;
+    private readonly ImmutableDictionary<CurveRequest,DateTimeOffset> permitted;
     private readonly Dictionary<ProjectedFixingKey,ProjectedFixing> projected;
     private readonly ImmutableDictionary<ProjectedFixingKey,ExactUnitPrice> known;
     private readonly Action<ProjectedFixing> freezeFinal;
@@ -96,23 +98,24 @@ public sealed class LifecycleProjectionContext
     public DateTimeOffset Horizon{get;}
     public LifecycleProjectionPolicy Policy{get;}
     internal LifecycleProjectionContext(MarketSnapshot source,DateTimeOffset horizon,LifecycleProjectionPolicy policy,
-        Func<DateTimeOffset,PreparedValuationEnvironment> market,ImmutableHashSet<CurveRequest> permitted,
+        Func<DateTimeOffset,PreparedValuationEnvironment> market,ImmutableDictionary<CurveRequest,DateTimeOffset> permitted,
         ImmutableDictionary<ProjectedFixingKey,ExactUnitPrice> known,Dictionary<ProjectedFixingKey,ProjectedFixing> projected,Action<ProjectedFixing> freezeFinal)
     {SourceSnapshot=source;Horizon=horizon;Policy=policy;this.market=market;this.permitted=permitted;this.known=known;this.projected=projected;this.freezeFinal=freezeFinal;CalculationAt=source.ValuationAt;}
     public ExactUnitPrice Price(CurveRequest request)
     {
-        if(!permitted.Contains(request))throw LifecycleProjection.Error("projection_dependency","The transition requested an undeclared market input.");
+        if(!permitted.TryGetValue(request,out var through)||CalculationAt>through)throw LifecycleProjection.Error("projection_dependency","The transition requested an undeclared market input.");
         return market(CalculationAt).Price(request,default);
     }
     public ProjectedFixing Fix(ProjectedFixingKey key)
     {
-        if(key is null||!TradingInstant.IsSupported(key.At)||!Enum.IsDefined(key.Role)||!permitted.Contains(key.Market))
+        if(key is null||!TradingInstant.IsSupported(key.At)||!Enum.IsDefined(key.Role)||!permitted.TryGetValue(key.Market,out var through)||key.At>through)
             throw LifecycleProjection.Error("projection_fixing","Select an exact declared fixing market, role and event instant.");
+        if(key.At>CalculationAt)throw LifecycleProjection.Error("projection_fixing","A fixing cannot be consumed before its effective event instant.");
         if(known.TryGetValue(key,out var actual))return new(key,actual);
         if(key.At<=SourceSnapshot.ValuationAt)throw LifecycleProjection.Error("projection_fixing","A source-known fixing requires captured actual evidence; it cannot be projected.");
-        if(key.At>CalculationAt)throw LifecycleProjection.Error("projection_fixing","A projected fixing cannot be read before its event.");
         if(!projected.TryGetValue(key,out var value))
         {
+            if(key.At!=CalculationAt)throw LifecycleProjection.Error("projection_fixing","Create each new path-local fixing at its declared event instant before later consumers read it.");
             value=new(key,market(key.At).Price(key.Market,default));projected.Add(key,value);
             if(key.Role==ObservationRole.FinalContractSettlement)freezeFinal(value);
         }
@@ -125,16 +128,16 @@ public static class LifecycleProjection
     public static PreparedLifecycleProjection Prepare(CurveModel model,MarketSnapshot source,LifecycleProjectionHorizon horizon,
         LifecycleProjectionPolicy policy,ImmutableArray<ILifecycleProjection> components,
         ImmutableArray<KnownLifecycleFixing> knownFixings,
-        ImmutableDictionary<ReferenceKey,ISideDiscounting>? cashCurves=null,CancellationToken cancellation=default)
-        =>Create(model,source,horizon,policy,components,knownFixings,cashCurves,cancellation,null,null,null);
+        ImmutableDictionary<ReferenceKey,ISideDiscounting>? cashCurves=null,CancellationToken cancellation=default,ImmutableArray<LifecycleInputFinal> inputFinals=default)
+        =>Create(model,source,horizon,policy,components,knownFixings,cashCurves,cancellation,null,null,null,inputFinals);
     public static PreparedLifecycleProjection Prepare(ConnectedValuation valuation,ImmutableDictionary<CurveRequest,CurvePointKey> bindings,
         CurveBuild authority,LifecycleProjectionHorizon horizon,LifecycleProjectionPolicy policy,ImmutableArray<ILifecycleProjection> components,
-        ImmutableArray<KnownLifecycleFixing> knownFixings,ImmutableDictionary<ReferenceKey,ISideDiscounting>? cashCurves=null,CancellationToken cancellation=default)
-        =>Create(authority.Model,valuation.Snapshot,horizon,policy,components,knownFixings,cashCurves,cancellation,valuation,bindings,authority);
+        ImmutableArray<KnownLifecycleFixing> knownFixings,ImmutableDictionary<ReferenceKey,ISideDiscounting>? cashCurves=null,CancellationToken cancellation=default,ImmutableArray<LifecycleInputFinal> inputFinals=default)
+        =>Create(authority.Model,valuation.Snapshot,horizon,policy,components,knownFixings,cashCurves,cancellation,valuation,bindings,authority,inputFinals);
     private static PreparedLifecycleProjection Create(CurveModel model,MarketSnapshot source,LifecycleProjectionHorizon horizon,
         LifecycleProjectionPolicy policy,ImmutableArray<ILifecycleProjection> components,ImmutableArray<KnownLifecycleFixing> knownFixings,
         ImmutableDictionary<ReferenceKey,ISideDiscounting>? cashCurves,CancellationToken cancellation,ConnectedValuation? connected,
-        ImmutableDictionary<CurveRequest,CurvePointKey>? bindings,CurveBuild? authority)
+        ImmutableDictionary<CurveRequest,CurvePointKey>? bindings,CurveBuild? authority,ImmutableArray<LifecycleInputFinal> inputFinals)
     {
         Validate(policy);
         if(source is null||source.Knowledge is null||!TradingInstant.IsSupported(source.ValuationAt)||!source.HasCoherentSelections()||
@@ -175,15 +178,19 @@ public static class LifecycleProjection
                 throw Error("projection_fixing","An actual fixing has conflicting captured evidence.");
         }
         var curves=cashCurves??ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty;
-        return connected is null?new(basis,next,policy,components,known.ToImmutable(),curves,cancellation):
-            new(connected,bindings!,authority!,next,policy,components,known.ToImmutable(),curves,cancellation);
+        return connected is null?new(basis,next,policy,components,known.ToImmutable(),curves,cancellation,inputFinals):
+            new(connected,bindings!,authority!,next,policy,components,known.ToImmutable(),curves,cancellation,inputFinals);
     }
+    public static LifecycleInputExpiryTreatment ExpiryTreatment(LifecycleProjectionPolicy policy)=>policy.InputExpiry switch{
+        LifecycleProjectionPolicy.DeclaredCurveExpiry=>LifecycleInputExpiryTreatment.DeclaredCurvePolicy,
+        LifecycleProjectionPolicy.FreezeNativeExpiry=>LifecycleInputExpiryTreatment.FreezeSelectedNativeMark,
+        _=>throw Error("projection_policy","Select an explicit supported input-expiry treatment.")};
     public static void Validate(LifecycleProjectionPolicy p)
     {
         if(p is null||p.Implementation!=LifecycleProjectionPolicy.Version||p.PricePath is not(LifecycleProjectionPolicy.Hold or LifecycleProjectionPolicy.Linear)||
             p.CashDisposition is not(LifecycleProjectionPolicy.PayAtDue or LifecycleProjectionPolicy.Outstanding)||
             p.CashAccumulation is not(LifecycleProjectionPolicy.Nominal or LifecycleProjectionPolicy.Accumulated)||p.NumericalPolicy!=LifecycleProjectionPolicy.Numerics||
-            p.NonPriceInputs!=LifecycleProjectionPolicy.HeldNonPrice)
+            p.NonPriceInputs!=LifecycleProjectionPolicy.HeldNonPrice||p.InputExpiry is not(LifecycleProjectionPolicy.DeclaredCurveExpiry or LifecycleProjectionPolicy.FreezeNativeExpiry))
             throw Error("projection_policy","Select every supported versioned path, cash disposition, accumulation and numerical policy explicitly.");
     }
     internal static MarketDataException Error(string code,string message)=>new(code,message);

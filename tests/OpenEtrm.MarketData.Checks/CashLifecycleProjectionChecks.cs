@@ -19,7 +19,7 @@ internal static class CashLifecycleProjectionChecks
             var projection=new CashLifecycleProjection(owner,instrument,actual,new ExplicitDiscounting(ExactDecimal.Parse("1"),DiscountFactorSource.Undiscounted),source);
             var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Linear,
                 pay?LifecycleProjectionPolicy.PayAtDue:LifecycleProjectionPolicy.Outstanding,LifecycleProjectionPolicy.Nominal,
-                LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice);
+                LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry);
             var horizon=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,18),at.AddHours(horizonHours),0)]);
             return LifecycleProjection.Prepare(f.Model(),source,horizon,policy,[projection],[]).Evaluate("cash",[]).Values.Single();
         }
@@ -38,7 +38,7 @@ internal static class CashLifecycleProjectionChecks
         var faceActual=new RecordedCashValuation(faceTrade,faceBinding,[],RecordedCashValuation.Policy,source.Knowledge!.ContextId,source.Knowledge.KnownAt);
         var faceProjection=new CashLifecycleProjection(faceOwner,face,faceActual,new ExplicitDiscounting(ExactDecimal.Parse("0.95"),DiscountFactorSource.Explicit),source);
         var facePolicy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.PayAtDue,
-            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice);
+            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry);
         var faceHorizon=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,18),at.AddHours(8),0)]);
         var facePrepared=LifecycleProjection.Prepare(f.Model(),source,faceHorizon,facePolicy,[faceProjection],[]);
         var deterministic=LifecycleEconomicRisk.Deterministic([facePrepared],new(LifecycleEconomicRiskPolicy.Deterministic,"0.975",HistoricalRiskPolicy.Quantile,HistoricalRiskPolicy.Tail));

@@ -3,6 +3,9 @@ using System.Text.Json;
 using Npgsql;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Trading;
+using OpenEtrm.Rates;
 
 internal static class LifecycleSwapChecks
 {
@@ -37,6 +40,38 @@ internal static class LifecycleSwapChecks
                     if(offers.Single(a=>a.Selection!.Value.Deserialize<SwapActionSelection>(LifecycleNative.Json)!.ProfileId==profile.Id("id")).OccurrenceId!=profile.Id("occurrence_id"))
                         throw new Exception("Saved profile metadata must carry the same exact native occurrence as its offer.");
                 Console.WriteLine("PASS native multi-period swap discovery: every saved occurrence and profile remains independently selectable");return;
+            }
+            if(f.TryGetProperty("economicProjection",out var economic)&&economic.GetBoolean())
+            {
+                await database.WithIdentity("trader",null,async(c,t)=>
+                {
+                    var source=(await new KnowledgeStore(manifest.CatalogId).Read(c,selected.ContextId,t)).Context;
+                    await PinnedContext.BindExact(c,manifest.CatalogId,source,t);
+                    await using(var bind=ScheduleStore.Command(c,"SELECT security.use_trading_context($1,$2,$3)",manifest.CatalogId,frame.At,frame.BusinessDate))await bind.ExecuteNonQueryAsync(t);
+                    var retainedFrame=frame with{ContextId=selected.ContextId};
+                    var data=await database.Read(c,t,selectedRevision:manifest.RevisionId,observationIds:retainedFrame.ObservationIds,observationScope:ObservationReadScope.ExactPins);
+                    var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(retainedFrame),selected.ContextId,SchedulePreview.ParseAt(source.KnownAt));
+                    var target=f.GetProperty("target");var book=f.Id("bookId");
+                    var scope=await RiskTradeScope.Resolve(c,manifest.CatalogId,[book],[target.Id("scopeId")],t);
+                    var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesMarginValuationPolicy.Convention,
+                        SwapStore.Convention,RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,
+                        FuturesOptions:FuturesOptionValuationPolicy.Release1,NativeFutures:new(FuturesMarginValuationPolicy.CurrencyDefault,RateDiscountTiming.Version));
+                    var opening=await new PortfolioValuation(database).Prepare(c,data,retainedFrame,snapshot,source,[book],policy,[],[],t,selection:scope);
+                    var request=new PortfolioEconomicProjectionRequest(PortfolioEconomicProjectionRequest.Version,f.Text("session"),1,
+                        PortfolioEconomicProjectionRequest.SourceKnownSchedule,RateDiscountTiming.Version,PortfolioEconomicProjectionRequest.SelectedContractMarkets,
+                        new(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.PayAtDue,LifecycleProjectionPolicy.Nominal,
+                            LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry),[]);
+                    var prepared=await LifecyclePortfolioProjection.Prepare(c,database,opening,request,null,t);
+                    if(prepared.Projections.Length!=1||prepared.Projections[0].Evaluate("native_swap_no_shock",[],t).Values.Single().EconomicPnl.Numerator!="0"||
+                        prepared.Projections[0].Components.Single().Opening.KnownPayments.Length!=1||
+                        prepared.HistoryPortfolio.ConnectedMarkets.Single().ManifestId!=prepared.Projections[0].Market.GraphManifest)
+                        throw new Exception("Economic native swap preparation must conserve no-shock wealth, retain future actual cash and reuse its complete market manifest.");
+                    var replay=await LifecyclePortfolioProjection.Prepare(c,database,opening,request,prepared.HistoryPortfolio.ConnectedMarkets,t);
+                    if(!prepared.ProductEvidence.Select(p=>p.GetRawText()).SequenceEqual(replay.ProductEvidence.Select(p=>p.GetRawText())))
+                        throw new Exception("Retained economic source replay changed its exact native product evidence.");
+                    return 0;
+                },default);
+                Console.WriteLine("PASS native economic swap source: exact profiles, future actual cash, retained graph replay and no-shock wealth");return;
             }
             if(f.TryGetProperty("history",out var history)&&history.GetBoolean())
             {

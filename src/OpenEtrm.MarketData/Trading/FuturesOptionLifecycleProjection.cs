@@ -43,7 +43,7 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
     private readonly FuturesMarginPolicy margin;
     private readonly FuturesOptionAutomaticRule rule;
     private readonly KnownFuturesOptionInstruction? instruction;
-    private readonly CurveRequest expiryMarket,marginMarket;
+    private readonly CurveRequest expiryMarket,marginMarket,underlyingMarket;
     private readonly ValuationSetup setup;
     private readonly Guid expiryId;
     private readonly Guid? instructionId;
@@ -73,6 +73,7 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
             PriceUnit.FromQuote(model.QuoteFor(expiryMarket))!=PriceUnit.FromQuote(future.Quote)||
             PriceUnit.FromQuote(model.QuoteFor(marginMarket))!=PriceUnit.FromQuote(future.Quote))
             throw Error("Retain exact live option terms, calibration, linked-future multiplier, source markets and source certificate.");
+        underlyingMarket=calibration.Underlying;
         _=rule.Decide(option.Series.Terms.Right,option.Series.Terms.Strike,option.Series.Terms.Strike);
         if(instruction is not null&&(!option.Series.ContraryInstructionsAllowed||instruction.EventId==Guid.Empty||
             instruction.Instruction is not("exercise" or "abandon")||!TradingInstant.IsSupported(instruction.EffectiveAt)||
@@ -123,6 +124,13 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
         Dependencies=[..new[]{calibration.Underlying,future.Market,expiryMarket,marginMarket}.Concat(this.children.SelectMany(c=>c.Dependencies)).Distinct()];
         InputFinals=[..new[]{future.Market,marginMarket}.Distinct().Select(m=>new LifecycleInputFinal(m,
             margin.Occurrences.Single(o=>o.Phase==FuturesMarginPhase.Final).At,null)),..this.children.SelectMany(c=>c.InputFinals)];
+    }
+    public ImmutableArray<LifecycleMarketUse> MarketUsesFor(DateTimeOffset horizon)
+    {
+        var expiry=option.Series.Terms.ExpiryAt<horizon?option.Series.Terms.ExpiryAt:horizon;
+        var final=margin.Occurrences.Single(o=>o.Phase==FuturesMarginPhase.Final).At;var through=final<horizon?final:horizon;
+        return [..new[]{new LifecycleMarketUse(underlyingMarket,expiry),new(expiryMarket,expiry),new(future.Market,through),new(marginMarket,through)}
+            .Concat(children.SelectMany(c=>c.MarketUsesFor(horizon))).GroupBy(u=>u.Market).Select(g=>new LifecycleMarketUse(g.Key,g.Max(u=>u.Through)))];
     }
     public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)
     {
