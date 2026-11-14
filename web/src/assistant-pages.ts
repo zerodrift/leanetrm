@@ -4,6 +4,7 @@
 import {grantPhrase,type Vendor} from './agent-grants.js';
 import {readPages,type Step,type Ending,type Usage,type TargetContext} from './assistant-events.js';
 import {physicalTabs,gasStages} from './physical-operations-grid.js';
+import {riskReportViews,riskViewNames,riskViews,type RiskView} from './risk-views.js';
 
 /**
  * What the Blotter shows of its panes and window, which its report states beside the selection (D271). A pane is open when it is the shown
@@ -31,15 +32,15 @@ export type PageState=(
   |{page:'reference';table:string;search:string}|{page:'parties';kind:string}
   |({page:'futures';risk:boolean;trade:TradeShown|null;entry:EntryShown|null;lens:'values'|'risk';view:BlotterSelection}&BlotterLayoutShown)
   |{page:'jobs';job:string|null}|({page:'ppa'}&PpaShown)|{page:'custom-curves';curve:string|null;unsaved:boolean}
-  |{page:'physical-operations';physical?:PhysicalShown}
-  |{page:'facilities'|'risk'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null};
+  |{page:'physical-operations';physical?:PhysicalShown}|{page:'risk';view:RiskView}
+  |{page:'facilities'|'dashboard'|'crude-setup'|'gas-setup'|'gas'|'crude'|'delivery'|'interval-series'|'interval-curves'|'vol-surfaces'|'admin'|'ai'})&{assistant?:WorkspaceSelection;digestView?:BlotterDigestView;focus?:PageFocus;businessDate?:string;facilityLedger?:string|null};
 // The knowledge a page shows: working data, with its As of frame once one is chosen; the selected historical view; or a
 // historical selection not yet applied, which pins nothing.
 export type PageContext={mode:'current';frameId:string|null;frameLabel:string|null;businessDate?:string}
   |{mode:'retained';contextId:string;effectiveOn:string;knownAtLabel:string;frameId:string|null;frameLabel:string|null}|{mode:'unapplied'};
 
 export const inconsistent=()=>Error('The assistant’s page is inconsistent. Reload it.');
-const unsupported:Record<string,string>={facilities:'facility_quantities',risk:'risk_jobs',dashboard:'dashboard','crude-setup':'crude_setup','gas-setup':'gas_setup',gas:'physical_gas',crude:'physical_crude',delivery:'delivery_prices','interval-series':'interval_series',
+const unsupported:Record<string,string>={facilities:'facility_quantities',dashboard:'dashboard','crude-setup':'crude_setup','gas-setup':'gas_setup',gas:'physical_gas',crude:'physical_crude',delivery:'delivery_prices','interval-series':'interval_series',
   'interval-curves':'interval_curves','vol-surfaces':'vol_surfaces',admin:'users_access',ai:'settings_ai'};
 // Pages the assistant reads but Navigate does not open (D250).
 const unopened:readonly string[]=['ppa'];
@@ -55,6 +56,8 @@ export function pageReport(state:PageState):PageReport{
   switch(state.page){
     case 'physical-operations':return {page:'physical_operations',selection:state.physical?{...state.physical}:{}};
     case 'facilities':return {page:'facility_quantities',selection:state.businessDate?{ledgerId:state.facilityLedger??null}:{},...(state.businessDate?{businessDate:state.businessDate}:{})};
+    // Risk names the view it shows, and only Reports the retained report open there (D392).
+    case 'risk':return {page:'risk_jobs',selection:{view:riskReportViews[state.view],...(state.view==='risk'&&state.assistant?state.assistant:{})}};
     case 'market':return {page:'curves',selection:state.curve===null?{view:'curves',curve:null}:{view:state.tab==='inputs'?'observations':'curve',curve:state.curve}};
     case 'power':return {page:'power_tous',selection:{view:state.frame?'power_hours':'tou_products'}};
     // Price setup has no assistant read contract; the panel stays unavailable on that view.
@@ -143,6 +146,7 @@ function shows(report:PageReport,names:Names,trade?:string){
     }
     case 'gas_setup':case 'crude_setup':return 'Published delivery setup and field definitions in the header context. Unsaved edits are not sent.';
     case 'facility_quantities':return 'Facility quantities and allocations at the header operating date and knowledge cutoff. Unsaved edits are not sent.';
+    case 'risk_jobs':return (s.operation?'The retained report open here · ':'')+'Authorized page operations, reads and previews. Changes require your authorization.';
     default:return ['dashboard','physical_gas','physical_crude','vol_surfaces'].includes(report.page)?'The assistant does not read this page.':'Authorized page operations, reads and previews. Changes require your authorization.';
   }
 }
@@ -155,6 +159,12 @@ function contextLine(context:PageContext){
 // Looking at's line for the Blotter's layout: its details and charts open or closed, and the window it is in.
 const layoutLine=({pane,poppedOut}:BlotterLayoutShown)=>
   [`Details ${pane.details?'open':'closed'}`,`Charts ${pane.charts?'open':'closed'}`,poppedOut?'Pop-out window':'Main window'].join(' · ');
+// The Risk view a report names, as its sidebar names it.
+function riskViewName(report:PageReport){
+  const view=riskViews.find(v=>riskReportViews[v]===report.selection.view);
+  if(!view)throw inconsistent();
+  return riskViewNames[view];
+}
 // Looking at: the page, what it shows, the Blotter's layout where it reports one, and the context the next question will pin, or that the
 // page is not read.
 export function lookingAt(report:PageReport,context:PageContext,names:Names,extra:{trade?:string;digest?:boolean}={}){
@@ -162,7 +172,7 @@ export function lookingAt(report:PageReport,context:PageContext,names:Names,extr
   // A page whose report names no selection yet, Reference data before it shows a table or PPA bookings before it lists a
   // book, has nothing to be asked from.
   const named=!(report.page==='reference_data'&&report.selection.table===''||report.page==='ppa'&&report.selection.view==='ppa_book'&&!(report.selection.bookIds as string[]).length);
-  return {page:pageNames[report.page],shows:shows(report,names,extra.trade)+(report.focus?.tradeIds.length?` · ${counted(report.focus.tradeIds.length,'selected position')}`:report.focus?.pivotCell?' · Selected pivot cell':'')+(extra.digest?' · The server will read a page digest.':''),...(report.layout?{layout:layoutLine(report.layout)}:{}),context:contextLine(context),supported:readPages.includes(report.page)||unopened.includes(report.page),
+  return {page:report.page==='risk_jobs'?`${pageNames.risk_jobs} · ${riskViewName(report)}`:pageNames[report.page],shows:shows(report,names,extra.trade)+(report.focus?.tradeIds.length?` · ${counted(report.focus.tradeIds.length,'selected position')}`:report.focus?.pivotCell?' · Selected pivot cell':'')+(extra.digest?' · The server will read a page digest.':''),...(report.layout?{layout:layoutLine(report.layout)}:{}),context:contextLine(context),supported:readPages.includes(report.page)||unopened.includes(report.page),
     askable:named&&askKnowledge(context,report.page)!==undefined};
 }
 

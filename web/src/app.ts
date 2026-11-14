@@ -1,7 +1,7 @@
 import {isCurvePage,setupCurveWorkspace} from './curve-workspace.js';
 import {setupPhysicalOperations} from './physical-operations.js';
 
-import {riskViewNames,setupRiskViews} from './risk-views.js';
+import {riskReportViews,riskViewNames,riskViews,setupRiskViews} from './risk-views.js';
 import {setupDeliverySetupSwitch} from './delivery-setup-switch.js';
 import {consoleMenu} from './console-menu.js';
 import {setupReferenceConsole} from './reference-console.js';
@@ -1371,7 +1371,7 @@ async function showPage(next:string){
 // Pages that read the selected historical view apply a changed one before they open.
 const readsContext=['physical-operations','crude-setup','gas-setup','gas','crude','dashboard','market','curve-definitions','custom-curves','vol-surfaces','delivery','interval-curves','power','reference','configuration','schedules','parties','futures'];
 const navigate=(next:string)=>()=>leaving(async()=>{if(contextDirty&&readsContext.includes(next))await applyContext();await showPage(next);},contextDirty&&readsContext.includes(next)?'discards':'page');
-const riskViewsNav=setupRiskViews({show:view=>{riskJobs.showView(view);text('page-title',riskViewNames[view]);$('page-title').title=riskViewNames[view];},open:()=>navigate('risk')(),onPage:()=>page==='risk',busy:()=>busy,available:()=>pageAvailable('risk',permissions)});
+const riskViewsNav=setupRiskViews({show:view=>{riskJobs.showView(view);text('page-title',riskViewNames[view]);$('page-title').title=riskViewNames[view];syncControls();},open:()=>navigate('risk')(),onPage:()=>page==='risk',busy:()=>busy,available:()=>pageAvailable('risk',permissions)});
 for(const name of ['physical-operations','facilities','dashboard','vol-surfaces','delivery','interval-series','jobs','admin','ai','futures'])
 
   $('nav-'+name).onclick=navigate(name);
@@ -1406,7 +1406,7 @@ function pageState():PageState{
     case 'crude-setup':case 'gas-setup':case 'gas':case 'crude':return {page};
     case 'ppa':return {page,...ppa.shown()};
     case 'custom-curves':return {page,...customCurves.report()};
-    case 'risk':return {page,assistant:riskJobs.assistant()};
+    case 'risk':return {page,view:riskViewsNav.current(),assistant:riskJobs.assistant()};
     case 'delivery':return {page,assistant:deliveryPrices.assistant()};
     case 'interval-series':return {page,assistant:intervalSeries.assistant()};
     case 'interval-curves':return {page,assistant:intervalCurves.assistant()};
@@ -1496,6 +1496,12 @@ async function showTarget(report:string,selection:Record<string,unknown>|null,ki
     }
     // A job's history opens its details on the page of the directory that lists it, found before the page changes.
     case 'jobs':{const job=await jobs.locateJob(String(selection.job));signal?.throwIfAborted();await setPage('jobs');jobs.showJob(job);return;}
+    // Risk opens on the view the place showed (D392).
+    case 'risk_jobs':{
+      const view=riskViews.find(v=>riskReportViews[v]===selection.view);
+      if(!view)throw Error('That Risk view is not one this page shows.');
+      await showPage('risk');signal?.throwIfAborted();riskViewsNav.select(view);return;
+    }
     case 'parties':{
       const kind=String(selection.kind);
       if(![...select('party-kind').options].some(o=>o.value===kind))throw Error('That kind of party is not one this page shows.');
