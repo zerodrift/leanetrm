@@ -32,6 +32,15 @@ public static class GasDeliveryPrincipal
     public static ImmutableArray<GasDeliveryPrincipalStep> Plan(Quantity original,ExactUnitPrice finalPrice,CashRoundingConvention rounding,
         string scope,ImmutableArray<GasDeliveryPrincipalPerformance> performances,ImmutableArray<GasDeliveryPrincipalPrevious> previous)
         =>PlanCore(original,finalPrice,rounding,scope,performances,previous,ImmutableHashSet<Guid>.Empty);
+    public static ImmutableArray<GasDeliveryPrincipalStep> PlanRetained(Quantity original,ExactUnitPrice finalPrice,CashRoundingConvention rounding,
+        string scope,ImmutableArray<GasDeliveryPrincipalPerformance> performances,ImmutableArray<Guid> retracted,ImmutableArray<GasDeliveryPrincipalPrevious> previous)
+    {
+        if(retracted.IsDefault||retracted.Length>16384||retracted.Any(id=>id==Guid.Empty)||retracted.Distinct().Count()!=retracted.Length||performances.IsDefault||performances.Any(p=>p is null))
+            throw Error("gas_delivery_principal_scope","Retain explicit distinct native retraction identities in the complete selected performance prefix.");
+        var identities=performances.Select(p=>p.Id).ToHashSet();
+        if(retracted.Any(id=>!identities.Contains(id)))throw Error("gas_delivery_principal_scope","Retractions must belong to the complete selected native performance prefix.");
+        return PlanCore(original,finalPrice,rounding,scope,performances,previous,retracted.ToImmutableHashSet());
+    }
     private static ImmutableArray<GasDeliveryPrincipalStep> PlanCore(Quantity original,ExactUnitPrice finalPrice,CashRoundingConvention rounding,
         string scope,ImmutableArray<GasDeliveryPrincipalPerformance> performances,ImmutableArray<GasDeliveryPrincipalPrevious> previous,ImmutableHashSet<Guid> retracted)
     {

@@ -65,6 +65,30 @@ internal static class GasDeliveryPrincipalChecks
             [first with{SignedQuantity=Q("0")},second with{SignedQuantity=Q("0")}],[first.Id,second.Id],
             [..multiplied.Select(s=>new GasDeliveryPrincipalQuantityPrior(s.Performance.Id,s.Performance.At,s.Contribution))]);
         Equal(cancelledNegative[0].Adjustment,"-1.26");Equal(cancelledNegative[1].Adjustment,"-1.26");
+        var afterRetraction=new GasDeliveryPrincipalPerformance(Guid.NewGuid(),"later_observed_delivery",second.At.AddDays(1),Q("0.25"));
+        var continued=GasDeliveryPrincipal.PlanRetained(Q("3"),ExactUnitPrice.Parse("1.01",unit),rounding,GasDeliveryPrincipal.Scope,
+            [first with{SignedQuantity=Q("0")},second,afterRetraction],[first.Id],
+            [..retracted.Select(s=>new GasDeliveryPrincipalPrevious(s.Performance.Id,s.Contribution))]);
+        Equal(continued[0].Contribution,"0");Equal(continued[1].Adjustment,"0");Equal(continued[2].Contribution,"-0.26");
+        Equal(continued[^1].RoundedCumulative,"-0.76");
+        Reject("gas_delivery_principal_scope",()=>GasDeliveryPrincipal.PlanRetained(Q("3"),ExactUnitPrice.Parse("1.01",unit),rounding,GasDeliveryPrincipal.Scope,
+            [first with{SignedQuantity=Q("0")},second],[Guid.NewGuid()],[]));
+        Reject("gas_delivery_principal_scope",()=>GasDeliveryPrincipal.PlanRetained(Q("3"),ExactUnitPrice.Parse("1.01",unit),rounding,GasDeliveryPrincipal.Scope,
+            [first with{SignedQuantity=Q("0")},second],[first.Id,first.Id],[]));
+        var unused=GasSourceAllocation.Plan(Q("1"),Q("0.25"),Q("0.75"),Q("0"),GasSourceAllocation.Preserve);
+        if(unused.PreviouslyUnallocated.Amount!=ExactDecimal.Parse("0.75")||unused.Unallocated.Amount!=ExactDecimal.Parse("0.75"))
+            throw new Exception("A partial source correction changed unused capacity into owned stock.");
+        var withdrawn=GasSourceAllocation.Plan(Q("1"),Q("0.25"),Q("0"),Q("0"),GasSourceAllocation.Withdraw);
+        if(withdrawn.PreviouslyUnallocated.Amount!=ExactDecimal.Parse("0.75")||withdrawn.Unallocated.Amount!=default)
+            throw new Exception("Explicit full source withdrawal must discard unused capacity without creating an asset.");
+        Reject("gas_source_allocation",()=>GasSourceAllocation.Plan(Q("1"),Q("0.25"),Q("0"),Q("0"),GasSourceAllocation.Preserve));
+        Reject("gas_source_allocation",()=>GasSourceAllocation.Plan(Q("1"),Q("0.25"),Q("0.75"),Q("0"),GasSourceAllocation.Withdraw));
+        Reject("gas_source_allocation",()=>GasSourceAllocation.Plan(Q("1"),Q("0.25"),Q("1"),Q("0"),GasSourceAllocation.Preserve));
+        if(GasSourceAllocation.Enroll(Q("1"),Q("0.25")).Amount!=ExactDecimal.Parse("0.75"))throw new Exception("Initial source enrollment lost its unused evidence capacity.");
+        Reject("gas_source_allocation",()=>GasSourceAllocation.Enroll(Q("1"),Q("0")));
+        Reject("gas_source_allocation",()=>GasSourceAllocation.Plan(Q("1"),Q("2"),Q("1"),Q("0"),GasSourceAllocation.Preserve));
+        Reject("gas_source_allocation",()=>GasSourceAllocation.Plan(Q("1"),Q("0.25"),Q("1"),new(ExactDecimal.Parse("0.25"),unit.Currency),GasSourceAllocation.Preserve));
+        Console.WriteLine("PASS bounded source allocation: preserved unused evidence, explicit full withdrawal, separate enrollment and exact quantity-unit bounds");
         Console.WriteLine("PASS quantity reconciliation principal: full retraction refunds, zero prefixes, separate contribution adjustments and explicit timing refusal");
         Console.WriteLine("PASS physical delivery principal: cumulative held rounding, source-known future prefixes, backdated contribution corrections, signed consideration and stable UTF-8 ordering");
         void Equal(Money amount,string expected){if(amount.Amount!=ExactDecimal.Parse(expected))throw new Exception($"Expected {expected}; got {amount.Amount}.");}
