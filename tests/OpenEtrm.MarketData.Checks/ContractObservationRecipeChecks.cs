@@ -95,20 +95,21 @@ internal static class ContractObservationRecipeChecks
         Refused("A gap in ordinals",Term(node,2,t=>t with{Ordinal=3}));
         foreach(var weight in new[]{"0","-1","2/3"})Refused($"Weight {weight}",Term(node,1,t=>t with{Weight=weight}));
         Refused("A spread against its own position",Term(node,1,t=>t with{LessPosition=1}));
-        // Every term refusal names the term's ordinal and the member at fault, so an editor row in progress is answered beside the operation.
-        void Names(string label,int ordinal,string member,RecipeNode candidate)=>
-            Message(label,"recipe_definition",$"Observation term {ordinal} {member}:",()=>RecipeEngine.Validate(Definition(candidate)));
-        Names("A blank position",1,"position",Term(node,1,t=>t with{Position=null}));
-        Names("Position 0",1,"position",Term(node,1,t=>t with{Position=0}));
-        Names("Position 121",2,"position",Term(node,2,t=>t with{Position=121}));
-        Names("Spread position 121",1,"lessPosition",Term(node,1,t=>t with{LessPosition=121}));
-        Names("A spread named by its own position",1,"lessPosition",Term(node,1,t=>t with{LessPosition=1}));
-        Names("An invalid group",0,"group",Term(node,0,t=>t with{Group="Average"}));
-        Names("An unsupported period",2,"period",Term(node,2,t=>t with{Period="average_month_v1"}));
+        // Every term refusal names the term as the editor numbers its rows, from 1, and the member at fault, so an editor row in
+        // progress is answered beside the operation. The ordinal stays 0-based.
+        void Names(string label,int number,string member,RecipeNode candidate)=>
+            Message(label,"recipe_definition",$"Observation term {number} {member}:",()=>RecipeEngine.Validate(Definition(candidate)));
+        Names("A blank position",2,"position",Term(node,1,t=>t with{Position=null}));
+        Names("Position 0",2,"position",Term(node,1,t=>t with{Position=0}));
+        Names("Position 121",3,"position",Term(node,2,t=>t with{Position=121}));
+        Names("Spread position 121",2,"lessPosition",Term(node,1,t=>t with{LessPosition=121}));
+        Names("A spread named by its own position",2,"lessPosition",Term(node,1,t=>t with{LessPosition=1}));
+        Names("An invalid group",1,"group",Term(node,0,t=>t with{Group="Average"}));
+        Names("An unsupported period",3,"period",Term(node,2,t=>t with{Period="average_month_v1"}));
         foreach(var weight in new[]{"0","-1","2/3",""," 1","1e2","1.0000000000000000001","9999999999999999999999999"})
-            Names($"Weight '{weight}'",1,"weight",Term(node,1,t=>t with{Weight=weight}));
+            Names($"Weight '{weight}'",2,"weight",Term(node,1,t=>t with{Weight=weight}));
         // Each weight is in range but their group's sum is not: the recipe could never evaluate, so it refuses when saved.
-        Message("A group whose weights cannot be summed","recipe_definition","Observation group roll weights:",()=>RecipeEngine.Validate(Definition(
+        Message("A group whose weights cannot be summed","recipe_definition","Observation group roll weights: the weights of terms 2, 3 must sum below 10^24.",()=>RecipeEngine.Validate(Definition(
             Term(Term(node,1,t=>t with{Weight="999999999999999999999999"}),2,t=>t with{Weight="999999999999999999999999"}))));
         Code("Observation terms on another kind","recipe_definition",()=>RecipeEngine.Validate(Definition(node) with{Nodes=Definition(node).Nodes.SetItem(0,
             Definition(node).Nodes[0] with{ObservationTerms=node.ObservationTerms})}));
@@ -119,7 +120,7 @@ internal static class ContractObservationRecipeChecks
         Code("No delivery contract","recipe_input",()=>RecipeEngine.ObservationWindows(Set(RollOnly(node),"targetFrom","2027-06-01"),source,calendar,noon));
         Code("A first delivery contract has no trade-month start","recipe_input",()=>RecipeEngine.ObservationWindows(Set(RollOnly(node),"targetFrom","2026-12-01"),source,calendar,noon));
         Code("A position beyond the universe","recipe_input",()=>RecipeEngine.ObservationWindows(Term(node,0,t=>t with{Position=5}),source,calendar,noon));
-        Code("No business day in the window","recipe_input",()=>RecipeEngine.ObservationWindows(node,source,
+        Message("No business day in the window","recipe_input","Term 1 has no observation day for 2027-01.",()=>RecipeEngine.ObservationWindows(node,source,
             DateSet.Create(new(2026,11,1),new(2027,4,1),[new(2026,11,2)]),noon));
 
         // Prices through the connected plan. Each contract has one daily-settlement series; a day's rows share one snapshot.
@@ -338,7 +339,7 @@ internal static class ContractObservationRecipeChecks
         Equal("formula round trip",RecipeFormula.Format(compiled),text);
         Equal("formula text keeps the terms",compiled.SameGraph(recipe),true);
         Code("A term without its explicit spread position","recipe_formula",()=>RecipeFormula.Compile(text.Replace("\"lessPosition\":null,",""),recipe.Code,recipe.Name));
-        Message("A blank position in formula text","recipe_definition","Observation term 1 position:",()=>RecipeFormula.Compile(
+        Message("A blank position in formula text","recipe_definition","Observation term 2 position:",()=>RecipeFormula.Compile(
             text.Replace("\"ordinal\":1,\"group\":\"roll\",\"weight\":\"2\",\"position\":1,","\"ordinal\":1,\"group\":\"roll\",\"weight\":\"2\",\"position\":null,",StringComparison.Ordinal),recipe.Code,recipe.Name));
         Code("A term with an unknown member","recipe_formula",()=>RecipeFormula.Compile(text.Replace("\"ordinal\":0,","\"ordinal\":0,\"script\":\"x\",",StringComparison.Ordinal),recipe.Code,recipe.Name));
         // The declaration retains the terms and the resolved windows.

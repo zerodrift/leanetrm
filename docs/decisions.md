@@ -4623,8 +4623,9 @@ Refusals are structured:
   gapped or more than 16 terms; a term with an invalid group, a missing (`null`)
   or out-of-range position, an invalid or equal second position, an unsupported
   period, or a weight that is not positive exact decimal text below 10^24 with at
-  most 18 fractional digits, each message naming the term's ordinal and member
-  (for example `Observation term 1 position: …`); a group whose weights cannot be
+  most 18 fractional digits, each message naming the term, numbered from 1 as
+  the editor labels its rows (the `ordinal` stays 0-based), and the member
+  (for example `Observation term 2 position: …` for ordinal 1); a group whose weights cannot be
   summed below 10^24, refused when saved because the recipe could never
   evaluate; a calendar on a calendar-day node or none on a business-day node;
   terms on another kind; an unsupported consumer. A position member that is
@@ -4691,7 +4692,7 @@ factor; G +1 gives 70.56, H +1 gives 70.36); 70.02 on 2027-01-20 with G frozen
 observation, a context frame without the context day's contract or with only an
 earlier mark of it, a frozen sample from a past frame, a composite (`Add`)
 source and a source carrying contract price terms on an observation-day context,
-and the ordinal and member each term refusal names. Planning
+and the term number and member each term refusal names. Planning
 a consumer at 2027-01-20 refuses with `recipe_input` when only the context
 instant is supplied; with the sampling instant of every window day it plans
 sixteen native inputs (F, G and H on each December day, G on 2027-01-18 and

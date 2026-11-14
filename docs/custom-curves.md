@@ -256,10 +256,13 @@ curves and has no settlement or mark of its own to freeze. Managed checks cover
 both; each has its own message. Such a curve's kind is `observation_formula`. Formula mode carries the
 rows in a typed `observationTerms=[...]` argument. The terms enter graph
 equality and formula text; the terms and the resolved windows enter the
-canonical declaration and its manifest. Each term refusal is
-`recipe_definition` and names the term's ordinal and member, for example
-`Observation term 1 position: …` for a blank (`null`) position; a group whose
-weights cannot be summed below 10^24 refuses when saved. Other refusals are structured: a
+canonical declaration and its manifest. Refusals number terms from 1, as the
+editor labels its rows, while the stored and sent `ordinal` is 0-based. Each
+term refusal is `recipe_definition` and names the term and member, for example
+`Observation term 2 position: …` for a blank (`null`) position of the term with
+ordinal 1; a group whose weights cannot be summed below 10^24 refuses when saved,
+naming its terms the same way, and a window with no observation day refuses with
+`recipe_input` naming the term (`Term 1 has no observation day for 2027-01.`). Other refusals are structured: a
 trade-month target without one delivery contract or without a prior contract, a
 position beyond the universe, a calendar that does not cover a window or an
 empty window refuse with `recipe_input`; a missing or mismatched calendar pin

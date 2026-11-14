@@ -148,7 +148,7 @@ def run_checks(url,query,manifest,dotnet,owned_root,environment):
     # A term whose position is blank reaches validation, which names the term and its position.
     draft=deepcopy(DEFINITION);observed(draft)['observationTerms'][1]['position']=None
     refused=preview(None,draft,422,context)
-    assert refused['code']=='recipe_definition' and refused['message'].startswith('Observation term 1 position:'),refused
+    assert refused['code']=='recipe_definition' and refused['message'].startswith('Observation term 2 position:'),refused
     draft=deepcopy(DEFINITION);del observed(draft)['parameters']['calendar']
     refused=preview(None,draft,422,context)
     assert (refused['code'],refused['message'])==('custom_curve_definition','Business-day windows require an exact reference calendar.'),refused

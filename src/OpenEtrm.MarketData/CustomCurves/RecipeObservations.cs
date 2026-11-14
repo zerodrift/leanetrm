@@ -47,7 +47,7 @@ public static partial class RecipeEngine
                 _=Resolve(day,term.Position!.Value);if(term.LessPosition is {} less)_=Resolve(day,less);
                 kept.Add(day);
             }
-            if(kept.Count==0)throw Missing($"Term {term.Ordinal} has no observation day for {target.From:yyyy-MM}.");
+            if(kept.Count==0)throw Missing($"Term {term.Ordinal+1} has no observation day for {target.From:yyyy-MM}.");
             windows.Add(new(target,term.Ordinal,kept.ToImmutable()));
         }
         return windows.ToImmutable();
@@ -130,11 +130,11 @@ public static partial class RecipeEngine
         var count=Number(node,"targetCount",1,120);var terms=node.ObservationTerms;
         if(terms.IsDefaultOrEmpty||terms.Length>16||terms.Any(t=>t is null)||!terms.Select(t=>t.Ordinal).Order().SequenceEqual(Enumerable.Range(0,terms.Length)))
             throw Invalid("State one to 16 observation terms with contiguous ordinals from 0.");
-        // Each refusal names the term and the member at fault.
+        // Each refusal names the term and the member at fault, numbering terms from 1 as the editor does; ordinals stay 0-based.
         var weights=new Dictionary<int,ExactDecimal>();
         foreach(var term in terms.OrderBy(t=>t.Ordinal))
         {
-            MarketDataException Term(string member,string requirement)=>Invalid($"Observation term {term.Ordinal} {member}: {requirement}");
+            MarketDataException Term(string member,string requirement)=>Invalid($"Observation term {term.Ordinal+1} {member}: {requirement}");
             if(!Identity(term.Group))throw Term("group","name its group with a lowercase identifier of at most 32 characters.");
             if(term.Position is not (>=1 and <=120))throw Term("position","choose a contract position from 1 to 120.");
             if(term.LessPosition is <1 or >120||term.LessPosition==term.Position)throw Term("lessPosition","choose none or a contract position from 1 to 120 other than its position.");
@@ -148,7 +148,7 @@ public static partial class RecipeEngine
         foreach(var group in terms.GroupBy(t=>t.Group,StringComparer.Ordinal))
             try{_=group.Aggregate(default(ExactDecimal),(sum,term)=>sum+weights[term.Ordinal]);}
             catch(MarketDataException error)when(error.Code=="numeric_range")
-            {throw Invalid($"Observation group {group.Key} weights: the weights of terms {string.Join(", ",group.Select(t=>t.Ordinal).Order())} must sum below 10^24.");}
+            {throw Invalid($"Observation group {group.Key} weights: the weights of terms {string.Join(", ",group.Select(t=>t.Ordinal+1).Order())} must sum below 10^24.");}
         return([..Enumerable.Range(0,count).Select(i=>new RecipeDelivery(from.AddMonths(i),from.AddMonths(i+1)))],days,[..terms.OrderBy(t=>t.Ordinal)]);
     }
 }

@@ -84,7 +84,7 @@ export async function run({command,evaluate,wait,click,set,persona,check,idle,ur
  await set(term('Weight',2),'2');await click('#custom-curve-add-term');
  for(const [field,value] of [['Group','roll'],['Weight','1'],['Period','trade_month_of_delivery_contract_v1']])await set(term(field,4),value);
  await click('#custom-curves-preview');
- await check('the backend refuses the blank position of the new term and its message is shown beside the operation',`(()=>{const r=${last('preview')},n=r${observed};return r.status===422&&r.data.code==='recipe_definition'&&n.observationTerms.length===4&&n.observationTerms[3].position===null&&r.data.message.startsWith('Observation term 3 position:')&&!document.querySelector('#error').hidden&&document.querySelector('#custom-curves-refusal').textContent===r.data.message&&document.querySelector('#custom-curves-inspector').contains(document.querySelector('#custom-curves-refusal'));})()`,detail);
+ await check('the backend refuses the blank position of the new term and its message is shown beside the operation',`(()=>{const r=${last('preview')},n=r${observed};return r.status===422&&r.data.code==='recipe_definition'&&n.observationTerms.length===4&&n.observationTerms[3].position===null&&r.data.message.startsWith('Observation term 4 position:')&&!document.querySelector('#error').hidden&&document.querySelector('#custom-curves-refusal').textContent===r.data.message&&document.querySelector('#custom-curves-inspector').contains(document.querySelector('#custom-curves-refusal'));})()`,detail);
 
  // Text the field cannot read as a whole number is sent as typed, never as a blank: a blank second position would be a legal
  // "no spread". The backend refuses it, no price is shown and the refusal is visible.
