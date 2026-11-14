@@ -6,7 +6,7 @@ import {clearChart,renderChart} from './chart-view.js';
 import type {HistoryRequest} from './factor-history.js';
 import {sameUtcInstant} from './user-time.js';
 import {canonicalEconomic,restoreEconomicCommand,validateEconomicReport,requireEconomicCalculationReceipt,type EconomicChoice,type EconomicSetup,type EconomicSourceRequest,
- type EconomicSources,type EconomicHistory,type EconomicRequest,type EconomicReport,type EconomicJob,type EconomicSpec} from './economic-risk.js';
+ type EconomicSources,type EconomicHistory,type EconomicRequest,type EconomicReport,type EconomicJob,type EconomicSpec,type EconomicCashFunding} from './economic-risk.js';
 
 type Options={api:<T>(path:string,body?:unknown)=>Promise<T>;act:(work:()=>Promise<void>)=>Promise<void>;busy:()=>boolean;canRun:()=>boolean;
  identity:()=>string;scope:()=>EconomicSourceRequest['scope'];instant:(at:string)=>string;zone:()=>string;unconfirmed:()=>boolean;
@@ -26,6 +26,8 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
  const path=select(sourceFields,'price-path','Market path to the next close'),disposition=select(sourceFields,'cash-disposition','Scheduled cash'),accumulation=select(sourceFields,'cash-accumulation','Cash value at the horizon');
  const expiry=select(sourceFields,'input-expiry','Expiring market inputs'),physical=select(sourceFields,'physical-delivery','New physical delivery obligations');
  const gas=node('details'),gasBody=node('div');gas.append(node('summary','Saved gas account projection profiles'),node('p','Select profiles for required owned-gas accounts and any explicitly linked supply or inventory destinations. The backend checks the complete scope.'),gasBody);gasBody.className='factor-history-fields';
+ const funding=node('div'),fundingBody=node('div'),fundingRead=button('funding-read','Read cash funding choices');funding.dataset.economic='funding';fundingBody.className='factor-history-fields';fundingRead.className='secondary';
+ funding.append(node('p','Choose a captured funding curve for each currency. These choices carry period cash to the horizon.'),fundingRead,fundingBody);
  const method=select(riskFields,'method','Event-aware method'),confidence=input(riskFields,'confidence','Confidence · decimal, for example 0.99');confidence.inputMode='decimal';
  const historyFields=node('div');historyFields.className='factor-history-fields';historyFields.dataset.economic='history-fields';
  const calendar=select(historyFields,'calendar','History business calendar'),from=input(historyFields,'from','First history date · inclusive','date'),to=input(historyFields,'to','End history date · exclusive','date');
@@ -34,10 +36,11 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
  const drift=select(simulationFields,'drift','Market-move mean'),paths=input(simulationFields,'paths','Simulation paths','number'),seed=input(simulationFields,'seed','Reproducible random seed');paths.min='2';paths.step='1';seed.inputMode='numeric';
  const preview=button('history','Prepare complete price history'),run=button('run','Run event-aware VaR / ES',true),queue=button('queue','Queue event-aware job',true);queue.className=preview.className=sourceButton.className='secondary';
  const actions=node('div');actions.className='actions';actions.append(preview,run,queue);
- fields.append(sourceFields,gas,sourceButton,sourceSummary,riskFields,historyFields,simulationFields,actions);form.append(fields,note,pendingHost);
+ fields.append(sourceFields,gas,funding,sourceButton,sourceSummary,riskFields,historyFields,simulationFields,actions);form.append(fields,note,pendingHost);
  host.replaceChildren(node('h3','Event-aware economic VaR / ES'),node('p','Revalue the full portfolio through the next configured close, including contractual events, surviving holdings and cash. Every path uses the same horizon. Market paths use the selected contract curves; captured rates and option volatility stay fixed.'),configureButton,form,coverage);
  let epoch=0,owner='',scopeStamp='',configuration:EconomicSetup|undefined,source:EconomicSources|undefined,history:EconomicHistory|undefined;
  let report:EconomicReport|undefined,job:EconomicJob|undefined,timer:ReturnType<typeof setTimeout>|undefined,chart:HTMLElement|undefined,dirty=false,allowed=false;
+ let fundingChoices:EconomicCashFunding|undefined,fundingStamp='';const fundingInputs=new Map<string,HTMLSelectElement>();
  const gasInputs=new Map<string,HTMLSelectElement>(),commands=new Map<string,PendingCommand>(),transports=new Map<string,ReturnType<typeof actorTransport<RequestCommand>>>();
  function transport(actor:string){let saved=transports.get(actor);if(!saved){saved=actorTransport(()=>`openetrm.economic-risk.submission:${actor}`,()=>sessionStorage);transports.set(actor,saved);}return saved;}
  function pending(actor=o.identity()){let command=commands.get(actor);if(!command){command=new PendingCommand(knownRiskRejection);command.command=restoreEconomicCommand(transport(actor).read());commands.set(actor,command);}return command;}
@@ -48,7 +51,9 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
  function chosen(control:HTMLSelectElement,choices:EconomicChoice[],label:string){const item=choices.find(c=>c.value===control.value);if(!item)throw Error('Choose '+label+'.');return item.value;}
  function stop(){if(timer!==undefined)clearTimeout(timer);timer=undefined;}
  function clearReport(){stop();if(chart)clearChart(chart);chart=undefined;report=undefined;job=undefined;resultHost.replaceChildren();resultHost.hidden=true;}
- function invalidateSource(){epoch++;source=undefined;history=undefined;sourceSummary.textContent='';coverage.replaceChildren();method.replaceChildren(new Option('Prepare the complete source first…',''));dirty=true;describe();sync();o.changed();}
+ function clearFunding(){fundingChoices=undefined;fundingStamp='';fundingInputs.clear();fundingBody.replaceChildren();}
+ function invalidatePrepared(){epoch++;source=undefined;history=undefined;sourceSummary.textContent='';coverage.replaceChildren();method.replaceChildren(new Option('Prepare the complete source first…',''));dirty=true;describe();sync();o.changed();}
+ function invalidateSource(){clearFunding();invalidatePrepared();}
  function invalidateHistory(){epoch++;history=undefined;coverage.replaceChildren();dirty=true;describe();sync();o.changed();}
  function describe(){
   const selected=configuration?.risk.methods.find(m=>m.value===method.value);
@@ -57,6 +62,8 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   for(const control of historyFields.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select'))control.disabled=historyFields.hidden;
   for(const control of simulationFields.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input,select'))control.disabled=simulationFields.hidden;
   gas.hidden=!configuration?.gasAccounts.length||!configuration.pricing.find(p=>p.value===pricing.value)?.policy.gasOwned;
+  funding.hidden=configuration?.projection.cashFunding!==true||configuration.projection.cashAccumulation.find(c=>c.value===accumulation.value)?.requiresFunding!==true;
+  for(const control of fundingInputs.values())control.disabled=funding.hidden;
  }
  function drawPending(){
   const command=pending().command;pendingHost.replaceChildren();pendingHost.hidden=!command;
@@ -69,11 +76,11 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   if(available!==undefined)allowed=available;
   const locked=o.busy()||!allowed||!o.canRun()||!!pending().command||o.unconfirmed();
   configureButton.disabled=o.busy()||!allowed||!o.canRun()||!!pending().command||o.unconfirmed();fields.disabled=locked||!configuration;
-  sourceButton.disabled=locked||!configuration;run.disabled=queue.disabled=locked||!source||!sameScope()||!method.value;
+  sourceButton.disabled=fundingRead.disabled=locked||!configuration;run.disabled=queue.disabled=locked||!source||!sameScope()||!method.value;
   preview.disabled=locked||!source||!method.value;drawPending();
  }
  function reset(){
-  epoch++;clearReport();configuration=undefined;source=undefined;history=undefined;owner=o.identity();scopeStamp='';dirty=false;gasInputs.clear();gasBody.replaceChildren();coverage.replaceChildren();form.reset();
+  epoch++;clearReport();clearFunding();configuration=undefined;source=undefined;history=undefined;owner=o.identity();scopeStamp='';dirty=false;gasInputs.clear();gasBody.replaceChildren();coverage.replaceChildren();form.reset();
   for(const control of sourceFields.querySelectorAll<HTMLSelectElement>('select'))control.replaceChildren(new Option('Choose…',''));
   method.replaceChildren(new Option('Prepare the complete source first…',''));calendar.replaceChildren(new Option('Choose…',''));sourceSummary.textContent='';note.textContent='Read setup for the selected Risk scope.';describe();sync();
  }
@@ -94,17 +101,56 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
    describe();
   }catch(error){if(current(version)){configuration=undefined;note.textContent=error instanceof Error?error.message:'Event-aware setup is unavailable.';}throw error;}finally{if(current(version))sync();}
  }
- function sourceRequest():EconomicSourceRequest{
+ function sourceRequest(metadata=false):EconomicSourceRequest{
   const c=configuration;if(!c||!sameScope()||owner!==o.identity())throw Error('The opening scope changed. Read event-aware setup again.');
   const price=c.pricing.find(p=>p.value===chosen(pricing,c.pricing,'a holdings and valuation profile'))!;
   const selected=c.sessions.find(s=>JSON.stringify([s.code,s.version])===session.value);if(!selected)throw Error('Choose the next-close schedule.');
   const gasOwned=price.policy.gasOwned?c.gasAccounts.flatMap(a=>{const control=gasInputs.get(a.accountId)!;if(!control.value)return[];const profile=a.profiles.find(p=>JSON.stringify([p.profileId,p.revision])===control.value);if(!profile)throw Error('Reread the selected gas account profile.');return[{accountId:a.accountId,profileId:profile.profileId,revision:profile.revision}];}):[];
   const scope=structuredClone(c.scope);scope.bookIds.sort();scope.portfolioIds.sort();scope.tradeIds?.sort();
-  return {scope,pricingPolicy:structuredClone(price.policy),projection:{implementation:c.projection.implementation,session:selected.code,sessionVersion:selected.version,
+  const request:EconomicSourceRequest={scope,pricingPolicy:structuredClone(price.policy),projection:{implementation:c.projection.implementation,session:selected.code,sessionVersion:selected.version,
    horizonPolicy:c.projection.horizonPolicy,rateTimingPolicy:c.projection.rateTimingPolicy,eventMarketPolicy:c.projection.eventMarketPolicy,gasOwned,
    policy:{...c.projection.policy,pricePath:chosen(path,c.projection.pricePaths,'a market path'),cashDisposition:chosen(disposition,c.projection.cashDisposition,'a scheduled cash treatment'),
     cashAccumulation:chosen(accumulation,c.projection.cashAccumulation,'a cash accumulation treatment'),inputExpiry:chosen(expiry,c.projection.inputExpiry,'an input-expiry treatment'),
     physicalDelivery:chosen(physical,c.projection.physicalDelivery,'a physical delivery treatment')}}};
+  if(c.projection.cashFunding===true&&!metadata){
+   const treatment=c.projection.cashAccumulation.find(p=>p.value===accumulation.value)!;
+   if(typeof treatment.requiresFunding!=='boolean')throw Error('Reread the supported cash funding treatments.');
+   request.projection.cashAccumulationSelections=treatment.requiresFunding?selectedFunding(request):[];
+  }
+  return request;
+ }
+ function selectedFunding(request:EconomicSourceRequest){
+  if(!fundingChoices||fundingStamp!==canonicalEconomic(request))throw Error('Read cash funding choices, then choose a curve for every currency.');
+  return fundingChoices.currencies.map(currency=>{
+   const control=fundingInputs.get(canonicalEconomic(currency));
+   const selected=fundingChoices!.choices.find(c=>canonicalEconomic(c.selection.currency)===canonicalEconomic(currency)&&canonicalEconomic(c.selection)===control?.value);
+   if(!selected)throw Error('Choose a cash funding curve for '+currency.code+'.');return structuredClone(selected.selection);
+  });
+ }
+ async function readFunding(){
+  const request=sourceRequest(true);
+  if(configuration?.projection.cashFunding!==true||configuration.projection.cashAccumulation.find(c=>c.value===accumulation.value)?.requiresFunding!==true)
+   throw Error('Choose a cash treatment that uses a selected funding curve.');
+  clearFunding();invalidatePrepared();const version=epoch;note.textContent='Reading captured funding curves for the complete component currencies…';
+  const value=await o.api<EconomicCashFunding>('portfolio/risk/economic/cash-funding',request);if(!current(version)||!sameScope())return;
+  const keys=value?.currencies?.map(c=>canonicalEconomic(c));
+  if(value?.snapshotId!==request.scope.context.snapshotId||canonicalEconomic(value.context)!==canonicalEconomic(configuration.context)||
+   !Array.isArray(value.currencies)||!value.currencies.length||new Set(keys).size!==value.currencies.length||!Array.isArray(value.choices)||
+   value.currencies.some(c=>!c?.code||!c.revision?.catalogId||!c.revision.revisionId)||
+   new Set(value.choices.map(c=>canonicalEconomic(c.selection))).size!==value.choices.length||
+   value.choices.some(c=>!c.selection||!keys!.includes(canonicalEconomic(c.selection.currency))||c.selection.snapshotId!==value.snapshotId||
+    !c.selection.mappingId||!c.selection.definitionId||!Number.isSafeInteger(c.selection.definitionVersion)||c.selection.definitionVersion<1||
+    !c.selection.curve?.revision?.catalogId||!c.selection.curve.revision.revisionId||!c.selection.curve.code||!c.label||!c.currencyLabel||!c.sourceLabel||!sameUtcInstant(c.effectiveAt,c.effectiveAt)))
+   throw Error('The funding choices do not match this exact captured scope. Read setup again.');
+  fundingChoices=value;fundingStamp=canonicalEconomic(request);
+  for(const currency of value.currencies){
+   const choices=value.choices.filter(c=>canonicalEconomic(c.selection.currency)===canonicalEconomic(currency));
+   const control=select(fundingBody,'funding-curve',choices[0]?.currencyLabel??currency.code);
+   control.append(...choices.map(c=>new Option(c.label+' · '+c.sourceLabel+' · effective '+o.instant(c.effectiveAt),canonicalEconomic(c.selection))));
+   control.onchange=invalidatePrepared;fundingInputs.set(canonicalEconomic(currency),control);
+   if(!choices.length)fundingBody.append(node('p','No captured funding curve is available for '+currency.code+'. Update the source or its funding configuration.'));
+  }
+  note.textContent='Select a funding curve for every currency, then prepare the complete source.';describe();sync();
  }
  async function prepare(){
   const request=sourceRequest(),version=epoch;history=undefined;source=undefined;coverage.replaceChildren();sourceSummary.textContent='Preparing every transition and surviving-holding dependency…';sync();
@@ -171,13 +217,13 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
   if(job){resultHost.append(node('p','Retained job · '+job.state));if(job.error)resultHost.append(node('p',job.error.message));}
   if(!report)return;
   const r=report.result;resultHost.append(node('p',`Opening ${o.instant(report.asOf)} · horizon ${o.instant(r.horizon)} · known as of ${o.instant(report.context.knownAt)} · ${o.zone()}`),
-   node('p',r.samples===undefined?'Deterministic time and carry · complete preparation found no variable factors.':`${r.samples} complete full-revaluation paths · ${report.factors.length} factors. A failed path stops the complete run.`),
+   node('p',r.samples===undefined?'No variable market factors · complete lifecycle revaluation.':`${r.samples} complete full-revaluation paths · ${report.factors.length} factors. A failed path stops the complete run.`),
    node('p','Economic loss compares horizon residual value plus horizon-valued period cash with opening value. Signed gains can produce negative VaR and expected shortfall.'));
   const currencyName=(ref:unknown)=>report!.holdings.find(h=>canonicalEconomic(h.currencyReference)===canonicalEconomic(ref))?.currency??'Currency';
   resultHost.append(table(['Currency','Economic VaR','Economic expected shortfall','Mean economic loss'],r.economic.map(p=>[currencyName(p.currency),amountText(p.valueAtRisk,'money'),amountText(p.expectedShortfall,'money'),amountText(p.mean,'money')])));
-  resultHost.append(node('h4','No-shock time and carry'),table(['Holding','Book','Currency','Opening value','Horizon residual','Period cash at horizon','Economic P&L'],report.holdings.map(h=>[
+  resultHost.append(node('h4','No-shock P&L'),table(['Holding','Book','Currency','Opening value','Horizon residual','Period cash at horizon','Economic P&L'],report.holdings.map(h=>[
    h.reference+(h.instrument?' · '+h.instrument:''),h.book,h.currency,amountText(h.openingValue,'money'),amountText(h.residualValue,'money'),amountText(h.periodCash,'money'),amountText(h.economicPnl,'money')])));
-  const diagnostic=node('details');diagnostic.append(node('summary','Market-only diagnostic · compared with no-shock horizon wealth'),node('p','This separate diagnostic removes the displayed time and carry from its comparison value. The economic VaR and expected shortfall above retain them.'),
+  const diagnostic=node('details');diagnostic.append(node('summary','Market-only diagnostic · compared with no-shock horizon wealth'),node('p','This diagnostic compares each market scenario with the no-shock P&L. Economic VaR and expected shortfall include source-known events and the selected cash treatment.'),
    table(['Currency','Market-only VaR','Market-only expected shortfall'],r.marketOnlyDiagnostic.map(p=>[currencyName(p.currency),amountText(p.valueAtRisk,'money'),amountText(p.expectedShortfall,'money')])));resultHost.append(diagnostic);
   const contributions=node('details');contributions.append(node('summary','Economic tail contributions by book and owner'));
   for(const partition of r.economic){
@@ -230,13 +276,13 @@ export function setupEconomicRisk(host:HTMLElement,resultHost:HTMLElement,o:Opti
    }catch(error){if(current(version,actor))note.textContent=error instanceof Error?error.message:'Economic revaluation failed.';throw error;}
   }
  }
- configureButton.onclick=()=>void o.act(configure);sourceButton.onclick=()=>void o.act(prepare);preview.onclick=()=>void o.act(async()=>{await captureHistory();});
+ configureButton.onclick=()=>void o.act(configure);sourceButton.onclick=()=>void o.act(prepare);fundingRead.onclick=()=>void o.act(readFunding);preview.onclick=()=>void o.act(async()=>{await captureHistory();});
  form.onsubmit=event=>{event.preventDefault();const queued=(event as SubmitEvent).submitter===queue;void o.act(()=>calculate(queued));};
  for(const control of [pricing,session,path,disposition,accumulation,expiry,physical])control.onchange=invalidateSource;
  for(const control of [method,confidence,calendar,from,to,close,priceType,minimum,drift,paths,seed])control.onchange=invalidateHistory;
  reset();
  function financialChanged(){
-  epoch++;configuration=undefined;source=undefined;history=undefined;scopeStamp='';
+  epoch++;clearFunding();configuration=undefined;source=undefined;history=undefined;scopeStamp='';
   sourceSummary.textContent='';coverage.replaceChildren();method.replaceChildren(new Option('Read setup for the updated scope…',''));dirty=false;
   note.textContent='Lifecycle facts changed. Refresh Risk scope and prepare a new source. Captured reports and original submissions keep their inputs.';
   describe();sync(false);schedule();
