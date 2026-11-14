@@ -76,7 +76,7 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
                 throw new MarketDataException("lifecycle_profile_revision","Select an observed payment of this profile's exact retained occurrence and source version.");
             var detail=JsonSerializer.SerializeToElement(payment,LifecycleNative.Json);
             var hash=Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(payment,LifecycleNative.Json)));
-            return new(new(request.Target,request.Action,"Record observed payment",payment.DeterminationId,request.Context.AsOf,null,true,null,payment.ExpectedRevision,payment.ExpectedVersion),hash,detail,Catalog,until);
+            return new(new(request.Target,request.Action,"Record observed payment",profile.Id("occurrence_id"),request.Context.AsOf,null,true,null,payment.ExpectedRevision,payment.ExpectedVersion),hash,detail,Catalog,until);
         }
         var frame=frames(selection.SnapshotId) with{ContextId=null};var view=TradingView.Reread(frame,source);
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT lifecycle_swap_preview"))await save.ExecuteNonQueryAsync(ct);
@@ -91,7 +91,7 @@ internal sealed class SwapLifecycleActions(PreviewDatabase database,Func<Guid,In
             await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT lifecycle_swap_preview; RELEASE SAVEPOINT lifecycle_swap_preview");
             await restore.ExecuteNonQueryAsync(CancellationToken.None);
         }
-        return new(new(request.Target,request.Action,"Determine final payment",request.Target.ScopeId,request.Context.AsOf,null,true,null,
+        return new(new(request.Target,request.Action,"Determine final payment",profile.Id("occurrence_id"),request.Context.AsOf,null,true,null,
             selection.Determination!.Preview.ExpectedRevision,value.GetProperty("expectedVersion").GetInt32()),value.Text("previewHash"),value,Catalog,until);
     }
     public async Task<LifecycleActionWrite> Execute(NpgsqlConnection connection,LifecycleActionRequest request,CancellationToken ct)

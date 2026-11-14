@@ -122,6 +122,7 @@ internal static class LifecycleSwapChecks
     {
         var operations=new LifecycleOperations(database,id=>id==frame.Id?frame:throw new Exception("Unknown test frame."));
         LifecycleActionRequest request;
+        Guid? expectedOccurrence=null;
         if(fixture.TryGetProperty("reviewedRequest",out var prior))request=prior.Deserialize<LifecycleActionRequest>(LifecycleNative.Json)! with{OperationId=Guid.NewGuid()};
         else
         {
@@ -129,6 +130,7 @@ internal static class LifecycleSwapChecks
             var discovery=await database.WithIdentity("trader",null,(c,t)=>operations.Discover(c,new(context,target),t),default);
             var action=fixture.TryGetProperty("action",out var code)?code.GetString():"swap.determine";
             var offer=discovery.Actions.Single(a=>a.Action==action);
+            expectedOccurrence=offer.OccurrenceId;
             if(offer.Selection is not {} selection||offer.PolicyId is not {} policy||offer.PolicyRevision is not {} revision)
                 throw new Exception("The selected native swap profile has no executable closed selection.");
             request=new(Guid.NewGuid(),context,target,offer.Action,policy,revision,false,new('0',64),selection);
@@ -144,6 +146,8 @@ internal static class LifecycleSwapChecks
             }
         }
         var reviewed=await database.WithIdentity("trader",null,(c,t)=>operations.Preview(c,request,t),default);
+        if(expectedOccurrence is {} occurrence&&reviewed.Offer.OccurrenceId!=occurrence)
+            throw new Exception("The reviewed action must retain the exact discovered native payment occurrence.");
         request=request with{PreviewHash=reviewed.Hash};
         var first=await database.WithIdentity("trader",null,(c,t)=>operations.Execute(c,request,t),default);
         var restarted=new LifecycleOperations(database,_=>throw new Exception("The original frame was evicted."));
