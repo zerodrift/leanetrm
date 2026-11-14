@@ -13,6 +13,9 @@ internal sealed class GasOwnedQuantityReconciliationActions(PreviewDatabase data
     internal const string Handler="gas_owned_quantity_reconciliation";
     internal const string Action="gas.owned.reconcile_quantity";
     internal const string Version="gas_owned_quantity_reconciliation_v1";
+    internal const string PositionSourceHandler="gas_owned_position_quantity_source";
+    internal const string ConsumptionSourceHandler="gas_owned_consumption_quantity_source";
+    internal const string ChoiceProfile="ordinary_gas_quantity_choices_v1";
     public string Kind=>Handler;
     public ImmutableArray<string> Permissions=>["ReadMarketData","ReadTrades","ReadGasOwnedHoldings","RecordGasOwnedHoldings"];
 
@@ -108,8 +111,11 @@ internal sealed class GasOwnedQuantityReconciliationActions(PreviewDatabase data
     public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,LifecycleDiscoveryAccess access,CancellationToken ct)
     {
         if(!access.Allows("ReadGasOwnedHoldings")){if(target is not null)throw new PreviewDeniedException();return [];}
-        var state=await GasOwnedOperations.Read(connection,database,context,target?.ScopeId,ct);
+        var state=await ReadChoices(connection,database,context,target?.ScopeId,ct);
+        var eligibleAccounts=state.GetProperty("quantityPositionChoices").EnumerateArray().Concat(state.GetProperty("quantityConsumptionChoices").EnumerateArray())
+            .Select(row=>row.Id("accountId")).ToImmutableHashSet();
         return [..state.GetProperty("accounts").EnumerateArray().Where(account=>account.Text("kind")=="owned_inventory"&&
+            eligibleAccounts.Contains(account.Id("id"))&&
             (target is null||target.ScopeId==account.Id("id")&&target.BindingId==account.Id("id"))).Select(account=>
         {
             var policies=state.GetProperty("policies").EnumerateArray().Where(policy=>policy.Id("account_id")==account.Id("id")&&policy.Text("action")==Action)
@@ -120,6 +126,16 @@ internal sealed class GasOwnedQuantityReconciliationActions(PreviewDatabase data
                 Subject=new(account.Text("code"),"Owned gas quantity",account.Id("book_id"),account.Text("book_name")),
                 PolicyId=policies.IsEmpty?null:policy.Id("policy_id"),PolicyRevision=policies.IsEmpty?null:policy.GetProperty("policy_revision").GetInt32(),RequiredInputs=["positions","consumptions","evidence"]};
         })];
+    }
+    internal static async Task<JsonElement> ReadChoices(NpgsqlConnection connection,PreviewDatabase database,LifecycleReadContext context,Guid? account,CancellationToken ct)
+    {
+        var state=await LifecycleNative.Read(connection,"SELECT security.read_gas_owned_quantity_choices($1,$2,$3,$4::uuid)::text",ct,
+            database.Manifest.CatalogId,context.ContextId,context.AsOf,account is {} id?id:DBNull.Value);
+        database.RegisterCommitAdmission(connection,new GasOwnedOperationReadAdmission(database.Manifest.CatalogId,state.Instant("authorityUntil")));
+        if(state.Text("quantityChoiceProfile")!=ChoiceProfile||state.Id("contextId")!=context.ContextId||state.Instant("asOf")!=context.AsOf||
+            DateWorkspace.Date(state.Text("effectiveOn"))!=context.BusinessDate)
+            throw Error("Retain the exact source context and native financial revisions for ordinary correction choices.");
+        return state;
     }
     private static MarketDataException Error(string message)=>new("gas_quantity_input",message);
 }

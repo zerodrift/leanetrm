@@ -3,7 +3,7 @@ import type {LifecycleContext,LifecycleOffer,LifecycleTarget} from './lifecycle-
 
 export type GasChoice={id:string;label:string;value?:unknown};
 export type GasField={name:string;label:string;kind:'text'|'integer'|'instant'|'select'|'reference'|'object'|'array';nullable:boolean;
- choices?:GasChoice[];fields?:GasField[];members?:string[];minItems?:number;variants?:{id:string;label:string;target:LifecycleTarget;parentLabel?:string}[]};
+ choices?:GasChoice[];fields?:GasField[];members?:string[];minItems?:number;memberLabel?:string;variants?:{id:string;label:string;target:LifecycleTarget;parentLabel?:string}[]};
 export type GasForm={label:string;permission:string;fields:GasField[]};
 export type GasPolicyChoice=GasChoice&{revision:number;action:string;accountId:string};
 export type GasOwnedSetup={context:LifecycleContext;target?:LifecycleTarget;accounts:GasChoice[];policies:GasPolicyChoice[];forms:Record<string,GasForm>;configuration:Record<string,GasForm>};
@@ -27,6 +27,7 @@ function fieldsEditor(root:HTMLElement,fields:GasField[],o:GasOwnedUiOptions,var
      field.variants.some(v=>!v.id||!v.label||!v.target?.handler||!v.target.scopeId||!v.target.bindingId))throw Error('Reread the exact gas member choices.');
    }else if(['object','array'].includes(field.kind)){if(!Array.isArray(field.fields)||!field.fields.length)throw Error('Reread the nested gas field metadata.');requireFields(field.fields);}
    if(field.minItems!==undefined&&(field.kind!=='array'||!Number.isSafeInteger(field.minItems)||field.minItems<0))throw Error('Reread the gas entry requirements.');
+   if(field.memberLabel!==undefined&&(field.kind!=='array'||typeof field.memberLabel!=='string'||!field.memberLabel.trim()))throw Error('Reread the gas member labels.');
    if(['select','reference'].includes(field.kind)&&!Array.isArray(field.choices))throw Error('Reread the exact gas field choices.');
    if(field.kind==='reference'&&(!Array.isArray(field.members)||!field.members.length))throw Error('Reread the exact gas reference field members.');
    for(const member of field.kind==='reference'?field.members!:[field.name]){if(!member||names.has(member))throw Error('Reread the distinct closed gas field metadata.');names.add(member);}
@@ -56,18 +57,19 @@ function fieldsEditor(root:HTMLElement,fields:GasField[],o:GasOwnedUiOptions,var
      const host=node('fieldset'),remove=node('button','Remove entry');host.dataset.gasEntry=field.name;remove.type='button';
      const row:{host:HTMLElement;read:()=>Promise<Record<string,unknown>>;member?:HTMLSelectElement}={host,read:async()=>{throw Error('Choose the observed member and wait for its exact source fields.');}};
      if(field.variants){
-      const queryLabel=node('label','Search observed performances'),query=node('input');query.type='search';query.autocomplete='off';queryLabel.append(query);host.append(queryLabel);
-      const memberLabel=node('label','Observed performance'),member=select(memberLabel,field.name+'-member',field.variants);host.append(memberLabel);row.member=member;references.push({label:field.label,input:member});
+      const caption=field.memberLabel??'Observed performance';
+      const queryLabel=node('label',field.memberLabel?'Search '+caption.toLocaleLowerCase():'Search observed performances'),query=node('input');query.type='search';query.autocomplete='off';queryLabel.append(query);host.append(queryLabel);
+      const memberLabel=node('label',caption),member=select(memberLabel,field.name+'-member',field.variants);host.append(memberLabel);row.member=member;references.push({label:field.label,input:member});
       parents.push({input:member,choices:field.variants});
       const content=node('div');content.className='schedule-fields';host.append(content);let generation=0;
       const filter=()=>{for(const option of member.options)option.hidden=!!option.value&&option.value!==member.value&&!option.text.toLocaleLowerCase().includes(query.value.toLocaleLowerCase());};query.oninput=filter;
       member.onchange=()=>{
        const current=++generation,choice=field.variants!.find(v=>v.id===member.value);content.replaceChildren();row.read=async()=>{throw Error('Choose the observed member and wait for its exact source fields.');};changed();if(!choice)return;
-       content.append(node('p','Reading this performance’s exact source fields…'));
+       content.append(node('p','Reading this '+caption.toLocaleLowerCase()+'’s exact source fields…'));
        void o.act(async()=>{
         try{const loaded=await variantFields!(choice.target);if(!o.current()||!host.isConnected||current!==generation||member.value!==choice.id)return;
          requireFields(loaded);content.replaceChildren();row.read=build(content,loaded);changed();
-        }catch(error){if(o.current()&&host.isConnected&&current===generation)content.replaceChildren(node('p',error instanceof Error?error.message:'The exact performance source is unavailable.'));throw error;}
+        }catch(error){if(o.current()&&host.isConnected&&current===generation)content.replaceChildren(node('p',error instanceof Error?error.message:'The exact '+caption.toLocaleLowerCase()+' source is unavailable.'));throw error;}
        }).catch(()=>undefined);
       };
      }else row.read=build(host,field.fields!);
@@ -75,7 +77,7 @@ function fieldsEditor(root:HTMLElement,fields:GasField[],o:GasOwnedUiOptions,var
     };
     return async()=>{
      if(!mode.value||mode.value==='entries'&&rows.length<Math.max(1,minimum))throw Error('Choose '+field.label+' and add its entries.');
-     if(field.variants&&new Set(rows.map(r=>r.member!.value)).size!==rows.length)throw Error('Select each observed performance only once.');
+     if(field.variants&&new Set(rows.map(r=>r.member!.value)).size!==rows.length)throw Error('Select each '+(field.memberLabel??'observed performance').toLocaleLowerCase()+' only once.');
      return{[field.name]:mode.value==='empty'?[]:await Promise.all(rows.map(row=>row.read()))};
     };
    }

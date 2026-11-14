@@ -36,6 +36,15 @@ internal static class GasOwnedQuantityCorrectionChecks
         var account=fixture.Id("accountId");
         var request=new LifecycleActionRequest(fixture.Id("operationId"),context,new("gas_owned_quantity_reconciliation",account,account),
             "gas.owned.reconcile_quantity",fixture.Id("policyId"),1,false,new('0',64),fixture.GetProperty("selection").Clone());
+        var setup=await database.WithIdentity("trader",null,(connection,ct)=>GasOwnedSetup.Read(connection,database,new(context,request.Target),ct),default);
+        var titles=setup.Forms[request.Action].Fields.Single(field=>field.Name=="positions").Variants!.Value;
+        var selected=request.Selection.GetProperty("positions")[0];var member=titles.Single(choice=>choice.Id==selected.Id("positionId").ToString());
+        var scoped=await database.WithIdentity("trader",null,(connection,ct)=>GasOwnedSetup.Read(connection,database,new(context,member.Target),ct),default);
+        var exact=JsonSerializer.SerializeToElement(scoped.Forms[request.Action].Fields.Single(field=>field.Name=="observedQuantity").Choices.Single().Value);
+        if(setup.Target!=request.Target||scoped.Target!=member.Target||exact.Id("positionId")!=selected.Id("positionId")||
+            exact.GetProperty("expectedRevision").GetInt32()!=selected.GetProperty("expectedRevision").GetInt32()||
+            scoped.Forms[request.Action].Fields.Single(field=>field.Name=="evidenceId").Choices is not [{Id:var source}]||source!=selected.Text("evidenceId"))
+            throw new Exception("Native ordinary forms lost their exact account, selected financial member or current source head.");
         var review=await database.WithIdentity("trader",null,(connection,ct)=>operations.Preview(connection,request,ct),default);
         if(!review.Details.GetProperty("willChange").GetBoolean()||review.Details.GetProperty("sourceAllocations").GetArrayLength()!=1||
             review.Details.GetProperty("outcome").GetProperty("positions")[0].Text("currentQuantity")!="0.875")

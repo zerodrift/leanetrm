@@ -45,6 +45,18 @@ internal static class LifecycleActionChecks
             selection["contracts"]!["financial_swap"] is not null&&selection["contracts"]!["futures"] is not null&&
             selection["contracts"]![GasFuturesDeliveryActions.Handler]!["contracts"]!["gas.futures.delivery"]!["properties"]!["supply"] is not null,
             "Assistant lifecycle payloads describe their closed product-owned selection contracts.");
+        var contracts=selection["contracts"]!;
+        foreach(var (handler,contract) in new[]{(GasFuturesReconciliationActions.Handler,nameof(GasFuturesQuantityReconciliationSelection)),
+            (GasFuturesQuantityBatchActions.Handler,nameof(GasFuturesQuantityBatchSelection)),
+            (GasOwnedQuantityReconciliationActions.Handler,nameof(GasOwnedQuantityReconciliationSelection))})
+            Require(contracts[handler]?["contract"]?.GetValue<string>()==contract&&contracts[handler]?["additionalProperties"]?.GetValue<bool>()==false,
+                "Every gas reconciliation assistant selection exposes its exact closed native contract.");
+        var ordinary=contracts[GasOwnedQuantityReconciliationActions.Handler]!;
+        Require(ordinary["properties"]!["positions"]!["items"]!["properties"]!["quantity"]!["type"]!.GetValue<string>()=="string"&&
+            ordinary["properties"]!["consumptions"]!["items"]!["properties"]!["retracted"]!["type"]!.GetValue<string>()=="boolean"&&
+            ordinary["required"]!.AsArray().Any(n=>n!.GetValue<string>()=="positions")&&
+            contracts[GasFuturesQuantityBatchActions.Handler]!["properties"]!["corrections"]!["items"]!["properties"]!["supply"]!["items"]!["additionalProperties"]!.GetValue<bool>()==false,
+            "Agent correction quantities remain decimal strings, retractions and arrays are explicit, and nested supply references are closed.");
         var shaped=LifecycleSettingsTransport.Integers([JsonSerializer.SerializeToElement(new{revision="3",policy_revision="2",amount="0.12345678901234567890123456789"})],"revision","policy_revision").Single();
         Require(shaped.GetProperty("revision").GetInt32()==3&&shaped.GetProperty("policy_revision").GetInt32()==2&&
             shaped.GetProperty("amount").ValueKind==JsonValueKind.String&&shaped.Text("amount")=="0.12345678901234567890123456789",

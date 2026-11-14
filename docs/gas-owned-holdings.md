@@ -249,8 +249,15 @@ reported outcome. A retry returns its first outcome before reloading its source;
 an older identical fact acknowledges its retained revision without rewinding the
 current financial state. Original authorization terms remain binding through
 publication waits and commit, even if a successor grant becomes active. The
-ordinary operational form, broader loan/operator/fee amendments and changed
-event-time or advance treatment retain separate implementation gates.
+operational form reads exact source-known title and ordinary-use choices,
+including retired titles, and loads each selected member's financial revision
+and source evidence separately. Quantities, retraction and allocation contracts
+require explicit choices. Source heads are selected before event-time filtering;
+an unavailable newer head cannot revive an older document. The same closed
+ordinary, physical and linked-batch contracts are described to assistants.
+The complete application browser join remains a release qualification gate;
+broader loan/operator/fee amendments and changed event-time or advance treatment
+retain separate implementation gates.
 
 `tools/check_gas_physical_known.py` qualifies the attachment scope and complete
 native histories. `tools/check_gas_applied_sources.py` independently corrects a
@@ -273,3 +280,8 @@ views, stale heads/reviews, unknown sources and first-outcome recovery. Its
 rollback fault probes also exercise malformed stored receipts at both immediate
 constraints and commit, and original authorization expiry with an active
 successor grant.
+`tools/check_gas_owned_quantity_choices.py` additionally qualifies the actual
+main and lazy ordinary form sources and refuses an excessive UTF-8 response
+envelope, including documents whose JSON escaping is larger than their binary
+database representation. The browser checks retain exact row/source identity
+and show acknowledged and current revisions separately without deriving money.

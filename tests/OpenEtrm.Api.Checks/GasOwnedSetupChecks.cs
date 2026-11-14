@@ -25,6 +25,7 @@ internal static class GasOwnedSetupChecks
     }
     internal static void Run()
     {
+        GasOwnedQuantityFormChecks.Run();
         var account=Guid.NewGuid();var evidence=Guid.NewGuid();var later=Guid.NewGuid();var agreement=Guid.NewGuid();var policy=Guid.NewGuid();
         var delivery=Guid.NewGuid();var loss=Guid.NewGuid();var returned=Guid.NewGuid();var statement=Guid.NewGuid();
         var context=new LifecycleReadContext(Guid.NewGuid(),DateTimeOffset.Parse("2020-12-21T16:00:00Z"),new(2020,12,21));

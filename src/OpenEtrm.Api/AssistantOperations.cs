@@ -193,9 +193,18 @@ internal static class AssistantOperations
                     ["gas.futures.delivery"]=Describe(typeof(GasFuturesPerformanceSelection),path.Add(type)),
                     ["gas.cash.record_payment"]=Describe(typeof(GasFuturesPaymentSelection),path.Add(type))}};
                 variants[GasOwnedOperations.Handler]=new JsonObject{["type"]="object",["discriminator"]="action",["contracts"]=gas};
+                variants[GasFuturesReconciliationActions.Handler]=Describe(typeof(GasFuturesQuantityReconciliationSelection),path.Add(type));
+                variants[GasFuturesQuantityBatchActions.Handler]=Describe(typeof(GasFuturesQuantityBatchSelection),path.Add(type));
+                variants[GasOwnedQuantityReconciliationActions.Handler]=Describe(typeof(GasOwnedQuantityReconciliationSelection),path.Add(type));
                 properties["selection"]=new JsonObject{["type"]="object",["discriminator"]="target.handler",["contracts"]=variants};
             }else properties[JsonNamingPolicy.CamelCase.ConvertName(property.Name)]=Describe(property.PropertyType,path.Add(type));
         }
-        return new JsonObject{["type"]="object",["properties"]=properties,["contract"]=type.Name};
+        var result=new JsonObject{["type"]="object",["properties"]=properties,["contract"]=type.Name};
+        if(type.GetCustomAttribute<JsonUnmappedMemberHandlingAttribute>() is {UnmappedMemberHandling:JsonUnmappedMemberHandling.Disallow})
+            result["additionalProperties"]=false;
+        var required=type.GetProperties().Where(p=>p.GetCustomAttribute<JsonRequiredAttribute>() is not null)
+            .Select(p=>JsonNamingPolicy.CamelCase.ConvertName(p.Name)).ToArray();
+        if(required.Length!=0)result["required"]=JsonSerializer.SerializeToNode(required);
+        return result;
     }
 }

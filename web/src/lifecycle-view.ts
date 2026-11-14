@@ -11,7 +11,7 @@ type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Review={hash:string;offer:LifecycleOffer;details:Record<string,unknown>};
 const words=(value:string)=>value.replaceAll('_',' ').replaceAll('.',' · ').replace(/([a-z])([A-Z])/g,'$1 $2');
 const title=(value:string)=>{const text=words(value);return text.charAt(0).toUpperCase()+text.slice(1);};
-const gasHandler=(handler:string)=>['gas_owned','gas_futures_delivery','gas_futures_reconciliation','gas_futures_reconciliation_batch'].includes(handler);
+const gasHandler=(handler:string)=>['gas_owned','gas_futures_delivery','gas_futures_reconciliation','gas_futures_reconciliation_batch','gas_owned_quantity_reconciliation'].includes(handler);
 const knownRejection=(code:string|undefined)=>!!code&&/^(lifecycle_|option_|futures_|swap_|gas_|settlement_|historical_|job_|access_denied$|request_denied$)/.test(code);
 const element=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
 
@@ -100,6 +100,22 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   const net=request.action==='swap.net'?d.settlement as Record<string,unknown>|undefined:undefined;
   if(net){if(net.existingFact===true)add('Effect','Already recorded · no new cash or allocation');add('Net cash',net.amount);add('Gross paid',net.grossPaid);add('Gross received',net.grossReceived);add('Reverses payment',net.reversesId);}
   section.append(list);
+  if(request.target.handler==='gas_owned_quantity_reconciliation'&&d.outcome&&typeof d.outcome==='object'){
+   const outcome=d.outcome as Record<string,unknown>;
+   for(const [family,id,label]of [['positions','positionId','Owned title'],['consumptions','consumptionId','Recorded use']] as const){
+    if(!Array.isArray(outcome[family])||!(outcome[family] as unknown[]).length)continue;
+    const selected=Array.isArray(request.selection[family])?request.selection[family] as Record<string,unknown>[]:[];
+    const table=element('table');table.className='regular-table';const head=element('tr');
+    for(const caption of [label,'Effect','Acknowledged revision','Current revision','Reviewed quantity','Current quantity'])head.append(element('th',caption));table.append(head);
+    for(const fact of outcome[family] as Record<string,unknown>[]){
+     const row=element('tr'),selection=selected.find(s=>s[id]===fact[id]);
+     for(const value of [references.find(r=>r.key===fact[id])?.value??fact[id],fact.changed===true?'Record correction':'Existing fact acknowledged',
+      fact.acknowledgedRevision,fact.currentRevision,selection?.quantity,fact.currentQuantity])row.append(element('td',String(value??'')));
+     table.append(row);
+    }
+    const scroll=element('div');scroll.className='lifecycle-review-table';scroll.append(table);section.append(scroll);
+   }
+  }
   if(request.target.handler==='gas_futures_reconciliation_batch'&&Array.isArray(d.corrections)){
    const selections=Array.isArray(request.selection.corrections)?request.selection.corrections as Record<string,unknown>[]:[];
    const table=element('table');table.className='regular-table';const head=element('tr');

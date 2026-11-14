@@ -17,6 +17,8 @@ internal sealed record GasFormField(string Name,string Label,string Kind,bool Nu
     public ImmutableArray<GasFormVariant>? Variants{get;init;}
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public int? MinItems{get;init;}
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? MemberLabel{get;init;}
 }
 internal sealed record GasForm(string Label,string Permission,ImmutableArray<GasFormField> Fields);
 internal sealed record GasFormPolicy(string Id,string Label,int Revision,string Action,string AccountId);
@@ -29,7 +31,7 @@ internal sealed record GasSetup(LifecycleReadContext Context,ImmutableArray<GasF
 
 // Presentation metadata for the closed, native gas operations. Choices retain
 // exact foreign-key tuples; financial interpretation stays in native producers.
-internal static class GasOwnedSetup
+internal static partial class GasOwnedSetup
 {
     internal static async Task<GasSetup> Read(NpgsqlConnection connection,PreviewDatabase database,LifecycleDiscoveryRequest request,CancellationToken ct)
     {
@@ -45,7 +47,9 @@ internal static class GasOwnedSetup
             await PinnedContext.BindExact(connection,catalog,source,ct);
             await TradingContext.Bind(connection,catalog,source,request.Context.AsOf,ct);
             var physical=request.Target?.Handler is GasFuturesDeliveryActions.Handler or GasFuturesReconciliationActions.Handler or GasFuturesQuantityBatchActions.Handler;
-            var state=physical?
+            var ordinary=request.Target?.Handler is GasOwnedQuantityReconciliationActions.Handler or GasOwnedQuantityReconciliationActions.PositionSourceHandler or GasOwnedQuantityReconciliationActions.ConsumptionSourceHandler;
+            var state=ordinary?
+                await GasOwnedQuantityReconciliationActions.ReadChoices(connection,database,request.Context,request.Target!.ScopeId,ct):physical?
                 await LifecycleNative.Read(connection,"SELECT security.read_gas_futures_delivery_actions($1,$2,$3)::text",ct,catalog,request.Context.ContextId,request.Context.AsOf):
                 await GasOwnedOperations.Read(connection,database,request.Context,null,ct);
             JsonElement? correction=request.Target?.Handler==GasFuturesReconciliationActions.Handler?
@@ -125,6 +129,7 @@ internal static class GasOwnedSetup
             GasFuturesDeliveryActions.Handler=>positions.FirstOrDefault(p=>p.Id("id")==target.ScopeId) is {ValueKind:JsonValueKind.Object} physical?physical.Id("account_id"):null,
             GasFuturesReconciliationActions.Handler=>correction!.Value.GetProperty("position").Id("account_id"),
             GasFuturesQuantityBatchActions.Handler=>target.ScopeId,
+            GasOwnedQuantityReconciliationActions.Handler or GasOwnedQuantityReconciliationActions.PositionSourceHandler or GasOwnedQuantityReconciliationActions.ConsumptionSourceHandler=>target.ScopeId,
             null=>null,_=>throw GasOwnedOperations.Error("Select a native gas lifecycle target.")};
         if(target is not null&&(accountId is null||!accounts.Any(a=>a.Id("id")==accountId)))
             throw GasOwnedOperations.Error("The selected gas holding is unavailable at this source.");
@@ -288,6 +293,8 @@ internal static class GasOwnedSetup
                 Variants=[..batch!.Value.GetProperty("corrections").EnumerateArray().Where(row=>row.Id("accountId")==target!.ScopeId).Select(row=>
                     new GasFormVariant(row.Id("performanceId").ToString(),$"{Parent(row)} · {row.Text("reference")} · quantity {row.Text("quantity")} · financial revision {Int(row,"financialRevision")}",
                         new(GasFuturesReconciliationActions.Handler,row.Id("positionId"),row.Id("performanceId")),Parent(row)))]}]));
+        if(target?.Handler is GasOwnedQuantityReconciliationActions.Handler or GasOwnedQuantityReconciliationActions.PositionSourceHandler or GasOwnedQuantityReconciliationActions.ConsumptionSourceHandler)
+            forms=QuantityForms(context,target,state,known);
         var configuration=GasOwnedOperations.ConfigurationCommands.ToImmutableDictionary(c=>c,c=>new GasForm(c switch{
             "account"=>"Account","evidence"=>"Observed evidence","bind_policy"=>"Account action policy","mark_binding"=>"Inventory mark","projection_profile"=>"Quantity projection policy",_=>throw GasOwnedOperations.Error("Unknown gas configuration.")},
             c=="evidence"?"RecordGasOwnedHoldings":"ConfigureGasOwnedHoldings",Fields(GasOwnedOperations.SelectionTypes[c],c)),StringComparer.Ordinal);
