@@ -3,6 +3,8 @@ using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Gas;
 using OpenEtrm.MarketData.Trading;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.CustomCurves;
+using OpenEtrm.MarketData.Calculation;
 
 internal static class GasOwnedHoldingsChecks
 {
@@ -57,7 +59,71 @@ internal static class GasOwnedHoldingsChecks
         Equal(ExactMoney.Parse("150",quote.Currency).Add(title.Consideration),"30");
         Reject("gas_delivery_supply",()=>GasPhysicalFinalHandoff.Title(delivery,new(ExactDecimal.Parse("-10"),quote.Quantity),
             new(ExactDecimal.Parse("10"),quote.Quantity),ExactUnitPrice.Parse("12",PriceUnit.FromQuote(quote)),at,default));
+        RationalMark();DiscountTiming();
         Console.WriteLine("PASS gas owned holdings: exact title/availability, reservations, no negative stock, bitemporal facts, surviving loan return and ordinary PV conservation");
+    }
+    private static void RationalMark()
+    {
+        var f=new ConnectedCurveChecks.Fixture();var unit=f.Mean.Unit;
+        var plan=ConnectedCurves.Compile(f.Definitions,[f.Mean.Key],f.Context,f.Resolver);
+        var snapshot=new MarketSnapshot(f.Context.ContextId,f.Mean.Key.Curve.Revision,f.Context.ValuationAt,f.Context.MarketAsOf,
+            InputSelectionPolicy.ExactPinnedFinalObservationsNoAgeFiltering,
+            f.RawPoints.Select(p=>(ConnectedSource)p.Expression).Select(s=>new SelectedObservation(s.Input,s.Observation)).ToImmutableArray());
+        var mark=new CurveRequest(f.Mean.Key.Curve,((ConnectedSource)f.RawPoints[0].Expression).Request.Contract);
+        var instrument=new GasCommodityHoldingInstrument(Guid.NewGuid(),mark,unit.Quantity,unit.Currency,null,GasHoldingCarrying.Nominal);
+        var owner=new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,Guid.NewGuid());
+        var holding=new RiskPosition(owner,Guid.NewGuid(),Guid.NewGuid(),instrument.Id,new(ExactDecimal.Parse("3"),unit.Quantity),
+            new(new Money(default,unit.Currency),unit.Quantity),new(default,unit.Currency));
+        var portfolio=new ValuationPortfolio([instrument],[holding],new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+        var prepared=RiskEngine.PrepareConnected(ConnectedValuation.Prepare(ConnectedScenario.Base(plan),snapshot),
+            ImmutableDictionary<CurveRequest,CurvePointKey>.Empty.Add(mark,f.Mean.Key),[portfolio]);
+        // Independent arithmetic: mean(1,2,4) times three units equals seven.
+        Equal(RiskEngine.CalculateExact(prepared,[],RiskEngine.ExactNumericalPolicy).Groups.Single().BaseValues.Single().Value,"7");
+    }
+    private static void DiscountTiming()
+    {
+        var f=new Fixture();var source=f.Snapshot();source=source.WithKnowledge(Guid.NewGuid(),source.ValuationAt.AddDays(1));
+        var due=source.ValuationAt.AddHours(4);var quote=f.Quotes[0];var mark=new CurveRequest(f.C("future"),f.K(1));
+        var instrument=new GasCommodityHoldingInstrument(Guid.NewGuid(),mark,quote.Quantity,quote.Currency,due,GasHoldingCarrying.CurrencyCurve);
+        var owner=new AccountingPositionKey(new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,Guid.NewGuid()),Guid.NewGuid(),Guid.NewGuid());
+        var position=new RiskPosition(owner.Owner,owner.BindingId,owner.BookId,instrument.Id,new(ExactDecimal.Parse("10"),quote.Quantity),
+            new(new Money(default,quote.Currency),quote.Quantity),new(default,quote.Currency));
+        var portfolio=new ValuationPortfolio([instrument],[position],new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,
+            new DatedCurve(source,quote.Currency,due)));
+        var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.Outstanding,
+            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice);
+        var projection=new Held(owner,source,mark,portfolio);
+        LifecycleProjectionValue Value(DateTimeOffset horizon)=>LifecycleProjection.Prepare(f.Model(),source,
+            new(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,18),horizon,0)]),policy,[projection],[])
+            .Evaluate("discount_clock",[]).Values.Single();
+        var before=Value(due.AddMicroseconds(-1));Equal(before.OpeningValue,"28.5");Equal(before.ResidualValue,"28.5");
+        var arrived=Value(due);Equal(arrived.ResidualValue,"30");Equal(arrived.PeriodCash,"0");Equal(arrived.EconomicPnl,"1.5");
+        Equal(Value(due.AddHours(1)).ResidualValue,"30");
+        if(source.ValuationAt!=due.AddHours(-4))throw new Exception("A projected return must retain its original actual source certificate.");
+    }
+    private sealed class DatedCurve(MarketSnapshot source,ReferenceKey currency,DateTimeOffset due):IProjectionCurrencyCurve
+    {
+        public ReferenceKey Currency=>currency;
+        public MarketSnapshot SourceSnapshot=>source;
+        public ProjectionCurrencyCurveKey CurveIdentity{get;}=new(new(source.Definitions,"synthetic_gas_rates"),Guid.NewGuid(),Guid.NewGuid(),1);
+        public string TimingPolicy=>RateDiscountTiming.Version;
+        private ExactDecimal Factor(DateTimeOffset at)=>ExactDecimal.Parse(at>=due?"0.95":"1");
+        public ImmutableArray<SidePaymentFactor> Resolve(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot)=>
+            [..payments.Select(p=>new SidePaymentFactor(p,Factor(p.PaymentAt),snapshot,DiscountFactorSource.Explicit))];
+        public ImmutableArray<SidePaymentFactor> ResolveForValuation(ImmutableArray<SidePaymentKey> payments,MarketSnapshot snapshot,DateTimeOffset at,string? policy)=>
+            [..payments.Select(p=>new SidePaymentFactor(p,Factor(p.PaymentAt).DivideExact(Factor(at)),snapshot,DiscountFactorSource.Explicit))];
+    }
+    private sealed class Held(AccountingPositionKey owner,MarketSnapshot source,CurveRequest mark,ValuationPortfolio portfolio):ILifecycleProjection
+    {
+        public string Implementation=>"test_held_gas_clock_v1";
+        public AccountingPositionKey Owner=>owner;
+        public ReferenceKey Currency=>portfolio.Instruments.Single().Currency;
+        public MarketSnapshot SourceSnapshot=>source;
+        public ImmutableArray<CurveRequest> Dependencies=>[mark];
+        public LifecycleProjectionState Opening=>new([portfolio],[]);
+        public ImmutableArray<LifecycleProjectionEvent> Events=>[];
+        public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)=>[];
+        public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)=>throw new Exception("No transfer was selected.");
     }
     static void Equal(ExactDecimal actual,string expected){if(actual!=ExactDecimal.Parse(expected))throw new Exception($"Expected {expected}, got {actual}.");}
     static void Equal(ExactMoney actual,string expected){if(actual!=ExactMoney.Parse(expected,actual.Currency))throw new Exception($"Expected {expected}, got {actual.ToExactString()}.");}
