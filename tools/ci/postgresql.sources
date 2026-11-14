@@ -1,0 +1,17 @@
+Types: deb deb-src
+URIs: https://archive.ubuntu.com/ubuntu
+Suites: noble noble-updates noble-backports
+Components: main universe
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+Types: deb deb-src
+URIs: https://security.ubuntu.com/ubuntu
+Suites: noble-security
+Components: main universe
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+Types: deb deb-src
+URIs: https://apt.postgresql.org/pub/repos/apt
+Suites: noble-pgdg
+Components: main
+Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc

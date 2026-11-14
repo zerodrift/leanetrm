@@ -5174,3 +5174,21 @@ prior date under the bound context, the convention's clock cannot be read
 though closes were recorded under it; no check constructs that case, nor a
 session saved through the session operation. See
 [trading P&L](trading-pnl.md).
+
+## CI dependency caches (2026-11-14)
+
+Cache NuGet and npm package downloads in GitHub while retaining unconditional
+locked restore/install commands. Replace per-job PostgreSQL signing-key downloads
+and repository refreshes with reviewed, SHA-256-pinned stock packages. Gitea holds
+an immutable dependency bundle and matching source archives; the checked-in lock
+is the consumer's trust anchor on hits and misses. A configured public bundle URL
+selects Gitea; without it, the same exact public package URLs are used. Failure
+under a selected source never silently changes source policy.
+
+The producer uses signed Ubuntu/PGDG metadata and the checked-in, fingerprint-
+verified PGDG key. Preserve unmodified packages, license notices and corresponding
+sources. Installed newer compatible libraries remain subject to apt dependency
+checks; downloads, removals and forced downgrades are prohibited during install.
+PostgreSQL server/client revisions remain exact. This changes CI acquisition,
+not application financial contracts, database state or release admission. See
+[implementation and qualification](ci-dependencies.md).
