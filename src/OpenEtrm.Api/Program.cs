@@ -110,6 +110,10 @@ const string malformed="The request is incomplete or malformed.";
     PostgresException p when p.MessageText.StartsWith("lifecycle_",StringComparison.Ordinal)
         => (p.SqlState=="42501"?403:p.MessageText.Contains("conflict",StringComparison.Ordinal)||p.MessageText.Contains("stale",StringComparison.Ordinal)?409:422,
             p.MessageText,LifecycleNative.Refusal(p.MessageText)),
+    PostgresException p when p.MessageText.StartsWith("gas_quantity_",StringComparison.Ordinal)
+        => (p.SqlState=="42501"?403:p.MessageText is "gas_quantity_revision" or "gas_quantity_stale_review" or "gas_quantity_conflict"?409:422,
+            p.MessageText,"Review the current physical quantity, source allocations and principal version again."),
+    MarketDataException m when m.Code is "gas_quantity_revision" or "gas_quantity_stale_review" => (409,m.Code,m.Message),
     PostgresException p when p.MessageText.StartsWith("gas_owned_",StringComparison.Ordinal)||p.MessageText.StartsWith("gas_stock_",StringComparison.Ordinal)||
         p.MessageText.StartsWith("gas_operator_",StringComparison.Ordinal)||p.MessageText.StartsWith("gas_loan_",StringComparison.Ordinal)
         =>(p.SqlState=="42501"?403:p.MessageText is "gas_owned_context" or "gas_owned_preview_stale" or "gas_owned_conflict" or "gas_owned_policy_changed" or

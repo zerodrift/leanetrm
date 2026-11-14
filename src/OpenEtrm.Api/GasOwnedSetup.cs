@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Npgsql;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Gas;
 
 namespace OpenEtrm.Api;
 
@@ -32,9 +33,13 @@ internal static class GasOwnedSetup
         {
             await PinnedContext.BindExact(connection,catalog,source,ct);
             await TradingContext.Bind(connection,catalog,source,request.Context.AsOf,ct);
-            var state=request.Target?.Handler==GasFuturesDeliveryActions.Handler?
+            var physical=request.Target?.Handler is GasFuturesDeliveryActions.Handler or GasFuturesReconciliationActions.Handler;
+            var state=physical?
                 await LifecycleNative.Read(connection,"SELECT security.read_gas_futures_delivery_actions($1,$2,$3)::text",ct,catalog,request.Context.ContextId,request.Context.AsOf):
                 await GasOwnedOperations.Read(connection,database,request.Context,null,ct);
+            JsonElement? correction=request.Target?.Handler==GasFuturesReconciliationActions.Handler?
+                await LifecycleNative.Read(connection,"SELECT security.read_gas_futures_reconciliation($1,$2,$3,$4,$5)::text",ct,
+                    catalog,request.Target.ScopeId,request.Target.BindingId,request.Context.ContextId,request.Context.AsOf):null;
             var bookIds=state.GetProperty("accounts").EnumerateArray().Select(a=>a.Id("book_id")).Distinct().ToArray();
             var known=bookIds.Length==0?state:await LifecycleNative.Read(connection,"SELECT security.read_gas_owned_known_history($1,$2,$3,$4::uuid[])::text",ct,catalog,request.Context.ContextId,request.Context.AsOf,bookIds);
             ImmutableArray<JsonElement> profiles=[];
@@ -78,7 +83,7 @@ internal static class GasOwnedSetup
                 counted AS(SELECT h.*,count(*) OVER(PARTITION BY catalog_id,definition_revision_id,series_id,source_code,role,observed_at) head_count FROM heads h)
                 SELECT row_to_json(o)::text FROM counted o WHERE head_count=1 AND publication_state='final' ORDER BY observed_at,id
                 """,[catalog,state.GetProperty("cashoutTerms").GetRawText(),state.GetProperty("positions").GetRawText(),state.GetProperty("accounts").GetRawText(),request.Context.AsOf],ct);
-            var value=Build(request.Context,request.Target,state,policies,marks,books,entities,counterparties,sources,observations,known,profiles);
+            var value=Build(request.Context,request.Target,state,policies,marks,books,entities,counterparties,sources,observations,known,profiles,correction);
             await admission.RequireCommit(connection,ct);return value;
         }
         finally
@@ -90,15 +95,20 @@ internal static class GasOwnedSetup
     internal static GasSetup Build(LifecycleReadContext context,LifecycleTarget? target,JsonElement state,ImmutableArray<JsonElement> policies,
         ImmutableArray<JsonElement> marks,ImmutableArray<JsonElement> books,ImmutableArray<TradeParties.Choice> entities,
         ImmutableArray<TradeParties.Choice> counterparties,ImmutableArray<JsonElement> sources,ImmutableArray<JsonElement> observations,JsonElement known,
-        ImmutableArray<JsonElement> profiles)
+        ImmutableArray<JsonElement> profiles,JsonElement? correction=null)
     {
         JsonElement[] Rows(string part)=>state.GetProperty(part).EnumerateArray().ToArray();
         var accounts=Rows("accounts");var positions=Rows("positions");
+        var correcting=target?.Handler==GasFuturesReconciliationActions.Handler;
+        if(correcting&&(correction is null||correction.Value.GetProperty("position").Id("id")!=target!.ScopeId||
+            correction.Value.GetProperty("performance").Id("id")!=target.BindingId))
+            throw GasOwnedOperations.Error("Retain the selected native performance and its exact financial revision.");
         var knownPositions=known.GetProperty("positions").EnumerateArray().Where(p=>accounts.Any(a=>a.Id("id")==p.Id("account_id"))).ToArray();
         var allEvidence=Rows("evidence").Concat(known.GetProperty("evidence").EnumerateArray()).DistinctBy(e=>e.Id("id")).ToArray();
         Guid? accountId=target?.Handler switch{
             GasOwnedOperations.Handler=>target.ScopeId,
             GasFuturesDeliveryActions.Handler=>positions.FirstOrDefault(p=>p.Id("id")==target.ScopeId) is {ValueKind:JsonValueKind.Object} physical?physical.Id("account_id"):null,
+            GasFuturesReconciliationActions.Handler=>correction!.Value.GetProperty("position").Id("account_id"),
             null=>null,_=>throw GasOwnedOperations.Error("Select a native gas lifecycle target.")};
         if(target is not null&&(accountId is null||!accounts.Any(a=>a.Id("id")==accountId)))
             throw GasOwnedOperations.Error("The selected gas holding is unavailable at this source.");
@@ -106,13 +116,13 @@ internal static class GasOwnedSetup
         var evidence=Rows("evidence").GroupBy(e=>(e.Id("account_id"),e.Text("source_key")))
             .Select(g=>g.MaxBy(e=>Int(e,"revision"))).Where(e=>e.Instant("occurred_at")<=context.AsOf).ToArray();
         var bindingHeads=Rows("policies").GroupBy(p=>(p.Id("account_id"),p.Text("action")))
-            .Select(g=>g.MaxBy(p=>Int(p,"revision"))).Where(p=>heads.Any(h=>h.Id("id")==p.Id("policy_id")&&Int(h,"revision")==Int(p,"policy_revision"))).ToArray();
+            .Select(g=>g.MaxBy(p=>Int(p,"revision"))).Where(p=>policies.Any(h=>h.Id("id")==p.Id("policy_id")&&Int(h,"revision")==Int(p,"policy_revision"))).ToArray();
         var choices=ImmutableArray.CreateBuilder<GasFormPolicy>();
         foreach(var binding in bindingHeads.Where(p=>accountId is null||p.Id("account_id")==accountId))
         {
-            var policy=heads.Single(p=>p.Id("id")==binding.Id("policy_id"));
+            var policy=policies.Single(p=>p.Id("id")==binding.Id("policy_id")&&Int(p,"revision")==Int(binding,"policy_revision"));
             choices.Add(new(policy.Id("id").ToString(),$"{Words(policy.Text("action"))} · {Words(policy.Text("mode"))} · revision {Int(policy,"revision")}",
-                Int(policy,"revision"),policy.Text("action"),(target?.Handler==GasFuturesDeliveryActions.Handler?target.ScopeId:binding.Id("account_id")).ToString()));
+                Int(policy,"revision"),policy.Text("action"),(target?.Handler is GasFuturesDeliveryActions.Handler or GasFuturesReconciliationActions.Handler?target.ScopeId:binding.Id("account_id")).ToString()));
         }
         string Account(Guid id)=>accounts.Single(a=>a.Id("id")==id).Text("code");
         string Position(JsonElement p)
@@ -142,6 +152,29 @@ internal static class GasOwnedSetup
             var result=ImmutableArray.CreateBuilder<GasFormField>();var covered=new HashSet<string>(StringComparer.Ordinal);
             void Add(GasFormField field){result.Add(field);foreach(var member in field.Kind=="reference"?field.Members:[field.Name])covered.Add(member);}
             GasFormField Ref(string name,string label,bool nullable,string[] members,ImmutableArray<GasFormChoice> values)=>new(name,label,"reference",nullable,values,[],[..members]);
+            if(type==typeof(GasFuturesQuantityReconciliationSelection))
+            {
+                var current=correction!.Value.GetProperty("performance");
+                var principal=Rows("principalVersions").Single(p=>p.Id("position_id")==target!.ScopeId);
+                Add(Ref("observedPerformance","Observed performance revision",false,["positionId","performanceId","expectedRevision"],
+                    [Choice(target!.BindingId.ToString(),$"Observed performance · revision {Int(current,"revision")}",
+                        new{positionId=target.ScopeId,performanceId=target.BindingId,expectedRevision=Int(current,"revision")})]));
+                Add(Ref("principalVersion","Principal version",false,["expectedPrincipalVersion"],
+                    [Choice(Int(principal,"revision").ToString(System.Globalization.CultureInfo.InvariantCulture),$"Principal revision {Int(principal,"revision")}",new{expectedPrincipalVersion=Int(principal,"revision")})]));
+            }
+            if(type==typeof(GasFuturesSupplyReconciliationSelection))
+            {
+                var supplies=correction!.Value.GetProperty("supply").EnumerateArray();
+                Add(Ref("stockUse","Stock use revision",false,["consumptionId","expectedRevision"],
+                    [Choice("new","New identified stock allocation",new{consumptionId=(Guid?)null,expectedRevision=0}),
+                     ..supplies.Select(s=>
+                     {
+                         var stock=knownPositions.Single(p=>p.Id("id")==s.Id("lot_id"));
+                         var label=$"Allocation {Int(s,"ordinal")} · {Position(stock)} · quantity {s.Text("quantity")} · revision {Int(s,"financial_revision")}";
+                         if(s.GetProperty("retracted").GetBoolean())label+=" · withdrawn";
+                         return Choice(s.Id("consumption_id").ToString(),label,new{consumptionId=(Guid?)s.Id("consumption_id"),expectedRevision=Int(s,"financial_revision")});
+                     })]));
+            }
             if(type==typeof(GasOwnedAccountSelection))Add(Ref("market","Inventory mark and units",false,accountMarkMembers,Marks(accountMarkMembers)));
             else if(type.GetProperty("DefinitionRevisionId") is not null)Add(Ref("mark","Exact inventory mark",false,markMembers,Marks(markMembers)));
             if(type==typeof(GasOwnedCashoutProjectionSelection))Add(Ref("scenarioMark","Selected cashout expectation market",false,
@@ -177,17 +210,17 @@ internal static class GasOwnedSetup
                 ImmutableArray<GasFormChoice>? selected=name switch{
                     "bookId"=>Ids(books,b=>b.Text("name")),
                     "evidenceId" or "titleEvidenceId"=>Ids(evidence.Where(e=>
-                        (accountId is null||e.Id("account_id")==accountId||type==typeof(GasOwnedSettlementSelection)||type==typeof(GasFuturesSupplySelection))&&
+                        (accountId is null||e.Id("account_id")==accountId||type==typeof(GasOwnedSettlementSelection)||type==typeof(GasFuturesSupplySelection)||type==typeof(GasFuturesSupplyReconciliationSelection))&&
                         (type==typeof(GasOwnedClaimSelection)?e.Text("kind")=="operator_statement":
                          type==typeof(GasOwnedDispatchSelection)?e.Text("kind")== (operation=="loss"?"physical_loss":"physical_delivery"):
                          type==typeof(GasOwnedRepaymentSelection)?e.Text("kind")=="loan_return":
                          type==typeof(GasOwnedSettlementSelection)?new[]{"cashout_determination","title_receipt","physical_delivery"}.Contains(e.Text("kind")):
-                         type==typeof(GasFuturesSupplySelection)?e.Text("kind")=="physical_delivery":e.Text("kind")=="title_receipt")),
+                         type==typeof(GasFuturesSupplySelection)||type==typeof(GasFuturesSupplyReconciliationSelection)?e.Text("kind")=="physical_delivery":e.Text("kind")=="title_receipt")),
                         e=>$"{Account(e.Id("account_id"))} · {e.Text("source_key")} · revision {Int(e,"revision")} · {Words(e.Text("kind"))}"),
                     "positionId" when type==typeof(GasOwnedProjectionPerformanceSelection)=>futurePositionChoices,
                     "positionId" when type==typeof(GasOwnedCashoutProjectionSelection)=>Ids(knownPositions.Where(p=>(accountId is null||p.Id("account_id")==accountId)&&p.Text("kind")=="operator_claim"&&p.Text("settlement_mode")=="cashout_final_price_v1"),Position),
                     "incomingPositionId"=>futurePositionChoices,"positionId"=>positionChoices,
-                    "lotId" when type==typeof(GasOwnedProjectionSupplySelection)=>knownLots,"lotId"=>lotChoices,"reservationId"=>reservationChoices,
+                    "lotId" when type==typeof(GasOwnedProjectionSupplySelection)||type==typeof(GasFuturesSupplyReconciliationSelection)=>knownLots,"lotId"=>lotChoices,"reservationId"=>reservationChoices,
                     "ownedAccountId" or "destinationAccountId"=>[..accountChoices.Where(c=>accounts.Single(a=>a.Id("id").ToString()==c.Id).Text("kind")=="owned_inventory")],
                     "loanId"=>Ids(Rows("loans").Where(l=>accountId is null||l.Id("account_id")==accountId),l=>$"{Account(l.Id("account_id"))} · loan quantity {l.Text("quantity")} · return {l.Text("return_at")}"),
                     "feeId"=>Ids(Rows("fees"),f=>$"{Position(positions.Single(p=>p.Id("id")==f.Id("position_id")))} · fee due {f.Text("due_at")}"),
@@ -211,9 +244,12 @@ internal static class GasOwnedSetup
                     "cashCarrying"=>Codes(("explicit_nominal_cashout_cash_v1","Explicit nominal cashout cash"),("captured_currency_curve_cashout_cash_v1","Carry cash on the claim’s captured currency curve")),
                     "quantityDisposition"=>Codes(("retain_quantity_obligations_v1","Retain the quantity obligation"),("perform_full_quantity_at_contractual_due_v1","Project the full stated remainder at contractual due time")),
                     "availability"=>Codes(("available_at_projected_title_v1","Available when projected title passes")),
+                    "sourceAllocation"=>Codes((GasSourceAllocation.Preserve,"Preserve currently unused source quantity"),(GasSourceAllocation.Withdraw,"Withdraw every allocation from this source")),
                     "source"=>[..sources.GroupBy(s=>s.Text("code")).Select(g=>Choice(g.Key,g.First().Text("name"),g.Key))],
                     "role" when type==typeof(GasOwnedCashoutSelection)=>Codes(("daily_settlement","Official daily settlement"),("final_contract_settlement","Final contract settlement")),_=>null};
                 if(selected is {} values){Add(new(name,label,"select",nullable,values,[],[]));continue;}
+                if(underlying==typeof(bool)){Add(new(name,"Withdraw this recorded quantity","select",nullable,
+                    [Choice("false","Keep an active quantity",false),Choice("true","Withdraw the quantity",true)],[],[]));continue;}
                 if(underlying==typeof(Guid))throw GasOwnedOperations.Error($"The gas form requires exact native choices for {name}.");
                 if(underlying==typeof(DateTimeOffset)){Add(new(name,label,"instant",nullable,[],[],[]));continue;}
                 if(underlying==typeof(int)){Add(new(name,label,"integer",nullable,[],[],[]));continue;}
@@ -229,6 +265,8 @@ internal static class GasOwnedSetup
         if(target?.Handler==GasFuturesDeliveryActions.Handler)forms=new Dictionary<string,GasForm>{
             ["gas.futures.delivery"]=new("Record observed futures delivery","RecordGasOwnedHoldings",Fields(typeof(GasFuturesPerformanceSelection),"performance")),
             ["gas.cash.record_payment"]=new("Record delivery principal payment","RecordGasOwnedHoldings",Fields(typeof(GasFuturesPaymentSelection),"payment"))}.ToImmutableDictionary(StringComparer.Ordinal);
+        if(correcting)forms=ImmutableDictionary<string,GasForm>.Empty.Add(GasFuturesReconciliationActions.Action,
+            new("Correct observed physical quantity","RecordGasOwnedHoldings",Fields(typeof(GasFuturesQuantityReconciliationSelection),"quantity_reconciliation")));
         var configuration=GasOwnedOperations.ConfigurationCommands.ToImmutableDictionary(c=>c,c=>new GasForm(c switch{
             "account"=>"Account","evidence"=>"Observed evidence","bind_policy"=>"Account action policy","mark_binding"=>"Inventory mark","projection_profile"=>"Quantity projection policy",_=>throw GasOwnedOperations.Error("Unknown gas configuration.")},
             c=="evidence"?"RecordGasOwnedHoldings":"ConfigureGasOwnedHoldings",Fields(GasOwnedOperations.SelectionTypes[c],c)),StringComparer.Ordinal);

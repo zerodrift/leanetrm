@@ -6,6 +6,46 @@ const context={contextId:'10000000-0000-0000-0000-000000000001',asOf:'2026-11-02
 const offer={target:{handler:'listed_option',scopeId:'30000000-0000-0000-0000-000000000001',bindingId:'40000000-0000-0000-0000-000000000001'},action:'option.expiry',label:'Determine expiry',occurrenceId:'50000000-0000-0000-0000-000000000001',at:context.asOf,before:null,eligible:true,reason:null,revision:1,stateVersion:2,subject:{reference:'TR-000001',product:'Synthetic gas call',bookId:'60000000-0000-0000-0000-000000000001',book:'Synthetic book'},policyId:'70000000-0000-0000-0000-000000000001',policyRevision:3,selection:{evidenceId:'30000000-0000-0000-0000-000000000001',lots:null,expectedEventVersion:2,profileRevision:4},requiredInputs:[],inputChoices:{}};
 const discovery={context,actions:[offer],policies:[{id:offer.policyId,revision:3,action:offer.action,mode:'review',from_at:'2026-01-01T00:00:00Z',until_at:'2027-01-01T00:00:00Z'}],optionProfiles:[],swapProfiles:[],marginPolicies:[],choices:{actions:[{code:'option.expiry',automatic:true,configurationPermission:'AmendTrade',executionPermission:'BookTrade'}],modes:['manual','review','automatic'],policyImplementation:'explicit_lifecycle_action_policy_v1',swapRounding:[],swapDue:[],swapRecognition:[],swapCorrection:[]}};
 const settle=()=>new Promise(r=>setTimeout(r,40));
+test('physical quantity correction chooses native versions and reviews source capacity and principal before sending',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
+ const action='gas.futures.reconcile_quantity',policy='preserve_unallocated_source_quantity_v1';
+ const corrected={...offer,target:{...offer.target,handler:'gas_futures_reconciliation'},action,label:'Correct observed physical quantity',selection:null};
+ const reference=(name,members,value)=>({name,label:name,kind:'reference',nullable:false,members,choices:[{id:'current',label:'Selected native revision',value}]});
+ const fields=[reference('observedPerformance',['positionId','performanceId','expectedRevision'],{positionId:corrected.target.scopeId,performanceId:corrected.target.bindingId,expectedRevision:3}),
+  reference('principalVersion',['expectedPrincipalVersion'],{expectedPrincipalVersion:5}),{name:'quantity',label:'Corrected quantity',kind:'text',nullable:false},
+  {name:'retracted',label:'Withdraw quantity',kind:'select',nullable:false,choices:[{id:'keep',label:'Keep active quantity',value:false},{id:'withdraw',label:'Withdraw quantity',value:true}]},
+  {name:'titleEvidenceId',label:'Title evidence',kind:'select',nullable:true,choices:[{id:'title',label:'Synthetic corrected title',value:offer.occurrenceId}]},
+  {name:'supply',label:'Identified supply',kind:'array',nullable:false,fields:[{name:'quantity',label:'Quantity',kind:'text',nullable:false}]},
+  {name:'sourceAllocation',label:'Unused source quantity',kind:'select',nullable:false,choices:[{id:policy,label:'Preserve unused source quantity',value:policy}]},
+  {name:'evidence',label:'Correction evidence',kind:'text',nullable:false}];
+ const setup={context,accounts:[],policies:[{id:offer.policyId,label:'Synthetic correction policy',revision:3,action,accountId:corrected.target.scopeId}],
+  forms:{[action]:{label:corrected.label,permission:'RecordGasOwnedHoldings',fields}},configuration:{}};
+ const details={willChange:true,principal:{originalQuantity:'1',finalPrice:'6.03',currency:{code:'usd'},principalDueAt:'2026-12-02T12:00:00Z',
+  performances:[{businessReference:'Synthetic corrected title',at:context.asOf,quantity:'0.125',contribution:'-0.75',adjustment:'0.75'}]},
+  sourceAllocations:{policy,sources:[{sourceKey:'synthetic_title_capacity',oldCapacity:'1',capacity:'0.875',oldAllocated:'0.25',allocated:'0.125',previouslyUnused:'0.75',unused:'0.75',quantity:{code:'synthetic_unit'}}]}};
+ await evaluate(`(async()=>{const {setupLifecycle}=await import('/lifecycle-view.js');window.sent=[];window.errors=[];window.correctionReview=${JSON.stringify(details)};const api=async(path,body)=>{
+  if(path==='lifecycle/view')return ${JSON.stringify({...discovery,actions:[corrected],choices:{...discovery.choices,actions:[{code:action,automatic:false,configurationPermission:'ConfigureGasOwnedHoldings',executionPermission:'RecordGasOwnedHoldings'}]}})};if(path==='lifecycle/gas/setup')return ${JSON.stringify(setup)};
+  if(path==='lifecycle/preview')return {hash:'a'.repeat(64),offer:${JSON.stringify(corrected)},details:correctionReview};
+  if(path==='lifecycle/execute'){sent.push(body);return {operationId:body.operationId,changed:true};}throw Error('Unexpected operation '+path);};
+  window.desk=setupLifecycle(document.querySelector('#host'),{api,act:async f=>{try{await f();}catch(e){errors.push(e.message);}},busy:()=>false,identity:()=> 'operator',context:()=>({snapshotId:'header'}),historical:()=>false,zone:()=> 'America/Chicago',permission:()=>true,changed(){}});await desk.load();})()`);
+ await settle();await evaluate("document.querySelector('[data-lifecycle=rows] .tabulator-row').click()");await settle();
+ assert.equal(await evaluate("!!document.querySelector('[name=observedPerformance]')"),true);
+ const fill=`(()=>{for(const [name,value]of Object.entries({policyId:'${offer.policyId}:3',observedPerformance:'current',principalVersion:'current',quantity:'0.125',retracted:'keep',titleEvidenceId:'title',supply:'empty',sourceAllocation:'${policy}',evidence:'Synthetic reviewed correction'})){
+  const field=document.querySelector('[name="'+name+'"]');field.value=value;field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));}document.querySelector('[data-lifecycle=panel] form').requestSubmit();})()`;
+ await evaluate(fill);
+ await settle();assert.deepEqual(await evaluate('errors'),[]);
+ const text=await evaluate("document.querySelector('[data-lifecycle-review]').textContent");
+ for(const expected of ['Observed source allocations','Previous capacity','Previously unused','synthetic_title_capacity','0.875','0.75','synthetic_unit','Physical delivery principal','Synthetic corrected title'])assert.ok(text.includes(expected),expected);
+ assert.equal(await evaluate("document.querySelectorAll('[data-lifecycle=panel] input[type=datetime-local]').length"),0);
+ await evaluate("document.querySelector('[data-lifecycle-execute]').click()");await settle();assert.deepEqual(await evaluate('errors'),[]);
+ const sent=await evaluate('sent');assert.equal(sent.length,1);assert.deepEqual(sent[0].context,context);assert.deepEqual(sent[0].target,corrected.target);
+ assert.deepEqual(sent[0].selection,{positionId:corrected.target.scopeId,performanceId:corrected.target.bindingId,expectedRevision:3,expectedPrincipalVersion:5,
+  quantity:'0.125',retracted:false,titleEvidenceId:offer.occurrenceId,supply:[],sourceAllocation:policy,evidence:'Synthetic reviewed correction'});
+ await evaluate("(async()=>{correctionReview={willChange:false,acknowledgedRevision:1,currentRevision:3};await desk.load();})()");await settle();
+ await evaluate("document.querySelector('[data-lifecycle=rows] .tabulator-row').click()");await settle();await evaluate(fill);await settle();
+ const acknowledged=await evaluate("Object.fromEntries([...document.querySelectorAll('[data-lifecycle-review] dt')].map(term=>[term.textContent,term.nextElementSibling.textContent]))");
+ assert.equal(acknowledged['Acknowledged financial revision'],'1');assert.equal(acknowledged['Current financial revision'],'3');assert.equal(acknowledged['Acknowledged quantity'],'0.125');
+ assert.equal(await evaluate('sent.length'),1);
+}));
 test('an older fact acknowledgement names the accepted and current revisions without claiming activation',{skip:!browserAvailable,timeout:browserTestTimeout},()=>withBrowserPage('<div id="host"></div>',async evaluate=>{
  await evaluate(`(async()=>{const {setupLifecycle}=await import('/lifecycle-view.js');const api=async(path,body)=>path==='lifecycle/view'?${JSON.stringify(discovery)}:path==='lifecycle/preview'?{hash:'a'.repeat(64),offer:${JSON.stringify(offer)},details:{}}:{operationId:body.operationId,changed:false,semanticAcknowledgement:true,acknowledgedRevision:1,currentRevision:2};window.desk=setupLifecycle(document.querySelector('#host'),{api,act:async f=>f(),busy:()=>false,identity:()=> 'operator',context:()=>({snapshotId:'header'}),historical:()=>false,zone:()=> 'America/Chicago',permission:()=>true,changed(){}});await desk.load();})()`);await settle();
  await evaluate("document.querySelector('[data-lifecycle=rows] .tabulator-row').click()");await settle();await evaluate("document.querySelector('[data-lifecycle=panel] form').requestSubmit()");await settle();await evaluate("document.querySelector('[data-lifecycle-execute]').click()");await settle();

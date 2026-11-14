@@ -38,7 +38,7 @@ public sealed class LifecycleOperations
     internal LifecycleOperations(PreviewDatabase database,Func<Guid,InputFrame> frame,IEnumerable<ILifecycleActionHandler>? additional=null)
     {
         this.database=database;frames=frame;
-        registry=new([new OptionLifecycleActions(database,RequireFrame),new SwapLifecycleActions(database,frame),new SwapNetLifecycleActions(database,frame),new FuturesLifecycleActions(database,RequireFrame),new GasOwnedActions(database),new GasFuturesDeliveryActions(database),..additional??[]]);
+        registry=new([new OptionLifecycleActions(database,RequireFrame),new SwapLifecycleActions(database,frame),new SwapNetLifecycleActions(database,frame),new FuturesLifecycleActions(database,RequireFrame),new GasOwnedActions(database),new GasFuturesDeliveryActions(database),new GasFuturesReconciliationActions(database),..additional??[]]);
     }
     private sealed record DiscoveryAdmission(DateTimeOffset Until,DateTimeOffset? GasUntil,LifecycleDiscoveryAccess Access);
     private async Task<DiscoveryAdmission> CaptureDiscovery(NpgsqlConnection connection,bool requiresGas,CancellationToken ct)

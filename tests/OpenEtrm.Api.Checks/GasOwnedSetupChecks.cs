@@ -40,6 +40,10 @@ internal static class GasOwnedSetupChecks
             policies=new[]{new{account_id=account,action="gas.owned.receive_title",revision=1,policy_id=policy,policy_revision=1}}},GasOwnedOperations.Json);
         var policies=new[]{JsonSerializer.SerializeToElement(new{id=policy,revision=1,action="gas.owned.receive_title",mode="review",from_at="2020-01-01T00:00:00Z",until_at="2021-01-01T00:00:00Z"})};
         var setup=GasOwnedSetup.Build(context,null,state,[..policies],[],[],[],[],[],[],state,[]);
+        var newer=policies[0].EnumerateObject().ToDictionary(p=>p.Name,p=>p.Value.Clone());newer["revision"]=JsonSerializer.SerializeToElement(2);
+        var pinned=GasOwnedSetup.Build(context,null,state,[..policies,JsonSerializer.SerializeToElement(newer)],[],[],[],[],[],[],state,[]);
+        if(pinned.Policies is not [{Revision:1}]||pinned.Policies[0].Id!=policy.ToString())
+            throw new Exception("A newer unbound policy version cannot remove the exact saved version still bound to this account.");
         var form=setup.Forms["gas.owned.receive_title"];
         if(form.Fields.Single(f=>f.Name=="evidenceId").Choices.Any(c=>c.Id==evidence.ToString()))throw new Exception("A future-dated evidence head must block its older title evidence choice.");
         if(setup.Forms["gas.loan.borrow"].Fields.Single(f=>f.Name=="agreementId").Choices is not [{Id:var selected}]||selected!=agreement.ToString())
@@ -78,6 +82,25 @@ internal static class GasOwnedSetupChecks
             !setup.Configuration["projection_profile"].Fields.Single(f=>f.Name=="implementation").Choices.Any(c=>c.Id==accepted.implementation)||
             setup.Configuration["projection_profile"].Fields.Single(f=>f.Name=="cashouts").Fields.Single(f=>f.Name=="scenarioMark").Members is not ["scenarioDefinitionRevisionId","scenarioCurve","scenarioContractId"])
             throw new Exception("Gas settings must offer a complete typed cashout model and exact scenario market tuple.");
-        Console.WriteLine("PASS typed gas form source: no stale evidence fallback, exact party versions, decimal text, explicit clocks and saved policy identity");
+        var holding=Guid.NewGuid();var performance=Guid.NewGuid();var consumption=Guid.NewGuid();var lot=Guid.NewGuid();
+        var correctionState=state.EnumerateObject().ToDictionary(p=>p.Name,p=>p.Value.Clone());
+        correctionState["principalVersions"]=JsonSerializer.SerializeToElement(new[]{new{position_id=holding,revision=5}});
+        var correctionKnown=state.EnumerateObject().ToDictionary(p=>p.Name,p=>p.Value.Clone());
+        correctionKnown["positions"]=JsonSerializer.SerializeToElement(new[]{new{id=lot,account_id=account,kind="owned_stock",evidence_id=evidence,effective_at="2020-12-20T16:00:00Z"}});
+        correctionKnown["lots"]=JsonSerializer.SerializeToElement(new[]{new{id=lot}});
+        var correction=JsonSerializer.SerializeToElement(new{position=new{id=holding,account_id=account},performance=new{id=performance,revision=3},
+            supply=new[]{new{ordinal=1,consumption_id=consumption,financial_revision=2,retracted=false,quantity="0.125",lot_id=lot,evidence_id=delivery,reservation_id=(Guid?)null}}});
+        var correctionSetup=GasOwnedSetup.Build(context,new(GasFuturesReconciliationActions.Handler,holding,performance),
+            JsonSerializer.SerializeToElement(correctionState),[..policies],[],[],[],[],[],[],JsonSerializer.SerializeToElement(correctionKnown),[],correction);
+        var fields=correctionSetup.Forms[GasFuturesReconciliationActions.Action].Fields;
+        if(fields.Single(f=>f.Name=="observedPerformance").Members is not ["positionId","performanceId","expectedRevision"]||
+            fields.Single(f=>f.Name=="principalVersion").Members is not ["expectedPrincipalVersion"]||
+            fields.Single(f=>f.Name=="retracted").Choices.Select(c=>c.Value).OfType<bool>().Order().ToArray() is not [false,true]||
+            fields.Any(f=>f.Kind=="instant"))throw new Exception("Quantity correction must choose exact retained versions and explicit retraction without editing observed clocks.");
+        var stockUse=fields.Single(f=>f.Name=="supply").Fields.Single(f=>f.Name=="stockUse");
+        if(stockUse.Members is not ["consumptionId","expectedRevision"]||stockUse.Choices.Length!=2||
+            !stockUse.Choices.Any(c=>c.Id==consumption.ToString()&&c.Label.Contains("synthetic_inventory",StringComparison.Ordinal)&&c.Label.Contains("quantity 0.125",StringComparison.Ordinal))||!stockUse.Choices.Any(c=>c.Id=="new"))
+            throw new Exception("Quantity correction requires the selected performance's exact stock-use revisions or an explicit new allocation.");
+        Console.WriteLine("PASS typed gas form source: exact source and financial revisions, explicit physical correction choices, decimal text and user clocks");
     }
 }

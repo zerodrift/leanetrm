@@ -11,6 +11,7 @@ type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Review={hash:string;offer:LifecycleOffer;details:Record<string,unknown>};
 const words=(value:string)=>value.replaceAll('_',' ').replaceAll('.',' · ').replace(/([a-z])([A-Z])/g,'$1 $2');
 const title=(value:string)=>{const text=words(value);return text.charAt(0).toUpperCase()+text.slice(1);};
+const gasHandler=(handler:string)=>['gas_owned','gas_futures_delivery','gas_futures_reconciliation'].includes(handler);
 const knownRejection=(code:string|undefined)=>!!code&&/^(lifecycle_|option_|futures_|swap_|gas_|settlement_|historical_|job_|access_denied$|request_denied$)/.test(code);
 const element=<K extends keyof HTMLElementTagNameMap>(tag:K,text?:string)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
 
@@ -80,11 +81,13 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   add('Holding',selected?.subject?.reference);add('Business date',request.context.businessDate);add('As of',instant(request.context.asOf));
   for(const reference of references)add(reference.label,reference.value);
   const d=review.details;for(const [key,label] of [['decision','Decision'],['openLots','Open lots'],['lots','Lots affected'],['futureLots','Linked futures lots'],['strike','Strike'],['settlement','Settlement'],['amount','Amount'],['roundedTotal','Rounded payment'],['exactTotal','Exact payment'],['reference','Evidence reference']] as const)add(label,d[key]);
-  if(request.target.handler==='gas_owned'||request.target.handler==='gas_futures_delivery'){
+  if(gasHandler(request.target.handler)){
    const effect=d.effects as Record<string,unknown>|undefined;add('Effect',d.willChange===false?'Existing fact acknowledged · no new effect':'Record observed facts');
+   const correction=request.target.handler==='gas_futures_reconciliation';
+   if(correction){add('Acknowledged financial revision',d.acknowledgedRevision);add('Current financial revision',d.currentRevision);}
    if(effect){for(const key of ['performedQuantity','quantitySpecification','stockQuantity','returnQuantity','feeAmount','cashAmount','currency'])add(title(key),effect[key]);
     for(const key of ['effectiveAt','returnAt','feeDueAt','cashDueAt'])if(typeof effect[key]==='string')add(title(key),instant(effect[key]));}
-   for(const key of ['quantity','amount','businessReference','businessKey','evidence'])add(title(key),request.selection[key]);
+   for(const key of ['quantity','amount','businessReference','businessKey','evidence'])add(correction&&d.willChange===false&&key==='quantity'?'Acknowledged quantity':title(key),request.selection[key]);
    for(const key of ['titleAt','availableAt','performedAt','paidAt','effectiveAt'])if(typeof request.selection[key]==='string')add(title(key),instant(request.selection[key] as string));
   }
   const paymentCurrency=d.currency as {code?:string}|undefined;add('Currency',paymentCurrency?.code?.toUpperCase());
@@ -97,6 +100,16 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   const net=request.action==='swap.net'?d.settlement as Record<string,unknown>|undefined:undefined;
   if(net){if(net.existingFact===true)add('Effect','Already recorded · no new cash or allocation');add('Net cash',net.amount);add('Gross paid',net.grossPaid);add('Gross received',net.grossReceived);add('Reverses payment',net.reversesId);}
   section.append(list);
+  const sourceAllocations=d.sourceAllocations as {sources?:Record<string,unknown>[]} | undefined;
+  if(sourceAllocations?.sources?.length){
+   section.append(element('h4','Observed source allocations'));
+   const table=element('table');table.className='regular-table';const head=element('tr');
+   for(const label of ['Source reference','Previous capacity','Current capacity','Previously allocated','Currently allocated','Previously unused','Currently unused','Unit'])head.append(element('th',label));table.append(head);
+   for(const source of sourceAllocations.sources){const row=element('tr');const unit=source.quantity as {code?:string}|undefined;
+    for(const value of [source.sourceKey,source.oldCapacity,source.capacity,source.oldAllocated,source.allocated,source.previouslyUnused,source.unused,unit?.code])row.append(element('td',String(value??'')));table.append(row);
+   }
+   const scroll=element('div');scroll.className='lifecycle-review-table';scroll.append(table);section.append(scroll);
+  }
   if(net&&Array.isArray(net.allocations)){
    const table=element('table');table.className='regular-table';const head=element('tr');for(const label of ['Contribution','Gross allocation','Outstanding after settlement'])head.append(element('th',label));table.append(head);
    for(const allocation of net.allocations as Record<string,unknown>[]){const row=element('tr');for(const value of [selected?.inputChoices?.netDeterminationId?.find(choice=>choice.value===allocation.determinationId)?.label??allocation.determinationId,allocation.amount,allocation.remaining])row.append(element('td',String(value??'')));table.append(row);}section.append(table);
@@ -117,7 +130,7 @@ export function setupLifecycle(root:HTMLElement,o:{api:Api;act:(work:()=>Promise
   const execute=element('button','Record reviewed action');execute.type='button';execute.dataset.lifecycleExecute='';execute.onclick=()=>void o.act(async()=>{if(!reviewed)return;await queue('lifecycle/execute',reviewed.request,`${selected?.label??'Lifecycle action'} · ${selected?.subject?.reference??'holding'}`);});section.append(execute);panel.append(section);sync();
  }
  function showAction(offer:LifecycleOffer){clearPanel();selected=offer;panel.append(element('h2',`${offer.label} · ${offer.subject?.reference??'Holding'}`));panel.append(element('p',lifecycleReason(offer.reason)));
-  if(offer.target.handler==='gas_owned'||offer.target.handler==='gas_futures_delivery'){void o.act(()=>showGasAction(offer));sync();return;}
+  if(gasHandler(offer.target.handler)){void o.act(()=>showGasAction(offer));sync();return;}
   if(!offer.selection){const setup=element('button','Configure lifecycle settings');setup.type='button';setup.onclick=()=>showProductSettings(offer);panel.append(setup);sync();return;}
   if(offer.scheduleSettings&&discovery?.scheduling&&o.permission('RunJobs')&&canExecute()){
    const schedule=element('button','Schedule this occurrence');schedule.type='button';schedule.className='secondary';schedule.dataset.lifecyclePermission='RunJobs';
