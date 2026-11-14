@@ -60,6 +60,32 @@ test('gas forms refuse incomplete backend field metadata instead of constructing
   assert.match(result,/field|schema|metadata/i);
  });
 });
+test('gas cashout settings retain an explicit nested policy and its exact scenario reference',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
+ await withBrowserPage(page,async evaluate=>{
+  await evaluate(`(async()=>{${fixture}
+   const {mountGasOwnedSettings}=await import('/gas-owned-lifecycle.js');
+   setup.configuration={projection_profile:{label:'Quantity and cashout policy',permission:'ConfigureGasOwnedHoldings',fields:[
+    {name:'implementation',label:'Model',kind:'select',nullable:false,choices:[{id:'gas_quantity_and_cashout_lifecycle_projection_v2',label:'Quantity and cashout model'}]},
+    {name:'cashouts',label:'Cashout selections',kind:'array',nullable:false,fields:[
+     {name:'positionId',label:'Native claim',kind:'select',nullable:false,choices:[{id:'claim-1',label:'Synthetic operator claim'}]},
+     {name:'scenarioMark',label:'Expected cashout market',kind:'reference',nullable:false,members:['scenarioDefinitionRevisionId','scenarioCurve','scenarioContractId'],
+      choices:[{id:'mark-1',label:'Synthetic exact cashout mark',value:{scenarioDefinitionRevisionId:'definition-1',scenarioCurve:'synthetic_cashout',scenarioContractId:'contract-1'}}]},
+     {name:'cashCarrying',label:'Cash carrying',kind:'select',nullable:false,choices:[{id:'explicit_nominal_cashout_cash_v1',label:'Explicit nominal cash'}]}]}]}};
+   mountGasOwnedSettings(document.querySelector('#gas-form'),setup,options);
+   const command=document.querySelector('#gas-form>select');command.value='projection_profile';command.dispatchEvent(new Event('change'));await Promise.resolve();await Promise.resolve();
+   const choose=(name,value)=>{const input=document.querySelector('[name='+name+']');input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));};
+   choose('accountId','account-1');choose('implementation','gas_quantity_and_cashout_lifecycle_projection_v2');
+   if(document.querySelector('[name=cashouts]').value!=='')throw Error('Cashout disposition was silently filled.');
+   choose('cashouts','entries');[...document.querySelectorAll('button')].find(b=>b.textContent==='Add entry').click();
+   choose('positionId','claim-1');choose('scenarioMark','mark-1');choose('cashCarrying','explicit_nominal_cashout_cash_v1');
+   document.querySelector('form').requestSubmit();await new Promise(resolve=>setTimeout(resolve,0));
+  })()`);
+  const commands=await evaluate('sent');assert.equal(commands.length,1);
+  assert.equal(commands[0].path,'lifecycle/gas/configure');assert.equal(commands[0].body.action,'projection_profile');
+  assert.deepEqual(commands[0].body.selection,{implementation:'gas_quantity_and_cashout_lifecycle_projection_v2',cashouts:[{positionId:'claim-1',
+   scenarioDefinitionRevisionId:'definition-1',scenarioCurve:'synthetic_cashout',scenarioContractId:'contract-1',cashCarrying:'explicit_nominal_cashout_cash_v1'}]});
+ });
+});
 test('changing the gas account while an observed clock resolves cannot queue a mixed configuration',{skip:!browserAvailable,timeout:browserTestTimeout},async()=>{
  await withBrowserPage(page,async evaluate=>{
   await evaluate(`(async()=>{${fixture}

@@ -144,6 +144,9 @@ internal static class GasOwnedSetup
             GasFormField Ref(string name,string label,bool nullable,string[] members,ImmutableArray<GasFormChoice> values)=>new(name,label,"reference",nullable,values,[],[..members]);
             if(type==typeof(GasOwnedAccountSelection))Add(Ref("market","Inventory mark and units",false,accountMarkMembers,Marks(accountMarkMembers)));
             else if(type.GetProperty("DefinitionRevisionId") is not null)Add(Ref("mark","Exact inventory mark",false,markMembers,Marks(markMembers)));
+            if(type==typeof(GasOwnedCashoutProjectionSelection))Add(Ref("scenarioMark","Selected cashout expectation market",false,
+                ["scenarioDefinitionRevisionId","scenarioCurve","scenarioContractId"],[..marks.Select((m,i)=>Choice(i.ToString(System.Globalization.CultureInfo.InvariantCulture),m.Text("label"),
+                    new{scenarioDefinitionRevisionId=m.Id("definitionRevisionId"),scenarioCurve=m.Text("markCurve"),scenarioContractId=m.Id("markContractId")}))]));
             if(type.GetProperty("LegalEntityId") is not null)Add(Ref("legalEntity","Legal entity",false,["legalEntityId","legalEntityRevision"],Parties(entities,"legalEntity")));
             if(type.GetProperty("CounterpartyId") is not null)Add(Ref("counterparty","Counterparty",true,["counterpartyId","counterpartyRevision"],Parties(counterparties,"counterparty")));
             if(type.GetProperty("LenderId") is not null)Add(Ref("lender","Lender",false,["lenderId","lenderRevision"],Parties(counterparties,"lender")));
@@ -182,6 +185,7 @@ internal static class GasOwnedSetup
                          type==typeof(GasFuturesSupplySelection)?e.Text("kind")=="physical_delivery":e.Text("kind")=="title_receipt")),
                         e=>$"{Account(e.Id("account_id"))} · {e.Text("source_key")} · revision {Int(e,"revision")} · {Words(e.Text("kind"))}"),
                     "positionId" when type==typeof(GasOwnedProjectionPerformanceSelection)=>futurePositionChoices,
+                    "positionId" when type==typeof(GasOwnedCashoutProjectionSelection)=>Ids(knownPositions.Where(p=>(accountId is null||p.Id("account_id")==accountId)&&p.Text("kind")=="operator_claim"&&p.Text("settlement_mode")=="cashout_final_price_v1"),Position),
                     "incomingPositionId"=>futurePositionChoices,"positionId"=>positionChoices,
                     "lotId" when type==typeof(GasOwnedProjectionSupplySelection)=>knownLots,"lotId"=>lotChoices,"reservationId"=>reservationChoices,
                     "ownedAccountId" or "destinationAccountId"=>[..accountChoices.Where(c=>accounts.Single(a=>a.Id("id").ToString()==c.Id).Text("kind")=="owned_inventory")],
@@ -200,7 +204,10 @@ internal static class GasOwnedSetup
                     "originPolicy"=>Codes(("opening_owned_stock_v1","Explicit opening owned stock")),
                     "settlementMode"=>Codes(("return_quantity_v1","Return physical quantity"),("cashout_final_price_v1","Final-price cashout")),
                     "rounding" when type==typeof(GasOwnedCashoutSelection)=>Codes(("payment_total_half_even_2dp_v1","Cumulative payment total · two decimal places · ties to even")),
-                    "implementation"=>Codes(("gas_quantity_lifecycle_projection_v1","Gas quantity lifecycle projection · version 1")),
+                    "implementation"=>Codes(("gas_quantity_lifecycle_projection_v1","Gas quantity lifecycle projection · version 1"),
+                        ("gas_quantity_and_cashout_lifecycle_projection_v2","Gas quantity and operator cashout projection · version 2")),
+                    "priceInterpretation"=>Codes(("selected_valuation_mark_is_cashout_expectation_v1","The selected valuation mark is the expected cashout price")),
+                    "cashCarrying"=>Codes(("explicit_nominal_cashout_cash_v1","Explicit nominal cashout cash"),("captured_currency_curve_cashout_cash_v1","Carry cash on the claim’s captured currency curve")),
                     "quantityDisposition"=>Codes(("retain_quantity_obligations_v1","Retain the quantity obligation"),("perform_full_quantity_at_contractual_due_v1","Project full physical performance at contractual due time")),
                     "availability"=>Codes(("available_at_projected_title_v1","Available when projected title passes")),
                     "source"=>[..sources.GroupBy(s=>s.Text("code")).Select(g=>Choice(g.Key,g.First().Text("name"),g.Key))],

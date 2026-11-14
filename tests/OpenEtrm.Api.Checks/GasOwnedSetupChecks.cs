@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Npgsql;
 using OpenEtrm.Api;
+using OpenEtrm.MarketData;
 
 internal static class GasOwnedSetupChecks
 {
@@ -57,6 +58,19 @@ internal static class GasOwnedSetupChecks
         if(!cashout.Single(f=>f.Name=="role").Choices.Select(c=>c.Id).ToHashSet().SetEquals(["daily_settlement","final_contract_settlement"])||
             cashout.Single(f=>f.Name=="rounding").Choices is not [{Id:"payment_total_half_even_2dp_v1"}])
             throw new Exception("Operator cashout choices must match its explicit supported final roles and cumulative rounding contract.");
+        var profile=new{profileId=Guid.NewGuid(),expectedRevision=0,implementation="gas_quantity_and_cashout_lifecycle_projection_v2",quantityDisposition="retain_quantity_obligations_v1",
+            effectiveAt=context.AsOf,performances=Array.Empty<object>(),cashouts=new[]{new{positionId=Guid.NewGuid(),scenarioDefinitionRevisionId=Guid.NewGuid(),scenarioCurve="synthetic_mark",scenarioContractId=Guid.NewGuid(),
+                priceInterpretation="selected_valuation_mark_is_cashout_expectation_v1",cashCarrying="explicit_nominal_cashout_cash_v1"}}};
+        if(GasOwnedOperations.Selection("projection_profile",JsonSerializer.SerializeToElement(profile,GasOwnedOperations.Json)).GetProperty("cashouts").GetArrayLength()!=1)
+            throw new Exception("Cashout projection configuration must retain its exact typed scenario and explicit cash carrying.");
+        var legacy=JsonSerializer.SerializeToElement(profile with{implementation="gas_quantity_lifecycle_projection_v1",cashouts=profile.cashouts.Take(0).ToArray()},GasOwnedOperations.Json);
+        if(GasOwnedOperations.Selection("projection_profile",legacy).TryGetProperty("cashouts",out _))throw new Exception("An explicit empty cashout choice changed the legacy quantity-only fact identity.");
+        var missing=JsonSerializer.SerializeToElement(JsonSerializer.SerializeToElement(profile,GasOwnedOperations.Json).EnumerateObject().Where(p=>p.Name!="cashouts").ToDictionary(p=>p.Name,p=>p.Value));
+        try{GasOwnedOperations.Selection("projection_profile",missing);throw new Exception("A v2 cashout policy accepted missing financial selections.");}
+        catch(MarketDataException error)when(error.Code=="gas_owned_input"){}
+        if(!setup.Configuration["projection_profile"].Fields.Single(f=>f.Name=="implementation").Choices.Any(c=>c.Id==profile.implementation)||
+            setup.Configuration["projection_profile"].Fields.Single(f=>f.Name=="cashouts").Fields.Single(f=>f.Name=="scenarioMark").Members is not ["scenarioDefinitionRevisionId","scenarioCurve","scenarioContractId"])
+            throw new Exception("Gas settings must offer a complete typed cashout model and exact scenario market tuple.");
         Console.WriteLine("PASS typed gas form source: no stale evidence fallback, exact party versions, decimal text, explicit clocks and saved policy identity");
     }
 }

@@ -14,8 +14,14 @@ Fixing and payment remain separate events, including an explicit causal order
 when their instants coincide. Paid-at-due and outstanding choices share the
 ordinary cash pricer; hypothetical paid state cannot enter actual valuation.
 Independent checks cover negative prices, nonunit quote multipliers, exact
-rounding differences and conditional curve carry. Native saved-profile and
-source-known actual transition adapters have separate qualification gates.
+rounding differences and conditional curve carry. Migration 0293 saves the closed
+quantity-and-cashout profile with exact native position/market references. Original
+requests and older same-fact acknowledgements preserve their first versions;
+configuration neither mutates a prior profile nor reapplies an older fact.
+Owned native checks qualify the ordinary opening, both cash dispositions and
+separate historical/Monte Carlo workers with exact interactive-report parity and
+no financial mutation. Source-known actual transition adapters remain a separate
+gate; the hypothetical handler cannot replace an already accepted future event.
 
 `ILifecycleProjection` declares its native economic owner, complete transition and
 possible residual price dependencies, opening ordinary valuation portfolios and

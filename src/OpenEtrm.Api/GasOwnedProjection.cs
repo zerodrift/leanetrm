@@ -12,11 +12,11 @@ internal sealed record GasOwnedProjectionPrepared(ImmutableArray<ILifecycleProje
     ImmutableHashSet<AccountingPositionKey> Owners,ImmutableArray<JsonElement> ProfileEvidence);
 internal sealed record GasOwnedProjectionMarket(MarketSnapshot Snapshot,ImmutableDictionary<ReferenceKey,ISideDiscounting> CurrencyCurves);
 
-internal static class GasOwnedProjection
+internal static partial class GasOwnedProjection
 {
     internal static Task<ImmutableArray<GasOwnedProjectionAccountChoice>> ReadChoices(NpgsqlConnection connection,PreviewDatabase database,
         InputFrame frame,ImmutableArray<Guid> books,CancellationToken ct)=>GasOwnedKnownHistoryStore.ReadChoices(connection,database,frame,books,ct);
-    private sealed record Profile(GasOwnedProjectionSelection Selection,JsonElement Header,ImmutableArray<JsonElement> Performances,ImmutableArray<JsonElement> Supply);
+    private sealed record Profile(GasOwnedProjectionSelection Selection,JsonElement Header,ImmutableArray<JsonElement> Performances,ImmutableArray<JsonElement> Supply,ImmutableArray<JsonElement> Cashouts);
     // The caller replaces these exact original commodity members with the
     // connected components. Cash memberships remain their independent native
     // CashLifecycleProjection consumers; none is silently absorbed into stock.
@@ -54,12 +54,17 @@ internal static class GasOwnedProjection
             var header=native.GetProperty("profile");
             if(header.Id("id")!=selection.ProfileId||header.Id("account_id")!=selection.AccountId||header.GetProperty("revision").GetInt32()!=selection.Revision)
                 throw Error("gas_projection_policy","The selected gas projection profile belongs to another exact account or revision.");
+            if(header.Text("implementation") is not(GasQuantityProjectionPolicy.Version or GasCashoutProjectionTerms.Version))
+                throw Error("gas_projection_policy","Select a qualified exact saved quantity or cashout projection implementation.");
             var admission=new GasOwnedSourceReadAdmission(database.Manifest.CatalogId,knowledge.ContextId,source.ValuationAt,native.Instant("authorityUntil"));database.RegisterCommitAdmission(connection,admission);
             var rows=native.GetProperty("performances").EnumerateArray().ToImmutableArray();var supplies=native.GetProperty("supply").EnumerateArray().ToImmutableArray();
             if(rows.Any(row=>known.Positions[row.Id("position_id")].AccountId!=selection.AccountId))
                 throw Error("gas_projection_policy","A saved account profile cannot select another account's quantity-performance policy.");
-            profiles.Add(selection.AccountId,new(selection,header,rows,supplies));
-            evidence.Add(JsonSerializer.SerializeToElement(new{profile=header,performances=rows,supply=supplies},RiskJobs.Json));
+            var cashouts=native.GetProperty("cashouts").EnumerateArray().ToImmutableArray();
+            if(cashouts.Any(row=>!known.Positions.TryGetValue(row.Id("position_id"),out var position)||position.AccountId!=selection.AccountId))
+                throw Error("gas_projection_policy","A saved cashout projection must retain exact native positions in its selected account.");
+            profiles.Add(selection.AccountId,new(selection,header,rows,supplies,cashouts));
+            evidence.Add(JsonSerializer.SerializeToElement(new{profile=header,performances=rows,supply=supplies,cashouts},RiskJobs.Json));
             await admission.RequireCommit(connection,ct);
         }
         var links=selectedAccounts.ToDictionary(id=>id,_=>new HashSet<Guid>());
@@ -78,8 +83,14 @@ internal static class GasOwnedProjection
             var connected=new HashSet<Guid>();var pending=new Queue<Guid>();pending.Enqueue(remaining.Order().First());
             while(pending.TryDequeue(out var account))if(connected.Add(account))foreach(var next in links[account])pending.Enqueue(next);
             remaining.ExceptWith(connected);
-            var positions=active.Where(p=>connected.Contains(p.AccountId)).ToImmutableArray();
-            if(positions.IsEmpty)throw Error("gas_projection_known_transition","This horizon requires a qualified native future-origin gas transition before sampling.");
+            var allPositions=active.Where(p=>connected.Contains(p.AccountId)).ToImmutableArray();
+            if(allPositions.IsEmpty)throw Error("gas_projection_known_transition","This horizon requires a qualified native future-origin gas transition before sampling.");
+            foreach(var position in allPositions.Where(p=>p.Kind=="operator_claim"&&p.SettlementMode=="cashout_final_price_v1"))
+            {
+                components.Add(Cashout(position,profiles[position.AccountId],known,markets));owners.Add(position.Position);
+            }
+            var positions=allPositions.Where(p=>p.Kind!="operator_claim"||p.SettlementMode!="cashout_final_price_v1").ToImmutableArray();
+            if(positions.IsEmpty)continue;
             var definitions=positions.Select(p=>new DefinitionRevision(database.Manifest.CatalogId,p.DefinitionRevisionId)).Distinct().ToArray();
             if(definitions.Length!=1||!markets.TryGetValue(definitions[0],out var market))
                 throw Error("gas_projection_source","Explicitly connected physical resources require one retained market graph; independent groups keep their own exact graphs.");
@@ -150,7 +161,9 @@ internal static class GasOwnedProjection
                 }).Distinct().ToImmutableArray();
                 return new GasQuantityPerformance(id,position.Owner,position.DueAt!.Value,quantity,selectedSupply,receipt,requires);
             }).ToImmutableArray();
-            var policies=connected.ToImmutableDictionary(account=>account,account=>new GasQuantityProjectionPolicy(profiles[account].Header.Text("implementation"),profiles[account].Header.Text("quantity_disposition")));
+            // Version 2 composes the same explicit quantity contract with its
+            // separately selected cashout contract; neither policy is inferred.
+            var policies=connected.ToImmutableDictionary(account=>account,account=>new GasQuantityProjectionPolicy(GasQuantityProjectionPolicy.Version,profiles[account].Header.Text("quantity_disposition")));
             var component=new GasQuantityLifecycleProjection(policies,snapshot,holdings,instructions);
             _=component.EventsFor(horizon);components.Add(component);owners.UnionWith(component.EconomicOwners);
         }

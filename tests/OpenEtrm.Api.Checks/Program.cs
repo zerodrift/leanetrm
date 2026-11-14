@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--gas-cashout-native",var cashoutNativePath]){await GasCashoutNativeChecks.Run(cashoutNativePath);return;}
 if(args is ["--gas-owned-setup-native",var gasSetupPath]){await GasOwnedSetupChecks.RunNative(gasSetupPath);return;}
 if(args is ["--gas-owned-setup"]){GasOwnedSetupChecks.Run();return;}
 if(args is ["--lifecycle-option-expiry-read",var expiryReadFixture]){await LifecycleOptionExpiryChecks.Run(expiryReadFixture);return;}

@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Npgsql;
 using OpenEtrm.MarketData;
+using OpenEtrm.MarketData.Gas;
 
 namespace OpenEtrm.Api;
 
@@ -61,8 +62,12 @@ public sealed record GasOwnedProjectionPerformanceSelection(Guid PositionId,stri
     [property:JsonRequired]Guid? InventoryDefinitionRevisionId,[property:JsonRequired]string? InventoryCurve,[property:JsonRequired]Guid? InventoryContractId,
     [property:JsonRequired]string? Availability,ImmutableArray<GasOwnedProjectionSupplySelection> Supply);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record GasOwnedCashoutProjectionSelection(Guid PositionId,Guid ScenarioDefinitionRevisionId,string ScenarioCurve,Guid ScenarioContractId,
+    string PriceInterpretation,string CashCarrying);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record GasOwnedProjectionProfileSelection(Guid ProfileId,[property:JsonRequired]int ExpectedRevision,string Implementation,
-    string QuantityDisposition,[property:JsonRequired]DateTimeOffset EffectiveAt,ImmutableArray<GasOwnedProjectionPerformanceSelection> Performances);
+    string QuantityDisposition,[property:JsonRequired]DateTimeOffset EffectiveAt,ImmutableArray<GasOwnedProjectionPerformanceSelection> Performances,
+    [property:JsonIgnore(Condition=JsonIgnoreCondition.WhenWritingDefault)]ImmutableArray<GasOwnedCashoutProjectionSelection> Cashouts=default);
 
 internal sealed record GasOwnedWriteAdmission(Guid Catalog,DateTimeOffset Until,bool Configuring,bool RequiresJobs):ICommitAdmission
 {
@@ -115,6 +120,13 @@ internal static class GasOwnedOperations
         try
         {
             var value=selection.Deserialize(type,Json)??throw new JsonException();
+            if(value is GasOwnedProjectionProfileSelection profile)
+            {
+                if(selection.TryGetProperty("cashouts",out var cashouts)&&cashouts.ValueKind!=JsonValueKind.Array)throw new JsonException("Select an explicit cashout policy array.");
+                if(profile.Implementation==GasQuantityProjectionPolicy.Version&&profile.Cashouts.IsDefaultOrEmpty)value=profile with{Cashouts=default};
+                else if(profile.Implementation==GasCashoutProjectionTerms.Version&&profile.Cashouts.IsDefault)
+                    throw new JsonException("Select the complete explicit cashout policies.");
+            }
             return JsonSerializer.SerializeToElement(value,type,Json);
         }
         catch(JsonException error){throw new MarketDataException("gas_owned_input","Supply only the selected gas operation's typed fields, explicit null choices and UTC instants.",error);}
