@@ -603,9 +603,14 @@ as an input-only partition. Both require the exact source certificate, native
 graph and complete declared bindings. Independent A/B native checks and workers
 cover these routes and reject missing or substituted sources and bindings.
 
-The qualified active-parent fixture currently shares one native market source.
-Foreign-market active title/principal continuation, selected physical-option
-continuation and its real application browser flow remain qualification gates.
+The active-parent fixtures cover both one source and independently selected A/B
+definitions. The latter retains a nonzero A rate and an explicit zero B rate,
+then values native title receipts, identified short dispatch and unpaid principal
+on B. Each native owner's ordinary opening, residual wealth and B-only shock are
+checked independently. Missing or substituted B graphs refuse, and read-only
+historical and Monte Carlo workers reproduce the complete report. Selected
+physical-option continuation and its real application browser flow remain
+qualification gates.
 
 The fully performed-parent qualifier completes both signed delivery obligations
 through the reviewed business operation and consumes all identified stock. Its

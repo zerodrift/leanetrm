@@ -31,6 +31,17 @@ internal static class GasPhysicalProjectionChecks
             var data=await MarketInputSelection.Root(database,connection,frame,ct);
             var part=new MarketSourceInputs(CatalogueSource.From(data),pins,[],frame.CurveContracts,["nymex_ng"]);
             frame=frame with{Source=part.Source,SourceInputs=ImmutableDictionary<Guid,MarketSourceInputs>.Empty.Add(data.DefinitionRevision.RevisionId,part)};
+            var models=new Dictionary<Guid,PreviewData>{{data.DefinitionRevision.RevisionId,data}};
+            if(fixture.TryGetProperty("sources",out var supplemental))
+            foreach(var selected in supplemental.EnumerateArray())
+            {
+                var revision=selected.Id("revisionId");var observations=selected.GetProperty("pins").EnumerateArray().Select(p=>p.GetGuid()).ToImmutableArray();
+                var input=await database.Read(connection,ct,selectedRevision:revision,observationIds:observations,includeCalendarDays:false,
+                    observationScope:ObservationReadScope.ExactPins);
+                var curves=ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add(selected.Text("curve"),[selected.Id("contractId")]);
+                frame=frame with{SourceInputs=frame.SourceInputs!.Add(revision,new(CatalogueSource.From(input),observations,[],curves,[selected.Text("curve")]))};
+                models.Add(revision,input);
+            }
             var snapshot=data.Snapshot(frame).WithKnowledge(context.ContextId!.Value,SchedulePreview.ParseAt(context.KnownAt));
             var physical=fixture.GetProperty("parents").EnumerateArray().Select(p=>new FuturesPhysicalValuationSelection(p.Id("tradeId"),p.Id("bindingId"),
                 FuturesPhysicalBasisValueBinding.Version,FuturesPhysicalBasisValueBinding.ValuationProxy)).ToImmutableArray();
@@ -51,7 +62,8 @@ internal static class GasPhysicalProjectionChecks
                 }
                 catch(MarketDataException error)when(error.Code=="portfolio_policy"){}
                 var ratePins=snapshot.Selections.Where(s=>s.Observation.Role==ObservationRole.Parameter).Select(s=>s.Observation.Key.Id).ToImmutableArray();
-                var cashOnlyFrame=frame with{Id=Guid.NewGuid(),ObservationIds=ratePins,SourceInputs=frame.SourceInputs!.ToImmutableDictionary(p=>p.Key,p=>p.Value with{ObservationIds=ratePins})};
+                var cashOnlyFrame=frame with{Id=Guid.NewGuid(),ObservationIds=ratePins,SourceInputs=ImmutableDictionary<Guid,MarketSourceInputs>.Empty.Add(
+                    data.DefinitionRevision.RevisionId,part with{ObservationIds=ratePins})};
                 var cashOnlyData=await MarketInputSelection.Root(database,connection,cashOnlyFrame,ct);
                 var cashOnlySource=cashOnlyData.Snapshot(cashOnlyFrame).WithKnowledge(context.ContextId.Value,snapshot.Knowledge!.KnownAt);
                 var originalFuture=physical[0];var originalTrade=opening.Sources.SelectMany(s=>s.Trades).Single(t=>t.Id==originalFuture.TradeId);
@@ -70,6 +82,21 @@ internal static class GasPhysicalProjectionChecks
                 {CashAccumulationSelections=[]};
             var native=await GasPhysicalKnownAttachmentStore.Read(connection,database,frame,snapshot,[fixture.Id("bookId")],ct);
             var prepared=await LifecyclePortfolioProjection.Prepare(connection,database,opening,request,null,ct);
+            if(fixture.Text("mode")=="foreign")
+            {
+                if(snapshot.Selections.Any(s=>s.Observation.Role!=ObservationRole.Parameter))
+                    throw new Exception("Accepted-final A futures must retain their financial source without an obsolete A price pin.");
+                var foreign=opening.Markets.Single(m=>m.Snapshot.Definitions.RevisionId!=data.DefinitionRevision.RevisionId);
+                foreach(var invalid in new[]{opening with{InputMarkets=[],Markets=opening.Markets.Remove(foreign)},
+                    opening with{InputMarkets=[],Markets=opening.Markets.Replace(foreign,foreign with{Snapshot=foreign.Snapshot with{Id=Guid.NewGuid()}})}})
+                {
+                    try{_=await LifecyclePortfolioProjection.Prepare(connection,database,invalid,request,null,ct);throw new Exception("Active native physical continuation accepted a missing or substituted foreign source.");}
+                    catch(MarketDataException error)when(error.Code=="projection_delivery_source"){}
+                }
+                if(prepared.HistoryPortfolio.Markets.Select(m=>m.Snapshot.Definitions.RevisionId).Distinct().Count()!=2||
+                    prepared.Factors.Length!=1||prepared.Factors.Single().Input.Series.Revision.RevisionId==data.DefinitionRevision.RevisionId)
+                    throw new Exception("Active A/B continuation must retain both exact native sources and the independent surviving B factor.");
+            }
             var values=prepared.Projections.SelectMany(p=>p.Evaluate("native_physical_no_shock",[]).Values).ToArray();
             if(values.Count(v=>v.Owner.Owner.Kind==AccountingOwnerKind.NativeHolding)<(opening.OwnedGas?.Positions.Length??0)||!closed&&prepared.AdditionalOwners.IsEmpty)
                 throw new Exception("Native physical projection must preserve independent initial and source-known future title/cash owners.");
@@ -79,6 +106,18 @@ internal static class GasPhysicalProjectionChecks
                 if(values.Single(v=>v.Owner==new AccountingPositionKey(value.Owner,value.BindingId,value.BookId)).OpeningValue!=value.Value)
                     throw new Exception("Economic opening must exactly retain the ordinary selected native wealth measure for each original owner.");
             var horizon=prepared.Projections[0].Horizon;
+            var priceQuantities=new Dictionary<AccountingPositionKey,Quantity>();
+            if(fixture.Text("mode")=="foreign")
+            {
+                if(native.Attachments.Any(a=>a.EffectiveAt>horizon||a.Stocks.Any(s=>s.Lot.TitleAt>horizon)||a.Cash.Any(c=>c.EffectiveAt>horizon)))
+                    throw new Exception("This foreign owner-set oracle requires every retained native birth within its exact horizon.");
+                var expected=opening.Positions.Select(p=>new AccountingPositionKey(p.Owner,p.BindingId,p.BookId))
+                    .Concat(native.Attachments.Where(a=>a.EffectiveAt>at).Select(a=>a.DeliveryOwner))
+                    .Concat(native.Attachments.SelectMany(a=>a.Stocks).Where(s=>s.Lot.TitleAt>at).Select(s=>s.Owner))
+                    .Concat(native.Attachments.SelectMany(a=>a.Cash).Where(c=>c.EffectiveAt>at).Select(c=>c.Owner)).ToHashSet();
+                if(values.Length!=expected.Count||!expected.SetEquals(values.Select(v=>v.Owner)))
+                    throw new Exception("The result must contain exactly the ordinary native opening owners and explicitly activated native descendants, with no extra constant-cash owner.");
+            }
             if(futureOrigin&&((opening.OwnedGas?.Positions.Length??0)!=0||opening.FuturesMargin.Values.Any(r=>
                 r.State.Status!=FuturesMarginStatus.Open||!r.History.Determinations.IsEmpty)||native.Attachments.Any(a=>a.EffectiveAt<=at||a.EffectiveAt>horizon)))
                 throw new Exception("The future-origin oracle must open before its real native finals with no invented accepted margin or gas ownership.");
@@ -87,6 +126,7 @@ internal static class GasPhysicalProjectionChecks
                 var remaining=new Quantity((attachment.EffectiveAt>horizon?default:attachment.OriginalQuantity.Amount)-attachment.Performances.Where(p=>!p.Retracted&&p.PerformedAt<=horizon)
                     .Aggregate(default(ExactDecimal),(sum,p)=>sum+p.SignedQuantity.Amount),attachment.Terms.Quantity);
                 var initial=opening.OwnedGas?.Positions.SingleOrDefault(p=>p.Position==attachment.DeliveryOwner)?.Quantity??new(default(ExactDecimal),attachment.Terms.Quantity);
+                priceQuantities.Add(attachment.DeliveryOwner,remaining);
                 if(initial.Amount==default&&remaining.Amount==default&&attachment.EffectiveAt<=at)
                 {
                     if(values.Any(v=>v.Owner==attachment.DeliveryOwner))throw new Exception("A fully discharged native obligation must not become a zero placeholder owner.");
@@ -110,6 +150,7 @@ internal static class GasPhysicalProjectionChecks
             {
                 Quantity Remaining(DateTimeOffset time)=>new(stock.Lot.TitleAt>time?default:stock.Lot.Quantity.Amount-
                     stock.Consumptions.Where(c=>c.At<=time).Aggregate(default(ExactDecimal),(sum,c)=>sum+c.Quantity.Amount),stock.Lot.Quantity.Specification);
+                priceQuantities.Add(stock.Owner,Remaining(horizon));
                 if(stock.Lot.TitleAt<=at&&Remaining(at).Amount==default&&Remaining(horizon).Amount==default)
                 {
                     if(values.Any(v=>v.Owner==stock.Owner))throw new Exception("Fully consumed stock must not be fabricated as an opening holding.");
@@ -117,6 +158,20 @@ internal static class GasPhysicalProjectionChecks
                 }
                 var price=Price(stock.OriginalInstrument.Mark);
                 Require(stock.Owner,price.ExactTimes(Remaining(at)),price.ExactTimes(Remaining(horizon)),ExactMoney.Parse("0",price.Unit.Currency));
+            }
+            if(fixture.Text("mode")=="foreign")
+            {
+                var factor=prepared.Factors.Single();var change=ExactDecimal.Parse("0.1");
+                var shifted=prepared.Projections.SelectMany(p=>p.Evaluate("foreign_inventory_up",[new(factor.Input,factor.Quote,factor.Unit,change,QuoteShift.Convention)]).Values).ToArray();
+                foreach(var value in values)
+                {
+                    var actual=shifted.Single(v=>v.Owner==value.Owner);
+                    var delta=priceQuantities.TryGetValue(value.Owner,out var quantity)?ExactUnitPrice.Parse("0.1",factor.Unit).ExactTimes(quantity):ExactMoney.Parse("0",value.ResidualValue.Currency);
+                    if(actual.OpeningValue!=value.OpeningValue||actual.PeriodCash!=value.PeriodCash||actual.ResidualValue!=value.ResidualValue.Add(delta)||
+                        actual.EconomicPnl!=value.EconomicPnl.Add(delta))
+                        throw new Exception("A foreign inventory shock must affect exactly each surviving native asset quantity, with fixed principal and opening wealth unchanged.");
+                }
+                Console.WriteLine("PASS independent active A/B continuation: exact foreign source, zero-rate B versus nonzero A, signed per-owner inventory shock and source substitution refusal");
             }
             if(closed)
             {
@@ -136,7 +191,9 @@ internal static class GasPhysicalProjectionChecks
             Console.WriteLine("PASS independent per-owner physical wealth: signed remaining exchange, exact native stock, rounded principal and latest actual bank allocations");
             ExactUnitPrice Price(CurveRequest mark)
             {
-                return ExactUnitPrice.FromPrice(data.Model.Build(snapshot,[mark]).Values.Single().Price);
+                var selected=models[mark.Curve.Revision.RevisionId];var selectedFrame=frame.SourceInputs![mark.Curve.Revision.RevisionId].Project(frame);
+                var selectedSource=selected.Snapshot(selectedFrame).WithKnowledge(context.ContextId!.Value,snapshot.Knowledge!.KnownAt);
+                return ExactUnitPrice.FromPrice(selected.Model.Build(selectedSource,[mark]).Values.Single().Price);
             }
             void Require(AccountingPositionKey owner,ExactMoney initial,ExactMoney residual,ExactMoney bank)
             {

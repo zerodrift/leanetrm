@@ -16,7 +16,11 @@ from check_risk_jobs_db import provision_worker
 
 
 def fixture(root):
-    reference,market,security,manifest=physical_fixture(root)
+    return inventory_fixture(physical_fixture(root))
+
+
+def inventory_fixture(source):
+    reference,market,security,manifest=source
     calendar="'source_business_days','test_utc',96,'2026-10-13','2026-10-17'"
     assert market.count(calendar)==1
     market=market.replace(calendar,"'source_business_days','test_utc',96,'2026-10-13','2027-01-01'")
@@ -40,7 +44,7 @@ def fixture(root):
     return reference,market+'\nBEGIN;\n'+'\n'.join(clone)+'\nCOMMIT;',security,manifest
 
 
-def checks(query,manifest):
+def checks(query,manifest,*,configuration_checks=None):
     catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'))
     issuer=manifest['identityIssuer'];secondary=manifest['physicalSecondaryRevision']
     query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
@@ -73,6 +77,9 @@ def checks(query,manifest):
     booking=dict(legalEntityId=entity,legalEntityRevision=1,counterpartyId=party,counterpartyRevision=1)
     booked=json.loads(call(f"SELECT security.book_futures_with_parties('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','nymex_ng','{contract}','2026-10-16T14:00:00Z',NULL,2,3,'contract_lot_execution_pnl_v2',NULL,NULL,NULL,{literal(booking)})::text;"))
     call(f"SELECT settlement_data.adopt_futures_margin('{catalog}',{literal(dict(operationId=str(uuid4()),tradeId=booked['tradeId'],bindingId=booked['bindingId'],expectedRevision=1,policyId=margin['id'],policyRevision=1,contextId=capture(),asOf='2026-10-16T16:00:00Z',adoption='native_execution_inception_v1'))});")
+    if configuration_checks is not None:
+        configuration_checks(query,manifest,dict(bookId=book,booking=booking,booked=booked,margin=margin,delivery=delivery))
+        return
     sql_session(query,manifest,'synthetic_physical_economic','source_business_days','16:00',['nymex_ng'],[],effective=('2026-10-01','2027-01-01'))
     directory=Path(query('SHOW unix_socket_directories;')).resolve();assert directory.name.startswith('oetrm-ref-')
     pins=json.loads(query(f"SELECT jsonb_object_agg(definition_revision_id,pins) FROM(SELECT definition_revision_id,jsonb_agg(id ORDER BY id)pins FROM market_data.observations WHERE catalog_id='{catalog}' AND observed_at='2026-10-16T16:00:00Z' AND(role='parameter' OR definition_revision_id='{secondary}' OR series_id IN(SELECT id FROM market_data.series WHERE(catalog_id,revision_id,contract_id)=('{catalog}','{manifest['revisionId']}','{contract}'))) GROUP BY definition_revision_id)s;"))
