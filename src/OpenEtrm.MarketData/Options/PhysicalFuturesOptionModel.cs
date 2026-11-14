@@ -24,6 +24,12 @@ public sealed record PhysicalOptionValue(LatticeDecimal VanillaReference,Lattice
 public static class PhysicalFuturesOptionModel
 {
     private static readonly LatticeDecimal Zero=LatticeDecimal.Parse("0"),One=LatticeDecimal.Parse("1");
+    internal static void RequirePolicy(PhysicalOptionPolicy policy)
+    {
+        if(policy is null||policy.Implementation!=PhysicalOptionPolicy.Version||policy.BasisLaw!=PhysicalOptionPolicy.FrozenBasis||
+            policy.Stopping!=PhysicalOptionPolicy.ReferenceStopping||policy.Calibration!=PhysicalOptionPolicy.ReferenceCalibration||
+            policy.IntrinsicStopping!=PhysicalOptionPolicy.IntrinsicStrategy)throw Error();
+    }
 
     // Every possible exercise time on the selected numerical grid has one
     // explicit next due. The provider resolves these exact saved due inputs.
@@ -45,9 +51,8 @@ public static class PhysicalFuturesOptionModel
         PhysicalOptionPolicy policy,FuturesOptionAutomaticRule rule,PhysicalOptionTerminal terminal,
         FuturesMarginPolicy margin,PhysicalOptionCarrying carrying,CancellationToken ct)
     {
-        if(terms is null||numerical is null||policy is null||policy.Implementation!=PhysicalOptionPolicy.Version||policy.BasisLaw!=PhysicalOptionPolicy.FrozenBasis||
-            policy.Stopping!=PhysicalOptionPolicy.ReferenceStopping||policy.Calibration!=PhysicalOptionPolicy.ReferenceCalibration||
-            policy.IntrinsicStopping!=PhysicalOptionPolicy.IntrinsicStrategy||calibration is null||rule is null||!Enum.IsDefined(terminal)||
+        RequirePolicy(policy);
+        if(terms is null||numerical is null||calibration is null||rule is null||!Enum.IsDefined(terminal)||
             carrying is null||!TradingInstant.IsSupported(carrying.DeliveryAt)||!TradingInstant.IsSupported(carrying.PrincipalDueAt)||
             carrying.PrincipalDueAt<carrying.DeliveryAt||carrying.AssetFactor.CompareTo(Zero)<=0||carrying.PrincipalFactor.CompareTo(Zero)<=0||
             margin?.Implementation!=FuturesMarginPolicy.DeliveryVersion||margin.Delivery?.Terms is null||margin.Delivery.Terms.From!=carrying.DeliveryAt)

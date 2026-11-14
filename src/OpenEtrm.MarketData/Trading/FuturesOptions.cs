@@ -9,7 +9,7 @@ namespace OpenEtrm.MarketData.Trading;
 // As for FuturesContract, the exact series key is the economic identity; the
 // observation role, calibration and discounting belong to the pricing binding.
 [EconomicDefinition("FuturesOptionInstrument_v1")]
-public sealed record FuturesOptionInstrument : Instrument
+public sealed partial record FuturesOptionInstrument : Instrument
 {
     public const string PremiumPaidUpFront = "premium_paid_up_front";
     public override bool SupportsQuantityScaling => true;
@@ -56,6 +56,7 @@ public sealed record FuturesOptionInstrument : Instrument
     public override UnitPricingContract Declare(UnitValuationContext context)
     {
         var binding = Binding(context);
+        if(context.PhysicalOptionValue() is {} physical)return DeclarePhysical(context,binding,physical);
         return new(Id, binding.Policy.Id, [binding.Underlying], UnitQuantity.Specification, Currency) { Time = binding.Calibration is SolvedVolatility?
             ValuationTimeDependency.Between(context.CalculationAt,Series.InstructionCutoffAt is {} cutoff&&cutoff>context.CalculationAt?cutoff:Series.Terms.ExpiryAt):ValuationTimeDependency.Pinned,
             DiscountInputs=[new(new(Id,0,Series.Terms.ExpiryAt,Currency),binding.Discounting)],
@@ -66,6 +67,7 @@ public sealed record FuturesOptionInstrument : Instrument
     }
     public override ImmutableArray<DeclaredPriceStep> ResolvePriceSteps(UnitValuationContext context,UnitPricingContract declaration)
     {
+        if(context.PhysicalOptionValue() is not null)return [];
         var binding=Binding(context);
         return binding.Calibration is SolvedVolatility?PriceSteps(binding,LatticeDecimal.From(Discount(context,binding).DiscountFactor),context.CalculationAt):[];
     }
@@ -80,6 +82,7 @@ public sealed record FuturesOptionInstrument : Instrument
         if (context.Measure != ValuationMeasure.PresentValue)
             throw new MarketDataException("valuation_measure", "Futures options implement present value only.");
         var binding = Binding(context);
+        if(context.PhysicalOptionValue() is {} physical)return PhysicalValue(context,binding,physical);
         var inputs = context.Inputs;
         if (inputs.SnapshotId != binding.SnapshotId)
             throw Error("option_context", $"Option series {Series.Key.Code} was calibrated on another snapshot.");

@@ -273,8 +273,8 @@ not create a financial cash flow.
 Independent pure checks cover signed basis, negative continuation, distinct
 carrying dates, the exact saved VM due, native terminal decisions and the
 zero-basis/carry-compatible collapse under both selected numerical policies.
-Native source admission, ordinary portfolio integration, full economic worker
-replay and UI selection are separate qualification gates. This pure model does
+Native source admission, full economic worker replay and UI selection are
+separate qualification gates. This pure model does
 not establish an accepted exercise, margin determination, title or payment.
 
 Model price-step metadata resolves after the original financial declaration's
@@ -294,3 +294,22 @@ the same guard. Ordinary PV, named/joint full PV scenarios and full-revaluation
 historical or Monte Carlo paths remain available. Existing declarations retain
 their established derivative contract and unchanged wire shape when this field
 is absent. This capability does not infer a derivative or substitute a zero.
+
+The ordinary unit/portfolio consumer selects this model per exact held option
+binding. Its pricing scope is separate from accepted lifecycle state, so two
+holdings of one option definition may retain different terminal selections while
+another explicitly uses the vanilla reference measure. The optional pricing
+scope is omitted from legacy scope JSON. Position-subset preparation retains
+only its own selected pricing inputs.
+
+The consumer requires the exact native underlying lot/multiplier and delivery
+policy, the automatic rule, the captured asset graph and explicit reference,
+margin and physical carrying providers. A foreign asset provider receives its
+original admitted source. Independent ordinary PV checks cover separate A/B
+shocks, signed nonunit holdings, negative basis, distinct expiry/margin/delivery
+discounts and mixed selected/vanilla scopes. The total rounds once to the option
+working scale before the multiplier; its displayed contractual and delivery
+parts retain any resulting numerical difference as `working_scale_rounding`,
+never as cash. Generic frozen-clock children are explicitly pinned; economic
+projections redeclare their supported inputs at their own event clock. API
+source assembly, economic workers and UI model selection remain separate gates.
