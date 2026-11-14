@@ -9,6 +9,8 @@ namespace OpenEtrm.Api;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record GasOwnedConfigurationRequest(Guid OperationId,LifecycleReadContext Context,Guid AccountId,string Action,JsonElement Selection);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record GasOwnedReadRequest(LifecycleReadContext Context,[property:JsonRequired]Guid? AccountId);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record GasOwnedAccountSelection(string Code,string Kind,Guid BookId,Guid LegalEntityId,int LegalEntityRevision,
     [property:JsonRequired]Guid? CounterpartyId,[property:JsonRequired]int? CounterpartyRevision,Guid ReferenceCatalogId,Guid ReferenceRevisionId,
     string Quantity,string Location,Guid DefinitionRevisionId,string MarkCurve,Guid MarkContractId,string Currency,string TitlePolicy,string LossPolicy,
@@ -132,6 +134,22 @@ internal static class GasOwnedOperations
         database.RegisterCommitAdmission(connection,new GasOwnedOperationReadAdmission(database.Manifest.CatalogId,row.Instant("authorityUntil")));
         return row;
     }
+    internal static async Task<JsonElement> ReadScoped(NpgsqlConnection connection,PreviewDatabase database,GasOwnedReadRequest request,CancellationToken ct)
+    {
+        var source=await LifecycleNative.Source(connection,database,request.Context,ct);
+        await using(var save=ScheduleStore.Command(connection,"SAVEPOINT gas_owned_read"))await save.ExecuteNonQueryAsync(ct);
+        try
+        {
+            await PinnedContext.BindExact(connection,database.Manifest.CatalogId,source,ct);
+            await TradingContext.Bind(connection,database.Manifest.CatalogId,source,request.Context.AsOf,ct);
+            return await Read(connection,database,request.Context,request.AccountId,ct);
+        }
+        finally
+        {
+            await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT gas_owned_read;RELEASE SAVEPOINT gas_owned_read");
+            await restore.ExecuteNonQueryAsync(CancellationToken.None);
+        }
+    }
     internal static async Task<LifecycleActionWrite> Configure(NpgsqlConnection connection,PreviewDatabase database,GasOwnedConfigurationRequest request,CancellationToken ct)
     {
         if(request.OperationId==Guid.Empty||request.AccountId==Guid.Empty||request.Context is null||request.Context.ContextId==Guid.Empty||request.Context.BusinessDate==default||
@@ -155,5 +173,6 @@ internal static class GasOwnedOperations
         "gas_owned_payment_capacity"=>"Recorded payments would exceed this cash obligation. Review the existing allocations and corrections.",
         "gas_owned_payment_origin"=>"This payment precedes the owned cash obligation. Record an advance under a separately supported contract instead of allocating it to this obligation.",
         "gas_owned_scope"=>"Choose a readable gas account or a smaller operational scope.",
+        "gas_owned_policy_required"=>"These books contain independently owned gas. Select the whole-book gas valuation policy before running a complete portfolio calculation.",
         _=>"Supply compatible exact gas terms, accepted evidence, quantities and explicit timing choices for this operation."};
 }

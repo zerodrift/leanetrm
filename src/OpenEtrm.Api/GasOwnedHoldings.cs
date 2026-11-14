@@ -11,9 +11,11 @@ namespace OpenEtrm.Api;
 
 internal sealed record GasOwnedMarket(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot);
 internal sealed record GasOwnedPosition(AccountingPositionKey Position,Guid AccountId,PartyKey LegalOwner,string Kind,string SettlementMode,
-    int Revision,int PublicationOrder,DateTimeOffset EffectiveAt,Guid EvidenceId,GasCommodityHoldingInstrument Instrument,Quantity Quantity);
+    int Revision,int PublicationOrder,DateTimeOffset EffectiveAt,Guid EvidenceId,Instrument Instrument,Quantity Quantity)
+{internal Guid DefinitionRevisionId{get;init;}}
 internal sealed record GasOwnedFeePosition(AccountingPositionKey Position,Guid AccountId,Guid? LoanId,TimedCashPayment Instrument,
-    Quantity Quantity,RecordedCashValuation State);
+    Quantity Quantity,RecordedCashValuation State)
+{internal Guid DefinitionRevisionId{get;init;} internal int PublicationOrder{get;init;}}
 internal sealed record GasOwnedPortfolioRead(Guid ContextId,DateTimeOffset At,DateTimeOffset KnownAt,
     ImmutableArray<GasOwnedPosition> Positions,ImmutableArray<GasOwnedFeePosition> Fees,
     ImmutableDictionary<Guid,GasOwnedMarket> Markets,ImmutableDictionary<MeasureBinding,BindingAccountingFacts> AccountingFacts);
@@ -31,7 +33,8 @@ internal static class GasOwnedHoldings
         }
     }
     internal static async Task<GasOwnedPortfolioRead> Read(NpgsqlConnection connection,PreviewDatabase database,
-        InputFrame frame,MarketSnapshot snapshot,ImmutableArray<Guid> bookIds,CancellationToken ct)
+        InputFrame frame,MarketSnapshot snapshot,ImmutableArray<Guid> bookIds,CancellationToken ct,
+        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplied=default,bool requirePinnedSources=false)
     {
         if(frame.ContextId is not {} context||snapshot.Knowledge?.ContextId!=context||snapshot.ValuationAt!=frame.At||bookIds.IsDefault)
             throw Error("Select exact certified gas-owned holdings, an explicit book scope and their source frame.");
@@ -44,17 +47,22 @@ internal static class GasOwnedHoldings
         var admission=new Admission(catalog,context,frame.At,envelope.Instant("authorityUntil"));
         database.RegisterCommitAdmission(connection,admission);
         var root=await MarketInputSelection.Root(database,connection,frame,ct);
+        var available=supplied.IsDefault?ImmutableArray.Create((Data:root,Frame:frame)):supplied;
         var markets=ImmutableDictionary.CreateBuilder<Guid,GasOwnedMarket>();
-        foreach(var revision in envelope.GetProperty("positions").EnumerateArray().Concat(envelope.GetProperty("fees").EnumerateArray()).Select(r=>r.Id("definition_revision_id")).Distinct())
+        foreach(var group in envelope.GetProperty("positions").EnumerateArray().Concat(envelope.GetProperty("fees").EnumerateArray()).GroupBy(r=>r.Id("definition_revision_id")))
         {
-            var source=await MarketInputSelection.DefinitionInput(database,connection,root,frame,revision,ct);
-            markets.Add(revision,new(source.Data,source.Frame,source.Data.Snapshot(source.Frame).WithKnowledge(context,snapshot.Knowledge.KnownAt)));
+            var sources=group.Select(r=>new CatalogueSource(group.Key,r.Id("reference_catalog_id"),r.Id("reference_revision_id"))).Distinct().ToArray();
+            if(sources.Length!=1)throw Error("Each owned gas source requires one exact definition and reference bundle.");
+            var source=await MarketInputSelection.Resolve(database,connection,frame,sources[0],available,requirePinnedSources,ct);
+            markets.Add(group.Key,new(source.Data,source.Frame,source.Data.Snapshot(source.Frame).WithKnowledge(context,snapshot.Knowledge.KnownAt)));
         }
         var positions=ImmutableArray.CreateBuilder<GasOwnedPosition>();
         var fees=ImmutableArray.CreateBuilder<GasOwnedFeePosition>();
         var accounting=ImmutableDictionary.CreateBuilder<MeasureBinding,BindingAccountingFacts>();
         foreach(var row in envelope.GetProperty("positions").EnumerateArray())
         {
+            if(row.Text("kind")=="delivery_obligation")
+                throw new MarketDataException("futures_delivery_transition","Physical futures delivery requires its qualified final-principal valuation adapter.");
             if(row.GetProperty("requires_reconciliation").GetBoolean())
                 throw new MarketDataException("gas_owned_reconciliation","Accepted gas ownership references corrected source evidence. Reconcile it before a complete valuation.");
             if(row.GetProperty("requires_cashout_determination").GetBoolean())
@@ -68,7 +76,8 @@ internal static class GasOwnedHoldings
                     "nominal_mark_v1"=>GasHoldingCarrying.Nominal,"currency_curve_v1"=>GasHoldingCarrying.CurrencyCurve,_=>throw Error("Unknown gas carrying convention.")});
             if(markets[revision.RevisionId].Data.ReferenceRevision!=reference)throw Error("Gas holdings require their exact mark-reference revision.");
             positions.Add(new(position,row.Id("account_id"),new(catalog,row.Id("legal_entity_id"),Integer(row,"legal_entity_revision")),row.Text("kind"),row.Text("settlement_mode"),
-                1,Integer(row,"publication_order"),row.Instant("effective_at"),row.Id("evidence_id"),instrument,new(row.Number("remaining_quantity"),instrument.QuantitySpecification)));
+                1,Integer(row,"publication_order"),row.Instant("effective_at"),row.Id("evidence_id"),instrument,new(row.Number("remaining_quantity"),instrument.QuantitySpecification))
+                {DefinitionRevisionId=revision.RevisionId});
             // This quantity ledger alone cannot attest purchase cash or capital
             // transfers. The actual P&L adapter must require the native source
             // handoff ledger rather than treating missing coverage as no cash.
@@ -85,7 +94,8 @@ internal static class GasOwnedHoldings
             if(flows.Any(f=>f.EffectiveAt<row.Instant("effective_at")))
                 throw new MarketDataException("gas_owned_payment_origin","A payment before this owned cash obligation existed requires a separately qualified advance asset.");
             var state=new RecordedCashValuation(position,instrument,quantity,flows,RecordedCashValuation.Policy,context,snapshot.Knowledge.KnownAt);
-            fees.Add(new(position,row.Id("account_id"),row.OptionalId("loan_id"),instrument,quantity,state));
+            fees.Add(new(position,row.Id("account_id"),row.OptionalId("loan_id"),instrument,quantity,state)
+                {DefinitionRevisionId=row.Id("definition_revision_id"),PublicationOrder=Integer(row,"publication_order")});
             accounting.Add(new(position.Owner,position.BindingId),new(position,context,snapshot.Knowledge.KnownAt,flows));
         }
         await admission.RequireCommit(connection,ct);

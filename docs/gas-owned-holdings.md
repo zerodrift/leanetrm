@@ -69,6 +69,17 @@ fact acknowledges the existing effect without another financial publication.
 Acknowledgements distinguish the acknowledged revision from the current head;
 acknowledging an older fact does not reactivate it or rewind the current state.
 
+Whole-book valuation selects `gas_owned_mark_to_market_v1` explicitly and loads
+independent owners by the selected books. A book with owned gas cannot return a
+complete valuation without that policy. A selected-trades request has its own
+scope and cannot also select whole-book gas ownership. The loader retains exact
+native owner/binding identities, source bundles and surviving cash; it never
+finds inventory through an originating trade. Future cash and currency-carried
+claims consume the selected currency discount mapping and pinned rate inputs.
+There is no constant discount fallback. The disposable whole-book check covers
+a gas-only book with six native holdings and an independent zero-rate oracle.
+Retained-worker authorization and event-aware projection have separate gates.
+
 The focused checks are `--gas-owned-holdings` in the managed domain checks and
 `tools/check_gas_owned_holdings.py` against disposable PostgreSQL. The native
 fixture also invokes `--gas-owned` API checks for the ordinary portfolio and

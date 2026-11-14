@@ -101,6 +101,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         public ImmutableArray<PortfolioInstantDiscountEvidence> InstantDiscountInputs{get;init;}=[];
         internal ImmutableDictionary<MeasureBinding,FuturesMarginRead> FuturesMargin{get;init;}=ImmutableDictionary<MeasureBinding,FuturesMarginRead>.Empty;
         internal ImmutableArray<PortfolioProductSource> Sources{get;init;}=[];
+        internal GasOwnedPortfolioRead? OwnedGas{get;init;}
         internal ImmutableArray<PpaPortfolioInput> Ppas{get;init;}=[];
         internal long PpaRows=>Ppas.Sum(p=>p.Rows);
         // The option inputs this preparation calibrated, the work it took, and the calibration mode of each valued option binding.
@@ -312,6 +313,22 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var evidence=ImmutableArray.CreateBuilder<PortfolioPositionEvidence>();
         var instantDiscounts=ImmutableArray.CreateBuilder<PortfolioInstantDiscountEvidence>();
         var margins=ImmutableDictionary.CreateBuilder<MeasureBinding,FuturesMarginRead>();
+        GasOwnedPortfolioRead? ownedGas=null;
+        if(selection is not null)
+        {
+            if(policy.GasOwned is not null)
+                throw new MarketDataException("gas_owned_scope","Choose whole books for independently owned gas, or the explicit trade-only scope without a gas ownership policy.");
+        }
+        else if(await GasOwnedPortfolio.RequireScope(connection,database,frame,bookIds,policy.GasOwned is not null,ct))
+        {
+            ownedGas=await GasOwnedHoldings.Read(connection,database,frame,snapshot,bookIds,ct,
+                MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null);
+            foreach(var market in await GasOwnedPortfolio.Prepare(connection,database,ownedGas,policy.GasOwned!,ct))
+            {
+                materialized.Add(new(market.Data,market.Frame,market.Snapshot,market.Portfolio,GasOwnedPortfolio.Measure));
+                evidence.AddRange(market.Evidence);instantDiscounts.AddRange(market.DiscountInputs);
+            }
+        }
         var heldGas=await GasPositions.ReadComplete(connection,database.Manifest,bookIds,[],ct,selection?.Ids);
         if(!gasExclusions.IsSubsetOf(heldGas.Select(p=>(p.Trade,p.Binding))))
             throw new MarketDataException("risk_contract","Every excluded gas position must be a held position in scope.");
@@ -457,7 +474,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         return new(snapshot.Id,exact,policy,markets.ToImmutable(),evidence.ToImmutable(),discountInputs,excluded)
             {MaterializationWork=materializationWork,MaterializationScenarioCount=materializationScenarios,Ppas=[..ppas.Select(p=>p.Prepared)],
              Options=optionMarkets.Count==0?null:new(optionMarkets.ToImmutable()),OptionWork=optionMarkets.Count==0?null:optionWork,OptionModes=optionModes,
-             InstantDiscountInputs=instantDiscounts.ToImmutable(),FuturesMargin=margins.ToImmutable(),Sources=materialized.ToImmutableArray()};
+             InstantDiscountInputs=instantDiscounts.ToImmutable(),FuturesMargin=margins.ToImmutable(),Sources=materialized.ToImmutableArray(),OwnedGas=ownedGas};
     }
     // The option market of the held options, calibrated once per operation: a retried preparation reuses its calibration.
     private async Task<FuturesOptionMarket> OptionMarket(NpgsqlConnection connection,PreviewData data,InputFrame frame,MarketSnapshot snapshot,

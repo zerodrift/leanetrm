@@ -67,4 +67,25 @@ DO $$DECLARE f regprocedure;BEGIN
   EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO openetrm_runtime',f);
  END LOOP;
 END$$;
+-- Whole-book valuation must prove absence or include independently owned
+-- holdings explicitly. A trade filter never manufactures inventory ownership.
+CREATE FUNCTION security.require_gas_owned_valuation_scope(catalog uuid,context uuid,as_of timestamptz,books uuid[],configured boolean,until_at timestamptz)
+ RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE held boolean;BEGIN
+ PERFORM settlement_data.require_futures_margin_read(catalog,context,as_of,until_at);
+ IF configured IS NULL OR books IS NULL OR cardinality(books) NOT BETWEEN 1 AND 128
+  OR EXISTS(SELECT 1 FROM unnest(books)b WHERE b IS NULL OR NOT EXISTS(SELECT 1 FROM trading.books k
+   WHERE(k.catalog_id,k.id)=(catalog,b) AND security.trading_visible(k.catalog_id,k.publication_order,k.effective_at)))
+ THEN RAISE EXCEPTION 'gas_owned_scope';END IF;
+ IF configured THEN PERFORM security.require_gas_owned(catalog,false,false);END IF;
+ SELECT EXISTS(SELECT 1 FROM trading.gas_owned_accounts a JOIN trading.gas_owned_positions p
+  ON(p.catalog_id,p.account_id)=(a.catalog_id,a.id) WHERE a.catalog_id=catalog AND a.book_id=ANY(books)
+  AND security.trading_visible(a.catalog_id,a.publication_order,a.effective_at)
+  AND security.trading_visible(p.catalog_id,p.publication_order,p.effective_at)) INTO held;
+ IF held AND NOT configured THEN RAISE EXCEPTION 'gas_owned_policy_required';END IF;
+ PERFORM settlement_data.require_futures_margin_read(catalog,context,as_of,until_at);RETURN held;
+END$$;
+ALTER FUNCTION security.require_gas_owned_valuation_scope(uuid,uuid,timestamptz,uuid[],boolean,timestamptz) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION security.require_gas_owned_valuation_scope(uuid,uuid,timestamptz,uuid[],boolean,timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION security.require_gas_owned_valuation_scope(uuid,uuid,timestamptz,uuid[],boolean,timestamptz) TO openetrm_runtime;
 COMMIT;

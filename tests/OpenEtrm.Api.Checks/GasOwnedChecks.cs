@@ -5,6 +5,7 @@ using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.Rates;
 
 internal static class GasOwnedChecks
 {
@@ -87,6 +88,42 @@ internal static class GasOwnedChecks
             return true;
         },default);
         Console.WriteLine("PASS native independent gas owners through ordinary PV: owned stock, surviving loan return, cashout/fee cash and corrected partial payment");
+        async Task<PortfolioValuationResult> Integrated(bool includeGas,ImmutableArray<Guid> books,ImmutableArray<Guid>? tradeIds=null,bool includeRates=true)
+        {
+            return await database.WithIdentity("trader",null,async(connection,ct)=>{
+                var source=(await new KnowledgeStore(manifest.CatalogId).Read(connection,finalContext,ct)).Context;
+                await PinnedContext.BindExact(connection,manifest.CatalogId,source,ct);
+                await TradingContext.Bind(connection,manifest.CatalogId,source,context.AsOf,ct);
+                var pins=ImmutableArray.Create(fixture.Id("markId"));
+                if(includeRates)pins=pins.AddRange(fixture.GetProperty("rateIds").EnumerateArray().Select(p=>p.GetGuid()));
+                var frame=new InputFrame(Guid.NewGuid(),"Synthetic independent gas whole-book scope",context.AsOf,context.BusinessDate,pins,
+                    ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("future",[fixture.Id("contractId")]),finalContext);
+                var data=await MarketInputSelection.Root(database,connection,frame,ct);
+                var snapshot=data.Snapshot(frame).WithKnowledge(finalContext,SchedulePreview.ParseAt(source.KnownAt));
+                var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesMarginValuationPolicy.Convention,
+                    SwapStore.Convention,RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,
+                    FuturesOptions:FuturesOptionValuationPolicy.Release1,NativeFutures:new(FuturesMarginValuationPolicy.CurrencyDefault,RateDiscountTiming.Version),
+                    GasOwned:includeGas?new(GasOwnedValuationPolicy.Version,GasOwnedValuationPolicy.WholeBooks,GasOwnedValuationPolicy.CurrencyDefault,RateDiscountTiming.Version):null);
+                var selection=await RiskTradeScope.Resolve(connection,manifest.CatalogId,books,tradeIds,ct);
+                var prepared=await new PortfolioValuation(database).Prepare(connection,data,frame,snapshot,source,books,policy,[],[],ct,selection:selection);
+                return PortfolioValuation.Calculate(prepared,[],[],RiskDetail.Holdings,ct);
+            },default);
+        }
+        var whole=await Integrated(true,[fixture.Id("bookId")]);
+        if(whole.Totals.Single().Value!=ExactMoney.Parse(fixture.Text("expectedWholeBookPv"),whole.Totals.Single().Value.Currency)||
+            whole.Positions.Length!=6||whole.Positions.Any(p=>p.Owner.Kind!=AccountingOwnerKind.NativeHolding))
+            throw new Exception($"A whole-book gas-only portfolio omitted independent native owners or their surviving cash: expected {fixture.Text("expectedWholeBookPv")}, actual {whole.Totals.Single().Value.ToExactString()}, positions {whole.Positions.Length}, nonnative {whole.Positions.Count(p=>p.Owner.Kind!=AccountingOwnerKind.NativeHolding)}.");
+        try{await Integrated(false,[fixture.Id("bookId")]);throw new Exception("A whole book silently omitted gas holdings without an explicit policy.");}
+        catch(MarketDataException error)when(error.Code=="gas_owned_policy_required"){}
+        var both=ImmutableArray.Create(fixture.Id("bookId"),Guid.Parse("d1000000-0000-0000-0000-000000000002"));
+        try{await Integrated(true,both,[fixture.Id("filterTradeId")]);throw new Exception("Whole-book gas policy accepted an ambiguous trade-only filter.");}
+        catch(MarketDataException error)when(error.Code=="gas_owned_scope"){}
+        var tradeOnly=await Integrated(false,both,[fixture.Id("filterTradeId")]);
+        if(tradeOnly.Positions.IsEmpty||tradeOnly.Positions.Any(p=>p.Owner.Kind!=AccountingOwnerKind.Trade)||tradeOnly.Totals.Any(t=>t.Value.Numerator!="0"))
+            throw new Exception("The explicit trade-only contract silently included independent inventory or changed its zero-value source trade.");
+        try{await Integrated(true,[fixture.Id("bookId")],includeRates:false);throw new Exception("Gas cash/default discounting invented missing retained rate observations.");}
+        catch(MarketDataException){}
+        Console.WriteLine("PASS whole-book native gas capture: source trades are irrelevant, explicit trade-only scope remains separate and missing gas/rate policies refuse");
     }
     private static RiskPosition Position(AccountingPositionKey owner,Instrument instrument,Quantity quantity)=>new(owner.Owner,owner.BindingId,owner.BookId,
         instrument.Id,quantity,new(new Money(default,instrument.Currency),quantity.Specification),new(default,instrument.Currency));

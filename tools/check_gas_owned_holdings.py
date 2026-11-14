@@ -3,12 +3,17 @@ import json
 from uuid import uuid4
 
 from check_reference_editing import main
-from preview_fixture import catalogue_fixture, trading_fixture
+from preview_fixture import catalogue_fixture, trade_booking, trading_fixture
 
 
 def checks(query, manifest):
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
     query(trading_fixture(catalog))
+    from rate_curve_fixture import discount_default
+    publication=f"(SELECT max(publication_order) FROM trading.publications WHERE catalog_id='{catalog}')"
+    reference=f"'{manifest['referenceCatalogId']}','{manifest['referenceRevisionId']}'"
+    query(f"BEGIN;INSERT INTO trading.publications SELECT '{catalog}',max(publication_order)+1,pg_current_xact_id() FROM trading.publications WHERE catalog_id='{catalog}';"
+          +discount_default(catalog,str(uuid4()),manifest['revisionId'],reference,'usd','interest_rates',publication,'2020-01-01T00:00:00Z')+"COMMIT;")
     query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
     query(catalogue_fixture(manifest, 'https://preview.invalid'))
     query("INSERT INTO security.role_permissions SELECT role_id,p.code FROM security.role_permissions r "
@@ -259,11 +264,39 @@ def checks(query, manifest):
     mark=Decimal(query(f"SELECT value FROM market_data.observations WHERE(catalog_id,id)=('{catalog}','70000000-0000-0000-0000-000000000001');"))
     multiplier=Decimal(query("SELECT q.multiplier FROM market_data.curves c JOIN ref_data.quote_specifications q ON(q.catalog_id,q.revision_id,q.code)="
         f"(c.reference_catalog_id,c.reference_revision_id,c.quote_code) WHERE(c.catalog_id,c.revision_id,c.code)=('{catalog}','{manifest['revisionId']}','future');"))
+    # A real zero-value trade in another book proves explicit trade-only scope.
+    filter_trade=json.loads(call(f"SELECT security.book_futures_with_parties('{catalog}','{uuid4()}','d1000000-0000-0000-0000-000000000002',"
+        f"'{manifest['revisionId']}','future','{contract}','2020-12-19T15:00:00Z',NULL,1,{mark},'contract_lot_execution_pnl_v2',NULL,NULL,NULL,{literal(trade_booking())})::text;"))
+    margin_policy=dict(id=str(uuid4()),definitionRevisionId=manifest['revisionId'],contractId=contract,settlementCurve='future',
+        referenceCatalogId=manifest['referenceCatalogId'],referenceRevisionId=manifest['referenceRevisionId'],currency=terms['currency'],
+        fromAt='2020-01-01T00:00:00Z',untilAt='2021-01-01T00:00:00Z',opening='include_opening_instant',increment='0.01',tie='to_even',
+        stage='payment_total',roundingScope='held_binding_difference_payment_total_v1',implementation='dated_futures_margin_policy_v1',
+        occurrences=[dict(id=str(uuid4()),at='2020-12-28T15:30:00Z',dueAt='2020-12-29T12:00:00Z',phase='final')])
+    call(f"SELECT settlement_data.save_futures_margin_policy('{catalog}',{literal(dict(operationId=str(uuid4()),expectedRevision=0,contextId=capture(),asOf=at,policy=margin_policy))});",'editor')
+    adoption_request=dict(operationId=str(uuid4()),tradeId=filter_trade['tradeId'],bindingId=filter_trade['bindingId'],
+        expectedRevision=1,policyId=margin_policy['id'],policyRevision=1,contextId=capture(),asOf=at,adoption='native_execution_inception_v1')
+    call(f"SELECT settlement_data.adopt_futures_margin('{catalog}',{literal(adoption_request)});")
+    rates=json.loads(query("SELECT jsonb_agg(o.id ORDER BY t.ordinal)::text FROM market_data.rate_curves c JOIN market_data.rate_curve_tenors t "
+        "ON(t.catalog_id,t.revision_id,t.curve_code)=(c.catalog_id,c.revision_id,c.code) JOIN market_data.observations o "
+        "ON(o.catalog_id,o.definition_revision_id,o.series_id,o.source_code)=(c.catalog_id,c.revision_id,t.series_id,c.source_code) "
+        f"WHERE(c.catalog_id,c.revision_id,c.code)=('{catalog}','{manifest['revisionId']}','interest_rates') "
+        "AND o.role='parameter' AND o.publication_state='final' AND o.observed_at='2020-12-18T16:00:00Z';"))
+    tenor_count=int(query(f"SELECT count(*) FROM market_data.rate_curve_tenors WHERE(catalog_id,revision_id,curve_code)=('{catalog}','{manifest['revisionId']}','interest_rates');"))
+    assert tenor_count>0 and len(rates)==tenor_count
+    zero_rates=[]
+    for original in rates:
+        corrected=str(uuid4())
+        query("INSERT INTO market_data.observations SELECT catalog_id,"+f"'{corrected}',definition_revision_id,series_id,reference_catalog_id,reference_revision_id,"
+              f"source_code,source_event_id,'gas_owned_zero_v1',role,publication_state,observed_at,clock_timestamp(),0,id "
+              f"FROM market_data.observations WHERE(catalog_id,id)=('{catalog}','{original}');")
+        zero_rates.append(corrected)
+    rates=zero_rates
     host=query('SHOW unix_socket_directories;')
     path=Path(host)/'gas-owned-managed.json'
     path.write_text(json.dumps(dict(manifest=manifest,host=host,contextId=capture(),at=at,accountId=owned,lotId=stock['id'],
         policyId=policies[(owned,'reserve')][0],markId='70000000-0000-0000-0000-000000000001',contractId=contract,bookId=book,
-        expectedPv=str(Decimal('-11.5')*mark*multiplier+Decimal('1.52')*Decimal('.95')))))
+        expectedPv=str(Decimal('-11.5')*mark*multiplier+Decimal('1.52')*Decimal('.95')),rateIds=rates,filterTradeId=filter_trade['tradeId'],
+        expectedWholeBookPv=str(Decimal('-15')*mark*multiplier+Decimal('1.52')))))
     before_managed=query(f"SELECT count(*) FROM trading.gas_owned_reservations WHERE catalog_id='{catalog}';")
     result=subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks','--','--gas-owned',str(path)],
         cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=60)
