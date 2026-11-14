@@ -381,6 +381,16 @@ Gas requirement for both actor and service. Ordinary nonconsumers return before
 reading continuation policies; source scope, original deadlines and result
 revocation checks remain in place.
 
+Accepted past futures margin is financial evidence even when its official source
+is absent from the retained variable graph. The economic adapter uses the native
+adopted trade/binding and policy to read the complete certified correction history
+for required past occurrences. It does not grant workers raw knowledge-receipt
+access or invent variable factors for those facts. The response retains exact
+occurrence IDs and the original source-admission deadline, rechecked before and
+after the read and at application commit. A conservative 16 MiB encoded budget
+includes observations, publication times, occurrence IDs and the envelope; an
+oversized complete response refuses before array aggregation, without truncation.
+
 Native market inputs can be shared by separate financial source graphs. A
 coordinate has one owning native source; copied source points and native built
 outputs require identical complete source calculations and observation evidence.

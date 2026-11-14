@@ -110,7 +110,7 @@ class CheckAllTests(unittest.TestCase):
         self.assertEqual(len(restores), 1)
 
     def test_native_margin_consumers_use_selected_sdk_in_trading_partition(self):
-        helpers={f'tools/check_futures_margin_{name}.py' for name in ('sources','adoption','journal')}|{'tools/check_trading_business_date.py'}
+        helpers={f'tools/check_futures_margin_{name}.py' for name in ('sources','adoption','projection_sources')}|{'tools/check_trading_business_date.py'}
         for group in ('trading','standard'):
             selected=[]
             def run(command,**options):
@@ -265,7 +265,7 @@ class CheckAllTests(unittest.TestCase):
             with self.subTest(group=name):
                 # Each group starts from a clean checkout, including restores,
                 # managed/frontend builds and all shared verification contracts.
-                margin={f'tools/check_futures_margin_{part}.py' for part in ('sources','adoption','journal')}|{'tools/check_trading_business_date.py'}
+                margin={f'tools/check_futures_margin_{part}.py' for part in ('sources','adoption','projection_sources')}|{'tools/check_trading_business_date.py'}
                 shared=lambda c:'tools/run_preview.py' not in c and not (margin|LIFECYCLE_NATIVE|LIFECYCLE_PORTFOLIO).intersection(c)
                 self.assertEqual([c for c in selected if shared(c)],
                                  [c for c in complete if shared(c)])
