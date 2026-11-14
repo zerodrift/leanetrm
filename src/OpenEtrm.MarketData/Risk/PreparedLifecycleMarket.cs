@@ -23,6 +23,10 @@ internal sealed class PreparedLifecycleMarket
     private readonly ImmutableDictionary<InputKey,CurvePointKey> primitives;
     internal ImmutableDictionary<InputKey,DateTimeOffset> FinalInstants{get;}
     internal ImmutableDictionary<InputKey,(DateTimeOffset At,ExactDecimal Shift)> ActualFinals{get;}
+    internal bool Admits(CurveRequest dependency,PreparedLifecycleMarket selected,CancellationToken ct)=>
+        ReferenceEquals(this,selected)||valuation.AdmitsInputs(selected.SourceSnapshot)&&
+        bindings.TryGetValue(dependency,out var point)&&selected.bindings.TryGetValue(dependency,out var original)&&
+        valuation.Scenario.Plan.HasSameCalculation(point,selected.valuation.Scenario.Plan,original,ct);
     private readonly LifecycleProjectionPolicy Policy;
     private readonly DateTimeOffset Horizon;
     internal PreparedLifecycleMarket(LifecycleProjectionMarket selectedMarket,DateTimeOffset horizon,LifecycleProjectionPolicy policy,

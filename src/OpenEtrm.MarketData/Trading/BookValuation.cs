@@ -405,7 +405,10 @@ public sealed class ValuationPortfolio
                 throw Error("risk_contract","Each unit instrument requires a complete versioned dependency declaration, currency and normalized unit basis.");
             c.RequireInputs();Money.RequireKey(c.Currency);Money.RequireKey(c.Quantity);
             if(c.Currency.Revision!=c.Quantity.Revision)throw Error("risk_contract","Currency and quantity require the same exact reference revision.");
-            return c with{ScheduleIdentity=instrument.RetainedScheduleIdentity,SettlementProjections=instrument.SettlementProjections};
+            var retained=instrument.RetainedScheduleIdentity;
+            var identity=c.ScheduleIdentity is null?retained:retained is null||retained==c.ScheduleIdentity?c.ScheduleIdentity:
+                DefinitionIdentity.CanonicalTerm(new object[]{"unit_and_retained_schedule_v1",c.ScheduleIdentity,retained});
+            return c with{ScheduleIdentity=identity,SettlementProjections=instrument.SettlementProjections};
         }).ToImmutableArray();
     }
     internal ImmutableArray<UnitPricingContract> ResolvePriceSteps(PreparedValuationEnvironment market,ImmutableArray<UnitPricingContract> declarations,CancellationToken ct)

@@ -45,10 +45,14 @@ public sealed record GasUnfixedPhysicalDeliveryInstrument:Instrument
     {
         if(context.Measure!=ValuationMeasure.PresentValue)throw new MarketDataException("valuation_measure","An unfixed physical exchange implements remaining PV.");
         ValidateValuationState(context.BindingState);
+        return new(context,ExchangeValue(context),Terms.Quantity);
+    }
+    internal ExactMoney ExchangeValue(UnitValuationContext context)
+    {
         var asset=context.Inputs.ExactPrice(Terms.Mark);var principal=context.Inputs.ExactPrice(PrincipalMark);
         if(asset.Unit!=PriceUnit||principal.Unit!=PriceUnit)
             throw new MarketDataException("gas_delivery_unit","The asset and principal marks require their exact selected native quotation; conversion must be configured explicitly.");
-        return new(context,GasDeliveryExchange.Value(Id,Terms,UnitQuantity,asset,principal,context),Terms.Quantity);
+        return GasDeliveryExchange.Value(Id,Terms,UnitQuantity,asset,principal,context);
     }
 }
 

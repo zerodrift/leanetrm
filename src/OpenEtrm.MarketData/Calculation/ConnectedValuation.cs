@@ -22,7 +22,7 @@ public sealed class ConnectedValuation
     }
     private ConnectedValuation(ConnectedScenario scenario,MarketSnapshot snapshot,ImmutableArray<MarketSnapshot> sourceSnapshots)
     {Scenario=scenario;Snapshot=snapshot;SourceSnapshots=sourceSnapshots;}
-    private bool AdmitsInputs(MarketSnapshot selected)
+    internal bool AdmitsInputs(MarketSnapshot selected)
     {
         if(Snapshot.HasSameInputs(selected)||SourceSnapshots.Any(s=>s.HasSameInputs(selected)))return true;
         var views=SourceSnapshots.Prepend(Snapshot).Where(s=>s.Id==selected.Id&&s.Definitions==selected.Definitions&&

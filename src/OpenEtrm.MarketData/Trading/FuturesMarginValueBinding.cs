@@ -8,6 +8,8 @@ namespace OpenEtrm.MarketData.Trading;
 public sealed record FuturesMarginValueBinding(FuturesMarginTerms Terms,ImmutableArray<Guid> CompletedOccurrences,string Implementation)
 {
     public const string FlatReference="flat_reference_to_next_saved_margin_due_v1";
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public FuturesPhysicalBasisValueBinding? Physical{get;init;}
     public FuturesMarginValueBinding Advance(Guid occurrence)
     {
         if(Implementation!=FlatReference||Terms is null||CompletedOccurrences.IsDefault)throw new MarketDataException("futures_margin_value","Retain the exact valuation terms and completed occurrence prefix.");
@@ -46,11 +48,16 @@ public sealed partial record FuturesContract
     private UnitPricingContract DeclareFundedMargin(UnitValuationContext context,FuturesMarketBinding market,FuturesMarginValueBinding selected)
     {
         var(_,next)=FundedMargin(context,market,selected);
+        var exchange=PhysicalExchange(context,market,selected);
         var time=next is null?ValuationTimeDependency.Independent:next.At>context.CalculationAt?
             ValuationTimeDependency.Between(context.CalculationAt,next.At):ValuationTimeDependency.Pinned;
-        return new(Id,FuturesMarginValueBinding.FlatReference,next is null?[]:market.Dependencies,UnitQuantity.Specification,Currency){Time=time,
-            DiscountInputs=next is not null&&next.DueAt>context.CalculationAt?[new(new(Id,0,next.DueAt,Currency),context.PaymentDiscounting(Id))]:[],
-            ScheduleIdentity=$"{selected.Terms.Policy.Id:D}:{selected.Terms.Policy.Revision}:{string.Join(',',selected.CompletedOccurrences)}"};
+        var discounts=next is not null&&next.DueAt>context.CalculationAt?ImmutableArray.Create(new DiscountInput(new(Id,0,next.DueAt,Currency),context.PaymentDiscounting(Id))):[];
+        if(next is not null&&exchange is not null)discounts=discounts.AddRange(exchange.RequiredDiscounts(context.CalculationAt)
+            .Select(p=>new DiscountInput(p,selected.Physical!.Carrying!){Source=selected.Physical.Asset.Snapshot}));
+        return new(Id,exchange is null?FuturesMarginValueBinding.FlatReference:FuturesPhysicalBasisValueBinding.Version,
+            next is null?[]:[..market.Dependencies.Concat(exchange is null?[]:new[]{exchange.Terms.Mark}).Distinct()],UnitQuantity.Specification,Currency){Time=time,
+            DiscountInputs=discounts,ScheduleIdentity=$"{selected.Terms.Policy.Id:D}:{selected.Terms.Policy.Revision}:{string.Join(',',selected.CompletedOccurrences)}"+
+                (selected.Physical is {} physical?$":{physical.ProfileId:D}:{physical.ProfileRevision}:{physical.MarkInterpretation}:{physical.Asset.Snapshot.Id:D}:{physical.Asset.ManifestId}":"")};
     }
     private ExactMoney FundedMarginValue(UnitValuationContext context,FuturesMarketBinding market,FuturesMarginValueBinding selected)
     {
@@ -59,7 +66,12 @@ public sealed partial record FuturesContract
         if(next is null)return ExactMoney.Parse("0",Currency);
         context.Market.Model.RequireFuturesDefinition(market.Market,market.Contract,Series,market.Quote);
         var amount=context.Inputs.ExactPrice(market.Market).Subtract(basis).ExactTimes(UnitQuantity);
-        return next.DueAt>context.CalculationAt?amount.Scale(context.Inputs.Discounts([new(Id,0,next.DueAt,Currency)]).Single().DiscountFactor):amount;
+        var vm=next.DueAt>context.CalculationAt?amount.Scale(context.Inputs.Discounts([new(Id,0,next.DueAt,Currency)]).Single().DiscountFactor):amount;
+        if(PhysicalExchange(context,market,selected) is not {} exchange)return vm;
+        context.Inputs.RequireSource(selected.Physical!.Asset);
+        var physical=exchange.ExchangeValue(context);
+        context.RecordComponents([new("variation_margin",vm),new("declared_delivery_basis",physical)]);
+        return vm.Add(physical);
     }
     private static MarketDataException MarginValueError(Exception? cause=null)=>new("futures_margin_value",
         "Select exact held native margin terms, the complete occurrence prefix and the explicit pending-VM funding law.",cause);

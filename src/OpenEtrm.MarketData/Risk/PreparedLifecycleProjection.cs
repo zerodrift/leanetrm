@@ -190,7 +190,7 @@ public sealed class PreparedLifecycleProjection
                 var selected=group.Key;var positions=group.ToImmutableArray();var instruments=portfolio.Instruments.Where(i=>positions.Any(p=>p.ValuationId==i.Id)).ToImmutableArray();
                 var held=positions.Length==portfolio.Positions.Length?portfolio:new ValuationPortfolio(instruments,positions,portfolio.Setup.ForPositions(positions));
                 var declared=held.Declare(selected.SourceSnapshot,at);
-                if(declared.Any(d=>d.Currency!=component.Currency||d.Dependencies.Any(r=>!component.Dependencies.Contains(r)||!dependencyMarkets[component.Owner][r].SourceSnapshot.HasSameInputs(selected.SourceSnapshot))))
+                if(declared.Any(d=>d.Currency!=component.Currency||d.Dependencies.Any(r=>!component.Dependencies.Contains(r)||!selected.Admits(r,dependencyMarkets[component.Owner][r],ct))))
                     throw LifecycleProjection.Error("projection_source","An ordinary residual requires its exact declared native market route and complete prepared dependency closure.");
                 var environment=new ProjectionMarket(market(selected),at);environment.RequireInputs(declared);
                 declared=held.ResolvePriceSteps(environment,declared,ct);

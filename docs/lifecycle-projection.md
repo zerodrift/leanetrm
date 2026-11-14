@@ -429,3 +429,14 @@ samples and their original certified inputs. Independently admitted partial
 views may cover the same exact source frame; another certificate cannot.
 Structural comparison is reusable across immutable price scenarios and checks
 no shocked level against its base. Source authorization remains operation-owned.
+
+The selected `vm_plus_declared_delivery_basis_v1` future unit value combines
+pending VM with an unfixed delivery exchange under one original held binding.
+The exact adopted profile, explicit deliverable/proxy mark interpretation,
+captured asset graph and physical/principal carrying inputs are required. The
+product records margin and delivery-basis components without adding a booked
+holding, title, cash or accepted event. Independent A/B, signed, nonunit,
+negative-price and distinct-due checks qualify the bounded ordinary value and
+its no-event horizon reuse. A foreign dependency in that unit must match its
+independently admitted source graph exactly. Final conversion, native portfolio
+policy selection and full lifecycle source wiring remain qualification gates.

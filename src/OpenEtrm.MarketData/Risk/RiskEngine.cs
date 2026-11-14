@@ -37,13 +37,13 @@ public sealed record UnitPricingContract(Guid Id,string ModelVersion,ImmutableAr
     public ImmutableArray<DeclaredPriceStep> PriceSteps {get;init;}=[];
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public StaticDerivativeRestriction? StaticDerivatives {get;init;}
-    internal bool SameInputFence(UnitPricingContract other)=>Time==other.Time&&
+    internal bool SameInputFence(UnitPricingContract other)=>Time==other.Time&&ScheduleIdentity==other.ScheduleIdentity&&
         Dependencies.Length==other.Dependencies.Length&&Dependencies.All(other.Dependencies.Contains)&&
         Volatility.Length==other.Volatility.Length&&Volatility.All(other.Volatility.Contains)&&
         DiscountInputs.Length==other.DiscountInputs.Length&&DiscountInputs.All(d=>other.DiscountInputs.Any(o=>o.Payment==d.Payment&&ReferenceEquals(o.Provider,d.Provider)&&d.SameSource(o)));
     internal int InputFenceHash()
     {
-        var hash=Time.GetHashCode();
+        var hash=HashCode.Combine(Time,ScheduleIdentity);
         foreach(var price in Dependencies)hash^=price.GetHashCode();
         foreach(var vol in Volatility)hash^=vol.GetHashCode();
         foreach(var discount in DiscountInputs)hash^=HashCode.Combine(discount.Payment,System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(discount.Provider),discount.SourceHash());
