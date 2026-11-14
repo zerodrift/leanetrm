@@ -74,7 +74,7 @@ internal static class GasOwnedHoldings
                     "nominal_mark_v1"=>GasHoldingCarrying.Nominal,"currency_curve_v1"=>GasHoldingCarrying.CurrencyCurve,_=>throw Error("Unknown gas carrying convention.")});
             if(markets[revision.RevisionId].Data.ReferenceRevision!=reference)throw Error("Gas holdings require their exact mark-reference revision.");
             positions.Add(new(position,row.Id("account_id"),new(catalog,row.Id("legal_entity_id"),Integer(row,"legal_entity_revision")),row.Text("kind"),row.Text("settlement_mode"),
-                1,Integer(row,"publication_order"),row.Instant("effective_at"),row.Id("evidence_id"),instrument,new(row.Number("remaining_quantity"),instrument.UnitQuantity.Specification))
+                Integer(row,"financial_revision"),Integer(row,"publication_order"),row.Instant("effective_at"),row.Id("evidence_id"),instrument,new(row.Number("remaining_quantity"),instrument.UnitQuantity.Specification))
                 {DefinitionRevisionId=revision.RevisionId,MarkRevision=markRevision,AccountCode=row.Text("account_code"),SourceReference=BusinessReference(row),
                     MarkPublicationOrder=markRevision==0?Integer(row,"publication_order"):Integer(row,"mark_publication_order")});
             // This quantity ledger alone cannot attest purchase cash or capital

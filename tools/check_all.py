@@ -86,6 +86,7 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_gas_source_ancestors','applied gas corrections, pending financial writes and captured source ancestry'),
         ('check_gas_physical_known','captured physical gas delivery dependencies'),
         ('check_gas_cashout_projection','cashout profiles, native valuation and retained economic workers'),
+        ('check_gas_accepted_projection','accepted physical gas movements, exact remainders and native economic workers'),
         ('check_risk_fit_authority','volatility fitting actor and delegated worker authority')):
         check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='trading')
     for helper,label in (
@@ -94,7 +95,8 @@ def run_checks(pg_bin, dotnet, browser, *, group='all', run=subprocess.run):
         ('check_lifecycle_final_scope','native lifecycle final-result scope'),
         ('check_lifecycle_projection_horizon','economic horizon and retained projection profiles'),
         ('check_lifecycle_swap_worker','economic swap replay in separate workers'),
-        ('check_lifecycle_future_worker','economic futures replay in separate workers')):
+        ('check_lifecycle_future_worker','economic futures replay in separate workers'),
+        ('check_physical_futures_value','full native physical futures value and exact linked-source economic workers')):
         check(label,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin)],suite='portfolio')
     for helper,suite in (('check_lifecycle_browser','trading'),('check_lifecycle_economic_browser','portfolio')):
         check(helper,[sys.executable,f'tools/{helper}.py','--pg-bin',str(pg_bin),'--dotnet',str(dotnet),

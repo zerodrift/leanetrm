@@ -49,6 +49,8 @@ internal static class GasPhysicalKnownAttachmentStore
     internal static ImmutableArray<GasPhysicalKnownAttachment> Materialize(JsonElement native,GasOwnedKnownHistory journal,MarketSnapshot snapshot)
     {
         if(!journal.Source.HasSameInputs(snapshot)||snapshot.Knowledge is not {} knowledge)throw Error("Retain one exact knowledge certificate across the physical closure.");
+        if(native.Text("quantityStateProfile")!="gas_owned_financial_quantities_v1")throw Error("Retain the explicit native financial quantity source contract.");
+        var consumptionRows=native.GetProperty("journal").GetProperty("consumptions").EnumerateArray().ToImmutableDictionary(row=>row.Id("id"));
         var result=ImmutableArray.CreateBuilder<GasPhysicalKnownAttachment>();
         GasPhysicalKnownReceipt Receipt(JsonElement row)
         {
@@ -82,21 +84,24 @@ internal static class GasPhysicalKnownAttachmentStore
             {
                 var supplies=splits.Where(s=>s.Id("performance_id")==row.Id("id")).Select(s=>
                 {
-                    var consumption=journal.Consumptions.Single(c=>c.Id==s.Id("consumption_id"));var stock=journal.Positions[consumption.LotId];
-                    return new GasPhysicalKnownSupply(Integer(s,"ordinal"),consumption.Id,stock.Owner,consumption.EvidenceId,consumption.ReservationId,consumption.Quantity,Receipt(row));
+                    var consumption=consumptionRows[s.Id("consumption_id")];var stock=journal.Positions[consumption.Id("lot_id")];
+                    var selected=journal.Quantities.Consumptions[consumption.Id("id")];
+                    return new GasPhysicalKnownSupply(Integer(s,"ordinal"),consumption.Id("id"),stock.Owner,consumption.Id("evidence_id"),consumption.OptionalId("reservation_id"),
+                        new(consumption.Number("quantity"),stock.Quantity.Specification),selected.Revision,selected.Retracted,Receipt(consumption));
                 }).OrderBy(s=>s.Ordinal).ToImmutableArray();
                 var receiptStock=row.OptionalId("receipt_lot_id") is {} id?journal.Positions[id].Owner:(AccountingPositionKey?)null;
                 return new GasPhysicalKnownPerformance(row.Id("id"),row.Text("business_reference"),new(row.Number("quantity")*(original.Amount.CompareTo(default)>0?ExactDecimal.Parse("1"):ExactDecimal.Parse("-1")),original.Specification),
-                    row.Instant("performed_at"),row.OptionalId("title_evidence_id"),receiptStock,supplies,Receipt(row));
+                    row.Instant("performed_at"),row.OptionalId("title_evidence_id"),receiptStock,supplies,Integer(row,"financial_revision"),row.GetProperty("retracted").GetBoolean(),row.Text("source_allocation"),Receipt(row));
             }).ToImmutableArray();
-            if(performances.Select(p=>p.Id).Distinct().Count()!=performances.Length||performances.Any(p=>p.PerformedAt<finalOccurrence.At)||
+            if(performances.Select(p=>p.Id).Distinct().Count()!=performances.Length||performances.Any(p=>p.PerformedAt<finalOccurrence.At||p.FinancialRevision<1||p.Retracted!=(p.SignedQuantity.Amount==default)||
+                (p.FinancialRevision==1?p.SourceAllocation!=GasSourceAllocation.Initial:p.SourceAllocation is not(GasSourceAllocation.Preserve or GasSourceAllocation.Withdraw)))||
                 splits.Any(s=>!performances.Any(p=>p.Id==s.Id("performance_id"))))throw Error("Every performance and identified supply must belong to this accepted final handoff.");
             var stepRows=source.GetProperty("steps").EnumerateArray().ToImmutableArray();
             var runs=source.GetProperty("runs").EnumerateArray().Select(row=>new GasPhysicalKnownPrincipalRun(Integer(row,"revision"),row.Id("final_determination_id"),row.Id("source_context_id"),row.Instant("as_of"),
                 [..stepRows.Where(s=>Integer(s,"run_revision")==Integer(row,"revision")).Select(s=>new GasPhysicalKnownPrincipalStep(s.Id("id"),s.Id("performance_id"),s.OptionalId("previous_id"),s.OptionalId("basis_id"),
                     new(s.Number("cumulative_quantity"),profile.Terms.Quantity),ExactMoney.Parse(s.Text("exact_total"),profile.Terms.Currency),new(s.Number("rounded_total"),profile.Terms.Currency),
-                    new(s.Number("contribution"),profile.Terms.Currency),new(s.Number("adjustment"),profile.Terms.Currency)))],Receipt(row))).ToImmutableArray();
-            if(runs.Any(r=>!finals.Any(f=>f.DeterminationId==r.FinalDeterminationId)||r.Steps.Any(s=>!performances.Any(p=>p.Id==s.PerformanceId)))||
+                    new(s.Number("contribution"),profile.Terms.Currency),new(s.Number("adjustment"),profile.Terms.Currency),Integer(s,"performance_revision")))],Receipt(row))).ToImmutableArray();
+            if(runs.Any(r=>!finals.Any(f=>f.DeterminationId==r.FinalDeterminationId)||r.Steps.Any(s=>s.PerformanceRevision<1||!performances.Any(p=>p.Id==s.PerformanceId&&p.FinancialRevision>=s.PerformanceRevision)))||
                 runs.Sum(r=>r.Steps.Length)!=stepRows.Length)throw Error("Retain every sealed principal prefix and its exact accepted final/performance lineage.");
             var paymentRows=source.GetProperty("payments").EnumerateArray().ToImmutableArray();
             var cash=source.GetProperty("cash").EnumerateArray().Select(row=>
@@ -122,7 +127,7 @@ internal static class GasPhysicalKnownAttachmentStore
                 return new GasPhysicalKnownStock(stock.Owner,stock.AccountId,account.Account.LegalOwner,instrument,lot,
                     [..journal.MarkBindings.Where(m=>m.PositionId==id).Select(m=>new GasPhysicalKnownMark(m.Revision,m.Mark,m.Time.EffectiveAt,ReceiptOf(m.Time)))],reservations,
                     [..journal.Releases.Where(r=>reservations.Any(s=>s.Id==r.ReservationId)).Select(r=>new GasPhysicalKnownRelease(r.ReservationId,r.Time.EffectiveAt,ReceiptOf(r.Time)))],
-                    [..journal.Consumptions.Where(c=>c.LotId==id)],ReceiptOf(stock.Time));
+                    [..journal.Consumptions.Where(c=>c.LotId==id)],journal.Quantities.Positions[id].Revision,journal.Quantities.Positions[id].Retracted,ReceiptOf(stock.Time));
             }).ToImmutableArray();
             result.Add(new(snapshot,parent,owner,Integer(link,"origin_revision"),link.Id("policy_id"),Integer(link,"policy_revision"),profile.Id,profile.Revision,profile.Terms,profile.PrincipalRounding,
                 profile.PrincipalScope,profile.CorrectionDuePolicy,finalOccurrence,original,link.Id("initial_determination_id"),finals[^1],finals,held.Time.EffectiveAt,ReceiptOf(held.Time),performances,runs,cash,stocks));

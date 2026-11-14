@@ -22,12 +22,12 @@ LIFECYCLE_NATIVE={f'tools/{name}.py' for name in (
     'check_selected_physical_authority','check_physical_delivery_authority','check_physical_margin_qualification',
     'check_lifecycle_option_scheduling','check_lifecycle_option_expiries',
     'check_lifecycle_scheduling','check_lifecycle_scheduled_bookings',
-    'check_gas_source_ancestors','check_gas_physical_known','check_gas_cashout_projection',
+    'check_gas_source_ancestors','check_gas_physical_known','check_gas_cashout_projection','check_gas_accepted_projection',
     'check_risk_fit_authority','check_lifecycle_browser')}
 LIFECYCLE_PORTFOLIO={f'tools/{name}.py' for name in (
     'check_lifecycle_risk_jobs','check_lifecycle_risk_scope','check_lifecycle_final_scope',
     'check_lifecycle_projection_horizon','check_lifecycle_swap_worker','check_lifecycle_future_worker',
-    'check_lifecycle_economic_browser')}
+    'check_lifecycle_economic_browser','check_physical_futures_value')}
 
 
 class CheckAllTests(unittest.TestCase):

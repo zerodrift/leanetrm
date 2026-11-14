@@ -4,11 +4,13 @@ using Npgsql;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Trading;
 
 internal static class EconomicRiskNativeChecks
 {
     internal static async Task VerifyGasSamples(PreviewDatabase database,NpgsqlConnection connection,PreviewData data,InputFrame frame,
-        ImmutableArray<Guid> books,PortfolioValuationPolicy pricing,PortfolioEconomicProjectionRequest projection,string expectedTail,CancellationToken ct)
+        ImmutableArray<Guid> books,PortfolioValuationPolicy pricing,PortfolioEconomicProjectionRequest projection,string expectedTail,CancellationToken ct,
+        ImmutableArray<AccountingPositionKey> futureOwners=default)
     {
         var scope=new PortfolioRiskCatalogRequest(new(frame.Id,TradingBlotter.Convention,"retained",frame.ContextId),books,[],null);
         var source=new PortfolioEconomicSourceRequest(scope,pricing,projection);
@@ -26,12 +28,14 @@ internal static class EconomicRiskNativeChecks
         var report=JsonSerializer.SerializeToElement(PortfolioRiskPreview.Calculate(prepared,ct),RiskJobs.Json);
         var result=report.GetProperty("result");var partition=result.GetProperty("economic").EnumerateArray().Single();
         expectedTail=ExactDecimal.Parse(expectedTail).ToString();
+        var owners=prepared.Portfolio.Positions.Select(p=>new AccountingPositionKey(p.Owner,p.BindingId,p.BookId))
+            .Concat(futureOwners.IsDefault?[]:futureOwners).ToHashSet();
         // The first native move is +0.2 and the next is a decline. The
         // complete portfolio is short fifteen units, so both 99% signed
         // tails lose three quotation multipliers; fixed cash adds no loss.
         if(result.GetProperty("samples").GetInt32()!=2||prepared.History!.Samples[0].Changes.Single()!=ExactDecimal.Parse("0.2")||
             prepared.History.Samples[1].Changes.Single().CompareTo(default)>=0||partition.Text("valueAtRisk")!=expectedTail||partition.Text("expectedShortfall")!=expectedTail||
-            report.GetProperty("holdings").GetArrayLength()!=prepared.Portfolio.Positions.Length)
+            !report.GetProperty("holdings").EnumerateArray().Select(h=>h.GetProperty("owner").Deserialize<AccountingPositionKey>(RiskJobs.Json)).ToHashSet().SetEquals(owners))
             throw new Exception($"Native gas historical economic oracle expected 2 samples and VaR/ES {expectedTail}; received {result.GetProperty("samples").GetInt32()} samples, VaR {partition.Text("valueAtRisk")}, ES {partition.Text("expectedShortfall")}; moves {string.Join(';',prepared.History!.Samples.Select(s=>string.Join(',',s.Changes)))}.");
         var retained=RetainedFactorHistory.Capture(prepared.History!,await calculator.CaptureHistoryClock(prepared.History!,ct));
         var replay=await calculator.Prepare(connection,data,frame,prepared.Request,ct,retained:new(prepared.Portfolio.ConnectedMarkets,[]),

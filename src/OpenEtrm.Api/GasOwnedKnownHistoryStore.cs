@@ -23,12 +23,18 @@ internal sealed record GasOwnedKnownFee(AccountingPositionKey Owner,Guid Account
 internal sealed record GasOwnedKnownMark(Guid PositionId,int Revision,CurveRequest Mark,GasOwnedKnownTime Time);
 internal sealed record GasOwnedKnownCashout(Guid PositionId,ReferenceKey Source,ObservationRole Role,DateTimeOffset ObservedAt,DateTimeOffset CashDueAt,string Rounding);
 internal enum GasOwnedKnownScope { WholeBooks=1,PhysicalDependencies }
+internal sealed record GasOwnedQuantityHead(int Revision,bool Retracted,GasOwnedKnownTime Time);
+internal sealed record GasOwnedQuantitySources(ImmutableDictionary<Guid,GasOwnedQuantityHead> Positions,ImmutableDictionary<Guid,GasOwnedQuantityHead> Consumptions);
+internal sealed record GasOwnedKnownQuantityLinks(ImmutableDictionary<Guid,Guid> LoanReturnPositions,
+    ImmutableDictionary<Guid,Guid> RepaymentConsumptions,ImmutableDictionary<Guid,int> PositionPublications,
+    ImmutableDictionary<Guid,int> ReservationPublications,ImmutableDictionary<Guid,int> ConsumptionPublications);
 internal sealed record GasOwnedKnownHistory(MarketSnapshot Source,GasOwnedKnownScope Scope,[property:JsonIgnore]DateTimeOffset AuthorityUntil,
     ImmutableDictionary<Guid,GasOwnedKnownAccount> Accounts,ImmutableDictionary<Guid,GasOwnedKnownPosition> Positions,
     ImmutableArray<GasOwnedLot> Lots,ImmutableArray<GasStockReservation> Reservations,ImmutableArray<GasOwnedKnownRelease> Releases,
     ImmutableArray<GasStockConsumption> Consumptions,ImmutableArray<GasCommodityLoan> Loans,ImmutableArray<GasLoanRepayment> Repayments,
     ImmutableArray<GasOwnedKnownSettlement> Settlements,ImmutableArray<GasOwnedKnownFee> Fees,ImmutableArray<GasOwnedKnownEvidence> Evidence,
-    ImmutableArray<GasOwnedKnownMark> MarkBindings,ImmutableArray<GasOwnedKnownCashout> Cashouts,ImmutableArray<GasOwnedAppliedSourceConflict> SourceConflicts);
+    ImmutableArray<GasOwnedKnownMark> MarkBindings,ImmutableArray<GasOwnedKnownCashout> Cashouts,ImmutableArray<GasOwnedAppliedSourceConflict> SourceConflicts,
+    GasOwnedQuantitySources Quantities,GasOwnedKnownQuantityLinks Links);
 
 // Captures facts known at opening without advancing effectiveness. A future
 // title or return stays source evidence until the pure path reaches its event.
@@ -100,11 +106,32 @@ internal static class GasOwnedKnownHistoryStore
         if(native.Id("contextId")!=context||native.Instant("asOf")!=snapshot.ValuationAt||native.Instant("knownAt")!=knowledge.KnownAt)
             throw Error("Native gas facts cannot change their certified business or knowledge coordinates.");
         ImmutableArray<JsonElement> Rows(string key)=>[..native.GetProperty(key).EnumerateArray()];
+        if(native.Text("quantityStateProfile")!="gas_owned_financial_quantities_v1")
+            throw Error("Retain the explicit source-known native financial quantity contract.");
         GasOwnedKnownTime Time(JsonElement row,string effective="effective_at")
         {
             var value=new GasOwnedKnownTime(row.GetProperty("publication_order").GetInt32(),row.Instant(effective),row.Instant("known_at"));
             if(value.PublicationOrder<1||value.KnownAt>knowledge.KnownAt)throw Error("Every accepted gas fact must be in the captured native knowledge prefix.");return value;
         }
+        ImmutableDictionary<Guid,GasOwnedQuantityHead> Heads(string key)
+        {
+            return Rows(key).ToImmutableDictionary(row=>row.Id("id"),row=>
+            {
+                var revision=row.GetProperty("financial_revision").GetInt32();var retracted=row.GetProperty("retracted").GetBoolean();
+                if(revision<1||retracted!=(row.Number("quantity")==default))throw Error("A selected financial quantity must retain its exact native revision and explicit retraction state.");
+                return new GasOwnedQuantityHead(revision,retracted,Time(row));
+            });
+        }
+        var quantities=new GasOwnedQuantitySources(Heads("positions"),Heads("consumptions"));
+        ImmutableDictionary<Guid,int> Publications(string key,string field)=>Rows(key).ToImmutableDictionary(row=>row.Id("id"),row=>
+        {
+            var publication=row.GetProperty(field).GetInt32();
+            if(publication<1)throw Error("Native gas links require their original accepted publication, separate from financial revision knowledge.");
+            return publication;
+        });
+        var links=new GasOwnedKnownQuantityLinks(Rows("loans").ToImmutableDictionary(row=>row.Id("id"),row=>row.Id("return_position_id")),
+            Rows("repayments").ToImmutableDictionary(row=>row.Id("id"),row=>row.Id("consumption_id")),Publications("positions","original_publication_order"),
+            Publications("reservations","publication_order"),Publications("consumptions","original_publication_order"));
         var accounts=Rows("accounts").Select(row=>
         {
             var reference=new ReferenceRevision(row.Id("reference_catalog_id"),row.Id("reference_revision_id"));
@@ -128,7 +155,7 @@ internal static class GasOwnedKnownHistoryStore
         var releases=Rows("releases").Select(row=>new GasOwnedKnownRelease(row.Id("reservation_id"),Time(row))).ToImmutableArray();
         var reservations=Rows("reservations").Select(row=>new GasStockReservation(row.Id("id"),row.Id("lot_id"),new(row.Number("quantity"),positions[row.Id("lot_id")].Quantity.Specification),
             row.Instant("effective_at"),row.Instant("known_at"),releases.SingleOrDefault(r=>r.ReservationId==row.Id("id"))?.Time.EffectiveAt)).ToImmutableArray();
-        var consumptions=Rows("consumptions").Select(row=>new GasStockConsumption(row.Id("id"),row.Id("lot_id"),new(row.Number("quantity"),positions[row.Id("lot_id")].Quantity.Specification),
+        var consumptions=Rows("consumptions").Where(row=>!quantities.Consumptions[row.Id("id")].Retracted).Select(row=>new GasStockConsumption(row.Id("id"),row.Id("lot_id"),new(row.Number("quantity"),positions[row.Id("lot_id")].Quantity.Specification),
             row.Text("kind") switch{"delivery"=>GasStockUse.Delivery,"return"=>GasStockUse.Return,"loss"=>GasStockUse.Loss,_=>throw Error("Unknown native gas consumption kind.")},
             row.Instant("effective_at"),row.Instant("known_at"),row.Id("evidence_id"),row.OptionalId("reservation_id"))).ToImmutableArray();
         var loans=Rows("loans").Select(row=>{var p=positions[row.Id("return_position_id")];return new GasCommodityLoan(row.Id("id"),row.Id("account_id"),row.Id("received_lot_id"),
@@ -156,7 +183,9 @@ internal static class GasOwnedKnownHistoryStore
             row.Instant("observed_at"),row.Instant("cash_due_at"),row.Text("rounding"))).ToImmutableArray();
         if(evidence.Any(e=>e.KnownAt>knowledge.KnownAt)||positions.Values.Any(p=>!evidence.Any(e=>e.Id==p.EvidenceId)))throw Error("Each known gas position requires its exact retained source evidence.");
         if(conflicts.IsDefault)throw Error("Retain the complete explicit applied-source proof for the gas journal.");
-        return new(snapshot,scope,until,accounts,positions,lots,reservations,releases,consumptions,loans,repayments,settlements,fees,evidence,marks,cashouts,conflicts);
+        if(links.LoanReturnPositions.Any(link=>!positions.TryGetValue(link.Value,out var owner)||owner.Kind!="loan_return")||
+            links.RepaymentConsumptions.Any(link=>!quantities.Consumptions.ContainsKey(link.Value)))throw Error("Native loan and repayment links must retain their exact captured holding and consumption identities.");
+        return new(snapshot,scope,until,accounts,positions,lots,reservations,releases,consumptions,loans,repayments,settlements,fees,evidence,marks,cashouts,conflicts,quantities,links);
     }
     private static DateTimeOffset? OptionalInstant(JsonElement row,string key)=>row.OptionalText(key) is {} value?TradingInstant.Parse(value,"gas_owned_known_context"):null;
     private static MarketDataException Error(string message)=>new("gas_owned_known_context",message);

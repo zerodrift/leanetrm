@@ -28,6 +28,7 @@ internal static partial class LifecyclePortfolioProjection
             throw Error("projection_futures_state","Economic risk requires the explicit native margin remaining-value profile.");
         var sources=ImmutableArray.CreateBuilder<(LifecycleMarketSource Source,ImmutableArray<ILifecycleProjection> Components,ImmutableDictionary<ReferenceKey,ISideDiscounting> Curves,ImmutableArray<ValuationPortfolio> Histories,ImmutableDictionary<CurveRequest,CurveKey> Officials,ImmutableArray<SchedulePriceTerm> ActivePrices)>();
         var productEvidence=ImmutableArray.CreateBuilder<JsonElement>();var finalEvidence=ImmutableArray.CreateBuilder<JsonElement>();var receipts=ImmutableArray.CreateBuilder<FuturesOptionCalibrationReceipt>();
+        var additionalOwners=ImmutableArray.CreateBuilder<LifecycleEconomicOwnerDescription>();
         foreach(var group in opening.Sources.GroupBy(s=>s.Snapshot.Definitions).OrderBy(g=>g.Key.RevisionId))
         {
             var first=group.First();
@@ -183,6 +184,7 @@ internal static partial class LifecyclePortfolioProjection
                 var part=sources[index];sources[index]=part with{Components=part.Components.AddRange(preparedGas.Components.Where(c=>c.SourceSnapshot.Definitions==part.Source.Snapshot.Definitions))};
             }
             productEvidence.Add(JsonSerializer.SerializeToElement(new{known=knownGas,profiles=preparedGas.ProfileEvidence},RiskJobs.Json));
+            additionalOwners.AddRange(preparedGas.AdditionalOwners);
         }
         foreach(var input in opening.InputMarkets.Where(m=>!sources.Any(s=>s.Source.Snapshot.Definitions==m.Snapshot.Definitions)))
             sources.Add((new(input.Data,input.Frame,input.Snapshot),[],ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty,[],
@@ -232,7 +234,8 @@ internal static partial class LifecyclePortfolioProjection
         if(retainedGraphs is not null&&retainedGraphs.Value.Length!=markets.Count)throw Error("risk_graph_manifest","The retained economic market set differs from its complete prepared source.");
         if(!LifecycleEconomicRisk.Factors(projections.ToImmutable()).Select(f=>f.Input).ToHashSet().SetEquals(markets.SelectMany(m=>m.Factors).Select(f=>f.Input)))
             throw Error("projection_source","Every projected native factor requires its exact retained market and complete history-source partition.");
-        return new(request,horizon.Evidence,projections.ToImmutable(),opening with{Markets=markets.ToImmutable()},productEvidence.ToImmutable(),receipts.ToImmutable(),finalEvidence.ToImmutable());
+        return LifecycleEconomicOwners.Attach(new(request,horizon.Evidence,projections.ToImmutable(),opening with{Markets=markets.ToImmutable()},
+            productEvidence.ToImmutable(),receipts.ToImmutable(),finalEvidence.ToImmutable()),additionalOwners.ToImmutable());
     }
     private static async Task<DateTimeOffset> ConfigurationAuthority(NpgsqlConnection connection,Guid catalog,CancellationToken ct)
     {

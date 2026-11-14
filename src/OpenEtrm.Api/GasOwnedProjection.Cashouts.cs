@@ -11,7 +11,7 @@ internal static partial class GasOwnedProjection
     private static GasCashoutLifecycleProjection Cashout(GasOwnedPosition position,Profile profile,GasOwnedKnownHistory known,
         ImmutableDictionary<DefinitionRevision,GasOwnedProjectionMarket> markets)
     {
-        if(profile.Header.Text("implementation")!=GasCashoutProjectionTerms.Version||position.Instrument is not GasCommodityHoldingInstrument instrument||
+        if(profile.Header.Text("implementation") is not(GasCashoutProjectionTerms.Version or GasQuantityProjectionPolicy.KnownVersion)||position.Instrument is not GasCommodityHoldingInstrument instrument||
             !known.Positions.TryGetValue(position.Position.Owner.Id,out var original)||original.Owner!=position.Position||original.AccountId!=position.AccountId||
             original.Quantity!=position.Quantity||original.SettlementMode!="cashout_final_price_v1"||original.Mark!=instrument.Mark||
             !markets.TryGetValue(instrument.Mark.Curve.Revision,out var market))

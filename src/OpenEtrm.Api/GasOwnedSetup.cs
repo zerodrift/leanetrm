@@ -205,10 +205,11 @@ internal static class GasOwnedSetup
                     "settlementMode"=>Codes(("return_quantity_v1","Return physical quantity"),("cashout_final_price_v1","Final-price cashout")),
                     "rounding" when type==typeof(GasOwnedCashoutSelection)=>Codes(("payment_total_half_even_2dp_v1","Cumulative payment total · two decimal places · ties to even")),
                     "implementation"=>Codes(("gas_quantity_lifecycle_projection_v1","Gas quantity lifecycle projection · version 1"),
-                        ("gas_quantity_and_cashout_lifecycle_projection_v2","Gas quantity and operator cashout projection · version 2")),
+                        ("gas_quantity_and_cashout_lifecycle_projection_v2","Gas quantity and operator cashout projection · version 2"),
+                        ("gas_accepted_quantity_lifecycle_projection_v3","Known physical movements first; preserve stated allocations · version 3")),
                     "priceInterpretation"=>Codes(("selected_valuation_mark_is_cashout_expectation_v1","The selected valuation mark is the expected cashout price")),
                     "cashCarrying"=>Codes(("explicit_nominal_cashout_cash_v1","Explicit nominal cashout cash"),("captured_currency_curve_cashout_cash_v1","Carry cash on the claim’s captured currency curve")),
-                    "quantityDisposition"=>Codes(("retain_quantity_obligations_v1","Retain the quantity obligation"),("perform_full_quantity_at_contractual_due_v1","Project full physical performance at contractual due time")),
+                    "quantityDisposition"=>Codes(("retain_quantity_obligations_v1","Retain the quantity obligation"),("perform_full_quantity_at_contractual_due_v1","Project the full stated remainder at contractual due time")),
                     "availability"=>Codes(("available_at_projected_title_v1","Available when projected title passes")),
                     "source"=>[..sources.GroupBy(s=>s.Text("code")).Select(g=>Choice(g.Key,g.First().Text("name"),g.Key))],
                     "role" when type==typeof(GasOwnedCashoutSelection)=>Codes(("daily_settlement","Official daily settlement"),("final_contract_settlement","Final contract settlement")),_=>null};

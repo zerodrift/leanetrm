@@ -75,6 +75,7 @@ internal static class GasOwnedSetupChecks
         try{GasOwnedOperations.Selection("projection_profile",JsonSerializer.SerializeToElement(omitted));throw new Exception("A v3 accepted-quantity policy silently accepted an omitted cashout selection.");}
         catch(MarketDataException error)when(error.Code=="gas_owned_input"){}
         if(!setup.Configuration["projection_profile"].Fields.Single(f=>f.Name=="implementation").Choices.Any(c=>c.Id==profile.implementation)||
+            !setup.Configuration["projection_profile"].Fields.Single(f=>f.Name=="implementation").Choices.Any(c=>c.Id==accepted.implementation)||
             setup.Configuration["projection_profile"].Fields.Single(f=>f.Name=="cashouts").Fields.Single(f=>f.Name=="scenarioMark").Members is not ["scenarioDefinitionRevisionId","scenarioCurve","scenarioContractId"])
             throw new Exception("Gas settings must offer a complete typed cashout model and exact scenario market tuple.");
         Console.WriteLine("PASS typed gas form source: no stale evidence fallback, exact party versions, decimal text, explicit clocks and saved policy identity");

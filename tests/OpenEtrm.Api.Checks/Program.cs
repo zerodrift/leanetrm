@@ -6,6 +6,7 @@ using OpenEtrm.MarketData;
 if(args is ["--gas-cashout-native",var cashoutNativePath]){await GasCashoutNativeChecks.Run(cashoutNativePath);return;}
 if(args is ["--gas-owned-setup-native",var gasSetupPath]){await GasOwnedSetupChecks.RunNative(gasSetupPath);return;}
 if(args is ["--gas-owned-setup"]){GasOwnedSetupChecks.Run();return;}
+if(args is ["--gas-accepted-native",var acceptedGasPath]){await GasAcceptedNativeChecks.Run(acceptedGasPath);return;}
 if(args is ["--lifecycle-option-expiry-read",var expiryReadFixture]){await LifecycleOptionExpiryChecks.Run(expiryReadFixture);return;}
 if(args is ["--lifecycle-delivery-choices"]){LifecycleDeliveryChoiceChecks.Run();return;}
 if(args is ["--lifecycle-actions"]){LifecycleActionChecks.Run();return;}
