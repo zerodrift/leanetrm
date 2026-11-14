@@ -51,7 +51,7 @@ export async function sideCardLayoutChecks() {
  const quantity={catalogId:'synthetic',revisionId:'synthetic',code:'energy'};
  const swapCatalog={bookingActor:{name:'Synthetic trader'},books:[],legalEntities:[],counterparties:[],commodities:[{code:'gas',name:'Gas'}],context:{},canBook:true,
   indices:[{commodity:'gas',definitionRevisionId:'synthetic',curve:'synthetic',index:'synthetic',quantityChoices:[{specification:quantity,unit:'MMBtu'}],samplings:[],customProjections:[]}],
-  paymentCalendars:[{definitionRevisionId:'synthetic',code:'synthetic_calendar'}],paymentOptions:{rules:[],dayBases:[],shortMonths:[],adjustments:[{value:'following',label:'Following'}]},scheduledOptions:{powerQuantities:[],clocks:[]},entryTemplate:{payment:{}},factorOptions:{}};
+  paymentCalendars:[{definitionRevisionId:'synthetic',code:'synthetic_calendar',reference:{revision:{catalogId:'synthetic',revisionId:'synthetic'},code:'synthetic_calendar'}}],paymentOptions:{rules:[],dayBases:[],shortMonths:[],adjustments:[{value:'following',label:'Following'}]},scheduledOptions:{powerQuantities:[],clocks:[]},entryTemplate:{payment:{}},factorOptions:{}};
  let jobs=[];
  const scheduled=setupScheduledSwapEditor({...o,context:()=>({}),act:work=>{const job=work();jobs.push(job);return job;},api:async(path,body)=>{
   if(path==='swaps/catalog')return swapCatalog;
@@ -86,9 +86,9 @@ export async function sideCardLayoutChecks() {
  const payments=scheduledCards.map(card=>card.querySelector('.scheduled-period > fieldset'));
  const labelled=(parent,text)=>[...parent.querySelectorAll('select')].find(field=>field.labels[0].textContent===text);
  for(const payment of payments){const adjustment=labelled(payment,'Date adjustment');adjustment.value='following';adjustment.dispatchEvent(new Event('change',{bubbles:true}));}
- const calendars=payments.map(payment=>labelled(payment,'Payment calendar'));await settle();
- check('Each holiday-adjusted side requires its own calendar',calendars.every(field=>field.required&&!field.disabled));
- check('Payment calendar fields align',tops(calendars));
+ const calendars=scheduledCards.map(card=>card.querySelector('[data-side-calendar]'));await settle();
+ check('Each side has one holiday calendar control',scheduledCards.every(card=>card.querySelectorAll('[data-side-calendar]').length===1)&&calendars.every(field=>!field.disabled));
+ check('Side holiday calendar fields align',tops(calendars));
  const firstAmounts=scheduledCards[0].querySelectorAll('[data-role=period-amount]');firstAmounts[1].value='125';
  scheduledCards[1].querySelector('[data-role=delivery-from]').value='2031-12-01';
  [...scheduledCards[1].querySelectorAll('button')].find(b=>b.textContent==='Generate monthly period rows').click();await settle();await Promise.all(jobs);jobs=[];

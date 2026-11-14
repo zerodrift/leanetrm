@@ -5051,3 +5051,22 @@ boundary has no usable one-tick gamma on either tree. A run retained before a
 change of the stated pricing policy is no longer opened as a scope's current
 report after it.
 
+## D397 · One holiday calendar per side in manual entry
+
+Swap and PPA booking exposes one holiday-calendar selection per side. The chosen
+calendar supplies that side's calendar-consuming observation, quantity/delivery
+and payment inputs across every period. Each side remains independent. Existing
+all-days, all-hours and unadjusted rules retain their meaning; calendars are sent
+only where those contracts consume them. No physical payment adjustment or
+publisher convention is inferred.
+
+This consolidates manual controls without changing the managed schedule
+contracts. Exact references remain authoritative. A shared code at different
+reference revisions is not the same calendar. Existing mixed or unavailable
+calendar selections require explicit resolution before preview; no first period
+or refreshed catalog chooses the replacement. Calendar changes invalidate
+observation qualification, and copying period terms cannot override the side
+choice. Owned PPA profiles are copied before their calendar is changed; linked
+source-side schedules remain untouched. Historical mixed-calendar contracts stay
+readable and retain their original behavior.
+

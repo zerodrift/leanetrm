@@ -771,6 +771,10 @@ weekday dates have synthetic monthly/daily gas and power examples.
 Each side now selects either a period-end day lag or a day of the following
 month, with explicit day basis, short-month behavior, date adjustment and exact
 calendar where consumed. Generated date-only rows retain the rule evidence.
+D397 presents a single holiday-calendar choice per side for swap and PPA entry,
+including every scheduled swap period. It supplies existing explicit backend
+calendar inputs, retains independent side choices and refuses unresolved mixed
+saved calendars. Broader physical holiday-adjustment conventions remain separate.
 New entry has commodity-filtered indices/units and separate reset-frequency and
 averaging-method fields. Earlier manual-date revisions remain inspectable without
 inferred replacement conventions; amendments must select the new rules explicitly.

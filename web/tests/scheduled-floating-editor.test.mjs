@@ -24,6 +24,36 @@ const daily={...monthly,resetFrequency:'daily',averagingMethod:'arithmetic',labe
 const indices=[{definitionRevisionId:'r',curve:'month',index:'month_index',commodity:'gas',currency:'USD',currencyCode:'usd',unit:'energy',quoteMultiplier:'1',samplings:[monthly],customProjections:[],contracts:[{deliveryFrom:'2030-01-01',deliveryTo:'2030-02-01'}]},
  {definitionRevisionId:'r',curve:'day',index:'day_index',commodity:'gas',currency:'USD',currencyCode:'usd',unit:'energy',quoteMultiplier:'1',samplings:[daily],customProjections:[],contracts:[{deliveryFrom:'2030-01-01',deliveryTo:'2030-02-01'}]}];
 const key=i=>JSON.stringify([i.definitionRevisionId,i.curve,i.index]);
+test('a side calendar overrides saved and copied observation calendars and requires fresh qualification',async()=>{
+ const fake=dom(),oldDocument=globalThis.document,oldOption=globalThis.Option;globalThis.document=fake.document;globalThis.Option=fake.Option;
+ try{
+  const reference=revisionId=>({revision:{catalogId:'synthetic',revisionId},code:'same_code'}),old=reference('old'),current=reference('current');
+  const mode={...daily,averagingMethod:'observation_arithmetic',requiresObservationCalendar:true},i={...indices[1],samplings:[mode]};
+  let selected=current,requested,deferred;
+  const result=()=>({indices:[i],samplings:[mode],choices:[],observations:[{}],observationCalendars:[old,current].map(reference=>({reference,name:'Synthetic calendar'})),availability:null,customProjectionUnavailableReason:null});
+  const initial={curve:i.curve,index:i.index,currency:'usd',settlement:{mode:'curve_target',index:null,projectionPolicy:null},deliveryFrom:'2030-01-01',deliveryTo:'2030-02-01',...mode,spread:'0',observationSchedule:{implementation:'side_observation_schedule_v1',calendar:old,quantities:null}};
+  const editor=mountScheduledFloatingEditor({host:new fake.Element('section'),from:initial.deliveryFrom,to:initial.deliveryTo,initial,indices:()=>[i],context:()=>({}),sideCalendar:()=>selected,enabled:()=>true,busy:()=>false,
+   api:async(_path,body)=>{requested=body;return deferred?await deferred:result();},run:work=>work(),changed(){},quoteChanged(){}});
+  await editor.refresh();assert.deepEqual(requested.observationCalendar,current);assert.deepEqual(editor.read().observationSchedule.calendar,current);
+  assert.equal(fake.nodes.find(n=>n.id?.endsWith('-observation-calendar')).parentElement.hidden,true);
+  await editor.apply(initial);assert.deepEqual(editor.read().observationSchedule.calendar,current,'Copying period terms cannot replace the side calendar.');
+  let finish;deferred=new Promise(resolve=>{finish=resolve;});const pending=editor.refresh();selected=old;finish(result());await pending;
+  assert.throws(()=>editor.read(),/Refresh/,'A response for the previous calendar cannot qualify the new selection.');
+  deferred=undefined;await editor.refresh();assert.deepEqual(editor.read().observationSchedule.calendar,old);
+  selected=undefined;assert.throws(()=>editor.read(),/Refresh/);
+ }finally{globalThis.document=oldDocument;globalThis.Option=oldOption;}
+});
+
+test('all-days observations do not acquire a calendar from the side selector',async()=>{
+ const fake=dom(),oldDocument=globalThis.document,oldOption=globalThis.Option;globalThis.document=fake.document;globalThis.Option=fake.Option;
+ try{
+  let requested;const i=indices[1],initial={curve:i.curve,index:i.index,currency:'usd',settlement:{mode:'curve_target',index:null,projectionPolicy:null},deliveryFrom:'2030-01-01',deliveryTo:'2030-02-01',...daily,spread:'0'};
+  const editor=mountScheduledFloatingEditor({host:new fake.Element('section'),from:initial.deliveryFrom,to:initial.deliveryTo,initial,indices:()=>[i],context:()=>({}),sideCalendar:()=>({revision:{catalogId:'c',revisionId:'r'},code:'calendar'}),enabled:()=>true,busy:()=>false,
+   api:async(_path,body)=>{requested=body;return{indices:[i],samplings:[daily],choices:[],observations:[{}],observationCalendars:[],availability:null,customProjectionUnavailableReason:null};},run:work=>work(),changed(){},quoteChanged(){}});
+  await editor.refresh();assert.equal(requested.observationCalendar,undefined);assert.equal(editor.read().observationSchedule,null);
+ }finally{globalThis.document=oldDocument;globalThis.Option=oldOption;}
+});
+
 test('scheduled side supports convention-first discovery and applies backend index and frequency restrictions',async()=>{
  const fake=dom(),oldDocument=globalThis.document,oldOption=globalThis.Option;globalThis.document=fake.document;globalThis.Option=fake.Option;
  try{

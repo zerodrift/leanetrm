@@ -731,9 +731,25 @@ periods in scheduled swaps align across sides even when their contract ranges
 differ. The existing described gas ticket retains its common field bands.
 Wide panels place sides alongside each other; panels narrower than 600 pixels
 stack native cards, preserving their controls and entries. Additional sides can
-scroll horizontally without compressing their fields. Calendar choices remain
-part of the applicable observation, quantity or payment rule, not an inferred
-instrument-wide calendar.
+scroll horizontally without compressing their fields.
+
+### One holiday calendar per side (D397)
+
+Swap and PPA entry has one holiday-calendar selector on each side. It supplies
+every owned observation, delivery-quantity and payment rule that consumes a
+calendar, across all periods. Sides retain independent selections. All-days
+observations, all-hours swap delivery and unadjusted calendar-day payments keep
+their existing rules and omit unused calendar inputs. Explicit physical payment
+instants and fixed unadjusted gas payment rules gain no inferred adjustment.
+
+The editor restores a common saved calendar only when all consumed calendars
+agree. Mixed or unavailable saved calendars remain visible and require an
+explicit choice before preview. Exact reference revisions distinguish calendars
+with the same code. Calendar changes invalidate observation qualification;
+copying period terms cannot replace the side selection. PPA profile inputs are
+copied per owning side, while linked quantities continue to follow their source
+side. The backend retains its existing explicit schedule inputs and validation;
+historical mixed-calendar contracts remain readable without migration.
 
 Booking is an open form. All supported instrument types are discoverable before
 ownership or counterparties are entered. Instrument terms precede ownership and

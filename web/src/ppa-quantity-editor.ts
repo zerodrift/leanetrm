@@ -3,7 +3,7 @@ import type {Catalog,MemberTemplate,Quantity,Slot} from './ppa-contract.js';
 import {friendly} from './market-view.js';
 // The server publishes admitted quantity modes and link roles. This editor only
 // selects those exact references; it neither calculates nor converts quantities.
-export function ppaQuantityEditor(host:HTMLElement,catalog:Catalog,template:MemberTemplate,prefix:string,delivery:()=>{clock:string;cadence:string},links:()=>Slot[],initial?:Quantity){
+export function ppaQuantityEditor(host:HTMLElement,catalog:Catalog,template:MemberTemplate,prefix:string,delivery:()=>{clock:string;cadence:string},links:()=>Slot[],initial?:Quantity,sideCalendar?:()=>string){
  const root=document.createElement('fieldset');root.className='ppa-side-quantity';root.innerHTML=`<legend>Side quantity</legend><div class="schedule-fields">
  <label>Quantity source<select data-q="kind"></select></label>
  <label data-mode="volume">Volume sources<select data-q="sources" multiple size="3"></select></label>
@@ -34,12 +34,12 @@ export function ppaQuantityEditor(host:HTMLElement,catalog:Catalog,template:Memb
   const retained=initial?.hours?.touProduct?JSON.stringify([initial.hours.touProduct,initial.hours.touVersion]):'';
   if(retained&&!Array.from(field('tou').options).some(o=>o.value===retained)&&catalog.touVersions.some(r=>JSON.stringify([r.id,r.version])===retained&&(r.clock as unknown as {code:string})?.code===d.clock)){const option=new Option('Retained TOU binding',retained);option.disabled=true;field('tou').append(option);field('tou').value=selectedTou;}
  }
- function sync(busy=false){refreshChoices();const mode=field('kind').value;for(const n of root.querySelectorAll<HTMLElement>('[data-mode]')){n.hidden=n.dataset.mode!==mode||n.hasAttribute('data-tou')&&field('membership').value==='all';for(const f of n.querySelectorAll<HTMLSelectElement>('select'))f.disabled=busy||n.hidden;}field('kind').disabled=busy;}
+ function sync(busy=false){refreshChoices();const mode=field('kind').value;for(const n of root.querySelectorAll<HTMLElement>('[data-mode]')){n.hidden=n.dataset.mode!==mode||n.hasAttribute('data-tou')&&field('membership').value==='all'||!!sideCalendar&&n.contains(field('calendar'));for(const f of n.querySelectorAll<HTMLSelectElement>('select'))f.disabled=busy||n.hidden;}field('kind').disabled=busy;}
  function value(key:string){const v=field(key).value;if(!v)throw Error('Complete '+ppaSideLabel(template.role)+': '+friendly(key)+'.');return v;}
  const selected=(key:string)=>{const chosen=[...field(key).selectedOptions].map(o=>o.value),retained=key==='slot'?initial?.slots.map(s=>JSON.stringify(s)):key==='sources'?initial?.sources:key==='assets'?initial?.assets:undefined;return retained&&retained.length===chosen.length&&retained.every(s=>chosen.includes(s))?[...retained]:chosen;};
  function read():Quantity{const kind=value('kind'),q:Quantity={kind,sources:[],stage:null,capacity:null,energy:null,hours:null,slots:[],assets:[]};
   if(kind==='volume'){q.sources=selected('sources');if(!q.sources.length)throw Error('Select volume sources for this side.');q.stage=value('stage');}
-  else if(kind==='profile'){const membership=value('membership'),tou=membership==='all'?null:JSON.parse(value('tou'));q.capacity=value('capacity');q.energy=value('energy');q.hours={membership,calendar:value('calendar'),touProduct:tou?.[0]??null,touVersion:tou?.[1]??null};}
+  else if(kind==='profile'){const membership=value('membership'),tou=membership==='all'?null:JSON.parse(value('tou'));q.capacity=value('capacity');q.energy=value('energy');q.hours={membership,calendar:sideCalendar?sideCalendar():value('calendar'),touProduct:tou?.[0]??null,touVersion:tou?.[1]??null};}
   else if(kind==='accredited'){q.assets=selected('assets');if(!q.assets.length)throw Error('Select accredited assets for this side.');}
   else if(kind==='slots'){q.slots=selected('slot').map(s=>JSON.parse(s));if(!q.slots.length)throw Error('Select the delivery sides supplying this quantity.');}
   else throw Error('Choose an admitted quantity source.');if(q.kind==='profile'&&initial?.hourlyProfile)q.hourlyProfile=structuredClone(initial.hourlyProfile);return q;
