@@ -92,6 +92,23 @@ receive their exact new instrument's provider. Ordinary portfolio validation
 continues to reject unrelated bindings rather than weakening ownership checks for
 mixed product scopes.
 
+The event-aware Risk view materializes explicit server-offered policies and the
+complete source/factor union before calibration or calculation. Its historical
+and Monte Carlo requests retain the backend's full factor-column order; the
+factor-free method sends explicit null history/simulation and an empty factor
+array. Source and calculation receipts must match the submitted context, scope,
+pricing policy, lifecycle policy, horizon and implementation version. UTC wire
+identity preserves sub-millisecond digits; dates shown to the user use the
+selected display zone.
+
+Queued submissions retain their exact actor-owned request identity across lost
+responses and header changes. Late reads cannot restore another actor or scope.
+Reports display backend economic tails, ordinary residual/cash reconciliation and
+a separate no-shock comparison diagnostic without browser financial arithmetic.
+Owned-browser presentation checks qualify explicit settings, complete sampled
+envelopes, signed tails and uncertain-response recovery; native worker and full
+application qualification remain their own delivery gates.
+
 Cash disposition selects projected payment at the contractual due instant or
 continued outstanding cash. Future unpaid contributions use ordinary
 `TimedCashPayment` PV. Period cash is either nominal or accumulated to the horizon

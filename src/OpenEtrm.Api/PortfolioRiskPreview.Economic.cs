@@ -5,6 +5,7 @@ using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.MarketData.Gas;
 using OpenEtrm.Rates;
 
 namespace OpenEtrm.Api;
@@ -41,7 +42,12 @@ public sealed partial class PortfolioRiskPreview
             pricing.Add(new{value="native_whole_books",label="All book holdings, including independently owned gas",policy=native with{
                 GasOwned=new(GasOwnedValuationPolicy.Version,GasOwnedValuationPolicy.WholeBooks,GasOwnedValuationPolicy.CurrencyDefault,RateDiscountTiming.Version)}});
         object Choice(string value,string label)=>new{value,label};
-        return new{context,asOf=frame.At,sessions=sessions.GetProperty("sessions"),pricing,gasAccounts=gasChoices,
+        return new{context,asOf=frame.At,convention=Convention,numericalPolicy=RiskEngine.ExactNumericalPolicy,engineVersion=RiskJobs.EngineVersion,
+            sessions=sessions.GetProperty("sessions"),pricing,gasAccounts=gasChoices.Select(a=>new{a.AccountId,a.Code,a.BookId,a.Book,a.EffectiveAt,
+                profiles=a.Profiles.Select(p=>new{p.ProfileId,p.Revision,p.Implementation,p.QuantityDisposition,p.EffectiveAt,label=p.QuantityDisposition switch{
+                    GasQuantityProjectionPolicy.Retain=>"Retain quantity obligations",
+                    GasQuantityProjectionPolicy.AtDue=>"Perform configured contractual quantities when due",
+                    _=>throw new MarketDataException("gas_projection_policy","This saved quantity profile has no qualified economic presentation contract.")}})}),
             projection=new{implementation=PortfolioEconomicProjectionRequest.Version,horizonPolicy=PortfolioEconomicProjectionRequest.SourceKnownSchedule,
                 rateTimingPolicy=RateDiscountTiming.Version,eventMarketPolicy=PortfolioEconomicProjectionRequest.SelectedContractMarkets,
                 policy=new{implementation=LifecycleProjectionPolicy.Version,numericalPolicy=LifecycleProjectionPolicy.Numerics,nonPriceInputs=LifecycleProjectionPolicy.HeldNonPrice},
@@ -52,8 +58,9 @@ public sealed partial class PortfolioRiskPreview
                     Choice(LifecycleProjectionPolicy.FreezeNativeExpiry,"Hold selected native marks at expiry until final settlement")},
                 physicalDelivery=new[]{Choice(LifecycleProjectionPolicy.RetainPhysical,"Keep new delivery obligations until observed performance")}},
             risk=new{quantilePolicy=HistoricalRiskPolicy.Quantile,tailPolicy=HistoricalRiskPolicy.Tail,
-                methods=new[]{Choice(LifecycleEconomicRiskPolicy.Historical,"Historical market moves"),Choice(LifecycleEconomicRiskPolicy.MonteCarlo,"Monte Carlo market moves"),
-                    Choice(LifecycleEconomicRiskPolicy.Deterministic,"No variable factors · exact time carry")},
+                methods=new[]{new{value=LifecycleEconomicRiskPolicy.Historical,label="Historical market moves",history=true,simulation=false},
+                    new{value=LifecycleEconomicRiskPolicy.MonteCarlo,label="Monte Carlo market moves",history=true,simulation=true},
+                    new{value=LifecycleEconomicRiskPolicy.Deterministic,label="No variable factors · exact time carry",history=false,simulation=false}},
                 simulation=MonteCarloProfile(MonteCarloRiskPolicy.Economic,MonteCarloRiskPolicy.EconomicValuation,MonteCarloRiskPolicy.Uncertainty),
                 drifts=new[]{Choice(ParametricRiskPolicy.Zero,"Zero mean market move"),Choice(ParametricRiskPolicy.Mean,"Historical sample mean")},
                 limits=new{maxPaths=MonteCarloRisk.MaximumPaths,maxFactors=MonteCarloRisk.MaximumFactors,maxShockValues=MonteCarloRisk.MaximumShockValues}},
@@ -76,7 +83,7 @@ public sealed partial class PortfolioRiskPreview
     {
         var (economic,books,directory)=await PrepareEconomicSource(connection,data,frame,request,ct);
         var portfolio=economic.HistoryPortfolio;var markets=portfolio.Markets.Select(m=>m.Data).ToImmutableArray();
-        return new{source=request with{Scope=request.Scope with{Context=new(frame.Id,TradingBlotter.Convention,"retained",portfolio.Context.ContextId),
+        return new{engineVersion=RiskJobs.EngineVersion,source=request with{Scope=request.Scope with{Context=new(frame.Id,TradingBlotter.Convention,"retained",portfolio.Context.ContextId),
                 BookIds=books,PortfolioIds=[],TradeIds=request.Scope.TradeIds is {} ids?ids.Order().ToImmutableArray():null}},
             horizon=economic.HorizonEvidence,products=economic.ProductEvidence,
             books=directory.Where(b=>books.Contains(b.Id("id"))).ToImmutableArray(),

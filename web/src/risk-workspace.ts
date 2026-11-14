@@ -10,6 +10,8 @@ import {riskScopeSummary,sameRiskScope} from './risk-scope.js';
 import type {RiskView} from './risk-views.js';
 import {setupBookScopePicker} from './scope-picker.js';
 import {setupPnlView} from './pnl-view.js';
+import {setupEconomicRisk} from './economic-risk-view.js';
+import type {EconomicJob} from './economic-risk.js';
 
 type Source={snapshotId:string;context?:{contextId?:string}};
 type Scope={bookIds:string[];portfolioIds:string[];tradeIds:string[]|null};
@@ -29,7 +31,7 @@ export function setupRiskWorkspace(o:Options){
  let epoch=0,directory:Directory|undefined,selection:Source|undefined,selectedJob:string|undefined,owner='',engine:ReturnType<typeof setupRisk>|undefined;
  let shown:RunView|undefined,question:AbortController|undefined,scope:Scope={bookIds:[],portfolioIds:[],tradeIds:null},unreadRecovery=false;
  let tradeChoices=new Map<string,Trade>(),tradesReady=false,allTradesAvailable=false,totalTrades=0,nextTradeOffset:number|null=null,maxTrades=256;
- let history:ReturnType<typeof setupFactorHistory>|undefined,view:RiskView='risk',entering=false;
+ let history:ReturnType<typeof setupFactorHistory>|undefined,economic:ReturnType<typeof setupEconomicRisk>|undefined,view:RiskView='risk',entering=false;
  const storedKey=()=>`openetrm.risk.workspace.submission.${o.identity()}`;
  const parentsValid=()=>!!directory&&directory.books.length>0&&scope.bookIds.every(id=>directory!.books.some(b=>b.id===id&&(!scope.portfolioIds.length||scope.portfolioIds.includes(b.portfolio_id))))&&scope.portfolioIds.every(id=>directory!.books.some(b=>b.portfolio_id===id));
  const scopeValid=()=>parentsValid()&&tradesReady&&(scope.tradeIds===null?allTradesAvailable:scope.tradeIds.length>0&&scope.tradeIds.length<=maxTrades&&scope.tradeIds.every(id=>tradeChoices.get(id)?.available));
@@ -56,12 +58,12 @@ export function setupRiskWorkspace(o:Options){
   });
   const finished=!!shown?.running&&!!run&&!run.running&&!engine.unconfirmed();
   // A report on the page answers the scope status that asked for one.
-  if(different){shown=run;results.show(run);if(run&&!engine.unconfirmed())get('risk-workspace-note').textContent='';}
+  if(different){shown=run;if(run){economic?.clearReport();get('risk-workspace-results').hidden=false;}results.show(run);if(run&&!engine.unconfirmed())get('risk-workspace-note').textContent='';}
   if(finished)o.view('risk');
   const first=run?.parts.find(p=>p.report)?.report;
   const differentScope=run?.scope&&!sameRiskScope(run.scope,scope);
   get('risk-workspace-context-note').textContent=first&&selection&&first.snapshotId!==selection.snapshotId?'Retained report from a different close than the header. Its captured inputs are shown below. Run a new calculation to use the header selection.':differentScope?'Retained report from a different portfolio, book or trade selection. Its captured scope is shown in the report; the filters above apply to a new run.':run?.retained?'Retained report: values use the captured context below, independently of the current header.':'';
-  get<HTMLButtonElement>('risk-workspace-export').disabled=o.busy()||!run||!run.parts.every(p=>p.report);o.changed();
+  get<HTMLButtonElement>('risk-workspace-export').disabled=o.busy()||!economic?.canDownload()&&(!run||!run.parts.every(p=>p.report));o.changed();
  }
  function requestScope(){
   if(!directory||!selection||!scopeValid()||JSON.stringify(o.source())!==JSON.stringify(selection))throw Error('Choose a market close and refresh the Risk scope first.');
@@ -71,10 +73,21 @@ export function setupRiskWorkspace(o:Options){
   knownAt:()=>directory?.context.knownAt??'',
   // The header's close, when it can be read: the P&L page starts its comparison from it.
   selected:()=>{try{return o.source().snapshotId;}catch{return undefined;}}});
+ economic=setupEconomicRisk(get('risk-economic-body'),get('risk-economic-results'),{...o,scope:requestScope,
+  unconfirmed:()=>!!engine?.unconfirmed()||unreadRecovery,onShow(id){
+   // Stop the prior static run's view polling; its accepted native job remains
+   // in Run history. Unknown submissions stay in the engine's actor custody.
+   engine?.reset();
+   results.reset();get('risk-workspace-results').hidden=true;shown=undefined;selectedJob=id;
+   window.history.replaceState(null,'',location.pathname+location.search+(id?'#risk/job/'+encodeURIComponent(id):''));
+   get('risk-workspace-context-note').textContent='Event-aware report: its captured opening source, knowledge cutoff and common horizon are shown below.';
+   o.view('risk');get<HTMLButtonElement>('risk-workspace-export').disabled=o.busy()||!economic?.canDownload();
+  }});
  engine=setupRisk({api:reportApi,act:o.act,busy:o.busy,zone:o.zone,profile:o.identity,canRun:o.canRun,prefix,onDenied:reset,onChange:changed,ranNow:()=>o.view('risk'),edited:o.changed,scope:requestScope});
- history=setupFactorHistory({api:o.api,act:o.act,busy:o.busy,identity:o.identity,scope:requestScope,instant:o.instant,unconfirmed:()=>!!engine?.unconfirmed()||unreadRecovery,async calculate(request,metadata,queued){
+ history=setupFactorHistory({api:o.api,act:o.act,busy:o.busy,identity:o.identity,scope:requestScope,instant:o.instant,unconfirmed:()=>!!engine?.unconfirmed()||!!economic?.unconfirmed()||unreadRecovery,async calculate(request,metadata,queued){
   if(unreadRecovery)throw Error('Inspect Reports and runs before resolving the unreadable retained submission.');
   if(!await leave())return;
+  economic?.clearReport();get('risk-workspace-results').hidden=false;
   editor.open=true;engine!.mountInto(get('risk-workspace-editor-body'));
   await engine!.calculate({...requestScope(),pricingPolicy:metadata.pricingPolicy,convention:metadata.convention,numericalPolicy:metadata.numericalPolicy,detail:request.historical||request.monteCarlo?'holdings':'books',bumps:[],stress:[],...request},queued,metadata.context,metadata.asOf);
   changed();o.view('risk');get('risk-workspace-results').scrollIntoView({block:'start'});
@@ -82,20 +95,22 @@ export function setupRiskWorkspace(o:Options){
  const jobs=setupRiskJobs({api:o.api,act:o.act,instant:o.instant,openReport:openJob});
  function clear(){
   epoch++;question?.abort();question=undefined;directory=undefined;selection=undefined;selectedJob=undefined;shown=undefined;
-  history?.reset();results.reset();engine?.reset();jobs.reset();editor.open=false;get('risk-workspace-note').textContent='';get('risk-workspace-context-note').textContent='';
+  history?.reset();economic?.reset();results.reset();get('risk-workspace-results').hidden=false;engine?.reset();jobs.reset();editor.open=false;get('risk-workspace-note').textContent='';get('risk-workspace-context-note').textContent='';
   for(const id of ['risk-workspace-books','risk-workspace-portfolios'])get(id).replaceChildren();
   tradesReady=false;tradeChoices=new Map();totalTrades=0;nextTradeOffset=null;drawTrades();
  }
  function reset(){clear();pnl.reset();scope={bookIds:[],portfolioIds:[],tradeIds:null};drawTrades();owner='';unreadRecovery=false;}
  async function leave(){
-  if(!engine!.edited())return true;if(question)return false;
+  if(!engine!.edited()&&!economic?.edited())return true;if(question)return false;
   const asking=question=new AbortController();host.tabIndex=-1;
-  try{const go=await askInPanel(host,{text:'The risk setup has unsaved choices. Leaving discards those edits. An unconfirmed submission stays available for reconciliation.',keep:'Keep editing',go:'Discard setup edits'})(asking.signal);if(go)engine!.dropEdits();return go;}
+  try{const go=await askInPanel(host,{text:'The risk setup has unsaved choices. Leaving discards those edits. An unconfirmed submission stays available for reconciliation.',keep:'Keep editing',go:'Discard setup edits'})(asking.signal);if(go){engine!.dropEdits();economic?.dropEdits();}return go;}
   finally{if(question===asking)question=undefined;host.removeAttribute('tabindex');}
  }
  async function newRun(){
   o.view('risk-scenarios');
   if(unreadRecovery)throw Error('Inspect Reports and runs before resolving the unreadable retained submission.');
+  if(economic?.unconfirmed())throw Error('Resolve the unconfirmed event-aware submission before starting another risk run.');
+  economic?.clearReport();get('risk-workspace-results').hidden=false;
   // A setup with choices holds the run being prepared: show it, rather than ask to discard them.
   editor.open=true;
   if(!engine!.edited()){
@@ -107,9 +122,14 @@ export function setupRiskWorkspace(o:Options){
  }
  async function openJob(id:string,anchor?:RiskJob,chosen=true){
   const version=epoch;if(!await leave()||version!==epoch)return;
+  economic?.clearReport();get('risk-workspace-results').hidden=false;
   results.reset();shown=undefined;selectedJob=undefined;
   try{
-   await engine!.reviewJob(id,anchor);if(version!==epoch)return;
+   const receipt=anchor??await reportApi<RiskJob>('portfolio/risk/jobs/'+encodeURIComponent(id));if(version!==epoch)return;
+   if(receipt.kind==='economic_lifecycle'){
+    await economic!.openJob(id,receipt as unknown as EconomicJob);return;
+   }
+   await engine!.reviewJob(id,receipt);if(version!==epoch)return;
    selectedJob=id;editor.open=true;engine!.mountInto(get('risk-workspace-editor-body'));
    window.history.replaceState(null,'',location.pathname+location.search+'#risk/job/'+encodeURIComponent(id));changed();if(chosen)o.view('risk');
   }catch(error){if(version===epoch){results.reset();get('risk-workspace-note').textContent='The retained report could not be read under current authority. Refresh to try again.';}throw error;}
@@ -184,7 +204,7 @@ export function setupRiskWorkspace(o:Options){
   entering=true;
  }
  async function changeScope(next:Scope){
-  if(!await leave()){drawScope();drawTrades();return;}const version=++epoch;scope=next;pnl.reset();history?.reset();engine!.inputsChanged(false);results.show(undefined);shown=undefined;selectedJob=undefined;
+  if(!await leave()){drawScope();drawTrades();return;}const version=++epoch;scope=next;pnl.reset();history?.reset();economic?.reset();engine!.inputsChanged(false);results.show(undefined);shown=undefined;selectedJob=undefined;
   window.history.replaceState(null,'',location.pathname+location.search);get('risk-workspace-note').textContent='Scope changed. Run risk for this selection or open a retained report.';
   drawScope();await readTrades(true);if(version!==epoch)return;if(editor.open&&scopeValid())await engine!.open();o.changed();
  }
@@ -198,13 +218,14 @@ export function setupRiskWorkspace(o:Options){
  function enterView(){entering=false;if(view==='risk-pnl')void o.act(()=>pnl.load());else if(view==='risk-var')history?.prepare();else if(view==='risk-scenarios'&&!editor.open&&!get<HTMLButtonElement>('risk-jobs-new').disabled)void o.act(newRun);}
  function showView(next:RiskView){view=next;for(const part of host.querySelectorAll<HTMLElement>('[data-risk-view]'))part.classList.toggle('risk-view-off',part.dataset.riskView!==next);entering=true;if(!o.busy()&&directory)enterView();}
  get('risk-workspace-refresh').onclick=()=>void (async()=>{if(!o.busy()&&await leave())await o.act(load);})();
- get('risk-workspace-export').onclick=()=>void o.act(()=>engine!.download());
- return {load,reset,leave,openJob,refresh:()=>{if(!host.hidden)results.refresh();engine!.refresh();void pnl.refresh();},
-  showView,sync(){pnl.sync(scopeValid());history?.sync(scopeValid()&&o.canRun());engine!.sync();get<HTMLButtonElement>('risk-jobs-new').disabled=o.busy()||!o.canRun()||!scopeValid()||unreadRecovery;if(entering&&!o.busy()&&directory)enterView();
+ get('risk-workspace-export').onclick=()=>void o.act(async()=>{if(economic?.shown())economic.download();else await engine!.download();});
+ return {load,reset,leave,openJob,refresh:()=>{if(!host.hidden)results.refresh();engine!.refresh();economic?.refresh();void pnl.refresh();},
+  showView,sync(){pnl.sync(scopeValid());history?.sync(scopeValid()&&o.canRun());economic?.sync(scopeValid()&&o.canRun());engine!.sync();get<HTMLButtonElement>('risk-jobs-new').disabled=o.busy()||!o.canRun()||!scopeValid()||unreadRecovery||!!economic?.unconfirmed();if(entering&&!o.busy()&&directory)enterView();
+   get<HTMLButtonElement>('risk-workspace-export').disabled=o.busy()||!(economic?.shown()?economic.canDownload():engine!.current()?.parts.every(p=>p.report));
    for(const id of ['risk-workspace-portfolios','risk-workspace-books','risk-workspace-trade-mode','risk-workspace-trades'])get<HTMLSelectElement>(id).disabled=o.busy()||!directory;
    get<HTMLButtonElement>('risk-workspace-trades-more').disabled=o.busy()||!tradesReady;scopePicker.sync();},
-  contextChanged(){epoch++;pnl.reset();history?.reset();engine!.inputsChanged(engine!.edited());results.reset();shown=undefined;directory=undefined;selection=undefined;scopePicker.set([],{bookIds:[],portfolioIds:[]});tradesReady=false;tradeChoices.clear();drawTrades();get('risk-workspace-note').textContent='The selected market context changed. Refresh Risk to read the new scope.';},
-  edited:()=>engine!.edited(),unconfirmed:()=>engine!.unconfirmed()||pnl.unconfirmed(),
+  contextChanged(){epoch++;pnl.reset();history?.reset();economic?.reset();engine!.inputsChanged(engine!.edited());results.reset();shown=undefined;directory=undefined;selection=undefined;scopePicker.set([],{bookIds:[],portfolioIds:[]});tradesReady=false;tradeChoices.clear();drawTrades();get('risk-workspace-note').textContent='The selected market context changed. Refresh Risk to read the new scope.';},
+  edited:()=>engine!.edited()||!!economic?.edited(),unconfirmed:()=>engine!.unconfirmed()||pnl.unconfirmed()||!!economic?.unconfirmed(),
   address:()=>selectedJob?'#risk/job/'+encodeURIComponent(selectedJob):'',
-  assistant:()=>selectedJob&&engine!.current()?.retained&&engine!.current()?.parts.some(p=>p.job?.id===selectedJob)?{operation:'portfolio.risk.jobs.id_v1',inputJson:JSON.stringify({body:null,parameters:{id:selectedJob}})}:undefined};
+  assistant:()=>selectedJob&&(economic?.jobId()===selectedJob||engine!.current()?.retained&&engine!.current()?.parts.some(p=>p.job?.id===selectedJob))?{operation:'portfolio.risk.jobs.id_v1',inputJson:JSON.stringify({body:null,parameters:{id:selectedJob}})}:undefined};
 }

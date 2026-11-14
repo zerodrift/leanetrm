@@ -38,7 +38,7 @@ type JobRun={id:string;part:number;parts:number};
 /** The books and portfolios a run was asked for, as they were chosen. */
 type RunScope=RiskScope;
 export type RiskJob={id:string;requestId?:string;state:JobState;error?:{code:string;message:string};result?:RiskReport;context?:FinancialContext;asOf?:string;
-  finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null;shocks?:number;kind?:'scenarios'|'derivatives'|'parametric'|'historical'|'monte_carlo'|'hybrid_monte_carlo';appliedMethod?:string|null;fallbackApplied?:boolean|null;approximate?:boolean|null;scenarioCount?:number;derivativeCount?:number};
+  finishedAt?:string|null;run:JobRun|null;scope?:RunScope|null;shocks?:number;kind?:'scenarios'|'derivatives'|'parametric'|'historical'|'monte_carlo'|'hybrid_monte_carlo'|'economic_lifecycle';appliedMethod?:string|null;fallbackApplied?:boolean|null;approximate?:boolean|null;scenarioCount?:number;derivativeCount?:number};
 type Job=RiskJob;
 /**
  * A part of a run and what became of it: the report it returned, or the job it was queued as, or why it failed. A queued part's
