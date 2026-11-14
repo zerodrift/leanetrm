@@ -31,6 +31,10 @@ public sealed record ProjectedFixingKey(CurveRequest Market,ObservationRole Role
 // value cannot enter an actual settlement command or source reader.
 public sealed record ProjectedFixing(ProjectedFixingKey Key,ExactUnitPrice Price);
 public sealed record KnownLifecycleFixing(ProjectedFixingKey Key,SelectedObservation Evidence);
+// Source-known native final evidence is separate from a path-local fixing.
+public sealed record KnownLifecycleInputFinal(CurveRequest OfficialMarket,MarketObservation Observation,DateTimeOffset KnownAt,Guid SourceContextId);
+public sealed record LifecycleInputFinal(CurveRequest Market,DateTimeOffset At,KnownLifecycleInputFinal? Actual);
+public sealed record LifecycleMarketUse(CurveRequest Market,DateTimeOffset Through);
 public sealed record ProjectedCashContribution(Guid Id,DateTimeOffset EffectiveAt,DateTimeOffset DueAt,ExactMoney Amount);
 public sealed record LifecycleProjectionState(ImmutableArray<ValuationPortfolio> Residuals,ImmutableArray<ProjectedCashContribution> Cash)
 {
@@ -69,6 +73,8 @@ public interface ILifecycleProjection
     // Complete transition and every possible residual branch, before sampling.
     ImmutableArray<CurveRequest> Dependencies{get;}
     LifecycleProjectionState Opening{get;}
+    ImmutableArray<LifecycleInputFinal> InputFinals=>[];
+    ImmutableArray<LifecycleMarketUse> MarketUsesFor(DateTimeOffset horizon)=>[..Dependencies.Select(m=>new LifecycleMarketUse(m,horizon))];
     ImmutableArray<LifecycleProjectionEvent> Events{get;}
     ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon);
     LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context);

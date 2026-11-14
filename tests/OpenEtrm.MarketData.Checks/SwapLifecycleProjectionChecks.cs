@@ -7,7 +7,7 @@ internal static class SwapLifecycleProjectionChecks
 {
     internal static void Run()
     {
-        var f=new IndexFixingChecks.FixingFixture(monthly:true);var swap=f.Swap();
+        var f=new IndexFixingChecks.FixingFixture(monthly:true,projectedFixingCoverage:true);var swap=f.Swap();
         var source=f.Snapshot(Fixture.Utc("2040-12-30T12:00:00Z")).WithKnowledge(Guid.NewGuid(),f.Payment.AddDays(2));
         var qty=new Quantity(ExactDecimal.Parse("2"),swap.UnitQuantity.Specification);var trade=new Trade(Guid.NewGuid(),Guid.NewGuid(),[new(Guid.NewGuid(),swap,qty)]);
         var owner=new AccountingPositionKey(trade.Id,trade.Instruments[0].Id,trade.BookId);var zero=ExactMoney.Parse("0",swap.Currency);

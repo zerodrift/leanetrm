@@ -195,6 +195,8 @@ public sealed class SwapLifecycleProjection:ILifecycleProjection
         }
         dueEvents=dues.ToImmutableDictionary();Events=[..events.OrderBy(e=>e.At).ThenBy(e=>e.Id)];
     }
+    public ImmutableArray<LifecycleMarketUse> MarketUsesFor(DateTimeOffset horizon)=>[..fixingEvents.Values.GroupBy(k=>k.Market)
+        .Select(g=>new LifecycleMarketUse(g.Key,g.Max(k=>k.At<horizon?k.At:horizon)))];
     public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)=>[..Events.Where(e=>e.At<=horizon)];
     public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
     {

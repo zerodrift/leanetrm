@@ -20,6 +20,8 @@ public sealed class PreparedLifecycleProjection
     private readonly ImmutableDictionary<CurveRequest,CurvePointKey> bindings;
     private readonly CurveBuild authority;
     private readonly ImmutableDictionary<InputKey,CurvePointKey> primitives;
+    private readonly ImmutableDictionary<InputKey,DateTimeOffset> inputFinals;
+    private readonly ImmutableDictionary<InputKey,(DateTimeOffset At,ExactDecimal Shift)> actualFinals;
     private readonly ImmutableArray<(int Component,LifecycleProjectionEvent Event)> events;
     private readonly ImmutableDictionary<ProjectedFixingKey,ExactUnitPrice> known;
     private readonly ImmutableDictionary<ReferenceKey,ISideDiscounting> cashCurves;
@@ -49,6 +51,44 @@ public sealed class PreparedLifecycleProjection
             throw LifecycleProjection.Error("projection_cash_policy","Select exact currency curves for accumulated cash, or an explicit empty selection for nominal cash.");
         var declarations=components.SelectMany(c=>c.Dependencies).ToImmutableHashSet();
         Factors=basis.Factors([..declarations],ct);
+        var selected=components.SelectMany(c=>c.InputFinals).ToArray();
+        if(components.Any(c=>c.InputFinals.IsDefault)||selected.Any(f=>f is null||!valuation.Scenario.Plan.Points.Values.Any(p=>p.Expression is ConnectedSource c&&c.Request==f.Market)||
+            !TradingInstant.IsSupported(f.At)||f.At<authority.Model.ContractDefinition(f.Market.Contract).Expiry||
+            authority.Model.AssetDefinition(f.Market.Curve).Rule!=CurveRule.Direct||authority.Model.ContractDefinition(f.Market.Contract).Kind!=ContractKind.Future)||
+            selected.GroupBy(f=>f.Market).Any(g=>g.Select(f=>f.At).Distinct().Count()!=1||g.Select(f=>f.Actual).Where(a=>a is not null).Distinct().Count()>1))
+            throw LifecycleProjection.Error("projection_input_expiry","Retain consistent exact native input-final declarations under the selected contract policy.");
+        var uses=components.SelectMany(c=>c.MarketUsesFor(Horizon)).ToArray();
+        if(uses.Any(u=>u is null||!declarations.Contains(u.Market)||!TradingInstant.IsSupported(u.Through)||u.Through<SourceSnapshot.ValuationAt||u.Through>Horizon)||
+            !uses.Select(u=>u.Market).ToHashSet().SetEquals(declarations))
+            throw LifecycleProjection.Error("projection_dependency","Every prepared market dependency requires its explicit last calculation-use instant within this horizon.");
+        var configured=authority.Model.LifecycleFinals(uses.GroupBy(u=>u.Market).ToImmutableDictionary(g=>g.Key,g=>g.Max(u=>u.Through)),SourceSnapshot.ValuationAt,Horizon,
+            selected.DistinctBy(f=>f.Market).ToImmutableDictionary(f=>f.Market,f=>f.At));
+        var finalTimes=ImmutableDictionary.CreateBuilder<InputKey,DateTimeOffset>();
+        var absolute=ImmutableDictionary.CreateBuilder<InputKey,(DateTimeOffset,ExactDecimal)>();
+        foreach(var (request,at) in configured)
+        {
+            if(!bindings.TryGetValue(request,out var point))
+                point=valuation.Scenario.Plan.Points.Values.Single(p=>p.Expression is ConnectedSource c&&c.Request==request&&c.Input.Use==InputUse.Variable).Key;
+            if(valuation.Scenario.Plan.Points[point].Expression is not ConnectedSource {Input.Use:InputUse.Variable} primitive)
+                throw LifecycleProjection.Error("projection_input_expiry","The selected final transition requires an admitted native primitive source.");
+            if(finalTimes.TryGetValue(primitive.Input,out var previous)&&previous!=at)
+                throw LifecycleProjection.Error("projection_input_expiry","One native input cannot have conflicting final-settlement instants.");
+            finalTimes[primitive.Input]=at;
+            var actual=selected.Where(f=>f.Market==request).Select(f=>f.Actual).FirstOrDefault(a=>a is not null);
+            if(actual is null)continue;
+            var official=authority.Model.AssetDefinition(actual.OfficialMarket.Curve);var observed=actual.Observation;
+            if(actual.OfficialMarket.Contract!=request.Contract||official.Rule!=CurveRule.Direct||observed is null||
+                observed.Series!=primitive.Input.Series||observed.Source!=official.DirectSource||observed.Role!=ObservationRole.FinalContractSettlement||
+                observed.State!=PublicationState.Final||observed.ObservedAt!=at||actual.SourceContextId!=SourceSnapshot.Knowledge!.ContextId||
+                !TradingInstant.IsSupported(actual.KnownAt)||actual.KnownAt>SourceSnapshot.Knowledge.KnownAt||
+                PriceUnit.FromQuote(authority.Model.QuoteFor(actual.OfficialMarket))!=PriceUnit.FromQuote(primitive.Quote))
+                throw LifecycleProjection.Error("projection_input_expiry","A known final requires exact official source, series, native quotation, occurrence and certified knowledge evidence.");
+            var value=(at,observed.Value-primitive.Observation.Value);
+            if(absolute.TryGetValue(primitive.Input,out var old)&&old!=value)
+                throw LifecycleProjection.Error("projection_input_expiry","One native input cannot have conflicting certified final observations.");
+            absolute[primitive.Input]=value;
+        }
+        inputFinals=finalTimes.ToImmutable();actualFinals=absolute.ToImmutable();
         events=Order(components,SourceSnapshot.ValuationAt,Horizon);
         foreach(var component in components)RequireState(component.Opening,component,SourceSnapshot.ValuationAt);
         RequireUniqueResiduals([..components.Select(c=>c.Opening)]);
@@ -81,14 +121,19 @@ public sealed class PreparedLifecycleProjection
             terminalChanges.Select(s=>s.Input).Distinct().Count()!=terminalChanges.Length)
             throw LifecycleProjection.Error("projection_scenario","Supply a distinct complete native primitive quote scenario under the prepared factor closure.");
         var markets=new Dictionary<DateTimeOffset,PreparedValuationEnvironment>();
-        var finalInstants=new Dictionary<InputKey,DateTimeOffset>();
+        var finalInstants=inputFinals.ToDictionary(p=>p.Key,p=>p.Value);
         PreparedValuationEnvironment At(DateTimeOffset at)
         {
             if(at<SourceSnapshot.ValuationAt||at>Horizon)throw LifecycleProjection.Error("projection_clock","The path read is outside its common horizon.");
             if(markets.TryGetValue(at,out var cached))return cached;
-            var shifts=terminalChanges.Select(s=>s with{Size=Policy.PricePath==LifecycleProjectionPolicy.Hold?s.Size:
-                Scale(s.Size,(finalInstants.TryGetValue(s.Input,out var final)&&final<at?final:at).Ticks-SourceSnapshot.ValuationAt.Ticks,Horizon.Ticks-SourceSnapshot.ValuationAt.Ticks)})
-                .Where(s=>s.Size!=default).ToImmutableArray();
+            var sizes=terminalChanges.ToDictionary(s=>s.Input,s=>Policy.PricePath==LifecycleProjectionPolicy.Hold?s.Size:
+                Scale(s.Size,(finalInstants.TryGetValue(s.Input,out var final)&&final<at?final:at).Ticks-SourceSnapshot.ValuationAt.Ticks,Horizon.Ticks-SourceSnapshot.ValuationAt.Ticks));
+            foreach(var (input,actual) in actualFinals)if(at>=actual.At)sizes[input]=actual.Shift;
+            var shifts=sizes.Where(s=>s.Value!=default).Select(s=>
+            {
+                var native=(ConnectedSource)valuation.Scenario.Plan.Points[primitives[s.Key]].Expression;
+                return new QuoteShift(s.Key,native.Quote.Key,PriceUnit.FromQuote(native.Quote),s.Value,QuoteShift.Convention);
+            }).ToImmutableArray();
             var changes=shifts.Select(s=>
             {
                 if(!primitives.TryGetValue(s.Input,out var point))throw LifecycleProjection.Error("projection_scenario","The declared factor has no admitted native primitive node.");

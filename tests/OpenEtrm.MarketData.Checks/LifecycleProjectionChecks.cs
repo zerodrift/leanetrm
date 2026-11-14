@@ -79,8 +79,26 @@ internal static class LifecycleProjectionChecks
         var result=prepared.Evaluate("final_freeze",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
         Equal(result.Values[0].ResidualValue,"0");Equal(result.Values[0].PeriodCash,"80");
         Equal(result.Values[1].PeriodCash,"4.3");
+        // The declared source-expiry edge applies even without a held future.
+        Reject("projection_input_expiry",()=>LifecycleProjection.Prepare(model,source,horizon,policy,[derived],[]));
+        var frozenModel=f.Model(curves:f.Curves.Select(c=>c.Key==f.C("base_forward")?c with{
+            Inputs=c.Inputs.SetItem(0,c.Inputs[0] with{ExpiryRule=SourceExpiryRule.FreezeFinalFuture})}:c).ToImmutableArray());
+        var unheld=LifecycleProjection.Prepare(frozenModel,source,horizon,policy,[derived],[]);
+        var unheldFactor=unheld.Factors.Single(p=>p.Input.Series==f.S(1));
+        Equal(unheld.Evaluate("unheld_final_freeze",[new(unheldFactor.Input,unheldFactor.Quote,unheldFactor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)])
+            .Values.Single().PeriodCash,"4.3");
         var official=new MarketObservation(new(f.Revision.CatalogId,Guid.NewGuid()),f.S(1),f.R("source"),ObservationRole.FinalContractSettlement,
             PublicationState.Final,market.Contract.Expiry,ExactDecimal.Parse("4"));
+        var retrospective=source.WithKnowledge(source.Knowledge!.ContextId,end);
+        var knownFinal=new LifecycleInputFinal(market.Market,market.Contract.Expiry,
+            new(market.Market,official with{Value=ExactDecimal.Parse("4.5")},end,retrospective.Knowledge!.ContextId));
+        var knownDerived=derived with{SourceSnapshot=retrospective,InputFinals=[knownFinal],At=market.Contract.Expiry};
+        var immutableFinal=LifecycleProjection.Prepare(frozenModel,retrospective,horizon,policy,[knownDerived],[]);
+        Equal(immutableFinal.Evaluate("known_final_no_shock",[]).Values.Single().PeriodCash,"4.8");
+        Equal(immutableFinal.Evaluate("known_final_shocked",[new(unheldFactor.Input,unheldFactor.Quote,unheldFactor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)])
+            .Values.Single().PeriodCash,"4.8");
+        Reject("projection_input_expiry",()=>LifecycleProjection.Prepare(frozenModel,retrospective,horizon,policy,
+            [knownDerived with{InputFinals=[knownFinal with{Actual=knownFinal.Actual! with{SourceContextId=Guid.NewGuid()}}]}],[]));
         var actualSource=(source with{Id=Guid.NewGuid(),ValuationAt=end,MarketCutoff=end,
             Selections=source.Selections.Where(s=>s.Input.Series!=f.S(1)).Append(new SelectedObservation(new(f.S(1),InputUse.FrozenFact),official)).ToImmutableArray()})
             .WithKnowledge(Guid.NewGuid(),end);
@@ -165,6 +183,27 @@ internal static class LifecycleProjectionChecks
         var factor=projection.Factors.Single();var run=projection.Evaluate("future",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
         Equal(run.Values.Single().OpeningValue,"0");Equal(run.Values.Single().PeriodCash,"80");
         Equal(run.Values.Single().ResidualValue,"80");Equal(run.Values.Single().EconomicPnl,"160");
+        var retrospective=source.WithKnowledge(source.Knowledge!.ContextId,source.ValuationAt.AddDays(1));
+        var retrospectiveState=state with{KnownThrough=retrospective.Knowledge!.KnownAt};
+        var retrospectiveSetup=setup with{BindingStates=setup.BindingStates.SetItem(new(trade.Id,binding),retrospectiveState)};
+        var retrospectiveHistory=history with{KnownThrough=retrospective.Knowledge.KnownAt};
+        var acceptedId=Guid.NewGuid();var cashBinding=Guid.NewGuid();var cashInstrument=new TimedCashPayment(market.Quote.Currency,first.DueAt);
+        var cashHolding=new TradeInstrument(cashBinding,cashInstrument,new(ExactDecimal.Parse("100"),market.Quote.Currency));
+        var cashOwner=new AccountingPositionKey(trade.Id,cashBinding,trade.BookId);
+        var paid=new AccountingFlow(Guid.NewGuid(),1,cashOwner,source.ValuationAt.AddHours(6),source.ValuationAt.AddHours(7),
+            ExactMoney.Parse("20",market.Quote.Currency),AccountingFlowKind.EconomicCash);
+        var cashState=new RecordedCashValuation(cashOwner,cashInstrument,cashHolding.Quantity,[paid],RecordedCashValuation.Policy,
+            retrospective.Knowledge.ContextId,retrospective.Knowledge.KnownAt);
+        var observation=source.Selections.Single(s=>s.Input.Series==f.S(1)).Observation with{Key=new(f.Revision.CatalogId,Guid.NewGuid()),
+            ObservedAt=first.At,Value=ExactDecimal.Parse("4.25")};
+        var accepted=new KnownFuturesMargin(first,acceptedId,null,null,1,1,source.ValuationAt.AddHours(5),state.SettledBasis,observation,
+            source.ValuationAt.AddHours(5),ExactMoney.Parse("100",market.Quote.Currency),new(ExactDecimal.Parse("100"),market.Quote.Currency));
+        var knownHistory=new FuturesKnownHistory(new(trade.Id,binding,trade.BookId),history.Terms,retrospective.Knowledge.ContextId,
+            retrospective.Knowledge.KnownAt,[accepted],[new(acceptedId,first,cashHolding,1,accepted.KnownAt,cashState)]);
+        var knownPrepared=LifecycleProjection.Prepare(model,retrospective,horizon,policy,
+            [new FuturesLifecycleProjection(trade,binding,retrospectiveState,retrospectiveHistory,retrospectiveSetup,market.Market,model,retrospective,knownHistory)],[]);
+        var knownResult=knownPrepared.Evaluate("actual_future_margin",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]).Values.Single();
+        Equal(knownResult.PeriodCash,"100");Equal(knownResult.ResidualValue,"60");Equal(knownResult.EconomicPnl,"160");
         var secondBinding=Guid.NewGuid();var secondTrade=new Trade(Guid.NewGuid(),trade.BookId,[FuturesExecution.Bind(secondBinding,market,ExactDecimal.Parse("2"),
             new(ExactDecimal.Parse("3"),market.Quote),source.ValuationAt.AddDays(-1),FuturesSettlementState.Unprocessed)]);
         var secondState=state with{TradeId=secondTrade.Id,BindingId=secondBinding};
@@ -228,6 +267,7 @@ internal static class LifecycleProjectionChecks
         public ExactMoney? ExactAmount{get;init;}
         public ImmutableArray<AccountingFlow> KnownPayments{get;init;}=[];
         public ImmutableArray<RecordedCashValuation> KnownCashSources{get;init;}=[];
+        public ImmutableArray<LifecycleInputFinal> InputFinals{get;init;}=[];
         public string Implementation=>"synthetic_fixing_cash_v1";
         public ImmutableArray<CurveRequest> Dependencies=>[Request];
         public LifecycleProjectionState Opening=>new(OpeningSelection??[],[]){KnownPayments=KnownPayments,KnownCashSources=KnownCashSources};

@@ -163,3 +163,30 @@ cannot move between members during a hypothetical path. Current composition
 admits one book, currency and source graph; cross-source funding requires its own
 qualification. The managed independent oracle transfers 100 units of value
 between two members and retains their -100/+100 P&L with zero portfolio loss.
+
+Market input lifetime is separate from the full preparation dependency union.
+Each adapter declares the last possible read of each selected projection market;
+fixing an index does not keep its mark live until a later cash payment. Expiring
+native inputs require the selected curve's supported frozen-final relationship
+or a declared event-market final transition. The projected native primitive is
+capped at that exact final instant even when no future is held. Source-known
+native finals are separate immutable evidence and override the native primitive
+at their effective instant before all same-instant consumers, including no-shock
+paths. Unqualified live-input crossings refuse before sampling.
+
+The managed option and futures adapters replay source-known future-effective
+native events without manufacturing future snapshots or accepted fact types.
+Native future cash memberships remain inactive source evidence until their
+occurrence; complete actual payment history is retained at opening and only the
+uncommitted remainder follows the selected projected payment policy. A known
+partial option exercise preserves its already-booked linked future and the
+remaining right separately; a hypothetical price move cannot undo that accepted
+exercise. Independent managed checks cover signed wealth and payment conservation.
+
+The API economic source preparation entry point and retained-union result are
+implemented as an integration checkpoint. It reads the certified next close,
+revalidates accepted past margin sources, prepares all declared transition inputs,
+and recalibrates source options once under the explicit exact-instant rate
+profile. Swap source materialization, known option-event orchestration and gas
+portfolio integration remain explicit source-reader gates at this checkpoint;
+the pure adapters are not evidence that those API paths are complete.

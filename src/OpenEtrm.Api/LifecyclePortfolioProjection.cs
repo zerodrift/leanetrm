@@ -5,6 +5,7 @@ using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.Rates;
 
 namespace OpenEtrm.Api;
 
@@ -32,7 +33,7 @@ internal sealed record PreparedLifecyclePortfolio(PortfolioEconomicProjectionReq
     internal ImmutableArray<QuoteFactor> Factors=>LifecycleEconomicRisk.Factors(Projections);
 }
 
-internal static class LifecyclePortfolioProjection
+internal static partial class LifecyclePortfolioProjection
 {
     private sealed record SourceAdmission(Guid Catalog,Guid Context,DateTimeOffset At,DateOnly Day,DateTimeOffset Until):ICommitAdmission
     {

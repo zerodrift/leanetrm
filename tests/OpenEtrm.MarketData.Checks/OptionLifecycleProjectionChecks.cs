@@ -55,6 +55,24 @@ internal static class OptionLifecycleProjectionChecks
         var instructedValue=LifecycleProjection.Prepare(model,source,h,policy,[instructed],[]).Evaluate("known_abandon",[]).Values.Single();
         Equal(instructedValue.ResidualValue,"0");Equal(instructedValue.PeriodCash,"0");Equal(instructedValue.EconomicPnl,"-20000");
         _=instructed.EventsFor(f.Underlying.LastTradingAt); // this known decision has no exercised physical branch
+        // A source-known later exercise is a committed decision, even when a
+        // hypothetical market path would make the remaining right worthless.
+        var retrospective=source.WithKnowledge(source.Knowledge!.ContextId,marginAt.AddDays(1));
+        var executed=source.ValuationAt.AddHours(1);var futureBinding=Guid.NewGuid();
+        var actualFuture=new Trade(Guid.NewGuid(),trade.BookId,[FuturesExecution.Bind(futureBinding,future,ExactDecimal.Parse("1"),
+            new(option.Series.Terms.Strike,f.FuturesQuote),executed,FuturesSettlementState.Unprocessed)]);
+        var eventId=Guid.NewGuid();var knownEvent=new KnownFuturesOptionEvent(eventId,"exercise",ExactDecimal.Parse("1"),ExactDecimal.Parse("1"),
+            executed,executed,retrospective.Knowledge!.KnownAt,1,null,null,null,null,null,
+            new(actualFuture,futureBinding,margin,Guid.NewGuid(),1,executed,retrospective.Knowledge.KnownAt));
+        var optionKnown=new FuturesOptionKnownHistory(new(trade.Id,trade.Instruments[0].Id,trade.BookId),1,option.Series.Key,ExactDecimal.Parse("2"),
+            retrospective.Knowledge.ContextId,retrospective.Knowledge.KnownAt,[knownEvent]);
+        var futureKnown=new FuturesKnownHistory(new(actualFuture.Id,futureBinding,trade.BookId),future.Instrument.RetainKnownMarginTerms(
+            actualFuture,futureBinding,margin,model,retrospective),retrospective.Knowledge.ContextId,retrospective.Knowledge.KnownAt,[],[]);
+        var replayed=new FuturesOptionLifecycleProjection(trade,trade.Instruments[0].Id,setup,future,margin,rule,null,
+            f.UnderlyingRequest,f.UnderlyingRequest,model,retrospective,optionKnown,ImmutableDictionary<Guid,FuturesKnownHistory>.Empty.Add(eventId,futureKnown));
+        var acceptedValue=LifecycleProjection.Prepare(model,retrospective,h,policy,[replayed],[]).Evaluate("known_partial_exercise_down",
+            [new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("-2"),QuoteShift.Convention)]).Values.Single();
+        Equal(acceptedValue.PeriodCash,"-10000");Equal(acceptedValue.ResidualValue,"0");Equal(acceptedValue.EconomicPnl,"-30000");
         var shortTrade=FuturesOptionChecks.OptionMarket.Holding(22,1,option,"-1");
         var shortComponent=new FuturesOptionLifecycleProjection(shortTrade,shortTrade.Instruments[0].Id,setup,future,margin,rule,null,
             f.UnderlyingRequest,f.UnderlyingRequest,model,source);
