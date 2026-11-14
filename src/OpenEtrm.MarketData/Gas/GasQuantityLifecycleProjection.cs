@@ -124,6 +124,18 @@ public sealed class GasQuantityLifecycleProjection:ILifecycleProjection
     }
     public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)
     {
+        _=StateAt(horizon);return Events;
+    }
+    public ImmutableArray<LifecycleMarketUse> MarketUsesFor(DateTimeOffset horizon)
+    {
+        var remaining=StateAt(horizon).Residuals.SelectMany(p=>p.Instruments).OfType<GasCommodityHoldingInstrument>().Select(i=>i.Mark).ToHashSet();
+        // Quantity/title events read no prices. A discharged claim or fully
+        // consumed lot uses its mark at opening only; surviving inventory must
+        // retain its selected mark through H and its declared expiry policy.
+        return [..Dependencies.Select(m=>new LifecycleMarketUse(m,remaining.Contains(m)?horizon:SourceSnapshot.ValuationAt))];
+    }
+    private LifecycleProjectionState StateAt(DateTimeOffset horizon)
+    {
         if(!TradingInstant.IsSupported(horizon)||horizon<=SourceSnapshot.ValuationAt)
             throw Error("gas_projection_horizon","Select a supported common close after the gas opening.");
         if(holdings.Values.Any(p=>policies[p.Account.Id].Disposition==GasQuantityProjectionPolicy.AtDue&&p.Kind!=GasProjectionHoldingKind.OwnedStock&&
@@ -139,7 +151,7 @@ public sealed class GasQuantityLifecycleProjection:ILifecycleProjection
             if(ready.Length==0)throw Error("gas_projection_causality","Linked incoming title must have an explicit causal predecessor no later than the supplied return.");
             foreach(var occurrence in ready){state=Perform(occurrence,state);completed=completed.Add(occurrence.Id);remaining.Remove(occurrence);}
         }
-        return Events;
+        return state;
     }
     public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
     {
