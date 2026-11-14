@@ -15,6 +15,8 @@ internal sealed record LifecycleDiscovery(LifecycleReadContext Context,Immutable
     ImmutableArray<JsonElement> FuturesSetup,
     [property:JsonIgnore]Guid Catalog,[property:JsonIgnore]DateTimeOffset AuthorityUntil):ICommitAdmission
 {
+    public ImmutableArray<JsonElement> DeliveryProfiles{get;init;}=[];
+    public ImmutableArray<JsonElement> DeliveryAccounts{get;init;}=[];
     public async Task RequireCommit(NpgsqlConnection connection,CancellationToken ct)
     {
         await using var command=ScheduleStore.Command(connection,"SELECT lifecycle.require_read($1,$2)",Catalog,AuthorityUntil);
@@ -53,7 +55,7 @@ public sealed class LifecycleOperations
         var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
         database.RegisterCommitAdmission(connection,new LifecycleReadAdmission(database.Manifest.CatalogId,until));
         await using(var save=ScheduleStore.Command(connection,"SAVEPOINT lifecycle_discovery"))await save.ExecuteNonQueryAsync(ct);
-        ImmutableArray<LifecycleActionOffer> actions;ImmutableArray<JsonElement> policies,optionProfiles,swapProfiles,marginPolicies,optionSources,swapOccurrences,futuresSetup;LifecycleSettingsChoices choices;
+        ImmutableArray<LifecycleActionOffer> actions;ImmutableArray<JsonElement> policies,optionProfiles,swapProfiles,marginPolicies,optionSources,swapOccurrences,futuresSetup,deliveryProfiles,deliveryAccounts;LifecycleSettingsChoices choices;
         try
         {
             var context=(await new KnowledgeStore(database.Manifest.CatalogId).Read(connection,request.Context.ContextId,ct)).Context;
@@ -106,16 +108,20 @@ public sealed class LifecycleOperations
             choices=new([..kinds.Select(k=>new LifecycleActionKindChoice(k.Text("code"),k.GetProperty("automatic").GetBoolean(),k.Text("configuration_permission"),k.Text("execution_permission")))],
                 ["manual","review","automatic"],OpenEtrm.MarketData.Trading.LifecycleActionPolicy.Version,["currency_minor_units_to_even_v1"],
                 ["swap_due_nominal_v1"],["swap_completed_period_trading_pnl_v1"],["swap_explicit_correction_due_v1"],
-                new(OpenEtrm.MarketData.Trading.FuturesMarginPolicy.Version,["include_opening_instant","after_opening_instant"],["to_even","away_from_zero"],
-                    ["payment_total"],[OpenEtrm.MarketData.Trading.FuturesMargin.HeldBindingRounding],["daily","final"],["native_execution_inception_v1"]));
+                new(OpenEtrm.MarketData.Trading.FuturesMarginPolicy.DeliveryVersion,["include_opening_instant","after_opening_instant"],["to_even","away_from_zero"],
+                    ["payment_total"],[OpenEtrm.MarketData.Trading.FuturesMargin.HeldBindingRounding],["daily","final"],["native_execution_inception_v1"])
+                    {Delivery=new([OpenEtrm.MarketData.Gas.GasPhysicalDeliveryTerms.Version],["nominal_mark_v1","currency_curve_v1"],
+                        ["delivery_cumulative_principal_total_v1"],["contractual_principal_due_v1"])});
             futuresSetup=await LifecycleFuturesSettings.Read(connection,database.Manifest.CatalogId,ct);
+            (deliveryProfiles,deliveryAccounts)=await LifecyclePhysicalSettings.Read(connection,database,request.Context,ct);
         }
         finally
         {
             await using var restore=ScheduleStore.Command(connection,"ROLLBACK TO SAVEPOINT lifecycle_discovery; RELEASE SAVEPOINT lifecycle_discovery");
             await restore.ExecuteNonQueryAsync(CancellationToken.None);
         }
-        var value=new LifecycleDiscovery(request.Context,actions,policies,optionProfiles,swapProfiles,marginPolicies,choices,optionSources,swapOccurrences,futuresSetup,database.Manifest.CatalogId,until);
+        var value=new LifecycleDiscovery(request.Context,actions,policies,optionProfiles,swapProfiles,marginPolicies,choices,optionSources,swapOccurrences,futuresSetup,database.Manifest.CatalogId,until)
+            {DeliveryProfiles=deliveryProfiles,DeliveryAccounts=deliveryAccounts};
         database.RegisterCommitAdmission(connection,value);
         await value.RequireCommit(connection,ct);return value;
     }

@@ -11,7 +11,8 @@ public sealed record LifecycleMarginOccurrence(Guid Id,string At,string DueAt,st
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record LifecycleMarginPolicyTerms(Guid Id,Guid DefinitionRevisionId,Guid ContractId,string SettlementCurve,
     Guid ReferenceCatalogId,Guid ReferenceRevisionId,string Currency,string FromAt,string UntilAt,string Opening,string Increment,
-    string Tie,string Stage,string RoundingScope,string Implementation,ImmutableArray<LifecycleMarginOccurrence> Occurrences);
+    string Tie,string Stage,string RoundingScope,string Implementation,ImmutableArray<LifecycleMarginOccurrence> Occurrences,
+    [property:JsonRequired]LifecycleDeliveryProfileSelection? Delivery);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record LifecycleMarginPolicySave(Guid OperationId,[property:JsonRequired]int ExpectedRevision,LifecycleReadContext Context,LifecycleMarginPolicyTerms Policy);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -30,8 +31,9 @@ internal static class LifecycleFuturesSettings
            WHERE(cm.catalog_id,cm.revision_id,cm.contract_id)=(v.catalog_id,v.definition_revision_id,v.contract_id)
            AND s.rule='direct' AND s.direct_role='daily_settlement' AND(s.reference_catalog_id,s.reference_revision_id,s.quote_code)=(v.reference_catalog_id,v.reference_revision_id,v.quote_code))))::text
           FROM(SELECT r.catalog_id,r.trade_id,r.binding_id,r.revision,r.book_id,b.name book_name,tr.reference_number trade_reference,
-           r.lots,r.execution_price,r.execution_at,m.definition_revision_id,m.contract_id,m.curve_code mark_curve,m.reference_catalog_id,m.reference_revision_id,
-           c.expiry_at,s.code series_code,p.name product_name,q.currency_code,mv.quote_code,a.policy_id adopted_policy_id,a.policy_revision adopted_policy_revision
+           r.lots,r.execution_price,r.execution_at,r.legal_entity_id,r.legal_entity_revision,m.definition_revision_id,m.contract_id,m.curve_code mark_curve,m.reference_catalog_id,m.reference_revision_id,
+           c.expiry_at,s.code series_code,p.name product_name,p.settlement_method,p.location_code,q.quantity_code,q.multiplier quote_multiplier,q.currency_code,mv.quote_code,
+           a.policy_id adopted_policy_id,a.policy_revision adopted_policy_revision
            FROM(SELECT DISTINCT ON(trade_id)* FROM trading.trade_revisions WHERE catalog_id=$1 ORDER BY trade_id,revision DESC)r
            JOIN trading.futures_revision_markets m ON(m.catalog_id,m.trade_id,m.revision)=(r.catalog_id,r.trade_id,r.revision)
            JOIN trading.books b ON(b.catalog_id,b.id)=(r.catalog_id,r.book_id)

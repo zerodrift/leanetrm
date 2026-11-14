@@ -6,7 +6,7 @@ public sealed record CashRoundingConvention(
     ReferenceKey Currency, ExactDecimal Increment,
     CashTieRule TieRule, CashRoundingStage Stage)
 {
-    internal void Require(ReferenceKey currency,CashRoundingStage stage)
+    public void Require(ReferenceKey currency,CashRoundingStage stage)
     {
         Money.RequireKey(Currency);
         if(Currency!=currency||Stage!=stage||!Enum.IsDefined(stage)||

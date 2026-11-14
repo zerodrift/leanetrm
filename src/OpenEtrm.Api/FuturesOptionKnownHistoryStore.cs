@@ -53,7 +53,7 @@ internal static class FuturesOptionKnownHistoryStore
                 var market=FuturesStore.Binding(data,terms.Text("curve_code"),terms.Id("contract_id"),terms.Id("side_id"),terms.Text("implementation"));
                 var holding=FuturesStore.MaterializeHolding(terms,market);
                 var trade=new Trade(terms.Id("trade_id"),terms.Id("book_id"),[holding],TradeParties.Read(catalog,terms));
-                var policy=FuturesMarginStore.ReadPolicy(linked.GetProperty("policy"),linked.GetProperty("occurrences"));
+                var policy=await FuturesPhysicalDeliveryStore.ReadPolicy(connection,database,frame,linked.GetProperty("policy"),linked.GetProperty("occurrences"),ct);
                 if(trade.Id!=row.Id("futures_trade_id")||trade.BookId!=owner.BookId||adoption.Id("binding_id")!=holding.Id||
                     adoption.Id("policy_id")!=policy.Id||Integer(adoption,"policy_revision")!=policy.Revision||
                     Integer(adoption,"publication_order")!=Integer(row,"publication_order")||linked.Instant("known_at")!=eventKnown)

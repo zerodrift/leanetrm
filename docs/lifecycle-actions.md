@@ -19,6 +19,17 @@ requires a separately configured current account action binding. No account
 binding or title is created by saving a profile. Disposable native checks qualify
 these configuration and hash boundaries; physical performance remains separate.
 
+Accepted physical final margin now creates one signed native delivery obligation
+in its publication transaction. Later accepted final corrections retain that
+owner and update the selected locked basis without creating title. Ordinary
+whole-book PV reads this residual as marked commodity value less final principal,
+with separate exact-instant physical and cash carrying inputs. Its economic
+identity includes the exact final basis; native ownership remains stable.
+Disposable native and owned managed checks cover final margin, correction,
+older-snapshot acknowledgement, independent ownership/PV and receipt recovery
+after a host frame is evicted. Evidence-backed performance, its complete
+principal trajectory, payment and projected continuation remain integration gates.
+
 Lifecycle discovery, review and execution use one managed handler registry. The
 registry dispatches a typed native target; product operations retain ownership of
 financial terms, calculations, records and corrections. A target may be a trade

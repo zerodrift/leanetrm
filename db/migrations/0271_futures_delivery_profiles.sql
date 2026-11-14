@@ -313,8 +313,9 @@ CREATE TRIGGER exact_delivery_owner BEFORE INSERT ON settlement_data.futures_mar
 
 CREATE FUNCTION settlement_data.futures_delivery_profile_document(catalog uuid,profile uuid,requested_revision integer,context uuid,as_of timestamptz) RETURNS jsonb
  LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE p settlement_data.futures_delivery_profiles;g trading.gas_futures_delivery_terms;a trading.gas_owned_accounts;prefix integer;cut timestamptz;BEGIN
- PERFORM security.require_gas_owned(catalog,false,false);
+DECLARE p settlement_data.futures_delivery_profiles;g trading.gas_futures_delivery_terms;a trading.gas_owned_accounts;prefix integer;cut timestamptz;until_at timestamptz;BEGIN
+ until_at=least(settlement_data.futures_margin_preview_authority(catalog),security.authority_until('ReadGasOwnedHoldings'));
+ PERFORM security.require_gas_owned_preview(catalog,until_at);
  SELECT x.known_through,t.known_at INTO STRICT prefix,cut FROM market_data.temporal_contexts t JOIN trading.contexts x ON(x.catalog_id,x.context_id)=(t.catalog_id,t.id)
   WHERE(t.catalog_id,t.id)=(catalog,context) AND security.trading_context_day_matches(catalog,context,as_of);
  SELECT x.* INTO p FROM settlement_data.futures_delivery_profiles x JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(x.catalog_id,x.publication_order)
@@ -327,7 +328,8 @@ DECLARE p settlement_data.futures_delivery_profiles;g trading.gas_futures_delive
  PERFORM settlement_data.require_futures_delivery_reference(p,g);
  PERFORM settlement_data.require_futures_margin_source(catalog,context,as_of,p.definition_revision_id);
  PERFORM settlement_data.require_futures_margin_source(catalog,context,as_of,a.definition_revision_id);
- RETURN jsonb_build_object('profile',to_jsonb(p),'gas',to_jsonb(g),'account',to_jsonb(a));
+ PERFORM security.require_gas_owned_preview(catalog,until_at);
+ RETURN jsonb_build_object('profile',to_jsonb(p),'gas',to_jsonb(g),'account',to_jsonb(a),'authorityUntil',until_at);
 END$$;
 CREATE FUNCTION settlement_data.futures_margin_policy_document(p settlement_data.futures_margin_policies,context uuid,as_of timestamptz) RETURNS jsonb
  LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$

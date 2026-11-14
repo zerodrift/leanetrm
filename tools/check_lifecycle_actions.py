@@ -45,8 +45,8 @@ def upgrade_checks(query, migration):
         check_guard(query,migration.read_text(),migration.name[:4],guard,changes)
 
 
-def fixture(root):
-    reference,market,security,trading,manifest=exchange(root)
+def fixture(root, *, rate_inputs=None):
+    reference,market,security,trading,manifest=exchange(root) if rate_inputs is None else exchange(root,rate_inputs=rate_inputs)
     # Two valid direct curves make singleton inference observably wrong. The
     # selected action profile must retain the actual mark and expiry source.
     marker="UPDATE market_data.revisions SET state='sealed'"

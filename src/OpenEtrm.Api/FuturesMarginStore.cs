@@ -12,6 +12,7 @@ internal sealed record FuturesMarginRead(FuturesMarginState State,FuturesMarginH
     internal int MarginRevision{get;init;}=1;
     internal ImmutableArray<TradeInstrument> CashBindings{get;init;}=[];
     internal ImmutableArray<FuturesMarginCashOrigin> CashOrigins{get;init;}=[];
+    internal ICommitAdmission? PhysicalAdmission{get;init;}
 }
 internal sealed record FuturesMarginCashOrigin(Guid BindingId,Guid DeterminationId,int PublicationOrder,DateTimeOffset OccurrenceAt);
 
@@ -29,11 +30,14 @@ internal static class FuturesMarginStore
             throw Invalid("Select the exact certified source frame and its retained inputs.");
         var binding=trade.Instruments.SingleOrDefault(b=>b.Id==bindingId)??throw Invalid("Select this trade's exact held futures binding.");
         var execution=FuturesExecution.Require(binding);var market=execution.MarketBinding;
+        await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_delivery_read_authority($1,$2,$3,$4,$5)",
+            catalog,trade.Id,bindingId,context,frame.At);
+        var originalUntil=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
         await using var command=ScheduleStore.Command(connection,
             inceptionOnly?"SELECT settlement_data.read_futures_margin_inception($1,$2,$3,$4,$5)::text":
                 "SELECT settlement_data.read_futures_margin_state($1,$2,$3,$4,$5)::text",catalog,trade.Id,bindingId,context,frame.At);
         var result=JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
-        var until=result.Instant("authorityUntil");
+        var until=result.Instant("authorityUntil");if(originalUntil<until)until=originalUntil;
         frame.Time.RequireDate(DateWorkspace.Date(result.Text("effectiveOn")));
         if(result.Id("contextId")!=context||result.Instant("knownAt")!=snapshot.Knowledge.KnownAt)
             throw Invalid("Native margin evidence must retain this exact resolved knowledge cutoff.");
@@ -74,6 +78,14 @@ internal static class FuturesMarginStore
             var last=recorded[^1];
             state=state with{SettledBasis=accepted.Basis.Price,SettledAt=accepted.Basis.At,Status=accepted.Basis.Status,
                 KnownAt=last.KnownAt,LatestSettlement=last.Evidence,StateRevision=Integer(result,"version"),PublicationOrder=last.PublicationOrder};
+            if(state.Status==FuturesMarginStatus.FinalMarginDetermined&&policy.Delivery is not null)
+            {
+                await using var physical=ScheduleStore.Command(connection,"SELECT settlement_data.read_futures_delivery_obligation($1,$2,$3,$4,$5)::text",
+                    catalog,trade.Id,bindingId,context,frame.At);
+                var continuation=JsonSerializer.Deserialize<JsonElement>((string)(await physical.ExecuteScalarAsync(ct))!);
+                state=state with{AcceptedDelivery=FuturesPhysicalDeliveryStore.MaterializeAccepted(continuation,market.Instrument,policy,binding.Quantity,
+                    trade.Id,bindingId,trade.BookId,trade.Booking!.LegalEntity.Key,last)};
+            }
         }
         var cash=result.TryGetProperty("obligations",out var obligations)?obligations.EnumerateArray().Select(row=>
         {
@@ -83,6 +95,7 @@ internal static class FuturesMarginStore
         FuturesMargin.Require(state,market.Instrument);
         await RequireRead(connection,catalog,context,frame.At,until,ct);
         return new(state,history,Integer(head,"revision"),until){MarginRevision=result.TryGetProperty("version",out _)?Integer(result,"version"):1,CashBindings=cash,
+            PhysicalAdmission=policy.Delivery is {} delivery?new FuturesPhysicalReadAdmission(catalog,delivery.ProfileId,delivery.ProfileRevision,originalUntil):null,
             CashOrigins=result.TryGetProperty("obligations",out var origins)?[..origins.EnumerateArray().Select(row=>
                 new FuturesMarginCashOrigin(row.Id("cash_binding_id"),row.Id("id"),Integer(row,"publication_order"),row.Instant("at")))]:[]};
     }
@@ -117,6 +130,12 @@ internal static class FuturesMarginStore
         var policy=ReadPolicy(policyHeader,result.GetProperty("occurrences"));
         if(policy.Id!=adoption.Id("policy_id")||policy.Revision!=Integer(adoption,"policy_revision"))
             throw Invalid("The adopted policy must equal the exact native version read at this cutoff.");
+        if(policy.Delivery is not null)
+        {
+            var delivery=FuturesPhysicalDeliveryStore.Materialize(policyHeader.GetProperty("delivery"));
+            if(delivery.BookId!=trade.BookId||delivery.LegalOwner!=booking.LegalEntity.Key)
+                throw Invalid("The adopted delivery account must retain this exact book and legal owner.");
+        }
         return policy;
     }
 
@@ -127,12 +146,27 @@ internal static class FuturesMarginStore
         if(header.Text("rounding_stage")!="payment_total")throw Invalid("Select the exact supported policy rounding stage.");
         var rounding=new CashRoundingConvention(currency,header.Number("rounding_increment"),header.Text("tie_rule") switch{
             "to_even"=>CashTieRule.ToEven,"away_from_zero"=>CashTieRule.AwayFromZero,_=>throw Invalid("Select the exact supported tie rule.")},CashRoundingStage.PaymentTotal);
+        FuturesFinalDeliveryConfiguration? delivery=null;
+        if(header.Text("implementation")==FuturesMarginPolicy.DeliveryVersion)
+        {
+            var document=header.GetProperty("delivery");
+            if(document.ValueKind!=JsonValueKind.Null)
+            {
+                var physical=FuturesPhysicalDeliveryStore.Materialize(document);delivery=physical.Configuration;
+                if(header.OptionalId("delivery_profile_id")!=physical.Id||Integer(header,"delivery_profile_revision")!=physical.Revision||physical.Contract!=new ContractKey(definition,header.Id("contract_id")))
+                    throw Invalid("Retain the exact native delivery profile selected by this policy version.");
+            }
+            else if(header.OptionalId("delivery_profile_id") is not null||header.OptionalText("delivery_profile_revision") is not null)
+                throw Invalid("A cash continuation must explicitly retain null delivery terms.");
+        }
+        else if(header.TryGetProperty("delivery_profile_id",out var deliveryId)&&deliveryId.ValueKind!=JsonValueKind.Null)
+            throw Invalid("A retained cash-only policy cannot acquire a delivery profile.");
         return new(header.Id("id"),Integer(header,"revision"),new(definition,header.Id("contract_id")),new(definition,header.Text("settlement_curve_code")),
             header.Instant("from_at"),header.Instant("until_at"),[..occurrences.EnumerateArray().Select(o=>new FuturesMarginOccurrence(o.Id("id"),o.Instant("at"),
                 o.Instant("due_at"),o.Text("phase") switch{"daily"=>FuturesMarginPhase.Daily,"final"=>FuturesMarginPhase.Final,_=>throw Invalid("Select a supported margin phase.")}))],
             rounding,header.Text("rounding_scope"),header.Text("opening") switch{
                 "include_opening_instant"=>FuturesMarginOpening.IncludeOpeningInstant,"after_opening_instant"=>FuturesMarginOpening.AfterOpeningInstant,
-                _=>throw Invalid("Select the explicit policy opening convention.")},header.Text("implementation"));
+                _=>throw Invalid("Select the explicit policy opening convention.")},header.Text("implementation")){Delivery=delivery};
     }
     internal static async Task RequireRead(NpgsqlConnection connection,Guid catalog,Guid context,DateTimeOffset at,DateTimeOffset until,CancellationToken ct)
     {

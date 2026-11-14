@@ -197,7 +197,7 @@ def option_settlement(price,futures,strike,right,years,volatility,increment):
         raise ValueError(f'Synthetic settlement {value} for {right} {strike} on {futures} leaves the solvable range')
     return value
 
-def fixture(root):
+def fixture(root, *, rate_inputs=tuple(USD_RATES)):
     reference,old_market,security,manifest=baseline(root)
     reference=reference.replace("'synthetic', 'Synthetic test catalog'","'exchange_example', 'Exchange futures example'").replace("'other_synthetic', 'Other synthetic catalog'","'exchange_other', 'Other exchange fixture catalog'")
     security=security.replace("'preview'","'exchange_preview'")
@@ -317,11 +317,11 @@ def fixture(root):
         option_rows.append((sid,sc,code,underlying,right,strike,local_instant(expiry,OPTION_EXPIRY_CLOSE[code])))
     # One synthetic USD zero-rate curve, the currency's default discounting for option values and premiums.
     rate_rows=[]
-    for n,(maturity,rate) in enumerate(USD_RATES):
+    for n,(maturity,rate) in enumerate(rate_inputs):
         sid=key('rate_'+maturity);rate_rows.append((sid,rate))
         defs.append("INSERT INTO market_data.series(catalog_id,revision_id,id,code,reference_catalog_id,reference_revision_id,contract_id,quote_code,value_specification_code) "
                     f"VALUES({M},'{sid}','usd_rate_{n}',{R},NULL,NULL,'test_zero_rate');")
-    defs.append(dated_curve(catalog,revision,R,'usd_rates','Synthetic USD rates',[maturity for maturity,_ in USD_RATES],[sid for sid,_ in rate_rows],
+    defs.append(dated_curve(catalog,revision,R,'usd_rates','Synthetic USD rates',[maturity for maturity,_ in rate_inputs],[sid for sid,_ in rate_rows],
                             currency='usd',source='fixture',interest_rate='test_interest'))
     unlisted=SMILE_OFFSETS.keys()-{row[1] for row in option_rows}
     if unlisted:raise ValueError(f'Smile offsets name unlisted series: {sorted(unlisted)}')

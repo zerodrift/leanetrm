@@ -116,6 +116,7 @@ public sealed record DefinitionIdentity(string Version, string Digest, string Ca
             QuantitySpecification q => ["quantity_specification_v1", q.Key, q.Commodity, q.MeasurementBasis, q.Unit, q.Dimension],
             OpenEtrm.Shared.Numerics.ExactRatio r => ["exact_ratio", r.Numerator.ToString(CultureInfo.InvariantCulture), r.Denominator.ToString(CultureInfo.InvariantCulture)],
             UnitPrice p => ["price", p.Value, p.Unit],
+            ExactUnitPrice p => ["exact_unit_price_v1",p.Numerator,p.Denominator,p.Unit],
             PriceUnit u => ["price_unit", u.Currency, u.Quantity, u.Multiplier],
             FloatingObservation o => ["observation",o.From,o.To,o.AveragingQuantity],
             SwapProjection p => ["projection", p.Market, p.Contract, p.AveragingQuantity],

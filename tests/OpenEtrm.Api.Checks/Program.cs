@@ -12,6 +12,7 @@ if(args is ["--gas-owned",var gasOwnedFixture]){await GasOwnedChecks.Run(gasOwne
 if(args is ["--gas-owned-known",var gasKnownFixture]){await GasOwnedKnownHistoryChecks.Run(gasKnownFixture);return;}
 if(args is ["--gas-owned-profile",var gasProfileFixture]){await GasOwnedKnownHistoryChecks.Run(gasProfileFixture,true);return;}
 if(args is ["--futures-margin-journal",var marginJournalFixture]){await FuturesMarginJournalChecks.Run(marginJournalFixture);return;}
+if(args is ["--futures-physical-delivery",var physicalFinalFixture]){await FuturesPhysicalDeliveryChecks.Run(physicalFinalFixture);return;}
 if(args is ["--futures-margin-adoption",var marginAdoptionFixture]){await FuturesMarginAdoptionChecks.Run(marginAdoptionFixture);return;}
 if(args is ["--futures-margin-sources"]){FuturesMarginSourceChecks.Run();return;}
 if(args is ["--native-futures-margin-sources",var marginSourceFixture]){await FuturesMarginSourceChecks.RunNative(marginSourceFixture);return;}

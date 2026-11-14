@@ -49,6 +49,7 @@ internal static class FuturesMarginPortfolio
             foreach(var binding in trade.Instruments)
             {
                 var read=await FuturesMarginStore.Read(connection,catalog,data,frame,snapshot,trade,binding.Id,ct);
+                if(read.PhysicalAdmission is {} physical)database.RegisterCommitAdmission(connection,physical);
                 if(read.AuthorityUntil<until)until=read.AuthorityUntil;
                 var key=new MeasureBinding(trade.Id,binding.Id);accepted.Add(key,read);states.Add(key,read.State);cash.AddRange(read.CashBindings);
             }

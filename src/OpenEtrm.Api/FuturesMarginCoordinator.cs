@@ -60,6 +60,7 @@ internal static class FuturesMarginCoordinator
             var binding=trade.Instruments.SingleOrDefault(b=>b.Id==request.BindingId)??throw Error("futures_margin_unavailable","The held binding is unavailable.");
             var execution=FuturesExecution.Require(binding);var market=execution.MarketBinding;
             var accepted=await FuturesMarginStore.Read(connection,catalog,data,frame,snapshot,trade,binding.Id,ct);
+            if(accepted.PhysicalAdmission is {} physical)database.RegisterCommitAdmission(connection,physical);
             var policy=accepted.History.Terms.Policy;
             var required=market.Instrument.RequiredMarginOccurrences(trade,binding.Id,policy,snapshot,request.ThroughOccurrence,accepted.History);
             if(required.Any(o=>o.At<envelope.GetProperty("origin").Instant("effective_at")))
@@ -90,7 +91,8 @@ internal static class FuturesMarginCoordinator
     internal static async Task<FuturesMarginWrite> Determine(NpgsqlConnection connection,PreviewDatabase database,JsonElement body,CancellationToken ct)
     {
         var request=ReadRequest(body);var catalog=database.Manifest.CatalogId;
-        await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_command_authority($1,'adopt')",catalog);
+        await using var capture=ScheduleStore.Command(connection,"SELECT least(settlement_data.futures_margin_command_authority($1,'adopt'),settlement_data.futures_margin_delivery_authority($1,$2,$3))",
+            catalog,request.TradeId,request.BindingId);
         var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
         await using var status=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_run_status($1,$2,$3::jsonb)::text",
             catalog,request.OperationId,body.GetRawText());

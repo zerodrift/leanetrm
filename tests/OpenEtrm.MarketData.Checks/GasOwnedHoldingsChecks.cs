@@ -72,6 +72,16 @@ internal static class GasOwnedHoldingsChecks
         var terms=new GasPhysicalDeliveryTerms(Guid.NewGuid(),series.Key,quote.Quantity,quote.Currency,series.Location,contract.Expiry,
             contract.Expiry.AddDays(35),contract.Expiry.AddDays(40),new(f.C("future"),contract.Key),GasHoldingCarrying.Nominal,GasPhysicalDeliveryTerms.Version);
         var price=ExactUnitPrice.FromPrice(new(ExactDecimal.Parse("12"),quote));
+        var first=terms.CreateObligation(price);var second=terms.CreateObligation(ExactUnitPrice.Parse("13",price.Unit));
+        if(first.Id==second.Id)throw new Exception("Two native final bases reused one physical obligation economic identity.");
+        if(first.Id!=terms.CreateObligation(ExactUnitPrice.Parse("24/2",price.Unit)).Id||first.EconomicIdentity==second.EconomicIdentity)
+            throw new Exception("Physical obligation identity must canonicalize exact final price and retain changed economic terms.");
+        var mixedPositions=new[]{first,second}.Select(i=>new RiskPosition(new AccountingOwnerKey(AccountingOwnerKind.NativeHolding,Guid.NewGuid()),Guid.NewGuid(),Guid.NewGuid(),
+            i.Id,new(ExactDecimal.Parse("40"),quote.Quantity),new(new Money(default,quote.Currency),quote.Quantity),new(default,quote.Currency))).ToImmutableArray();
+        var mixed=new ValuationPortfolio([first,second],mixedPositions,new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null));
+        var mixedSnapshot=f.Snapshot() with{Selections=[f.Select(1,QuoteKind.Outright,"gas_out","15")]};
+        var mixedResult=RiskEngine.CalculateExact(RiskEngine.Prepare(f.Model(),mixedSnapshot,[mixed]),[],RiskEngine.ExactNumericalPolicy);
+        Equal(mixedResult.Groups.SelectMany(g=>g.BaseValues).Select(v=>v.Value).Aggregate((x,y)=>x.Add(y)),"200");
         foreach(var signed in new[]{"40","-40"})
         {
             var plan=FuturesFinalDeliveryPlan.Create(future,new(ExactDecimal.Parse(signed),quote.Quantity),terms,price);

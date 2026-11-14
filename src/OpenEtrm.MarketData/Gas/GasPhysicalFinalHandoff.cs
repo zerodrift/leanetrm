@@ -33,7 +33,8 @@ public sealed record GasPhysicalDeliveryTerms:IFuturesFinalDeliveryTerms
         Id=id;Series=series;Quantity=quantity;Currency=currency;Location=location;From=from;To=to;CashDueAt=cashDueAt;
         Mark=mark;Carrying=carrying;Implementation=implementation;
     }
-    public Instrument CreateObligation(ExactUnitPrice finalPrice)=>new GasPhysicalDeliveryObligationInstrument(Id,this,finalPrice);
+    public Instrument CreateObligation(ExactUnitPrice finalPrice)=>new GasPhysicalDeliveryObligationInstrument(
+        ContractIdentity.FromCanonical(DefinitionIdentity.CanonicalTerm(new object?[]{"gas_physical_delivery_obligation_v1",this,finalPrice})),this,finalPrice);
 }
 public sealed record GasPhysicalTitlePlan(Quantity Remaining,Quantity StockChange,ExactMoney Consideration,DateTimeOffset CashDueAt);
 
@@ -76,11 +77,14 @@ public sealed record GasPhysicalDeliveryObligationInstrument:Instrument
     }
     private SidePaymentKey Cash=>new(Id,0,Terms.CashDueAt,Currency);
     private SidePaymentKey Physical=>new(Id,1,Terms.From,Currency);
-    private System.Collections.Immutable.ImmutableArray<SidePaymentKey> Discounted(UnitValuationContext context)=>
-        Terms.Carrying==GasHoldingCarrying.CurrencyCurve?[..new[]{Physical,Cash}.Where(p=>p.PaymentAt>context.CalculationAt)]:[];
+    public System.Collections.Immutable.ImmutableArray<SidePaymentKey> RequiredDiscounts(DateTimeOffset calculationAt)
+    {
+        if(!TradingInstant.IsSupported(calculationAt))throw new MarketDataException("gas_delivery_discount","Select an exact supported calculation instant.");
+        return Terms.Carrying==GasHoldingCarrying.CurrencyCurve?[..new[]{Physical,Cash}.Where(p=>p.PaymentAt>calculationAt)]:[];
+    }
     public override UnitPricingContract Declare(UnitValuationContext context)
     {
-        var discounted=Discounted(context);
+        var discounted=RequiredDiscounts(context.CalculationAt);
         return new(Id,"gas_physical_delivery_obligation_pv_v1",[Terms.Mark],Terms.Quantity,Currency){
             Time=discounted.IsEmpty?ValuationTimeDependency.Independent:ValuationTimeDependency.Between(context.CalculationAt,discounted.Min(p=>p.PaymentAt)),
             DiscountInputs=[..discounted.Select(p=>new DiscountInput(p,context.PaymentDiscounting(Id)))]};
@@ -92,7 +96,7 @@ public sealed record GasPhysicalDeliveryObligationInstrument:Instrument
         var mark=context.Inputs.ExactPrice(Terms.Mark);
         if(mark.Unit!=FinalPrice.Unit)throw new MarketDataException("gas_delivery_unit","The delivery mark and final price require one exact native quotation; conversion must be configured explicitly.");
         var physical=mark.ExactTimes(UnitQuantity);var cash=FinalPrice.ExactTimes(UnitQuantity);
-        var keys=Discounted(context);
+        var keys=RequiredDiscounts(context.CalculationAt);
         if(!keys.IsEmpty)
         {
             var factors=context.Inputs.Discounts(keys);

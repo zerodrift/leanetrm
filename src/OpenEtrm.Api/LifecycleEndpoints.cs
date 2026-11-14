@@ -91,5 +91,6 @@ internal static class LifecycleEndpoints
             var result=await database.WithIdentity(profile(session),"AmendTrade",(connection,ct)=>LifecycleFuturesSettings.Save(connection,database,body.Context,payload,false,()=>RequireSource(session,body.Context),ct),c.RequestAborted);
             return Results.Ok(result.Outcome);
         }));
+        LifecyclePhysicalSettings.Map(api,database,locked,profile,RequireSource);
     }
 }

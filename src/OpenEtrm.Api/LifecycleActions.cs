@@ -18,7 +18,10 @@ public sealed record LifecycleSettingsChoices(ImmutableArray<LifecycleActionKind
     ImmutableArray<string> SwapRounding,ImmutableArray<string> SwapDue,ImmutableArray<string> SwapRecognition,ImmutableArray<string> SwapCorrection,
     LifecycleFuturesChoices Futures);
 public sealed record LifecycleFuturesChoices(string PolicyImplementation,ImmutableArray<string> Opening,ImmutableArray<string> Ties,
-    ImmutableArray<string> RoundingStages,ImmutableArray<string> RoundingScopes,ImmutableArray<string> Phases,ImmutableArray<string> Adoption);
+    ImmutableArray<string> RoundingStages,ImmutableArray<string> RoundingScopes,ImmutableArray<string> Phases,ImmutableArray<string> Adoption)
+{public LifecycleDeliveryChoices? Delivery{get;init;}}
+public sealed record LifecycleDeliveryChoices(ImmutableArray<string> Implementations,ImmutableArray<string> Carrying,
+    ImmutableArray<string> PrincipalScopes,ImmutableArray<string> CorrectionDuePolicies);
 public sealed record LifecycleActionSubject(string Reference,string Product,Guid BookId,string Book);
 public sealed record LifecycleInputChoice(string Value,string Label);
 public sealed record LifecycleActionOffer(LifecycleTarget Target,string Action,string Label,Guid OccurrenceId,
