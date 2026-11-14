@@ -30,7 +30,7 @@ static class AssistantWorkspaceChecks
             "blotter_risk","blotter_risk_lens","blotter_new_trade","blotter_new_future","blotter_new_swap","gas_setup","crude_setup","facility_quantities"};
         foreach(var page in pages)
         {
-            // Risk names the view it shows (D391); the other pages show one view as they open.
+            // Risk names the view it shows (D392); the other pages show one view as they open.
             var report=page=="risk_jobs"?JsonSerializer.SerializeToElement(new{page,selection=new{view="reports"}}):JsonSerializer.SerializeToElement(new{page,selection=new{}});
             PageReports.Require(report);
             if(PageReports.Dispatch(report)?.Call is null)

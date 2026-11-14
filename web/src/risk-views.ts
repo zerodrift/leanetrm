@@ -2,7 +2,7 @@ export const riskViews=['risk','risk-pnl','risk-scenarios','risk-var','risk-runs
 export type RiskView=typeof riskViews[number];
 export const isRiskView=(page:string):page is RiskView=>(riskViews as readonly string[]).includes(page);
 export const riskViewNames:Record<RiskView,string>={risk:'Reports','risk-pnl':'P&L explain','risk-scenarios':'Scenarios & Greeks','risk-var':'VaR / ES','risk-runs':'Run history'};
-// The view the assistant's page report names (D391).
+// The view the assistant's page report names (D392).
 export const riskReportViews:Record<RiskView,string>={risk:'reports','risk-pnl':'pnl_explain','risk-scenarios':'scenarios_greeks','risk-var':'var_es','risk-runs':'run_history'};
 
 // Navigation only: Risk is one page, and its sidebar entries are views of it. From another page an entry opens Risk through the existing

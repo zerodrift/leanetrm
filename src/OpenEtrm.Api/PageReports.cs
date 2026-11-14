@@ -169,7 +169,7 @@ static class PageReports
         return (WorkspaceArguments)AgentTools.Parse("read_page_operation",read).Arguments;
     }
 
-    // Risk's views, by the name its report gives each and the name Looking at and the page digest show (D391).
+    // Risk's views, by the name its report gives each and the name Looking at and the page digest show (D392).
     static readonly ImmutableDictionary<string,string> RiskViews=new Dictionary<string,string>
     {
         ["reports"]="Reports",["pnl_explain"]="P&L explain",["scenarios_greeks"]="Scenarios & Greeks",["var_es"]="VaR / ES",["run_history"]="Run history"

@@ -487,7 +487,7 @@ static class AgentToolChecks
             "the closed set keeps newer product reports while enabling the workspace operation pages");
         foreach(var page in unsupported.Concat(workspace))
         {
-            // Risk names the view it shows (D391); the other pages show one view as they open.
+            // Risk names the view it shows (D392); the other pages show one view as they open.
             var opens=page=="risk_jobs"?"""{"view":"reports"}""":"{}";
             PageReports.Require(Json(Report(page,opens)));
             var read=PageReports.Dispatch(Json(Report(page,opens)));

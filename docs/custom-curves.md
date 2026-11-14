@@ -197,6 +197,113 @@ The calendar does not choose a substitute date or alter the separate effective
 date and knowledge-cutoff controls.
 
 
+## Contract observation terms (D391)
+
+A `contract_observations` node (implementation `contract_observation_terms_v1`)
+states a contract price as averaged observations of contract positions. Its one
+`source` port takes a native curve's retained contract universe. For each target
+month from `targetFrom` (the first day of a month) through `targetCount` months
+it returns one cell: the sum of its groups. A group is the normalized weighted
+mean of its terms, so weights `2` and `1` give exactly 2/3 and 1/3. A term is
+the mean over its observation days of one position, less the mean of its
+`lessPosition` over the same days when one is stated.
+
+Each node has 1 to 16 typed `observationTerms` rows: `ordinal` (contiguous from
+0), `group`, positive exact `weight` text, `position` (1–120), `lessPosition`
+(explicitly `null`, or another position) and `period`:
+
+| Period | Observation days |
+| --- | --- |
+| `calendar_month_of_delivery_v1` | The target month's days. |
+| `trade_month_of_delivery_contract_v1` | The days on which the target's delivery contract is position 1 at that day's sampling instant, from the prior contract's expiry date through the delivery contract's expiry date. |
+
+`days` is `calendar_days_v1` or `business_days_v1`; business days also require
+an exact `calendar`, which is pinned like a business-day date sequence's. The
+node also states `roll=contract_expiry_roll_v1`, `sampling=context_utc_time` and
+`corrections=exact_context_frame_history_latest_visible`. Every setting is
+required. Explicit roll boundaries are not supported by this operator.
+
+Positions resolve at each day's sampling instant: the day at the selected
+context's UTC time of day. On a last trading day sampled at or after the
+recorded expiry, the next contract is already position 1, so that day belongs to
+the next contract's trade month; no day is priced on two contracts. Days before
+the context date read their retained historical samples and are frozen. The
+context day is frozen too: it reads the context frame's own observation of its
+selected contract at the valuation instant, as the swap observation path fixes
+an observation at that instant, and a frame without that observation (or with
+only an earlier mark) refuses with `recipe_input`. Only later days read the live
+context sample of the contract selected for that day and move with that
+contract's quote; a later day may live-project the same contract the context
+day froze. Nothing is carried or estimated: a past observation day without its
+sample refuses with `recipe_input`, and an average is never taken over fewer
+days. A preparation reads at most 366 past observation days across its
+observation nodes, one historical frame each, and refuses more with
+`custom_curve_definition`; the context day and later days read the context
+frame and are not counted. Every
+observation day is sampled at one UTC time of day, so a window that crosses a
+daylight-saving change of a local-time close is not modelled. The existing
+refusal of historical `sample` nodes that read after the context date is
+unchanged.
+
+The node itself feeds only a curve combination (`weighted_panels`, for example
+to add a differential) or the output; other consumers refuse with
+`recipe_definition`. A consumer reading the published output through
+`published_source` may still average, look up or splice its cells. A source
+node carrying contract price terms that feeds this node is not refused when
+saved; its context-day observation refuses with `recipe_input`, and so does a
+composite (`Add` or `ScaleAdd`) source curve, which derives its prices from other
+curves and has no settlement or mark of its own to freeze. Managed checks cover
+both; each has its own message. Such a curve's kind is `observation_formula`. Formula mode carries the
+rows in a typed `observationTerms=[...]` argument. The terms enter graph
+equality and formula text; the terms and the resolved windows enter the
+canonical declaration and its manifest. Refusals number terms from 1, as the
+editor labels its rows, while the stored and sent `ordinal` is 0-based. Each
+term refusal is `recipe_definition` and names the term and member, for example
+`Observation term 2 position: …` for a blank (`null`) position of the term with
+ordinal 1; a group whose weights cannot be summed below 10^24 refuses when saved,
+naming its terms the same way, and a window with no observation day refuses with
+`recipe_input` naming the term (`Term 1 has no observation day for 2027-01.`).
+A `position` or `lessPosition` present as anything but a whole number or `null`
+(text such as `2e`, a fraction such as `1.5`, a whole number beyond the 32-bit
+range, a boolean or an object) refuses
+with `recipe_definition` and `An observation term position must be a whole
+number from 1 to 120.` while the body is read, on preview, save and every other route that
+reads a definition; that message cannot name the term. An absent member is a
+malformed request (`400 request_format`). Stored and written positions are
+numbers or `null`. Other refusals are structured: a
+trade-month target without one delivery contract or without a prior contract, a
+position beyond the universe, a calendar that does not cover a window or an
+empty window refuse with `recipe_input`; a missing or mismatched calendar pin
+refuses with `recipe_reference`.
+
+Migration 0252 retains the terms in `custom_curve_observation_terms` and
+revalidates them at publication. Every owned preview's migration loop qualifies
+it against drifted predecessors; `--contract-observation-curve-check` also
+qualifies it once against a populated prior schema, the base preview fixture
+loaded in one transaction. The synthetic crude fixture and its HTTP check
+run with `--contract-observation-curve-check`; adding `--browser-check` runs
+the Curve builder suite. The only consumer is that synthetic formula curve; no
+trade or Side consumes these outputs yet.
+
+A published curve that reads contract observation terms, itself or through a
+`published_source` at any depth, is not a trade projection until a consumer is
+qualified. Projection choices never offer it, and projection admission refuses
+it with `custom_projection` (`A curve that reads contract observation terms has
+no qualified trade projection.`) before any output shape is compared: the
+published-projection qualification used by gas compositions, and swap
+observation options, preview, booking, amendment, draft pricing, draft risk and
+scheduled pricing, which read the projection from their own terms and refuse it
+first. When a curve's newest published version reads these terms, its older
+ordinary versions stay choices, but none is marked as the version in force under
+the context. Curve preview, save, publication, `published_source` consumption,
+`market/dates` and market preparation are unchanged.
+
+Gas setup publication does not check for such a curve: a setup can name one as
+a point's pricing curve. Every valuation through that setup, from ticket preview
+and booking to the Blotter, is then refused with `custom_projection`, and the
+ticket's forecast choice does not offer it.
+
+
 ## Published outputs in booked projections
 
 `SwapFloatingInput.CustomProjection` is optional and has no inferred value. It

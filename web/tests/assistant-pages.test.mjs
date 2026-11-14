@@ -328,7 +328,7 @@ test('Prepare curve draft is named in plain words, with each of its refusals',()
     assert.equal(stepLine({ordinal:2,tool:'save_custom_curve_draft',code}),`Prepare curve draft · ${reason}`);
 });
 
-test('Risk reports the view it shows, and only Reports the retained report open there (D391)',()=>{
+test('Risk reports the view it shows, and only Reports the retained report open there (D392)',()=>{
   const job={operation:'portfolio.risk.jobs.id_v1',inputJson:JSON.stringify({body:null,parameters:{id:trade}})};
   const working={mode:'current',frameId:frame,frameLabel:'Synthetic close'},names={curve:String,table:String};
   for(const [view,shown,name] of [['risk','reports','Reports'],['risk-pnl','pnl_explain','P&L explain'],['risk-scenarios','scenarios_greeks','Scenarios & Greeks'],

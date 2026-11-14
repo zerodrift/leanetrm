@@ -15,7 +15,7 @@ static class AssistantSelectionChecks
         RiskViews();
     }
 
-    // Risk reports which of its five views it shows (D391): exactly its view, and on Reports a selected retained report as well.
+    // Risk reports which of its five views it shows (D392): exactly its view, and on Reports a selected retained report as well.
     static void RiskViews()
     {
         static JsonElement Risk(object selection)=>JsonSerializer.SerializeToElement(new{page="risk_jobs",selection});

@@ -56,7 +56,7 @@ export function pageReport(state:PageState):PageReport{
   switch(state.page){
     case 'physical-operations':return {page:'physical_operations',selection:state.physical?{...state.physical}:{}};
     case 'facilities':return {page:'facility_quantities',selection:state.businessDate?{ledgerId:state.facilityLedger??null}:{},...(state.businessDate?{businessDate:state.businessDate}:{})};
-    // Risk names the view it shows, and only Reports the retained report open there (D391).
+    // Risk names the view it shows, and only Reports the retained report open there (D392).
     case 'risk':return {page:'risk_jobs',selection:{view:riskReportViews[state.view],...(state.view==='risk'&&state.assistant?state.assistant:{})}};
     case 'market':return {page:'curves',selection:state.curve===null?{view:'curves',curve:null}:{view:state.tab==='inputs'?'observations':'curve',curve:state.curve}};
     case 'power':return {page:'power_tous',selection:{view:state.frame?'power_hours':'tou_products'}};

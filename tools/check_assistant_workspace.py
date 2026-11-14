@@ -111,7 +111,7 @@ def run_checks(url, query, manifest, fake, trap, psql, environment):
               and identity_results[0]['result']['text'].startswith('Page: ' + page + ' |')
               and identity_results[0]['result']['text'].endswith('Selection: {}')
               and identity_results[0]['result']['targets'] == [] and identity_results[1]['code'] == 'page_not_supported')
-    # Risk names the view it shows (D391): a report naming none is refused before admission, and the page read and digest name it.
+    # Risk names the view it shows (D392): a report naming none is refused before admission, and the page read and digest name it.
     unnamed = owner.call('assistant/turns/ask', {'operationId': str(uuid4()), 'conversationId': None, 'agentId': agent['id'], 'version': 1,
                                                  'question': 'Which Risk view is this?', 'pageReport': {'page': 'risk_jobs', 'selection': {}},
                                                  'knowledge': {'mode': 'current', 'contextId': None, 'frameId': None}}, expected=422)

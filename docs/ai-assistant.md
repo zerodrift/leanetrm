@@ -944,7 +944,7 @@ The tool set is fixed; each tool is switched on per agent version.
   `interval_curves`, `users_access` and `settings_ai`, which it does not.
   A read page's selection is its read tool's input for a view the page shows; any other
   page's is empty, except Risk (`risk_jobs`), which names the view it shows as exactly
-  `{"view"}` and on Reports may also name the retained report open there (D391).
+  `{"view"}` and on Reports may also name the retained report open there (D392).
   Before admission and writing nothing it refuses an invalid report
   (`page_report_invalid`, checked by the parser Read current page dispatches with), a
   conversation the principal does not own in this scope, answered like an unknown id

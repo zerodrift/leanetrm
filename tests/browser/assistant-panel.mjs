@@ -580,7 +580,7 @@ export async function run({command,evaluate,wait,click,set,submit,persona,check,
    `${shown('#jobs-page')}&&${q('#job-editor')}.open&&${q('#job-name')}.value===${JSON.stringify('Synthetic panel readiness '+stamp)}`,
    `[${shown('#jobs-page')},${q('#job-editor')}.open,${q('#job-name')}.value,${q('#error')}.textContent]`);
 
-  // Risk names the view it shows (D391): Looking at follows each view the sidebar opens, and an ask sends the one shown.
+  // Risk names the view it shows (D392): Looking at follows each view the sidebar opens, and an ask sends the one shown.
   const riskAgent=await publish(await create('Browser risk guide '+stamp),['read_workspace_page','navigate'],['risk_analyst']);
   await persona('risk');await click('#nav-market');
   if(!await evaluate(`${q('#snapshot')}.value`)){await set('#snapshot',await evaluate(`[...${q('#snapshot')}.options].map(o=>o.value).find(Boolean)`));await wait(idle);}

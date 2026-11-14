@@ -1496,7 +1496,7 @@ async function showTarget(report:string,selection:Record<string,unknown>|null,ki
     }
     // A job's history opens its details on the page of the directory that lists it, found before the page changes.
     case 'jobs':{const job=await jobs.locateJob(String(selection.job));signal?.throwIfAborted();await setPage('jobs');jobs.showJob(job);return;}
-    // Risk opens on the view the place showed (D391).
+    // Risk opens on the view the place showed (D392).
     case 'risk_jobs':{
       const view=riskViews.find(v=>riskReportViews[v]===selection.view);
       if(!view)throw Error('That Risk view is not one this page shows.');

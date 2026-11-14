@@ -148,6 +148,61 @@ external feed. For focused reproduction, add `--authoring-browser-suite` with
 `curve-objects`, `contract-pricing-controls`, `publication-controls` or
 `price-authoring-recovery` to the appropriate owned fixture command.
 
+## Contract observation card (D391)
+
+The palette offers **Contract observations** from the backend operator catalog.
+The card is a result curve; its source connection carries the catalog label.
+Its settings use the ordinary operation controls and start at Choose…: version,
+first target month, number of months, observation days, roll, sampling time and
+corrections. The Calendar choice appears only for business days, as the catalog
+states. Every option and label comes from the catalog; none is written in
+TypeScript.
+
+Observation terms are vertical rows with Group, Weight, Position, Less position
+(blank for none) and Period, whose options are the catalog's two periods. Rows
+can be added and removed; a term's ordinal is its place in the list. The browser
+sends each weight as typed and each position as typed. Position fields are text
+fields with a numeric keypad, so the field always holds what was typed: whole-number
+text (an optional minus sign and digits) is sent as that number, an explicit
+`null` is sent only for a blank field, and any other text, such as `2e`, is sent
+as the typed text and refused. A blank second position means no spread; a blank
+position is refused with a message that names the term. Unreadable text is
+refused with `422 recipe_definition` and the message `An observation term
+position must be a whole number from 1 to 120.`, shown beside the operation like the other
+term refusals; it does not name the term. It resolves no date, average or
+weight, and a cleared weight leaves Preview and Save enabled so the backend
+decides.
+
+A refused preview or save also shows the backend's own message beside the
+selected operation, in the inspector. This appears only for a definite refusal
+(a status below 500 that is not a request-format error); other failures keep
+the page's general error alone. Any edit, the next preview or opening another
+curve clears it. Saved curves of kind `observation_formula` appear in the library
+as Observation formula, in the Synthetic group.
+
+The focused browser suite `contract-observation-curve` runs against the
+synthetic crude fixture:
+
+```sh
+python3 tools/run_preview.py --pg-bin /path/to/stock/postgres/bin \
+  --dotnet /path/to/dotnet --contract-observation-curve-check \
+  --browser-check --browser /path/to/chromium
+```
+
+It finds the draft and the published observation curve in the library, the
+latter as Observation formula, adds the operation to the draft, chooses every
+setting by its catalog label, enters three terms, previews the backend price
+68.46 and saves an `observation_formula`. After a reload it reads back every
+term, the first target month, the number of months, each chosen setting
+(version, days, calendar, roll, sampling and corrections) and the source
+connection unchanged, and checks
+the backend's refusals of a cleared weight and of a new term with no position
+beside the operation. It then types `2e` into Less position and into Position
+of a spread term and checks that each preview sends the typed text, is refused
+with `recipe_definition`, shows exactly the backend's message beside the
+operation and shows no price. The same command
+first runs the HTTP storage and curve checks. `tools/check_all.py` includes it.
+
 ## Publication release resolution (D364)
 
 `published_release_v1` is an explicit settlement choice. A live contract resolves

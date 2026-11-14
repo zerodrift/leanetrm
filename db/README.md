@@ -9,7 +9,7 @@ grant. Bootstrap refuses an existing application schema; upgrading an installed
 database preserves its migration ledger and existing ACL provenance.
 
 The current ordered schema runs from `0001_reference_data.sql` through
-`0251_saved_pnl_reports.sql`. It includes reference/market data, certified
+`0252_contract_observation_nodes.sql`. It includes reference/market data, certified
 knowledge, access control, trading and settlement, agents, jobs and risk, retained
 Side programs, dashboard layouts, regional closes, bounded physical gas/crude operations and
 pre-loading LNG cargo booking/valuation with saved Incoterms.
@@ -20,6 +20,13 @@ application. See [current implementation](../docs/implementation.md) and
 
 Recent schema groups and their contracts:
 
+- 0252: typed terms of the [custom-curve](../docs/custom-curves.md) contract
+  observation node: a positive weight within a named group, a contract position,
+  an optional second position and the observed period. Terms are admitted only on
+  that node kind; publication refuses missing or gapped terms, any missing or
+  unsupported parameter, and a business-day node without exactly its calendar.
+  The node is admitted as a computed-curve combination input. The API saves,
+  publishes, prepares and previews the node (D391).
 - 0208: whole-term [physical gas composition booking](../docs/deal-ticket.md),
   with daily quantities across up to 1,200 delivery days and exact native monthly
   price references; legacy single-point admission retains its original bound.
