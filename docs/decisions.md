@@ -5013,6 +5013,12 @@ unchanged.
 - **Cost.** Measured on the development machine and asserted by no check: one
   tree price takes 1.3 to 1.4 times the rebuilt tree's, and the live check's
   report took 2.1 to 2.2 s against 1.6 to 1.9 s on the rebuilt tree.
+- **Reading a run.** A report that values options states in its heading the
+  option valuation policy its run selected, in the backend's identifiers. A
+  full read of a job says whether its run was valued under the pricing policy
+  the catalog states now. The Risk page opens a retained run as a scope's
+  current report only then; any other run is opened from Reports and runs. The
+  page makes no further read for this.
 - **Numerics.** A node's price is a centre, running from the futures price
   towards the strike, times a spread; each is one exponential of a scaled
   logarithm. The logarithm of a probability under one half is formed from the
@@ -5043,8 +5049,7 @@ surfaces together. It would not remove the two-step bump for discounted
 options. Parametric VaR, the PCA hybrid and joint derivatives have not been run
 through the API on a book valued under it. Its result digest is pinned from one
 macOS run and has not been observed on Linux. An option beside its exercise
-boundary has no usable one-tick gamma on either tree. The Risk page opens a
-person's recent run for a scope without regard to its pricing policy and does
-not show a run's option numerical policy, so a run requested under this tree
-opens there unlabelled.
+boundary has no usable one-tick gamma on either tree. A run retained before a
+change of the stated pricing policy is no longer opened as a scope's current
+report after it.
 

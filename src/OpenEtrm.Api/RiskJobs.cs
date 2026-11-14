@@ -117,6 +117,7 @@ public static class RiskJobs
             value=await ReadValue();
         }
         var receipt=await Receipt(connection,catalog,value,ct);
+        if(receipt["result"] is JsonObject result)receipt["underStatedPricingPolicy"]=PortfolioRiskPreview.UnderStatedPricingPolicy(result);
         await RequireCurrentAccess(connection,catalog,ct);
         return receipt;
     }

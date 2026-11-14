@@ -330,6 +330,9 @@ def run_checks(url, query, manifest, *, run_worker):
     check('a queued job that names the strike-centred policy replays to the immediate report under it',
           centred_replay['state'] == 'completed' and comparable(centred_replay['result']) == comparable(centred),
           centred_replay.get('errorCode', centred_replay['state']))
+    check('a job read says whether its run was valued under the pricing policy the catalog states: the first job was, the strike-centred one was not',
+          (completed['underStatedPricingPolicy'], centred_replay['underStatedPricingPolicy']) == (True, False),
+          (completed.get('underStatedPricingPolicy'), centred_replay.get('underStatedPricingPolicy')))
     print('WORKLOAD futures option risk on the strike-centred tree: '
           f"{centred['optionWork']['calibrationTreePrices']} calibration tree prices, {centred['optionWork']['scenarioTreePrices']} scenario tree prices; "
           f"immediate report {centred_seconds:.2f} s against {report_seconds:.2f} s on the rebuilt tree", flush=True)

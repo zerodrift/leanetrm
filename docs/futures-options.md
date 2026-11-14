@@ -275,7 +275,9 @@ See [the lifecycle contract](exchange-futures.md#option-lifecycle) for the full 
   scenario policy, calibration receipts, tree-price counts and fallback count.
   A bump report's shock of a solved option's underlying spans at least two of
   its price steps, or the request is refused naming the smallest shock that
-  does (D395).
+  does (D395). A report that values options states its option valuation policy
+  in its heading, and the Risk page opens a retained run as a scope's current
+  report only when it was valued under the stated pricing policy (D396).
 - **New trade.** The option ticket selects exchange, commodity, underlying future,
   call or put, then strike; each list comes from the backend catalog and resets
   those below it. Once a series is chosen, the ticket links to its product's
