@@ -17,16 +17,17 @@ internal static class SwapRiskHoldingChecks
         var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var context=JsonSerializer.Deserialize<ScheduleContext>(request.GetProperty("currentContext"),json)!;
         var frame=JsonSerializer.Deserialize<InputFrame>(request.GetProperty("frame"),json)! with{ContextId=context.ContextId};
-        await using var runtime=NpgsqlDataSource.Create(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_RUNTIME")!);
         var supplemental=database.Manifest.InputMarkets??throw new Exception("The scope regression requires a declared supplemental market.");
         if(supplemental.Length==0)throw new Exception("The scope regression requires a declared supplemental market.");
-        await using var scoped=new PreviewDatabase(database.Manifest with{InputMarkets=supplemental.Select(m=>m with{Frames=[]}).ToArray()},runtime);
-        await database.WithIdentity("risk","RunScenario",async(connection,ct)=>
+        await using var scoped=new PreviewDatabase(database.Manifest with{InputMarkets=supplemental.Select(m=>m with{Frames=[]}).ToArray()},
+            new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_AUTHENTICATOR")!){Timezone="UTC"},
+            new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_RUNTIME")!){Timezone="UTC"});
+        await scoped.WithIdentity("risk","RunScenario",async(connection,ct)=>
         {
             await MarketContextStore.Bind(connection,database.Manifest.CatalogId,context,ct);
             await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",database.Manifest.CatalogId,frame.At))
                 await bind.ExecuteNonQueryAsync(ct);
-            var data=await database.Read(connection,ct,observationIds:frame.ObservationIds);
+            var data=await scoped.Read(connection,ct,observationIds:frame.ObservationIds);
             var catalog=JsonSerializer.SerializeToElement(await new PortfolioRiskPreview(scoped).Catalog(connection,data,frame,
                 new(new(frame.Id,TradingBlotter.Convention,"retained",context.ContextId),[request.Id("bookId")],[]),ct),json);
             if(catalog.GetProperty("factors").GetArrayLength()==0)throw new Exception("The primary-only held book lost its risk factors.");
@@ -147,6 +148,7 @@ internal static class SwapRiskHoldingChecks
             await using var connection=new NpgsqlConnection(runtimeConfig.ConnectionString);
             await connection.OpenAsync(lifetime.Token);
             await using var transaction=await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted,lifetime.Token);
+            using var admissions=database.OwnReadTransaction(connection,transaction);
             await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_context($1)",token))await bind.ExecuteNonQueryAsync(lifetime.Token);
             if(!await PreviewDatabase.HasPermission(connection,"RunValuation",lifetime.Token))throw new PreviewDeniedException();
             await MarketContextStore.Bind(connection,database.Manifest.CatalogId,current,lifetime.Token);
@@ -332,11 +334,9 @@ internal static class SwapRiskHoldingChecks
                 await using(var bind=ScheduleStore.Command(connection,"SELECT security.use_trading_context($1,$2)",database.Manifest.CatalogId,actualFrame.At))await bind.ExecuteNonQueryAsync(ct);
                 var data=await database.Read(connection,ct,selectedRevision:actual.Id("revisionId"),observationIds:actualFrame.ObservationIds);
                 var snapshot=data.Snapshot(actualFrame);
-                await using var runtime=NpgsqlDataSource.Create(Environment.GetEnvironmentVariable("OPENETRM_PREVIEW_RUNTIME")!);
-                await using var pinnedDatabase=new PreviewDatabase(database.Manifest with{RevisionId=data.DefinitionRevision.RevisionId},runtime);
                 var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesRisk.Implementation,
                     SwapStore.Convention,ZeroRateCurve.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
-                var result=await new PortfolioValuation(pinnedDatabase).Calculate(connection,data,actualFrame with{ContextId=actualContext.ContextId},actualContext,[request.Id("unsupportedBookId")],policy,ct);
+                var result=await new PortfolioValuation(database).Calculate(connection,data,actualFrame with{ContextId=actualContext.ContextId},actualContext,[request.Id("unsupportedBookId")],policy,ct);
                 var count=actual.GetProperty("actualCount").GetInt32();
                 Check("stored indexed book values exact actuals and only unresolved daily factors at "+actualFrame.At.ToString("O"),
                     result.Positions.Single().TradeId==actual.Id("tradeId")&&result.Totals.Single().Value.ToMoney().Amount.ToString()==actual.Text("expectedValue")&&
@@ -348,7 +348,7 @@ internal static class SwapRiskHoldingChecks
                 var missing=actualFrame with{ContextId=actualContext.ContextId,ObservationIds=actualFrame.ObservationIds.Remove(actualIds.First())};
                 try
                 {
-                    await new PortfolioValuation(pinnedDatabase).Calculate(connection,data,missing,actualContext,[request.Id("unsupportedBookId")],policy,ct);
+                    await new PortfolioValuation(database).Calculate(connection,data,missing,actualContext,[request.Id("unsupportedBookId")],policy,ct);
                     throw new Exception("A missing due index fixing was silently projected in book risk.");
                 }
                 catch(MarketDataException error)when(error.Code=="index_fixing_missing"){Check("missing exact published book actual cannot fall back to a forward",true);}
