@@ -26,14 +26,15 @@ internal static class GasPhysicalProjectionChecks
             var pins=fixture.GetProperty("pins").EnumerateArray().Select(p=>p.GetGuid()).ToImmutableArray();
             var contracts=fixture.GetProperty("contracts").EnumerateArray().Select(p=>p.GetGuid()).ToImmutableArray();
             var frame=new InputFrame(Guid.NewGuid(),"Synthetic native physical economic source",at,PublishedSchedules.ContextDate(context),pins,
-                ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("nymex_ng",contracts),context.ContextId);
+                ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("nymex_ng",contracts),context.ContextId){
+                Source=new(manifest.RevisionId,manifest.ReferenceCatalogId,manifest.ReferenceRevisionId)};
             var data=await MarketInputSelection.Root(database,connection,frame,ct);
             var part=new MarketSourceInputs(CatalogueSource.From(data),pins,[],frame.CurveContracts,["nymex_ng"]);
             frame=frame with{Source=part.Source,SourceInputs=ImmutableDictionary<Guid,MarketSourceInputs>.Empty.Add(data.DefinitionRevision.RevisionId,part)};
             var snapshot=data.Snapshot(frame).WithKnowledge(context.ContextId!.Value,SchedulePreview.ParseAt(context.KnownAt));
             var physical=fixture.GetProperty("parents").EnumerateArray().Select(p=>new FuturesPhysicalValuationSelection(p.Id("tradeId"),p.Id("bindingId"),
                 FuturesPhysicalBasisValueBinding.Version,FuturesPhysicalBasisValueBinding.ValuationProxy)).ToImmutableArray();
-            var futureOrigin=fixture.Text("mode")=="future";
+            var futureOrigin=fixture.Text("mode")=="future";var closed=fixture.Text("mode")=="closed";
             var pricing=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesEconomicValuationPolicy.Version,
                 SwapStore.Convention,RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,
                 NativeFutures:new(FuturesMarginValuationPolicy.CurrencyDefault,RateDiscountTiming.Version){Economic=new(FuturesEconomicValuationPolicy.Version,
@@ -70,7 +71,7 @@ internal static class GasPhysicalProjectionChecks
             var native=await GasPhysicalKnownAttachmentStore.Read(connection,database,frame,snapshot,[fixture.Id("bookId")],ct);
             var prepared=await LifecyclePortfolioProjection.Prepare(connection,database,opening,request,null,ct);
             var values=prepared.Projections.SelectMany(p=>p.Evaluate("native_physical_no_shock",[]).Values).ToArray();
-            if(values.Count(v=>v.Owner.Owner.Kind==AccountingOwnerKind.NativeHolding)<(opening.OwnedGas?.Positions.Length??0)||prepared.AdditionalOwners.IsEmpty)
+            if(values.Count(v=>v.Owner.Owner.Kind==AccountingOwnerKind.NativeHolding)<(opening.OwnedGas?.Positions.Length??0)||!closed&&prepared.AdditionalOwners.IsEmpty)
                 throw new Exception("Native physical projection must preserve independent initial and source-known future title/cash owners.");
             foreach(var source in opening.Sources)
             foreach(var value in RiskEngine.CalculateExact(RiskEngine.Prepare(source.Data.Model,source.Snapshot,[source.Portfolio]),[],
@@ -86,9 +87,16 @@ internal static class GasPhysicalProjectionChecks
                 var remaining=new Quantity((attachment.EffectiveAt>horizon?default:attachment.OriginalQuantity.Amount)-attachment.Performances.Where(p=>!p.Retracted&&p.PerformedAt<=horizon)
                     .Aggregate(default(ExactDecimal),(sum,p)=>sum+p.SignedQuantity.Amount),attachment.Terms.Quantity);
                 var initial=opening.OwnedGas?.Positions.SingleOrDefault(p=>p.Position==attachment.DeliveryOwner)?.Quantity??new(default(ExactDecimal),attachment.Terms.Quantity);
-                var asset=Price(attachment.Terms.Mark);
-                Require(attachment.DeliveryOwner,asset.ExactTimes(initial).Subtract(attachment.CurrentFinal.Price.ExactTimes(initial)),
-                    asset.ExactTimes(remaining).Subtract(attachment.CurrentFinal.Price.ExactTimes(remaining)),ExactMoney.Parse("0",asset.Unit.Currency));
+                if(initial.Amount==default&&remaining.Amount==default&&attachment.EffectiveAt<=at)
+                {
+                    if(values.Any(v=>v.Owner==attachment.DeliveryOwner))throw new Exception("A fully discharged native obligation must not become a zero placeholder owner.");
+                }
+                else
+                {
+                    var asset=Price(attachment.Terms.Mark);
+                    Require(attachment.DeliveryOwner,asset.ExactTimes(initial).Subtract(attachment.CurrentFinal.Price.ExactTimes(initial)),
+                        asset.ExactTimes(remaining).Subtract(attachment.CurrentFinal.Price.ExactTimes(remaining)),ExactMoney.Parse("0",asset.Unit.Currency));
+                }
                 foreach(var cash in attachment.Cash)
                 {
                     var flows=cash.State.Allocations.Where(f=>f.KnownAt<=snapshot.Knowledge!.KnownAt).GroupBy(f=>f.AllocationId).Select(g=>g.MaxBy(f=>f.Revision)!).ToArray();
@@ -102,9 +110,29 @@ internal static class GasPhysicalProjectionChecks
             {
                 Quantity Remaining(DateTimeOffset time)=>new(stock.Lot.TitleAt>time?default:stock.Lot.Quantity.Amount-
                     stock.Consumptions.Where(c=>c.At<=time).Aggregate(default(ExactDecimal),(sum,c)=>sum+c.Quantity.Amount),stock.Lot.Quantity.Specification);
+                if(stock.Lot.TitleAt<=at&&Remaining(at).Amount==default&&Remaining(horizon).Amount==default)
+                {
+                    if(values.Any(v=>v.Owner==stock.Owner))throw new Exception("Fully consumed stock must not be fabricated as an opening holding.");
+                    continue;
+                }
                 var price=Price(stock.OriginalInstrument.Mark);
                 Require(stock.Owner,price.ExactTimes(Remaining(at)),price.ExactTimes(Remaining(horizon)),ExactMoney.Parse("0",price.Unit.Currency));
             }
+            if(closed)
+            {
+                if(values.Any(v=>v.EconomicPnl.Numerator!="0"||v.OpeningValue!=v.ResidualValue||v.PeriodCash.Numerator!="0"))
+                    throw new Exception("Fixed unpaid native cash has no fabricated price risk, time carry or bank payment under the selected nominal law.");
+                try
+                {
+                    _=await LifecyclePortfolioProjection.Prepare(connection,database,opening,request with{
+                        Implementation=PortfolioEconomicProjectionRequest.Version,CashAccumulationSelections=null},null,ct);
+                    throw new Exception("The legacy residual-input contract must retain its original rate requirements.");
+                }
+                catch(MarketDataException error)when(error.Code=="missing_observation"){}
+            }
+            if(closed&&(!snapshot.Selections.IsEmpty||!prepared.Factors.IsEmpty||(opening.OwnedGas?.Positions.Length??0)!=0||
+                !request.GasOwned.IsEmpty||!prepared.AdditionalOwners.IsEmpty))
+                throw new Exception("Fully performed native parents must retain actual cash with no unused price/rate inputs, gas quantity assumptions or synthetic owners.");
             Console.WriteLine("PASS independent per-owner physical wealth: signed remaining exchange, exact native stock, rounded principal and latest actual bank allocations");
             ExactUnitPrice Price(CurveRequest mark)
             {
@@ -117,6 +145,7 @@ internal static class GasPhysicalProjectionChecks
                     throw new Exception($"Native physical wealth differs for {owner}: expected {initial.ToExactString()} / {residual.ToExactString()} / {bank.ToExactString()}, actual {value.OpeningValue.ToExactString()} / {value.ResidualValue.ToExactString()} / {value.PeriodCash.ToExactString()}.");
             }
             Console.WriteLine(futureOrigin?"PASS actual source-known final activation: no opening gas owners, exact native obligation/cash identities and later resource facts":
+                closed?"PASS fully discharged native parents: surviving nominal cash, no unused marks/rates and no placeholder ownership":
                 "PASS actual native physical economic source: active obligations, exact future title/supply and independent principal owners");
             var scope=new PortfolioRiskCatalogRequest(new(frame.Id,TradingBlotter.Convention,"retained",context.ContextId),[fixture.Id("bookId")],[],null);
             var history=new PortfolioHistoryRequest(scope,pricing,new(RiskHistoryPolicy.Version1,CurveModel.NumericalPolicy,RiskHistoryPolicy.Raw,

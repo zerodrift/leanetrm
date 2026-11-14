@@ -312,6 +312,10 @@ internal static partial class LifecyclePortfolioProjection
                 CrossCommodityScheduledSwap swap=>swap.Discounting,CashPaymentInstrument cash=>CashRequires(source,cash),
                 GasCommodityHoldingInstrument gas=>gas.Carrying==GasHoldingCarrying.CurrencyCurve&&gas.ReturnAt>source.Snapshot.ValuationAt,
                 GasPhysicalDeliveryObligationInstrument delivery=>legacy||!delivery.RequiredDiscounts(source.Snapshot.ValuationAt).IsEmpty,
+                FuturesContract future=>legacy||source.Portfolio.Positions.Where(p=>p.ValuationId==future.Id).Any(p=>
+                    source.Portfolio.Setup.BindingStates.GetValueOrDefault(new(p.Owner,p.BindingId)) is FuturesMarginState native?
+                        native.Status!=FuturesMarginStatus.FinalMarginDetermined:
+                        throw Error("projection_futures_state","Retain exact accepted futures state before selecting its residual carrying inputs.")),
                 _=>true};
         }
         bool CashRequires(PortfolioProductSource source,CashPaymentInstrument cash)

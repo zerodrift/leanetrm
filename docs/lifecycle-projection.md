@@ -604,9 +604,16 @@ graph and complete declared bindings. Independent A/B native checks and workers
 cover these routes and reject missing or substituted sources and bindings.
 
 The qualified active-parent fixture currently shares one native market source.
-Foreign-market active title/principal continuation, fully performed cash-only
-parents without unused mark inputs, selected physical-option continuation and
-its real application browser flow remain qualification gates.
+Foreign-market active title/principal continuation, selected physical-option
+continuation and its real application browser flow remain qualification gates.
+
+The fully performed-parent qualifier completes both signed delivery obligations
+through the reviewed business operation and consumes all identified stock. Its
+later source contains surviving native nominal cash with no price or rate pins,
+quantity assumptions or placeholder holdings. The explicit v2 contract omits
+residual carrying inputs for accepted-final futures while retaining their cash;
+the established v1 contract retains its prior input requirements. A deterministic
+read-only worker replays the exact cash-only report without financial writes.
 
 Close workers retain one transaction-owned database adapter per phase and read
 each native close's exact definition/reference source. An unconfigured gas probe

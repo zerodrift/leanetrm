@@ -74,7 +74,7 @@ internal static class EconomicWorkerChecks
                 }
                 return true;
             },default);
-            Console.WriteLine("PASS actual managed economic worker: historical and Monte Carlo match complete interactive reports; owned cancellation remains cancelled with no result");
+            Console.WriteLine("PASS actual managed economic worker: captured methods match complete interactive reports; owned cancellation remains cancelled with no result");
             return;
         }
         var jobs=await database.WithIdentity("trader",null,async(connection,ct)=>

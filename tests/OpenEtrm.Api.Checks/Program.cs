@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
+if(args is ["--gas-physical-completion-fixture",var completionPath]){await GasPhysicalCompletionFixture.Run(completionPath);return;}
 if(args is ["--gas-physical-projection",var physicalProjectionPath]){await GasPhysicalProjectionChecks.Run(physicalProjectionPath);return;}
 if(args is ["--lifecycle-residual-currencies"]){LifecycleResidualCurrencyChecks.Run();return;}
 if(args is ["--gas-principal-carrying",var principalCarryingPath]){await GasPrincipalCarryingChecks.Run(principalCarryingPath);return;}
