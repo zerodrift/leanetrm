@@ -40,6 +40,41 @@ internal static class FuturesMarginSources
         return occurrences.ToImmutableDictionary(o=>o.Id,o=>SelectCurrentCorrection(history,snapshot,binding,policy.SettlementCurve,o,known));
     }
 
+    // Economic replay reads source-known official corrections through this
+    // exact native owner/policy closure. Worker roles never read receipt tables.
+    internal static async Task<ImmutableDictionary<Guid,FuturesSettlementFact>> ReadForProjection(NpgsqlConnection connection,
+        PreviewDatabase database,PreviewData data,InputFrame frame,ScheduleContext context,AccountingPositionKey owner,FuturesMarketBinding binding,
+        FuturesMarginPolicy policy,ImmutableArray<FuturesMarginOccurrence> occurrences,CancellationToken ct)
+    {
+        var exact=PinnedContext.Exact(context);
+        frame.Time.RequireDate(PublishedSchedules.ContextDate(exact));
+        if(!owner.IsValid||owner.Owner.Kind!=AccountingOwnerKind.Trade||frame.ContextId!=exact.ContextId||policy.Contract!=binding.Contract.Key||
+            occurrences.IsDefaultOrEmpty||occurrences.Any(o=>o is null||o.At>frame.At||!policy.Occurrences.Contains(o))||
+            occurrences.Select(o=>o.Id).Distinct().Count()!=occurrences.Length)
+            throw Invalid("Retain the exact adopted future, complete past occurrences and original certified source.");
+        var until=await TradingContext.AdmitSource(database,connection,exact,frame.At,ct);
+        var native=await LifecycleNative.Read(connection,"SELECT settlement_data.read_futures_margin_sources($1,$2,$3,$4,$5,$6,$7)::text",ct,
+            database.Manifest.CatalogId,owner.TradeId,owner.BindingId,exact.ContextId!.Value,frame.At,frame.BusinessDate,until);
+        if(native.Id("contextId")!=exact.ContextId.Value||native.Instant("asOf")!=frame.At||
+            DateWorkspace.Date(native.Text("businessDate"))!=frame.BusinessDate||native.Instant("knownAt")!=SchedulePreview.ParseAt(exact.KnownAt)||
+            native.Instant("authorityUntil")!=until)
+            throw Invalid("Official source evidence must retain this admitted owner and exact original source clocks.");
+        var required=native.GetProperty("occurrenceIds").EnumerateArray().Select(v=>v.GetGuid()).ToArray();
+        if(required.Distinct().Count()!=required.Length||!required.ToHashSet().SetEquals(occurrences.Select(o=>o.Id)))
+            throw Invalid("The economic source requires the complete native past margin occurrence set.");
+        var rows=native.GetProperty("observations").EnumerateArray().ToArray();
+        var history=data.WithObservations([..rows.Select(r=>r.GetProperty("observation"))]);
+        var official=binding.Instrument.SettlementSource(binding,policy.SettlementCurve,data.Model);
+        if(history.Observations.Any(row=>row.Id("catalog_id")!=data.DefinitionRevision.CatalogId||row.Id("definition_revision_id")!=data.DefinitionRevision.RevisionId||
+                row.Id("series_id")!=official.ObservationSeries.Id||row.Text("source_code")!=official.Source.Code||
+                !occurrences.Any(o=>row.Instant("observed_at")==o.At&&PreviewData.ParseRole(row.Text("role"))==Role(o)))||
+            history.Observations.Select(o=>o.Id("id")).Distinct().Count()!=history.Observations.Length)
+            throw Invalid("Official source revisions require distinct native observation identities.");
+        var known=rows.ToDictionary(r=>r.GetProperty("observation").Id("id"),r=>r.Instant("knownAt"));
+        var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),exact.ContextId.Value,SchedulePreview.ParseAt(exact.KnownAt));
+        return occurrences.ToImmutableDictionary(o=>o.Id,o=>SelectCurrentCorrection(history,snapshot,binding,policy.SettlementCurve,o,known));
+    }
+
     internal static FuturesSettlementFact SelectCurrentCorrection(PreviewData history,MarketSnapshot context,FuturesMarketBinding binding,
         CurveKey settlementCurve,FuturesMarginOccurrence occurrence,IReadOnlyDictionary<Guid,DateTimeOffset> known)
     {

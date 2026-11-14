@@ -18,6 +18,9 @@ internal sealed record FuturesFullValuationInputs(ImmutableDictionary<MeasureBin
 
 internal static partial class FuturesMarginPortfolio
 {
+    internal static bool RequiresPhysicalBasis(FuturesMarketBinding market,FuturesMarginStatus status)=>
+        market.SettlementMethod=="physical"&&status!=FuturesMarginStatus.FinalMarginDetermined;
+
     private static async Task<FuturesFullValuationInputs> ReadFullInputs(NpgsqlConnection connection,PreviewDatabase database,PreviewData data,InputFrame frame,
         MarketSnapshot snapshot,ScheduleContext context,ImmutableArray<Trade> trades,ImmutableDictionary<MeasureBinding,FuturesMarginRead> accepted,
         FuturesMarginValuationPolicy policy,CancellationToken ct)
@@ -29,8 +32,10 @@ internal static partial class FuturesMarginPortfolio
         foreach(var trade in trades)
         foreach(var holding in trade.Instruments)
         {
-            var market=FuturesExecution.Require(holding).MarketBinding;if(market.SettlementMethod!="physical")continue;
-            var key=new MeasureBinding(trade.Id,holding.Id);
+            var market=FuturesExecution.Require(holding).MarketBinding;var key=new MeasureBinding(trade.Id,holding.Id);
+            // After accepted final this original holding no longer owns the
+            // delivery basis; independent obligation/stock sources retain it.
+            if(!RequiresPhysicalBasis(market,accepted[key].State.Status))continue;
             if(!selected.Physical.Any(p=>p.TradeId==trade.Id&&p.BindingId==holding.Id))
                 throw new MarketDataException("portfolio_policy","Select the asset-mark interpretation for every exact held physical future.");
             var profile=await FuturesPhysicalDeliveryStore.ReadForPolicy(connection,database,frame,context,accepted[key].History.Terms.Policy,trade.BookId,
@@ -78,6 +83,7 @@ internal static partial class FuturesMarginPortfolio
                     }
                 }
                 var choice=selected.Physical.Single(p=>p.TradeId==trade.Id&&p.BindingId==holding.Id);
+                PhysicalMarkInterpretation.Require(choice.MarkInterpretation,market.Market,data,profile,input.Data);
                 binding=binding with{Physical=new(choice.Implementation,choice.MarkInterpretation,profile.Id,profile.Revision,
                     new(profile.Terms.Mark,input.Market.Valuation,input.Market.Bindings[profile.Terms.Mark]),carrying)};
                 if(carrying is not null)

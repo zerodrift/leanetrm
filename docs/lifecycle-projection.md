@@ -538,10 +538,12 @@ Retired title has no quantity effect; original cash, offsetting claims and
 recorded payments survive under the verified sealed principal history.
 An already-due claim activates unpaid at its actual later origin; a payment is
 never moved backward. Principal carrying is an explicit supplied input. Native
-source assembly, initially active
-delivery obligations, connected multiple-parent composition and complete worker
-replay remain qualification gates. This bounded pure wrapper admits one exact
-future parent and refuses another physical parent in its quantity component.
+source assembly and complete worker replay remain qualification gates for the
+full product path. The pure wrapper admits exact arrays of future or already-active
+delivery parents in one quantity engine. Each parent retains independent native
+ownership and principal; shared stock is consumed once. Retrospective final-price
+corrections retain the original final instant while reconciling all source-known
+later title movements by their immutable publication and knowledge receipts.
 
 Ordinary cash valuation can retain a carrying provider per exact held owner and
 binding when memberships share one currency/due instrument. Its scope and
@@ -572,3 +574,29 @@ their separate actual cash amounts retain the selected accumulation treatment.
 Complete accepted physical activation, connected
 multiple-parent composition and actual full-wealth worker replay remain delivery
 gates.
+
+The native source coordinator prepares already-active delivery obligations and
+source-known future title, identified short supply and principal changes together.
+One connected quantity engine owns the stock transitions; original future and
+principal components are absorbed only by exact native owner/binding identity.
+New native stock and cash descriptors supply labels and zero opening value without
+creating financial positions. Independent native checks reconcile each signed
+obligation, stock lot, rounded principal membership and latest bank allocation.
+Historical and Monte Carlo workers replay the exact interactive reports under
+read-only authority, frozen engine binaries and unchanged financial records.
+
+An accepted-final original future requires no physical mark selection and no
+obsolete unfixed asset mark. The required selection set contains exactly the
+unfinished native physical future bindings; completed or foreign entries refuse.
+Its surviving VM cash remains ordinary native cash; complete wealth still
+requires the independently owned delivery, stock and principal scope. Foreign
+physical routes can reuse an already-prepared original market partition as well
+as an input-only partition. Both require the exact source certificate, native
+graph and complete declared bindings. Independent A/B native checks and workers
+cover these routes and reject missing or substituted sources and bindings.
+
+The qualified active-parent fixture currently shares one native market source.
+Actual source-before-final activation through the portfolio coordinator,
+foreign-market active title/principal continuation, fully performed cash-only
+parents without unused mark inputs, selected physical-option continuation and
+its real application browser flow remain qualification gates.

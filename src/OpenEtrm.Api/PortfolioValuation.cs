@@ -92,6 +92,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         PreparedConnectedPortfolioRisk Connected,ImmutableArray<string> Measures,
         ConnectedMarketEvidence Evidence,ConnectedPreparationWork Preparation)
     {
+        internal CustomCurves.PreparedMarket? InputMarket{get;init;}
         internal ImmutableArray<QuoteFactor>? EconomicFactors{get;init;}
         public ImmutableArray<QuoteFactor> Factors=>EconomicFactors??Connected.Factors;
         public string ScenarioId=>Connected.Scenario.Id;
@@ -462,10 +463,11 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             throw new MarketDataException("risk_contract","Every held binding must belong to exactly one market and valuation measure.");
         if(policy.NativeFutures?.Economic is {} full)
         {
-            var physical=materialized.SelectMany(m=>m.Trades).SelectMany(t=>t.Instruments.Where(h=>h.Instrument is FuturesContract f&&f.Series.SettlementMethod=="physical")
+            var physical=materialized.SelectMany(m=>m.Trades).SelectMany(t=>t.Instruments.Where(h=>h.Instrument is FuturesContract&&FuturesMarginPortfolio.RequiresPhysicalBasis(
+                FuturesExecution.Require(h).MarketBinding,margins[new(t.Id,h.Id)].State.Status))
                 .Select(h=>(t.Id,h.Id))).ToHashSet();
             if(!physical.SetEquals(full.Physical.Select(p=>(p.TradeId,p.BindingId))))
-                throw new MarketDataException("portfolio_policy","Physical valuation settings must name exactly the held physical futures in this selected scope.");
+                throw new MarketDataException("portfolio_policy","Physical valuation settings must name exactly the unfinished physical futures in this selected scope.");
         }
         var inputMarkets=ImmutableArray.CreateBuilder<PortfolioInputMarket>();
         foreach(var group in materialized.SelectMany(m=>m.Inputs).GroupBy(m=>m.Snapshot.Definitions).OrderBy(g=>g.Key.RevisionId))
@@ -501,11 +503,11 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                 linkedMarkets:[..inputMarkets.Where(m=>m.Snapshot.Definitions!=first.Snapshot.Definitions).Select(m=>m.Market)]);
             markets.Add(new(first.Data,first.Frame,first.Snapshot,
                 RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,portfolios,connected.Authority,ct),
-                group.Select(m=>m.Measure).ToImmutableArray(),connected.Evidence,connected.Preparation));
+                group.Select(m=>m.Measure).ToImmutableArray(),connected.Evidence,connected.Preparation){InputMarket=connected});
         }
         foreach(var input in inputMarkets.Where(i=>!markets.Any(m=>m.Snapshot.Definitions==i.Snapshot.Definitions)))
             markets.Add(new(input.Data,input.Frame,input.Snapshot,RiskEngine.PrepareConnectedInputs(input.Market.Valuation,input.Market.Bindings,input.Dependencies,input.Market.Authority,ct),
-                [],input.Market.Evidence,input.Market.Preparation));
+                [],input.Market.Evidence,input.Market.Preparation){InputMarket=input.Market});
         if(retainedGraphs is not null&&retainedGraphs.Value.Length!=markets.Count)
             throw new MarketDataException("risk_graph_manifest","The admitted graph set differs from the held projection set.");
         var discountInputs=SwapStore.DiscountEvidence(swaps).AddRange(optionMarkets.SelectMany(m=>m.DiscountInputs));

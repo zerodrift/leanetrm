@@ -105,6 +105,21 @@ internal static class PhysicalFuturesValueChecks
                 throw new Exception("The economic source must retain both primitive market partitions without a fabricated B holding.");
             var noShock=economic.Projections.Single().Evaluate("two_source_no_shock",[]).Values.Single();
             if(noShock.OpeningValue!=expected||noShock.PeriodCash.Numerator!="0")throw new Exception("Economic opening must equal the selected ordinary full physical value.");
+            var retainedMarkets=await LifecyclePortfolioProjection.Prepare(connection,database,prepared with{InputMarkets=[]},projection,null,ct);
+            var retainedValue=retainedMarkets.Projections.Single().Evaluate("original_secondary_market_route",[]).Values.Single();
+            if(retainedValue!=noShock||retainedMarkets.Factors.Length!=2)
+                throw new Exception("A complete original secondary market graph must preserve the same physical source and value without an input-only shortcut.");
+            var foreignIndex=Enumerable.Range(0,prepared.Markets.Length).Single(i=>prepared.Markets[i].Snapshot.Definitions.RevisionId==secondary);
+            var foreignMarket=prepared.Markets[foreignIndex];var ownMarket=prepared.Markets.Single(m=>m.Snapshot.Definitions.RevisionId==primary);
+            foreach(var invalid in new[]{prepared with{InputMarkets=[],Markets=prepared.Markets.RemoveAt(foreignIndex)},
+                prepared with{InputMarkets=[],Markets=prepared.Markets.SetItem(foreignIndex,foreignMarket with{InputMarket=ownMarket.InputMarket})},
+                prepared with{InputMarkets=[],Markets=prepared.Markets.SetItem(foreignIndex,foreignMarket with{Snapshot=foreignMarket.Snapshot with{Id=Guid.NewGuid()}})},
+                prepared with{InputMarkets=[],Markets=prepared.Markets.SetItem(foreignIndex,foreignMarket with{InputMarket=foreignMarket.InputMarket! with{Bindings=foreignMarket.InputMarket.Bindings.Clear()}})}})
+            {
+                try{_=await LifecyclePortfolioProjection.Prepare(connection,database,invalid,projection,null,ct);throw new Exception("A foreign native source route accepted missing source, substituted graph or undeclared inputs.");}
+                catch(MarketDataException e)when(e.Code=="projection_delivery_source"){}
+            }
+            Console.WriteLine("PASS original secondary market source: exact already-prepared graph retained for ordinary and input-only physical branches");
             Console.WriteLine("PASS actual physical economic source: complete A/B factor and retained input-only source graphs, same ordinary opening value");
             var scopeRequest=new PortfolioRiskCatalogRequest(new(frame.Id,TradingBlotter.Convention,"retained",context.ContextId),books,[],trades);
             var history=new PortfolioHistoryRequest(scopeRequest,pricing,new(RiskHistoryPolicy.Version1,CurveModel.NumericalPolicy,RiskHistoryPolicy.Raw,
