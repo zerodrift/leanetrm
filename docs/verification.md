@@ -4441,11 +4441,11 @@ number terms from 1. Results on the final code: the preview above exited 0 with
 API checks passed (98); `npm test --prefix web` passed 1634 tests.
 
 Review fix round (local, 2026-11-13). A `position` or `lessPosition` present as
-text, a fraction, a boolean or an object is refused while the body is read as
-`recipe_definition`, `An observation term position must be a whole number.`:
+text, a fraction, a whole number beyond the 32-bit range, a boolean or an object is refused while the body is read as
+`recipe_definition`, `An observation term position must be a whole number from 1 to 120.`:
 the managed core check binds each case and keeps `null`, a whole number and an
 absent member (a JSON error); the HTTP check gets `422` with that message from
-preview and save for `"2e"` and `1.5` and `400 request_format` for an absent
+preview and save for `"2e"`, `1.5` and `3000000000` and `400 request_format` for an absent
 `position`; the browser suite shows that message beside the operation for `2e`
 in Less position and in Position, with no price. Before the change all four
 HTTP answers were `400 request_format`. The API check also publishes a second

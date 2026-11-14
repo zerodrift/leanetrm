@@ -4630,9 +4630,9 @@ Refusals are structured:
   evaluate; a calendar on a calendar-day node or none on a business-day node;
   terms on another kind; an unsupported consumer; and a `position` or
   `lessPosition` member present as anything but a whole JSON number or `null`
-  (the text `2e` the editor sends as typed, a fraction such as `1.5`, a boolean
-  or an object), refused while the body is read with `An observation term
-  position must be a whole number.` That message cannot name the term, because
+  (the text `2e` the editor sends as typed, a fraction such as `1.5`, a whole
+  number beyond the 32-bit range, a boolean or an object), refused while the body is read with `An observation term
+  position must be a whole number from 1 to 120.` That message cannot name the term, because
   it is raised for the member alone. An absent member is a malformed request,
   refused by request binding as `400 request_format`.
 - `recipe_input`: no single delivery contract for a trade-month target, a

@@ -264,9 +264,10 @@ ordinal 1; a group whose weights cannot be summed below 10^24 refuses when saved
 naming its terms the same way, and a window with no observation day refuses with
 `recipe_input` naming the term (`Term 1 has no observation day for 2027-01.`).
 A `position` or `lessPosition` present as anything but a whole number or `null`
-(text such as `2e`, a fraction such as `1.5`, a boolean or an object) refuses
+(text such as `2e`, a fraction such as `1.5`, a whole number beyond the 32-bit
+range, a boolean or an object) refuses
 with `recipe_definition` and `An observation term position must be a whole
-number.` while the body is read, on preview, save and every other route that
+number from 1 to 120.` while the body is read, on preview, save and every other route that
 reads a definition; that message cannot name the term. An absent member is a
 malformed request (`400 request_format`). Stored and written positions are
 numbers or `null`. Other refusals are structured: a

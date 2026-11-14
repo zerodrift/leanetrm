@@ -24,7 +24,7 @@ public sealed class ObservationPositionConverter:JsonConverter<int?>
     public override int? Read(ref Utf8JsonReader reader,Type typeToConvert,JsonSerializerOptions options)=>
         reader.TokenType==JsonTokenType.Null?null:
         reader.TokenType==JsonTokenType.Number&&reader.TryGetInt32(out var position)?position:
-        throw new MarketDataException("recipe_definition","An observation term position must be a whole number.");
+        throw new MarketDataException("recipe_definition","An observation term position must be a whole number from 1 to 120.");
     public override void Write(Utf8JsonWriter writer,int? value,JsonSerializerOptions options)
     {
         if(value is {} position)writer.WriteNumberValue(position);else writer.WriteNullValue();

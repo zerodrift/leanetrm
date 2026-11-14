@@ -168,7 +168,7 @@ text (an optional minus sign and digits) is sent as that number, an explicit
 as the typed text and refused. A blank second position means no spread; a blank
 position is refused with a message that names the term. Unreadable text is
 refused with `422 recipe_definition` and the message `An observation term
-position must be a whole number.`, shown beside the operation like the other
+position must be a whole number from 1 to 120.`, shown beside the operation like the other
 term refusals; it does not name the term. It resolves no date, average or
 weight, and a cleared weight leaves Preview and Save enabled so the backend
 decides.

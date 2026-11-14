@@ -348,8 +348,8 @@ internal static class ContractObservationRecipeChecks
             "{\"ordinal\":1,\"group\":\"roll\",\"weight\":\"2\","+(member=="position"?"":"\"position\":1,")+(member=="lessPosition"?"":"\"lessPosition\":null,")+
             (value.Length==0?"":$"\"{member}\":{value},")+"\"period\":\"trade_month_of_delivery_contract_v1\"}",
             new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
-        foreach(var (member,value) in new[]{("lessPosition","\"2e\""),("position","1.5"),("position","true"),("lessPosition","{}"),("position","\"1\"")})
-            Message($"A {member} of {value}","recipe_definition","An observation term position must be a whole number.",()=>Bind(member,value));
+        foreach(var (member,value) in new[]{("lessPosition","\"2e\""),("position","1.5"),("position","true"),("lessPosition","{}"),("position","\"1\""),("position","3000000000")})
+            Message($"A {member} of {value}","recipe_definition","An observation term position must be a whole number from 1 to 120.",()=>Bind(member,value));
         Equal("a null second position binds",Bind("lessPosition","null").LessPosition is null,true);
         Equal("a whole second position binds",Bind("lessPosition","2").LessPosition==2,true);
         Equal("a null position binds",Bind("position","null").Position is null,true);
