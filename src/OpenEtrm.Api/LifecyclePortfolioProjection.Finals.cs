@@ -19,11 +19,13 @@ internal static partial class LifecyclePortfolioProjection
         }
     }
     private static async Task<(ImmutableArray<LifecycleInputFinal> Inputs,ImmutableArray<JsonElement> Evidence)> FinalInputs(NpgsqlConnection connection,
-        PreviewDatabase database,PortfolioProductSource source,ImmutableArray<ILifecycleProjection> components,
+        PreviewDatabase database,LifecycleMarketSource source,ImmutableArray<ILifecycleProjection> components,
         ImmutableDictionary<CurveRequest,CurveKey> officialSources,LifecycleProjectionPolicy policy,DateTimeOffset horizon,ConnectedCurvePlan plan,CancellationToken ct)
     {
-        var uses=components.SelectMany(c=>c.MarketUsesFor(horizon)).GroupBy(u=>u.Market).ToImmutableDictionary(g=>g.Key,g=>g.Max(u=>u.Through));
-        var selected=components.SelectMany(c=>c.InputFinals).GroupBy(f=>f.Market).ToImmutableDictionary(g=>g.Key,g=>g.Select(f=>f.At).Distinct().Single());
+        var uses=components.SelectMany(c=>c.MarketUsesFor(horizon).Where(u=>c.DependencySource(u.Market).HasSameInputs(source.Snapshot)))
+            .GroupBy(u=>u.Market).ToImmutableDictionary(g=>g.Key,g=>g.Max(u=>u.Through));
+        var selected=components.SelectMany(c=>c.InputFinals).Where(f=>f.Market.Curve.Revision==source.Snapshot.Definitions)
+            .GroupBy(f=>f.Market).ToImmutableDictionary(g=>g.Key,g=>g.Select(f=>f.At).Distinct().Single());
         var required=source.Data.Model.LifecycleFinals(uses,source.Snapshot.ValuationAt,selected,LifecycleProjection.ExpiryTreatment(policy));
         var inputs=ImmutableArray.CreateBuilder<LifecycleInputFinal>();var evidence=ImmutableArray.CreateBuilder<JsonElement>();
         foreach(var (market,freezeAt) in required.OrderBy(p=>p.Key.Curve.Code,StringComparer.Ordinal).ThenBy(p=>p.Key.Contract.Id))

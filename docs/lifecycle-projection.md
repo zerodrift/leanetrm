@@ -419,8 +419,8 @@ retained inputs. Scenario transitions advance only that immutable valuation
 prefix; no accepted determination is manufactured. The nominal legacy valuation
 remains unchanged. Independent checks qualify signed pending value, negative-rate
 discounts, same-clock reset plus cash, intermediate daily reset and explicit
-no-shock funding carry. Native full-portfolio policy/source wiring remains a
-separate delivery gate.
+no-shock funding carry. The native portfolio profile below selects this law
+explicitly.
 
 An explicit captured price source binds a declared request to its original
 admitted graph point. Exact expression and resolved dependency evidence must
@@ -446,17 +446,19 @@ cash survives once at its own due. Independent same-instant checks include a
 discounted unpaid VM claim plus surviving delivery value, both signed paths,
 separate source definitions and no title at expiry. Physical projection requires
 the selected full valuation contract even when the horizon precedes final.
-Source-known native obligation/performance activation, native portfolio policy
-selection and the selected physical-option wrapper remain qualification gates;
+Source-known native obligation/performance activation, user-facing full-model
+settings and the selected physical-option wrapper remain qualification gates;
 an A-only option calibration cannot silently choose a delivery-basis model.
 
 The pure `gas_accepted_quantity_lifecycle_projection_v3` adapter preserves exact
 source-known stock reservations, releases and consumptions together with their
 linked quantity-obligation reductions and native receipt owners. Actual events
 precede hypothetical events at the same instant through explicit prerequisites.
-Remaining obligations are checked after the accepted event prefix. A stated
-hypothetical allocation overlapping an accepted performance refuses; no quantity
-or supply list is silently resized. The original knowledge cutoff remains fixed.
+Remaining obligations are checked after the accepted event prefix. Full performance
+at due requires an explicitly stated remainder equal to the opening quantity less
+accepted discharges at or before due. Oversized or undersized allocations and later
+accepted discharges refuse; no quantity or supply list is silently resized. The
+original knowledge cutoff remains fixed.
 This version does not infer funding for an independent future title or loan.
 
 Each hypothetical stock use must leave enough stock for the complete remaining
@@ -472,3 +474,29 @@ including an empty array for a quantity-only selection. First-outcome retries,
 same-fact acknowledgement and older-version acknowledgement preserve the
 current selected revision. Source assembly and full API and worker qualification
 for this version remain delivery gates.
+The native `native_futures_economic_remaining_value_v2` portfolio profile requires
+the exact pending-VM law and an explicit per-held-binding physical mark
+interpretation. Its empty physical selection is valid only for a scope without
+physical futures. Missing, extra or duplicate selections refuse. The established
+nominal native-margin diagnostic retains its original version and wire shape.
+
+The full profile resolves each asset source from the complete captured source
+matrix, then prepares its original graph before portfolio or economic valuation.
+A second source may supply an input graph without an inventory holding. It
+retains its exact reference pins, observations, native rates, snapshot and
+calculation context. Ordinary PV and economic opening value use the same
+product-owned model; the original held owner and binding appear once. Source
+final declarations and aligned history retain both native market partitions.
+
+Owned native checks qualify a funded cash future and a physical future with
+independently marked and discounted asset source. The latter independently
+checks the VM, asset and principal legs and separate A/B scenario effects.
+Actual historical and Monte Carlo workers reproduce their complete interactive
+reports from frozen binaries and exact retained history, without financial
+writes. Cash-only workers need no gas permission; physical consumers retain
+represented-user and service gas-read requirements. The physical checks also
+refuse an omitted source matrix part and missing or unheld binding settings.
+Activation of accepted physical final obligations, title, funding stock and
+principal descendants remains a separate delivery gate. A selected trade-only
+full-value scope after accepted physical final refuses rather than omitting
+independent physical ownership.

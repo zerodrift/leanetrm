@@ -4,7 +4,8 @@ from uuid import uuid4
 
 
 def configure(query,manifest,call,capture,*,curve,contract,book,entity,entity_revision,mark_contract,account_code,
-              account_effective_at,as_of,delivery_from,delivery_to,cash_due,carrying,policy_from,policy_until):
+              account_effective_at,as_of,delivery_from,delivery_to,cash_due,carrying,policy_from,policy_until,
+              mark_definition_revision_id=None,mark_curve=None):
     catalog=manifest['catalogId']
     def lit(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
     source=json.loads(query("SELECT jsonb_build_object('quantity',q.quantity_code,'currency',q.currency_code,'location',m.location_code) "
@@ -15,7 +16,7 @@ def configure(query,manifest,call,capture,*,curve,contract,book,entity,entity_re
     account=str(uuid4())
     terms=dict(code=account_code,kind='owned_inventory',bookId=book,legalEntityId=entity,legalEntityRevision=entity_revision,
         counterpartyId=None,counterpartyRevision=None,referenceCatalogId=manifest['referenceCatalogId'],referenceRevisionId=manifest['referenceRevisionId'],
-        definitionRevisionId=manifest['revisionId'],markCurve=curve,markContractId=mark_contract,quantity=source['quantity'],currency=source['currency'],
+        definitionRevisionId=mark_definition_revision_id or manifest['revisionId'],markCurve=mark_curve or curve,markContractId=mark_contract,quantity=source['quantity'],currency=source['currency'],
         location=source['location'],titlePolicy='explicit_accepted_title_v1',lossPolicy='separate_evidenced_loss_v1',effectiveAt=account_effective_at)
     call(f"SELECT security.record_gas_owned('{catalog}','{uuid4()}','account','{account}',{lit(terms)},'{as_of}','{capture()}',NULL,NULL,false);")
     policy=dict(operationId=str(uuid4()),policyId=str(uuid4()),expectedRevision=0,action='gas.futures.delivery',mode='manual',

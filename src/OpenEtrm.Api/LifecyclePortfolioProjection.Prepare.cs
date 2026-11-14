@@ -13,6 +13,7 @@ namespace OpenEtrm.Api;
 
 internal static partial class LifecyclePortfolioProjection
 {
+    private sealed record LifecycleMarketSource(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot);
     internal static async Task<PreparedLifecyclePortfolio> Prepare(NpgsqlConnection connection,PreviewDatabase database,
         PortfolioValuation.Prepared opening,PortfolioEconomicProjectionRequest request,ImmutableArray<ConnectedMarketEvidence>? retainedGraphs,CancellationToken ct)
     {
@@ -23,9 +24,9 @@ internal static partial class LifecyclePortfolioProjection
         var gasPresent=scope.WholeBooks&&await GasOwnedKnownHistoryStore.RequireScope(connection,database,scope.Frame,scope.Books,opening.Policy.GasOwned is not null,ct);
         var knownGas=gasPresent?await GasOwnedKnownHistoryStore.Read(connection,database,scope.Frame,scope.Snapshot,scope.Books,ct):null;
         if(!gasPresent&&!request.GasOwned.IsEmpty)throw Error("projection_gas_policy","The selected source has no independent gas quantity owners for these account profiles.");
-        if(opening.Policy.FuturesConvention!=FuturesMarginValuationPolicy.Convention)
+        if(!FuturesMarginValuationPolicy.IsNative(opening.Policy.FuturesConvention))
             throw Error("projection_futures_state","Economic risk requires the explicit native margin remaining-value profile.");
-        var sources=ImmutableArray.CreateBuilder<(PortfolioProductSource Source,ImmutableArray<ILifecycleProjection> Components,ImmutableDictionary<ReferenceKey,ISideDiscounting> Curves,ImmutableArray<ValuationPortfolio> Histories,ImmutableDictionary<CurveRequest,CurveKey> Officials,ImmutableArray<SchedulePriceTerm> ActivePrices)>();
+        var sources=ImmutableArray.CreateBuilder<(LifecycleMarketSource Source,ImmutableArray<ILifecycleProjection> Components,ImmutableDictionary<ReferenceKey,ISideDiscounting> Curves,ImmutableArray<ValuationPortfolio> Histories,ImmutableDictionary<CurveRequest,CurveKey> Officials,ImmutableArray<SchedulePriceTerm> ActivePrices)>();
         var productEvidence=ImmutableArray.CreateBuilder<JsonElement>();var finalEvidence=ImmutableArray.CreateBuilder<JsonElement>();var receipts=ImmutableArray.CreateBuilder<FuturesOptionCalibrationReceipt>();
         foreach(var group in opening.Sources.GroupBy(s=>s.Snapshot.Definitions).OrderBy(g=>g.Key.RevisionId))
         {
@@ -99,7 +100,18 @@ internal static partial class LifecyclePortfolioProjection
                             }
                             var known=await FuturesKnownHistoryStore.Read(connection,database,source.Data,source.Frame,source.Snapshot,trade,owner.BindingId,actual,ct);
                             SelectOfficial(officials,market.Market,actual.History.Terms.Policy.SettlementCurve);
-                            components.Add(new FuturesLifecycleProjection(trade,owner.BindingId,actual.State,actual.History,setup,market.Market,source.Data.Model,source.Snapshot,known));
+                            FuturesDeliveryProjectionMarket? deliveryMarket=null;
+                            if(setup.FuturesValueBindings.GetValueOrDefault(key)?.Physical is {} physical)
+                            {
+                                var asset=physical.Asset.Snapshot;
+                                var input=asset.HasSameInputs(source.Snapshot)?source.Data:
+                                    opening.InputMarkets.SingleOrDefault(m=>m.Snapshot.HasSameInputs(asset))?.Data??
+                                    throw Error("projection_delivery_source","Retain the exact selected physical asset source before projecting any branch.");
+                                if(actual.History.Terms.Policy.Delivery?.Terms is not GasPhysicalDeliveryTerms terms)
+                                    throw Error("projection_delivery_source","Retain this future's exact saved gas continuation profile.");
+                                deliveryMarket=new(terms,input.Model,asset,physical.Carrying);
+                            }
+                            components.Add(new FuturesLifecycleProjection(trade,owner.BindingId,actual.State,actual.History,setup,market.Market,source.Data.Model,source.Snapshot,known,deliveryMarket));
                             productEvidence.Add(JsonSerializer.SerializeToElement(known,RiskJobs.Json));break;
                         }
                         case FuturesOptionInstrument option:
@@ -159,7 +171,7 @@ internal static partial class LifecyclePortfolioProjection
                     }
                 }
             }
-            sources.Add((first,components.ToImmutable(),curves.ToImmutable(),histories.ToImmutable(),officials.ToImmutable(),[..activePrices.Distinct()]));
+            sources.Add((new(first.Data,first.Frame,first.Snapshot),components.ToImmutable(),curves.ToImmutable(),histories.ToImmutable(),officials.ToImmutable(),[..activePrices.Distinct()]));
         }
         if(knownGas is not null)
         {
@@ -172,23 +184,54 @@ internal static partial class LifecyclePortfolioProjection
             }
             productEvidence.Add(JsonSerializer.SerializeToElement(new{known=knownGas,profiles=preparedGas.ProfileEvidence},RiskJobs.Json));
         }
-        var projections=ImmutableArray.CreateBuilder<PreparedLifecycleProjection>();var markets=ImmutableArray.CreateBuilder<PortfolioValuation.MarketPartition>();
+        foreach(var input in opening.InputMarkets.Where(m=>!sources.Any(s=>s.Source.Snapshot.Definitions==m.Snapshot.Definitions)))
+            sources.Add((new(input.Data,input.Frame,input.Snapshot),[],ImmutableDictionary<ReferenceKey,ISideDiscounting>.Empty,[],
+                ImmutableDictionary<CurveRequest,CurveKey>.Empty,[]));
+        var allComponents=sources.SelectMany(s=>s.Components).ToImmutableArray();
+        var allOfficials=sources.SelectMany(s=>s.Officials).GroupBy(p=>p.Key).ToImmutableDictionary(g=>g.Key,g=>g.Select(p=>p.Value).Distinct().Single());
+        var common=opening.Policy.NativeFutures?.Economic is null?null:CustomCurves.CompleteContext(scope.Frame,scope.Snapshot,opening.Context);
+        var preparedMarkets=new Dictionary<DefinitionRevision,(CustomCurves.PreparedMarket Market,ImmutableArray<LifecycleInputFinal> Finals)>();
         foreach(var (source,components,curves,histories,officials,activePrices) in sources)
         {
             var portfolios=components.SelectMany(c=>c.Opening.Residuals).ToImmutableArray();
-            var dependencies=components.SelectMany(c=>c.Dependencies).Distinct().ToImmutableArray();
+            var dependencies=components.SelectMany(c=>c.Dependencies).Concat(allComponents.SelectMany(c=>
+                c.Dependencies.Where(d=>c.DependencySource(d).HasSameInputs(source.Snapshot)))).Distinct().ToImmutableArray();
             var retained=retainedGraphs?.SingleOrDefault(g=>g.RevisionId==source.Snapshot.Definitions.RevisionId);
             if(retainedGraphs is not null&&retained is null)throw Error("risk_graph_manifest","Retain every complete economic market partition.");
+            var foreign=components.SelectMany(c=>c.MarketSources).Where(s=>!s.HasSameInputs(source.Snapshot)).Select(s=>s.Definitions).ToHashSet();
+            var linked=opening.InputMarkets.Where(m=>foreign.Contains(m.Snapshot.Definitions)).Select(m=>m.Market).ToImmutableArray();
+            if(linked.Length!=foreign.Count)throw Error("projection_delivery_source","Every foreign residual source requires its exact independently prepared input graph.");
             var connected=await CustomCurves.PrepareMarket(connection,database,source.Data,source.Frame,source.Snapshot,opening.Context,
-                ValuationPortfolio.DistinctInstruments(portfolios),dependencies,CustomCurves.MarketPreparation.ScenarioUniverse,ct,retained,activePrices);
-            var finals=await FinalInputs(connection,database,source,components,officials,request.Policy,horizon.Horizon.Closes.First(c=>c.Instant>source.Snapshot.ValuationAt).Instant,connected.Valuation.Scenario.Plan,ct);
+                portfolios.IsEmpty?[]:ValuationPortfolio.DistinctInstruments(portfolios),dependencies,CustomCurves.MarketPreparation.ScenarioUniverse,ct,retained,activePrices,
+                calculationContext:common,linkedMarkets:linked);
+            var finals=await FinalInputs(connection,database,source,allComponents,allOfficials,request.Policy,horizon.Horizon.Closes.First(c=>c.Instant>source.Snapshot.ValuationAt).Instant,connected.Valuation.Scenario.Plan,ct);
             productEvidence.AddRange(finals.Evidence);finalEvidence.AddRange(finals.Evidence);
-            var projection=LifecycleProjection.Prepare(connected.Valuation,connected.Bindings,connected.Authority,horizon.Horizon,request.Policy,components,[],curves,ct,finals.Inputs);
-            projections.Add(projection);
-            markets.Add(new(source.Data,source.Frame,source.Snapshot,RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,histories,connected.Authority,ct),
-                [..histories.Select(_=>"economic_opening_present_value")],connected.Evidence,connected.Preparation){EconomicFactors=projection.Factors});
+            preparedMarkets.Add(source.Snapshot.Definitions,(connected,finals.Inputs));
+        }
+        var projections=ImmutableArray.CreateBuilder<PreparedLifecycleProjection>();var markets=ImmutableArray.CreateBuilder<PortfolioValuation.MarketPartition>();
+        foreach(var (source,components,curves,histories,officials,activePrices) in sources)
+        {
+            var (connected,finals)=preparedMarkets[source.Snapshot.Definitions];
+            var foreign=components.SelectMany(c=>c.MarketSources).Where(s=>!s.HasSameInputs(source.Snapshot)).DistinctBy(s=>s.Definitions).ToArray();
+            var additional=foreign.Select(s=>{
+                var part=preparedMarkets[s.Definitions];var own=sources.Single(m=>m.Source.Snapshot.HasSameInputs(s));
+                return new LifecycleProjectionMarket(part.Market.Valuation,part.Market.Bindings,part.Market.Authority,own.Curves,part.Finals);
+            }).ToImmutableArray();
+            PreparedLifecycleProjection? projection=null;
+            if(!components.IsEmpty)
+            {
+                projection=LifecycleProjection.Prepare(connected.Valuation,connected.Bindings,connected.Authority,horizon.Horizon,request.Policy,components,[],curves,ct,finals,additional);
+                projections.Add(projection);
+            }
+            var dependencies=allComponents.SelectMany(c=>c.Dependencies.Where(d=>c.DependencySource(d).HasSameInputs(source.Snapshot))).Distinct().ToImmutableArray();
+            var portfolio=histories.IsEmpty?RiskEngine.PrepareConnectedInputs(connected.Valuation,connected.Bindings,dependencies,connected.Authority,ct):
+                RiskEngine.PrepareConnected(connected.Valuation,connected.Bindings,histories,connected.Authority,ct);
+            markets.Add(new(source.Data,source.Frame,source.Snapshot,portfolio,[..histories.Select(_=>"economic_opening_present_value")],connected.Evidence,connected.Preparation)
+                {EconomicFactors=projection is null?portfolio.Factors:[..projection.Factors.Where(f=>f.Input.Series.Revision==source.Snapshot.Definitions)]});
         }
         if(retainedGraphs is not null&&retainedGraphs.Value.Length!=markets.Count)throw Error("risk_graph_manifest","The retained economic market set differs from its complete prepared source.");
+        if(!LifecycleEconomicRisk.Factors(projections.ToImmutable()).Select(f=>f.Input).ToHashSet().SetEquals(markets.SelectMany(m=>m.Factors).Select(f=>f.Input)))
+            throw Error("projection_source","Every projected native factor requires its exact retained market and complete history-source partition.");
         return new(request,horizon.Evidence,projections.ToImmutable(),opening with{Markets=markets.ToImmutable()},productEvidence.ToImmutable(),receipts.ToImmutable(),finalEvidence.ToImmutable());
     }
     private static async Task<DateTimeOffset> ConfigurationAuthority(NpgsqlConnection connection,Guid catalog,CancellationToken ct)

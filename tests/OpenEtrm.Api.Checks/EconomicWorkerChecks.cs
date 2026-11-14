@@ -11,12 +11,12 @@ internal static class EconomicWorkerChecks
 {
     internal static async Task Submit(PreviewDatabase database,NpgsqlConnection connection,PreviewData data,InputFrame frame,
         PortfolioRiskCatalogRequest scope,PortfolioValuationPolicy pricing,PortfolioEconomicProjectionRequest projection,
-        PreparedLifecyclePortfolio source,string path,CancellationToken ct)
+        PreparedLifecyclePortfolio source,string path,CancellationToken ct,PortfolioHistoryRequest? requestedHistory=null)
     {
         var calculator=new PortfolioRiskPreview(database);var factors=ImmutableArray<CurveRiskAxisRequest>.Empty;PortfolioHistoryRequest? history=null;
         if(!source.Factors.IsEmpty)
         {
-            var requested=new PortfolioHistoryRequest(scope,pricing,new(RiskHistoryPolicy.Version1,CurveModel.NumericalPolicy,RiskHistoryPolicy.Raw,
+            var requested=requestedHistory??new PortfolioHistoryRequest(scope,pricing,new(RiskHistoryPolicy.Version1,CurveModel.NumericalPolicy,RiskHistoryPolicy.Raw,
                 RiskHistoryPolicy.Heads,RiskHistoryPolicy.ExactCloses,RiskHistoryPolicy.Absolute,RiskHistoryPolicy.Complete,RiskHistoryPolicy.Fixed,2),
                 new(data.ReferenceRevision,"test_business"),"2020-12-15","2020-12-18","16:00:00","reject","reject");
             var capture=JsonSerializer.SerializeToElement(await calculator.EconomicHistory(connection,data,frame,new(new(scope,pricing,projection),requested),ct),RiskJobs.Json);

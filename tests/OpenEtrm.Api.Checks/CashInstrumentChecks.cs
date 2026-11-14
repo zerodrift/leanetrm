@@ -31,6 +31,18 @@ internal static class CashInstrumentChecks
         PortfolioValuation.ValidatePolicy(selected);
         Missing(()=>PortfolioValuation.ValidatePolicy(selected with{FuturesConvention=FuturesRisk.Implementation}));
         Missing(()=>PortfolioValuation.ValidatePolicy(selected with{NativeFutures=selected.NativeFutures! with{TimingPolicy=""}}));
+        var economic=selected with{FuturesConvention=FuturesEconomicValuationPolicy.Version,NativeFutures=selected.NativeFutures! with{
+            Economic=new(FuturesEconomicValuationPolicy.Version,FuturesMarginValueBinding.FlatReference,[])}};
+        Missing(()=>PortfolioValuation.ValidatePolicy(selected with{FuturesConvention=FuturesEconomicValuationPolicy.Version}));
+        Missing(()=>PortfolioValuation.ValidatePolicy(economic with{FuturesConvention=FuturesMarginValuationPolicy.Convention}));
+        PortfolioValuation.ValidatePolicy(economic);
+        foreach(var bad in new[]{economic.NativeFutures!.Economic! with{VariationMargin=""},economic.NativeFutures.Economic! with{Physical=default},
+            economic.NativeFutures.Economic! with{Physical=[new(Guid.NewGuid(),Guid.NewGuid(),FuturesPhysicalBasisValueBinding.Version,"")]}})
+            Missing(()=>PortfolioValuation.ValidatePolicy(economic with{NativeFutures=economic.NativeFutures with{Economic=bad}}));
+        var json=System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(economic.NativeFutures.Economic,RiskJobs.Json))!.AsObject();
+        json.Remove("physical");
+        try{_=json.Deserialize<FuturesEconomicValuationPolicy>(RiskJobs.Json);throw new Exception("Missing physical choices became an explicit empty selection.");}
+        catch(JsonException){}
         Console.WriteLine("PASS native cash materialization: date and exact-instant definitions, independent identity vector and invalid/ambiguous header refusal");
     }
     static void Reject(Action action)

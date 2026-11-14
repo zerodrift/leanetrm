@@ -25,13 +25,29 @@ internal static class EconomicFutureWorkerChecks
                 ImmutableDictionary<string,ImmutableArray<Guid>>.Empty.Add("future",[fixture.Id("contractId")]),context.ContextId);
             await PinnedContext.BindExact(connection,manifest.CatalogId,context,ct);await TradingContext.Bind(connection,manifest.CatalogId,context,frame.At,ct);
             var data=await MarketInputSelection.Root(database,connection,frame,ct);
+            var part=new MarketSourceInputs(CatalogueSource.From(data),frame.ObservationIds,[],frame.CurveContracts,["future"]);
+            frame=frame with{Source=part.Source,SourceInputs=ImmutableDictionary<Guid,MarketSourceInputs>.Empty.Add(data.DefinitionRevision.RevisionId,part)};
             var snapshot=MarketSnapshotBinding.Bind(data.Snapshot(frame),context.ContextId!.Value,SchedulePreview.ParseAt(context.KnownAt));
             var books=ImmutableArray.Create(fixture.Id("bookId"));var trades=ImmutableArray.Create(fixture.Id("tradeId"));
             var scope=await RiskTradeScope.Resolve(connection,manifest.CatalogId,books,trades,ct);
             var pricing=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesMarginValuationPolicy.Convention,
                 SwapStore.Convention,RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,
                 NativeFutures:new(FuturesMarginValuationPolicy.CurrencyDefault,RateDiscountTiming.Version));
-            var opening=await new PortfolioValuation(database).Prepare(connection,data,frame,snapshot,context,books,pricing,[],[],ct,selection:scope);
+            var fullPricing=pricing with{FuturesConvention=FuturesEconomicValuationPolicy.Version,NativeFutures=pricing.NativeFutures! with{
+                Economic=new(FuturesEconomicValuationPolicy.Version,FuturesMarginValueBinding.FlatReference,[])}};
+            var full=await new PortfolioValuation(database).Prepare(connection,data,frame,snapshot,context,books,fullPricing,[],[],ct,selection:scope);
+            var axis=CurveRiskAxes.Quote(full,full.Factors.Single(),ct);
+            var report=PortfolioValuation.Calculate(full,[new(axis,ExactDecimal.Parse("0.1"))],[],RiskDetail.Holdings,ct);
+            var margin=full.FuturesMargin.Single().Value;var holding=full.Sources.SelectMany(s=>s.Portfolio.Positions).Single();
+            var input=full.InstantDiscountInputs.Single(p=>p.InstrumentId==holding.ValuationId).Input;
+            var unit=margin.State.SettledBasis.Unit;
+            var expected=ExactUnitPrice.Parse("0.1",unit).ExactTimes(holding.Quantity).Scale(input.DiscountFactor);
+            if(input.DiscountFactor==ExactDecimal.Parse("1")||report.Risk.Single().UpPnl!=expected||report.Risk.Single().DownPnl!=expected.Scale(ExactDecimal.Parse("-1"))||
+                report.Totals.Single().Measure!=FuturesEconomicValuationPolicy.Version||report.ModelContracts.Single().ModelVersion!=FuturesMarginValueBinding.FlatReference||
+                full.Sources.Single().Portfolio.Setup.FuturesValueBindings.Count!=1||full.Positions.Length!=1)
+                throw new Exception("Full native ordinary PV must use the exact saved next margin due and captured nonunit discount once, with one original holding.");
+            Console.WriteLine("PASS actual full native cash-future PV: explicit v2 law, original owner/terms and nonunit next-due symmetric PV changes");
+            var opening=await new PortfolioValuation(database).Prepare(connection,data,frame,snapshot,context,books,fullPricing,[],[],ct,selection:scope);
             var projection=new PortfolioEconomicProjectionRequest(PortfolioEconomicProjectionRequest.Version,fixture.Text("session"),1,
                 PortfolioEconomicProjectionRequest.SourceKnownSchedule,RateDiscountTiming.Version,PortfolioEconomicProjectionRequest.SelectedContractMarkets,
                 new(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Linear,LifecycleProjectionPolicy.PayAtDue,LifecycleProjectionPolicy.Nominal,
@@ -40,7 +56,7 @@ internal static class EconomicFutureWorkerChecks
             if(prepared.Factors.Length!=1||prepared.Projections.Single().Components.Single() is not FuturesLifecycleProjection)
                 throw new Exception("The future worker must prepare its native adopted owner, margin state and full primitive factor closure.");
             await EconomicWorkerChecks.Submit(database,connection,data,frame,new(new(frame.Id,TradingBlotter.Convention,"retained",context.ContextId),books,[],trades),
-                pricing,projection,prepared,path,ct);
+                fullPricing,projection,prepared,path,ct);
             return true;
         },default);
         Console.WriteLine("PASS managed futures economic source and complete retained historical/Monte Carlo requests");
