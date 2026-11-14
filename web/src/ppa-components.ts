@@ -3,7 +3,7 @@ import {componentQuantity} from './ppa-view.js';
 import {friendly} from './market-view.js';
 import type {Catalog,Member,Quantity,Side,Template,DataRow,PriceSettlement,Slot} from './ppa-contract.js';
 import type {PaymentInput} from './swap-contract.js';
-import {decorateSideCard} from './side-card.js';
+import {decorateSideCard,alignSideCard} from './side-card.js';
 import {ppaSideLabel,ppaSideName,quantityChoices} from './ppa-side-label.js';
 export const code=(r:DataRow,key='code')=>String(r[key]??'');
 export const choices=(rows:DataRow[])=>rows.map(r=>({value:code(r),label:code(r,'name')||friendly(code(r))}));
@@ -74,6 +74,11 @@ export function componentEditor(host:HTMLElement,catalog:Catalog,template:Templa
  for(const [name,rows] of [['frequency',pay.frequencies],['payment-rule',pay.rules],['day-basis',pay.dayBases],['short-month',pay.shortMonths],['adjustment',pay.adjustments]] as const)pick(name,rows);
  pick('payment-calendar',choices(catalog.references.calendars));
  const sideQuantity=composition?ppaQuantityEditor(host,catalog,template,prefix,composition.delivery,composition.links,initial?.side.quantity):undefined;
+ const [terms,payment]=host.querySelectorAll<HTMLElement>(':scope>.schedule-fields');
+ const row=(name:string)=>field(name).closest('label')!;
+ alignSideCard(host,{direction:[row('coefficient')],product:[row('side-kind'),row('location')],
+  quantity:[...host.querySelectorAll<HTMLElement>('.ppa-side-quantity'),row('quantity-choice'),host.querySelector<HTMLElement>('.ppa-retained-quantity')!],
+  price:[terms],payment:[host.querySelector<HTMLElement>('h4')!,payment]});
  function sync(busy=false){sideQuantity?.sync(busy);
   const kind=field('side-kind').value,price=field('price-kind').value,rule=field('payment-rule').value;
   const active:Record<string,boolean>={'quantity-choice':!composition&&!!initial&&!template.linkedSlots.length,location:kind==='energy',fixed:kind==='fixed',priced:kind==='fixed'||kind==='indexed',flat:kind==='fixed'&&price==='flat',escalated:kind==='fixed'&&price==='escalated',stepped:kind==='fixed'&&price==='stepped',indexed:kind==='indexed',attribute:kind==='certificate'||kind==='capacity',certificate:kind==='certificate',capacity:kind==='capacity',lag:rule==='days_after_period_end',next:rule==='day_of_following_month',calendar:!!field('adjustment').value&&(field('adjustment').value!=='unadjusted'||rule==='days_after_period_end'&&field('day-basis').value==='business_days')};

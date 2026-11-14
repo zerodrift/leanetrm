@@ -723,6 +723,25 @@ source/plan head identifiers. Changing another target's allocation alone does no
 change this response. This operational plan stays separate from direct daily
 quantity inputs and contractual billing/valuation.
 
+## Aligned side entry
+
+Native swap, scheduled swap, PPA, crude and LNG entry cards use shared comparison
+rows for direction, dates, quantity, pricing and payment terms. Matching dated
+periods in scheduled swaps align across sides even when their contract ranges
+differ. The existing described gas ticket retains its common field bands.
+Wide panels place sides alongside each other; panels narrower than 600 pixels
+stack native cards, preserving their controls and entries. Additional sides can
+scroll horizontally without compressing their fields. Calendar choices remain
+part of the applicable observation, quantity or payment rule, not an inferred
+instrument-wide calendar.
+
+Booking is an open form. All supported instrument types are discoverable before
+ownership or counterparties are entered. Instrument terms precede ownership and
+parties, with prerequisite market and reference selectors ahead of dependent
+inputs. Described gas tickets keep their pricing setup above the sides and order
+side details by their declared field dependencies. Required choices, validation,
+authorization and protection of pending submissions still apply.
+
 ## Indexed consideration and refreshed entry fields
 
 D350 adds **Index payment**, an independent existing FloatingSide linked to one

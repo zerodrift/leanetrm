@@ -47,6 +47,21 @@ const draw=(over={})=>{
  return host;
 };
 
+test('instrument setup stays above the sides while ownership follows them in an open entry form',()=>{
+ const state=newTicket({...description,tradeFields:[f('book','Book'),f('gas_setup','Gas setup')]});
+ const nodes=all(draw({state}));
+ assert.ok(nodes.findIndex(n=>n.dataset.field==='gas_setup')<nodes.findIndex(n=>n.className==='ticket-deck'));
+ assert.ok(nodes.findIndex(n=>n.className==='ticket-deck')<nodes.findIndex(n=>n.dataset.field==='book'));
+ assert.equal(controls(nodes.find(n=>n.dataset.field==='book'))[0].disabled,false);
+});
+
+test('side details show declared prerequisites before their dependent selector',()=>{
+ const state=newTicket({...description,sides:[{...description.sides[0],fields:[
+  f('forecast','Forecast',{dependsOn:['point']}),f('point','Point',{dependsOn:['zone']}),f('zone','Zone',{dependsOn:['pipeline']}),f('pipeline','Pipeline')]}]});
+ const own=one(draw({state}),'ticket-own');
+ assert.deepEqual(all(own).filter(n=>n.dataset.field).map(n=>n.dataset.field),['pipeline','zone','point','forecast']);
+});
+
 test('a quantity field shows the unit the preview resolved, and none before',()=>{
  const unit=host=>byClass(all(host).find(n=>n.dataset.field==='quantity'&&n.dataset.band),'ticket-unit').map(n=>n.textContent);
  assert.deepEqual(unit(draw()),[]);

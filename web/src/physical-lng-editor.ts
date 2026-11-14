@@ -2,7 +2,7 @@ import {lngChoices,lngSelection,lngPhysicalFields,type LngReferences} from './ln
 import {lngConvention,lngRequest,restoreLngCommand,type LngProfile,type LngFields} from './physical-lng-model.js';
 import {zonedInput} from './user-time.js';
 import {displayExactInstant} from './market-view.js';
-import {decorateSideCard} from './side-card.js';
+import {decorateSideCard,alignSideCard,prepareSideDeck} from './side-card.js';
 import {PendingCommand,actorTransport,type RequestCommand} from './pending-command.js';
 type Api=<T>(path:string,body?:unknown)=>Promise<T>;
 type Party={id:string;revision:number;name:string};
@@ -31,6 +31,12 @@ export function setupPhysicalLng(o:{api:Api;act:(work:()=>Promise<void>)=>Promis
  const input=(key:string)=>get<HTMLInputElement|HTMLSelectElement>(key),val=(key:string)=>input(key).value;
  const times=Object.fromEntries(dates.map(k=>[k,zonedInput(get<HTMLInputElement>(k),o.zone,o.api)])) as Record<typeof dates[number],ReturnType<typeof zonedInput>>;
  for(const [key,tag,kind] of [['cargo-side','LNG','gas'],['cash-side','Price','cash']] as const){const card=get(key);decorateSideCard(card,card.querySelector('h3')!,tag,kind);}
+ const deck=document.createElement('div');deck.className='entry-side-deck';get('cargo-side').before(deck);deck.append(get('cargo-side'),get('cash-side'));prepareSideDeck(deck);
+ const row=(...keys:string[])=>keys.map(key=>input(key).closest('label')!);
+ const parameters=get('cargo-side').querySelector<HTMLElement>('fieldset')!,conversion=get('cargo-side').querySelector<HTMLElement>('[aria-label="Quantity conversion"]')!;
+ alignSideCard(get('cargo-side'),{direction:row('direction'),start:row('loadFrom','loadTo'),end:row('dischargeFrom','dischargeTo'),product:[parameters,...row('profile')],quantity:[...row('quantityCode','quantityUnit'),conversion,...row('conversionCode','quantity')]});
+ alignSideCard(get('cash-side'),{direction:row('considerationDirection'),price:row('fixedPrice'),payment:row('paymentAt')});
+ deck.parentElement!.after(input('book').closest('fieldset')!);
  let catalog:Catalog|undefined,reviewed:Record<string,unknown>|undefined,epoch=0,referenceEpoch=0,dirty=false,owner=o.actor(),zone=o.zone(),shown:{value:Value;title:string;terms:Record<string,unknown>}|undefined,rows:DirectoryRow[]|undefined;
  const pending=new PendingCommand(code=>!!code&&(code.startsWith('lng_')||['access_denied','request_format','trade_party'].includes(code)));
  const transport=actorTransport<RequestCommand>(()=>'physical-lng-request:'+o.actor(),()=>sessionStorage);

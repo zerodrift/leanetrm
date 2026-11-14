@@ -622,9 +622,9 @@
 </div>
 <div id="futures-new-trade" class="editing" hidden>
  <form id="futures-form" hidden><fieldset id="futures-fields" class="futures-fields">
-  <section id="futures-trade-terms" class="trade-booking-terms"></section>
   <section id="futures-instrument"></section>
   <p id="futures-terms" class="field-help">Select a dated contract to see its terms.</p>
+  <section id="futures-trade-terms" class="trade-booking-terms"></section>
   <section id="futures-draft-valuation" class="draft-valuation"></section>
   <p class="field-help">Booking facts are assigned by the server. The selected market date supplies the separate pricing effective time.</p>
   <button id="futures-book-submit" type="submit">Book future</button>
@@ -636,8 +636,7 @@
  <div id="swap-revisions" hidden><label for="swap-revision">Trade revision · selected by context</label><input id="swap-revision" readonly><button id="swap-latest" type="button" class="secondary">Reload latest revision</button></div>
  <form id="swap-form"><fieldset id="swap-fields">
   <div id="swap-amendment" hidden><label for="swap-reason">Amendment reason</label><input id="swap-reason" maxlength="500"><p id="swap-effective" class="field-help"></p></div>
-  <section id="swap-trade-terms" class="trade-booking-terms"></section>
-  <section id="swap-instrument" class="instrument-editor" data-instrument-type="financial_swap"><div class="entry-section-heading"><span class="entry-step">02</span><div><div class="eyebrow">INSTRUMENT</div><h3>Swap sides</h3></div></div>
+  <section id="swap-instrument" class="instrument-editor" data-instrument-type="financial_swap"><div class="entry-section-heading"><div><div class="eyebrow">INSTRUMENT</div><h3>Swap sides</h3></div></div>
   <div id="swap-type-choices" class="ticket-add" role="group" aria-label="Add swap side"></div>
   <select id="swap-type" hidden aria-label="Selected instrument type"><option value=""></option><option value="financial_fixed_floating">Fixed for floating</option><option value="financial_floating_floating">Floating for floating</option></select>
   <p id="swap-template-note" class="field-help" role="status">Choose a structure to set up its sides.</p>
@@ -645,7 +644,7 @@
   <section id="swap-quantity-terms"><h3>Notional quantity</h3>
   <div class="schedule-fields"><div><label for="swap-quantity">Amount · <span id="swap-unit"></span></label><input id="swap-quantity" required inputmode="decimal" maxlength="45"></div><div><label for="swap-quantity-unit">Quantity unit</label><select id="swap-quantity-unit" required></select></div></div>
   <p><strong>Application basis · Total for each side’s delivery period</strong></p><p class="field-help">The full notional applies once to each side’s selected delivery period, even when dates differ. Daily observations average prices; they do not repeat the quantity. Each booked side has one settlement payment. Compatible energy units convert directly. Daily quantity rates, allocation across recurring settlements and MW levels are unavailable in this ticket.</p></section>
-  <div class="entry-section-heading"><span class="entry-step">03</span><div><div class="eyebrow">SIDES</div><h3>Direction &amp; side pricing</h3></div></div>
+  <div class="entry-section-heading"><div><div class="eyebrow">SIDES</div><h3>Direction &amp; side pricing</h3></div></div>
   <p id="swap-side-compatibility" class="field-help" hidden>Both floating sides must use the same commodity and compatible quantity units.</p>
   <div class="instrument-sides swap-sides" aria-label="Financial swap sides">
    <div id="swap-fixed-editor"></div><div id="swap-first-editor" hidden></div>
@@ -656,6 +655,7 @@
   <h3>Valuation review &amp; booking</h3><div class="schedule-fields"><div><label for="swap-discounting">Discounting</label><select id="swap-discounting" required><option value="">Choose…</option><option value="currency_default">Currency default curve</option><option value="none">Explicitly undiscounted</option></select></div></div>
   <section id="swaps-draft-valuation" class="draft-valuation"></section>
   </section>
+  <section id="swap-trade-terms" class="trade-booking-terms"></section>
   <p id="swap-coverage" class="field-help"></p><p class="field-help">Reset frequency selects observation dates; averaging method combines their prices. Payment frequency groups the resulting cash flows. The instrument quantity applies once after signed side PVs are summed. This model has one monthly payment per side. Each floating reset uses its index’s fixing convention and the selected market context; inspect its actual or projected state in the valued schedule.</p>
  </fieldset></form>
  <section id="swap-change-review" class="trade-change-review" hidden></section>

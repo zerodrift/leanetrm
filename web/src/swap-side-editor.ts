@@ -1,6 +1,6 @@
 // Each supported side has its own presentation template. Payment/observation
 // choices, resolved dates, quantities and values are supplied by the backend.
-import {decorateSideCard} from './side-card.js';
+import {decorateSideCard,alignSideCard,prepareSideDeck} from './side-card.js';
 export function mountSwapSideEditor(side:'fixed'|'floating'){
  const host=document.getElementById(`swap-${side}-editor`)!;
  const template=document.getElementById(`swap-${side}-template`) as HTMLTemplateElement;
@@ -55,8 +55,19 @@ export function arrangeSwapSections(){
   observations.append(root.querySelector('.side-payment-rule')!);
   delivery.querySelector('h4')?.remove();observations.querySelector('h4')?.remove();
   root.append(delivery,observations);decorateSideCard(root,root.querySelector('h3')!,side==='fixed'?'Fixed':'Floating',side==='fixed'?'cash':'fee');
+  const field=(id:string)=>document.getElementById(id)!.parentElement!;
+  alignSideCard(root,{
+   direction:[field(side==='fixed'?'swap-direction':side==='first'?'swap-first-direction':'swap-floating-direction')],
+   currency:[field(`swap-${side}-currency`)],
+   start:[field(`swap-${side}-from`)],end:[field(`swap-${side}-to`)],
+   ...(side==='fixed'?{price:[field('swap-price'),root.querySelector<HTMLElement>('.fixed-side-description')!]}:{
+    product:[field(prefix+'-commodity')],price:[field(prefix+'-spread')],
+    observations:['reset-frequency','averaging','index','projection','fixing-convention'].map(suffix=>field(prefix+'-'+suffix))}),
+   payment:[root.querySelector<HTMLElement>('.side-payment-rule')!]
+  });
  }
  const dates=document.getElementById('swap-date-tools')!;document.getElementById('swap-quantity-terms')!.after(dates);
  document.getElementById('swap-delivery')!.remove();document.getElementById('swap-observations')!.remove();
- document.querySelector('.swap-sides')!.classList.add('entry-side-deck');
+ const deck=document.querySelector<HTMLElement>('.swap-sides')!;deck.classList.add('entry-side-deck');prepareSideDeck(deck);
+ deck.parentElement!.after(document.getElementById('swap-quantity-terms')!,dates);
 }

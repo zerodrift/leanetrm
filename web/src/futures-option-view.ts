@@ -74,7 +74,7 @@ export function setupOptionTicket(o:{api:Api;source:()=>{snapshotId:string};hist
  const booking=el('div','option-booking'),said=el('p','field-help');said.id='option-booking-status';said.setAttribute('role','status');
  const check=el('button','secondary','Check booking status'),retry=el('button','secondary','Retry the original booking');check.type=retry.type='button';check.id='option-check';retry.id='option-retry';
  booking.append(submit,check,retry,said);
- fields.append(trade,contract,execution,backend,more);form.append(fields,booking);root.replaceChildren(status,form);
+ fields.append(contract,execution,trade,backend,more);form.append(fields,booking);root.replaceChildren(status,form);
  const annotations=tradeAnnotations('option',o.zone,executed);
  const pending=new PendingCommand(definite);
  let catalog:Catalog|undefined,pick:OptionPick={...noOptionPick},sending=false;
