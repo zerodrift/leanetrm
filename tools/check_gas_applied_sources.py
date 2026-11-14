@@ -11,7 +11,10 @@ from check_gas_owned_holdings import checks as owned_checks
 
 
 def checks(query, manifest):
-    owned_checks(query, manifest)
+    # This financial counterfactual starts with clear accepted source facts.
+    # The standalone owned-holdings qualifier separately tests form discovery
+    # with an unrelated contract and a deliberately nonfinal correction head.
+    owned_checks(query, manifest, form_source_counterexamples=False)
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId','tenantId','workspaceId'))
     at='2020-12-20T16:00:00Z'
     def literal(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
@@ -39,7 +42,14 @@ def checks(query, manifest):
         command('bind_policy',dict(action=action,policyId=policy,policyRevision=1,effectiveAt='2020-12-18T00:00:00Z'))
     def evidence(kind,when):
         return command('evidence',dict(sourceKey=str(uuid4()),kind=kind,quantity='1',occurredAt=when,evidence='Synthetic applied source',expectedRevision=0))['id']
-    observation=json.loads(query(f"SELECT to_jsonb(o) FROM market_data.observations o WHERE catalog_id='{catalog}' AND source_event_id LIKE 'synthetic_cashout_%';"))
+    # This case owns a distinct exact point, independent of other fixture
+    # cashout sources and their correction histories.
+    observation_id=str(uuid4())
+    query("INSERT INTO market_data.observations SELECT catalog_id,"
+          f"'{observation_id}',definition_revision_id,series_id,reference_catalog_id,reference_revision_id,source_code,"
+          f"'synthetic_applied_cashout_{observation_id}','1','daily_settlement','final','2020-12-19T16:00:00Z',clock_timestamp(),1.005,NULL "
+          f"FROM market_data.observations WHERE(catalog_id,id)=('{catalog}','70000000-0000-0000-0000-000000000001');")
+    observation=json.loads(query(f"SELECT to_jsonb(o) FROM market_data.observations o WHERE(catalog_id,id)=('{catalog}','{observation_id}');"))
     claim=command('operator_claim',dict(evidenceId=evidence('operator_statement','2020-12-19T12:00:00Z'),quantity='1',effectiveAt='2020-12-19T12:00:00Z',
         dueAt='2020-12-21T12:00:00Z',carrying='currency_curve_v1',settlementMode='cashout_final_price_v1',cashout=dict(source=observation['source_code'],role=observation['role'],
             observedAt=instant(observation['observed_at']),cashDueAt='2020-12-21T12:00:00Z',rounding='payment_total_half_even_2dp_v1')),policies['gas.operator.record'])

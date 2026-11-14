@@ -6,7 +6,7 @@ from check_reference_editing import main
 from preview_fixture import catalogue_fixture, trade_booking, trading_fixture
 
 
-def checks(query, manifest, economic_worker=None):
+def checks(query, manifest, economic_worker=None, *, form_source_counterexamples=True):
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
     query(trading_fixture(catalog))
     from rate_curve_fixture import discount_default
@@ -410,6 +410,8 @@ def checks(query, manifest, economic_worker=None):
     if known_result.returncode:raise RuntimeError(known_result.stdout+known_result.stderr)
     print(known_result.stdout.strip(),flush=True)
     print('PASS gas retained mark revisions, first outcomes, older fact acknowledgement, saved profiles and knowledge-only future ownership scope',flush=True)
+    if not form_source_counterexamples:
+        return
     # Metadata choices must exclude unrelated contracts and select the source
     # head before finality. These counterexamples follow the financial checks.
     unrelated=str(uuid4())
