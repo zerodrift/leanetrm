@@ -492,6 +492,29 @@ DO $guard$DECLARE p pg_proc;definition text;needle constant text='OR NOT risk.au
  EXECUTE replace(definition,needle,'OR NOT risk.authorized(job) OR risk.needs_gas(job) AND NOT security.principal_has_permission(actor.principal_id,actor.tenant_id,actor.workspace_id,''ReadGasOwnedHoldings'',clock_timestamp()) THEN');
 END$guard$;
 
+-- Direct RLS stays closed after cancellation. Protected readers first preserve
+-- the exact owned-attempt control signal, after its lease and authority checks.
+DO $guard$DECLARE p pg_proc;definition text;
+ needle constant text=$needle$ IF NOT FOUND OR NOT risk.worker_read() THEN RAISE EXCEPTION 'risk_job_denied' USING ERRCODE='42501';END IF;
+ PERFORM risk.owned_attempt(binding.job_id,binding.lease_token,false,false);$needle$;
+ replacement constant text=$replacement$ IF NOT FOUND THEN RAISE EXCEPTION 'risk_job_denied' USING ERRCODE='42501';END IF;
+ PERFORM risk.owned_attempt(binding.job_id,binding.lease_token,false,false);
+ IF NOT risk.worker_read() THEN RAISE EXCEPTION 'risk_job_denied' USING ERRCODE='42501';END IF;$replacement$;
+BEGIN
+ SELECT * INTO p FROM pg_proc WHERE oid=to_regprocedure('risk.require_worker_attempt()');
+ IF NOT FOUND THEN RAISE EXCEPTION 'risk_economic_upgrade: missing risk.require_worker_attempt()';END IF;
+ IF md5(p.prosrc)<>'4fe4516340b840fb06262fa37faf9052' OR p.proowner<>'openetrm_security_owner'::regrole
+  OR p.prorettype<>'void'::regtype OR p.proretset OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR p.prokind<>'f'
+  OR p.pronargdefaults<>0 OR p.proargdefaults IS NOT NULL OR p.proallargtypes IS NOT NULL
+  OR p.proisstrict OR p.proleakproof OR p.provolatile<>'v' OR p.proparallel<>'u' OR NOT p.prosecdef
+  OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql' OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
+  OR p.proacl::text IS DISTINCT FROM '{openetrm_security_owner=X/openetrm_security_owner}'
+ THEN RAISE EXCEPTION 'risk_economic_upgrade: unexpected helper risk.require_worker_attempt()';END IF;
+ definition=pg_get_functiondef(p.oid);
+ IF length(definition)-length(replace(definition,needle,''))<>length(needle) THEN RAISE EXCEPTION 'risk_economic_upgrade: worker cancellation gate';END IF;
+ EXECUTE replace(definition,needle,replacement);
+END$guard$;
+
 -- Reuse the established role/worker identity checks without taking their epoch
 -- lock. The ordinary owned-attempt check runs again after that lock is acquired.
 DO $guard$DECLARE p pg_proc;definition text;needle constant text=' PERFORM 1 FROM security.epoch FOR SHARE;';BEGIN

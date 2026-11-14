@@ -12,7 +12,7 @@ from preview_fixture import catalogue_fixture, trading_fixture
 HELPERS = ('risk.worker()','risk.claim(integer,text)','risk.owned_attempt(uuid,uuid,boolean,boolean)','risk.authorized(risk.jobs)', 'risk.worker_read()', 'risk.bind(uuid,uuid)',
            'risk.bind_pre_ppa_context(uuid,uuid)', 'risk.axis_commands(jsonb)', 'risk.retain_axes(risk.jobs,jsonb)',
            'risk.retain_parametric(risk.jobs)', 'risk.submit(uuid,uuid,uuid,uuid,timestamptz,jsonb,jsonb)',
-           'risk.guard_run()', 'risk.summary(risk.jobs)', 'security.authority_until(text)',
+           'risk.guard_run()', 'risk.summary(risk.jobs)', 'security.authority_until(text)', 'risk.require_worker_attempt()',
            'security.require_gas_owned(uuid,boolean,boolean)')
 
 
@@ -51,7 +51,7 @@ def before_migration(query, migration):
     from check_fact_anchor_upgrade import run_checks
     run_checks(query,migration,number='0277',guard='risk_economic_upgrade',signatures=(
         'security.authority_until(text)','risk.retain_axes(risk.jobs,jsonb)',
-        'risk.submit(uuid,uuid,uuid,uuid,timestamptz,jsonb,jsonb)',
+        'risk.submit(uuid,uuid,uuid,uuid,timestamptz,jsonb,jsonb)','risk.require_worker_attempt()',
         'security.read_gas_owned_holdings(uuid,uuid,timestamptz,uuid[])'))
 
 
@@ -214,6 +214,10 @@ def checks(query, manifest):
     guarded=worker(f"BEGIN;SELECT risk.bind('{accepted['jobId']}','{lease}');SELECT settlement_data.futures_margin_preview_authority('{catalog}');"
         "SELECT count(*) FROM lifecycle.option_profiles;SELECT count(*) FROM lifecycle.swap_profiles;SELECT count(*) FROM settlement_data.futures_margin_policies;COMMIT;")
     assert guarded.splitlines()[-3:]==['0','0','0'],guarded
+    cancelled=f"BEGIN;SELECT risk.bind('{accepted['jobId']}','{lease}');RESET SESSION AUTHORIZATION;UPDATE risk.jobs SET state='cancellation_requested' WHERE id='{accepted['jobId']}';SET SESSION AUTHORIZATION synthetic_lifecycle_worker;"
+    assert worker(cancelled+"SELECT risk.worker_read();ROLLBACK;").splitlines()[-1]=='f', 'Cancellation must still deny direct worker RLS reads'
+    reject(lambda:worker(cancelled+f"SELECT settlement_data.futures_margin_preview_authority('{catalog}');ROLLBACK;"),'risk_job_cancelled')
+    print('PASS protected worker readers preserve the owned cancellation control signal while direct RLS reads remain denied',flush=True)
     reject(lambda:worker(f"BEGIN;SELECT risk.bind('{accepted['jobId']}','{lease}');SELECT security.read_gas_owned_holdings('{catalog}','{context}','{seed['at']}',ARRAY[{','.join(repr(b)+'::uuid'for b in books)}]);COMMIT;"),'gas_owned_denied')
     print('PASS owned read-only source grants refuse unbound reads, unselected gas authority and native writers',flush=True)
     bound=lambda sql:f"BEGIN;SELECT risk.bind('{accepted['jobId']}','{lease}');"+sql+'COMMIT;'
