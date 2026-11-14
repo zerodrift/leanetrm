@@ -71,7 +71,35 @@ internal static class LifecycleActionChecks
                 var position=positions.Single();
                 Require(position.OpenLots==position.BookedLots,"Future-effective accepted events must not close the opening right early.");
                 var data=await database.Read(c,t,observationIds:[],referenceScope:ReferenceReadScope.TradeValuation,observationScope:ObservationReadScope.ExactPins);
-                return await FuturesOptionKnownHistoryStore.Read(c,database,data,frame,context,position,t);
+                var known=await FuturesOptionKnownHistoryStore.Read(c,database,data,frame,context,position,t);
+                var snapshot=data.Snapshot(frame).WithKnowledge(source.ContextId,SchedulePreview.ParseAt(context.KnownAt));
+                foreach(var causal in known.Events.Where(e=>e.Future is not null))
+                {
+                    var child=await FuturesKnownHistoryStore.ReadLinkedFuture(c,database,data,frame,snapshot,causal,t);
+                    Require(child.Owner.TradeId==causal.Future!.Trade.Id&&child.Terms.Policy.Id==causal.Future.MarginPolicy.Id,
+                        "Source-only future history must retain the exact already-booked child and adopted policy.");
+                }
+                var original=known.Events.First();
+                async Task Refuse(Func<Task> read)
+                {
+                    await using(var save=ScheduleStore.Command(c,"SAVEPOINT forged_linked_source"))await save.ExecuteNonQueryAsync(t);
+                    try{await read();throw new Exception("A forged linked-future source was accepted.");}
+                    catch(PostgresException error)when(error.MessageText=="futures_known_history_context"){}
+                    catch(MarketDataException error)when(error.Code is "futures_known_history_context" or "futures_margin_state"){}
+                    finally
+                    {
+                        await using var restore=ScheduleStore.Command(c,"ROLLBACK TO SAVEPOINT forged_linked_source;RELEASE SAVEPOINT forged_linked_source");
+                        await restore.ExecuteNonQueryAsync(t);
+                    }
+                }
+                await Refuse(()=>FuturesKnownHistoryStore.ReadLinkedFuture(c,database,data,frame,snapshot,original with{EventId=Guid.NewGuid()},t));
+                await Refuse(()=>FuturesKnownHistoryStore.ReadLinkedFuture(c,database,data,frame with{ContextId=Guid.NewGuid()},snapshot,original,t));
+                var future=original.Future!;var held=future.Trade.Instruments.Single();var execution=FuturesExecution.Require(held);
+                var forged=FuturesExecution.Bind(held.Id,execution.MarketBinding,execution.Lots(held.Quantity)*ExactDecimal.Parse("2"),
+                    execution.ExecutionPrice,execution.ExecutedAt,FuturesSettlementState.Unprocessed,held.RetainedInstrumentId);
+                await Refuse(()=>FuturesKnownHistoryStore.ReadLinkedFuture(c,database,data,frame,snapshot,
+                    original with{Future=future with{Trade=new Trade(future.Trade.Id,future.Trade.BookId,[forged],future.Trade.Booking)}},t));
+                return known;
             },default);
             Require(history.Events.Length==2&&history.Events.All(e=>e.EffectiveAt>frame.At&&e.Future is not null)&&
                 history.Events.Select(e=>e.Future!.Trade.Id).Distinct().Count()==2,

@@ -373,11 +373,12 @@ END$$;
 -- including events that have not reached their business time at opening.
 CREATE FUNCTION lifecycle.read_option_known_history(catalog uuid,trade uuid,binding uuid,revision integer,context uuid,as_of timestamptz,business_date date)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE until_at timestamptz;source_until timestamptz;prefix integer;market_prefix integer;cut timestamptz;
+DECLARE until_at timestamptz;source_until timestamptz;prefix integer;market_prefix integer;cut timestamptz;scope security.request_contexts;
  r trading.futures_option_trade_revisions;c market_data.contracts;s ref_data.futures_option_series;underlying market_data.contracts;
  e record;source record;fr trading.trade_revisions;fm trading.futures_revision_markets;a settlement_data.futures_margin_adoptions;
  p settlement_data.futures_margin_policies;profile lifecycle.option_profiles;party record;known_at timestamptz;
- events jsonb='[]';linked jsonb;observation jsonb;terms jsonb;occurrences jsonb;items jsonb;
+ events jsonb='[]';linked jsonb;observation jsonb;terms jsonb;occurrences jsonb;items jsonb;event_value jsonb;
+ event_count bigint;occurrence_count bigint;native_bytes bigint;
  remaining numeric;previous_at timestamptz;result jsonb;BEGIN
  until_at=settlement_data.futures_margin_preview_authority(catalog);
  SELECT q.business_source_until INTO source_until FROM security.request_contexts q WHERE q.backend_pid=pg_backend_pid()
@@ -385,6 +386,14 @@ DECLARE until_at timestamptz;source_until timestamptz;prefix integer;market_pref
  AND(q.business_source_catalog_id,q.business_source_context_id,q.business_source_as_of,q.business_source_on)=(catalog,context,as_of,business_date);
  IF source_until IS NULL THEN RAISE EXCEPTION 'trading_source_denied' USING ERRCODE='42501';END IF;
  PERFORM security.require_admitted_business_source(catalog,context,as_of,business_date,source_until);
+ SELECT * INTO STRICT scope FROM security.request_contexts t WHERE t.backend_pid=pg_backend_pid()
+ AND t.transaction_id=pg_current_xact_id_if_assigned() AND t.runtime_login=session_user;
+ IF scope.market_context_id IS NULL THEN PERFORM security.use_market_context(catalog,context);
+ ELSIF(scope.market_catalog_id,scope.market_context_id) IS DISTINCT FROM(catalog,context)
+ THEN RAISE EXCEPTION 'lifecycle_option_source';END IF;
+ IF scope.trading_as_of IS NOT NULL AND(scope.trading_as_of,scope.trading_business_date) IS DISTINCT FROM(as_of,business_date)
+ THEN RAISE EXCEPTION 'lifecycle_option_source';END IF;
+ IF scope.trading_as_of IS NULL THEN PERFORM security.use_trading_context(catalog,as_of,business_date);END IF;
  SELECT x.known_through,m.known_through,t.known_at INTO prefix,market_prefix,cut FROM market_data.temporal_contexts t
  JOIN trading.contexts x ON(x.catalog_id,x.context_id)=(t.catalog_id,t.id)
  JOIN market_data.market_contexts m ON(m.catalog_id,m.context_id)=(t.catalog_id,t.id)
@@ -403,6 +412,19 @@ DECLARE until_at timestamptz;source_until timestamptz;prefix integer;market_pref
  WHERE(me.catalog_id,me.revision_id)=(catalog,r.definition_revision_id) AND me.observation_id IS NULL
  AND me.event_order<=market_prefix AND mk.known_from<=cut AND v.effective_from<=business_date AND business_date<v.effective_to)
  THEN RAISE EXCEPTION 'lifecycle_option_source';END IF;
+ -- Complete-source work bounds precede schedule/array construction. A large
+ -- scope is refused as a whole; neither accepted events nor policy rows vanish.
+ SELECT count(DISTINCT budget_event.id),coalesce(sum(budget_policy.occurrence_count),0) INTO event_count,occurrence_count
+ FROM trading.futures_option_events budget_event LEFT JOIN settlement_data.futures_margin_adoptions budget_adoption
+  ON(budget_adoption.catalog_id,budget_adoption.trade_id)=(budget_event.catalog_id,budget_event.futures_trade_id)
+ LEFT JOIN settlement_data.futures_margin_policies budget_policy
+  ON(budget_policy.catalog_id,budget_policy.id,budget_policy.revision)=(budget_adoption.catalog_id,budget_adoption.policy_id,budget_adoption.policy_revision)
+ WHERE(budget_event.catalog_id,budget_event.trade_id)=(catalog,trade) AND budget_event.publication_order<=prefix;
+ IF event_count>4096 OR occurrence_count>65536 THEN RAISE EXCEPTION 'lifecycle_option_source_capacity'
+  USING DETAIL='known_futures_option_events_v1 permits at most 4096 events and 65536 repeated policy occurrences.';END IF;
+ result=jsonb_build_object('stateProfile','known_futures_option_events_v1','contextId',context,'knownAt',cut,'asOf',as_of,'businessDate',business_date,
+  'origin',to_jsonb(r),'referenceCatalogId',c.reference_catalog_id,'referenceRevisionId',c.reference_revision_id,'seriesCode',s.code);
+ native_bytes=octet_length(result::text)+16;
  remaining=abs(r.lots);previous_at=r.execution_at;
  FOR e IN SELECT t.*,k.known_from known_at FROM trading.futures_option_events t
  LEFT JOIN trading.knowledge_receipts k ON(k.catalog_id,k.publication_order)=(t.catalog_id,t.publication_order)
@@ -457,12 +479,16 @@ DECLARE until_at timestamptz;source_until timestamptz;prefix integer;market_pref
    terms=to_jsonb(fr)||to_jsonb(fm)||to_jsonb(party)||jsonb_build_object('side_id',fm.market_binding_id,'effective_at',fr.execution_at);
    linked=jsonb_build_object('revision',terms,'adoption',to_jsonb(a),'known_at',known_at,'policy',to_jsonb(p),'occurrences',occurrences);
   END IF;
-  events=events||jsonb_build_array(to_jsonb(e)||jsonb_build_object('settlement_source',observation,'settlement_known_at',observation->'source_known',
-   'settlement_quote_code',observation->'quote_code','future',linked));
+  event_value=(to_jsonb(e)-'request')||jsonb_build_object('settlement_source',observation,'settlement_known_at',observation->'source_known',
+   'settlement_quote_code',observation->'quote_code','future',linked);
+  native_bytes=native_bytes+octet_length(event_value::text)+2;
+  IF native_bytes>16777216 THEN RAISE EXCEPTION 'lifecycle_option_source_capacity'
+   USING DETAIL='known_futures_option_events_v1 permits at most 16 MiB of complete native source JSON.';END IF;
+  events=events||jsonb_build_array(event_value);
  END LOOP;
- result=jsonb_build_object('stateProfile','known_futures_option_events_v1','contextId',context,'knownAt',cut,'asOf',as_of,'businessDate',business_date,
-  'origin',to_jsonb(r),'referenceCatalogId',c.reference_catalog_id,'referenceRevisionId',c.reference_revision_id,'seriesCode',s.code,'events',events);
- PERFORM lifecycle.require_option_origin(catalog,trade,r.revision,until_at);RETURN result;
+ result=result||jsonb_build_object('events',events);
+ PERFORM lifecycle.require_option_origin(catalog,trade,r.revision,until_at);
+ PERFORM security.require_admitted_business_source(catalog,context,as_of,business_date,source_until);RETURN result;
 END$$;
 DO $functions$DECLARE f regprocedure;BEGIN
  FOR f IN SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='lifecycle' LOOP

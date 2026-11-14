@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import time
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 from check_reference_editing import main
@@ -150,6 +151,41 @@ def checks(query,manifest):
                            '--lifecycle-actions-native',str(path)],cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=90)
     if checked.returncode:raise RuntimeError(checked.stdout+checked.stderr)
     print(checked.stdout.strip(),flush=True)
+    private_reference,private_definition=str(uuid4()),str(uuid4())
+    query(f"INSERT INTO ref_data.revisions(catalog_id,id,revision_key) VALUES('{manifest['referenceCatalogId']}','{private_reference}','private_option_source');"
+          f"UPDATE ref_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{manifest['referenceCatalogId']}','{private_reference}');"
+          f"INSERT INTO market_data.revisions VALUES('{catalog}','{private_definition}','{manifest['referenceCatalogId']}','{private_reference}','draft',0);"
+          f"INSERT INTO market_data.revision_periods VALUES('{catalog}','{private_definition}','2027-02-01','2028-01-01');"
+          f"UPDATE market_data.revisions SET state='sealed' WHERE(catalog_id,id)=('{catalog}','{private_definition}');")
+    historical=capture()
+    assert call(f"SELECT security.reference_version_visible('{manifest['referenceCatalogId']}','{private_reference}');")=='t'
+    bound=call(f"SELECT security.admit_trading_business_source('{catalog}','{historical}','2026-10-16T15:00:00Z','2026-10-16');"
+               f"SELECT jsonb_array_length(lifecycle.read_option_known_history('{catalog}','{booked['tradeId']}','{booked['optionInstrumentId']}',1,'{historical}','2026-10-16T15:00:00Z','2026-10-16')->'events');"
+               f"SELECT security.reference_version_visible('{manifest['referenceCatalogId']}','{private_reference}');")
+    assert bound.splitlines()[-2:]==['2','f'],'An unbound option source reader retained current private reference visibility: '+bound
+    other=call(f"SELECT security.capture_date_context('{catalog}','2026-11-03',NULL);")
+    reject(f"SELECT security.admit_trading_business_source('{catalog}','{historical}','2026-10-16T15:00:00Z','2026-10-16');"
+           f"SELECT security.use_market_context('{catalog}','{other}');SELECT security.use_trading_context('{catalog}','2026-11-03T16:00:00Z','2026-11-03'::date);"
+           f"SELECT lifecycle.read_option_known_history('{catalog}','{booked['tradeId']}','{booked['optionInstrumentId']}',1,'{historical}','2026-10-16T15:00:00Z','2026-10-16');",'lifecycle_option_source')
+    # Several valid future adoptions can share a large closed schedule. The
+    # source must refuse complete work that exceeds its row/byte contract.
+    first_daily=datetime(2026,10,15,tzinfo=timezone.utc)
+    occurrences=[dict(id=str(uuid4()),at=(first_daily+timedelta(microseconds=i)).isoformat().replace('+00:00','Z'),
+                      dueAt=(first_daily+timedelta(microseconds=i)).isoformat().replace('+00:00','Z'),phase='daily') for i in range(16383)]
+    large={**margin,'id':str(uuid4()),'occurrences':occurrences+margin['occurrences']}
+    call(f"SELECT settlement_data.save_futures_margin_policy('{catalog}',{lit({**save,'operationId':str(uuid4()),'policy':large})});",'editor')
+    budget=json.loads(call(f"SELECT security.book_futures_option('{catalog}','{uuid4()}','{book}','{manifest['revisionId']}','{series}',5,0.1,'2026-10-19','premium_paid_up_front','2026-10-16T14:00:00Z',NULL,'futures_option_premium_v1',NULL,NULL,NULL,{lit(parties)})::text;"))
+    call(f"SELECT lifecycle.save_option_profile('{catalog}',{lit({**profile,'operationId':str(uuid4()),'tradeId':budget['tradeId'],'marginPolicyId':large['id']})});")
+    for version in range(5):
+        partial={**request,'operationId':str(uuid4()),'context':{**request['context'],'contextId':capture()},
+                 'target':{**request['target'],'scopeId':budget['tradeId'],'bindingId':budget['optionInstrumentId']},
+                 'selection':dict(evidenceId=str(uuid4()),lots='1',expectedEventVersion=version,profileRevision=1)}
+        partial['previewHash']=json.loads(call(f"SELECT lifecycle.option_proposal('{catalog}',{lit(partial)})::text;"))['hash']
+        call(f"SELECT lifecycle.execute_option_action('{catalog}',{lit(partial)});")
+        if version>=3:
+            selected=capture()
+            reject(f"SELECT security.admit_trading_business_source('{catalog}','{selected}','2026-10-16T15:00:00Z','2026-10-16');"
+                   f"SELECT jsonb_array_length(lifecycle.read_option_known_history('{catalog}','{budget['tradeId']}','{budget['optionInstrumentId']}',1,'{selected}','2026-10-16T15:00:00Z','2026-10-16')->'events');",'lifecycle_option_source_capacity')
     print('PASS explicit lifecycle policies: reviewed scope, native option economics, stable evidence retry and atomic generated-future margin adoption',flush=True)
 
 

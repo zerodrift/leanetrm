@@ -88,6 +88,13 @@ source read registers its original deadline and exact origin reference guard
 before source admission; hypothetical futures margin is a separate projection
 state.
 
+Native option history binds an unbound read to the exact admitted market and
+trading source, rejects a conflicting bound source, and rechecks the original
+source admission before returning. The complete-source profile permits at most
+4,096 events, 65,536 repeated policy occurrences and 16 MiB of native source
+JSON. It refuses an oversized complete scope rather than omitting events or
+policy rows.
+
 Option operation status can recover an actor's previously accepted booking or
 event. It takes the native publication fence before reporting an absent outcome,
 then rechecks current authority and the exact retained references. It dispatches
