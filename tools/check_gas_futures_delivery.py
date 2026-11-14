@@ -34,8 +34,8 @@ def upgrade_checks(query,migration):
         check_guard(query,migration.read_text(),migration.name[:4],guard,changes)
 
 
-def checks(query, manifest):
-    physical_checks(query, manifest)
+def checks(query, manifest, *, carrying='currency_curve_v1'):
+    physical_checks(query, manifest,carrying=carrying)
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
     issuer = manifest['identityIssuer']
     def literal(value): return "'" + json.dumps(value).replace("'", "''") + "'::jsonb"

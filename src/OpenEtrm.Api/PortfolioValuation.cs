@@ -333,10 +333,10 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         else if(await GasOwnedPortfolio.RequireScope(connection,database,frame,bookIds,policy.GasOwned is not null,ct))
         {
             ownedGas=await GasOwnedHoldings.Read(connection,database,frame,snapshot,bookIds,ct,
-                MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null);
+                MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,policy.GasOwned);
             foreach(var market in await GasOwnedPortfolio.Prepare(connection,database,ownedGas,policy.GasOwned!,ct))
             {
-                materialized.Add(new(market.Data,market.Frame,market.Snapshot,market.Portfolio,GasOwnedPortfolio.Measure));
+                materialized.Add(new(market.Data,market.Frame,market.Snapshot,market.Portfolio,market.Measure));
                 evidence.AddRange(market.Evidence);instantDiscounts.AddRange(market.DiscountInputs);
             }
         }

@@ -528,7 +528,7 @@ Retired title has no quantity effect; original cash, offsetting claims and
 recorded payments survive under the verified sealed principal history.
 An already-due claim activates unpaid at its actual later origin; a payment is
 never moved backward. Principal carrying is an explicit supplied input. Native
-source assembly, selected ordinary principal-carrying policy, initially active
+source assembly, initially active
 delivery obligations, connected multiple-parent composition and complete worker
 replay remain qualification gates. This bounded pure wrapper admits one exact
 future parent and refuses another physical parent in its quantity component.
@@ -537,5 +537,28 @@ Ordinary cash valuation can retain a carrying provider per exact held owner and
 binding when memberships share one currency/due instrument. Its scope and
 discount-input reuse fence stay separate; position subsets retain only their
 selected inputs. An absent binding selection preserves existing shared-provider
-behavior. Native saved-profile selection and worker qualification remain separate
-gates for this calculation capability.
+behavior.
+
+The explicitly selected `gas_owned_mark_to_market_v2` policy requires
+`saved_delivery_profile_principal_carrying_v1`. Its native source reader enriches
+only already-authorized principal memberships through their immutable obligation,
+profile and account foreign keys. The selected profile must be known at the
+original source cutoff; the read retains its original authority deadline.
+Nominal principal uses an explicitly undiscounted factor of one. Curve-carried
+principal uses the captured currency curve of its retained delivery market.
+Fees and other cash keep their existing currency-default treatment. The ordinary
+measure is named `gas_owned_saved_profile_present_value_v2`; the prior v1 policy,
+wire and measure retain their existing semantics.
+
+The economic source assembler preserves the selected binding provider, including
+nominal principal without demanding an unused residual rate curve. Portfolio-wide
+cash accumulation remains a separate explicit selection. Native qualification
+covers nominal and curve principal, surviving payments, source-lineage refusals
+and the backend policy choice. Nominal native holdings also value unchanged with
+all rate observations removed from their selected source. Residual demand follows
+each cash membership's recorded net state at the opening and horizon, including
+known refunds. Offsetting flows do not create an artificial residual rate need;
+their separate actual cash amounts retain the selected accumulation treatment.
+Complete accepted physical activation, connected
+multiple-parent composition and actual full-wealth worker replay remain delivery
+gates.

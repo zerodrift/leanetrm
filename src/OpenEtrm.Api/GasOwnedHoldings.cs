@@ -17,11 +17,14 @@ internal sealed record GasOwnedPosition(AccountingPositionKey Position,Guid Acco
 internal sealed record GasOwnedCashPosition(AccountingPositionKey Position,Guid AccountId,Guid? LoanId,TimedCashPayment Instrument,
     Quantity Quantity,RecordedCashValuation State)
 {internal Guid DefinitionRevisionId{get;init;} internal int PublicationOrder{get;init;}
+ internal GasPrincipalCarrying? PrincipalCarrying{get;init;}
  internal string AccountCode{get;init;}="";internal string SourceReference{get;init;}="";}
+internal sealed record GasPrincipalCarrying(Guid ProfileId,int ProfileRevision,Guid TermsId,Guid PositionId,Guid AccountId,
+    CurveRequest Mark,ReferenceKey Currency,DateTimeOffset DueAt,GasHoldingCarrying Carrying,int PublicationOrder,DateTimeOffset KnownAt);
 internal sealed record GasOwnedPortfolioRead(Guid ContextId,DateTimeOffset At,DateTimeOffset KnownAt,
     ImmutableArray<GasOwnedPosition> Positions,ImmutableArray<GasOwnedCashPosition> Fees,
     ImmutableDictionary<Guid,GasOwnedMarket> Markets,ImmutableDictionary<MeasureBinding,BindingAccountingFacts> AccountingFacts)
-{internal ImmutableArray<GasOwnedCashPosition> Principal{get;init;}=[];}
+{internal ImmutableArray<GasOwnedCashPosition> Principal{get;init;}=[];internal string? PrincipalCarryingImplementation{get;init;}}
 
 // Inventory is captured by its independent owner/book, never by whether a
 // source purchase or loan trade remains in the requested trade population.
@@ -29,18 +32,23 @@ internal static class GasOwnedHoldings
 {
     internal static async Task<GasOwnedPortfolioRead> Read(NpgsqlConnection connection,PreviewDatabase database,
         InputFrame frame,MarketSnapshot snapshot,ImmutableArray<Guid> bookIds,CancellationToken ct,
-        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplied=default,bool requirePinnedSources=false)
+        ImmutableArray<(PreviewData Data,InputFrame Frame)> supplied=default,bool requirePinnedSources=false,GasOwnedValuationPolicy? policy=null)
     {
         if(frame.ContextId is not {} context||snapshot.Knowledge?.ContextId!=context||snapshot.ValuationAt!=frame.At||bookIds.IsDefault)
             throw Error("Select exact certified gas-owned holdings, an explicit book scope and their source frame.");
         var catalog=database.Manifest.CatalogId;
-        await using var command=ScheduleStore.Command(connection,"SELECT security.read_gas_owned_holdings($1,$2,$3,$4::uuid[])::text",catalog,context,frame.At,bookIds.ToArray());
+        policy?.Validate();var savedPrincipal=policy?.PrincipalCarrying==GasOwnedValuationPolicy.SavedPrincipal;
+        await using var command=ScheduleStore.Command(connection,savedPrincipal?
+            "SELECT security.read_gas_owned_profile_holdings($1,$2,$3,$4::uuid[])::text":
+            "SELECT security.read_gas_owned_holdings($1,$2,$3,$4::uuid[])::text",catalog,context,frame.At,bookIds.ToArray());
         var envelope=JsonSerializer.Deserialize<JsonElement>((string)(await command.ExecuteScalarAsync(ct))!);
         if(envelope.Id("contextId")!=context||envelope.Instant("knownAt")!=snapshot.Knowledge.KnownAt||envelope.Instant("asOf")!=frame.At||
             DateWorkspace.Date(envelope.Text("effectiveOn"))!=frame.BusinessDate)
             throw Error("The gas-owned read must retain the exact business and knowledge coordinates.");
         var admission=new GasOwnedSourceReadAdmission(catalog,context,frame.At,envelope.Instant("authorityUntil"));
         database.RegisterCommitAdmission(connection,admission);
+        if(savedPrincipal&&envelope.OptionalText("principalCarryingImplementation")!=GasOwnedValuationPolicy.SavedPrincipal)
+            throw Error("The principal source must attest its exact selected saved-profile carrying projection.");
         GasOwnedAppliedSources.RequireClear(await GasOwnedAppliedSources.Read(connection,database,frame,snapshot,bookIds,ct),frame.At);
         var root=await MarketInputSelection.Root(database,connection,frame,ct);
         var available=supplied.IsDefault?ImmutableArray.Create((Data:root,Frame:frame)):supplied;
@@ -97,11 +105,28 @@ internal static class GasOwnedHoldings
             var state=new RecordedCashValuation(position,instrument,quantity,flows,RecordedCashValuation.Policy,context,snapshot.Knowledge.KnownAt);
             (entry.Principal?principal:fees).Add(new(position,row.Id("account_id"),entry.Principal?null:row.OptionalId("loan_id"),instrument,quantity,state)
                 {DefinitionRevisionId=row.Id("definition_revision_id"),PublicationOrder=Integer(row,"publication_order"),
+                    PrincipalCarrying=entry.Principal&&savedPrincipal?Principal(row):null,
                     AccountCode=row.Text("account_code"),SourceReference=BusinessReference(row)});
             accounting.Add(new(position.Owner,position.BindingId),new(position,context,snapshot.Knowledge.KnownAt,flows));
         }
         await admission.RequireCommit(connection,ct);
-        return new(context,frame.At,snapshot.Knowledge.KnownAt,positions.ToImmutable(),fees.ToImmutable(),markets.ToImmutable(),accounting.ToImmutable()){Principal=principal.ToImmutable()};
+        return new(context,frame.At,snapshot.Knowledge.KnownAt,positions.ToImmutable(),fees.ToImmutable(),markets.ToImmutable(),accounting.ToImmutable())
+            {Principal=principal.ToImmutable(),PrincipalCarryingImplementation=savedPrincipal?GasOwnedValuationPolicy.SavedPrincipal:null};
+        GasPrincipalCarrying Principal(JsonElement row)
+        {
+            var p=row.GetProperty("principalCarrying");var reference=new ReferenceRevision(p.Id("referenceCatalogId"),p.Id("referenceRevisionId"));
+            var definition=new DefinitionRevision(catalog,p.Id("definitionRevisionId"));var known=p.Instant("knownAt");
+            var carrying=p.Text("carrying") switch{"nominal_mark_v1"=>GasHoldingCarrying.Nominal,"currency_curve_v1"=>GasHoldingCarrying.CurrencyCurve,
+                _=>throw Error("Select an explicit supported saved principal carrying law.")};
+            if(p.Text("implementation")!=GasOwnedValuationPolicy.SavedPrincipal||p.Id("profileId")==Guid.Empty||Integer(p,"profileRevision")<1||
+                p.Id("termsId")==Guid.Empty||p.Id("positionId")!=row.Id("position_id")||p.Id("accountId")!=row.Id("account_id")||
+                definition.RevisionId!=row.Id("definition_revision_id")||p.Id("markContractId")==Guid.Empty||string.IsNullOrWhiteSpace(p.Text("markCurve"))||
+                reference!=new ReferenceRevision(row.Id("reference_catalog_id"),row.Id("reference_revision_id"))||p.Text("currency")!=row.Text("currency_code")||
+                p.Instant("dueAt")!=row.Instant("due_at")||Integer(p,"publicationOrder")<1||known>snapshot.Knowledge.KnownAt)
+                throw Error("Retain the exact native principal, immutable saved profile and original certified knowledge cutoff.");
+            return new(p.Id("profileId"),Integer(p,"profileRevision"),p.Id("termsId"),p.Id("positionId"),p.Id("accountId"),
+                new(new(definition,p.Text("markCurve")),new(definition,p.Id("markContractId"))),new(reference,p.Text("currency")),p.Instant("dueAt"),carrying,Integer(p,"publicationOrder"),known);
+        }
     }
     private static int Integer(JsonElement row,string field)=>int.Parse(row.Text(field),CultureInfo.InvariantCulture);
     private static string BusinessReference(JsonElement row)=>row.OptionalText("origin_trade_reference") is {} reference?

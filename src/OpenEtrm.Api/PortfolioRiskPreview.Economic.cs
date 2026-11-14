@@ -42,15 +42,17 @@ public sealed partial class PortfolioRiskPreview
             NativeFutures=new(FuturesMarginValuationPolicy.CurrencyDefault,RateDiscountTiming.Version)};
         var pricing=new List<object>{new{value="native_trades",label="Native futures, options and swap holdings",policy=native}};
         if(request.TradeIds is null&&await PreviewDatabase.HasPermission(connection,"ReadGasOwnedHoldings",ct))
-            pricing.Add(new{value="native_whole_books",label="All book holdings, including independently owned gas",policy=native with{
+        {
+            pricing.Add(new{value="native_whole_books",label="All book holdings · currency-discounted cash",policy=native with{
                 GasOwned=new(GasOwnedValuationPolicy.Version,GasOwnedValuationPolicy.WholeBooks,GasOwnedValuationPolicy.CurrencyDefault,RateDiscountTiming.Version)}});
+            pricing.Add(new{value="native_whole_books_saved_principal",label="All book holdings · delivery principal follows its saved profile",policy=native with{
+                GasOwned=new(GasOwnedValuationPolicy.ProfileVersion,GasOwnedValuationPolicy.WholeBooks,GasOwnedValuationPolicy.CurrencyDefault,RateDiscountTiming.Version)
+                    {PrincipalCarrying=GasOwnedValuationPolicy.SavedPrincipal}}});
+        }
         object Choice(string value,string label)=>new{value,label};
         return new{context,asOf=frame.At,convention=Convention,numericalPolicy=RiskEngine.ExactNumericalPolicy,engineVersion=RiskJobs.EngineVersion,
             sessions=sessions.GetProperty("sessions"),pricing,gasAccounts=gasChoices.Select(a=>new{a.AccountId,a.Code,a.BookId,a.Book,a.EffectiveAt,
-                profiles=a.Profiles.Select(p=>new{p.ProfileId,p.Revision,p.Implementation,p.QuantityDisposition,p.EffectiveAt,label=p.QuantityDisposition switch{
-                    GasQuantityProjectionPolicy.Retain=>"Retain quantity obligations",
-                    GasQuantityProjectionPolicy.AtDue=>"Perform configured contractual quantities when due",
-                    _=>throw new MarketDataException("gas_projection_policy","This saved quantity profile has no qualified economic presentation contract.")}})}),
+                profiles=a.Profiles.Select(p=>new{p.ProfileId,p.Revision,p.Implementation,p.QuantityDisposition,p.EffectiveAt,label=GasProfileLabel(p.Implementation,p.QuantityDisposition)})}),
             projection=new{implementation=PortfolioEconomicProjectionRequest.Version2,cashFunding=true,horizonPolicy=PortfolioEconomicProjectionRequest.SourceKnownSchedule,
                 rateTimingPolicy=RateDiscountTiming.Version,eventMarketPolicy=PortfolioEconomicProjectionRequest.SelectedContractMarkets,
                 policy=new{implementation=LifecycleProjectionPolicy.Version,numericalPolicy=LifecycleProjectionPolicy.Numerics,nonPriceInputs=LifecycleProjectionPolicy.HeldNonPrice},
@@ -64,11 +66,21 @@ public sealed partial class PortfolioRiskPreview
             risk=new{quantilePolicy=HistoricalRiskPolicy.Quantile,tailPolicy=HistoricalRiskPolicy.Tail,
                 methods=new[]{new{value=LifecycleEconomicRiskPolicy.Historical,label="Historical market moves",history=true,simulation=false},
                     new{value=LifecycleEconomicRiskPolicy.MonteCarlo,label="Monte Carlo market moves",history=true,simulation=true},
-                    new{value=LifecycleEconomicRiskPolicy.Deterministic,label="No variable factors · exact time carry",history=false,simulation=false}},
+                    new{value=LifecycleEconomicRiskPolicy.Deterministic,label="No variable market factors · complete lifecycle revaluation",history=false,simulation=false}},
                 simulation=MonteCarloProfile(MonteCarloRiskPolicy.Economic,MonteCarloRiskPolicy.EconomicValuation,MonteCarloRiskPolicy.Uncertainty),
                 drifts=new[]{Choice(ParametricRiskPolicy.Zero,"Zero mean market move"),Choice(ParametricRiskPolicy.Mean,"Historical sample mean")},
                 limits=new{maxPaths=MonteCarloRisk.MaximumPaths,maxFactors=MonteCarloRisk.MaximumFactors,maxShockValues=MonteCarloRisk.MaximumShockValues}},
             scope=request with{Context=new(frame.Id,TradingBlotter.Convention,"retained",contextId),BookIds=books,PortfolioIds=[]}};
+        static string GasProfileLabel(string implementation,string disposition)
+        {
+            var label=disposition switch{GasQuantityProjectionPolicy.Retain=>"Retain quantity obligations",
+                GasQuantityProjectionPolicy.AtDue=>"Perform configured contractual quantities when due",
+                _=>throw new MarketDataException("gas_projection_policy","This saved quantity profile has no qualified economic presentation contract.")};
+            return implementation switch{GasQuantityProjectionPolicy.Version=>label,
+                GasCashoutProjectionTerms.Version=>label+" · project configured operator cashouts",
+                GasQuantityProjectionPolicy.KnownVersion=>label+" · apply accepted quantity events",
+                _=>throw new MarketDataException("gas_projection_policy","This saved gas projection implementation has no qualified economic presentation contract.")};
+        }
     }
 
     private async Task<(PreparedLifecyclePortfolio Economic,ImmutableArray<Guid> Books,ImmutableArray<JsonElement> Directory)> PrepareEconomicSource(

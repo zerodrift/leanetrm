@@ -42,15 +42,15 @@ internal static partial class LifecyclePortfolioProjection
         var sources=ImmutableArray.CreateBuilder<LifecycleSourceComponents>();
         var productEvidence=ImmutableArray.CreateBuilder<JsonElement>();var receipts=ImmutableArray.CreateBuilder<FuturesOptionCalibrationReceipt>();
         var additionalOwners=ImmutableArray.CreateBuilder<LifecycleEconomicOwnerDescription>();
+        var nativePrincipal=opening.OwnedGas?.Principal??[];
+        var nominalPrincipal=opening.Policy.GasOwned?.PrincipalCarrying==GasOwnedValuationPolicy.SavedPrincipal?
+            nativePrincipal.Where(p=>p.PrincipalCarrying?.Carrying==GasHoldingCarrying.Nominal)
+                .Select(p=>new MeasureBinding(p.Position.Owner,p.Position.BindingId)).ToHashSet():[];
         foreach(var group in opening.Sources.GroupBy(s=>s.Snapshot.Definitions).OrderBy(g=>g.Key.RevisionId))
         {
             var first=group.First();
             if(group.Any(s=>!s.Snapshot.HasSameInputs(first.Snapshot)))throw Error("projection_source","A market partition requires one exact source certificate and input selection.");
-            var currencies=group.SelectMany(s=>s.Portfolio.Instruments).Where(i=>request.Implementation==PortfolioEconomicProjectionRequest.Version&&request.Policy.CashAccumulation==LifecycleProjectionPolicy.Accumulated||i switch{
-                FinancialSwapInstrument swap=>swap.Discounting,MonthlyFinancialSwap swap=>swap.Discounting,ScheduledFinancialSwap swap=>swap.Discounting,
-                CrossCommodityScheduledSwap swap=>swap.Discounting,CashPaymentInstrument cash=>cash.PaymentAt>first.Snapshot.ValuationAt,
-                GasCommodityHoldingInstrument gas=>gas.Carrying==GasHoldingCarrying.CurrencyCurve&&gas.ReturnAt>first.Snapshot.ValuationAt,
-                _=>true}).Select(i=>i.Currency).Distinct().ToArray();
+            var currencies=ResidualCurrencies([..group],request,horizon.Horizon.Closes.First(c=>c.Instant>first.Snapshot.ValuationAt).Instant,nominalPrincipal);
             var curves=ImmutableDictionary.CreateBuilder<ReferenceKey,ISideDiscounting>();
             foreach(var currency in currencies)
             {
@@ -94,7 +94,7 @@ internal static partial class LifecyclePortfolioProjection
                                 throw Error("projection_cash_state","Every native cash membership requires its complete recorded payment history.");
                             // The cash instrument's declared due treatment is
                             // nominal after due; no unused rate curve is read.
-                            components.Add(new CashLifecycleProjection(owner,cash,paid,curves.GetValueOrDefault(cash.Currency),source.Snapshot));
+                            components.Add(new CashLifecycleProjection(owner,cash,paid,setup.BindingDiscounting.GetValueOrDefault(key)??curves.GetValueOrDefault(cash.Currency),source.Snapshot));
                             break;
                         case FuturesContract:
                         {
@@ -274,6 +274,39 @@ internal static partial class LifecyclePortfolioProjection
     {
         await using var capture=ScheduleStore.Command(connection,"SELECT settlement_data.futures_margin_preview_authority($1)",catalog);
         return new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
+    }
+    internal static ImmutableArray<ReferenceKey> ResidualCurrencies(ImmutableArray<PortfolioProductSource> sources,
+        PortfolioEconomicProjectionRequest request,DateTimeOffset horizon,IReadOnlySet<MeasureBinding> nominalPrincipal)
+    {
+        if(request?.Policy is null||request.Implementation is not(PortfolioEconomicProjectionRequest.Version or PortfolioEconomicProjectionRequest.Version2))
+            throw Error("projection_policy","Select the exact supported residual carrying input contract.");
+        var legacy=request.Implementation==PortfolioEconomicProjectionRequest.Version;
+        return [..sources.SelectMany(s=>s.Portfolio.Instruments.Where(i=>Requires(s,i))).Select(i=>i.Currency).Distinct()];
+        bool Requires(PortfolioProductSource source,Instrument instrument)
+        {
+            if(legacy&&request.Policy.CashAccumulation==LifecycleProjectionPolicy.Accumulated)return true;
+            return instrument switch{
+                FinancialSwapInstrument swap=>swap.Discounting,MonthlyFinancialSwap swap=>swap.Discounting,ScheduledFinancialSwap swap=>swap.Discounting,
+                CrossCommodityScheduledSwap swap=>swap.Discounting,CashPaymentInstrument cash=>CashRequires(source,cash),
+                GasCommodityHoldingInstrument gas=>gas.Carrying==GasHoldingCarrying.CurrencyCurve&&gas.ReturnAt>source.Snapshot.ValuationAt,
+                GasPhysicalDeliveryObligationInstrument delivery=>legacy||!delivery.RequiredDiscounts(source.Snapshot.ValuationAt).IsEmpty,
+                _=>true};
+        }
+        bool CashRequires(PortfolioProductSource source,CashPaymentInstrument cash)
+        {
+            if(cash.PaymentAt<=source.Snapshot.ValuationAt)return false;
+            foreach(var position in source.Portfolio.Positions.Where(p=>p.ValuationId==cash.Id))
+            {
+                var key=new MeasureBinding(position.Owner,position.BindingId);
+                if(nominalPrincipal.Contains(key))continue;
+                if(legacy)return true;
+                if(source.Portfolio.Setup.BindingStates.GetValueOrDefault(key) is not RecordedCashValuation state)
+                    throw Error("projection_cash_state","Retain complete recorded cash state before selecting its residual carrying inputs.");
+                if(state.UnitOutstanding(source.Snapshot).Numerator!="0"||
+                    horizon<cash.PaymentAt&&state.UnitOutstanding(source.Snapshot,horizon).Numerator!="0")return true;
+            }
+            return false;
+        }
     }
     private sealed record ConfigurationAdmission(Guid Catalog,Guid Trade,string Kind,Guid? Profile,int Revision,Guid Context,
         DateTimeOffset At,DateOnly Day,DateTimeOffset Until):ICommitAdmission

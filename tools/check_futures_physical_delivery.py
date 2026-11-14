@@ -18,7 +18,7 @@ def fixture(root):
     return action_fixture(root,rate_inputs=[('2026-10-29',Decimal('0.04')),('2027-06-30',Decimal('0.045'))])
 
 
-def checks(query, manifest, *, configuration_checks=None):
+def checks(query, manifest, *, configuration_checks=None, carrying='currency_curve_v1'):
     catalog, tenant, workspace = (manifest[k] for k in ('catalogId', 'tenantId', 'workspaceId'))
     issuer = manifest['identityIssuer']
     query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
@@ -59,7 +59,7 @@ def checks(query, manifest, *, configuration_checks=None):
     call(f"SELECT lifecycle.save_policy('{catalog}',{literal(action_policy)});")
     profile=dict(id=str(uuid4()),name='Synthetic gas delivery',implementation='gas_future_physical_delivery_v1',definitionRevisionId=manifest['revisionId'],
         contractId=source['contract'],accountId=account,fromAt='2026-11-01T00:00:00Z',toAt='2026-12-01T00:00:00Z',cashDueAt='2026-12-02T12:00:00Z',
-        carrying='currency_curve_v1',principalIncrement='0.01',principalTie='to_even',principalScope='delivery_cumulative_principal_total_v1',
+        carrying=carrying,principalIncrement='0.01',principalTie='to_even',principalScope='delivery_cumulative_principal_total_v1',
         correctionDuePolicy='contractual_principal_due_v1',actionPolicyId=action_policy['policyId'],actionPolicyRevision=1)
     request=dict(operationId=str(uuid4()),expectedRevision=0,contextId=capture(),asOf='2026-10-16T16:00:00.000000Z',profile=profile)
     sql=lambda body:f"SELECT settlement_data.save_futures_delivery_profile('{catalog}',{literal(body)})::text;"
@@ -184,7 +184,7 @@ def checks(query, manifest, *, configuration_checks=None):
         selection=dict(expectedRevision=1,expectedMarginRevision=3,throughOccurrence=step['occurrenceId'],correctionDue=[]))
     path=Path(host)/'physical-final-check.json'
     path.write_text(json.dumps(dict(manifest=manifest,host=host,token=token,contextId=current,at=expiry,pins=pins,mark=mark,
-        markContract=mark_contract,tradeId=booked['tradeId'],positionId=link['position_id'],marginRequest=margin_request,profileRequest=dict(operationId=request['operationId'],
+        markContract=mark_contract,tradeId=booked['tradeId'],positionId=link['position_id'],carrying=carrying,marginRequest=margin_request,profileRequest=dict(operationId=request['operationId'],
             expectedRevision=0,context=dict(contextId=request['contextId'],asOf=request['asOf'],businessDate='2026-10-16',snapshotId=str(uuid4())),profile=profile))))
     path.chmod(0o600)
     result=subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks',

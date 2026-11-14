@@ -54,7 +54,8 @@ internal static class FuturesPhysicalDeliveryChecks
         if(value!=oracle)throw new Exception("Ordinary physical residual PV double-counted principal or lost quantity scaling.");
         var prepared=await GasOwnedPortfolio.Prepare(connection,database,held,new(GasOwnedValuationPolicy.Version,GasOwnedValuationPolicy.WholeBooks,
             GasOwnedValuationPolicy.CurrencyDefault,RateDiscountTiming.Version),default);
-        if(prepared.Length!=1||prepared.Single().Portfolio.Positions.Length!=1||prepared.Single().DiscountInputs.Length!=2)
+        var discountCount=fixture.OptionalText("carrying")=="nominal_mark_v1"?0:2;
+        if(prepared.Length!=1||prepared.Single().Portfolio.Positions.Length!=1||prepared.Single().DiscountInputs.Length!=discountCount)
             throw new Exception("The whole-book adapter must prepare both exact physical and principal carrying inputs once.");
         if(prepared.Single().Evidence.Any(e=>string.IsNullOrWhiteSpace(e.TradeReference)||!e.InstrumentReference.StartsWith("TR-",StringComparison.Ordinal)))
             throw new Exception("Native physical delivery labels must retain their saved account and exact causal future business reference.");
