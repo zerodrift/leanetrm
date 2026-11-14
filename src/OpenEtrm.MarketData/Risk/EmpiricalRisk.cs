@@ -19,9 +19,9 @@ internal static class EmpiricalRisk
             expectedSamples.Distinct(StringComparer.Ordinal).Count()!=expectedSamples.Length)
             throw Error("risk_historical_samples","Supply the exact captured history and all distinct common sample identities.");
         if(exposures.IsDefaultOrEmpty||exposures.Length>HistoricalRisk.MaximumExposures||exposures.Any(e=>e is null||!ValidId(e.Id)||
-            e.BookId==Guid.Empty||e.TradeId==Guid.Empty||e.BindingId==Guid.Empty||!ValidId(e.Measure))||
+            e.BookId==Guid.Empty||!e.Owner.Matches(e.TradeId)||e.BindingId==Guid.Empty||!ValidId(e.Measure))||
             exposures.Select(e=>e.Id).Distinct(StringComparer.Ordinal).Count()!=exposures.Length||
-            exposures.Select(e=>(e.BookId,e.TradeId,e.BindingId,e.Measure,e.Currency)).Distinct().Count()!=exposures.Length)
+            exposures.Select(e=>(e.BookId,e.Owner,e.BindingId,e.Measure,e.Currency)).Distinct().Count()!=exposures.Length)
             throw Error("risk_historical_exposures","Supply the complete distinct native position/measure/currency exposure set.");
         if((1L+expectedSamples.Length)*exposures.Length>HistoricalRisk.MaximumValues)
             throw Error("risk_scenario_capacity","The complete historical base/sample matrix exceeds 250000 native values.");
@@ -70,7 +70,8 @@ internal static class EmpiricalRisk
                     Text(Sum(sampleLoss.Select((loss,i)=>Bound(loss*esWeights[i])))));
             }
             var books=columns.GroupBy(c=>c.Exposure.BookId).OrderBy(g=>g.Key).Select(g=>Contribution(g.Key,[..g.Select(c=>c.Index)])).ToImmutableArray();
-            var trades=columns.GroupBy(c=>c.Exposure.TradeId).OrderBy(g=>g.Key).Select(g=>Contribution(g.Key,[..g.Select(c=>c.Index)])).ToImmutableArray();
+            var trades=columns.GroupBy(c=>c.Exposure.Owner).OrderBy(g=>g.Key.Kind).ThenBy(g=>g.Key.Id)
+                .Select(g=>Contribution(g.Key.Id,[..g.Select(c=>c.Index)]) with{Owner=g.Key}).ToImmutableArray();
             var basis=Sum(columns.Select(c=>bases[c.Index]));
             partitions.Add(new(group.Key.Measure,group.Key.Currency,Text(basis),Text(Sum(total)/ids.Length),Text(quantile),Text(es),Text(tailMass),ties,
                 books,trades,[..ids.Select((id,i)=>new HistoricalLoss(id,Text(Bound(basis-total[i])),Text(total[i]),Text(varWeights[i]),Text(esWeights[i])))],

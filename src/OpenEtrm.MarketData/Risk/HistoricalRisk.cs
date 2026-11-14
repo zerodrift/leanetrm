@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Numerics;
 using OpenEtrm.Shared.Numerics;
+using OpenEtrm.MarketData.Trading;
 
 namespace OpenEtrm.MarketData.Risk;
 
@@ -12,10 +13,17 @@ public sealed record HistoricalRiskPolicy(string Convention,string NumericalPoli
         Session=ParametricRiskPolicy.Session,Sampling="equal_weight_raw_joint_changes_v1",Quantile="empirical_inverse_cdf_v1",
         Tail="signed_upper_loss_fractional_mass_uniform_ties_v1",Valuation="current_instrument_pv_frozen_nonfactor_inputs_v1";
 }
-public sealed record HistoricalExposure(string Id,Guid BookId,Guid TradeId,Guid BindingId,string Measure,ReferenceKey Currency,string BaseValue);
+[method:System.Text.Json.Serialization.JsonConstructor]
+public sealed record HistoricalExposure(string Id,Guid BookId,Guid TradeId,Guid BindingId,string Measure,ReferenceKey Currency,string BaseValue)
+{
+    public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
+    public HistoricalExposure(string id,Guid bookId,AccountingOwnerKey owner,Guid bindingId,string measure,ReferenceKey currency,string baseValue)
+        :this(id,bookId,owner.TradeId,bindingId,measure,currency,baseValue){Owner=owner;}
+}
 public sealed record HistoricalScenarioValue(string ExposureId,string Value);
 public sealed record HistoricalObservation(string Id,ImmutableArray<HistoricalScenarioValue> Values);
-public sealed record HistoricalContribution(Guid Id,string BaseValue,string ValueAtRisk,string ExpectedShortfall);
+public sealed record HistoricalContribution(Guid Id,string BaseValue,string ValueAtRisk,string ExpectedShortfall)
+{public AccountingOwnerKey? Owner{get;init;}}
 public sealed record HistoricalLoss(string Id,string Value,string Loss,string VarWeight,string EsWeight);
 public sealed record HistoricalHistogramBin(string Lower,string Upper,int Count,string Probability);
 public sealed record HistoricalPartition(string Measure,ReferenceKey Currency,string BaseValue,string Mean,string ValueAtRisk,string ExpectedShortfall,

@@ -9,6 +9,7 @@ using Npgsql;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Calculation;
 using OpenEtrm.MarketData.Risk;
+using OpenEtrm.MarketData.Trading;
 using OpenEtrm.Shared.Numerics;
 
 namespace OpenEtrm.Api;
@@ -90,14 +91,20 @@ public sealed partial class PortfolioRiskPreview
         RiskValuationAdmission.Require(rows,nodes,checked(width*historicalScenarios+normalWidth*comparisonScenarios),history.Columns.Length,1);
     }
 
-    private readonly record struct HistoricalPositionKey(Guid BookId,Guid TradeId,Guid BindingId,string Measure,ReferenceKey Currency);
+    private readonly record struct HistoricalPositionKey(Guid BookId,AccountingOwnerKey Owner,Guid BindingId,string Measure,ReferenceKey Currency);
     private static HistoricalPositionKey[] HistoricalHoldings(PortfolioValuation.Prepared portfolio)=>
         portfolio.Markets.SelectMany(m=>m.Connected.Holdings.Select(p=>
-            new HistoricalPositionKey(p.BookId,p.TradeId,p.BindingId,m.Measures[p.Group],p.Currency))).ToArray();
+            new HistoricalPositionKey(p.BookId,p.Owner,p.BindingId,m.Measures[p.Group],p.Currency))).ToArray();
     private static HistoricalPositionKey HistoricalKey(string measure,ExactRiskPositionValue position)=>
-        new(position.BookId,position.TradeId,position.BindingId,measure,position.Value.Currency);
-    private static string HistoricalExposureId(HistoricalPositionKey key)=>
-        Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(key,RiskJobs.Json)));
+        new(position.BookId,position.Owner,position.BindingId,measure,position.Value.Currency);
+    private static string HistoricalExposureId(HistoricalPositionKey key)
+    {
+        // Retained trade-only reports keep their original exposure identity.
+        var bytes=key.Owner.Kind==AccountingOwnerKind.Trade?
+            JsonSerializer.SerializeToUtf8Bytes(new{key.BookId,TradeId=key.Owner.Id,key.BindingId,key.Measure,key.Currency},RiskJobs.Json):
+            JsonSerializer.SerializeToUtf8Bytes(key,RiskJobs.Json);
+        return Convert.ToHexStringLower(SHA256.HashData(bytes));
+    }
 
     // Only called after the complete frozen historical PV run succeeded. FD steps were admitted in Prepare.
     // Coverage, history, pricing identity and authority failures must never become optional-comparison unavailability.
@@ -151,14 +158,14 @@ public sealed partial class PortfolioRiskPreview
         if(basis.Length!=expected.Length||basis.Select(v=>v.Key).Distinct().Count()!=expected.Length||!basis.Select(v=>v.Key).ToHashSet().SetEquals(expected))
             throw new MarketDataException("risk_historical_exposures","The frozen base must account for every prepared native holding exactly once.");
         var bases=basis.ToDictionary(v=>v.Key,v=>v.Value.Value);
-        ImmutableArray<HistoricalExposure> exposures=[..basis.Select(v=>new HistoricalExposure(HistoricalExposureId(v.Key),v.Key.BookId,v.Key.TradeId,v.Key.BindingId,v.Key.Measure,v.Key.Currency,v.Value.Value.ToExactString()))
+        ImmutableArray<HistoricalExposure> exposures=[..basis.Select(v=>new HistoricalExposure(HistoricalExposureId(v.Key),v.Key.BookId,v.Key.Owner,v.Key.BindingId,v.Key.Measure,v.Key.Currency,v.Value.Value.ToExactString()))
             .OrderBy(e=>e.Id,StringComparer.Ordinal)];
         ImmutableArray<HistoricalObservation> observations=[..run.Samples.Select(sample=>
         {
             ct.ThrowIfCancellationRequested();
             var cells=sample.Positions.Select(v=>
             {
-                var p=v.Position;var key=new HistoricalPositionKey(p.BookId,p.TradeId,p.BindingId,v.Measure,p.Values.Base.Currency);
+                var p=v.Position;var key=new HistoricalPositionKey(p.BookId,p.Owner,p.BindingId,v.Measure,p.Values.Base.Currency);
                 if(!bases.TryGetValue(key,out var current)||current.ToExactString()!=p.Values.Base.ToExactString()||
                     p.Values.Value.Currency!=key.Currency||p.Values.Loss.ToExactString()!=current.Subtract(p.Values.Value).ToExactString())
                     throw new MarketDataException("risk_historical_exposures","A scenario changed its frozen base, native currency or complete position identity.");

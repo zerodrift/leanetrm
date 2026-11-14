@@ -82,15 +82,20 @@ public record UnitMoney(ExactMoney Money,ReferenceKey Quantity)
     public UnitMoney(Money money,ReferenceKey quantity):this(ExactMoney.FromMoney(money),quantity){}
 }
 public sealed record UnitValuation(UnitValuationContext Context,ExactMoney Money,ReferenceKey Quantity):UnitMoney(Money,Quantity);
+[method:System.Text.Json.Serialization.JsonConstructor]
 public sealed record RiskPosition(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,Quantity Quantity,UnitMoney UnitBasis,Money FixedBasis)
 {
+    public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
+    public RiskPosition(AccountingOwnerKey owner,Guid bindingId,Guid bookId,Guid valuationId,Quantity quantity,UnitMoney unitBasis,Money fixedBasis)
+        :this(owner.TradeId,bindingId,bookId,valuationId,quantity,unitBasis,fixedBasis){Owner=owner;}
     public DeliveryCoverage? Coverage{get;init;}
 }
 public sealed record DerivativeUnit(ReferenceKey Currency,PriceUnit Factor,int Order);
 public sealed record RiskDerivative(ExactDecimal Value,DerivativeUnit Unit);
 public sealed record RiskValues(Money Base,Money Up,Money Down,Money UpPnl,Money DownPnl,RiskDerivative Delta,RiskDerivative Gamma);
 public sealed record RiskPositionResult(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,
-    Money Base,Money Up,Money Down,Money UpPnl,Money DownPnl,RiskDerivative Delta,RiskDerivative Gamma);
+    Money Base,Money Up,Money Down,Money UpPnl,Money DownPnl,RiskDerivative Delta,RiskDerivative Gamma)
+{public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);}
 public sealed record RiskBookTotal(Guid BookId,ReferenceKey Currency,Money Base,Money Up,Money Down,Money UpPnl,Money DownPnl,RiskDerivative Delta,RiskDerivative Gamma);
 public sealed record ScenarioWork(int RebuiltCurveNodes,int ReusedCurveNodes,int UnitPricerCalls,int ReusedUnitValues);
 public sealed record RiskFactorResult(QuoteBump Bump,ImmutableArray<RiskPositionResult> Positions,
@@ -149,10 +154,12 @@ public sealed record ExactRiskBookTotal(Guid BookId,ExactDealRiskValues Values);
 // Components: the instrument's named parts of Value, which sum to it exactly; empty for an instrument without components.
 public sealed record ExactRiskPositionValue(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactMoney Value)
 {
+    public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
     public ImmutableArray<ValueComponent> Components{get;init;}=[];
 }
 public sealed record ExactRiskPositionResult(Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ExactDealRiskValues Values)
 {
+    public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
     public ImmutableArray<ComponentRiskValues> Components{get;init;}=[];
 }
 // One named component of a position under the base and the two scenarios of a bump.
@@ -200,7 +207,7 @@ public static partial class RiskEngine
         var instruments=portfolios.SelectMany(p=>p.Instruments).ToArray();
         var positions=portfolios.SelectMany(p=>p.Positions).ToArray();
         if(instruments.Select(i=>i.Id).Distinct().Count()!=instruments.Length||
-            positions.Select(p=>(p.TradeId,p.BindingId)).Distinct().Count()!=positions.Length)
+            positions.Select(p=>(p.Owner,p.BindingId)).Distinct().Count()!=positions.Length)
             throw Error("risk_contract","A shared operation must assign each unit instrument and trade binding to exactly one valuation group.");
         return portfolios.Select(p=>p.Declare(snapshot)).ToImmutableArray();
     }
@@ -382,7 +389,7 @@ public static partial class RiskEngine
             {
                 var value=WorkingValues(position.Values);
                 return new RiskPositionResult(position.TradeId,position.BindingId,position.BookId,position.ValuationId,
-                    value.Base,value.Up,value.Down,value.UpPnl,value.DownPnl,value.Delta,value.Gamma);
+                    value.Base,value.Up,value.Down,value.UpPnl,value.DownPnl,value.Delta,value.Gamma){Owner=position.Owner};
             }).ToImmutableArray(),factor.Totals.Select(total=>
             {
                 var value=WorkingValues(total.Values);

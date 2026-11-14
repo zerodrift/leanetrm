@@ -7,6 +7,7 @@ namespace OpenEtrm.MarketData.Trading;
 public sealed class RecordedCashValuation:ICashPaymentValuation
 {
     public Guid TradeId{get;}
+    public AccountingOwnerKey Owner=>Position.Owner;
     public Guid BindingId{get;}
     public Guid InstrumentId{get;}
     public Guid? BookId=>Position.BookId;
@@ -17,13 +18,25 @@ public sealed class RecordedCashValuation:ICashPaymentValuation
     public ImmutableArray<AccountingFlow> Allocations{get;}
     public const string Policy=PaymentSideState.Policy;
     public RecordedCashValuation(Trade trade,Guid binding,ImmutableArray<AccountingFlow> allocations,string policy,Guid sourceContextId,DateTimeOffset knownThrough)
+        :this(Resolve(trade,binding),allocations,policy,sourceContextId,knownThrough){}
+    private RecordedCashValuation((AccountingPositionKey Position,Instrument Instrument,Quantity Quantity) holding,
+        ImmutableArray<AccountingFlow> allocations,string policy,Guid sourceContextId,DateTimeOffset knownThrough)
+        :this(holding.Position,holding.Instrument,holding.Quantity,allocations,policy,sourceContextId,knownThrough){}
+    private static (AccountingPositionKey,Instrument,Quantity) Resolve(Trade trade,Guid binding)
     {
         var holding=trade?.Instruments.SingleOrDefault(p=>p.Id==binding);
-        if(sourceContextId==Guid.Empty||!TradingInstant.IsSupported(knownThrough)||policy!=Policy||trade is null||holding is null||holding.Quantity.Specification!=holding.Instrument.Currency||allocations.IsDefault)
+        if(trade is null||holding is null)throw Error("Recorded cash requires its exact held trade binding.");
+        return(new(trade.Id,binding,trade.BookId),holding.Instrument,holding.Quantity);
+    }
+    public RecordedCashValuation(AccountingPositionKey position,Instrument instrument,Quantity quantity,
+        ImmutableArray<AccountingFlow> allocations,string policy,Guid sourceContextId,DateTimeOffset knownThrough)
+    {
+        if(sourceContextId==Guid.Empty||!TradingInstant.IsSupported(knownThrough)||policy!=Policy||!position.IsValid||instrument is null||
+            instrument is not (CashPayment or TimedCashPayment)||quantity.Specification!=instrument.Currency||allocations.IsDefault)
             throw Error("Recorded cash requires the exact currency-held occurrence, complete allocation history and explicit paid-cash policy.");
-        TradeId=trade.Id;BindingId=binding;InstrumentId=holding.Instrument.Id;Quantity=holding.Quantity;Position=new(trade.Id,binding,trade.BookId);
+        TradeId=position.TradeId;BindingId=position.BindingId;InstrumentId=instrument.Id;Quantity=quantity;Position=position;
         if(allocations.Any(a=>a is null||a.AllocationId==Guid.Empty||a.Revision<=0||a.Position!=Position||a.Kind!=AccountingFlowKind.EconomicCash||
-                a.Amount is null||a.Amount.Currency!=holding.Instrument.Currency||!TradingInstant.IsSupported(a.KnownAt)||!TradingInstant.IsSupported(a.EffectiveAt))||
+                a.Amount is null||a.Amount.Currency!=instrument.Currency||!TradingInstant.IsSupported(a.KnownAt)||!TradingInstant.IsSupported(a.EffectiveAt))||
             allocations.Select(a=>(a.AllocationId,a.Revision)).Distinct().Count()!=allocations.Length)
             throw Error("Cash allocations require stable native identities, exact owner/currency, explicit times and distinct revisions.");
         foreach(var allocation in allocations.GroupBy(a=>a.AllocationId))

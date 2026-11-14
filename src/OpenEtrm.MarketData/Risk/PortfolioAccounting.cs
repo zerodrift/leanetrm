@@ -21,7 +21,7 @@ public static partial class RiskEngine
         var flows=AccountingFlows(prepared,cancellation);var context=prepared.Scenario.Plan.Context;
         var values=CalculateExact(prepared,[],ExactNumericalPolicy,cancellation,RiskDetail.Holdings);
         return new(context.ContextId,values.SnapshotId,context.ValuationAt,context.KnownAt,
-            [..values.Groups.SelectMany(g=>g.BasePositions).Select(p=>new PnlPositionValue(new(p.TradeId,p.BindingId,p.BookId),p.Value))],
+            [..values.Groups.SelectMany(g=>g.BasePositions).Select(p=>new PnlPositionValue(new(p.Owner,p.BindingId,p.BookId),p.Value))],
             flows,PnlAccountingCoverage.Complete){ValueSources=[prepared]};
     }
     internal static void RequireActualAccounting(PreparedConnectedPortfolioRisk prepared)
@@ -43,8 +43,8 @@ public static partial class RiskEngine
             foreach(var held in portfolio.Positions)
             {
                 cancellation.ThrowIfCancellationRequested();
-                var owner=new AccountingPositionKey(held.TradeId,held.BindingId,held.BookId);
-                if(!portfolio.Setup.AccountingFacts.TryGetValue(new(held.TradeId,held.BindingId),out var facts)||facts.Position!=owner||
+                var owner=new AccountingPositionKey(held.Owner,held.BindingId,held.BookId);
+                if(!portfolio.Setup.AccountingFacts.TryGetValue(new(held.Owner,held.BindingId),out var facts)||facts.Position!=owner||
                     facts.ContextId!=context.ContextId||facts.KnownAt!=context.KnownAt||facts.Flows.IsDefault||
                     facts.Flows.Any(f=>f.Position!=owner||f.KnownAt>context.KnownAt||f.Amount.Currency!=held.FixedBasis.Currency))
                     throw Error("pnl_accounting_coverage","Every held occurrence requires complete authorized cash and transfer facts at its exact retained context.");
@@ -52,7 +52,7 @@ public static partial class RiskEngine
             foreach(var (key,facts) in portfolio.Setup.AccountingFacts)
             {
                 // Retired bindings may still carry cash in the interval. Ledger coverage is not limited to endpoint PV rows.
-                if(facts is null||facts.Position.TradeId!=key.TradeId||facts.Position.BindingId!=key.BindingId||facts.Position.BookId==Guid.Empty||
+                if(facts is null||!facts.Position.IsValid||!key.Owner.Matches(key.TradeId)||facts.Position.Owner!=key.Owner||facts.Position.BindingId!=key.BindingId||
                     facts.ContextId!=context.ContextId||facts.KnownAt!=context.KnownAt||facts.Flows.IsDefault||
                     facts.Flows.Any(f=>f.Position!=facts.Position||f.KnownAt>context.KnownAt))
                     throw Error("pnl_accounting_coverage","Every ledger-only contribution requires exact owned binding and knowledge coverage.");

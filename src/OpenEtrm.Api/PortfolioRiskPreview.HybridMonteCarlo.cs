@@ -31,7 +31,7 @@ public sealed partial class PortfolioRiskPreview
     }
     private static ImmutableArray<PcaValuationIdentity> PcaIdentities(Prepared prepared)=>
         [..prepared.Portfolio.Markets.SelectMany(m=>m.Connected.Holdings.Select(p=>new PcaValuationIdentity(
-            HistoricalExposureId(new(p.BookId,p.TradeId,p.BindingId,m.Measures[p.Group],p.Currency)),
+            HistoricalExposureId(new(p.BookId,p.Owner,p.BindingId,m.Measures[p.Group],p.Currency)),
             Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new{m.Snapshot.Definitions,p.ValuationId},RiskJobs.Json))))))];
     private static Prepared PreparePcaFit(Prepared prepared,PcaFitPlan plan)
     {

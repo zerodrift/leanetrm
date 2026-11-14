@@ -48,7 +48,8 @@ public sealed record ConnectedBookRiskRun(Guid SnapshotId,string NumericalPolicy
     public ImmutableArray<ExactRiskPositionValue> BasePositions{get;init;}=[];
 }
 public sealed record ConnectedGroupedRiskRun(Guid SnapshotId,ImmutableArray<ConnectedBookRiskRun> Groups,ConnectedRiskWork Work,GraphWork GraphWork);
-public sealed record ConnectedHoldingIdentity(int Group,Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ReferenceKey Currency);
+public sealed record ConnectedHoldingIdentity(int Group,Guid TradeId,Guid BindingId,Guid BookId,Guid ValuationId,ReferenceKey Currency)
+{public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);}
 public sealed record ConnectedPreparationCounters(long EvaluatedNodes,long ReusedReads,int VolumeComputations);
 public sealed class PreparedConnectedPortfolioRisk
 {
@@ -72,13 +73,13 @@ public sealed class PreparedConnectedPortfolioRisk
     private readonly ImmutableArray<QuoteFactor> baseFactors;
     private readonly Lazy<ImmutableArray<QuoteFactor>> factors;
     public ImmutableArray<QuoteFactor> Factors=>factors.Value;
-    private readonly Lazy<ImmutableDictionary<(Guid TradeId,Guid BindingId),ImmutableHashSet<InputKey>>> declaredPriceInputs;
+    private readonly Lazy<ImmutableDictionary<(AccountingOwnerKey Owner,Guid BindingId),ImmutableHashSet<InputKey>>> declaredPriceInputs;
     // The live price inputs each holding's unit valuation reaches through its declared dependencies. Dependencies
     // identify the repricing a factor can affect; they assign no exposure.
-    public ImmutableDictionary<(Guid TradeId,Guid BindingId),ImmutableHashSet<InputKey>> DeclaredPriceInputs=>declaredPriceInputs.Value;
+    public ImmutableDictionary<(AccountingOwnerKey Owner,Guid BindingId),ImmutableHashSet<InputKey>> DeclaredPriceInputs=>declaredPriceInputs.Value;
     // Immutable source coverage, available before pricing any historical scenario.
     public ImmutableArray<ConnectedHoldingIdentity> Holdings=>[..Portfolios.SelectMany((p,n)=>p.Positions.Select(v=>
-        new ConnectedHoldingIdentity(n,v.TradeId,v.BindingId,v.BookId,v.ValuationId,v.FixedBasis.Currency)))];
+        new ConnectedHoldingIdentity(n,v.TradeId,v.BindingId,v.BookId,v.ValuationId,v.FixedBasis.Currency){Owner=v.Owner}))];
     public ImmutableArray<UnitPricingContract> UnitContracts=>[..Contracts.SelectMany(group=>group)];
     internal PreparedValuationEnvironment Market{get;}
     internal CurveBuild? IntervalBasis{get;}
@@ -95,14 +96,14 @@ public sealed class PreparedConnectedPortfolioRisk
         this.factors=new(parent is null?()=>baseFactors:ResolveFactors);
         declaredPriceInputs=parent?.declaredPriceInputs??new(ResolveDeclaredPriceInputs);
     }
-    private ImmutableDictionary<(Guid,Guid),ImmutableHashSet<InputKey>> ResolveDeclaredPriceInputs()
+    private ImmutableDictionary<(AccountingOwnerKey,Guid),ImmutableHashSet<InputKey>> ResolveDeclaredPriceInputs()
     {
-        var holdings=ImmutableDictionary.CreateBuilder<(Guid,Guid),ImmutableHashSet<InputKey>>();
+        var holdings=ImmutableDictionary.CreateBuilder<(AccountingOwnerKey,Guid),ImmutableHashSet<InputKey>>();
         for(var group=0;group<Portfolios.Length;group++)
         {
             var portfolio=Portfolios[group];
             var reached=Contracts[group].Select(contract=>Market.Factors(contract.Dependencies,default).Select(factor=>factor.Input).ToImmutableHashSet()).ToArray();
-            foreach(var position in portfolio.Positions)holdings.Add((position.TradeId,position.BindingId),reached[portfolio.ScopeIndex(position)]);
+            foreach(var position in portfolio.Positions)holdings.Add((position.Owner,position.BindingId),reached[portfolio.ScopeIndex(position)]);
         }
         return holdings.ToImmutable();
     }

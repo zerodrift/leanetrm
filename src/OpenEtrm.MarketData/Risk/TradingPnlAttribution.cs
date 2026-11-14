@@ -20,7 +20,7 @@ public sealed record PnlGreekRun
         if(Risk.Repricing.Groups.Any(g=>g.Measure!=ValuationMeasure.PresentValue))
             throw new MarketDataException("pnl_pv_basis","A remaining-value accounting point requires actual present value.");
         return new(Context.ContextId,Risk.Repricing.SnapshotId,Context.ValuationAt,Context.KnownAt,
-            [..Risk.Repricing.Groups.SelectMany(g=>g.Positions).Select(p=>new PnlPositionValue(new(p.TradeId,p.BindingId,p.BookId),p.Value))],flows,coverage)
+            [..Risk.Repricing.Groups.SelectMany(g=>g.Positions).Select(p=>new PnlPositionValue(new(p.Owner,p.BindingId,p.BookId),p.Value))],flows,coverage)
             {ValueSources=[Prepared]};
     }
     public static PnlGreekRun Capture(PreparedConnectedPortfolioRisk prepared,ConnectedFiniteDifferenceRun risk)
@@ -70,7 +70,7 @@ public static class TradingPnlAttribution
                 if(group.Measure!=ValuationMeasure.PresentValue)throw Error("pnl_pv_basis","Attribution requires remaining present value, not an execution-P&L substitute.");
                 foreach(var position in group.Positions)
                 {
-                    var key=new AccountingPositionKey(position.TradeId,position.BindingId,position.BookId);
+                    var key=new AccountingPositionKey(position.Owner,position.BindingId,position.BookId);
                     if(!opening.TryGetValue(key,out var value)||value.RemainingValue!=position.Value)
                         throw Error("pnl_greek_context","Each repriced opening holding must match its exact owned accounting value.");
                 }
@@ -113,7 +113,7 @@ public static class TradingPnlAttribution
                 {
                     if(group.Group<0||group.Group>=repricing.Groups.Length||group.Positions.IsDefault)throw Error("pnl_greek_coverage","A derivative group must belong to its captured base.");
                     var basis=repricing.Groups[group.Group].Positions;
-                    if(group.Positions.Length!=basis.Length||!group.Positions.Select(p=>(p.TradeId,p.BindingId,p.BookId,p.ValuationId)).ToHashSet().SetEquals(basis.Select(p=>(p.TradeId,p.BindingId,p.BookId,p.ValuationId))))
+                    if(group.Positions.Length!=basis.Length||!group.Positions.Select(p=>(p.Owner,p.BindingId,p.BookId,p.ValuationId)).ToHashSet().SetEquals(basis.Select(p=>(p.Owner,p.BindingId,p.BookId,p.ValuationId))))
                         throw Error("pnl_greek_coverage","Every derivative must retain the exact base trade, binding, book and valuation identities.");
                 }
                 // The inputs this derivative moves, and each factor's closing movement: none without an exact closing price.
@@ -122,7 +122,7 @@ public static class TradingPnlAttribution
                 var moved=derivative.Axes.Select(a=>changes[a].Change).ToArray();
                 foreach(var group in derivative.Groups)foreach(var position in group.Positions)
                 {
-                    var key=new AccountingPositionKey(position.TradeId,position.BindingId,position.BookId);
+                    var key=new AccountingPositionKey(position.Owner,position.BindingId,position.BookId);
                     var first=derivative.Axes[0];string? second=derivative.Axes.Length==2?derivative.Axes[1]:null;
                     if(second is not null&&StringComparer.Ordinal.Compare(first,second)>0)(first,second)=(second,first);
                     if(!actual.TryGetValue(key,out var row)||!row.HeldAtOpening||!distinct.Add((key,derivative.Formula,first,second)))
@@ -132,7 +132,7 @@ public static class TradingPnlAttribution
                         RiskEngine.AssessFiniteDifference(estimate.Half,estimate.Nominal,estimate.Double,tolerance).Stable!=estimate.Stable)
                         throw Error("pnl_greek_context","Derivative currencies and convergence must match their retained numerical contract.");
                     // A holding is explained by the price inputs its valuation declares; no other input can move its value.
-                    if(!declared.TryGetValue((position.TradeId,position.BindingId),out var priced))
+                    if(!declared.TryGetValue((position.Owner,position.BindingId),out var priced))
                         throw Error("pnl_greek_context","A repriced holding must belong to its captured valuation source.");
                     if(!inputs.All(priced.Contains))
                     {

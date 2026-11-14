@@ -130,7 +130,7 @@ internal static class PcaHybridRiskChecks
             meanPlan.Samples.Select(s=>Price(s.Id,s.Changes)).ToImmutableArray(),[new(exposure.Id,"mean")]);
         if(mean.Classifications.Single().Method!="pca_delta_gamma")throw new Exception("Mean drift was subtracted before the Taylor expansion.");
         // One bad binding falls back every binding of the shared valuation.
-        var sibling=exposure with{Id="opposing",TradeId=Guid.NewGuid(),BindingId=Guid.NewGuid()};
+        var sibling=new HistoricalExposure("opposing",exposure.BookId,Guid.NewGuid(),Guid.NewGuid(),exposure.Measure,exposure.Currency,exposure.BaseValue);
         HistoricalObservation Opposing(HistoricalObservation row)=>row with{Values=[..row.Values,new(sibling.Id,ExactNumberText.Format(SignedRatio.Zero-Number(row.Values[0].Value)))]};
         var opposed=PcaHybridRisk.Compare(generation,optedIn,smallPlan,[exposure,sibling],reference.Select(Opposing).ToImmutableArray(),
             smallPlan.Samples.Select(s=>Opposing(Price(s.Id,s.Changes))).ToImmutableArray(),[new(exposure.Id,"shared"),new(sibling.Id,"shared")]);

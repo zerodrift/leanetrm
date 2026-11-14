@@ -8,6 +8,7 @@ if(args is ["--interval-anchors"]){IntervalAnchorChecks.Run();return;}
 if(args is ["--futures-margin"]){FuturesMarginChecks.Run();return;}
 if(args is ["--futures-margin-trajectory"]){FuturesMarginTrajectoryChecks.Run();return;}
 if(args is ["--timed-cash"]){TimedCashChecks.Run();return;}
+if(args is ["--accounting-owners"]){AccountingOwnerChecks.Run();return;}
 if(args is ["--instant-rate-graph"]){InstantRateGraphChecks.Run();return;}
 if(args is ["--option-clock"]){FuturesOptionChecks.ClockLayers();return;}
 if(args is ["--valuation-environment"]){ValuationEnvironmentChecks.Run();return;}
@@ -601,6 +602,7 @@ ContractEligibilityChecks.Run();passed++;
 FuturesMarginChecks.Run();passed++;
 FuturesMarginTrajectoryChecks.Run();passed++;
 TimedCashChecks.Run();passed++;
+AccountingOwnerChecks.Run();passed++;
 InstantRateGraphChecks.Run();passed++;
 passed += TemporalBindingChecks.Run();
 passed += BasisRiskChecks.Run();

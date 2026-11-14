@@ -67,7 +67,7 @@ internal static class RiskPropagationChecks
             f.Position(2, last + 1, bookA, "-5"), f.Position(3, last + 2, bookB, "11"),
             f.Position(4, last + 8, bookB, "13"), f.Position(5, 0, bookA, "17"),
             f.Position(6, last + 2, bookB, "0"),
-            f.Position(7, last + 5, bookA, "3") with { TradeId = BasisRiskFixture.Id(1000000) });
+            f.Position(7, last + 5, bookA, "3") with { TradeId = BasisRiskFixture.Id(1000000),Owner=new(OpenEtrm.MarketData.Trading.AccountingOwnerKind.Trade,BasisRiskFixture.Id(1000000)) });
         var portfolio = f.Portfolio(held);
         var bumps = ImmutableArray.Create(f.Bumps[last], f.Bumps[last + 2], f.Bumps[last + 5]);
         var run = RiskEngine.Calculate(f.Model, f.Snapshot, portfolio, bumps, RiskEngine.NumericalPolicy);

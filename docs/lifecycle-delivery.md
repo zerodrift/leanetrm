@@ -11,6 +11,14 @@ inventory, operator claims and loan-return obligations remain independently visi
 holdings after their source trades complete. New compositions reuse qualified
 capabilities; new economics requires a qualified managed handler.
 
+The managed valuation boundary carries a typed trade or native-holding owner,
+binding and book through unit scopes, recorded cash, shared scenarios, sensitivities,
+accounting and empirical attribution. Independent holdings have no trade identity.
+Native storage remains responsible for exact ownership foreign keys and admission.
+Checks qualify equal identifiers across owner kinds, separate partial payments,
+ordinary cash PV, shared connected pricing, mixed sensitivity and retained identities.
+This foundation does not qualify the native gas ownership operations by itself.
+
 Shared inspection, action discovery, pure planning and projection contracts compose
 native typed operations. The application coordinates current authority, exact
 proposal review, expected state/evidence, atomic persistence and idempotent first

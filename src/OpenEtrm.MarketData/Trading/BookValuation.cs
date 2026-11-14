@@ -137,7 +137,12 @@ public sealed record BookRiskFactors(Guid BookId,ImmutableArray<QuoteFactor> Fac
 
 public sealed record BookCurrencyValue(Guid BookId,ReferenceKey Currency,ExactMoney Value);
 public sealed record ValueComponent(string Name,ExactMoney Value);
-public sealed record MeasureBinding(Guid TradeId,Guid BindingId);
+[method:System.Text.Json.Serialization.JsonConstructor]
+public sealed record MeasureBinding(Guid TradeId,Guid BindingId)
+{
+    public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
+    public MeasureBinding(AccountingOwnerKey owner,Guid bindingId):this(owner.TradeId,bindingId){Owner=owner;}
+}
 public sealed record BookValueMeasures(Guid BookId,ReferenceKey Currency,ValueMeasureSet Measures,
     ImmutableArray<MeasureBinding> Bindings);
 public sealed class PortfolioValue
@@ -257,18 +262,18 @@ public sealed class ValuationPortfolio
             instruments.Select(i=>i.Id).Distinct().Count()!=instruments.Length)
             throw Error("risk_contract","Use a bounded nonempty portfolio with unique unit instrument identities and an explicit valuation measure.");
         Instruments=instruments.OrderBy(i=>i.Id).ToImmutableArray();
-        Positions=positions.OrderBy(p=>p.TradeId).ThenBy(p=>p.BindingId).ToImmutableArray();
+        Positions=positions.OrderBy(p=>p.Owner.Kind).ThenBy(p=>p.Owner.Id).ThenBy(p=>p.BindingId).ToImmutableArray();
         indexes=Instruments.Select((i,n)=>(i.Id,n)).ToDictionary(p=>p.Id,p=>p.n);
         if(Setup.InstrumentDiscounting is null||Setup.Discounting is not null&&!Setup.InstrumentDiscounting.IsEmpty||
             Setup.InstrumentDiscounting.Any(p=>!indexes.ContainsKey(p.Key)||p.Value is null))
             throw Error("side_context","Select one explicit shared discount provider or exact held-instrument providers.");
-        if(Positions.Select(p=>(p.TradeId,p.BindingId)).Distinct().Count()!=Positions.Length||
-            Positions.GroupBy(p=>p.TradeId).Any(g=>g.Select(p=>p.BookId).Distinct().Count()!=1))
-            throw Error("risk_position","Trade bindings must be distinct and one trade must have one book.");
+        if(Positions.Select(p=>(p.Owner,p.BindingId)).Distinct().Count()!=Positions.Length||
+            Positions.GroupBy(p=>p.Owner).Any(g=>g.Select(p=>p.BookId).Distinct().Count()!=1))
+            throw Error("risk_position","Held bindings must be distinct and one owner must have one book.");
         foreach(var p in Positions)
         {
-            if(p.TradeId==Guid.Empty||p.BindingId==Guid.Empty||p.BookId==Guid.Empty||!indexes.TryGetValue(p.ValuationId,out var index))
-                throw Error("risk_position","Each holding requires an exact trade, binding, book and unit instrument.");
+            if(!p.Owner.Matches(p.TradeId)||p.BindingId==Guid.Empty||p.BookId==Guid.Empty||!indexes.TryGetValue(p.ValuationId,out var index))
+                throw Error("risk_position","Each holding requires an exact owner, binding, book and unit instrument.");
             var instrument=Instruments[index];
             if(!instrument.SupportsQuantityScaling)
                 throw Error("risk_quantity_scaling","This instrument has not declared linear scaling in booked quantity.");
@@ -282,7 +287,7 @@ public sealed class ValuationPortfolio
         }
         // This projection cannot infer an intended termination or coverage envelope.
         // It can still refuse double-counted delivery across retained/amended bindings.
-        foreach(var trade in Positions.Where(p=>p.Coverage is not null).GroupBy(p=>p.TradeId))
+        foreach(var trade in Positions.Where(p=>p.Coverage is not null).GroupBy(p=>p.Owner))
         {
             var coverage=trade.Select(p=>p.Coverage!).OrderBy(c=>c.From).ToArray();
             if(coverage.Zip(coverage.Skip(1)).Any(pair=>pair.First.To>pair.Second.From))
@@ -291,24 +296,24 @@ public sealed class ValuationPortfolio
         if(Positions.Select(p=>p.ValuationId).Distinct().Count()!=Instruments.Length)
             throw Error("risk_contract","Every unit instrument must have a held consumer.");
         if(Setup.BindingStates is null)throw Error("settlement_scope","Supply explicit binding valuation inputs.");
-        var held=Positions.ToDictionary(p=>new MeasureBinding(p.TradeId,p.BindingId));
+        var held=Positions.ToDictionary(p=>new MeasureBinding(p.Owner,p.BindingId));
         foreach(var (binding,state) in Setup.BindingStates)
         {
             if(state is null||!held.TryGetValue(binding,out var position)||position.Quantity!=state.Quantity||
-                binding.TradeId!=state.TradeId||binding.BindingId!=state.BindingId||state.BookId!=position.BookId)
-                throw Error("settlement_scope","Every valuation state must belong to its exact held trade binding and booked quantity.");
+                !binding.Owner.Matches(binding.TradeId)||!state.Owner.Matches(state.TradeId)||binding.Owner!=state.Owner||binding.BindingId!=state.BindingId||state.BookId!=position.BookId)
+                throw Error("settlement_scope","Every valuation state must belong to its exact held owner, binding, book and quantity.");
             Instruments[indexes[position.ValuationId]].ValidateValuationState(state);
         }
         Scopes=Positions.Select(ScopeKey).Distinct().OrderBy(s=>s.ValuationId)
             .ThenBy(s=>s.Coverage?.From).ThenBy(s=>s.Coverage?.To)
-            .ThenBy(s=>s.BindingState?.TradeId).ThenBy(s=>s.BindingState?.BindingId)
+            .ThenBy(s=>s.BindingState?.Owner.Kind).ThenBy(s=>s.BindingState?.Owner.Id).ThenBy(s=>s.BindingState?.BindingId)
             .Select(s=>new UnitValuationScope(Instruments[indexes[s.ValuationId]],s.Coverage,s.BindingState)).ToImmutableArray();
         scopeIndexes=Scopes.Select((s,n)=>(s,n)).ToDictionary(x=>(x.s.Instrument.Id,x.s.Coverage,x.s.BindingState),x=>x.n);
         Books=Positions.Select((p,n)=>(p,n)).GroupBy(x=>x.p.BookId).OrderBy(g=>g.Key)
             .Select(g=>new Book(g.Key,g.Select(x=>(x.n,scopeIndexes[ScopeKey(x.p)])).ToImmutableArray(),Positions)).ToImmutableArray();
     }
     private (Guid ValuationId,DeliveryCoverage? Coverage,MeasureBinding? BindingState) ScopeKey(RiskPosition p) =>
-        (p.ValuationId,p.Coverage,Setup.BindingStates.ContainsKey(new(p.TradeId,p.BindingId))?new(p.TradeId,p.BindingId):null);
+        (p.ValuationId,p.Coverage,Setup.BindingStates.ContainsKey(new(p.Owner,p.BindingId))?new(p.Owner,p.BindingId):null);
     // The index of a holding's unit valuation in Scopes and in this portfolio's declarations.
     internal int ScopeIndex(RiskPosition position)=>scopeIndexes[ScopeKey(position)];
     public ImmutableArray<BookRiskFactors> RiskFactors(CurveModel model,MarketSnapshot snapshot,CancellationToken cancellation=default)
@@ -435,7 +440,7 @@ public sealed class ValuationPortfolio
             var key=(position.BookId,measures.Currency);
             if(!totals.TryGetValue(key,out var total))
             {totals.Add(key,total=new(measures.Currency));bindings.Add(key,[]);}
-            bindings[key].Add(new(position.TradeId,position.BindingId));
+            bindings[key].Add(new(position.Owner,position.BindingId));
             total.Add(measures.Scale(position.Quantity.Amount));
         }
         return [..totals.OrderBy(p=>p.Key.Book).ThenBy(p=>p.Key.Currency.Code,StringComparer.Ordinal)
