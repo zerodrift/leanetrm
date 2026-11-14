@@ -19,9 +19,14 @@ internal static partial class GasOwnedProjection
         internal List<GasKnownQuantityReceipt> Receipts{get;}=[];
     }
     private static ImmutableArray<GasKnownQuantityTransition> AcceptedTransitions(GasOwnedKnownHistory known,
-        ImmutableArray<GasProjectionHolding> opening,MarketSnapshot source)
+        ImmutableArray<GasProjectionHolding> opening,MarketSnapshot source,ImmutableDictionary<DefinitionRevision,GasOwnedProjectionMarket> markets,
+        ImmutableArray<GasAcceptedQuantityEvent> physical=default)
     {
-        var held=opening.ToDictionary(p=>p.Position.Owner.Id);var stock=opening.Where(p=>p.Kind==GasProjectionHoldingKind.OwnedStock).ToDictionary(p=>p.Position.Owner.Id);
+        if(physical.IsDefault)physical=[];
+        var held=opening.Concat(physical.SelectMany(e=>(e.Transition.PhysicalOrigins??[]).Select(o=>o.Holding))).ToDictionary(p=>p.Position.Owner.Id);
+        var stock=opening.Where(p=>p.Kind==GasProjectionHoldingKind.OwnedStock)
+            .Concat(physical.SelectMany(e=>e.Transition.Receipts.Select(r=>r.Stock))).ToDictionary(p=>p.Position.Owner.Id);
+        var physicalConsumptions=physical.SelectMany(e=>e.Transition.Stock).Select(s=>s.Operation.Id).ToHashSet();
         var events=new Dictionary<(int Publication,DateTimeOffset At),AcceptedQuantityEvent>();
         var consumptionOwners=new Dictionary<Guid,AccountingPositionKey>();
         AcceptedQuantityEvent Event(int publication,DateTimeOffset at,DateTimeOffset knownAt)
@@ -56,13 +61,14 @@ internal static partial class GasOwnedProjection
                     !known.Positions.TryGetValue(receiptId,out var position)||!known.Quantities.Positions.TryGetValue(receiptId,out var head)||head.Retracted||
                     position.Kind!="owned_stock"||position.OriginPolicy!="operator_balance_transfer_v1"||position.Quantity!=settlement.Quantity||
                     known.Links.PositionPublications[receiptId]!=settlement.Time.PublicationOrder||position.Time.EffectiveAt!=settlement.Time.EffectiveAt||
-                    position.Mark.Curve.Revision!=source.Definitions)
+                    !markets.TryGetValue(position.Mark.Curve.Revision,out var receiptMarket))
                     throw Error("gas_projection_source","An accepted operator receipt requires the exact selected native title, financial quantity and original event link.");
                 var lot=known.Lots.Single(l=>l.Id==receiptId);var account=known.Accounts[position.AccountId];
                 var instrument=new GasCommodityHoldingInstrument(GasCommodityHoldingInstrument.SelectedNativeMarkIdentity(receiptId,position.Mark,0),
                     position.Mark,account.Quantity,account.Currency,null,GasHoldingCarrying.Nominal);
                 var received=new GasProjectionHolding(position.Owner,account.Account,GasProjectionHoldingKind.OwnedStock,instrument,position.Quantity,
-                    lot.AvailableAt,ImmutableDictionary<Guid,ExactDecimal>.Empty,null);
+                    lot.AvailableAt,ImmutableDictionary<Guid,ExactDecimal>.Empty,null)
+                    {Source=position.Mark.Curve.Revision==source.Definitions?null:receiptMarket.Snapshot};
                 if(!stock.TryAdd(receiptId,received))throw Error("gas_projection_source","An accepted receipt cannot reactivate existing opening title.");
                 if(head.Time.KnownAt>occurrence.KnownAt)occurrence.KnownAt=head.Time.KnownAt;
                 occurrence.Receipts.Add(new(obligation.Position,received));
@@ -91,7 +97,7 @@ internal static partial class GasOwnedProjection
             Event(release.Time.PublicationOrder,release.Time.EffectiveAt,release.Time.KnownAt).Stock.Add(new(resource.Position,
                 new(id,release.Time.EffectiveAt,GasKnownStockUse.Release,release.ReservationId,null),null));
         }
-        foreach(var consumption in known.Consumptions.Where(c=>c.At>source.ValuationAt&&stock.ContainsKey(c.LotId)))
+        foreach(var consumption in known.Consumptions.Where(c=>c.At>source.ValuationAt&&stock.ContainsKey(c.LotId)&&!physicalConsumptions.Contains(c.Id)))
         {
             if(!known.Quantities.Consumptions.TryGetValue(consumption.Id,out var head)||head.Retracted)
                 throw Error("gas_projection_source","An active accepted stock use must retain its selected non-retracted financial quantity head.");
@@ -102,6 +108,6 @@ internal static partial class GasOwnedProjection
         if(consumptionOwners.Keys.Any(id=>!events.Values.SelectMany(e=>e.Stock).Any(s=>s.Operation.Id==id)))
             throw Error("gas_projection_scope","Every accepted quantity return requires its independently owned funding stock in this exact connected scope.");
         return GasAcceptedQuantityOrder.Merge([..events.Values.Select(occurrence=>new GasAcceptedQuantityEvent(
-            new(occurrence.Id,occurrence.At,occurrence.KnownAt,[],[..occurrence.Stock],[..occurrence.Discharges],[..occurrence.Receipts]),occurrence.Publication))]);
+            new(occurrence.Id,occurrence.At,occurrence.KnownAt,[],[..occurrence.Stock],[..occurrence.Discharges],[..occurrence.Receipts]),occurrence.Publication)),..physical]);
     }
 }
