@@ -44,6 +44,7 @@ public sealed partial class PortfolioRiskPreview
                     curveNumericalPolicy=CurveModel.NumericalPolicy,selectionPolicy=m.Snapshot.SelectionPolicy.ToString(),observations=m.Snapshot.Selections.Select(s=>new{s.Input,s.Observation.Key,
                         s.Observation.Series,s.Observation.Source,role=s.Observation.Role.ToString(),state=s.Observation.State.ToString(),s.Observation.ObservedAt,value=s.Observation.Value.ToString()})}),
                 positions=prepared.Portfolio.Positions,discountInputs=prepared.Portfolio.DiscountInputs.AddRange(prepared.Portfolio.Ppas.SelectMany(p=>PpaReads.DiscountInputs(p.Portfolio.Setup.InstrumentDiscounting))),
+                prepared.Portfolio.InstantDiscountInputs,
                 connectedMarkets=prepared.Portfolio.ConnectedMarkets},
             modelContracts=contracts.Select(c=>new{c.Id,c.ModelVersion,c.Dependencies,c.Quantity,c.Currency,c.ScheduleIdentity,c.SettlementProjections}),
             joint=new{kind=request.Scenarios?"scenarios":"derivatives",request=request.Request,

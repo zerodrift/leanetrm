@@ -11,7 +11,9 @@ internal sealed record FuturesMarginRead(FuturesMarginState State,FuturesMarginH
 {
     internal int MarginRevision{get;init;}=1;
     internal ImmutableArray<TradeInstrument> CashBindings{get;init;}=[];
+    internal ImmutableArray<FuturesMarginCashOrigin> CashOrigins{get;init;}=[];
 }
+internal sealed record FuturesMarginCashOrigin(Guid BindingId,Guid DeterminationId,int PublicationOrder,DateTimeOffset OccurrenceAt);
 
 internal static class FuturesMarginStore
 {
@@ -103,7 +105,9 @@ internal static class FuturesMarginStore
         }).ToImmutableArray():[];
         FuturesMargin.Require(state,market.Instrument);
         await RequireRead(connection,catalog,context,frame.At,until,ct);
-        return new(state,history,Integer(head,"revision"),until){MarginRevision=result.TryGetProperty("version",out _)?Integer(result,"version"):1,CashBindings=cash};
+        return new(state,history,Integer(head,"revision"),until){MarginRevision=result.TryGetProperty("version",out _)?Integer(result,"version"):1,CashBindings=cash,
+            CashOrigins=result.TryGetProperty("obligations",out var origins)?[..origins.EnumerateArray().Select(row=>
+                new FuturesMarginCashOrigin(row.Id("cash_binding_id"),row.Id("id"),Integer(row,"publication_order"),row.Instant("at")))]:[]};
     }
 
     internal static FuturesMarginPolicy ReadPolicy(JsonElement header,JsonElement occurrences)

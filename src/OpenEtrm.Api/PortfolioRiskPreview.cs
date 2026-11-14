@@ -258,7 +258,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
                 snapshotId=m.Snapshot.Id,m.Snapshot.ValuationAt,m.Snapshot.MarketCutoff,curveNumericalPolicy=CurveModel.NumericalPolicy,
                 selectionPolicy=m.Snapshot.SelectionPolicy.ToString(),observations=m.Snapshot.Selections.Select(s=>new{s.Input,s.Observation.Key,
                     s.Observation.Series,s.Observation.Source,role=s.Observation.Role.ToString(),state=s.Observation.State.ToString(),
-                    s.Observation.ObservedAt,value=s.Observation.Value.ToString()})}),positions=run.Positions,run.DiscountInputs,connectedMarkets=prepared.Portfolio.ConnectedMarkets},
+                    s.Observation.ObservedAt,value=s.Observation.Value.ToString()})}),positions=run.Positions,run.DiscountInputs,run.InstantDiscountInputs,connectedMarkets=prepared.Portfolio.ConnectedMarkets},
             modelContracts=run.ModelContracts.Select(c=>new{c.Id,c.ModelVersion,c.Dependencies,c.Quantity,c.Currency,c.ScheduleIdentity,c.SettlementProjections}),
             factors=prepared.Bumps.Select(b=>new{
                 factor=Factor(markets,run.Factors.Single(f=>f.Axis.Id==b.Axis.Id).Axis),
@@ -283,6 +283,7 @@ public sealed partial class PortfolioRiskPreview(PreviewDatabase database)
     private static string Displayed(ExactMoney value)=>Display.FormatFraction(BigInteger.Parse(value.Numerator,CultureInfo.InvariantCulture),BigInteger.Parse(value.Denominator,CultureInfo.InvariantCulture));
     private static string MeasureLabel(string measure)=>measure switch{
         PortfolioValuation.FuturesMeasure=>"Futures execution P&L",PortfolioValuation.SwapMeasure=>"Present value",PortfolioValuation.PpaMeasure=>"Value excluding overdue cash",
+        FuturesMarginPortfolio.Measure=>"Futures remaining value",
         CrudePositions.Measure=>"Crude contractual PV",LngPositions.Measure=>"LNG contractual PV",FuturesOptionPositions.Measure=>FuturesOptionPositions.MeasureLabel,
         GasPositions.Measure=>"Gas contractual PV",GasPositions.LifecycleMeasure=>"Gas "+GasPositions.LifecycleLabel.ToLowerInvariant(),
         _=>throw new MarketDataException("valuation_measure","The report requires an explicit valuation measure label.")};

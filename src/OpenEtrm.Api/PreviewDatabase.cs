@@ -110,6 +110,14 @@ public sealed class PreviewDeniedException : Exception;
 
 public sealed partial class PreviewDatabase : IAsyncDisposable
 {
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<NpgsqlConnection,List<ICommitAdmission>> commitAdmissions=new();
+    internal void RegisterCommitAdmission(NpgsqlConnection connection,ICommitAdmission admission)
+    {
+        ArgumentNullException.ThrowIfNull(admission);
+        if(!commitAdmissions.TryGetValue(connection,out var pending))
+            throw new InvalidOperationException("Commit admission belongs to this database adapter's live owned transaction.");
+        pending.Add(admission);
+    }
     private long observationRowsRead;
     public long ObservationRowsRead=>Interlocked.Read(ref observationRowsRead);
     private readonly NpgsqlDataSource? authenticator;
@@ -313,19 +321,26 @@ public sealed partial class PreviewDatabase : IAsyncDisposable
     {
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
-        if(held is {} bound)
-            await using(var limit = new NpgsqlCommand("SELECT set_config('statement_timeout',$1,true),set_config('idle_in_transaction_session_timeout',$1,true)", connection, transaction))
-            { limit.Parameters.AddWithValue(((long)bound.TotalMilliseconds).ToString(System.Globalization.CultureInfo.InvariantCulture)); await limit.ExecuteNonQueryAsync(ct); }
-        await using (var command = new NpgsqlCommand(bind, connection, transaction))
-        { command.Parameters.AddWithValue(token); await command.ExecuteNonQueryAsync(ct); }
-        if(signedIn)await SignedIn(connection,ct);
-        var result = await operation(connection, ct);
-        if(signedIn)await SignedIn(connection,ct);
-        if(result is ICommitAdmission pending)await pending.RequireCommit(connection,ct);
-        // A bounded transaction's commit is not cancelled: one cancelled in flight may still have been applied, and an agent's
-        // save could not say whether its draft and step landed. Its statement bound still limits the commit.
-        await transaction.CommitAsync(held is null?ct:CancellationToken.None);
-        return result;
+        var admissions=new List<ICommitAdmission>();
+        commitAdmissions.Add(connection,admissions);
+        try
+        {
+            if(held is {} bound)
+                await using(var limit = new NpgsqlCommand("SELECT set_config('statement_timeout',$1,true),set_config('idle_in_transaction_session_timeout',$1,true)", connection, transaction))
+                { limit.Parameters.AddWithValue(((long)bound.TotalMilliseconds).ToString(System.Globalization.CultureInfo.InvariantCulture)); await limit.ExecuteNonQueryAsync(ct); }
+            await using (var command = new NpgsqlCommand(bind, connection, transaction))
+            { command.Parameters.AddWithValue(token); await command.ExecuteNonQueryAsync(ct); }
+            if(signedIn)await SignedIn(connection,ct);
+            var result = await operation(connection, ct);
+            if(signedIn)await SignedIn(connection,ct);
+            if(result is ICommitAdmission pending)await pending.RequireCommit(connection,ct);
+            foreach(var admission in admissions)await admission.RequireCommit(connection,ct);
+            // A bounded transaction's commit is not cancelled: one cancelled in flight may still have been applied, and an agent's
+            // save could not say whether its draft and step landed. Its statement bound still limits the commit.
+            await transaction.CommitAsync(held is null?ct:CancellationToken.None);
+            return result;
+        }
+        finally{commitAdmissions.Remove(connection);}
     }
 
     // A hosted request's bound context is still held by its verified sign-in session, which may have ended or been revoked

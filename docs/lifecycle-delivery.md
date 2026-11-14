@@ -78,8 +78,8 @@ It resolves correction ancestry at the bound effective date and certified
 knowledge prefix before checking finality; a preliminary correction blocks its
 older final. Multiple independent events and incomplete chains refuse. Publication
 receipts supply source knowledge instants; row order and receipt audit times have
-no selection meaning. This source reader is separate from durable margin adoption;
-native determinations and cash membership remain unfinished.
+no selection meaning. Source reading, durable adoption and accepted determination
+membership have separate native contracts.
 The planner also requires retained history to name its exact trade/binding, book,
 quantity, execution price/instant, complete adopted policy and certified reader
 context. Each accepted determination retains its own knowledge/publication
@@ -178,6 +178,20 @@ prefix cannot cover a latest accepted determination; it establishes no ordinary
 capture-path failure. Whole-portfolio/worker integration, physical final delivery,
 HTTP/agent adapters, user-facing policy editing and browser qualification remain
 delivery gates; the local native increment does not qualify those capabilities.
+
+The local portfolio adapter now offers an explicit native-margin remaining-value
+convention, separate from execution P&L. It reads the accepted journal and all
+surviving cash memberships, retains determination provenance, and uses ordinary
+Instrument PV and connected scenarios. Pending cash selects the captured currency
+mapping and exact-instant timing explicitly; missing adoption or required discount
+inputs refuse. It records ledger coverage for these exact occurrences and does
+not exclude failed native positions. Scoped portfolio replay is checked against
+independently calculated margin/cash values. Economic horizon projection requires
+the separately qualified complete opening event prefix.
+Owned transaction admission retains read guards through composite report shaping
+and savepoint restoration, then rechecks them before commit. Registrations cannot
+escape their owned connection/transaction. The expired original grant with a fresh
+successor fails even when a review is wrapped in another result object.
 
 Exact-instant cash has a separately selected UTC-day discount convention. It
 interpolates qualified dated discount factors with rational elapsed-microsecond

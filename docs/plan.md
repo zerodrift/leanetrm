@@ -14,7 +14,9 @@ Ordinary Instrument PV consumes accepted basis plus the shared recorded-cash
 state, including final settlement without an open mark. The managed coordinator
 derives monetary operands internally and retains reviewed source choices.
 Owned command and standalone-review admission preserve original authority bounds
-across work and waits. Whole-portfolio/worker wiring, physical final delivery,
+across work and waits. An explicit native-margin portfolio convention now loads
+accepted basis and surviving cash through ordinary connected PV, retaining exact
+cash provenance and transaction-owned read admission. Wider worker wiring, physical final delivery,
 HTTP/agent/UI workflows and browser qualification remain work;
 see the [delivery boundaries](lifecycle-delivery.md).
 

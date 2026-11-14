@@ -15,6 +15,10 @@ project. The trading CI partition runs all three. The journal consumer qualifies
 actual booking/adoption, causal corrections, distinct surviving cash, partial
 payment, terminal PV without an open mark, explicit future-cash discounting,
 review/source changes, original admission deadlines and immutable run membership.
+The same consumer now checks the explicit native-margin scoped portfolio,
+ordinary connected PV, exact cash provenance and retained accounting coverage.
+A wrapped-review regression fails without transaction-owned admission and passes
+with it; successor grants cannot extend its original read deadline.
 It also inserts separate privileged synthetic contexts with inconsistent prefixes
 to prove refusal, without modifying immutable records or the database software.
 These are native/managed checks. The [remaining lifecycle gates](lifecycle-delivery.md)

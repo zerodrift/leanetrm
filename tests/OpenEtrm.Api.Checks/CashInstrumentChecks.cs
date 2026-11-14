@@ -2,6 +2,8 @@ using System.Text.Json;
 using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.MarketData.Risk;
+using OpenEtrm.Rates;
 
 internal static class CashInstrumentChecks
 {
@@ -21,6 +23,14 @@ internal static class CashInstrumentChecks
         foreach(var invalid in new[]{Row(timed.Id,null,null),Row(timed.Id,"2031-01-01","2031-01-01T13:02:03.123456Z"),
             Row(timed.Id,"2031-01-01",null),Row(dated.Id,null,"2031-01-01T13:02:03.123456Z"),Row(timed.Id,null,"2031-01-01T13:02:03.123457Z")})
             Reject(()=>CashPaymentStore.Materialize(invalid));
+        var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,FuturesMarginValuationPolicy.Convention,
+            SwapStore.Convention,RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1);
+        void Missing(Action work){try{work();}catch(MarketDataException e)when(e.Code=="portfolio_policy"){return;}throw new Exception("Expected explicit native futures policy refusal.");}
+        Missing(()=>PortfolioValuation.ValidatePolicy(policy));
+        var selected=policy with{NativeFutures=new(FuturesMarginValuationPolicy.CurrencyDefault,RateDiscountTiming.Version)};
+        PortfolioValuation.ValidatePolicy(selected);
+        Missing(()=>PortfolioValuation.ValidatePolicy(selected with{FuturesConvention=FuturesRisk.Implementation}));
+        Missing(()=>PortfolioValuation.ValidatePolicy(selected with{NativeFutures=selected.NativeFutures! with{TimingPolicy=""}}));
         Console.WriteLine("PASS native cash materialization: date and exact-instant definitions, independent identity vector and invalid/ambiguous header refusal");
     }
     static void Reject(Action action)

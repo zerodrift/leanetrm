@@ -19,10 +19,13 @@ public sealed record PortfolioValuationPolicy(string CurveNumericalPolicy,string
     string FuturesConvention,string SwapConvention,string RateNumericalPolicy,string DiscountInterpolationPolicy,
     string BumpConvention,string BumpBasis,int BumpTicks,
     [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]string? PpaPendingActuals=null,
-    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]FuturesOptionValuationPolicy? FuturesOptions=null);
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]FuturesOptionValuationPolicy? FuturesOptions=null,
+    [property:System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]FuturesMarginValuationPolicy? NativeFutures=null);
 public sealed record PortfolioPositionEvidence(Guid TradeId,int Revision,Guid BindingId,Guid InstrumentId,
     Guid ValuationId,Guid BookId,string Measure,Guid DefinitionRevisionId,int PublicationOrder,Quantity Quantity)
 {
+    public AccountingOwnerKey Owner{get;init;}=new(AccountingOwnerKind.Trade,TradeId);
+    public PortfolioMarginCashOrigin? MarginCashOrigin{get;init;}
     public DeliveryCoverage? Coverage{get;init;}
     public string TradeReference{get;init;}="";
     public string InstrumentReference{get;init;}="";
@@ -48,6 +51,8 @@ public sealed record PortfolioFactorRisk(string Measure,Guid BookId,ReferenceKey
     ExactMoney Up,ExactMoney Down,ExactMoney UpPnl,ExactMoney DownPnl,ExactRiskDerivative Delta,ExactRiskDerivative Gamma);
 public sealed record PortfolioDiscountEvidence(Guid InstrumentId,SidePaymentKey Payment,PaymentDiscount Input)
 {public bool Ppa{get;init;} public Guid? SettlementDeterminationId{get;init;}}
+public sealed record PortfolioInstantDiscountEvidence(Guid InstrumentId,SidePaymentFactor Input);
+public sealed record PortfolioMarginCashOrigin(Guid FutureBindingId,Guid DeterminationId,DateTimeOffset OccurrenceAt,int MarginRevision);
 public sealed record PortfolioConnectedScenario(DefinitionRevision Definitions,string ManifestId,string Id,string? ParentId,int Depth,GraphWork Work,ConnectedPreparationWork Preparation);
 public sealed record PortfolioHoldingValue(string Measure,ExactRiskPositionValue Position);
 public sealed record PortfolioHoldingRisk(string Measure,string Factor,ExactRiskPositionResult Position);
@@ -57,6 +62,7 @@ public sealed record PortfolioValuationResult(Guid SnapshotId,ScheduleContext Co
     ImmutableArray<PortfolioFactorRisk> Risk,RiskWork Work)
 {
     public ImmutableArray<PortfolioDiscountEvidence> DiscountInputs{get;init;}=[];
+    public ImmutableArray<PortfolioInstantDiscountEvidence> InstantDiscountInputs{get;init;}=[];
     public ImmutableArray<ValuationReceipt> PpaReceipts{get;init;}=[];
     public ImmutableArray<BookValueMeasures> PpaMeasures{get;init;}=[];
     public ImmutableArray<PortfolioConnectedScenario> ConnectedScenarios{get;init;}=[];
@@ -82,6 +88,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         ImmutableArray<MarketPartition> Markets,ImmutableArray<PortfolioPositionEvidence> Positions,
         ImmutableArray<PortfolioDiscountEvidence> DiscountInputs,ImmutableArray<ExcludedPosition> Excluded)
     {
+        public ImmutableArray<PortfolioInstantDiscountEvidence> InstantDiscountInputs{get;init;}=[];
+        internal ImmutableDictionary<MeasureBinding,FuturesMarginRead> FuturesMargin{get;init;}=ImmutableDictionary<MeasureBinding,FuturesMarginRead>.Empty;
         internal ImmutableArray<PpaPortfolioInput> Ppas{get;init;}=[];
         internal long PpaRows=>Ppas.Sum(p=>p.Rows);
         // The option inputs this preparation calibrated, the work it took, and the calibration mode of each valued option binding.
@@ -98,11 +106,14 @@ public sealed class PortfolioValuation(PreviewDatabase database)
     public static void ValidatePolicy(PortfolioValuationPolicy policy)
     {
         if(policy is null||policy.CurveNumericalPolicy!=CurveModel.NumericalPolicy||policy.RiskNumericalPolicy!=RiskEngine.ExactNumericalPolicy||
-            policy.FuturesConvention!=FuturesRisk.Implementation||policy.SwapConvention!=SwapStore.Convention||
+            policy.FuturesConvention is not (FuturesRisk.Implementation or FuturesMarginValuationPolicy.Convention)||policy.SwapConvention!=SwapStore.Convention||
             policy.RateNumericalPolicy!=ZeroRateCurve.Policy||policy.DiscountInterpolationPolicy!=DiscountInterpolation.Policy||
             policy.BumpConvention!=QuoteBump.Convention||policy.BumpBasis!="trading_tick"||policy.BumpTicks is <1 or >100)
             throw new MarketDataException("portfolio_policy","Select the supported exact valuation policies and one to 100 symmetric trading ticks explicitly.");
         policy.FuturesOptions?.Validate();
+        if(policy.FuturesConvention==FuturesMarginValuationPolicy.Convention)
+            (policy.NativeFutures??throw new MarketDataException("portfolio_policy","Native futures valuation requires explicit cash-discount and timing policies.")).Validate();
+        else if(policy.NativeFutures is not null)throw new MarketDataException("portfolio_policy","The selected futures valuation convention conflicts with native margin inputs.");
     }
     public async Task<PortfolioValuationResult> Calculate(NpgsqlConnection connection,PreviewData data,InputFrame frame,
         ScheduleContext context,ImmutableArray<Guid> bookIds,PortfolioValuationPolicy policy,CancellationToken ct,bool requireNativeEvidence=false)
@@ -145,6 +156,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         ImmutableArray<(PreviewData Data,InputFrame Frame)> supplemental,CancellationToken ct,RiskTradeSelection? selection=null)
     {
         var operation=new PreparationScope(data.DefinitionRevision,frame,snapshot,context,bookIds,selection);
+        if(policy.FuturesConvention==FuturesMarginValuationPolicy.Convention)
+            return await PrepareCore(connection,data,frame,snapshot,context,bookIds,policy,supplemental,[],ct,operation:operation,selection:selection);
         try{return await PrepareCore(connection,data,frame,snapshot,context,bookIds,policy,supplemental,[],ct,operation:operation,selection:selection);}
         catch(MarketDataException error) when(FuturesOptionMarket.Excludable(error.Code)){}
         var excluded=await Unvalued(connection,data,frame,snapshot,context,bookIds,policy,supplemental,operation,ct,selection);
@@ -269,6 +282,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var futures=await futuresStore.ReadTrades(connection,data,books,bookIds,[],ct,trades:selection?.Ids);
         var swapExclusions=excluded.Where(e=>e.InstrumentType is SwapType or HeatRateType).ToImmutableArray();
         var futureExclusions=excluded.Where(e=>e.InstrumentType==FutureType).ToImmutableArray();
+        if(policy.FuturesConvention==FuturesMarginValuationPolicy.Convention&&!futureExclusions.IsEmpty)
+            throw new MarketDataException("risk_contract","Native futures valuation requires complete accepted holdings and cash without exclusions.");
         var optionExclusions=excluded.Where(e=>e.InstrumentType==FuturesOptionPositions.Type).ToImmutableArray();
         var gasExclusions=excluded.Where(e=>e.InstrumentType==GasPositions.Type).Select(e=>(e.TradeId,e.BindingId)).ToHashSet();
         var swaps=operation?.Swaps is {} resolved
@@ -283,6 +298,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var materialized=new List<(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,ValuationPortfolio Portfolio,string Measure)>();
         var materializationWork=new ScenarioWork(0,0,0,0);var materializationScenarios=0;
         var evidence=ImmutableArray.CreateBuilder<PortfolioPositionEvidence>();
+        var instantDiscounts=ImmutableArray.CreateBuilder<PortfolioInstantDiscountEvidence>();
+        var margins=ImmutableDictionary.CreateBuilder<MeasureBinding,FuturesMarginRead>();
         var heldGas=await GasPositions.ReadComplete(connection,database.Manifest,bookIds,[],ct,selection?.Ids);
         if(!gasExclusions.IsSubsetOf(heldGas.Select(p=>(p.Trade,p.Binding))))
             throw new MarketDataException("risk_contract","Every excluded gas position must be a held position in scope.");
@@ -314,6 +331,31 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             var held=FuturesStore.InSource(futuresTrades,source.Data.DefinitionRevision);
             if(held.IsEmpty)continue;
             var selected=MarketSnapshotBinding.Bind(source.Data.Snapshot(source.Frame),exact.ContextId!.Value,known);
+            if(policy.FuturesConvention==FuturesMarginValuationPolicy.Convention)
+            {
+                var native=await FuturesMarginPortfolio.Read(connection,database,source.Data,source.Frame,selected,held,policy.NativeFutures!,ct);
+                materialized.Add((source.Data,source.Frame,selected,native.Portfolio,FuturesMarginPortfolio.Measure));
+                instantDiscounts.AddRange(native.DiscountInputs);
+                foreach(var pair in native.Accepted)margins.Add(pair.Key,pair.Value);
+                var owners=native.Accepted.SelectMany(pair=>pair.Value.CashBindings.Select(b=>(Key:new MeasureBinding(pair.Key.TradeId,b.Id),Origin:pair.Key))
+                    .Append((Key:pair.Key,Origin:pair.Key))).ToDictionary(p=>p.Key,p=>p.Origin);
+                var nativeRows=futures.Rows.ToDictionary(r=>new MeasureBinding(r.Id("trade_id"),r.Id("binding_id")));
+                foreach(var position in native.Portfolio.Positions)
+                {
+                    var row=nativeRows[owners[new(position.TradeId,position.BindingId)]];
+                    if(row.Id("binding_id")==position.BindingId)
+                        evidence.Add(Evidence(row,position,FuturesMarginPortfolio.Measure,"binding_publication",FutureType));
+                    else
+                    {
+                        var margin=native.Accepted[new(position.TradeId,row.Id("binding_id"))];var origin=margin.CashOrigins.Single(o=>o.BindingId==position.BindingId);
+                        evidence.Add(new(position.TradeId,margin.TradeRevision,position.BindingId,position.ValuationId,position.ValuationId,position.BookId,
+                            FuturesMarginPortfolio.Measure,source.Data.DefinitionRevision.RevisionId,origin.PublicationOrder,position.Quantity)
+                        {TradeReference=TradingReference.Trade(row),InstrumentReference=position.ValuationId.ToString(),InstrumentType="cash_payment",
+                            MarginCashOrigin=new(row.Id("binding_id"),origin.DeterminationId,origin.OccurrenceAt,margin.MarginRevision)});
+                    }
+                }
+                continue;
+            }
             var (market,portfolio)=FuturesRisk.PreparePortfolio(held,selected,source.Data.Model,policy.FuturesConvention,ct);
             materializationWork=materializationWork with{RebuiltCurveNodes=materializationWork.RebuiltCurveNodes+market.EvaluatedConstituents,
                 ReusedCurveNodes=materializationWork.ReusedCurveNodes+market.ReusedConstituents};materializationScenarios++;
@@ -403,7 +445,8 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             throw new MarketDataException("risk_contract","Every retained exclusion must be consumed by its held-position loader.");
         return new(snapshot.Id,exact,policy,markets.ToImmutable(),evidence.ToImmutable(),discountInputs,excluded)
             {MaterializationWork=materializationWork,MaterializationScenarioCount=materializationScenarios,Ppas=[..ppas.Select(p=>p.Prepared)],
-             Options=optionMarkets.Count==0?null:new(optionMarkets.ToImmutable()),OptionWork=optionMarkets.Count==0?null:optionWork,OptionModes=optionModes};
+             Options=optionMarkets.Count==0?null:new(optionMarkets.ToImmutable()),OptionWork=optionMarkets.Count==0?null:optionWork,OptionModes=optionModes,
+             InstantDiscountInputs=instantDiscounts.ToImmutable(),FuturesMargin=margins.ToImmutable()};
     }
     // The option market of the held options, calibrated once per operation: a retried preparation reuses its calibration.
     private async Task<FuturesOptionMarket> OptionMarket(NpgsqlConnection connection,PreviewData data,InputFrame frame,MarketSnapshot snapshot,
@@ -512,7 +555,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         return new(prepared.SnapshotId,prepared.Context,prepared.Policy,ModelContracts(groups.SelectMany(g=>g.Group.Contracts)),prepared.Positions,
             bumps.Select(b=>new PortfolioFactor(runs.Single(r=>r.Market.Snapshot.Definitions==b.Axis.Market).Axes[b.Axis.Id],b.Size)).ToImmutableArray(),totals,totalsRisk.ToImmutable(),combined)
         {
-            DiscountInputs=prepared.DiscountInputs.AddRange(prepared.Ppas.SelectMany(ppa=>PpaReads.DiscountInputs(ppa.Portfolio.Setup.InstrumentDiscounting))),Detail=detail,
+            DiscountInputs=prepared.DiscountInputs.AddRange(prepared.Ppas.SelectMany(ppa=>PpaReads.DiscountInputs(ppa.Portfolio.Setup.InstrumentDiscounting))),InstantDiscountInputs=prepared.InstantDiscountInputs,Detail=detail,
             PpaReceipts=[..prepared.Ppas.Select(p=>p.Receipt)],PpaMeasures=[..groups.Where(g=>g.Measure==PpaMeasure).SelectMany(g=>g.Group.Measures)],
             ConnectedScenarios=runs.Select(r=>r.Connected).ToImmutableArray(),
             BasePositions=groups.SelectMany(g=>g.Group.BasePositions.Select(p=>new PortfolioHoldingValue(g.Measure,p))).ToImmutableArray(),HoldingRisk=holdingRisk.ToImmutable()

@@ -5,6 +5,7 @@ using OpenEtrm.Api;
 using OpenEtrm.MarketData;
 using OpenEtrm.MarketData.Risk;
 using OpenEtrm.MarketData.Trading;
+using OpenEtrm.Rates;
 
 internal static class FuturesMarginJournalChecks
 {
@@ -23,6 +24,8 @@ internal static class FuturesMarginJournalChecks
         await using var runtime=NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder{
             Host=host,Port=55439,Database="postgres",Username="preview_runtime",Timezone="UTC",Pooling=false}.ConnectionString);
         await using var database=new PreviewDatabase(manifest,runtime);
+        var login=new NpgsqlConnectionStringBuilder{Host=host,Port=55439,Database="postgres",Username="preview_runtime",Timezone="UTC",Pooling=false};
+        await using var owned=new PreviewDatabase(manifest,new NpgsqlConnectionStringBuilder(login.ConnectionString){Username="preview_authenticator"},login);
         foreach(var sample in fixture.GetProperty("samples").EnumerateArray())
         {
             await using var connection=await runtime.OpenConnectionAsync();
@@ -62,6 +65,12 @@ internal static class FuturesMarginJournalChecks
                 .Groups.SelectMany(g=>g.BaseValues).Select(v=>v.Value).Aggregate((a,b)=>a.Add(b));
             if(value.CompareTo(ExactMoney.Parse(sample.Text("expectedPv"),market.Quote.Currency))!=0)
                 throw new Exception("Ordinary futures plus recorded-cash PV did not preserve value across determination, correction and actual payment.");
+            var integrated=FuturesMarginPortfolio.Materialize([held],setup.BindingStates,setup.InstrumentDiscounting,setup.Discounting,snapshot);
+            var integratedValue=RiskEngine.CalculateExact(RiskEngine.Prepare(data.Model,snapshot,[integrated]),[],RiskEngine.ExactNumericalPolicy)
+                .Groups.Single().BaseValues.Single().Value;
+            if(integratedValue!=value||integrated.Setup.Measure!=ValuationMeasure.PresentValue||integrated.Positions.Length!=1+margin.CashBindings.Length||
+                integrated.Setup.AccountingFacts.Count!=integrated.Positions.Length)
+                throw new Exception("The native futures portfolio adapter omitted accepted basis, independent cash or explicit accounting coverage.");
             if(margin.History.Determinations.Length>0)
             {
                 try
@@ -72,6 +81,25 @@ internal static class FuturesMarginJournalChecks
                 catch(PostgresException error)when(error.MessageText=="futures_margin_history_required"){}
             }
             await transaction.RollbackAsync();
+            if(!sample.TryGetProperty("discount",out _))
+            {
+                var integratedBook=await owned.WithIdentity("risk",null,async(current,ct)=>
+                {
+                    await PinnedContext.BindExact(current,manifest.CatalogId,context,ct);
+                    await using(var trading=ScheduleStore.Command(current,"SELECT security.use_trading_context($1,$2)",manifest.CatalogId,at))
+                        await trading.ExecuteNonQueryAsync(ct);
+                    var policy=new PortfolioValuationPolicy(CurveModel.NumericalPolicy,RiskEngine.ExactNumericalPolicy,
+                        FuturesMarginValuationPolicy.Convention,SwapStore.Convention,RateCurveMath.Policy,DiscountInterpolation.Policy,QuoteBump.Convention,"trading_tick",1,
+                        FuturesOptions:FuturesOptionValuationPolicy.Release1,NativeFutures:new(FuturesMarginValuationPolicy.CurrencyDefault,RateDiscountTiming.Version));
+                    var scope=await RiskTradeScope.Resolve(current,manifest.CatalogId,[trade.BookId],[trade.Id],ct);
+                    var prepared=await new PortfolioValuation(owned).Prepare(current,data,frame,snapshot,context,[trade.BookId],policy,[],[],ct,selection:scope);
+                    return PortfolioValuation.Calculate(prepared,[],[],RiskDetail.Holdings,ct);
+                },default);
+                if(integratedBook.Totals.Single().Value!=value||integratedBook.Positions.Length!=1+margin.CashBindings.Length||
+                    integratedBook.BasePositions.Length!=integratedBook.Positions.Length||integratedBook.Totals.Single().Measure!=FuturesMarginPortfolio.Measure||
+                    integratedBook.Positions.Count(p=>p.MarginCashOrigin is not null)!=margin.CashBindings.Length)
+                    throw new Exception("The scoped portfolio lost native margin basis, surviving cash, exact provenance or ordinary holding detail.");
+            }
         }
         Console.WriteLine("PASS native margin through ordinary PV: exact history, surviving cash, actual partial payment and historical replay; inception fallback refuses");
     }
@@ -111,12 +139,13 @@ internal static class FuturesMarginJournalChecks
                 await database.WithIdentity("trader",null,async(connection,ct)=>
                 {
                     var prepared=await FuturesMarginCoordinator.Preview(connection,database,request,ct);
+                    database.RegisterCommitAdmission(connection,prepared);
                     if(expire.GetBoolean())
                     {
                         await using var work=ScheduleStore.Command(connection,"SELECT pg_sleep(6)");
                         await work.ExecuteNonQueryAsync(ct);
                     }
-                    return prepared;
+                    return new{prepared.Plan,prepared.Hash};
                 },default);
             }
             catch(PostgresException error)when(expire.GetBoolean()&&error.SqlState=="42501"&&error.MessageText=="futures_margin_denied"){refused=true;}
