@@ -37,7 +37,7 @@ INSERT INTO market_data.series SELECT(jsonb_populate_record(NULL::market_data.se
     return reference,market,security,manifest
 
 
-def checks(query,manifest):
+def checks(query,manifest,*,terminal_boundary=False):
     catalog,tenant,workspace=(manifest[k] for k in ('catalogId','tenantId','workspaceId'))
     query(f"SELECT security.initialize_operating_policies('{tenant}','{workspace}');")
     query(catalogue_fixture(manifest,manifest['identityIssuer']))
@@ -84,7 +84,7 @@ def checks(query,manifest):
     members=[dict(definitionRevisionId=manifest['revisionId'],curve='nymex_ng',contractId=future,ordinal=0,scope='root')]
     close=call(f"SELECT security.register_market_close('{catalog}','{manifest['revisionId']}','{uuid4()}','Synthetic option expiry close','synthetic_option_task_close','{day}','{option_at}',{lit(pins)},{lit(members)});")
     claim=execute(query,manifest,call,close_id=close,target=dict(handler='listed_option',scopeId=booked['tradeId'],bindingId=booked['optionInstrumentId']),action='option.expiry',occurrence_id=booked['tradeId'],
-        policy_id=policy['policyId'],policy_revision=1,execution_permission='BookTrade',extra_permissions=['ReadGasOwnedHoldings','RecordGasOwnedHoldings'],
+        policy_id=policy['policyId'],policy_revision=1,execution_permission='BookTrade',extra_permissions=['ReadGasOwnedHoldings','RecordGasOwnedHoldings'],terminal_boundary=terminal_boundary,
         settings=dict(tradeRevision=1,optionProfileRevision=1,swapProfileId=None,swapProfileRevision=None,marginPolicyId=margin['id'],marginPolicyRevision=1))
     event=json.loads(query(f"SELECT to_jsonb(e)::text FROM trading.futures_option_events e WHERE(e.catalog_id,e.request_id)=('{catalog}','{claim['id']}');"))
     assert event['kind']=='expiry' and event['outcome']=='exercised' and Decimal(event['lots'])==2

@@ -7,7 +7,7 @@ import subprocess
 from uuid import uuid4
 
 
-def execute(query,manifest,call,*,close_id,target,action,occurrence_id,policy_id,policy_revision,settings,execution_permission,extra_permissions,expected_admission_error=None):
+def execute(query,manifest,call,*,close_id,target,action,occurrence_id,policy_id,policy_revision,settings,execution_permission,extra_permissions,expected_admission_error=None,terminal_boundary=False):
     catalog=manifest['catalogId']
     def lit(value):return "'"+json.dumps(value).replace("'","''")+"'::jsonb"
     # A disposable service has only the named current consumer's permissions.
@@ -33,6 +33,24 @@ def execute(query,manifest,call,*,close_id,target,action,occurrence_id,policy_id
         else:raise AssertionError('The task accepted '+expected_admission_error)
         assert query("SELECT count(*)::text||':'||(SELECT count(*) FROM automation.commands)::text FROM automation.jobs;")==before
         return None
+    if terminal_boundary:
+        tables=('trading.trades','trading.trade_revisions','trading.booking_facts','trading.futures_option_events',
+            'trading.scheduled_option_bookings','settlement_data.futures_margin_adoptions','lifecycle.commands','trading.publications')
+        counts=lambda:tuple(query(f"SELECT count(*) FROM {table} WHERE catalog_id='{catalog}';") for table in tables)
+        before=counts();host=query('SHOW unix_socket_directories;')
+        for early in (False,True):
+            probe=json.loads(json.dumps(body));probe['schedule'].update(requestId=str(uuid4()),name='Synthetic option booking terminal boundary '+str(early))
+            job=json.loads(call(f"SELECT automation.create_lifecycle_job('{catalog}',{lit(probe)})::text;"))['outcome']
+            worker=str(uuid4());claim=json.loads(query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.claim_lifecycle_next('{worker}',120)::text;"))
+            assert claim['jobId']==job['id']
+            path=Path(host)/('option-booking-terminal-'+str(early)+'.json')
+            path.write_text(json.dumps(dict(manifest=manifest,host=host,claim=claim,earlySeal=early)));path.chmod(0o600)
+            checked=subprocess.run([os.environ.get('DOTNET','dotnet'),'run','--no-build','--no-restore','--project','tests/OpenEtrm.Api.Checks','--',
+                '--lifecycle-schedule-no-result',str(path)],cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,timeout=60)
+            if checked.returncode:raise RuntimeError(checked.stdout+checked.stderr)
+            assert counts()==before,'An unfinished option task leaked native financial effects'
+            assert query('SELECT count(*) FROM security.scheduled_option_booking_permits;')=='0'
+        print('PASS actual scheduled option omitted-result and early-constraint probes roll back event, generated future, booking, adoption and causal provenance together',flush=True)
     admitted=json.loads(call(f"SELECT automation.create_lifecycle_job('{catalog}',{lit(body)})::text;"))['outcome']
     worker=str(uuid4())
     claim=json.loads(query(f"SET SESSION AUTHORIZATION pilot_fixture_scheduler;SELECT automation.claim_lifecycle_next('{worker}',120)::text;"))

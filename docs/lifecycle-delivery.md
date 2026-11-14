@@ -231,6 +231,21 @@ unknown acknowledgement recovery uses the native first outcome. Separate
 scheduler/runtime identities preserve current owner/delegator/service capability
 intersection and each attempt’s original authority bounds.
 
+An automatic listed-option expiry may create its contractual strike-basis future.
+That booking records the actual service principal, original job owner, exact task
+run and source option revision. A private transaction-scoped permit admits only
+the derived option-event operation, original book, event request and contractual
+effective instant. The future, option event, booking fact, selected delivery-policy
+adoption, shared command and complete task result publish together. Ordinary
+service bookings remain refused even when the service has booking permission.
+Checks exercise the real managed task processor, omitted terminal results, early
+constraint draining, unrelated bookings, exact-operation impersonation and guarded
+helper upgrades against disposable stock PostgreSQL.
+
+A new command acknowledging an existing option event identifies the current
+command and separately retains the original acknowledged operation. It appends no
+event or generated future; previously returned command outcomes remain unchanged.
+
 ## Economic horizon
 
 The risk profile selects one common next configured close and all financial
