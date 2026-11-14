@@ -33,6 +33,7 @@ def workers(query,manifest,path,managed,packet):
         managed({**packet,'economicWorker':True,'selectedObservations':source['observationIds'],
             'context':{**packet['context'],'contextId':context(day),'asOf':at,'businessDate':day}})
         receipts=json.loads(path.with_suffix('.economic-worker.json').read_text());assert len(receipts['jobs'])==(2 if variable else 1)
+        assert all(len(saved['report']['factors'])==(2 if variable else 0) for saved in receipts['jobs']),'The native swap worker lost its declared two-input curve closure'
         report=receipts['jobs'][0]['report'];catalog=manifest['catalogId'];trade=packet['target']['scopeId'];source_context=report['source']['contextId']
         arguments=[f"'{catalog}'","'financial_swap'",f"'{trade}'",'1',f"'{source_context}'",f"'{at}'::timestamptz",f"'{day}'::date",'until_at']
         def probe(args):

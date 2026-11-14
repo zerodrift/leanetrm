@@ -15,6 +15,38 @@ from check_risk_jobs_db import provision_worker
 ROOT=Path(__file__).resolve().parents[1]
 
 
+def label_checks(query,manifest,fixture):
+    selected=json.loads(fixture.read_text());catalog=manifest['catalogId'];context=selected['contextId'];at=selected['at'];book=selected['bookId']
+    day=query(f"SELECT effective_on FROM market_data.temporal_contexts WHERE(catalog_id,id)=('{catalog}','{context}');")
+    def authenticated(sql):
+        token=query(f"SET SESSION AUTHORIZATION preview_authenticator;SELECT security.issue_context('https://preview.invalid','trader','human_interactive','{manifest['tenantId']}','{manifest['workspaceId']}',NULL,'preview_runtime',60);")
+        return f"SET SESSION AUTHORIZATION preview_runtime;SELECT security.use_context('{token}');SELECT security.use_market_context('{catalog}','{context}');SELECT security.use_trading_context('{catalog}','{at}','{day}'::date);"+sql
+    signature='security.read_gas_owned_holdings_before_labels(uuid,uuid,timestamptz,uuid[])'
+    original=query(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
+    needle='RETURN security.read_gas_owned_holdings_pre_risk(catalog,context,at_time,books);'
+    assert original.count(needle)==1
+    public=f"security.read_gas_owned_holdings('{catalog}','{context}','{at}',ARRAY['{book}'::uuid])"
+    for part in ('positions','fees','deliveryCash'):
+        for altered in [f"(security.read_gas_owned_holdings_pre_risk(catalog,context,at_time,books)-'{part}')",
+                        f"(security.read_gas_owned_holdings_pre_risk(catalog,context,at_time,books)||jsonb_build_object('{part}','null'::jsonb))"]:
+            forged=original.replace(needle,'RETURN '+altered+';')
+            try:query('BEGIN;'+forged+';'+authenticated(f'SELECT {public};ROLLBACK;'))
+            except RuntimeError as error:assert 'gas_owned_labels_source' in str(error),str(error)
+            else:raise AssertionError('A missing/null native '+part+' array became a successful empty financial membership set')
+    compare="""CREATE FUNCTION security.synthetic_gas_label_source(catalog uuid,context uuid,at_time timestamptz,books uuid[]) RETURNS jsonb
+      LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog AS $compare$ SELECT security.read_gas_owned_holdings_before_labels(catalog,context,at_time,books) $compare$;
+      ALTER FUNCTION security.synthetic_gas_label_source(uuid,uuid,timestamptz,uuid[]) OWNER TO openetrm_security_owner;
+      REVOKE ALL ON FUNCTION security.synthetic_gas_label_source(uuid,uuid,timestamptz,uuid[]) FROM PUBLIC;
+      GRANT EXECUTE ON FUNCTION security.synthetic_gas_label_source(uuid,uuid,timestamptz,uuid[]) TO openetrm_runtime;"""
+    rows=query('BEGIN;'+compare+authenticated(f"SELECT jsonb_build_object('original',security.synthetic_gas_label_source('{catalog}','{context}','{at}',ARRAY['{book}'::uuid]),'enriched',{public})::text;ROLLBACK;"))
+    values=json.loads(rows);original=values['original'];enriched=values['enriched']
+    for part in ('positions','fees','deliveryCash'):
+        stripped=[{k:v for k,v in row.items() if k not in ('account_code','source_reference','origin_trade_reference')} for row in enriched[part]]
+        assert stripped==original[part],'Labels changed native '+part+' count, order, quantities or source identities'
+    assert enriched['fees'],'The label fixture must retain cash after native stock consumption'
+    print('PASS native gas labels: no missing/null membership fallback; exact original arrays, counts, order and surviving cash preserved',flush=True)
+
+
 def stop_owned(process):
     if process is None or process.poll() is not None:return
     process.terminate()
@@ -24,6 +56,7 @@ def stop_owned(process):
 
 
 def worker_checks(query, manifest, fixture):
+    label_checks(query,manifest,fixture)
     directory=Path(query('SHOW unix_socket_directories;')).resolve()
     assert directory==fixture.parent.resolve() and directory.name.startswith('oetrm-ref-')
     dotnet=os.environ.get('DOTNET','dotnet')
@@ -121,8 +154,14 @@ def checks(query, manifest):
     gas_checks(query,manifest,economic_worker=worker_checks)
 
 
+def upgrade_checks(query,migration):
+    if migration.name=='0286_gas_owned_valuation_labels.sql':
+        from check_fact_anchor_upgrade import run_checks
+        run_checks(query,migration,number='0286',guard='gas_owned_labels_upgrade',signatures=('security.read_gas_owned_holdings(uuid,uuid,timestamptz,uuid[])',))
+
+
 if __name__=='__main__':
     dotnet=os.environ.get('DOTNET','dotnet')
     result=subprocess.run([dotnet,'build','tests/OpenEtrm.Api.Checks'],cwd=ROOT,capture_output=True,text=True,timeout=120)
     if result.returncode:raise RuntimeError(result.stdout+result.stderr)
-    main(checks=checks)
+    main(checks=checks,before_migration=upgrade_checks)

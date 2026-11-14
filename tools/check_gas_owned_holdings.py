@@ -55,9 +55,12 @@ def checks(query, manifest, economic_worker=None):
                              "(c.reference_catalog_id,c.reference_revision_id,c.quote_code) "
                              f"WHERE(c.catalog_id,c.revision_id,c.code)=('{catalog}','{manifest['revisionId']}','future');"))
     contract = '50000000-0000-0000-0000-000000000001'
+    account_count=0
     def account(kind, selected_book=None, effective_at='2020-12-18T00:00:00Z'):
+        nonlocal account_count
+        account_count+=1
         identity = str(uuid4())
-        command(identity,'account',dict(code='synthetic_'+identity.replace('-',''),kind=kind,bookId=selected_book or book,legalEntityId=entity,
+        command(identity,'account',dict(code=f'synthetic_{kind}_{account_count}',kind=kind,bookId=selected_book or book,legalEntityId=entity,
             legalEntityRevision=1,counterpartyId=party if kind=='operator_balance' else None,counterpartyRevision=1 if kind=='operator_balance' else None,
             referenceCatalogId=manifest['referenceCatalogId'],referenceRevisionId=manifest['referenceRevisionId'],
             definitionRevisionId=manifest['revisionId'],markCurve='future',markContractId=contract,
@@ -74,8 +77,11 @@ def checks(query, manifest, economic_worker=None):
         command(identity,'bind_policy',dict(action=code,policyId=policy,policyRevision=1,effectiveAt='2020-12-18T00:00:00Z'))
         policies[(identity,action)] = (policy,1)
 
+    evidence_count=0
     def evidence(identity, kind, qty, when='2020-12-19T12:00:00Z', source=None, revision=0):
-        return command(identity,'evidence',dict(sourceKey=source or str(uuid4()),kind=kind,quantity=str(qty),occurredAt=when,
+        nonlocal evidence_count
+        evidence_count+=1
+        return command(identity,'evidence',dict(sourceKey=source or f'synthetic_{kind}_{evidence_count}',kind=kind,quantity=str(qty),occurredAt=when,
             evidence='Synthetic accepted operational evidence',expectedRevision=revision))['id']
 
     owned, operator = account('owned_inventory'), account('operator_balance')

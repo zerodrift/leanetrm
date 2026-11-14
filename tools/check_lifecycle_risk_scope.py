@@ -92,8 +92,9 @@ def checks(query, manifest):
     bind=f"BEGIN;SELECT risk.bind('{claim['jobId']}','{claim['leaseToken']}');"
     read=worker(bind+f"SELECT security.admit_trading_business_source('{catalog}','{context}','{at}','{day}'::date);"
         f"SELECT security.require_lifecycle_projection_profile('{catalog}','listed_option','{option['tradeId']}',NULL,1,'{context}','{at}','{day}'::date,settlement_data.futures_margin_preview_authority('{catalog}'));"
+        f"SELECT jsonb_array_length(security.read_lifecycle_projection_profiles('{catalog}','listed_option','{option['tradeId']}',1,'{context}','{at}','{day}'::date,settlement_data.futures_margin_preview_authority('{catalog}')));"
         f"SELECT jsonb_array_length(lifecycle.read_option_known_history('{catalog}','{option['tradeId']}','{option['optionInstrumentId']}',1,'{context}','{at}','{day}')->'events');COMMIT;")
-    assert read.splitlines()[-1]=='0',read
+    assert read.splitlines()[-2:]==['1','0'],read
     visible=worker(bind+f"SELECT count(*) FROM settlement_data.futures_margin_policies WHERE id='{option_policy['id']}';SELECT count(*) FROM settlement_data.futures_margin_policies WHERE id='{policy}';SELECT count(*) FROM settlement_data.futures_margin_policy_occurrences WHERE policy_id='{policy}';COMMIT;")
     assert visible.splitlines()[-3:]==['1','0','0'],visible
 

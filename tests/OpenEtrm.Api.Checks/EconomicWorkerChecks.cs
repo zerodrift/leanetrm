@@ -114,6 +114,8 @@ internal static class EconomicWorkerChecks
             {
                 var report=JsonSerializer.SerializeToElement(await calculator.Calculate(connection,data,frame,request,ct),RiskJobs.Json);
                 var value=report.GetProperty("result");var samples=value.GetProperty("samples").GetInt32();
+                if(report.GetProperty("holdings").EnumerateArray().Any(h=>!h.Text("reference").StartsWith("synthetic_",StringComparison.Ordinal)||!h.Text("instrument").StartsWith("synthetic_",StringComparison.Ordinal)))
+                    throw new Exception("Each independently owned gas holding and cash membership requires its native account and business-reference label.");
                 if(samples!=(cancel||request.Economic!.Simulation is null?2:32)||report.GetProperty("holdings").GetArrayLength()<2||
                     report.GetProperty("holdings").EnumerateArray().Any(h=>h.GetProperty("owner").GetProperty("owner").GetProperty("kind").GetInt32()!=2))
                     throw new Exception("Economic worker fixture must retain complete independent commodity and cash ownership and every declared sample.");

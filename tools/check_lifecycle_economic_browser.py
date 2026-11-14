@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from check_reference_editing import main
 from check_gas_owned_holdings import checks as gas_checks
-from check_lifecycle_economic_worker import ROOT,stop_owned,worker_checks
+from check_lifecycle_economic_worker import ROOT,stop_owned,worker_checks,upgrade_checks
 
 
 def browser_checks(query,manifest,fixture):
@@ -68,4 +68,4 @@ if __name__=='__main__':
     for command in ([os.environ.get('DOTNET','dotnet'),'build','tests/OpenEtrm.Api.Checks'],['npm','run','build','--prefix','web']):
         result=subprocess.run(command,cwd=ROOT,capture_output=True,text=True,timeout=120)
         if result.returncode:raise RuntimeError(result.stdout+result.stderr)
-    main(checks=checks)
+    main(checks=checks,before_migration=upgrade_checks)

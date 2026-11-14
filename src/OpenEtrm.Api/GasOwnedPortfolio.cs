@@ -80,12 +80,12 @@ internal static class GasOwnedPortfolio
             var holdings=positions.Select(p=>Position(p.Position,p.Instrument,p.Quantity)).Concat(fees.Select(f=>Position(f.Position,f.Instrument,f.Quantity))).ToImmutableArray();
             var setup=new ValuationSetup(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
                 {BindingStates=states,InstrumentDiscounting=discounts.ToImmutable(),AccountingFacts=held.AccountingFacts.Where(p=>states.ContainsKey(p.Key)).ToImmutableDictionary()};
-            var evidence=positions.Select(p=>Evidence(p.Position,p.Instrument,p.Quantity,p.Revision,p.PublicationOrder,p.Kind))
-                .Concat(fees.Select(p=>Evidence(p.Position,p.Instrument,p.Quantity,1,p.PublicationOrder,"cash_payment"))).ToImmutableArray();
+            var evidence=positions.Select(p=>Evidence(p.Position,p.Instrument,p.Quantity,p.Revision,p.PublicationOrder,p.Kind,p.AccountCode,p.SourceReference))
+                .Concat(fees.Select(p=>Evidence(p.Position,p.Instrument,p.Quantity,1,p.PublicationOrder,"cash_payment",p.AccountCode,p.SourceReference))).ToImmutableArray();
             result.Add(new(market.Data,market.Frame,snapshots,new(instruments,holdings,setup),evidence,inputs.ToImmutable()));
-            PortfolioPositionEvidence Evidence(AccountingPositionKey owner,Instrument instrument,Quantity quantity,int revision,int publication,string kind)=>
+            PortfolioPositionEvidence Evidence(AccountingPositionKey owner,Instrument instrument,Quantity quantity,int revision,int publication,string kind,string account,string reference)=>
                 new(Guid.Empty,revision,owner.BindingId,instrument.Id,instrument.Id,owner.BookId,Measure,pair.Key,publication,quantity)
-                {Owner=owner.Owner,InstrumentType=kind};
+                {Owner=owner.Owner,InstrumentType=kind,TradeReference=account+" · "+kind.Replace('_',' '),InstrumentReference=reference};
         }
         return result.ToImmutable();
     }

@@ -12,10 +12,12 @@ namespace OpenEtrm.Api;
 internal sealed record GasOwnedMarket(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot);
 internal sealed record GasOwnedPosition(AccountingPositionKey Position,Guid AccountId,PartyKey LegalOwner,string Kind,string SettlementMode,
     int Revision,int PublicationOrder,DateTimeOffset EffectiveAt,Guid EvidenceId,Instrument Instrument,Quantity Quantity)
-{internal Guid DefinitionRevisionId{get;init;} internal int MarkRevision{get;init;} internal int MarkPublicationOrder{get;init;}}
+{internal Guid DefinitionRevisionId{get;init;} internal int MarkRevision{get;init;} internal int MarkPublicationOrder{get;init;}
+ internal string AccountCode{get;init;}="";internal string SourceReference{get;init;}="";}
 internal sealed record GasOwnedCashPosition(AccountingPositionKey Position,Guid AccountId,Guid? LoanId,TimedCashPayment Instrument,
     Quantity Quantity,RecordedCashValuation State)
-{internal Guid DefinitionRevisionId{get;init;} internal int PublicationOrder{get;init;}}
+{internal Guid DefinitionRevisionId{get;init;} internal int PublicationOrder{get;init;}
+ internal string AccountCode{get;init;}="";internal string SourceReference{get;init;}="";}
 internal sealed record GasOwnedPortfolioRead(Guid ContextId,DateTimeOffset At,DateTimeOffset KnownAt,
     ImmutableArray<GasOwnedPosition> Positions,ImmutableArray<GasOwnedCashPosition> Fees,
     ImmutableDictionary<Guid,GasOwnedMarket> Markets,ImmutableDictionary<MeasureBinding,BindingAccountingFacts> AccountingFacts)
@@ -72,7 +74,7 @@ internal static class GasOwnedHoldings
             if(markets[revision.RevisionId].Data.ReferenceRevision!=reference)throw Error("Gas holdings require their exact mark-reference revision.");
             positions.Add(new(position,row.Id("account_id"),new(catalog,row.Id("legal_entity_id"),Integer(row,"legal_entity_revision")),row.Text("kind"),row.Text("settlement_mode"),
                 1,Integer(row,"publication_order"),row.Instant("effective_at"),row.Id("evidence_id"),instrument,new(row.Number("remaining_quantity"),instrument.UnitQuantity.Specification))
-                {DefinitionRevisionId=revision.RevisionId,MarkRevision=markRevision,
+                {DefinitionRevisionId=revision.RevisionId,MarkRevision=markRevision,AccountCode=row.Text("account_code"),SourceReference=BusinessReference(row),
                     MarkPublicationOrder=markRevision==0?Integer(row,"publication_order"):Integer(row,"mark_publication_order")});
             // This quantity ledger alone cannot attest purchase cash or capital
             // transfers. The actual P&L adapter must require the native source
@@ -93,12 +95,15 @@ internal static class GasOwnedHoldings
                 throw new MarketDataException("gas_owned_payment_origin","A payment before this owned cash obligation existed requires a separately qualified advance asset.");
             var state=new RecordedCashValuation(position,instrument,quantity,flows,RecordedCashValuation.Policy,context,snapshot.Knowledge.KnownAt);
             (entry.Principal?principal:fees).Add(new(position,row.Id("account_id"),entry.Principal?null:row.OptionalId("loan_id"),instrument,quantity,state)
-                {DefinitionRevisionId=row.Id("definition_revision_id"),PublicationOrder=Integer(row,"publication_order")});
+                {DefinitionRevisionId=row.Id("definition_revision_id"),PublicationOrder=Integer(row,"publication_order"),
+                    AccountCode=row.Text("account_code"),SourceReference=BusinessReference(row)});
             accounting.Add(new(position.Owner,position.BindingId),new(position,context,snapshot.Knowledge.KnownAt,flows));
         }
         await admission.RequireCommit(connection,ct);
         return new(context,frame.At,snapshot.Knowledge.KnownAt,positions.ToImmutable(),fees.ToImmutable(),markets.ToImmutable(),accounting.ToImmutable()){Principal=principal.ToImmutable()};
     }
     private static int Integer(JsonElement row,string field)=>int.Parse(row.Text(field),CultureInfo.InvariantCulture);
+    private static string BusinessReference(JsonElement row)=>row.OptionalText("origin_trade_reference") is {} reference?
+        TradingReference.Trade(int.Parse(reference,CultureInfo.InvariantCulture)):row.Text("source_reference");
     private static MarketDataException Error(string message)=>new("gas_owned_context",message);
 }

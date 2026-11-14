@@ -206,6 +206,13 @@ exact trade, origin revision, context, opening instant and business date; forged
 arguments refuse. Knowledge-only swap cash retains its original source-read
 admission rather than acquiring an interactive action-read capability.
 
+Owned-gas report labels retain the saved account code and original applied
+evidence business reference. Physical obligations and principal also retain the
+exact causal future's existing readable trade reference. Label enrichment
+operates only on already-authorized returned memberships, including surviving
+fees after stock is consumed, and rechecks the original gas-read deadline.
+It changes no quantity, market selection, native ownership or payment history.
+
 The pure listed-option adapter retains the source calibration and open signed
 remaining lots. At expiry it applies the exact versioned automatic exercise rule
 or the captured contrary instruction, then replaces the option with the ordinary
