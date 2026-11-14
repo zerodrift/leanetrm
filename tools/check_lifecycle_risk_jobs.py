@@ -90,7 +90,7 @@ def checks(query, manifest):
         economic=dict(projection=dict(implementation='native_portfolio_economic_lifecycle_v1',session='synthetic_lifecycle_risk',sessionVersion=1,
             horizonPolicy='source_known_effective_session_schedule_v1',rateTimingPolicy='linear_utc_day_discount_ratio_v1',eventMarketPolicy='selected_contract_projection_curves_v1',gasOwned=[],
             policy=dict(implementation='economic_lifecycle_projection_v1',pricePath='shock_then_hold_native_quotes_v1',cashDisposition='retain_scheduled_cash_outstanding_v1',
-                cashAccumulation='nominal_currency_cash_v1',numericalPolicy='exact_residual_plus_horizon_cash_less_opening_v1',nonPriceInputs='captured_rates_and_volatility_held_v1',inputExpiry='declared_curve_expiry_policy_v1')),
+                cashAccumulation='nominal_currency_cash_v1',numericalPolicy='exact_residual_plus_horizon_cash_less_opening_v1',nonPriceInputs='captured_rates_and_volatility_held_v1',inputExpiry='declared_curve_expiry_policy_v1',physicalDelivery='retain_generated_delivery_until_observed_performance_v1')),
             policy=dict(implementation='economic_lifecycle_no_variable_factors_v1',confidence='0.95',quantilePolicy='empirical_inverse_cdf_v1',tailPolicy='signed_upper_loss_fractional_mass_uniform_ties_v1'),
             history=None,simulation=None,factors=[]))
     # The numerical worker replays these graphs before executing any result. This
@@ -118,6 +118,7 @@ def checks(query, manifest):
     assert query(f"SELECT count(*) FROM risk.job_scenario_axes WHERE job_id='{accepted['jobId']}';")=='0'
     for label,change in [
         ('missing explicit expiry',lambda r: r['economic']['projection']['policy'].pop('inputExpiry')),
+        ('missing explicit physical disposition',lambda r: r['economic']['projection']['policy'].pop('physicalDelivery')),
         ('missing explicit gas selection',lambda r: r['economic']['projection'].pop('gasOwned')),
         ('unrequested calibration',lambda r: r['economic'].__setitem__('history',{})),
         ('mixed static method',lambda r: r.__setitem__('historical',{})),

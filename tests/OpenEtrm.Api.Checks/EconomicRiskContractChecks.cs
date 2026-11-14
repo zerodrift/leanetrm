@@ -16,7 +16,7 @@ internal static class EconomicRiskContractChecks
         var projection=new PortfolioEconomicProjectionRequest(PortfolioEconomicProjectionRequest.Version,"synthetic_close",1,
             PortfolioEconomicProjectionRequest.SourceKnownSchedule,RateDiscountTiming.Version,PortfolioEconomicProjectionRequest.SelectedContractMarkets,
             new(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.Outstanding,LifecycleProjectionPolicy.Nominal,
-                LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry),[]);
+                LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical),[]);
         var policy=new LifecycleEconomicRiskPolicy(LifecycleEconomicRiskPolicy.Deterministic,"0.99",HistoricalRiskPolicy.Quantile,HistoricalRiskPolicy.Tail);
         var deterministic=new PortfolioEconomicRiskRequest(projection,policy,null,null,[]);
         var outer=new PortfolioRiskRequest(context,[Guid.NewGuid()],[],[],PortfolioRiskPreview.Convention,RiskEngine.ExactNumericalPolicy,pricing,"holdings",[],Economic:deterministic);

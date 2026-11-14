@@ -45,6 +45,7 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
     private readonly KnownFuturesOptionInstruction? instruction;
     private readonly CurveRequest expiryMarket,marginMarket,underlyingMarket;
     private readonly ValuationSetup setup;
+    private readonly CurveModel model;
     private readonly Guid expiryId;
     private readonly Guid? instructionId;
     private readonly ImmutableDictionary<Guid,FuturesMarginOccurrence> marginOccurrences;
@@ -59,7 +60,9 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
         holding=trade.Instruments.SingleOrDefault(h=>h.Id==bindingId)??throw Error("Retain the exact native option holding.");
         option=holding.Instrument as FuturesOptionInstrument??throw Error("Select a listed futures option.");
         Owner=new(trade.Id,bindingId,trade.BookId);this.trade=trade;this.future=future;this.margin=margin;this.rule=rule;
-        this.instruction=instruction;this.expiryMarket=expiryMarket;this.marginMarket=marginMarket;this.setup=setup;SourceSnapshot=source;
+        this.instruction=instruction;this.expiryMarket=expiryMarket;this.marginMarket=marginMarket;
+        this.setup=setup=setup.ForPosition(Owner,option.Id);
+        this.model=model;SourceSnapshot=source;
         var expiry=option.Series.Terms.ExpiryAt;
         if(source.Knowledge is not {} knowledge||source.ValuationAt>=expiry||trade.BookId==Guid.Empty||
             setup.Measure!=ValuationMeasure.PresentValue||!setup.OptionBindings.TryGetValue(option.Id,out var calibration)||
@@ -121,7 +124,8 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
         this.children=children.ToImmutable();this.childEvents=childEvents.ToImmutable();Events=[..events.OrderBy(e=>e.At).ThenBy(e=>e.Id)];
         Opening=Opening with{KnownCashSources=[..this.children.SelectMany(c=>c.Opening.KnownCashSources)],
             KnownPayments=[..this.children.SelectMany(c=>c.Opening.KnownPayments)]};
-        Dependencies=[..new[]{calibration.Underlying,future.Market,expiryMarket,marginMarket}.Concat(this.children.SelectMany(c=>c.Dependencies)).Distinct()];
+        Dependencies=[..new[]{calibration.Underlying,future.Market,expiryMarket,marginMarket}.Concat(ProjectedFuturesDelivery.Dependencies(margin))
+            .Concat(this.children.SelectMany(c=>c.Dependencies)).Distinct()];
         InputFinals=[..new[]{future.Market,marginMarket}.Distinct().Select(m=>new LifecycleInputFinal(m,
             margin.Occurrences.Single(o=>o.Phase==FuturesMarginPhase.Final).At,null)),..this.children.SelectMany(c=>c.InputFinals)];
     }
@@ -130,13 +134,14 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
         var expiry=option.Series.Terms.ExpiryAt<horizon?option.Series.Terms.ExpiryAt:horizon;
         var final=margin.Occurrences.Single(o=>o.Phase==FuturesMarginPhase.Final).At;var through=final<horizon?final:horizon;
         return [..new[]{new LifecycleMarketUse(underlyingMarket,expiry),new(expiryMarket,expiry),new(future.Market,through),new(marginMarket,through)}
+            .Concat(ProjectedFuturesDelivery.Dependencies(margin).Select(m=>new LifecycleMarketUse(m,horizon)))
             .Concat(children.SelectMany(c=>c.MarketUsesFor(horizon))).GroupBy(u=>u.Market).Select(g=>new LifecycleMarketUse(g.Key,g.Max(u=>u.Through)))];
     }
     public ImmutableArray<LifecycleProjectionEvent> EventsFor(DateTimeOffset horizon)
     {
         foreach(var child in children)_=child.EventsFor(horizon);
         if(instruction?.Instruction!="abandon"&&future.SettlementMethod!="cash"&&Events.Any(e=>e.At<=horizon&&e.Kind=="final_margin"))
-            throw new MarketDataException("futures_delivery_transition","Prepare a qualified gas handoff for every possible exercised physical-future branch.");
+            ProjectedFuturesDelivery.Require(future.Instrument,margin,model,FutureSetup(),SourceSnapshot,false);
         return [..Events.Where(e=>e.At<=horizon)];
     }
     public LifecycleProjectionState Apply(LifecycleProjectionEvent occurrence,LifecycleProjectionState state,LifecycleProjectionContext context)
@@ -174,13 +179,13 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
         var activeFuture=state.Residuals.SingleOrDefault(p=>p.Positions.Any(p=>p.Owner==Owner.Owner&&p.BindingId==holding.Id&&p.ValuationId==future.Instrument.Id));
         if(activeFuture is null)return state;
         var selected=marginOccurrences[occurrence.Id];
-        if(selected.Phase==FuturesMarginPhase.Final&&future.SettlementMethod!="cash")
-            throw new MarketDataException("futures_delivery_transition","A physical future needs its qualified gas delivery handoff.");
         var prior=(ProjectedFuturesMarginState)activeFuture.Setup.BindingStates[new(trade.Id,holding.Id)];
         var fact=context.Fix(new(marginMarket,selected.Phase==FuturesMarginPhase.Final?ObservationRole.FinalContractSettlement:ObservationRole.DailySettlement,selected.At));
         var(_,cash,_)=FuturesMargin.Difference(prior.Basis,fact.Price,prior.Quantity,margin.Rounding,margin.RoundingScope);
-        return state with{Residuals=[..state.Residuals.Where(p=>!ReferenceEquals(p,activeFuture)),FuturePortfolio(fact.Price,selected.At,selected.Phase==FuturesMarginPhase.Final,
-            prior.Quantity.Amount.DivideExact(future.Instrument.LotSize.Amount))],
+        var residual=selected.Phase==FuturesMarginPhase.Final&&future.SettlementMethod=="physical"?
+            ProjectedFuturesDelivery.Residual(Owner,future.Instrument,margin,prior.Quantity,fact.Price,activeFuture.Setup):
+            FuturePortfolio(fact.Price,selected.At,selected.Phase==FuturesMarginPhase.Final,prior.Quantity.Amount.DivideExact(future.Instrument.LotSize.Amount));
+        return state with{Residuals=[..state.Residuals.Where(p=>!ReferenceEquals(p,activeFuture)),residual],
             Cash=cash.Amount==default?state.Cash:state.Cash.Add(new(occurrence.Id,occurrence.At,selected.DueAt,ExactMoney.FromMoney(cash)))};
     }
     private ValuationPortfolio FuturePortfolio(ExactUnitPrice basis,DateTimeOffset at,bool final,ExactDecimal lots)
@@ -188,10 +193,12 @@ public sealed class FuturesOptionLifecycleProjection:ILifecycleProjection
         var holding=FuturesExecution.Bind(this.holding.Id,future,lots,new(option.Series.Terms.Strike,future.Quote),option.Series.Terms.ExpiryAt,FuturesSettlementState.Unprocessed);
         var knowledge=SourceSnapshot.Knowledge!;
         var state=new ProjectedFuturesMarginState(trade.Id,holding.Id,trade.BookId,holding.Quantity,future.Series.Key,basis,at,final,knowledge.ContextId,knowledge.KnownAt);
-        var projected=setup with{FuturesBindings=setup.FuturesBindings.SetItem(future.Instrument.Id,future),
+        var projected=FutureSetup() with{FuturesBindings=setup.FuturesBindings.SetItem(future.Instrument.Id,future),
             BindingStates=setup.BindingStates.SetItem(new(trade.Id,holding.Id),state)};
         return ValuationPortfolio.FromTrades([new(trade.Id,trade.BookId,[holding],trade.Booking)],projected);
     }
+    private ValuationSetup FutureSetup()=>new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty.Add(future.Instrument.Id,future),null){
+        InstrumentDiscounting=ImmutableDictionary<Guid,ISideDiscounting>.Empty.Add(future.Instrument.Id,setup.OptionBindings[option.Id].Discounting)};
     private ValuationPortfolio OptionPortfolio(ExactDecimal lots)=>ValuationPortfolio.FromTrades([new(trade.Id,trade.BookId,
         [new(holding.Id,option,new(lots,holding.Quantity.Specification))],trade.Booking)],setup);
     private void RequireKnown(FuturesOptionKnownHistory known)

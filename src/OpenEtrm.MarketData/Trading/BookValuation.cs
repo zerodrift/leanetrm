@@ -18,6 +18,19 @@ public sealed record ValuationSetup(ValuationMeasure Measure,
     public ImmutableDictionary<MeasureBinding,IBindingValuationState> BindingStates{get;init;}=ImmutableDictionary<MeasureBinding,IBindingValuationState>.Empty;
     public ImmutableDictionary<MeasureBinding,BindingAccountingFacts> AccountingFacts{get;init;}=ImmutableDictionary<MeasureBinding,BindingAccountingFacts>.Empty;
     public ImmutableDictionary<Guid,FuturesOptionMarketBinding> OptionBindings{get;init;}=ImmutableDictionary<Guid,FuturesOptionMarketBinding>.Empty;
+    // A lifecycle component keeps one held consumer from a source portfolio;
+    // unrelated instruments and bindings cannot travel into its ordinary PV.
+    internal ValuationSetup ForPosition(AccountingPositionKey position,Guid instrument)
+    {
+        if(!position.IsValid||instrument==Guid.Empty||FuturesBindings is null||InstrumentDiscounting is null||OptionBindings is null||BindingStates is null||AccountingFacts is null)
+            throw new MarketDataException("valuation_context","Retain the exact held position and complete explicit valuation inputs.");
+        var binding=new MeasureBinding(position.Owner,position.BindingId);
+        return this with{FuturesBindings=FuturesBindings.Where(p=>p.Key==instrument).ToImmutableDictionary(),
+            InstrumentDiscounting=InstrumentDiscounting.Where(p=>p.Key==instrument).ToImmutableDictionary(),
+            OptionBindings=OptionBindings.Where(p=>p.Key==instrument).ToImmutableDictionary(),
+            BindingStates=BindingStates.Where(p=>p.Key==binding).ToImmutableDictionary(),
+            AccountingFacts=AccountingFacts.Where(p=>p.Key==binding).ToImmutableDictionary()};
+    }
 }
 
 // Operation/scenario-local reuse. Reference identity of the resolved discount

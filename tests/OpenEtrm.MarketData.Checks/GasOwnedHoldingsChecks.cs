@@ -127,7 +127,7 @@ internal static class GasOwnedHoldingsChecks
         var portfolio=new ValuationPortfolio([instrument],[position],new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,
             new DatedCurve(source,quote.Currency,due)));
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.Outstanding,
-            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry);
+            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical);
         var projection=new Held(owner,source,mark,portfolio);
         LifecycleProjectionValue Value(DateTimeOffset horizon)=>LifecycleProjection.Prepare(f.Model(),source,
             new(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,18),horizon,0)]),policy,[projection],[])

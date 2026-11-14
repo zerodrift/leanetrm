@@ -78,7 +78,7 @@ internal static class LifecycleSwapChecks
                     var request=new PortfolioEconomicProjectionRequest(PortfolioEconomicProjectionRequest.Version,f.Text("session"),1,
                         PortfolioEconomicProjectionRequest.SourceKnownSchedule,RateDiscountTiming.Version,PortfolioEconomicProjectionRequest.SelectedContractMarkets,
                         new(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.PayAtDue,LifecycleProjectionPolicy.Nominal,
-                            LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry),[]);
+                            LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical),[]);
                     var prepared=await LifecyclePortfolioProjection.Prepare(c,database,opening,request,null,t);
                     if(prepared.Projections.Length!=1||prepared.Projections[0].Evaluate("native_swap_no_shock",[],t).Values.Single().EconomicPnl.Numerator!="0"||
                         prepared.Projections[0].Components.Single().Opening.KnownPayments.Length!=1||

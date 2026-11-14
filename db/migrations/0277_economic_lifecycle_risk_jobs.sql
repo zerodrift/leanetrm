@@ -167,7 +167,7 @@ BEGIN
   OR p->>'rateTimingPolicy' IS DISTINCT FROM 'linear_utc_day_discount_ratio_v1'
   OR p->>'eventMarketPolicy' IS DISTINCT FROM 'selected_contract_projection_curves_v1'
   OR jsonb_typeof(p->'gasOwned') IS DISTINCT FROM 'array'
-  OR jsonb_typeof(r) IS DISTINCT FROM 'object' OR r-ARRAY['implementation','pricePath','cashDisposition','cashAccumulation','numericalPolicy','nonPriceInputs','inputExpiry']<>'{}'::jsonb
+  OR jsonb_typeof(r) IS DISTINCT FROM 'object' OR r-ARRAY['implementation','pricePath','cashDisposition','cashAccumulation','numericalPolicy','nonPriceInputs','inputExpiry','physicalDelivery']<>'{}'::jsonb
   OR r->>'implementation' IS DISTINCT FROM 'economic_lifecycle_projection_v1'
   OR coalesce(r->>'pricePath','') NOT IN('shock_then_hold_native_quotes_v1','elapsed_linear_native_quotes_18_to_even_v1')
   OR coalesce(r->>'cashDisposition','') NOT IN('project_scheduled_cash_paid_at_due_v1','retain_scheduled_cash_outstanding_v1')
@@ -175,6 +175,7 @@ BEGIN
   OR r->>'numericalPolicy' IS DISTINCT FROM 'exact_residual_plus_horizon_cash_less_opening_v1'
   OR r->>'nonPriceInputs' IS DISTINCT FROM 'captured_rates_and_volatility_held_v1'
   OR coalesce(r->>'inputExpiry','') NOT IN('declared_curve_expiry_policy_v1','freeze_selected_native_mark_at_expiry_v1')
+  OR r->>'physicalDelivery' IS DISTINCT FROM 'retain_generated_delivery_until_observed_performance_v1'
   OR jsonb_typeof(e->'policy') IS DISTINCT FROM 'object' OR(e->'policy')-ARRAY['implementation','confidence','quantilePolicy','tailPolicy']<>'{}'::jsonb
   OR coalesce(method,'') NOT IN('economic_lifecycle_no_variable_factors_v1','economic_lifecycle_historical_full_revaluation_v1','economic_lifecycle_monte_carlo_full_revaluation_v1')
   OR e#>>'{policy,quantilePolicy}' IS DISTINCT FROM 'empirical_inverse_cdf_v1'

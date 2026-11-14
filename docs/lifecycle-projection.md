@@ -65,6 +65,33 @@ removes its future exposure while unpaid cash remains a cash instrument. Physica
 final settlement requires a qualified delivery handoff rather than the cash-final
 adapter.
 
+The explicit `retain_generated_delivery_until_observed_performance_v1`
+disposition retains a newly projected physical-futures delivery obligation under
+the original economic owner and binding. Final VM uses the shared margin
+arithmetic; the shared product-owned final-delivery plan supplies an ordinary
+signed acquisition/dispatch obligation at that final price. No native owner,
+stock, title, performance or principal payment is created. The delivery mark
+remains in the complete prepared factor union through the horizon. Deferred
+physical value and consideration use the selected captured currency term
+structure when the saved terms require carrying. A projected option exercising
+into a physical future follows the same final-delivery adapter.
+
+This consumer currently qualifies gas delivery marks in the future's exact
+certified market definition. A final branch crossing into another definition
+refuses before sampling; a horizon before that final does not read an unsupported
+delivery graph. A source-known physical final requires its exact native obligation
+identity and complete performance descendants, and is unavailable to this
+hypothetical-only handoff until that connected native attachment is prepared.
+Existing independently owned gas uses its separately selected native projection
+profile. A delivery date alone never grants title or schedules performance for a
+newly generated obligation.
+
+Each projected holding carries only its own valuation bindings, accounting facts
+and instrument discount provider from the source portfolio. Generated residuals
+receive their exact new instrument's provider. Ordinary portfolio validation
+continues to reject unrelated bindings rather than weakening ownership checks for
+mixed product scopes.
+
 Cash disposition selects projected payment at the contractual due instant or
 continued outstanding cash. Future unpaid contributions use ordinary
 `TimedCashPayment` PV. Period cash is either nominal or accumulated to the horizon

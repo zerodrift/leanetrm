@@ -138,9 +138,10 @@ public sealed class SwapLifecycleProjection:ILifecycleProjection
         SideValuationContext sourcePrices,ImmutableDictionary<SchedulePriceTerm,ProjectedFixingKey> mappings,
         SwapKnownPaymentHistory payments,ImmutableDictionary<SwapProjectionPeriod,SwapSettlementRounding> roundings,MarketSnapshot source)
     {
-        this.trade=trade;this.setup=setup;SourceSnapshot=source;
+        this.trade=trade;SourceSnapshot=source;
         holding=trade.Instruments.SingleOrDefault(p=>p.Id==bindingId)??throw Error("Retain the exact swap holding.");
         instrument=holding.Instrument as SidedInstrument??throw Error("Select a supported financial swap.");Owner=new(trade.Id,bindingId,trade.BookId);
+        this.setup=setup=setup.ForPosition(Owner,instrument.Id);
         if(!Owner.IsValid||instrument is not(FinancialSwapInstrument or MonthlyFinancialSwap or ScheduledFinancialSwap or CrossCommodityScheduledSwap)||
             actual.TradeId!=trade.Id||actual.BindingId!=bindingId||actual.BookId!=trade.BookId||actual.Quantity!=holding.Quantity||
             setup.Measure!=ValuationMeasure.PresentValue||!sourcePrices.Snapshot.HasSameInputs(source)||!sourcePrices.IsBaseScenario||

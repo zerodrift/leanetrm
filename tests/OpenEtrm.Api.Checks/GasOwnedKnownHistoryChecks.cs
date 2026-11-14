@@ -56,7 +56,7 @@ internal static class GasOwnedKnownHistoryChecks
                     var request=new PortfolioEconomicProjectionRequest(PortfolioEconomicProjectionRequest.Version,session.GetString()!,1,
                         PortfolioEconomicProjectionRequest.SourceKnownSchedule,RateDiscountTiming.Version,PortfolioEconomicProjectionRequest.SelectedContractMarkets,
                         new(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.Outstanding,LifecycleProjectionPolicy.Nominal,
-                            LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry),selection);
+                            LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical),selection);
                     var economic=await LifecyclePortfolioProjection.Prepare(connection,database,portfolio,request,null,ct);
                     var result=economic.Projections.SelectMany(p=>p.Evaluate("native_gas_no_shock",[],ct).Values).ToArray();
                     if(result.Length!=portfolio.Positions.Length||result.Any(p=>p.EconomicPnl.Numerator!="0")||

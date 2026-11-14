@@ -24,7 +24,7 @@ internal static class GasQuantityProjectionChecks
         PreparedLifecycleProjection Prepare(ILifecycleProjection component)=>LifecycleProjection.Prepare(f.Model(),source,
             new(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,18),horizon,0)]),
             new(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.Outstanding,
-                LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry),[component],[]);
+                LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical),[component],[]);
         var prepared=Prepare(projection);var factor=prepared.Factors.Single();
         var result=prepared.Evaluate("return_identified_stock",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("1"),QuoteShift.Convention)]);
         // Independent arithmetic: opening (150-100)*3=150; after the
@@ -74,7 +74,7 @@ internal static class GasQuantityProjectionChecks
         PreparedLifecycleProjection BeyondExpiry(ILifecycleProjection component)=>LifecycleProjection.Prepare(f.Model(),source,
             new(new(Guid.NewGuid(),"synthetic_late_close",1),f.R("calendar"),[new(new(2040,12,28),afterExpiry,0)]),
             new(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Linear,LifecycleProjectionPolicy.Outstanding,LifecycleProjectionPolicy.Nominal,
-                LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry),[component],[]);
+                LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical),[component],[]);
         var completed=BeyondExpiry(new GasQuantityLifecycleProjection(policy,source,[stock with{Quantity=new(ExactDecimal.Parse("100"),quote.Quantity)},debt],[instruction])).Evaluate("no_mark_after_full_return",[]);
         if(completed.Values.Any(v=>v.ResidualValue.Numerator!="0"||v.EconomicPnl.Add(v.OpeningValue).Numerator!="0"))
             throw new Exception("A completed quantity cycle must have no residual mark read after its source contract expires.");

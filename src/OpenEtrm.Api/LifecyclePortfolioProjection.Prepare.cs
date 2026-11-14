@@ -110,7 +110,8 @@ internal static partial class LifecyclePortfolioProjection
                             foreach(var e in known.Events.Where(e=>e.EffectiveAt>source.Snapshot.ValuationAt&&e.Future is not null))
                                 futureHistories.Add(e.EventId,await FuturesKnownHistoryStore.ReadLinkedFuture(connection,database,source.Data,source.Frame,source.Snapshot,e,ct));
                             var profile=await OptionProfile(connection,database,source,opening.Context,native,ct);
-                            var margin=FuturesMarginStore.ReadPolicy(profile.GetProperty("policy"),profile.GetProperty("occurrences"));
+                            var margin=await FuturesPhysicalDeliveryStore.ReadPolicy(connection,database,source.Frame,
+                                profile.GetProperty("policy"),profile.GetProperty("occurrences"),ct);
                             var selected=profile.GetProperty("profile");var contract=new ContractKey(source.Snapshot.Definitions,selected.Id("underlying_contract_id"));
                             var mark=new CurveRequest(new(source.Snapshot.Definitions,selected.Text("future_mark_curve")),contract);
                             var expiryMarket=new CurveRequest(new(source.Snapshot.Definitions,selected.Text("expiry_curve")),contract);

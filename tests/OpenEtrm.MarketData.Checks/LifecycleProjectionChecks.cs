@@ -11,7 +11,7 @@ internal static class LifecycleProjectionChecks
         var f=new Fixture();var source=f.Snapshot();source=source.WithKnowledge(Guid.NewGuid(),source.ValuationAt);
         var owner=new AccountingPositionKey(Guid.NewGuid(),Guid.NewGuid(),Guid.NewGuid());
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Linear,
-            LifecycleProjectionPolicy.PayAtDue,LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry);
+            LifecycleProjectionPolicy.PayAtDue,LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical);
         var horizon=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),
             [new(new(2040,12,18),source.ValuationAt.AddHours(8),0),new(new(2040,12,19),source.ValuationAt.AddDays(1),0)]);
         var request=new CurveRequest(f.C("local_gas"),f.K(3));

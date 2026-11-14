@@ -37,7 +37,7 @@ internal static class LifecycleCurrencyChecks
         var model=new CurveModel(revision,reference,[],[],[],[],[],[new(R("rate"),NumericKind.Dimensionless,null,null,ExactDecimal.Parse("-0.1"),ExactDecimal.Parse("1"))],
             series.Select(s=>new MarketSeries(s,null,null,R("rate"))));
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Linear,LifecycleProjectionPolicy.PayAtDue,
-            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry);
+            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical);
         var end=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),R("calendar"),[new(new(2031,1,2),horizon,0)]);
         string Value(ISideDiscounting selected)
         {

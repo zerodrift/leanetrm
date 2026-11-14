@@ -36,7 +36,7 @@ internal static class OptionLifecycleProjectionChecks
         var component=new FuturesOptionLifecycleProjection(trade,trade.Instruments[0].Id,setup,future,margin,rule,null,
             f.UnderlyingRequest,f.UnderlyingRequest,model,source);
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.PayAtDue,
-            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry);
+            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical);
         var h=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.R("calendar"),[new(new(2040,12,24),marginAt.AddHours(1),0)]);
         var prepared=LifecycleProjection.Prepare(model,source,h,policy,[component],[]);
         var value=prepared.Evaluate("exercise",[]).Values.Single();
@@ -49,6 +49,22 @@ internal static class OptionLifecycleProjectionChecks
         Equal(down.ResidualValue,"0");Equal(down.PeriodCash,"0");Equal(down.EconomicPnl,"-20000");
         try{component.EventsFor(f.Underlying.LastTradingAt);throw new Exception("An exercised physical future lost its delivery transition.");}
         catch(MarketDataException e)when(e.Code=="futures_delivery_transition"){}
+        var physicalTerms=new OpenEtrm.MarketData.Gas.GasPhysicalDeliveryTerms(Guid.NewGuid(),future.Series.Key,future.Quote.Quantity,option.Currency,future.Series.Location,
+            f.Underlying.LastTradingAt,f.Underlying.LastTradingAt.AddDays(30),f.Underlying.LastTradingAt.AddDays(35),f.UnderlyingRequest,
+            OpenEtrm.MarketData.Gas.GasHoldingCarrying.Nominal,OpenEtrm.MarketData.Gas.GasPhysicalDeliveryTerms.Version);
+        var physicalMargin=margin with{Implementation=FuturesMarginPolicy.DeliveryVersion,Delivery=new(Guid.NewGuid(),1,physicalTerms)};
+        var combinedSetup=setup with{InstrumentDiscounting=ImmutableDictionary<Guid,ISideDiscounting>.Empty.Add(option.Id,discount)
+            .Add(Guid.NewGuid(),new ExplicitDiscounting(ExactDecimal.Parse("0.5"),DiscountFactorSource.Explicit))};
+        var physical=new FuturesOptionLifecycleProjection(trade,trade.Instruments[0].Id,combinedSetup,future,physicalMargin,rule,null,
+            f.UnderlyingRequest,f.UnderlyingRequest,model,source);
+        var afterFinal=h with{Closes=[new(new(2040,12,28),f.Underlying.LastTradingAt.AddHours(1),0)]};
+        var physicalPrepared=LifecycleProjection.Prepare(model,source,afterFinal,policy,[physical],[]);
+        var physicalResult=physicalPrepared.Evaluate("exercised_physical_retained",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
+        Equal(physicalResult.Values.Single().PeriodCash,"60000");Equal(physicalResult.Values.Single().ResidualValue,"0");Equal(physicalResult.Values.Single().EconomicPnl,"40000");
+        if(physicalResult.States.Single().Residuals.Single().Instruments.Single() is not OpenEtrm.MarketData.Gas.GasPhysicalDeliveryObligationInstrument)
+            throw new Exception("An exercised physical option discarded its surviving delivery obligation or assumed title.");
+        Equal(physicalPrepared.Evaluate("physical_abandoned",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("-2"),QuoteShift.Convention)])
+            .Values.Single().EconomicPnl,"-20000");
         var abandonInstruction=new KnownFuturesOptionInstruction(Guid.NewGuid(),"abandon",source.ValuationAt.AddHours(1),source.Knowledge!.KnownAt,source.Knowledge.ContextId);
         var instructed=new FuturesOptionLifecycleProjection(trade,trade.Instruments[0].Id,setup,future,margin,rule,abandonInstruction,
             f.UnderlyingRequest,f.UnderlyingRequest,model,source);

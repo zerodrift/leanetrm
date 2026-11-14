@@ -23,15 +23,32 @@ internal static class SwapLifecycleProjectionChecks
         var mapping=ImmutableDictionary<SchedulePriceTerm,ProjectedFixingKey>.Empty.Add(term,new(term.Lookup!.ProjectionRequest,ObservationRole.IndexFixing,term.Lookup.Fixing!.FixingAt));
         var history=new SwapKnownPaymentHistory(owner,source.Knowledge!.ContextId,source.Knowledge.KnownAt,[]);
         var rounding=new SwapSettlementRounding(swap.Currency,2,CashTieRule.ToEven,SwapSettlementRounding.Implementation);
-        var component=new SwapLifecycleProjection(trade,owner.BindingId,actual,setup,new(market,discount),mapping,history,rounding,source);
+        var mixedSetup=setup with{Discounting=null,InstrumentDiscounting=ImmutableDictionary<Guid,ISideDiscounting>.Empty
+            .Add(swap.Id,discount).Add(Guid.NewGuid(),new ExplicitDiscounting(ExactDecimal.Parse("0.5"),DiscountFactorSource.Explicit))};
+        var component=new SwapLifecycleProjection(trade,owner.BindingId,actual,mixedSetup,new(market,discount),mapping,history,rounding,source);
+        if(component.Opening.Residuals.Single().Setup.InstrumentDiscounting.Keys.Single()!=swap.Id)
+            throw new Exception("A swap component retained an unrelated source instrument's discount provider.");
         var policy=new LifecycleProjectionPolicy(LifecycleProjectionPolicy.Version,LifecycleProjectionPolicy.Hold,LifecycleProjectionPolicy.PayAtDue,
-            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry);
+            LifecycleProjectionPolicy.Nominal,LifecycleProjectionPolicy.Numerics,LifecycleProjectionPolicy.HeldNonPrice,LifecycleProjectionPolicy.DeclaredCurveExpiry,LifecycleProjectionPolicy.RetainPhysical);
         var horizon=new LifecycleProjectionHorizon(new(Guid.NewGuid(),"synthetic_close",1),f.Base.R("calendar"),[new(new(2041,2,18),f.Payment.AddHours(2),0)]);
         var prepared=LifecycleProjection.Prepare(f.Model,source,horizon,policy,[component],[]);var factor=prepared.Factors.Single();
         var changed=prepared.Evaluate("swap",[new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
         void Equal(ExactMoney value,string expected){if(value.CompareTo(ExactMoney.Parse(expected,swap.Currency))!=0)throw new Exception($"Expected {expected}; got {value.ToExactString()}.");}
         // Independently: source 2*(11−15)=−8, event 2*(13−15)=−4.
         var value=changed.Values.Single();Equal(value.OpeningValue,"-8");Equal(value.PeriodCash,"-4");Equal(value.ResidualValue,"0");Equal(value.EconomicPnl,"4");
+        var sibling=new FinancialSwapInstrument(Guid.NewGuid(),swap.Sides,FinancialSwapInstrument.Implementation,false);
+        var siblingTrade=new Trade(Guid.NewGuid(),trade.BookId,[new(Guid.NewGuid(),sibling,qty)]);
+        var siblingOwner=new AccountingPositionKey(siblingTrade.Id,siblingTrade.Instruments[0].Id,trade.BookId);
+        var siblingActual=new SwapBindingValuation(new(siblingTrade.Id,siblingOwner.BindingId,qty,[],zero,zero,completions,
+            "swap_due_nominal_v1","swap_completed_period_trading_pnl_v1"),discount,trade.BookId);
+        var sourceSetup=mixedSetup with{InstrumentDiscounting=mixedSetup.InstrumentDiscounting.Add(sibling.Id,discount)};
+        var siblingComponent=new SwapLifecycleProjection(siblingTrade,siblingOwner.BindingId,siblingActual,sourceSetup,new(market,discount),mapping,
+            history with{Owner=siblingOwner},rounding,source);
+        var mixed=LifecycleProjection.Prepare(f.Model,source,horizon,policy,[component,siblingComponent],[]).Evaluate("same_source_separate_setups",
+            [new(factor.Input,factor.Quote,factor.Unit,ExactDecimal.Parse("2"),QuoteShift.Convention)]);
+        if(mixed.Values.Length!=2||mixed.Values.Select(v=>v.Owner).Distinct().Count()!=2)
+            throw new Exception("A shared source merged the independent swap accounting roots.");
+        foreach(var member in mixed.Values){Equal(member.OpeningValue,"-8");Equal(member.EconomicPnl,"4");}
         var fixedSide=new FixedSide(Guid.NewGuid(),new(ExactDecimal.Parse("15.1233"),f.Quote),new(ExactDecimal.Parse("1"),f.Quote.Quantity),
             f.From,f.To,f.Payment,FixedSide.Implementation,f.Quote);
         var uneven=new FinancialSwapInstrument(Guid.NewGuid(),[new(fixedSide,ExactDecimal.Parse("-1")),swap.Sides[1]],FinancialSwapInstrument.Implementation,false);

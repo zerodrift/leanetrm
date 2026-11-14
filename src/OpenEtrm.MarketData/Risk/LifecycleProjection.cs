@@ -5,14 +5,16 @@ using OpenEtrm.MarketData.Calculation;
 namespace OpenEtrm.MarketData.Risk;
 
 public sealed record LifecycleProjectionPolicy(string Implementation,string PricePath,string CashDisposition,string CashAccumulation,string NumericalPolicy,string NonPriceInputs,
-    [property:System.Text.Json.Serialization.JsonRequired]string InputExpiry)
+    [property:System.Text.Json.Serialization.JsonRequired]string InputExpiry,
+    [property:System.Text.Json.Serialization.JsonRequired]string PhysicalDelivery)
 {
     public const string Version="economic_lifecycle_projection_v1",Hold="shock_then_hold_native_quotes_v1",
         Linear="elapsed_linear_native_quotes_18_to_even_v1",PayAtDue="project_scheduled_cash_paid_at_due_v1",
         Outstanding="retain_scheduled_cash_outstanding_v1",Nominal="nominal_currency_cash_v1",
         Accumulated="captured_currency_curve_exact_cash_accumulation_v1",Numerics="exact_residual_plus_horizon_cash_less_opening_v1",
         HeldNonPrice="captured_rates_and_volatility_held_v1",DeclaredCurveExpiry="declared_curve_expiry_policy_v1",
-        FreezeNativeExpiry="freeze_selected_native_mark_at_expiry_v1";
+        FreezeNativeExpiry="freeze_selected_native_mark_at_expiry_v1",
+        RetainPhysical="retain_generated_delivery_until_observed_performance_v1";
 }
 // The source adapter supplies the complete selected session's versioned close
 // schedule. The pure calculation selects its first close after the opening.
@@ -190,7 +192,8 @@ public static class LifecycleProjection
         if(p is null||p.Implementation!=LifecycleProjectionPolicy.Version||p.PricePath is not(LifecycleProjectionPolicy.Hold or LifecycleProjectionPolicy.Linear)||
             p.CashDisposition is not(LifecycleProjectionPolicy.PayAtDue or LifecycleProjectionPolicy.Outstanding)||
             p.CashAccumulation is not(LifecycleProjectionPolicy.Nominal or LifecycleProjectionPolicy.Accumulated)||p.NumericalPolicy!=LifecycleProjectionPolicy.Numerics||
-            p.NonPriceInputs!=LifecycleProjectionPolicy.HeldNonPrice||p.InputExpiry is not(LifecycleProjectionPolicy.DeclaredCurveExpiry or LifecycleProjectionPolicy.FreezeNativeExpiry))
+            p.NonPriceInputs!=LifecycleProjectionPolicy.HeldNonPrice||p.InputExpiry is not(LifecycleProjectionPolicy.DeclaredCurveExpiry or LifecycleProjectionPolicy.FreezeNativeExpiry)||
+            p.PhysicalDelivery!=LifecycleProjectionPolicy.RetainPhysical)
             throw Error("projection_policy","Select every supported versioned path, cash disposition, accumulation and numerical policy explicitly.");
     }
     internal static MarketDataException Error(string code,string message)=>new(code,message);
