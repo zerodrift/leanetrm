@@ -11,7 +11,7 @@ namespace OpenEtrm.Api;
 internal sealed record GasFuturesDeliveryReview(JsonElement? Continuation,JsonElement? Details);
 internal sealed record GasFuturesDeliveryPrincipalSource(FuturesPhysicalDeliveryProfile Profile,Guid? PositionId,Quantity Quantity,int Revision,
     ImmutableArray<GasDeliveryPrincipalPerformance> Performances,ImmutableDictionary<Guid,Guid> PreviousIds,
-    ImmutableArray<GasDeliveryPrincipalPrevious> Previous);
+    ImmutableArray<GasDeliveryPrincipalPrevious> Previous,ImmutableArray<Guid> Retractions);
 
 // The reviewed pure plan is also the native writer's input. Native constraints
 // independently prove its complete prefix, rounding and original cash dates.
@@ -37,7 +37,25 @@ internal static class GasFuturesDeliveryStore
 
     internal static GasFuturesDeliveryReview Plan(GasFuturesDeliveryPrincipalSource source,ExactUnitPrice price,Guid finalOccurrence,Guid observation)
     {
-        var planned=GasDeliveryPrincipal.Plan(source.Quantity,price,source.Profile.PrincipalRounding,source.Profile.PrincipalScope,source.Performances,source.Previous);
+        var planned=GasDeliveryPrincipal.PlanRetained(source.Quantity,price,source.Profile.PrincipalRounding,source.Profile.PrincipalScope,source.Performances,source.Retractions,source.Previous);
+        return Review(source,price,finalOccurrence,observation,planned);
+    }
+    internal static GasFuturesDeliveryReview Correct(GasFuturesDeliveryPrincipalSource source,GasFuturesQuantityReconciliationSelection selection,
+        ExactUnitPrice price,Guid finalOccurrence,Guid observation)
+    {
+        if(source.PositionId!=selection.PositionId||source.Revision!=selection.ExpectedPrincipalVersion||source.Previous.Length!=source.Performances.Length||
+            !source.Performances.Any(p=>p.Id==selection.PerformanceId))throw Error("Retain the complete current financial prefix and selected physical performance.");
+        var changed=source.Performances.Select(p=>p.Id==selection.PerformanceId?p with{SignedQuantity=new(
+            ExactDecimal.Parse(selection.Quantity)*(source.Quantity.Amount.CompareTo(default)>0?ExactDecimal.Parse("1"):ExactDecimal.Parse("-1")),p.SignedQuantity.Specification)}:p).ToImmutableArray();
+        var retractions=source.Retractions.Where(id=>id!=selection.PerformanceId).Concat(selection.Retracted?[selection.PerformanceId]:Array.Empty<Guid>()).ToImmutableArray();
+        var contributions=source.Previous.ToImmutableDictionary(p=>p.PerformanceId,p=>p.Contribution);
+        var previous=source.Performances.Select(p=>new GasDeliveryPrincipalQuantityPrior(p.Id,p.At,contributions[p.Id])).ToImmutableArray();
+        var planned=GasDeliveryPrincipal.CorrectQuantities(source.Quantity,price,source.Profile.PrincipalRounding,source.Profile.PrincipalScope,changed,retractions,previous);
+        return Review(source,price,finalOccurrence,observation,planned);
+    }
+    private static GasFuturesDeliveryReview Review(GasFuturesDeliveryPrincipalSource source,ExactUnitPrice price,Guid finalOccurrence,Guid observation,
+        ImmutableArray<GasDeliveryPrincipalStep> planned)
+    {
         var continuation=JsonSerializer.SerializeToElement(new{implementation=Version,positionId=source.PositionId,expectedVersion=source.Revision,
             finalOccurrenceId=finalOccurrence,sourceObservationId=observation,steps=planned.Select(s=>new{
                 performanceId=s.Performance.Id,previousDeterminationId=source.PreviousIds.GetValueOrDefault(s.Performance.Id) is var old&&old!=Guid.Empty?(Guid?)old:null,
@@ -69,7 +87,10 @@ internal static class GasFuturesDeliveryStore
         if(positionId is {} id&&(link.Id("trade_id")!=owner.TradeId||link.Id("binding_id")!=owner.BindingId||link.Id("position_id")!=id||
             position.Number("quantity")!=original.Amount||position.Id("account_id")!=profile.AccountId||position.Text("kind")!="delivery_obligation"))
             throw Error("Native principal history must belong to this exact separately held physical obligation.");
-        var performances=source.GetProperty("performances").EnumerateArray().Select(p=>new GasDeliveryPrincipalPerformance(p.Id("id"),p.Text("business_reference"),
+        var performanceRows=source.GetProperty("performances").EnumerateArray().ToImmutableArray();
+        if(performanceRows.Any(p=>Integer(p,"financial_revision")<1||p.GetProperty("retracted").GetBoolean()!=(p.Number("quantity")==default)))
+            throw Error("Retain each native financial revision and its explicit retraction state.");
+        var performances=performanceRows.Select(p=>new GasDeliveryPrincipalPerformance(p.Id("id"),p.Text("business_reference"),
             p.Instant("performed_at"),new(p.Number("quantity")*(original.Amount.CompareTo(default)>0?ExactDecimal.Parse("1"):ExactDecimal.Parse("-1")),original.Specification))).ToImmutableArray();
         var previous=source.GetProperty("previous").EnumerateArray().ToImmutableArray();
         var revision=run.ValueKind==JsonValueKind.Null?0:Integer(run,"revision");
@@ -77,7 +98,8 @@ internal static class GasFuturesDeliveryStore
             previous.Any(p=>p.Id("position_id")!=positionId||Integer(p,"run_revision")!=revision)||previous.Select(p=>p.Id("performance_id")).Distinct().Count()!=previous.Length)
             throw Error("Native source history must contain one complete, distinct prior principal prefix.");
         return new(profile,positionId,original,revision,performances,previous.ToImmutableDictionary(p=>p.Id("performance_id"),p=>p.Id("id")),
-            previous.Select(p=>new GasDeliveryPrincipalPrevious(p.Id("performance_id"),new(p.Number("contribution"),profile.Terms.Currency))).ToImmutableArray());
+            previous.Select(p=>new GasDeliveryPrincipalPrevious(p.Id("performance_id"),new(p.Number("contribution"),profile.Terms.Currency))).ToImmutableArray(),
+            [..performanceRows.Where(p=>p.GetProperty("retracted").GetBoolean()).Select(p=>p.Id("id"))]);
     }
     private static int Integer(JsonElement value,string key)=>int.Parse(value.Text(key),CultureInfo.InvariantCulture);
     private static MarketDataException Error(string message)=>new("futures_delivery_principal",message);
