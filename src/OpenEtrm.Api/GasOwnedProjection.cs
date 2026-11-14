@@ -10,7 +10,15 @@ namespace OpenEtrm.Api;
 
 internal sealed record GasOwnedProjectionPrepared(ImmutableArray<ILifecycleProjection> Components,
     ImmutableHashSet<AccountingPositionKey> Owners,ImmutableArray<JsonElement> ProfileEvidence)
-{internal ImmutableArray<LifecycleEconomicOwnerDescription> AdditionalOwners{get;init;}=[];}
+{
+    internal ImmutableArray<LifecycleEconomicOwnerDescription> AdditionalOwners{get;init;}=[];
+    internal ImmutableArray<GasQuantityProjectionPlan> QuantityPlans{get;init;}=[];
+}
+internal sealed record GasQuantityProjectionPlan(MarketSnapshot Source,ImmutableDictionary<Guid,GasQuantityProjectionPolicy> Policies,
+    ImmutableArray<GasProjectionHolding> OpeningHoldings,ImmutableArray<GasQuantityPerformance> Performances,ImmutableArray<GasKnownQuantityTransition> KnownTransitions)
+{
+    internal GasQuantityLifecycleProjection Build()=>new(Policies,Source,OpeningHoldings,Performances,KnownTransitions);
+}
 internal sealed record GasOwnedProjectionMarket(MarketSnapshot Snapshot,ImmutableDictionary<ReferenceKey,ISideDiscounting> CurrencyCurves);
 
 internal static partial class GasOwnedProjection
@@ -47,6 +55,7 @@ internal static partial class GasOwnedProjection
         if(!requiredAccounts.IsSubsetOf(selectedAccounts))
             throw Error("gas_projection_policy","Select exactly one saved projection profile for each account containing opening or source-known horizon ownership.");
         var components=ImmutableArray.CreateBuilder<ILifecycleProjection>();var owners=ImmutableHashSet.CreateBuilder<AccountingPositionKey>();var evidence=ImmutableArray.CreateBuilder<JsonElement>();
+        var quantityPlans=ImmutableArray.CreateBuilder<GasQuantityProjectionPlan>();
         var profiles=ImmutableDictionary.CreateBuilder<Guid,Profile>();
         foreach(var selection in selected)
         {
@@ -181,7 +190,8 @@ internal static partial class GasOwnedProjection
             var accepted=connected.Any(Accepted)?AcceptedTransitions(known,holdings,snapshot):[];
             var policies=connected.ToImmutableDictionary(account=>account,account=>new GasQuantityProjectionPolicy(
                 Accepted(account)?GasQuantityProjectionPolicy.KnownVersion:GasQuantityProjectionPolicy.Version,profiles[account].Header.Text("quantity_disposition")));
-            var component=new GasQuantityLifecycleProjection(policies,snapshot,holdings,instructions,accepted);
+            var plan=new GasQuantityProjectionPlan(snapshot,policies,holdings,instructions,accepted);quantityPlans.Add(plan);
+            var component=plan.Build();
             _=component.EventsFor(horizon);components.Add(component);owners.UnionWith(component.EconomicOwners);
         }
         var openingOwners=active.Select(p=>p.Position).ToHashSet();var declared=components.SelectMany(c=>c.EconomicOwners).ToArray();
@@ -195,7 +205,7 @@ internal static partial class GasOwnedProjection
                 throw Error("gas_projection_source","A future receipt description requires its exact retained native title evidence.");
             return new LifecycleEconomicOwnerDescription(owner,title.SourceKey,position.Kind);
         }).ToImmutableArray();
-        return new(components.ToImmutable(),openingOwners.ToImmutableHashSet(),evidence.ToImmutable()){AdditionalOwners=additional};
+        return new(components.ToImmutable(),openingOwners.ToImmutableHashSet(),evidence.ToImmutable()){AdditionalOwners=additional,QuantityPlans=quantityPlans.ToImmutable()};
         bool Accepted(Guid account)=>profiles.TryGetValue(account,out var profile)&&profile.Header.Text("implementation")==GasQuantityProjectionPolicy.KnownVersion;
         void Link(Guid a,Guid b)
         {
