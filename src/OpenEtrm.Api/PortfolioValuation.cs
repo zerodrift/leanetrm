@@ -56,6 +56,12 @@ public sealed record PortfolioMarginCashOrigin(Guid FutureBindingId,Guid Determi
 public sealed record PortfolioConnectedScenario(DefinitionRevision Definitions,string ManifestId,string Id,string? ParentId,int Depth,GraphWork Work,ConnectedPreparationWork Preparation);
 public sealed record PortfolioHoldingValue(string Measure,ExactRiskPositionValue Position);
 public sealed record PortfolioHoldingRisk(string Measure,string Factor,ExactRiskPositionResult Position);
+// The authorized original product materialization. Projection retains execution
+// facts from the source loader; a PV position/basis cannot reconstruct them.
+internal sealed record PortfolioProductSource(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,ValuationPortfolio Portfolio,string Measure)
+{
+    internal ImmutableArray<Trade> Trades{get;init;}=[];
+}
 public sealed record PortfolioValuationResult(Guid SnapshotId,ScheduleContext Context,PortfolioValuationPolicy Policy,
     ImmutableArray<UnitPricingContract> ModelContracts,ImmutableArray<PortfolioPositionEvidence> Positions,
     ImmutableArray<PortfolioFactor> Factors,ImmutableArray<PortfolioTotal> Totals,
@@ -90,6 +96,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
     {
         public ImmutableArray<PortfolioInstantDiscountEvidence> InstantDiscountInputs{get;init;}=[];
         internal ImmutableDictionary<MeasureBinding,FuturesMarginRead> FuturesMargin{get;init;}=ImmutableDictionary<MeasureBinding,FuturesMarginRead>.Empty;
+        internal ImmutableArray<PortfolioProductSource> Sources{get;init;}=[];
         internal ImmutableArray<PpaPortfolioInput> Ppas{get;init;}=[];
         internal long PpaRows=>Ppas.Sum(p=>p.Rows);
         // The option inputs this preparation calibrated, the work it took, and the calibration mode of each valued option binding.
@@ -295,7 +302,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         var kept=ExcludedPosition.Keep(futures.Rows,futureExclusions).Select(r=>(r.Id("trade_id"),r.Id("binding_id"))).ToHashSet();
         var futuresTrades=futures.Trades.Where(t=>t.Instruments.Any(p=>kept.Contains((t.Id,p.Id)))).Select(t=>t.Instruments.All(p=>kept.Contains((t.Id,p.Id)))?t:
             new Trade(t.Id,t.BookId,[..t.Instruments.Where(p=>kept.Contains((t.Id,p.Id)))],t.Booking)).ToImmutableArray();
-        var materialized=new List<(PreviewData Data,InputFrame Frame,MarketSnapshot Snapshot,ValuationPortfolio Portfolio,string Measure)>();
+        var materialized=new List<PortfolioProductSource>();
         var materializationWork=new ScenarioWork(0,0,0,0);var materializationScenarios=0;
         var evidence=ImmutableArray.CreateBuilder<PortfolioPositionEvidence>();
         var instantDiscounts=ImmutableArray.CreateBuilder<PortfolioInstantDiscountEvidence>();
@@ -307,7 +314,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,ct);
         foreach(var market in gas)
         {
-            materialized.Add((market.Data,market.Frame,market.Snapshot,market.Portfolio,market.Measure));
+            materialized.Add(new(market.Data,market.Frame,market.Snapshot,market.Portfolio,market.Measure));
             evidence.AddRange(market.Evidence);
         }
         var lng=await LngPortfolio.Prepare(connection,database,frame,
@@ -315,7 +322,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,ct);
         foreach(var market in lng)
         {
-            materialized.Add((market.Data,market.Frame,market.Snapshot,market.Portfolio,LngPositions.Measure));
+            materialized.Add(new(market.Data,market.Frame,market.Snapshot,market.Portfolio,LngPositions.Measure));
             evidence.AddRange(market.Evidence);
         }
         var crude=await CrudePortfolio.Prepare(connection,database,frame,
@@ -323,7 +330,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,ct);
         foreach(var market in crude)
         {
-            materialized.Add((market.Data,market.Frame,market.Snapshot,market.Portfolio,CrudePositions.Measure));
+            materialized.Add(new(market.Data,market.Frame,market.Snapshot,market.Portfolio,CrudePositions.Measure));
             evidence.AddRange(market.Evidence);
         }
         foreach(var source in (await futuresStore.Inputs(connection,frame,futures,MarketInputSelection.WithRoot(data,frame,supplemental),retainedGraphs is not null,ct)).Values)
@@ -334,7 +341,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             if(policy.FuturesConvention==FuturesMarginValuationPolicy.Convention)
             {
                 var native=await FuturesMarginPortfolio.Read(connection,database,source.Data,source.Frame,selected,held,policy.NativeFutures!,ct);
-                materialized.Add((source.Data,source.Frame,selected,native.Portfolio,FuturesMarginPortfolio.Measure));
+                materialized.Add(new(source.Data,source.Frame,selected,native.Portfolio,FuturesMarginPortfolio.Measure){Trades=held});
                 instantDiscounts.AddRange(native.DiscountInputs);
                 foreach(var pair in native.Accepted)margins.Add(pair.Key,pair.Value);
                 var owners=native.Accepted.SelectMany(pair=>pair.Value.CashBindings.Select(b=>(Key:new MeasureBinding(pair.Key.TradeId,b.Id),Origin:pair.Key))
@@ -359,7 +366,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             var (market,portfolio)=FuturesRisk.PreparePortfolio(held,selected,source.Data.Model,policy.FuturesConvention,ct);
             materializationWork=materializationWork with{RebuiltCurveNodes=materializationWork.RebuiltCurveNodes+market.EvaluatedConstituents,
                 ReusedCurveNodes=materializationWork.ReusedCurveNodes+market.ReusedConstituents};materializationScenarios++;
-            materialized.Add((source.Data,source.Frame,selected,portfolio,FuturesMeasure));
+            materialized.Add(new(source.Data,source.Frame,selected,portfolio,FuturesMeasure){Trades=held});
             var rows=futures.Rows.ToDictionary(r=>(r.Id("trade_id"),r.Id("binding_id")));
             foreach(var position in portfolio.Positions)
             {
@@ -370,7 +377,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         foreach(var marketHoldings in swaps.GroupBy(h=>h.Snapshot.Definitions).OrderBy(g=>g.Key.RevisionId))
         {
             var holdings=marketHoldings.ToImmutableArray();var portfolio=SwapPortfolio(holdings);
-            var source=holdings[0];materialized.Add((source.Data,source.Frame,source.Snapshot,portfolio,SwapMeasure));
+            var source=holdings[0];materialized.Add(new(source.Data,source.Frame,source.Snapshot,portfolio,SwapMeasure){Trades=SwapTrades(holdings)});
             var rows=marketHoldings.ToDictionary(h=>h.Row.Id("trade_id"),h=>h.Row);
             foreach(var position in portfolio.Positions)
                 evidence.Add(Evidence(rows[position.TradeId],position,SwapMeasure,"publication_order",marketHoldings.Single(h=>h.Row.Id("trade_id")==position.TradeId).Instrument is CrossCommodityScheduledSwap?"heat_rate":SwapType));
@@ -378,7 +385,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         foreach(var ppa in ppas)
         {
             var selected=MarketSnapshotBinding.Bind(ppa.Data.Snapshot(ppa.Frame),exact.ContextId!.Value,known);
-            materialized.Add((ppa.Data,ppa.Frame,selected,ppa.Prepared.Portfolio,PpaMeasure));evidence.AddRange(ppa.Prepared.Evidence);
+            materialized.Add(new(ppa.Data,ppa.Frame,selected,ppa.Prepared.Portfolio,PpaMeasure));evidence.AddRange(ppa.Prepared.Evidence);
         }
         var optionPositions=await FuturesOptionPositions.Read(connection,database.Manifest,bookIds,[],ct,trades:selection?.Ids);
         var optionMarkets=ImmutableArray.CreateBuilder<FuturesOptionMarket>();
@@ -394,7 +401,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
             optionWork=new(optionWork.Positions+work.Positions,optionWork.UniqueSeries+work.UniqueSeries,optionWork.SolvedSeries+work.SolvedSeries,
                 optionWork.FallbackSeries+work.FallbackSeries,optionWork.CalibrationTreePrices+work.CalibrationTreePrices);
             if(options.Portfolio(source.Positions) is not {} portfolio)continue;
-            materialized.Add((source.Data,source.Frame,selected,portfolio,FuturesOptionPositions.Measure));
+            materialized.Add(new(source.Data,source.Frame,selected,portfolio,FuturesOptionPositions.Measure){Trades=options.Trades(source.Positions)});
             var heads=source.Positions.ToDictionary(p=>p.Trade);
             foreach(var position in portfolio.Positions)
             {
@@ -445,7 +452,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
         return new(snapshot.Id,exact,policy,markets.ToImmutable(),evidence.ToImmutable(),discountInputs,excluded)
             {MaterializationWork=materializationWork,MaterializationScenarioCount=materializationScenarios,Ppas=[..ppas.Select(p=>p.Prepared)],
              Options=optionMarkets.Count==0?null:new(optionMarkets.ToImmutable()),OptionWork=optionMarkets.Count==0?null:optionWork,OptionModes=optionModes,
-             InstantDiscountInputs=instantDiscounts.ToImmutable(),FuturesMargin=margins.ToImmutable()};
+             InstantDiscountInputs=instantDiscounts.ToImmutable(),FuturesMargin=margins.ToImmutable(),Sources=materialized.ToImmutableArray()};
     }
     // The option market of the held options, calibrated once per operation: a retried preparation reuses its calibration.
     private async Task<FuturesOptionMarket> OptionMarket(NpgsqlConnection connection,PreviewData data,InputFrame frame,MarketSnapshot snapshot,
@@ -483,8 +490,7 @@ public sealed class PortfolioValuation(PreviewDatabase database)
 
     private static ValuationPortfolio SwapPortfolio(ImmutableArray<SwapStore.ResolvedSwapHolding> holdings)
     {
-        var trades=holdings.GroupBy(holding=>holding.Row.Id("trade_id")).Select(group=>new Trade(group.Key,group.First().Row.Id("book_id"),
-            [..group.Select(holding=>new TradeInstrument(holding.Row.Id("binding_id"),holding.Instrument,holding.Quantity))])).ToImmutableArray();
+        var trades=SwapTrades(holdings);
         return ValuationPortfolio.FromTrades(trades,
             new(ValuationMeasure.PresentValue,ImmutableDictionary<Guid,FuturesMarketBinding>.Empty,null)
             {InstrumentDiscounting=holdings.Where(holding=>holding.Settlement is null).DistinctBy(holding=>holding.Instrument.Id)
@@ -493,6 +499,9 @@ public sealed class PortfolioValuation(PreviewDatabase database)
                 holding=>new MeasureBinding(holding.Row.Id("trade_id"),holding.Row.Id("binding_id")),
                 holding=>(IBindingValuationState)new SwapBindingValuation(holding.Settlement!,holding.Discounting,holding.Row.Id("book_id")))});
     }
+    private static ImmutableArray<Trade> SwapTrades(ImmutableArray<SwapStore.ResolvedSwapHolding> holdings)=>
+        [..holdings.GroupBy(holding=>holding.Row.Id("trade_id")).Select(group=>new Trade(group.Key,group.First().Row.Id("book_id"),
+            [..group.Select(holding=>new TradeInstrument(holding.Row.Id("binding_id"),holding.Instrument,holding.Quantity))]))];
     private static ImmutableArray<SchedulePriceTerm> SwapPrices(IEnumerable<SwapStore.ResolvedSwapHolding> holdings)=>
         holdings.SelectMany(holding=>holding.Settlement?.RequiredPrices(holding.Instrument)??
             holding.Instrument.Sides.SelectMany(member=>((SidePaymentSchedule)member.Side.GenerateSchedule()).Payments)
