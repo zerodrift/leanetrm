@@ -124,9 +124,13 @@ internal sealed class GasFuturesDeliveryActions(PreviewDatabase database):ILifec
     private static string Hash(LifecycleActionRequest request,JsonElement body,JsonElement? continuation)=>Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
         JsonSerializer.Serialize(new{implementation=GasFuturesDeliveryStore.Version,request.OperationId,request.Context,request.Target,request.Action,
             request.PolicyId,request.PolicyRevision,selection=body,continuation},GasOwnedOperations.Json))));
-    public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,CancellationToken ct)
+    public async Task<ImmutableArray<LifecycleActionOffer>> Discover(NpgsqlConnection connection,LifecycleReadContext context,LifecycleTarget? target,LifecycleDiscoveryAccess access,CancellationToken ct)
     {
-        if(target is null&&!await PreviewDatabase.HasPermission(connection,"ReadGasOwnedHoldings",ct))return [];
+        if(!access.Allows("ReadGasOwnedHoldings"))
+        {
+            if(target is not null)throw new PreviewDeniedException();
+            return [];
+        }
         await using(var capture=ScheduleStore.Command(connection,"SELECT security.gas_futures_delivery_discovery_authority($1)",database.Manifest.CatalogId))
         {
             var until=new DateTimeOffset((DateTime)(await capture.ExecuteScalarAsync(ct))!);
