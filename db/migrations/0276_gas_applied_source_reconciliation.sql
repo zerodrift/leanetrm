@@ -140,8 +140,12 @@ DECLARE until_at timestamptz;cut timestamptz;prefix integer;market_prefix intege
  LOOP
   SELECT array_agg(DISTINCT id ORDER BY id) INTO next_ids FROM(
    SELECT unnest(position_ids) id UNION ALL
-   SELECT l.return_position_id FROM trading.gas_owned_loans l WHERE l.catalog_id=catalog AND l.received_lot_id=ANY(position_ids) UNION ALL
-   SELECT l.received_lot_id FROM trading.gas_owned_loans l WHERE l.catalog_id=catalog AND l.return_position_id=ANY(position_ids) UNION ALL
+   SELECT l.return_position_id FROM trading.gas_owned_loans l JOIN trading.gas_owned_positions origin ON(origin.catalog_id,origin.id)=(l.catalog_id,l.return_position_id)
+    WHERE l.catalog_id=catalog AND l.received_lot_id=ANY(position_ids)
+     AND trading.gas_owned_visible(catalog,origin.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,at_time) UNION ALL
+   SELECT l.received_lot_id FROM trading.gas_owned_loans l JOIN trading.gas_owned_positions origin ON(origin.catalog_id,origin.id)=(l.catalog_id,l.return_position_id)
+    WHERE l.catalog_id=catalog AND l.return_position_id=ANY(position_ids)
+     AND trading.gas_owned_visible(catalog,origin.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,at_time) UNION ALL
    SELECT s.position_id FROM trading.gas_owned_claim_settlements s WHERE s.catalog_id=catalog AND s.receipt_lot_id=ANY(position_ids)
     AND security.trading_visible(s.catalog_id,s.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00'))r;
   next_ids=coalesce(next_ids,'{}');
@@ -195,21 +199,21 @@ GRANT EXECUTE ON FUNCTION security.read_gas_physical_known_attachments(uuid,uuid
 CREATE FUNCTION trading.gas_owned_applied_source_conflicts(catalog uuid,context uuid,at_time timestamptz,books uuid[],positions uuid[] DEFAULT NULL) RETURNS jsonb
  LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
  WITH accounts AS(SELECT a.* FROM trading.gas_owned_accounts a WHERE a.catalog_id=catalog AND a.book_id=ANY(books)
-  AND security.trading_visible(a.catalog_id,a.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00')),
+  AND trading.gas_owned_visible(a.catalog_id,a.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,at_time)),
  effects AS(
   SELECT 'position'::text kind,p.id effect_id,p.id position_id,p.account_id,p.evidence_id,p.effective_at,p.publication_order
    FROM trading.gas_owned_positions p JOIN accounts a ON(a.catalog_id,a.id)=(p.catalog_id,p.account_id)
-   WHERE(positions IS NULL OR p.id=ANY(positions)) AND security.trading_visible(p.catalog_id,p.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00')
+   WHERE(positions IS NULL OR p.id=ANY(positions)) AND trading.gas_owned_visible(p.catalog_id,p.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,at_time)
   UNION ALL SELECT 'consumption',c.id,c.lot_id,p.account_id,c.evidence_id,c.effective_at,c.publication_order
    FROM trading.gas_owned_consumptions c JOIN trading.gas_owned_positions p ON(p.catalog_id,p.id)=(c.catalog_id,c.lot_id)
    JOIN accounts a ON(a.catalog_id,a.id)=(p.catalog_id,p.account_id)
-   WHERE(positions IS NULL OR p.id=ANY(positions)) AND security.trading_visible(c.catalog_id,c.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00')
+   WHERE(positions IS NULL OR p.id=ANY(positions)) AND trading.gas_owned_visible(c.catalog_id,c.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,at_time)
   UNION ALL SELECT 'settlement',s.id,s.position_id,p.account_id,s.evidence_id,s.effective_at,s.publication_order
    FROM trading.gas_owned_claim_settlements s JOIN trading.gas_owned_positions p ON(p.catalog_id,p.id)=(s.catalog_id,s.position_id)
    JOIN accounts a ON(a.catalog_id,a.id)=(p.catalog_id,p.account_id)
-   WHERE(positions IS NULL OR p.id=ANY(positions)) AND security.trading_visible(s.catalog_id,s.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00')),
+   WHERE(positions IS NULL OR p.id=ANY(positions)) AND trading.gas_owned_visible(s.catalog_id,s.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,at_time)),
  heads AS(SELECT DISTINCT ON(e.account_id,e.source_key)e.* FROM trading.gas_owned_evidence e JOIN accounts a ON(a.catalog_id,a.id)=(e.catalog_id,e.account_id)
-  WHERE security.trading_visible(e.catalog_id,e.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00') ORDER BY e.account_id,e.source_key,e.revision DESC)
+  WHERE trading.gas_owned_visible(e.catalog_id,e.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,at_time) ORDER BY e.account_id,e.source_key,e.revision DESC)
  SELECT coalesce(jsonb_agg(jsonb_build_object('kind',f.kind,'effectId',f.effect_id,'positionId',f.position_id,'accountId',f.account_id,
   'sourceKind','gas_evidence','acceptedSourceId',original.id,'currentSourceIds',jsonb_build_array(h.id),
   'effectiveAt',f.effective_at,'publicationOrder',f.publication_order,'knownAt',fk.known_from)
@@ -230,7 +234,7 @@ CREATE FUNCTION trading.gas_owned_applied_observation_conflicts(catalog uuid,con
  applied AS(SELECT s.*,p.account_id FROM trading.gas_owned_claim_settlements s JOIN trading.gas_owned_positions p ON(p.catalog_id,p.id)=(s.catalog_id,s.position_id)
   JOIN trading.gas_owned_accounts a ON(a.catalog_id,a.id)=(p.catalog_id,p.account_id)
   WHERE s.catalog_id=catalog AND a.book_id=ANY(books) AND s.source_observation_id IS NOT NULL AND(positions IS NULL OR p.id=ANY(positions))
-   AND security.trading_visible(s.catalog_id,s.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00')),
+   AND trading.gas_owned_visible(s.catalog_id,s.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,at_time)),
  comparisons AS(SELECT s.*,heads.ids FROM applied s JOIN market_data.observations original ON(original.catalog_id,original.id)=(s.catalog_id,s.source_observation_id)
   CROSS JOIN LATERAL(SELECT coalesce(jsonb_agg(o.id ORDER BY o.id),'[]') ids FROM market_data.observations o
    JOIN market_data.knowledge_events e ON(e.catalog_id,e.observation_id)=(o.catalog_id,o.id)
@@ -265,5 +269,170 @@ END$$;
 ALTER FUNCTION security.read_gas_owned_applied_sources(uuid,uuid,timestamptz,uuid[]) OWNER TO openetrm_security_owner;
 REVOKE ALL ON FUNCTION security.read_gas_owned_applied_sources(uuid,uuid,timestamptz,uuid[]) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION security.read_gas_owned_applied_sources(uuid,uuid,timestamptz,uuid[]) TO openetrm_runtime,openetrm_risk_worker;
+
+
+CREATE FUNCTION trading.gas_owned_financial_ancestors(catalog uuid,initial uuid[],context uuid,as_of timestamptz) RETURNS uuid[]
+ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE positions uuid[]=initial;next_ids uuid[];BEGIN
+ IF initial IS NULL OR security.trading_context_day_matches(catalog,context,as_of) IS NOT TRUE OR EXISTS(
+  SELECT 1 FROM unnest(initial) AS selected(id) WHERE selected.id IS NULL OR NOT EXISTS(SELECT 1 FROM trading.gas_owned_positions p WHERE(p.catalog_id,p.id)=(catalog,selected.id)
+   AND trading.gas_owned_visible(catalog,p.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of)))
+ THEN RAISE EXCEPTION 'gas_owned_context';END IF;
+ -- Follow native ownership/funding ancestors, never every interest sharing
+ -- an account. Sibling assets are not implicit inputs to a new operation.
+ LOOP
+  SELECT coalesce(array_agg(DISTINCT id ORDER BY id),'{}') INTO next_ids FROM(
+   SELECT unnest(positions) id UNION ALL
+   SELECT l.received_lot_id FROM trading.gas_owned_loans l JOIN trading.gas_owned_positions origin ON(origin.catalog_id,origin.id)=(l.catalog_id,l.return_position_id)
+    WHERE l.catalog_id=catalog AND l.return_position_id=ANY(positions)
+     AND trading.gas_owned_visible(catalog,origin.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of) UNION ALL
+   SELECT l.return_position_id FROM trading.gas_owned_loans l JOIN trading.gas_owned_positions origin ON(origin.catalog_id,origin.id)=(l.catalog_id,l.return_position_id)
+    WHERE l.catalog_id=catalog AND l.received_lot_id=ANY(positions)
+     AND trading.gas_owned_visible(catalog,origin.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of) UNION ALL
+   SELECT s.position_id FROM trading.gas_owned_claim_settlements s LEFT JOIN trading.gas_owned_consumptions c ON(c.catalog_id,c.id)=(s.catalog_id,s.consumption_id)
+    WHERE s.catalog_id=catalog AND trading.gas_owned_visible(catalog,s.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of)
+     AND(s.receipt_lot_id=ANY(positions) OR c.lot_id=ANY(positions)
+      AND trading.gas_owned_visible(catalog,c.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of)) UNION ALL
+   SELECT l.return_position_id FROM trading.gas_owned_repayments r JOIN trading.gas_owned_consumptions c ON(c.catalog_id,c.id)=(r.catalog_id,r.consumption_id)
+    JOIN trading.gas_owned_loans l ON(l.catalog_id,l.id)=(r.catalog_id,r.loan_id)
+    JOIN trading.gas_owned_positions origin ON(origin.catalog_id,origin.id)=(l.catalog_id,l.return_position_id)
+    WHERE r.catalog_id=catalog AND c.lot_id=ANY(positions)
+     AND trading.gas_owned_visible(catalog,c.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of)
+     AND trading.gas_owned_visible(catalog,origin.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of) UNION ALL
+   SELECT p.position_id FROM trading.gas_futures_delivery_performances p LEFT JOIN trading.gas_futures_delivery_splits s ON(s.catalog_id,s.performance_id)=(p.catalog_id,p.id)
+    LEFT JOIN trading.gas_owned_consumptions c ON(c.catalog_id,c.id)=(s.catalog_id,s.consumption_id)
+    WHERE p.catalog_id=catalog AND trading.gas_owned_visible(catalog,p.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of)
+     AND(p.receipt_lot_id=ANY(positions) OR c.lot_id=ANY(positions)
+      AND trading.gas_owned_visible(catalog,c.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of)))r WHERE id IS NOT NULL;
+  IF cardinality(next_ids)>16384 THEN RAISE EXCEPTION 'gas_owned_scope';END IF;
+  IF next_ids=positions OR cardinality(next_ids)=0 THEN EXIT;END IF;positions=next_ids;
+ END LOOP;
+ IF EXISTS(SELECT 1 FROM unnest(positions) AS selected(id) WHERE NOT EXISTS(SELECT 1 FROM trading.gas_owned_positions p WHERE(p.catalog_id,p.id)=(catalog,selected.id)
+  AND trading.gas_owned_visible(catalog,p.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of))) THEN RAISE EXCEPTION 'gas_owned_context';END IF;
+ RETURN positions;
+END$$;
+ALTER FUNCTION trading.gas_owned_financial_ancestors(uuid,uuid[],uuid,timestamptz) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION trading.gas_owned_financial_ancestors(uuid,uuid[],uuid,timestamptz) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
+
+CREATE FUNCTION trading.require_gas_owned_financial_sources(catalog uuid,account uuid,action text,body jsonb,context uuid,as_of timestamptz,own_publication integer) RETURNS void
+ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE positions uuid[]='{}';evidence_ids uuid[]='{}';books uuid[];item jsonb;conflicts jsonb;
+ selected_account trading.gas_owned_accounts;own_positions uuid[]='{}';BEGIN
+ IF action IN('account','bind_policy','evidence') THEN RETURN;END IF;
+ IF action NOT IN('receive_title','reserve','release','dispatch','loss','operator_claim','operator_settle','borrow','repay','fee_payment',
+  'futures_delivery_performance','futures_delivery_payment','futures_delivery_principal') THEN RAISE EXCEPTION 'gas_owned_action';END IF;
+ IF own_publication IS NOT NULL AND action<>'futures_delivery_principal' THEN RAISE EXCEPTION 'gas_owned_input';END IF;
+ IF body->>'evidenceId' IS NOT NULL THEN evidence_ids=array_append(evidence_ids,(body->>'evidenceId')::uuid);END IF;
+ IF body->>'agreementId' IS NOT NULL THEN evidence_ids=array_append(evidence_ids,(body->>'agreementId')::uuid);END IF;
+ IF body->>'titleEvidenceId' IS NOT NULL THEN evidence_ids=array_append(evidence_ids,(body->>'titleEvidenceId')::uuid);END IF;
+ IF body->>'lotId' IS NOT NULL THEN positions=array_append(positions,(body->>'lotId')::uuid);END IF;
+ IF body->>'positionId' IS NOT NULL THEN positions=array_append(positions,(body->>'positionId')::uuid);END IF;
+ IF action='release' THEN
+  IF NOT EXISTS(SELECT 1 FROM trading.gas_owned_reservations r WHERE(r.catalog_id,r.id)=(catalog,(body->>'reservationId')::uuid)
+   AND trading.gas_owned_visible(catalog,r.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of)) THEN RAISE EXCEPTION 'gas_owned_context';END IF;
+  positions=positions||ARRAY(SELECT r.lot_id FROM trading.gas_owned_reservations r WHERE(r.catalog_id,r.id)=(catalog,(body->>'reservationId')::uuid));
+ END IF;
+ IF action='repay' THEN
+  IF NOT EXISTS(SELECT 1 FROM trading.gas_owned_loans l JOIN trading.gas_owned_positions origin ON(origin.catalog_id,origin.id)=(l.catalog_id,l.return_position_id)
+   WHERE(l.catalog_id,l.id)=(catalog,(body->>'loanId')::uuid)
+    AND trading.gas_owned_visible(catalog,origin.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of)) THEN RAISE EXCEPTION 'gas_owned_context';END IF;
+  positions=positions||ARRAY(SELECT unnest(ARRAY[l.received_lot_id,l.return_position_id]) FROM trading.gas_owned_loans l WHERE(l.catalog_id,l.id)=(catalog,(body->>'loanId')::uuid));
+ END IF;
+ IF action='fee_payment' THEN
+  IF NOT EXISTS(SELECT 1 FROM trading.gas_owned_fees f WHERE(f.catalog_id,f.id)=(catalog,(body->>'feeId')::uuid)
+   AND trading.gas_owned_visible(catalog,f.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of)) THEN RAISE EXCEPTION 'gas_owned_context';END IF;
+  positions=positions||ARRAY(SELECT f.position_id FROM trading.gas_owned_fees f WHERE(f.catalog_id,f.id)=(catalog,(body->>'feeId')::uuid));
+ END IF;
+ IF action='futures_delivery_performance' THEN
+  FOR item IN SELECT value FROM jsonb_array_elements(body->'supply') LOOP
+   positions=array_append(positions,(item->>'lotId')::uuid);evidence_ids=array_append(evidence_ids,(item->>'evidenceId')::uuid);
+  END LOOP;
+ END IF;
+ IF action IN('futures_delivery_principal','futures_delivery_payment') THEN
+  IF action='futures_delivery_payment' AND NOT EXISTS(SELECT 1 FROM trading.gas_futures_delivery_cash c
+   WHERE(c.catalog_id,c.id,c.position_id)=(catalog,(body->>'cashId')::uuid,(body->>'positionId')::uuid)
+    AND trading.gas_owned_visible(catalog,c.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of)) THEN RAISE EXCEPTION 'gas_owned_context';END IF;
+  evidence_ids=evidence_ids||ARRAY(SELECT p.title_evidence_id FROM trading.gas_futures_delivery_performances p
+   WHERE(p.catalog_id,p.position_id)=(catalog,(body->>'positionId')::uuid) AND p.title_evidence_id IS NOT NULL
+    AND trading.gas_owned_visible(catalog,p.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of));
+  evidence_ids=evidence_ids||ARRAY(SELECT c.evidence_id FROM trading.gas_futures_delivery_performances p
+   JOIN trading.gas_futures_delivery_splits s ON(s.catalog_id,s.performance_id)=(p.catalog_id,p.id)
+   JOIN trading.gas_owned_consumptions c ON(c.catalog_id,c.id)=(s.catalog_id,s.consumption_id)
+   WHERE(p.catalog_id,p.position_id)=(catalog,(body->>'positionId')::uuid)
+    AND trading.gas_owned_visible(catalog,p.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of)
+    AND trading.gas_owned_visible(catalog,c.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of));
+  positions=positions||ARRAY(SELECT c.lot_id FROM trading.gas_futures_delivery_performances p
+   JOIN trading.gas_futures_delivery_splits s ON(s.catalog_id,s.performance_id)=(p.catalog_id,p.id)
+   JOIN trading.gas_owned_consumptions c ON(c.catalog_id,c.id)=(s.catalog_id,s.consumption_id)
+   WHERE(p.catalog_id,p.position_id)=(catalog,(body->>'positionId')::uuid)
+    AND trading.gas_owned_visible(catalog,p.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of)
+    AND trading.gas_owned_visible(catalog,c.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of));
+ END IF;
+ IF EXISTS(SELECT 1 FROM unnest(evidence_ids) AS selected(id) WHERE selected.id IS NULL OR NOT EXISTS(SELECT 1 FROM trading.gas_owned_evidence e WHERE(e.catalog_id,e.id)=(catalog,selected.id)
+  AND trading.gas_owned_visible(catalog,e.publication_order,TIMESTAMPTZ '0001-01-01 00:00:00+00',context,as_of))) THEN RAISE EXCEPTION 'gas_owned_context';END IF;
+ IF action='futures_delivery_principal' THEN
+  -- The native final producer may have just created its obligation in this
+  -- transaction. Its exact same-publication closure is sealed independently;
+  -- it is never presented as a fact from the captured source prefix.
+  own_positions=ARRAY(SELECT p.id FROM trading.gas_owned_positions p JOIN trading.publications pub ON(pub.catalog_id,pub.publication_order)=(p.catalog_id,p.publication_order)
+   WHERE p.catalog_id=catalog AND p.id=ANY(positions) AND p.kind='delivery_obligation' AND p.publication_order=own_publication
+    AND pub.publication_xid=pg_current_xact_id_if_assigned());
+ END IF;
+ positions=trading.gas_owned_financial_ancestors(catalog,ARRAY(SELECT id FROM unnest(positions)id WHERE NOT(id=ANY(own_positions))),context,as_of)||own_positions;
+ IF cardinality(positions)>16384 THEN RAISE EXCEPTION 'gas_owned_scope';END IF;
+ FOR selected_account IN SELECT a.* FROM trading.gas_owned_accounts a WHERE a.catalog_id=catalog AND(a.id=account
+  OR EXISTS(SELECT 1 FROM trading.gas_owned_positions p WHERE(p.catalog_id,p.account_id)=(a.catalog_id,a.id) AND p.id=ANY(positions))
+  OR EXISTS(SELECT 1 FROM trading.gas_owned_evidence e WHERE(e.catalog_id,e.account_id)=(a.catalog_id,a.id) AND e.id=ANY(evidence_ids))) LOOP
+  IF security.reference_version_visible(selected_account.reference_catalog_id,selected_account.reference_revision_id) IS NOT TRUE
+   OR security.market_fact_visible(catalog,selected_account.definition_revision_id,NULL) IS NOT TRUE THEN RAISE EXCEPTION 'gas_owned_denied' USING ERRCODE='42501';END IF;
+  PERFORM settlement_data.require_futures_margin_source(catalog,context,as_of,selected_account.definition_revision_id);
+  books=array_append(books,selected_account.book_id);
+ END LOOP;
+ books=coalesce(books,'{}');
+ conflicts=trading.gas_owned_applied_source_conflicts(catalog,context,as_of,books)||trading.gas_owned_applied_observation_conflicts(catalog,context,as_of,books);
+ FOR item IN SELECT value FROM jsonb_array_elements(conflicts) LOOP
+  IF(item->>'positionId')::uuid=ANY(positions) OR item->>'sourceKind'='gas_evidence' AND EXISTS(
+   SELECT 1 FROM trading.gas_owned_evidence original JOIN trading.gas_owned_evidence selected
+    ON(selected.catalog_id,selected.account_id,selected.source_key)=(original.catalog_id,original.account_id,original.source_key)
+    WHERE(original.catalog_id,original.id)=(catalog,(item->>'acceptedSourceId')::uuid) AND selected.id=ANY(evidence_ids))
+  THEN RAISE EXCEPTION 'gas_owned_reconciliation';END IF;
+ END LOOP;
+END$$;
+ALTER FUNCTION trading.require_gas_owned_financial_sources(uuid,uuid,text,jsonb,uuid,timestamptz,integer) OWNER TO openetrm_security_owner;
+REVOKE ALL ON FUNCTION trading.require_gas_owned_financial_sources(uuid,uuid,text,jsonb,uuid,timestamptz,integer) FROM PUBLIC,openetrm_runtime,openetrm_risk_worker;
+
+-- Keep every public function identity and its receipt-first path. Insert the
+-- dependency check only in the admitted new-financial-fact branch.
+DO $guard$DECLARE spec record;p pg_proc;definition text;BEGIN
+ FOR spec IN SELECT * FROM(VALUES
+  ('security.record_gas_owned(uuid,uuid,text,uuid,jsonb,timestamptz,uuid,uuid,integer,boolean)','d536fe4bba7384e77c7b99ccb4a6a022','jsonb',true,
+   ARRAY['catalog','operation','action','account','body','as_of','context','policy','policy_version','automatic'],
+   '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}',
+   ' SELECT coalesce(max(publication_order),0)+1 INTO publication FROM trading.publications WHERE catalog_id=catalog;',
+   E' PERFORM trading.require_gas_owned_financial_sources(catalog,account,action,body,context,as_of,NULL);\n'),
+  ('security.record_gas_futures_delivery(uuid,uuid,uuid,text,jsonb,timestamptz,uuid,uuid,integer,boolean,jsonb)','886bd9d37ef8f6ff60ca754c0b35fa70','jsonb',true,
+   ARRAY['catalog','operation','holding','action','body','as_of','context','policy','policy_revision','receipt_only','continuation'],
+   '{openetrm_security_owner=X/openetrm_security_owner,openetrm_runtime=X/openetrm_security_owner}',
+   '  SELECT coalesce(max(x.publication_order),0)+1 INTO publication FROM trading.publications x WHERE x.catalog_id=catalog;',
+   E'  PERFORM trading.require_gas_owned_financial_sources(catalog,g.account_id,\'futures_delivery_\'||action,body,context,as_of,NULL);\n'),
+  ('trading.apply_futures_delivery_principal(uuid,uuid,uuid,uuid,timestamptz,uuid,integer,jsonb)','97f5a6da123bb2ad0276a85ed89486b0','integer',false,
+   ARRAY['catalog','holding','final_determination','context','as_of','actor','publication','proposal'],
+   '{openetrm_security_owner=X/openetrm_security_owner}',
+   ' SELECT count(*) INTO counted FROM trading.gas_futures_delivery_performances p WHERE(p.catalog_id,p.position_id)=(catalog,holding);',
+   E' PERFORM trading.require_gas_owned_financial_sources(catalog,terms.account_id,\'futures_delivery_principal\',jsonb_build_object(\'positionId\',holding),context,as_of,publication);\n')
+ )v(signature,source_hash,result_type,definer,names,acl,needle,admission) LOOP
+  SELECT * INTO STRICT p FROM pg_proc WHERE oid=spec.signature::regprocedure;
+  IF md5(p.prosrc)<>spec.source_hash OR p.proowner<>'openetrm_security_owner'::regrole OR p.prorettype<>spec.result_type::regtype
+   OR p.proretset OR p.provariadic<>0 OR p.proargmodes IS NOT NULL OR p.prokind<>'f' OR p.proisstrict OR p.proleakproof
+   OR p.proargnames IS DISTINCT FROM spec.names OR p.proallargtypes IS NOT NULL OR p.pronargdefaults<>0 OR p.proargdefaults IS NOT NULL
+   OR p.provolatile<>'v' OR p.proparallel<>'u' OR p.prosecdef IS DISTINCT FROM spec.definer
+   OR(SELECT lanname FROM pg_language WHERE oid=p.prolang)<>'plpgsql' OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
+   OR p.proacl::text IS DISTINCT FROM spec.acl THEN RAISE EXCEPTION 'gas_pending_source_upgrade: unexpected helper %',spec.signature;END IF;
+  definition=pg_get_functiondef(p.oid);
+  IF(length(definition)-length(replace(definition,spec.needle,'')))/length(spec.needle)<>1
+  THEN RAISE EXCEPTION 'gas_pending_source_upgrade: unexpected helper %',spec.signature;END IF;
+  EXECUTE replace(definition,spec.needle,spec.admission||spec.needle);
+ END LOOP;
+END$guard$;
 
 COMMIT;
